@@ -197,6 +197,9 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     listener는 IO를 수행하지 않으며 언어가 실제로 바뀔 때만 전체 메뉴를 갱신하는 기존 gate를 유지한다.
     stop_all은 queued blocking에 abort를 요청하고 종료 후 등록을 거절하며 worker 진입에서 종료 상태를 확인한다. 이미 시작한 blocking worker는 강제 중단할 수 없어 실제 완료·panic cleanup까지 추적한다.
     async waiter 취소를 worker 완료로 해석하지 않으며 이 API는 시작한 OS 작업의 bounded 종료 대기나 main-thread 메뉴 callback 취소를 보장하지 않는다.
+    infra LSP wait worker는 stdout/stderr ReaderTask를 소유한다. child exit flag 뒤 두 reader를 함께 드레인하고 500ms 대기 초과에는 abort 후 실제 완료를 await한 뒤 tail/exit callback을 전달한다.
+    reader owner Drop은 abort를 요청하며 child wait의 동기 kill·PID exit guard·메시지 프레이밍은 유지한다. 설치 child와 wait worker 자체의 감독/Drop·PTY thread 소유권은 미완료다.
+    이 deadline은 EOF 드레인 대기 한도이며 non-yield callback의 강제 중단·앱/OS의 bounded 종료를 보장하지 않는다.
     자동 시작의 설정 조건·오류 처리와 각 서버의 별도 수명주기 소유권은 유지한다. 기존 주기·Tauri runtime도 유지하며
     나머지 서버·세션 lifecycle 작업은 후속 경계다.
     `AppState`와 flush handshake는 model·infra 타입만 참조해 runtime crate에 있고,
@@ -580,8 +583,8 @@ eslint `no-restricted-imports` 는 import **방향**만 강제하고 레이어�
    커스텀 훅 `useTauriEvent(name, handler)` 하나로 표준화하고 직접 listen 을 금지한다.
 2. **무거운 객체는 dispose 의무**: Monaco model/editor, xterm 인스턴스는 소유 위젯 unmount 시 dispose.
    전역 캐시에 남기는 경우(모델 재사용) LRU 상한과 방출 정책을 명시한다(`features/editor.md`).
-3. **Rust 자원은 세션 구조체가 소유**: pty·LSP·watcher 는 세션 drop 시 자식 프로세스 종료까지 보장
-   (Drop 구현 + 명시적 shutdown 경로 이중화).
+3. **Rust 자원은 세션 구조체가 소유**: pty·LSP·watcher 는 세션 drop 시 자식 프로세스 종료까지 보장해야 한다
+   (Drop 구현 + 명시적 shutdown 경로 이중화). 현재 LSP reader 회수와 명시적 kill 경로는 검증했지만 설치 child·wait worker 자체/Drop·PTY thread의 전체 소유권 gate는 M6 미완료 항목이다.
 
    **§6.3 `project_close` 자원 회수 목록 (정본)** — 프로젝트 종료 시 회수되는 전체 목록이다.
    T1-I(2026-08-19)부터 각 항목의 회수는 그 도메인의 `capability.rs` `detach` 가 소유하고,

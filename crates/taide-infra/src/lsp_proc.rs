@@ -21,11 +21,31 @@ const LSP_STDERR_TAIL_BYTES: usize = 4 * 1024;
 /// Read chunk for the stderr reader task, smaller than [`LSP_READ_BUFFER_BYTES`] because stderr
 /// carries occasional diagnostics rather than the protocol stream.
 const LSP_STDERR_READ_BUFFER_BYTES: usize = 8 * 1024;
-/// How long [`spawn`]'s wait task lets the stderr reader reach EOF after the process exits, before
-/// reporting whatever tail it already has. The pipe's write end closes with the process, so the
-/// reader normally finishes at once; this bound only matters when a surviving grandchild still
-/// holds that end open — in which case the exit report must not wait on it forever.
-const LSP_STDERR_DRAIN_TIMEOUT_MS: u64 = 500;
+const LSP_READER_DRAIN_TIMEOUT_MS: u64 = 500;
+
+struct ReaderTask(tokio::task::JoinHandle<()>);
+
+impl ReaderTask {
+    fn new(task: tokio::task::JoinHandle<()>) -> Self {
+        Self(task)
+    }
+
+    async fn finish(mut self) {
+        if tokio::time::timeout(tokio::time::Duration::from_millis(LSP_READER_DRAIN_TIMEOUT_MS), &mut self.0)
+            .await
+            .is_err()
+        {
+            self.0.abort();
+            let _ = (&mut self.0).await;
+        }
+    }
+}
+
+impl Drop for ReaderTask {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
 
 pub struct LspProcConfig {
     pub command: String,
@@ -330,7 +350,7 @@ where
     let stderr_tail = Arc::new(Mutex::new(StderrTail::default()));
     let stderr_reader = child.stderr.take().map(|mut stderr| {
         let tail = stderr_tail.clone();
-        tokio::spawn(async move {
+        ReaderTask::new(tokio::spawn(async move {
             let mut read_buf = [0u8; LSP_STDERR_READ_BUFFER_BYTES];
 
             loop {
@@ -339,10 +359,10 @@ where
                     Ok(n) => tail.lock().push(&read_buf[..n]),
                 }
             }
-        })
+        }))
     });
 
-    tokio::spawn(async move {
+    let stdout_reader = ReaderTask::new(tokio::spawn(async move {
         let mut buffer = MessageBuffer::new();
         let mut read_buf = [0u8; LSP_READ_BUFFER_BYTES];
 
@@ -357,7 +377,7 @@ where
                 }
             }
         }
-    });
+    }));
 
     let kill_signal = Arc::new(Notify::new());
     let kill_for_wait = kill_signal.clone();
@@ -386,9 +406,12 @@ where
 
         exited_for_wait.store(true, Ordering::SeqCst);
 
-        if let Some(reader) = stderr_reader {
-            let _ = tokio::time::timeout(tokio::time::Duration::from_millis(LSP_STDERR_DRAIN_TIMEOUT_MS), reader).await;
-        }
+        let stderr_finish = async move {
+            if let Some(reader) = stderr_reader {
+                reader.finish().await;
+            }
+        };
+        tokio::join!(stdout_reader.finish(), stderr_finish);
 
         let tail = stderr_tail_for_exit.lock().snapshot();
         on_exit(status.ok().and_then(|status| status.code()), tail);
@@ -407,6 +430,127 @@ where
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    const READER_TEST_TIMEOUT_SECS: u64 = 2;
+
+    async fn await_reader_drop(receiver: tokio::sync::oneshot::Receiver<()>) {
+        assert!(tokio::time::timeout(Duration::from_secs(READER_TEST_TIMEOUT_SECS), receiver)
+            .await
+            .expect("reader 캡처를 제한 시간 안에 회수해야 합니다")
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn reader_정상_완료는_결과를_기다리고_캡처를_회수한다() {
+        let (sent, received) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            sent.send("drained").unwrap();
+        });
+        ReaderTask::new(task).finish().await;
+        assert_eq!(received.await.unwrap(), "drained");
+    }
+
+    #[tokio::test]
+    async fn reader_eof_지연은_deadline_뒤_abort와_join으로_회수한다() {
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let (retained, dropped) = tokio::sync::oneshot::channel::<()>();
+        let task = tokio::spawn(async move {
+            let _retained = retained;
+            started.send(()).unwrap();
+            std::future::pending::<()>().await;
+        });
+        let reader = ReaderTask::new(task);
+        ready.await.unwrap();
+        tokio::time::timeout(Duration::from_secs(READER_TEST_TIMEOUT_SECS), reader.finish())
+            .await
+            .expect("EOF 지연에도 reader 회수는 끝나야 합니다");
+        await_reader_drop(dropped).await;
+    }
+
+    #[tokio::test]
+    async fn reader_owner를_poll_전에_버려도_작업을_detach하지_않는다() {
+        let (retained, dropped) = tokio::sync::oneshot::channel::<()>();
+        let task = tokio::spawn(async move {
+            let _retained = retained;
+            std::future::pending::<()>().await;
+        });
+        drop(ReaderTask::new(task));
+        await_reader_drop(dropped).await;
+    }
+
+    #[tokio::test]
+    async fn 부모_worker가_취소되면_소유한_reader를_같이_회수한다() {
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let (retained, dropped) = tokio::sync::oneshot::channel::<()>();
+        let reader = ReaderTask::new(tokio::spawn(async move {
+            let _retained = retained;
+            started.send(()).unwrap();
+            std::future::pending::<()>().await;
+        }));
+        let (parent_started, parent_ready) = tokio::sync::oneshot::channel();
+        let parent = tokio::spawn(async move {
+            parent_started.send(()).unwrap();
+            reader.finish().await;
+        });
+        ready.await.unwrap();
+        parent_ready.await.unwrap();
+        parent.abort();
+        assert!(parent.await.unwrap_err().is_cancelled());
+        await_reader_drop(dropped).await;
+    }
+
+    #[test]
+    fn 실제_reader_소유권과_회수는_child_exit와_콜백_사이에_배치된다() {
+        let source = include_str!("lsp_proc.rs");
+        let spawn = source
+            .split_once("pub fn spawn<D, X>(")
+            .unwrap()
+            .1
+            .split_once("#[cfg(test)]")
+            .unwrap()
+            .0;
+        assert_eq!(spawn.matches("ReaderTask::new(tokio::spawn(").count(), 2);
+        assert!(spawn.contains("stdout_reader.finish()"));
+        assert!(spawn.contains("reader.finish().await"));
+        let exited = spawn.find("exited_for_wait.store(true, Ordering::SeqCst)").unwrap();
+        let drain = spawn.find("tokio::join!(").unwrap();
+        let report = spawn.find("on_exit(status.ok()").unwrap();
+        assert!(exited < drain && drain < report);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stdout_프레임과_stderr_tail은_자식_종료_콜백_전에_드레인된다() {
+        let saw_message = Arc::new(AtomicBool::new(false));
+        let message_flag = saw_message.clone();
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let handle = spawn(
+            LspProcConfig {
+                command: "sh".to_string(),
+                args: vec![
+                    "-c".to_string(),
+                    "printf 'Content-Length: 5\\r\\n\\r\\nhello'; printf 'fixture stderr' >&2; exit 0".to_string(),
+                ],
+                cwd: std::env::temp_dir(),
+            },
+            move |message| {
+                assert_eq!(message, "hello");
+                message_flag.store(true, Ordering::SeqCst);
+            },
+            move |code, tail| {
+                sender.send((saw_message.load(Ordering::SeqCst), code, tail)).unwrap();
+            },
+        )
+        .unwrap();
+        let (was_message_drained, code, tail) = tokio::time::timeout(Duration::from_secs(READER_TEST_TIMEOUT_SECS), receiver)
+            .await
+            .expect("reader를 정리한 뒤 자식 종료를 보고해야 합니다")
+            .unwrap();
+        assert!(was_message_drained);
+        assert_eq!(code, Some(0));
+        assert_eq!(tail, "fixture stderr");
+        assert!(handle.is_exited());
+    }
 
     fn buffer_of(bytes: &[u8]) -> MessageBuffer {
         let mut buffer = MessageBuffer::new();
