@@ -7,7 +7,7 @@
 
 ## 리포트
 
-이 문서는 `05b9dcc` 시점의 정적 조사입니다. Hook reconcile·payload·공개 hook action·server start의 소유권 이전과 별개로, 당시 `agent_list`와 `agent_release_marker`의 전체 호출 수명은 등록 TaskSupervisor의 입장/정상 종료 대기에 포함되지 않았습니다. 이는 실제 프로세스 잔존을 재현한 결과가 아니라 코드 경계의 정적 관찰입니다. 후속 list 수정은 [agent list owner 이력](2026-09-28-agent-list-owner.md)에 기록하며 marker와 M6-HK는 계속 미완료입니다.
+이 문서는 `05b9dcc` 시점의 정적 조사입니다. Hook reconcile·payload·공개 hook action·server start의 소유권 이전과 별개로, 당시 `agent_list`와 `agent_release_marker`의 전체 호출 수명은 등록 TaskSupervisor의 입장/정상 종료 대기에 포함되지 않았습니다. 이는 실제 프로세스 잔존을 재현한 결과가 아니라 코드 경계의 정적 관찰입니다. 후속 수정은 [agent list owner 이력](2026-09-28-agent-list-owner.md)과 [marker owner 이력](2026-09-28-agent-marker-owner.md)에 각각 기록하며 M6-HK는 계속 미완료입니다.
 
 ## 실제 배선과 미완료 경계
 

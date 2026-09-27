@@ -265,15 +265,20 @@ fn override는_http_agent의_무신호에만_적용되고_세션_신호를_덮�
 #[tokio::test]
 async fn marker는_검증_뒤_삭제하고_missing도_성공해_추적을_해제한다() {
     let state = state();
+    let tasks = tasks();
     let agents = AgentStore::new();
     let marker = Marker::new();
     std::fs::File::create_new(&marker.0).unwrap();
     agents.register_wait_marker(marker.name());
-    agent_actions::agent_release_marker(&state, &agents, marker.name()).await.unwrap();
+    agent_actions::agent_release_marker(&state, &agents, &tasks, marker.name())
+        .await
+        .unwrap();
     assert!(!marker.0.exists());
     assert!(agents.take_all_markers().is_empty());
     agents.register_wait_marker(marker.name());
-    agent_actions::agent_release_marker(&state, &agents, marker.name()).await.unwrap();
+    agent_actions::agent_release_marker(&state, &agents, &tasks, marker.name())
+        .await
+        .unwrap();
     assert!(agents.take_all_markers().is_empty());
     assert!(!state.paths.data_dir.exists());
 }
@@ -281,10 +286,11 @@ async fn marker는_검증_뒤_삭제하고_missing도_성공해_추적을_해제
 #[tokio::test]
 async fn marker_검증_실패는_추적을_유지하고_삭제_실패는_추적을_해제한다() {
     let state = state();
+    let tasks = tasks();
     let agents = AgentStore::new();
     let invalid = "relative-marker".to_string();
     agents.register_wait_marker(invalid.clone());
-    let error = agent_actions::agent_release_marker(&state, &agents, invalid.clone())
+    let error = agent_actions::agent_release_marker(&state, &agents, &tasks, invalid.clone())
         .await
         .unwrap_err();
     assert_eq!(error.kind(), AppErrorKind::InvalidArgument);
@@ -292,11 +298,136 @@ async fn marker_검증_실패는_추적을_유지하고_삭제_실패는_추적�
     let directory = Marker::new();
     std::fs::create_dir(&directory.0).unwrap();
     agents.register_wait_marker(directory.name());
-    assert!(agent_actions::agent_release_marker(&state, &agents, directory.name())
+    assert!(agent_actions::agent_release_marker(&state, &agents, &tasks, directory.name())
         .await
         .is_err());
     assert!(directory.0.is_dir());
     assert!(agents.take_all_markers().is_empty());
+}
+
+#[tokio::test]
+async fn 종료_뒤_marker_release는_자기_파일과_tracking을_변경하지_않는다() {
+    let state = state();
+    let tasks = tasks();
+    let agents = AgentStore::new();
+    let marker = Marker::new();
+    std::fs::File::create_new(&marker.0).unwrap();
+    agents.register_wait_marker(marker.name());
+    tasks.stop_all();
+    let error = agent_actions::agent_release_marker(&state, &agents, &tasks, marker.name())
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), AppErrorKind::Forbidden);
+    assert!(marker.0.exists());
+    assert_eq!(agents.take_all_markers(), [marker.name()]);
+    assert_eq!(tasks.tracked_count(), 0);
+}
+
+#[tokio::test]
+async fn appstate_종료_표시_뒤_marker_release도_자기_파일을_건드리지_않는다() {
+    let state = state();
+    let tasks = tasks();
+    let agents = AgentStore::new();
+    let marker = Marker::new();
+    std::fs::File::create_new(&marker.0).unwrap();
+    agents.register_wait_marker(marker.name());
+    state.begin_shutdown();
+    let error = agent_actions::agent_release_marker(&state, &agents, &tasks, marker.name())
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), AppErrorKind::Forbidden);
+    assert!(marker.0.exists());
+    assert_eq!(agents.take_all_markers(), [marker.name()]);
+    assert_eq!(tasks.tracked_count(), 0);
+}
+
+#[tokio::test]
+async fn marker_release의_lock_대기는_정상_root가_기다리고_종료_cleanup과_멱등이다() {
+    let state = state();
+    let tasks = tasks();
+    let agents = AgentStore::new();
+    let marker = Marker::new();
+    std::fs::File::create_new(&marker.0).unwrap();
+    agents.register_wait_marker(marker.name());
+    let guard = state.begin_mutation().await;
+    let request_state = state.clone();
+    let request_tasks = tasks.clone();
+    let request_agents = agents.clone();
+    let marker_name = marker.name();
+    let request =
+        tokio::spawn(
+            async move { agent_actions::agent_release_marker(&request_state, &request_agents, &request_tasks, marker_name).await },
+        );
+    tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), async {
+        while tasks.tracked_count() == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    state.begin_shutdown();
+    agent_actions::cleanup_all_wait_markers(&agents);
+    assert!(!marker.0.exists());
+    let runtime = tokio::runtime::Handle::current();
+    let mut drain = ExitDrain::default();
+    let (ready, mut ready_rx) = oneshot::channel();
+    assert!(drain.begin(
+        &runtime,
+        tasks.clone(),
+        LspInstallStore::new(),
+        LspStore::new(),
+        TerminalStore::new(),
+        move || {
+            ready.send(()).ok();
+        },
+    ));
+    assert!(tokio::time::timeout(Duration::from_millis(PENDING_OWNER_MS), &mut ready_rx)
+        .await
+        .is_err());
+    drop(guard);
+    request.await.unwrap().unwrap();
+    tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(drain.is_ready());
+    assert!(agents.take_all_markers().is_empty());
+    assert_eq!(tasks.tracked_count(), 0);
+}
+
+#[tokio::test]
+async fn marker_release의_lock_대기_caller를_취소하면_owner가_반납된다() {
+    let state = state();
+    let tasks = tasks();
+    let agents = AgentStore::new();
+    let marker = Marker::new();
+    std::fs::File::create_new(&marker.0).unwrap();
+    agents.register_wait_marker(marker.name());
+    let guard = state.begin_mutation().await;
+    let request_state = state.clone();
+    let request_tasks = tasks.clone();
+    let request_agents = agents.clone();
+    let marker_name = marker.name();
+    let request =
+        tokio::spawn(
+            async move { agent_actions::agent_release_marker(&request_state, &request_agents, &request_tasks, marker_name).await },
+        );
+    tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), async {
+        while tasks.tracked_count() == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    request.abort();
+    assert!(request.await.is_err_and(|error| error.is_cancelled()));
+    drop(guard);
+    tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), tasks.shutdown())
+        .await
+        .unwrap();
+    assert!(marker.0.exists());
+    assert_eq!(agents.take_all_markers(), [marker.name()]);
+    assert_eq!(tasks.tracked_count(), 0);
 }
 
 #[test]

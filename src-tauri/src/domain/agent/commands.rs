@@ -270,8 +270,13 @@ pub async fn agent_list(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn agent_release_marker(state: State<'_, AppState>, agents: State<'_, AgentStore>, marker: String) -> AppResult<()> {
-    agent_actions::agent_release_marker(&state, &agents, marker).await
+pub async fn agent_release_marker(
+    state: State<'_, AppState>,
+    agents: State<'_, AgentStore>,
+    tasks: State<'_, TaskSupervisor>,
+    marker: String,
+) -> AppResult<()> {
+    agent_actions::agent_release_marker(&state, &agents, &tasks, marker).await
 }
 
 #[tauri::command]

@@ -107,7 +107,13 @@ where
 }
 
 /// Releases a validated wait marker and updates the tracking set.
-pub async fn agent_release_marker(state: &AppState, agents: &AgentStore, marker: String) -> AppResult<()> {
+pub async fn agent_release_marker(state: &AppState, agents: &AgentStore, tasks: &TaskSupervisor, marker: String) -> AppResult<()> {
+    let _operation = tasks
+        .begin_operation("agent-release-marker")
+        .ok_or_else(|| AppError::Forbidden("agent runtime is shutting down".to_string()))?;
+    if state.is_shutting_down() {
+        return Err(AppError::Forbidden("agent runtime is shutting down".to_string()));
+    }
     let _guard = state.begin_mutation().await;
     let path = service::validate_wait_marker_path(&marker, &std::env::temp_dir())?;
 
