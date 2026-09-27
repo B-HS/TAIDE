@@ -51,3 +51,9 @@ layout/service.rs의 flush_dirty_layouts·finish_mutation·open_tab_and_finish·
 composition root의 layout_move_tab_to_window와 auxiliary tab return body도 대조했습니다. 전자는 guard→clone→target 선택→새 창 선생성→move 실패 시 창 close rollback→빈 보조 창 정리→finish 이벤트→state write입니다. 후자는 이미 TaskSupervisor를 경유하지만 guard 안의 mirror snapshot·phantom dirty 정리·탭 복귀·state write→dirty/event 정책이 AppHandle adapter와 섞입니다. 두 경로의 event/state 순서가 다르므로 공통화로 순서를 바꾸지 않아야 합니다. 실제 창 생성/close는 adapter에 유지하며 현재 source unit도 함께 이전/수정할 대상입니다.
 
 메뉴 click dispatch의 transient 감독과 별개로 listen_for_app_menu_refresh의 recent/settings 두 listener는 spawn_blocking 결과를 저장·await하지 않습니다. inline listener에서 디스크 I/O를 수행하지 않는 현재 조건은 유지하되, 이 blocking 작업의 등록·중복/종료와 실제 OS 메뉴 갱신 adapter의 경계를 추가 확인해야 합니다. 등록 이름만으로 모든 메뉴 작업이 감독된다고 해석하지 않습니다. 이번 추가 body 대조로 전체 203개 판정을 완료하지 않습니다.
+
+## OS·알림 정책 이후 감독 경계
+
+system 정책 5개와 notification_notify는 5c684ab로 runtime 이전·단위 검증됐습니다. usage/실제 focus/설정 cfg adapter는 유지하며 전체 종료 판정은 아닙니다. 위 표와 body 대조는 당시 조사 기록이고 현재 완료 근거는 PROCESS와 개별 이력입니다.
+
+TaskSupervisor의 기존 stop_all은 async AbortHandle을 꺼내 취소하고 추적 목록을 비웁니다. 이 방식을 이미 실행 중인 blocking worker에 그대로 적용하면 worker는 살아 있는데 tracked_count가 0이 될 수 있습니다. 현재 Cargo.lock의 Tokio 1.53.1과 같은 버전의 [Handle::spawn_blocking](https://docs.rs/tokio/1.53.1/tokio/runtime/struct.Handle.html#method.spawn_blocking)·[AbortHandle::abort](https://docs.rs/tokio/1.53.1/tokio/task/struct.AbortHandle.html#method.abort) 계약을 확인했습니다. 이미 시작한 worker는 abort할 수 없고 아직 queued인 경우만 시작을 막을 수 있으므로 worker 자체의 등록과 실제 완료까지의 추적이 필요합니다. async waiter를 취소한 것을 OS 작업 종료로 기록하지 않습니다. listener inline IO와 설정 언어 gate를 유지한 채 synthetic worker로 먼저 검증하며 실제 메뉴 실행/OS 종료 대기는 이번 자동 검사의 범위가 아닙니다.
