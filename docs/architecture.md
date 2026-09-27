@@ -253,14 +253,19 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     기존 agent 명령은 같은 타입을 재수출하며 OS PID 조회·PTY 전달·AgentForegroundPids 주입은 Tauri adapter에 남는다.
     runtime `agent_actions`는 공개 list/release-marker/pending-open 3개의 프로젝트 gate·lazy PID/probe 순서·활동 조립·
     marker 검증/삭제/추적·대기열 선소비를 소유한다. 공용 state/detected-agent helper와 종료 marker cleanup도 같은 runtime 정책이다.
-    Tauri poll과 root는 같은 helper를 재수출로 소비한다. runtime `agent_hook_actions`는 공개 status/install/uninstall 3개의
+    Tauri poll과 root는 같은 helper를 재수출로 소비한다. runtime `agent_actions::poll_agents`는 프로젝트 snapshot→lazy foreground/probe→
+    활동/diff→변경 이벤트→signal/PID cache prune을 소유하며 같은 등록 TaskSupervisor의 operation을 마지막 prune까지 보유한다.
+    Native poll은 기존 setup tick에서 같은 state/stores/EventSink·OS port를 주입하고 닫힌 감독자는 poll 입장을 거절한다.
+    probe 실패 시 해당 diff는 유지하고 전체 valid-session 집합에는 추가하지 않는 기존 정책과 await 중 제거된 프로젝트의 snapshot 처리는 유지한다.
+    runtime `agent_hook_actions`는 공개 status/install/uninstall 3개의
     scope·settings/project gate·shape·read/merge/write 정책을 소유하며 lazy home/emitter/CLI availability/server 포트를 받는다.
     공통 hook 파일의 invalid JSON 거절·기존 권한/사용자 row·비소유 파일 보존과 loopback URL 조립은 taide-agent에 둔다.
     Tauri의 비IPC reconcile은 같은 파일/URL helper를 재수출로 소비한다. runtime `agent_probe`는 Unix PID 이름 캐시·
     Windows lazy process-tree port·CLI emitter 판정/OnceLock 캐시를 소유하고 같은 등록 TaskSupervisor에 실제 blocking worker를 추적한다.
     empty/캐시 hit는 OS port를 실행하지 않으며 caller 취소·기존 CLI 3초 timeout 뒤에도 시작한 worker/버려진 결과 회수를 정상 root가 기다린다.
     실제 PID 조회·CLI 실행은 Tauri adapter에 유지하고 timeout을 CLI kill로 처리하지 않는다. static OnceLock의 동시 최초 probe race도 기존처럼 유지한다.
-    poll의 전체 diff/event/prune·hook write/reconcile/server callback·직접 Exit/OS stall의 bounded 회수는 미완료이며 전체 action 취소 완료를 보장하지 않는다.
+    poll은 caller 취소·post-await 이벤트 callback·실제 probe worker 결합을 메모리로 검증했다. 실제 foreground/앱 실기와 hook write/reconcile/server callback·
+    직접 Exit/OS stall의 bounded 회수는 미완료이며 모든 agent action의 취소 완료를 보장하지 않는다.
     `GitStore`는 taide-git에서 repo root·status 캐시와 같은 repo의 push/fetch 락을 공유한다.
     최초 무효화 구독의 1회 실행은 공유 OnceLock으로 제어하고 실제 세 이벤트 등록은 Tauri adapter의 콜백이 맡는다.
     runtime `git_actions`는 공개 action 41개·repo root 해석·cache·mutation/repo lock·함수별 이벤트 순서를 소유한다.

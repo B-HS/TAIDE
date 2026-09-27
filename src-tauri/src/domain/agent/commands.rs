@@ -1,10 +1,9 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use taide_model::app_event::AppEvent;
-use taide_runtime::{agent_actions, agent_hook_actions, agent_probe, EventSink, TaskSupervisor};
+use taide_runtime::{agent_actions, agent_hook_actions, agent_probe, TaskSupervisor};
 use tauri::{Manager, State};
 
 pub use taide_agent::store::{AgentHooksStore, AgentStore, HooksServerInfo};
@@ -399,30 +398,16 @@ pub(crate) async fn poll_agents(app: &tauri::AppHandle) {
     let agents = app.state::<AgentStore>();
     let agent_hooks = app.state::<AgentHooksStore>();
 
-    let project_ids: Vec<_> = state.projects.read().keys().cloned().collect();
-    let mut valid_session_ids = HashSet::new();
-    let mut live_pids = HashSet::new();
-
-    for project_id in project_ids {
-        let pids = (foreground_pids.0)(app, &project_id);
-        live_pids.extend(pids.iter().map(|(_, pid)| *pid));
-
-        let Ok(probes) = detect_agents_for_pids_blocking(&tasks, &agents, pids).await else {
-            continue;
-        };
-        let detected = build_detected_agents(&agents, &agent_hooks, &project_id, probes);
-        valid_session_ids.extend(detected.iter().map(|agent| agent.session_id.clone()));
-
-        if let Some(changed) = agents.diff(&project_id, &detected) {
-            TauriEventSink(app).publish(AppEvent::AgentStateChanged {
-                project_id: project_id.clone(),
-                agents: changed,
-            });
-        }
-    }
-
-    agents.prune_signals(&valid_session_ids);
-    agents.retain_process_names(&live_pids);
+    agent_actions::poll_agents(
+        &state,
+        &agents,
+        &agent_hooks,
+        &TauriEventSink(app),
+        &tasks,
+        |project_id| (foreground_pids.0)(app, project_id),
+        |pids| detect_agents_for_pids_blocking(&tasks, &agents, pids),
+    )
+    .await;
 }
 
 /// Queues one CLI-originated open request — the cold-start argv below or a
@@ -455,6 +440,8 @@ pub(crate) fn queue_cold_start_external_open(app_handle: &tauri::AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use taide_agent::hook_files::{settings_local_path, NEW_HOOKS_FILE_MODE};
     use uuid::Uuid;
 

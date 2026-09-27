@@ -1,12 +1,14 @@
+use std::collections::HashSet;
 use std::future::Future;
 
 use taide_agent::service;
 use taide_agent::store::{AgentHooksStore, AgentStore};
 use taide_model::agent::{AgentActivity, DetectedAgent, ExternalOpenRequest, ProjectAgents};
+use taide_model::app_event::AppEvent;
 use taide_model::error::{AppError, AppResult};
 use taide_model::ids::ProjectId;
 
-use crate::AppState;
+use crate::{AppState, EventSink, TaskSupervisor};
 
 /// Cleans up tracked wait markers using the existing path validation policy.
 pub fn cleanup_all_wait_markers(store: &AgentStore) {
@@ -117,4 +119,46 @@ pub async fn agent_release_marker(state: &AppState, agents: &AgentStore, marker:
 /// Drains pending external-open requests in their existing order.
 pub async fn agent_pending_external_opens(agents: &AgentStore) -> AppResult<Vec<ExternalOpenRequest>> {
     Ok(agents.drain_pending_external_opens())
+}
+
+/// Owns one poll through probe, state publication and pruning using the host's registered supervisor.
+pub async fn poll_agents<F, Fut>(
+    state: &AppState,
+    agents: &AgentStore,
+    agent_hooks: &AgentHooksStore,
+    events: &impl EventSink,
+    tasks: &TaskSupervisor,
+    foreground_pids: impl Fn(&ProjectId) -> Vec<(String, u32)>,
+    probe_agents: F,
+) where
+    F: Fn(Vec<(String, u32)>) -> Fut,
+    Fut: Future<Output = AppResult<Vec<service::DetectedAgentProbe>>>,
+{
+    let Some(_operation) = tasks.begin_operation("agent-poll") else {
+        return;
+    };
+    let project_ids: Vec<_> = state.projects.read().keys().cloned().collect();
+    let mut valid_session_ids = HashSet::new();
+    let mut live_pids = HashSet::new();
+
+    for project_id in project_ids {
+        let pids = foreground_pids(&project_id);
+        live_pids.extend(pids.iter().map(|(_, pid)| *pid));
+
+        let Ok(probes) = probe_agents(pids).await else {
+            continue;
+        };
+        let detected = build_detected_agents(agents, agent_hooks, &project_id, probes);
+        valid_session_ids.extend(detected.iter().map(|agent| agent.session_id.clone()));
+
+        if let Some(changed) = agents.diff(&project_id, &detected) {
+            events.publish(AppEvent::AgentStateChanged {
+                project_id: project_id.clone(),
+                agents: changed,
+            });
+        }
+    }
+
+    agents.prune_signals(&valid_session_ids);
+    agents.retain_process_names(&live_pids);
 }
