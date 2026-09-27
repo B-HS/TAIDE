@@ -7,6 +7,8 @@ pub mod http;
 pub mod language;
 pub mod lsp_install;
 pub mod lsp_proc;
+#[cfg(unix)]
+pub mod owned_child;
 pub mod perf;
 pub mod persist;
 pub mod pty;

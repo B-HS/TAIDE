@@ -295,9 +295,10 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     이 대기 중 native 이벤트 루프는 계속 동작해 메뉴 worker의 main-thread 응답을 처리할 수 있다. ExitRequested 없이 바로 Exit가 오면 감독 취소를 요청하고 설치 lease만 동기로 드레인하며 모든 다른 작업의 종료까지 보장하지는 않는다.
     HTTP 파일 생성 중 요청 Drop의 늦은 파일 1개와 슬롯 조기 해제를 재현하고 create/write/flush의 감독 소유권으로 수정했다.
     `taide-runtime::lsp_install_toolchain`은 감독된 blocking worker 안에서 취소 gate와 child spawn을 직렬화한다. store는 자원을 weak 등록해 순환 소유 없이 요청 Drop·명시 취소·shutdown을 동기로 전달한다.
-    child 소유자는 직접 child를 kill/reap한 뒤 lease를 해제한다. Unix에서는 별도로 만든 살아 있는 child의 그룹에만 KILL을 요청하며 0/1·이미 reap된 pid를 그룹 대상으로 쓰지 않는다.
+    child 소유자는 직접 child를 kill/reap한 뒤 lease를 해제한다. Unix infra는 waitid의 WNOWAIT로 부모 PID를 회수하지 않고 종료를 관찰하며 자기 그룹에 KILL을 전달한 뒤 부모를 회수한다. mutex 안의 회수 플래그로 늦은 취소/Drop의 PID 재사용을 막고 0/1을 거절한다.
+    macOS에서 종료한 부모 하나만 자기 PGID에 남은 경우만 EPERM을 빈 그룹으로 판정하며 다른 권한 오류는 반환한다. libc는 기존 0.2.189를 Unix 직접 의존으로 재사용하고 사용자/전체 프로세스 목록을 조회하지 않는다.
     stdout/stderr reader는 별도 감독 task에서 pipe와 lease를 보유한다. child 종료 뒤 EOF를 최대 500ms 기다리고 지연되면 abort 후 실제 JoinHandle 완료를 확인해 마지막 20줄을 반환한다.
-    정상 완료/기존 실패 출력 마스킹·진행 payload는 공유 EventSink를 경유하며 취소가 앞선 경우 Done을 거절한다. 자기 생성 TERM 무시 자손과 정상 종료 coordinator의 실제 대기는 검증했다. 실제 native 종료 이벤트/Windows process tree·부모 종료 뒤 남은 자손·감독되지 않은 nested worker는 미검증이고 전체 lifecycle은 미완료다.
+    정상 완료/기존 실패 출력 마스킹·진행 payload는 공유 EventSink를 경유하며 취소가 앞선 경우 Done을 거절한다. 자기 생성 TERM 무시/부모 선종료 자손과 정상 종료 coordinator의 실제 대기는 검증했다. 그룹을 벗어난 자손·실제 native 종료 이벤트/Windows process tree·감독되지 않은 nested worker는 미검증이고 전체 lifecycle은 미완료다.
     IDE diff의 mutation guard·blocking 실행과 Forbidden 예외 정책은 기존 호출자에 남는다.
     setup은 상태 복원 뒤 AppState·TaskSupervisor·원격 제한기·플랫폼 포트·시크릿 포트·IDE 저장 포트·EventSink를 주입해 `Arc<AppServices>`를 만들고, 나머지 저장소는 AppServices가 초기화한다.
     AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·AgentStore·AgentHooksStore·GitStore·RemoteStore·IdeStore·SecretStoreState·IdeSaveFile·LspStore·LspInstallStore·SystemUsageStore·RemoteDispatchLimiter·PlatformServices·WindowRegistry·TaskSupervisor의 20개 상태·포트를

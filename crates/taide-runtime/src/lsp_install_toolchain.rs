@@ -3,6 +3,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use parking_lot::{Condvar, Mutex};
+#[cfg(unix)]
+use taide_infra::owned_child::{has_exited_unreaped, kill_unreaped_child_group};
 use taide_infra::redact::mask_known_secrets;
 use taide_lsp::install::{install_cancelled_error, InstallCancellationResource, LspInstallLease};
 use taide_lsp::service;
@@ -26,18 +28,26 @@ fn should_signal_process_group(pid: u32) -> bool {
 }
 
 fn cancel_child(child: &mut Child) {
-    if !matches!(child.try_wait(), Ok(None)) {
-        return;
-    }
     #[cfg(unix)]
-    if should_signal_process_group(child.id()) {
-        Command::new("kill").arg("-KILL").arg(format!("-{}", child.id())).status().ok();
+    {
+        if !should_signal_process_group(child.id()) || has_exited_unreaped(child).is_err() {
+            return;
+        }
+        kill_unreaped_child_group(child).ok();
+        child.kill().ok();
     }
-    child.kill().ok();
+    #[cfg(not(unix))]
+    {
+        if !matches!(child.try_wait(), Ok(None)) {
+            return;
+        }
+        child.kill().ok();
+    }
 }
 
 struct InstallChild {
     child: Mutex<Child>,
+    is_reaped: std::sync::atomic::AtomicBool,
     changed: Condvar,
     _lease: LspInstallLease,
 }
@@ -46,19 +56,32 @@ impl InstallChild {
     fn wait_for_exit(&self) -> AppResult<ExitStatus> {
         let mut child = self.child.lock();
         loop {
-            match child.try_wait()? {
-                Some(status) => return Ok(status),
-                None => {
-                    self.changed.wait_for(&mut child, Duration::from_millis(TOOLCHAIN_POLL_INTERVAL_MS));
-                }
+            #[cfg(unix)]
+            if has_exited_unreaped(&mut child)? {
+                kill_unreaped_child_group(&mut child)?;
+                let status = child.wait()?;
+                self.is_reaped.store(true, std::sync::atomic::Ordering::Release);
+                return Ok(status);
             }
+            #[cfg(not(unix))]
+            match child.try_wait()? {
+                Some(status) => {
+                    self.is_reaped.store(true, std::sync::atomic::Ordering::Release);
+                    return Ok(status);
+                }
+                None => {}
+            }
+            self.changed.wait_for(&mut child, Duration::from_millis(TOOLCHAIN_POLL_INTERVAL_MS));
         }
     }
 }
 
 impl InstallCancellationResource for InstallChild {
     fn cancel(&self) {
-        cancel_child(&mut self.child.lock());
+        let mut child = self.child.lock();
+        if !self.is_reaped.load(std::sync::atomic::Ordering::Acquire) {
+            cancel_child(&mut child);
+        }
         self.changed.notify_all();
     }
 }
@@ -66,7 +89,9 @@ impl InstallCancellationResource for InstallChild {
 impl Drop for InstallChild {
     fn drop(&mut self) {
         let child = self.child.get_mut();
-        cancel_child(child);
+        if !*self.is_reaped.get_mut() {
+            cancel_child(child);
+        }
         child.wait().ok();
     }
 }
@@ -163,6 +188,7 @@ async fn run_toolchain_process(
             })?;
             Ok(Arc::new(InstallChild {
                 child: Mutex::new(child),
+                is_reaped: std::sync::atomic::AtomicBool::new(false),
                 changed: Condvar::new(),
                 _lease: worker_lease.clone(),
             }))
@@ -298,6 +324,34 @@ mod tests {
     const CHILD_FIXTURE_DURATION_SECONDS: u64 = 30;
     #[cfg(unix)]
     const FAILURE_FIXTURE_EXIT_CODE: i32 = 7;
+    #[cfg(unix)]
+    const PARENT_FIXTURE_POLL_SECONDS: &str = "0.01";
+
+    #[cfg(unix)]
+    struct ParentExitFixture {
+        child: ChildFixture,
+        release: std::path::PathBuf,
+        anchor: Option<Child>,
+        group_id: Option<u32>,
+    }
+
+    #[cfg(unix)]
+    impl Drop for ParentExitFixture {
+        fn drop(&mut self) {
+            self.child.store.shutdown();
+            self.child.request.abort();
+            if let Some(anchor) = &mut self.anchor {
+                if matches!(anchor.try_wait(), Ok(None)) {
+                    if let Some(group_id) = self.group_id {
+                        Command::new("kill").arg("-KILL").arg(format!("-{group_id}")).status().ok();
+                    }
+                    anchor.kill().ok();
+                }
+                anchor.wait().ok();
+            }
+            std::fs::remove_file(&self.release).ok();
+        }
+    }
 
     #[cfg(unix)]
     struct ChildFixture {
@@ -500,6 +554,99 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn 부모_선종료도_자기_그룹을_정리하고_원래_종료_코드를_보존한다() {
+        use std::os::unix::process::CommandExt;
+
+        let store = LspInstallStore::new();
+        let server_id = LspServerId::from("synthetic-parent-exit");
+        let guard = store.begin(&server_id).unwrap();
+        let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+        let worker_tasks = tasks.clone();
+        let marker = std::env::temp_dir().join(format!("taide-toolchain-parent-{}", uuid::Uuid::new_v4()));
+        let descendant_marker = marker.with_extension("descendant");
+        let release = marker.with_extension("release");
+        let mut command = Command::new("sh");
+        command.args(["-c", "sh -c 'trap \"\" TERM; printf \"%s\" \"$$\" > \"$1\"; exec sleep \"$2\"' fixture \"$1\" \"$2\" & printf '%s' \"$$\" > \"$3\"; while [ ! -f \"$4\" ]; do sleep \"$5\"; done; exit 0", "fixture"]);
+        command
+            .arg(&descendant_marker)
+            .arg(CHILD_FIXTURE_DURATION_SECONDS.to_string())
+            .arg(&marker)
+            .arg(&release)
+            .arg(PARENT_FIXTURE_POLL_SECONDS);
+        configure_toolchain_command(&mut command);
+        let request =
+            tokio::spawn(
+                async move { run_toolchain_process(command, "synthetic-parent-sh".to_string(), &guard.lease(), &worker_tasks).await },
+            );
+        let mut fixture = ParentExitFixture {
+            child: ChildFixture {
+                marker,
+                descendant_marker: Some(descendant_marker.clone()),
+                store: store.clone(),
+                request,
+            },
+            release,
+            anchor: None,
+            group_id: None,
+        };
+        let (parent, descendant) = tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), async {
+            loop {
+                let parent = std::fs::read_to_string(&fixture.child.marker)
+                    .ok()
+                    .and_then(|text| text.parse::<u32>().ok());
+                let descendant = std::fs::read_to_string(&descendant_marker)
+                    .ok()
+                    .and_then(|text| text.parse::<u32>().ok());
+                if let (Some(parent), Some(descendant)) = (parent, descendant) {
+                    return (parent, descendant);
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(should_signal_process_group(parent));
+        let mut anchor = Command::new("sleep");
+        anchor
+            .arg(CHILD_FIXTURE_DURATION_SECONDS.to_string())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(i32::try_from(parent).unwrap());
+        fixture.anchor = Some(anchor.spawn().unwrap());
+        fixture.group_id = Some(parent);
+        std::fs::write(&fixture.release, b"release").unwrap();
+        let outcome = tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), &mut fixture.child.request)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(outcome.status.success());
+        assert_eq!(tasks.tracked_count(), 0);
+        assert!(store.begin(&server_id).is_some());
+        let disappeared = tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), async {
+            loop {
+                let is_alive = Command::new("kill")
+                    .args(["-0", &descendant.to_string()])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .unwrap()
+                    .success();
+                if !is_alive {
+                    return;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+        assert!(
+            disappeared.is_ok(),
+            "parent exit left its descendant alive after releasing the install slot"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn 정상_child는_출력을_드레인하고_실제_reap_뒤_결과를_반환한다() {
         let store = LspInstallStore::new();
         let server_id = LspServerId::from("synthetic-child");
@@ -515,6 +662,30 @@ mod tests {
         assert_eq!(result.stdout, ["stdout-line"]);
         assert_eq!(result.stderr, ["stderr-line"]);
         assert_eq!(tasks.tracked_count(), 0);
+        drop(guard);
+        assert!(store.begin(&server_id).is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 회수한_child의_늦은_취소는_그룹_소유권을_재사용하지_않는다() {
+        let store = LspInstallStore::new();
+        let server_id = LspServerId::from("synthetic-reaped-child");
+        let guard = store.begin(&server_id).unwrap();
+        let mut command = Command::new("sh");
+        command.args(["-c", "exit 0"]);
+        configure_toolchain_command(&mut command);
+        let child = InstallChild {
+            child: Mutex::new(command.spawn().unwrap()),
+            is_reaped: std::sync::atomic::AtomicBool::new(false),
+            changed: Condvar::new(),
+            _lease: guard.lease(),
+        };
+        assert!(child.wait_for_exit().unwrap().success());
+        assert!(child.is_reaped.load(std::sync::atomic::Ordering::Acquire));
+        child.cancel();
+        assert!(child.child.lock().wait().unwrap().success());
+        drop(child);
         drop(guard);
         assert!(store.begin(&server_id).is_some());
     }

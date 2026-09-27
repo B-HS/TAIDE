@@ -4529,6 +4529,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "keyring",
+ "libc",
  "log",
  "notify",
  "notify-debouncer-full",
