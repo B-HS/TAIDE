@@ -230,7 +230,7 @@ export const commands = {
 	 * 
 	 *  `request.edge` must be directional: `DropEdge::Center` means "into the target pane", which is
 	 *  [`layout_open_tab`]'s job, so it is rejected as `InvalidArgument` rather than silently treated
-	 *  as one. `File` kinds run the same pre-flight [`ensure_file_tab_target_exists`] gate
+	 *  as one. `File` kinds run the same pre-flight `ensure_file_tab_target_exists` gate
 	 *  `layout_open_tab` runs, for the same reason: a tab must never outlive the path it was opened for.
 	 */
 	layoutOpenTabInSplit: (request: OpenTabInSplitRequest) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_open_tab_in_split", { request })),
