@@ -987,7 +987,7 @@ pub fn run() {
                 language_overlays: plugin_language_overlays,
                 commit_staged_import: commit_staged_vsix_plugin,
             });
-            app.manage(AgentStore::default());
+            app.manage(services.agents.clone());
             app.manage(services.agent_hooks.clone());
             app.manage(services.system_usage.clone());
             app.manage(IdeStore::default());
@@ -1449,7 +1449,11 @@ mod tests {
     #[test]
     fn 파일_git_ide_vsix는_조립부의_플러그인_포트를_사용한다() {
         let source = include_str!("lib.rs");
-        let setup = extract_between(source, "app.manage(services.plugin.clone());", "app.manage(AgentStore::default());");
+        let setup = extract_between(
+            source,
+            "app.manage(services.plugin.clone());",
+            "app.manage(services.agents.clone());",
+        );
         assert!(setup.contains("app.manage(PluginRuntimePort {"));
         assert!(setup.contains("language_overlays: plugin_language_overlays,"));
         assert!(setup.contains("commit_staged_import: commit_staged_vsix_plugin,"));

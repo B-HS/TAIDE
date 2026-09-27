@@ -1,4 +1,4 @@
-use taide_agent::store::AgentHooksStore;
+use taide_agent::store::{AgentHooksStore, AgentStore};
 use taide_lsp::install::LspInstallStore;
 use taide_lsp::store::LspStore;
 use taide_plugin::service::PluginStore;
@@ -16,6 +16,7 @@ pub struct AppServices {
     pub tree: TreeStore,
     pub terminal: TerminalStore,
     pub plugin: PluginStore,
+    pub agents: AgentStore,
     pub agent_hooks: AgentHooksStore,
     pub lsp: LspStore,
     pub lsp_install: LspInstallStore,
@@ -40,6 +41,7 @@ impl AppServices {
             tree: TreeStore::default(),
             terminal: TerminalStore::default(),
             plugin: PluginStore::default(),
+            agents: AgentStore::default(),
             agent_hooks: AgentHooksStore::default(),
             lsp: LspStore::default(),
             lsp_install: LspInstallStore::default(),
