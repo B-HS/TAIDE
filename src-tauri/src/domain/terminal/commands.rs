@@ -1,5 +1,4 @@
 use std::future::Future;
-use std::io::Write as _;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
@@ -291,18 +290,10 @@ pub async fn pty_spawn(
 #[tauri::command]
 #[specta::specta]
 pub async fn pty_write(app: AppHandle, store: State<'_, TerminalStore>, session_id: String, data: String) -> AppResult<()> {
-    notify_session_observers(&app, &session_id, &PtySessionSignal::Input);
-
-    let writer = store.writer_handle(&session_id)?;
-
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut writer = writer.lock();
-        writer.write_all(data.as_bytes())?;
-        writer.flush()?;
-        Ok(())
+    terminal_actions::pty_write(&app.state::<TaskSupervisor>(), &store, session_id, data, |session_id| {
+        notify_session_observers(&app, session_id, &PtySessionSignal::Input);
     })
     .await
-    .map_err(|error| AppError::Internal(error.to_string()))?
 }
 
 #[tauri::command]

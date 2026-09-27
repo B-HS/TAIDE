@@ -1,3 +1,7 @@
+use std::io::Write;
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 use taide_infra::pty::PtySession;
 use taide_infra::root_guard::ensure_within_root;
 use taide_model::error::{AppError, AppResult};
@@ -78,6 +82,42 @@ pub async fn run_terminal_spawn(
 
 fn terminal_shutdown_error() -> AppError {
     AppError::Forbidden("terminal runtime is shutting down".to_string())
+}
+
+async fn run_terminal_write(tasks: &TaskSupervisor, writer: Arc<Mutex<Box<dyn Write + Send>>>, data: String) -> AppResult<()> {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let worker = tasks
+        .spawn_blocking_transient_handle("terminal-write", move || {
+            let result = (|| {
+                let mut writer = writer.lock();
+                writer.write_all(data.as_bytes())?;
+                writer.flush()?;
+                Ok(())
+            })();
+            drop(sender.send(result));
+        })
+        .ok_or_else(terminal_shutdown_error)?;
+    worker.await.map_err(|error| {
+        if error.is_cancelled() {
+            return terminal_shutdown_error();
+        }
+        AppError::Internal(error.to_string())
+    })?;
+    receiver.await.map_err(|_| terminal_shutdown_error())?
+}
+
+/// Notifies input observers before resolving the shared writer and supervising its write and flush.
+/// Request cancellation detaches the waiter but leaves already-started work tracked for normal exit drainage.
+pub async fn pty_write(
+    tasks: &TaskSupervisor,
+    store: &TerminalStore,
+    session_id: String,
+    data: String,
+    notify_input: impl FnOnce(&str),
+) -> AppResult<()> {
+    notify_input(&session_id);
+    let writer = store.writer_handle(&session_id)?;
+    run_terminal_write(tasks, writer, data).await
 }
 
 /// Applies the shared terminal pty resize policy.
@@ -415,5 +455,178 @@ mod tests {
             .unwrap()
             .unwrap();
         drop(state.begin_mutation().await);
+    }
+}
+
+#[cfg(test)]
+mod write_tests {
+    use std::io::{self, Write};
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    use parking_lot::Mutex as WriterMutex;
+    use taide_lsp::install::LspInstallStore;
+    use taide_lsp::store::LspStore;
+    use taide_model::error::AppErrorKind;
+    use taide_terminal::store::TerminalStore;
+    use tokio::sync::oneshot;
+
+    use super::run_terminal_write;
+    use crate::{ExitDrain, TaskSupervisor};
+
+    const FIXTURE_TIMEOUT_MS: u64 = 2_000;
+    const PENDING_PROBE_MS: u64 = 20;
+
+    struct RecordingWriter {
+        calls: Arc<Mutex<Vec<String>>>,
+        should_fail_write: bool,
+        should_fail_flush: bool,
+        should_panic: bool,
+        started: Option<oneshot::Sender<()>>,
+        release: Option<std::sync::mpsc::Receiver<()>>,
+    }
+
+    impl Write for RecordingWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if let Some(started) = self.started.take() {
+                started.send(()).ok();
+            }
+            if let Some(release) = self.release.take() {
+                release.recv().unwrap();
+            }
+            assert!(!self.should_panic, "synthetic writer panic");
+            self.calls.lock().unwrap().push(String::from_utf8(bytes.to_vec()).unwrap());
+            if self.should_fail_write {
+                return Err(io::Error::other("synthetic write error"));
+            }
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.calls.lock().unwrap().push("flush".to_string());
+            if self.should_fail_flush {
+                return Err(io::Error::other("synthetic flush error"));
+            }
+            Ok(())
+        }
+    }
+
+    struct Release(Option<std::sync::mpsc::Sender<()>>);
+
+    impl Drop for Release {
+        fn drop(&mut self) {
+            if let Some(release) = self.0.take() {
+                release.send(()).ok();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn write와_flush_순서_오류와_panic을_유지하고_감독에서_회수한다() {
+        for (fail_write, fail_flush, panic) in [
+            (false, false, false),
+            (true, false, false),
+            (false, true, false),
+            (false, false, true),
+        ] {
+            let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let writer: Arc<WriterMutex<Box<dyn Write + Send>>> = Arc::new(WriterMutex::new(Box::new(RecordingWriter {
+                calls: calls.clone(),
+                should_fail_write: fail_write,
+                should_fail_flush: fail_flush,
+                should_panic: panic,
+                started: None,
+                release: None,
+            })));
+            let result = run_terminal_write(&tasks, writer, "fixture".to_string()).await;
+            if panic {
+                assert_eq!(result.unwrap_err().kind(), AppErrorKind::Internal);
+            } else if fail_write || fail_flush {
+                assert_eq!(result.unwrap_err().kind(), AppErrorKind::Io);
+            } else {
+                result.unwrap();
+            }
+            let recorded = calls.lock().unwrap().clone();
+            if panic {
+                assert!(recorded.is_empty());
+            } else if fail_write {
+                assert_eq!(recorded, ["fixture"]);
+            } else {
+                assert_eq!(recorded, ["fixture", "flush"]);
+            }
+            assert_eq!(tasks.tracked_count(), 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn 요청_abort_뒤_정상_root는_시작한_writer의_실제_완료까지_기다린다() {
+        let runtime = tokio::runtime::Handle::current();
+        let tasks = TaskSupervisor::new(runtime.clone());
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let (started, started_rx) = oneshot::channel();
+        let (release, release_rx) = std::sync::mpsc::channel();
+        let release = Release(Some(release));
+        let writer: Arc<WriterMutex<Box<dyn Write + Send>>> = Arc::new(WriterMutex::new(Box::new(RecordingWriter {
+            calls: calls.clone(),
+            should_fail_write: false,
+            should_fail_flush: false,
+            should_panic: false,
+            started: Some(started),
+            release: Some(release_rx),
+        })));
+        let worker_tasks = tasks.clone();
+        let request = tokio::spawn(async move { run_terminal_write(&worker_tasks, writer, "fixture".to_string()).await });
+        tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), started_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        request.abort();
+        assert!(request.await.unwrap_err().is_cancelled());
+        assert_eq!(tasks.tracked_count(), 1);
+        let mut drain = ExitDrain::default();
+        let (ready, mut ready_rx) = oneshot::channel();
+        assert!(drain.begin(
+            &runtime,
+            tasks.clone(),
+            LspInstallStore::new(),
+            LspStore::new(),
+            TerminalStore::new(),
+            move || {
+                ready.send(()).ok();
+            }
+        ));
+        assert!(tokio::time::timeout(Duration::from_millis(PENDING_PROBE_MS), &mut ready_rx)
+            .await
+            .is_err());
+        assert!(!drain.is_ready());
+        assert_eq!(tasks.tracked_count(), 1);
+        drop(release);
+        tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), ready_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(drain.is_ready());
+        assert_eq!(tasks.tracked_count(), 0);
+        assert_eq!(*calls.lock().unwrap(), ["fixture", "flush"]);
+    }
+
+    #[tokio::test]
+    async fn 종료한_감독자는_writer를_실행하지_않는다() {
+        let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+        tasks.stop_all();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let writer: Arc<WriterMutex<Box<dyn Write + Send>>> = Arc::new(WriterMutex::new(Box::new(RecordingWriter {
+            calls: calls.clone(),
+            should_fail_write: false,
+            should_fail_flush: false,
+            should_panic: false,
+            started: None,
+            release: None,
+        })));
+        let error = run_terminal_write(&tasks, writer, "fixture".to_string()).await.unwrap_err();
+        assert_eq!(error.kind(), AppErrorKind::Forbidden);
+        assert!(calls.lock().unwrap().is_empty());
+        assert_eq!(tasks.tracked_count(), 0);
     }
 }

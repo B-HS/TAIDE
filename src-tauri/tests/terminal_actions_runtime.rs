@@ -288,3 +288,30 @@ async fn 자기_pty의_attach_replay_detach_resize_pause_kill은_같은_store를
         .unwrap();
     assert!(completion.is_finished());
 }
+
+#[tokio::test]
+async fn write는_없는_session도_observer를_먼저_호출하고_작업을_등록하지_않는다() {
+    let tasks = taide_runtime::TaskSupervisor::new(tokio::runtime::Handle::current());
+    let store = TerminalStore::new();
+    let notified = Cell::new(false);
+    let error = terminal_actions::pty_write(&tasks, &store, "missing".to_string(), "fixture".to_string(), |session_id| {
+        assert_eq!(session_id, "missing");
+        notified.set(true);
+        assert_eq!(tasks.tracked_count(), 0);
+    })
+    .await
+    .unwrap_err();
+    assert!(notified.get());
+    assert_eq!(error.kind(), AppErrorKind::NotFound);
+    assert_eq!(tasks.tracked_count(), 0);
+}
+
+#[test]
+fn tauri_write는_등록된_동일_감독자와_native_observer만_주입한다() {
+    let source = include_str!("../src/domain/terminal/commands.rs");
+    let body = source.split_once("pub async fn pty_write(").unwrap().1.split_once("\n}").unwrap().0;
+    assert!(body.contains("terminal_actions::pty_write(&app.state::<TaskSupervisor>(), &store, session_id, data"));
+    assert!(body.contains("notify_session_observers(&app, session_id, &PtySessionSignal::Input)"));
+    assert!(!body.contains("spawn_blocking"));
+    assert!(!body.contains("writer_handle"));
+}
