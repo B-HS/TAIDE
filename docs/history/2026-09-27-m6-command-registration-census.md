@@ -1,6 +1,8 @@
 # M6 command 등록 owner 전수 대조
 
-상태: 203개 Specta command와 raw 3개의 등록 owner는 확인했습니다. 각 body의 application 정책과 Tauri adapter 적합성 전수 판정은 미완료입니다.
+상태(2026-09-27 등록 조사 시점): 203개 Specta command와 raw 3개의 등록 owner는 확인했습니다. 당시 각 body의 application 정책과 Tauri adapter 적합성 전수 판정은 미완료였습니다.
+
+2026-09-28 후속: 현재 등록 206개 body와 private helper를 대조한 결과는 [command body 전수 대조](2026-09-28-m6-command-body-census.md)에 별도 기록했습니다. 아래 상태는 당시 등록 조사 시점이며 후속 정적 대조는 전체 facade 구현·자원 감독·동작 검증 완료를 뜻하지 않습니다.
 
 ## 대상과 방법
 
