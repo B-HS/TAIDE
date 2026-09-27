@@ -4,16 +4,17 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use taide_model::app_event::AppEvent;
-use taide_runtime::EventSink;
+use taide_runtime::{agent_actions, EventSink};
 use tauri::{Manager, State};
 
 pub use taide_agent::store::{AgentHooksStore, AgentStore, HooksServerInfo};
+pub use taide_runtime::agent_actions::{build_detected_agents, cleanup_all_wait_markers, resolve_state};
 
 use super::hooks;
 use super::service;
 use super::types::{
-    AgentActivity, AgentHooksStatus, CliInstallStatus, DetectedAgent, ExternalOpenRequest, HookInstallScope, ProjectAgents,
-    AGENT_NAME_CLAUDE, AGENT_PROTOCOL_VERSION, AGENT_PROTOCOL_VERSION_ENV_NAME, APP_VERSION_ENV_NAME, CLAUDE_VERSION_TIMEOUT_SECONDS,
+    AgentHooksStatus, CliInstallStatus, ExternalOpenRequest, HookInstallScope, ProjectAgents, AGENT_NAME_CLAUDE, AGENT_PROTOCOL_VERSION,
+    AGENT_PROTOCOL_VERSION_ENV_NAME, APP_VERSION_ENV_NAME, CLAUDE_VERSION_TIMEOUT_SECONDS,
 };
 use crate::error::{AppError, AppResult};
 use crate::ids::ProjectId;
@@ -28,22 +29,6 @@ pub(super) const TAIDE_CLI_TARGET_PATH: &str = "/usr/local/bin/taide";
 pub(super) const TAIDE_CLI_TARGET_PATH: &str = "C:/Program Files/TAIDE/bin/taide.exe";
 
 pub struct AgentForegroundPids(pub fn(&tauri::AppHandle, &ProjectId) -> Vec<(String, u32)>);
-
-pub fn cleanup_all_wait_markers(store: &AgentStore) {
-    let temp_dir = std::env::temp_dir();
-    for marker in store.take_all_markers() {
-        if let Ok(path) = service::validate_wait_marker_path(&marker, &temp_dir) {
-            let _ = std::fs::remove_file(path);
-        }
-    }
-}
-
-fn ensure_project_open(state: &AppState, project_id: &ProjectId) -> AppResult<()> {
-    if state.projects.read().contains_key(project_id) {
-        return Ok(());
-    }
-    Err(AppError::NotFound(format!("project not open: {project_id}")))
-}
 
 fn project_root(state: &AppState, project_id: &ProjectId) -> AppResult<String> {
     state
@@ -168,55 +153,6 @@ pub async fn detect_agents_for_pids_blocking(
     tauri::async_runtime::spawn_blocking(move || detect_agents_for_pids(pids))
         .await
         .map_err(|error| AppError::Internal(error.to_string()))
-}
-
-/// The session's own signals decide. Only a session that has produced no signal at all falls back to
-/// the hook bridge's project-scoped override, and only for an agent that actually delivers its
-/// events through that bridge (`service::uses_project_hook_override`) — an agent whose events arrive
-/// in-band per session must not be spoken for by a stale project-wide answer.
-///
-/// The fallback carries no `blocked_reason`: the override is one activity per project, recorded
-/// from an HTTP hook that has already been mapped to it (`service::map_hook_event_to_activity`), so
-/// there is no session latch to read a reason off. Reporting `AwaitingInput` with no reason is the
-/// honest answer there.
-pub fn resolve_state(
-    agents: &AgentStore,
-    hooks_store: &AgentHooksStore,
-    project_id: &ProjectId,
-    probe: &service::DetectedAgentProbe,
-) -> service::SessionState {
-    let state = agents.classify_session_state(&probe.session_id, probe.name);
-    if state.activity != AgentActivity::Unknown || !service::uses_project_hook_override(probe.name) {
-        return state;
-    }
-    match hooks_store.fresh_project_override(project_id, probe.name) {
-        Some(activity) => service::SessionState {
-            activity,
-            blocked_reason: None,
-        },
-        None => state,
-    }
-}
-
-pub fn build_detected_agents(
-    agents: &AgentStore,
-    hooks_store: &AgentHooksStore,
-    project_id: &ProjectId,
-    probes: Vec<service::DetectedAgentProbe>,
-) -> Vec<DetectedAgent> {
-    probes
-        .into_iter()
-        .map(|probe| {
-            let state = resolve_state(agents, hooks_store, project_id, &probe);
-            DetectedAgent {
-                session_id: probe.session_id,
-                name: probe.name.to_string(),
-                pid: probe.pid,
-                activity: state.activity,
-                blocked_reason: state.blocked_reason,
-            }
-        })
-        .collect()
 }
 
 /// Feeds one scanned pty chunk into the agent signals, if that session runs an agent. Wired from
@@ -452,31 +388,21 @@ pub async fn agent_list(
     agent_hooks: State<'_, AgentHooksStore>,
     project_id: ProjectId,
 ) -> AppResult<ProjectAgents> {
-    ensure_project_open(&state, &project_id)?;
-
-    let pids = (foreground_pids.0)(&app, &project_id);
-    let probes = detect_agents_for_pids_blocking(&agents, pids).await?;
-
-    let detected = build_detected_agents(&agents, &agent_hooks, &project_id, probes);
-    Ok(ProjectAgents {
-        project_id,
-        agents: detected,
-    })
+    agent_actions::agent_list(
+        &state,
+        &agents,
+        &agent_hooks,
+        || (foreground_pids.0)(&app, &project_id),
+        |pids| detect_agents_for_pids_blocking(&agents, pids),
+        project_id.clone(),
+    )
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn agent_release_marker(state: State<'_, AppState>, agents: State<'_, AgentStore>, marker: String) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let path = service::validate_wait_marker_path(&marker, &std::env::temp_dir())?;
-
-    let result = match std::fs::remove_file(&path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(AppError::from(error)),
-    };
-    agents.forget_wait_marker(&marker);
-    result
+    agent_actions::agent_release_marker(&state, &agents, marker).await
 }
 
 #[tauri::command]
@@ -553,7 +479,7 @@ pub async fn agent_cli_uninstall() -> AppResult<CliInstallStatus> {
 #[tauri::command]
 #[specta::specta]
 pub async fn agent_pending_external_opens(agents: State<'_, AgentStore>) -> AppResult<Vec<ExternalOpenRequest>> {
-    Ok(agents.drain_pending_external_opens())
+    agent_actions::agent_pending_external_opens(&agents).await
 }
 
 #[tauri::command]

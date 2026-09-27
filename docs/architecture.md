@@ -235,6 +235,9 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     AppServices와 기존 agent 명령 재수출은 같은 상태를 소비하며, 중복 서버 시작·900초 override 만료·종료 시 override 정리 정책을 유지한다.
     `AgentStore`도 taide-agent의 공유 Arc<Mutex>로 활동 diff·PTY 세션 신호·PID 이름 캐시·wait marker·외부 열기 대기열을 보관한다.
     기존 agent 명령은 같은 타입을 재수출하며 OS PID 조회·PTY 전달·AgentForegroundPids 주입은 Tauri adapter에 남는다.
+    runtime `agent_actions`는 공개 list/release-marker/pending-open 3개의 프로젝트 gate·lazy PID/probe 순서·활동 조립·
+    marker 검증/삭제/추적·대기열 선소비를 소유한다. 공용 state/detected-agent helper와 종료 marker cleanup도 같은 runtime 정책이다.
+    Tauri poll과 root는 같은 helper를 재수출로 소비하며 CLI·hook 파일/서버·실제 OS probe와 worker 회수는 별도 미완료 경계다.
     `GitStore`는 taide-git에서 repo root·status 캐시와 같은 repo의 push/fetch 락을 공유한다.
     최초 무효화 구독의 1회 실행은 공유 OnceLock으로 제어하고 실제 세 이벤트 등록은 Tauri adapter의 콜백이 맡는다.
     runtime `git_actions`는 공개 action 41개·repo root 해석·cache·mutation/repo lock·함수별 이벤트 순서를 소유한다.

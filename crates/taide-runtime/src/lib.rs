@@ -1,5 +1,6 @@
 use taide_model::app_event::AppEvent;
 
+pub mod agent_actions;
 pub mod ai_actions;
 mod ai_request_store;
 pub mod app_actions;
