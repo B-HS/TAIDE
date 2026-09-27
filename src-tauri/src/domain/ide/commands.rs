@@ -1,16 +1,15 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use taide_ide::protocol::{at_mentioned_notification, selection_changed_notification};
 use taide_model::app_event::AppEvent;
-use taide_runtime::{EventSink, TaskSupervisor};
+use taide_runtime::{ide_actions, EventSink, TaskSupervisor};
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::oneshot;
 
 use super::lockfile;
 use super::server;
 use super::service;
-use super::store::{IdeSelectionSnapshot, IdeStore};
+use super::store::IdeStore;
 use super::types::{IdeDiagnostic, IdeDiffOutcome, IdeSelectionInput, IdeStatus, IDE_PORT_BIND_MAX_ATTEMPTS};
 use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::ids::ProjectId;
@@ -175,7 +174,7 @@ async fn bind_and_start(app: &AppHandle) -> AppResult<IdeStatus> {
 #[tauri::command]
 #[specta::specta]
 pub async fn ide_get_status(ide: State<'_, IdeStore>) -> AppResult<IdeStatus> {
-    Ok(ide.status())
+    ide_actions::ide_get_status(&ide).await
 }
 
 /// Starts the embedded IDE MCP server if it isn't already running — no longer a `#[tauri::command]`
@@ -203,42 +202,20 @@ pub async fn ide_start(app: AppHandle, state: State<'_, AppState>, ide: State<'_
 #[tauri::command]
 #[specta::specta]
 pub async fn ide_set_selection(ide: State<'_, IdeStore>, input: IdeSelectionInput) -> AppResult<()> {
-    if !IdeStore::is_desktop_owner(&input.owner) {
-        return Ok(());
-    }
-
-    let selection = IdeSelectionSnapshot {
-        project_id: input.project_id,
-        path: input.path,
-        text: input.text,
-        start_line: input.start_line,
-        start_character: input.start_character,
-        end_line: input.end_line,
-        end_character: input.end_character,
-        is_empty: input.is_empty,
-    };
-    let notification = selection_changed_notification(&selection);
-    ide.set_selection(selection);
-    ide.broadcast(notification);
-    Ok(())
+    ide_actions::ide_set_selection(&ide, input).await
 }
 
 /// See [`ide_set_selection`]'s doc comment for why a remote `owner` is a no-op here too.
 #[tauri::command]
 #[specta::specta]
 pub async fn ide_clear_selection(ide: State<'_, IdeStore>, owner: String) -> AppResult<()> {
-    if !IdeStore::is_desktop_owner(&owner) {
-        return Ok(());
-    }
-    ide.clear_selection();
-    Ok(())
+    ide_actions::ide_clear_selection(&ide, owner).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn ide_publish_diagnostics(ide: State<'_, IdeStore>, project_id: ProjectId, items: Vec<IdeDiagnostic>) -> AppResult<()> {
-    ide.publish_diagnostics(project_id, items);
-    Ok(())
+    ide_actions::ide_publish_diagnostics(&ide, project_id, items).await
 }
 
 /// A `Saved` outcome persists through the assembly's `IdeSaveFile` port, backed by the exact guarded sequence the
@@ -259,43 +236,17 @@ pub async fn ide_resolve_diff(
     outcome: IdeDiffOutcome,
     content: Option<String>,
 ) -> AppResult<()> {
-    let pending = ide
-        .take_pending_diff(&request_id)
-        .ok_or_else(|| AppError::NotFound(format!("pending diff not found: {request_id}")))?;
-
-    let resolved_content = match outcome {
-        IdeDiffOutcome::Saved => {
-            let content = content.ok_or_else(|| AppError::InvalidArgument("saved outcome requires content".to_string()))?;
-            let _guard = state.begin_mutation().await;
-            match (save_file.0)(&state, &pending.new_path, &content) {
-                Ok(()) => {}
-                Err(AppError::Forbidden(message)) => {
-                    log::warn!("IDE diff 저장 대상이 더 이상 프로젝트 루트 안에 있지 않습니다: {message}");
-                }
-                Err(error) => return Err(error),
-            }
-            Some(content)
-        }
-        IdeDiffOutcome::Rejected | IdeDiffOutcome::TabClosed => None,
-    };
-
-    let _ = pending.responder.send((outcome, resolved_content));
-    Ok(())
+    ide_actions::ide_resolve_diff(&state, &save_file, &ide, request_id, outcome, content).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn ide_resolve_save(ide: State<'_, IdeStore>, request_id: String, saved: bool) -> AppResult<()> {
-    let pending = ide
-        .take_pending_save(&request_id)
-        .ok_or_else(|| AppError::NotFound(format!("pending save not found: {request_id}")))?;
-    let _ = pending.responder.send(saved);
-    Ok(())
+    ide_actions::ide_resolve_save(&ide, request_id, saved).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn ide_notify_at_mention(ide: State<'_, IdeStore>, path: String, line_start: u32, line_end: u32) -> AppResult<()> {
-    ide.broadcast(at_mentioned_notification(&path, line_start, line_end));
-    Ok(())
+    ide_actions::ide_notify_at_mention(&ide, path, line_start, line_end).await
 }

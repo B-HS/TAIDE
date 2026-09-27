@@ -247,6 +247,9 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     `IdeStore`는 taide-ide에서 서버/연결 Tokio 핸들·pending diff/save 응답·선택·진단·클라이언트 수를 공유 Arc<Mutex>에 보관한다.
     알림 broadcast도 같은 채널을 공유하며 탭/프로젝트 종료의 응답 해소·현재/최신 선택·진단 준비 상태·원격 owner 차단 정책을 유지한다.
     원격 owner 라벨은 model의 단일 상수이며 remote crate와 기존 Tauri 경로는 재수출한다. 실제 MCP 서버·lockfile·PTY readiness 대기/환경 주입은 Tauri adapter에 남는다.
+    runtime `ide_actions`는 공개 action 7개의 selection owner gate·snapshot/notification/store 순서,
+    diagnostics·status·at-mention과 pending diff/save 소비·같은 IdeSaveFile port·guard·함수별 오류/응답 정책을 소유한다.
+    Tauri command의 공개 입력/반환/문서는 유지하며 비IPC 서버·연결·lockfile·pending reconcile와 전체 종료는 별도 미완료 경계다.
     `LspStore`는 taide-lsp의 공유 내부 상태에 세션 맵과 독립적인 강한 프로세스 목록을 보관한다. 실제 spawn/restart는 입장 gate 안에서 생성·등록하며 shutdown 뒤 factory를 거절한다.
     제거/교체된 세션의 프로세스도 완료까지 보유한다. shutdown 뒤 wait_for_idle은 실제 worker 완료를 기다리며 완료 핸들은 다음 spawn/대기에서 정리한다. 동기 factory는 같은 프로세스 gate에 재진입하지 않는다.
     `LspInstallStore`는 taide-lsp의 서버별 설치 슬롯을 공유 Arc<Mutex>에 보관하고,
