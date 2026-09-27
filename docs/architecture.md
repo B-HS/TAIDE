@@ -252,6 +252,10 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     치환 worker는 AppHandle 대신 같은 AppState clone을 사용한다. 전체 pass가 아니라 파일마다 mutation guard를 취득하며 기존 root guard·skip 상한을 보존한다.
     검색 목록은 비UTF-8 경로를 lossy 문자열로 바꾸지 않고 제외한다. 기존 synthetic Unix 경로 unit도 runtime에 있다.
     perf span과 완료 debug 로그는 Tauri adapter에 유지하며 목록 debug 시간은 action 진입부터 프로젝트 조회·blocking walk 완료까지 측정한다.
+    `taide-runtime::tree_actions`는 트리 action 5개와 cache hit/miss·prefetch·entry 재확인·인플레이스 수정 정책을 소유한다.
+    조회는 전역 mutation guard 없이 캐시의 read lock으로 페이지를 반환하고, miss는 로컬 트리를 만든 뒤 프로젝트와 기존 entry를 재확인한다.
+    수정 action은 prefetch 완료 뒤 기존 mutation/write lock을 취득한다. prefetch는 힌트이며 빠진 디렉터리는 기존 서비스의 read fallback을 유지한다.
+    Tauri tree command는 기존 인수·응답·TreeStore 재수출·collapse 문서와 TreeToggle/TreeReveal perf span만 보존한다.
     IDE diff의 mutation guard·blocking 실행과 Forbidden 예외 정책은 기존 호출자에 남는다.
     setup은 상태 복원 뒤 AppState·TaskSupervisor·원격 제한기·플랫폼 포트·시크릿 포트·IDE 저장 포트·EventSink를 주입해 `Arc<AppServices>`를 만들고, 나머지 저장소는 AppServices가 초기화한다.
     AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·AgentStore·AgentHooksStore·GitStore·RemoteStore·IdeStore·SecretStoreState·IdeSaveFile·LspStore·LspInstallStore·SystemUsageStore·RemoteDispatchLimiter·PlatformServices·WindowRegistry·TaskSupervisor의 20개 상태·포트를

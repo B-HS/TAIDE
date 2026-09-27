@@ -10,6 +10,7 @@ mod search_store;
 pub mod settings_actions;
 mod state;
 mod task_supervisor;
+pub mod tree_actions;
 mod tree_store;
 mod window_registry;
 
