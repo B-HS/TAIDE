@@ -260,6 +260,7 @@ pub async fn agent_list(
         &state,
         &agents,
         &agent_hooks,
+        &tasks,
         || (foreground_pids.0)(&app, &project_id),
         |pids| detect_agents_for_pids_blocking(&tasks, &agents, pids),
         project_id.clone(),

@@ -82,6 +82,7 @@ pub async fn agent_list<F, Fut>(
     state: &AppState,
     agents: &AgentStore,
     agent_hooks: &AgentHooksStore,
+    tasks: &TaskSupervisor,
     foreground_pids: impl FnOnce() -> Vec<(String, u32)>,
     probe_agents: F,
     project_id: ProjectId,
@@ -91,6 +92,9 @@ where
     Fut: Future<Output = AppResult<Vec<service::DetectedAgentProbe>>>,
 {
     ensure_project_open(state, &project_id)?;
+    let _operation = tasks
+        .begin_operation("agent-list")
+        .ok_or_else(|| AppError::Forbidden("agent runtime is shutting down".to_string()))?;
 
     let pids = foreground_pids();
     let probes = probe_agents(pids).await?;

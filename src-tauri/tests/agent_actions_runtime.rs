@@ -1,26 +1,37 @@
 use std::cell::Cell;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use futures_util::FutureExt;
 use taide_agent::constants::{AGENT_NAME_CLAUDE, AGENT_NAME_CODEX, AGENT_NAME_GEMINI, WAIT_MARKER_PREFIX};
 use taide_agent::service::DetectedAgentProbe;
 use taide_agent::store::{AgentHooksStore, AgentStore};
 use taide_infra::terminal_scan::ScanOutcome;
+use taide_lsp::install::LspInstallStore;
+use taide_lsp::store::LspStore;
 use taide_model::agent::{AgentActivity, BlockedReason, ExternalOpenRequest};
-use taide_model::error::{AppError, AppErrorKind};
+use taide_model::error::{AppError, AppErrorKind, AppResult};
 use taide_model::ids::ProjectId;
 use taide_model::paths::AppPaths;
 use taide_model::project::{Project, ProjectDisplay};
-use taide_runtime::{agent_actions, AppState};
+use taide_runtime::{agent_actions, AppState, ExitDrain, TaskSupervisor};
+use taide_terminal::store::TerminalStore;
+use tokio::sync::oneshot;
 use uuid::Uuid;
 
 const FIXTURE_PID: u32 = 42;
 const SESSION_ID: &str = "fixture-session";
+const FIXTURE_TIMEOUT_MS: u64 = 2_000;
+const PENDING_OWNER_MS: u64 = 20;
 
 fn state() -> AppState {
     AppState::new(AppPaths::new(
         std::env::temp_dir().join(format!("taide-agent-actions-{}", Uuid::new_v4())),
     ))
+}
+
+fn tasks() -> TaskSupervisor {
+    TaskSupervisor::new(tokio::runtime::Handle::current())
 }
 
 fn open_project(state: &AppState) -> ProjectId {
@@ -73,10 +84,13 @@ impl Drop for Marker {
 #[tokio::test]
 async fn 닫힌_프로젝트는_pid와_probe_port를_호출하지_않는다() {
     let state = state();
+    let tasks = tasks();
+    tasks.stop_all();
     let error = agent_actions::agent_list(
         &state,
         &AgentStore::new(),
         &AgentHooksStore::new(),
+        &tasks,
         || panic!("project gate 전 PID 조회 금지"),
         |_| async { panic!("project gate 전 probe 금지") },
         ProjectId::new(),
@@ -90,6 +104,7 @@ async fn 닫힌_프로젝트는_pid와_probe_port를_호출하지_않는다() {
 #[tokio::test]
 async fn list는_프로젝트_검증_뒤_pid_probe_state_조립_순서를_유지한다() {
     let state = state();
+    let tasks = tasks();
     let id = open_project(&state);
     let agents = AgentStore::new();
     let hooks = AgentHooksStore::new();
@@ -99,6 +114,7 @@ async fn list는_프로젝트_검증_뒤_pid_probe_state_조립_순서를_유지
         &state,
         &agents,
         &hooks,
+        &tasks,
         || {
             assert!(state.projects.try_write().is_some());
             assert!(state.begin_mutation().now_or_never().is_some());
@@ -127,17 +143,95 @@ async fn list는_프로젝트_검증_뒤_pid_probe_state_조립_순서를_유지
 #[tokio::test]
 async fn probe_오류는_state_조립_전에_그대로_반환된다() {
     let state = state();
+    let tasks = tasks();
     let id = open_project(&state);
     let result = agent_actions::agent_list(
         &state,
         &AgentStore::new(),
         &AgentHooksStore::new(),
+        &tasks,
         Vec::new,
         |_| async { Err(AppError::Internal("fixture probe error".to_string())) },
         id,
     )
     .await;
     assert!(matches!(result, Err(AppError::Internal(message)) if message == "fixture probe error"));
+}
+
+#[tokio::test]
+async fn 종료_뒤_열린_프로젝트의_list는_pid와_probe를_시작하지_않는다() {
+    let state = state();
+    let project_id = open_project(&state);
+    let tasks = tasks();
+    tasks.stop_all();
+    let error = agent_actions::agent_list(
+        &state,
+        &AgentStore::new(),
+        &AgentHooksStore::new(),
+        &tasks,
+        || panic!("종료 뒤 PID 조회 금지"),
+        |_| async { panic!("종료 뒤 probe 금지") },
+        project_id,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.kind(), AppErrorKind::Forbidden);
+}
+
+#[tokio::test]
+async fn list의_대기중인_probe_callback은_요청이_끝날_때까지_정상_root가_기다린다() {
+    let state = state();
+    let project_id = open_project(&state);
+    let agents = AgentStore::new();
+    let hooks = AgentHooksStore::new();
+    let tasks = tasks();
+    let runtime = tokio::runtime::Handle::current();
+    let request_tasks = tasks.clone();
+    let (entered, entered_rx) = oneshot::channel();
+    let request = tokio::spawn(async move {
+        agent_actions::agent_list(
+            &state,
+            &agents,
+            &hooks,
+            &request_tasks,
+            Vec::new,
+            |_| async move {
+                entered.send(()).ok();
+                std::future::pending::<AppResult<Vec<DetectedAgentProbe>>>().await
+            },
+            project_id,
+        )
+        .await
+    });
+    tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), entered_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(tasks.tracked_count(), 1);
+    let mut drain = ExitDrain::default();
+    let (ready, mut ready_rx) = oneshot::channel();
+    assert!(drain.begin(
+        &runtime,
+        tasks.clone(),
+        LspInstallStore::new(),
+        LspStore::new(),
+        TerminalStore::new(),
+        move || {
+            ready.send(()).ok();
+        },
+    ));
+    assert!(tokio::time::timeout(Duration::from_millis(PENDING_OWNER_MS), &mut ready_rx)
+        .await
+        .is_err());
+    assert!(!drain.is_ready());
+    request.abort();
+    assert!(request.await.is_err_and(|error| error.is_cancelled()));
+    tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(drain.is_ready());
+    assert_eq!(tasks.tracked_count(), 0);
 }
 
 #[test]

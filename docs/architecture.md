@@ -183,6 +183,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     반환형 반복 작업 API는 도메인 저장소가 JoinHandle을 보유해 기존 종료 대기를 유지하면서 감독자가 동일 작업의 AbortHandle을 추적할 수 있게 한다.
     공유 `TaskOperationLease`는 등록 worker 이후의 action owner도 마지막 Drop까지 추적한다. 감독자는 ID만 보관하고 lease가 감독자를 강하게 소유하므로 순환 소유가 없다.
     stop_all은 입장을 닫고 task 취소를 요청하지만 operation을 완료로 지우지 않으며 shutdown은 실제 task 완료와 마지막 operation 반납을 함께 기다린다.
+    runtime `agent_actions::agent_list`는 프로젝트 gate 뒤 같은 등록 감독자의 operation을 받아 PID/probe callback·상태 조립·반환까지 보유한다. 빈 PID/cache 경로도 닫힌 입장에서는 조회하지 않는다.
+    Native/remote의 공개 wire와 기존 프로젝트 오류 우선순위는 유지한다. `agent_release_marker`의 동기 파일 삭제와 직접 Exit 경계는 별도 미완료다.
     agent hook 서버의 accept/connection 작업은 감독 범위에 있고, taide-agent의 AgentHooksStore는 Tokio accept JoinHandle을 유지한다.
     동시 시작은 첫 서버 정보만 등록하고 뒤늦은 accept 작업을 취소하며 앱 종료에서 저장소 핸들을 명시적으로 중지한다.
     runtime `agent_hook_server`는 cached 응답→uncached operation 입장→native bind 답→accept 등록→shutdown check→store 게시 및 stop의 store 정리/abort 정책을 소유한다.
