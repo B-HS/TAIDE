@@ -1,5 +1,7 @@
 use tauri::State;
 
+use taide_runtime::app_actions;
+
 use super::types::{AppFileTarget, PerfSnapshot};
 use super::{service, types::AppInfo};
 use crate::domain::settings::types::Settings;
@@ -39,8 +41,7 @@ pub async fn perf_reset() -> AppResult<()> {
 #[tauri::command]
 #[specta::specta]
 pub async fn app_file_read(state: State<'_, AppState>, target: AppFileTarget) -> AppResult<String> {
-    let current_settings = state.settings.read().clone();
-    service::read_app_file(&state.paths, target, &current_settings)
+    app_actions::app_file_read(&state, target).await
 }
 
 /// Writes an `AppFileTarget`'s content. `Settings` runs the exact same
@@ -60,17 +61,7 @@ pub async fn app_file_write(
     target: AppFileTarget,
     content: String,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    match target {
-        AppFileTarget::Settings => {
-            let parsed = taide_settings::service::parse_settings_json(&content)?;
-            (apply_settings.0)(&app, &state, parsed).await?;
-        }
-        AppFileTarget::Prompt { id } => {
-            service::write_prompt_file(&state.paths, id, &content)?;
-        }
-    }
-    Ok(())
+    app_actions::app_file_write(&state, target, content, |parsed| (apply_settings.0)(&app, &state, parsed)).await
 }
 
 /// Applies an already-parsed `Settings` value through the same
@@ -86,7 +77,5 @@ pub async fn apply_settings_file(
     apply_settings: State<'_, SettingsApplyPort>,
     settings: Settings,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    (apply_settings.0)(&app, &state, settings).await?;
-    Ok(())
+    app_actions::apply_settings_file(&state, settings, |next| (apply_settings.0)(&app, &state, next)).await
 }

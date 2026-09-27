@@ -256,6 +256,9 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     조회는 전역 mutation guard 없이 캐시의 read lock으로 페이지를 반환하고, miss는 로컬 트리를 만든 뒤 프로젝트와 기존 entry를 재확인한다.
     수정 action은 prefetch 완료 뒤 기존 mutation/write lock을 취득한다. prefetch는 힌트이며 빠진 디렉터리는 기존 서비스의 read fallback을 유지한다.
     Tauri tree command는 기존 인수·응답·TreeStore 재수출·collapse 문서와 TreeToggle/TreeReveal perf span만 보존한다.
+    `taide-runtime::app_actions`는 앱 파일 읽기의 live settings snapshot과 쓰기/parsed 설정 적용의 mutation guard·검증·적용 await를 소유한다.
+    설정 적용 callback만 기존 SettingsApplyPort/AppHandle adapter에 유지하고 remote gated strip은 gateway에서 먼저 수행한다.
+    프롬프트 저장은 설정 포트를 호출하지 않으며 기존 service의 validate→atomic write를 소비한다. 제품 버전·process perf registry는 Tauri metadata/진단 adapter에 남는다.
     IDE diff의 mutation guard·blocking 실행과 Forbidden 예외 정책은 기존 호출자에 남는다.
     setup은 상태 복원 뒤 AppState·TaskSupervisor·원격 제한기·플랫폼 포트·시크릿 포트·IDE 저장 포트·EventSink를 주입해 `Arc<AppServices>`를 만들고, 나머지 저장소는 AppServices가 초기화한다.
     AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·AgentStore·AgentHooksStore·GitStore·RemoteStore·IdeStore·SecretStoreState·IdeSaveFile·LspStore·LspInstallStore·SystemUsageStore·RemoteDispatchLimiter·PlatformServices·WindowRegistry·TaskSupervisor의 20개 상태·포트를

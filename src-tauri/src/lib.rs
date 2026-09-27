@@ -1442,7 +1442,10 @@ mod tests {
         assert!(setup.contains("app.manage(SettingsApplyPort(apply_settings_from_port));"));
 
         let app = include_str!("domain/app/commands.rs");
-        assert!(app.contains("taide_settings::service::parse_settings_json(&content)"));
+        let app_actions = include_str!("../../crates/taide-runtime/src/app_actions.rs");
+        assert!(app_actions.contains("taide_settings::service::parse_settings_json(&content)"));
+        assert!(app.contains("app_actions::app_file_write(&state, target, content,"));
+        assert!(app.contains("app_actions::apply_settings_file(&state, settings,"));
         assert_eq!(app.matches("(apply_settings.0)(&app, &state,").count(), 2);
 
         let sync = include_str!("domain/sync/commands.rs");

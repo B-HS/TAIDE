@@ -4643,6 +4643,7 @@ version = "0.1.0"
 dependencies = [
  "parking_lot",
  "taide-agent",
+ "taide-app",
  "taide-file",
  "taide-git",
  "taide-ide",

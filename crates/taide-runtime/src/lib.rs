@@ -1,6 +1,7 @@
 use taide_model::app_event::AppEvent;
 
 mod ai_request_store;
+pub mod app_actions;
 mod app_services;
 pub mod file_actions;
 mod platform_services;
