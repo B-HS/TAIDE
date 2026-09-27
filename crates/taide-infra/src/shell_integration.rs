@@ -12,6 +12,41 @@ use crate::shell_quote::posix_quote;
 /// manual opt-out: a user (or a future settings-driven toggle) who sets this
 /// variable before TAIDE's own process starts gets no injection at all.
 pub const SHELL_INTEGRATION_ENV_VAR: &str = "TAIDE_SHELL_INTEGRATION";
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    static ENVIRONMENT_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+
+    pub(crate) struct ShellIntegrationTestEnvironment {
+        original_value: Option<std::ffi::OsString>,
+        _guard: parking_lot::MutexGuard<'static, ()>,
+    }
+
+    impl ShellIntegrationTestEnvironment {
+        pub(crate) fn new(is_already_integrated: bool) -> Self {
+            let guard = ENVIRONMENT_LOCK.lock();
+            let original_value = std::env::var_os(super::SHELL_INTEGRATION_ENV_VAR);
+            if is_already_integrated {
+                std::env::set_var(super::SHELL_INTEGRATION_ENV_VAR, super::SHELL_INTEGRATION_ENV_VALUE);
+            } else {
+                std::env::remove_var(super::SHELL_INTEGRATION_ENV_VAR);
+            }
+            Self {
+                original_value,
+                _guard: guard,
+            }
+        }
+    }
+
+    impl Drop for ShellIntegrationTestEnvironment {
+        fn drop(&mut self) {
+            match self.original_value.take() {
+                Some(value) => std::env::set_var(super::SHELL_INTEGRATION_ENV_VAR, value),
+                None => std::env::remove_var(super::SHELL_INTEGRATION_ENV_VAR),
+            }
+        }
+    }
+}
 const SHELL_INTEGRATION_ENV_VALUE: &str = "1";
 
 /// Carries the pre-injection `ZDOTDIR` value (if the user had one) into the
@@ -539,59 +574,40 @@ mod tests {
 
     #[test]
     fn 이미_통합된_환경변수가_있으면_주입을_건너뛴다() {
-        let original = std::env::var(SHELL_INTEGRATION_ENV_VAR).ok();
-        std::env::set_var(SHELL_INTEGRATION_ENV_VAR, "1");
+        let _environment = test_support::ShellIntegrationTestEnvironment::new(true);
 
         let plan = prepare(Some("/bin/zsh"));
-
-        match original {
-            Some(value) => std::env::set_var(SHELL_INTEGRATION_ENV_VAR, value),
-            None => std::env::remove_var(SHELL_INTEGRATION_ENV_VAR),
-        }
 
         assert!(plan.is_none());
     }
 
     #[test]
     fn fish는_네이티브_지원이므로_주입하지_않는다() {
-        let original = std::env::var(SHELL_INTEGRATION_ENV_VAR).ok();
-        std::env::remove_var(SHELL_INTEGRATION_ENV_VAR);
+        let _environment = test_support::ShellIntegrationTestEnvironment::new(false);
 
         let plan = prepare(Some("/usr/local/bin/fish"));
-
-        if let Some(value) = original {
-            std::env::set_var(SHELL_INTEGRATION_ENV_VAR, value);
-        }
 
         assert!(plan.is_none());
     }
 
     #[test]
     fn 명시적_zsh_override는_커맨드_프로그램을_바꾸지_않고_env만_추가한다() {
-        let original = std::env::var(SHELL_INTEGRATION_ENV_VAR).ok();
-        std::env::remove_var(SHELL_INTEGRATION_ENV_VAR);
+        let _environment = test_support::ShellIntegrationTestEnvironment::new(false);
 
         let plan = prepare(Some("/bin/zsh")).expect("zsh는 주입되어야 한다");
 
-        if let Some(value) = original {
-            std::env::set_var(SHELL_INTEGRATION_ENV_VAR, value);
-        }
-
+        std::fs::remove_dir_all(&plan.temp_dir).unwrap();
         assert!(plan.override_program.is_none());
         assert!(plan.extra_env.iter().any(|(key, _)| key == "ZDOTDIR"));
     }
 
     #[test]
     fn 명시적_bash_override는_커맨드_프로그램과_init_file_인자를_설정한다() {
-        let original = std::env::var(SHELL_INTEGRATION_ENV_VAR).ok();
-        std::env::remove_var(SHELL_INTEGRATION_ENV_VAR);
+        let _environment = test_support::ShellIntegrationTestEnvironment::new(false);
 
         let plan = prepare(Some("/bin/bash")).expect("bash는 주입되어야 한다");
 
-        if let Some(value) = original {
-            std::env::set_var(SHELL_INTEGRATION_ENV_VAR, value);
-        }
-
+        std::fs::remove_dir_all(&plan.temp_dir).unwrap();
         let (program, args) = plan.override_program.expect("bash는 명시적 프로그램/인자가 필요하다");
         assert_eq!(program, PathBuf::from("/bin/bash"));
         assert_eq!(args[0], "--init-file");
@@ -599,14 +615,9 @@ mod tests {
 
     #[test]
     fn 알수없는_셸_override는_아무것도_주입하지_않는다() {
-        let original = std::env::var(SHELL_INTEGRATION_ENV_VAR).ok();
-        std::env::remove_var(SHELL_INTEGRATION_ENV_VAR);
+        let _environment = test_support::ShellIntegrationTestEnvironment::new(false);
 
         let plan = prepare(Some("/usr/bin/tcsh"));
-
-        if let Some(value) = original {
-            std::env::set_var(SHELL_INTEGRATION_ENV_VAR, value);
-        }
 
         assert!(plan.is_none());
     }

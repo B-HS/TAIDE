@@ -26,28 +26,45 @@ pub struct PtySpawnConfig {
 }
 
 struct PauseGate {
-    paused: Mutex<bool>,
+    state: Mutex<PauseState>,
     condvar: Condvar,
+}
+
+#[derive(Default)]
+struct PauseState {
+    is_paused: bool,
+    is_stopped: bool,
 }
 
 impl PauseGate {
     fn new() -> Self {
         Self {
-            paused: Mutex::new(false),
+            state: Mutex::new(PauseState::default()),
             condvar: Condvar::new(),
         }
     }
 
     fn set_paused(&self, paused: bool) {
-        *self.paused.lock() = paused;
+        let mut state = self.state.lock();
+        if state.is_stopped {
+            return;
+        }
+        state.is_paused = paused;
         if !paused {
             self.condvar.notify_all();
         }
     }
 
+    fn stop(&self) {
+        let mut state = self.state.lock();
+        state.is_stopped = true;
+        state.is_paused = false;
+        self.condvar.notify_all();
+    }
+
     fn wait_while_paused(&self) {
-        let mut guard = self.paused.lock();
-        while *guard {
+        let mut guard = self.state.lock();
+        while guard.is_paused {
             self.condvar.wait(&mut guard);
         }
     }
@@ -95,7 +112,10 @@ impl PtySession {
             .map_err(|error| AppError::Internal(error.to_string()))
     }
 
+    /// Permanently opens the pause gate before requesting termination, even when signaling fails.
+    /// This requests shutdown but does not join the child wait, reader, or flusher threads.
     pub fn kill(&self) -> AppResult<()> {
+        self.pause.stop();
         self.killer.lock().kill().map_err(AppError::from)
     }
 
@@ -119,22 +139,11 @@ impl PtySession {
     }
 }
 
-/// Guarantees a `PtySession` never leaks its reader/flusher threads, its child process, or its
-/// shell-integration temp directory, no matter how it stops being reachable — an explicit
-/// `pty_kill`, `TerminalStore::kill_project`/`kill_all` dropping the map entry, or a panic unwinding
-/// through the store's lock. `pause.set_paused(false)` must run *before* `kill`: the reader thread
-/// parked in `wait_while_paused` only wakes on the pause condvar's `notify_all`, never on the child
-/// dying, so a session killed while paused (`pty_set_paused(true)` with no matching `false` before
-/// close) previously left both the reader thread and the flusher thread it gates (only the reader
-/// thread's read loop exiting calls `FlushSignal::stop`) parked forever — two threads leaked per
-/// paused-then-killed session. Killing first would still leave the reader blocked on the condvar
-/// since the child's death doesn't touch the pause gate at all. The temp-dir removal runs
-/// unconditionally alongside the two, independent of whether the shell ever reached its injected
-/// script's own self-`rm -rf` line.
+/// Opens the pause gate, requests child termination, and removes the owned integration directory.
+/// Shutdown requests do not prove child reaping or reader/flusher/callback completion.
 impl Drop for PtySession {
     fn drop(&mut self) {
-        self.pause.set_paused(false);
-        let _ = self.killer.lock().kill();
+        self.kill().ok();
         if let Some(temp_dir) = &self.shell_integration_temp_dir {
             std::fs::remove_dir_all(temp_dir).ok();
         }
@@ -341,6 +350,7 @@ where
 
     let pause = Arc::new(PauseGate::new());
     let reader_pause = pause.clone();
+    let child_exit_pause = pause.clone();
 
     let batch = Arc::new(Mutex::new(OutputBatch::new(on_data)));
     let flusher_batch = batch.clone();
@@ -371,6 +381,7 @@ where
 
     std::thread::spawn(move || {
         let code = child.wait().ok().map(|status| status.exit_code() as i32);
+        child_exit_pause.stop();
         on_exit(code);
     });
 
@@ -388,6 +399,125 @@ where
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+
+    #[cfg(unix)]
+    #[derive(Debug, Clone)]
+    struct RecordingKiller {
+        called: Arc<AtomicBool>,
+        should_fail: bool,
+    }
+
+    #[cfg(unix)]
+    impl ChildKiller for RecordingKiller {
+        fn kill(&mut self) -> std::io::Result<()> {
+            self.called.store(true, AtomicOrdering::SeqCst);
+            if self.should_fail {
+                return Err(std::io::Error::other("synthetic kill failure"));
+            }
+            Ok(())
+        }
+
+        fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+            Box::new(self.clone())
+        }
+    }
+
+    #[cfg(unix)]
+    fn recording_session(should_fail: bool) -> (PtySession, Arc<AtomicBool>) {
+        let pair = native_pty_system().openpty(PtySize::default()).unwrap();
+        let killed = Arc::new(AtomicBool::new(false));
+        let pause = Arc::new(PauseGate::new());
+        let session = PtySession {
+            master: pair.master,
+            writer: Arc::new(Mutex::new(Box::new(std::io::sink()))),
+            killer: Mutex::new(Box::new(RecordingKiller {
+                called: killed.clone(),
+                should_fail,
+            })),
+            pause: pause.clone(),
+            shell_pid: None,
+            shell_integration_temp_dir: None,
+        };
+        drop(pair.slave);
+        (session, killed)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 명시적_kill은_drop_전에도_paused_reader를_깨운다() {
+        let (session, killed) = recording_session(false);
+        session.set_paused(true);
+        let reader_pause = session.pause.clone();
+        let (ready, ready_rx) = std::sync::mpsc::channel();
+        let (done, done_rx) = std::sync::mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            ready.send(()).unwrap();
+            reader_pause.wait_while_paused();
+            done.send(()).unwrap();
+        });
+        ready_rx.recv_timeout(Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS)).unwrap();
+        let result = session.kill();
+        let woke_before_drop = done_rx.recv_timeout(Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS)).is_ok();
+        drop(session);
+        reader.join().unwrap();
+        assert!(result.is_ok());
+        assert!(killed.load(AtomicOrdering::SeqCst));
+        assert!(
+            woke_before_drop,
+            "kill_all retains the session, so Drop cannot wake its paused reader"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 종료_요청_뒤의_pause는_reader를_다시_가두지_않는다() {
+        let (session, _) = recording_session(false);
+        session.kill().unwrap();
+        session.set_paused(true);
+        let was_paused = session.pause.state.lock().is_paused;
+        drop(session);
+        assert!(!was_paused);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn kill_오류가_있어도_pause_gate는_해제된다() {
+        let (session, killed) = recording_session(true);
+        session.set_paused(true);
+        let result = session.kill();
+        let was_paused = session.pause.state.lock().is_paused;
+        drop(session);
+        assert!(result.is_err());
+        assert!(killed.load(AtomicOrdering::SeqCst));
+        assert!(!was_paused);
+    }
+
+    #[test]
+    fn child_wait도_exit_callback_전에_같은_pause_gate를_닫는다() {
+        let source = include_str!("pty.rs");
+        let spawn = source
+            .split_once("pub fn spawn<D, X>(")
+            .unwrap()
+            .1
+            .split_once("#[cfg(test)]")
+            .unwrap()
+            .0;
+        assert!(spawn.contains("let child_exit_pause = pause.clone();"));
+        let wait = spawn.find("let code = child.wait()").unwrap();
+        let stop = spawn.find("child_exit_pause.stop();").unwrap();
+        let exit = spawn.find("on_exit(code);").unwrap();
+        assert!(wait < stop && stop < exit);
+    }
+
+    #[test]
+    fn 종료_전의_pause와_unpause는_기존_상태를_유지한다() {
+        let pause = PauseGate::new();
+        pause.set_paused(true);
+        assert!(pause.state.lock().is_paused);
+        pause.set_paused(false);
+        assert!(!pause.state.lock().is_paused);
+        pause.wait_while_paused();
+    }
 
     #[test]
     fn 배치_크기가_임계값을_넘으면_플러시한다() {
@@ -539,30 +669,23 @@ mod tests {
 
     #[test]
     fn 셸_통합이_비활성이면_기존_default_prog_빌더_그대로다() {
-        let original = std::env::var(shell_integration::SHELL_INTEGRATION_ENV_VAR).ok();
-        std::env::set_var(shell_integration::SHELL_INTEGRATION_ENV_VAR, "1");
+        let _environment = shell_integration::test_support::ShellIntegrationTestEnvironment::new(true);
 
         let (cmd, temp_dir) = build_command(&base_config(None));
-
-        match original {
-            Some(value) => std::env::set_var(shell_integration::SHELL_INTEGRATION_ENV_VAR, value),
-            None => std::env::remove_var(shell_integration::SHELL_INTEGRATION_ENV_VAR),
+        let has_temp_dir = temp_dir.is_some();
+        if let Some(temp_dir) = temp_dir {
+            std::fs::remove_dir_all(temp_dir).unwrap();
         }
 
         assert!(cmd.is_default_prog(), "주입이 없으면 프로그램 선택을 바꾸지 않아야 한다");
-        assert!(temp_dir.is_none(), "주입이 없으면 임시 디렉터리도 생성되지 않아야 한다");
+        assert!(!has_temp_dir, "주입이 없으면 임시 디렉터리도 생성되지 않아야 한다");
     }
 
     #[test]
     fn zsh_주입은_프로그램은_바꾸지_않고_zdotdir만_추가한다() {
-        let original = std::env::var(shell_integration::SHELL_INTEGRATION_ENV_VAR).ok();
-        std::env::remove_var(shell_integration::SHELL_INTEGRATION_ENV_VAR);
+        let _environment = shell_integration::test_support::ShellIntegrationTestEnvironment::new(false);
 
         let (cmd, temp_dir) = build_command(&base_config(Some("/bin/zsh")));
-
-        if let Some(value) = original {
-            std::env::set_var(shell_integration::SHELL_INTEGRATION_ENV_VAR, value);
-        }
 
         assert!(!cmd.is_default_prog());
         assert_eq!(cmd.get_argv(), &vec![std::ffi::OsString::from("/bin/zsh")]);
@@ -574,14 +697,9 @@ mod tests {
 
     #[test]
     fn bash_주입은_init_file_인자를_추가한다() {
-        let original = std::env::var(shell_integration::SHELL_INTEGRATION_ENV_VAR).ok();
-        std::env::remove_var(shell_integration::SHELL_INTEGRATION_ENV_VAR);
+        let _environment = shell_integration::test_support::ShellIntegrationTestEnvironment::new(false);
 
         let (cmd, temp_dir) = build_command(&base_config(Some("/bin/bash")));
-
-        if let Some(value) = original {
-            std::env::set_var(shell_integration::SHELL_INTEGRATION_ENV_VAR, value);
-        }
 
         let argv = cmd.get_argv();
         assert_eq!(argv[0], std::ffi::OsString::from("/bin/bash"));
@@ -620,14 +738,9 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn drop은_셸_통합_임시_디렉터리도_정리한다() {
-        let original = std::env::var(shell_integration::SHELL_INTEGRATION_ENV_VAR).ok();
-        std::env::remove_var(shell_integration::SHELL_INTEGRATION_ENV_VAR);
+        let _environment = shell_integration::test_support::ShellIntegrationTestEnvironment::new(false);
 
         let session = spawn(base_config(Some("/bin/zsh")), |_bytes| {}, |_code| {}).expect("스폰 성공");
-
-        if let Some(value) = original {
-            std::env::set_var(shell_integration::SHELL_INTEGRATION_ENV_VAR, value);
-        }
 
         let temp_dir = session
             .shell_integration_temp_dir

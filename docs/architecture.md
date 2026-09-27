@@ -201,6 +201,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     LspProcHandle은 wait JoinHandle을 보유하며 mutable await로 대기 취소 뒤에도 재대기할 수 있다. Drop은 종료 요청이고 실제 정상 완료는 child wait·두 reader·exit callback 반환까지다.
     kill과 child wait poll은 같은 gate에서 직렬화하며 회수 poll/child owner Drop 전에 숫자 PID 권한을 닫는다. kill_on_drop의 runtime 취소/오류 fallback은 best effort이며 실제 회수 대기가 아니다. PTY thread·직접 native Exit의 전체 회수는 미완료다.
     이 deadline은 EOF 드레인 대기 한도이며 non-yield callback의 강제 중단·앱/OS의 bounded 종료를 보장하지 않는다.
+    PTY의 명시 kill/Drop과 child wait 종료는 같은 PauseGate를 영구 해제하며 늦은 pause 요청은 다시 reader를 가두지 않는다. killer 오류에도 pause를 해제하되 기존 오류를 반환한다.
+    이는 pause condvar 깨우기이며 OS Read 취소나 thread/callback join이 아니다. Unix 복제 killer의 PID 회수 gate·세 thread 소유와 spawn/제거 세션·root drain은 아직 미완료다.
     자동 시작의 설정 조건·오류 처리와 각 서버의 별도 수명주기 소유권은 유지한다. 기존 주기·Tauri runtime도 유지하며
     나머지 서버·세션 lifecycle 작업은 후속 경계다.
     `AppState`와 flush handshake는 model·infra 타입만 참조해 runtime crate에 있고,

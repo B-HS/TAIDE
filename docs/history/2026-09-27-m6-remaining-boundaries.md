@@ -71,3 +71,5 @@ PTY의 `spawn`은 flusher/reader/child wait thread 세 개의 JoinHandle을 버�
 설치된 portable-pty 0.9.0 공식 원천 `src/lib.rs`의 Unix ProcessSignaller와 `src/unix.rs`의 spawn_command를 대조했습니다. Unix child는 std::process::Child이며 clone_killer는 숫자 PID를 복사합니다. 복제 killer는 SIGHUP 한 번만 보내며 wait와 회수 여부를 공유하지 않습니다. 현재 PTY wait thread의 `child.wait()`와 `PtySession::kill/drop` 사이에 gate가 없어 회수 뒤 PID 재사용 위험이 남습니다. 직접 std Child의 kill 구현에 있는 grace/강제 kill 정책을 이 복제 killer에도 있다고 해석하지 않습니다. Windows는 복제 OS handle을 사용하므로 같은 숫자 PID 위험으로 일괄 판정하지 않으며 별도 gate입니다.
 
 다음 JH fixture는 자기 pause gate/가짜 killer를 사용해 깨우기와 회수 뒤 시그널 권한을 재현해야 합니다. 실제로 회수된 PID에 시그널을 보내는 시험이나 사용자 PTY·프로세스 조회는 하지 않습니다. wait callback 완료와 reader/flusher 완료를 분리하며 Drop 요청을 실제 join으로 표현하지 않습니다. 이 본문 대조는 PTY 수정·전체 M6 완료의 증거가 아닙니다.
+
+후속 [PTY pause 이력](2026-09-27-pty-shutdown-pause-gate.md)에서 자기 gate/가짜 killer로 명시 kill 미해제·늦은 재pause의 실패를 재현하고 kill/Drop·child wait의 영구 해제를 구현했습니다. 기존 builder fixture의 비시크릿 환경 플래그 경합도 test-only 공유 잠금/원상 복구로 수정했습니다. Unix wait/PID 권한과 세 thread·spawn/제거 세션/root drain은 계속 미완료이며 위 미해제 설명은 수정 전 관찰입니다.
