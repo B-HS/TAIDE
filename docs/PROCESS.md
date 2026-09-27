@@ -3,6 +3,7 @@
 ## 진행 중: Rust-native 이전을 위한 전체 기능 crate 분리 (2026-09-23)
 
 > 요청: 기존 기능을 가능한 한 독립 crate로 분리하고 동작·테스트를 확인한 뒤에만 native UI 구현에 착수합니다. 매 변경에는 적합한 테스트를 동반하고, 가능한 경우 새 경계 테스트를 먼저 실패시킨 후 통과시키는 TDD로 진행합니다.
+> 현재 실행 목표(2026-09-27): 남아 있는 M6 전체를 완료하고 commit·push합니다. M7·M8 구현은 진행하지 않습니다. GitHub B-HS/TAIDE의 to_rust_native로 기존 미푸시 커밋을 포함한 일반 push는 사용자 명시 승인을 받았으며 M6 완료 후 수행합니다.
 > 재개 규칙: compact·handoff·새 세션에서도 이 체크리스트와 `docs/acknowledge/2026-09-23-rust-native-crate-migration-contract.md`를 먼저 확인하고 미완료 항목부터 시작합니다. 이번 작업에서 사용자가 직접 지정한 방식은 다중 에이전트 workflow 사용, 모든 subagent에 `ollama-cloud/deepseek-v4.1-flash#max` 지정입니다. 모델 명칭은 DeepSeek V4.1 Flash, variant `max`입니다. 이 기록을 지우거나 설치 기본 모델로 바꾸지 않습니다. 단, 재개된 실행 작업에서는 상위 운영 계약에 따라 workflow·모델 선택을 사용자에게 다시 확인합니다. 완료가 아닌 단계는 `[ ]`로 유지합니다.
 > 현재 브랜치: `to_rust_native`. 기존 Tauri 앱과 TS UI는 대체 native UI 검증 전까지 유지합니다. 앱 실행·재시작은 사용자 몫입니다.
 > 기준: rust-native 전환 계약·로드맵·parity plan, `docs/architecture.md`, `docs/agent-operations.md`, 상위 AGENTS 및 적용 컨벤션.
@@ -658,10 +659,11 @@
   - [x] M6-HD. 기존 TauriPlatformServices는 빌린 TauriEventSink로 publish를 위임하고 AppServices는 Arc<dyn EventSink>를 명시 주입받습니다. setup의 한 platform Arc가 OS 포트와 이벤트 포트를 제공하며 기존 TauriEventSink 타입·30종 매핑·대상 창·remote relay는 변경하지 않았습니다. 기존 State 등록은 유지하고 새 events 필드는 AppServices를 통해 제공합니다.
   - [x] M6-HE. 공유 조립 2건·platform 정책/trait 4건·이벤트 배선 29건·IPC 7건으로 총 42건과 runtime/Tauri all-target clippy·strict runtime rustdoc·fmt·diff 검사가 통과했습니다. 메모리 sink에서 주입 Arc identity와 clone의 payload·발행 순서를 확인했습니다. 기존 이벤트 매핑은 변경하지 않았고 normal runtime 그래프에 Tauri가 없으며 bindings SHA-256은 불변입니다. 아키텍처를 21개 필드/기존 State 등록 20개로 명확히 구분하고 `docs/history/2026-09-27-app-services-event-port.md`에 기록했습니다. 전체 workspace·TypeScript·실제 다중 창/remote relay·GUI 실기는 이 변경 후 미검증입니다.
   - [x] M6-HF. 검증된 event port 조립 코드·테스트·아키텍처·이력 7개 파일을 `aa3363a`으로 선별 로컬 commit했습니다. PROCESS는 별도 문서 commit으로 기록합니다. 앱 실기와 승인 거절된 push는 실행하지 않았습니다.
-  - [ ] M6-HG. file commands의 AppState 조립·mutation guard·blocking 실행·mirror/CLI 권한을 대조해 UI 비의존 action facade의 다음 묶음을 확정하고 기존 검증과 새 red 경계를 고정합니다. file_flush_complete의 실제 창 확인·exit는 platform adapter로 분리해 보존합니다.
-  - [ ] M6-HH. 확정한 file action 묶음을 runtime에 이전하고 Tauri command는 같은 시그니처의 adapter로 유지합니다. plugin overlay 취득 순서·루트/CLI 권한·잠금·self-write/mirror·I/O 오류·raw 응답 계약을 유지하며 공개 경로를 보존합니다.
-  - [ ] M6-HI. 관련 file 정책·application action·조립·IPC와 정적 검사를 수행하고 bindings 변경 여부·실제 검증 결과·아키텍처를 기록합니다. 실제 사용자 파일·앱 실기·시크릿/키링에는 접근하지 않습니다.
-  - [ ] M6-HJ. 검증한 file action 단위만 선별 로컬 commit하고 PROCESS는 별도 기록합니다. M6 전체와 M7/M8은 각 게이트 근거가 모두 확보되기 전까지 미완료로 유지하고 거절된 push는 재시도하지 않습니다.
+  - [x] M6-HG. file commands 16개 중 창 확인·exit를 수행하는 file_flush_complete를 제외한 15개 action을 runtime 이전 묶음으로 확정했습니다. 기존 공개 경로/저장 테스트 2건은 exit 0, 새 file_actions_runtime 검사는 비공개 module E0603(exit 101)으로 먼저 실패했습니다. Tokio spawn_blocking과 Tauri의 투명 JoinError 변환을 공식 원문으로 확인했으며 plugin overlay 취득은 권한/설정 확인 뒤로 보존합니다.
+  - [x] M6-HH. file_flush_complete를 제외한 15개 async action을 taide-runtime::file_actions에 이전하고 기존 Tauri command 인수 타입·응답 타입·공개 경로는 보존했습니다. file_open callback은 루트/CLI 확인과 설정 snapshot 뒤에 호출하며 save/mirror blocking은 공유 AppState clone을 사용합니다. file_read_raw의 바이트 정책은 runtime, Response 조립은 Tauri에 둡니다. 창 확인·exit 함수의 기존 본문은 변경하지 않았습니다.
+  - [x] M6-HI. file 정책 60건·runtime 저장 2건·새 application action 4건·기존 경로/저장 2건·공유 조립 2건·도메인 경계 3건·plugin 포트 조립 1건·IPC 7건으로 총 81건과 별도 bindings 생성 1건이 통과했습니다. runtime/Tauri all-target clippy·strict runtime rustdoc·fmt·diff는 exit 0이고 normal runtime 그래프에 Tauri가 없습니다. 생성 diff는 공개 문서 5개만 변경했으며 새 SHA-256 `49ff1b20f9fedd9001c5443014fb86608dadac8d93dc45180030012b088742a4`를 manifest에 반영했습니다. manifest Prettier exit 1은 변경 전 HEAD에도 재현돼 한 줄 diff를 유지합니다. 아키텍처와 `docs/history/2026-09-27-file-actions-runtime.md`에 기록했고 실제 사용자 파일·앱·시크릿/키링에 접근하지 않았습니다.
+  - [x] M6-HJ. 검증한 file action 코드·테스트·bindings/manifest·아키텍처·이력·사용자 승인 문서 9개 파일을 `1c79b64`로 선별 로컬 commit했습니다. PROCESS는 별도 기록합니다. 사용자 목표는 M6 전체 완료까지로 갱신됐으며 M7/M8은 진행하지 않습니다. GitHub B-HS/TAIDE의 to_rust_native 일반 push는 기존 미푸시 커밋을 포함해 승인됐고 M6 전체 완료 뒤 적용합니다.
+  - [ ] M6-HK. M6의 기존 roadmap·합의·검증 계약을 실제 AppServices 조립·AppHandle callback·application action·TaskSupervisor 잔여 spawn과 대조해 전체 종료에 필요한 남은 경계를 파일/심볼 기준으로 확정합니다. Tauri에 남겨야 하는 UI/OS adapter와 이전이 필요한 정책을 구분하며 M7·M8 gate로 범위를 확장하지 않습니다.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
