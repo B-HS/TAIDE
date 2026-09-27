@@ -352,8 +352,13 @@ pub async fn agent_pending_external_opens(agents: State<'_, AgentStore>) -> AppR
 
 #[tauri::command]
 #[specta::specta]
-pub async fn agent_hooks_status(state: State<'_, AppState>, project_id: ProjectId, agent_name: String) -> AppResult<AgentHooksStatus> {
-    agent_hook_actions::agent_hooks_status(&state, project_id, agent_name, home::home_dir_env).await
+pub async fn agent_hooks_status(
+    state: State<'_, AppState>,
+    tasks: State<'_, TaskSupervisor>,
+    project_id: ProjectId,
+    agent_name: String,
+) -> AppResult<AgentHooksStatus> {
+    agent_hook_actions::agent_hooks_status(&state, &tasks, project_id, agent_name, home::home_dir_env).await
 }
 
 #[tauri::command]
@@ -367,6 +372,7 @@ pub async fn agent_hooks_install(
     let tasks = app.state::<TaskSupervisor>();
     agent_hook_actions::agent_hooks_install(
         &state,
+        &tasks,
         project_id,
         agent_name,
         agent_hook_actions::AgentHookInstallPorts::new(
@@ -382,8 +388,13 @@ pub async fn agent_hooks_install(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn agent_hooks_uninstall(state: State<'_, AppState>, project_id: ProjectId, agent_name: String) -> AppResult<AgentHooksStatus> {
-    agent_hook_actions::agent_hooks_uninstall(&state, project_id, agent_name, home::home_dir_env).await
+pub async fn agent_hooks_uninstall(
+    state: State<'_, AppState>,
+    tasks: State<'_, TaskSupervisor>,
+    project_id: ProjectId,
+    agent_name: String,
+) -> AppResult<AgentHooksStatus> {
+    agent_hook_actions::agent_hooks_uninstall(&state, &tasks, project_id, agent_name, home::home_dir_env).await
 }
 
 pub(crate) async fn poll_agents(app: &tauri::AppHandle) {

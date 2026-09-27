@@ -259,6 +259,9 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     probe 실패 시 해당 diff는 유지하고 전체 valid-session 집합에는 추가하지 않는 기존 정책과 await 중 제거된 프로젝트의 snapshot 처리는 유지한다.
     runtime `agent_hook_actions`는 공개 status/install/uninstall 3개의
     scope·settings/project gate·shape·read/merge/write 정책을 소유하며 lazy home/emitter/CLI availability/server 포트를 받는다.
+    공개 3개 action은 동일한 등록 TaskSupervisor operation을 첫 gate부터 최종 status 반환까지 보유한다. 닫힌 입장은 파일/host port 전에 거절한다.
+    install의 emitter/server await와 이어지는 JSON 쓰기까지 이 owner에 포함한다. Tauri 명령과 원격 gateway는 같은 감독자를 주입하고 기존 frontend/remote 인자·응답은 유지한다.
+    실제 hook server bind/accept/store 자체의 독립 admission·transport 인증은 이 소유권만으로 완료되지 않는다.
     공통 hook 파일의 invalid JSON 거절·기존 권한/사용자 row·비소유 파일 보존과 loopback URL 조립은 taide-agent에 둔다.
     runtime `agent_hook_reconcile`는 비IPC toggle/reconcile/uninstall과 프로젝트·사용자 파일 reconcile을 소유한다.
     Native는 같은 state·등록 TaskSupervisor와 lazy home/emitter/server/stop port를 주입하며 공개 signature·root cleanup 재수출을 유지한다.

@@ -968,7 +968,9 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         ),
         "agent_release_marker" => respond(agent::agent_release_marker(app.state(), app.state(), arg!(args, "marker")).await),
         "agent_cli_status" => respond(agent::agent_cli_status().await),
-        "agent_hooks_status" => respond(agent::agent_hooks_status(app.state(), arg!(args, "projectId"), arg!(args, "agentName")).await),
+        "agent_hooks_status" => {
+            respond(agent::agent_hooks_status(app.state(), app.state(), arg!(args, "projectId"), arg!(args, "agentName")).await)
+        }
         "agent_hooks_install" => {
             let project_id = arg!(args, "projectId");
             let agent_name: String = arg!(args, "agentName");
@@ -979,7 +981,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             }
         }
         "agent_hooks_uninstall" => {
-            respond(agent::agent_hooks_uninstall(app.state(), arg!(args, "projectId"), arg!(args, "agentName")).await)
+            respond(agent::agent_hooks_uninstall(app.state(), app.state(), arg!(args, "projectId"), arg!(args, "agentName")).await)
         }
         "lsp_spawn" => respond(
             lsp::lsp_spawn(

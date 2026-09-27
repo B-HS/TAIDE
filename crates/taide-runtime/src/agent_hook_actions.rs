@@ -7,7 +7,7 @@ use taide_model::agent::{AgentHooksStatus, HookInstallScope};
 use taide_model::error::{AppError, AppResult};
 use taide_model::ids::ProjectId;
 
-use crate::AppState;
+use crate::{AppState, TaskSupervisor};
 
 fn project_root(state: &AppState, project_id: &ProjectId) -> AppResult<String> {
     state
@@ -43,10 +43,14 @@ impl<'a, H, E, C, S> AgentHookInstallPorts<'a, H, E, C, S> {
 /// Reports installed hooks using the agent's existing scope and ownership rules.
 pub async fn agent_hooks_status(
     state: &AppState,
+    tasks: &TaskSupervisor,
     project_id: ProjectId,
     agent_name: String,
     resolve_home: impl FnOnce() -> Option<String>,
 ) -> AppResult<AgentHooksStatus> {
+    let _operation = tasks
+        .begin_operation("agent-hooks-status")
+        .ok_or_else(|| AppError::Internal("agent hook action supervisor stopped".to_string()))?;
     let scope = service::hook_scope_for_agent(&agent_name)?;
     let installed = match scope {
         HookInstallScope::Project => {
@@ -76,6 +80,7 @@ pub async fn agent_hooks_status(
 /// Installs only the selected scope and shape while preserving unrelated rows and files.
 pub async fn agent_hooks_install<H, E, C, S, EF, SF>(
     state: &AppState,
+    tasks: &TaskSupervisor,
     project_id: ProjectId,
     agent_name: String,
     ports: AgentHookInstallPorts<'_, H, E, C, S>,
@@ -88,6 +93,9 @@ where
     EF: Future<Output = service::HookEmitter>,
     SF: Future<Output = AppResult<HooksServerInfo>>,
 {
+    let _operation = tasks
+        .begin_operation("agent-hooks-install")
+        .ok_or_else(|| AppError::Internal("agent hook action supervisor stopped".to_string()))?;
     let scope = service::hook_scope_for_agent(&agent_name)?;
     if !state.settings.read().agent_hooks_enabled {
         return Err(AppError::InvalidArgument("agent hooks are disabled in settings".to_string()));
@@ -147,10 +155,14 @@ where
 /// Removes only TAIDE-owned rows or files using the existing scope policy.
 pub async fn agent_hooks_uninstall(
     state: &AppState,
+    tasks: &TaskSupervisor,
     project_id: ProjectId,
     agent_name: String,
     resolve_home: impl FnOnce() -> Option<String>,
 ) -> AppResult<AgentHooksStatus> {
+    let _operation = tasks
+        .begin_operation("agent-hooks-uninstall")
+        .ok_or_else(|| AppError::Internal("agent hook action supervisor stopped".to_string()))?;
     let scope = service::hook_scope_for_agent(&agent_name)?;
     match scope {
         HookInstallScope::Project => {

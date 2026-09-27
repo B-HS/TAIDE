@@ -12,7 +12,7 @@ use taide_model::ids::ProjectId;
 use taide_model::paths::AppPaths;
 use taide_model::project::{Project, ProjectDisplay};
 use taide_runtime::agent_hook_actions::AgentHookInstallPorts;
-use taide_runtime::{agent_hook_actions, AppState};
+use taide_runtime::{agent_hook_actions, AppState, TaskSupervisor};
 use uuid::Uuid;
 
 const FIXTURE_CLI_PATH: &str = "/fixture/bin/taide";
@@ -24,6 +24,7 @@ const FILE_MODE_MASK: u32 = 0o777;
 
 struct Fixture {
     state: AppState,
+    tasks: TaskSupervisor,
     project_id: ProjectId,
     root: String,
     home: String,
@@ -51,6 +52,7 @@ impl Fixture {
         );
         Self {
             state,
+            tasks: TaskSupervisor::new(tokio::runtime::Handle::current()),
             project_id,
             root,
             home,
@@ -105,7 +107,8 @@ async fn project_scope의_닫힌_프로젝트는_home_port를_호출하지_않�
     let state = AppState::new(AppPaths::new(
         std::env::temp_dir().join(format!("taide-agent-hook-action-{}", Uuid::new_v4())),
     ));
-    let error = agent_hook_actions::agent_hooks_status(&state, ProjectId::new(), AGENT_NAME_CLAUDE.to_string(), || {
+    let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+    let error = agent_hook_actions::agent_hooks_status(&state, &tasks, ProjectId::new(), AGENT_NAME_CLAUDE.to_string(), || {
         panic!("project scope는 home을 조회하지 않는다")
     })
     .await
@@ -121,6 +124,7 @@ async fn unknown_agent와_disabled_gate는_project와_native_port보다_먼저�
     for name in ["fixture-unknown", AGENT_NAME_CLAUDE] {
         let error = agent_hook_actions::agent_hooks_install(
             &fixture.state,
+            &fixture.tasks,
             ProjectId::new(),
             name.to_string(),
             AgentHookInstallPorts::new(no_home, no_emitter, no_cli, no_server, FIXTURE_CLI_PATH),
@@ -135,14 +139,25 @@ async fn unknown_agent와_disabled_gate는_project와_native_port보다_먼저�
         };
         assert_eq!(error.to_string(), expected);
     }
-    let error = agent_hook_actions::agent_hooks_status(&fixture.state, fixture.project_id.clone(), "fixture-unknown".to_string(), no_home)
-        .await
-        .unwrap_err();
+    let error = agent_hook_actions::agent_hooks_status(
+        &fixture.state,
+        &fixture.tasks,
+        fixture.project_id.clone(),
+        "fixture-unknown".to_string(),
+        no_home,
+    )
+    .await
+    .unwrap_err();
     assert_eq!(error.kind(), AppErrorKind::InvalidArgument);
-    let error =
-        agent_hook_actions::agent_hooks_uninstall(&fixture.state, fixture.project_id.clone(), "fixture-unknown".to_string(), no_home)
-            .await
-            .unwrap_err();
+    let error = agent_hook_actions::agent_hooks_uninstall(
+        &fixture.state,
+        &fixture.tasks,
+        fixture.project_id.clone(),
+        "fixture-unknown".to_string(),
+        no_home,
+    )
+    .await
+    .unwrap_err();
     assert_eq!(error.kind(), AppErrorKind::InvalidArgument);
     assert!(!fixture.state.paths.data_dir.exists());
 }
@@ -154,6 +169,7 @@ async fn project_install은_emitter_완료_뒤_최신_json을_읽고_기존_사�
     let (release, released) = tokio::sync::oneshot::channel();
     let mut action = Box::pin(agent_hook_actions::agent_hooks_install(
         &fixture.state,
+        &fixture.tasks,
         fixture.project_id.clone(),
         AGENT_NAME_CLAUDE.to_string(),
         AgentHookInstallPorts::new(
@@ -184,15 +200,26 @@ async fn project_install은_emitter_완료_뒤_최신_json을_읽고_기존_사�
     let installed = hook_files::read_settings_local(&fixture.root).unwrap();
     let expected = service::inject_taide_agent_hook_entries(AGENT_NAME_CLAUDE, existing.clone(), service::HookEmitter::TerminalSequence);
     assert_eq!(installed, expected);
-    let status = agent_hook_actions::agent_hooks_status(&fixture.state, fixture.project_id.clone(), AGENT_NAME_CLAUDE.to_string(), no_home)
-        .await
-        .unwrap();
+    let status = agent_hook_actions::agent_hooks_status(
+        &fixture.state,
+        &fixture.tasks,
+        fixture.project_id.clone(),
+        AGENT_NAME_CLAUDE.to_string(),
+        no_home,
+    )
+    .await
+    .unwrap();
     assert!(status.installed);
     fixture.state.settings.write().agent_hooks_enabled = false;
-    let status =
-        agent_hook_actions::agent_hooks_uninstall(&fixture.state, fixture.project_id.clone(), AGENT_NAME_CLAUDE.to_string(), no_home)
-            .await
-            .unwrap();
+    let status = agent_hook_actions::agent_hooks_uninstall(
+        &fixture.state,
+        &fixture.tasks,
+        fixture.project_id.clone(),
+        AGENT_NAME_CLAUDE.to_string(),
+        no_home,
+    )
+    .await
+    .unwrap();
     assert!(!status.installed);
     assert_eq!(hook_files::read_settings_local(&fixture.root).unwrap(), existing);
 }
@@ -200,13 +227,25 @@ async fn project_install은_emitter_완료_뒤_최신_json을_읽고_기존_사�
 #[tokio::test]
 async fn project_missing_해제는_디렉터리를_만들지_않고_invalid_json은_emitter_뒤에도_보존된다() {
     let fixture = Fixture::new();
-    let status = agent_hook_actions::agent_hooks_status(&fixture.state, fixture.project_id.clone(), AGENT_NAME_CLAUDE.to_string(), no_home)
-        .await
-        .unwrap();
+    let status = agent_hook_actions::agent_hooks_status(
+        &fixture.state,
+        &fixture.tasks,
+        fixture.project_id.clone(),
+        AGENT_NAME_CLAUDE.to_string(),
+        no_home,
+    )
+    .await
+    .unwrap();
     assert!(!status.installed);
-    agent_hook_actions::agent_hooks_uninstall(&fixture.state, fixture.project_id.clone(), AGENT_NAME_CLAUDE.to_string(), no_home)
-        .await
-        .unwrap();
+    agent_hook_actions::agent_hooks_uninstall(
+        &fixture.state,
+        &fixture.tasks,
+        fixture.project_id.clone(),
+        AGENT_NAME_CLAUDE.to_string(),
+        no_home,
+    )
+    .await
+    .unwrap();
     assert!(!fixture.state.paths.data_dir.exists());
     let path = hook_files::settings_local_path(&fixture.root);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -214,6 +253,7 @@ async fn project_missing_해제는_디렉터리를_만들지_않고_invalid_json
     let called = Cell::new(false);
     let error = agent_hook_actions::agent_hooks_install(
         &fixture.state,
+        &fixture.tasks,
         fixture.project_id.clone(),
         AGENT_NAME_CLAUDE.to_string(),
         AgentHookInstallPorts::new(
@@ -237,9 +277,13 @@ async fn project_missing_해제는_디렉터리를_만들지_않고_invalid_json
 #[tokio::test]
 async fn user_in_band_json은_project_cli_emitter_server_없이_멱등_설치_해제한다() {
     let fixture = Fixture::new();
-    let missing = agent_hook_actions::agent_hooks_status(&fixture.state, ProjectId::new(), AGENT_NAME_CODEX.to_string(), || {
-        Some(fixture.home.clone())
-    })
+    let missing = agent_hook_actions::agent_hooks_status(
+        &fixture.state,
+        &fixture.tasks,
+        ProjectId::new(),
+        AGENT_NAME_CODEX.to_string(),
+        || Some(fixture.home.clone()),
+    )
     .await
     .unwrap();
     assert_eq!(missing.scope, HookInstallScope::User);
@@ -258,6 +302,7 @@ async fn user_in_band_json은_project_cli_emitter_server_없이_멱등_설치_�
     for _ in [false, true] {
         let status = agent_hook_actions::agent_hooks_install(
             &fixture.state,
+            &fixture.tasks,
             ProjectId::new(),
             AGENT_NAME_CODEX.to_string(),
             AgentHookInstallPorts::new(|| Some(fixture.home.clone()), no_emitter, no_cli, no_server, FIXTURE_CLI_PATH),
@@ -269,15 +314,23 @@ async fn user_in_band_json은_project_cli_emitter_server_없이_멱등_설치_�
         #[cfg(unix)]
         assert_eq!(file_mode(&path), EXISTING_FILE_MODE);
     }
-    let installed = agent_hook_actions::agent_hooks_status(&fixture.state, ProjectId::new(), AGENT_NAME_CODEX.to_string(), || {
-        Some(fixture.home.clone())
-    })
+    let installed = agent_hook_actions::agent_hooks_status(
+        &fixture.state,
+        &fixture.tasks,
+        ProjectId::new(),
+        AGENT_NAME_CODEX.to_string(),
+        || Some(fixture.home.clone()),
+    )
     .await
     .unwrap();
     assert!(installed.installed);
-    let status = agent_hook_actions::agent_hooks_uninstall(&fixture.state, ProjectId::new(), AGENT_NAME_CODEX.to_string(), || {
-        Some(fixture.home.clone())
-    })
+    let status = agent_hook_actions::agent_hooks_uninstall(
+        &fixture.state,
+        &fixture.tasks,
+        ProjectId::new(),
+        AGENT_NAME_CODEX.to_string(),
+        || Some(fixture.home.clone()),
+    )
     .await
     .unwrap();
     assert!(!status.installed);
@@ -293,6 +346,7 @@ async fn owned_file은_비소유_파일을_보존하고_생성한_파일만_해�
         std::fs::write(&path, "fixture user plugin").unwrap();
         let error = agent_hook_actions::agent_hooks_install(
             &fixture.state,
+            &fixture.tasks,
             ProjectId::new(),
             name.to_string(),
             AgentHookInstallPorts::new(|| Some(fixture.home.clone()), no_emitter, no_cli, no_server, FIXTURE_CLI_PATH),
@@ -300,18 +354,22 @@ async fn owned_file은_비소유_파일을_보존하고_생성한_파일만_해�
         .await
         .unwrap_err();
         assert_eq!(error.kind(), AppErrorKind::InvalidArgument);
-        let status =
-            agent_hook_actions::agent_hooks_status(&fixture.state, ProjectId::new(), name.to_string(), || Some(fixture.home.clone()))
-                .await
-                .unwrap();
+        let status = agent_hook_actions::agent_hooks_status(&fixture.state, &fixture.tasks, ProjectId::new(), name.to_string(), || {
+            Some(fixture.home.clone())
+        })
+        .await
+        .unwrap();
         assert!(!status.installed);
-        agent_hook_actions::agent_hooks_uninstall(&fixture.state, ProjectId::new(), name.to_string(), || Some(fixture.home.clone()))
-            .await
-            .unwrap();
+        agent_hook_actions::agent_hooks_uninstall(&fixture.state, &fixture.tasks, ProjectId::new(), name.to_string(), || {
+            Some(fixture.home.clone())
+        })
+        .await
+        .unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "fixture user plugin");
         std::fs::remove_file(&path).unwrap();
         let status = agent_hook_actions::agent_hooks_install(
             &fixture.state,
+            &fixture.tasks,
             ProjectId::new(),
             name.to_string(),
             AgentHookInstallPorts::new(|| Some(fixture.home.clone()), no_emitter, no_cli, no_server, FIXTURE_CLI_PATH),
@@ -324,27 +382,38 @@ async fn owned_file은_비소유_파일을_보존하고_생성한_파일만_해�
             std::fs::read_to_string(&path).unwrap(),
             service::build_owned_hook_file_source(name).unwrap()
         );
-        let status =
-            agent_hook_actions::agent_hooks_status(&fixture.state, ProjectId::new(), name.to_string(), || Some(fixture.home.clone()))
-                .await
-                .unwrap();
+        let status = agent_hook_actions::agent_hooks_status(&fixture.state, &fixture.tasks, ProjectId::new(), name.to_string(), || {
+            Some(fixture.home.clone())
+        })
+        .await
+        .unwrap();
         assert!(status.installed);
-        agent_hook_actions::agent_hooks_uninstall(&fixture.state, ProjectId::new(), name.to_string(), || Some(fixture.home.clone()))
-            .await
-            .unwrap();
+        agent_hook_actions::agent_hooks_uninstall(&fixture.state, &fixture.tasks, ProjectId::new(), name.to_string(), || {
+            Some(fixture.home.clone())
+        })
+        .await
+        .unwrap();
         assert!(!path.exists());
-        agent_hook_actions::agent_hooks_uninstall(&fixture.state, ProjectId::new(), name.to_string(), || Some(fixture.home.clone()))
-            .await
-            .unwrap();
+        agent_hook_actions::agent_hooks_uninstall(&fixture.state, &fixture.tasks, ProjectId::new(), name.to_string(), || {
+            Some(fixture.home.clone())
+        })
+        .await
+        .unwrap();
     }
 }
 
 #[tokio::test]
 async fn user_home_누락과_invalid_json은_cli_server_호출_전에_거절한다() {
     let fixture = Fixture::new();
-    let error = agent_hook_actions::agent_hooks_status(&fixture.state, ProjectId::new(), AGENT_NAME_CODEX.to_string(), || None)
-        .await
-        .unwrap_err();
+    let error = agent_hook_actions::agent_hooks_status(
+        &fixture.state,
+        &fixture.tasks,
+        ProjectId::new(),
+        AGENT_NAME_CODEX.to_string(),
+        || None,
+    )
+    .await
+    .unwrap_err();
     assert_eq!(error.to_string(), "operation failed: home directory not found");
     assert!(!fixture.state.paths.data_dir.exists());
     let path = fixture.user_path(AGENT_NAME_GEMINI);
@@ -352,6 +421,7 @@ async fn user_home_누락과_invalid_json은_cli_server_호출_전에_거절한�
     std::fs::write(&path, "{ fixture invalid").unwrap();
     let error = agent_hook_actions::agent_hooks_install(
         &fixture.state,
+        &fixture.tasks,
         ProjectId::new(),
         AGENT_NAME_GEMINI.to_string(),
         AgentHookInstallPorts::new(|| Some(fixture.home.clone()), no_emitter, no_cli, no_server, FIXTURE_CLI_PATH),
@@ -359,15 +429,23 @@ async fn user_home_누락과_invalid_json은_cli_server_호출_전에_거절한�
     .await
     .unwrap_err();
     assert_eq!(error.kind(), AppErrorKind::Internal);
-    let error = agent_hook_actions::agent_hooks_status(&fixture.state, ProjectId::new(), AGENT_NAME_GEMINI.to_string(), || {
-        Some(fixture.home.clone())
-    })
+    let error = agent_hook_actions::agent_hooks_status(
+        &fixture.state,
+        &fixture.tasks,
+        ProjectId::new(),
+        AGENT_NAME_GEMINI.to_string(),
+        || Some(fixture.home.clone()),
+    )
     .await
     .unwrap_err();
     assert_eq!(error.kind(), AppErrorKind::Internal);
-    let error = agent_hook_actions::agent_hooks_uninstall(&fixture.state, ProjectId::new(), AGENT_NAME_GEMINI.to_string(), || {
-        Some(fixture.home.clone())
-    })
+    let error = agent_hook_actions::agent_hooks_uninstall(
+        &fixture.state,
+        &fixture.tasks,
+        ProjectId::new(),
+        AGENT_NAME_GEMINI.to_string(),
+        || Some(fixture.home.clone()),
+    )
     .await
     .unwrap_err();
     assert_eq!(error.kind(), AppErrorKind::Internal);
@@ -383,6 +461,7 @@ async fn http_cli_gate와_server_실패는_기존_json을_변경하지_않는다
     let original = std::fs::read(&path).unwrap();
     let error = agent_hook_actions::agent_hooks_install(
         &fixture.state,
+        &fixture.tasks,
         ProjectId::new(),
         AGENT_NAME_GEMINI.to_string(),
         AgentHookInstallPorts::new(|| Some(fixture.home.clone()), no_emitter, || false, no_server, FIXTURE_CLI_PATH),
@@ -393,6 +472,7 @@ async fn http_cli_gate와_server_실패는_기존_json을_변경하지_않는다
     assert_eq!(std::fs::read(&path).unwrap(), original);
     let error = agent_hook_actions::agent_hooks_install(
         &fixture.state,
+        &fixture.tasks,
         ProjectId::new(),
         AGENT_NAME_GEMINI.to_string(),
         AgentHookInstallPorts::new(
@@ -422,6 +502,7 @@ async fn http_설치는_home_cli_server_순서와_기존_url_command_timeout을_
     let stages = RefCell::new(Vec::new());
     let status = agent_hook_actions::agent_hooks_install(
         &fixture.state,
+        &fixture.tasks,
         ProjectId::new(),
         AGENT_NAME_GEMINI.to_string(),
         AgentHookInstallPorts::new(
@@ -461,16 +542,24 @@ async fn http_설치는_home_cli_server_순서와_기존_url_command_timeout을_
         service::user_level_hook_command_timeout(AGENT_NAME_GEMINI),
     );
     assert_eq!(hook_files::read_user_level_hooks(&path).unwrap(), expected);
-    let installed = agent_hook_actions::agent_hooks_status(&fixture.state, ProjectId::new(), AGENT_NAME_GEMINI.to_string(), || {
-        Some(fixture.home.clone())
-    })
+    let installed = agent_hook_actions::agent_hooks_status(
+        &fixture.state,
+        &fixture.tasks,
+        ProjectId::new(),
+        AGENT_NAME_GEMINI.to_string(),
+        || Some(fixture.home.clone()),
+    )
     .await
     .unwrap();
     assert!(installed.installed);
     assert!(installed.requires_taide_cli);
-    let status = agent_hook_actions::agent_hooks_uninstall(&fixture.state, ProjectId::new(), AGENT_NAME_GEMINI.to_string(), || {
-        Some(fixture.home.clone())
-    })
+    let status = agent_hook_actions::agent_hooks_uninstall(
+        &fixture.state,
+        &fixture.tasks,
+        ProjectId::new(),
+        AGENT_NAME_GEMINI.to_string(),
+        || Some(fixture.home.clone()),
+    )
     .await
     .unwrap();
     assert!(!status.installed);
