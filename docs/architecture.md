@@ -273,7 +273,9 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     ProjectLifecyclePort가 같은 native capability detect/attach·flush·detach를 주입한다. fresh open의 attach는 guard 밖이며 실패 rollback은 같은 close를 호출한다.
     close는 flush 뒤 guard 안에서 재검사하므로 중복 close의 두 번째 detach·이벤트를 생략한다. group queue는 첫 실제 성공까지 활성화를 이월하며 shutdown 뒤 남은 멤버를 skipped로 보고한다.
     비IPC restore_state와 projects_pending_watcher_restore도 같은 runtime 정책이다. setup은 같은 native wrapper를 통해 동기 session/layout/settings 복원·chrome 승격/dirty 반영·active 우선 watcher 대상 선택을 수행한다.
-    실제 capability build/register worker·watcher restore·window flush handshake와 전체 자원 종료는 별도 미완료 gate다.
+    capability attach와 watcher restore의 blocking build는 runtime `project_build`가 같은 등록 TaskSupervisor로 추적한다.
+    ProjectBuild는 결과 resource를 operation lease보다 먼저 회수하며 partial move 뒤에도 native commit/발행 스코프가 끝날 때까지 lease를 보유한다.
+    요청/restore waiter 취소 뒤 시작한 worker·미등록 결과 Drop은 정상 root가 기다린다. 실제 watcher queue/register callback·window flush 정책과 전체 자원 종료는 별도 미완료 gate다.
     `RemoteStore`는 taide-remote에서 서버 Tokio 핸들·종료 신호·세션 digest·nonce·로그인 잠금과 클라이언트 수를 공유 Arc<Mutex>에 보관한다.
     이벤트 broadcast·세션 epoch watch도 같은 채널을 공유하며, 링크/nonce 1회 소모·만료·독립 잠금 축·전체 세션 해제/서버 중지의 epoch 증분을 유지한다.
     HTTP/WS 서버·부팅 secret cache refresh·상태 이벤트 발행·감독 작업 조립은 Tauri adapter에 남는다.

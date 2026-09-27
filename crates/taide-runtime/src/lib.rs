@@ -20,6 +20,7 @@ mod platform_services;
 pub mod plugin_actions;
 mod plugin_install_worker;
 pub mod project_actions;
+pub mod project_build;
 pub mod remote_actions;
 mod remote_dispatch_limiter;
 pub mod search_actions;

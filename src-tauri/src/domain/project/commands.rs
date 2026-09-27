@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use taide_model::app_event::AppEvent;
+use taide_runtime::project_build::run_project_build;
 use taide_runtime::{project_actions, EventSink, TaskSupervisor};
 use tauri::{AppHandle, Manager, State};
 
@@ -267,7 +268,7 @@ pub async fn session_set_window_chrome(app: AppHandle, state: State<'_, AppState
 async fn attach_project_capabilities(app: &AppHandle, project: &Project) -> AppResult<()> {
     let build_app = app.clone();
     let build_project = project.clone();
-    let built = tauri::async_runtime::spawn_blocking(move || {
+    let built = run_project_build(&app.state::<TaskSupervisor>(), move || {
         let state = build_app.state::<AppState>();
         build_app
             .state::<ProjectCapabilities>()
@@ -275,8 +276,8 @@ async fn attach_project_capabilities(app: &AppHandle, project: &Project) -> AppR
     })
     .await;
 
-    let attachments = match built {
-        Ok(attachments) => attachments,
+    let built = match built {
+        Ok(built) => built,
         Err(error) => {
             log::warn!(
                 "프로젝트 capability attach 태스크가 실패했습니다 (projectId={}): {error}",
@@ -293,7 +294,7 @@ async fn attach_project_capabilities(app: &AppHandle, project: &Project) -> AppR
             return Ok(());
         }
 
-        app.state::<ProjectCapabilities>().commit_attachments(&state, project, attachments);
+        app.state::<ProjectCapabilities>().commit_attachments(&state, project, built.value);
         state.git_watchers.read().contains_key(&project.id)
     };
 
@@ -675,20 +676,22 @@ pub(crate) fn restore_project_watchers(app: &tauri::AppHandle, restored: Vec<(Pr
             let build_handle = app_handle.clone();
             let build_project_id = project_id.clone();
             let build_root = root.clone();
-            let build_result = tauri::async_runtime::spawn_blocking(move || {
+            let build_result = run_project_build(&app_handle.state::<TaskSupervisor>(), move || {
                 let file_handle = build_file(&build_handle, &build_project_id, &build_root);
                 let git_handle = build_git(&build_handle, &build_project_id, &build_root);
                 (file_handle, git_handle)
             })
             .await;
 
-            let (file_handle, git_handle) = match build_result {
-                Ok(handles) => handles,
+            let built = match build_result {
+                Ok(built) => built,
                 Err(error) => {
                     log::warn!("복원 프로젝트 워처 attach 태스크가 실패했습니다 (projectId={project_id}): {error}");
                     continue;
                 }
             };
+
+            let (file_handle, git_handle) = built.value;
 
             let state = app_handle.state::<AppState>();
             let _guard = state.begin_mutation().await;
@@ -789,9 +792,11 @@ mod tests {
         let commit = marker_position(body, "commit_attachments(");
 
         assert!(
-            marker_position(body, "spawn_blocking(") < build,
+            marker_position(body, "run_project_build(") < build,
             "capability build 는 blocking 스레드에서 실행돼야 합니다 — async 워커에서 돌리면 워처 walk 가 런타임을 막습니다"
         );
+        let worker = include_str!("../../../../crates/taide-runtime/src/project_build.rs");
+        assert!(worker.contains(".spawn_blocking_transient_handle(\"project-build-worker\""));
         assert!(
             build < guard,
             "capability build 가 begin_mutation 뒤로 가면 후절화가 무효가 됩니다 — 워처 walk 동안 앱 전역 뮤테이션이 다시 정지합니다"
