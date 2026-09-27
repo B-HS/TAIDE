@@ -20,7 +20,7 @@ infra PTY wait owner·공유 killer, owned_child WNOWAIT helper와 Tauri 출력 
 ## 남은 gate와 실행 조건
 
 - [x] 후속 [PTY worker 완료 QA](2026-09-27-pty-worker-completion-lifecycle.md)와 [터미널 spawn/root QA](2026-09-27-terminal-spawn-root-lifecycle.md)에서 세 worker 실제 join·callback 반환·대기 취소/재대기·spawn/등록 입장과 제거/교체/미반환 세션의 정상 root drain을 확인했습니다. [부분 시작 QA](2026-09-27-pty-partial-startup-lifecycle.md)는 초기 owner Drop의 자기 child wait와 부분 thread 오류 회수를 확인합니다. kill 요청·callback 진입·handle Drop만을 join으로 해석하지 않습니다.
-- [ ] SIGHUP 무시·pipe 보유 자손과 waitid/wait 오류·callback panic의 실제 회수는 자기 fixture/OS 정책으로 확인해야 합니다. 이번 unsupported 가짜 child 검사에는 실제 child가 없어 OS 오류 회수를 증명하지 않습니다.
+- [ ] SIGHUP 무시·pipe 보유 자손과 실제 waitid/wait OS 오류·callback panic의 회수는 자기 fixture/OS 정책으로 확인해야 합니다. 이 배치의 unsupported 가짜 child 검사에는 실제 child가 없었습니다. 후속 [관찰 오류 child wait QA](2026-09-28-pty-observation-error-wait.md)는 실제 자기 child wrapper의 unsupported 분기에서 wait 시도를 확인했지만 커널 waitid 오류 주입이나 bounded 종료를 증명하지 않습니다.
 - [ ] 기존 infra 실제 Drop 2건은 자기 profile/환경 구성을 갖춘 뒤 확인합니다. 프로젝트 회수 fixture는 후속 root 단위에서 ENV/BASH_ENV를 비우고 admission/actual idle 대기에 연결했습니다. zsh의 사용자 profile을 실행하거나 회수된 PID에 실제 시그널을 보내는 검사는 하지 않습니다.
 - [ ] Windows·다른 Unix 및 실제 native ExitRequested/직접 Exit/앱 재시작은 미실행입니다. 플랫폼/실기 실행 권한과 fixture가 준비되었을 때 별도 검증하며 현재 성공으로 대체하지 않습니다.
 - [ ] M6-JP/JQ 전체와 M6 전수 body·다른 자원, M7/M8·Phase 0은 미완료입니다. 일반 push는 M6 전체 완료 후입니다.

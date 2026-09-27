@@ -15,7 +15,7 @@
 
 1. native Unix PTY는 `std::process::Child`를 반환합니다. wait owner가 이를 단독으로 소유하고 `waitid(P_PID, WEXITED | WNOWAIT)`로 종료를 관찰합니다. 살아 있는 동안 mutex를 보유하거나 polling하지 않으며 PID/exit status를 회수하지 않습니다.
 2. 종료 관찰 뒤 세션과 같은 killer mutex를 잠가 권한을 반납한 다음 portable child wait로 실제 회수합니다. kill이 먼저 잠그면 아직 회수되지 않은 child만 대상으로 하며, 권한 반납이 먼저 잠그면 늦은 kill/Drop은 시그널 없이 성공합니다. helper의 PID 범위·siginfo 일치·EINTR 재시도 검증을 재사용합니다.
-3. child owner는 pipe 복제보다 먼저 생성합니다. owner Drop은 남아 있는 권한으로 기존 종료 요청을 한 뒤 권한을 반납하고 child handle을 놓습니다. Drop의 종료 요청을 실제 wait나 thread join으로 해석하지 않습니다. 종료 관찰 오류는 권한을 닫고 오류를 반환하며, 오류 경로의 실제 child 회수는 별도 미완료 gate입니다.
+3. child owner는 pipe 복제보다 먼저 생성합니다. owner Drop은 남아 있는 권한으로 기존 종료 요청을 한 뒤 권한을 반납하고 child handle을 놓습니다. Drop의 종료 요청을 실제 wait나 thread join으로 해석하지 않습니다. 이 배치의 종료 관찰 오류 경로는 권한을 닫고 오류를 반환했으나 소유 child의 실제 wait를 시도하지 않았습니다. 2026-09-28 후속 수정은 [관찰 오류 child wait](2026-09-28-pty-observation-error-wait.md)에 따로 기록합니다.
 4. Windows는 복제 OS handle의 기존 wait/termination 정책을 유지하고 wait 뒤 권한을 반납합니다. 현재 macOS 결과로 Windows/다른 Unix 실행 검증을 대체하지 않습니다. Unix SIGHUP 정책·출력 batching·scan/replay·IPC·의존성은 변경하지 않습니다.
 5. 새 실제 PTY fixture와 기존 Tauri 출력 fixture에는 `ENV`/`BASH_ENV`를 빈 값으로 명시해 사용자 profile 실행을 차단합니다. 실제 앱·사용자 프로세스·시크릿은 사용하지 않으며 회수된 숫자 PID에 실제 시그널을 보내는 재현은 하지 않습니다.
 

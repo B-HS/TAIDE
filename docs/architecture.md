@@ -211,7 +211,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     이 deadline은 EOF 드레인 대기 한도이며 non-yield callback의 강제 중단·앱/OS의 bounded 종료를 보장하지 않는다.
     PTY의 명시 kill/Drop과 child wait 종료는 같은 PauseGate를 영구 해제하며 늦은 pause 요청은 다시 reader를 가두지 않는다. killer 오류에도 pause를 해제하되 기존 오류를 반환한다.
     Unix native child는 wait owner가 단독 소유하며 blocking WNOWAIT 관찰 뒤 같은 killer mutex에서 시그널 권한을 반납하고 실제 wait로 회수한다. 회수 뒤 kill/Drop은 숫자 PID를 재신호하지 않는다.
-    초기 child owner Drop은 권한으로 종료를 요청하고 반납한 뒤 직접 소유한 child를 wait한다. 종료 관찰/OS wait 오류를 성공한 회수로 해석하지 않으며 기존 SIGHUP 정책도 유지한다. Windows 복제 OS handle은 정상 wait 뒤 반납하며 실기 검증은 별도다.
+    초기 child owner Drop은 권한으로 종료를 요청하고 반납한 뒤 직접 소유한 child를 wait한다. 종료 관찰 오류를 반환할 때도 권한 반납 뒤 소유 child의 wait를 먼저 시도한다. 종료 관찰/OS wait 오류를 성공한 회수로 해석하지 않으며 기존 SIGHUP 정책도 유지한다. Windows 복제 OS handle은 정상 wait 뒤 반납하며 실기 검증은 별도다.
     성공한 PTY spawn은 reader/flusher/wait의 세 std thread handle을 별도 PtyCompletionHandle에 보존한다. 세션의 master/writer를 보유하지 않고 Drop 뒤에도 실제 join할 수 있다.
     join은 대기 시점의 Tokio blocking pool에서 수행하며 mutable await를 mutex 안에 보존해 대기 취소 뒤 재대기한다. panic/오류에도 나머지 worker를 join한 뒤 실패를 반환하며 성공한 실제 join만 완료 플래그를 올린다.
     reader unwind는 flusher stop을 알리고 정상 stop/최종 flush 순서는 유지한다. 이는 blocking Read/callback을 강제 중단하는 계약이 아니다.

@@ -51,18 +51,18 @@ impl PtyChildWaitOwner {
 
     fn finish(mut self) -> std::io::Result<portable_pty::ExitStatus> {
         #[cfg(unix)]
-        {
-            let observed = self
-                .child
-                .as_mut()
-                .as_any_mut()
-                .downcast_mut::<std::process::Child>()
-                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Unsupported, "native Unix PTY child is not std::process::Child"))
-                .and_then(crate::owned_child::wait_for_exit_unreaped);
-            self.killer.lock().take();
-            observed?;
-        }
+        let observed = self
+            .child
+            .as_mut()
+            .as_any_mut()
+            .downcast_mut::<std::process::Child>()
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Unsupported, "native Unix PTY child is not std::process::Child"))
+            .and_then(crate::owned_child::wait_for_exit_unreaped);
+        #[cfg(unix)]
+        self.killer.lock().take();
         let status = self.child.wait();
+        #[cfg(unix)]
+        observed?;
         #[cfg(not(unix))]
         self.killer.lock().take();
         status
@@ -1023,6 +1023,31 @@ mod tests {
         assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Unsupported);
         assert!(killer.lock().is_none());
         assert!(!called.load(AtomicOrdering::SeqCst));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 종료_관찰_오류에도_자기_child의_wait를_시도한다() {
+        let pair = native_pty_system().openpty(PtySize::default()).unwrap();
+        let mut command = CommandBuilder::new("/bin/sh");
+        command.args(["-c", "exit 0"]);
+        command.env("ENV", "");
+        command.env("BASH_ENV", "");
+        let child = Arc::new(Mutex::new(pair.slave.spawn_command(command).unwrap()));
+        let waited = Arc::new(AtomicBool::new(false));
+        let owner = PtyChildWaitOwner::new(Box::new(WaitRecordingChild {
+            child: child.clone(),
+            waited: waited.clone(),
+        }));
+        let killer = owner.killer.clone();
+        drop(pair);
+
+        let result = owner.finish();
+        let was_waited = waited.load(AtomicOrdering::SeqCst);
+        child.lock().wait().unwrap();
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Unsupported);
+        assert!(was_waited);
+        assert!(killer.lock().is_none());
     }
 
     #[cfg(unix)]
