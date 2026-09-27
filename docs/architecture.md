@@ -219,10 +219,13 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     검색 세션 `SearchStore`도 runtime crate가 owner/session별 취소·대체·종료 정리를 소유하고,
     기존 search 명령 경로는 같은 타입을 재수출한다. Tauri 명령의 mutation guard·Channel 경계는 유지한다.
     AI 요청 `AiRequestStore`는 owner/requestId별 중복 시작·취소를 관리하고, 시작별 token이 늦은 완료의
-    새 요청 제거를 막는다. 기존 AI 명령 경로는 같은 타입을 재수출하며 provider·secret·IPC 경계는 유지한다.
+    새 요청 제거를 막는다. token은 순환 소유 없이 store·key·identity를 보유하고 Drop 시 자기 registry/owner만 정리한다.
+    취소/수동 finish로 registry에서 제거된 identity도 token Drop까지 live-owner 목록에 남는다. shutdown은 신규 입장을 닫고
+    취소를 전달하며 idle 대기는 실제 token owner 회수까지 기다린다. 기존 AI 명령 경로는 같은 타입을 재수출하며 provider·secret·IPC 경계는 유지한다.
     AI 8개 공개 action의 입력 상한·설정 snapshot·provider 해석·prompt 선택·취소 select·finish·응답 조립은
     Tauri 미의존 runtime `ai_actions`가 소유한다. Tauri command는 같은 State/인수/반환 타입으로 위임하며,
-    provider HTTP와 secret port는 기존 taide-ai/infra를 사용한다. 요청 future Drop·앱 shutdown의 회수 보장은 별도 미완료 경계다.
+    provider HTTP와 secret port는 기존 taide-ai/infra를 사용한다. 정상 root는 같은 AppServices AiRequestStore의 owner 회수를
+    ExitDrain 준비 조건에 포함한다. 이 로컬 요청 정리는 외부 provider가 원격 처리를 중단했다거나 직접 Exit/강제 종료까지 회수됨을 보장하지 않는다.
     `TreeStore`는 taide-tree의 프로젝트별 캐시를 runtime의 공유 Arc<RwLock>에 보관하고,
     프로젝트 종료 시 기존 capability가 해당 항목을 제거한다. tree 명령·캐시 경합 정책은 유지한다.
     `PluginStore`는 taide-plugin의 기존 read-through 캐시를 공유 Arc<RwLock>에 보관하고,
@@ -326,7 +329,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     열린 파일 소유자는 파일 닫힘→임시 경로 소유자→lease 순으로 Drop한다. queued work도 work capture의 cleanup 뒤에 마지막 worker lease를 해제하도록 하나의 소유 구조체로 캡처한다.
     store 취소와 최종 atomic 적용은 같은 gate에서 직렬화한다. 취소가 앞서면 적용/Done을 거절하고, 적용이 먼저 성공했으면 늦은 취소로 완료 결과를 되돌리지 않는다.
     ExitRequested/Exit는 설치 admission을 닫고 취소를 알리며 신규 command도 AppState 종료 gate를 확인한다.
-    정상 ExitRequested는 prevent_exit 후 root callback이 소유한 runtime ExitDrain에서 감독 task의 실제 완료·모든 설치 lease·일반 LSP wait/reader/callback·PTY spawn과 모든 worker 종료를 기다린다. coordinator는 자신이 멈추는 TaskSupervisor 밖에 있어 self-wait가 없으며 성공한 완료 뒤 원래 exit code로 종료를 다시 요청한다. PTY join 오류는 준비 플래그/종료 callback을 실행하지 않는다.
+    정상 ExitRequested는 prevent_exit 후 root callback이 소유한 runtime ExitDrain에서 감독 task의 실제 완료·모든 설치 lease·일반 LSP wait/reader/callback·같은 AppServices의 AI token owner·PTY spawn과 PTY worker 종료를 기다린다. coordinator는 자신이 멈추는 TaskSupervisor 밖에 있어 self-wait가 없으며 성공한 완료 뒤 원래 exit code로 종료를 다시 요청한다. PTY join 오류는 준비 플래그/종료 callback을 실행하지 않는다.
     이 대기 중 native 이벤트 루프는 계속 동작해 메뉴 worker의 main-thread 응답을 처리할 수 있다. ExitRequested 없이 바로 Exit가 오면 감독 취소를 요청하고 설치 lease만 동기로 드레인하며 모든 다른 작업의 종료까지 보장하지는 않는다.
     HTTP 파일 생성 중 요청 Drop의 늦은 파일 1개와 슬롯 조기 해제를 재현하고 create/write/flush의 감독 소유권으로 수정했다.
     `taide-runtime::lsp_install_toolchain`은 감독된 blocking worker 안에서 취소 gate와 child spawn을 직렬화한다. store는 자원을 weak 등록해 순환 소유 없이 요청 Drop·명시 취소·shutdown을 동기로 전달한다.

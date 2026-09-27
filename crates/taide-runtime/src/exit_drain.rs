@@ -7,16 +7,26 @@ use taide_terminal::store::TerminalStore;
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 
-use crate::TaskSupervisor;
+use crate::{AiRequestStore, TaskSupervisor};
 
 /// Owns exit drainage outside the supervisor it stops, keeping the native event loop available.
 #[derive(Default)]
 pub struct ExitDrain {
     task: Option<JoinHandle<()>>,
     ready: Arc<AtomicBool>,
+    ai_requests: AiRequestStore,
 }
 
 impl ExitDrain {
+    /// Uses the same AI request store registered by the host's application services.
+    pub fn new(ai_requests: AiRequestStore) -> Self {
+        Self {
+            task: None,
+            ready: Arc::new(AtomicBool::new(false)),
+            ai_requests,
+        }
+    }
+
     pub fn is_ready(&self) -> bool {
         self.ready.load(Ordering::Acquire)
     }
@@ -37,12 +47,15 @@ impl ExitDrain {
         installs.shutdown();
         processes.shutdown();
         terminals.shutdown();
+        self.ai_requests.shutdown();
         tasks.stop_all();
         let ready = self.ready.clone();
+        let ai_requests = self.ai_requests.clone();
         self.task = Some(runtime.spawn(async move {
             tasks.shutdown().await;
             installs.wait_for_idle().await;
             processes.wait_for_idle().await;
+            ai_requests.wait_for_idle().await;
             if let Err(error) = terminals.wait_for_idle().await {
                 log::error!("terminal runtime drain failed: {error}");
                 return;
@@ -75,9 +88,78 @@ mod tests {
     use tokio::sync::oneshot;
 
     use super::ExitDrain;
-    use crate::TaskSupervisor;
+    use crate::{AiRequestStore, TaskSupervisor};
 
     const FIXTURE_TIMEOUT_MS: u64 = 2_000;
+    const AI_PENDING_PROBE_MS: u64 = 20;
+
+    #[tokio::test]
+    async fn 정상_root_종료는_취소된_ai_owner의_실제_drop까지_기다린다() {
+        let requests = AiRequestStore::new();
+        let (owner, cancelled) = requests.begin("main", "fixture").unwrap();
+        let runtime = tokio::runtime::Handle::current();
+        let mut drain = ExitDrain::new(requests.clone());
+        let (finished, mut finished_rx) = oneshot::channel();
+        assert!(drain.begin(
+            &runtime,
+            TaskSupervisor::new(runtime.clone()),
+            LspInstallStore::new(),
+            LspStore::new(),
+            TerminalStore::new(),
+            move || {
+                finished.send(()).ok();
+            },
+        ));
+        assert!(cancelled.await.is_ok());
+        assert!(requests.begin("other", "new").is_none());
+        assert!(tokio::time::timeout(Duration::from_millis(AI_PENDING_PROBE_MS), &mut finished_rx)
+            .await
+            .is_err());
+        assert!(!drain.is_ready());
+        drop(owner);
+        tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), finished_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(drain.is_ready());
+    }
+
+    #[tokio::test]
+    async fn root_drain을_drop해도_ai_입장이_닫히고_새_drain이_같은_owner를_기다린다() {
+        let requests = AiRequestStore::new();
+        let (owner, _) = requests.begin("main", "fixture").unwrap();
+        let runtime = tokio::runtime::Handle::current();
+        let tasks = TaskSupervisor::new(runtime.clone());
+        let mut drain = ExitDrain::new(requests.clone());
+        assert!(drain.begin(
+            &runtime,
+            tasks.clone(),
+            LspInstallStore::new(),
+            LspStore::new(),
+            TerminalStore::new(),
+            || panic!("AI owner가 살아있다")
+        ));
+        drop(drain);
+        assert!(requests.begin("other", "new").is_none());
+        let mut restarted = ExitDrain::new(requests.clone());
+        let (finished, finished_rx) = oneshot::channel();
+        assert!(restarted.begin(
+            &runtime,
+            tasks,
+            LspInstallStore::new(),
+            LspStore::new(),
+            TerminalStore::new(),
+            move || {
+                finished.send(()).ok();
+            }
+        ));
+        drop(owner);
+        tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), finished_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(restarted.is_ready());
+    }
     #[cfg(unix)]
     const PENDING_PROBE_MS: u64 = 60;
     #[cfg(unix)]

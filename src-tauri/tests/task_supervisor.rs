@@ -146,7 +146,9 @@ fn 앱_조립은_장기_작업과_자동_시작을_등록하고_종료시_취소
     assert!(setup.contains(".spawn(\"ide-reconcile\""));
     assert!(setup.contains(".spawn(\"agent-poll\""));
     assert!(setup.contains(".spawn(\"layout-flush\""));
-    assert!(app.contains("let mut exit_drain = ExitDrain::default()"));
+    assert!(app.contains("let mut exit_drain: Option<ExitDrain> = None"));
+    assert!(exit.contains("app_handle.state::<domain::ai::commands::AiRequestStore>().shutdown()"));
+    assert!(exit.contains("ExitDrain::new((*app_handle.state::<domain::ai::commands::AiRequestStore>()).clone())"));
     assert!(exit.contains("api.prevent_exit()"));
     assert!(exit.contains("exit_drain.begin("));
     assert!(exit.contains("move || handle.exit(exit_code)"));

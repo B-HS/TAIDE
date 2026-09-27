@@ -90,6 +90,22 @@ fn assert_idle(store: &AiRequestStore) {
 }
 
 #[tokio::test]
+async fn shutdown은_세_ai_요청의_provider_시작을_거절하고_wire_입력을_유지한다() {
+    let (state, secret, memory) = fixture();
+    let requests = AiRequestStore::new();
+    requests.shutdown();
+    let complete = ai_actions::ai_inline_complete(&state, &requests, &secret, complete_request()).await;
+    let edit = ai_actions::ai_inline_edit(&state, &requests, &secret, edit_request()).await;
+    let commit = ai_actions::ai_commit_message(&state, &requests, &secret, commit_request()).await;
+    for error in [complete.unwrap_err(), edit.unwrap_err(), commit.unwrap_err()] {
+        assert!(matches!(error, AppError::InvalidArgument(_)));
+    }
+    assert_eq!(memory.reads.load(Ordering::SeqCst), 0);
+    assert!(!state.paths.data_dir.exists());
+    requests.wait_for_idle().await;
+}
+
+#[tokio::test]
 async fn 토큰_상태는_현재_omlx_설정_snapshot과_주입된_메모리_port를_쓴다() {
     let (state, secret, _) = fixture();
     let empty = ai_actions::ai_token_status(&state, &secret).await.unwrap();

@@ -798,7 +798,7 @@ pub fn run() {
     let path_env_fix_error = fix_path_env::fix().err();
 
     let builder = specta_builder();
-    let mut exit_drain = ExitDrain::default();
+    let mut exit_drain: Option<ExitDrain> = None;
 
     #[cfg(debug_assertions)]
     builder
@@ -1125,6 +1125,7 @@ pub fn run() {
         .run(move |app_handle, event| {
             if matches!(&event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
                 app_handle.state::<AppState>().begin_shutdown();
+                app_handle.state::<domain::ai::commands::AiRequestStore>().shutdown();
                 app_handle.state::<LspInstallStore>().shutdown();
                 domain::layout::service::flush_dirty_layouts(&app_handle.state::<AppState>());
                 app_handle.state::<TerminalStore>().shutdown();
@@ -1135,6 +1136,8 @@ pub fn run() {
                 domain::remote::commands::stop_server(app_handle, &app_handle.state::<RemoteStore>());
             }
             if let tauri::RunEvent::ExitRequested { api, code, .. } = &event {
+                let exit_drain =
+                    exit_drain.get_or_insert_with(|| ExitDrain::new((*app_handle.state::<domain::ai::commands::AiRequestStore>()).clone()));
                 if !exit_drain.is_ready() {
                     api.prevent_exit();
                     let handle = app_handle.clone();
