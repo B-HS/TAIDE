@@ -4645,6 +4645,7 @@ dependencies = [
  "log",
  "parking_lot",
  "taide-agent",
+ "taide-ai",
  "taide-app",
  "taide-file",
  "taide-git",

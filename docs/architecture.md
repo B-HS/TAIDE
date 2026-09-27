@@ -220,6 +220,9 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     기존 search 명령 경로는 같은 타입을 재수출한다. Tauri 명령의 mutation guard·Channel 경계는 유지한다.
     AI 요청 `AiRequestStore`는 owner/requestId별 중복 시작·취소를 관리하고, 시작별 token이 늦은 완료의
     새 요청 제거를 막는다. 기존 AI 명령 경로는 같은 타입을 재수출하며 provider·secret·IPC 경계는 유지한다.
+    AI 8개 공개 action의 입력 상한·설정 snapshot·provider 해석·prompt 선택·취소 select·finish·응답 조립은
+    Tauri 미의존 runtime `ai_actions`가 소유한다. Tauri command는 같은 State/인수/반환 타입으로 위임하며,
+    provider HTTP와 secret port는 기존 taide-ai/infra를 사용한다. 요청 future Drop·앱 shutdown의 회수 보장은 별도 미완료 경계다.
     `TreeStore`는 taide-tree의 프로젝트별 캐시를 runtime의 공유 Arc<RwLock>에 보관하고,
     프로젝트 종료 시 기존 capability가 해당 항목을 제거한다. tree 명령·캐시 경합 정책은 유지한다.
     `PluginStore`는 taide-plugin의 기존 read-through 캐시를 공유 Arc<RwLock>에 보관하고,

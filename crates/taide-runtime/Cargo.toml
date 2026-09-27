@@ -9,6 +9,7 @@ rust-version = "1.89"
 log = "0.4"
 parking_lot = "0.12"
 taide-agent = { path = "../taide-agent" }
+taide-ai = { path = "../taide-ai" }
 taide-app = { path = "../taide-app" }
 taide-file = { path = "../taide-file" }
 taide-git = { path = "../taide-git" }
