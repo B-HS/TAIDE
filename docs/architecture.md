@@ -284,6 +284,12 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     창 복귀는 기존 위치에서 mirror를 조회하고 조회 실패를 빈 snapshot으로 취급한다. phantom file dirty 정리→탭 복귀→state write→dirty/event의 순서를 유지한다.
     실제 창 닫힘 이벤트의 WindowRegistry 제거와 TaskSupervisor의 auxiliary-tab-return 등록은 Tauri 조립부에 남으며 runtime은 registry를 임의로 forget하지 않는다.
     synthetic 검사와 본문 대조는 실제 OS 창 생성/close 및 실패 뒤 OS 창 rollback 성공을 증명하지 않는다. 해당 실기는 M7과 창 정책 QA gate에서 확인한다.
+    `taide-runtime::lsp_install_actions`는 download 설정·플랫폼/checksum 확인→다운로드→검증→감독된 extraction→atomic 적용→진행 이벤트의 정책을 소유한다.
+    실제 이벤트 전송은 주입된 EventSink/Tauri adapter에 남는다. InstallStore의 요청 guard Drop은 취소를 요청하고 worker lease가 살아 있는 동안 서버 슬롯을 해제하지 않는다.
+    extraction worker는 lease와 UUID 임시 경로 소유자를 보유하며 이미 시작한 작업은 abort로 끝났다고 간주하지 않는다. 실제 작업/임시 경로 정리가 끝나야 재등록할 수 있다.
+    store 취소와 최종 atomic 적용은 같은 gate에서 직렬화한다. 취소가 앞서면 적용/Done을 거절하고, 적용이 먼저 성공했으면 늦은 취소로 완료 결과를 되돌리지 않는다.
+    ExitRequested/Exit는 설치 admission을 닫고 취소를 알리며 신규 command도 AppState 종료 gate를 확인한다. 이는 앱 종료 시 모든 설치 자원의 회수 완료를 뜻하지 않는다.
+    HTTP 내부 파일 I/O의 future Drop·toolchain child/reader·종료 시 실제 drain은 후속 M6 gate이며 전체 lifecycle은 미완료다.
     IDE diff의 mutation guard·blocking 실행과 Forbidden 예외 정책은 기존 호출자에 남는다.
     setup은 상태 복원 뒤 AppState·TaskSupervisor·원격 제한기·플랫폼 포트·시크릿 포트·IDE 저장 포트·EventSink를 주입해 `Arc<AppServices>`를 만들고, 나머지 저장소는 AppServices가 초기화한다.
     AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·AgentStore·AgentHooksStore·GitStore·RemoteStore·IdeStore·SecretStoreState·IdeSaveFile·LspStore·LspInstallStore·SystemUsageStore·RemoteDispatchLimiter·PlatformServices·WindowRegistry·TaskSupervisor의 20개 상태·포트를
@@ -692,7 +698,8 @@ eslint `no-restricted-imports` 는 import **방향**만 강제하고 레이어�
      동안 교체 없이 살아있으면 `restart_count`를 0으로 리셋한다.
    - `domain::lsp::commands::LspInstallStore` — `begin`/`finish` 쌍이 `.await` 정상 반환 경로에만
      의존해, 설치 퓨처가 패닉하거나 태스크가 드롭되면 `server_id`가 영구히 "설치 중"으로 잠겼다.
-     `LspInstallGuard`(Drop)로 이중화했다 — 정상/실패/패닉/드롭 전부에서 슬롯이 해제된다.
+     `LspInstallGuard`(Drop)로 이중화했고 현재는 요청 guard Drop이 취소를 요청한다. 감독된 extraction worker의 `LspInstallLease`까지 모두 Drop된 뒤에만 슬롯을 해제한다.
+     요청 종료와 실제 worker 종료를 구분하며 toolchain child/reader 및 HTTP 내부 파일 I/O의 전체 소유권은 M6 미완료 gate다.
    - `infra::shell_integration`이 만드는 zsh/bash 임시 디렉터리 — 주입된 스크립트 자신의
      `rm -rf` 한 줄에만 의존했고, 셸이 그 줄에 도달하지 못하면(크래시·조기 종료) OS 임시 디렉터리
      아래 영구히 남았다. 이제 `PtySession`이 생성 시점의 경로를 들고 있다가 자신의 `Drop`에서

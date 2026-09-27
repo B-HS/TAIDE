@@ -30,4 +30,5 @@ taide-tree = { path = "../taide-tree" }
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 
 [dev-dependencies]
+tokio = { version = "1", features = ["io-util", "net"] }
 uuid = { version = "1", features = ["v4"] }

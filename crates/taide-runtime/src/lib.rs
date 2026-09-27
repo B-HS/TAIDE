@@ -6,6 +6,7 @@ mod app_services;
 pub mod file_actions;
 pub mod layout_actions;
 pub mod locale_actions;
+pub mod lsp_install_actions;
 pub mod notification_actions;
 mod platform_services;
 mod remote_dispatch_limiter;

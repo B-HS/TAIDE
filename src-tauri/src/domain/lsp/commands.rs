@@ -22,12 +22,9 @@ use super::types::{
 };
 use crate::error::{AppError, AppErrorKind, AppResult};
 use crate::ids::ProjectId;
-use crate::infra::http::{outbound_http_client, HttpClientProfile};
-use crate::infra::lsp_install;
 use crate::infra::lsp_proc;
 use crate::infra::perf::{self, CounterSlot};
 use crate::infra::redact::mask_known_secrets;
-use crate::paths::AppPaths;
 use crate::platform::event_sink::TauriEventSink;
 use crate::state::AppState;
 
@@ -544,152 +541,6 @@ fn emit_install_progress(
     });
 }
 
-async fn run_download_install(app: &AppHandle, paths: &AppPaths, spec: &LanguageServerSpec, cancel: Arc<AtomicBool>) -> AppResult<()> {
-    let download = spec.install.download.as_ref().ok_or_else(|| {
-        AppError::localized(
-            AppErrorKind::InvalidArgument,
-            "error.lsp.downloadInfoMissing",
-            format!("{}: download info is not configured yet", spec.id),
-        )
-        .with_arg("serverId", &spec.id)
-    })?;
-
-    let platform = lsp_install::platform_key();
-    let url = download.urls.get(&platform).ok_or_else(|| {
-        AppError::localized(
-            AppErrorKind::InvalidArgument,
-            "error.lsp.platformUnsupported",
-            format!("{}: the current platform ({platform}) is not supported", spec.id),
-        )
-        .with_arg("serverId", &spec.id)
-        .with_arg("platform", &platform)
-    })?;
-    let expected_sha256 = download.sha256.get(&platform).cloned().flatten().ok_or_else(|| {
-        AppError::localized(
-            AppErrorKind::InvalidArgument,
-            "error.lsp.checksumUnpublished",
-            format!("{}: cannot install because no checksum has been published yet", spec.id),
-        )
-        .with_arg("serverId", &spec.id)
-    })?;
-
-    emit_install_progress(app, &spec.id, LspInstallPhase::Downloading, 0, None, None);
-
-    let client = outbound_http_client(HttpClientProfile::Download);
-    let server_id = spec.id.clone();
-    let progress_app = app.clone();
-    let download_dest = lsp_install::temp_download_path(&paths.lsp_dir(), spec.id.as_str());
-    let downloaded = match lsp_install::download_to_file(&client, url, &download_dest, &cancel, move |update| {
-        emit_install_progress(
-            &progress_app,
-            &server_id,
-            LspInstallPhase::Downloading,
-            update.received_bytes,
-            update.total_bytes,
-            None,
-        );
-    })
-    .await
-    {
-        Ok(downloaded) => downloaded,
-        Err(error) => {
-            std::fs::remove_file(&download_dest).ok();
-            emit_install_progress(app, &spec.id, LspInstallPhase::Failed, 0, None, Some(error.to_string()));
-            return Err(error);
-        }
-    };
-
-    emit_install_progress(
-        app,
-        &spec.id,
-        LspInstallPhase::Verifying,
-        downloaded.total_bytes,
-        Some(downloaded.total_bytes),
-        None,
-    );
-    if !lsp_install::hashes_match(&downloaded.sha256, &expected_sha256) {
-        std::fs::remove_file(&downloaded.path).ok();
-        emit_install_progress(
-            app,
-            &spec.id,
-            LspInstallPhase::Failed,
-            0,
-            None,
-            Some("체크섬이 일치하지 않습니다".to_string()),
-        );
-        return Err(AppError::localized(
-            AppErrorKind::Internal,
-            "error.lsp.checksumMismatch",
-            format!("{}: the downloaded file's checksum does not match", spec.id),
-        )
-        .with_arg("serverId", &spec.id));
-    }
-
-    emit_install_progress(
-        app,
-        &spec.id,
-        LspInstallPhase::Extracting,
-        downloaded.total_bytes,
-        Some(downloaded.total_bytes),
-        None,
-    );
-    let temp_dir = lsp_install::temp_install_dir(&paths.lsp_dir(), spec.id.as_str());
-    let archive_kind = download.archive;
-    let bin_path_in_archive = download.bin_path_in_archive.clone();
-    let source_path = downloaded.path.clone();
-    let extract_dir = temp_dir.clone();
-
-    // Archive extraction is blocking filesystem/CPU work (unzip, gzip decode); running it
-    // directly in this async fn would monopolize a tokio worker thread while decompressing
-    // large archives (e.g. the ~387MB kotlin-lsp payload) and stall other IPC handlers.
-    let extract_result = tokio::task::spawn_blocking(move || match archive_kind {
-        super::types::LspArchiveKind::TarGz => lsp_install::extract_tar_gz(&source_path, &extract_dir),
-        super::types::LspArchiveKind::TarXz => lsp_install::extract_tar_xz(&source_path, &extract_dir),
-        super::types::LspArchiveKind::Zip => lsp_install::extract_zip(&source_path, &extract_dir),
-        super::types::LspArchiveKind::Binary => {
-            lsp_install::write_binary_from_file(&source_path, &extract_dir, bin_path_in_archive.as_deref())
-        }
-        super::types::LspArchiveKind::Gz => {
-            lsp_install::write_gz_binary_from_file(&source_path, &extract_dir, bin_path_in_archive.as_deref())
-        }
-    })
-    .await
-    .map_err(|join_error| {
-        AppError::localized(
-            AppErrorKind::Internal,
-            "error.lsp.extractTaskFailed",
-            format!("extraction task failed: {join_error}"),
-        )
-        .with_arg("detail", &join_error)
-    })
-    .and_then(|result| result);
-
-    std::fs::remove_file(&downloaded.path).ok();
-
-    if let Err(error) = extract_result {
-        std::fs::remove_dir_all(&temp_dir).ok();
-        emit_install_progress(app, &spec.id, LspInstallPhase::Failed, 0, None, Some(error.to_string()));
-        return Err(error);
-    }
-
-    let final_dir = paths.lsp_server_version_dir(spec.id.as_str(), &download.version);
-    if let Err(error) = lsp_install::atomic_install(&temp_dir, &final_dir) {
-        std::fs::remove_dir_all(&temp_dir).ok();
-        emit_install_progress(app, &spec.id, LspInstallPhase::Failed, 0, None, Some(error.to_string()));
-        return Err(error);
-    }
-
-    emit_install_progress(
-        app,
-        &spec.id,
-        LspInstallPhase::Done,
-        downloaded.total_bytes,
-        Some(downloaded.total_bytes),
-        None,
-    );
-    Ok(())
-}
-
 const TOOLCHAIN_POLL_INTERVAL_MS: u64 = 100;
 const TOOLCHAIN_OUTPUT_TAIL_LINES: usize = 20;
 
@@ -864,12 +715,20 @@ pub async fn lsp_install(
     app: AppHandle,
     state: State<'_, AppState>,
     install_store: State<'_, LspInstallStore>,
+    tasks: State<'_, TaskSupervisor>,
     server_id: LspServerId,
 ) -> AppResult<()> {
+    if state.is_shutting_down() {
+        install_store.shutdown();
+        return Err(taide_lsp::install::install_cancelled_error());
+    }
     let spec = manifest::find_spec(server_id.as_str())
         .ok_or_else(|| AppError::InvalidArgument(format!("unknown language server: {server_id}")))?;
 
     let Some(install_guard) = install_store.begin(&server_id) else {
+        if install_store.is_stopped() {
+            return Err(taide_lsp::install::install_cancelled_error());
+        }
         return Err(AppError::localized(
             AppErrorKind::InvalidArgument,
             "error.lsp.installAlreadyRunning",
@@ -880,7 +739,16 @@ pub async fn lsp_install(
     let cancel = install_guard.cancellation_token();
 
     match spec.install.strategy {
-        LspInstallStrategy::Download => run_download_install(&app, &state.paths, &spec, cancel).await,
+        LspInstallStrategy::Download => {
+            taide_runtime::lsp_install_actions::run_download_install(
+                &TauriEventSink(&app),
+                &state.paths,
+                &spec,
+                &install_guard.lease(),
+                &tasks,
+            )
+            .await
+        }
         LspInstallStrategy::Toolchain => run_toolchain_install(&app, &spec, cancel).await,
         LspInstallStrategy::SdkDetect => Err(AppError::localized(
             AppErrorKind::InvalidArgument,

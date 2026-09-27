@@ -31,7 +31,7 @@ use crate::domain::ide::server::IdeLayoutActions;
 use crate::domain::ide::store::IdeStore;
 use crate::domain::layout::service as layout_service;
 use crate::domain::layout::types::{ProjectLayout, Tab, TabKind, TabWindowTarget};
-use crate::domain::lsp::commands::LspStore;
+use crate::domain::lsp::commands::{LspInstallStore, LspStore};
 use crate::domain::plugin::service::PluginStore;
 use crate::domain::remote::commands::{RemoteDispatchLimiter, RemoteStore};
 use crate::domain::remote::dispatch::{ChannelFactory, RemoteDispatchPort};
@@ -1130,6 +1130,7 @@ pub fn run() {
         .run(|app_handle, event| {
             if matches!(&event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
                 app_handle.state::<AppState>().begin_shutdown();
+                app_handle.state::<LspInstallStore>().shutdown();
                 domain::layout::service::flush_dirty_layouts(&app_handle.state::<AppState>());
                 app_handle.state::<TerminalStore>().kill_all();
                 app_handle.state::<LspStore>().kill_all();
