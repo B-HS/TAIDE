@@ -1,4 +1,4 @@
-use taide_runtime::{agent_actions, agent_hook_reconcile, TaskSupervisor};
+use taide_runtime::{agent_actions, agent_hook_reconcile, agent_hook_server, TaskSupervisor};
 use tauri::{AppHandle, Manager};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -15,47 +15,40 @@ use crate::state::AppState;
 
 pub async fn ensure_hooks_server_started(app: &AppHandle) -> AppResult<HooksServerInfo> {
     let store = app.state::<AgentHooksStore>();
-    if let Some(info) = store.server_info() {
-        return Ok(info);
-    }
-
-    let listener = TcpListener::bind("127.0.0.1:0").await.map_err(AppError::from)?;
-    let port = listener.local_addr().map_err(AppError::from)?.port();
-    let token = uuid::Uuid::new_v4().simple().to_string();
-    let info = HooksServerInfo { port, token };
-
-    let app_handle = app.clone();
-    let accept_handle = app
-        .state::<TaskSupervisor>()
-        .spawn_transient_handle("agent-hooks-accept", async move {
-            loop {
-                let Ok((stream, _)) = listener.accept().await else {
-                    break;
-                };
-                let connection_app = app_handle.clone();
-                app_handle
-                    .state::<TaskSupervisor>()
-                    .spawn_transient("agent-hooks-connection", async move {
-                        let _ = handle_connection(stream, connection_app).await;
-                    });
-            }
-        });
-    let Some(accept_handle) = accept_handle else {
-        return Err(AppError::Internal("hook server task supervisor stopped".to_string()));
-    };
-    if app.state::<AppState>().is_shutting_down() {
-        accept_handle.abort();
-        return Err(AppError::Internal("hook server unavailable during shutdown".to_string()));
-    }
-    let info = store.set_server(info, accept_handle);
-
-    Ok(info)
+    let tasks = app.state::<TaskSupervisor>();
+    agent_hook_server::start_hooks_server(
+        &store,
+        &tasks,
+        || async {
+            let listener = TcpListener::bind("127.0.0.1:0").await.map_err(AppError::from)?;
+            let port = listener.local_addr().map_err(AppError::from)?.port();
+            let token = uuid::Uuid::new_v4().simple().to_string();
+            Ok((HooksServerInfo { port, token }, listener))
+        },
+        |listener| {
+            let app_handle = app.clone();
+            tasks.spawn_transient_handle("agent-hooks-accept", async move {
+                loop {
+                    let Ok((stream, _)) = listener.accept().await else {
+                        break;
+                    };
+                    let connection_app = app_handle.clone();
+                    app_handle
+                        .state::<TaskSupervisor>()
+                        .spawn_transient("agent-hooks-connection", async move {
+                            let _ = handle_connection(stream, connection_app).await;
+                        });
+                }
+            })
+        },
+        || app.state::<AppState>().is_shutting_down(),
+    )
+    .await
 }
 
 pub fn stop_hooks_server(app: &AppHandle) {
-    if let Some(handle) = app.state::<AgentHooksStore>().take_server() {
-        handle.abort();
-    }
+    let store = app.state::<AgentHooksStore>();
+    agent_hook_server::stop_hooks_server(&store);
 }
 
 /// Reconciles a flipped `agent_hooks_enabled` settings value — installs hooks into every open

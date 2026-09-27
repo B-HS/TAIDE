@@ -185,6 +185,9 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     stop_all은 입장을 닫고 task 취소를 요청하지만 operation을 완료로 지우지 않으며 shutdown은 실제 task 완료와 마지막 operation 반납을 함께 기다린다.
     agent hook 서버의 accept/connection 작업은 감독 범위에 있고, taide-agent의 AgentHooksStore는 Tokio accept JoinHandle을 유지한다.
     동시 시작은 첫 서버 정보만 등록하고 뒤늦은 accept 작업을 취소하며 앱 종료에서 저장소 핸들을 명시적으로 중지한다.
+    runtime `agent_hook_server`는 cached 응답→uncached operation 입장→native bind 답→accept 등록→shutdown check→store 게시 및 stop의 store 정리/abort 정책을 소유한다.
+    Native는 실제 loopback TcpListener·UUID 토큰·accept/connection·AppState shutdown port를 제공한다. uncached bind 대기와 등록/저장 완료는 정상 root가 기다리지만
+    cached 경로의 기존 응답 우선순위와 shutdown check 뒤 store 게시 사이의 경쟁은 그대로다. 실제 listener/auth/connection과 OS stall·직접 Exit는 미검증이다.
     remote 서버는 기존 RemoteStore가 shutdown 송신자와 JoinHandle을 유지하면서 TaskSupervisor도 서버 작업을 추적한다.
     중복 bind는 첫 서버를 유지하고 뒤늦은 서버에 종료 신호·취소를 보내며, 일반 중지는 기존 grace wait 뒤 abort 순서를 유지한다.
     IDE 서버 accept 작업도 감독자가 추적하고 taide-ide의 공유 IdeStore가 Tokio JoinHandle을 보유한다. 동시 bind는 첫 서버의 토큰·포트·핸들을 유지하며
