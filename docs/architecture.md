@@ -259,6 +259,9 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     `taide-runtime::app_actions`는 앱 파일 읽기의 live settings snapshot과 쓰기/parsed 설정 적용의 mutation guard·검증·적용 await를 소유한다.
     설정 적용 callback만 기존 SettingsApplyPort/AppHandle adapter에 유지하고 remote gated strip은 gateway에서 먼저 수행한다.
     프롬프트 저장은 설정 포트를 호출하지 않으며 기존 service의 validate→atomic write를 소비한다. 제품 버전·process perf registry는 Tauri metadata/진단 adapter에 남는다.
+    `taide-runtime::theme_actions`와 `locale_actions`는 현재 테마·언어의 live 설정 snapshot→system 선택/fallback→service load 조립을 소유한다.
+    원래 await가 없는 조회를 동기 selector로 제공하며 Tauri async command 시그니처는 유지한다. mutation guard·설정 쓰기·이벤트는 추가하지 않는다.
+    나머지 theme/locale 단순 service 위임과 OS system 값 공급은 기존 adapter/소비자의 책임이다.
     `taide-runtime::layout_actions`는 dirty flush·finish·공통 탭 open/close와 레이아웃 command 정책 18개를 소유한다. 기존 layout service 경로는 재수출 또는 adapter로 유지한다.
     finish의 focus 보정·dirty 표시·LayoutChanged 발행 뒤에 호출자가 state를 기록하는 기존 순서를 보존한다.
     close의 observer는 state 기록 뒤 같은 mutation guard 안에서 주입된 callback으로 실행하며 실제 IDE→PTY 후처리 등록은 Tauri 조립부에 남는다.

@@ -1,3 +1,5 @@
+use taide_runtime::theme_actions;
+
 use super::service;
 use super::types::{ResolvedTheme, Theme, ThemeSummary};
 use crate::error::AppResult;
@@ -18,15 +20,7 @@ pub async fn theme_get(state: tauri::State<'_, AppState>, theme_id: String) -> A
 #[tauri::command]
 #[specta::specta]
 pub async fn theme_get_current(state: tauri::State<'_, AppState>, system_theme: String) -> AppResult<ResolvedTheme> {
-    let theme_id = {
-        let settings = state.settings.read();
-        if settings.follow_system_theme {
-            service::builtin_id_for_system(&system_theme).to_string()
-        } else {
-            settings.theme_id.clone()
-        }
-    };
-    service::load_theme(&state.paths, &theme_id)
+    theme_actions::theme_get_current(&state, &system_theme)
 }
 
 #[tauri::command]

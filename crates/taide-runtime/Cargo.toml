@@ -15,6 +15,7 @@ taide-git = { path = "../taide-git" }
 taide-ide = { path = "../taide-ide" }
 taide-infra = { path = "../taide-infra" }
 taide-layout = { path = "../taide-layout" }
+taide-locale = { path = "../taide-locale" }
 taide-lsp = { path = "../taide-lsp" }
 taide-model = { path = "../taide-model" }
 taide-plugin = { path = "../taide-plugin" }
@@ -23,6 +24,7 @@ taide-search = { path = "../taide-search" }
 taide-settings = { path = "../taide-settings" }
 taide-system = { path = "../taide-system" }
 taide-terminal = { path = "../taide-terminal" }
+taide-theme = { path = "../taide-theme" }
 taide-tree = { path = "../taide-tree" }
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 

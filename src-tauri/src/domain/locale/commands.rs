@@ -1,3 +1,5 @@
+use taide_runtime::locale_actions;
+
 use super::service;
 use super::types::{LocaleSummary, ResolvedLocale};
 use crate::error::AppResult;
@@ -18,7 +20,5 @@ pub async fn locale_get(state: tauri::State<'_, AppState>, locale_id: String) ->
 #[tauri::command]
 #[specta::specta]
 pub async fn locale_get_current(state: tauri::State<'_, AppState>, system_language: String) -> AppResult<ResolvedLocale> {
-    let language = state.settings.read().language.clone();
-    let locale_id = service::resolve_language(&state.paths, &language, &system_language);
-    service::load_locale(&state.paths, &locale_id)
+    locale_actions::locale_get_current(&state, &system_language)
 }
