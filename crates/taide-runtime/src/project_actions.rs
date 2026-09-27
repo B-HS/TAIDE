@@ -1,12 +1,16 @@
 use std::collections::HashSet;
+use std::future::Future;
+use std::path::Path;
 
 use taide_infra::perf::{self, SpanSlot};
 use taide_model::app_event::AppEvent;
-use taide_model::error::AppResult;
+use taide_model::error::{AppError, AppResult};
 use taide_model::ids::{ProjectGroupId, ProjectId, ShellSlotId};
 use taide_model::project::{
-    ForgetRecentOutcome, Project, ProjectDisplayPatch, ProjectGroup, ProjectRef, SessionShellState, WindowChrome, WindowChromePatch,
+    CapabilityKind, ForgetRecentOutcome, OpenProjectInSlotRequest, Project, ProjectDisplayPatch, ProjectGroup, ProjectGroupOpenResult,
+    ProjectRef, SessionShellState, WindowChrome, WindowChromePatch,
 };
+use taide_project::groups;
 use taide_project::service;
 
 use crate::{AppState, EventSink};
@@ -245,6 +249,308 @@ pub async fn project_group_rename(events: &dyn EventSink, state: &AppState, grou
     emit_groups_changed(events, state);
 
     Ok(())
+}
+
+/// Supplies the existing toolkit-owned capability and window-flush boundaries.
+pub trait ProjectLifecyclePort: Send + Sync {
+    fn detected_kinds(&self, root: &Path) -> Vec<CapabilityKind>;
+    fn attach_project_capabilities(&self, project: &Project) -> impl Future<Output = AppResult<()>> + Send;
+    fn await_project_flush(&self, project_id: &ProjectId) -> impl Future<Output = ()> + Send;
+    fn detach_all(&self, project_id: &ProjectId);
+}
+
+/// Applies the existing project lifecycle policy through explicit host ports.
+pub async fn project_open(
+    events: &dyn EventSink,
+    state: &AppState,
+    ports: &impl ProjectLifecyclePort,
+    path: String,
+) -> AppResult<service::ProjectOpenResult> {
+    let result = {
+        let _guard = state.begin_mutation().await;
+        let mut session = state.session.read().clone();
+        let mut projects = state.projects.read().clone();
+
+        let result = service::open_project(&state.paths, &mut session, &mut projects, Path::new(&path), true, |canonical| {
+            ports.detected_kinds(canonical)
+        })?;
+
+        *state.session.write() = session;
+        *state.projects.write() = projects;
+        result
+    };
+
+    if !result.already_open {
+        if let Err(error) = ports.attach_project_capabilities(&result.project).await {
+            if let Err(rollback) = project_close(events, state, ports, result.project.id.clone()).await {
+                log::warn!(
+                    "capability attach 실패 후 프로젝트 되돌리기도 실패했습니다 (projectId={}): {rollback}",
+                    result.project.id
+                );
+            }
+            return Err(error);
+        }
+
+        events.publish(AppEvent::ProjectOpened {
+            project: Box::new(result.project.clone()),
+        });
+        emit_list_changed(events, state);
+    }
+
+    events.publish(AppEvent::ProjectActivated {
+        project_id: Some(result.project.id.clone()),
+    });
+    emit_shell_slots_changed(events, state);
+
+    Ok(result)
+}
+
+/// Applies the existing project lifecycle policy through explicit host ports.
+pub async fn project_open_in_slot(
+    events: &dyn EventSink,
+    state: &AppState,
+    ports: &impl ProjectLifecyclePort,
+    request: OpenProjectInSlotRequest,
+) -> AppResult<SessionShellState> {
+    let opened = {
+        let _guard = state.begin_mutation().await;
+        let mut session = state.session.read().clone();
+        let mut projects = state.projects.read().clone();
+
+        let existing = match (&request.path, &request.project_id) {
+            (Some(path), None) => service::find_open_project_by_root(&projects, Path::new(path)),
+            (None, Some(project_id)) => {
+                service::get_project(&projects, project_id)?;
+                Some(project_id.clone())
+            }
+            _ => {
+                return Err(AppError::InvalidArgument(
+                    "project_open_in_slot needs exactly one of path or projectId".to_string(),
+                ));
+            }
+        };
+
+        service::ensure_slot_placement_allowed(&session, existing.as_ref(), &request.target_slot, request.edge)?;
+
+        let opened = match (existing, &request.path) {
+            (Some(project_id), _) => {
+                let project = service::get_project(&projects, &project_id)?;
+                service::ProjectOpenResult {
+                    project,
+                    already_open: true,
+                }
+            }
+            (None, Some(path)) => service::open_project(&state.paths, &mut session, &mut projects, Path::new(path), false, |canonical| {
+                ports.detected_kinds(canonical)
+            })?,
+            (None, None) => return Err(AppError::Internal("project_open_in_slot resolved no project".to_string())),
+        };
+
+        service::place_project_in_slot(
+            &state.paths,
+            &mut session,
+            &mut projects,
+            &opened.project.id,
+            &request.target_slot,
+            request.edge,
+        )?;
+
+        *state.session.write() = session;
+        *state.projects.write() = projects;
+        opened
+    };
+
+    if !opened.already_open {
+        if let Err(error) = ports.attach_project_capabilities(&opened.project).await {
+            if let Err(rollback) = project_close(events, state, ports, opened.project.id.clone()).await {
+                log::warn!(
+                    "capability attach 실패 후 슬롯 프로젝트 되돌리기도 실패했습니다 (projectId={}): {rollback}",
+                    opened.project.id
+                );
+            }
+            return Err(error);
+        }
+
+        events.publish(AppEvent::ProjectOpened {
+            project: Box::new(opened.project.clone()),
+        });
+        emit_list_changed(events, state);
+    }
+
+    events.publish(AppEvent::ProjectActivated {
+        project_id: Some(opened.project.id.clone()),
+    });
+    emit_shell_slots_changed(events, state);
+
+    Ok(service::shell_state(&state.session.read()))
+}
+
+/// Applies the existing project lifecycle policy through explicit host ports.
+pub async fn project_close(
+    events: &dyn EventSink,
+    state: &AppState,
+    ports: &impl ProjectLifecyclePort,
+    project_id: ProjectId,
+) -> AppResult<()> {
+    if !state.projects.read().contains_key(&project_id) {
+        return Err(AppError::NotFound(format!("project not open: {project_id}")));
+    }
+
+    ports.await_project_flush(&project_id).await;
+
+    let _guard = state.begin_mutation().await;
+    if !state.projects.read().contains_key(&project_id) {
+        return Ok(());
+    }
+
+    let mut session = state.session.read().clone();
+    let mut projects = state.projects.read().clone();
+
+    service::close_project(&state.paths, &mut session, &mut projects, &project_id)?;
+
+    let active_project = session.active_project.clone();
+    *state.session.write() = session;
+    *state.projects.write() = projects;
+
+    ports.detach_all(&project_id);
+
+    events.publish(AppEvent::ProjectClosed {
+        project_id: project_id.clone(),
+    });
+    events.publish(AppEvent::ProjectActivated {
+        project_id: active_project,
+    });
+    emit_shell_slots_changed(events, state);
+    emit_list_changed(events, state);
+
+    Ok(())
+}
+
+/// Applies the existing project lifecycle policy through explicit host ports.
+pub async fn project_group_open(
+    events: &dyn EventSink,
+    state: &AppState,
+    ports: &impl ProjectLifecyclePort,
+    group_id: ProjectGroupId,
+) -> AppResult<ProjectGroupOpenResult> {
+    let members = service::group_members(&state.session.read(), &group_id)?;
+    let open_ids: HashSet<ProjectId> = state.projects.read().keys().cloned().collect();
+    let plan = groups::plan_open(&members, &open_ids, |project_id| {
+        service::group_member_root(&state.paths, project_id)
+    });
+
+    for (project_id, reason) in &plan.skipped {
+        if reason == &groups::GroupSkipReason::Unavailable {
+            log::warn!("그룹 멤버의 레코드나 루트가 없어 건너뜁니다 (groupId={group_id}, projectId={project_id})");
+        }
+    }
+
+    let mut result = ProjectGroupOpenResult {
+        opened: Vec::new(),
+        skipped: plan.skipped.into_iter().map(|(project_id, _)| project_id).collect(),
+    };
+
+    let app_state = state;
+    let opening_group = &group_id;
+    run_group_open_plan(
+        plan.steps,
+        &mut result,
+        || state.is_shutting_down(),
+        |step, activate| async move {
+            match open_group_member(events, app_state, ports, &step.root, activate).await {
+                Ok(project) => Some(project.id),
+                Err(error) => {
+                    log::warn!(
+                        "그룹 멤버를 열지 못했습니다 (groupId={opening_group}, projectId={}): {error}",
+                        step.project_id
+                    );
+                    None
+                }
+            }
+        },
+    )
+    .await;
+
+    Ok(result)
+}
+async fn open_group_member(
+    events: &dyn EventSink,
+    state: &AppState,
+    ports: &impl ProjectLifecyclePort,
+    root: &str,
+    activate: bool,
+) -> AppResult<Project> {
+    let opened = {
+        let _guard = state.begin_mutation().await;
+        let mut session = state.session.read().clone();
+        let mut projects = state.projects.read().clone();
+
+        let opened = service::open_project(&state.paths, &mut session, &mut projects, Path::new(root), activate, |canonical| {
+            ports.detected_kinds(canonical)
+        })?;
+
+        *state.session.write() = session;
+        *state.projects.write() = projects;
+        opened
+    };
+
+    if !opened.already_open {
+        if let Err(error) = ports.attach_project_capabilities(&opened.project).await {
+            if let Err(rollback) = project_close(events, state, ports, opened.project.id.clone()).await {
+                log::warn!(
+                    "capability attach 실패 후 그룹 멤버 되돌리기도 실패했습니다 (projectId={}): {rollback}",
+                    opened.project.id
+                );
+            }
+            return Err(error);
+        }
+
+        events.publish(AppEvent::ProjectOpened {
+            project: Box::new(opened.project.clone()),
+        });
+        emit_list_changed(events, state);
+    }
+
+    if activate {
+        events.publish(AppEvent::ProjectActivated {
+            project_id: Some(opened.project.id.clone()),
+        });
+        emit_shell_slots_changed(events, state);
+    }
+
+    Ok(opened.project)
+}
+
+/// Walks the ordered group queue and transfers activation to the first successful member.
+pub async fn run_group_open_plan<Open, Fut>(
+    steps: Vec<groups::GroupOpenStep>,
+    result: &mut ProjectGroupOpenResult,
+    mut stop: impl FnMut() -> bool,
+    mut open_member: Open,
+) where
+    Open: FnMut(groups::GroupOpenStep, bool) -> Fut,
+    Fut: std::future::Future<Output = Option<ProjectId>>,
+{
+    let mut pending_activation = steps.iter().any(|step| step.activate);
+
+    for step in steps {
+        if stop() {
+            result.skipped.push(step.project_id);
+            continue;
+        }
+
+        let activate = pending_activation;
+        let project_id = step.project_id.clone();
+        match open_member(step, activate).await {
+            Some(opened_id) => {
+                if activate {
+                    pending_activation = false;
+                }
+                result.opened.push(opened_id);
+            }
+            None => result.skipped.push(project_id),
+        }
+    }
 }
 
 /// Applies the shared project group set color policy.

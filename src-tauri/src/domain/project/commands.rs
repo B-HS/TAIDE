@@ -6,11 +6,12 @@ use taide_runtime::{project_actions, EventSink, TaskSupervisor};
 use tauri::{AppHandle, Manager, State};
 
 use super::capability::ProjectCapabilities;
+#[cfg(test)]
 use super::groups;
 use super::service;
 use super::types::{
-    ForgetRecentOutcome, OpenProjectInSlotRequest, Project, ProjectDisplayPatch, ProjectGroup, ProjectGroupOpenResult, ProjectRef,
-    SessionShellState, SessionState, WindowChrome, WindowChromePatch,
+    CapabilityKind, ForgetRecentOutcome, OpenProjectInSlotRequest, Project, ProjectDisplayPatch, ProjectGroup, ProjectGroupOpenResult,
+    ProjectRef, SessionShellState, SessionState, WindowChrome, WindowChromePatch,
 };
 use crate::constants;
 use crate::domain::file::types::{FsChange, FsChangeKind};
@@ -21,12 +22,29 @@ use crate::platform::event_sink::TauriEventSink;
 use crate::project_restore_port::ProjectRestoreWatchers;
 use crate::state::{AppState, FlushScope};
 
-fn emit_list_changed(app: &AppHandle, state: &AppState) {
-    project_actions::emit_list_changed(&TauriEventSink(app), state);
+pub use taide_runtime::project_actions::run_group_open_plan;
+
+struct NativeProjectLifecycle<'a> {
+    app: &'a AppHandle,
+    state: &'a AppState,
 }
 
-fn emit_shell_slots_changed(app: &AppHandle, state: &AppState) {
-    project_actions::emit_shell_slots_changed(&TauriEventSink(app), state);
+impl project_actions::ProjectLifecyclePort for NativeProjectLifecycle<'_> {
+    fn detected_kinds(&self, root: &Path) -> Vec<CapabilityKind> {
+        self.app.state::<ProjectCapabilities>().detected_kinds(root)
+    }
+
+    async fn attach_project_capabilities(&self, project: &Project) -> AppResult<()> {
+        attach_project_capabilities(self.app, project).await
+    }
+
+    async fn await_project_flush(&self, project_id: &ProjectId) {
+        await_project_flush(self.app, self.state, project_id).await
+    }
+
+    fn detach_all(&self, project_id: &ProjectId) {
+        self.app.state::<ProjectCapabilities>().detach_all(self.app, self.state, project_id);
+    }
 }
 
 #[tauri::command]
@@ -107,44 +125,13 @@ pub async fn project_get_active(state: State<'_, AppState>) -> AppResult<Option<
 #[specta::specta]
 pub async fn project_open(app: AppHandle, state: State<'_, AppState>, path: String) -> AppResult<service::ProjectOpenResult> {
     let _span = perf::span(SpanSlot::ProjectOpen);
-
-    let result = {
-        let _guard = state.begin_mutation().await;
-        let mut session = state.session.read().clone();
-        let mut projects = state.projects.read().clone();
-
-        let result = service::open_project(&state.paths, &mut session, &mut projects, Path::new(&path), true, |canonical| {
-            app.state::<ProjectCapabilities>().detected_kinds(canonical)
-        })?;
-
-        *state.session.write() = session;
-        *state.projects.write() = projects;
-        result
-    };
-
-    if !result.already_open {
-        if let Err(error) = attach_project_capabilities(&app, &result.project).await {
-            if let Err(rollback) = project_close(app.clone(), state.clone(), result.project.id.clone()).await {
-                log::warn!(
-                    "capability attach 실패 후 프로젝트 되돌리기도 실패했습니다 (projectId={}): {rollback}",
-                    result.project.id
-                );
-            }
-            return Err(error);
-        }
-
-        TauriEventSink(&app).publish(AppEvent::ProjectOpened {
-            project: Box::new(result.project.clone()),
-        });
-        emit_list_changed(&app, &state);
-    }
-
-    TauriEventSink(&app).publish(AppEvent::ProjectActivated {
-        project_id: Some(result.project.id.clone()),
-    });
-    emit_shell_slots_changed(&app, &state);
-
-    Ok(result)
+    project_actions::project_open(
+        &TauriEventSink(&app),
+        &state,
+        &NativeProjectLifecycle { app: &app, state: &state },
+        path,
+    )
+    .await
 }
 
 /// Opens a project **into a named shell slot** — the split half of d-62. Either `path` (a folder
@@ -166,78 +153,13 @@ pub async fn project_open_in_slot(
     request: OpenProjectInSlotRequest,
 ) -> AppResult<SessionShellState> {
     let _span = perf::span(SpanSlot::ProjectOpen);
-
-    let opened = {
-        let _guard = state.begin_mutation().await;
-        let mut session = state.session.read().clone();
-        let mut projects = state.projects.read().clone();
-
-        let existing = match (&request.path, &request.project_id) {
-            (Some(path), None) => service::find_open_project_by_root(&projects, Path::new(path)),
-            (None, Some(project_id)) => {
-                service::get_project(&projects, project_id)?;
-                Some(project_id.clone())
-            }
-            _ => {
-                return Err(AppError::InvalidArgument(
-                    "project_open_in_slot needs exactly one of path or projectId".to_string(),
-                ));
-            }
-        };
-
-        service::ensure_slot_placement_allowed(&session, existing.as_ref(), &request.target_slot, request.edge)?;
-
-        let opened = match (existing, &request.path) {
-            (Some(project_id), _) => {
-                let project = service::get_project(&projects, &project_id)?;
-                service::ProjectOpenResult {
-                    project,
-                    already_open: true,
-                }
-            }
-            (None, Some(path)) => service::open_project(&state.paths, &mut session, &mut projects, Path::new(path), false, |canonical| {
-                app.state::<ProjectCapabilities>().detected_kinds(canonical)
-            })?,
-            (None, None) => return Err(AppError::Internal("project_open_in_slot resolved no project".to_string())),
-        };
-
-        service::place_project_in_slot(
-            &state.paths,
-            &mut session,
-            &mut projects,
-            &opened.project.id,
-            &request.target_slot,
-            request.edge,
-        )?;
-
-        *state.session.write() = session;
-        *state.projects.write() = projects;
-        opened
-    };
-
-    if !opened.already_open {
-        if let Err(error) = attach_project_capabilities(&app, &opened.project).await {
-            if let Err(rollback) = project_close(app.clone(), state.clone(), opened.project.id.clone()).await {
-                log::warn!(
-                    "capability attach 실패 후 슬롯 프로젝트 되돌리기도 실패했습니다 (projectId={}): {rollback}",
-                    opened.project.id
-                );
-            }
-            return Err(error);
-        }
-
-        TauriEventSink(&app).publish(AppEvent::ProjectOpened {
-            project: Box::new(opened.project.clone()),
-        });
-        emit_list_changed(&app, &state);
-    }
-
-    TauriEventSink(&app).publish(AppEvent::ProjectActivated {
-        project_id: Some(opened.project.id.clone()),
-    });
-    emit_shell_slots_changed(&app, &state);
-
-    Ok(service::shell_state(&state.session.read()))
+    project_actions::project_open_in_slot(
+        &TauriEventSink(&app),
+        &state,
+        &NativeProjectLifecycle { app: &app, state: &state },
+        request,
+    )
+    .await
 }
 
 /// The current slot arrangement and window chrome, for a window that just mounted. Both halves
@@ -459,38 +381,13 @@ async fn await_project_flush(app: &AppHandle, state: &AppState, project_id: &Pro
 #[tauri::command]
 #[specta::specta]
 pub async fn project_close(app: AppHandle, state: State<'_, AppState>, project_id: ProjectId) -> AppResult<()> {
-    if !state.projects.read().contains_key(&project_id) {
-        return Err(AppError::NotFound(format!("project not open: {project_id}")));
-    }
-
-    await_project_flush(&app, &state, &project_id).await;
-
-    let _guard = state.begin_mutation().await;
-    if !state.projects.read().contains_key(&project_id) {
-        return Ok(());
-    }
-
-    let mut session = state.session.read().clone();
-    let mut projects = state.projects.read().clone();
-
-    service::close_project(&state.paths, &mut session, &mut projects, &project_id)?;
-
-    let active_project = session.active_project.clone();
-    *state.session.write() = session;
-    *state.projects.write() = projects;
-
-    app.state::<ProjectCapabilities>().detach_all(&app, &state, &project_id);
-
-    TauriEventSink(&app).publish(AppEvent::ProjectClosed {
-        project_id: project_id.clone(),
-    });
-    TauriEventSink(&app).publish(AppEvent::ProjectActivated {
-        project_id: active_project,
-    });
-    emit_shell_slots_changed(&app, &state);
-    emit_list_changed(&app, &state);
-
-    Ok(())
+    project_actions::project_close(
+        &TauriEventSink(&app),
+        &state,
+        &NativeProjectLifecycle { app: &app, state: &state },
+        project_id,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -631,142 +528,13 @@ pub async fn project_group_reorder(app: AppHandle, state: State<'_, AppState>, i
 #[tauri::command]
 #[specta::specta]
 pub async fn project_group_open(app: AppHandle, state: State<'_, AppState>, group_id: ProjectGroupId) -> AppResult<ProjectGroupOpenResult> {
-    let members = service::group_members(&state.session.read(), &group_id)?;
-    let open_ids: HashSet<ProjectId> = state.projects.read().keys().cloned().collect();
-    let plan = groups::plan_open(&members, &open_ids, |project_id| {
-        service::group_member_root(&state.paths, project_id)
-    });
-
-    for (project_id, reason) in &plan.skipped {
-        if reason == &groups::GroupSkipReason::Unavailable {
-            log::warn!("그룹 멤버의 레코드나 루트가 없어 건너뜁니다 (groupId={group_id}, projectId={project_id})");
-        }
-    }
-
-    let mut result = ProjectGroupOpenResult {
-        opened: Vec::new(),
-        skipped: plan.skipped.into_iter().map(|(project_id, _)| project_id).collect(),
-    };
-
-    let app_handle = &app;
-    let app_state = &state;
-    let opening_group = &group_id;
-    run_group_open_plan(
-        plan.steps,
-        &mut result,
-        || state.is_shutting_down(),
-        |step, activate| async move {
-            match open_group_member(app_handle, app_state, &step.root, activate).await {
-                Ok(project) => Some(project.id),
-                Err(error) => {
-                    log::warn!(
-                        "그룹 멤버를 열지 못했습니다 (groupId={opening_group}, projectId={}): {error}",
-                        step.project_id
-                    );
-                    None
-                }
-            }
-        },
+    project_actions::project_group_open(
+        &TauriEventSink(&app),
+        &state,
+        &NativeProjectLifecycle { app: &app, state: &state },
+        group_id,
     )
-    .await;
-
-    Ok(result)
-}
-
-/// Walks one group's open queue, handing each member to `open_member` — which answers the opened
-/// project's id, or `None` when that member could not be opened — and records every member in
-/// `result` as opened or skipped.
-///
-/// **Carries the activation forward.** [`groups::plan_open`] marks the one member it expects to
-/// open first, but a member whose open fails emits no `ProjectActivated` at all, so spending the
-/// mark on it would leave the whole group open with the focus still on whatever the user was
-/// looking at before — while `ProjectGroupOpenResult` and `docs/ipc-contract.md` both say focus
-/// lands on the first member the call *actually* opened (contract §3 S-9). The mark is therefore
-/// held until a member really joins the session, and inherited by the next member otherwise.
-///
-/// `stop` is re-checked per member (it stays set once tripped, so the first member that sees a
-/// shutdown ends the real work) and every remaining member is still reported as skipped rather
-/// than silently dropped.
-///
-/// Generic over the open itself so this hand-off is unit-testable: opening a member needs a real
-/// `AppHandle` and this codebase has no `tauri::test` mock-app harness — the same constraint
-/// [`projects_pending_watcher_restore`] works around by staying a pure selection.
-async fn run_group_open_plan<Open, Fut>(
-    steps: Vec<groups::GroupOpenStep>,
-    result: &mut ProjectGroupOpenResult,
-    mut stop: impl FnMut() -> bool,
-    mut open_member: Open,
-) where
-    Open: FnMut(groups::GroupOpenStep, bool) -> Fut,
-    Fut: std::future::Future<Output = Option<ProjectId>>,
-{
-    let mut pending_activation = steps.iter().any(|step| step.activate);
-
-    for step in steps {
-        if stop() {
-            result.skipped.push(step.project_id);
-            continue;
-        }
-
-        let activate = pending_activation;
-        let project_id = step.project_id.clone();
-        match open_member(step, activate).await {
-            Some(opened_id) => {
-                if activate {
-                    pending_activation = false;
-                }
-                result.opened.push(opened_id);
-            }
-            None => result.skipped.push(project_id),
-        }
-    }
-}
-
-/// One step of [`project_group_open`]'s queue. Same shape as [`project_open`] — mutation guard
-/// around the session/project write, capability attach outside it, rollback through
-/// [`project_close`] when the attach fails — with two differences: the root is already known (the
-/// member's own record named it), and `activate` is the caller's, so a background member joins the
-/// session without emitting `ProjectActivated` or touching the slot tree.
-async fn open_group_member(app: &AppHandle, state: &State<'_, AppState>, root: &str, activate: bool) -> AppResult<Project> {
-    let opened = {
-        let _guard = state.begin_mutation().await;
-        let mut session = state.session.read().clone();
-        let mut projects = state.projects.read().clone();
-
-        let opened = service::open_project(&state.paths, &mut session, &mut projects, Path::new(root), activate, |canonical| {
-            app.state::<ProjectCapabilities>().detected_kinds(canonical)
-        })?;
-
-        *state.session.write() = session;
-        *state.projects.write() = projects;
-        opened
-    };
-
-    if !opened.already_open {
-        if let Err(error) = attach_project_capabilities(app, &opened.project).await {
-            if let Err(rollback) = project_close(app.clone(), state.clone(), opened.project.id.clone()).await {
-                log::warn!(
-                    "capability attach 실패 후 그룹 멤버 되돌리기도 실패했습니다 (projectId={}): {rollback}",
-                    opened.project.id
-                );
-            }
-            return Err(error);
-        }
-
-        TauriEventSink(app).publish(AppEvent::ProjectOpened {
-            project: Box::new(opened.project.clone()),
-        });
-        emit_list_changed(app, state);
-    }
-
-    if activate {
-        TauriEventSink(app).publish(AppEvent::ProjectActivated {
-            project_id: Some(opened.project.id.clone()),
-        });
-        emit_shell_slots_changed(app, state);
-    }
-
-    Ok(opened.project)
+    .await
 }
 
 pub(crate) fn restore_state(state: &AppState) -> Vec<String> {
@@ -1055,6 +823,16 @@ mod tests {
             .unwrap_or_else(|| panic!("본문에서 마커를 찾을 수 없습니다: {marker}"))
     }
 
+    fn action_source_between(start_marker: &str) -> &'static str {
+        include_str!("../../../../crates/taide-runtime/src/project_actions.rs")
+            .split_once(start_marker)
+            .expect("runtime action 시작")
+            .1
+            .split_once("\n}\n")
+            .expect("runtime action 끝")
+            .0
+    }
+
     const ATTACH_SIGNATURE: &str = "async fn attach_project_capabilities(app: &AppHandle, project: &Project) -> AppResult<()> {";
 
     /// The whole point of the two-phase attach is the *position of the lock*, and nothing but this
@@ -1110,15 +888,11 @@ mod tests {
         );
     }
 
-    /// `await_project_flush` deliberately waits *outside* `begin_mutation`, so two closes of the
-    /// same project can both clear the entry check and then queue on the guard. Nothing but this
-    /// file's own control flow stops the loser from reaping a second time —
-    /// `service::close_project` removes an absent key happily, re-normalizes the shell slots and
-    /// re-persists the session, after which the caller re-emits `ProjectClosed`/`ProjectActivated`
-    /// and moves the focus again. So scan the source: the re-check must sit after the guard.
     #[test]
     fn project_close_는_가드를_잡은_뒤_프로젝트가_아직_열려_있는지_재검사한다() {
-        let body = source_between("pub async fn project_close(", "\n}\n");
+        let adapter = source_between("pub async fn project_close(", "\n}\n");
+        assert!(adapter.contains("project_actions::project_close("));
+        let body = action_source_between("pub async fn project_close(");
         let guard = marker_position(body, "let _guard = state.begin_mutation().await;");
         let checks: Vec<usize> = body
             .match_indices("state.projects.read().contains_key(&project_id)")
@@ -1141,12 +915,13 @@ mod tests {
         );
     }
 
-    /// `project_open` must reach the attach through [`attach_project_capabilities`] (which owns the
-    /// build/register split) and only *after* its own mutation guard scope has closed.
     #[test]
     fn project_open_은_가드_스코프를_닫은_뒤에_attach_한다() {
-        let body = source_between("pub async fn project_open(", "\n}\n");
-        let after_guard = source_between("let _guard = state.begin_mutation().await;", "attach_project_capabilities(");
+        let adapter = source_between("pub async fn project_open(", "\n}\n");
+        assert!(adapter.contains("project_actions::project_open("));
+        let body = action_source_between("pub async fn project_open(");
+        let after_guard = &body
+            [marker_position(body, "let _guard = state.begin_mutation().await;")..marker_position(body, "attach_project_capabilities(")];
 
         assert!(
             marker_position(body, "*state.projects.write() = projects;") < marker_position(body, "attach_project_capabilities("),
@@ -1162,15 +937,10 @@ mod tests {
         );
     }
 
-    /// The build phase runs on a blocking thread, so its failure arrives as a `JoinError` that the
-    /// unit type would have swallowed: nothing committed, yet the project already published into
-    /// `state.projects`/`state.session` and the caller told the open succeeded. Pin the two halves
-    /// of the correction — the failure is reported, and the half-open project is unwound through
-    /// `project_close` before any `ProjectOpened` goes out.
     #[test]
     fn attach_실패는_열기_실패로_보고되고_프로젝트를_되돌린다() {
         let attach = source_between(ATTACH_SIGNATURE, "\n}\n");
-        let open = source_between("pub async fn project_open(", "\n}\n");
+        let open = action_source_between("pub async fn project_open(");
 
         assert!(
             attach.contains("return Err(AppError::Internal("),

@@ -268,10 +268,11 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     요청 Drop 뒤 시작한 worker가 남아도 guard가 먼저 풀리지 않고 정상 root는 worker와 post-await cache/event action의 마지막 owner 완료를 기다린다.
     취소된 caller의 post-await cache/event 생략과 동기 cold repo discover는 기존 정책이다. 실제 Git/hook/OS stall·직접 Exit·강제 bounded 종료와 전체 M6 gate는 미완료다.
     status 계산은 슬롯 identity·generation을 함께 검증하므로 슬롯 회수 뒤 같은 프로젝트 ID를 다시 조회해도 이전 계산이 새 캐시를 덮지 않는다.
-    프로젝트 조회·활성화/정렬/display·그룹 CRUD·shell slot/chrome의 공개 action 21개와 snapshot helper 3개는
+    프로젝트 조회·활성화/정렬/display·그룹 CRUD·shell slot/chrome·open/open_in_slot/close/group_open의 공개 action 25개와 snapshot helper 3개는
     runtime `project_actions`가 소유한다. 기존 저장→state 반영→함수별 guard 수명→이벤트 순서를 유지한다.
-    capability open/open_in_slot/close/group_open 4개와 attach/detach·restore·flush 조립은 Tauri에 남으며,
-    실제 사용하는 list/slot 발행 helper만 같은 runtime snapshot 정책에 위임한다. 전체 자원 종료는 별도 미완료 gate다.
+    ProjectLifecyclePort가 같은 native capability detect/attach·flush·detach를 주입한다. fresh open의 attach는 guard 밖이며 실패 rollback은 같은 close를 호출한다.
+    close는 flush 뒤 guard 안에서 재검사하므로 중복 close의 두 번째 detach·이벤트를 생략한다. group queue는 첫 실제 성공까지 활성화를 이월하며 shutdown 뒤 남은 멤버를 skipped로 보고한다.
+    실제 capability build/register worker·watcher restore·window flush handshake와 전체 자원 종료는 별도 미완료 gate다.
     `RemoteStore`는 taide-remote에서 서버 Tokio 핸들·종료 신호·세션 digest·nonce·로그인 잠금과 클라이언트 수를 공유 Arc<Mutex>에 보관한다.
     이벤트 broadcast·세션 epoch watch도 같은 채널을 공유하며, 링크/nonce 1회 소모·만료·독립 잠금 축·전체 세션 해제/서버 중지의 epoch 증분을 유지한다.
     HTTP/WS 서버·부팅 secret cache refresh·상태 이벤트 발행·감독 작업 조립은 Tauri adapter에 남는다.
