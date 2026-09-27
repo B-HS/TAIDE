@@ -243,7 +243,10 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     실제 사용하는 list/slot 발행 helper만 같은 runtime snapshot 정책에 위임한다. 전체 자원 종료는 별도 미완료 gate다.
     `RemoteStore`는 taide-remote에서 서버 Tokio 핸들·종료 신호·세션 digest·nonce·로그인 잠금과 클라이언트 수를 공유 Arc<Mutex>에 보관한다.
     이벤트 broadcast·세션 epoch watch도 같은 채널을 공유하며, 링크/nonce 1회 소모·만료·독립 잠금 축·전체 세션 해제/서버 중지의 epoch 증분을 유지한다.
-    HTTP/WS 서버·키링 접근·상태 이벤트 발행·감독 작업 조립은 Tauri adapter에 남는다.
+    HTTP/WS 서버·부팅 secret cache refresh·상태 이벤트 발행·감독 작업 조립은 Tauri adapter에 남는다.
+    runtime `remote_actions`는 공개 action 5개의 cache status·일회 link/host snapshot·password trim/hash/secret 성공 뒤
+    cache/revoke·명시적 revoke 정책을 소유한다. 실제 keyring 구현은 같은 infra port를 사용하며,
+    비IPC 서버/HTTP/WS·부팅 cache refresh·이벤트/감독 조립과 전체 shutdown은 별도 미완료 경계다.
     `IdeStore`는 taide-ide에서 서버/연결 Tokio 핸들·pending diff/save 응답·선택·진단·클라이언트 수를 공유 Arc<Mutex>에 보관한다.
     알림 broadcast도 같은 채널을 공유하며 탭/프로젝트 종료의 응답 해소·현재/최신 선택·진단 준비 상태·원격 owner 차단 정책을 유지한다.
     원격 owner 라벨은 model의 단일 상수이며 remote crate와 기존 Tauri 경로는 재수출한다. 실제 MCP 서버·lockfile·PTY readiness 대기/환경 주입은 Tauri adapter에 남는다.

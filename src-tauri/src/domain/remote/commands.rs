@@ -1,5 +1,5 @@
 use taide_model::app_event::AppEvent;
-use taide_runtime::{EventSink, TaskSupervisor};
+use taide_runtime::{remote_actions, EventSink, TaskSupervisor};
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::watch;
 
@@ -7,9 +7,10 @@ pub use taide_remote::store::{RemoteShutdownState, RemoteStore};
 pub use taide_runtime::RemoteDispatchLimiter;
 
 use super::server;
+#[cfg(doc)]
 use super::service;
-use super::types::{RemoteLinkInfo, RemoteStatus, REMOTE_PASSWORD_MIN_LEN, REMOTE_SHUTDOWN_GRACE_MS};
-use crate::error::{AppError, AppErrorKind, AppResult};
+use super::types::{RemoteLinkInfo, RemoteStatus, REMOTE_SHUTDOWN_GRACE_MS};
+use crate::error::{AppError, AppResult};
 use crate::infra::secret::{SecretAccount, SecretStoreState};
 use crate::platform::event_sink::TauriEventSink;
 use crate::state::AppState;
@@ -92,7 +93,7 @@ pub fn stop_server(app: &AppHandle, remote: &RemoteStore) {
 #[tauri::command]
 #[specta::specta]
 pub async fn remote_status(remote: State<'_, RemoteStore>) -> AppResult<RemoteStatus> {
-    Ok(remote.status())
+    remote_actions::remote_status(&remote).await
 }
 
 /// Starts the local remote-access HTTP/WS server if it isn't already running — no longer a
@@ -139,24 +140,13 @@ pub async fn apply_remote_access_toggle(app: &AppHandle, was_enabled: bool, enab
 #[tauri::command]
 #[specta::specta]
 pub async fn remote_issue_link(app: AppHandle, remote: State<'_, RemoteStore>) -> AppResult<RemoteLinkInfo> {
-    if !remote.is_running() {
-        return Err(AppError::localized(
-            AppErrorKind::InvalidArgument,
-            "error.remote.serverNotRunning",
-            "the remote-access server is not running",
-        ));
-    }
-    let token = remote.issue_link_token();
-    let allowed_hosts = app.state::<AppState>().settings.read().remote_allowed_hosts.clone();
-    let url = service::format_issue_link_url(&allowed_hosts, remote.port(), &token);
-    Ok(RemoteLinkInfo { url })
+    remote_actions::remote_issue_link(&app.state::<AppState>(), &remote).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn remote_revoke_sessions(remote: State<'_, RemoteStore>) -> AppResult<()> {
-    remote.revoke_all_sessions();
-    Ok(())
+    remote_actions::remote_revoke_sessions(&remote).await
 }
 
 /// Sets (or replaces) the remote-access password: hashed with a fresh salt
@@ -178,18 +168,7 @@ pub async fn remote_revoke_sessions(remote: State<'_, RemoteStore>) -> AppResult
 #[tauri::command]
 #[specta::specta]
 pub async fn remote_set_password(remote: State<'_, RemoteStore>, secret: State<'_, SecretStoreState>, password: String) -> AppResult<()> {
-    let Some(trimmed) = service::validate_and_trim_password(&password) else {
-        return Err(AppError::localized(
-            AppErrorKind::InvalidArgument,
-            "error.remote.passwordTooShort",
-            format!("password must be at least {REMOTE_PASSWORD_MIN_LEN} characters"),
-        )
-        .with_arg("min", REMOTE_PASSWORD_MIN_LEN));
-    };
-    secret.0.set(SecretAccount::RemoteAccess, &service::hash_password(trimmed))?;
-    remote.set_password_configured(true);
-    remote.revoke_all_sessions();
-    Ok(())
+    remote_actions::remote_set_password(&remote, &secret, password).await
 }
 
 /// Removes the remote-access password, reverting to link-only access
@@ -197,10 +176,7 @@ pub async fn remote_set_password(remote: State<'_, RemoteStore>, secret: State<'
 #[tauri::command]
 #[specta::specta]
 pub async fn remote_clear_password(remote: State<'_, RemoteStore>, secret: State<'_, SecretStoreState>) -> AppResult<()> {
-    secret.0.delete(SecretAccount::RemoteAccess)?;
-    remote.set_password_configured(false);
-    remote.revoke_all_sessions();
-    Ok(())
+    remote_actions::remote_clear_password(&remote, &secret).await
 }
 
 #[cfg(test)]
