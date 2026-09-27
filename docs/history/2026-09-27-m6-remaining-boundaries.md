@@ -25,3 +25,11 @@ remote/commands·remote/ws·sync/github와 IDE server에 검색된 일부 직접
 설정 action 3개와 공통 apply 경계를 먼저 이전합니다. 기존 app_file_write·apply_settings_file·sync_download는 같은 SettingsApplyPort를 통해 공통 apply adapter를 소비하므로 공개 경로와 재진입 금지 계약을 보존합니다. 실패 테스트와 관련 설정/공유 상태/이벤트·IPC 검증을 동반하고 소유권 조사에서 확인한 나머지 항목은 계속 미완료로 유지합니다.
 
 실제 앱·설치기·LSP/PTY 외부 프로세스는 실행하지 않았습니다. 이 조사는 재현 전 종료 위험을 확인한 것이며 새로운 버그를 검증 완료로 기록하지 않습니다. GitHub B-HS/TAIDE의 to_rust_native 일반 push는 사용자 승인 범위대로 M6 전체 완료 후 수행합니다.
+
+## 후속 파일 대조
+
+현재 활성 목표는 남아 있는 M 전체 완료로 재개됐습니다. 앞서 적은 M7/M8 제외는 당시 목표의 기록이며 현재 상태 정본은 PROCESS입니다. 설정 action은 911d320, 검색 action은 cc2a10f로 분리·검증됐습니다. 각 실제 검증 근거는 별도 action 이력에 기록했습니다. command owner 전수 집계는 별도 census 문서에 기록했으며 전체 body 적합성 판정은 미완료입니다.
+
+LSP 설치의 실제 setup 종료를 추가로 대조했습니다. lib.rs의 ExitRequested/Exit는 LspStore.kill_all을 호출하지만 LspInstallStore에는 종료 호출이 없습니다. install.rs의 guard는 슬롯과 Arc identity를 회수할 뿐 Child나 reader를 소유하지 않으며 Store에는 전체 취소·종료 후 신규 시작 거절 API가 없습니다. TaskSupervisor.stop_all도 기존 등록 작업만 중단하므로 설치 command의 Child를 정리한다는 근거가 아닙니다.
+
+run_toolchain_install은 명시 cancel에서만 process group 신호·start_kill·wait를 실행합니다. success는 reader receiver를 기다리지 않고, failure는 stderr/stdout receiver를 순차 await합니다. capture_output_tail은 JoinHandle 없이 reader task를 직접 spawn하므로 receiver Drop이 reader 취소·join을 보장하지 않습니다. 이 정적 조사만으로 실제 자식 잔존을 재현했다고 기록하지 않습니다. 후속 변경은 synthetic fixture로 요청 취소·앱 shutdown·reader EOF 지연을 구분해 먼저 재현해야 합니다.
