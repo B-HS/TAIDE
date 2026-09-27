@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -19,6 +20,37 @@ pub struct DownloadedFile {
     pub path: PathBuf,
     pub sha256: String,
     pub total_bytes: u64,
+}
+
+/// Supplies file operations whose futures and workers follow the caller's ownership policy.
+pub trait DownloadFileIo: Send + Sync {
+    type File: Send;
+
+    fn create(&self, path: &Path) -> impl Future<Output = AppResult<Self::File>> + Send;
+    fn write_all(&self, file: &mut Self::File, bytes: &[u8]) -> impl Future<Output = AppResult<()>> + Send;
+    fn flush(&self, file: &mut Self::File) -> impl Future<Output = AppResult<()>> + Send;
+}
+
+struct TokioDownloadFileIo;
+
+impl DownloadFileIo for TokioDownloadFileIo {
+    type File = tokio::fs::File;
+
+    async fn create(&self, path: &Path) -> AppResult<Self::File> {
+        tokio::fs::File::create(path).await.map_err(AppError::from)
+    }
+
+    async fn write_all(&self, file: &mut Self::File, bytes: &[u8]) -> AppResult<()> {
+        use tokio::io::AsyncWriteExt;
+
+        file.write_all(bytes).await.map_err(AppError::from)
+    }
+
+    async fn flush(&self, file: &mut Self::File) -> AppResult<()> {
+        use tokio::io::AsyncWriteExt;
+
+        file.flush().await.map_err(AppError::from)
+    }
 }
 
 pub fn platform_key() -> String {
@@ -236,15 +268,28 @@ pub fn substitute_template_args(args: &[String], vars: &[(&str, String)]) -> Vec
 /// the whole archive in memory (some LSP archives run to several hundred MB — see kotlin-lsp).
 /// Progress callbacks are throttled by time/byte-delta so a fast connection doesn't flood the
 /// frontend with an IPC event per network chunk.
+/// Uses Tokio file I/O; owners requiring worker retention on future drop should supply their
+/// ownership-aware operations through [`download_to_file_with_io`].
 pub async fn download_to_file<F: FnMut(DownloadProgress)>(
     client: &reqwest::Client,
     url: &str,
     dest_path: &Path,
     cancel: &AtomicBool,
+    on_progress: F,
+) -> AppResult<DownloadedFile> {
+    download_to_file_with_io(client, url, dest_path, cancel, &TokioDownloadFileIo, on_progress).await
+}
+
+/// Streams and hashes a download through file operations supplied by its resource owner.
+pub async fn download_to_file_with_io<F: FnMut(DownloadProgress)>(
+    client: &reqwest::Client,
+    url: &str,
+    dest_path: &Path,
+    cancel: &AtomicBool,
+    file_io: &impl DownloadFileIo,
     mut on_progress: F,
 ) -> AppResult<DownloadedFile> {
     use futures_util::StreamExt;
-    use tokio::io::AsyncWriteExt;
 
     let response = client.get(url).send().await.map_err(|error| {
         AppError::localized(
@@ -269,7 +314,7 @@ pub async fn download_to_file<F: FnMut(DownloadProgress)>(
     if let Some(parent) = dest_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let mut file = tokio::fs::File::create(dest_path).await?;
+    let mut file = file_io.create(dest_path).await?;
     let mut hasher = Sha256::new();
     let mut received: u64 = 0;
     let mut last_emit = std::time::Instant::now();
@@ -295,10 +340,10 @@ pub async fn download_to_file<F: FnMut(DownloadProgress)>(
             .with_arg("detail", &error)
         })?;
         hasher.update(&chunk);
-        if let Err(error) = file.write_all(&chunk).await {
+        if let Err(error) = file_io.write_all(&mut file, &chunk).await {
             drop(file);
             std::fs::remove_file(dest_path).ok();
-            return Err(AppError::from(error));
+            return Err(error);
         }
         received += chunk.len() as u64;
 
@@ -313,7 +358,7 @@ pub async fn download_to_file<F: FnMut(DownloadProgress)>(
         }
     }
 
-    file.flush().await?;
+    file_io.flush(&mut file).await?;
     on_progress(DownloadProgress {
         received_bytes: received,
         total_bytes: Some(received),

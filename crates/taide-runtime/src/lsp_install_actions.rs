@@ -1,6 +1,8 @@
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use parking_lot::Mutex;
 use taide_infra::http::{outbound_http_client, HttpClientProfile};
 use taide_infra::lsp_install;
 use taide_lsp::install::{install_cancelled_error, LspInstallLease};
@@ -23,6 +25,56 @@ impl Drop for DownloadArtifacts {
     }
 }
 
+struct OwnedDownloadFile {
+    file: Mutex<std::fs::File>,
+    _artifacts: Arc<DownloadArtifacts>,
+    _lease: LspInstallLease,
+}
+
+struct OwnedDownloadFileIo {
+    tasks: TaskSupervisor,
+    lease: LspInstallLease,
+    artifacts: Arc<DownloadArtifacts>,
+}
+
+struct InstallBlockingWork<F> {
+    work: F,
+    lease: LspInstallLease,
+}
+
+impl lsp_install::DownloadFileIo for OwnedDownloadFileIo {
+    type File = Arc<OwnedDownloadFile>;
+
+    async fn create(&self, path: &Path) -> AppResult<Self::File> {
+        let path = path.to_path_buf();
+        let artifacts = self.artifacts.clone();
+        let file_lease = self.lease.clone();
+        run_install_blocking_step(&self.tasks, &self.lease, move || {
+            let file = std::fs::File::create(path)?;
+            Ok(Arc::new(OwnedDownloadFile {
+                file: Mutex::new(file),
+                _artifacts: artifacts,
+                _lease: file_lease,
+            }))
+        })
+        .await
+    }
+
+    async fn write_all(&self, file: &mut Self::File, bytes: &[u8]) -> AppResult<()> {
+        let file = file.clone();
+        let bytes = bytes.to_vec();
+        run_install_blocking_step(&self.tasks, &self.lease, move || {
+            file.file.lock().write_all(&bytes).map_err(AppError::from)
+        })
+        .await
+    }
+
+    async fn flush(&self, file: &mut Self::File) -> AppResult<()> {
+        let file = file.clone();
+        run_install_blocking_step(&self.tasks, &self.lease, move || file.file.lock().flush().map_err(AppError::from)).await
+    }
+}
+
 fn emit_install_progress(
     events: &dyn EventSink,
     server_id: &LspServerId,
@@ -40,17 +92,21 @@ fn emit_install_progress(
     });
 }
 
-async fn run_install_blocking_step(
+async fn run_install_blocking_step<T: Send + 'static>(
     tasks: &TaskSupervisor,
     lease: &LspInstallLease,
-    work: impl FnOnce() -> AppResult<()> + Send + 'static,
-) -> AppResult<()> {
+    work: impl FnOnce() -> AppResult<T> + Send + 'static,
+) -> AppResult<T> {
     lease.ensure_active()?;
-    let worker_lease = lease.clone();
+    let owner = InstallBlockingWork {
+        work,
+        lease: lease.clone(),
+    };
     let (sender, receiver) = tokio::sync::oneshot::channel();
     let handle = tasks
-        .spawn_blocking_transient_handle("lsp-install-extraction", move || {
-            let result = worker_lease.ensure_active().and_then(|()| work());
+        .spawn_blocking_transient_handle("lsp-install-work", move || {
+            let owner = owner;
+            let result = owner.lease.ensure_active().and_then(|()| (owner.work)());
             let _ = sender.send(result);
         })
         .ok_or_else(install_cancelled_error)?;
@@ -65,8 +121,9 @@ async fn run_install_blocking_step(
         )
         .with_arg("detail", &join_error)
     })?;
-    receiver.await.map_err(|_| install_cancelled_error())??;
-    lease.ensure_active()
+    let result = receiver.await.map_err(|_| install_cancelled_error())??;
+    lease.ensure_active()?;
+    Ok(result)
 }
 
 /// Downloads and verifies an archive, retaining worker ownership until extraction finishes.
@@ -112,10 +169,15 @@ pub async fn run_download_install(
     emit_install_progress(events, &spec.id, LspInstallPhase::Downloading, 0, None, None);
     let client = outbound_http_client(HttpClientProfile::Download);
     let cancel = lease.cancellation_token();
+    let file_io = OwnedDownloadFileIo {
+        tasks: tasks.clone(),
+        lease: lease.clone(),
+        artifacts: artifacts.clone(),
+    };
     let download_result = tokio::select! {
         biased;
         _ = lease.cancelled() => Err(install_cancelled_error()),
-        result = lsp_install::download_to_file(&client, url, &artifacts.download_path, &cancel, |update| {
+        result = lsp_install::download_to_file_with_io(&client, url, &artifacts.download_path, &cancel, &file_io, |update| {
             emit_install_progress(events, &spec.id, LspInstallPhase::Downloading, update.received_bytes, update.total_bytes, None);
         }) => result,
     };
@@ -198,10 +260,13 @@ pub async fn run_download_install(
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::future::Future;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::task::{Context, Poll, Waker};
 
     use parking_lot::Mutex;
+    use taide_infra::lsp_install::DownloadFileIo;
     use taide_lsp::install::LspInstallStore;
     use taide_model::lsp::{LspDownloadInstall, LspInstallStrategy};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -325,6 +390,227 @@ mod tests {
             BINARY_CONTENT.len(),
             std::str::from_utf8(BINARY_CONTENT).unwrap(),
         )
+    }
+
+    #[test]
+    fn 시작_전_취소한_work의_cleanup도_마지막_lease_해제보다_앞선다() {
+        struct CleanupWitness {
+            store: LspInstallStore,
+            server_id: LspServerId,
+            did_cleanup: Arc<AtomicBool>,
+        }
+
+        impl Drop for CleanupWitness {
+            fn drop(&mut self) {
+                assert!(self.store.begin(&self.server_id).is_none());
+                self.did_cleanup.store(true, Ordering::SeqCst);
+            }
+        }
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .max_blocking_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let store = LspInstallStore::new();
+            let server_id = LspServerId::from("test-server");
+            let guard = store.begin(&server_id).unwrap();
+            let lease = guard.lease();
+            let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+            let did_cleanup = Arc::new(AtomicBool::new(false));
+            let witness = CleanupWitness {
+                store: store.clone(),
+                server_id: server_id.clone(),
+                did_cleanup: did_cleanup.clone(),
+            };
+            let (started, started_rx) = oneshot::channel();
+            let (release, release_rx) = std::sync::mpsc::channel();
+            let blocker = tokio::task::spawn_blocking(move || {
+                started.send(()).unwrap();
+                release_rx.recv().unwrap();
+            });
+            started_rx.await.unwrap();
+            let mut operation = Box::pin(run_install_blocking_step::<()>(&tasks, &lease, move || {
+                let _witness = witness;
+                panic!("cancelled queued body must not run");
+            }));
+            let mut context = Context::from_waker(Waker::noop());
+            assert!(matches!(operation.as_mut().poll(&mut context), Poll::Pending));
+            drop(operation);
+            drop(lease);
+            drop(guard);
+            assert!(store.begin(&server_id).is_none());
+            tasks.stop_all();
+            release.send(()).unwrap();
+            blocker.await.unwrap();
+            tokio::task::spawn_blocking(|| ()).await.unwrap();
+            assert!(did_cleanup.load(Ordering::SeqCst));
+            assert_eq!(tasks.tracked_count(), 0);
+            assert!(store.begin(&server_id).is_some());
+        });
+    }
+
+    #[test]
+    fn write와_flush_대기_중_drop도_실제_파일_작업의_소유권을_유지한다() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .max_blocking_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            for should_flush in [false, true] {
+                let root = TestRoot::new();
+                let download_path = root.0.join("pending-file-work.download");
+                let store = LspInstallStore::new();
+                let server_id = LspServerId::from("test-server");
+                let guard = store.begin(&server_id).unwrap();
+                let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+                let file_io = OwnedDownloadFileIo {
+                    tasks: tasks.clone(),
+                    lease: guard.lease(),
+                    artifacts: Arc::new(DownloadArtifacts {
+                        download_path: download_path.clone(),
+                        extract_dir: root.0.join("pending-extract"),
+                    }),
+                };
+                let mut file = file_io.create(&download_path).await.unwrap();
+                let (started, started_rx) = oneshot::channel();
+                let (release, release_rx) = std::sync::mpsc::channel();
+                let blocker = tokio::task::spawn_blocking(move || {
+                    started.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                });
+                started_rx.await.unwrap();
+                let mut operation = Box::pin(async {
+                    if should_flush {
+                        return file_io.flush(&mut file).await;
+                    }
+                    file_io.write_all(&mut file, BINARY_CONTENT).await
+                });
+                let mut context = Context::from_waker(Waker::noop());
+                assert!(matches!(operation.as_mut().poll(&mut context), Poll::Pending));
+                assert_eq!(tasks.tracked_count(), 1);
+                drop(operation);
+                drop(file_io);
+                drop(file);
+                drop(guard);
+
+                assert!(store.begin(&server_id).is_none());
+                assert!(download_path.exists());
+                release.send(()).unwrap();
+                blocker.await.unwrap();
+                tokio::task::spawn_blocking(|| ()).await.unwrap();
+                assert_eq!(tasks.tracked_count(), 0);
+                assert!(!download_path.exists());
+                assert!(store.begin(&server_id).is_some());
+            }
+        });
+    }
+
+    #[tokio::test]
+    async fn 열린_파일_소유자는_요청이_끝나도_닫힘과_cleanup까지_슬롯을_보유한다() {
+        let root = TestRoot::new();
+        let download_path = root.0.join("owned-file.download");
+        let store = LspInstallStore::new();
+        let server_id = LspServerId::from("test-server");
+        let guard = store.begin(&server_id).unwrap();
+        let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+        let file_io = OwnedDownloadFileIo {
+            tasks: tasks.clone(),
+            lease: guard.lease(),
+            artifacts: Arc::new(DownloadArtifacts {
+                download_path: download_path.clone(),
+                extract_dir: root.0.join("owned-extract"),
+            }),
+        };
+        let file = file_io.create(&download_path).await.unwrap();
+        assert_eq!(tasks.tracked_count(), 0);
+        drop(file_io);
+        drop(guard);
+        assert!(store.begin(&server_id).is_none());
+        assert!(download_path.exists());
+        drop(file);
+        assert!(!download_path.exists());
+        assert!(store.begin(&server_id).is_some());
+    }
+
+    #[tokio::test]
+    async fn 파일_생성_오류는_io_오류로_반환하고_감독_작업을_정리한다() {
+        let root = TestRoot::new();
+        let store = LspInstallStore::new();
+        let server_id = LspServerId::from("test-server");
+        let guard = store.begin(&server_id).unwrap();
+        let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+        let file_io = OwnedDownloadFileIo {
+            tasks: tasks.clone(),
+            lease: guard.lease(),
+            artifacts: Arc::new(DownloadArtifacts {
+                download_path: root.0.join("not-created.download"),
+                extract_dir: root.0.join("not-created-extract"),
+            }),
+        };
+        let result = file_io.create(&root.0).await;
+        assert!(matches!(result, Err(AppError::Io(_))));
+        assert_eq!(tasks.tracked_count(), 0);
+        drop(file_io);
+        drop(guard);
+        assert!(store.begin(&server_id).is_some());
+    }
+
+    #[test]
+    fn 파일_생성_대기_중_요청_drop은_슬롯을_유지하고_늦은_임시_파일을_남기지_않는다() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .max_blocking_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let root = TestRoot::new();
+            let paths = AppPaths::new(root.0.clone());
+            let server = HttpFixture::start(Some(binary_response())).await;
+            let spec = fixture_spec(server.url.clone(), lsp_install::sha256_hex(BINARY_CONTENT));
+            let store = LspInstallStore::new();
+            let guard = store.begin(&spec.id).unwrap();
+            let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+            let _client = outbound_http_client(HttpClientProfile::Download);
+            let (started, started_rx) = oneshot::channel();
+            let (release, release_rx) = std::sync::mpsc::channel();
+            let blocker = tokio::task::spawn_blocking(move || {
+                started.send(()).unwrap();
+                release_rx.recv().unwrap();
+            });
+            started_rx.await.unwrap();
+            let request_paths = AppPaths::new(root.0.clone());
+            let request_spec = spec.clone();
+            let installer = tokio::spawn(async move {
+                run_download_install(&RecordingEvents::default(), &request_paths, &request_spec, &guard.lease(), &tasks).await
+            });
+            let temp = paths.lsp_dir().join(".tmp");
+            tokio::time::timeout(std::time::Duration::from_millis(FIXTURE_TIMEOUT_MS), async {
+                while !temp.exists() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            assert_eq!(std::fs::read_dir(&temp).unwrap().count(), 0);
+            installer.abort();
+            assert!(installer.await.unwrap_err().is_cancelled());
+            let was_slot_reusable_before_file_work_finished = store.begin(&spec.id).is_some();
+            release.send(()).unwrap();
+            blocker.await.unwrap();
+            tokio::task::spawn_blocking(|| ()).await.unwrap();
+            let late_files = std::fs::read_dir(&temp).unwrap().count();
+            server.finish().await;
+
+            assert!(
+                !was_slot_reusable_before_file_work_finished,
+                "slot reopened before queued file I/O finished; late temporary files: {late_files}",
+            );
+            assert_eq!(late_files, 0);
+            assert!(store.begin(&spec.id).is_some());
+        });
     }
 
     #[tokio::test]
@@ -625,7 +911,7 @@ mod tests {
         let guard = store.begin(&server_id).unwrap();
         let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
 
-        let error = run_install_blocking_step(&tasks, &guard.lease(), || panic!("synthetic extraction panic"))
+        let error = run_install_blocking_step::<()>(&tasks, &guard.lease(), || panic!("synthetic extraction panic"))
             .await
             .unwrap_err();
         let AppError::Localized(localized) = error else {
@@ -633,7 +919,7 @@ mod tests {
         };
         assert_eq!(localized.key, "error.lsp.extractTaskFailed");
         assert_eq!(tasks.tracked_count(), 0);
-        let error = run_install_blocking_step(&tasks, &guard.lease(), || Err(AppError::Internal("synthetic error".to_string())))
+        let error = run_install_blocking_step::<()>(&tasks, &guard.lease(), || Err(AppError::Internal("synthetic error".to_string())))
             .await
             .unwrap_err();
         assert!(error.to_string().contains("synthetic error"));

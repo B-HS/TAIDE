@@ -17,7 +17,7 @@
 
 ## 전체 gate에 남는 필수 항목
 
-- [ ] 내부 파일 I/O future Drop: Tokio file create/write의 blocking 작업이 진행 중인 시점에 command를 취소해 재현합니다. 이번 HTTP fixture는 header/body 수신 정지 경계만 검증했으므로 임시 경로 cleanup 이후 파일 생성·write 지속 가능성과 슬롯 조기 해제를 아직 판정하지 않습니다. M6-JD/JE의 필수 후속 검사입니다.
+- [x] 내부 파일 I/O future Drop의 후속 보완: 파일 생성 대기 중 요청 Drop으로 슬롯 조기 해제와 늦은 임시 파일 1개를 재현한 뒤 감독된 create/write/flush·열린 파일 소유자로 수정했습니다. 세부 범위와 미검증 경계는 [파일 I/O QA](2026-09-27-lsp-install-file-io-lifecycle.md)에 기록합니다. 전체 설치 shutdown 완료를 뜻하지 않습니다.
 - [ ] toolchain child/reader: command future Drop·앱 shutdown·EOF 지연 때 직접 생성한 child/pipe로 실제 kill/reap/drain과 슬롯 유지·재진입 거절을 검증하고 소유권을 구현합니다. 실제 설치기·사용자 프로세스는 사용하지 않습니다.
 - [ ] root shutdown의 실제 자원 drain: admission을 닫고 token을 알린 것과 프로세스 종료/worker join 완료를 구분합니다. std::process::exit 전 자원 회수의 전체 gate를 별도로 확인합니다.
 - [ ] LSP wait worker 자체/PTY thread·전체 M6 command body 및 M7 workspace/frontend/사용자 실기·M8 native gate는 미완료입니다. 앱 실행·재시작·실기는 사용자 몫이며 이번에 수행하지 않았습니다.

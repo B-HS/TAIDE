@@ -27,6 +27,8 @@
 
 ## 미완료 경계
 
+이 절은 이 slice 시점의 미완료 경계를 보존합니다. 후속 HTTP 파일 I/O 보완과 실제 재현 결과는 [파일 I/O 소유권 이력](2026-09-27-lsp-install-file-io-ownership.md)과 해당 QA 문서에 기록합니다.
+
 HTTP 내부 Tokio 파일 create/write 작업 중 future Drop은 이번 정지 응답 fixture로 증명하지 않았습니다. 내부 blocking I/O가 요청 future보다 늦게 끝나는 경우 임시 경로 cleanup과 슬롯 수명을 추가로 재현·보완해야 합니다. toolchain child/process-group/reader EOF 지연·wait worker/PTY의 전체 소유권, 앱 종료 시 실제 자원 drain, M6 전체·M7·M8도 미완료입니다. root의 store shutdown은 취소 통지/신규 등록 거절이며 자식 프로세스를 동기 kill하거나 모든 worker를 join한 결과가 아닙니다. JD~JG는 전체 설치 lifecycle이 끝날 때까지 미완료로 유지합니다.
 
 ## 공식 근거

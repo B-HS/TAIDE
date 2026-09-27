@@ -14,10 +14,10 @@ pub enum HttpClientProfile {
     /// bodies (a single completion/diff payload), so a hard end-to-end request timeout is safe and
     /// desirable (an unresponsive provider must not hang the calling command indefinitely).
     Api,
-    /// LSP server binary downloads (`domain::lsp::commands::run_download_install`) — response
+    /// LSP server binary downloads (`taide-runtime::lsp_install_actions::run_download_install`) — response
     /// bodies can be tens of megabytes over a slow connection, so only the initial connect is
-    /// time-bounded; the download loop enforces its own responsiveness via the caller-supplied
-    /// `AtomicBool` cancellation flag (`lsp_install::download_to_file`), not a wall-clock timeout
+    /// time-bounded; the runtime action observes cancellation notifications and owns its file
+    /// workers, while the streaming loop also checks its `AtomicBool`, without a wall-clock timeout
     /// that would otherwise abort a legitimately slow-but-progressing transfer.
     Download,
 }
