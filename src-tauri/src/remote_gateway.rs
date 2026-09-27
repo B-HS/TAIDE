@@ -1280,7 +1280,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         }
         "pty_default_options" => respond(terminal::pty_default_options(app.state(), arg!(args, "projectId"), arg!(args, "cwd")).await),
 
-        "detect_tasks" => respond(task::detect_tasks(app.state(), arg!(args, "projectId")).await),
+        "detect_tasks" => respond(task::detect_tasks(app.state(), app.state(), arg!(args, "projectId")).await),
 
         "font_list" => respond(domain::font::commands::font_list().await),
 

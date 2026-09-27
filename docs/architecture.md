@@ -318,6 +318,9 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     locale load/exists의 기존 경로 검증 누락은 자기 UUID 경로 이탈 fixture로 확인됐으며 별도 보안 수정 방향을 질문한 미완료 gate다. action 이전 완료를 보안 합격으로 해석하지 않는다.
     `taide-runtime::snippet_actions`는 공개 list/save/delete 3개의 기존 service 위임을 소유한다. 원래 await 없는 호출은 동기 action으로 제공하고 Tauri async signature는 유지한다.
     filename/JSON 검증·원문 atomic 저장·관용 scan/정렬·삭제 오류는 같은 taide-snippet service를 사용하며 mutation guard·이벤트·새 스키마를 추가하지 않는다.
+    `taide-runtime::task_actions`는 project_root 확인 뒤 같은 taide-task scan을 TaskSupervisor의 blocking worker로 실행한다. command 문자열을 반환할 뿐 탐지한 task를 실행하지 않는다.
+    Tauri command는 기존 managed TaskSupervisor를 추가 주입하며 원격도 같은 등록 상태를 전달한다. 실제 Specta 생성으로 wire payload 불변을 확인했다.
+    요청 waiter가 Drop돼도 이미 시작한 scan은 감독에 남고 정상 root는 실제 완료를 기다린다. 종료 뒤 새 입장은 Forbidden이며 강제 중단·bounded 종료를 보장하지 않는다.
     `taide-runtime::layout_actions`는 dirty flush·finish·공통 탭 open/close와 레이아웃 command 정책 18개, root의 탭 창 이동·보조 창 탭 복귀 정책을 소유한다. 기존 layout service 경로는 재수출 또는 adapter로 유지한다.
     finish의 focus 보정·dirty 표시·LayoutChanged 발행 뒤에 호출자가 state를 기록하는 기존 순서를 보존한다.
     close의 observer는 state 기록 뒤 같은 mutation guard 안에서 주입된 callback으로 실행하며 실제 IDE→PTY 후처리 등록은 Tauri 조립부에 남는다.

@@ -25,6 +25,7 @@ pub mod settings_actions;
 pub mod snippet_actions;
 mod state;
 pub mod system_actions;
+pub mod task_actions;
 mod task_supervisor;
 pub mod terminal_actions;
 pub mod theme_actions;

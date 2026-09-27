@@ -27,6 +27,7 @@ taide-search = { path = "../taide-search" }
 taide-settings = { path = "../taide-settings" }
 taide-snippet = { path = "../taide-snippet" }
 taide-system = { path = "../taide-system" }
+taide-task = { path = "../taide-task" }
 taide-terminal = { path = "../taide-terminal" }
 taide-theme = { path = "../taide-theme" }
 taide-tree = { path = "../taide-tree" }
