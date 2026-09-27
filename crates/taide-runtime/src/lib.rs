@@ -6,6 +6,7 @@ pub mod file_actions;
 mod platform_services;
 mod remote_dispatch_limiter;
 mod search_store;
+pub mod settings_actions;
 mod state;
 mod task_supervisor;
 mod tree_store;

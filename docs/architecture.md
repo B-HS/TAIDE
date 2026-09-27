@@ -241,6 +241,12 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     file_open의 plugin overlay callback은 권한 확인과 설정 snapshot 뒤에 호출하며 파일 읽기는 blocking worker에서 수행한다.
     file_save와 file_copy는 mutation guard를 blocking 작업 완료까지 유지한다. dirty/untitled 미러 생성은 기존처럼 전역 mutation guard를 취하지 않는다.
     raw action은 바이트를 반환하고 Tauri adapter만 ipc::Response로 감싼다. 실제 창 label 확인과 exit는 file_flush_complete에 남는다.
+    `taide-runtime::settings_actions`는 설정 조회·patch·테마 변경과 공통 apply를 소유한다.
+    공통 apply는 sanitize→저장→live state 적용→주입한 integration callback await→SettingsChanged 순서를 유지한다.
+    callback은 이전/적용 Settings snapshot을 소유하며 실제 IDE→agent→remote observer는 Tauri 조립부의 등록 순서로 완료된다.
+    공통 apply는 mutation guard를 재취득하지 않고 patch·테마 action은 snapshot부터 이벤트 완료까지 같은 guard를 유지한다.
+    app_file_write·apply_settings_file·sync_download는 기존 SettingsApplyPort를 통해 같은 runtime apply를 소비한다.
+    테마 변경만 SettingsChanged 이후 ThemeChanged를 추가 발행하며 저장 실패·없는 테마는 observer와 이벤트에 도달하지 않는다.
     IDE diff의 mutation guard·blocking 실행과 Forbidden 예외 정책은 기존 호출자에 남는다.
     setup은 상태 복원 뒤 AppState·TaskSupervisor·원격 제한기·플랫폼 포트·시크릿 포트·IDE 저장 포트·EventSink를 주입해 `Arc<AppServices>`를 만들고, 나머지 저장소는 AppServices가 초기화한다.
     AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·AgentStore·AgentHooksStore·GitStore·RemoteStore·IdeStore·SecretStoreState·IdeSaveFile·LspStore·LspInstallStore·SystemUsageStore·RemoteDispatchLimiter·PlatformServices·WindowRegistry·TaskSupervisor의 20개 상태·포트를

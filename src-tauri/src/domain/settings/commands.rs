@@ -1,11 +1,9 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use taide_model::app_event::AppEvent;
-use taide_runtime::EventSink;
+use taide_runtime::settings_actions;
 use tauri::Manager;
 
-use super::service;
 use super::types::{Settings, SettingsPatch};
 use crate::error::AppResult;
 use crate::platform::event_sink::TauriEventSink;
@@ -40,7 +38,11 @@ impl SettingsToggleObservers {
 #[tauri::command]
 #[specta::specta]
 pub async fn settings_get(state: tauri::State<'_, AppState>) -> AppResult<Settings> {
-    Ok(state.settings.read().clone())
+    settings_actions::settings_get(&state).await
+}
+
+async fn reconcile_integrations(app: &tauri::AppHandle, current: Settings, updated: Settings) {
+    app.state::<SettingsToggleObservers>().apply(app, &current, &updated).await;
 }
 
 /// Sanitizes, persists, applies to live `AppState`, reconciles integration toggles (IDE/agent
@@ -52,26 +54,25 @@ pub async fn settings_get(state: tauri::State<'_, AppState>) -> AppResult<Settin
 /// this directly rather than through a command — it does **not** take the mutation guard itself, to
 /// avoid a re-entrant deadlock on `AppState`'s single global `tokio::sync::Mutex`.
 pub async fn apply_and_broadcast(app: &tauri::AppHandle, state: &AppState, next: Settings) -> AppResult<Settings> {
-    let current = state.settings.read().clone();
-    let updated = service::sanitize(next);
-    service::save_settings(&state.paths, &updated)?;
-    *state.settings.write() = updated.clone();
-    app.state::<SettingsToggleObservers>().apply(app, &current, &updated).await;
-
-    TauriEventSink(app).publish(AppEvent::SettingsChanged {
-        settings: Box::new(updated.clone()),
-    });
-
-    Ok(updated)
+    settings_actions::apply_and_broadcast(
+        state,
+        next,
+        |current, updated| reconcile_integrations(app, current, updated),
+        &TauriEventSink(app),
+    )
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn settings_update(app: tauri::AppHandle, state: tauri::State<'_, AppState>, patch: SettingsPatch) -> AppResult<Settings> {
-    let _guard = state.begin_mutation().await;
-    let current = state.settings.read().clone();
-    let updated = service::apply_patch(&current, &patch);
-    apply_and_broadcast(&app, &state, updated).await
+    settings_actions::settings_update(
+        &state,
+        patch,
+        |current, updated| reconcile_integrations(&app, current, updated),
+        &TauriEventSink(&app),
+    )
+    .await
 }
 
 /// Unlike `settings_update`, this also emits `ThemeChanged` — the narrower event
@@ -81,14 +82,11 @@ pub async fn settings_update(app: tauri::AppHandle, state: tauri::State<'_, AppS
 #[tauri::command]
 #[specta::specta]
 pub async fn settings_set_theme(app: tauri::AppHandle, state: tauri::State<'_, AppState>, theme_id: String) -> AppResult<Settings> {
-    let _guard = state.begin_mutation().await;
-    let current = state.settings.read().clone();
-    let updated = service::set_theme(&state.paths, &current, &theme_id)?;
-    let broadcasted = apply_and_broadcast(&app, &state, updated).await?;
-
-    TauriEventSink(&app).publish(AppEvent::ThemeChanged {
-        theme_id: broadcasted.theme_id.clone(),
-    });
-
-    Ok(broadcasted)
+    settings_actions::settings_set_theme(
+        &state,
+        theme_id,
+        |current, updated| reconcile_integrations(&app, current, updated),
+        &TauriEventSink(&app),
+    )
+    .await
 }

@@ -194,14 +194,24 @@ fn 설정과_테마_이벤트는_같은_port에서_순서대로_발행된다() {
 #[test]
 fn 설정_적용과_테마_변경은_상태_갱신_뒤_port로_발행된다() {
     let commands = include_str!("../src/domain/settings/commands.rs");
+    let runtime = include_str!("../../crates/taide-runtime/src/settings_actions.rs");
     let adapter = include_str!("../src/platform/event_sink.rs");
-    let apply = commands.split_once("pub async fn apply_and_broadcast(").unwrap().1;
-    let theme = commands.split_once("pub async fn settings_set_theme(").unwrap().1;
+    let apply = runtime.split_once("pub async fn apply_and_broadcast").unwrap().1;
+    let theme = runtime.split_once("pub async fn settings_set_theme").unwrap().1;
 
     assert!(apply.find("service::save_settings(").unwrap() < apply.find("AppEvent::SettingsChanged").unwrap());
     assert!(apply.find("*state.settings.write()").unwrap() < apply.find("AppEvent::SettingsChanged").unwrap());
-    assert!(apply.find("SettingsToggleObservers>().apply(").unwrap() < apply.find("AppEvent::SettingsChanged").unwrap());
+    assert!(
+        apply.find("reconcile_integrations(current, updated.clone()).await").unwrap() < apply.find("AppEvent::SettingsChanged").unwrap()
+    );
     assert!(theme.find("apply_and_broadcast(").unwrap() < theme.find("AppEvent::ThemeChanged").unwrap());
+    assert!(commands.contains("SettingsToggleObservers>().apply(app, &current, &updated).await"));
+    assert!(commands.contains("settings_actions::apply_and_broadcast("));
+    assert!(commands.contains("settings_actions::settings_get("));
+    assert!(commands.contains("settings_actions::settings_update("));
+    assert!(commands.contains("settings_actions::settings_set_theme("));
+    assert!(!commands.contains("service::save_settings("));
+    assert!(!commands.contains("AppEvent::"));
     assert!(adapter.contains("SettingsChanged { settings: *settings }.emit(self.0)"));
     assert!(adapter.contains("ThemeChanged { theme_id }.emit(self.0)"));
 }
