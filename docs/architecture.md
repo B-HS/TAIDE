@@ -340,7 +340,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     `taide-runtime::lsp_actions`는 세션 snapshot 조회·bundled server 확인 뒤 기존 root 탐지·설치 취소를 소유한다. worker lease가 끝나기 전 설치 슬롯을 해제하지 않는 기존 store 정책을 유지한다.
     같은 runtime은 현재 proc의 write await와 crashed generation의 재초기화 확인/실패 기록·status event 조립도 소유한다. 기존 실패 문구·generation/status 조건·이벤트 payload를 보존한다.
     send의 IPC counter는 Tauri adapter에 남으며 같은 EventSink adapter를 사용한다. proc 실기·write 중 취소의 완전성은 이 메모리 검사로 증명하지 않는다.
-    Tauri의 공개 LSP async signature/문서와 OS PATH server 탐지 본문은 유지하며 세션 프로세스·설치 application 조립은 별도 잔여 경계다.
+    설치 application의 app shutdown→bundled spec→store 입장→전략 선택/오류도 같은 runtime action에 있다. 기존 install guard/lease와 download/toolchain 구현을 사용하며 Tauri는 같은 상태/이벤트 adapter로 위임한다.
+    Tauri의 공개 LSP async signature/문서와 OS PATH server 탐지 본문은 유지하며 세션 spawn/stop/restart 조립은 별도 잔여 경계다.
     실제 이벤트 전송은 주입된 EventSink/Tauri adapter에 남는다. InstallStore의 요청 guard Drop은 취소를 요청하고 worker lease가 살아 있는 동안 서버 슬롯을 해제하지 않는다.
     extraction과 download 파일 create/write/flush worker는 lease와 UUID 임시 경로 소유자를 보유하며 이미 시작한 작업은 abort로 끝났다고 간주하지 않는다. 실제 작업/임시 경로 정리가 끝나야 재등록할 수 있다.
     infra의 DownloadFileIo는 기존 Tokio 파일 경로와 runtime의 감독된 파일 경로를 제공한다. 실제 설치 action은 후자를 사용하며 stream/hash/throttle 정책은 공유한다.

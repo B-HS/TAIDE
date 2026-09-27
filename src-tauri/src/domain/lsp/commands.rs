@@ -15,10 +15,8 @@ use tauri::{AppHandle, Manager, State};
 
 use super::manifest;
 use super::service;
-use super::types::{
-    LanguageServerSpec, LspInstallStrategy, LspServerDetection, LspServerId, LspSessionInfo, LspSessionStatus, LspSpawnRequest,
-};
-use crate::error::{AppError, AppErrorKind, AppResult};
+use super::types::{LanguageServerSpec, LspServerDetection, LspServerId, LspSessionInfo, LspSessionStatus, LspSpawnRequest};
+use crate::error::{AppError, AppResult};
 use crate::ids::ProjectId;
 use crate::infra::lsp_proc;
 use crate::infra::perf::{self, CounterSlot};
@@ -511,45 +509,7 @@ pub async fn lsp_install(
     tasks: State<'_, TaskSupervisor>,
     server_id: LspServerId,
 ) -> AppResult<()> {
-    if state.is_shutting_down() {
-        install_store.shutdown();
-        return Err(taide_lsp::install::install_cancelled_error());
-    }
-    let spec = manifest::find_spec(server_id.as_str())
-        .ok_or_else(|| AppError::InvalidArgument(format!("unknown language server: {server_id}")))?;
-
-    let Some(install_guard) = install_store.begin(&server_id) else {
-        if install_store.is_stopped() {
-            return Err(taide_lsp::install::install_cancelled_error());
-        }
-        return Err(AppError::localized(
-            AppErrorKind::InvalidArgument,
-            "error.lsp.installAlreadyRunning",
-            format!("{server_id}: an install is already in progress"),
-        )
-        .with_arg("serverId", &server_id));
-    };
-    match spec.install.strategy {
-        LspInstallStrategy::Download => {
-            taide_runtime::lsp_install_actions::run_download_install(
-                &TauriEventSink(&app),
-                &state.paths,
-                &spec,
-                &install_guard.lease(),
-                &tasks,
-            )
-            .await
-        }
-        LspInstallStrategy::Toolchain => {
-            taide_runtime::lsp_install_toolchain::run_toolchain_install(&TauriEventSink(&app), &spec, &install_guard.lease(), &tasks).await
-        }
-        LspInstallStrategy::SdkDetect => Err(AppError::localized(
-            AppErrorKind::InvalidArgument,
-            "error.lsp.sdkDetectOnly",
-            format!("{}: SDK-detect-only servers cannot be installed automatically", spec.id),
-        )
-        .with_arg("serverId", &spec.id)),
-    }
+    lsp_actions::lsp_install(&TauriEventSink(&app), &state, &install_store, &tasks, server_id).await
 }
 
 #[tauri::command]
@@ -563,7 +523,7 @@ mod tests {
     use parking_lot::Mutex;
 
     use super::*;
-    use crate::domain::lsp::types::{LspCommandSpec, LspInstallSpec, LspRootStrategy};
+    use crate::domain::lsp::types::{LspCommandSpec, LspInstallSpec, LspInstallStrategy, LspRootStrategy};
 
     /// The exit log's stderr tail follows the same masking policy as the install tail (d-57 §1.D) —
     /// it lands in the same rotating disk log — and is flattened so one exit report is one line.

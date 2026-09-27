@@ -6,10 +6,11 @@ use taide_lsp::manifest;
 use taide_lsp::session::LspMessageSubscribers;
 use taide_lsp::store::{LspSessionEntry, LspStore};
 use taide_model::app_event::AppEvent;
-use taide_model::error::AppErrorKind;
+use taide_model::error::{AppError, AppErrorKind};
 use taide_model::ids::ProjectId;
 use taide_model::lsp::{LspServerId, LspSessionStatus};
-use taide_runtime::{lsp_actions, EventSink};
+use taide_model::paths::AppPaths;
+use taide_runtime::{lsp_actions, AppState, EventSink, TaskSupervisor};
 use uuid::Uuid;
 
 struct Fixture(PathBuf);
@@ -203,4 +204,88 @@ fn 재초기화의_없는_세션은_이벤트_없이_거절된다() {
         assert_eq!(result.unwrap_err().kind(), AppErrorKind::NotFound);
     }
     assert!(events.0.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn 설치는_종료한_store에서도_unknown_server_확인을_먼저_유지한다() {
+    let fixture = Fixture::new();
+    let state = AppState::new(AppPaths::new(fixture.0.join("data")));
+    let store = LspInstallStore::new();
+    let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+    let events = Events::default();
+    store.shutdown();
+    let error = lsp_actions::lsp_install(&events, &state, &store, &tasks, "fixture-unknown".into())
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), AppErrorKind::InvalidArgument);
+    let error = lsp_actions::lsp_install(&events, &state, &store, &tasks, "rustAnalyzer".into())
+        .await
+        .unwrap_err();
+    assert_eq!(error.to_string(), "Installation was cancelled");
+    assert_eq!(tasks.tracked_count(), 0);
+    assert!(events.0.lock().unwrap().is_empty());
+    assert!(!state.paths.data_dir.exists());
+}
+
+#[tokio::test]
+async fn 중복_설치는_기존_실행_lease를_취소하지_않고_같은_오류를_반환한다() {
+    let fixture = Fixture::new();
+    let state = AppState::new(AppPaths::new(fixture.0.join("data")));
+    let store = LspInstallStore::new();
+    let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+    let events = Events::default();
+    let id = LspServerId::from("gopls");
+    let guard = store.begin(&id).unwrap();
+    let error = lsp_actions::lsp_install(&events, &state, &store, &tasks, id.clone())
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), AppErrorKind::InvalidArgument);
+    assert!(matches!(&error, AppError::Localized(error) if error.key == "error.lsp.installAlreadyRunning"));
+    assert!(guard.lease().ensure_active().is_ok());
+    assert!(store.begin(&id).is_none());
+    assert!(events.0.lock().unwrap().is_empty());
+    assert!(!state.paths.data_dir.exists());
+}
+
+#[tokio::test]
+async fn sdk_only_거절은_기존_오류를_반환하고_요청_슬롯을_반납한다() {
+    let fixture = Fixture::new();
+    let state = AppState::new(AppPaths::new(fixture.0.join("data")));
+    let store = LspInstallStore::new();
+    let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+    let events = Events::default();
+    let id = LspServerId::from("rustAnalyzer");
+    let error = lsp_actions::lsp_install(&events, &state, &store, &tasks, id.clone())
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), AppErrorKind::InvalidArgument);
+    assert!(matches!(&error, AppError::Localized(error) if error.key == "error.lsp.sdkDetectOnly"));
+    let next = store.begin(&id).unwrap();
+    assert!(next.lease().ensure_active().is_ok());
+    assert_eq!(tasks.tracked_count(), 0);
+    assert!(events.0.lock().unwrap().is_empty());
+    assert!(!state.paths.data_dir.exists());
+}
+
+#[tokio::test]
+async fn app_shutdown은_server_조회_전에_install_store를_닫고_기존_lease를_취소한다() {
+    let fixture = Fixture::new();
+    let state = AppState::new(AppPaths::new(fixture.0.join("data")));
+    let store = LspInstallStore::new();
+    let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+    let events = Events::default();
+    let id = LspServerId::from("gopls");
+    let guard = store.begin(&id).unwrap();
+    let lease = guard.lease();
+    state.begin_shutdown();
+    let error = lsp_actions::lsp_install(&events, &state, &store, &tasks, "fixture-unknown".into())
+        .await
+        .unwrap_err();
+    assert_eq!(error.to_string(), "Installation was cancelled");
+    assert!(store.is_stopped());
+    assert!(lease.ensure_active().is_err());
+    assert!(store.begin(&id).is_none());
+    assert_eq!(tasks.tracked_count(), 0);
+    assert!(events.0.lock().unwrap().is_empty());
+    assert!(!state.paths.data_dir.exists());
 }

@@ -6,11 +6,11 @@ use taide_lsp::session::LspLifecycleSnapshot;
 use taide_lsp::store::{LspSessionEntry, LspStore};
 use taide_lsp::{manifest, service};
 use taide_model::app_event::AppEvent;
-use taide_model::error::{AppError, AppResult};
+use taide_model::error::{AppError, AppErrorKind, AppResult};
 use taide_model::ids::ProjectId;
-use taide_model::lsp::{LspServerId, LspSessionInfo};
+use taide_model::lsp::{LspInstallStrategy, LspServerId, LspSessionInfo};
 
-use crate::EventSink;
+use crate::{AppState, EventSink, TaskSupervisor};
 
 const REINITIALIZE_FAILURE_MESSAGE: &str =
     "초기화 핸드셰이크 재시도를 모두 소진해 서버를 재연결하지 못했습니다. 수동으로 다시 시작해주세요.";
@@ -78,4 +78,45 @@ pub fn lsp_resolve_root(server_id: LspServerId, file_path: String) -> AppResult<
 pub fn lsp_install_cancel(install_store: &LspInstallStore, server_id: LspServerId) -> AppResult<()> {
     install_store.cancel(&server_id);
     Ok(())
+}
+
+/// Applies the existing installation admission and strategy policy using the shared worker owners.
+pub async fn lsp_install(
+    events: &dyn EventSink,
+    state: &AppState,
+    install_store: &LspInstallStore,
+    tasks: &TaskSupervisor,
+    server_id: LspServerId,
+) -> AppResult<()> {
+    if state.is_shutting_down() {
+        install_store.shutdown();
+        return Err(taide_lsp::install::install_cancelled_error());
+    }
+    let spec = manifest::find_spec(server_id.as_str())
+        .ok_or_else(|| AppError::InvalidArgument(format!("unknown language server: {server_id}")))?;
+    let Some(install_guard) = install_store.begin(&server_id) else {
+        if install_store.is_stopped() {
+            return Err(taide_lsp::install::install_cancelled_error());
+        }
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.lsp.installAlreadyRunning",
+            format!("{server_id}: an install is already in progress"),
+        )
+        .with_arg("serverId", &server_id));
+    };
+    match spec.install.strategy {
+        LspInstallStrategy::Download => {
+            crate::lsp_install_actions::run_download_install(events, &state.paths, &spec, &install_guard.lease(), tasks).await
+        }
+        LspInstallStrategy::Toolchain => {
+            crate::lsp_install_toolchain::run_toolchain_install(events, &spec, &install_guard.lease(), tasks).await
+        }
+        LspInstallStrategy::SdkDetect => Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.lsp.sdkDetectOnly",
+            format!("{}: SDK-detect-only servers cannot be installed automatically", spec.id),
+        )
+        .with_arg("serverId", &spec.id)),
+    }
 }
