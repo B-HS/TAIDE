@@ -207,12 +207,14 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     성공한 PTY spawn은 reader/flusher/wait의 세 std thread handle을 별도 PtyCompletionHandle에 보존한다. 세션의 master/writer를 보유하지 않고 Drop 뒤에도 실제 join할 수 있다.
     join은 대기 시점의 Tokio blocking pool에서 수행하며 mutable await를 mutex 안에 보존해 대기 취소 뒤 재대기한다. panic/오류에도 나머지 worker를 join한 뒤 실패를 반환하며 성공한 실제 join만 완료 플래그를 올린다.
     reader unwind는 flusher stop을 알리고 정상 stop/최종 flush 순서는 유지한다. 이는 blocking Read/callback을 강제 중단하는 계약이 아니다.
-    TerminalStore의 spawn/등록 입장·실제 blocking worker와 제거/교체 세션의 root 소유 목록·정상 drain은 아직 미완료이며 마지막 완료 handle Drop은 전체 작업 회수를 보장하지 않는다.
+    TerminalStore는 spawn lease와 별도 완료 목록을 보유해 제거/교체·미반환 세션도 추적한다. shutdown은 입장을 닫고 종료를 요청하며 wait_for_idle은 마지막 lease·모든 worker·소유한 cleanup task의 실제 완료를 기다린다.
+    runtime terminal_actions의 감독 blocking worker는 같은 mutation lock의 owned guard를 보유한다. 요청 취소에도 guard와 lease가 실제 worker에 남고 성공한 결과는 등록까지 guard를 반환한다. 미반환 결과의 Drop도 store에 종료/완료 소유권을 전달한다.
+    정상 root drain은 PTY 오류를 성공으로 처리하지 않으며 native 루프 밖에서 기다린다. partial spawn/OS 오류·SIGHUP 무시/자손·직접 native Exit·마지막 완료 handle Drop의 전체 회수는 별도 미완료 gate다.
     자동 시작의 설정 조건·오류 처리와 각 서버의 별도 수명주기 소유권은 유지한다. 기존 주기·Tauri runtime도 유지하며
     나머지 서버·세션 lifecycle 작업은 후속 경계다.
     `AppState`와 flush handshake는 model·infra 타입만 참조해 runtime crate에 있고,
     기존 `crate::state` 경로는 같은 타입의 재수출이다. `AppState`는 내부 상태를 Arc로 공유하는 cloneable handle이고
-    Tauri 관리 상태 타입과 command 시그니처는 유지한다.
+    Tauri 관리 상태 타입과 IPC wire 입력은 유지한다. 터미널 spawn의 내부 Rust State 주입에는 공유 TaskSupervisor가 추가됐다.
     검색 세션 `SearchStore`도 runtime crate가 owner/session별 취소·대체·종료 정리를 소유하고,
     기존 search 명령 경로는 같은 타입을 재수출한다. Tauri 명령의 mutation guard·Channel 경계는 유지한다.
     AI 요청 `AiRequestStore`는 owner/requestId별 중복 시작·취소를 관리하고, 시작별 token이 늦은 완료의
@@ -238,8 +240,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     제거/교체된 세션의 프로세스도 완료까지 보유한다. shutdown 뒤 wait_for_idle은 실제 worker 완료를 기다리며 완료 핸들은 다음 spawn/대기에서 정리한다. 동기 factory는 같은 프로세스 gate에 재진입하지 않는다.
     `LspInstallStore`는 taide-lsp의 서버별 설치 슬롯을 공유 Arc<Mutex>에 보관하고,
     설치 중복·취소·guard 해제 상태를 LSP 설치 명령과 공유한다.
-    `TerminalStore`는 taide-terminal의 PTY 세션 맵을 공유 Arc<Mutex>에 보관하고,
-    터미널 명령·프로젝트 종료·앱 종료 경로가 같은 세션을 소비한다.
+    `TerminalStore`는 taide-terminal의 공유 Arc 상태에 PTY 세션 맵·spawn 입장 수·제거/교체 세션의 완료 목록과 cleanup task를 보관하고,
+    터미널 명령·프로젝트 종료·앱 종료 경로가 같은 상태를 소비한다. 완료 목록은 master/writer를 소유하지 않으며 실제 성공 join 뒤에만 정리한다.
     `SystemUsageStore`는 taide-system에서 앱 PID와 전체 프로세스의 CPU 이전 샘플을 독립 sysinfo 인스턴스에 보관한다.
     두 내부 Arc<Mutex>는 clone 간 공유하고, Tauri 명령은 blocking 실행과 도메인별 PID 라벨 조립만 맡는다.
     `RemoteDispatchLimiter`는 taide-runtime의 공유 Arc<Semaphore>로 원격 요청의 동시 실행을 제한한다.
@@ -300,7 +302,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     열린 파일 소유자는 파일 닫힘→임시 경로 소유자→lease 순으로 Drop한다. queued work도 work capture의 cleanup 뒤에 마지막 worker lease를 해제하도록 하나의 소유 구조체로 캡처한다.
     store 취소와 최종 atomic 적용은 같은 gate에서 직렬화한다. 취소가 앞서면 적용/Done을 거절하고, 적용이 먼저 성공했으면 늦은 취소로 완료 결과를 되돌리지 않는다.
     ExitRequested/Exit는 설치 admission을 닫고 취소를 알리며 신규 command도 AppState 종료 gate를 확인한다.
-    정상 ExitRequested는 prevent_exit 후 root callback이 소유한 runtime ExitDrain에서 감독 task의 실제 완료·모든 설치 lease·일반 LSP wait/reader/callback 종료를 기다린다. coordinator는 자신이 멈추는 TaskSupervisor 밖에 있어 self-wait가 없으며 완료 뒤 원래 exit code로 종료를 다시 요청한다.
+    정상 ExitRequested는 prevent_exit 후 root callback이 소유한 runtime ExitDrain에서 감독 task의 실제 완료·모든 설치 lease·일반 LSP wait/reader/callback·PTY spawn과 모든 worker 종료를 기다린다. coordinator는 자신이 멈추는 TaskSupervisor 밖에 있어 self-wait가 없으며 성공한 완료 뒤 원래 exit code로 종료를 다시 요청한다. PTY join 오류는 준비 플래그/종료 callback을 실행하지 않는다.
     이 대기 중 native 이벤트 루프는 계속 동작해 메뉴 worker의 main-thread 응답을 처리할 수 있다. ExitRequested 없이 바로 Exit가 오면 감독 취소를 요청하고 설치 lease만 동기로 드레인하며 모든 다른 작업의 종료까지 보장하지는 않는다.
     HTTP 파일 생성 중 요청 Drop의 늦은 파일 1개와 슬롯 조기 해제를 재현하고 create/write/flush의 감독 소유권으로 수정했다.
     `taide-runtime::lsp_install_toolchain`은 감독된 blocking worker 안에서 취소 gate와 child spawn을 직렬화한다. store는 자원을 weak 등록해 순환 소유 없이 요청 Drop·명시 취소·shutdown을 동기로 전달한다.
@@ -608,7 +610,7 @@ eslint `no-restricted-imports` 는 import **방향**만 강제하고 레이어�
 2. **무거운 객체는 dispose 의무**: Monaco model/editor, xterm 인스턴스는 소유 위젯 unmount 시 dispose.
    전역 캐시에 남기는 경우(모델 재사용) LRU 상한과 방출 정책을 명시한다(`features/editor.md`).
 3. **Rust 자원은 세션 구조체가 소유**: pty·LSP·watcher 는 세션 drop 시 자식 프로세스 종료까지 보장해야 한다
-   (Drop 구현 + 명시적 shutdown 경로 이중화). 현재 일반 LSP wait/reader/callback의 정상 완료 대기·Drop 종료 요청과 설치 직접 child/부모 선종료 그룹 정리·정상 종료 coordinator는 검증했다. Drop의 종료 요청은 실제 join과 다르며 PTY thread·직접 native Exit·runtime 오류/그룹 이탈 자손 및 실제 native 종료의 전체 소유권 gate는 M6 미완료 항목이다.
+   (Drop 구현 + 명시적 shutdown 경로 이중화). 현재 일반 LSP wait/reader/callback·PTY spawn/worker의 정상 완료 대기와 Drop 종료 요청, 설치 직접 child/부모 선종료 그룹 정리·정상 종료 coordinator는 자기 fixture로 검증했다. Drop의 종료 요청은 실제 join과 다르며 partial spawn/OS 오류·직접 native Exit·runtime 오류/그룹 이탈 자손 및 실제 native 종료의 전체 소유권 gate는 M6 미완료 항목이다.
 
    **§6.3 `project_close` 자원 회수 목록 (정본)** — 프로젝트 종료 시 회수되는 전체 목록이다.
    T1-I(2026-08-19)부터 각 항목의 회수는 그 도메인의 `capability.rs` `detach` 가 소유하고,

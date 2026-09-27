@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use taide_model::app_event::AppEvent;
-use taide_runtime::EventSink;
+use taide_runtime::{EventSink, TaskSupervisor};
 use taide_terminal::command_clock::TerminalCommandClock;
 use taide_terminal::metadata::TerminalSessionMetadata;
 use taide_terminal::runtime::spawn_terminal_session;
@@ -189,9 +189,9 @@ impl PtySpawnEnvProvider {
 /// as the git2 in-process migrations in `domain::git::commands`): the terminal runtime calls `pty::spawn` to write the
 /// shell-integration script(s) to a temp dir, opens the pty, and forks/execs the child, all
 /// synchronous blocking work that previously ran directly on this async worker thread while
-/// `_guard` was held. Dropping the outer waiter does not cancel an already started blocking
-/// spawn. If its result never reaches TerminalStore, PtySession Drop opens the pause gate and
-/// requests termination; it does not join the child wait, reader, flusher, or exit callback.
+/// `_guard` was held. The supervised worker retains its spawn lease and owned mutation guard
+/// when the request is dropped. Unreturned results request termination and remain registered
+/// for actual child wait, reader, flusher, and callback completion during normal root drainage.
 /// The closures remain Send + 'static as required by pty::spawn.
 #[tauri::command]
 #[specta::specta]
@@ -199,13 +199,17 @@ pub async fn pty_spawn(
     app: AppHandle,
     state: State<'_, AppState>,
     store: State<'_, TerminalStore>,
+    tasks: State<'_, TaskSupervisor>,
     env_provider: State<'_, PtySpawnEnvProvider>,
     opts: PtySpawnOptions,
     on_data: Channel<InvokeResponseBody>,
 ) -> AppResult<String> {
     let extra_env = env_provider.extra_env(&app).await;
 
-    let _guard = state.begin_mutation().await;
+    let guard = state.begin_owned_mutation().await;
+    if state.is_shutting_down() {
+        return Err(AppError::Forbidden("terminal runtime is shutting down".to_string()));
+    }
     ensure_project_open(&state, &opts.project_id)?;
     drop(on_data);
 
@@ -235,7 +239,7 @@ pub async fn pty_spawn(
         extra_env,
     };
 
-    let handle = tauri::async_runtime::spawn_blocking(move || {
+    let (handle, _guard) = taide_runtime::terminal_actions::run_terminal_spawn(&tasks, &store, guard, move || {
         spawn_terminal_session(
             config,
             output_for_data,
@@ -256,8 +260,7 @@ pub async fn pty_spawn(
             },
         )
     })
-    .await
-    .map_err(|error| AppError::Internal(error.to_string()))??;
+    .await?;
 
     let spawned = AppEvent::TerminalSpawned {
         session_id: session_id.clone(),
@@ -265,7 +268,7 @@ pub async fn pty_spawn(
         cwd: metadata.cwd(),
         shell: metadata.shell().to_string(),
     };
-    store.insert(session_id.clone(), TerminalSessionEntry::new(handle, metadata, output));
+    store.insert(session_id.clone(), TerminalSessionEntry::new(handle, metadata, output))?;
     TauriEventSink(&app).publish(spawned);
 
     Ok(session_id)

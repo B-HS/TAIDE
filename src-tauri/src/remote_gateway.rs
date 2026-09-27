@@ -1250,6 +1250,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
                 app.state(),
                 app.state(),
                 app.state(),
+                app.state(),
                 arg!(args, "opts"),
                 make_channel(&args, "onData", &channel_factory)?,
             )

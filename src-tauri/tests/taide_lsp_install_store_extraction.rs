@@ -40,7 +40,7 @@ fn 설치_adapter는_runtime_다운로드와_감독자를_주입하고_shutdown�
     assert!(exit.contains("tauri::RunEvent::ExitRequested"));
     assert!(exit.contains("tauri::RunEvent::Exit"));
     let admission = exit.find("state::<LspInstallStore>().shutdown()").unwrap();
-    let resources = exit.find("state::<TerminalStore>().kill_all()").unwrap();
+    let resources = exit.find("state::<TerminalStore>().shutdown()").unwrap();
     assert!(admission < resources);
     let drain = exit.split_once("if matches!(&event, tauri::RunEvent::Exit)").unwrap().1;
     assert!(exit.contains("api.prevent_exit()"));
@@ -53,7 +53,8 @@ fn 설치_adapter는_runtime_다운로드와_감독자를_주입하고_shutdown�
     let tasks = coordinator.find("tasks.shutdown().await").unwrap();
     let slots = coordinator.find("installs.wait_for_idle().await").unwrap();
     let processes = coordinator.find("processes.wait_for_idle().await").unwrap();
+    let terminals = coordinator.find("terminals.wait_for_idle().await").unwrap();
     let ready = coordinator.find("ready.store(true, Ordering::Release)").unwrap();
     let exit = coordinator.find("on_ready();").unwrap();
-    assert!(tasks < slots && slots < processes && processes < ready && ready < exit);
+    assert!(tasks < slots && slots < processes && processes < terminals && terminals < ready && ready < exit);
 }

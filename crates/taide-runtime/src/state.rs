@@ -88,7 +88,7 @@ pub struct AppStateInner {
     pub git_watchers: RwLock<HashMap<ProjectId, WatcherHandle>>,
     pub self_writes: SelfWriteTracker,
     pub cli_opened_paths: RwLock<HashSet<PathBuf>>,
-    mutation_guard: tokio::sync::Mutex<()>,
+    mutation_guard: Arc<tokio::sync::Mutex<()>>,
     flush_handshakes: parking_lot::Mutex<HashMap<FlushScope, FlushHandshake>>,
     next_flush_token: AtomicU64,
     shutting_down: std::sync::atomic::AtomicBool,
@@ -115,7 +115,7 @@ impl AppState {
             git_watchers: RwLock::new(HashMap::new()),
             self_writes: SelfWriteTracker::new(),
             cli_opened_paths: RwLock::new(HashSet::new()),
-            mutation_guard: tokio::sync::Mutex::new(()),
+            mutation_guard: Arc::new(tokio::sync::Mutex::new(())),
             flush_handshakes: parking_lot::Mutex::new(HashMap::new()),
             next_flush_token: AtomicU64::new(0),
             shutting_down: std::sync::atomic::AtomicBool::new(false),
@@ -124,6 +124,11 @@ impl AppState {
 
     pub async fn begin_mutation(&self) -> tokio::sync::MutexGuard<'_, ()> {
         self.mutation_guard.lock().await
+    }
+
+    /// Acquires the same mutation lock with ownership transferable to an admitted blocking worker.
+    pub async fn begin_owned_mutation(&self) -> tokio::sync::OwnedMutexGuard<()> {
+        self.mutation_guard.clone().lock_owned().await
     }
 
     /// Records a path the user handed to TAIDE through the `taide` CLI — a cold-start argv or a

@@ -4742,6 +4742,7 @@ dependencies = [
  "parking_lot",
  "taide-infra",
  "taide-model",
+ "tokio",
  "uuid",
 ]
 

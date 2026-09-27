@@ -110,6 +110,11 @@ impl PtyCompletionHandle {
         }))
     }
 
+    /// Checks whether two handles own the same worker set, regardless of their session metadata.
+    pub fn is_same_worker(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+
     /// Requests termination using the same revocable permission and permanent pause gate as the session.
     /// This does not cancel a blocking read or callback and does not join workers.
     pub fn kill(&self) -> AppResult<()> {

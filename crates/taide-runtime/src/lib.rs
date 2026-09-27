@@ -18,6 +18,7 @@ pub mod settings_actions;
 mod state;
 pub mod system_actions;
 mod task_supervisor;
+pub mod terminal_actions;
 pub mod theme_actions;
 pub mod tree_actions;
 mod tree_store;

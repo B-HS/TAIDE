@@ -78,6 +78,12 @@ async fn 앱_서비스와_기존_상태_복제본은_같은_인스턴스를_공�
     let legacy_agent_hooks = services.agent_hooks.clone();
     let legacy_windows = services.windows.clone();
     let legacy_tasks = services.tasks.clone();
+    let legacy_terminal = services.terminal.clone();
+    let terminal_lease = legacy_terminal.begin_spawn().expect("공유 터미널 입장");
+    services.terminal.shutdown();
+    assert!(legacy_terminal.begin_spawn().is_err());
+    drop(terminal_lease);
+    services.terminal.wait_for_idle().await.expect("공유 터미널 대기");
 
     legacy_state.begin_shutdown();
     assert!(services.state.is_shutting_down());
