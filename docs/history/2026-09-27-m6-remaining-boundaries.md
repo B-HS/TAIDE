@@ -61,3 +61,13 @@ TaskSupervisor의 기존 stop_all은 async AbortHandle을 꺼내 취소하고 �
 후속 메뉴 감독은 70b795f로 구현·단위 검증됐습니다. blocking worker 자체를 등록하고 완료까지 추적하며 메뉴 결과 waiter도 감독합니다. 단위 38건의 근거와 시작한 OS 작업의 강제 취소/bounded drain 한계는 별도 메뉴 이력에 기록했습니다. 실제 OS 메뉴·전체 lifecycle 완료를 선언하지 않습니다.
 
 창 이동 경계는 원본 body와 실제 open_auxiliary_window·WindowRegistry·layout 순수 service를 추가로 대조했습니다. 창 생성 adapter는 호출자의 mutation guard를 다시 취득하지 않고 생성 뒤 registry에 label/project/slot을 등록합니다. 실패 rollback과 빈 창 close는 즉시 registry를 forget하는 정책이 아니라 기존 window event가 회수하는 구조이므로 runtime 이전에서 새 forget을 추가하지 않습니다. 빈 창은 layout entry부터 제거한 뒤 registry label이 있고 OS 창이 있을 때만 close하며 close 실패를 원래처럼 무시합니다. 복귀의 list_mirrors 오류는 unwrap_or_default로 빈 snapshot을 사용하고 guard 안의 기존 조회 위치도 보존 대상입니다. 두 source unit은 이동 이벤트→state 기록과 복귀 state 기록→이벤트를 각각 검사하므로 한 finish helper로 순서를 통일하지 않습니다. 실제 창/사용자 mirror를 실행하지 않았으며 전체 command 판정은 여전히 미완료입니다.
+
+## 일반 LSP 소유 구현 이후 PTY 본문 대조
+
+일반 LSP의 wait 핸들·kill/reap gate·store 프로세스 목록과 정상 coordinator 대기는 9155e13으로 구현됐습니다. 실제 71건과 정적 검사·오류/직접 Exit 잔여 범위는 [일반 LSP wait 이력](2026-09-27-lsp-process-wait-ownership.md)에 기록합니다. 앞의 LSP 무소유 설명은 당시 관찰이며 현재 완료 상태는 PROCESS가 정본입니다.
+
+PTY의 `spawn`은 flusher/reader/child wait thread 세 개의 JoinHandle을 버립니다. `PtySession::kill`은 killer만 호출하며 PauseGate를 해제하지 않습니다. `TerminalStore::kill_all`은 map entry를 유지하므로 `PtySession::drop`의 unpause가 이 호출에서 실행되지 않습니다. 따라서 paused reader의 condvar를 child 종료가 깨운다고 볼 수 없으며 flusher의 stop도 reader 종료에만 연결돼 있습니다. 실제 thread 잔존은 아직 fixture로 재현하지 않았습니다.
+
+설치된 portable-pty 0.9.0 공식 원천 `src/lib.rs`의 Unix ProcessSignaller와 `src/unix.rs`의 spawn_command를 대조했습니다. Unix child는 std::process::Child이며 clone_killer는 숫자 PID를 복사합니다. 복제 killer는 SIGHUP 한 번만 보내며 wait와 회수 여부를 공유하지 않습니다. 현재 PTY wait thread의 `child.wait()`와 `PtySession::kill/drop` 사이에 gate가 없어 회수 뒤 PID 재사용 위험이 남습니다. 직접 std Child의 kill 구현에 있는 grace/강제 kill 정책을 이 복제 killer에도 있다고 해석하지 않습니다. Windows는 복제 OS handle을 사용하므로 같은 숫자 PID 위험으로 일괄 판정하지 않으며 별도 gate입니다.
+
+다음 JH fixture는 자기 pause gate/가짜 killer를 사용해 깨우기와 회수 뒤 시그널 권한을 재현해야 합니다. 실제로 회수된 PID에 시그널을 보내는 시험이나 사용자 PTY·프로세스 조회는 하지 않습니다. wait callback 완료와 reader/flusher 완료를 분리하며 Drop 요청을 실제 join으로 표현하지 않습니다. 이 본문 대조는 PTY 수정·전체 M6 완료의 증거가 아닙니다.
