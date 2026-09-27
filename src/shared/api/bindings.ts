@@ -363,7 +363,7 @@ export const commands = {
 	 *  `TreeRow.path`'s convention, which this replaces as the palette's file-mode data source) rather
 	 *  than project-relative ones — `command-palette.tsx`'s `toProjectRelativePath`/`openFile(path)`
 	 *  both already expect that shape. Runs the walk in `spawn_blocking` like `search_run`/
-	 *  `search_replace`'s own scans, since [`service::list_project_files`] is synchronous filesystem
+	 *  `search_replace`'s own scans, since [`taide_search::service::list_project_files`] is synchronous filesystem
 	 *  I/O and must not block the async runtime.
 	 */
 	searchListFiles: (projectId: ProjectId) => typedError<string[], AppError>(__TAURI_INVOKE("search_list_files", { projectId })),

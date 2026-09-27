@@ -247,6 +247,11 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     공통 apply는 mutation guard를 재취득하지 않고 patch·테마 action은 snapshot부터 이벤트 완료까지 같은 guard를 유지한다.
     app_file_write·apply_settings_file·sync_download는 기존 SettingsApplyPort를 통해 같은 runtime apply를 소비한다.
     테마 변경만 SettingsChanged 이후 ThemeChanged를 추가 발행하며 저장 실패·없는 테마는 observer와 이벤트에 도달하지 않는다.
+    `taide-runtime::search_actions`는 프로젝트 루트 확인, 검색 세션 시작/완료/취소, blocking 검색·목록·치환과 파일별 guard/self-write/skip 집계를 소유한다.
+    검색 batch는 주입된 Send callback으로 전달하고 Tauri adapter만 기존 Channel 전송을 수행한다.
+    치환 worker는 AppHandle 대신 같은 AppState clone을 사용한다. 전체 pass가 아니라 파일마다 mutation guard를 취득하며 기존 root guard·skip 상한을 보존한다.
+    검색 목록은 비UTF-8 경로를 lossy 문자열로 바꾸지 않고 제외한다. 기존 synthetic Unix 경로 unit도 runtime에 있다.
+    perf span과 완료 debug 로그는 Tauri adapter에 유지하며 목록 debug 시간은 action 진입부터 프로젝트 조회·blocking walk 완료까지 측정한다.
     IDE diff의 mutation guard·blocking 실행과 Forbidden 예외 정책은 기존 호출자에 남는다.
     setup은 상태 복원 뒤 AppState·TaskSupervisor·원격 제한기·플랫폼 포트·시크릿 포트·IDE 저장 포트·EventSink를 주입해 `Arc<AppServices>`를 만들고, 나머지 저장소는 AppServices가 초기화한다.
     AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·AgentStore·AgentHooksStore·GitStore·RemoteStore·IdeStore·SecretStoreState·IdeSaveFile·LspStore·LspInstallStore·SystemUsageStore·RemoteDispatchLimiter·PlatformServices·WindowRegistry·TaskSupervisor의 20개 상태·포트를

@@ -5,6 +5,7 @@ mod app_services;
 pub mod file_actions;
 mod platform_services;
 mod remote_dispatch_limiter;
+pub mod search_actions;
 mod search_store;
 pub mod settings_actions;
 mod state;
