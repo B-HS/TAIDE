@@ -4498,8 +4498,10 @@ name = "taide-git"
 version = "0.1.0"
 dependencies = [
  "git2",
+ "parking_lot",
  "taide-infra",
  "taide-model",
+ "tokio",
  "trash",
  "uuid",
 ]
@@ -4637,6 +4639,7 @@ version = "0.1.0"
 dependencies = [
  "parking_lot",
  "taide-agent",
+ "taide-git",
  "taide-infra",
  "taide-lsp",
  "taide-model",

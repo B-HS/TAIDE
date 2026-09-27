@@ -8,6 +8,7 @@ rust-version = "1.89"
 [dependencies]
 parking_lot = "0.12"
 taide-agent = { path = "../taide-agent" }
+taide-git = { path = "../taide-git" }
 taide-infra = { path = "../taide-infra" }
 taide-lsp = { path = "../taide-lsp" }
 taide-model = { path = "../taide-model" }

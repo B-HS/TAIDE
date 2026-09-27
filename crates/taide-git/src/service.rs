@@ -54,7 +54,7 @@ const SHOW_FILE_MAX_BYTES: u64 = REFUSED_FILE_BYTES;
 /// mid-integration is itself disruptive. The bound exists for the unbounded case the audit found (§2
 /// M-7): a subprocess parked forever on an unreachable remote or a blocked credential prompt, which
 /// previously pinned a blocking-pool thread — and, for `pull`, `AppState::begin_mutation`; for
-/// `push`/`fetch`, [`super::commands::GitStore::push_fetch_lock`] — for the rest of the app's lifetime.
+/// `push`/`fetch`, [`crate::store::GitStore::push_fetch_lock`] — for the rest of the app's lifetime.
 const GIT_COMMAND_TIMEOUT_SECS: u64 = 300;
 
 /// How often [`run_command_with_timeout`] re-checks a still-running subprocess. Small enough that the
@@ -70,7 +70,7 @@ const GIT_COMMAND_POLL_INTERVAL_MS: u64 = 20;
 /// background credential helper), and that keeps `read_to_end` from ever seeing EOF. Waiting for the
 /// readers unconditionally there — the shape this function shipped with — turned a *successful*
 /// `git push`/`pull` into the very indefinite hang the timeout exists to prevent, still holding
-/// `AppState::begin_mutation` (for `pull`) or [`super::commands::GitStore::push_fetch_lock`]
+/// `AppState::begin_mutation` (for `pull`) or [`crate::store::GitStore::push_fetch_lock`]
 /// (`push`/`fetch`). Timing out here just costs the tail of the output, which is exactly the trade the
 /// kill path already makes by abandoning its readers.
 const GIT_PIPE_DRAIN_TIMEOUT_SECS: u64 = 5;

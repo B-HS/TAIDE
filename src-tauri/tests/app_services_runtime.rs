@@ -43,6 +43,7 @@ async fn 앱_서비스와_기존_상태_복제본은_같은_인스턴스를_공�
     let legacy_tree = services.tree.clone();
     let legacy_plugin = services.plugin.clone();
     let legacy_agents = services.agents.clone();
+    let legacy_git = services.git.clone();
     let legacy_agent_hooks = services.agent_hooks.clone();
     let legacy_windows = services.windows.clone();
     let legacy_tasks = services.tasks.clone();
@@ -72,6 +73,12 @@ async fn 앱_서비스와_기존_상태_복제본은_같은_인스턴스를_공�
     legacy_agents.register_wait_marker("marker".to_string());
     assert_eq!(services.agents.take_all_markers(), vec!["marker".to_string()]);
     assert!(legacy_agents.take_all_markers().is_empty());
+
+    let git_root = std::path::PathBuf::from("shared-repo");
+    assert!(Arc::ptr_eq(
+        &legacy_git.push_fetch_lock(&git_root),
+        &services.git.push_fetch_lock(&git_root),
+    ));
 
     let hook_info = HooksServerInfo {
         port: 1,
@@ -109,6 +116,7 @@ fn 앱_조립은_같은_서비스_복제본을_기존_상태에_등록한다() {
     assert!(setup.contains("app.manage(services.terminal.clone());"));
     assert!(setup.contains("app.manage(services.plugin.clone());"));
     assert!(setup.contains("app.manage(services.agents.clone());"));
+    assert!(setup.contains("app.manage(services.git.clone());"));
     assert!(setup.contains("app.manage(services.agent_hooks.clone());"));
     assert!(setup.contains("app.manage(services.lsp.clone());"));
     assert!(setup.contains("app.manage(services.lsp_install.clone());"));

@@ -26,7 +26,6 @@ use tauri_specta::Event as _;
 use tauri_specta::{collect_commands, collect_events, Builder};
 
 use crate::domain::agent::commands::{AgentForegroundPids, AgentStore};
-use crate::domain::git::commands::GitStore;
 use crate::domain::ide::commands::IdeSaveFile;
 use crate::domain::ide::server::IdeLayoutActions;
 use crate::domain::ide::store::IdeStore;
@@ -978,7 +977,7 @@ pub fn run() {
             app.manage(services.tree.clone());
             app.manage(services.terminal.clone());
             app.manage(AgentForegroundPids(foreground_pids_for_agent));
-            app.manage(GitStore::default());
+            app.manage(services.git.clone());
             app.manage(services.lsp.clone());
             app.manage(services.lsp_install.clone());
             app.manage(services.search.clone());
@@ -1540,7 +1539,11 @@ mod tests {
     fn 에이전트_감지는_조립부의_터미널_foreground_pid_공급원을_사용한다() {
         let source = include_str!("lib.rs");
         assert!(source.contains("app.state::<TerminalStore>().foreground_pids(project_id)"));
-        let setup = extract_between(source, "app.manage(services.terminal.clone());", "app.manage(GitStore::default());");
+        let setup = extract_between(
+            source,
+            "app.manage(services.terminal.clone());",
+            "app.manage(services.git.clone());",
+        );
         assert!(setup.contains("app.manage(AgentForegroundPids(foreground_pids_for_agent));"));
 
         let agent = include_str!("domain/agent/commands.rs");

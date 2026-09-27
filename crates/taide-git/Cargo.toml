@@ -7,9 +7,12 @@ rust-version = "1.89"
 
 [dependencies]
 git2 = { version = "0.21", default-features = false, features = ["ssh", "https", "vendored-libgit2", "vendored-openssl"] }
+parking_lot = "0.12"
 taide-infra = { path = "../taide-infra" }
 taide-model = { path = "../taide-model" }
+tokio = { version = "1", features = ["sync"] }
 trash = "5"
 
 [dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "time"] }
 uuid = { version = "1", features = ["v4"] }
