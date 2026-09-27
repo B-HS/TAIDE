@@ -58,3 +58,21 @@ fn 같은_프로젝트_서버_owner만_세션을_재사용하고_종료_중이�
     assert!(legacy_store.remove("session-a").is_some());
     assert!(!store.contains("session-a"));
 }
+
+#[test]
+fn 실제_프로세스_spawn과_정상_종료는_공유_store의_소유_gate를_소비한다() {
+    let commands = include_str!("../src/domain/lsp/commands.rs");
+    let process = commands
+        .split_once("fn spawn_process(")
+        .unwrap()
+        .1
+        .split_once("fn channel_sink(")
+        .unwrap()
+        .0;
+    assert!(process.contains(".spawn_process(||"));
+    assert!(process.contains("spawn_language_server("));
+    let root = include_str!("../src/lib.rs");
+    let exit = root.split_once(".run(move |app_handle, event| {").unwrap().1;
+    assert!(exit.contains("app_handle.state::<LspStore>().shutdown()"));
+    assert!(exit.contains("(*app_handle.state::<LspStore>()).clone()"));
+}

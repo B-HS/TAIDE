@@ -94,36 +94,38 @@ fn spawn_process(
     let exit_app = app.clone();
     let exit_session_id = session_id.clone();
 
-    spawn_language_server(
-        paths,
-        &spec,
-        &root,
-        move |message| {
-            let Some(store) = message_app.try_state::<LspStore>() else {
-                return;
-            };
-            let Ok(entry) = find_entry(&store, &message_session_id) else {
-                return;
-            };
-            if !entry.lifecycle.is_active_process_epoch(process_epoch) {
-                return;
-            }
-            entry.subscribers.broadcast(&message);
-        },
-        move |code, stderr_tail| {
-            let Some(tasks) = exit_app.try_state::<TaskSupervisor>() else {
-                return;
-            };
-            let task_app = exit_app.clone();
-            tasks.spawn_transient("lsp-process-exit", async move {
-                let Some(state) = task_app.try_state::<AppState>() else {
+    app.state::<LspStore>().spawn_process(|| {
+        spawn_language_server(
+            paths,
+            &spec,
+            &root,
+            move |message| {
+                let Some(store) = message_app.try_state::<LspStore>() else {
                     return;
                 };
-                let _guard = state.begin_mutation().await;
-                handle_process_exit(&task_app, exit_session_id, process_epoch, code, stderr_tail);
-            });
-        },
-    )
+                let Ok(entry) = find_entry(&store, &message_session_id) else {
+                    return;
+                };
+                if !entry.lifecycle.is_active_process_epoch(process_epoch) {
+                    return;
+                }
+                entry.subscribers.broadcast(&message);
+            },
+            move |code, stderr_tail| {
+                let Some(tasks) = exit_app.try_state::<TaskSupervisor>() else {
+                    return;
+                };
+                let task_app = exit_app.clone();
+                tasks.spawn_transient("lsp-process-exit", async move {
+                    let Some(state) = task_app.try_state::<AppState>() else {
+                        return;
+                    };
+                    let _guard = state.begin_mutation().await;
+                    handle_process_exit(&task_app, exit_session_id, process_epoch, code, stderr_tail);
+                });
+            },
+        )
+    })
 }
 
 fn channel_sink(channel: Channel<String>) -> impl Fn(&str) -> bool + Send + Sync {

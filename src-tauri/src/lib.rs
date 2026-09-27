@@ -1134,7 +1134,7 @@ pub fn run() {
                 app_handle.state::<LspInstallStore>().shutdown();
                 domain::layout::service::flush_dirty_layouts(&app_handle.state::<AppState>());
                 app_handle.state::<TerminalStore>().kill_all();
-                app_handle.state::<LspStore>().kill_all();
+                app_handle.state::<LspStore>().shutdown();
                 domain::agent::commands::cleanup_all_wait_markers(&app_handle.state::<AgentStore>());
                 domain::agent::hooks::stop_hooks_server(app_handle);
                 domain::ide::commands::stop_server(app_handle, &app_handle.state::<IdeStore>());
@@ -1149,6 +1149,7 @@ pub fn run() {
                         tauri::async_runtime::handle().inner(),
                         (*app_handle.state::<TaskSupervisor>()).clone(),
                         (*app_handle.state::<LspInstallStore>()).clone(),
+                        (*app_handle.state::<LspStore>()).clone(),
                         move || handle.exit(exit_code),
                     );
                 }

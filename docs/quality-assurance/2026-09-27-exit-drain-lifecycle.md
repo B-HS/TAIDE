@@ -21,7 +21,8 @@
 ## 남은 gate
 
 - [ ] 실제 native ExitRequested/직접 Exit·메뉴 callback의 이벤트 순서와 앱 종료 실기는 사용자 실행이 필요합니다. fixture가 native 이벤트 전달까지 증명하지는 않습니다.
-- [ ] 직접 Exit/exit runtime 요청 실패의 비설치 작업, 감독되지 않은 nested blocking worker·LSP wait worker/PTY thread를 판정합니다. 정상 감독자 snapshot이 이 자원 전체를 포함한다고 주장하지 않습니다.
+- [x] 후속 [일반 LSP wait QA](2026-09-27-lsp-process-wait-lifecycle.md)에서 정상 coordinator가 제거/교체된 세션의 wait·reader·exit callback 완료도 기다리도록 구현/검증했습니다. child exited만으로 ready를 세우지 않습니다.
+- [ ] 직접 Exit/exit runtime 요청 실패의 비설치 작업, 감독되지 않은 nested blocking worker·PTY thread를 판정합니다. 정상 감독자 snapshot이나 LSP 대기가 이 자원 전체를 포함한다고 주장하지 않습니다.
 - [x] 후속 [부모 선종료 QA](2026-09-27-lsp-install-parent-exit-lifecycle.md)에서 부모가 먼저 종료한 자기 그룹의 자손 생존을 재현/수정했습니다. 원래 exit code·reader 회수와 회수 뒤 그룹 재신호 금지를 확인합니다.
 - [ ] 그룹을 벗어난 자손·Windows process tree·OS 강제 종료의 cleanup을 판정합니다. 모든 자손의 실제 wait/join과 bounded 종료를 증명한 것은 아닙니다.
 - [ ] M6 전수 body 판정과 M7/M8·Phase 0 실기는 별도 완료해야 합니다.

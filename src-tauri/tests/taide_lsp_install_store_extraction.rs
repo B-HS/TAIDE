@@ -52,7 +52,8 @@ fn 설치_adapter는_runtime_다운로드와_감독자를_주입하고_shutdown�
     let coordinator = include_str!("../../crates/taide-runtime/src/exit_drain.rs");
     let tasks = coordinator.find("tasks.shutdown().await").unwrap();
     let slots = coordinator.find("installs.wait_for_idle().await").unwrap();
+    let processes = coordinator.find("processes.wait_for_idle().await").unwrap();
     let ready = coordinator.find("ready.store(true, Ordering::Release)").unwrap();
     let exit = coordinator.find("on_ready();").unwrap();
-    assert!(tasks < slots && slots < ready && ready < exit);
+    assert!(tasks < slots && slots < processes && processes < ready && ready < exit);
 }

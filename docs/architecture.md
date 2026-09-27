@@ -198,7 +198,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     stop_all은 queued blocking에 abort를 요청하고 종료 후 등록을 거절하며 worker 진입에서 종료 상태를 확인한다. 이미 시작한 blocking worker는 강제 중단할 수 없어 실제 완료·panic cleanup까지 추적한다.
     async waiter 취소를 worker 완료로 해석하지 않으며 이 API는 시작한 OS 작업의 bounded 종료 대기나 main-thread 메뉴 callback 취소를 보장하지 않는다.
     infra LSP wait worker는 stdout/stderr ReaderTask를 소유한다. child exit flag 뒤 두 reader를 함께 드레인하고 500ms 대기 초과에는 abort 후 실제 완료를 await한 뒤 tail/exit callback을 전달한다.
-    reader owner Drop은 abort를 요청하며 child wait의 동기 kill·PID exit guard·메시지 프레이밍은 유지한다. 설치 child와 wait worker 자체의 감독/Drop·PTY thread 소유권은 미완료다.
+    LspProcHandle은 wait JoinHandle을 보유하며 mutable await로 대기 취소 뒤에도 재대기할 수 있다. Drop은 종료 요청이고 실제 정상 완료는 child wait·두 reader·exit callback 반환까지다.
+    kill과 child wait poll은 같은 gate에서 직렬화하며 회수 poll/child owner Drop 전에 숫자 PID 권한을 닫는다. kill_on_drop의 runtime 취소/오류 fallback은 best effort이며 실제 회수 대기가 아니다. PTY thread·직접 native Exit의 전체 회수는 미완료다.
     이 deadline은 EOF 드레인 대기 한도이며 non-yield callback의 강제 중단·앱/OS의 bounded 종료를 보장하지 않는다.
     자동 시작의 설정 조건·오류 처리와 각 서버의 별도 수명주기 소유권은 유지한다. 기존 주기·Tauri runtime도 유지하며
     나머지 서버·세션 lifecycle 작업은 후속 경계다.
@@ -226,7 +227,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     `IdeStore`는 taide-ide에서 서버/연결 Tokio 핸들·pending diff/save 응답·선택·진단·클라이언트 수를 공유 Arc<Mutex>에 보관한다.
     알림 broadcast도 같은 채널을 공유하며 탭/프로젝트 종료의 응답 해소·현재/최신 선택·진단 준비 상태·원격 owner 차단 정책을 유지한다.
     원격 owner 라벨은 model의 단일 상수이며 remote crate와 기존 Tauri 경로는 재수출한다. 실제 MCP 서버·lockfile·PTY readiness 대기/환경 주입은 Tauri adapter에 남는다.
-    `LspStore`는 taide-lsp의 세션 맵을 공유 Arc<Mutex>에 보관하고, LSP 명령·종료 경로가 같은 세션을 소비한다.
+    `LspStore`는 taide-lsp의 공유 내부 상태에 세션 맵과 독립적인 강한 프로세스 목록을 보관한다. 실제 spawn/restart는 입장 gate 안에서 생성·등록하며 shutdown 뒤 factory를 거절한다.
+    제거/교체된 세션의 프로세스도 완료까지 보유한다. shutdown 뒤 wait_for_idle은 실제 worker 완료를 기다리며 완료 핸들은 다음 spawn/대기에서 정리한다. 동기 factory는 같은 프로세스 gate에 재진입하지 않는다.
     `LspInstallStore`는 taide-lsp의 서버별 설치 슬롯을 공유 Arc<Mutex>에 보관하고,
     설치 중복·취소·guard 해제 상태를 LSP 설치 명령과 공유한다.
     `TerminalStore`는 taide-terminal의 PTY 세션 맵을 공유 Arc<Mutex>에 보관하고,
@@ -291,7 +293,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     열린 파일 소유자는 파일 닫힘→임시 경로 소유자→lease 순으로 Drop한다. queued work도 work capture의 cleanup 뒤에 마지막 worker lease를 해제하도록 하나의 소유 구조체로 캡처한다.
     store 취소와 최종 atomic 적용은 같은 gate에서 직렬화한다. 취소가 앞서면 적용/Done을 거절하고, 적용이 먼저 성공했으면 늦은 취소로 완료 결과를 되돌리지 않는다.
     ExitRequested/Exit는 설치 admission을 닫고 취소를 알리며 신규 command도 AppState 종료 gate를 확인한다.
-    정상 ExitRequested는 prevent_exit 후 root callback이 소유한 runtime ExitDrain에서 감독 task의 실제 완료와 모든 설치 lease 종료를 기다린다. coordinator는 자신이 멈추는 TaskSupervisor 밖에 있어 self-wait가 없으며 완료 뒤 원래 exit code로 종료를 다시 요청한다.
+    정상 ExitRequested는 prevent_exit 후 root callback이 소유한 runtime ExitDrain에서 감독 task의 실제 완료·모든 설치 lease·일반 LSP wait/reader/callback 종료를 기다린다. coordinator는 자신이 멈추는 TaskSupervisor 밖에 있어 self-wait가 없으며 완료 뒤 원래 exit code로 종료를 다시 요청한다.
     이 대기 중 native 이벤트 루프는 계속 동작해 메뉴 worker의 main-thread 응답을 처리할 수 있다. ExitRequested 없이 바로 Exit가 오면 감독 취소를 요청하고 설치 lease만 동기로 드레인하며 모든 다른 작업의 종료까지 보장하지는 않는다.
     HTTP 파일 생성 중 요청 Drop의 늦은 파일 1개와 슬롯 조기 해제를 재현하고 create/write/flush의 감독 소유권으로 수정했다.
     `taide-runtime::lsp_install_toolchain`은 감독된 blocking worker 안에서 취소 gate와 child spawn을 직렬화한다. store는 자원을 weak 등록해 순환 소유 없이 요청 Drop·명시 취소·shutdown을 동기로 전달한다.
@@ -599,7 +601,7 @@ eslint `no-restricted-imports` 는 import **방향**만 강제하고 레이어�
 2. **무거운 객체는 dispose 의무**: Monaco model/editor, xterm 인스턴스는 소유 위젯 unmount 시 dispose.
    전역 캐시에 남기는 경우(모델 재사용) LRU 상한과 방출 정책을 명시한다(`features/editor.md`).
 3. **Rust 자원은 세션 구조체가 소유**: pty·LSP·watcher 는 세션 drop 시 자식 프로세스 종료까지 보장해야 한다
-   (Drop 구현 + 명시적 shutdown 경로 이중화). 현재 LSP reader 회수와 설치 직접 child/TERM 무시 자손·정상 종료 coordinator는 검증했다. 설치 부모 종료 뒤 자손·LSP wait worker 자체/Drop·PTY thread 및 실제 native 종료의 전체 소유권 gate는 M6 미완료 항목이다.
+   (Drop 구현 + 명시적 shutdown 경로 이중화). 현재 일반 LSP wait/reader/callback의 정상 완료 대기·Drop 종료 요청과 설치 직접 child/부모 선종료 그룹 정리·정상 종료 coordinator는 검증했다. Drop의 종료 요청은 실제 join과 다르며 PTY thread·직접 native Exit·runtime 오류/그룹 이탈 자손 및 실제 native 종료의 전체 소유권 gate는 M6 미완료 항목이다.
 
    **§6.3 `project_close` 자원 회수 목록 (정본)** — 프로젝트 종료 시 회수되는 전체 목록이다.
    T1-I(2026-08-19)부터 각 항목의 회수는 그 도메인의 `capability.rs` `detach` 가 소유하고,

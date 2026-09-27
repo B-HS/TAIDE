@@ -1,6 +1,8 @@
+use std::future::{poll_fn, Future};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::task::Poll;
 
 use parking_lot::Mutex;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -99,6 +101,8 @@ pub struct LspProcHandle {
     exited: Arc<AtomicBool>,
     pid: Option<u32>,
     stderr_tail: Arc<Mutex<StderrTail>>,
+    wait_gate: Arc<Mutex<bool>>,
+    wait_task: tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl LspProcHandle {
@@ -110,38 +114,14 @@ impl LspProcHandle {
         Ok(())
     }
 
-    /// Kills the language server process **synchronously**, mirroring `infra::pty::PtySession::kill`
-    /// (`self.killer.lock().kill()`, no `.await`). Signaling the wait task alone used to be the
-    /// entire implementation — the actual OS-level kill only happened later, inside [`spawn`]'s
-    /// background wait task, once it observed the request. That
-    /// asynchronous handoff is fine for the normal `lsp_stop`/`lsp_restart` shutdown path (which
-    /// awaits `wait_for_process_exit` afterward), but at app exit `domain::lsp::commands::LspStore::
-    /// kill_all` calls this synchronously from the `RunEvent::Exit` handler and the process then
-    /// terminates via `std::process::exit` immediately after — which drops the tokio runtime without
-    /// running its pending tasks, so the wait task backing this handle's kill might never get
-    /// scheduled at all, leaving the language server orphaned. Killing by PID here through `sysinfo`
-    /// (already a workspace dependency — see `domain::ide::lockfile::is_pid_alive` for the same
-    /// refresh-then-lookup idiom) closes that window: the OS-level kill happens on this call's own
-    /// stack, before `kill_all`'s caller ever returns. `kill_signal` is still notified so the wait
-    /// task (which usually *does* get to run, on the ordinary `lsp_stop`/`lsp_restart` paths) still
-    /// reaps the child through its own `child.start_kill()` + `wait()` path — the notification is
-    /// never lost even when it arrives before that task parks, since `Notify` stores the permit.
-    ///
-    /// Guarded by [`is_exited`](Self::is_exited): once the wait task has observed this process exit,
-    /// the OS has already reaped it and is free to hand this same numeric `pid` to an unrelated
-    /// process. A handle can reach this state long before `kill()` is ever called on it — e.g. a
-    /// crash-looped session `domain::lsp::commands::handle_process_exit` gives up on (leaving a
-    /// reaped, never-cleared `entry.proc`) then sits in `LspStore` for the rest of a long-running
-    /// session until app exit's `kill_all` sweeps every entry. Without this guard, that sweep would
-    /// blindly `sysinfo`-kill whatever process the OS had since reassigned that `pid` to — silent
-    /// collateral damage with no relation to this language server. A still-running process can never
-    /// have `exited == true` (only this handle's own wait task, which requires `child.wait()` to
-    /// have first observed real process death, sets it), so live servers are still killed exactly as
-    /// before.
+    /// Requests termination synchronously while serializing numeric PID use with child wait polling.
+    /// The gate closes before a reaped PID can be reused or the child wait owner is dropped.
+    /// Actual reader and worker completion must be awaited separately with wait_for_completion.
     pub fn kill(&self) {
+        let can_signal = self.wait_gate.lock();
         self.kill_signal.notify_one();
 
-        if self.exited.load(Ordering::SeqCst) {
+        if !*can_signal || self.exited.load(Ordering::SeqCst) {
             return;
         }
 
@@ -173,6 +153,66 @@ impl LspProcHandle {
     pub fn is_exited(&self) -> bool {
         self.exited.load(Ordering::SeqCst)
     }
+
+    /// Reports whether the owned wait worker has ended, including cancellation or panic.
+    /// Successful completion includes child reaping, both readers, and the exit callback.
+    pub fn is_finished(&self) -> bool {
+        match self.wait_task.try_lock() {
+            Ok(task) => task.as_ref().is_none_or(|task| task.is_finished()),
+            Err(_) => false,
+        }
+    }
+
+    /// Waits for the owned worker without losing its handle when this waiting future is dropped.
+    /// Worker failure is not surfaced here and does not prove successful child reaping.
+    pub async fn wait_for_completion(&self) {
+        let mut task = self.wait_task.lock().await;
+        if let Some(task) = task.as_mut() {
+            task.await.ok();
+        }
+        task.take();
+    }
+}
+
+impl Drop for LspProcHandle {
+    fn drop(&mut self) {
+        self.kill();
+    }
+}
+
+struct ChildWaitOwner {
+    child: tokio::process::Child,
+    can_signal: Arc<Mutex<bool>>,
+}
+
+impl Drop for ChildWaitOwner {
+    fn drop(&mut self) {
+        let mut can_signal = self.can_signal.lock();
+        if *can_signal {
+            self.child.start_kill().ok();
+        }
+        *can_signal = false;
+    }
+}
+
+async fn wait_for_child(
+    child: &mut tokio::process::Child,
+    wait_gate: &Mutex<bool>,
+    exited: &AtomicBool,
+) -> std::io::Result<std::process::ExitStatus> {
+    let mut waiting = std::pin::pin!(child.wait());
+    poll_fn(|context| {
+        let mut can_signal = wait_gate.lock();
+        let status = waiting.as_mut().poll(context);
+        if status.is_ready() {
+            *can_signal = false;
+        }
+        if matches!(&status, Poll::Ready(Ok(_))) {
+            exited.store(true, Ordering::SeqCst);
+        }
+        status
+    })
+    .await
 }
 
 /// Refreshes a single process's `sysinfo` snapshot in isolation, so callers can look `pid` up on
@@ -319,7 +359,8 @@ where
         .current_dir(&config.cwd)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
 
     let mut child = command.spawn().map_err(|error| {
         AppError::localized(
@@ -384,27 +425,26 @@ where
     let exited = Arc::new(AtomicBool::new(false));
     let exited_for_wait = exited.clone();
     let stderr_tail_for_exit = stderr_tail.clone();
-
-    // Parks on process death and a kill request at once instead of waking every
-    // `LSP_WAIT_POLL_MS` to `try_wait` (§2 L-3): an idle language server costs this task nothing,
-    // and a real exit is observed the moment it happens rather than up to a poll later. `wait` is
-    // cancel-safe, so dropping it when the kill branch wins loses nothing — the second `wait` below
-    // still reaps the child.
-    tokio::spawn(async move {
+    let wait_gate = Arc::new(Mutex::new(true));
+    let gate_for_wait = wait_gate.clone();
+    let owner = ChildWaitOwner {
+        child,
+        can_signal: gate_for_wait.clone(),
+    };
+    let wait_task = tokio::spawn(async move {
+        let mut owner = owner;
         let waited = tokio::select! {
-            status = child.wait() => Some(status),
+            status = wait_for_child(&mut owner.child, &gate_for_wait, &exited_for_wait) => Some(status),
             _ = kill_for_wait.notified() => None,
         };
 
         let status = match waited {
             Some(status) => status,
             None => {
-                let _ = child.start_kill();
-                child.wait().await
+                let _ = owner.child.start_kill();
+                wait_for_child(&mut owner.child, &gate_for_wait, &exited_for_wait).await
             }
         };
-
-        exited_for_wait.store(true, Ordering::SeqCst);
 
         let stderr_finish = async move {
             if let Some(reader) = stderr_reader {
@@ -423,6 +463,8 @@ where
         exited,
         pid,
         stderr_tail,
+        wait_gate,
+        wait_task: tokio::sync::Mutex::new(Some(wait_task)),
     })
 }
 
@@ -432,6 +474,94 @@ mod tests {
     use std::time::Duration;
 
     const READER_TEST_TIMEOUT_SECS: u64 = 2;
+    #[cfg(unix)]
+    const OWNED_CHILD_DURATION_SECONDS: u64 = 30;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn 마지막_핸들_drop은_직접_소유한_child의_종료를_요청한다() {
+        let mut child = tokio::process::Command::new("sleep")
+            .arg(OWNED_CHILD_DURATION_SECONDS.to_string())
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let handle = LspProcHandle {
+            stdin: tokio::sync::Mutex::new(child.stdin.take().unwrap()),
+            kill_signal: Arc::new(Notify::new()),
+            exited: Arc::new(AtomicBool::new(false)),
+            pid: child.id(),
+            stderr_tail: Arc::new(Mutex::new(StderrTail::default())),
+            wait_gate: Arc::new(Mutex::new(true)),
+            wait_task: tokio::sync::Mutex::new(None),
+        };
+        drop(handle);
+        let exited = tokio::time::timeout(Duration::from_secs(READER_TEST_TIMEOUT_SECS), child.wait()).await;
+        if exited.is_err() {
+            child.start_kill().ok();
+            child.wait().await.ok();
+        }
+        assert!(exited.is_ok(), "dropping the owner left its direct child alive");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn 완료_대기_future_drop은_작업_핸들을_보유해_재대기할_수_있다() {
+        let handle = spawn(
+            LspProcConfig {
+                command: "sleep".to_string(),
+                args: vec![OWNED_CHILD_DURATION_SECONDS.to_string()],
+                cwd: std::env::temp_dir(),
+            },
+            |_| {},
+            |_, _| {},
+        )
+        .unwrap();
+        {
+            let mut waiting = std::pin::pin!(handle.wait_for_completion());
+            poll_fn(|context| {
+                assert!(waiting.as_mut().poll(context).is_pending());
+                Poll::Ready(())
+            })
+            .await;
+            assert!(handle.wait_task.try_lock().is_err());
+        }
+        assert!(handle.wait_task.try_lock().unwrap().is_some());
+        assert!(!handle.is_finished());
+        handle.kill();
+        tokio::time::timeout(Duration::from_secs(READER_TEST_TIMEOUT_SECS), handle.wait_for_completion())
+            .await
+            .unwrap();
+        assert!(handle.is_exited());
+        assert!(handle.is_finished());
+        assert!(handle.wait_task.try_lock().unwrap().is_none());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn 미poll_wait_owner_취소는_pid_시그널_권한을_반납한다() {
+        let child = Command::new("sleep")
+            .arg(OWNED_CHILD_DURATION_SECONDS.to_string())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let can_signal = Arc::new(Mutex::new(true));
+        let owner = ChildWaitOwner {
+            child,
+            can_signal: can_signal.clone(),
+        };
+        let task = tokio::spawn(async move {
+            let _owner = owner;
+            std::future::pending::<()>().await;
+        });
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(!*can_signal.lock());
+    }
 
     async fn await_reader_drop(receiver: tokio::sync::oneshot::Receiver<()>) {
         assert!(tokio::time::timeout(Duration::from_secs(READER_TEST_TIMEOUT_SECS), receiver)
@@ -512,10 +642,15 @@ mod tests {
         assert_eq!(spawn.matches("ReaderTask::new(tokio::spawn(").count(), 2);
         assert!(spawn.contains("stdout_reader.finish()"));
         assert!(spawn.contains("reader.finish().await"));
-        let exited = spawn.find("exited_for_wait.store(true, Ordering::SeqCst)").unwrap();
+        let exited = spawn.find("status = wait_for_child(&mut owner.child").unwrap();
         let drain = spawn.find("tokio::join!(").unwrap();
         let report = spawn.find("on_exit(status.ok()").unwrap();
         assert!(exited < drain && drain < report);
+        let wait = source.split_once("async fn wait_for_child(").unwrap().1;
+        let gate = wait.find("let mut can_signal = wait_gate.lock()").unwrap();
+        let poll = wait.find("waiting.as_mut().poll(context)").unwrap();
+        let exited = wait.find("exited.store(true, Ordering::SeqCst)").unwrap();
+        assert!(gate < poll && poll < exited);
     }
 
     #[cfg(unix)]
@@ -814,6 +949,8 @@ mod tests {
             exited: Arc::new(AtomicBool::new(true)),
             pid: Some(victim_pid),
             stderr_tail: Arc::new(Mutex::new(StderrTail::default())),
+            wait_gate: Arc::new(Mutex::new(true)),
+            wait_task: tokio::sync::Mutex::new(None),
         };
 
         stale_handle.kill();
@@ -825,6 +962,13 @@ mod tests {
             victim_still_running,
             "exited==true 인 핸들의 kill()은 재사용된 pid의 무관한 프로세스를 죽이면 안 된다"
         );
+
+        *stale_handle.wait_gate.lock() = false;
+        stale_handle.exited.store(false, Ordering::SeqCst);
+        stale_handle.kill();
+        assert!(refreshed_process_snapshot(victim_pid)
+            .process(sysinfo::Pid::from_u32(victim_pid))
+            .is_some_and(|process| matches!(process.status(), sysinfo::ProcessStatus::Run | sysinfo::ProcessStatus::Sleep)));
 
         let _ = victim.start_kill();
         let _ = victim.wait().await;

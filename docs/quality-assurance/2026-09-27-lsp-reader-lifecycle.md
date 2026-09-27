@@ -7,7 +7,8 @@
 - [x] 정상 완료·EOF 지연·poll 전 owner Drop·드레인 중 부모 취소·실제 배선 순서를 검사했습니다. 새 5건과 기존 관련 18건이 통과했습니다.
 - [x] 추가 synthetic sh 자식의 stdout 프레임과 stderr tail이 exit callback 전에 전달되는 1건이 통과했습니다. 변경 후 서로 다른 검사 총 24건입니다.
 - [ ] 실제 LSP 서버·grandchild가 OS stdout/stderr pipe를 계속 보유하는 상태와 앱 종료/재시작 실기를 M7에서 확인합니다.
-- [ ] LSP 설치 child·reader·shutdown gate, infra wait worker 자체의 supervisor/Drop·kill/reap 소유권, PTY thread 전체 종료를 M6 잔여 구현으로 확인합니다.
+- [x] 후속 [일반 LSP wait QA](2026-09-27-lsp-process-wait-lifecycle.md)에서 wait worker 소유·Drop 종료 요청·kill/reap 직렬화와 store/정상 coordinator의 실제 완료 대기를 확인했습니다. 대기 future Drop 뒤 재대기할 수 있습니다.
+- [ ] LSP 설치/직접 native Exit 전체 gate·PTY thread 종료와 runtime 오류 경로는 M6 잔여 항목입니다. 정상 wait 완료와 best-effort Drop을 구분합니다.
 
 ## 상세
 
