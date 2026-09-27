@@ -20,7 +20,7 @@ use serde_json::Value;
 use taide_infra::language::LanguageOverlay;
 use taide_model::app_event::AppEvent;
 use taide_model::plugin::LoadedPlugin;
-use taide_runtime::{AppServices, EventSink, PlatformServicesState, TaskSupervisor};
+use taide_runtime::{layout_actions, AppServices, EventSink, PlatformServicesState, TaskSupervisor};
 use tauri::{AppHandle, Listener, Manager, State};
 use tauri_specta::Event as _;
 use tauri_specta::{collect_commands, collect_events, Builder};
@@ -340,24 +340,6 @@ fn layout_tab_closed_observers() -> domain::layout::service::LayoutTabClosedObse
     ])
 }
 
-fn cleanup_emptied_auxiliary_windows(app: &AppHandle, windows: &WindowRegistry, project_id: &ProjectId, layout: &mut ProjectLayout) {
-    let emptied_slots: Vec<u32> = layout
-        .auxiliary_windows
-        .iter()
-        .filter(|window| layout_service::is_layout_tree_empty(&window.root))
-        .map(|window| window.slot)
-        .collect();
-
-    for slot in emptied_slots {
-        layout.auxiliary_windows.retain(|window| window.slot != slot);
-        if let Some(label) = windows.label_for(project_id, slot) {
-            if let Some(webview_window) = app.get_webview_window(&label) {
-                let _ = webview_window.close();
-            }
-        }
-    }
-}
-
 /// Moves a tab to the main window, an existing auxiliary window, or a new OS window.
 /// For a new window, the OS window is opened before changing the layout and closed if the move fails.
 /// Empty auxiliary windows are cleaned up after a successful move.
@@ -370,35 +352,28 @@ async fn layout_move_tab_to_window(
     tab_id: TabId,
     target: TabWindowTarget,
 ) -> AppResult<ProjectLayout> {
-    let _guard = state.begin_mutation().await;
-    let mut layouts = state.layouts.read().clone();
-    let project_id = layout_service::locate_project_with_tab(&layouts, &tab_id)?;
-    let layout = layout_service::get_layout_mut(&mut layouts, &project_id)?;
-
-    match target {
-        TabWindowTarget::Main => {
-            layout_service::move_tab_to_main(layout, &tab_id)?;
-        }
-        TabWindowTarget::Existing { slot } => {
-            layout_service::move_tab_to_existing_window(layout, &tab_id, slot)?;
-        }
-        TabWindowTarget::NewAuxiliary => {
-            let slot = layout_service::next_window_slot(layout);
-            let info = open_auxiliary_window(&app, &state, &windows, project_id.clone(), slot).await?;
-            if let Err(error) = layout_service::move_tab_to_new_window(layout, &tab_id, slot) {
-                if let Some(webview_window) = app.get_webview_window(&info.label) {
-                    let _ = webview_window.close();
-                }
-                return Err(error);
+    layout_actions::layout_move_tab_to_window(
+        &TauriEventSink(&app),
+        &state,
+        &windows,
+        tab_id,
+        target,
+        |project_id, slot| {
+            let app = &app;
+            let state = &state;
+            let windows = &windows;
+            async move {
+                let info = open_auxiliary_window(app, state, windows, project_id, slot).await?;
+                Ok(info.label)
             }
-        }
-    }
-
-    cleanup_emptied_auxiliary_windows(&app, &windows, &project_id, layout);
-
-    let updated = layout_service::finish_mutation(&TauriEventSink(&app), &state, &project_id, layout);
-    *state.layouts.write() = layouts;
-    Ok(updated)
+        },
+        |label| {
+            if let Some(webview_window) = app.get_webview_window(label) {
+                let _ = webview_window.close();
+            }
+        },
+    )
+    .await
 }
 
 fn plan_return_of_auxiliary_window_tabs(app: &AppHandle, project_id: &ProjectId, window_slot: u32) {
@@ -407,32 +382,7 @@ fn plan_return_of_auxiliary_window_tabs(app: &AppHandle, project_id: &ProjectId,
     let project_id = project_id.clone();
     tasks.spawn_transient("auxiliary-tab-return", async move {
         let state = app.state::<AppState>();
-        let _guard = state.begin_mutation().await;
-
-        let mirrored_paths: std::collections::HashSet<String> = domain::file::service::list_mirrors(&state.paths, &project_id)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|mirror| mirror.path)
-            .collect();
-
-        let mut layouts = state.layouts.read().clone();
-        let Some(layout) = layouts.get_mut(&project_id) else {
-            log::debug!("보조 창 탭 복귀 생략: 프로젝트가 이미 닫혔습니다 (projectId={project_id})");
-            return;
-        };
-
-        layout_service::clear_auxiliary_window_phantom_dirty(layout, window_slot, &|path| mirrored_paths.contains(path));
-
-        if !layout_service::return_auxiliary_window_tabs(layout, window_slot) {
-            log::debug!("보조 창 탭 복귀 생략: 슬롯을 찾을 수 없습니다 (projectId={project_id}, windowSlot={window_slot})");
-            return;
-        }
-
-        let revision = layout.revision;
-        *state.layouts.write() = layouts;
-
-        state.dirty_layouts.write().insert(project_id.clone());
-        TauriEventSink(&app).publish(AppEvent::LayoutChanged { project_id, revision });
+        layout_actions::return_auxiliary_window_tabs(&TauriEventSink(&app), &state, project_id, window_slot).await;
     });
 }
 
@@ -1579,13 +1529,31 @@ mod tests {
     #[test]
     fn 탭_창_이동은_조립부에서_창_생성과_rollback을_순서대로_수행한다() {
         let source = include_str!("lib.rs");
-        let command = extract_between(source, "async fn layout_move_tab_to_window(", "/// Routes one app-menu");
+        let adapter = extract_between(
+            source,
+            "async fn layout_move_tab_to_window(",
+            "fn plan_return_of_auxiliary_window_tabs(",
+        );
+        assert!(adapter.contains("layout_actions::layout_move_tab_to_window("));
+        assert!(adapter.contains("open_auxiliary_window(app, state, windows, project_id, slot).await?"));
+        assert!(adapter.contains("Ok(info.label)"));
+        assert!(adapter.contains("app.get_webview_window(label)"));
+        assert!(adapter.contains("let _ = webview_window.close()"));
+        assert!(!adapter.contains("begin_mutation()"));
+        let actions = include_str!("../../crates/taide-runtime/src/layout_actions.rs");
+        let command = extract_between(
+            actions,
+            "pub async fn layout_move_tab_to_window<",
+            "pub async fn return_auxiliary_window_tabs(",
+        );
         let guard = command.find("state.begin_mutation().await").expect("mutation guard");
-        let open = command.find("open_auxiliary_window(").expect("보조 창 생성");
-        let move_tab = command.find("layout_service::move_tab_to_new_window(").expect("탭 이동");
-        let rollback = command.find("webview_window.close()").expect("생성 실패 rollback");
+        let open = command
+            .find("open_auxiliary_window(project_id.clone(), slot).await?")
+            .expect("보조 창 생성");
+        let move_tab = command.find("service::move_tab_to_new_window(").expect("탭 이동");
+        let rollback = command.find("close_window(&label)").expect("생성 실패 rollback");
         let cleanup = command.find("cleanup_emptied_auxiliary_windows(").expect("빈 창 정리");
-        let finish = command.find("layout_service::finish_mutation(").expect("layout 완료");
+        let finish = command.find("finish_mutation(").expect("layout 완료");
         let write = command.find("*state.layouts.write() = layouts;").expect("layout 기록");
         assert!(guard < open);
         assert!(open < move_tab);
@@ -1605,15 +1573,23 @@ mod tests {
     #[test]
     fn 보조_창_닫힘은_조립부에서_미러_정리와_탭_복귀를_순서대로_수행한다() {
         let source = include_str!("lib.rs");
-        let return_body = extract_between(source, "fn plan_return_of_auxiliary_window_tabs(", "/// Routes one app-menu");
+        let planner = extract_between(source, "fn plan_return_of_auxiliary_window_tabs(", "/// Routes one app-menu");
+        assert!(planner.contains("spawn_transient(\"auxiliary-tab-return\""));
+        assert!(
+            planner.contains("layout_actions::return_auxiliary_window_tabs(&TauriEventSink(&app), &state, project_id, window_slot).await")
+        );
+        assert!(!planner.contains("begin_mutation()"));
+        assert!(!planner.contains("list_mirrors("));
+        let actions = include_str!("../../crates/taide-runtime/src/layout_actions.rs");
+        let return_body = extract_between(actions, "pub async fn return_auxiliary_window_tabs(", "pub async fn layout_get(");
         let guard = return_body.find("state.begin_mutation().await").expect("mutation guard");
-        let mirrors = return_body.find("domain::file::service::list_mirrors(").expect("mirror 조회");
+        let mirrors = return_body.find("taide_file::service::list_mirrors(").expect("mirror 조회");
         let clear_dirty = return_body
-            .find("layout_service::clear_auxiliary_window_phantom_dirty(")
+            .find("service::clear_auxiliary_window_phantom_dirty(")
             .expect("유령 dirty 정리");
-        let return_tabs = return_body.find("layout_service::return_auxiliary_window_tabs(").expect("탭 복귀");
+        let return_tabs = return_body.find("service::return_auxiliary_window_tabs(").expect("탭 복귀");
         let write = return_body.find("*state.layouts.write() = layouts;").expect("layout 기록");
-        assert!(return_body.contains("TauriEventSink(&app)"));
+        assert!(return_body.contains("sink.publish(AppEvent::LayoutChanged { project_id, revision })"));
         let emit = return_body
             .find(".publish(AppEvent::LayoutChanged { project_id, revision })")
             .expect("변경 이벤트");

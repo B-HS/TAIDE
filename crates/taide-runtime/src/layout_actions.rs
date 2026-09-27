@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
 use std::path::{Path, PathBuf};
 
 use taide_infra::root_guard;
@@ -11,10 +12,11 @@ use taide_model::error::{AppError, AppErrorKind, AppResult};
 use taide_model::ids::{PaneId, ProjectId, TabId};
 use taide_model::layout::{
     ClosedTab, DropEdge, OpenTabInSplitRequest, ProjectLayout, ShellViewPatch, Tab, TabKind, TabPathChange, TabPathChangeResult,
+    TabWindowTarget,
 };
 use taide_model::project::Project;
 
-use crate::{AppState, EventSink};
+use crate::{AppState, EventSink, WindowRegistry};
 
 pub fn flush_dirty_layouts(state: &AppState) {
     let dirty: Vec<_> = state.dirty_layouts.write().drain().collect();
@@ -112,6 +114,99 @@ where
     notify_tab_closed(&closed.tab);
 
     Ok((project_id, closed, updated))
+}
+
+fn cleanup_emptied_auxiliary_windows(
+    windows: &WindowRegistry,
+    project_id: &ProjectId,
+    layout: &mut ProjectLayout,
+    close_window: &impl Fn(&str),
+) {
+    let emptied_slots: Vec<u32> = layout
+        .auxiliary_windows
+        .iter()
+        .filter(|window| service::is_layout_tree_empty(&window.root))
+        .map(|window| window.slot)
+        .collect();
+
+    for slot in emptied_slots {
+        layout.auxiliary_windows.retain(|window| window.slot != slot);
+        if let Some(label) = windows.label_for(project_id, slot) {
+            close_window(&label);
+        }
+    }
+}
+
+pub async fn layout_move_tab_to_window<F, OpenFuture, C>(
+    sink: &dyn EventSink,
+    state: &AppState,
+    windows: &WindowRegistry,
+    tab_id: TabId,
+    target: TabWindowTarget,
+    open_auxiliary_window: F,
+    close_window: C,
+) -> AppResult<ProjectLayout>
+where
+    F: FnOnce(ProjectId, u32) -> OpenFuture,
+    OpenFuture: Future<Output = AppResult<String>>,
+    C: Fn(&str),
+{
+    let _guard = state.begin_mutation().await;
+    let mut layouts = state.layouts.read().clone();
+    let project_id = service::locate_project_with_tab(&layouts, &tab_id)?;
+    let layout = service::get_layout_mut(&mut layouts, &project_id)?;
+
+    match target {
+        TabWindowTarget::Main => {
+            service::move_tab_to_main(layout, &tab_id)?;
+        }
+        TabWindowTarget::Existing { slot } => {
+            service::move_tab_to_existing_window(layout, &tab_id, slot)?;
+        }
+        TabWindowTarget::NewAuxiliary => {
+            let slot = service::next_window_slot(layout);
+            let label = open_auxiliary_window(project_id.clone(), slot).await?;
+            if let Err(error) = service::move_tab_to_new_window(layout, &tab_id, slot) {
+                close_window(&label);
+                return Err(error);
+            }
+        }
+    }
+
+    cleanup_emptied_auxiliary_windows(windows, &project_id, layout, &close_window);
+
+    let updated = finish_mutation(sink, state, &project_id, layout);
+    *state.layouts.write() = layouts;
+    Ok(updated)
+}
+
+pub async fn return_auxiliary_window_tabs(sink: &dyn EventSink, state: &AppState, project_id: ProjectId, window_slot: u32) {
+    let _guard = state.begin_mutation().await;
+
+    let mirrored_paths: HashSet<String> = taide_file::service::list_mirrors(&state.paths, &project_id)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|mirror| mirror.path)
+        .collect();
+
+    let mut layouts = state.layouts.read().clone();
+    let Some(layout) = layouts.get_mut(&project_id) else {
+        log::debug!("보조 창 탭 복귀 생략: 프로젝트가 이미 닫혔습니다 (projectId={project_id})");
+        return;
+    };
+
+    service::clear_auxiliary_window_phantom_dirty(layout, window_slot, &|path| mirrored_paths.contains(path));
+
+    if !service::return_auxiliary_window_tabs(layout, window_slot) {
+        log::debug!("보조 창 탭 복귀 생략: 슬롯을 찾을 수 없습니다 (projectId={project_id}, windowSlot={window_slot})");
+        return;
+    }
+
+    let revision = layout.revision;
+    *state.layouts.write() = layouts;
+
+    state.dirty_layouts.write().insert(project_id.clone());
+    sink.publish(AppEvent::LayoutChanged { project_id, revision });
 }
 
 pub async fn layout_get(state: &AppState, project_id: ProjectId) -> AppResult<ProjectLayout> {

@@ -269,14 +269,18 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     `taide-runtime::theme_actions`와 `locale_actions`는 현재 테마·언어의 live 설정 snapshot→system 선택/fallback→service load 조립을 소유한다.
     원래 await가 없는 조회를 동기 selector로 제공하며 Tauri async command 시그니처는 유지한다. mutation guard·설정 쓰기·이벤트는 추가하지 않는다.
     나머지 theme/locale 단순 service 위임과 OS system 값 공급은 기존 adapter/소비자의 책임이다.
-    `taide-runtime::layout_actions`는 dirty flush·finish·공통 탭 open/close와 레이아웃 command 정책 18개를 소유한다. 기존 layout service 경로는 재수출 또는 adapter로 유지한다.
+    `taide-runtime::layout_actions`는 dirty flush·finish·공통 탭 open/close와 레이아웃 command 정책 18개, root의 탭 창 이동·보조 창 탭 복귀 정책을 소유한다. 기존 layout service 경로는 재수출 또는 adapter로 유지한다.
     finish의 focus 보정·dirty 표시·LayoutChanged 발행 뒤에 호출자가 state를 기록하는 기존 순서를 보존한다.
     close의 observer는 state 기록 뒤 같은 mutation guard 안에서 주입된 callback으로 실행하며 실제 IDE→PTY 후처리 등록은 Tauri 조립부에 남는다.
     dirty flush는 먼저 drain하고 snapshot을 저장한다. 없는 layout·저장 실패는 기존 로그/생략 정책을 유지하며 주기의 blocking await와 shutdown의 동기 호출도 변경하지 않는다.
     Tauri layout command 19개 중 18개는 runtime action에 위임하고 닫기는 기존 observer adapter를 통해 같은 공통 runtime close를 소비한다.
     mutation helper의 14개 소비자는 tab/pane/project 대상 선정·guard·clone·정책·finish 이벤트→state write를 공유한다.
     파일 열기와 split의 CLI 허용/실재 파일 gate, untitled 변환의 strict root gate와 경로 변경의 성분 단위 containment도 runtime에 있다.
-    닫힌 탭 stack만의 개명은 dirty/state를 기록하되 revision이나 이벤트를 추가하지 않는다. 실제 보조 창 생성/이동과 IDE→PTY observer는 Tauri 후속 경계다.
+    닫힌 탭 stack만의 개명은 dirty/state를 기록하되 revision이나 이벤트를 추가하지 않는다. 실제 보조 창 생성/close와 IDE→PTY observer는 Tauri adapter에 남는다.
+    창 이동은 같은 guard에서 새 OS 창을 먼저 열고 이동 실패 시 close callback을 호출한다. 성공 뒤 빈 layout 슬롯을 제거하고 등록된 창을 닫으며 finish 이벤트→state write를 유지한다.
+    창 복귀는 기존 위치에서 mirror를 조회하고 조회 실패를 빈 snapshot으로 취급한다. phantom file dirty 정리→탭 복귀→state write→dirty/event의 순서를 유지한다.
+    실제 창 닫힘 이벤트의 WindowRegistry 제거와 TaskSupervisor의 auxiliary-tab-return 등록은 Tauri 조립부에 남으며 runtime은 registry를 임의로 forget하지 않는다.
+    synthetic 검사와 본문 대조는 실제 OS 창 생성/close 및 실패 뒤 OS 창 rollback 성공을 증명하지 않는다. 해당 실기는 M7과 창 정책 QA gate에서 확인한다.
     IDE diff의 mutation guard·blocking 실행과 Forbidden 예외 정책은 기존 호출자에 남는다.
     setup은 상태 복원 뒤 AppState·TaskSupervisor·원격 제한기·플랫폼 포트·시크릿 포트·IDE 저장 포트·EventSink를 주입해 `Arc<AppServices>`를 만들고, 나머지 저장소는 AppServices가 초기화한다.
     AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·AgentStore·AgentHooksStore·GitStore·RemoteStore·IdeStore·SecretStoreState·IdeSaveFile·LspStore·LspInstallStore·SystemUsageStore·RemoteDispatchLimiter·PlatformServices·WindowRegistry·TaskSupervisor의 20개 상태·포트를
