@@ -1,6 +1,7 @@
-use std::cell::Cell;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::FutureExt;
@@ -9,13 +10,15 @@ use taide_model::paths::AppPaths;
 use taide_model::plugin::{PluginContributions, PluginLanguageContribution, PluginManifest, PLUGIN_MANIFEST_FILE, PLUGIN_MANIFEST_VERSION};
 use taide_model::vsix::VSIX_MANIFEST_ENTRY;
 use taide_plugin::service::PluginStore;
-use taide_runtime::{plugin_actions, vsix_actions, AppState};
+use taide_runtime::{plugin_actions, vsix_actions, AppState, TaskSupervisor};
 use uuid::Uuid;
 use zip::write::SimpleFileOptions;
 
 const FIXTURE_PLUGIN_ID: &str = "fixture-plugin";
 const FIXTURE_GRAMMAR: &str = r#"{ "scopeName": "source.fixture", "patterns": [] }"#;
 const STAGE_FAILURE_TIMEOUT_MS: u64 = 1_000;
+const STAGING_WAIT_TIMEOUT_MS: u64 = 2_000;
+const STAGING_POLL_INTERVAL_MS: u64 = 10;
 const PLUGIN_COMMANDS: &[&str] = &[
     "plugin_list",
     "plugin_reload",
@@ -40,6 +43,10 @@ impl Fixture {
         std::fs::write(source.join(PLUGIN_MANIFEST_FILE), serde_json::to_vec(&manifest()).unwrap()).unwrap();
         std::fs::write(source.join("grammars/fixture.json"), FIXTURE_GRAMMAR).unwrap();
         source
+    }
+
+    fn tasks(&self) -> TaskSupervisor {
+        TaskSupervisor::new(tokio::runtime::Handle::current())
     }
 
     fn archive(&self, name: &str, entries: &[(&str, &[u8])]) -> PathBuf {
@@ -103,6 +110,45 @@ fn manifest() -> PluginManifest {
 }
 
 #[tokio::test]
+async fn 요청_abort는_commit_guard를_기다리는_자기_staging을_정리한다() {
+    let fixture = Fixture::new();
+    let source = fixture.source();
+    let store = PluginStore::new();
+    let state = fixture.0.clone();
+    let _guard = state.begin_mutation().await;
+    let operation_state = state.clone();
+    let operation_store = store.clone();
+    let tasks = fixture.tasks();
+    let operation_tasks = tasks.clone();
+    let request = tokio::spawn(async move {
+        plugin_actions::plugin_install(
+            &operation_state,
+            &operation_store,
+            &operation_tasks,
+            source.to_string_lossy().into_owned(),
+        )
+        .await
+    });
+    tokio::time::timeout(Duration::from_millis(STAGING_WAIT_TIMEOUT_MS), async {
+        loop {
+            let staging = state.paths.plugins_dir().join(".tmp");
+            if std::fs::read_dir(staging).is_ok_and(|entries| entries.count() > 0) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(STAGING_POLL_INTERVAL_MS)).await;
+        }
+    })
+    .await
+    .unwrap();
+    request.abort();
+    assert!(request.await.unwrap_err().is_cancelled());
+    tasks.shutdown().await;
+    fixture.assert_no_staged_bytes();
+    assert!(store.0.read().is_none());
+    assert!(!state.paths.plugins_dir().join(FIXTURE_PLUGIN_ID).exists());
+}
+
+#[tokio::test]
 async fn list는_cache를_재사용하고_reload는_현재_디스크_snapshot으로_교체한다() {
     let fixture = Fixture::new();
     let state = &fixture.0;
@@ -129,7 +175,7 @@ async fn directory_install은_commit과_cache_뒤_grammar를_읽고_uninstall은
     let state = &fixture.0;
     let source = fixture.source();
     let store = PluginStore::new();
-    let installed = plugin_actions::plugin_install(state, &store, source.to_string_lossy().into_owned())
+    let installed = plugin_actions::plugin_install(state, &store, &fixture.tasks(), source.to_string_lossy().into_owned())
         .await
         .unwrap();
     assert_eq!(installed.manifest, manifest());
@@ -165,7 +211,7 @@ async fn archive_install도_같은_commit_cache와_grammar_경계를_사용한�
         ],
     );
     let store = PluginStore::new();
-    let installed = plugin_actions::plugin_install(&fixture.0, &store, archive.to_string_lossy().into_owned())
+    let installed = plugin_actions::plugin_install(&fixture.0, &store, &fixture.tasks(), archive.to_string_lossy().into_owned())
         .await
         .unwrap();
     assert!(installed.enabled);
@@ -186,10 +232,10 @@ async fn 중복_install과_잘못된_uninstall은_기존_설치본과_cache를_�
     let source = fixture.source();
     let state = &fixture.0;
     let store = PluginStore::new();
-    let installed = plugin_actions::plugin_install(state, &store, source.to_string_lossy().into_owned())
+    let installed = plugin_actions::plugin_install(state, &store, &fixture.tasks(), source.to_string_lossy().into_owned())
         .await
         .unwrap();
-    let duplicate = plugin_actions::plugin_install(state, &store, source.to_string_lossy().into_owned())
+    let duplicate = plugin_actions::plugin_install(state, &store, &fixture.tasks(), source.to_string_lossy().into_owned())
         .await
         .unwrap_err();
     assert_eq!(duplicate.kind(), AppErrorKind::InvalidArgument);
@@ -221,6 +267,7 @@ async fn stage_실패는_mutation_guard를_기다리지_않고_cache와_disk를_
         plugin_actions::plugin_install(
             state,
             &store,
+            &fixture.tasks(),
             state.paths.data_dir.join("missing.zip").to_string_lossy().into_owned(),
         ),
     )
@@ -237,15 +284,19 @@ async fn vsix_import는_stage_뒤_guard_안에서_주입된_commit과_cache를_�
     let path = fixture.vsix();
     let state = &fixture.0;
     let store = PluginStore::new();
-    let did_commit = Cell::new(false);
+    let did_commit = Arc::new(AtomicBool::new(false));
+    let marker = did_commit.clone();
+    let commit_state = fixture.0.clone();
+    let commit_store = store.clone();
     let installed = vsix_actions::vsix_import_plugin(
         state,
-        |temp_dir, plugin_id| {
-            did_commit.set(true);
-            assert!(temp_dir.starts_with(state.paths.plugins_dir().join(".tmp")));
+        &fixture.tasks(),
+        move |temp_dir, plugin_id| {
+            marker.store(true, Ordering::SeqCst);
+            assert!(temp_dir.starts_with(commit_state.paths.plugins_dir().join(".tmp")));
             assert_eq!(plugin_id, "local-fixture");
-            assert!(state.begin_mutation().now_or_never().is_none());
-            let installed = plugin_actions::commit_staged_vsix_plugin(state, &store, temp_dir, plugin_id)?;
+            assert!(commit_state.begin_mutation().now_or_never().is_none());
+            let installed = plugin_actions::commit_staged_vsix_plugin(&commit_state, &commit_store, temp_dir, plugin_id)?;
             assert!(!temp_dir.exists());
             Ok(installed)
         },
@@ -253,7 +304,7 @@ async fn vsix_import는_stage_뒤_guard_안에서_주입된_commit과_cache를_�
     )
     .await
     .unwrap();
-    assert!(did_commit.get());
+    assert!(did_commit.load(Ordering::SeqCst));
     assert!(installed.enabled);
     assert_eq!(*store.0.read(), Some(vec![installed]));
     fixture.assert_no_staged_bytes();
@@ -268,7 +319,12 @@ async fn vsix_stage_오류는_guard나_commit_port_전에_반환한다() {
     let _guard = state.begin_mutation().await;
     let result = tokio::time::timeout(
         Duration::from_millis(STAGE_FAILURE_TIMEOUT_MS),
-        vsix_actions::vsix_import_plugin(state, |_: &Path, _: &str| panic!("stage 실패 뒤 commit 금지"), path.clone()),
+        vsix_actions::vsix_import_plugin(
+            state,
+            &fixture.tasks(),
+            |_: &Path, _: &str| panic!("stage 실패 뒤 commit 금지"),
+            path.clone(),
+        ),
     )
     .await
     .expect("stage 오류는 guard 전에 반환해야 한다");

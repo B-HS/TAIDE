@@ -238,7 +238,10 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     runtime `plugin_actions`는 공개 action 5개의 read-through/reload·directory/archive stage→mutation guard→commit/cache·
     uninstall/grammar 조회와 VSIX commit/cache 정책을 소유한다. `vsix_actions`는 공개 action 2개의 기존 추출·stage 뒤
     guard와 commit port 호출을 소유한다. 실제 AppHandle commit port adapter만 Tauri 조립에 남는다.
-    기존 stage/검증/오류/캐시 정책을 유지하며 요청 Drop·stage 임시 디렉터리·시작한 blocking worker 회수는 별도 미완료 gate다.
+    두 설치 action의 전체 async 작업과 nested blocking stage는 같은 TaskSupervisor에 등록한다. 요청 waiter Drop은 async 작업 abort를 요청하고 반환 staging의 RAII 소유자는 자기 임시 경로만 정리한다.
+    반환 전에 요청이 사라지면 blocking worker의 결과 전송 실패가 staging 소유자를 Drop한다. 정상 root는 이미 시작한 stage와 cleanup 시도의 실제 완료를 기다린다.
+    Tauri managed State를 추가했으며 실제 생성 IPC payload는 불변이다. stage→guard→기존 최종 중복 검사/atomic commit/cache와 같은 VSIX 함수 포트를 유지한다.
+    OS cleanup 실패나 서비스가 staging 경로 반환 전에 panic하는 경우의 완전 회수·강제 bounded 종료를 보장하지 않는다.
     `AgentHooksStore`는 taide-agent에서 서버 정보·accept 핸들·프로젝트별 활동 override를 공유 Arc<Mutex>에 보관한다.
     AppServices와 기존 agent 명령 재수출은 같은 상태를 소비하며, 중복 서버 시작·900초 override 만료·종료 시 override 정리 정책을 유지한다.
     `AgentStore`도 taide-agent의 공유 Arc<Mutex>로 활동 diff·PTY 세션 신호·PID 이름 캐시·wait marker·외부 열기 대기열을 보관한다.

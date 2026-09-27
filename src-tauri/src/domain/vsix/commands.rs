@@ -1,4 +1,4 @@
-use taide_runtime::vsix_actions;
+use taide_runtime::{vsix_actions, TaskSupervisor};
 use tauri::{AppHandle, State};
 
 use super::types::VsixThemeExtractionResult;
@@ -28,11 +28,14 @@ pub async fn vsix_import_plugin(
     app: AppHandle,
     state: State<'_, AppState>,
     plugins: State<'_, PluginRuntimePort>,
+    tasks: State<'_, TaskSupervisor>,
     vsix_path: String,
 ) -> AppResult<LoadedPlugin> {
+    let commit_staged_import = plugins.commit_staged_import;
     vsix_actions::vsix_import_plugin(
         &state,
-        |temp_dir, staged_plugin_id| (plugins.commit_staged_import)(&app, temp_dir, staged_plugin_id),
+        &tasks,
+        move |temp_dir, staged_plugin_id| commit_staged_import(&app, temp_dir, staged_plugin_id),
         vsix_path,
     )
     .await

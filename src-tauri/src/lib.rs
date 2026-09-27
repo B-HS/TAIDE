@@ -1454,9 +1454,10 @@ mod tests {
         assert_eq!(ide.matches("(app.state::<PluginRuntimePort>().language_overlays)(app)").count(), 2);
         let vsix = include_str!("domain/vsix/commands.rs");
         assert!(vsix.contains("vsix_actions::vsix_import_plugin("));
-        assert!(vsix.contains("(plugins.commit_staged_import)(&app, temp_dir, staged_plugin_id)"));
+        assert!(vsix.contains("let commit_staged_import = plugins.commit_staged_import;"));
+        assert!(vsix.contains("commit_staged_import(&app, temp_dir, staged_plugin_id)"));
         let actions = include_str!("../../crates/taide-runtime/src/vsix_actions.rs");
-        assert!(actions.find("state.begin_mutation()").unwrap() < actions.find("commit_staged_import(&temp_dir").unwrap());
+        assert!(actions.find("state.begin_mutation()").unwrap() < actions.find("commit_staged_import(&staged.path").unwrap());
     }
 
     #[test]

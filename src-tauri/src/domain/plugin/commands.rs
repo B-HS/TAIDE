@@ -1,4 +1,4 @@
-use taide_runtime::plugin_actions;
+use taide_runtime::{plugin_actions, TaskSupervisor};
 use tauri::State;
 
 use crate::error::AppResult;
@@ -31,8 +31,13 @@ pub async fn plugin_reload(state: State<'_, AppState>, store: State<'_, PluginSt
 /// uuid-suffixed temp dir.
 #[tauri::command]
 #[specta::specta]
-pub async fn plugin_install(state: State<'_, AppState>, store: State<'_, PluginStore>, source_path: String) -> AppResult<LoadedPlugin> {
-    plugin_actions::plugin_install(&state, &store, source_path).await
+pub async fn plugin_install(
+    state: State<'_, AppState>,
+    store: State<'_, PluginStore>,
+    tasks: State<'_, TaskSupervisor>,
+    source_path: String,
+) -> AppResult<LoadedPlugin> {
+    plugin_actions::plugin_install(&state, &store, &tasks, source_path).await
 }
 
 /// No built-in-plugin protection — every entry in `plugins_dir` is a user-installed directory

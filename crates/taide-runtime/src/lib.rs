@@ -17,6 +17,7 @@ pub mod lsp_install_toolchain;
 pub mod notification_actions;
 mod platform_services;
 pub mod plugin_actions;
+mod plugin_install_worker;
 pub mod project_actions;
 pub mod remote_actions;
 mod remote_dispatch_limiter;

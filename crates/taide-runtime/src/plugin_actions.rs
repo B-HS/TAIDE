@@ -4,7 +4,8 @@ use taide_model::error::{AppError, AppErrorKind, AppResult};
 use taide_model::plugin::LoadedPlugin;
 use taide_plugin::service::{self, PluginStore};
 
-use crate::AppState;
+use crate::plugin_install_worker::{run_install, stage_plugin};
+use crate::{AppState, TaskSupervisor};
 
 /// Applies the shared plugin list policy.
 pub async fn plugin_list(state: &AppState, store: &PluginStore) -> AppResult<Vec<LoadedPlugin>> {
@@ -20,31 +21,34 @@ pub async fn plugin_reload(state: &AppState, store: &PluginStore) -> AppResult<V
 }
 
 /// Applies the shared plugin install policy.
-pub async fn plugin_install(state: &AppState, store: &PluginStore, source_path: String) -> AppResult<LoadedPlugin> {
-    let plugins_dir = state.paths.plugins_dir();
-    let source = PathBuf::from(&source_path);
-    let (temp_dir, staged_plugin_id) = tokio::task::spawn_blocking(move || {
-        if source.is_dir() {
-            service::stage_from_directory(&plugins_dir, &source)
-        } else {
+pub async fn plugin_install(state: &AppState, store: &PluginStore, tasks: &TaskSupervisor, source_path: String) -> AppResult<LoadedPlugin> {
+    let state = state.clone();
+    let store = store.clone();
+    let worker_tasks = tasks.clone();
+    run_install(tasks, "plugin-install", async move {
+        let plugins_dir = state.paths.plugins_dir();
+        let source = PathBuf::from(&source_path);
+        let staged = stage_plugin(&worker_tasks, move || {
+            if source.is_dir() {
+                return service::stage_from_directory(&plugins_dir, &source);
+            }
             service::stage_from_archive(&plugins_dir, &source)
-        }
+        })
+        .await?;
+
+        let _guard = state.begin_mutation().await;
+        let plugin_id = service::commit_staged_install(&state.paths.plugins_dir(), &staged.path, &staged.id)?;
+        let loaded = service::load_plugins(&state.paths.plugins_dir());
+        *store.0.write() = Some(loaded.clone());
+        loaded.into_iter().find(|plugin| plugin.manifest.id == plugin_id).ok_or_else(|| {
+            AppError::localized(
+                AppErrorKind::Internal,
+                "error.plugin.reloadAfterInstallFailed",
+                "failed to reload the installed plugin",
+            )
+        })
     })
     .await
-    .map_err(|error| AppError::Internal(error.to_string()))??;
-
-    let _guard = state.begin_mutation().await;
-    let plugin_id = service::commit_staged_install(&state.paths.plugins_dir(), &temp_dir, &staged_plugin_id)?;
-
-    let loaded = service::load_plugins(&state.paths.plugins_dir());
-    *store.0.write() = Some(loaded.clone());
-    loaded.into_iter().find(|plugin| plugin.manifest.id == plugin_id).ok_or_else(|| {
-        AppError::localized(
-            AppErrorKind::Internal,
-            "error.plugin.reloadAfterInstallFailed",
-            "failed to reload the installed plugin",
-        )
-    })
 }
 
 /// Applies the shared plugin uninstall policy.
