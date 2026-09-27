@@ -339,13 +339,7 @@ pub async fn lsp_spawn(
 #[specta::specta]
 pub async fn lsp_send(store: State<'_, LspStore>, session_id: String, message: String) -> AppResult<()> {
     perf::add(CounterSlot::LspSend, 1);
-    let entry = find_entry(&store, &session_id)?;
-    let proc = entry
-        .proc
-        .lock()
-        .clone()
-        .ok_or_else(|| AppError::Internal("language server not ready".to_string()))?;
-    proc.write_message(&message).await
+    lsp_actions::lsp_send(&store, session_id, message).await
 }
 
 fn release_owner_root(entry: &SessionEntry, owner: &str, root: Option<&str>) -> (Option<String>, bool) {
@@ -462,15 +456,8 @@ pub async fn lsp_restart(app: AppHandle, state: State<'_, AppState>, store: Stat
 #[tauri::command]
 #[specta::specta]
 pub async fn lsp_confirm_reinitialize(app: AppHandle, store: State<'_, LspStore>, session_id: String, generation: u32) -> AppResult<()> {
-    let entry = find_entry(&store, &session_id)?;
-    if let Some(snapshot) = entry.lifecycle.confirm_reinitialized(generation) {
-        emit_status(&app, &session_id, snapshot);
-    }
-    Ok(())
+    lsp_actions::lsp_confirm_reinitialize(&TauriEventSink(&app), &store, session_id, generation)
 }
-
-const REINITIALIZE_FAILURE_MESSAGE: &str =
-    "초기화 핸드셰이크 재시도를 모두 소진해 서버를 재연결하지 못했습니다. 수동으로 다시 시작해주세요.";
 
 /// Records reinitialization failure only for the current generation of a crashed session.
 #[tauri::command]
@@ -481,14 +468,7 @@ pub async fn lsp_report_reinitialize_failure(
     session_id: String,
     generation: u32,
 ) -> AppResult<()> {
-    let entry = find_entry(&store, &session_id)?;
-    if let Some(snapshot) = entry
-        .lifecycle
-        .report_reinitialize_failure(generation, REINITIALIZE_FAILURE_MESSAGE.to_string())
-    {
-        emit_status(&app, &session_id, snapshot);
-    }
-    Ok(())
+    lsp_actions::lsp_report_reinitialize_failure(&TauriEventSink(&app), &store, session_id, generation)
 }
 
 #[tauri::command]
