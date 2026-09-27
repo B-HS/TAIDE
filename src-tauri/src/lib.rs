@@ -493,6 +493,19 @@ fn recent_project_root(app: &AppHandle, project_id: &ProjectId) -> Option<String
         .map(|project| project.root)
 }
 
+fn schedule_menu_refresh(app: &AppHandle, name: &'static str, refresh: fn(&AppHandle)) {
+    let tasks = (*app.state::<TaskSupervisor>()).clone();
+    let handle = app.clone();
+    let Some(refresh) = tasks.spawn_blocking_transient_handle(name, move || refresh(&handle)) else {
+        return;
+    };
+    tasks.spawn_transient("menu-refresh-completion", async move {
+        if let Err(error) = refresh.await {
+            log::warn!("메뉴 갱신 작업이 완료되지 못했습니다: {error}");
+        }
+    });
+}
+
 /// Keeps the native app menu in step with the state it draws, by **subscribing** to the events the
 /// project and settings domains already emit instead of having those domains call into
 /// `domain::window` (architecture.md §2 — the assembly owns cross-domain wiring; the same
@@ -515,8 +528,7 @@ fn listen_for_app_menu_refresh(app: &tauri::AppHandle) {
     for event_name in [ProjectListChanged::NAME, ProjectActivated::NAME] {
         let recent_handle = app.clone();
         app.listen_any(event_name, move |_| {
-            let handle = recent_handle.clone();
-            tauri::async_runtime::spawn_blocking(move || domain::window::menu::refresh_recent_menu(&handle));
+            schedule_menu_refresh(&recent_handle, "menu-recent-refresh", domain::window::menu::refresh_recent_menu);
         });
     }
 
@@ -535,8 +547,11 @@ fn listen_for_app_menu_refresh(app: &tauri::AppHandle) {
         *drawn = changed.settings.language;
         drop(drawn);
 
-        let handle = language_handle.clone();
-        tauri::async_runtime::spawn_blocking(move || domain::window::commands::refresh_app_menu(&handle));
+        schedule_menu_refresh(
+            &language_handle,
+            "menu-language-refresh",
+            domain::window::commands::refresh_app_menu,
+        );
     });
 }
 

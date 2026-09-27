@@ -193,6 +193,10 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     독립 반복 작업으로 추적하므로 이미 받은 요청이 세션 무효화 뒤에도 permit을 기다려 실행될 수 있는 기존 계약은 그대로다.
     원격 서버의 정상 중지 대기도 감독하며 shutdown 신호→grace wait→시간 초과 abort 순서를 유지한다. 앱 종료로 감독자 등록이 닫혔으면 서버를 직접 취소한다.
     메뉴의 최근 프로젝트 작업·보조 창 탭 복귀/flush/복원·전체 hot-exit timeout·프로젝트 attach 시 agent hook 재조정·LSP 종료/재시작 지연은 호출별 ID로 각각 추적하며 `RunEvent::Exit`에서 함께 취소한다.
+    메뉴 recent/language listener의 blocking worker도 호출별 key로 직접 추적하고 감독한 async waiter가 결과를 await한다.
+    listener는 IO를 수행하지 않으며 언어가 실제로 바뀔 때만 전체 메뉴를 갱신하는 기존 gate를 유지한다.
+    stop_all은 queued blocking에 abort를 요청하고 종료 후 등록을 거절하며 worker 진입에서 종료 상태를 확인한다. 이미 시작한 blocking worker는 강제 중단할 수 없어 실제 완료·panic cleanup까지 추적한다.
+    async waiter 취소를 worker 완료로 해석하지 않으며 이 API는 시작한 OS 작업의 bounded 종료 대기나 main-thread 메뉴 callback 취소를 보장하지 않는다.
     자동 시작의 설정 조건·오류 처리와 각 서버의 별도 수명주기 소유권은 유지한다. 기존 주기·Tauri runtime도 유지하며
     나머지 서버·세션 lifecycle 작업은 후속 경계다.
     `AppState`와 flush handshake는 model·infra 타입만 참조해 runtime crate에 있고,

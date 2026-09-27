@@ -9,6 +9,7 @@ use tokio::task::{AbortHandle, JoinHandle};
 enum TaskKey {
     Named(&'static str),
     Transient(u64, &'static str),
+    Blocking(u64, &'static str),
 }
 
 #[derive(Default)]
@@ -72,6 +73,32 @@ impl TaskSupervisor {
         self.spawn_locked(&mut state, TaskKey::Transient(task_id, name), task)
     }
 
+    pub fn spawn_blocking_transient_handle(&self, name: &'static str, task: impl FnOnce() + Send + 'static) -> Option<JoinHandle<()>> {
+        let mut state = self.0.state.lock().expect("task supervisor lock poisoned");
+        if state.is_stopped {
+            return None;
+        }
+        let task_id = state.next_transient_id.checked_add(1).expect("task supervisor ID exhausted");
+        state.next_transient_id = task_id;
+        let key = TaskKey::Blocking(task_id, name);
+        let cleanup = TaskCleanup {
+            supervisor: Arc::downgrade(&self.0),
+            key,
+        };
+        let handle = self.0.runtime.spawn_blocking(move || {
+            let cleanup = cleanup;
+            let Some(supervisor) = cleanup.supervisor.upgrade() else {
+                return;
+            };
+            if supervisor.state.lock().expect("task supervisor lock poisoned").is_stopped {
+                return;
+            }
+            task();
+        });
+        state.handles.insert(key, handle.abort_handle());
+        Some(handle)
+    }
+
     fn spawn_locked(&self, state: &mut TaskState, key: TaskKey, task: impl Future<Output = ()> + Send + 'static) -> Option<JoinHandle<()>> {
         if state.is_stopped || state.handles.contains_key(&key) {
             return None;
@@ -97,10 +124,12 @@ impl TaskSupervisor {
         let handles = {
             let mut state = self.0.state.lock().expect("task supervisor lock poisoned");
             state.is_stopped = true;
-            std::mem::take(&mut state.handles)
+            let handles: Vec<_> = state.handles.values().cloned().collect();
+            state.handles.retain(|key, _| matches!(key, TaskKey::Blocking(..)));
+            handles
         };
 
-        for handle in handles.into_values() {
+        for handle in handles {
             handle.abort();
         }
     }
