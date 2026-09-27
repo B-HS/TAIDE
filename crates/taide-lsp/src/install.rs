@@ -47,9 +47,15 @@ impl InstallControl {
     }
 }
 
+#[derive(Default)]
+struct LspInstallStoreInner {
+    state: Mutex<InstallState>,
+    idle: Notify,
+}
+
 /// Tracks admission and cancellation until all workers release their installation leases.
 #[derive(Clone, Default)]
-pub struct LspInstallStore(Arc<Mutex<InstallState>>);
+pub struct LspInstallStore(Arc<LspInstallStoreInner>);
 
 impl LspInstallStore {
     pub fn new() -> Self {
@@ -57,7 +63,7 @@ impl LspInstallStore {
     }
 
     pub fn begin(&self, server_id: &LspServerId) -> Option<LspInstallGuard> {
-        let mut state = self.0.lock();
+        let mut state = self.0.state.lock();
         if state.is_stopped || state.active.contains_key(server_id) {
             return None;
         }
@@ -73,7 +79,7 @@ impl LspInstallStore {
     }
 
     pub fn cancel(&self, server_id: &LspServerId) {
-        let control = self.0.lock().active.get(server_id).cloned();
+        let control = self.0.state.lock().active.get(server_id).cloned();
         if let Some(control) = control {
             control.cancel();
         }
@@ -82,7 +88,7 @@ impl LspInstallStore {
     /// Closes admission and cancels active requests without releasing running workers' slots.
     pub fn shutdown(&self) {
         let controls: Vec<_> = {
-            let mut state = self.0.lock();
+            let mut state = self.0.state.lock();
             state.is_stopped = true;
             state.active.values().cloned().collect()
         };
@@ -92,17 +98,31 @@ impl LspInstallStore {
     }
 
     pub fn is_stopped(&self) -> bool {
-        self.0.lock().is_stopped
+        self.0.state.lock().is_stopped
+    }
+
+    /// Waits until every request and resource lease has been dropped. Call shutdown first to close admission.
+    pub async fn wait_for_idle(&self) {
+        loop {
+            let changed = self.0.idle.notified();
+            if self.0.state.lock().active.is_empty() {
+                return;
+            }
+            changed.await;
+        }
     }
 
     fn finish(&self, server_id: &LspServerId, control: &Arc<InstallControl>) {
-        let mut state = self.0.lock();
+        let mut state = self.0.state.lock();
         if state
             .active
             .get(server_id)
             .is_some_and(|existing| Arc::ptr_eq(existing, control))
         {
             state.active.remove(server_id);
+            if state.active.is_empty() {
+                self.0.idle.notify_waiters();
+            }
         }
     }
 }
@@ -220,6 +240,42 @@ mod tests {
         lease: LspInstallLease,
     }
 
+    #[tokio::test]
+    async fn idle_대기는_요청과_마지막_worker가_모두_drop될_때_복수_대기자를_깨운다() {
+        let store = LspInstallStore::new();
+        let server_id = LspServerId::from("synthetic-drain");
+        let guard = store.begin(&server_id).unwrap();
+        let worker = guard.lease();
+        store.shutdown();
+        let first_store = store.clone();
+        let second_store = store.clone();
+        let first = tokio::spawn(async move { first_store.wait_for_idle().await });
+        let second = tokio::spawn(async move { second_store.wait_for_idle().await });
+        tokio::task::yield_now().await;
+        assert!(!first.is_finished());
+        assert!(!second.is_finished());
+        drop(guard);
+        tokio::task::yield_now().await;
+        assert!(!first.is_finished());
+        assert!(!second.is_finished());
+        drop(worker);
+        first.await.unwrap();
+        second.await.unwrap();
+        assert!(store.0.state.lock().active.is_empty());
+        assert!(store.begin(&server_id).is_none());
+    }
+
+    #[tokio::test]
+    async fn idle_대기는_등록_전_마지막_drop과_이미_빈_저장소를_놓치지_않는다() {
+        let store = LspInstallStore::new();
+        let guard = store.begin(&LspServerId::from("synthetic-drain")).unwrap();
+        let wait = store.wait_for_idle();
+        store.shutdown();
+        drop(guard);
+        wait.await;
+        store.wait_for_idle().await;
+    }
+
     impl InstallCancellationResource for TestResource {
         fn cancel(&self) {
             self.cancel_count.fetch_add(1, Ordering::SeqCst);
@@ -245,9 +301,9 @@ mod tests {
         assert_eq!(resource.cancel_count.load(Ordering::SeqCst), 1);
         drop(guard);
         drop(lease);
-        assert_eq!(store.0.lock().active.len(), 1);
+        assert_eq!(store.0.state.lock().active.len(), 1);
         drop(resource);
-        assert!(store.0.lock().active.is_empty());
+        assert!(store.0.state.lock().active.is_empty());
     }
 
     #[test]
@@ -319,9 +375,9 @@ mod tests {
         assert!(guard.cancellation_token().load(Ordering::SeqCst));
         assert!(worker.ensure_active().is_err());
         drop(guard);
-        assert_eq!(store.0.lock().active.len(), 1);
+        assert_eq!(store.0.state.lock().active.len(), 1);
         drop(worker);
-        assert!(store.0.lock().active.is_empty());
+        assert!(store.0.state.lock().active.is_empty());
         assert!(store.begin(&server_id).is_none());
         assert!(store.begin(&LspServerId::from("another-server")).is_none());
     }

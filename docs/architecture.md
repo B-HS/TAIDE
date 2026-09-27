@@ -290,12 +290,14 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     infra의 DownloadFileIo는 기존 Tokio 파일 경로와 runtime의 감독된 파일 경로를 제공한다. 실제 설치 action은 후자를 사용하며 stream/hash/throttle 정책은 공유한다.
     열린 파일 소유자는 파일 닫힘→임시 경로 소유자→lease 순으로 Drop한다. queued work도 work capture의 cleanup 뒤에 마지막 worker lease를 해제하도록 하나의 소유 구조체로 캡처한다.
     store 취소와 최종 atomic 적용은 같은 gate에서 직렬화한다. 취소가 앞서면 적용/Done을 거절하고, 적용이 먼저 성공했으면 늦은 취소로 완료 결과를 되돌리지 않는다.
-    ExitRequested/Exit는 설치 admission을 닫고 취소를 알리며 신규 command도 AppState 종료 gate를 확인한다. 이는 앱 종료 시 모든 설치 자원의 회수 완료를 뜻하지 않는다.
+    ExitRequested/Exit는 설치 admission을 닫고 취소를 알리며 신규 command도 AppState 종료 gate를 확인한다.
+    정상 ExitRequested는 prevent_exit 후 root callback이 소유한 runtime ExitDrain에서 감독 task의 실제 완료와 모든 설치 lease 종료를 기다린다. coordinator는 자신이 멈추는 TaskSupervisor 밖에 있어 self-wait가 없으며 완료 뒤 원래 exit code로 종료를 다시 요청한다.
+    이 대기 중 native 이벤트 루프는 계속 동작해 메뉴 worker의 main-thread 응답을 처리할 수 있다. ExitRequested 없이 바로 Exit가 오면 감독 취소를 요청하고 설치 lease만 동기로 드레인하며 모든 다른 작업의 종료까지 보장하지는 않는다.
     HTTP 파일 생성 중 요청 Drop의 늦은 파일 1개와 슬롯 조기 해제를 재현하고 create/write/flush의 감독 소유권으로 수정했다.
     `taide-runtime::lsp_install_toolchain`은 감독된 blocking worker 안에서 취소 gate와 child spawn을 직렬화한다. store는 자원을 weak 등록해 순환 소유 없이 요청 Drop·명시 취소·shutdown을 동기로 전달한다.
     child 소유자는 직접 child를 kill/reap한 뒤 lease를 해제한다. Unix에서는 별도로 만든 살아 있는 child의 그룹에만 KILL을 요청하며 0/1·이미 reap된 pid를 그룹 대상으로 쓰지 않는다.
     stdout/stderr reader는 별도 감독 task에서 pipe와 lease를 보유한다. child 종료 뒤 EOF를 최대 500ms 기다리고 지연되면 abort 후 실제 JoinHandle 완료를 확인해 마지막 20줄을 반환한다.
-    정상 완료/기존 실패 출력 마스킹·진행 payload는 공유 EventSink를 경유하며 취소가 앞선 경우 Done을 거절한다. 실제 앱 전체 종료의 drain·Windows process tree·부모 종료 뒤 남은 자손은 아직 미검증이고 전체 lifecycle은 미완료다.
+    정상 완료/기존 실패 출력 마스킹·진행 payload는 공유 EventSink를 경유하며 취소가 앞선 경우 Done을 거절한다. 자기 생성 TERM 무시 자손과 정상 종료 coordinator의 실제 대기는 검증했다. 실제 native 종료 이벤트/Windows process tree·부모 종료 뒤 남은 자손·감독되지 않은 nested worker는 미검증이고 전체 lifecycle은 미완료다.
     IDE diff의 mutation guard·blocking 실행과 Forbidden 예외 정책은 기존 호출자에 남는다.
     setup은 상태 복원 뒤 AppState·TaskSupervisor·원격 제한기·플랫폼 포트·시크릿 포트·IDE 저장 포트·EventSink를 주입해 `Arc<AppServices>`를 만들고, 나머지 저장소는 AppServices가 초기화한다.
     AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·AgentStore·AgentHooksStore·GitStore·RemoteStore·IdeStore·SecretStoreState·IdeSaveFile·LspStore·LspInstallStore·SystemUsageStore·RemoteDispatchLimiter·PlatformServices·WindowRegistry·TaskSupervisor의 20개 상태·포트를
@@ -596,7 +598,7 @@ eslint `no-restricted-imports` 는 import **방향**만 강제하고 레이어�
 2. **무거운 객체는 dispose 의무**: Monaco model/editor, xterm 인스턴스는 소유 위젯 unmount 시 dispose.
    전역 캐시에 남기는 경우(모델 재사용) LRU 상한과 방출 정책을 명시한다(`features/editor.md`).
 3. **Rust 자원은 세션 구조체가 소유**: pty·LSP·watcher 는 세션 drop 시 자식 프로세스 종료까지 보장해야 한다
-   (Drop 구현 + 명시적 shutdown 경로 이중화). 현재 LSP reader 회수와 명시적 kill 경로는 검증했지만 설치 child·wait worker 자체/Drop·PTY thread의 전체 소유권 gate는 M6 미완료 항목이다.
+   (Drop 구현 + 명시적 shutdown 경로 이중화). 현재 LSP reader 회수와 설치 직접 child/TERM 무시 자손·정상 종료 coordinator는 검증했다. 설치 부모 종료 뒤 자손·LSP wait worker 자체/Drop·PTY thread 및 실제 native 종료의 전체 소유권 gate는 M6 미완료 항목이다.
 
    **§6.3 `project_close` 자원 회수 목록 (정본)** — 프로젝트 종료 시 회수되는 전체 목록이다.
    T1-I(2026-08-19)부터 각 항목의 회수는 그 도메인의 `capability.rs` `detach` 가 소유하고,
@@ -705,7 +707,7 @@ eslint `no-restricted-imports` 는 import **방향**만 강제하고 레이어�
    - `domain::lsp::commands::LspInstallStore` — `begin`/`finish` 쌍이 `.await` 정상 반환 경로에만
      의존해, 설치 퓨처가 패닉하거나 태스크가 드롭되면 `server_id`가 영구히 "설치 중"으로 잠겼다.
      `LspInstallGuard`(Drop)로 이중화했고 현재는 요청 guard Drop이 취소를 요청한다. 감독된 extraction worker의 `LspInstallLease`까지 모두 Drop된 뒤에만 슬롯을 해제한다.
-     요청 종료와 실제 worker 종료를 구분하며 download 파일 create/write/flush 및 toolchain child/reader도 실제 소유자가 슬롯을 보유한다. 자기 생성 child의 취소/reap와 지연 reader의 회수는 검증했고 앱 전체 종료 시 실제 drain은 M6 미완료 gate다.
+     요청 종료와 실제 worker 종료를 구분하며 download 파일 create/write/flush 및 toolchain child/reader도 실제 소유자가 슬롯을 보유한다. 정상 ExitRequested coordinator는 감독 task 완료와 설치 마지막 lease를 기다린다. native 직접 Exit 경로의 전체 작업/자손·실제 앱 회수는 M6 미완료 gate다.
    - `infra::shell_integration`이 만드는 zsh/bash 임시 디렉터리 — 주입된 스크립트 자신의
      `rm -rf` 한 줄에만 의존했고, 셸이 그 줄에 도달하지 못하면(크래시·조기 종료) OS 임시 디렉터리
      아래 영구히 남았다. 이제 `PtySession`이 생성 시점의 경로를 들고 있다가 자신의 `Drop`에서

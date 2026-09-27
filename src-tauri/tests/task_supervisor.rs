@@ -21,8 +21,9 @@ async fn 장기_작업은_이름별로_한_번만_등록되고_종료시_취소�
 
     supervisor.stop_all();
 
-    assert_eq!(supervisor.tracked_count(), 0);
+    assert_eq!(supervisor.tracked_count(), 1);
     assert!(tokio::time::timeout(Duration::from_secs(1), receiver).await.unwrap().is_err());
+    assert_eq!(supervisor.tracked_count(), 0);
     assert!(!supervisor.spawn("agent-poll", async {}));
     supervisor.stop_all();
 }
@@ -64,12 +65,13 @@ async fn 반복_작업은_같은_이름으로_각각_추적하고_종료시_취�
     assert_eq!(supervisor.tracked_count(), 2);
 
     supervisor.stop_all();
-    assert_eq!(supervisor.tracked_count(), 0);
+    assert_eq!(supervisor.tracked_count(), 2);
     assert!(tokio::time::timeout(Duration::from_secs(1), first_receiver).await.unwrap().is_err());
     assert!(tokio::time::timeout(Duration::from_secs(1), second_receiver)
         .await
         .unwrap()
         .is_err());
+    assert_eq!(supervisor.tracked_count(), 0);
     assert!(!supervisor.spawn_transient("menu-open-recent", async {}));
 }
 
@@ -133,7 +135,7 @@ fn 앱_조립은_장기_작업과_자동_시작을_등록하고_종료시_취소
         .unwrap()
         .1;
     let boot = boot.split_once("let ide_reconcile_handle =").unwrap().0;
-    let exit = app.split_once(".run(|app_handle, event| {").unwrap().1;
+    let exit = app.split_once(".run(move |app_handle, event| {").unwrap().1;
 
     assert!(app.contains("TaskSupervisor::new(tauri::async_runtime::handle().inner().clone())"));
     assert!(setup.contains("app.manage(services.tasks.clone());"));
@@ -144,7 +146,12 @@ fn 앱_조립은_장기_작업과_자동_시작을_등록하고_종료시_취소
     assert!(setup.contains(".spawn(\"ide-reconcile\""));
     assert!(setup.contains(".spawn(\"agent-poll\""));
     assert!(setup.contains(".spawn(\"layout-flush\""));
+    assert!(app.contains("let mut exit_drain = ExitDrain::default()"));
+    assert!(exit.contains("api.prevent_exit()"));
+    assert!(exit.contains("exit_drain.begin("));
+    assert!(exit.contains("move || handle.exit(exit_code)"));
     assert!(exit.contains("app_handle.state::<TaskSupervisor>().stop_all()"));
+    assert!(exit.contains("tauri::async_runtime::block_on(app_handle.state::<LspInstallStore>().wait_for_idle())"));
 }
 
 #[test]

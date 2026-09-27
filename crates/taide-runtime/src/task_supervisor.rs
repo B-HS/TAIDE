@@ -1,9 +1,12 @@
 use std::collections::HashMap;
 use std::future::Future;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use tokio::runtime::Handle;
 use tokio::task::{AbortHandle, JoinHandle};
+
+const SHUTDOWN_POLL_INTERVAL_MS: u64 = 10;
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 enum TaskKey {
@@ -27,22 +30,9 @@ struct TaskSupervisorInner {
     state: Mutex<TaskState>,
 }
 
-struct TaskCleanup {
-    supervisor: Weak<TaskSupervisorInner>,
-    key: TaskKey,
-}
-
-impl Drop for TaskCleanup {
-    fn drop(&mut self) {
-        let Some(supervisor) = self.supervisor.upgrade() else {
-            return;
-        };
-        supervisor
-            .state
-            .lock()
-            .expect("task supervisor lock poisoned")
-            .handles
-            .remove(&self.key);
+impl TaskState {
+    fn prune_finished(&mut self) {
+        self.handles.retain(|_, handle| !handle.is_finished());
     }
 }
 
@@ -75,19 +65,16 @@ impl TaskSupervisor {
 
     pub fn spawn_blocking_transient_handle(&self, name: &'static str, task: impl FnOnce() + Send + 'static) -> Option<JoinHandle<()>> {
         let mut state = self.0.state.lock().expect("task supervisor lock poisoned");
+        state.prune_finished();
         if state.is_stopped {
             return None;
         }
         let task_id = state.next_transient_id.checked_add(1).expect("task supervisor ID exhausted");
         state.next_transient_id = task_id;
         let key = TaskKey::Blocking(task_id, name);
-        let cleanup = TaskCleanup {
-            supervisor: Arc::downgrade(&self.0),
-            key,
-        };
+        let supervisor = Arc::downgrade(&self.0);
         let handle = self.0.runtime.spawn_blocking(move || {
-            let cleanup = cleanup;
-            let Some(supervisor) = cleanup.supervisor.upgrade() else {
+            let Some(supervisor) = supervisor.upgrade() else {
                 return;
             };
             if supervisor.state.lock().expect("task supervisor lock poisoned").is_stopped {
@@ -100,37 +87,123 @@ impl TaskSupervisor {
     }
 
     fn spawn_locked(&self, state: &mut TaskState, key: TaskKey, task: impl Future<Output = ()> + Send + 'static) -> Option<JoinHandle<()>> {
+        state.prune_finished();
         if state.is_stopped || state.handles.contains_key(&key) {
             return None;
         }
 
-        let cleanup = TaskCleanup {
-            supervisor: Arc::downgrade(&self.0),
-            key,
-        };
-        let handle = self.0.runtime.spawn(async move {
-            let _cleanup = cleanup;
-            task.await;
-        });
+        let handle = self.0.runtime.spawn(task);
         state.handles.insert(key, handle.abort_handle());
         Some(handle)
     }
 
     pub fn tracked_count(&self) -> usize {
-        self.0.state.lock().expect("task supervisor lock poisoned").handles.len()
+        let mut state = self.0.state.lock().expect("task supervisor lock poisoned");
+        state.prune_finished();
+        state.handles.len()
     }
 
-    pub fn stop_all(&self) {
+    fn cancel_all(&self) -> Vec<AbortHandle> {
         let handles = {
             let mut state = self.0.state.lock().expect("task supervisor lock poisoned");
             state.is_stopped = true;
-            let handles: Vec<_> = state.handles.values().cloned().collect();
-            state.handles.retain(|key, _| matches!(key, TaskKey::Blocking(..)));
-            handles
+            state.prune_finished();
+            state.handles.values().cloned().collect::<Vec<_>>()
         };
-
-        for handle in handles {
+        for handle in &handles {
             handle.abort();
         }
+        handles
+    }
+
+    /// Requests cancellation and keeps unfinished async and blocking tasks tracked.
+    pub fn stop_all(&self) {
+        self.cancel_all();
+    }
+
+    /// Closes admission and waits for actual task completion, including already-started blocking work.
+    pub async fn shutdown(&self) {
+        let handles = self.cancel_all();
+        while handles.iter().any(|handle| !handle.is_finished()) {
+            tokio::time::sleep(Duration::from_millis(SHUTDOWN_POLL_INTERVAL_MS)).await;
+        }
+        self.0.state.lock().expect("task supervisor lock poisoned").prune_finished();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::future::pending;
+    use std::time::Duration;
+
+    use tokio::sync::oneshot;
+
+    use super::TaskSupervisor;
+
+    const FIXTURE_TIMEOUT_MS: u64 = 2_000;
+    const BLOCKED_WORK_OBSERVATION_MS: u64 = 20;
+
+    #[tokio::test]
+    async fn stop_all은_취소_요청_직후_async_작업을_완료로_집계하지_않는다() {
+        let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+        let (sender, receiver) = oneshot::channel::<()>();
+        assert!(tasks.spawn_transient("synthetic-pending", async move {
+            let _owner = sender;
+            pending::<()>().await;
+        }));
+        tasks.stop_all();
+        assert_eq!(tasks.tracked_count(), 1);
+        assert!(receiver.await.is_err());
+        assert_eq!(tasks.tracked_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn shutdown은_async_owner의_실제_drop을_기다리고_모든_신규_등록을_거절한다() {
+        let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+        let (sender, receiver) = oneshot::channel::<()>();
+        assert!(tasks.spawn("synthetic-owned", async move {
+            let _owner = sender;
+            pending::<()>().await;
+        }));
+        tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), tasks.shutdown())
+            .await
+            .unwrap();
+        assert!(receiver.await.is_err());
+        assert_eq!(tasks.tracked_count(), 0);
+        assert!(!tasks.spawn("synthetic-owned", async {}));
+        assert!(tasks.spawn_transient_handle("synthetic-owned", async {}).is_none());
+        assert!(tasks.spawn_blocking_transient_handle("synthetic-owned", || {}).is_none());
+        tasks.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn shutdown_대기가_drop되어도_시작한_blocking_작업의_완료를_다시_기다린다() {
+        let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+        let (started, started_rx) = oneshot::channel();
+        let (release, release_rx) = std::sync::mpsc::channel();
+        let worker = tasks
+            .spawn_blocking_transient_handle("synthetic-blocked", move || {
+                started.send(()).unwrap();
+                release_rx.recv().unwrap();
+            })
+            .unwrap();
+        started_rx.await.unwrap();
+        tasks.stop_all();
+        let mut shutdown = Box::pin(tasks.shutdown());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(BLOCKED_WORK_OBSERVATION_MS), &mut shutdown)
+                .await
+                .is_err()
+        );
+        drop(shutdown);
+        assert_eq!(tasks.tracked_count(), 1);
+        assert!(!worker.is_finished());
+        release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), tasks.shutdown())
+            .await
+            .unwrap();
+        assert!(worker.is_finished());
+        worker.await.unwrap();
+        assert_eq!(tasks.tracked_count(), 0);
     }
 }

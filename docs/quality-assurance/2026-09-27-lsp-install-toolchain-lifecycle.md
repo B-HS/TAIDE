@@ -20,7 +20,8 @@
 
 ## 남은 전체 gate와 테스트 부채
 
-- [ ] root shutdown에서 설치 worker/reader가 실제 종료한 뒤 앱 종료가 진행하는지 확인합니다. store shutdown을 전체 join으로 해석하지 않습니다.
-- [ ] Unix TERM 무시 자손·부모가 먼저 종료한 뒤 남은 자손을 자기 생성 process group fixture로 판정합니다. 이번 검사는 직접 child만 사용하므로 group KILL 요청의 전체 자손 효과는 증명하지 않습니다. 부모 종료 뒤 group signal은 PID 재사용 방지 때문에 생략됩니다.
+- [x] 후속 [종료 QA](2026-09-27-exit-drain-lifecycle.md)에서 정상 ExitRequested의 owned coordinator·감독 실제 완료/마지막 설치 lease 대기와 직접 Exit의 설치 backstop을 구현/검증했습니다. 실제 native 이벤트 실기·비설치/nested worker gate는 별도이며 store shutdown만을 전체 join으로 해석하지 않습니다.
+- [x] 후속 자기 group fixture에서 TERM 무시 자손은 TERM 뒤 살아 있고 store/supervisor 종료 뒤 사라짐을 확인했습니다. 모든 가능한 자손/OS 종료 효과를 증명한 것은 아닙니다.
+- [ ] 부모가 먼저 종료한 뒤 남은 자손은 추가 판정해야 합니다. 부모 종료 뒤 group signal은 PID 재사용 방지 때문에 생략됩니다.
 - [ ] Windows process tree·OS 강제 종료·실제 앱/설치기 실기는 실행 환경/사용자 실기가 필요한 gate입니다. child wait 실패나 비정상 OS 종료에서도 cleanup이 항상 성공한다고 주장하지 않습니다.
 - [ ] LSP wait worker 자체·PTY thread·M6 body 전수 검토·M7/M8와 Phase 0 실기 gate는 별도 완료해야 합니다.

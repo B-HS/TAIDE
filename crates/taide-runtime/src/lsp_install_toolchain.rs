@@ -302,6 +302,7 @@ mod tests {
     #[cfg(unix)]
     struct ChildFixture {
         marker: std::path::PathBuf,
+        descendant_marker: Option<std::path::PathBuf>,
         store: LspInstallStore,
         request: JoinHandle<AppResult<ToolchainOutcome>>,
     }
@@ -312,6 +313,9 @@ mod tests {
             self.store.shutdown();
             self.request.abort();
             std::fs::remove_file(&self.marker).ok();
+            if let Some(marker) = &self.descendant_marker {
+                std::fs::remove_file(marker).ok();
+            }
         }
     }
 
@@ -331,6 +335,7 @@ mod tests {
             tokio::spawn(async move { run_toolchain_process(command, "synthetic-sh".to_string(), &guard.lease(), &worker_tasks).await });
         let mut fixture = ChildFixture {
             marker,
+            descendant_marker: None,
             store: store.clone(),
             request,
         };
@@ -363,6 +368,8 @@ mod tests {
         } else {
             if should_shutdown {
                 store.shutdown();
+                tasks.shutdown().await;
+                store.wait_for_idle().await;
             } else {
                 store.cancel(&server_id);
             }
@@ -412,6 +419,83 @@ mod tests {
     #[tokio::test]
     async fn 저장소_shutdown은_자기_child를_kill_reap하고_새_설치를_거절한다() {
         verify_child_cancellation(false, true).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn 종료_드레인은_term을_무시하는_자기_그룹의_자손도_종료한다() {
+        let store = LspInstallStore::new();
+        let server_id = LspServerId::from("synthetic-descendant");
+        let guard = store.begin(&server_id).unwrap();
+        let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+        let worker_tasks = tasks.clone();
+        let marker = std::env::temp_dir().join(format!("taide-toolchain-group-{}", uuid::Uuid::new_v4()));
+        let descendant_marker = marker.with_extension("descendant");
+        let mut command = Command::new("sh");
+        command.args(["-c", "sh -c 'trap \"\" TERM; printf \"%s\" \"$$\" > \"$1\"; exec sleep \"$2\"' fixture \"$1\" \"$2\" & printf '%s' \"$$\" > \"$3\"; wait", "fixture"]);
+        command
+            .arg(&descendant_marker)
+            .arg(CHILD_FIXTURE_DURATION_SECONDS.to_string())
+            .arg(&marker);
+        configure_toolchain_command(&mut command);
+        let request =
+            tokio::spawn(
+                async move { run_toolchain_process(command, "synthetic-group-sh".to_string(), &guard.lease(), &worker_tasks).await },
+            );
+        let mut fixture = ChildFixture {
+            marker,
+            descendant_marker: Some(descendant_marker.clone()),
+            store: store.clone(),
+            request,
+        };
+        let descendant = tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), async {
+            loop {
+                if let Ok(text) = std::fs::read_to_string(&descendant_marker) {
+                    if let Ok(pid) = text.parse::<u32>() {
+                        return pid;
+                    }
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(Command::new("kill")
+            .args(["-TERM", &descendant.to_string()])
+            .status()
+            .unwrap()
+            .success());
+        assert!(Command::new("kill")
+            .args(["-0", &descendant.to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap()
+            .success());
+        store.shutdown();
+        tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), tasks.shutdown())
+            .await
+            .unwrap();
+        store.wait_for_idle().await;
+        assert!((&mut fixture.request).await.unwrap().is_err());
+        tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), async {
+            loop {
+                let is_alive = Command::new("kill")
+                    .args(["-0", &descendant.to_string()])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .unwrap()
+                    .success();
+                if !is_alive {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(tasks.tracked_count(), 0);
     }
 
     #[cfg(unix)]

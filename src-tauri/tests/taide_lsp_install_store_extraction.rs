@@ -36,10 +36,23 @@ fn 설치_adapter는_runtime_다운로드와_감독자를_주입하고_shutdown�
     assert!(!commands.contains("fn capture_output_tail("));
 
     let root = include_str!("../src/lib.rs");
-    let exit = root.split_once(".run(|app_handle, event|").unwrap().1;
+    let exit = root.split_once(".run(move |app_handle, event|").unwrap().1;
     assert!(exit.contains("tauri::RunEvent::ExitRequested"));
     assert!(exit.contains("tauri::RunEvent::Exit"));
     let admission = exit.find("state::<LspInstallStore>().shutdown()").unwrap();
     let resources = exit.find("state::<TerminalStore>().kill_all()").unwrap();
     assert!(admission < resources);
+    let drain = exit.split_once("if matches!(&event, tauri::RunEvent::Exit)").unwrap().1;
+    assert!(exit.contains("api.prevent_exit()"));
+    assert!(exit.contains("exit_drain.begin("));
+    assert!(drain.contains("tauri::async_runtime::block_on("));
+    let tasks = drain.find("state::<TaskSupervisor>().stop_all()").unwrap();
+    let slots = drain.find("state::<LspInstallStore>().wait_for_idle()").unwrap();
+    assert!(tasks < slots);
+    let coordinator = include_str!("../../crates/taide-runtime/src/exit_drain.rs");
+    let tasks = coordinator.find("tasks.shutdown().await").unwrap();
+    let slots = coordinator.find("installs.wait_for_idle().await").unwrap();
+    let ready = coordinator.find("ready.store(true, Ordering::Release)").unwrap();
+    let exit = coordinator.find("on_ready();").unwrap();
+    assert!(tasks < slots && slots < ready && ready < exit);
 }

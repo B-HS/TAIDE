@@ -3,6 +3,7 @@ use taide_model::app_event::AppEvent;
 mod ai_request_store;
 pub mod app_actions;
 mod app_services;
+mod exit_drain;
 pub mod file_actions;
 pub mod layout_actions;
 pub mod locale_actions;
@@ -24,6 +25,7 @@ mod window_registry;
 
 pub use ai_request_store::{AiRequestStore, AiRequestToken};
 pub use app_services::AppServices;
+pub use exit_drain::ExitDrain;
 pub use file_actions::{save_file_within_open_projects, IdeSaveFile};
 pub use platform_services::{PlatformServices, PlatformServicesState};
 pub use remote_dispatch_limiter::RemoteDispatchLimiter;

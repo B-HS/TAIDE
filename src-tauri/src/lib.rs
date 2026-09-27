@@ -20,7 +20,7 @@ use serde_json::Value;
 use taide_infra::language::LanguageOverlay;
 use taide_model::app_event::AppEvent;
 use taide_model::plugin::LoadedPlugin;
-use taide_runtime::{layout_actions, AppServices, EventSink, PlatformServicesState, TaskSupervisor};
+use taide_runtime::{layout_actions, AppServices, EventSink, ExitDrain, PlatformServicesState, TaskSupervisor};
 use tauri::{AppHandle, Listener, Manager, State};
 use tauri_specta::Event as _;
 use tauri_specta::{collect_commands, collect_events, Builder};
@@ -804,6 +804,7 @@ pub fn run() {
     let path_env_fix_error = fix_path_env::fix().err();
 
     let builder = specta_builder();
+    let mut exit_drain = ExitDrain::default();
 
     #[cfg(debug_assertions)]
     builder
@@ -1127,7 +1128,7 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app_handle, event| {
+        .run(move |app_handle, event| {
             if matches!(&event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
                 app_handle.state::<AppState>().begin_shutdown();
                 app_handle.state::<LspInstallStore>().shutdown();
@@ -1139,8 +1140,22 @@ pub fn run() {
                 domain::ide::commands::stop_server(app_handle, &app_handle.state::<IdeStore>());
                 domain::remote::commands::stop_server(app_handle, &app_handle.state::<RemoteStore>());
             }
+            if let tauri::RunEvent::ExitRequested { api, code, .. } = &event {
+                if !exit_drain.is_ready() {
+                    api.prevent_exit();
+                    let handle = app_handle.clone();
+                    let exit_code = code.unwrap_or(0);
+                    exit_drain.begin(
+                        tauri::async_runtime::handle().inner(),
+                        (*app_handle.state::<TaskSupervisor>()).clone(),
+                        (*app_handle.state::<LspInstallStore>()).clone(),
+                        move || handle.exit(exit_code),
+                    );
+                }
+            }
             if matches!(&event, tauri::RunEvent::Exit) {
                 app_handle.state::<TaskSupervisor>().stop_all();
+                tauri::async_runtime::block_on(app_handle.state::<LspInstallStore>().wait_for_idle());
             }
         });
 }
