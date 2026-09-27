@@ -210,11 +210,11 @@ async fn hook_서버_중복_시작은_먼저_등록한_핸들을_유지한다() 
     let store = AgentHooksStore::default();
     let (first_sender, first_receiver) = oneshot::channel::<()>();
     let (second_sender, second_receiver) = oneshot::channel::<()>();
-    let first_handle = tauri::async_runtime::spawn(async move {
+    let first_handle = tokio::spawn(async move {
         let _sender = first_sender;
         pending::<()>().await;
     });
-    let second_handle = tauri::async_runtime::spawn(async move {
+    let second_handle = tokio::spawn(async move {
         let _sender = second_sender;
         pending::<()>().await;
     });

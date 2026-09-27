@@ -181,7 +181,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     `taide-runtime::TaskSupervisor`는 Tauri가 setup에서 주입한 Tokio handle로 IDE reconcile·agent poll·layout flush·프로젝트 watcher 복원
     장기 작업과 agent hook·IDE·remote 자동 시작 작업을 이름별로 중복 없이 실행하고, 완료된 이름은 회수해 재등록을 허용한다.
     반환형 반복 작업 API는 도메인 저장소가 JoinHandle을 보유해 기존 종료 대기를 유지하면서 감독자가 동일 작업의 AbortHandle을 추적할 수 있게 한다.
-    agent hook 서버의 accept/connection 작업은 감독 범위에 있고, 기존 AgentHooksStore는 accept JoinHandle을 유지한다.
+    agent hook 서버의 accept/connection 작업은 감독 범위에 있고, taide-agent의 AgentHooksStore는 Tokio accept JoinHandle을 유지한다.
     동시 시작은 첫 서버 정보만 등록하고 뒤늦은 accept 작업을 취소하며 앱 종료에서 저장소 핸들을 명시적으로 중지한다.
     remote 서버는 기존 RemoteStore가 shutdown 송신자와 JoinHandle을 유지하면서 TaskSupervisor도 서버 작업을 추적한다.
     중복 bind는 첫 서버를 유지하고 뒤늦은 서버에 종료 신호·취소를 보내며, 일반 중지는 기존 grace wait 뒤 abort 순서를 유지한다.
@@ -206,6 +206,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     프로젝트 종료 시 기존 capability가 해당 항목을 제거한다. tree 명령·캐시 경합 정책은 유지한다.
     `PluginStore`는 taide-plugin의 기존 read-through 캐시를 공유 Arc<RwLock>에 보관하고,
     plugin 명령·언어 overlay 포트가 같은 목록을 소비한다.
+    `AgentHooksStore`는 taide-agent에서 서버 정보·accept 핸들·프로젝트별 활동 override를 공유 Arc<Mutex>에 보관한다.
+    AppServices와 기존 agent 명령 재수출은 같은 상태를 소비하며, 중복 서버 시작·900초 override 만료·종료 시 override 정리 정책을 유지한다.
     `LspStore`는 taide-lsp의 세션 맵을 공유 Arc<Mutex>에 보관하고, LSP 명령·종료 경로가 같은 세션을 소비한다.
     `LspInstallStore`는 taide-lsp의 서버별 설치 슬롯을 공유 Arc<Mutex>에 보관하고,
     설치 중복·취소·guard 해제 상태를 LSP 설치 명령과 공유한다.
@@ -219,7 +221,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     system 명령은 프로젝트 루트·외부 URL을 검증한 뒤 platform adapter만 호출하고, notification 명령은
     시크릿 마스킹·전 창 focus gate 뒤에만 adapter에 제목·본문을 전달한다. 실제 Tauri opener·알림 플러그인은 adapter가 소유한다.
     setup은 상태 복원 뒤 AppState·TaskSupervisor·원격 제한기·플랫폼 포트를 주입해 `Arc<AppServices>`를 만들고, 나머지 저장소는 AppServices가 초기화한다.
-    AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·LspStore·LspInstallStore·SystemUsageStore·RemoteDispatchLimiter·PlatformServices·WindowRegistry·TaskSupervisor의 동일 내부 인스턴스를
+    AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·AgentHooksStore·LspStore·LspInstallStore·SystemUsageStore·RemoteDispatchLimiter·PlatformServices·WindowRegistry·TaskSupervisor의 동일 내부 인스턴스를
     기존 Tauri State로 등록한다. 나머지 Tauri 관리 상태와 application action facade 추출은 후속 경계다.
     부팅 1회성 복원은 `lib.rs`가 상태 로드→관리 상태 등록→워처 재부착 순서를 소유한다.
     `project::commands`는 순수 대상 선정과 프로젝트별 guard·경합 제어를 유지하고,

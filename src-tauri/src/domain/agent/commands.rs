@@ -8,6 +8,8 @@ use taide_model::app_event::AppEvent;
 use taide_runtime::EventSink;
 use tauri::{Manager, State};
 
+pub use taide_agent::store::{AgentHooksStore, HooksServerInfo};
+
 use super::hooks;
 use super::service;
 use super::types::{
@@ -180,68 +182,6 @@ impl AgentStore {
 
     pub fn drain_pending_external_opens(&self) -> Vec<ExternalOpenRequest> {
         std::mem::take(&mut self.0.lock().pending_external_opens)
-    }
-}
-
-#[derive(Clone)]
-pub struct HooksServerInfo {
-    pub port: u16,
-    pub token: String,
-}
-
-#[derive(Default)]
-struct AgentHooksStoreInner {
-    server: Option<HooksServerInfo>,
-    accept_handle: Option<tauri::async_runtime::JoinHandle<()>>,
-    project_overrides: HashMap<(ProjectId, String), (AgentActivity, Instant)>,
-}
-
-#[derive(Default)]
-pub struct AgentHooksStore(Mutex<AgentHooksStoreInner>);
-
-impl AgentHooksStore {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn server_info(&self) -> Option<HooksServerInfo> {
-        self.0.lock().server.clone()
-    }
-
-    pub fn set_server(&self, info: HooksServerInfo, accept_handle: tauri::async_runtime::JoinHandle<()>) -> HooksServerInfo {
-        let mut guard = self.0.lock();
-        if let Some(existing) = guard.server.clone() {
-            accept_handle.abort();
-            return existing;
-        }
-        guard.server = Some(info.clone());
-        guard.accept_handle = Some(accept_handle);
-        info
-    }
-
-    /// 서버 정보·accept 핸들을 회수하고 남은 hook override 도 버린다(배지 오염 방지).
-    pub fn take_server(&self) -> Option<tauri::async_runtime::JoinHandle<()>> {
-        let mut guard = self.0.lock();
-        guard.server = None;
-        guard.project_overrides.clear();
-        guard.accept_handle.take()
-    }
-
-    pub fn set_project_override(&self, project_id: ProjectId, agent_name: String, activity: AgentActivity) {
-        self.0
-            .lock()
-            .project_overrides
-            .insert((project_id, agent_name), (activity, Instant::now()));
-    }
-
-    pub fn fresh_project_override(&self, project_id: &ProjectId, agent_name: &str) -> Option<AgentActivity> {
-        let guard = self.0.lock();
-        let key = (project_id.clone(), agent_name.to_string());
-        let (activity, set_at) = guard.project_overrides.get(&key)?;
-        if set_at.elapsed().as_millis() as u64 >= super::types::HOOK_OVERRIDE_STALE_MS {
-            return None;
-        }
-        Some(*activity)
     }
 }
 

@@ -55,7 +55,7 @@ pub async fn ensure_hooks_server_started(app: &AppHandle) -> AppResult<HooksServ
         accept_handle.abort();
         return Err(AppError::Internal("hook server unavailable during shutdown".to_string()));
     }
-    let info = store.set_server(info, tauri::async_runtime::JoinHandle::Tokio(accept_handle));
+    let info = store.set_server(info, accept_handle);
 
     Ok(info)
 }

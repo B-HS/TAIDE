@@ -4434,10 +4434,12 @@ dependencies = [
 name = "taide-agent"
 version = "0.1.0"
 dependencies = [
+ "parking_lot",
  "serde",
  "serde_json",
  "taide-infra",
  "taide-model",
+ "tokio",
 ]
 
 [[package]]
@@ -4634,6 +4636,7 @@ name = "taide-runtime"
 version = "0.1.0"
 dependencies = [
  "parking_lot",
+ "taide-agent",
  "taide-infra",
  "taide-lsp",
  "taide-model",

@@ -25,7 +25,7 @@ use tauri::{AppHandle, Listener, Manager, State};
 use tauri_specta::Event as _;
 use tauri_specta::{collect_commands, collect_events, Builder};
 
-use crate::domain::agent::commands::{AgentForegroundPids, AgentHooksStore, AgentStore};
+use crate::domain::agent::commands::{AgentForegroundPids, AgentStore};
 use crate::domain::git::commands::GitStore;
 use crate::domain::ide::commands::IdeSaveFile;
 use crate::domain::ide::server::IdeLayoutActions;
@@ -988,7 +988,7 @@ pub fn run() {
                 commit_staged_import: commit_staged_vsix_plugin,
             });
             app.manage(AgentStore::default());
-            app.manage(AgentHooksStore::default());
+            app.manage(services.agent_hooks.clone());
             app.manage(services.system_usage.clone());
             app.manage(IdeStore::default());
             app.manage(IdeSaveFile(save_ide_diff_file));

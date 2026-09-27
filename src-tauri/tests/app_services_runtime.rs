@@ -2,6 +2,8 @@ use std::future::pending;
 use std::path::Path;
 use std::sync::Arc;
 
+use taide_agent::store::HooksServerInfo;
+use taide_model::agent::AgentActivity;
 use taide_model::error::AppResult;
 use taide_model::ids::ProjectId;
 use taide_model::paths::AppPaths;
@@ -40,6 +42,7 @@ async fn 앱_서비스와_기존_상태_복제본은_같은_인스턴스를_공�
     let legacy_ai_requests = services.ai_requests.clone();
     let legacy_tree = services.tree.clone();
     let legacy_plugin = services.plugin.clone();
+    let legacy_agent_hooks = services.agent_hooks.clone();
     let legacy_windows = services.windows.clone();
     let legacy_tasks = services.tasks.clone();
 
@@ -65,6 +68,20 @@ async fn 앱_서비스와_기존_상태_복제본은_같은_인스턴스를_공�
     *legacy_plugin.0.write() = Some(Vec::new());
     assert!(services.plugin.0.read().is_some());
 
+    let hook_info = HooksServerInfo {
+        port: 1,
+        token: "token".to_string(),
+    };
+    legacy_agent_hooks.set_server(hook_info, tokio::spawn(pending()));
+    assert_eq!(services.agent_hooks.server_info().expect("공유 hook 서버").port, 1);
+    let hook_project = ProjectId::new();
+    legacy_agent_hooks.set_project_override(hook_project.clone(), "codex".to_string(), AgentActivity::AwaitingInput);
+    assert_eq!(
+        services.agent_hooks.fresh_project_override(&hook_project, "codex"),
+        Some(AgentActivity::AwaitingInput)
+    );
+    services.agent_hooks.take_server().expect("공유 hook 핸들").abort();
+
     let window_project_id = ProjectId::new();
     legacy_windows.register("editor-1".to_string(), window_project_id.clone(), 1);
     assert_eq!(services.windows.label_for(&window_project_id, 1).as_deref(), Some("editor-1"));
@@ -86,6 +103,7 @@ fn 앱_조립은_같은_서비스_복제본을_기존_상태에_등록한다() {
     assert!(setup.contains("app.manage(services.tree.clone());"));
     assert!(setup.contains("app.manage(services.terminal.clone());"));
     assert!(setup.contains("app.manage(services.plugin.clone());"));
+    assert!(setup.contains("app.manage(services.agent_hooks.clone());"));
     assert!(setup.contains("app.manage(services.lsp.clone());"));
     assert!(setup.contains("app.manage(services.lsp_install.clone());"));
     assert!(setup.contains("app.manage(services.system_usage.clone());"));
