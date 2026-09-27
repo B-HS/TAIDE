@@ -20,7 +20,7 @@ infra `PtyCompletionHandle`의 세 thread join·대기 취소/재대기·reader 
 ## 남은 gate와 실행 조건
 
 - [x] 후속 [터미널 spawn/root QA](./2026-09-27-terminal-spawn-root-lifecycle.md)의 자기 fixture로 TerminalStore의 spawn/등록 admission과 실제 blocking spawn worker, 제거/교체/미반환 세션의 root 소유 목록 및 정상 ExitDrain을 확인했습니다. 마지막 완료 handle Drop을 실제 join 증거로 사용하지 않습니다.
-- [ ] thread/pipe 부분 시작 실패·OS waitid/wait 오류·join task의 runtime 취소/실패는 성공한 회수로 처리하지 않습니다. 현재 실패 cache는 성공 플래그를 올리지 않지만 정상 root의 오류 처리·회수 정책은 별도 구현입니다.
+- [ ] 후속 [PTY 부분 시작 QA](./2026-09-27-pty-partial-startup-lifecycle.md)에서 reader/writer·thread factory 오류/언와인드의 실제 자원 회수를 확인했고 정상 root의 join 오류는 준비 플래그를 올리지 않습니다. 실제 OS waitid/wait 오류·join task의 runtime 취소/실패 회복은 별도 잔여 gate이며 성공한 회수로 처리하지 않습니다.
 - [ ] SIGHUP 무시 child·pipe 보유 자손·blocking callback/Read의 bounded 종료는 미검증입니다. 새 API는 강제 abort하지 않으며 자기 fixture·OS 정책이 준비되면 확인합니다.
 - [ ] 기존 infra Drop 2건, Windows/다른 Unix와 native ExitRequested/직접 Exit 및 실제 앱 재시작은 미실행입니다. 프로젝트 회수 fixture는 후속 단위에서 ENV/BASH_ENV를 비우고 store admission/실제 idle 대기에 연결했습니다. 현재 성공으로 실기 결과를 대체하지 않습니다.
 - [ ] M6-JP/JQ 전체·M6 전수 body/다른 자원·M7/M8·Phase 0은 미완료입니다. M6 전체 완료 전 push/UI는 수행하지 않습니다.

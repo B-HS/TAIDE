@@ -22,7 +22,7 @@ TerminalStore 입장/완료 목록과 runtime 실제 blocking spawn·동일 muta
 
 ## 생략과 필수 잔여 gate
 
-- [ ] 부분 spawn의 master reader/writer 실패와 thread 시작 오류/패닉 후 실제 회수는 이번 성공-result owner 검증으로 대체하지 않습니다. 직접 확인한 spawn body에 해당 오류 경계가 남아 있으며 자기 실패 주입으로 후속 확인합니다.
+- [x] 후속 [PTY 부분 시작 QA](./2026-09-27-pty-partial-startup-lifecycle.md)에서 master reader/writer·세 thread factory 오류/언와인드의 child wait·시작한 worker join·생성 경로 정리를 확인했습니다. 성공-result owner 검사만으로 대체하지 않았으며 실제 OS 오류 회복/abort panic은 별도 gate입니다.
 - [ ] OS wait 오류·SIGHUP 무시 child/pipe 보유 자손·non-yield callback/Read의 bounded 종료·runtime join 실패는 미검증입니다. 종료 요청/실패 cache를 성공한 회수로 해석하지 않습니다. 사용자 프로세스 없이 OS 정책/fixture를 준비한 뒤 수행합니다.
 - [ ] Windows/다른 Unix·직접 native Exit·실제 앱 시작/종료는 미실행입니다. native UI 착수나 앱 재시작 권한을 추정하지 않습니다.
 - [ ] M6-JP/JQ 전체·전수 body/다른 자원·M7/M8·Phase 0은 미완료입니다. 승인받은 일반 push는 M6 전체 완료 이후입니다.

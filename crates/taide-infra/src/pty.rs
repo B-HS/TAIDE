@@ -71,15 +71,114 @@ impl PtyChildWaitOwner {
 
 impl Drop for PtyChildWaitOwner {
     fn drop(&mut self) {
-        let mut killer = self.killer.lock();
-        if let Some(killer) = killer.as_mut() {
-            killer.kill().ok();
+        let should_wait = {
+            let mut killer = self.killer.lock();
+            if let Some(killer) = killer.as_mut() {
+                killer.kill().ok();
+            }
+            killer.take().is_some()
+        };
+        if should_wait {
+            self.child.wait().ok();
         }
-        killer.take();
     }
 }
 
 type PtyWorker = std::thread::JoinHandle<std::io::Result<()>>;
+type PtyWork = Box<dyn FnOnce() -> std::io::Result<()> + Send>;
+
+struct PtySpawnOwner {
+    master: Option<Box<dyn MasterPty + Send>>,
+    writer: Option<Box<dyn Write + Send>>,
+    child: Arc<Mutex<Option<PtyChildWaitOwner>>>,
+    killer: SharedChildKiller,
+    pause: Arc<PauseGate>,
+    flush_signal: Arc<FlushSignal>,
+    workers: Vec<PtyWorker>,
+    shell_pid: Option<u32>,
+    shell_integration_temp_dir: Option<PathBuf>,
+    is_committed: bool,
+}
+
+impl PtySpawnOwner {
+    fn new(master: Box<dyn MasterPty + Send>, shell_integration_temp_dir: Option<PathBuf>) -> Self {
+        Self {
+            master: Some(master),
+            writer: None,
+            child: Arc::new(Mutex::new(None)),
+            killer: Arc::new(Mutex::new(None)),
+            pause: Arc::new(PauseGate::new()),
+            flush_signal: Arc::new(FlushSignal::new()),
+            workers: Vec::new(),
+            shell_pid: None,
+            shell_integration_temp_dir,
+            is_committed: false,
+        }
+    }
+
+    fn set_child(&mut self, child: Box<dyn portable_pty::Child + Send + Sync>) {
+        self.shell_pid = child.process_id();
+        let child = PtyChildWaitOwner::new(child);
+        self.killer = child.killer.clone();
+        *self.child.lock() = Some(child);
+    }
+
+    fn commit(mut self) -> PtySession {
+        let session = PtySession {
+            master: self.master.take().expect("spawn owner holds its master"),
+            writer: Arc::new(Mutex::new(self.writer.take().expect("spawn owner holds its writer"))),
+            pause: self.pause.clone(),
+            completion: PtyCompletionHandle::new(std::mem::take(&mut self.workers), self.killer.clone(), self.pause.clone()),
+            shell_pid: self.shell_pid,
+            shell_integration_temp_dir: self.shell_integration_temp_dir.take(),
+        };
+        self.is_committed = true;
+        session
+    }
+}
+
+impl Drop for PtySpawnOwner {
+    fn drop(&mut self) {
+        if self.is_committed {
+            return;
+        }
+        self.pause.stop();
+        self.flush_signal.stop();
+        self.writer.take();
+        self.master.take();
+        let child = self.child.lock().take();
+        if child.is_none() {
+            if let Some(killer) = self.killer.lock().as_mut() {
+                killer.kill().ok();
+            }
+        }
+        drop(child);
+        for worker in self.workers.drain(..) {
+            worker.join().ok();
+        }
+        if let Some(temp_dir) = self.shell_integration_temp_dir.take() {
+            std::fs::remove_dir_all(temp_dir).ok();
+        }
+    }
+}
+
+struct PtySpawnFactories<R, W, T> {
+    clone_reader: R,
+    take_writer: W,
+    spawn_worker: T,
+}
+
+fn clone_pty_reader(master: &dyn MasterPty) -> AppResult<Box<dyn Read + Send>> {
+    master.try_clone_reader().map_err(|error| AppError::Internal(error.to_string()))
+}
+
+fn take_pty_writer(master: &dyn MasterPty) -> AppResult<Box<dyn Write + Send>> {
+    master.take_writer().map_err(|error| AppError::Internal(error.to_string()))
+}
+
+fn spawn_pty_worker(work: PtyWork) -> std::io::Result<PtyWorker> {
+    std::thread::Builder::new().spawn(work)
+}
 
 #[derive(Default)]
 struct PtyWorkerWaitState {
@@ -471,6 +570,9 @@ fn build_command(config: &PtySpawnConfig) -> (CommandBuilder, Option<PathBuf>) {
     (cmd, integration.map(|plan| plan.temp_dir))
 }
 
+/// Transfers the child, workers, and integration directory only after complete session startup.
+/// Partial startup cleanup runs synchronously; call from a blocking worker, not the async or native event loop.
+/// Existing termination policy is retained, and cleanup may wait for OS reads or callbacks without a deadline.
 pub fn spawn<D, X>(config: PtySpawnConfig, on_data: D, on_exit: X) -> AppResult<PtySession>
 where
     D: Fn(&[u8]) + Send + 'static,
@@ -489,30 +591,56 @@ where
     let (cmd, shell_integration_temp_dir) = build_command(&config);
 
     let PtyPair { slave, master } = pair;
+    let mut owner = PtySpawnOwner::new(master, shell_integration_temp_dir);
     let child = slave.spawn_command(cmd).map_err(|error| AppError::Internal(error.to_string()))?;
+    owner.set_child(child);
     drop(slave);
 
-    let shell_pid = child.process_id();
-    let child = PtyChildWaitOwner::new(child);
-    let killer = child.killer.clone();
-    let mut reader = master.try_clone_reader().map_err(|error| AppError::Internal(error.to_string()))?;
-    let writer = master.take_writer().map_err(|error| AppError::Internal(error.to_string()))?;
+    start_pty_workers(
+        owner,
+        on_data,
+        on_exit,
+        PtySpawnFactories {
+            clone_reader: clone_pty_reader,
+            take_writer: take_pty_writer,
+            spawn_worker: spawn_pty_worker,
+        },
+    )
+}
 
-    let pause = Arc::new(PauseGate::new());
-    let reader_pause = pause.clone();
-    let child_exit_pause = pause.clone();
+fn start_pty_workers<D, X, R, W, T>(
+    mut owner: PtySpawnOwner,
+    on_data: D,
+    on_exit: X,
+    mut factories: PtySpawnFactories<R, W, T>,
+) -> AppResult<PtySession>
+where
+    D: Fn(&[u8]) + Send + 'static,
+    X: FnOnce(Option<i32>) + Send + 'static,
+    R: FnOnce(&dyn MasterPty) -> AppResult<Box<dyn Read + Send>>,
+    W: FnOnce(&dyn MasterPty) -> AppResult<Box<dyn Write + Send>>,
+    T: FnMut(PtyWork) -> std::io::Result<PtyWorker>,
+{
+    let master = owner.master.as_deref().expect("spawn owner holds its master");
+    let mut reader = (factories.clone_reader)(master)?;
+    owner.writer = Some((factories.take_writer)(master)?);
+
+    let reader_pause = owner.pause.clone();
+    let child_exit_pause = owner.pause.clone();
 
     let batch = Arc::new(Mutex::new(OutputBatch::new(on_data)));
     let flusher_batch = batch.clone();
-    let flush_signal = Arc::new(FlushSignal::new());
+    let flush_signal = owner.flush_signal.clone();
     let flusher_signal = flush_signal.clone();
 
-    let flusher = std::thread::spawn(move || {
+    let flusher = (factories.spawn_worker)(Box::new(move || {
         run_flusher(&flusher_signal, &flusher_batch);
         Ok(())
-    });
+    }))
+    .map_err(|error| AppError::Internal(error.to_string()))?;
+    owner.workers.push(flusher);
 
-    let reader = std::thread::spawn(move || {
+    let reader = (factories.spawn_worker)(Box::new(move || {
         let _stop_flusher = ReaderFlushStop(flush_signal.clone());
         let mut buf = [0u8; READ_BUFFER_BYTES];
 
@@ -532,32 +660,304 @@ where
         flush_signal.stop();
         batch.lock().flush();
         Ok(())
-    });
+    }))
+    .map_err(|error| AppError::Internal(error.to_string()))?;
+    owner.workers.push(reader);
 
-    let waiter = std::thread::spawn(move || {
+    let child = owner.child.clone();
+    let waiter = (factories.spawn_worker)(Box::new(move || {
+        let child = child.lock().take().expect("wait worker owns its child");
         let status = child.finish();
         let code = status.as_ref().ok().map(|status| status.exit_code() as i32);
         child_exit_pause.stop();
         on_exit(code);
         status.map(|_| ())
-    });
+    }))
+    .map_err(|error| AppError::Internal(error.to_string()))?;
+    owner.workers.push(waiter);
 
-    let completion = PtyCompletionHandle::new(vec![flusher, reader, waiter], killer, pause.clone());
-
-    Ok(PtySession {
-        master,
-        writer: Arc::new(Mutex::new(writer)),
-        pause,
-        completion,
-        shell_pid,
-        shell_integration_temp_dir,
-    })
+    Ok(owner.commit())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+
+    #[cfg(unix)]
+    type ObservedChild = Arc<Mutex<Box<dyn portable_pty::Child + Send + Sync>>>;
+
+    #[cfg(unix)]
+    const READER_WORKER_POSITION: usize = 2;
+    #[cfg(unix)]
+    const WAIT_WORKER_POSITION: usize = 3;
+
+    #[cfg(unix)]
+    #[derive(Debug)]
+    struct WaitRecordingChild {
+        child: ObservedChild,
+        waited: Arc<AtomicBool>,
+    }
+
+    #[cfg(unix)]
+    impl ChildKiller for WaitRecordingChild {
+        fn kill(&mut self) -> std::io::Result<()> {
+            self.child.lock().kill()
+        }
+
+        fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+            self.child.lock().clone_killer()
+        }
+    }
+
+    #[cfg(unix)]
+    impl portable_pty::Child for WaitRecordingChild {
+        fn try_wait(&mut self) -> std::io::Result<Option<portable_pty::ExitStatus>> {
+            self.child.lock().try_wait()
+        }
+
+        fn wait(&mut self) -> std::io::Result<portable_pty::ExitStatus> {
+            let result = self.child.lock().wait();
+            if result.is_ok() {
+                self.waited.store(true, AtomicOrdering::SeqCst);
+            }
+            result
+        }
+
+        fn process_id(&self) -> Option<u32> {
+            self.child.lock().process_id()
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 부분_시작_child_owner_drop은_자기_child를_실제로_wait한다() {
+        let pair = native_pty_system().openpty(PtySize::default()).unwrap();
+        let mut command = CommandBuilder::new("/bin/sh");
+        command.args(["-c", "exit 0"]);
+        command.env("ENV", "");
+        command.env("BASH_ENV", "");
+        let child = Arc::new(Mutex::new(pair.slave.spawn_command(command).unwrap()));
+        let waited = Arc::new(AtomicBool::new(false));
+        let owner = PtyChildWaitOwner::new(Box::new(WaitRecordingChild {
+            child: child.clone(),
+            waited: waited.clone(),
+        }));
+        drop(pair);
+        drop(owner);
+        let was_waited = waited.load(AtomicOrdering::SeqCst);
+        child.lock().wait().unwrap();
+        assert!(was_waited, "partial-start owner must wait its own child before returning");
+    }
+
+    #[cfg(unix)]
+    fn partial_spawn_fixture(command_text: &str) -> (PtySpawnOwner, ObservedChild, Arc<AtomicBool>) {
+        let pair = native_pty_system().openpty(PtySize::default()).unwrap();
+        let mut command = CommandBuilder::new("/bin/sh");
+        command.args(["-c", command_text]);
+        command.env("ENV", "");
+        command.env("BASH_ENV", "");
+        let child = Arc::new(Mutex::new(pair.slave.spawn_command(command).unwrap()));
+        let waited = Arc::new(AtomicBool::new(false));
+        let mut owner = PtySpawnOwner::new(pair.master, None);
+        owner.set_child(Box::new(WaitRecordingChild {
+            child: child.clone(),
+            waited: waited.clone(),
+        }));
+        drop(pair.slave);
+        (owner, child, waited)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 부분_시작_오류는_child와_시작한_thread와_임시_경로를_회수한다() {
+        use std::sync::atomic::AtomicUsize;
+
+        for phase in ["reader", "writer", "flusher", "reader-worker", "wait-worker"] {
+            let (mut owner, child, waited) = partial_spawn_fixture("exit 0");
+            let temp_dir = std::env::temp_dir().join(format!("taide-pty-partial-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir(&temp_dir).unwrap();
+            owner.shell_integration_temp_dir = Some(temp_dir.clone());
+            let finished = Arc::new(AtomicUsize::new(0));
+            let finished_workers = finished.clone();
+            let failure_position = match phase {
+                "flusher" => 1,
+                "reader-worker" => READER_WORKER_POSITION,
+                "wait-worker" => WAIT_WORKER_POSITION,
+                _ => 0,
+            };
+            let mut position = 0;
+            let result = start_pty_workers(
+                owner,
+                |_| {},
+                |_| {},
+                PtySpawnFactories {
+                    clone_reader: |master: &dyn MasterPty| {
+                        if phase == "reader" {
+                            return Err(AppError::Internal("synthetic reader acquisition failure".to_string()));
+                        }
+                        clone_pty_reader(master)
+                    },
+                    take_writer: |master: &dyn MasterPty| {
+                        if phase == "writer" {
+                            return Err(AppError::Internal("synthetic writer acquisition failure".to_string()));
+                        }
+                        take_pty_writer(master)
+                    },
+                    spawn_worker: move |work: PtyWork| {
+                        position += 1;
+                        if position == failure_position {
+                            return Err(std::io::Error::other("synthetic worker launch failure"));
+                        }
+                        let finished = finished_workers.clone();
+                        spawn_pty_worker(Box::new(move || {
+                            let result = work();
+                            finished.fetch_add(1, AtomicOrdering::SeqCst);
+                            result
+                        }))
+                    },
+                },
+            );
+            let was_waited = waited.load(AtomicOrdering::SeqCst);
+            child.lock().wait().unwrap();
+            assert!(matches!(result, Err(AppError::Internal(_))));
+            assert!(was_waited, "{phase} must reap its own child before returning");
+            assert_eq!(finished.load(AtomicOrdering::SeqCst), failure_position.saturating_sub(1));
+            assert!(!temp_dir.exists());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 부분_시작_factory_unwind도_child와_시작한_thread를_회수한다() {
+        use std::sync::atomic::AtomicUsize;
+
+        for phase in ["reader", "writer", "flusher", "reader-worker", "wait-worker"] {
+            let (owner, child, waited) = partial_spawn_fixture("exit 0");
+            let owner = std::panic::AssertUnwindSafe(owner);
+            let finished = Arc::new(AtomicUsize::new(0));
+            let finished_workers = finished.clone();
+            let failure_position = match phase {
+                "flusher" => 1,
+                "reader-worker" => READER_WORKER_POSITION,
+                "wait-worker" => WAIT_WORKER_POSITION,
+                _ => 0,
+            };
+            let result = std::panic::catch_unwind(move || {
+                let owner = owner;
+                let mut position = 0;
+                start_pty_workers(
+                    owner.0,
+                    |_| {},
+                    |_| {},
+                    PtySpawnFactories {
+                        clone_reader: |master: &dyn MasterPty| {
+                            if phase == "reader" {
+                                panic!("synthetic reader factory unwind");
+                            }
+                            clone_pty_reader(master)
+                        },
+                        take_writer: |master: &dyn MasterPty| {
+                            if phase == "writer" {
+                                panic!("synthetic writer factory unwind");
+                            }
+                            take_pty_writer(master)
+                        },
+                        spawn_worker: move |work: PtyWork| {
+                            position += 1;
+                            if position == failure_position {
+                                panic!("synthetic worker factory unwind");
+                            }
+                            let finished = finished_workers.clone();
+                            spawn_pty_worker(Box::new(move || {
+                                let result = work();
+                                finished.fetch_add(1, AtomicOrdering::SeqCst);
+                                result
+                            }))
+                        },
+                    },
+                )
+            });
+            let was_waited = waited.load(AtomicOrdering::SeqCst);
+            child.lock().wait().unwrap();
+            assert!(result.is_err());
+            assert!(was_waited, "{phase} unwind must reap its own child");
+            assert_eq!(finished.load(AtomicOrdering::SeqCst), failure_position.saturating_sub(1));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn child_spawn_오류에도_생성한_임시_경로를_정리한다() {
+        let pair = native_pty_system().openpty(PtySize::default()).unwrap();
+        let mut owner = PtySpawnOwner::new(pair.master, None);
+        let temp_dir = std::env::temp_dir().join(format!("taide-pty-no-child-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&temp_dir).unwrap();
+        owner.shell_integration_temp_dir = Some(temp_dir.clone());
+        let missing_command = temp_dir.join("missing-shell");
+        let result = pair.slave.spawn_command(CommandBuilder::new(missing_command));
+        assert!(result.is_err());
+        drop(pair.slave);
+        drop(owner);
+        assert!(!temp_dir.exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn 부분_시작_오류는_child_회수_뒤에도_held_output_callback의_실제_join을_기다린다() {
+        let (owner, child, waited) = partial_spawn_fixture("printf startup; exit 0");
+        let (started, started_rx) = tokio::sync::oneshot::channel();
+        let started = Mutex::new(Some(started));
+        let (callback, callback_rx) = std::sync::mpsc::channel();
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        let mut position = 0;
+        let mut worker = tokio::task::spawn_blocking(move || {
+            start_pty_workers(
+                owner,
+                move |_| {
+                    callback.send(()).ok();
+                    if let Some(started) = started.lock().take() {
+                        started.send(()).ok();
+                    }
+                    held.recv().ok();
+                },
+                |_| {},
+                PtySpawnFactories {
+                    clone_reader: clone_pty_reader,
+                    take_writer: take_pty_writer,
+                    spawn_worker: move |work: PtyWork| {
+                        position += 1;
+                        if position == WAIT_WORKER_POSITION {
+                            callback_rx.recv_timeout(Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS)).unwrap();
+                            return Err(std::io::Error::other("synthetic wait worker launch failure"));
+                        }
+                        spawn_pty_worker(work)
+                    },
+                },
+            )
+        });
+        tokio::time::timeout(Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS), started_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        tokio::time::timeout(Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS), async {
+            while !waited.load(AtomicOrdering::SeqCst) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(tokio::time::timeout(Duration::from_millis(SIGNAL_PROBE_MS), &mut worker)
+            .await
+            .is_err());
+        drop(release);
+        let result = tokio::time::timeout(Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS), worker)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(result, Err(AppError::Internal(_))));
+        child.lock().wait().unwrap();
+    }
 
     #[cfg(unix)]
     #[derive(Debug, Clone)]
@@ -706,7 +1106,8 @@ mod tests {
             .split_once("#[cfg(test)]")
             .unwrap()
             .0;
-        assert!(spawn.contains("let child_exit_pause = pause.clone();"));
+        assert!(spawn.contains("let reader_pause = owner.pause.clone();"));
+        assert!(spawn.contains("let child_exit_pause = owner.pause.clone();"));
         let wait = spawn.find("let status = child.finish();").unwrap();
         let stop = spawn.find("child_exit_pause.stop();").unwrap();
         let exit = spawn.find("on_exit(code);").unwrap();
@@ -724,7 +1125,18 @@ mod tests {
             .unwrap()
             .0;
         assert!(!spawn.contains("\n    std::thread::spawn(move"), "worker handles must remain owned");
-        assert!(spawn.contains("PtyCompletionHandle::new(vec![flusher, reader, waiter]"));
+        assert!(spawn.contains("owner.workers.push(flusher);"));
+        assert!(spawn.contains("owner.workers.push(reader);"));
+        assert!(spawn.contains("owner.workers.push(waiter);"));
+        assert!(spawn.contains("Ok(owner.commit())"));
+        let commit = source
+            .split_once("fn commit(mut self) -> PtySession")
+            .unwrap()
+            .1
+            .split_once("self.is_committed = true;")
+            .unwrap()
+            .0;
+        assert!(commit.contains("PtyCompletionHandle::new(std::mem::take(&mut self.workers)"));
     }
 
     #[cfg(unix)]

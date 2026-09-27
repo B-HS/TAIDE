@@ -203,13 +203,14 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     이 deadline은 EOF 드레인 대기 한도이며 non-yield callback의 강제 중단·앱/OS의 bounded 종료를 보장하지 않는다.
     PTY의 명시 kill/Drop과 child wait 종료는 같은 PauseGate를 영구 해제하며 늦은 pause 요청은 다시 reader를 가두지 않는다. killer 오류에도 pause를 해제하되 기존 오류를 반환한다.
     Unix native child는 wait owner가 단독 소유하며 blocking WNOWAIT 관찰 뒤 같은 killer mutex에서 시그널 권한을 반납하고 실제 wait로 회수한다. 회수 뒤 kill/Drop은 숫자 PID를 재신호하지 않는다.
-    종료 관찰 오류와 owner Drop fallback은 실제 child 회수 증거가 아니며 기존 SIGHUP 정책도 유지한다. Windows 복제 OS handle은 wait 뒤 반납하며 실기 검증은 별도다.
+    초기 child owner Drop은 권한으로 종료를 요청하고 반납한 뒤 직접 소유한 child를 wait한다. 종료 관찰/OS wait 오류를 성공한 회수로 해석하지 않으며 기존 SIGHUP 정책도 유지한다. Windows 복제 OS handle은 정상 wait 뒤 반납하며 실기 검증은 별도다.
     성공한 PTY spawn은 reader/flusher/wait의 세 std thread handle을 별도 PtyCompletionHandle에 보존한다. 세션의 master/writer를 보유하지 않고 Drop 뒤에도 실제 join할 수 있다.
     join은 대기 시점의 Tokio blocking pool에서 수행하며 mutable await를 mutex 안에 보존해 대기 취소 뒤 재대기한다. panic/오류에도 나머지 worker를 join한 뒤 실패를 반환하며 성공한 실제 join만 완료 플래그를 올린다.
     reader unwind는 flusher stop을 알리고 정상 stop/최종 flush 순서는 유지한다. 이는 blocking Read/callback을 강제 중단하는 계약이 아니다.
     TerminalStore는 spawn lease와 별도 완료 목록을 보유해 제거/교체·미반환 세션도 추적한다. shutdown은 입장을 닫고 종료를 요청하며 wait_for_idle은 마지막 lease·모든 worker·소유한 cleanup task의 실제 완료를 기다린다.
     runtime terminal_actions의 감독 blocking worker는 같은 mutation lock의 owned guard를 보유한다. 요청 취소에도 guard와 lease가 실제 worker에 남고 성공한 결과는 등록까지 guard를 반환한다. 미반환 결과의 Drop도 store에 종료/완료 소유권을 전달한다.
-    정상 root drain은 PTY 오류를 성공으로 처리하지 않으며 native 루프 밖에서 기다린다. partial spawn/OS 오류·SIGHUP 무시/자손·직접 native Exit·마지막 완료 handle Drop의 전체 회수는 별도 미완료 gate다.
+    생성 중인 PtySpawnOwner는 master/writer·child slot·시작한 thread·integration 경로를 보유하고 실패/언와인드 시 child wait·worker join 뒤 경로를 정리한다. Builder의 thread 시작 오류는 Result로 반환하며 성공한 초기화에서만 세션/완료 handle에 전달한다.
+    정상 root drain은 PTY 오류를 성공으로 처리하지 않으며 native 루프 밖에서 기다린다. partial cleanup도 같은 blocking spawn worker에서 실제 완료까지 기다린다. OS 오류·SIGHUP 무시/자손·직접 native Exit·마지막 완료 handle Drop의 전체 회수는 별도 미완료 gate다.
     자동 시작의 설정 조건·오류 처리와 각 서버의 별도 수명주기 소유권은 유지한다. 기존 주기·Tauri runtime도 유지하며
     나머지 서버·세션 lifecycle 작업은 후속 경계다.
     `AppState`와 flush handshake는 model·infra 타입만 참조해 runtime crate에 있고,
