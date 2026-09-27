@@ -4625,11 +4625,13 @@ dependencies = [
 name = "taide-remote"
 version = "0.1.0"
 dependencies = [
+ "parking_lot",
  "serde_json",
  "sha2",
  "taide-infra",
  "taide-locale",
  "taide-model",
+ "tokio",
  "uuid",
 ]
 
@@ -4644,6 +4646,7 @@ dependencies = [
  "taide-lsp",
  "taide-model",
  "taide-plugin",
+ "taide-remote",
  "taide-system",
  "taide-terminal",
  "taide-tree",

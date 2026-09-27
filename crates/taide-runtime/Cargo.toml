@@ -13,6 +13,7 @@ taide-infra = { path = "../taide-infra" }
 taide-lsp = { path = "../taide-lsp" }
 taide-model = { path = "../taide-model" }
 taide-plugin = { path = "../taide-plugin" }
+taide-remote = { path = "../taide-remote" }
 taide-system = { path = "../taide-system" }
 taide-terminal = { path = "../taide-terminal" }
 taide-tree = { path = "../taide-tree" }

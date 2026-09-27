@@ -3,6 +3,7 @@ use taide_git::store::GitStore;
 use taide_lsp::install::LspInstallStore;
 use taide_lsp::store::LspStore;
 use taide_plugin::service::PluginStore;
+use taide_remote::store::RemoteStore;
 use taide_system::store::SystemUsageStore;
 use taide_terminal::store::TerminalStore;
 
@@ -19,6 +20,7 @@ pub struct AppServices {
     pub plugin: PluginStore,
     pub agents: AgentStore,
     pub git: GitStore,
+    pub remote: RemoteStore,
     pub agent_hooks: AgentHooksStore,
     pub lsp: LspStore,
     pub lsp_install: LspInstallStore,
@@ -45,6 +47,7 @@ impl AppServices {
             plugin: PluginStore::default(),
             agents: AgentStore::default(),
             git: GitStore::default(),
+            remote: RemoteStore::default(),
             agent_hooks: AgentHooksStore::default(),
             lsp: LspStore::default(),
             lsp_install: LspInstallStore::default(),

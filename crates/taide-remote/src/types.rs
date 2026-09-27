@@ -21,3 +21,23 @@ pub const REMOTE_PASSWORD_MIN_LEN: usize = 8;
 /// permanently allowed and are never exposed to sync/dispatch stripping the
 /// way the user-registered tunnel hosts are.
 pub const REMOTE_LOOPBACK_HOSTNAMES: &[&str] = &["127.0.0.1", "localhost", "::1"];
+
+pub const REMOTE_BROADCAST_CHANNEL_CAPACITY: usize = 256;
+
+/// How long an established remote session cookie stays valid without the
+/// device reconnecting (7 days).
+pub const REMOTE_SESSION_TTL_MS: u64 = 7 * 24 * 60 * 60 * 1_000;
+
+/// How long a login nonce (the "form pass" minted when a one-time link token
+/// is consumed while a password is configured) stays valid. Long enough for
+/// a few password retries, short enough that a stale tab can't be replayed.
+pub const REMOTE_LOGIN_NONCE_TTL_MS: u64 = 5 * 60 * 1_000;
+
+/// Consecutive login failures allowed before the exponential-backoff lockout
+/// engages.
+pub const REMOTE_LOGIN_MAX_ATTEMPTS: u32 = 5;
+/// Lockout duration for the first failure past `REMOTE_LOGIN_MAX_ATTEMPTS`,
+/// doubling with every further failure up to `REMOTE_LOGIN_LOCKOUT_MAX_MS`.
+pub const REMOTE_LOGIN_LOCKOUT_BASE_MS: u64 = 1_000;
+/// Upper bound for the exponential-backoff lockout duration.
+pub const REMOTE_LOGIN_LOCKOUT_MAX_MS: u64 = 60_000;

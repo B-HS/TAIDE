@@ -996,7 +996,7 @@ pub fn run() {
             app.manage(services.ai_requests.clone());
             app.manage(SecretStoreState::new(app.config().identifier.clone()));
             app.manage(remote_dispatch_port());
-            app.manage(RemoteStore::default());
+            app.manage(services.remote.clone());
             app.manage(services.remote_dispatch_limiter.clone());
             app.manage(services.platform.clone());
             app.manage(services.windows.clone());
