@@ -26,7 +26,7 @@ infra LspProcHandle/ChildWaitOwner, core LspStore, runtime ExitDrain과 Tauri sp
 
 - [ ] PTY reader/flusher/wait thread 소유와 callback 완료를 자기 fixture로 판정합니다. 현재 Drop의 unpause/kill 요청은 실제 join의 근거가 아닙니다.
 - [ ] PTY kill_all의 세션 유지→Drop 미실행→pause gate 미해제와 Unix 복제 killer의 wait/PID 권한 비공유를 재현합니다. 실제 본문/portable-pty 0.9.0 공식 원천을 대조했으며 아직 fixture 통과나 수정 완료가 아닙니다. 회수된 실제 PID에 시그널을 보내지 않고 자기 gate/가짜 killer로 확인합니다.
-  - 후속 [PTY pause QA](2026-09-27-pty-shutdown-pause-lifecycle.md)에서 명시 kill의 미해제와 늦은 재pause를 자기 gate/가짜 killer로 재현·수정했습니다. Unix PID 권한과 thread/root 종료 전체는 미완료로 유지합니다.
+  - 후속 [PTY pause QA](2026-09-27-pty-shutdown-pause-lifecycle.md)에서 명시 kill의 미해제와 늦은 재pause를 자기 gate/가짜 killer로 재현·수정했습니다. [PTY child wait QA](2026-09-27-pty-child-wait-lifecycle.md)에서는 WNOWAIT 관찰→시그널 권한 반납→실제 wait로 Unix PID gate를 보완했습니다. thread/root 종료·OS 오류 전체 회수는 미완료로 유지합니다.
 - [ ] 정상 ExitRequested·직접 native Exit·종료 요청 실패와 메뉴 응답/실제 LSP 재시작은 사용자 실기로 확인합니다. synthetic 검사는 native 이벤트 전달을 증명하지 않습니다.
 - [ ] runtime abort·wait/JoinError·non-yield callback의 회수/종료 계약을 판정합니다. 종료 완료 플래그만으로 모든 OS 자원 회수를 주장하지 않습니다. 이런 오류·callback 정책 변경·종료 지연이 관찰되면 별도 fixture를 실행합니다.
 - [ ] Windows 및 그룹 이탈 자손·OS 강제 종료를 확인합니다. 현재 macOS 자기 child 검사와 best-effort Drop은 이 환경의 실제 회수를 증명하지 않습니다.

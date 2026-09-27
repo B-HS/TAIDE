@@ -36,6 +36,49 @@ struct PauseState {
     is_stopped: bool,
 }
 
+type SharedChildKiller = Arc<Mutex<Option<Box<dyn ChildKiller + Send + Sync>>>>;
+
+struct PtyChildWaitOwner {
+    child: Box<dyn portable_pty::Child + Send + Sync>,
+    killer: SharedChildKiller,
+}
+
+impl PtyChildWaitOwner {
+    fn new(child: Box<dyn portable_pty::Child + Send + Sync>) -> Self {
+        let killer = Arc::new(Mutex::new(Some(child.clone_killer())));
+        Self { child, killer }
+    }
+
+    fn finish(mut self) -> std::io::Result<portable_pty::ExitStatus> {
+        #[cfg(unix)]
+        {
+            let observed = self
+                .child
+                .as_mut()
+                .as_any_mut()
+                .downcast_mut::<std::process::Child>()
+                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Unsupported, "native Unix PTY child is not std::process::Child"))
+                .and_then(crate::owned_child::wait_for_exit_unreaped);
+            self.killer.lock().take();
+            observed?;
+        }
+        let status = self.child.wait();
+        #[cfg(not(unix))]
+        self.killer.lock().take();
+        status
+    }
+}
+
+impl Drop for PtyChildWaitOwner {
+    fn drop(&mut self) {
+        let mut killer = self.killer.lock();
+        if let Some(killer) = killer.as_mut() {
+            killer.kill().ok();
+        }
+        killer.take();
+    }
+}
+
 impl PauseGate {
     fn new() -> Self {
         Self {
@@ -73,7 +116,7 @@ impl PauseGate {
 pub struct PtySession {
     master: Box<dyn MasterPty + Send>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
-    killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
+    killer: SharedChildKiller,
     pause: Arc<PauseGate>,
     #[cfg_attr(not(windows), allow(dead_code))]
     shell_pid: Option<u32>,
@@ -113,10 +156,15 @@ impl PtySession {
     }
 
     /// Permanently opens the pause gate before requesting termination, even when signaling fails.
+    /// Unix child wait revokes signal permission before reaping; later requests do not signal a cached PID.
     /// This requests shutdown but does not join the child wait, reader, or flusher threads.
     pub fn kill(&self) -> AppResult<()> {
         self.pause.stop();
-        self.killer.lock().kill().map_err(AppError::from)
+        let mut killer = self.killer.lock();
+        match killer.as_mut() {
+            Some(killer) => killer.kill().map_err(AppError::from),
+            None => Ok(()),
+        }
     }
 
     pub fn set_paused(&self, paused: bool) {
@@ -340,11 +388,12 @@ where
     let (cmd, shell_integration_temp_dir) = build_command(&config);
 
     let PtyPair { slave, master } = pair;
-    let mut child = slave.spawn_command(cmd).map_err(|error| AppError::Internal(error.to_string()))?;
+    let child = slave.spawn_command(cmd).map_err(|error| AppError::Internal(error.to_string()))?;
     drop(slave);
 
     let shell_pid = child.process_id();
-    let killer = child.clone_killer();
+    let child = PtyChildWaitOwner::new(child);
+    let killer = child.killer.clone();
     let mut reader = master.try_clone_reader().map_err(|error| AppError::Internal(error.to_string()))?;
     let writer = master.take_writer().map_err(|error| AppError::Internal(error.to_string()))?;
 
@@ -380,7 +429,7 @@ where
     });
 
     std::thread::spawn(move || {
-        let code = child.wait().ok().map(|status| status.exit_code() as i32);
+        let code = child.finish().ok().map(|status| status.exit_code() as i32);
         child_exit_pause.stop();
         on_exit(code);
     });
@@ -388,7 +437,7 @@ where
     Ok(PtySession {
         master,
         writer: Arc::new(Mutex::new(writer)),
-        killer: Mutex::new(killer),
+        killer,
         pause,
         shell_pid,
         shell_integration_temp_dir,
@@ -423,6 +472,50 @@ mod tests {
     }
 
     #[cfg(unix)]
+    impl portable_pty::Child for RecordingKiller {
+        fn try_wait(&mut self) -> std::io::Result<Option<portable_pty::ExitStatus>> {
+            Ok(None)
+        }
+
+        fn wait(&mut self) -> std::io::Result<portable_pty::ExitStatus> {
+            Err(std::io::Error::other("synthetic child must not be reaped"))
+        }
+
+        fn process_id(&self) -> Option<u32> {
+            None
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn wait_owner_drop은_회수_전_권한만_사용하고_공유_killer를_반납한다() {
+        let called = Arc::new(AtomicBool::new(false));
+        let owner = PtyChildWaitOwner::new(Box::new(RecordingKiller {
+            called: called.clone(),
+            should_fail: false,
+        }));
+        let killer = owner.killer.clone();
+        drop(owner);
+        assert!(called.load(AtomicOrdering::SeqCst));
+        assert!(killer.lock().is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 종료_관찰_오류는_권한을_닫고_늦은_시그널을_보내지_않는다() {
+        let called = Arc::new(AtomicBool::new(false));
+        let owner = PtyChildWaitOwner::new(Box::new(RecordingKiller {
+            called: called.clone(),
+            should_fail: false,
+        }));
+        let killer = owner.killer.clone();
+        let result = owner.finish();
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Unsupported);
+        assert!(killer.lock().is_none());
+        assert!(!called.load(AtomicOrdering::SeqCst));
+    }
+
+    #[cfg(unix)]
     fn recording_session(should_fail: bool) -> (PtySession, Arc<AtomicBool>) {
         let pair = native_pty_system().openpty(PtySize::default()).unwrap();
         let killed = Arc::new(AtomicBool::new(false));
@@ -430,10 +523,10 @@ mod tests {
         let session = PtySession {
             master: pair.master,
             writer: Arc::new(Mutex::new(Box::new(std::io::sink()))),
-            killer: Mutex::new(Box::new(RecordingKiller {
+            killer: Arc::new(Mutex::new(Some(Box::new(RecordingKiller {
                 called: killed.clone(),
                 should_fail,
-            })),
+            })))),
             pause: pause.clone(),
             shell_pid: None,
             shell_integration_temp_dir: None,
@@ -503,7 +596,7 @@ mod tests {
             .unwrap()
             .0;
         assert!(spawn.contains("let child_exit_pause = pause.clone();"));
-        let wait = spawn.find("let code = child.wait()").unwrap();
+        let wait = spawn.find("let code = child.finish()").unwrap();
         let stop = spawn.find("child_exit_pause.stop();").unwrap();
         let exit = spawn.find("on_exit(code);").unwrap();
         assert!(wait < stop && stop < exit);
@@ -517,6 +610,72 @@ mod tests {
         pause.set_paused(false);
         assert!(!pause.state.lock().is_paused);
         pause.wait_while_paused();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn child_wait_회수_뒤의_kill은_숫자_pid_권한을_재사용하지_않는다() {
+        const EXIT_CODE: i32 = 7;
+        let (exit, exited) = std::sync::mpsc::channel();
+        let session = spawn(
+            controlled_shell_config(),
+            |_| {},
+            move |code| {
+                exit.send(code).ok();
+            },
+        )
+        .unwrap();
+        let signaled = Arc::new(AtomicBool::new(false));
+        *session.killer.lock() = Some(Box::new(RecordingKiller {
+            called: signaled.clone(),
+            should_fail: false,
+        }));
+        let written = session.write(format!("exit {EXIT_CODE}\n").as_bytes());
+        let code = exited.recv_timeout(Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS));
+        let result = session.kill();
+        let signaled_after_reaping = signaled.load(AtomicOrdering::SeqCst);
+        drop(session);
+        assert!(written.is_ok());
+        assert_eq!(code, Ok(Some(EXIT_CODE)));
+        assert!(result.is_ok());
+        assert!(!signaled_after_reaping, "reaped child PID must not remain signalable");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 종료_관찰이_대기중이어도_살아있는_자기_pty는_kill할_수_있다() {
+        let (exit, exited) = std::sync::mpsc::channel();
+        let (output, output_rx) = std::sync::mpsc::channel();
+        let session = spawn(
+            controlled_shell_config(),
+            move |_| {
+                output.send(()).ok();
+            },
+            move |code| {
+                exit.send(code).ok();
+            },
+        )
+        .unwrap();
+        let written = session.write(b"printf ready\\n\n");
+        let alive = output_rx.recv_timeout(Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS));
+        let was_waiting = matches!(exited.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty));
+        let killed = session.kill();
+        let code = exited.recv_timeout(Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS));
+        let is_revoked = session.killer.lock().is_none();
+        drop(session);
+        assert!(written.is_ok());
+        assert!(alive.is_ok());
+        assert!(was_waiting);
+        assert!(killed.is_ok());
+        assert!(code.is_ok());
+        assert!(is_revoked);
+    }
+
+    #[cfg(unix)]
+    fn controlled_shell_config() -> PtySpawnConfig {
+        let mut config = base_config(Some("/bin/sh"));
+        config.extra_env = vec![("ENV".to_string(), String::new()), ("BASH_ENV".to_string(), String::new())];
+        config
     }
 
     #[test]

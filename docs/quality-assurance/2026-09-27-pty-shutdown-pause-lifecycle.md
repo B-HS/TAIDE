@@ -23,9 +23,9 @@ infra PauseGate/PtySession kill·Drop·child wait 배선과 Tauri 공개 spawn �
 
 ## 미완료 gate와 생략 이유
 
-- [ ] Unix 숫자 PID 권한의 wait/kill 직렬화는 가짜 killer로 먼저 재현합니다. 실제 회수된 PID나 사용자 프로세스에 시그널을 보내는 시험은 하지 않습니다.
+- [x] 후속 [PTY child wait QA](2026-09-27-pty-child-wait-lifecycle.md)에서 자기 child/가짜 killer로 회수 뒤 시그널 권한 재사용을 RED/GREEN 재현하고 WNOWAIT 관찰→권한 반납→실제 wait 순서로 수정했습니다. 실제 회수된 PID나 사용자 프로세스에 시그널을 보내는 시험은 하지 않았습니다. thread/root drain·OS 오류 전체 회수는 여전히 미완료입니다.
 - [ ] reader/flusher/wait/callback 완료와 SIGHUP 무시·pipe 보유 자손, spawn 작업 입장·제거 세션 소유/정상 root drain을 구현·검증합니다. gate의 깨우기를 OS Read 취소나 join으로 해석하지 않습니다.
-- [ ] 기존 실제 child를 띄우는 infra Drop 2건과 Tauri PTY 출력/프로젝트 회수 검사는 이번 실행에서 제외했습니다. Unix clone_killer에 회수 뒤 숫자 PID 재신호 위험이 확인됐고 zsh fixture는 사용자 profile을 실행할 수 있으므로 해당 소유 gate를 해결하고 자기 전용 환경을 구성한 뒤 다시 실행합니다.
+- [ ] pause 단위에서는 실제 child를 띄우는 infra Drop 2건과 Tauri PTY 출력/프로젝트 회수 검사를 제외했습니다. 후속 child wait 단위에서 PID 권한 gate를 수정하고 Tauri 출력 fixture의 자기 `/bin/sh` profile 환경을 차단한 뒤 출력 검사 1건이 통과했습니다. infra Drop 2건·프로젝트 회수/사용자 profile 격리는 아직 미완료이며 별도 판정합니다.
 - [ ] 경합 실패 시 생성된 자기 fixture 임시 경로가 출력에 없어 이전 산출물의 정확한 경로는 확인되지 않았습니다. 임의 glob 삭제는 하지 않으며, 현재부터 반환된 자기 경로는 assert 전에 정리합니다. 재현 로그에 정확한 경로가 확보되면 해당 경로만 회수합니다.
 - [ ] Windows·native ExitRequested/직접 Exit 및 실제 앱 종료/재시작은 별도 검증합니다. 현재 macOS 자기 gate/PTY 검사가 OS 전체 수명 종료의 근거는 아닙니다.
 - [ ] M6 전수 body/port·나머지 자원과 M7/M8·Phase 0은 미완료입니다.

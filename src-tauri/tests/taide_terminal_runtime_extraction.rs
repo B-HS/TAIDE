@@ -29,7 +29,7 @@ mod unix_tests {
                 cwd: std::env::temp_dir().to_string_lossy().to_string(),
                 cols: TEST_COLS,
                 rows: TEST_ROWS,
-                extra_env: Vec::new(),
+                extra_env: vec![("ENV".to_string(), String::new()), ("BASH_ENV".to_string(), String::new())],
             },
             output.clone(),
             move |bytes| {

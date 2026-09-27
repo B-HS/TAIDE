@@ -20,10 +20,23 @@ fn signalable_child_id(child: &Child) -> io::Result<libc::pid_t> {
 /// Observes an exclusively owned direct child without reaping its PID or consuming its exit status.
 /// Call only before any wait or try_wait; never reuse a cached handle after reaping.
 pub fn has_exited_unreaped(child: &mut Child) -> io::Result<bool> {
+    observe_child_exit(child, libc::WEXITED | libc::WNOHANG | libc::WNOWAIT)
+}
+
+/// Blocks until an exclusively owned direct child exits without reaping its PID or exit status.
+/// Call only before any wait or try_wait; never reuse a cached handle after reaping.
+pub fn wait_for_exit_unreaped(child: &mut Child) -> io::Result<()> {
+    if observe_child_exit(child, libc::WEXITED | libc::WNOWAIT)? {
+        return Ok(());
+    }
+    Err(io::Error::new(io::ErrorKind::InvalidData, "blocking waitid returned no child exit"))
+}
+
+fn observe_child_exit(child: &mut Child, options: libc::c_int) -> io::Result<bool> {
     let pid = signalable_child_id(child)?;
     loop {
         let mut info = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
-        let result = unsafe { libc::waitid(libc::P_PID, child.id(), &mut info, libc::WEXITED | libc::WNOHANG | libc::WNOWAIT) };
+        let result = unsafe { libc::waitid(libc::P_PID, child.id(), &mut info, options) };
         if result == 0 {
             let observed_pid = unsafe { info.si_pid() };
             if observed_pid == 0 {
@@ -79,6 +92,7 @@ fn group_contains_only_child(pid: libc::pid_t, group_id: u32) -> io::Result<bool
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
     use std::os::unix::process::{CommandExt, ExitStatusExt};
     use std::process::{Command, Stdio};
     use std::time::{Duration, Instant};
@@ -88,6 +102,7 @@ mod tests {
     const FIXTURE_DURATION_SECONDS: u64 = 30;
     const FIXTURE_EXIT_CODE: i32 = 7;
     const FIXTURE_TIMEOUT_MS: u64 = 2_000;
+    const FIXTURE_PENDING_PROBE_MS: u64 = 60;
 
     struct ChildFixture(Child);
 
@@ -96,6 +111,40 @@ mod tests {
             self.0.kill().ok();
             self.0.wait().ok();
         }
+    }
+
+    #[test]
+    fn blocking_종료_관찰은_살아있는_child에서_대기하고_회수와_코드를_보존한다() {
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", "read token; exit \"$1\"", "fixture"])
+            .arg(FIXTURE_EXIT_CODE.to_string())
+            .env("ENV", "")
+            .env("BASH_ENV", "")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut fixture = ChildFixture(command.spawn().unwrap());
+        let mut stdin = fixture.0.stdin.take().unwrap();
+        let (started, started_rx) = std::sync::mpsc::channel();
+        let (observed, observed_rx) = std::sync::mpsc::channel();
+        let waiter = std::thread::spawn(move || {
+            started.send(()).unwrap();
+            wait_for_exit_unreaped(&mut fixture.0).unwrap();
+            let still_waitable = has_exited_unreaped(&mut fixture.0).unwrap();
+            observed.send(()).ok();
+            (still_waitable, fixture.0.wait().unwrap().code())
+        });
+        let ready = started_rx.recv_timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS));
+        let was_pending = observed_rx.recv_timeout(Duration::from_millis(FIXTURE_PENDING_PROBE_MS)).is_err();
+        let written = stdin.write_all(b"go\n");
+        drop(stdin);
+        let (still_waitable, code) = waiter.join().unwrap();
+        assert!(ready.is_ok());
+        assert!(was_pending);
+        assert!(written.is_ok());
+        assert!(still_waitable);
+        assert_eq!(code, Some(FIXTURE_EXIT_CODE));
     }
 
     #[test]
