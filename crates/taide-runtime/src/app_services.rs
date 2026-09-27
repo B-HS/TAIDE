@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use taide_agent::store::{AgentHooksStore, AgentStore};
 use taide_git::store::GitStore;
 use taide_ide::store::IdeStore;
@@ -10,7 +12,7 @@ use taide_system::store::SystemUsageStore;
 use taide_terminal::store::TerminalStore;
 
 use super::{
-    AiRequestStore, AppState, IdeSaveFile, PlatformServicesState, RemoteDispatchLimiter, SearchStore, TaskSupervisor, TreeStore,
+    AiRequestStore, AppState, EventSink, IdeSaveFile, PlatformServicesState, RemoteDispatchLimiter, SearchStore, TaskSupervisor, TreeStore,
     WindowRegistry,
 };
 
@@ -33,6 +35,7 @@ pub struct AppServices {
     pub system_usage: SystemUsageStore,
     pub remote_dispatch_limiter: RemoteDispatchLimiter,
     pub platform: PlatformServicesState,
+    pub events: Arc<dyn EventSink>,
     pub windows: WindowRegistry,
     pub tasks: TaskSupervisor,
 }
@@ -45,6 +48,7 @@ impl AppServices {
         platform: PlatformServicesState,
         secrets: SecretStoreState,
         ide_save_file: IdeSaveFile,
+        events: Arc<dyn EventSink>,
     ) -> Self {
         Self {
             state,
@@ -65,6 +69,7 @@ impl AppServices {
             system_usage: SystemUsageStore::default(),
             remote_dispatch_limiter,
             platform,
+            events,
             windows: WindowRegistry::default(),
             tasks,
         }

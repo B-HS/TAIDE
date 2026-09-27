@@ -237,9 +237,11 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     루트/CLI 권한→모드 보존 원자 저장→self-write 표시→프로젝트 미러 정리 순서를 유지한다.
     `IdeSaveFile`도 runtime 포트이며 IDE diff는 조립부가 주입한 같은 저장 action을 호출한다.
     mutation guard·blocking 실행과 IDE Forbidden 예외 정책은 기존 호출자에 남는다.
-    setup은 상태 복원 뒤 AppState·TaskSupervisor·원격 제한기·플랫폼 포트·시크릿 포트·IDE 저장 포트를 주입해 `Arc<AppServices>`를 만들고, 나머지 저장소는 AppServices가 초기화한다.
+    setup은 상태 복원 뒤 AppState·TaskSupervisor·원격 제한기·플랫폼 포트·시크릿 포트·IDE 저장 포트·EventSink를 주입해 `Arc<AppServices>`를 만들고, 나머지 저장소는 AppServices가 초기화한다.
     AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·AgentStore·AgentHooksStore·GitStore·RemoteStore·IdeStore·SecretStoreState·IdeSaveFile·LspStore·LspInstallStore·SystemUsageStore·RemoteDispatchLimiter·PlatformServices·WindowRegistry·TaskSupervisor의 20개 상태·포트를
-    기존 Tauri State로 등록한다. 나머지 Tauri 관리 상태와 application action facade 추출은 후속 경계다.
+    기존 Tauri State로 등록한다. 추가 EventSink는 `Arc<dyn EventSink>`로 보유해 AppServices의 전체 필드는 21개다.
+    한 TauriPlatformServices Arc가 OS 포트와 이벤트 포트 모두를 제공하며 publish는 기존 빌린 TauriEventSink의 매핑으로 위임한다.
+    이벤트 포트의 별도 Tauri State나 새 이벤트 버스는 만들지 않는다. 나머지 Tauri 관리 상태와 application action facade 추출은 후속 경계다.
     부팅 1회성 복원은 `lib.rs`가 상태 로드→관리 상태 등록→워처 재부착 순서를 소유한다.
     `project::commands`는 순수 대상 선정과 프로젝트별 guard·경합 제어를 유지하고,
     layout/settings 로드는 독립 crate, file/git watcher build/register는 조립부 포트를 사용한다.

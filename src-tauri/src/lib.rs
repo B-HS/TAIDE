@@ -958,13 +958,15 @@ pub fn run() {
 
             let restored = domain::project::commands::projects_pending_watcher_restore(&state.projects.read(), &state.session.read());
 
+            let platform = Arc::new(TauriPlatformServices(app.handle().clone()));
             let services = Arc::new(AppServices::new(
                 state,
                 TaskSupervisor::new(tauri::async_runtime::handle().inner().clone()),
                 RemoteDispatchLimiter::new(REMOTE_DISPATCH_MAX_CONCURRENT),
-                PlatformServicesState::new(Arc::new(TauriPlatformServices(app.handle().clone()))),
+                PlatformServicesState::new(platform.clone()),
                 SecretStoreState::new(app.config().identifier.clone()),
                 IdeSaveFile(save_ide_diff_file),
+                platform,
             ));
 
             app.manage(services.state.clone());

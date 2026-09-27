@@ -1,11 +1,20 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use taide_lib::platform::services::TauriPlatformServices;
+use taide_model::app_event::AppEvent;
 use taide_model::error::AppResult;
-use taide_runtime::{PlatformServices, PlatformServicesState};
+use taide_runtime::{EventSink, PlatformServices, PlatformServicesState};
 
 #[derive(Default)]
 struct RecordingPlatform(Mutex<Vec<&'static str>>);
+
+#[test]
+fn 플랫폼_어댑터는_이벤트_포트를_소유하고_기존_매핑을_재사용한다() {
+    let _: fn(&TauriPlatformServices, AppEvent) = <TauriPlatformServices as EventSink>::publish;
+    let adapter = include_str!("../src/platform/services.rs");
+    assert!(adapter.contains("TauriEventSink(&self.0).publish(event);"));
+}
 
 impl PlatformServices for RecordingPlatform {
     fn open_path(&self, _path: &Path) -> AppResult<()> {

@@ -1,17 +1,27 @@
 use std::future::pending;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use taide_agent::store::HooksServerInfo;
 use taide_infra::secret::test_support::InMemorySecretStore;
 use taide_infra::secret::{SecretAccount, SecretStoreState};
 use taide_model::agent::AgentActivity;
+use taide_model::app_event::AppEvent;
 use taide_model::error::AppResult;
 use taide_model::ids::ProjectId;
 use taide_model::paths::AppPaths;
-use taide_runtime::{AppServices, AppState, IdeSaveFile, PlatformServices, PlatformServicesState, RemoteDispatchLimiter, TaskSupervisor};
+use taide_runtime::{
+    AppServices, AppState, EventSink, IdeSaveFile, PlatformServices, PlatformServicesState, RemoteDispatchLimiter, TaskSupervisor,
+};
 
-struct TestPlatform;
+#[derive(Default)]
+struct TestPlatform(Mutex<Vec<AppEvent>>);
+
+impl EventSink for TestPlatform {
+    fn publish(&self, event: AppEvent) {
+        self.0.lock().expect("이벤트 기록 잠금").push(event);
+    }
+}
 
 impl PlatformServices for TestPlatform {
     fn open_path(&self, _path: &Path) -> AppResult<()> {
@@ -42,13 +52,16 @@ fn test_ide_save(state: &AppState, path: &Path, content: &str) -> AppResult<()> 
 async fn 앱_서비스와_기존_상태_복제본은_같은_인스턴스를_공유한다() {
     let secret_port = SecretStoreState(Arc::new(InMemorySecretStore::default()));
     let injected_secret_port = secret_port.0.clone();
+    let platform = Arc::new(TestPlatform::default());
+    let event_port: Arc<dyn EventSink> = platform.clone();
     let services = Arc::new(AppServices::new(
         AppState::new(AppPaths::new(std::env::temp_dir())),
         TaskSupervisor::new(tokio::runtime::Handle::current()),
         RemoteDispatchLimiter::new(1),
-        PlatformServicesState::new(Arc::new(TestPlatform)),
+        PlatformServicesState::new(platform.clone()),
         secret_port,
         IdeSaveFile(test_ide_save),
+        event_port.clone(),
     ));
     let legacy_state = services.state.clone();
     let legacy_search = services.search.clone();
@@ -61,6 +74,7 @@ async fn 앱_서비스와_기존_상태_복제본은_같은_인스턴스를_공�
     let legacy_ide = services.ide.clone();
     let legacy_secrets = services.secrets.clone();
     let legacy_ide_save_file = services.ide_save_file.clone();
+    let shared_events = services.events.clone();
     let legacy_agent_hooks = services.agent_hooks.clone();
     let legacy_windows = services.windows.clone();
     let legacy_tasks = services.tasks.clone();
@@ -69,6 +83,19 @@ async fn 앱_서비스와_기존_상태_복제본은_같은_인스턴스를_공�
     assert!(services.state.is_shutting_down());
     (legacy_ide_save_file.0)(&services.state, Path::new("fixture-path"), "fixture-content").expect("주입 저장 포트");
     (services.ide_save_file.0)(&legacy_state, Path::new("fixture-path"), "fixture-content").expect("복제 저장 포트");
+    assert!(Arc::ptr_eq(&services.events, &event_port));
+    let first_event = AppEvent::ThemeChanged {
+        theme_id: "fixture-theme".to_string(),
+    };
+    let second_event = AppEvent::GitStatusChanged {
+        project_id: ProjectId::new(),
+    };
+    shared_events.publish(first_event.clone());
+    services.events.publish(second_event.clone());
+    assert_eq!(
+        platform.0.lock().expect("공유 이벤트 기록").as_slice(),
+        &[first_event, second_event]
+    );
 
     let cancelled = legacy_search.begin("main", "panel");
     services.search.cancel("main", "panel");
@@ -150,6 +177,8 @@ fn 앱_조립은_같은_서비스_복제본을_기존_상태에_등록한다() {
     let setup = include_str!("../src/lib.rs");
 
     assert!(setup.contains("let services = Arc::new(AppServices::new("));
+    assert!(setup.contains("let platform = Arc::new(TauriPlatformServices(app.handle().clone()));"));
+    assert!(setup.contains("PlatformServicesState::new(platform.clone())"));
     assert!(setup.contains("app.manage(services.state.clone());"));
     assert!(setup.contains("app.manage(services.search.clone());"));
     assert!(setup.contains("app.manage(services.ai_requests.clone());"));

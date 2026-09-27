@@ -1,12 +1,21 @@
 use std::path::Path;
 
-use taide_runtime::PlatformServices;
+use taide_model::app_event::AppEvent;
+use taide_runtime::{EventSink, PlatformServices};
 use tauri::AppHandle;
 use tauri_plugin_notification::NotificationExt;
 
 use crate::error::{AppError, AppResult};
 
+use super::event_sink::TauriEventSink;
+
 pub struct TauriPlatformServices(pub AppHandle);
+
+impl EventSink for TauriPlatformServices {
+    fn publish(&self, event: AppEvent) {
+        TauriEventSink(&self.0).publish(event);
+    }
+}
 
 impl PlatformServices for TauriPlatformServices {
     fn open_path(&self, path: &Path) -> AppResult<()> {
