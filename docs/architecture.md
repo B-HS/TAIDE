@@ -314,7 +314,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     프롬프트 저장은 설정 포트를 호출하지 않으며 기존 service의 validate→atomic write를 소비한다. 제품 버전·process perf registry는 Tauri metadata/진단 adapter에 남는다.
     `taide-runtime::theme_actions`와 `locale_actions`는 현재 테마·언어의 live 설정 snapshot→system 선택/fallback→service load 조립을 소유한다.
     원래 await가 없는 조회를 동기 selector로 제공하며 Tauri async command 시그니처는 유지한다. mutation guard·설정 쓰기·이벤트는 추가하지 않는다.
-    나머지 theme/locale 단순 service 위임과 OS system 값 공급은 기존 adapter/소비자의 책임이다.
+    같은 runtime 모듈은 나머지 theme list/get/save/delete 4개·locale list/get 2개의 기존 service 위임도 소유한다. 기존 current selector·공개 async signature·오류/저장 정책을 유지하며 OS system 값 공급은 adapter/소비자의 책임이다.
+    locale load/exists의 기존 경로 검증 누락은 자기 UUID 경로 이탈 fixture로 확인됐으며 별도 보안 수정 방향을 질문한 미완료 gate다. action 이전 완료를 보안 합격으로 해석하지 않는다.
     `taide-runtime::snippet_actions`는 공개 list/save/delete 3개의 기존 service 위임을 소유한다. 원래 await 없는 호출은 동기 action으로 제공하고 Tauri async signature는 유지한다.
     filename/JSON 검증·원문 atomic 저장·관용 scan/정렬·삭제 오류는 같은 taide-snippet service를 사용하며 mutation guard·이벤트·새 스키마를 추가하지 않는다.
     `taide-runtime::layout_actions`는 dirty flush·finish·공통 탭 open/close와 레이아웃 command 정책 18개, root의 탭 창 이동·보조 창 탭 복귀 정책을 소유한다. 기존 layout service 경로는 재수출 또는 adapter로 유지한다.

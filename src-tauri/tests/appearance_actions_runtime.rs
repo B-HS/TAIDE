@@ -130,3 +130,131 @@ fn 현재_테마와_언어_command는_runtime_selector에_위임한다() {
     assert!(!theme.contains("state.settings.read()"));
     assert!(!locale.contains("state.settings.read()"));
 }
+
+#[test]
+fn theme_공개_action은_같은_저장_조회_삭제와_builtin_정책을_쓴다() {
+    let fixture = Fixture::new();
+    let mut custom = taide_theme::service::builtin_dark();
+    custom.id = "fixture-public-theme".to_string();
+    custom.name = "fixture public".to_string();
+    let saved = theme_actions::theme_save(&fixture.state, custom.clone()).unwrap();
+    assert_eq!(saved.id, custom.id);
+    assert!(!saved.builtin);
+    assert_eq!(
+        theme_actions::theme_get(&fixture.state, custom.id.clone()).unwrap(),
+        taide_theme::service::load_theme(&fixture.state.paths, &custom.id).unwrap()
+    );
+    assert!(theme_actions::theme_list(&fixture.state)
+        .unwrap()
+        .iter()
+        .any(|entry| entry.id == custom.id));
+    theme_actions::theme_delete(&fixture.state, custom.id.clone()).unwrap();
+    assert_eq!(
+        theme_actions::theme_get(&fixture.state, custom.id).unwrap_err().kind(),
+        AppErrorKind::NotFound
+    );
+    assert_eq!(
+        theme_actions::theme_delete(&fixture.state, taide_theme::service::BUILTIN_DARK_ID.to_string())
+            .unwrap_err()
+            .kind(),
+        taide_theme::service::delete_theme(&fixture.state.paths, taide_theme::service::BUILTIN_DARK_ID)
+            .unwrap_err()
+            .kind()
+    );
+    assert_eq!(
+        theme_actions::theme_get(&fixture.state, taide_theme::service::BUILTIN_LIGHT_ID.to_string()).unwrap(),
+        taide_theme::service::load_theme(&fixture.state.paths, taide_theme::service::BUILTIN_LIGHT_ID).unwrap()
+    );
+}
+
+#[test]
+fn theme_검증_실패는_같은_오류이고_기존_파일을_보존한다() {
+    let fixture = Fixture::new();
+    let mut custom = taide_theme::service::builtin_dark();
+    custom.id = "fixture-public-theme".to_string();
+    theme_actions::theme_save(&fixture.state, custom.clone()).unwrap();
+    let path = fixture.state.paths.themes_dir().join(format!("{}.json", custom.id));
+    let original = std::fs::read(&path).unwrap();
+    for id in ["../fixture-outside", "fixture-missing"] {
+        assert_eq!(
+            theme_actions::theme_get(&fixture.state, id.to_string()).unwrap_err().kind(),
+            taide_theme::service::load_theme(&fixture.state.paths, id).unwrap_err().kind()
+        );
+        assert_eq!(
+            theme_actions::theme_delete(&fixture.state, id.to_string()).unwrap_err().kind(),
+            taide_theme::service::delete_theme(&fixture.state.paths, id).unwrap_err().kind()
+        );
+    }
+    let mut invalid = custom;
+    invalid.id = "../fixture-outside".to_string();
+    assert_eq!(
+        theme_actions::theme_save(&fixture.state, invalid.clone()).unwrap_err().kind(),
+        taide_theme::service::save_theme(&fixture.state.paths, &invalid).unwrap_err().kind()
+    );
+    assert_eq!(std::fs::read(path).unwrap(), original);
+}
+
+#[test]
+fn locale_목록과_조회는_사용자_pack_및_없는_id와_깨진_json_오류를_유지한다() {
+    let fixture = Fixture::new();
+    let mut custom = taide_locale::service::builtin_ko();
+    custom.id = "fixture-public-language".to_string();
+    taide_locale::service::save_locale(&fixture.state.paths, &custom).unwrap();
+    assert_eq!(
+        locale_actions::locale_list(&fixture.state).unwrap(),
+        taide_locale::service::list_locales(&fixture.state.paths)
+    );
+    for id in [custom.id.as_str(), "en"] {
+        assert_eq!(
+            locale_actions::locale_get(&fixture.state, id.to_string()).unwrap(),
+            taide_locale::service::load_locale(&fixture.state.paths, id).unwrap()
+        );
+    }
+    for id in ["fixture-missing", "../fixture-outside"] {
+        assert_eq!(
+            locale_actions::locale_get(&fixture.state, id.to_string()).unwrap_err().kind(),
+            taide_locale::service::load_locale(&fixture.state.paths, id).unwrap_err().kind()
+        );
+    }
+    let outside_locale_dir = fixture.dir.join("fixture-outside.json");
+    taide_infra::persist::write_json(&outside_locale_dir, &custom).unwrap();
+    assert_eq!(
+        locale_actions::locale_get(&fixture.state, "../fixture-outside".to_string()).unwrap(),
+        taide_locale::service::load_locale(&fixture.state.paths, "../fixture-outside").unwrap()
+    );
+    assert!(!outside_locale_dir.starts_with(fixture.state.paths.locales_dir()));
+    std::fs::write(fixture.state.paths.locales_dir().join(format!("{}.json", custom.id)), "{").unwrap();
+    assert_eq!(
+        locale_actions::locale_get(&fixture.state, custom.id.clone()).unwrap_err().kind(),
+        taide_locale::service::load_locale(&fixture.state.paths, &custom.id)
+            .unwrap_err()
+            .kind()
+    );
+}
+
+#[test]
+fn 나머지_테마_언어_command도_runtime에_위임한다() {
+    for (source, module, names) in [
+        (
+            include_str!("../src/domain/theme/commands.rs"),
+            "theme_actions",
+            &["theme_list", "theme_get", "theme_save", "theme_delete"][..],
+        ),
+        (
+            include_str!("../src/domain/locale/commands.rs"),
+            "locale_actions",
+            &["locale_list", "locale_get"][..],
+        ),
+    ] {
+        for name in names {
+            let body = source
+                .split_once(&format!("pub async fn {name}("))
+                .unwrap()
+                .1
+                .split_once("\n}")
+                .unwrap()
+                .0;
+            assert!(body.contains(&format!("{module}::{name}(")), "{name}");
+        }
+    }
+}
