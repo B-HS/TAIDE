@@ -350,7 +350,9 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     `taide-runtime::layout_actions`는 dirty flush·finish·공통 탭 open/close와 레이아웃 command 정책 18개, root의 탭 창 이동·보조 창 탭 복귀 정책을 소유한다. 기존 layout service 경로는 재수출 또는 adapter로 유지한다.
     finish의 focus 보정·dirty 표시·LayoutChanged 발행 뒤에 호출자가 state를 기록하는 기존 순서를 보존한다.
     close의 observer는 state 기록 뒤 같은 mutation guard 안에서 주입된 callback으로 실행하며 실제 IDE→PTY 후처리 등록은 Tauri 조립부에 남는다.
-    dirty flush는 먼저 drain하고 snapshot을 저장한다. 없는 layout·저장 실패는 기존 로그/생략 정책을 유지하며 주기의 blocking await와 shutdown의 동기 호출도 변경하지 않는다.
+    dirty flush는 먼저 drain하고 snapshot을 저장한다. 없는 layout·저장 실패는 기존 로그/생략 정책을 유지한다.
+    주기 flush loop는 같은 공유 state·등록 TaskSupervisor·기존 2초 interval을 받는 runtime 정책이다. 즉시 첫 tick·기본 Burst와 실제 blocking worker await를 유지한다.
+    ticker를 취소해도 시작한 저장 worker는 감독자가 완료까지 추적하며 정상 root가 기다린다. window/exit의 동기 flush와 전체 종료·저장 오류 정책은 별도 남는다.
     Tauri layout command 19개 중 18개는 runtime action에 위임하고 닫기는 기존 observer adapter를 통해 같은 공통 runtime close를 소비한다.
     mutation helper의 14개 소비자는 tab/pane/project 대상 선정·guard·clone·정책·finish 이벤트→state write를 공유한다.
     파일 열기와 split의 CLI 허용/실재 파일 gate, untitled 변환의 strict root gate와 경로 변경의 성분 단위 containment도 runtime에 있다.

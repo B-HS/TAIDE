@@ -1086,18 +1086,14 @@ pub fn run() {
                 }
             });
 
-            let flush_handle = app.handle().clone();
-            app.state::<TaskSupervisor>().spawn("layout-flush", async move {
-                let mut ticker = tokio::time::interval(std::time::Duration::from_millis(domain::layout::service::LAYOUT_FLUSH_INTERVAL_MS));
-                loop {
-                    ticker.tick().await;
-                    let tick_handle = flush_handle.clone();
-                    let _ = tauri::async_runtime::spawn_blocking(move || {
-                        domain::layout::service::flush_dirty_layouts(&tick_handle.state::<AppState>());
-                    })
-                    .await;
-                }
-            });
+            let flush_state = (*app.state::<AppState>()).clone();
+            let flush_tasks = (*app.state::<TaskSupervisor>()).clone();
+            let flush_loop = layout_actions::flush_layouts_periodically(
+                flush_state,
+                flush_tasks,
+                std::time::Duration::from_millis(domain::layout::service::LAYOUT_FLUSH_INTERVAL_MS),
+            );
+            app.state::<TaskSupervisor>().spawn("layout-flush", flush_loop);
 
             log::info!("setup 완료: elapsed_ms={}", setup_started.elapsed().as_millis());
 
@@ -1289,26 +1285,26 @@ mod tests {
         );
     }
 
-    /// The `LAYOUT_FLUSH_INTERVAL_MS` ticker persists every dirty layout, and each persist ends in
-    /// an `fsync` (`infra::persist::write_atomic`). Running that directly on the async worker made
-    /// the runtime pay N serialized fsyncs per tick (research 3b §2-D), which architecture §2.1
-    /// forbids — so the tick body hands the flush to `spawn_blocking` and awaits the handle, the
-    /// await being what keeps two flushes from overlapping. Scanning this file's own source pins
-    /// that shape: a revert to a direct call still passes every other test.
     #[test]
     fn 주기적_레이아웃_flush_는_blocking_스레드에서_실행된다() {
-        let tick_body = extract_between(include_str!("lib.rs"), "let flush_handle = app.handle().clone();", "log::info!(");
+        let adapter = extract_between(include_str!("lib.rs"), "let flush_state =", "log::info!(");
+        assert!(adapter.contains("layout_actions::flush_layouts_periodically("));
+        let tick_body = extract_between(
+            include_str!("../../crates/taide-runtime/src/layout_actions.rs"),
+            "pub async fn flush_layouts_periodically(",
+            "\n}\n",
+        );
 
         assert!(
             tick_body.contains("flush_dirty_layouts"),
             "주기 flush 태스크에서 flush_dirty_layouts 호출을 찾을 수 없습니다"
         );
         assert!(
-            tick_body.contains("spawn_blocking"),
+            tick_body.contains("spawn_blocking_transient_handle"),
             "주기 flush 는 async 워커가 아니라 spawn_blocking 에서 실행돼야 합니다"
         );
         assert!(
-            tick_body.contains(".await"),
+            tick_body.contains("let _ = worker.await;"),
             "spawn_blocking 핸들을 await 하지 않으면 tick 이 겹쳐 flush 순서가 깨집니다"
         );
     }

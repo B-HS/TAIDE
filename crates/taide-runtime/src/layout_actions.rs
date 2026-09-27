@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use taide_infra::root_guard;
 use taide_layout::service;
@@ -16,7 +17,7 @@ use taide_model::layout::{
 };
 use taide_model::project::Project;
 
-use crate::{AppState, EventSink, WindowRegistry};
+use crate::{AppState, EventSink, TaskSupervisor, WindowRegistry};
 
 pub fn flush_dirty_layouts(state: &AppState) {
     let dirty: Vec<_> = state.dirty_layouts.write().drain().collect();
@@ -42,6 +43,21 @@ pub fn flush_dirty_layouts(state: &AppState) {
         if let Err(error) = save_layout(&state.paths, &project_id, &layout) {
             log::warn!("레이아웃 저장 실패 ({project_id}): {error}");
         }
+    }
+}
+
+/// Flushes shared layouts serially on tracked blocking workers using the host's existing interval.
+pub async fn flush_layouts_periodically(state: AppState, tasks: TaskSupervisor, interval: Duration) {
+    let mut ticker = tokio::time::interval(interval);
+    loop {
+        ticker.tick().await;
+        let state = state.clone();
+        let Some(worker) = tasks.spawn_blocking_transient_handle("layout-flush-worker", move || {
+            flush_dirty_layouts(&state);
+        }) else {
+            return;
+        };
+        let _ = worker.await;
     }
 }
 
