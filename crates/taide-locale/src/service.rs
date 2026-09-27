@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::OnceLock;
 
 use taide_infra::persist;
@@ -1364,6 +1365,14 @@ fn resolve_pack(pack: &LocalePack, base: Option<&LocalePack>, mut warnings: Vec<
     }
 }
 
+fn is_valid_locale_id(locale_id: &str) -> bool {
+    !locale_id.trim().is_empty() && !locale_id.contains(['/', '\\', '.', ':', '\0'])
+}
+
+fn is_regular_locale_file(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
+}
+
 pub fn list_locales(paths: &AppPaths) -> Vec<LocaleSummary> {
     let mut list = vec![
         summarize(&builtin_en(), true),
@@ -1380,7 +1389,13 @@ pub fn list_locales(paths: &AppPaths) -> Vec<LocaleSummary> {
         if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
             continue;
         }
+        if !is_regular_locale_file(&path) {
+            continue;
+        }
         if let Ok(Some(pack)) = persist::read_json::<LocalePack>(&path) {
+            if !is_valid_locale_id(&pack.id) {
+                continue;
+            }
             match list.iter_mut().find(|summary| summary.id == pack.id) {
                 Some(existing) => *existing = summarize(&pack, false),
                 None => list.push(summarize(&pack, false)),
@@ -1392,11 +1407,17 @@ pub fn list_locales(paths: &AppPaths) -> Vec<LocaleSummary> {
 }
 
 pub fn load_locale(paths: &AppPaths, locale_id: &str) -> AppResult<ResolvedLocale> {
+    if !is_valid_locale_id(locale_id) {
+        return Err(AppError::InvalidArgument(format!("invalid locale id: {locale_id}")));
+    }
     if let Some(builtin) = builtin_by_id(locale_id) {
         return Ok(resolve_pack(&builtin, None, Vec::new()));
     }
 
     let path = paths.locales_dir().join(format!("{locale_id}.json"));
+    if !is_regular_locale_file(&path) {
+        return Err(AppError::NotFound(format!("locale not found: {locale_id}")));
+    }
     let pack: LocalePack = persist::read_json(&path)?.ok_or_else(|| AppError::NotFound(format!("locale not found: {locale_id}")))?;
 
     let mut warnings = Vec::new();
@@ -1414,18 +1435,19 @@ pub fn load_locale(paths: &AppPaths, locale_id: &str) -> AppResult<ResolvedLocal
 }
 
 pub fn locale_exists(paths: &AppPaths, locale_id: &str) -> bool {
-    builtin_by_id(locale_id).is_some() || paths.locales_dir().join(format!("{locale_id}.json")).exists()
+    is_valid_locale_id(locale_id)
+        && (builtin_by_id(locale_id).is_some() || is_regular_locale_file(&paths.locales_dir().join(format!("{locale_id}.json"))))
 }
 
 pub fn save_locale(paths: &AppPaths, pack: &LocalePack) -> AppResult<LocaleSummary> {
     if pack.id.trim().is_empty() {
         return Err(AppError::InvalidArgument("locale id must not be empty".to_string()));
     }
+    if !is_valid_locale_id(&pack.id) {
+        return Err(AppError::InvalidArgument(format!("invalid locale id: {}", pack.id)));
+    }
     if builtin_by_id(&pack.id).is_some() {
         return Err(AppError::InvalidArgument(format!("cannot overwrite builtin locale: {}", pack.id)));
-    }
-    if pack.id.contains(['/', '\\', '.']) {
-        return Err(AppError::InvalidArgument(format!("invalid locale id: {}", pack.id)));
     }
 
     std::fs::create_dir_all(paths.locales_dir())?;
@@ -1601,6 +1623,50 @@ mod tests {
     }
 
     #[test]
+    fn 경로로_해석될_수_있는_로케일_아이디는_조회와_선택을_거부한다() {
+        let paths = AppPaths::new(temp_data_dir("invalid-id"));
+        std::fs::create_dir_all(paths.locales_dir()).expect("create locales dir");
+        let mut outside = builtin_en();
+        outside.id = "outside".to_string();
+        persist::write_json(&paths.data_dir.join("outside.json"), &outside).expect("write outside pack");
+        outside.id = "../outside".to_string();
+        persist::write_json(&paths.locales_dir().join("invalid.json"), &outside).expect("write invalid pack");
+
+        for locale_id in ["../outside", "nested/name", "nested\\name", "name.with.dot", "name:stream", "", " "] {
+            assert!(
+                matches!(load_locale(&paths, locale_id), Err(AppError::InvalidArgument(_))),
+                "{locale_id:?}"
+            );
+            assert!(!locale_exists(&paths, locale_id), "{locale_id:?}");
+            assert_eq!(resolve_language(&paths, locale_id, "ko-KR"), BUILTIN_EN_ID, "{locale_id:?}");
+        }
+        assert!(!list_locales(&paths).iter().any(|summary| summary.id == "../outside"));
+
+        std::fs::remove_dir_all(&paths.data_dir).expect("remove fixture data");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 외부_파일을_가리키는_로케일_링크는_읽거나_목록에_넣지_않는다() {
+        use std::os::unix::fs::symlink;
+
+        let paths = AppPaths::new(temp_data_dir("linked-pack"));
+        std::fs::create_dir_all(paths.locales_dir()).expect("create locales dir");
+        let mut outside = builtin_en();
+        outside.id = "linked".to_string();
+        let outside_path = paths.data_dir.join("outside.json");
+        persist::write_json(&outside_path, &outside).expect("write outside pack");
+        symlink(&outside_path, paths.locales_dir().join("linked.json")).expect("link outside pack");
+
+        assert!(load_locale(&paths, "linked").is_err());
+        assert!(!locale_exists(&paths, "linked"));
+        assert_eq!(resolve_language(&paths, "linked", "ko-KR"), BUILTIN_EN_ID);
+        assert!(!list_locales(&paths).iter().any(|summary| summary.id == "linked"));
+
+        std::fs::remove_dir_all(&paths.data_dir).expect("remove fixture data");
+    }
+
+    #[test]
     fn list_locales는_내장_3종과_사용자_팩을_반환하고_겹치면_사용자_팩이_이긴다() {
         let data_dir = temp_data_dir("list");
         let paths = AppPaths::new(data_dir);
@@ -1646,8 +1712,11 @@ mod tests {
     fn 경로_구분자가_섞인_아이디는_저장을_거부한다() {
         let paths = AppPaths::new(temp_data_dir("save-path"));
         let mut pack = builtin_en();
-        pack.id = "../evil".to_string();
-        assert!(save_locale(&paths, &pack).is_err());
+        for locale_id in ["../evil", "name:stream"] {
+            pack.id = locale_id.to_string();
+            assert!(matches!(save_locale(&paths, &pack), Err(AppError::InvalidArgument(_))));
+        }
+        assert!(!paths.locales_dir().exists());
     }
 
     #[test]

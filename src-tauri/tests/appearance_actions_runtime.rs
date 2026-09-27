@@ -195,7 +195,7 @@ fn theme_검증_실패는_같은_오류이고_기존_파일을_보존한다() {
 }
 
 #[test]
-fn locale_목록과_조회는_사용자_pack_및_없는_id와_깨진_json_오류를_유지한다() {
+fn locale_목록과_조회는_사용자_pack_및_경로_이탈_거부와_깨진_json_오류를_유지한다() {
     let fixture = Fixture::new();
     let mut custom = taide_locale::service::builtin_ko();
     custom.id = "fixture-public-language".to_string();
@@ -219,10 +219,12 @@ fn locale_목록과_조회는_사용자_pack_및_없는_id와_깨진_json_오류
     let outside_locale_dir = fixture.dir.join("fixture-outside.json");
     taide_infra::persist::write_json(&outside_locale_dir, &custom).unwrap();
     assert_eq!(
-        locale_actions::locale_get(&fixture.state, "../fixture-outside".to_string()).unwrap(),
-        taide_locale::service::load_locale(&fixture.state.paths, "../fixture-outside").unwrap()
+        locale_actions::locale_get(&fixture.state, "../fixture-outside".to_string())
+            .unwrap_err()
+            .kind(),
+        AppErrorKind::InvalidArgument
     );
-    assert!(!outside_locale_dir.starts_with(fixture.state.paths.locales_dir()));
+    assert!(outside_locale_dir.exists());
     std::fs::write(fixture.state.paths.locales_dir().join(format!("{}.json", custom.id)), "{").unwrap();
     assert_eq!(
         locale_actions::locale_get(&fixture.state, custom.id.clone()).unwrap_err().kind(),

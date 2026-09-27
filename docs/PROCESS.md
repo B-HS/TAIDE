@@ -892,6 +892,9 @@
   - [x] M6-NM. 공개 marker release의 mutation lock→경로 검증→동기 삭제/NotFound→tracking 해제와 Exit cleanup 순서를 대조하고 새 TaskSupervisor 인수 부재 E0061 compile RED(exit 101)를 확인했습니다. 자기 UUID marker·메모리 lock/oneshot의 종료 입장·caller 취소/정상 root·cleanup 경합 신규 4건이 통과했습니다. 사용자 파일/앱은 사용하지 않았습니다.
   - [x] M6-NN. 공개 release는 같은 등록 TaskSupervisor operation을 mutation lock 대기 전부터 반환까지 보유합니다. 기존 경로 검증·삭제 오류·tracking 정책과 공개 IPC/원격 인자·응답을 유지하며 닫힌 supervisor·AppState 종료 표시 뒤 새 요청만 거절합니다. Exit cleanup은 기존 위치이고 이미 입장한 동기 파일 작업을 abort로 완료 처리하지 않습니다.
   - [x] M6-NO. 신규 marker 4·기존 action 11·Phase 0 계약 7·실제 bindings 생성 1의 서로 다른 검사 23건과 runtime all-target/Tauri lib·변경 integration clippy·strict runtime rustdoc·Rust fmt/diff가 exit 0입니다. 공개 입력/반환·등록/모델/Cargo는 유지하고 실제 재생성 뒤 bindings/manifest digest도 불변입니다. architecture·docs/history/2026-09-28-agent-marker-owner.md와 이전 조사 이력에 결과와 direct Exit·OS stall/실기 잔여를 기록했습니다. 검증 단위를 선별 로컬 commit하며 전체 M6 완료 전 push/UI는 진행하지 않습니다.
+  - [x] M6-NP. 사용자 A 선택을 acknowledge에 기록했습니다. 자기 UUID fixture의 경로 이탈 ID와 외부 파일 symlink 조회가 수정 전 각각 exit 101로 실패했으며, 정상 사용자 pack·조회/존재/선택 경계를 함께 고정했습니다. 사용자 파일·실제 앱은 사용하지 않았습니다.
+  - [x] M6-NQ. 저장·조회·존재·목록에 공통 locale ID 검증을 적용하고 정적 symlink를 제외했습니다. 내장 우선순위·정상 사용자 pack·공개 IPC 형식을 유지하며 동시 파일 교체와 Windows 실기는 미완료 보안 gate로 구분합니다.
+  - [x] M6-NR. locale 20·Tauri 경유 1로 서로 다른 검사 21건과 runtime/Tauri 및 최종 locale all-target clippy·Rust fmt/diff·대상 MD 포맷이 exit 0입니다. acknowledge·bug·history·QA에 승인·결과·정적 링크 차단과 동시 교체/Windows 실기 한계를 기록하고 보안 수정 7개 파일만 선별 로컬 commit합니다. M6 전체 완료 전 일반 push와 UI 착수는 수행하지 않습니다.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
