@@ -4661,6 +4661,7 @@ dependencies = [
  "taide-remote",
  "taide-search",
  "taide-settings",
+ "taide-snippet",
  "taide-system",
  "taide-terminal",
  "taide-theme",

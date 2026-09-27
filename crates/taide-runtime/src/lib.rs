@@ -22,6 +22,7 @@ mod remote_dispatch_limiter;
 pub mod search_actions;
 mod search_store;
 pub mod settings_actions;
+pub mod snippet_actions;
 mod state;
 pub mod system_actions;
 mod task_supervisor;
