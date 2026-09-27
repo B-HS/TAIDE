@@ -3,7 +3,7 @@
 ## 진행 중: Rust-native 이전을 위한 전체 기능 crate 분리 (2026-09-23)
 
 > 요청: 기존 기능을 가능한 한 독립 crate로 분리하고 동작·테스트를 확인한 뒤에만 native UI 구현에 착수합니다. 매 변경에는 적합한 테스트를 동반하고, 가능한 경우 새 경계 테스트를 먼저 실패시킨 후 통과시키는 TDD로 진행합니다.
-> 현재 실행 목표(2026-09-27): 남아 있는 M6 전체를 완료하고 commit·push합니다. M7·M8 구현은 진행하지 않습니다. GitHub B-HS/TAIDE의 to_rust_native로 기존 미푸시 커밋을 포함한 일반 push는 사용자 명시 승인을 받았으며 M6 완료 후 수행합니다.
+> 현재 실행 목표(2026-09-27): 활성 목표에 따라 남아 있는 M 전체를 완료하고 commit·push합니다. M6 분리를 먼저 완료하고 M7·M8의 선행 gate와 기존 UI 보존 계약을 지킵니다. GitHub B-HS/TAIDE의 to_rust_native로 기존 미푸시 커밋을 포함한 일반 push는 사용자 명시 승인을 받았으며 M6 완료 후 수행합니다. 현재 실행은 메인이 직접 수행하며 서브에이전트를 사용하지 않습니다.
 > 재개 규칙: compact·handoff·새 세션에서도 이 체크리스트와 `docs/acknowledge/2026-09-23-rust-native-crate-migration-contract.md`를 먼저 확인하고 미완료 항목부터 시작합니다. 이번 작업에서 사용자가 직접 지정한 방식은 다중 에이전트 workflow 사용, 모든 subagent에 `ollama-cloud/deepseek-v4.1-flash#max` 지정입니다. 모델 명칭은 DeepSeek V4.1 Flash, variant `max`입니다. 이 기록을 지우거나 설치 기본 모델로 바꾸지 않습니다. 단, 재개된 실행 작업에서는 상위 운영 계약에 따라 workflow·모델 선택을 사용자에게 다시 확인합니다. 완료가 아닌 단계는 `[ ]`로 유지합니다.
 > 현재 브랜치: `to_rust_native`. 기존 Tauri 앱과 TS UI는 대체 native UI 검증 전까지 유지합니다. 앱 실행·재시작은 사용자 몫입니다.
 > 기준: rust-native 전환 계약·로드맵·parity plan, `docs/architecture.md`, `docs/agent-operations.md`, 상위 AGENTS 및 적용 컨벤션.
@@ -665,10 +665,11 @@
   - [x] M6-HJ. 검증한 file action 코드·테스트·bindings/manifest·아키텍처·이력·사용자 승인 문서 9개 파일을 `1c79b64`로 선별 로컬 commit했습니다. PROCESS는 별도 기록합니다. 사용자 목표는 M6 전체 완료까지로 갱신됐으며 M7/M8은 진행하지 않습니다. GitHub B-HS/TAIDE의 to_rust_native 일반 push는 기존 미푸시 커밋을 포함해 승인됐고 M6 전체 완료 뒤 적용합니다.
   - [ ] M6-HK. M6의 기존 roadmap·합의·검증 계약을 실제 AppServices 조립·AppHandle callback·application action·TaskSupervisor 잔여 spawn과 대조해 전체 종료에 필요한 남은 경계를 파일/심볼 기준으로 확정합니다. Tauri에 남겨야 하는 UI/OS adapter와 이전이 필요한 정책을 구분하며 M7·M8 gate로 범위를 확장하지 않습니다.
     - 조사: 설정 apply/action, 프로젝트/layout/검색 및 나머지 callback, LSP 설치 stdout/stderr·child, infra LSP 작업, PTY 세션 작업의 잔여 경계를 `docs/history/2026-09-27-m6-remaining-boundaries.md`에 고정했습니다. 직접 spawn 중 테스트 fixture와 요청형 Git pipe reader를 장수 제품 작업과 구분하며 203 command 전수 대응·나머지 port 대조는 계속 미완료입니다.
-  - [ ] M6-HL. settings_get·settings_update·settings_set_theme·apply_and_broadcast 및 app/sync의 SettingsApplyPort 호출을 대조하고 기존 관련 검사와 새 runtime action red를 기록합니다. persist→live state→observer 등록 순서의 await→이벤트 순서와 호출자의 mutation/reentrancy 계약을 고정합니다.
-  - [ ] M6-HM. 설정 application action과 공통 apply 정책을 runtime으로 이전하고 AppHandle observer와 Tauri 주입/응답 경계는 adapter에 유지합니다. EventSink와 observer 반응은 명시 주입하며 공개 함수·SettingsApplyPort 경로, 저장/마스킹/에러·wire 정책을 보존합니다.
-  - [ ] M6-HN. 관련 설정·runtime action·공유 조립·이벤트/IPC 검증과 정적 검사를 실행하고 실제 bindings diff/해시·아키텍처·검증 이력을 기록합니다. 사용자 설정 파일·시크릿·앱 실행에는 접근하지 않습니다.
-  - [ ] M6-HO. 검증된 설정 action 단위를 선별 로컬 commit하고 PROCESS를 별도 기록합니다. M6 전체 잔여 action·감독 경계는 계속 미완료로 유지하며 승인된 일반 push는 M6 전체 완료 후 수행합니다.
+    - 등록 owner 대조: Specta 203개(25 domain 및 composition root 1개)와 별도 raw 3개를 실제 등록 경로로 집계했고 `docs/history/2026-09-27-m6-command-registration-census.md`에 기록했습니다. search 4개·tree 5개의 잔여 상태/잠금 조립과 plugin·watcher AppHandle 포트를 확인했습니다. 전체 command body·나머지 callback 적합성 전수 판정은 여전히 미완료입니다.
+  - [x] M6-HL. settings_get·settings_update·settings_set_theme·apply_and_broadcast와 app/sync의 SettingsApplyPort 호출 및 IDE→agent→remote 등록 순서를 확인했습니다. 기존 settings 69건·이벤트 배선 29건은 exit 0이고 새 runtime action 검사 5건은 settings_actions 모듈 부재 E0432(exit 101)로 먼저 실패했습니다. persist→live state→observer await→이벤트 순서와 공통 apply의 mutation 비재취득·개별 command의 직렬화 계약을 테스트로 고정합니다.
+  - [x] M6-HM. 설정 action 3개와 공통 apply를 taide-runtime::settings_actions로 이전했습니다. EventSink와 owned Settings snapshot을 받는 await callback을 주입하고 실제 AppHandle observer는 Tauri에 유지했습니다. SettingsApplyPort·app/sync·IDE→agent→remote 등록 순서와 기존 공개 command 문서는 불변입니다. 새 동작 5건과 이벤트 배선 29건이 통과했으며 기존 내부 settings 서비스의 sanitize·저장·theme 검증을 그대로 소비합니다.
+  - [x] M6-HN. 새 설정 action 5건·runtime 46건·이벤트 배선 29건·공유 조립 2건·도메인 경계 3건·IPC 7건·공통 설정 포트 1건으로 변경 후 93건이 통과했습니다. 변경 전 settings 69건은 서비스 불변 근거로 재사용합니다. runtime/Tauri all-target clippy·strict runtime rustdoc·fmt·diff는 exit 0이고 runtime normal 그래프에 Tauri가 없습니다. 공개 IPC 타입·문서를 유지해 bindings/manifest diff와 SHA-256 변경은 없으며 생성 검사는 생략했습니다. 아키텍처와 docs/history/2026-09-27-settings-actions-runtime.md에 기록했습니다. 사용자 설정·시크릿·키링·앱 실행과 전체 workspace/frontend/GUI gate는 실행하지 않았습니다.
+  - [x] M6-HO. 검증된 설정 action 코드·테스트·아키텍처·이력과 목표 갱신 문서 10개 파일을 911d320으로 선별 로컬 commit했습니다. PROCESS와 command 등록 owner 조사 기록은 별도 문서 commit으로 기록합니다. M6 전체 잔여 action·감독 경계와 M7·M8은 계속 미완료이며 승인된 일반 push는 M6 전체 완료 후 수행합니다.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
