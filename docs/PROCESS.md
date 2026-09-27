@@ -737,7 +737,7 @@
     - 일반 LSP 진척(2026-09-27): 마지막 핸들 Drop 뒤 자기 child 생존(exit 101)·새 store API 부재 E0599 여섯 건을 재현했습니다. 실제 child 종료와 callback/reader 완료·대기 Drop 뒤 재대기를 구분합니다. PTY의 세 thread는 핸들을 저장하지 않는 본문을 확인했으나 해당 fixture 판정이 남아 JH 전체는 미완료입니다.
   - [x] M6-JI. 일반 LSP의 child wait/reader 완료 핸들과 kill/reap 직렬화 및 store의 프로세스 입장·종료 소유권을 구현했습니다. 제거/재시작한 이전 프로세스도 정상 root drain에서 기다리며 기존 framing·tail·shutdown/restart·IPC 계약을 보존합니다. PTY의 독립 thread 경계와 native 직접 Exit는 별도 미완료입니다. Drop/kill_on_drop fallback을 실제 join으로 해석하지 않습니다.
   - [x] M6-JJ. 일반 LSP wait 소유/정상 드레인 단위의 infra 27·core 8·runtime 3·Tauri 33으로 서로 다른 검사 71건과 관련 all-target clippy·strict rustdoc·Rust fmt/diff·대상 MD 네 문서 포맷이 통과했습니다. 0건을 선택한 잘못된 AppServices 필터는 제외하고 실제 integration 2건으로 대체했습니다. architecture·docs/history/2026-09-27-lsp-process-wait-ownership.md·docs/quality-assurance/2026-09-27-lsp-process-wait-lifecycle.md에 실제 결과를 기록하며 PTY·직접 native Exit·전체 M6/M7/M8은 미완료입니다. 공개 API의 worker 종료 플래그와 정상 child 회수도 구분하며 IPC/dependency/bindings 입력이 같아 이전 성공을 재사용합니다.
-  - [ ] M6-JK. 검증된 일반 LSP 소유/드레인 단위를 선별 로컬 commit합니다. PTY·전체 body/실기 등 M6 gate가 남으면 일반 push/UI 실행을 보류합니다.
+  - [x] M6-JK. 검증된 일반 LSP 소유/드레인 단위 13개 파일을 9155e13으로 선별 로컬 commit했습니다. JH~JK 중 JI/JJ/JK 3개는 완료이며 PTY fixture가 남은 JH·전체 body/실기 등 M6 gate는 미완료입니다. 일반 push/UI 실행은 보류합니다.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
