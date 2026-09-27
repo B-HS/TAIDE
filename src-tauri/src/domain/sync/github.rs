@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+use taide_runtime::sync_actions::SyncGistPort;
 
 use crate::domain::sync::types::{SYNC_GIST_DESCRIPTION, SYNC_GIST_FILENAME};
 use crate::error::{AppError, AppResult};
+use crate::infra::http::{outbound_http_client, HttpClientProfile};
 use crate::infra::redact::mask_provider_error;
 
 const GITHUB_API_BASE: &str = "https://api.github.com";
@@ -165,6 +167,40 @@ impl GistClient<'_> {
             .and_then(|file| file.content.clone())
             .ok_or_else(|| AppError::NotFound(format!("sync gist {gist_id} is missing {SYNC_GIST_FILENAME}")))?;
         Ok((parsed.updated_at, content))
+    }
+}
+
+/// Adapts the existing API-profile gist client to the runtime port.
+pub struct SyncGistHttpPort(reqwest::Client);
+
+impl SyncGistHttpPort {
+    /// Constructs the existing outbound API client only when the action requests it.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl Default for SyncGistHttpPort {
+    fn default() -> Self {
+        Self(outbound_http_client(HttpClientProfile::Api))
+    }
+}
+
+impl SyncGistPort for SyncGistHttpPort {
+    async fn discover_sync_gist(&self, token: &str, preferred_id: Option<&str>) -> AppResult<Option<(String, String)>> {
+        GistClient { client: &self.0, token }.discover_sync_gist(preferred_id).await
+    }
+
+    async fn create_gist(&self, token: &str, payload_json: &str) -> AppResult<(String, String)> {
+        GistClient { client: &self.0, token }.create_gist(payload_json).await
+    }
+
+    async fn update_gist(&self, token: &str, gist_id: &str, payload_json: &str) -> AppResult<String> {
+        GistClient { client: &self.0, token }.update_gist(gist_id, payload_json).await
+    }
+
+    async fn fetch_gist(&self, token: &str, gist_id: &str) -> AppResult<(String, String)> {
+        GistClient { client: &self.0, token }.fetch_gist(gist_id).await
     }
 }
 

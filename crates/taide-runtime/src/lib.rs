@@ -27,6 +27,7 @@ mod search_store;
 pub mod settings_actions;
 pub mod snippet_actions;
 mod state;
+pub mod sync_actions;
 pub mod system_actions;
 pub mod task_actions;
 mod task_supervisor;

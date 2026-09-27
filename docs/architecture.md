@@ -316,6 +316,12 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     공통 apply는 mutation guard를 재취득하지 않고 patch·테마 action은 snapshot부터 이벤트 완료까지 같은 guard를 유지한다.
     app_file_write·apply_settings_file·sync_download는 기존 SettingsApplyPort를 통해 같은 runtime apply를 소비한다.
     테마 변경만 SettingsChanged 이후 ThemeChanged를 추가 발행하며 저장 실패·없는 테마는 observer와 이벤트에 도달하지 않는다.
+    `taide-runtime::sync_actions`는 status/connect/disconnect/upload/download 5개의 secret/state·gist snapshot·재검증·저장/이벤트 조립을 소유한다.
+    같은 SecretStore와 lazy SyncGistPort factory를 받으며 GitHub HTTP 요청·응답/오류 마스킹과 API-profile client는 Tauri adapter에 유지한다.
+    기존 gist update의 round-trip은 mutation guard 밖이고 최초 create는 같은 guard를 유지해 중복 gist 생성을 막는다.
+    download는 fetch 뒤 guard를 취득하고 gist 변경→다른 sync 완료→conflict→parse/schema→settings apply→theme/locale→SyncStateChanged 순서를 유지한다.
+    settings apply callback은 기존 SettingsApplyPort를 호출하며 보호 설정 strip·기존 payload와 best-effort 파일 적용을 바꾸지 않는다.
+    runtime은 이미 workspace에 있는 taide-sync/serde_json을 직접 참조하고 normal graph에 Tauri는 없다. HTTP/keyring 실기·요청 취소와 정상 root 회수는 미완료다.
     `taide-runtime::search_actions`는 프로젝트 루트 확인, 검색 세션 시작/완료/취소, blocking 검색·목록·치환과 파일별 guard/self-write/skip 집계를 소유한다.
     검색 batch는 주입된 Send callback으로 전달하고 Tauri adapter만 기존 Channel 전송을 수행한다.
     치환 worker는 AppHandle 대신 같은 AppState clone을 사용한다. 전체 pass가 아니라 파일마다 mutation guard를 취득하며 기존 root guard·skip 상한을 보존한다.

@@ -1,117 +1,26 @@
-use taide_model::app_event::AppEvent;
-use taide_runtime::EventSink;
+use taide_runtime::sync_actions;
 use tauri::State;
 
+#[cfg(test)]
 use crate::domain::settings::types::Settings;
-use crate::domain::sync::github::GistClient;
-use crate::domain::sync::service;
+use crate::domain::sync::github::SyncGistHttpPort;
 use crate::domain::sync::types::{SyncDownloadResult, SyncStatus};
-use crate::error::{AppError, AppResult};
-use crate::infra::http::{outbound_http_client, HttpClientProfile};
-use crate::infra::secret::{SecretAccount, SecretStore, SecretStoreState};
+#[cfg(test)]
+use crate::error::AppError;
+use crate::error::AppResult;
+use crate::infra::secret::SecretStoreState;
 use crate::platform::event_sink::TauriEventSink;
 use crate::settings_port::SettingsApplyPort;
 use crate::state::AppState;
 
-fn current_status_snapshot(settings: &Settings, connected: bool) -> SyncStatus {
-    SyncStatus {
-        connected,
-        has_gist: settings.sync_gist_id.is_some(),
-        last_synced_at: settings.sync_last_synced_at.clone(),
-        remote_newer: None,
-    }
-}
-
-fn load_token(secret: &dyn SecretStore) -> AppResult<String> {
-    secret
-        .get(SecretAccount::GithubSync)?
-        .ok_or_else(|| AppError::InvalidArgument("GitHub sync is not connected".to_string()))
-}
-
-/// Phase-③ write-back decision of [`sync_upload`]: overlays the sync bookkeeping fields onto the
-/// live settings only while the live `sync_gist_id` still matches the phase-① snapshot. A
-/// mismatch means a `sync_disconnect` (live went `None`) or a gist repoint landed while the
-/// round-trip ran with the guard dropped — the write-back is skipped (`None`) so the interleaved
-/// command's outcome survives instead of being resurrected by stale upload bookkeeping (Phase E
-/// SYNC-1). On a match, every non-bookkeeping field comes from the live settings, so a
-/// `settings_update` that landed mid-round-trip is never rolled back to the snapshot.
-fn overlay_sync_bookkeeping(
-    live_settings: &Settings,
-    snapshot_gist_id: Option<&str>,
-    gist_id: &str,
-    remote_updated_at: &str,
-) -> Option<Settings> {
-    if live_settings.sync_gist_id.as_deref() != snapshot_gist_id {
-        return None;
-    }
-    Some(Settings {
-        sync_gist_id: Some(gist_id.to_string()),
-        sync_last_synced_at: Some(remote_updated_at.to_string()),
-        ..live_settings.clone()
-    })
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum DownloadApplyDecision {
-    RetryGistChanged,
-    RetrySyncCompleted,
-    Conflict,
-    Apply,
-}
-
-/// Guard-side decision of [`sync_download`], evaluated against the **live** settings after the
-/// guard is re-acquired. The ordering preserves the pre-split command's semantics: the retry
-/// aborts and the conflict verdict are decided before the payload is parsed, so an input that is
-/// both conflicting and malformed still reports the conflict exactly as the old code did. The two
-/// retry aborts cover what the old full-span lock excluded by construction: the configured gist
-/// changing mid-fetch (`RetryGistChanged`), and another sync completing mid-fetch and moving
-/// `sync_last_synced_at` off the pre-fetch snapshot (`RetrySyncCompleted`, Phase E SYNC-2) —
-/// without the latter, a concurrent upload's newer bookkeeping would flip the conflict check to
-/// "not newer" and let the stale fetched payload silently overwrite the settings that upload had
-/// just pushed, while rolling `sync_last_synced_at` backwards.
-fn decide_download_apply(
-    live_gist_id: Option<&str>,
-    live_last_synced_at: Option<&str>,
-    fetched_gist_id: &str,
-    pre_fetch_last_synced_at: Option<&str>,
-    remote_updated_at: &str,
-    force: bool,
-) -> DownloadApplyDecision {
-    if live_gist_id != Some(fetched_gist_id) {
-        return DownloadApplyDecision::RetryGistChanged;
-    }
-    if live_last_synced_at != pre_fetch_last_synced_at {
-        return DownloadApplyDecision::RetrySyncCompleted;
-    }
-    if !force && service::is_remote_newer(remote_updated_at, live_last_synced_at) {
-        return DownloadApplyDecision::Conflict;
-    }
-    DownloadApplyDecision::Apply
-}
+#[cfg(test)]
+use taide_runtime::sync_actions::load_token;
+pub use taide_runtime::sync_actions::{current_status_snapshot, decide_download_apply, overlay_sync_bookkeeping, DownloadApplyDecision};
 
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_status(state: State<'_, AppState>, secret: State<'_, SecretStoreState>) -> AppResult<SyncStatus> {
-    let secret = secret.0.as_ref();
-    let connected = secret.get(SecretAccount::GithubSync)?.is_some();
-    let settings = state.settings.read().clone();
-    let mut status = current_status_snapshot(&settings, connected);
-
-    if let (true, Some(token), Some(gist_id)) = (connected, secret.get(SecretAccount::GithubSync)?, settings.sync_gist_id.clone()) {
-        let client = outbound_http_client(HttpClientProfile::Api);
-        let gist_client = GistClient {
-            client: &client,
-            token: &token,
-        };
-        if let Ok((remote_updated_at, _)) = gist_client.fetch_gist(&gist_id).await {
-            status.remote_newer = Some(service::is_remote_newer(
-                &remote_updated_at,
-                settings.sync_last_synced_at.as_deref(),
-            ));
-        }
-    }
-
-    Ok(status)
+    sync_actions::sync_status(&state, secret.0.as_ref(), SyncGistHttpPort::new).await
 }
 
 #[tauri::command]
@@ -122,44 +31,7 @@ pub async fn sync_connect(
     secret: State<'_, SecretStoreState>,
     pat: String,
 ) -> AppResult<SyncStatus> {
-    if pat.trim().is_empty() {
-        return Err(AppError::InvalidArgument("token must not be empty".to_string()));
-    }
-
-    let client = outbound_http_client(HttpClientProfile::Api);
-    let previous_gist_id = state.settings.read().sync_gist_id.clone();
-    let discovered = GistClient {
-        client: &client,
-        token: &pat,
-    }
-    .discover_sync_gist(previous_gist_id.as_deref())
-    .await?;
-
-    let _guard = state.begin_mutation().await;
-    let current = state.settings.read().clone();
-    if current.sync_gist_id != previous_gist_id {
-        return Err(AppError::InvalidArgument(
-            "sync configuration changed while connecting — retry the connection".to_string(),
-        ));
-    }
-    secret.0.as_ref().set(SecretAccount::GithubSync, &pat)?;
-    let gist_id = discovered.as_ref().map(|(id, _)| id.clone());
-    let last_synced_at = if current.sync_gist_id == gist_id {
-        current.sync_last_synced_at.clone()
-    } else {
-        None
-    };
-    let updated = Settings {
-        sync_gist_id: gist_id,
-        sync_last_synced_at: last_synced_at,
-        ..current
-    };
-    taide_settings::service::save_settings(&state.paths, &updated)?;
-    *state.settings.write() = updated.clone();
-    let mut status = current_status_snapshot(&updated, true);
-    status.remote_newer = discovered.map(|(_, updated_at)| service::is_remote_newer(&updated_at, updated.sync_last_synced_at.as_deref()));
-    TauriEventSink(&app).publish(AppEvent::SyncStateChanged { status: status.clone() });
-    Ok(status)
+    sync_actions::sync_connect(&state, secret.0.as_ref(), pat, SyncGistHttpPort::new, &TauriEventSink(&app)).await
 }
 
 #[tauri::command]
@@ -169,21 +41,7 @@ pub async fn sync_disconnect(
     state: State<'_, AppState>,
     secret: State<'_, SecretStoreState>,
 ) -> AppResult<SyncStatus> {
-    let _guard = state.begin_mutation().await;
-    secret.0.as_ref().delete(SecretAccount::GithubSync)?;
-
-    let current = state.settings.read().clone();
-    let updated = Settings {
-        sync_gist_id: None,
-        sync_last_synced_at: None,
-        ..current
-    };
-    taide_settings::service::save_settings(&state.paths, &updated)?;
-    *state.settings.write() = updated.clone();
-
-    let status = current_status_snapshot(&updated, false);
-    TauriEventSink(&app).publish(AppEvent::SyncStateChanged { status: status.clone() });
-    Ok(status)
+    sync_actions::sync_disconnect(&state, secret.0.as_ref(), &TauriEventSink(&app)).await
 }
 
 /// Runs in three phases so the GitHub round-trip (60s client timeout) no longer holds the
@@ -212,44 +70,7 @@ pub async fn sync_disconnect(
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_upload(app: tauri::AppHandle, state: State<'_, AppState>, secret: State<'_, SecretStoreState>) -> AppResult<SyncStatus> {
-    let guard = state.begin_mutation().await;
-    let token = load_token(secret.0.as_ref())?;
-    let settings_snapshot = state.settings.read().clone();
-    let themes = service::collect_theme_entries(&state.paths);
-    let locales = service::collect_locale_entries(&state.paths);
-    let payload = service::assemble_payload(&settings_snapshot, themes, locales, service::now_utc_iso8601());
-    let payload_json = serde_json::to_string_pretty(&payload)?;
-
-    let client = outbound_http_client(HttpClientProfile::Api);
-    let gist_client = GistClient {
-        client: &client,
-        token: &token,
-    };
-
-    let snapshot_gist_id = settings_snapshot.sync_gist_id.clone();
-    let (_guard, gist_id, remote_updated_at) = match snapshot_gist_id.clone() {
-        Some(id) => {
-            drop(guard);
-            let updated_at = gist_client.update_gist(&id, &payload_json).await?;
-            (state.begin_mutation().await, id, updated_at)
-        }
-        None => {
-            let (id, updated_at) = gist_client.create_gist(&payload_json).await?;
-            (guard, id, updated_at)
-        }
-    };
-
-    let connected = secret.0.as_ref().get(SecretAccount::GithubSync)?.is_some();
-    let live_settings = state.settings.read().clone();
-    let Some(updated_settings) = overlay_sync_bookkeeping(&live_settings, snapshot_gist_id.as_deref(), &gist_id, &remote_updated_at) else {
-        return Ok(current_status_snapshot(&live_settings, connected));
-    };
-    taide_settings::service::save_settings(&state.paths, &updated_settings)?;
-    *state.settings.write() = updated_settings.clone();
-
-    let status = current_status_snapshot(&updated_settings, connected);
-    TauriEventSink(&app).publish(AppEvent::SyncStateChanged { status: status.clone() });
-    Ok(status)
+    sync_actions::sync_upload(&state, secret.0.as_ref(), SyncGistHttpPort::new, &TauriEventSink(&app)).await
 }
 
 /// Fetches the gist **outside** `AppState::begin_mutation` and takes the guard only for the local
@@ -276,65 +97,15 @@ pub async fn sync_download(
     apply_settings: State<'_, SettingsApplyPort>,
     force: bool,
 ) -> AppResult<SyncDownloadResult> {
-    let token = load_token(secret.0.as_ref())?;
-    let (gist_id, pre_fetch_last_synced_at) = {
-        let settings = state.settings.read();
-        let gist_id = settings
-            .sync_gist_id
-            .clone()
-            .ok_or_else(|| AppError::InvalidArgument("no sync gist is configured yet — upload once first".to_string()))?;
-        (gist_id, settings.sync_last_synced_at.clone())
-    };
-
-    let client = outbound_http_client(HttpClientProfile::Api);
-    let gist_client = GistClient {
-        client: &client,
-        token: &token,
-    };
-    let (remote_updated_at, content) = gist_client.fetch_gist(&gist_id).await?;
-
-    let _guard = state.begin_mutation().await;
-    let current = state.settings.read().clone();
-    match decide_download_apply(
-        current.sync_gist_id.as_deref(),
-        current.sync_last_synced_at.as_deref(),
-        &gist_id,
-        pre_fetch_last_synced_at.as_deref(),
-        &remote_updated_at,
+    sync_actions::sync_download(
+        &state,
+        secret.0.as_ref(),
+        SyncGistHttpPort::new,
+        |settings| (apply_settings.0)(&app, &state, settings),
         force,
-    ) {
-        DownloadApplyDecision::RetryGistChanged => {
-            return Err(AppError::InvalidArgument(
-                "the configured sync gist changed while downloading — retry the download".to_string(),
-            ))
-        }
-        DownloadApplyDecision::RetrySyncCompleted => {
-            return Err(AppError::InvalidArgument(
-                "another sync completed while downloading — retry the download".to_string(),
-            ))
-        }
-        DownloadApplyDecision::Conflict => return Ok(SyncDownloadResult::Conflict { remote_updated_at }),
-        DownloadApplyDecision::Apply => {}
-    }
-
-    let payload = service::parse_synced_payload(&content)
-        .ok_or_else(|| AppError::Internal("sync payload from the gist was malformed".to_string()))?;
-    service::ensure_supported_schema_version(payload.schema_version)?;
-
-    let applied = service::apply_payload_settings(&current, &payload);
-    let final_settings = Settings {
-        sync_gist_id: Some(gist_id),
-        sync_last_synced_at: Some(remote_updated_at),
-        ..applied
-    };
-    let final_settings = (apply_settings.0)(&app, &state, final_settings).await?;
-
-    service::apply_theme_entries(&state.paths, &payload.themes);
-    service::apply_locale_entries(&state.paths, &payload.locales);
-
-    let status = current_status_snapshot(&final_settings, true);
-    TauriEventSink(&app).publish(AppEvent::SyncStateChanged { status: status.clone() });
-    Ok(SyncDownloadResult::Applied { status })
+        &TauriEventSink(&app),
+    )
+    .await
 }
 
 #[cfg(test)]

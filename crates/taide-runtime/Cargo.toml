@@ -8,6 +8,7 @@ rust-version = "1.89"
 [dependencies]
 log = "0.4"
 parking_lot = "0.12"
+serde_json = "1"
 taide-agent = { path = "../taide-agent" }
 taide-ai = { path = "../taide-ai" }
 taide-app = { path = "../taide-app" }
@@ -26,6 +27,7 @@ taide-remote = { path = "../taide-remote" }
 taide-search = { path = "../taide-search" }
 taide-settings = { path = "../taide-settings" }
 taide-snippet = { path = "../taide-snippet" }
+taide-sync = { path = "../taide-sync" }
 taide-system = { path = "../taide-system" }
 taide-task = { path = "../taide-task" }
 taide-terminal = { path = "../taide-terminal" }
