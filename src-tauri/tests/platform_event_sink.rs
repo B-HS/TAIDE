@@ -65,12 +65,14 @@ fn 앱과_두_layout_발행_경로는_platform_adapter를_사용한다() {
     let production_app_source = app_source.split_once("#[cfg(test)]\nmod tests").unwrap().0;
     let normalized_app_source = production_app_source.split_whitespace().collect::<Vec<_>>().join("");
     let layout_source = include_str!("../src/domain/layout/service.rs");
+    let layout_actions = include_str!("../../crates/taide-runtime/src/layout_actions.rs");
     let adapter_source = include_str!("../src/platform/event_sink.rs");
 
     assert!(normalized_app_source.contains("TauriEventSink(&app).publish(AppEvent::LayoutChanged"));
     assert!(normalized_app_source.contains("layout_service::finish_mutation(&TauriEventSink(&app)"));
-    assert!(layout_source.contains("pub fn finish_mutation(sink: &dyn EventSink"));
-    assert!(layout_source.contains("sink.publish(AppEvent::LayoutChanged"));
+    assert!(layout_source.contains("pub use taide_runtime::layout_actions::finish_mutation"));
+    assert!(layout_actions.contains("pub fn finish_mutation(sink: &dyn EventSink"));
+    assert!(layout_actions.contains("sink.publish(AppEvent::LayoutChanged"));
     assert!(adapter_source.contains("LayoutChanged { project_id, revision }.emit(self.0)"));
 }
 

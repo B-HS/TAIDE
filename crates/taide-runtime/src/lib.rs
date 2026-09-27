@@ -4,6 +4,7 @@ mod ai_request_store;
 pub mod app_actions;
 mod app_services;
 pub mod file_actions;
+pub mod layout_actions;
 mod platform_services;
 mod remote_dispatch_limiter;
 pub mod search_actions;

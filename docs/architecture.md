@@ -259,6 +259,11 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     `taide-runtime::app_actions`는 앱 파일 읽기의 live settings snapshot과 쓰기/parsed 설정 적용의 mutation guard·검증·적용 await를 소유한다.
     설정 적용 callback만 기존 SettingsApplyPort/AppHandle adapter에 유지하고 remote gated strip은 gateway에서 먼저 수행한다.
     프롬프트 저장은 설정 포트를 호출하지 않으며 기존 service의 validate→atomic write를 소비한다. 제품 버전·process perf registry는 Tauri metadata/진단 adapter에 남는다.
+    `taide-runtime::layout_actions`는 dirty flush·finish·공통 탭 open/close를 소유한다. 기존 layout service 경로는 재수출 또는 adapter로 유지한다.
+    finish의 focus 보정·dirty 표시·LayoutChanged 발행 뒤에 호출자가 state를 기록하는 기존 순서를 보존한다.
+    close의 observer는 state 기록 뒤 같은 mutation guard 안에서 주입된 callback으로 실행하며 실제 IDE→PTY 후처리 등록은 Tauri 조립부에 남는다.
+    dirty flush는 먼저 drain하고 snapshot을 저장한다. 없는 layout·저장 실패는 기존 로그/생략 정책을 유지하며 주기의 blocking await와 shutdown의 동기 호출도 변경하지 않는다.
+    layout command 19개의 나머지 조립과 실제 보조 창 생성/이동은 별도 후속 경계다.
     IDE diff의 mutation guard·blocking 실행과 Forbidden 예외 정책은 기존 호출자에 남는다.
     setup은 상태 복원 뒤 AppState·TaskSupervisor·원격 제한기·플랫폼 포트·시크릿 포트·IDE 저장 포트·EventSink를 주입해 `Arc<AppServices>`를 만들고, 나머지 저장소는 AppServices가 초기화한다.
     AppState·SearchStore·AiRequestStore·TreeStore·TerminalStore·PluginStore·AgentStore·AgentHooksStore·GitStore·RemoteStore·IdeStore·SecretStoreState·IdeSaveFile·LspStore·LspInstallStore·SystemUsageStore·RemoteDispatchLimiter·PlatformServices·WindowRegistry·TaskSupervisor의 20개 상태·포트를

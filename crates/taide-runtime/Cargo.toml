@@ -6,6 +6,7 @@ edition = "2021"
 rust-version = "1.89"
 
 [dependencies]
+log = "0.4"
 parking_lot = "0.12"
 taide-agent = { path = "../taide-agent" }
 taide-app = { path = "../taide-app" }
@@ -13,6 +14,7 @@ taide-file = { path = "../taide-file" }
 taide-git = { path = "../taide-git" }
 taide-ide = { path = "../taide-ide" }
 taide-infra = { path = "../taide-infra" }
+taide-layout = { path = "../taide-layout" }
 taide-lsp = { path = "../taide-lsp" }
 taide-model = { path = "../taide-model" }
 taide-plugin = { path = "../taide-plugin" }

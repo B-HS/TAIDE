@@ -1383,11 +1383,12 @@ mod tests {
         assert!(setup.contains("app.manage(layout_tab_closed_observers());"));
 
         let layout_source = include_str!("domain/layout/service.rs");
-        let close_body = extract_between(layout_source, "pub async fn close_tab_and_finish(", "\n#[cfg(test)]");
+        assert!(layout_source.contains("layout_actions::close_tab_and_finish("));
+        assert!(layout_source.contains("app.state::<LayoutTabClosedObservers>().notify(app, tab)"));
+        let layout_actions = include_str!("../../crates/taide-runtime/src/layout_actions.rs");
+        let close_body = extract_between(layout_actions, "pub async fn close_tab_and_finish", "\n#[cfg(test)]");
         let write_position = close_body.find("*state.layouts.write() = layouts;").expect("layout 기록");
-        let notify_position = close_body
-            .find("app.state::<LayoutTabClosedObservers>().notify(app, &closed.tab);")
-            .expect("닫기 후처리");
+        let notify_position = close_body.find("notify_tab_closed(&closed.tab);").expect("닫기 후처리");
         assert!(write_position < notify_position);
     }
 

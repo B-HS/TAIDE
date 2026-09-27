@@ -4641,6 +4641,7 @@ dependencies = [
 name = "taide-runtime"
 version = "0.1.0"
 dependencies = [
+ "log",
  "parking_lot",
  "taide-agent",
  "taide-app",
@@ -4648,6 +4649,7 @@ dependencies = [
  "taide-git",
  "taide-ide",
  "taide-infra",
+ "taide-layout",
  "taide-lsp",
  "taide-model",
  "taide-plugin",
