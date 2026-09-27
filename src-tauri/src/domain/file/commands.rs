@@ -1,24 +1,14 @@
-use std::path::Path;
+use taide_runtime::file_actions;
+use tauri::{AppHandle, State};
 
-use tauri::{AppHandle, Manager, State};
-
-use super::service;
 use super::service::{MirrorEntry, UntitledMirrorEntry};
 use super::types::OpenedFile;
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use crate::ids::{ProjectId, TabId};
-use crate::infra::perf::{self, SpanSlot};
-use crate::infra::root_guard;
 use crate::plugin_port::PluginRuntimePort;
 use crate::state::{AppState, FlushScope};
 
-/// The read itself (up to `REFUSED_FILE_BYTES` of bytes, plus the UTF-8 decode and line count over
-/// them) runs on a blocking thread instead of pinning an async worker for its duration
-/// (architecture.md §2.1, audit §2 H-3). Holds no mutation guard — unchanged, this command only
-/// ever reads. The root-guard resolution, the plugin overlay lookup and the settings read stay on
-/// the async side so nothing borrowed from `State` has to cross into the blocking closure; the
-/// `.editorconfig` chain walk the flag enables is filesystem work and rides inside the same
-/// blocking call as the read (`service::open_file`).
+/// Delegates authorized file opening to the runtime, loading plugin overlays after access validation.
 #[tauri::command]
 #[specta::specta]
 pub async fn file_open(
@@ -27,204 +17,95 @@ pub async fn file_open(
     plugins: State<'_, PluginRuntimePort>,
     path: String,
 ) -> AppResult<OpenedFile> {
-    let _span = perf::span(SpanSlot::FileOpen);
-    let projects = state.projects.read().clone();
-    let (_, resolved) = root_guard::resolve_owning_project_or_cli_opened(&projects, &state.cli_opened_paths.read(), Path::new(&path))?;
-    let editor_config_enabled = state.settings.read().editor_config_enabled;
-
-    let language_overlays = (plugins.language_overlays)(&app);
-    tauri::async_runtime::spawn_blocking(move || service::open_file(&resolved, &language_overlays, editor_config_enabled))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))?
+    file_actions::file_open(&state, path, || (plugins.language_overlays)(&app)).await
 }
 
-/// Guard-held `spawn_blocking`, the same shape `git_stage` uses: `AppState::begin_mutation` is
-/// acquired on the async side (so a long lock wait never occupies a blocking-pool thread — see
-/// `AppState::begin_mutation_blocking`'s doc) and held across the write, while the write itself —
-/// atomic temp file, `write_all`, `sync_all`, rename — moves off the async worker it used to pin
-/// for the whole fsync (architecture.md §2.1, audit §2 H-3). `AppState` is re-borrowed from the
-/// `AppHandle` inside the closure because a `State<'_, _>` borrow cannot cross into a `'static`
-/// task; the guarded composite `save_file_within_open_projects` stays the single save path (R6#2).
+/// Delegates mutation-guarded blocking saves to the shared runtime action.
 #[tauri::command]
 #[specta::specta]
-pub async fn file_save(app: AppHandle, state: State<'_, AppState>, path: String, content: String) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<AppState>();
-        service::save_file_within_open_projects(&state, Path::new(&path), &content)
-    })
-    .await
-    .map_err(|error| AppError::Internal(error.to_string()))?
+pub async fn file_save(_app: AppHandle, state: State<'_, AppState>, path: String, content: String) -> AppResult<()> {
+    file_actions::file_save(&state, path, content).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn file_create(state: State<'_, AppState>, path: String, is_dir: bool) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let projects = state.projects.read().clone();
-    let (_, resolved) = root_guard::resolve_owning_project(&projects, Path::new(&path))?;
-
-    service::create_entry(&resolved, is_dir)?;
-    state.self_writes.mark(&resolved);
-    Ok(())
+    file_actions::file_create(&state, path, is_dir).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn file_rename(state: State<'_, AppState>, from: String, to: String) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let projects = state.projects.read().clone();
-    let (_, resolved_from) = root_guard::resolve_entry_owning_project(&projects, Path::new(&from))?;
-    let (_, destination) = root_guard::resolve_entry_owning_project(&projects, Path::new(&to))?;
-
-    service::rename_entry(&resolved_from, &destination)?;
-    state.self_writes.mark(&resolved_from);
-    state.self_writes.mark(&destination);
-    Ok(())
+    file_actions::file_rename(&state, from, to).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn file_delete(state: State<'_, AppState>, path: String) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let projects = state.projects.read().clone();
-    let (_, resolved) = root_guard::resolve_entry_owning_project(&projects, Path::new(&path))?;
-
-    service::delete_entry(&resolved)?;
-    state.self_writes.mark(&resolved);
-    Ok(())
+    file_actions::file_delete(&state, path).await
 }
 
-/// Guard-held `spawn_blocking` (same shape as [`file_save`]): a directory paste walks and copies an
-/// arbitrarily deep subtree, which has no business running on an async worker (audit §2 H-3). Only
-/// the copy moves — the guard, the root-guard resolution and the self-write mark keep their
-/// existing order on the async side.
+/// Delegates mutation-guarded blocking copies to the runtime action.
 #[tauri::command]
 #[specta::specta]
 pub async fn file_copy(state: State<'_, AppState>, from: String, to: String) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let projects = state.projects.read().clone();
-    let (_, resolved_from) = root_guard::resolve_owning_project(&projects, Path::new(&from))?;
-    let (_, resolved_to) = root_guard::resolve_owning_project(&projects, Path::new(&to))?;
-
-    let copy_to = resolved_to.clone();
-    tauri::async_runtime::spawn_blocking(move || service::copy_entry(&resolved_from, &copy_to))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    state.self_writes.mark(&resolved_to);
-    Ok(())
+    file_actions::file_copy(&state, from, to).await
 }
 
-/// Not guarded by `AppState::begin_mutation` — this command only reads `state.projects` (an
-/// `RwLock` read, not the mutation lock) to resolve the project root; it never touches `AppState`
-/// itself, and `persist::write_atomic`'s UUID temp-file + rename (`persist.rs`) already serializes
-/// concurrent writers to the same mirror file (last writer wins, atomically), the same rationale
-/// `lsp_send` (`lsp/commands.rs`) uses to skip the lock. Frequency is the practical reason this
-/// matters: this fires on a 500ms debounce timer while the user types, far more often than
-/// saves/git operations, so gating it behind the global mutation lock would queue every keystroke's
-/// mirror write behind unrelated long-held mutations for no correctness benefit — ordering relative
-/// to `file_save`'s own `clear_mirror` is guaranteed by the frontend's save-epoch guard
-/// (`editor-pane.tsx`'s `persistMirror`), not by lock ordering. The real cost of keeping the lock
-/// here would surface at shutdown: `handle_close_requested`'s hot-exit flush would then wait behind
-/// a long lock holder (e.g. `git_pull`) and blow through `HOT_EXIT_FLUSH_TIMEOUT_MS`, losing every
-/// unflushed mirror instead of writing it — the opposite of what hot exit exists for.
-///
-/// The mirror write itself (a `write_atomic` with its own `sync_all`) runs in `spawn_blocking`
-/// (audit §2 H-3) — it fires on a 500ms typing debounce, so it is the most frequent fsync in the
-/// file domain and the least appropriate one to leave on an async worker. `AppState` is re-borrowed
-/// from the `AppHandle` inside the closure for the same reason as [`file_save`].
+/// Delegates dirty mirror writes without acquiring the global mutation guard.
 #[tauri::command]
 #[specta::specta]
 pub async fn file_mirror_dirty(
-    app: AppHandle,
+    _app: AppHandle,
     state: State<'_, AppState>,
     project_id: ProjectId,
     path: String,
     content: String,
 ) -> AppResult<Option<f64>> {
-    let projects = state.projects.read().clone();
-    let root = root_guard::project_root(&projects, &project_id)?;
-    let resolved = root_guard::ensure_within_root(&root, Path::new(&path))?;
-
-    tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<AppState>();
-        service::mirror_dirty(&state.paths, &project_id, &resolved, &path, &content)
-    })
-    .await
-    .map_err(|error| AppError::Internal(error.to_string()))?
+    file_actions::file_mirror_dirty(&state, project_id, path, content).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn file_list_mirrors(state: State<'_, AppState>, project_id: ProjectId) -> AppResult<Vec<MirrorEntry>> {
-    let projects = state.projects.read().clone();
-    root_guard::project_root(&projects, &project_id)?;
-
-    service::list_mirrors(&state.paths, &project_id)
+    file_actions::file_list_mirrors(&state, project_id).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn file_clear_mirror(state: State<'_, AppState>, project_id: ProjectId, path: String) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let projects = state.projects.read().clone();
-    let root = root_guard::project_root(&projects, &project_id)?;
-    let resolved = root_guard::ensure_within_root(&root, Path::new(&path))?;
-
-    service::clear_mirror(&state.paths, &project_id, &resolved)
+    file_actions::file_clear_mirror(&state, project_id, path).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn file_prune_mirrors(state: State<'_, AppState>, project_id: ProjectId, keep_paths: Vec<String>) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let projects = state.projects.read().clone();
-    root_guard::project_root(&projects, &project_id)?;
-
-    service::prune_mirrors(&state.paths, &project_id, &keep_paths)
+    file_actions::file_prune_mirrors(&state, project_id, keep_paths).await
 }
 
-/// Not guarded by `AppState::begin_mutation` — same rationale as `file_mirror_dirty` above: reads
-/// only `state.projects` to validate the project exists, never touches `AppState` otherwise, and
-/// `persist::write_atomic` already serializes concurrent writers to the same untitled-mirror file.
+/// Delegates validated untitled mirror writes without acquiring the global mutation guard.
 #[tauri::command]
 #[specta::specta]
 pub async fn file_mirror_untitled(state: State<'_, AppState>, project_id: ProjectId, tab_id: TabId, content: String) -> AppResult<()> {
-    let projects = state.projects.read().clone();
-    root_guard::project_root(&projects, &project_id)?;
-    root_guard::ensure_safe_component(tab_id.as_str())?;
-
-    service::mirror_untitled(&state.paths, &project_id, &tab_id, &content)
+    file_actions::file_mirror_untitled(&state, project_id, tab_id, content).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn file_list_untitled_mirrors(state: State<'_, AppState>, project_id: ProjectId) -> AppResult<Vec<UntitledMirrorEntry>> {
-    let projects = state.projects.read().clone();
-    root_guard::project_root(&projects, &project_id)?;
-
-    service::list_untitled_mirrors(&state.paths, &project_id)
+    file_actions::file_list_untitled_mirrors(&state, project_id).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn file_clear_untitled_mirror(state: State<'_, AppState>, project_id: ProjectId, tab_id: TabId) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let projects = state.projects.read().clone();
-    root_guard::project_root(&projects, &project_id)?;
-    root_guard::ensure_safe_component(tab_id.as_str())?;
-
-    service::clear_untitled_mirror(&state.paths, &project_id, &tab_id)
+    file_actions::file_clear_untitled_mirror(&state, project_id, tab_id).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn file_prune_untitled_mirrors(state: State<'_, AppState>, project_id: ProjectId, keep_tab_ids: Vec<TabId>) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let projects = state.projects.read().clone();
-    root_guard::project_root(&projects, &project_id)?;
-
-    service::prune_untitled_mirrors(&state.paths, &project_id, &keep_tab_ids)
+    file_actions::file_prune_untitled_mirrors(&state, project_id, keep_tab_ids).await
 }
 
 /// Confirms the calling window has finished flushing its dirty editor models to the hot-exit
@@ -262,8 +143,6 @@ pub async fn file_flush_complete(
 
 #[tauri::command]
 pub async fn file_read_raw(state: State<'_, AppState>, path: String) -> Result<tauri::ipc::Response, crate::error::AppError> {
-    let projects = state.projects.read().clone();
-    let (_, resolved) = root_guard::resolve_owning_project_or_cli_opened(&projects, &state.cli_opened_paths.read(), Path::new(&path))?;
-    let bytes = service::read_raw(&resolved)?;
+    let bytes = file_actions::file_read_raw(&state, path).await?;
     Ok(tauri::ipc::Response::new(bytes))
 }

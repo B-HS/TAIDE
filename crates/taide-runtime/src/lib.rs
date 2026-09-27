@@ -2,7 +2,7 @@ use taide_model::app_event::AppEvent;
 
 mod ai_request_store;
 mod app_services;
-mod file_actions;
+pub mod file_actions;
 mod platform_services;
 mod remote_dispatch_limiter;
 mod search_store;

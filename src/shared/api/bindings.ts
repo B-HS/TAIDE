@@ -284,65 +284,21 @@ export const commands = {
 	 */
 	layoutApplyPathChange: (projectId: ProjectId, change: TabPathChange) => typedError<TabPathChangeResult, AppError>(__TAURI_INVOKE("layout_apply_path_change", { projectId, change })),
 	layoutSetShellView: (projectId: ProjectId, patch: ShellViewPatch) => typedError<ProjectLayout, AppError>(__TAURI_INVOKE("layout_set_shell_view", { projectId, patch })),
-	/**
-	 *  The read itself (up to `REFUSED_FILE_BYTES` of bytes, plus the UTF-8 decode and line count over
-	 *  them) runs on a blocking thread instead of pinning an async worker for its duration
-	 *  (architecture.md §2.1, audit §2 H-3). Holds no mutation guard — unchanged, this command only
-	 *  ever reads. The root-guard resolution, the plugin overlay lookup and the settings read stay on
-	 *  the async side so nothing borrowed from `State` has to cross into the blocking closure; the
-	 *  `.editorconfig` chain walk the flag enables is filesystem work and rides inside the same
-	 *  blocking call as the read (`service::open_file`).
-	 */
+	/**  Delegates authorized file opening to the runtime, loading plugin overlays after access validation. */
 	fileOpen: (path: string) => typedError<OpenedFile, AppError>(__TAURI_INVOKE("file_open", { path })),
-	/**
-	 *  Guard-held `spawn_blocking`, the same shape `git_stage` uses: `AppState::begin_mutation` is
-	 *  acquired on the async side (so a long lock wait never occupies a blocking-pool thread — see
-	 *  `AppState::begin_mutation_blocking`'s doc) and held across the write, while the write itself —
-	 *  atomic temp file, `write_all`, `sync_all`, rename — moves off the async worker it used to pin
-	 *  for the whole fsync (architecture.md §2.1, audit §2 H-3). `AppState` is re-borrowed from the
-	 *  `AppHandle` inside the closure because a `State<'_, _>` borrow cannot cross into a `'static`
-	 *  task; the guarded composite `save_file_within_open_projects` stays the single save path (R6#2).
-	 */
+	/**  Delegates mutation-guarded blocking saves to the shared runtime action. */
 	fileSave: (path: string, content: string) => typedError<null, AppError>(__TAURI_INVOKE("file_save", { path, content })),
 	fileCreate: (path: string, isDir: boolean) => typedError<null, AppError>(__TAURI_INVOKE("file_create", { path, isDir })),
 	fileRename: (from: string, to: string) => typedError<null, AppError>(__TAURI_INVOKE("file_rename", { from, to })),
 	fileDelete: (path: string) => typedError<null, AppError>(__TAURI_INVOKE("file_delete", { path })),
-	/**
-	 *  Guard-held `spawn_blocking` (same shape as [`file_save`]): a directory paste walks and copies an
-	 *  arbitrarily deep subtree, which has no business running on an async worker (audit §2 H-3). Only
-	 *  the copy moves — the guard, the root-guard resolution and the self-write mark keep their
-	 *  existing order on the async side.
-	 */
+	/**  Delegates mutation-guarded blocking copies to the runtime action. */
 	fileCopy: (from: string, to: string) => typedError<null, AppError>(__TAURI_INVOKE("file_copy", { from, to })),
-	/**
-	 *  Not guarded by `AppState::begin_mutation` — this command only reads `state.projects` (an
-	 *  `RwLock` read, not the mutation lock) to resolve the project root; it never touches `AppState`
-	 *  itself, and `persist::write_atomic`'s UUID temp-file + rename (`persist.rs`) already serializes
-	 *  concurrent writers to the same mirror file (last writer wins, atomically), the same rationale
-	 *  `lsp_send` (`lsp/commands.rs`) uses to skip the lock. Frequency is the practical reason this
-	 *  matters: this fires on a 500ms debounce timer while the user types, far more often than
-	 *  saves/git operations, so gating it behind the global mutation lock would queue every keystroke's
-	 *  mirror write behind unrelated long-held mutations for no correctness benefit — ordering relative
-	 *  to `file_save`'s own `clear_mirror` is guaranteed by the frontend's save-epoch guard
-	 *  (`editor-pane.tsx`'s `persistMirror`), not by lock ordering. The real cost of keeping the lock
-	 *  here would surface at shutdown: `handle_close_requested`'s hot-exit flush would then wait behind
-	 *  a long lock holder (e.g. `git_pull`) and blow through `HOT_EXIT_FLUSH_TIMEOUT_MS`, losing every
-	 *  unflushed mirror instead of writing it — the opposite of what hot exit exists for.
-	 * 
-	 *  The mirror write itself (a `write_atomic` with its own `sync_all`) runs in `spawn_blocking`
-	 *  (audit §2 H-3) — it fires on a 500ms typing debounce, so it is the most frequent fsync in the
-	 *  file domain and the least appropriate one to leave on an async worker. `AppState` is re-borrowed
-	 *  from the `AppHandle` inside the closure for the same reason as [`file_save`].
-	 */
+	/**  Delegates dirty mirror writes without acquiring the global mutation guard. */
 	fileMirrorDirty: (projectId: ProjectId, path: string, content: string) => typedError<number | null, AppError>(__TAURI_INVOKE("file_mirror_dirty", { projectId, path, content })),
 	fileListMirrors: (projectId: ProjectId) => typedError<MirrorEntry[], AppError>(__TAURI_INVOKE("file_list_mirrors", { projectId })),
 	fileClearMirror: (projectId: ProjectId, path: string) => typedError<null, AppError>(__TAURI_INVOKE("file_clear_mirror", { projectId, path })),
 	filePruneMirrors: (projectId: ProjectId, keepPaths: string[]) => typedError<null, AppError>(__TAURI_INVOKE("file_prune_mirrors", { projectId, keepPaths })),
-	/**
-	 *  Not guarded by `AppState::begin_mutation` — same rationale as `file_mirror_dirty` above: reads
-	 *  only `state.projects` to validate the project exists, never touches `AppState` otherwise, and
-	 *  `persist::write_atomic` already serializes concurrent writers to the same untitled-mirror file.
-	 */
+	/**  Delegates validated untitled mirror writes without acquiring the global mutation guard. */
 	fileMirrorUntitled: (projectId: ProjectId, tabId: TabId, content: string) => typedError<null, AppError>(__TAURI_INVOKE("file_mirror_untitled", { projectId, tabId, content })),
 	fileListUntitledMirrors: (projectId: ProjectId) => typedError<UntitledMirrorEntry[], AppError>(__TAURI_INVOKE("file_list_untitled_mirrors", { projectId })),
 	fileClearUntitledMirror: (projectId: ProjectId, tabId: TabId) => typedError<null, AppError>(__TAURI_INVOKE("file_clear_untitled_mirror", { projectId, tabId })),
