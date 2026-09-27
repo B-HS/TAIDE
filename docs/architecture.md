@@ -233,6 +233,9 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     기존 agent 명령은 같은 타입을 재수출하며 OS PID 조회·PTY 전달·AgentForegroundPids 주입은 Tauri adapter에 남는다.
     `GitStore`는 taide-git에서 repo root·status 캐시와 같은 repo의 push/fetch 락을 공유한다.
     최초 무효화 구독의 1회 실행은 공유 OnceLock으로 제어하고 실제 세 이벤트 등록은 Tauri adapter의 콜백이 맡는다.
+    runtime `git_actions`는 공개 action 41개·repo root 해석·cache·mutation/repo lock·함수별 이벤트 순서를 소유한다.
+    status의 perf→구독 callback→루트→cache 순서와 diff의 루트→plugin overlay callback 순서를 유지하며,
+    실제 AppHandle 구독/plugin 취득·EventSink adapter는 Tauri에 남는다. 시작한 blocking worker의 요청 Drop/전체 종료 소유권은 별도 미완료 경계다.
     status 계산은 슬롯 identity·generation을 함께 검증하므로 슬롯 회수 뒤 같은 프로젝트 ID를 다시 조회해도 이전 계산이 새 캐시를 덮지 않는다.
     `RemoteStore`는 taide-remote에서 서버 Tokio 핸들·종료 신호·세션 digest·nonce·로그인 잠금과 클라이언트 수를 공유 Arc<Mutex>에 보관한다.
     이벤트 broadcast·세션 epoch watch도 같은 채널을 공유하며, 링크/nonce 1회 소모·만료·독립 잠금 축·전체 세션 해제/서버 중지의 epoch 증분을 유지한다.

@@ -1,10 +1,5 @@
-use std::path::{Path, PathBuf};
-use std::time::Instant;
-
 use serde::de::DeserializeOwned;
-use taide_git::store::StatusRead;
-use taide_model::app_event::AppEvent;
-use taide_runtime::EventSink;
+use taide_runtime::git_actions;
 use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
 
@@ -15,10 +10,9 @@ use super::types::{
     BlameLine, CommitFile, CommitOptions, ConflictSides, DiffMode, DiffSides, GitBranch, GitRemote, GitStashEntry, GitStatus, GutterHunk,
     LogEntry, RevertOutcome, StagedDiffText, TagCreateOptions, TagInfo,
 };
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use crate::events::{FsChanged, GitRefsChanged, GitStatusChanged};
 use crate::ids::ProjectId;
-use crate::infra::perf::{self, SpanSlot};
 use crate::platform::event_sink::TauriEventSink;
 use crate::plugin_port::PluginRuntimePort;
 use crate::state::AppState;
@@ -38,61 +32,10 @@ fn ensure_status_invalidation_listeners(app: &AppHandle, store: &GitStore) {
     });
 }
 
-fn resolve_repo_root(state: &State<'_, AppState>, store: &State<'_, GitStore>, project_id: &ProjectId) -> AppResult<PathBuf> {
-    if let Some(cached) = store.cached_repo_root(project_id) {
-        return Ok(cached);
-    }
-
-    let root = state
-        .projects
-        .read()
-        .get(project_id)
-        .map(|project| project.root.clone())
-        .ok_or_else(|| AppError::NotFound(format!("project not open: {project_id}")))?;
-
-    let repo_root = service::discover(Path::new(&root))?;
-    store.cache_repo_root(project_id.clone(), repo_root.clone());
-    Ok(repo_root)
-}
-
-/// Invalidates before emitting — see [`GitStore::invalidate_status`] for why the order matters and
-/// why this is not redundant with the subscription that also covers this event.
-fn emit_status_changed(app: &AppHandle, project_id: &ProjectId) {
-    app.state::<GitStore>().invalidate_status(project_id);
-    TauriEventSink(app).publish(AppEvent::GitStatusChanged {
-        project_id: project_id.clone(),
-    });
-}
-
-/// Invalidates the status cache too, because a refs movement changes [`GitStatus`] itself — its
-/// `branch`/`ahead`/`behind` come from `HEAD` and the upstream ref, not from the worktree — and the
-/// frontend maps this event to the same `QUERY_KEY.GIT.STATUS(projectId)` refetch that
-/// `git:status-changed` triggers.
-fn emit_refs_changed(app: &AppHandle, project_id: &ProjectId) {
-    app.state::<GitStore>().invalidate_status(project_id);
-    TauriEventSink(app).publish(AppEvent::GitRefsChanged {
-        project_id: project_id.clone(),
-    });
-}
-
 #[tauri::command]
 #[specta::specta]
 pub async fn git_init(app: AppHandle, state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let root = state
-        .projects
-        .read()
-        .get(&project_id)
-        .map(|project| project.root.clone())
-        .ok_or_else(|| AppError::NotFound(format!("project not open: {project_id}")))?;
-
-    tauri::async_runtime::spawn_blocking(move || service::init(Path::new(&root)))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    store.remove(&project_id);
-    emit_status_changed(&app, &project_id);
-    emit_refs_changed(&app, &project_id);
-    Ok(())
+    git_actions::git_init(&TauriEventSink(&app), &state, &store, project_id).await
 }
 
 /// Runs the status read on a blocking thread like every other git query command here: dropping
@@ -119,20 +62,7 @@ pub async fn git_status(
     store: State<'_, GitStore>,
     project_id: ProjectId,
 ) -> AppResult<GitStatus> {
-    let _span = perf::span(SpanSlot::GitStatus);
-    ensure_status_invalidation_listeners(&app, &store);
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-
-    let pending = match store.read_status(&project_id, Instant::now()) {
-        StatusRead::Fresh(status) => return Ok(status),
-        StatusRead::Stale(pending) => pending,
-    };
-
-    let status = tauri::async_runtime::spawn_blocking(move || service::status(&repo_root))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    store.finish_status(&project_id, pending, &status);
-    Ok(status)
+    git_actions::git_status(|| ensure_status_invalidation_listeners(&app, &store), &state, &store, project_id).await
 }
 
 /// `before_path` is the row's pre-change path and feeds the **original (left) side only** — the
@@ -151,12 +81,16 @@ pub async fn git_diff_file(
     mode: DiffMode,
     before_path: Option<String>,
 ) -> AppResult<DiffSides> {
-    let state = app.state::<AppState>();
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    let language_overlays = (plugins.language_overlays)(&app);
-    tauri::async_runtime::spawn_blocking(move || service::diff_file(&repo_root, &path, mode, before_path.as_deref(), &language_overlays))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))?
+    git_actions::git_diff_file(
+        &app.state::<AppState>(),
+        &store,
+        || (plugins.language_overlays)(&app),
+        project_id,
+        path,
+        mode,
+        before_path,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -166,10 +100,7 @@ pub async fn git_diff_staged_text(
     store: State<'_, GitStore>,
     project_id: ProjectId,
 ) -> AppResult<StagedDiffText> {
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::diff_staged_text(&repo_root))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))?
+    git_actions::git_diff_staged_text(&state, &store, project_id).await
 }
 
 /// Same query-side `spawn_blocking` shape as [`git_status`] — reading a tree entry and its blob out of
@@ -183,10 +114,7 @@ pub async fn git_show_file(
     rev: String,
     path: String,
 ) -> AppResult<String> {
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::show_file(&repo_root, &rev, &path))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))?
+    git_actions::git_show_file(&state, &store, project_id, rev, path).await
 }
 
 #[tauri::command]
@@ -198,10 +126,7 @@ pub async fn git_log(
     skip: u32,
     take: u32,
 ) -> AppResult<Vec<LogEntry>> {
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::log(&repo_root, skip as usize, take as usize))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))?
+    git_actions::git_log(&state, &store, project_id, skip, take).await
 }
 
 /// Same query-side `spawn_blocking` shape as [`git_status`] — the two `graph_ahead_behind` revwalks are
@@ -213,10 +138,7 @@ pub async fn git_ahead_behind(
     store: State<'_, GitStore>,
     project_id: ProjectId,
 ) -> AppResult<service::AheadBehind> {
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::ahead_behind(&repo_root))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))?
+    git_actions::git_ahead_behind(&state, &store, project_id).await
 }
 
 /// Same query-side `spawn_blocking` shape as [`git_status`] — opening the repository reads `.git/config`
@@ -224,10 +146,7 @@ pub async fn git_ahead_behind(
 #[tauri::command]
 #[specta::specta]
 pub async fn git_remotes(state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<Vec<GitRemote>> {
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::remotes(&repo_root))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))?
+    git_actions::git_remotes(&state, &store, project_id).await
 }
 
 /// Same query-side `spawn_blocking` shape as [`git_status`], and the one that mattered most: this is the
@@ -241,10 +160,7 @@ pub async fn git_gutter(
     project_id: ProjectId,
     path: String,
 ) -> AppResult<Vec<GutterHunk>> {
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::gutter(&repo_root, &path))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))?
+    git_actions::git_gutter(&state, &store, project_id, path).await
 }
 
 #[tauri::command]
@@ -257,10 +173,7 @@ pub async fn git_blame_range(
     from: u32,
     to: u32,
 ) -> AppResult<Vec<BlameLine>> {
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::blame_range(&repo_root, &path, from, to))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))?
+    git_actions::git_blame_range(&state, &store, project_id, path, from, to).await
 }
 
 /// Holds `AppState::begin_mutation` across the index write — staging must stay serialized with
@@ -278,13 +191,7 @@ pub async fn git_stage(
     project_id: ProjectId,
     paths: Vec<String>,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::stage(&repo_root, &paths))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    emit_status_changed(&app, &project_id);
-    Ok(())
+    git_actions::git_stage(&TauriEventSink(&app), &state, &store, project_id, paths).await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — `repo.reset_default` is synchronous
@@ -298,13 +205,7 @@ pub async fn git_unstage(
     project_id: ProjectId,
     paths: Vec<String>,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::unstage(&repo_root, &paths))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    emit_status_changed(&app, &project_id);
-    Ok(())
+    git_actions::git_unstage(&TauriEventSink(&app), &state, &store, project_id, paths).await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — `service::discard` mixes synchronous
@@ -319,13 +220,7 @@ pub async fn git_discard(
     project_id: ProjectId,
     paths: Vec<String>,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::discard(&repo_root, &paths))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    emit_status_changed(&app, &project_id);
-    Ok(())
+    git_actions::git_discard(&TauriEventSink(&app), &state, &store, project_id, paths).await
 }
 
 /// Holds `AppState::begin_mutation` across the whole commit — the staged-state read, the commit,
@@ -345,14 +240,7 @@ pub async fn git_commit(
     message: String,
     opts: CommitOptions,
 ) -> AppResult<String> {
-    let _guard = state.begin_mutation().await;
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    let oid = tauri::async_runtime::spawn_blocking(move || service::commit(&repo_root, &message, &opts))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    emit_status_changed(&app, &project_id);
-    emit_refs_changed(&app, &project_id);
-    Ok(oid)
+    git_actions::git_commit(&TauriEventSink(&app), &state, &store, project_id, message, opts).await
 }
 
 /// Runs `git push` on a blocking thread **without** `AppState::begin_mutation` (audit R4#3, C11
@@ -378,14 +266,7 @@ pub async fn git_commit(
 #[tauri::command]
 #[specta::specta]
 pub async fn git_push(app: AppHandle, state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<()> {
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    let repo_lock = store.push_fetch_lock(&repo_root);
-    let _repo_guard = repo_lock.lock().await;
-    tauri::async_runtime::spawn_blocking(move || service::push(&repo_root))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    emit_refs_changed(&app, &project_id);
-    Ok(())
+    git_actions::git_push(&TauriEventSink(&app), &state, &store, project_id).await
 }
 
 /// Still runs the whole `git pull` under `AppState::begin_mutation` — acquired with the async
@@ -407,14 +288,7 @@ pub async fn git_push(app: AppHandle, state: State<'_, AppState>, store: State<'
 #[tauri::command]
 #[specta::specta]
 pub async fn git_pull(app: AppHandle, state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<()> {
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    let _guard = state.begin_mutation().await;
-    tauri::async_runtime::spawn_blocking(move || service::pull(&repo_root))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    emit_status_changed(&app, &project_id);
-    emit_refs_changed(&app, &project_id);
-    Ok(())
+    git_actions::git_pull(&TauriEventSink(&app), &state, &store, project_id).await
 }
 
 /// Runs `git fetch` on a blocking thread **without** `AppState::begin_mutation` (audit R4#3),
@@ -442,14 +316,7 @@ pub async fn git_pull(app: AppHandle, state: State<'_, AppState>, store: State<'
 #[tauri::command]
 #[specta::specta]
 pub async fn git_fetch(app: AppHandle, state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<()> {
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    let repo_lock = store.push_fetch_lock(&repo_root);
-    let _repo_guard = repo_lock.lock().await;
-    tauri::async_runtime::spawn_blocking(move || service::fetch(&repo_root))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    emit_refs_changed(&app, &project_id);
-    Ok(())
+    git_actions::git_fetch(&TauriEventSink(&app), &state, &store, project_id).await
 }
 
 /// Same query-side `spawn_blocking` shape as [`git_status`] — `repo.signature()` resolves the identity
@@ -457,10 +324,7 @@ pub async fn git_fetch(app: AppHandle, state: State<'_, AppState>, store: State<
 #[tauri::command]
 #[specta::specta]
 pub async fn git_current_user(state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<Option<String>> {
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::current_user(&repo_root))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))?
+    git_actions::git_current_user(&state, &store, project_id).await
 }
 
 /// Same query-side `spawn_blocking` shape as [`git_status`] — enumerating branches walks the loose refs
@@ -468,10 +332,7 @@ pub async fn git_current_user(state: State<'_, AppState>, store: State<'_, GitSt
 #[tauri::command]
 #[specta::specta]
 pub async fn git_branches(state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<Vec<GitBranch>> {
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::branches(&repo_root))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))?
+    git_actions::git_branches(&state, &store, project_id).await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — branch creation (+ optional
@@ -487,16 +348,7 @@ pub async fn git_branch_create(
     name: String,
     checkout: bool,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::branch_create(&repo_root, &name, checkout))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    emit_refs_changed(&app, &project_id);
-    if checkout {
-        emit_status_changed(&app, &project_id);
-    }
-    Ok(())
+    git_actions::git_branch_create(&TauriEventSink(&app), &state, &store, project_id, name, checkout).await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — `repo.checkout_tree` is synchronous
@@ -510,14 +362,7 @@ pub async fn git_branch_checkout(
     project_id: ProjectId,
     name: String,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::branch_checkout(&repo_root, &name))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    emit_status_changed(&app, &project_id);
-    emit_refs_changed(&app, &project_id);
-    Ok(())
+    git_actions::git_branch_checkout(&TauriEventSink(&app), &state, &store, project_id, name).await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — the merge-ancestry check
@@ -533,13 +378,7 @@ pub async fn git_branch_delete(
     name: String,
     force: bool,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::branch_delete(&repo_root, &name, force))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    emit_refs_changed(&app, &project_id);
-    Ok(())
+    git_actions::git_branch_delete(&TauriEventSink(&app), &state, &store, project_id, name, force).await
 }
 
 /// Same query-side `spawn_blocking` shape as [`git_status`] — `repo.stash_foreach` walks the stash reflog
@@ -551,10 +390,7 @@ pub async fn git_stash_list(
     store: State<'_, GitStore>,
     project_id: ProjectId,
 ) -> AppResult<Vec<GitStashEntry>> {
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::stash_list(&repo_root))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))?
+    git_actions::git_stash_list(&state, &store, project_id).await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — `repo.stash_save` is synchronous
@@ -569,13 +405,7 @@ pub async fn git_stash_push(
     project_id: ProjectId,
     message: Option<String>,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::stash_push(&repo_root, message.as_deref()))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    emit_status_changed(&app, &project_id);
-    Ok(())
+    git_actions::git_stash_push(&TauriEventSink(&app), &state, &store, project_id, message).await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — `repo.stash_apply` (+ its safe
@@ -589,13 +419,7 @@ pub async fn git_stash_apply(
     project_id: ProjectId,
     index: u32,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::stash_apply(&repo_root, index))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    emit_status_changed(&app, &project_id);
-    Ok(())
+    git_actions::git_stash_apply(&TauriEventSink(&app), &state, &store, project_id, index).await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — `repo.stash_drop` is synchronous
@@ -603,11 +427,7 @@ pub async fn git_stash_apply(
 #[tauri::command]
 #[specta::specta]
 pub async fn git_stash_drop(state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId, index: u32) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::stash_drop(&repo_root, index))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))?
+    git_actions::git_stash_drop(&state, &store, project_id, index).await
 }
 
 #[tauri::command]
@@ -621,13 +441,7 @@ pub async fn git_discard_hunk(
     hunk_start: u32,
     hunk_end: u32,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::discard_hunk(&repo_root, &path, hunk_start, hunk_end))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    emit_status_changed(&app, &project_id);
-    Ok(())
+    git_actions::git_discard_hunk(&TauriEventSink(&app), &state, &store, project_id, path, hunk_start, hunk_end).await
 }
 
 #[tauri::command]
@@ -638,14 +452,7 @@ pub async fn git_undo_last_commit(
     store: State<'_, GitStore>,
     project_id: ProjectId,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::undo_last_commit(&repo_root))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    emit_status_changed(&app, &project_id);
-    emit_refs_changed(&app, &project_id);
-    Ok(())
+    git_actions::git_undo_last_commit(&TauriEventSink(&app), &state, &store, project_id).await
 }
 
 #[tauri::command]
@@ -656,10 +463,7 @@ pub async fn git_conflict_sides(
     project_id: ProjectId,
     path: String,
 ) -> AppResult<ConflictSides> {
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::conflict_sides(&repo_root, &path))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))?
+    git_actions::git_conflict_sides(&state, &store, project_id, path).await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — the working-tree write plus
@@ -674,13 +478,7 @@ pub async fn git_resolve_conflict(
     path: String,
     content: String,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::resolve_conflict(&repo_root, &path, &content))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    emit_status_changed(&app, &project_id);
-    Ok(())
+    git_actions::git_resolve_conflict(&TauriEventSink(&app), &state, &store, project_id, path, content).await
 }
 
 #[tauri::command]
@@ -694,13 +492,7 @@ pub async fn git_stage_hunk(
     hunk_start: u32,
     hunk_end: u32,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::stage_hunk(&repo_root, &path, hunk_start, hunk_end))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    emit_status_changed(&app, &project_id);
-    Ok(())
+    git_actions::git_stage_hunk(&TauriEventSink(&app), &state, &store, project_id, path, hunk_start, hunk_end).await
 }
 
 #[tauri::command]
@@ -714,13 +506,7 @@ pub async fn git_unstage_hunk(
     hunk_start: u32,
     hunk_end: u32,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::unstage_hunk(&repo_root, &path, hunk_start, hunk_end))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    emit_status_changed(&app, &project_id);
-    Ok(())
+    git_actions::git_unstage_hunk(&TauriEventSink(&app), &state, &store, project_id, path, hunk_start, hunk_end).await
 }
 
 #[tauri::command]
@@ -734,13 +520,7 @@ pub async fn git_stage_lines(
     line_start: u32,
     line_end: u32,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::stage_lines(&repo_root, &path, line_start, line_end))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    emit_status_changed(&app, &project_id);
-    Ok(())
+    git_actions::git_stage_lines(&TauriEventSink(&app), &state, &store, project_id, path, line_start, line_end).await
 }
 
 #[tauri::command]
@@ -754,13 +534,7 @@ pub async fn git_unstage_lines(
     line_start: u32,
     line_end: u32,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::unstage_lines(&repo_root, &path, line_start, line_end))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    emit_status_changed(&app, &project_id);
-    Ok(())
+    git_actions::git_unstage_lines(&TauriEventSink(&app), &state, &store, project_id, path, line_start, line_end).await
 }
 
 #[tauri::command]
@@ -771,10 +545,7 @@ pub async fn git_commit_files(
     project_id: ProjectId,
     rev: String,
 ) -> AppResult<Vec<CommitFile>> {
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::commit_files(&repo_root, &rev))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))?
+    git_actions::git_commit_files(&state, &store, project_id, rev).await
 }
 
 #[tauri::command]
@@ -787,10 +558,7 @@ pub async fn git_file_log(
     skip: u32,
     take: u32,
 ) -> AppResult<Vec<LogEntry>> {
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::file_log(&repo_root, &path, skip as usize, take as usize))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))?
+    git_actions::git_file_log(&state, &store, project_id, path, skip, take).await
 }
 
 #[tauri::command]
@@ -802,25 +570,13 @@ pub async fn git_revert_commit(
     project_id: ProjectId,
     rev: String,
 ) -> AppResult<RevertOutcome> {
-    let _guard = state.begin_mutation().await;
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    let outcome = tauri::async_runtime::spawn_blocking(move || service::revert_commit(&repo_root, &rev))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    emit_status_changed(&app, &project_id);
-    if !outcome.conflicted {
-        emit_refs_changed(&app, &project_id);
-    }
-    Ok(outcome)
+    git_actions::git_revert_commit(&TauriEventSink(&app), &state, &store, project_id, rev).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn git_tags(state: State<'_, AppState>, store: State<'_, GitStore>, project_id: ProjectId) -> AppResult<Vec<TagInfo>> {
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::tags(&repo_root))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))?
+    git_actions::git_tags(&state, &store, project_id).await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — `repo.tag`/`repo.tag_lightweight`
@@ -836,13 +592,7 @@ pub async fn git_tag_create(
     target: String,
     opts: TagCreateOptions,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::tag_create(&repo_root, &name, &target, &opts))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    emit_refs_changed(&app, &project_id);
-    Ok(())
+    git_actions::git_tag_create(&TauriEventSink(&app), &state, &store, project_id, name, target, opts).await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — `repo.tag_delete` is synchronous
@@ -856,13 +606,7 @@ pub async fn git_tag_delete(
     project_id: ProjectId,
     name: String,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::tag_delete(&repo_root, &name))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    emit_refs_changed(&app, &project_id);
-    Ok(())
+    git_actions::git_tag_delete(&TauriEventSink(&app), &state, &store, project_id, name).await
 }
 
 /// Same guard-held `spawn_blocking` shape as [`git_stage`] — creating the local tracking branch
@@ -877,14 +621,7 @@ pub async fn git_checkout_remote_branch(
     project_id: ProjectId,
     remote_ref: String,
 ) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let repo_root = resolve_repo_root(&state, &store, &project_id)?;
-    tauri::async_runtime::spawn_blocking(move || service::checkout_remote_branch(&repo_root, &remote_ref))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    emit_status_changed(&app, &project_id);
-    emit_refs_changed(&app, &project_id);
-    Ok(())
+    git_actions::git_checkout_remote_branch(&TauriEventSink(&app), &state, &store, project_id, remote_ref).await
 }
 
 #[cfg(test)]
@@ -898,7 +635,7 @@ mod tests {
             .split("fn ensure_status_invalidation_listeners(")
             .nth(1)
             .expect("구독 adapter")
-            .split("fn resolve_repo_root(")
+            .split("#[tauri::command]")
             .next()
             .expect("구독 범위");
         assert!(registration.contains("store.ensure_invalidation_listeners(||"));
@@ -914,8 +651,13 @@ mod tests {
         let subscription = status
             .find("ensure_status_invalidation_listeners(&app, &store)")
             .expect("최초 구독");
-        let resolution = status.find("resolve_repo_root(&state, &store, &project_id)").expect("루트 해석");
-        let read = status.find("store.read_status(&project_id, Instant::now())").expect("캐시 읽기");
+        let delegation = status.find("git_actions::git_status(").expect("공유 action 위임");
+        assert!(delegation < subscription);
+        let runtime = include_str!("../../../../crates/taide-runtime/src/git_actions.rs");
+        let action = runtime.split("pub async fn git_status(").nth(1).expect("공유 status action");
+        let subscription = action.find("install_invalidation_listeners();").expect("주입 구독 port");
+        let resolution = action.find("resolve_repo_root(state, store, &project_id)").expect("루트 해석");
+        let read = action.find("store.read_status(&project_id, Instant::now())").expect("캐시 읽기");
         assert!(subscription < resolution && resolution < read);
     }
 

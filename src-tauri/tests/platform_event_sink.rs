@@ -68,8 +68,25 @@ fn 앱과_두_layout_발행_경로는_platform_adapter를_사용한다() {
     let layout_actions = include_str!("../../crates/taide-runtime/src/layout_actions.rs");
     let adapter_source = include_str!("../src/platform/event_sink.rs");
 
-    assert!(normalized_app_source.contains("TauriEventSink(&app).publish(AppEvent::LayoutChanged"));
-    assert!(normalized_app_source.contains("layout_service::finish_mutation(&TauriEventSink(&app)"));
+    assert!(normalized_app_source.contains("layout_actions::layout_move_tab_to_window(&TauriEventSink(&app),&state,&windows,"));
+    assert!(normalized_app_source
+        .contains("layout_actions::return_auxiliary_window_tabs(&TauriEventSink(&app),&state,project_id,window_slot).await"));
+    let move_action = layout_actions
+        .split_once("pub async fn layout_move_tab_to_window<")
+        .unwrap()
+        .1
+        .split_once("pub async fn return_auxiliary_window_tabs(")
+        .unwrap()
+        .0;
+    let return_action = layout_actions
+        .split_once("pub async fn return_auxiliary_window_tabs(")
+        .unwrap()
+        .1
+        .split_once("pub async fn layout_get(")
+        .unwrap()
+        .0;
+    assert!(move_action.contains("finish_mutation(sink, state, &project_id, layout)"));
+    assert!(return_action.contains("sink.publish(AppEvent::LayoutChanged { project_id, revision })"));
     assert!(layout_source.contains("pub use taide_runtime::layout_actions::finish_mutation"));
     assert!(layout_actions.contains("pub fn finish_mutation(sink: &dyn EventSink"));
     assert!(layout_actions.contains("sink.publish(AppEvent::LayoutChanged"));
@@ -101,7 +118,7 @@ fn git_status와_refs_이벤트는_같은_port에서_순서대로_발행된다()
 
 #[test]
 fn git_명령과_워처는_캐시_무효화_후_port에_발행한다() {
-    let commands = include_str!("../src/domain/git/commands.rs");
+    let commands = include_str!("../../crates/taide-runtime/src/git_actions.rs");
     let watcher = include_str!("../src/domain/git/watch.rs");
     let adapter = include_str!("../src/platform/event_sink.rs");
     let status_command = commands.split_once("fn emit_status_changed(").unwrap().1;

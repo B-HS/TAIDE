@@ -6,6 +6,7 @@ pub mod app_actions;
 mod app_services;
 mod exit_drain;
 pub mod file_actions;
+pub mod git_actions;
 pub mod layout_actions;
 pub mod locale_actions;
 pub mod lsp_install_actions;
