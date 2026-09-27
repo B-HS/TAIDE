@@ -123,7 +123,7 @@ async fn reconcile_claude_project_hooks(app: &AppHandle) {
         return;
     }
 
-    let emitter = commands::resolve_claude_hook_emitter().await;
+    let emitter = commands::resolve_claude_hook_emitter(&app.state::<TaskSupervisor>()).await;
     for (root, value) in installed {
         if service::agent_hook_entries_match(AGENT_NAME_CLAUDE, &value, emitter) {
             continue;

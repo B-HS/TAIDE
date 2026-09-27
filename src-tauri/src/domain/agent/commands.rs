@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use taide_model::app_event::AppEvent;
-use taide_runtime::{agent_actions, agent_hook_actions, EventSink};
+use taide_runtime::{agent_actions, agent_hook_actions, agent_probe, EventSink, TaskSupervisor};
 use tauri::{Manager, State};
 
 pub use taide_agent::store::{AgentHooksStore, AgentStore, HooksServerInfo};
@@ -114,36 +114,23 @@ pub fn detect_agents_for_pids(pids: Vec<(String, u32)>) -> Vec<service::Detected
 /// dispatch for a probe that can only come back empty — the common case for every project whose
 /// terminal panel was never opened, on every poll tick.
 #[cfg(unix)]
-pub async fn detect_agents_for_pids_blocking(agents: &AgentStore, pids: Vec<(String, u32)>) -> AppResult<Vec<service::DetectedAgentProbe>> {
-    if pids.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let unresolved = agents.unresolved_pids(&pids);
-    if !unresolved.is_empty() {
-        let resolved = tauri::async_runtime::spawn_blocking(move || resolve_agent_names(&unresolved))
-            .await
-            .map_err(|error| AppError::Internal(error.to_string()))?;
-        agents.remember_process_names(resolved);
-    }
-
-    Ok(agents.probes_for(pids))
+pub async fn detect_agents_for_pids_blocking(
+    tasks: &TaskSupervisor,
+    agents: &AgentStore,
+    pids: Vec<(String, u32)>,
+) -> AppResult<Vec<service::DetectedAgentProbe>> {
+    agent_probe::probe_process_names(tasks, agents, pids, |unresolved| resolve_agent_names(&unresolved)).await
 }
 
 /// The windows probe walks the whole process tree below each shell pid (the agent is a descendant
 /// of it, not the pid itself), so there is no per-pid answer to cache the way the unix path has.
 #[cfg(windows)]
 pub async fn detect_agents_for_pids_blocking(
+    tasks: &TaskSupervisor,
     _agents: &AgentStore,
     pids: Vec<(String, u32)>,
 ) -> AppResult<Vec<service::DetectedAgentProbe>> {
-    if pids.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    tauri::async_runtime::spawn_blocking(move || detect_agents_for_pids(pids))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))
+    agent_probe::probe_process_tree(tasks, pids, detect_agents_for_pids).await
 }
 
 /// Feeds one scanned pty chunk into the agent signals, if that session runs an agent. Wired from
@@ -181,30 +168,16 @@ pub fn agent_protocol_env() -> Vec<(String, String)> {
 /// only needed when hooks are installed or reconciled and a `claude` that hangs (or is not on
 /// `PATH`) must not hold that up: every failure mode resolves to `DevTty`, which works on every
 /// version. Cached in a `OnceLock` so reconciling ten projects forks once, not ten times.
-pub(super) async fn resolve_claude_hook_emitter() -> service::HookEmitter {
+pub(super) async fn resolve_claude_hook_emitter(tasks: &TaskSupervisor) -> service::HookEmitter {
     static EMITTER: OnceLock<service::HookEmitter> = OnceLock::new();
 
-    if let Some(cached) = EMITTER.get() {
-        return *cached;
-    }
-    let detected = detect_claude_hook_emitter().await;
-    *EMITTER.get_or_init(|| detected)
-}
-
-async fn detect_claude_hook_emitter() -> service::HookEmitter {
-    let probe = tauri::async_runtime::spawn_blocking(|| std::process::Command::new(AGENT_NAME_CLAUDE).arg(CLAUDE_VERSION_FLAG).output());
-
-    let Ok(Ok(Ok(output))) = tokio::time::timeout(Duration::from_secs(CLAUDE_VERSION_TIMEOUT_SECONDS), probe).await else {
-        return service::HookEmitter::DevTty;
-    };
-
-    let supported =
-        service::parse_claude_version(&String::from_utf8_lossy(&output.stdout)).is_some_and(service::supports_terminal_sequence);
-    if supported {
-        service::HookEmitter::TerminalSequence
-    } else {
-        service::HookEmitter::DevTty
-    }
+    agent_probe::resolve_claude_hook_emitter(tasks, &EMITTER, Duration::from_secs(CLAUDE_VERSION_TIMEOUT_SECONDS), || {
+        std::process::Command::new(AGENT_NAME_CLAUDE)
+            .arg(CLAUDE_VERSION_FLAG)
+            .output()
+            .map(|output| output.stdout)
+    })
+    .await
 }
 
 const CLAUDE_VERSION_FLAG: &str = "--version";
@@ -288,12 +261,13 @@ pub async fn agent_list(
     agent_hooks: State<'_, AgentHooksStore>,
     project_id: ProjectId,
 ) -> AppResult<ProjectAgents> {
+    let tasks = app.state::<TaskSupervisor>();
     agent_actions::agent_list(
         &state,
         &agents,
         &agent_hooks,
         || (foreground_pids.0)(&app, &project_id),
-        |pids| detect_agents_for_pids_blocking(&agents, pids),
+        |pids| detect_agents_for_pids_blocking(&tasks, &agents, pids),
         project_id.clone(),
     )
     .await
@@ -396,13 +370,14 @@ pub async fn agent_hooks_install(
     project_id: ProjectId,
     agent_name: String,
 ) -> AppResult<AgentHooksStatus> {
+    let tasks = app.state::<TaskSupervisor>();
     agent_hook_actions::agent_hooks_install(
         &state,
         project_id,
         agent_name,
         agent_hook_actions::AgentHookInstallPorts::new(
             home::home_dir_env,
-            resolve_claude_hook_emitter,
+            || resolve_claude_hook_emitter(&tasks),
             || resolve_cli_install_status().installed,
             || hooks::ensure_hooks_server_started(&app),
             TAIDE_CLI_TARGET_PATH,
@@ -418,6 +393,7 @@ pub async fn agent_hooks_uninstall(state: State<'_, AppState>, project_id: Proje
 }
 
 pub(crate) async fn poll_agents(app: &tauri::AppHandle) {
+    let tasks = app.state::<TaskSupervisor>();
     let state = app.state::<AppState>();
     let foreground_pids = app.state::<AgentForegroundPids>();
     let agents = app.state::<AgentStore>();
@@ -431,7 +407,7 @@ pub(crate) async fn poll_agents(app: &tauri::AppHandle) {
         let pids = (foreground_pids.0)(app, &project_id);
         live_pids.extend(pids.iter().map(|(_, pid)| *pid));
 
-        let Ok(probes) = detect_agents_for_pids_blocking(&agents, pids).await else {
+        let Ok(probes) = detect_agents_for_pids_blocking(&tasks, &agents, pids).await else {
             continue;
         };
         let detected = build_detected_agents(&agents, &agent_hooks, &project_id, probes);

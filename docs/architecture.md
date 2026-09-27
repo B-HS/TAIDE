@@ -256,8 +256,11 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     Tauri poll과 root는 같은 helper를 재수출로 소비한다. runtime `agent_hook_actions`는 공개 status/install/uninstall 3개의
     scope·settings/project gate·shape·read/merge/write 정책을 소유하며 lazy home/emitter/CLI availability/server 포트를 받는다.
     공통 hook 파일의 invalid JSON 거절·기존 권한/사용자 row·비소유 파일 보존과 loopback URL 조립은 taide-agent에 둔다.
-    Tauri의 비IPC reconcile은 같은 파일/URL helper를 재수출로 소비한다. 실제 home·emitter/CLI probe·서버 시작과
-    poll/reconcile의 OS callback·nested worker 회수·정상 root 경계는 별도 미완료이며 새 action의 취소 완료를 보장하지 않는다.
+    Tauri의 비IPC reconcile은 같은 파일/URL helper를 재수출로 소비한다. runtime `agent_probe`는 Unix PID 이름 캐시·
+    Windows lazy process-tree port·CLI emitter 판정/OnceLock 캐시를 소유하고 같은 등록 TaskSupervisor에 실제 blocking worker를 추적한다.
+    empty/캐시 hit는 OS port를 실행하지 않으며 caller 취소·기존 CLI 3초 timeout 뒤에도 시작한 worker/버려진 결과 회수를 정상 root가 기다린다.
+    실제 PID 조회·CLI 실행은 Tauri adapter에 유지하고 timeout을 CLI kill로 처리하지 않는다. static OnceLock의 동시 최초 probe race도 기존처럼 유지한다.
+    poll의 전체 diff/event/prune·hook write/reconcile/server callback·직접 Exit/OS stall의 bounded 회수는 미완료이며 전체 action 취소 완료를 보장하지 않는다.
     `GitStore`는 taide-git에서 repo root·status 캐시와 같은 repo의 push/fetch 락을 공유한다.
     최초 무효화 구독의 1회 실행은 공유 OnceLock으로 제어하고 실제 세 이벤트 등록은 Tauri adapter의 콜백이 맡는다.
     runtime `git_actions`는 공개 action 41개·repo root 해석·cache·mutation/repo lock·함수별 이벤트 순서를 소유한다.
