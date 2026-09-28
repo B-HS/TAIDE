@@ -9,10 +9,12 @@ pub const REMOTE_SESSION_COOKIE_NAME: &str = "taide_remote_session";
 pub const REMOTE_LOGIN_NONCE_COOKIE_NAME: &str = "taide_remote_login_nonce";
 pub const REMOTE_SHUTDOWN_GRACE_MS: u64 = 2_000;
 pub const REMOTE_HANDSHAKE_TIMEOUT_MS: u64 = 10_000;
+/// Maximum number of outbound frames buffered for one remote WebSocket connection.
+pub const REMOTE_WS_OUTBOUND_QUEUE_CAPACITY: usize = 256;
 
 /// Upper bound `ws.rs::handle_socket` waits for its own writer task to drain and exit after the
 /// connection's main loop breaks, before aborting it outright. The writer task only exits once every
-/// clone of its `UnboundedSender<WsOut>` is dropped — besides `handle_socket`'s own `tx` (dropped
+/// clone of its bounded `Sender<WsOut>` is dropped — besides `handle_socket`'s own `tx` (dropped
 /// right before this wait), a domain store (`LspStore`/`SearchStore`/`AiRequestStore`/pty subscribers)
 /// can still be holding a `ChannelSink` closure that captured its own clone via
 /// `make_channel_factory`, for a session this connection spawned that never gets pruned (nothing ever
@@ -28,6 +30,7 @@ pub const REMOTE_HANDSHAKE_TIMEOUT_MS: u64 = 10_000;
 /// queued for a permit when the connection closes keeps its own `tx` clone alive for as long as it
 /// stays queued. Under a saturated dispatch limiter, an otherwise-ordinary disconnect can ride this
 /// timeout too — this is no longer exclusively the traffic-idle leaked-sender case above.
+/// An outbound queue saturation takes a separate fail-closed path and aborts the writer immediately.
 pub const REMOTE_WS_WRITER_SHUTDOWN_TIMEOUT_MS: u64 = 3_000;
 
 /// WebSocket close code sent when an individual session's `REMOTE_SESSION_TTL_MS`

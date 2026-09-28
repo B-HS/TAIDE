@@ -9,12 +9,14 @@ use taide_runtime::TaskSupervisor;
 use tauri::ipc::InvokeResponseBody;
 use tauri::{AppHandle, Manager};
 use tokio::sync::broadcast::error::RecvError;
-use tokio::sync::mpsc::{self, UnboundedSender};
+use tokio::sync::mpsc::error::TrySendError;
+use tokio::sync::{mpsc, watch};
 
 use super::commands::{RemoteDispatchLimiter, RemoteStore};
 use super::dispatch::{ChannelFactory, ChannelSink, RemoteDispatchPort};
 use super::types::{
-    RemoteRequest, REMOTE_WS_CLOSE_CODE_SESSION_EXPIRED, REMOTE_WS_CLOSE_REASON_SESSION_EXPIRED, REMOTE_WS_WRITER_SHUTDOWN_TIMEOUT_MS,
+    RemoteRequest, REMOTE_WS_CLOSE_CODE_SESSION_EXPIRED, REMOTE_WS_CLOSE_REASON_SESSION_EXPIRED, REMOTE_WS_OUTBOUND_QUEUE_CAPACITY,
+    REMOTE_WS_WRITER_SHUTDOWN_TIMEOUT_MS,
 };
 
 enum WsOut {
@@ -36,8 +38,37 @@ impl WsOut {
     }
 }
 
+#[derive(Clone)]
+struct OutboundQueue {
+    sender: mpsc::Sender<WsOut>,
+    saturated: watch::Sender<bool>,
+}
+
+impl OutboundQueue {
+    fn new() -> (Self, mpsc::Receiver<WsOut>, watch::Receiver<bool>) {
+        let (sender, receiver) = mpsc::channel(REMOTE_WS_OUTBOUND_QUEUE_CAPACITY);
+        let (saturated, saturation_signal) = watch::channel(false);
+        (Self { sender, saturated }, receiver, saturation_signal)
+    }
+
+    fn send(&self, out: WsOut) -> Result<(), ()> {
+        if *self.saturated.borrow() {
+            return Err(());
+        }
+
+        match self.sender.try_send(out) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(_)) => {
+                self.saturated.send_replace(true);
+                Err(())
+            }
+            Err(TrySendError::Closed(_)) => Err(()),
+        }
+    }
+}
+
 struct ChannelEndGuard {
-    ws_out: UnboundedSender<WsOut>,
+    ws_out: OutboundQueue,
     channel_id: u32,
     counter: Arc<AtomicU32>,
 }
@@ -50,7 +81,7 @@ impl Drop for ChannelEndGuard {
     }
 }
 
-fn make_channel_factory(ws_out: UnboundedSender<WsOut>) -> ChannelFactory {
+fn make_channel_factory(ws_out: OutboundQueue) -> ChannelFactory {
     Arc::new(move |id: String| -> ChannelSink {
         let channel_id = id.parse::<u32>().unwrap_or(0);
         let counter = Arc::new(AtomicU32::new(0));
@@ -81,7 +112,7 @@ fn make_channel_factory(ws_out: UnboundedSender<WsOut>) -> ChannelFactory {
     })
 }
 
-async fn handle_request(app: &AppHandle, request: RemoteRequest, factory: ChannelFactory, ws_out: &UnboundedSender<WsOut>) {
+async fn handle_request(app: &AppHandle, request: RemoteRequest, factory: ChannelFactory, ws_out: &OutboundQueue) {
     let RemoteRequest { seq, command, args } = request;
 
     if command == "file_read_raw" {
@@ -140,7 +171,10 @@ async fn handle_request(app: &AppHandle, request: RemoteRequest, factory: Channe
 /// before it's dropped) still flushes well within the timeout in the common case — but see that
 /// constant's doc for a second path (a permit-queued request's own `tx` clone, under a saturated
 /// dispatch limiter) that can also ride the full timeout, not just the traffic-idle leaked-sender
-/// case it was originally written for.
+/// case it was originally written for. A saturated outbound queue is different: it rejects every
+/// further frame, wakes this connection loop, and aborts the writer without draining buffered
+/// frames, so a slow receiver cannot keep accumulating work. Frames written before saturation may
+/// already have reached the client.
 ///
 /// Each inbound `Message::Text` spawns its own `handle_request` task, and that task is where it
 /// waits for a [`RemoteDispatchLimiter`] permit (contract 2026-08-25 §1-c) — not here, before the
@@ -183,7 +217,7 @@ pub async fn handle_socket(socket: WebSocket, app: AppHandle, session_digest: St
         .unwrap_or_else(tokio::time::Instant::now);
 
     let (mut sink, mut stream) = socket.split();
-    let (tx, mut rx) = mpsc::unbounded_channel::<WsOut>();
+    let (tx, mut rx, mut saturation_signal) = OutboundQueue::new();
 
     let writer = app
         .state::<TaskSupervisor>()
@@ -264,12 +298,23 @@ pub async fn handle_socket(socket: WebSocket, app: AppHandle, session_digest: St
                 }
                 break;
             }
+            _ = saturation_signal.changed() => {
+                log::warn!("원격 웹소켓 송신 큐가 포화되어 연결을 종료합니다");
+                break;
+            }
         }
     }
 
+    let is_saturated = *saturation_signal.borrow();
     event_task.abort();
     drop(factory);
     drop(tx);
+    if is_saturated {
+        writer.abort();
+        let _ = writer.await;
+        remote.client_disconnected();
+        return;
+    }
     tokio::select! {
         _ = &mut writer => {}
         _ = tokio::time::sleep(std::time::Duration::from_millis(REMOTE_WS_WRITER_SHUTDOWN_TIMEOUT_MS)) => {
@@ -283,6 +328,25 @@ pub async fn handle_socket(socket: WebSocket, app: AppHandle, session_digest: St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn 느린_수신자의_전송_큐가_상한을_넘으면_송신을_거부한다() {
+        let (tx, mut rx, saturation_signal) = OutboundQueue::new();
+        let sink = make_channel_factory(tx)("1".to_string());
+
+        for _ in 0..REMOTE_WS_OUTBOUND_QUEUE_CAPACITY {
+            assert!(sink(InvokeResponseBody::Json("{}".to_string())).is_ok());
+        }
+
+        assert!(sink(InvokeResponseBody::Json("{}".to_string())).is_err());
+        assert!(saturation_signal.has_changed().unwrap());
+        assert!(*saturation_signal.borrow());
+        assert_eq!(rx.len(), REMOTE_WS_OUTBOUND_QUEUE_CAPACITY);
+        assert!(rx.try_recv().is_ok());
+        assert!(sink(InvokeResponseBody::Json("{}".to_string())).is_err());
+        drop(sink);
+        assert_eq!(rx.len(), REMOTE_WS_OUTBOUND_QUEUE_CAPACITY - 1);
+    }
 
     #[test]
     fn close_변형은_코드와_사유를_담은_close_프레임으로_변환된다() {
@@ -300,7 +364,7 @@ mod tests {
     /// 프루닝 불변식이 깨져 끊어진 원격 채널이 스토어에 계속 남는다.
     #[test]
     fn 수신자가_사라진_채널은_송신_실패를_ok으로_위장하지_않는다() {
-        let (tx, rx) = mpsc::unbounded_channel::<WsOut>();
+        let (tx, rx, _saturation_signal) = OutboundQueue::new();
         let sink = make_channel_factory(tx)("1".to_string());
         drop(rx);
 
@@ -314,7 +378,7 @@ mod tests {
 
     #[test]
     fn 수신자가_살아있는_채널은_json_binary_end를_순서대로_전송한다() {
-        let (tx, mut rx) = mpsc::unbounded_channel::<WsOut>();
+        let (tx, mut rx, _saturation_signal) = OutboundQueue::new();
         let sink = make_channel_factory(tx)("1".to_string());
 
         let json_result = sink(InvokeResponseBody::Json("{}".to_string()));
@@ -352,7 +416,7 @@ mod tests {
     /// 필요한지 고정한다.
     #[tokio::test]
     async fn 채널_싱크가_송신자를_쥐고_있으면_writer는_스스로_끝나지_않는다() {
-        let (tx, mut rx) = mpsc::unbounded_channel::<WsOut>();
+        let (tx, mut rx, _saturation_signal) = OutboundQueue::new();
         let leaked_sink = make_channel_factory(tx.clone())("1".to_string());
         drop(tx);
 

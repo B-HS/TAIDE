@@ -965,6 +965,8 @@
     - [x] M7-C1. `remote-wire-session-v1.json`으로 현재 host/origin 정책·link/nonce/session revoke·password 검증·binary/JSON frame을 비시크릿 기준선으로 고정했습니다. 새 test target 3건·대상 Clippy·Rust fmt·JSON Prettier가 exit 0입니다. 실제 HTTP/WebSocket handshake·cookie·TTL·전송 큐는 별도 미완료로 남깁니다.
     - [ ] M7-C1b. 실제 HTTP/WebSocket handshake·cookie·TTL·전송 큐 경계의 비시크릿 fixture와 검증을 완료합니다.
       - [x] M7-C1b-1. 현행 `make_channel_factory`의 JSON→binary→channel-end 순서와 index를 대상 테스트 1건으로 확인했습니다. 대상 lib Clippy·Rust fmt/diff·QA MD Prettier가 exit 0이며 실제 WebSocket writer·HTTP router 실기가 아니라는 한계를 QA에 기록했습니다.
+      - [x] M7-C1b-2a. 사용자가 무상한 WebSocket 전송 큐의 별도 보안 수정을 M7 범위에 추가하고 연결별 256프레임 상한·포화 시 연결 종료, 바이트 상한 생략을 선택했습니다. [범위 기록](acknowledge/2026-09-29-m7-remote-ws-queue-scope.md)에 현행 큐·동기 sink·Tokio API·큰 프레임 잔여 위험을 구분했습니다.
+      - [x] M7-C1b-2b. 연결별 256프레임 유한 큐와 포화 신호·즉시 writer 중단 경로를 구현했습니다. 수정 전 257번째 수락 테스트 RED(exit 101), 수정 후 WS 대상 5건·대상 Clippy·Rust fmt·문서 Prettier가 exit 0입니다. [큐 QA](quality-assurance/2026-09-29-m7-remote-ws-queue.md)에 실제 연결 실기와 대형 단일 프레임의 잔여 위험을 분리했습니다.
       - [ ] M7-C1b-2. 실제 HTTP/WebSocket upgrade·cookie 왕복·세션 TTL·전송 큐 상한/느린 수신자 경계를 격리 실행에서 검증합니다.
     - [ ] M7-C2. IDE/MCP 및 CLI wait marker의 실제 요청·응답·수명 경계를 fixture로 고정합니다.
       - [x] M7-C2a. `ide-mcp-wire-v1.json`과 CLI marker 이름 fixture로 protocol API 3건·CLI bin 18건을 확인했습니다. UUID 임시 marker의 timeout·제거를 포함해 대상 Clippy·Rust fmt가 exit 0입니다. 실제 IDE WebSocket과 앱의 CLI marker 수명은 검증하지 않았습니다.
