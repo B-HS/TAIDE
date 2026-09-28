@@ -13,7 +13,7 @@
 
 테스트는 shell의 준비 문자열을 확인한 다음 HUP을 보냅니다. 완료 대기 future가 관찰 시간에 끝나지 않은 뒤 fixture 정리에 한해서 미회수 자기 자식의 신호 권한 mutex를 보유한 채 SIGKILL을 보내고 reader·flusher·wait worker의 완료 join을 확인합니다. 따라서 테스트가 앱의 자원 대기를 방치하거나 재사용된 PID에 신호를 보내지 않습니다. 100ms는 검사의 관찰 구간일 뿐 제품 동작 상한이 아닙니다.
 
-자손이 PTY fd를 보유하거나 그룹을 이탈한 경우, 실제 커널 waitid/wait 오류, callback·OS read의 장기 정지, Windows/다른 Unix와 직접 native Exit는 이 한 건으로 증명하지 않습니다. 제품에서 PTY 전용 강제 종료를 도입할지 여부는 사용자 결정 대기 중입니다.
+자손이 PTY fd를 보유하거나 그룹을 이탈한 경우, 실제 커널 waitid/wait 오류, callback·OS read의 장기 정지, Windows/다른 Unix와 직접 native Exit는 이 한 건으로 증명하지 않습니다. 기존 [직접 Exit 결정](../acknowledge/2026-09-28-direct-exit-drain-decision.md)은 새 시간 제한·강제 종료 없이 등록 자원을 기다리고 무기한 대기 위험을 수용합니다. 따라서 별도 변경 승인 없이 PTY 전용 강제 종료를 추가하지 않습니다.
 
 ## 검증
 
