@@ -620,8 +620,8 @@ fn ide_명령과_mcp_server는_기존_조건_뒤에_port로_발행한다() {
 
     assert!(stop.find("ide.take_shutdown_state()").unwrap() < stop.find("AppEvent::IdeStatusChanged").unwrap());
     assert!(start.find("ide.mark_started(").unwrap() < start.find("AppEvent::IdeStatusChanged").unwrap());
-    assert!(diff.find("insert_pending_diff(").unwrap() < diff.find("AppEvent::IdeDiffRequested").unwrap());
-    assert!(save.find("insert_pending_save(").unwrap() < save.find("AppEvent::IdeSaveRequested").unwrap());
+    assert!(diff.find("insert_pending_diff_owned(").unwrap() < diff.find("AppEvent::IdeDiffRequested").unwrap());
+    assert!(save.find("insert_pending_save_owned(").unwrap() < save.find("AppEvent::IdeSaveRequested").unwrap());
     assert!(close.find(".close_tab)(").unwrap() < close.find("AppEvent::IdeCloseTabRequested").unwrap());
     assert!(close_all.find(".close_tab)(").unwrap() < close_all.find("AppEvent::IdeCloseTabRequested").unwrap());
     assert!(adapter.contains("IdeStatusChanged { status }.emit(self.0)"));
