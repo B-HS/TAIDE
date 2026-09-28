@@ -995,7 +995,8 @@
       - [ ] M7-C4c. 동일 기기·fixture의 release 성능 반복 측정과 GUI·직접 Exit 사용자 회귀를 완료합니다.
         - [x] M7-C4c-1. 전용 identifier의 release `.app` 빌드와 로컬 ad hoc 서명 검증이 exit 0이고 첫 창과 `⌘Q` 뒤 IDE listener·격리 lockfile 정리를 확인했습니다. [release 실측 기록](history/2026-09-29-m6-release-app-smoke.md)에 구분했으며 배포 서명·공증, 기능 전수·성능 수치는 검증하지 않았습니다.
         - [x] M7-C4c-1a. 같은 release 번들에 `TAIDE_PERF=1`을 지정한 별도 실행에서 팔레트 성능 명령 노출, 임시 프로젝트/검색/에디터/설정 부분 회귀, `⌘Q` exit 0과 IDE listener·lockfile 제거를 [부분 실기](quality-assurance/2026-09-29-m7-release-gui-smoke.md)에 기록했습니다. release 웹뷰에서 수치 출력 경로가 보이지 않아 3회 중앙값은 미측정입니다.
-        - [x] M7-C4c-1b. 별도 identifier에 `tauri/devtools`를 적용한 계측용 release `.app` 빌드·로컬 서명 검증은 exit 0이지만 직접 실행은 창 전 exit 134, Launch Services 기동은 창 없는 프로세스에 그쳤습니다. 두 테스트 프로세스를 종료하고 listener 정리를 확인했으며 [진단 기록](quality-assurance/2026-09-29-m7-perf-devtools-attempt.md)에 debug 계측 성공과 release 수치 미측정을 분리했습니다.
+        - [x] M7-C4c-1b. 별도 identifier에 `tauri/devtools`를 적용한 계측용 release `.app` 빌드·로컬 서명 검증은 exit 0입니다. 기본 sandbox 직접 실행의 창 전 exit 134와 Launch Services 창 없는 프로세스를 [진단 기록](quality-assurance/2026-09-29-m7-perf-devtools-attempt.md)에 구분했고, 권한 허용 직접 실행에서 debug·release 창과 Inspector가 열리는 것을 재확인했습니다.
+        - [x] M7-C4c-1c. 프로젝트를 열지 않은 격리 프로필의 release 부팅 3회와 한 프로세스의 팔레트 3회에서 `TAIDE_PERF=1` 수치·중앙값을 [부분 측정](quality-assurance/2026-09-29-m7-perf-devtools-attempt.md)에 남겼습니다. 전체 기준 fixture와 나머지 지표는 측정하지 않았습니다.
         - [ ] M7-C4c-2. 동일 기기·fixture에서 성능 지표를 3회 반복해 중앙값을 기록하고 GUI·직접 Exit 회귀를 완료합니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
