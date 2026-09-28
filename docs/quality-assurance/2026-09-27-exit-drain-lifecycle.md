@@ -26,9 +26,15 @@
 - [x] `cargo clippy -p taide-runtime -p taide --lib --tests -- -D warnings`, `RUSTDOCFLAGS='-D warnings' cargo doc -p taide-runtime --no-deps --quiet`, `cargo fmt --all -- --check`, `git diff --check`: 최종 변경 범위에서 모두 exit 0입니다. 신규 acknowledge/history 및 이 QA 파일의 대상 Prettier check도 exit 0입니다. 공개 IPC/생성 입력을 변경하지 않아 실제 bindings/manifest diff가 없습니다.
 - [ ] 실제 앱 `Exit` 이벤트 순서, 메인 스레드 callback 교착·OS I/O stall, 강제 OS 종료·등록되지 않은 nested 자원 회수는 합성 검사에서 증명하지 못했습니다. M6/M7 실기에서 판단합니다.
 
+## 2026-09-28 격리 GUI 관찰
+
+- [x] 권한 허용 debug 앱을 전용 identifier·빈 `ZDOTDIR`·별도 `CLAUDE_CONFIG_DIR`로 실행했습니다. 실제 창의 명령 팔레트 키보드 열기/닫기, 자기 임시 프로젝트 열기, `fixture.txt` 편집기 표시를 접근성 트리에서 확인했습니다. 사용자 설정·lockfile 내용은 읽지 않았습니다.
+- [x] 프로젝트가 열린 상태에서 `⌘Q` 후 `App quit`, IDE listener 65299 부재, 격리 경로의 `65299.lock` 부재를 관찰했습니다. 기존 사용자 홈 `45059.lock`은 사용자 승인에 따라 앞서 휴지통으로 옮겼고 재생성되지 않았습니다. [실측 기록](../history/2026-09-28-m6-isolated-app-attempt.md)을 참조합니다.
+- [ ] `RunEvent::ExitRequested`와 직접 `RunEvent::Exit`의 실제 이벤트 순서, 진행 중 watcher/PTY/LSP/원격 작업의 drain, 메인 스레드 교착·OS I/O stall을 계측합니다. 이번 GUI 관찰만으로 해당 직접 경로의 동작이나 M6 전체를 완료 처리하지 않습니다.
+
 ## 남은 gate
 
-- [ ] 실제 native ExitRequested/직접 Exit·메뉴 callback의 이벤트 순서와 앱 종료 실기는 사용자 실행이 필요합니다. fixture가 native 이벤트 전달까지 증명하지는 않습니다.
+- [ ] 기본 `⌘Q` 앱 종료는 위 격리 실기에서 관찰했지만, native ExitRequested/직접 Exit·메뉴 callback의 이벤트 순서와 중첩 자원 완료는 추가 계측이 필요합니다. fixture가 native 이벤트 전달까지 증명하지는 않습니다.
 - [x] 후속 [일반 LSP wait QA](2026-09-27-lsp-process-wait-lifecycle.md)에서 정상 coordinator가 제거/교체된 세션의 wait·reader·exit callback 완료도 기다리도록 구현/검증했습니다. child exited만으로 ready를 세우지 않습니다.
 - [x] 직접 Exit의 등록 자원 대기: 합성 감독 operation·설치 lease·AI owner 및 자기 `/bin/sh`의 LSP/PTY callback 완료 검사가 통과했습니다. Tauri source contract도 직접 `Exit`의 같은 drain 호출을 확인했습니다. 정상 종료와 직접 종료는 이제 같은 등록 자원 대기 함수를 사용합니다.
 - [ ] 실제 native 직접 Exit·exit runtime 요청 실패, 감독되지 않은 nested blocking worker·PTY thread와 메인 이벤트 루프 교착 여부를 판정합니다. 등록되지 않은 자원 전체의 완료를 주장하지 않습니다.
