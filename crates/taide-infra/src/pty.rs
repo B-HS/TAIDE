@@ -1329,6 +1329,57 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[tokio::test]
+    async fn sighup을_무시하는_자기_pty는_종료_요청만으로_완료되지_않는다() {
+        const READY_MARKER: &[u8] = b"taide-ready";
+        const HUP_PROBE_MS: u64 = 100;
+
+        let (output, output_rx) = std::sync::mpsc::channel();
+        let session = spawn(
+            controlled_shell_config(),
+            move |bytes| {
+                output.send(bytes.to_vec()).ok();
+            },
+            |_| {},
+        )
+        .unwrap();
+        let completion = session.completion_handle();
+        let pid = session.shell_pid.expect("native Unix PTY child PID");
+        let setup = session.write(b"trap '' HUP; stty -echo; printf '\\164\\141\\151\\144\\145\\055\\162\\145\\141\\144\\171\\n'\n");
+        let deadline = Instant::now() + Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS);
+        let mut output_bytes = Vec::new();
+        while !output_bytes.windows(READY_MARKER.len()).any(|window| window == READY_MARKER) && Instant::now() < deadline {
+            match output_rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                Ok(bytes) => output_bytes.extend(bytes),
+                Err(_) => break,
+            }
+        }
+        let ready = output_bytes.windows(READY_MARKER.len()).any(|window| window == READY_MARKER);
+        let hup = if ready { session.kill() } else { Ok(()) };
+        let pending_after_hup = ready
+            && hup.is_ok()
+            && tokio::time::timeout(Duration::from_millis(HUP_PROBE_MS), completion.wait_for_completion())
+                .await
+                .is_err();
+
+        let cleanup_sent = {
+            let killer = completion.0.killer.lock();
+            killer.is_none()
+                || libc::pid_t::try_from(pid)
+                    .is_ok_and(|signalable_pid| signalable_pid > 1 && unsafe { libc::kill(signalable_pid, libc::SIGKILL) == 0 })
+        };
+        drop(session);
+        let joined = tokio::time::timeout(Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS), completion.wait_for_completion()).await;
+
+        assert!(setup.is_ok());
+        assert!(ready);
+        assert!(hup.is_ok());
+        assert!(pending_after_hup);
+        assert!(cleanup_sent);
+        assert!(joined.is_ok_and(|result| result.is_ok()));
+    }
+
+    #[cfg(unix)]
     fn controlled_shell_config() -> PtySpawnConfig {
         let mut config = base_config(Some("/bin/sh"));
         config.extra_env = vec![("ENV".to_string(), String::new()), ("BASH_ENV".to_string(), String::new())];

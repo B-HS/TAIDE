@@ -22,10 +22,11 @@ TerminalStore 입장/완료 목록과 runtime 실제 blocking spawn·동일 muta
 
 ## 생략과 필수 잔여 gate
 
-2026-09-28 현재 Tauri 배선 재검증에서 `cargo test --offline -p taide --test terminal_spawn_application_runtime --quiet` 7건과 `cargo test --offline -p taide --test terminal_actions_runtime --quiet` 10건이 모두 통과했습니다. 두 대상은 직접 만든 `/bin/sh`·UUID 임시 경로를 사용하며 사용자 profile·프로세스에는 접근하지 않습니다. 앞선 infra PTY 33건과 runtime/core 성공은 입력이 같아 재사용합니다. 실제 SIGHUP 무시 child·Windows·native Exit는 이 결과로 통과 처리하지 않습니다.
+2026-09-28 현재 Tauri 배선 재검증에서 `cargo test --offline -p taide --test terminal_spawn_application_runtime --quiet` 7건과 `cargo test --offline -p taide --test terminal_actions_runtime --quiet` 10건이 모두 통과했습니다. 두 대상은 직접 만든 `/bin/sh`·UUID 임시 경로를 사용하며 사용자 profile·프로세스에는 접근하지 않습니다. 앞선 infra PTY 33건과 runtime/core 성공은 입력이 같아 재사용합니다. 이 배선 검사를 SIGHUP 무시 child·Windows·native Exit 실기로 확대하지 않습니다.
 
 - [x] 후속 [PTY 부분 시작 QA](./2026-09-27-pty-partial-startup-lifecycle.md)에서 master reader/writer·세 thread factory 오류/언와인드의 child wait·시작한 worker join·생성 경로 정리를 확인했습니다. 성공-result owner 검사만으로 대체하지 않았으며 실제 OS 오류 회복/abort panic은 별도 gate입니다.
-- [ ] OS wait 오류·SIGHUP 무시 child/pipe 보유 자손·non-yield callback/Read의 bounded 종료·runtime join 실패는 미검증입니다. 종료 요청/실패 cache를 성공한 회수로 해석하지 않습니다. 사용자 프로세스 없이 OS 정책/fixture를 준비한 뒤 수행합니다.
+- [x] 자기 `/bin/sh` PTY의 HUP 무시 상태에서 완료 핸들이 100ms 동안 대기하고 fixture 전용 SIGKILL 뒤 실제 join되는 검사 1건을 통과했습니다. [실측 이력](../history/2026-09-28-pty-sighup-ignore-probe.md)의 관찰 시간을 제품 종료 상한으로 해석하지 않습니다.
+- [ ] OS wait 오류·pipe 보유/그룹 이탈 자손·non-yield callback/Read의 bounded 종료·runtime join 실패와 SIGHUP 무시 자식의 제품 종료 정책은 미검증·미결정입니다. 종료 요청/실패 cache를 성공한 회수로 해석하지 않습니다. 사용자 프로세스 없이 OS 정책/fixture를 준비한 뒤 수행합니다.
 - [ ] Windows/다른 Unix·직접 native Exit·실제 앱 시작/종료는 미실행입니다. native UI 착수나 앱 재시작 권한을 추정하지 않습니다.
 - [ ] M6-JP/JQ 전체·OS/실앱 자원·M7/M8·Phase 0은 미완료입니다. command body 정적 대조 M6-HK는 별도 완료했으며 승인받은 일반 push는 M6 전체 완료 이후입니다.
 
