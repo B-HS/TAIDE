@@ -69,8 +69,19 @@ pub async fn sync_disconnect(
 /// the next upload.
 #[tauri::command]
 #[specta::specta]
-pub async fn sync_upload(app: tauri::AppHandle, state: State<'_, AppState>, secret: State<'_, SecretStoreState>) -> AppResult<SyncStatus> {
-    sync_actions::sync_upload(&state, secret.0.as_ref(), SyncGistHttpPort::new, &TauriEventSink(&app)).await
+pub async fn sync_upload(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    secret: State<'_, SecretStoreState>,
+    tasks: State<'_, TaskSupervisor>,
+) -> AppResult<SyncStatus> {
+    let state = state.inner().clone();
+    let secret = secret.0.clone();
+    tasks
+        .run_nonabortable_result("sync-upload", async move {
+            sync_actions::sync_upload(&state, secret.as_ref(), SyncGistHttpPort::new, &TauriEventSink(&app)).await
+        })
+        .await
 }
 
 /// Fetches the gist **outside** `AppState::begin_mutation` and takes the guard only for the local

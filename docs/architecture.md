@@ -355,8 +355,9 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     기존 gist update의 round-trip은 mutation guard 밖이고 최초 create는 같은 guard를 유지해 중복 gist 생성을 막는다.
     download는 fetch 뒤 guard를 취득하고 gist 변경→다른 sync 완료→conflict→parse/schema→settings apply→theme/locale→SyncStateChanged 순서를 유지한다.
     Native sync_download는 fetch 완료 뒤에만 같은 TaskSupervisor의 취소되지 않는 apply operation에 입장한다. fetch 중 요청 취소는 기존처럼 허용하고, apply 입장 뒤에는 guard·SettingsApplyPort·theme/locale·SyncStateChanged 완료까지 정상 root가 기다린다.
+    Native·원격 sync_upload는 gist create/update 전부터 취소되지 않는 완료 operation에 입장한다. 요청이 중단돼도 원격 응답 뒤 로컬 bookkeeping·SyncStateChanged까지 수행하며 정상 root 종료가 기다린다. connect의 discovery와 status fetch는 로컬 변경 전 취소 가능 경계이고 disconnect의 guard 이후는 await가 없다.
     settings apply callback은 기존 SettingsApplyPort를 호출하며 보호 설정 strip·기존 payload와 best-effort 파일 적용을 바꾸지 않는다.
-    runtime은 이미 workspace에 있는 taide-sync/serde_json을 직접 참조하고 normal graph에 Tauri는 없다. HTTP/keyring 실기·요청 취소와 정상 root 회수는 미완료다.
+    runtime은 이미 workspace에 있는 taide-sync/serde_json을 직접 참조하고 normal graph에 Tauri는 없다. 실제 HTTP/keyring·실앱 요청 취소와 정상 root 회수는 미완료다.
     `taide-runtime::search_actions`는 프로젝트 루트 확인, 검색 세션 시작/완료/취소, blocking 검색·목록·치환과 파일별 guard/self-write/skip 집계를 소유한다.
     검색·치환 대상 스캔/파일별 치환·목록의 blocking worker는 등록 TaskSupervisor가 실제 완료까지 추적한다. 검색 세션 finish는 worker 소유로 요청 취소·panic 뒤에도 실행하고, 종료 시 신규 입장을 닫은 뒤 현재 세션의 취소 flag를 설정한다.
     검색 batch는 주입된 Send callback으로 전달하고 Tauri adapter만 기존 Channel 전송을 수행한다.

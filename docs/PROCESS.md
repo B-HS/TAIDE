@@ -931,6 +931,9 @@
   - [x] M6-OW. 세 열기 entry의 상태 기록→capability attach await와 menu/remote 호출을 대조했습니다. 완료 소유 부재를 검사하는 source fixture가 RED(exit 101)였고, 자기 UUID 프로젝트·대기 port에서 요청 Drop 뒤 attach 성공/실패 rollback을 재현했습니다.
   - [x] M6-OX. 세 Native 열기 entry를 등록된 취소되지 않는 완료 operation에 넣어 attach·실패 rollback·event까지 마칩니다. menu/remote는 같은 State를 전달하며 project_close의 flush 대기/중복 close 정책과 공개 IPC는 그대로입니다.
   - [x] M6-OY. project runtime 15·Native source 11·binding 생성 1건과 Clippy·Rust fmt/diff를 확인했습니다. history·bug·QA·architecture/PROCESS에 기록하고 검증 단위만 로컬 commit합니다. 실제 watcher/GUI·전체 M6와 push는 별도입니다.
+  - [x] M6-OZ. sync_upload 최초 gist create/기존 update await와 guard·bookkeeping·event를 대조했습니다. 완료 owner 부재 source 검사가 RED(exit 101)였고, 자기 메모리 gist의 두 요청 Drop 뒤 원격 결과·정상 root 대기 fixture를 추가했습니다.
+  - [x] M6-PA. Native/원격 sync_upload를 등록된 취소되지 않는 완료 operation에 넣어 네트워크 결과 뒤 guard·bookkeeping·event까지 마칩니다. 기존 create 직렬화, update 재검증, 오류/IPC 정책을 유지합니다.
+  - [x] M6-PB. sync 통합 21·binding 생성 1건과 관련 Clippy·Rust fmt/diff가 통과했습니다. 생성 binding/manifest diff는 없고 history·bug·QA·architecture/PROCESS에 기록했습니다. 검증 단위만 로컬 commit하며 실제 GitHub·키링/GUI·전체 M6와 push는 별도입니다.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 

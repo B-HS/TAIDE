@@ -1359,7 +1359,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "ai_request_cancel" => respond(ai::ai_request_cancel(app.state(), arg!(args, "owner"), arg!(args, "requestId")).await),
 
         "sync_status" => respond(sync::sync_status(app.state(), app.state()).await),
-        "sync_upload" => respond(sync::sync_upload(app.clone(), app.state(), app.state()).await),
+        "sync_upload" => respond(sync::sync_upload(app.clone(), app.state(), app.state(), app.state()).await),
         "sync_download" => {
             respond(sync::sync_download(app.clone(), app.state(), app.state(), app.state(), app.state(), arg!(args, "force")).await)
         }

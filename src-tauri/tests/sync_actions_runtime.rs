@@ -19,6 +19,47 @@ use uuid::Uuid;
 
 struct NoGist;
 
+struct HeldUploadGist {
+    started: Mutex<Option<oneshot::Sender<()>>>,
+    release: Mutex<Option<oneshot::Receiver<()>>>,
+    completed: Arc<AtomicUsize>,
+    should_create: bool,
+}
+
+impl HeldUploadGist {
+    async fn wait_remote(&self) {
+        self.started.lock().take().unwrap().send(()).ok();
+        let release = self.release.lock().take().unwrap();
+        release.await.unwrap();
+        self.completed.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+impl SyncGistPort for HeldUploadGist {
+    async fn discover_sync_gist(&self, _: &str, _: Option<&str>) -> AppResult<Option<(String, String)>> {
+        panic!("upload는 discover를 호출하지 않는다")
+    }
+
+    async fn create_gist(&self, _: &str, payload_json: &str) -> AppResult<(String, String)> {
+        assert!(self.should_create);
+        assert!(!payload_json.is_empty());
+        self.wait_remote().await;
+        Ok((GIST_ID.to_string(), AFTER.to_string()))
+    }
+
+    async fn update_gist(&self, _: &str, gist_id: &str, payload_json: &str) -> AppResult<String> {
+        assert!(!self.should_create);
+        assert_eq!(gist_id, GIST_ID);
+        assert!(!payload_json.is_empty());
+        self.wait_remote().await;
+        Ok(AFTER.to_string())
+    }
+
+    async fn fetch_gist(&self, _: &str, _: &str) -> AppResult<(String, String)> {
+        panic!("upload는 fetch를 호출하지 않는다")
+    }
+}
+
 const FIXTURE_TOKEN: &str = "synthetic-not-a-credential";
 const GIST_ID: &str = "fixture-gist";
 const BEFORE: &str = "2026-09-20T00:00:00Z";
@@ -453,6 +494,54 @@ async fn upload_remote_실패는_로컬_저장_state_이벤트를_변경하지_�
 }
 
 #[tokio::test]
+async fn upload_요청_취소_뒤_create와_update의_로컬_완료를_root가_기다린다() {
+    for should_create in [true, false] {
+        let fixture = Fixture::new();
+        let state = fixture.state.clone();
+        let secret = Arc::new(InMemorySecretStore::default());
+        secret.set(SecretAccount::GithubSync, FIXTURE_TOKEN).unwrap();
+        if !should_create {
+            state.settings.write().sync_gist_id = Some(GIST_ID.to_string());
+        }
+        let events = Arc::new(Events::new(&state));
+        let request_events = events.clone();
+        let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+        let request_tasks = tasks.clone();
+        let completed = Arc::new(AtomicUsize::new(0));
+        let (started, started_rx) = oneshot::channel();
+        let (release, held) = oneshot::channel();
+        let gist = HeldUploadGist {
+            started: Mutex::new(Some(started)),
+            release: Mutex::new(Some(held)),
+            completed: completed.clone(),
+            should_create,
+        };
+        let request = tokio::spawn(async move {
+            request_tasks
+                .run_nonabortable_result("sync-upload", async move {
+                    sync_actions::sync_upload(&state, secret.as_ref(), || gist, request_events.as_ref()).await
+                })
+                .await
+        });
+        tokio::time::timeout(ACTION_TIMEOUT, started_rx).await.unwrap().unwrap();
+        assert_eq!(completed.load(Ordering::SeqCst), 0);
+        assert!(!fixture.state.paths.settings_file().exists());
+        request.abort();
+        assert!(request.await.unwrap_err().is_cancelled());
+        tasks.stop_all();
+        let shutdown = tasks.shutdown();
+        tokio::pin!(shutdown);
+        assert!(tokio::time::timeout(ROOT_WAIT_PROBE, &mut shutdown).await.is_err());
+        release.send(()).unwrap();
+        tokio::time::timeout(ACTION_TIMEOUT, shutdown).await.unwrap();
+        assert_eq!(completed.load(Ordering::SeqCst), 1);
+        assert_eq!(fixture.persisted().sync_gist_id.as_deref(), Some(GIST_ID));
+        assert_eq!(fixture.persisted().sync_last_synced_at.as_deref(), Some(AFTER));
+        assert_eq!(events.recorded.lock().len(), 1);
+    }
+}
+
+#[tokio::test]
 async fn download의_retry와_conflict는_malformed_parse와_force보다_기존_우선순위를_유지한다() {
     for scenario in ["gist", "sync", "conflict"] {
         let fixture = Fixture::new();
@@ -689,7 +778,8 @@ fn sync_commands는_같은_공유_secret_lazy_http_apply와_events를_주입한�
     for name in ["sync_status", "sync_connect", "sync_disconnect", "sync_upload"] {
         assert!(source.contains(&format!("sync_actions::{name}(")));
     }
-    assert_eq!(source.matches("secret.0.as_ref()").count(), 5);
+    assert_eq!(source.matches("secret.0.as_ref()").count(), 4);
+    assert!(source.contains("sync_actions::sync_upload(&state, secret.as_ref()"));
     assert_eq!(source.matches("SyncGistHttpPort::new").count(), 4);
     assert_eq!(source.matches("&TauriEventSink(&app)").count(), 4);
     assert!(source.contains("let apply_settings = apply_settings.0;"));
@@ -704,4 +794,10 @@ fn sync_commands는_같은_공유_secret_lazy_http_apply와_events를_주입한�
     let github = include_str!("../src/domain/sync/github.rs");
     assert!(github.contains("impl SyncGistPort for SyncGistHttpPort"));
     assert!(github.contains("Self(outbound_http_client(HttpClientProfile::Api))"));
+}
+
+#[test]
+fn native_sync_upload는_요청_취소와_독립된_완료_owner를_사용한다() {
+    let source = include_str!("../src/domain/sync/commands.rs");
+    assert!(source.contains(".run_nonabortable_result(\"sync-upload\""));
 }
