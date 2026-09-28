@@ -1292,7 +1292,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
 
         "detect_tasks" => respond(task::detect_tasks(app.state(), app.state(), arg!(args, "projectId")).await),
 
-        "font_list" => respond(domain::font::commands::font_list().await),
+        "font_list" => respond(domain::font::commands::font_list(app.state()).await),
 
         "locale_list" => respond(locale::locale_list(app.state()).await),
         "locale_get" => respond(locale::locale_get(app.state(), arg!(args, "localeId")).await),
@@ -1315,8 +1315,8 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         }
         "settings_set_theme" => respond(settings::settings_set_theme(app.clone(), app.state(), arg!(args, "themeId")).await),
 
-        "system_usage_get" => respond(system::system_usage_get(app.state()).await),
-        "system_usage_breakdown" => respond(system::system_usage_breakdown(app.clone(), app.state(), app.state()).await),
+        "system_usage_get" => respond(system::system_usage_get(app.state(), app.state()).await),
+        "system_usage_breakdown" => respond(system::system_usage_breakdown(app.clone(), app.state(), app.state(), app.state()).await),
         "ide_get_status" => respond(ide::ide_get_status(app.state()).await),
         "ide_set_selection" => respond(ide::ide_set_selection(app.state(), arg!(args, "input")).await),
         "ide_clear_selection" => respond(ide::ide_clear_selection(app.state(), arg!(args, "owner")).await),

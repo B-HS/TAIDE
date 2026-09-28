@@ -899,6 +899,9 @@
   - [x] M6-NR. locale 20·Tauri 경유 1로 서로 다른 검사 21건과 runtime/Tauri 및 최종 locale all-target clippy·Rust fmt/diff·대상 MD 포맷이 exit 0입니다. acknowledge·bug·history·QA에 승인·결과·정적 링크 차단과 동시 교체/Windows 실기 한계를 기록하고 보안 수정 7개 파일만 선별 로컬 commit합니다. M6 전체 완료 전 일반 push와 UI 착수는 수행하지 않습니다.
   - [x] M6-NS. locale 조회·목록의 실제 Unix 파일 열기에 `O_NOFOLLOW | O_NONBLOCK`을 적용하고 열린 핸들의 일반 파일 여부를 재확인합니다. 기존 `libc 0.2.189`의 직접 edge만 추가했으며 ID·정상 pack/JSON·Io 오류 매핑과 Windows 정적 링크 정책은 유지합니다.
   - [x] M6-NT. 자기 symlink의 `ELOOP`와 locale 20·Tauri 경유 1로 서로 다른 21건, locale all-target/Tauri 관련 clippy·Rust fmt가 exit 0입니다. history/QA/bug에 Unix 최종 성분 보호와 부모 디렉터리·Windows 잔여를 구분해 기록하고 검증된 단위만 선별 로컬 commit합니다. M6 완료 전 일반 push는 하지 않습니다.
+  - [x] M6-NV. font 1·system usage 2개의 직접 spawn body를 확인하고 메모리 worker의 새 API 부재 E0599 세 건(exit 101)을 재현했습니다. 요청 abort/root·종료 입장·정상/오류/패닉 회귀를 추가했으며 실제 폰트/사용자 PID 스캔은 실행하지 않았습니다.
+  - [x] M6-NW. 같은 TaskSupervisor의 결과형 blocking worker를 세 호출에 배선하고 breakdown의 PID/label 사전 확인부터 결과 조립까지 operation을 보유합니다. 원격 직접 호출에도 같은 State를 전달하며 기존 서비스 결과/오류·등록 IPC와 실제 OS 측정 함수는 유지했습니다.
+  - [x] M6-NX. runtime 감독 10·Native source 1·Phase 0 IPC 7·실제 bindings 생성 1로 서로 다른 19건과 runtime/Tauri 관련 clippy·strict runtime rustdoc·Rust fmt/diff·대상 MD 포맷이 exit 0입니다. 실제 binding/manifest diff는 없고 history/QA·architecture에 결과와 OS stall/직접 Exit 잔여를 기록했습니다. 검증 단위만 로컬 commit하며 M6/M7/M8 전체·M6 완료 전 push는 별도 gate입니다.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 

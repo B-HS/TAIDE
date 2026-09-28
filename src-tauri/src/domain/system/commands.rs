@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use taide_runtime::{system_actions, PlatformServicesState};
+use taide_runtime::{system_actions, PlatformServicesState, TaskSupervisor};
 use tauri::State;
 
 pub use taide_system::store::SystemUsageStore;
@@ -43,11 +43,11 @@ impl SystemUsageLabelProviders {
 
 #[tauri::command]
 #[specta::specta]
-pub async fn system_usage_get(store: State<'_, SystemUsageStore>) -> AppResult<SystemUsage> {
+pub async fn system_usage_get(store: State<'_, SystemUsageStore>, tasks: State<'_, TaskSupervisor>) -> AppResult<SystemUsage> {
     let store = (*store).clone();
-    tauri::async_runtime::spawn_blocking(move || store.collect_app_usage())
+    tasks
+        .run_blocking_result("system-usage-get", move || store.collect_app_usage())
         .await
-        .map_err(|error| AppError::Internal(error.to_string()))?
 }
 
 #[tauri::command]
@@ -56,7 +56,11 @@ pub async fn system_usage_breakdown(
     app: tauri::AppHandle,
     store: State<'_, SystemUsageStore>,
     providers: State<'_, SystemUsageLabelProviders>,
+    tasks: State<'_, TaskSupervisor>,
 ) -> AppResult<Vec<SystemUsageProcess>> {
+    let _operation = tasks
+        .begin_operation("system-usage-breakdown")
+        .ok_or_else(|| AppError::Forbidden("task supervisor is shutting down".to_string()))?;
     let root_pid = sysinfo::get_current_pid()
         .map_err(|error| AppError::Internal(error.to_string()))?
         .as_u32();
@@ -68,9 +72,9 @@ pub async fn system_usage_breakdown(
         .unwrap_or(FALLBACK_CPU_COUNT);
 
     let store = (*store).clone();
-    let records = tauri::async_runtime::spawn_blocking(move || store.refresh_process_records())
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))?;
+    let records = tasks
+        .run_blocking_result("system-usage-breakdown", move || Ok(store.refresh_process_records()))
+        .await?;
 
     Ok(service::build_usage_processes(
         &records,

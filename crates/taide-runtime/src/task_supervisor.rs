@@ -3,6 +3,7 @@ use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use taide_model::error::{AppError, AppResult};
 use tokio::runtime::Handle;
 use tokio::task::{AbortHandle, JoinHandle};
 
@@ -127,6 +128,27 @@ impl TaskSupervisor {
         Some(handle)
     }
 
+    /// Retains an admitted blocking result worker after its request waiter is dropped.
+    pub async fn run_blocking_result<T: Send + 'static>(
+        &self,
+        name: &'static str,
+        work: impl FnOnce() -> AppResult<T> + Send + 'static,
+    ) -> AppResult<T> {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let worker = self
+            .spawn_blocking_transient_handle(name, move || {
+                drop(sender.send(work()));
+            })
+            .ok_or_else(task_supervisor_stopped_error)?;
+        worker.await.map_err(|error| {
+            if error.is_cancelled() {
+                return task_supervisor_stopped_error();
+            }
+            AppError::Internal(error.to_string())
+        })?;
+        receiver.await.map_err(|_| task_supervisor_stopped_error())?
+    }
+
     fn spawn_locked(&self, state: &mut TaskState, key: TaskKey, task: impl Future<Output = ()> + Send + 'static) -> Option<JoinHandle<()>> {
         state.prune_finished();
         if state.is_stopped || state.handles.contains_key(&key) {
@@ -174,11 +196,18 @@ impl TaskSupervisor {
     }
 }
 
+fn task_supervisor_stopped_error() -> AppError {
+    AppError::Forbidden("task supervisor is shutting down".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use std::future::pending;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
     use std::time::Duration;
 
+    use taide_model::error::{AppError, AppResult};
     use tokio::sync::oneshot;
 
     use super::TaskSupervisor;
@@ -285,5 +314,83 @@ mod tests {
         assert!(worker.is_finished());
         worker.await.unwrap();
         assert_eq!(tasks.tracked_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn 요청이_drop되어도_감독된_blocking_결과가_끝날_때까지_root가_기다린다() {
+        let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+        let worker_tasks = tasks.clone();
+        let (started, started_rx) = oneshot::channel();
+        let (release, release_rx) = std::sync::mpsc::channel();
+        let request = tokio::spawn(async move {
+            worker_tasks
+                .run_blocking_result("synthetic-result", move || {
+                    started.send(()).ok();
+                    release_rx.recv().ok();
+                    Ok(7)
+                })
+                .await
+        });
+        started_rx.await.unwrap();
+        request.abort();
+        assert!(request.await.unwrap_err().is_cancelled());
+        let mut shutdown = Box::pin(tasks.shutdown());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(BLOCKED_WORK_OBSERVATION_MS), &mut shutdown)
+                .await
+                .is_err()
+        );
+        drop(shutdown);
+        release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), tasks.shutdown())
+            .await
+            .unwrap();
+        assert_eq!(tasks.tracked_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn 닫힌_감독자는_blocking_결과_작업을_시작하지_않는다() {
+        let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+        let called = Arc::new(AtomicBool::new(false));
+        tasks.stop_all();
+        let worker_called = called.clone();
+        let result = tasks
+            .run_blocking_result("synthetic-closed", move || {
+                worker_called.store(true, Ordering::SeqCst);
+                Ok(())
+            })
+            .await;
+        assert!(matches!(result, Err(AppError::Forbidden(_))));
+        assert!(!called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn 감독된_blocking_결과의_패닉은_internal_오류로_반환된다() {
+        let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+        let result = tasks
+            .run_blocking_result("synthetic-panic", || -> AppResult<()> { panic!("synthetic worker panic") })
+            .await;
+        assert!(matches!(result, Err(AppError::Internal(_))));
+        tasks.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn 감독된_blocking_작업의_서비스_오류는_그대로_반환된다() {
+        let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+        let result = tasks
+            .run_blocking_result("synthetic-error", || -> AppResult<()> {
+                Err(AppError::Io("synthetic I/O failure".to_string()))
+            })
+            .await;
+        assert!(matches!(result, Err(AppError::Io(message)) if message == "synthetic I/O failure"));
+        tasks.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn 감독된_blocking_작업의_정상_결과를_반환한다() {
+        let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+        let result = tasks.run_blocking_result("synthetic-result", || Ok(7)).await.unwrap();
+        assert_eq!(result, 7);
+        tasks.shutdown().await;
     }
 }
