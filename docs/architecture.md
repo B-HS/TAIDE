@@ -242,7 +242,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     AI 8개 공개 action의 입력 상한·설정 snapshot·provider 해석·prompt 선택·취소 select·finish·응답 조립은
     Tauri 미의존 runtime `ai_actions`가 소유한다. Tauri command는 같은 State/인수/반환 타입으로 위임하며,
     provider HTTP와 secret port는 기존 taide-ai/infra를 사용한다. 정상 root는 같은 AppServices AiRequestStore의 owner 회수를
-    ExitDrain 준비 조건에 포함한다. 이 로컬 요청 정리는 외부 provider가 원격 처리를 중단했다거나 직접 Exit/강제 종료까지 회수됨을 보장하지 않는다.
+    ExitDrain 준비 조건과 직접 Exit의 등록 자원 대기에 포함한다. 이 로컬 요청 정리는 외부 provider가 원격 처리를 중단했다거나 강제 OS 종료까지 회수됨을 보장하지 않는다.
     `TreeStore`는 taide-tree의 프로젝트별 캐시를 runtime의 공유 Arc<RwLock>에 보관하고,
     프로젝트 종료 시 기존 capability가 해당 항목을 제거한다. tree 명령·캐시 경합 정책은 유지한다.
     `PluginStore`는 taide-plugin의 기존 read-through 캐시를 공유 Arc<RwLock>에 보관하고,
@@ -409,7 +409,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     store 취소와 최종 atomic 적용은 같은 gate에서 직렬화한다. 취소가 앞서면 적용/Done을 거절하고, 적용이 먼저 성공했으면 늦은 취소로 완료 결과를 되돌리지 않는다.
     ExitRequested/Exit는 설치 admission을 닫고 취소를 알리며 신규 command도 AppState 종료 gate를 확인한다.
     정상 ExitRequested는 prevent_exit 후 root callback이 소유한 runtime ExitDrain에서 감독 task/공유 operation owner의 실제 완료·모든 설치 lease·일반 LSP wait/reader/callback·같은 AppServices의 AI token owner·PTY spawn과 PTY worker 종료를 기다린다. coordinator는 자신이 멈추는 TaskSupervisor 밖에 있어 self-wait가 없으며 성공한 완료 뒤 원래 exit code로 종료를 다시 요청한다. PTY join 오류는 준비 플래그/종료 callback을 실행하지 않는다.
-    이 대기 중 native 이벤트 루프는 계속 동작해 메뉴 worker의 main-thread 응답을 처리할 수 있다. ExitRequested 없이 바로 Exit가 오면 감독 취소를 요청하고 설치 lease만 동기로 드레인하며 모든 다른 작업의 종료까지 보장하지는 않는다.
+    정상 ExitRequested 대기 중 native 이벤트 루프는 계속 동작해 메뉴 worker의 main-thread 응답을 처리할 수 있다. ExitRequested 없이 바로 Exit가 오면 사용자 선택에 따라 같은 등록 자원 전체의 완료를 동기로 기다린다. OS I/O·main-thread callback이 멈추면 시간 제한 없이 대기할 수 있고, 실제 native Exit/GUI 교착 여부와 등록되지 않은 자원 회수는 검증되지 않았다.
     HTTP 파일 생성 중 요청 Drop의 늦은 파일 1개와 슬롯 조기 해제를 재현하고 create/write/flush의 감독 소유권으로 수정했다.
     `taide-runtime::lsp_install_toolchain`은 감독된 blocking worker 안에서 취소 gate와 child spawn을 직렬화한다. store는 자원을 weak 등록해 순환 소유 없이 요청 Drop·명시 취소·shutdown을 동기로 전달한다.
     child 소유자는 직접 child를 kill/reap한 뒤 lease를 해제한다. Unix infra는 waitid의 WNOWAIT로 부모 PID를 회수하지 않고 종료를 관찰하며 자기 그룹에 KILL을 전달한 뒤 부모를 회수한다. mutex 안의 회수 플래그로 늦은 취소/Drop의 PID 재사용을 막고 0/1을 거절한다.

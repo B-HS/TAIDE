@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use taide_lsp::install::LspInstallStore;
 use taide_lsp::store::LspStore;
+use taide_model::error::AppResult;
 use taide_terminal::store::TerminalStore;
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
@@ -31,6 +32,36 @@ impl ExitDrain {
         self.ready.load(Ordering::Acquire)
     }
 
+    async fn wait_for_owned_resources(
+        tasks: TaskSupervisor,
+        installs: LspInstallStore,
+        processes: LspStore,
+        terminals: TerminalStore,
+        ai_requests: AiRequestStore,
+    ) -> AppResult<()> {
+        tasks.shutdown().await;
+        installs.wait_for_idle().await;
+        processes.wait_for_idle().await;
+        ai_requests.wait_for_idle().await;
+        terminals.wait_for_idle().await
+    }
+
+    /// Closes admission and waits for all owned resources when the event loop cannot defer exit.
+    pub async fn wait_for_direct_exit(
+        &self,
+        tasks: TaskSupervisor,
+        installs: LspInstallStore,
+        processes: LspStore,
+        terminals: TerminalStore,
+    ) -> AppResult<()> {
+        installs.shutdown();
+        processes.shutdown();
+        terminals.shutdown();
+        self.ai_requests.shutdown();
+        tasks.stop_all();
+        Self::wait_for_owned_resources(tasks, installs, processes, terminals, self.ai_requests.clone()).await
+    }
+
     /// Calls on_ready after tracked resources finish; terminal join errors keep readiness closed.
     pub fn begin(
         &mut self,
@@ -52,11 +83,7 @@ impl ExitDrain {
         let ready = self.ready.clone();
         let ai_requests = self.ai_requests.clone();
         self.task = Some(runtime.spawn(async move {
-            tasks.shutdown().await;
-            installs.wait_for_idle().await;
-            processes.wait_for_idle().await;
-            ai_requests.wait_for_idle().await;
-            if let Err(error) = terminals.wait_for_idle().await {
+            if let Err(error) = Self::wait_for_owned_resources(tasks, installs, processes, terminals, ai_requests).await {
                 log::error!("terminal runtime drain failed: {error}");
                 return;
             }
@@ -92,6 +119,42 @@ mod tests {
 
     const FIXTURE_TIMEOUT_MS: u64 = 2_000;
     const AI_PENDING_PROBE_MS: u64 = 20;
+
+    #[tokio::test]
+    async fn 직접_종료는_감독_작업_설치_ai_owner의_완료를_모두_기다린다() {
+        let runtime = tokio::runtime::Handle::current();
+        let tasks = TaskSupervisor::new(runtime);
+        let task_owner = tasks.begin_operation("synthetic-direct-exit").unwrap();
+        let installs = LspInstallStore::new();
+        let install_owner = installs.begin(&LspServerId::from("synthetic-direct-exit")).unwrap();
+        let requests = AiRequestStore::new();
+        let (request_owner, _) = requests.begin("main", "synthetic-direct-exit").unwrap();
+        let drain = ExitDrain::new(requests.clone());
+        let direct_exit = drain.wait_for_direct_exit(tasks.clone(), installs.clone(), LspStore::new(), TerminalStore::new());
+        tokio::pin!(direct_exit);
+
+        assert!(tokio::time::timeout(Duration::from_millis(AI_PENDING_PROBE_MS), &mut direct_exit)
+            .await
+            .is_err());
+        assert!(tasks.begin_operation("late").is_none());
+        assert!(installs.is_stopped());
+        assert!(requests.begin("late", "late").is_none());
+
+        drop(task_owner);
+        assert!(tokio::time::timeout(Duration::from_millis(AI_PENDING_PROBE_MS), &mut direct_exit)
+            .await
+            .is_err());
+        drop(install_owner);
+        assert!(tokio::time::timeout(Duration::from_millis(AI_PENDING_PROBE_MS), &mut direct_exit)
+            .await
+            .is_err());
+        drop(request_owner);
+        tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), direct_exit)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(tasks.tracked_count(), 0);
+    }
 
     #[tokio::test]
     async fn 정상_root_종료는_취소된_ai_owner의_실제_drop까지_기다린다() {
@@ -188,6 +251,79 @@ mod tests {
                 sender.send(()).ok();
             }
         }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn 직접_종료는_lsp와_pty_callback_반환까지_기다린다() {
+        let processes = LspStore::new();
+        let (lsp_started, lsp_started_rx) = oneshot::channel();
+        let (release_lsp, held_lsp) = std::sync::mpsc::channel();
+        let release_lsp = ExitRelease(Some(release_lsp));
+        let process = processes
+            .spawn_process(|| {
+                Ok(Arc::new(taide_infra::lsp_proc::spawn(
+                    taide_infra::lsp_proc::LspProcConfig {
+                        command: "/bin/sh".to_string(),
+                        args: vec!["-c".to_string(), "exit 0".to_string()],
+                        cwd: std::env::temp_dir(),
+                    },
+                    |_| {},
+                    move |_, _| {
+                        lsp_started.send(()).ok();
+                        held_lsp.recv().ok();
+                    },
+                )?))
+            })
+            .unwrap();
+        tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), lsp_started_rx)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let terminals = TerminalStore::new();
+        let (pty_started, pty_started_rx) = oneshot::channel();
+        let (release_pty, held_pty) = std::sync::mpsc::channel();
+        let release_pty = ExitRelease(Some(release_pty));
+        let session = terminals
+            .begin_spawn()
+            .unwrap()
+            .spawn(|| {
+                taide_infra::pty::spawn(
+                    controlled_shell_config(),
+                    |_| {},
+                    move |_| {
+                        pty_started.send(()).ok();
+                        held_pty.recv().ok();
+                    },
+                )
+            })
+            .unwrap();
+        let completion = session.completion_handle();
+        session.write(b"exit 0\n").unwrap();
+        tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), pty_started_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        terminals.retire_session(session);
+
+        let runtime = tokio::runtime::Handle::current();
+        let drain = ExitDrain::default();
+        let direct_exit = drain.wait_for_direct_exit(TaskSupervisor::new(runtime), LspInstallStore::new(), processes, terminals);
+        tokio::pin!(direct_exit);
+        assert!(tokio::time::timeout(Duration::from_millis(PENDING_PROBE_MS), &mut direct_exit)
+            .await
+            .is_err());
+        drop(release_lsp);
+        assert!(tokio::time::timeout(Duration::from_millis(PENDING_PROBE_MS), &mut direct_exit)
+            .await
+            .is_err());
+        drop(release_pty);
+        tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), direct_exit)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(process.is_finished() && completion.is_finished());
     }
 
     #[cfg(unix)]

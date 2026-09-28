@@ -1149,8 +1149,16 @@ pub fn run() {
                 }
             }
             if matches!(&event, tauri::RunEvent::Exit) {
-                app_handle.state::<TaskSupervisor>().stop_all();
-                tauri::async_runtime::block_on(app_handle.state::<LspInstallStore>().wait_for_idle());
+                let exit_drain =
+                    exit_drain.get_or_insert_with(|| ExitDrain::new((*app_handle.state::<domain::ai::commands::AiRequestStore>()).clone()));
+                if let Err(error) = tauri::async_runtime::block_on(exit_drain.wait_for_direct_exit(
+                    (*app_handle.state::<TaskSupervisor>()).clone(),
+                    (*app_handle.state::<LspInstallStore>()).clone(),
+                    (*app_handle.state::<LspStore>()).clone(),
+                    (*app_handle.state::<TerminalStore>()).clone(),
+                )) {
+                    log::error!("direct exit runtime drain failed: {error}");
+                }
             }
         });
 }
@@ -1337,6 +1345,21 @@ mod tests {
             registered, expected,
             "project_capabilities 의 등록 순서가 계약과 다릅니다 — 이 순서는 project_close 의 자원 회수 순서 그 자체입니다"
         );
+    }
+
+    #[test]
+    fn 직접_exit은_전체_자원_drain을_사용한다() {
+        let source = include_str!("lib.rs");
+        let direct_exit = extract_between(
+            source,
+            "if matches!(&event, tauri::RunEvent::Exit) {",
+            "\n            }\n        });",
+        );
+        assert!(direct_exit.contains("wait_for_direct_exit("));
+        assert!(direct_exit.contains("app_handle.state::<TaskSupervisor>()"));
+        assert!(direct_exit.contains("app_handle.state::<LspInstallStore>()"));
+        assert!(direct_exit.contains("app_handle.state::<LspStore>()"));
+        assert!(direct_exit.contains("app_handle.state::<TerminalStore>()"));
     }
 
     #[test]

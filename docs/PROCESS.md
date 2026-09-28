@@ -902,6 +902,9 @@
   - [x] M6-NV. font 1·system usage 2개의 직접 spawn body를 확인하고 메모리 worker의 새 API 부재 E0599 세 건(exit 101)을 재현했습니다. 요청 abort/root·종료 입장·정상/오류/패닉 회귀를 추가했으며 실제 폰트/사용자 PID 스캔은 실행하지 않았습니다.
   - [x] M6-NW. 같은 TaskSupervisor의 결과형 blocking worker를 세 호출에 배선하고 breakdown의 PID/label 사전 확인부터 결과 조립까지 operation을 보유합니다. 원격 직접 호출에도 같은 State를 전달하며 기존 서비스 결과/오류·등록 IPC와 실제 OS 측정 함수는 유지했습니다.
   - [x] M6-NX. runtime 감독 10·Native source 1·Phase 0 IPC 7·실제 bindings 생성 1로 서로 다른 19건과 runtime/Tauri 관련 clippy·strict runtime rustdoc·Rust fmt/diff·대상 MD 포맷이 exit 0입니다. 실제 binding/manifest diff는 없고 history/QA·architecture에 결과와 OS stall/직접 Exit 잔여를 기록했습니다. 검증 단위만 로컬 commit하며 M6/M7/M8 전체·M6 완료 전 push는 별도 gate입니다.
+  - [x] M6-NY. 사용자 A 선택을 acknowledge에 기록하고 직접 `RunEvent::Exit`의 부분 대기를 기존 정상 종료와 대조했습니다. 감독 작업·설치·AI owner 새 검사에서 API 부재 E0599(exit 101)를 먼저 확인했고, 자기 `/bin/sh` LSP·PTY callback fixture를 추가했습니다.
+  - [x] M6-NZ. 직접 `Exit`가 기존 `ExitRequested`와 동일한 다섯 등록 자원 완료 함수를 기다리도록 연결했습니다. 기존 종료 입장 차단·오류 로깅과 공개 IPC를 유지하며 새 유예 시간·강제 종료는 없습니다. 감독·설치·AI 및 LSP·PTY 직접 fixture와 Tauri source contract가 통과했습니다.
+  - [x] M6-OA. 직접 종료의 감독·설치·AI fixture 1·LSP/PTY fixture 1·기존 종료 7·Tauri source 1로 서로 다른 10건이 통과했습니다. Rust runtime/Tauri clippy·strict runtime rustdoc·fmt/diff·신규/갱신 MD 대상 Prettier가 exit 0입니다. 사용자 A 선택과 실제 결과를 acknowledge·history·QA·architecture에 기록하고, 실제 native Exit/메인 callback/OS stall과 전체 M6/M7/M8은 미완료로 유지합니다. 검증 단위만 선별 로컬 commit하며 M6 완료 전 push는 하지 않습니다.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
