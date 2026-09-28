@@ -21,6 +21,8 @@
 | 터미널 | 앱 터미널에서 `time seq 2000000`을 한 번 실행하고 셸 프롬프트 복귀·경과 1.458초를 봤습니다. Rust `pty.output_bytes`는 362→20,778,665바이트, `pty.output_chunks`는 3→494개였습니다. 프런트 누적 `terminal.output-bytes`는 20,778,730바이트, `terminal.output-chunks`는 496개였습니다. | Rust 증가분 20,778,303바이트 기준 약 14.25MB/s입니다. 프런트 실행 전 값은 보관하지 않아 프런트 증가분은 단정하지 않습니다. |
 | 메모리 | 수정 파일 20개를 연 뒤 `Close Saved`로 일괄 닫고 남은 테스트 파일도 저장·닫았습니다. 앱 상태 표시 RAM은 닫기 전 163MB, 이후 156MB였습니다. | 정확한 WebKit Memory 스냅샷·Monaco 모델·쿼리 캐시 수는 미측정입니다. 콘솔 전역에 `monaco`·`queryClient`·`performance.memory`가 노출되지 않았습니다. |
 
+후속 유휴 상태에서 같은 앱의 RAM 표시가 949MB로 올랐고, PID 41408의 `ps -o rss`도 971,648KiB로 일치했습니다. `vmmap -summary`의 physical footprint는 829.5MB, `MALLOC_LARGE (empty)` resident는 788.4MB였으며 `heap --noContent -s -H`의 live malloc 합계는 15.0MB였습니다. 이 차이는 높은 RSS를 실제 live 객체 누수로 단정할 수 없다는 근거일 뿐, 장시간 유지된 높은 메모리 점유 자체를 통과시키는 근거는 아닙니다. 200만 줄 출력·탭 닫기·검색 중 무엇이 큰 일시 할당을 만들었는지는 분리하지 않았습니다.
+
 작은 합성 파일에 테스트 입력 한 글자가 미저장 상태로 남은 것을 확인해 undo 후 원문과 같은 내용으로 저장했습니다. 마지막 확인에서 파일은 1,024바이트이고 `s` 외의 바이트는 0개였습니다.
 
 ## GUI 경로와 남은 판정
