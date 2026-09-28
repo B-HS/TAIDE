@@ -1,7 +1,7 @@
 use std::future::{poll_fn, Future};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::Duration;
 
@@ -10,10 +10,12 @@ use taide_model::app_event::AppEvent;
 use taide_model::error::{AppError, AppErrorKind};
 use taide_model::paths::AppPaths;
 use taide_model::settings::Settings;
-use taide_runtime::{app_actions, settings_actions, AppState, EventSink};
+use taide_runtime::{app_actions, settings_actions, AppState, EventSink, TaskSupervisor};
+use tokio::sync::oneshot;
 use uuid::Uuid;
 
 const ACTION_TIMEOUT: Duration = Duration::from_secs(5);
+const ROOT_WAIT_PROBE: Duration = Duration::from_millis(20);
 
 struct Fixture {
     dir: PathBuf,
@@ -200,18 +202,82 @@ async fn parsed_설정_적용은_잠금을_취득하고_포트_오류를_전파�
     assert!(!fixture.state.paths.settings_file().exists());
 }
 
+#[tokio::test]
+async fn 앱_설정_쓰기_두_경로는_요청_취소_뒤에도_guard와_observer를_끝까지_소유한다() {
+    for is_parsed in [false, true] {
+        let fixture = Fixture::new();
+        let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+        let sink = Arc::new(RecordingEventSink::default());
+        let state = fixture.state.clone();
+        let request_tasks = tasks.clone();
+        let request_sink = sink.clone();
+        let next = Settings {
+            agent_hooks_enabled: true,
+            ..state.settings.read().clone()
+        };
+        let request_next = next.clone();
+        let content = serde_json::to_string(&next).unwrap();
+        let (started, started_rx) = oneshot::channel();
+        let (release, held) = oneshot::channel();
+        let request = tokio::spawn(async move {
+            request_tasks
+                .run_nonabortable_result("app-settings-write", async move {
+                    let apply = |parsed| {
+                        let sink = request_sink.clone();
+                        let state = state.clone();
+                        async move {
+                            settings_actions::apply_and_broadcast(
+                                &state,
+                                parsed,
+                                |_, _| async move {
+                                    started.send(()).ok();
+                                    held.await.unwrap();
+                                },
+                                sink.as_ref(),
+                            )
+                            .await
+                        }
+                    };
+                    if is_parsed {
+                        return app_actions::apply_settings_file(&state, request_next, apply).await;
+                    }
+                    app_actions::app_file_write(&state, AppFileTarget::Settings, content, apply).await
+                })
+                .await
+        });
+        tokio::time::timeout(ACTION_TIMEOUT, started_rx).await.unwrap().unwrap();
+        assert!(sink.0.lock().unwrap().is_empty());
+        request.abort();
+        assert!(request.await.unwrap_err().is_cancelled());
+        tasks.stop_all();
+        assert!(tokio::time::timeout(ROOT_WAIT_PROBE, fixture.state.begin_mutation()).await.is_err());
+        let shutdown = tasks.shutdown();
+        tokio::pin!(shutdown);
+        assert!(tokio::time::timeout(ROOT_WAIT_PROBE, &mut shutdown).await.is_err());
+        release.send(()).unwrap();
+        tokio::time::timeout(ACTION_TIMEOUT, shutdown).await.unwrap();
+        assert_eq!(*fixture.state.settings.read(), next);
+        assert_eq!(
+            taide_settings::service::parse_settings_json(&std::fs::read_to_string(fixture.state.paths.settings_file()).unwrap()).unwrap(),
+            next
+        );
+        assert_eq!(*sink.0.lock().unwrap(), [AppEvent::SettingsChanged { settings: Box::new(next) }]);
+    }
+}
+
 #[test]
 fn app_adapter는_파일_action만_위임하고_remote_strip과_metadata_perf_경계를_유지한다() {
     let commands = include_str!("../src/domain/app/commands.rs");
     for action in ["app_file_read", "app_file_write", "apply_settings_file"] {
         assert!(commands.contains(&format!("app_actions::{action}(")));
     }
-    assert_eq!(commands.matches("(apply_settings.0)(&app, &state,").count(), 2);
+    assert_eq!(commands.matches(".run_nonabortable_result(").count(), 2);
+    assert_eq!(commands.matches("let apply_settings = apply_settings.0;").count(), 2);
     assert!(!commands.contains("begin_mutation("));
     assert!(!commands.contains("parse_settings_json("));
     assert!(commands.contains("service::app_info()"));
     assert!(commands.contains("perf::global().reset()"));
     let gateway = include_str!("../src/remote_gateway.rs");
     assert!(gateway.contains("strip_remote_gated_settings(parsed, &current)"));
-    assert!(gateway.contains("apply_settings_file(app.clone(), app.state(), app.state(), sanitized)"));
+    assert!(gateway.contains("apply_settings_file(app.clone(), app.state(), app.state(), app.state(), sanitized)"));
 }

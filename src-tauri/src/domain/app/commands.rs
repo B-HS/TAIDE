@@ -1,6 +1,6 @@
 use tauri::State;
 
-use taide_runtime::app_actions;
+use taide_runtime::{app_actions, TaskSupervisor};
 
 use super::types::{AppFileTarget, PerfSnapshot};
 use super::{service, types::AppInfo};
@@ -57,11 +57,18 @@ pub async fn app_file_read(state: State<'_, AppState>, target: AppFileTarget) ->
 pub async fn app_file_write(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
+    tasks: State<'_, TaskSupervisor>,
     apply_settings: State<'_, SettingsApplyPort>,
     target: AppFileTarget,
     content: String,
 ) -> AppResult<()> {
-    app_actions::app_file_write(&state, target, content, |parsed| (apply_settings.0)(&app, &state, parsed)).await
+    let state = state.inner().clone();
+    let apply_settings = apply_settings.0;
+    tasks
+        .run_nonabortable_result("app-file-write", async move {
+            app_actions::app_file_write(&state, target, content, |parsed| apply_settings(&app, &state, parsed)).await
+        })
+        .await
 }
 
 /// Applies an already-parsed `Settings` value through the same
@@ -74,8 +81,15 @@ pub async fn app_file_write(
 pub async fn apply_settings_file(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
+    tasks: State<'_, TaskSupervisor>,
     apply_settings: State<'_, SettingsApplyPort>,
     settings: Settings,
 ) -> AppResult<()> {
-    app_actions::apply_settings_file(&state, settings, |next| (apply_settings.0)(&app, &state, next)).await
+    let state = state.inner().clone();
+    let apply_settings = apply_settings.0;
+    tasks
+        .run_nonabortable_result("app-apply-settings-file", async move {
+            app_actions::apply_settings_file(&state, settings, |next| apply_settings(&app, &state, next)).await
+        })
+        .await
 }

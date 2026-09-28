@@ -367,6 +367,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     다섯 action은 같은 등록 TaskSupervisor operation을 처음부터 마지막 페이지 조립까지 보유하고, prefetch의 실제 blocking worker도 감독자에 등록한다. 수정 action은 prefetch 완료 뒤 기존 mutation/write lock을 취득한다. prefetch는 힌트이며 빠진 디렉터리는 기존 서비스의 read fallback을 유지한다.
     Tauri tree command는 기존 인수·응답·TreeStore 재수출·collapse 문서와 TreeToggle/TreeReveal perf span만 보존한다.
     `taide-runtime::app_actions`는 앱 파일 읽기의 live settings snapshot과 쓰기/parsed 설정 적용의 mutation guard·검증·적용 await를 소유한다.
+    Native·원격의 두 앱 쓰기 entry는 같은 TaskSupervisor의 취소되지 않는 operation에서 action 전체를 실행한다. 요청 중단 뒤에도 guard·SettingsApplyPort observer·이벤트가 완료될 때까지 정상 root가 기다리며 prompt 저장도 같은 action 소유 범위에 있다.
     설정 적용 callback만 기존 SettingsApplyPort/AppHandle adapter에 유지하고 remote gated strip은 gateway에서 먼저 수행한다.
     프롬프트 저장은 설정 포트를 호출하지 않으며 기존 service의 validate→atomic write를 소비한다. 제품 버전·process perf registry는 Tauri metadata/진단 adapter에 남는다.
     `taide-runtime::theme_actions`와 `locale_actions`는 현재 테마·언어의 live 설정 snapshot→system 선택/fallback→service load 조립을 소유한다.

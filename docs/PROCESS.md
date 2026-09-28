@@ -922,6 +922,9 @@
   - [x] M6-ON. 실패한 platform_event_sink source-scan 5건의 과거 Tauri marker를 현재 runtime·adapter 실제 이벤트 소유자와 대조했습니다. terminal spawn의 store insert→event, sync의 상태/locale 적용→event, project attach/detach→event, agent diff→event, LSP install progress의 변환/port 계약을 유지했습니다.
   - [x] M6-OO. 실제 소유 파일·심볼을 가리키도록 다섯 검사만 수리했습니다. 첫 전체 실행에서 terminal exit metadata 변수명 한 곳이 남아 28/29건이었고 해당 marker만 수정한 뒤 `cargo test -p taide --test platform_event_sink` 29건, 관련 Clippy·Rust fmt/diff가 exit 0입니다. 제품 동작·IPC는 변경하지 않았습니다.
   - [x] M6-OP. 조사 시점·수정·검증을 docs/history·QA·PROCESS에 기록하고 테스트/문서만 선별 로컬 commit합니다. 실제 GUI·전체 M6/M7/M8과 M6 완료 전 push 조건은 유지합니다.
+  - [x] M6-OQ. app_file_write·원격 apply_settings_file의 공유 SettingsApplyPort와 caller 보유 mutation guard를 대조했습니다. 새 wrapper 배선의 source 검사 0/2 RED(exit 101)를 먼저 확인했고, 자기 설정 경로에서 저장 뒤 요청 Drop·guard/root 대기·observer 재개 fixture를 두 경로에 추가했습니다.
+  - [x] M6-OR. 두 앱 쓰기 entry를 등록된 완료 보장 operation으로 실행해 guard와 callback 완료를 요청 수명과 분리했습니다. 기존 parse/설정 적용·prompt 저장·원격 gated strip·오류/IPC 순서를 유지하며 sync_download는 별도 경계로 남깁니다.
+  - [x] M6-OS. Tauri 패키지 app_actions_runtime 7·조립부 source 1·실제 binding 생성 1의 서로 다른 9건과 관련 Clippy·Rust fmt/diff·대상 MD 포맷이 통과했습니다. 최초 조립부 검사의 과거 sync 저장 위치 기대는 현재 runtime owner로 수정 후 재검사했습니다. binding/manifest diff는 없고 history·bug·QA·architecture/PROCESS에 실제 결과를 기록했습니다. 검증 단위만 로컬 commit하며 M6 전체 완료 전 push는 보류합니다.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 

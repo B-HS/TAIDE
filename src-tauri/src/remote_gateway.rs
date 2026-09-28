@@ -764,11 +764,15 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
                     Ok(parsed) => {
                         let current = app.state::<AppState>().settings.read().clone();
                         let sanitized = strip_remote_gated_settings(parsed, &current);
-                        respond(domain::app::commands::apply_settings_file(app.clone(), app.state(), app.state(), sanitized).await)
+                        respond(
+                            domain::app::commands::apply_settings_file(app.clone(), app.state(), app.state(), app.state(), sanitized).await,
+                        )
                     }
                     Err(error) => Err(err(error)),
                 },
-                other => respond(domain::app::commands::app_file_write(app.clone(), app.state(), app.state(), other, content).await),
+                other => {
+                    respond(domain::app::commands::app_file_write(app.clone(), app.state(), app.state(), app.state(), other, content).await)
+                }
             }
         }
 
