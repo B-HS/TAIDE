@@ -124,15 +124,25 @@ pub async fn project_get_active(state: State<'_, AppState>) -> AppResult<Option<
 /// diagnosis this closes.
 #[tauri::command]
 #[specta::specta]
-pub async fn project_open(app: AppHandle, state: State<'_, AppState>, path: String) -> AppResult<service::ProjectOpenResult> {
-    let _span = perf::span(SpanSlot::ProjectOpen);
-    project_actions::project_open(
-        &TauriEventSink(&app),
-        &state,
-        &NativeProjectLifecycle { app: &app, state: &state },
-        path,
-    )
-    .await
+pub async fn project_open(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    tasks: State<'_, TaskSupervisor>,
+    path: String,
+) -> AppResult<service::ProjectOpenResult> {
+    let state = state.inner().clone();
+    tasks
+        .run_nonabortable_result("project-open", async move {
+            let _span = perf::span(SpanSlot::ProjectOpen);
+            project_actions::project_open(
+                &TauriEventSink(&app),
+                &state,
+                &NativeProjectLifecycle { app: &app, state: &state },
+                path,
+            )
+            .await
+        })
+        .await
 }
 
 /// Opens a project **into a named shell slot** — the split half of d-62. Either `path` (a folder
@@ -151,16 +161,22 @@ pub async fn project_open(app: AppHandle, state: State<'_, AppState>, path: Stri
 pub async fn project_open_in_slot(
     app: AppHandle,
     state: State<'_, AppState>,
+    tasks: State<'_, TaskSupervisor>,
     request: OpenProjectInSlotRequest,
 ) -> AppResult<SessionShellState> {
-    let _span = perf::span(SpanSlot::ProjectOpen);
-    project_actions::project_open_in_slot(
-        &TauriEventSink(&app),
-        &state,
-        &NativeProjectLifecycle { app: &app, state: &state },
-        request,
-    )
-    .await
+    let state = state.inner().clone();
+    tasks
+        .run_nonabortable_result("project-open-in-slot", async move {
+            let _span = perf::span(SpanSlot::ProjectOpen);
+            project_actions::project_open_in_slot(
+                &TauriEventSink(&app),
+                &state,
+                &NativeProjectLifecycle { app: &app, state: &state },
+                request,
+            )
+            .await
+        })
+        .await
 }
 
 /// The current slot arrangement and window chrome, for a window that just mounted. Both halves
@@ -528,14 +544,24 @@ pub async fn project_group_reorder(app: AppHandle, state: State<'_, AppState>, i
 /// attaches one project at a time.
 #[tauri::command]
 #[specta::specta]
-pub async fn project_group_open(app: AppHandle, state: State<'_, AppState>, group_id: ProjectGroupId) -> AppResult<ProjectGroupOpenResult> {
-    project_actions::project_group_open(
-        &TauriEventSink(&app),
-        &state,
-        &NativeProjectLifecycle { app: &app, state: &state },
-        group_id,
-    )
-    .await
+pub async fn project_group_open(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    tasks: State<'_, TaskSupervisor>,
+    group_id: ProjectGroupId,
+) -> AppResult<ProjectGroupOpenResult> {
+    let state = state.inner().clone();
+    tasks
+        .run_nonabortable_result("project-group-open", async move {
+            project_actions::project_group_open(
+                &TauriEventSink(&app),
+                &state,
+                &NativeProjectLifecycle { app: &app, state: &state },
+                group_id,
+            )
+            .await
+        })
+        .await
 }
 
 pub(crate) fn restore_state(state: &AppState) -> Vec<String> {

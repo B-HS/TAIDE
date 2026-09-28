@@ -419,7 +419,7 @@ fn dispatch_menu_action(app: &tauri::AppHandle, action: domain::window::menu::Me
                     return;
                 };
                 let state = app.state::<AppState>();
-                if let Err(error) = domain::project::commands::project_open(app.clone(), state, root).await {
+                if let Err(error) = domain::project::commands::project_open(app.clone(), state, app.state(), root).await {
                     log::warn!("최근 항목 메뉴에서 프로젝트를 열지 못했습니다 (projectId={project_id}): {error}");
                 }
             });

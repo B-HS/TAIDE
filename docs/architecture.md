@@ -567,6 +567,7 @@ trait ProjectCapability: Send + Sync {
 - **동작 불변**: `project_open` 은 여전히 attach 완료를 기다린 뒤 `ProjectOpened`/`ProjectActivated`
   를 방출하고 반환한다 — 옮긴 것은 **락**이지 attach 가 아니다. 워처 핸들은 build 가 끝난 시점에
   이미 구독 중이라 build~register 사이 이벤트도 유실되지 않는다.
+- Native `project_open`·`project_open_in_slot`·`project_group_open`은 TaskSupervisor의 취소되지 않는 완료 operation에서 runtime action을 호출한다. 요청 future가 사라져도 attach·실패 rollback·event까지 같은 작업이 끝나고 정상 root 종료가 기다린다. menu·원격 gateway도 같은 감독자를 전달한다. 실제 watcher·GUI 종료 검증은 남아 있다.
 - **재검증**: 가드 재획득 시 프로젝트가 아직 열려 있는지 확인하고, 아니면 build 결과를 commit 하지
   않고 **버린다**(핸들 drop = 워처 종료). 부분 커밋이 없으므로 detach 대칭이 유지된다.
 - **d-25 보정**: attach 완료 후 git 워처가 등록됐으면 `GitStatusChanged` 를 1회 방출한다

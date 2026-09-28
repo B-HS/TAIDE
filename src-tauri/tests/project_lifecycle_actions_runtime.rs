@@ -1,4 +1,6 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
 
 use futures_util::FutureExt;
 use parking_lot::Mutex;
@@ -9,7 +11,8 @@ use taide_model::paths::AppPaths;
 use taide_model::project::{CapabilityKind, OpenProjectInSlotRequest, Project, ProjectDisplay, ProjectGroup, ShellSlotEdge};
 use taide_project::{service, shell_slots};
 use taide_runtime::project_actions::{self, ProjectLifecyclePort};
-use taide_runtime::{AppState, EventSink};
+use taide_runtime::{AppState, EventSink, TaskSupervisor};
+use tokio::sync::oneshot;
 use uuid::Uuid;
 
 struct NoLifecycle;
@@ -30,6 +33,41 @@ impl ProjectLifecyclePort for NoLifecycle {
 }
 
 struct NoEvents;
+
+const ACTION_TIMEOUT: Duration = Duration::from_secs(5);
+const ROOT_WAIT_PROBE: Duration = Duration::from_millis(20);
+
+struct HeldLifecycle {
+    started: Mutex<Option<oneshot::Sender<()>>>,
+    release: Mutex<Option<oneshot::Receiver<()>>>,
+    should_fail: bool,
+}
+
+impl ProjectLifecyclePort for HeldLifecycle {
+    fn detected_kinds(&self, _: &Path) -> Vec<CapabilityKind> {
+        Vec::new()
+    }
+
+    async fn attach_project_capabilities(&self, _: &Project) -> AppResult<()> {
+        self.started.lock().take().unwrap().send(()).ok();
+        let release = self.release.lock().take().unwrap();
+        release.await.unwrap();
+        if self.should_fail {
+            return Err(AppError::Internal("fixture attach failure".to_string()));
+        }
+        Ok(())
+    }
+
+    async fn await_project_flush(&self, _: &ProjectId) {}
+
+    fn detach_all(&self, _: &ProjectId) {}
+}
+
+#[test]
+fn native_프로젝트_열기_세_경로는_요청_취소와_독립된_완료_owner를_사용한다() {
+    let commands = include_str!("../src/domain/project/commands.rs");
+    assert_eq!(commands.matches(".run_nonabortable_result(\"project-").count(), 3);
+}
 
 struct Fixture {
     base: PathBuf,
@@ -111,6 +149,12 @@ impl Events {
                 _ => panic!("fixture event"),
             })
             .collect()
+    }
+}
+
+impl EventSink for Events {
+    fn publish(&self, event: AppEvent) {
+        self.recorded.lock().push(event);
     }
 }
 
@@ -253,6 +297,51 @@ async fn open은_저장_state_뒤_guard_밖_attach를_기다리고_재열기는_
     assert_eq!(reopened.project.id, opened.project.id);
     assert_eq!(events.names(), ["activated", "slots"]);
     assert_eq!(*calls.lock(), ["detect", "attach:first"]);
+}
+
+#[tokio::test]
+async fn 요청_취소_뒤에도_project_attach_성공과_실패_rollback을_root가_기다린다() {
+    for should_fail in [false, true] {
+        let fixture = Fixture::new();
+        let root = fixture.root("held");
+        let state = fixture.state.clone();
+        let events = Arc::new(Events::default());
+        let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+        let request_tasks = tasks.clone();
+        let (started, started_rx) = oneshot::channel();
+        let (release, held) = oneshot::channel();
+        let lifecycle = HeldLifecycle {
+            started: Mutex::new(Some(started)),
+            release: Mutex::new(Some(held)),
+            should_fail,
+        };
+        let request_events = events.clone();
+        let request = tokio::spawn(async move {
+            request_tasks
+                .run_nonabortable_result("project-open", async move {
+                    project_actions::project_open(request_events.as_ref(), &state, &lifecycle, root).await
+                })
+                .await
+        });
+        tokio::time::timeout(ACTION_TIMEOUT, started_rx).await.unwrap().unwrap();
+        assert_eq!(fixture.state.projects.read().len(), 1);
+        assert!(events.recorded.lock().is_empty());
+        request.abort();
+        assert!(request.await.unwrap_err().is_cancelled());
+        tasks.stop_all();
+        let shutdown = tasks.shutdown();
+        tokio::pin!(shutdown);
+        assert!(tokio::time::timeout(ROOT_WAIT_PROBE, &mut shutdown).await.is_err());
+        release.send(()).unwrap();
+        tokio::time::timeout(ACTION_TIMEOUT, shutdown).await.unwrap();
+        if should_fail {
+            assert!(fixture.state.projects.read().is_empty());
+            assert_eq!(events.names(), ["closed", "activated", "slots", "list"]);
+        } else {
+            assert_eq!(fixture.state.projects.read().len(), 1);
+            assert_eq!(events.names(), ["opened", "list", "activated", "slots"]);
+        }
+    }
 }
 
 #[tokio::test]

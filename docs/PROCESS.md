@@ -928,6 +928,9 @@
   - [x] M6-OT. sync_download의 fetch와 guard-side apply 경계·충돌/오류 우선순위를 대조했습니다. Native split 배선 부재 source 검사 RED(exit 101)를 먼저 확인했고, fetch 뒤 apply 입장·요청 Drop·guard/root 대기·theme/locale/event 완료 fixture를 추가했습니다. fetch 자체의 요청 취소는 감독 operation 이전에 남깁니다.
   - [x] M6-OU. runtime의 prepare/apply를 단일 정책 출처로 분리하고 기존 sync_download는 같은 두 단계의 조합으로 유지했습니다. Native/원격은 fetch 뒤 등록된 취소되지 않는 apply operation을 실행합니다. SettingsApplyPort·theme/locale·SyncStateChanged 순서와 공개 IPC는 불변입니다.
   - [x] M6-OV. Tauri 패키지 sync_actions_runtime 19·조립부 source 1·event source 29·실제 binding 생성 1의 서로 다른 50건과 관련 runtime/Tauri Clippy·strict runtime rustdoc·Rust fmt/diff·대상 MD 포맷이 통과했습니다. binding/manifest diff는 없고 history·bug·QA·architecture/PROCESS에 기록했습니다. 실제 fetch 취소 fixture·다른 sync action·전체 M6 gate는 별도입니다. 검증 단위만 로컬 commit하며 M6 전체 완료 전 push는 보류합니다.
+  - [x] M6-OW. 세 열기 entry의 상태 기록→capability attach await와 menu/remote 호출을 대조했습니다. 완료 소유 부재를 검사하는 source fixture가 RED(exit 101)였고, 자기 UUID 프로젝트·대기 port에서 요청 Drop 뒤 attach 성공/실패 rollback을 재현했습니다.
+  - [x] M6-OX. 세 Native 열기 entry를 등록된 취소되지 않는 완료 operation에 넣어 attach·실패 rollback·event까지 마칩니다. menu/remote는 같은 State를 전달하며 project_close의 flush 대기/중복 close 정책과 공개 IPC는 그대로입니다.
+  - [x] M6-OY. project runtime 15·Native source 11·binding 생성 1건과 Clippy·Rust fmt/diff를 확인했습니다. history·bug·QA·architecture/PROCESS에 기록하고 검증 단위만 로컬 commit합니다. 실제 watcher/GUI·전체 M6와 push는 별도입니다.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 

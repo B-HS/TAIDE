@@ -779,7 +779,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "project_list" => respond(project::project_list(app.state()).await),
         "project_get" => respond(project::project_get(app.state(), arg!(args, "projectId")).await),
         "project_get_active" => respond(project::project_get_active(app.state()).await),
-        "project_open" => respond(project::project_open(app.clone(), app.state(), arg!(args, "path")).await),
+        "project_open" => respond(project::project_open(app.clone(), app.state(), app.state(), arg!(args, "path")).await),
         "project_close" => respond(project::project_close(app.clone(), app.state(), arg!(args, "projectId")).await),
         "project_activate" => respond(project::project_activate(app.clone(), app.state(), arg!(args, "projectId")).await),
         "project_reorder" => respond(project::project_reorder(app.clone(), app.state(), arg!(args, "ids")).await),
@@ -811,8 +811,10 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         }
         "project_group_delete" => respond(project::project_group_delete(app.clone(), app.state(), arg!(args, "groupId")).await),
         "project_group_reorder" => respond(project::project_group_reorder(app.clone(), app.state(), arg!(args, "ids")).await),
-        "project_group_open" => respond(project::project_group_open(app.clone(), app.state(), arg!(args, "groupId")).await),
-        "project_open_in_slot" => respond(project::project_open_in_slot(app.clone(), app.state(), arg!(args, "request")).await),
+        "project_group_open" => respond(project::project_group_open(app.clone(), app.state(), app.state(), arg!(args, "groupId")).await),
+        "project_open_in_slot" => {
+            respond(project::project_open_in_slot(app.clone(), app.state(), app.state(), arg!(args, "request")).await)
+        }
         "shell_slot_close" => respond(project::shell_slot_close(app.clone(), app.state(), arg!(args, "slotId")).await),
         "session_get_shell_state" => respond(project::session_get_shell_state(app.state()).await),
         "session_focus_shell_slot" => respond(project::session_focus_shell_slot(app.clone(), app.state(), arg!(args, "slotId")).await),
