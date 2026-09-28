@@ -968,6 +968,8 @@
     - [ ] M7-C4. 실제 앱 GUI·직접 Exit와 사용자 회귀, Phase 0 기능·성능·TS view 기준선을 확인한 뒤 M7/M8 gate를 판정합니다.
       - [x] M7-C4a. editor·LSP·terminal·preview·shell의 현행 구현과 자동 검사 경로, 실기·형식별 preview 검사 공백을 [기능 inventory](quality-assurance/2026-09-28-rust-native-function-inventory.md)에 고정했습니다. 5도메인의 실제 실기 증거가 없어 Phase 0 기능 baseline은 미완료입니다.
       - [ ] M7-C4b. 현재 TS view의 모든 화면·상태·상호작용·접근성 항목을 컴포넌트와 자동·실기 증거에 연결합니다.
+        - [x] M7-C4b-1. 메인·보조 창과 주요 화면/탭/설정 진입점, 확인한 상태·동작·자동 근거와 실기 공백을 [TS view inventory](quality-assurance/2026-09-28-ts-view-inventory.md)에 기록했습니다. 테스트 제외 `.tsx` 212개를 모집단으로 확인했고 대상 MD Prettier가 exit 0입니다.
+        - [ ] M7-C4b-2. 하위 컴포넌트 212개와 메뉴·dialog별 빈/오류/진행 상태, 키보드·테마/로케일·다중 창·시각/접근성의 자동/실기 증거를 전수 연결합니다.
       - [ ] M7-C4c. 동일 기기·fixture의 release 성능 반복 측정과 GUI·직접 Exit 사용자 회귀를 완료합니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
