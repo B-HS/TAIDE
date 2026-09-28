@@ -974,7 +974,8 @@
         - [ ] M7-C4b-2. 하위 컴포넌트 212개와 메뉴·dialog별 빈/오류/진행 상태, 키보드·테마/로케일·다중 창·시각/접근성의 자동/실기 증거를 전수 연결합니다.
           - [x] M7-C4b-2a. 비테스트 `.tsx` 212개 전체 경로를 JSON fixture로 고정하고 실제 `src/`와 대조하는 Rust 대상 검사 1건·대상 Clippy·Rust fmt·JSON/MD Prettier·diff 검사가 exit 0입니다. 경로 coverage와 의미/실기 coverage를 분리해 기록했습니다.
           - [x] M7-C4b-2b-1. 이름이 dialog/menu/popover/modal로 끝나는 26개 경로의 앱별 열림·선택 경계와 공용 wrapper 책임을 [overlay inventory](quality-assurance/2026-09-28-ts-overlay-inventory.md)에 기록했습니다. 두 문서의 직접 연결 경로는 중복 제외 70개이고 대상 MD Prettier·경로 존재·diff 검사가 exit 0입니다. 실제 접근성·상호작용은 미검증입니다.
-          - [ ] M7-C4b-2b. 남은 142개 경로의 화면 역할·상태·동작·자동 근거를 개별 연결하고 실제 시각/접근성 검사를 마칩니다.
+          - [x] M7-C4b-2b-2. 설정 section 17개와 입력 feature 22개의 경로·주요 상태/조작을 [설정 inventory](quality-assurance/2026-09-28-ts-settings-inventory.md)에 연결했습니다. 세 문서의 중복 제외 직접 연결 107개·남은 105개를 확인했고 대상 MD Prettier·경로 존재·diff 검사가 exit 0입니다. 실제 저장·오류·접근성은 미검증입니다.
+          - [ ] M7-C4b-2b. 남은 105개 경로의 화면 역할·상태·동작·자동 근거를 개별 연결하고 실제 시각/접근성 검사를 마칩니다.
       - [ ] M7-C4c. 동일 기기·fixture의 release 성능 반복 측정과 GUI·직접 Exit 사용자 회귀를 완료합니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
