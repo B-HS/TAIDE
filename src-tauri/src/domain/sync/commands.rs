@@ -1,4 +1,4 @@
-use taide_runtime::sync_actions;
+use taide_runtime::{sync_actions, TaskSupervisor};
 use tauri::State;
 
 #[cfg(test)]
@@ -94,18 +94,25 @@ pub async fn sync_download(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
     secret: State<'_, SecretStoreState>,
+    tasks: State<'_, TaskSupervisor>,
     apply_settings: State<'_, SettingsApplyPort>,
     force: bool,
 ) -> AppResult<SyncDownloadResult> {
-    sync_actions::sync_download(
-        &state,
-        secret.0.as_ref(),
-        SyncGistHttpPort::new,
-        |settings| (apply_settings.0)(&app, &state, settings),
-        force,
-        &TauriEventSink(&app),
-    )
-    .await
+    let prepared = sync_actions::prepare_sync_download(&state, secret.0.as_ref(), SyncGistHttpPort::new).await?;
+    let state = state.inner().clone();
+    let apply_settings = apply_settings.0;
+    tasks
+        .run_nonabortable_result("sync-download-apply", async move {
+            sync_actions::apply_sync_download(
+                &state,
+                prepared,
+                |settings| apply_settings(&app, &state, settings),
+                force,
+                &TauriEventSink(&app),
+            )
+            .await
+        })
+        .await
 }
 
 #[cfg(test)]

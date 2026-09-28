@@ -354,6 +354,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     같은 SecretStore와 lazy SyncGistPort factory를 받으며 GitHub HTTP 요청·응답/오류 마스킹과 API-profile client는 Tauri adapter에 유지한다.
     기존 gist update의 round-trip은 mutation guard 밖이고 최초 create는 같은 guard를 유지해 중복 gist 생성을 막는다.
     download는 fetch 뒤 guard를 취득하고 gist 변경→다른 sync 완료→conflict→parse/schema→settings apply→theme/locale→SyncStateChanged 순서를 유지한다.
+    Native sync_download는 fetch 완료 뒤에만 같은 TaskSupervisor의 취소되지 않는 apply operation에 입장한다. fetch 중 요청 취소는 기존처럼 허용하고, apply 입장 뒤에는 guard·SettingsApplyPort·theme/locale·SyncStateChanged 완료까지 정상 root가 기다린다.
     settings apply callback은 기존 SettingsApplyPort를 호출하며 보호 설정 strip·기존 payload와 best-effort 파일 적용을 바꾸지 않는다.
     runtime은 이미 workspace에 있는 taide-sync/serde_json을 직접 참조하고 normal graph에 Tauri는 없다. HTTP/keyring 실기·요청 취소와 정상 root 회수는 미완료다.
     `taide-runtime::search_actions`는 프로젝트 루트 확인, 검색 세션 시작/완료/취소, blocking 검색·목록·치환과 파일별 guard/self-write/skip 집계를 소유한다.

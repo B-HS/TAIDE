@@ -1468,7 +1468,7 @@ mod tests {
         let sync = include_str!("domain/sync/commands.rs");
         let sync_actions = include_str!("../../crates/taide-runtime/src/sync_actions.rs");
         assert_eq!(sync_actions.matches("taide_settings::service::save_settings(").count(), 3);
-        assert!(sync.contains("|settings| (apply_settings.0)(&app, &state, settings)"));
+        assert!(sync.contains("|settings| apply_settings(&app, &state, settings)"));
         assert!(sync_actions.contains("apply_settings(final_settings).await?"));
     }
 

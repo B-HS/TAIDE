@@ -265,7 +265,8 @@ fn 동기화_성공_경로_네_곳은_상태_반영_뒤_port로_발행된다() {
     assert!(commands.contains("sync_actions::sync_connect("));
     assert!(commands.contains("sync_actions::sync_disconnect("));
     assert!(commands.contains("sync_actions::sync_upload("));
-    assert!(commands.contains("sync_actions::sync_download("));
+    assert!(commands.contains("sync_actions::prepare_sync_download("));
+    assert!(commands.contains("sync_actions::apply_sync_download("));
     assert!(connect.find("*state.settings.write()").unwrap() < connect.find("AppEvent::SyncStateChanged").unwrap());
     assert!(disconnect.find("*state.settings.write()").unwrap() < disconnect.find("AppEvent::SyncStateChanged").unwrap());
     assert!(upload.find("*state.settings.write()").unwrap() < upload.find("AppEvent::SyncStateChanged").unwrap());

@@ -1358,7 +1358,9 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
 
         "sync_status" => respond(sync::sync_status(app.state(), app.state()).await),
         "sync_upload" => respond(sync::sync_upload(app.clone(), app.state(), app.state()).await),
-        "sync_download" => respond(sync::sync_download(app.clone(), app.state(), app.state(), app.state(), arg!(args, "force")).await),
+        "sync_download" => {
+            respond(sync::sync_download(app.clone(), app.state(), app.state(), app.state(), app.state(), arg!(args, "force")).await)
+        }
 
         "remote_status" => respond(remote::remote_status(app.state()).await),
         "remote_revoke_sessions" => respond(remote::remote_revoke_sessions(app.state()).await),

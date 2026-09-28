@@ -1,4 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 
 use futures_util::FutureExt;
 use parking_lot::Mutex;
@@ -11,7 +13,8 @@ use taide_model::paths::AppPaths;
 use taide_model::settings::Settings;
 use taide_model::sync::SyncDownloadResult;
 use taide_runtime::sync_actions::{self, SyncGistPort};
-use taide_runtime::{settings_actions, AppState, EventSink};
+use taide_runtime::{settings_actions, AppState, EventSink, TaskSupervisor};
+use tokio::sync::oneshot;
 use uuid::Uuid;
 
 struct NoGist;
@@ -21,6 +24,8 @@ const GIST_ID: &str = "fixture-gist";
 const BEFORE: &str = "2026-09-20T00:00:00Z";
 const AFTER: &str = "2026-09-21T00:00:00Z";
 const LIVE_FONT_SIZE: u32 = 19;
+const ACTION_TIMEOUT: Duration = Duration::from_secs(5);
+const ROOT_WAIT_PROBE: Duration = Duration::from_millis(20);
 
 struct Fixture {
     state: AppState,
@@ -57,21 +62,21 @@ impl Drop for Fixture {
     }
 }
 
-struct Events<'a> {
-    state: &'a AppState,
+struct Events {
+    state: AppState,
     recorded: Mutex<Vec<AppEvent>>,
 }
 
-impl<'a> Events<'a> {
-    fn new(state: &'a AppState) -> Self {
+impl Events {
+    fn new(state: &AppState) -> Self {
         Self {
-            state,
+            state: state.clone(),
             recorded: Mutex::new(Vec::new()),
         }
     }
 }
 
-impl EventSink for Events<'_> {
+impl EventSink for Events {
     fn publish(&self, event: AppEvent) {
         assert!(self.state.begin_mutation().now_or_never().is_none());
         let persisted =
@@ -566,6 +571,71 @@ async fn download는_guard_안에서_보호_설정_apply_뒤_theme_locale와_syn
 }
 
 #[tokio::test]
+async fn download_apply_입장_뒤_요청이_취소돼도_guard와_theme_locale_event를_끝까지_소유한다() {
+    let fixture = Fixture::new();
+    fixture.connect(Some(GIST_ID));
+    let calls = Mutex::new(Vec::new());
+    let mut gist = Gist::new(&fixture.state, "fetch", false, &calls);
+    gist.content = downloaded_content();
+    let prepared = sync_actions::prepare_sync_download(&fixture.state, &fixture.secret, || gist)
+        .await
+        .unwrap();
+    let state = fixture.state.clone();
+    let events = Arc::new(Events::new(&fixture.state));
+    let request_events = events.clone();
+    let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+    let request_tasks = tasks.clone();
+    let (started, started_rx) = oneshot::channel();
+    let (release, held) = oneshot::channel();
+    let request = tokio::spawn(async move {
+        request_tasks
+            .run_nonabortable_result("sync-download-apply", async move {
+                sync_actions::apply_sync_download(
+                    &state,
+                    prepared,
+                    |settings| {
+                        let state = state.clone();
+                        let events = request_events.clone();
+                        async move {
+                            settings_actions::apply_and_broadcast(
+                                &state,
+                                settings,
+                                |_, _| async move {
+                                    started.send(()).ok();
+                                    held.await.unwrap();
+                                },
+                                events.as_ref(),
+                            )
+                            .await
+                        }
+                    },
+                    true,
+                    request_events.as_ref(),
+                )
+                .await
+            })
+            .await
+    });
+    tokio::time::timeout(ACTION_TIMEOUT, started_rx).await.unwrap().unwrap();
+    request.abort();
+    assert!(request.await.unwrap_err().is_cancelled());
+    tasks.stop_all();
+    assert!(tokio::time::timeout(ROOT_WAIT_PROBE, fixture.state.begin_mutation()).await.is_err());
+    let shutdown = tasks.shutdown();
+    tokio::pin!(shutdown);
+    assert!(tokio::time::timeout(ROOT_WAIT_PROBE, &mut shutdown).await.is_err());
+    release.send(()).unwrap();
+    tokio::time::timeout(ACTION_TIMEOUT, shutdown).await.unwrap();
+    assert_eq!(fixture.persisted().editor_font_size, LIVE_FONT_SIZE);
+    assert!(fixture.state.paths.themes_dir().join("fixture-sync-theme.json").is_file());
+    assert!(fixture.state.paths.locales_dir().join("fixture-sync-locale.json").is_file());
+    assert!(matches!(
+        events.recorded.lock().as_slice(),
+        [AppEvent::SettingsChanged { .. }, AppEvent::SyncStateChanged { .. }]
+    ));
+}
+
+#[tokio::test]
 async fn download_apply_실패는_theme_locale와_sync_event를_적용하지_않는다() {
     let fixture = Fixture::new();
     fixture.connect(Some(GIST_ID));
@@ -616,13 +686,21 @@ async fn connect_disconnect의_설정_저장_실패는_기존_secret_먼저_변�
 #[test]
 fn sync_commands는_같은_공유_secret_lazy_http_apply와_events를_주입한다() {
     let source = include_str!("../src/domain/sync/commands.rs");
-    for name in ["sync_status", "sync_connect", "sync_disconnect", "sync_upload", "sync_download"] {
+    for name in ["sync_status", "sync_connect", "sync_disconnect", "sync_upload"] {
         assert!(source.contains(&format!("sync_actions::{name}(")));
     }
     assert_eq!(source.matches("secret.0.as_ref()").count(), 5);
     assert_eq!(source.matches("SyncGistHttpPort::new").count(), 4);
     assert_eq!(source.matches("&TauriEventSink(&app)").count(), 4);
-    assert!(source.contains("|settings| (apply_settings.0)(&app, &state, settings)"));
+    assert!(source.contains("let apply_settings = apply_settings.0;"));
+    assert!(source.contains("|settings| apply_settings(&app, &state, settings)"));
+    assert!(source.contains("sync_actions::prepare_sync_download("));
+    assert!(source.contains(".run_nonabortable_result(\"sync-download-apply\""));
+    assert!(source.contains("sync_actions::apply_sync_download("));
+    assert!(
+        source.find("sync_actions::prepare_sync_download(").unwrap()
+            < source.find(".run_nonabortable_result(\"sync-download-apply\"").unwrap()
+    );
     let github = include_str!("../src/domain/sync/github.rs");
     assert!(github.contains("impl SyncGistPort for SyncGistHttpPort"));
     assert!(github.contains("Self(outbound_http_client(HttpClientProfile::Api))"));

@@ -925,6 +925,9 @@
   - [x] M6-OQ. app_file_write·원격 apply_settings_file의 공유 SettingsApplyPort와 caller 보유 mutation guard를 대조했습니다. 새 wrapper 배선의 source 검사 0/2 RED(exit 101)를 먼저 확인했고, 자기 설정 경로에서 저장 뒤 요청 Drop·guard/root 대기·observer 재개 fixture를 두 경로에 추가했습니다.
   - [x] M6-OR. 두 앱 쓰기 entry를 등록된 완료 보장 operation으로 실행해 guard와 callback 완료를 요청 수명과 분리했습니다. 기존 parse/설정 적용·prompt 저장·원격 gated strip·오류/IPC 순서를 유지하며 sync_download는 별도 경계로 남깁니다.
   - [x] M6-OS. Tauri 패키지 app_actions_runtime 7·조립부 source 1·실제 binding 생성 1의 서로 다른 9건과 관련 Clippy·Rust fmt/diff·대상 MD 포맷이 통과했습니다. 최초 조립부 검사의 과거 sync 저장 위치 기대는 현재 runtime owner로 수정 후 재검사했습니다. binding/manifest diff는 없고 history·bug·QA·architecture/PROCESS에 실제 결과를 기록했습니다. 검증 단위만 로컬 commit하며 M6 전체 완료 전 push는 보류합니다.
+  - [x] M6-OT. sync_download의 fetch와 guard-side apply 경계·충돌/오류 우선순위를 대조했습니다. Native split 배선 부재 source 검사 RED(exit 101)를 먼저 확인했고, fetch 뒤 apply 입장·요청 Drop·guard/root 대기·theme/locale/event 완료 fixture를 추가했습니다. fetch 자체의 요청 취소는 감독 operation 이전에 남깁니다.
+  - [x] M6-OU. runtime의 prepare/apply를 단일 정책 출처로 분리하고 기존 sync_download는 같은 두 단계의 조합으로 유지했습니다. Native/원격은 fetch 뒤 등록된 취소되지 않는 apply operation을 실행합니다. SettingsApplyPort·theme/locale·SyncStateChanged 순서와 공개 IPC는 불변입니다.
+  - [x] M6-OV. Tauri 패키지 sync_actions_runtime 19·조립부 source 1·event source 29·실제 binding 생성 1의 서로 다른 50건과 관련 runtime/Tauri Clippy·strict runtime rustdoc·Rust fmt/diff·대상 MD 포맷이 통과했습니다. binding/manifest diff는 없고 history·bug·QA·architecture/PROCESS에 기록했습니다. 실제 fetch 취소 fixture·다른 sync action·전체 M6 gate는 별도입니다. 검증 단위만 로컬 commit하며 M6 전체 완료 전 push는 보류합니다.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 

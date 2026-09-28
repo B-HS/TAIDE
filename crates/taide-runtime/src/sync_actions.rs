@@ -238,6 +238,24 @@ where
     F: FnOnce(Settings) -> Fut,
     Fut: Future<Output = AppResult<Settings>>,
 {
+    let prepared = prepare_sync_download(state, secret, create_client).await?;
+    apply_sync_download(state, prepared, apply_settings, force, events).await
+}
+
+/// Owns the fetched gist and the settings snapshot needed for the guarded download decision.
+pub struct PreparedSyncDownload {
+    gist_id: String,
+    pre_fetch_last_synced_at: Option<String>,
+    remote_updated_at: String,
+    content: String,
+}
+
+/// Fetches the remote gist before the local guarded apply begins.
+pub async fn prepare_sync_download<G: SyncGistPort>(
+    state: &AppState,
+    secret: &dyn SecretStore,
+    create_client: impl FnOnce() -> G,
+) -> AppResult<PreparedSyncDownload> {
     let token = load_token(secret)?;
     let (gist_id, pre_fetch_last_synced_at) = {
         let settings = state.settings.read();
@@ -250,7 +268,32 @@ where
 
     let gist_client = create_client();
     let (remote_updated_at, content) = gist_client.fetch_gist(&token, &gist_id).await?;
+    Ok(PreparedSyncDownload {
+        gist_id,
+        pre_fetch_last_synced_at,
+        remote_updated_at,
+        content,
+    })
+}
 
+/// Applies a fetched gist under the local mutation guard and publishes its result.
+pub async fn apply_sync_download<F, Fut>(
+    state: &AppState,
+    prepared: PreparedSyncDownload,
+    apply_settings: F,
+    force: bool,
+    events: &dyn EventSink,
+) -> AppResult<SyncDownloadResult>
+where
+    F: FnOnce(Settings) -> Fut,
+    Fut: Future<Output = AppResult<Settings>>,
+{
+    let PreparedSyncDownload {
+        gist_id,
+        pre_fetch_last_synced_at,
+        remote_updated_at,
+        content,
+    } = prepared;
     let _guard = state.begin_mutation().await;
     let current = state.settings.read().clone();
     match decide_download_apply(
