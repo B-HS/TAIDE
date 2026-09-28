@@ -26,7 +26,9 @@ TerminalStore 입장/완료 목록과 runtime 실제 blocking spawn·동일 muta
 
 ### 실앱 격리 사전 대조
 
-대상 파일은 `src-tauri/src/lib.rs`의 setup, `src-tauri/tauri.conf.json`, `src-tauri/tauri.dev.conf.json`, `scripts/tauri.ts`, `crates/taide-infra/src/secret.rs`입니다. setup은 `app.path().app_data_dir()`를 상태 루트로, `app.config().identifier`를 키링 서비스명으로 사용합니다. 배포 identifier `net.gumyo.taide`와 개발 identifier `net.gumyo.taide.dev`는 서로 다르지만 개발 identifier도 고정값입니다. 따라서 실제 GUI/Exit fixture를 기존 배포·개발 데이터와 분리하려면 전용 실행 identifier로 두 경계를 모두 분리했음을 먼저 증명해야 합니다. 이 확인은 코드와 설정의 읽기 전용 대조이며 앱 시작·프로필/키링 조회·사용자 파일 접근·설정 변경은 하지 않았습니다.
+대상 파일은 `src-tauri/src/lib.rs`의 setup, `src-tauri/tauri.conf.json`, `src-tauri/tauri.dev.conf.json`, `scripts/tauri.ts`, `crates/taide-infra/src/secret.rs`입니다. setup은 `app.path().app_data_dir()`를 상태 루트로, `app.config().identifier`를 키링 서비스명으로 사용합니다. 배포 identifier `net.gumyo.taide`와 개발 identifier `net.gumyo.taide.dev`는 서로 다르지만 개발 identifier도 고정값입니다. 따라서 실제 GUI/Exit fixture를 기존 배포·개발 데이터와 분리하려면 전용 실행 identifier로 두 경계를 모두 분리했음을 먼저 증명해야 합니다. 당시 사전 확인은 코드와 설정의 읽기 전용 대조였고 앱 시작·프로필/키링 조회·사용자 파일 접근·설정 변경은 하지 않았습니다.
+
+2026-09-28 첫 실행에서는 전용 identifier의 데이터 경로가 없음을 먼저 확인하고 공식 Tauri CLI의 마지막 `--config` 우선순위로 개발 설정 뒤에 고유 identifier를 적용했습니다. 앱은 빌드·기동했고 키링 서비스명은 분리됐으나 IDE 서버가 별도의 `CLAUDE_CONFIG_DIR` 기본 경로인 사용자 홈 `.claude/ide/45059.lock`을 생성했습니다. 그래서 GUI·직접 Exit 검증을 중단했습니다. `Ctrl+C`로 개발 실행을 종료한 뒤 앱 실행 파일 점유와 개발 서버·IDE 포트가 없음을 확인했지만 해당 lockfile은 남았습니다. 파일 내용·기존 사용자 설정은 읽지 않았고 정리 승인을 기다립니다. 다음 실기는 `CLAUDE_CONFIG_DIR`까지 별도 임시 경로로 격리하고, native GUI에 접근할 수 있는 수단을 확인하기 전에는 성공으로 집계하지 않습니다. [실측 이력](../history/2026-09-28-m6-isolated-app-attempt.md)에 실제 결과와 한계를 분리했습니다.
 
 - [x] 후속 [PTY 부분 시작 QA](./2026-09-27-pty-partial-startup-lifecycle.md)에서 master reader/writer·세 thread factory 오류/언와인드의 child wait·시작한 worker join·생성 경로 정리를 확인했습니다. 성공-result owner 검사만으로 대체하지 않았으며 실제 OS 오류 회복/abort panic은 별도 gate입니다.
 - [x] 자기 `/bin/sh` PTY의 HUP 무시 상태에서 완료 핸들이 100ms 동안 대기하고 fixture 전용 SIGKILL 뒤 실제 join되는 검사 1건을 통과했습니다. [실측 이력](../history/2026-09-28-pty-sighup-ignore-probe.md)의 관찰 시간을 제품 종료 상한으로 해석하지 않습니다.
