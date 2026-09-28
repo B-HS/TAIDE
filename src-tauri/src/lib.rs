@@ -1136,6 +1136,7 @@ pub fn run() {
                 app_handle.state::<domain::search::commands::SearchStore>().cancel_all();
             }
             if let tauri::RunEvent::ExitRequested { api, code, .. } = &event {
+                log::info!("종료 요청 이벤트 수신");
                 let exit_drain = exit_drain.get_or_insert_with(|| {
                     ExitDrain::new((*app_handle.state::<domain::ai::commands::AiRequestStore>()).clone())
                         .with_state((*app_handle.state::<AppState>()).clone())
@@ -1150,22 +1151,27 @@ pub fn run() {
                         (*app_handle.state::<LspInstallStore>()).clone(),
                         (*app_handle.state::<LspStore>()).clone(),
                         (*app_handle.state::<TerminalStore>()).clone(),
-                        move || handle.exit(exit_code),
+                        move || {
+                            log::info!("종료 요청 자원 대기 완료");
+                            handle.exit(exit_code);
+                        },
                     );
                 }
             }
             if matches!(&event, tauri::RunEvent::Exit) {
+                log::info!("직접 종료 이벤트 수신");
                 let exit_drain = exit_drain.get_or_insert_with(|| {
                     ExitDrain::new((*app_handle.state::<domain::ai::commands::AiRequestStore>()).clone())
                         .with_state((*app_handle.state::<AppState>()).clone())
                 });
-                if let Err(error) = tauri::async_runtime::block_on(exit_drain.wait_for_direct_exit(
+                match tauri::async_runtime::block_on(exit_drain.wait_for_direct_exit(
                     (*app_handle.state::<TaskSupervisor>()).clone(),
                     (*app_handle.state::<LspInstallStore>()).clone(),
                     (*app_handle.state::<LspStore>()).clone(),
                     (*app_handle.state::<TerminalStore>()).clone(),
                 )) {
-                    log::error!("direct exit runtime drain failed: {error}");
+                    Ok(()) => log::info!("직접 종료 자원 대기 완료"),
+                    Err(error) => log::error!("direct exit runtime drain failed: {error}"),
                 }
             }
         });

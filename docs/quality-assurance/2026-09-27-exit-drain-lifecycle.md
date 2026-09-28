@@ -32,9 +32,15 @@
 - [x] 프로젝트가 열린 상태에서 `⌘Q` 후 `App quit`, IDE listener 65299 부재, 격리 경로의 `65299.lock` 부재를 관찰했습니다. 기존 사용자 홈 `45059.lock`은 사용자 승인에 따라 앞서 휴지통으로 옮겼고 재생성되지 않았습니다. [실측 기록](../history/2026-09-28-m6-isolated-app-attempt.md)을 참조합니다.
 - [ ] `RunEvent::ExitRequested`와 직접 `RunEvent::Exit`의 실제 이벤트 순서, 진행 중 watcher/PTY/LSP/원격 작업의 drain, 메인 스레드 교착·OS I/O stall을 계측합니다. 이번 GUI 관찰만으로 해당 직접 경로의 동작이나 M6 전체를 완료 처리하지 않습니다.
 
+## 2026-09-29 실제 이벤트 계측
+
+- [x] 계측한 debug 앱 세 실행에서 `ExitRequested → drain 완료 → ExitRequested → Exit → 직접 drain 완료` 순서를 확인했습니다. 세 실행 모두 앱 exit 0, 종료 실패·panic 로그 없음, 격리 IDE 포트·lockfile 제거를 확인했습니다. [실측 기록](../history/2026-09-29-m6-exit-event-trace.md)에 빌드·환경·범위를 분리했습니다.
+- [x] 임시 프로젝트 watcher가 인덱싱한 상태에서 종료했고, 별도 실행에서는 PTY의 `/bin/sleep 120` PID 55613과 vtsls PID 55725가 각각 종료 직후 사라졌습니다. 이는 실제 자식 회수 관찰이며 모든 자원을 동시에 바쁘게 만든 검사는 아닙니다.
+- [ ] 선행 `ExitRequested`가 없는 직접 `Exit`, 활성 원격 서버/WebSocket, 여러 자원의 동시 지연·OS I/O stall은 실앱 미검증입니다. 합성 직접 Exit 결과를 이 실측과 혼동하지 않습니다.
+
 ## 남은 gate
 
-- [ ] 기본 `⌘Q` 앱 종료는 위 격리 실기에서 관찰했지만, native ExitRequested/직접 Exit·메뉴 callback의 이벤트 순서와 중첩 자원 완료는 추가 계측이 필요합니다. fixture가 native 이벤트 전달까지 증명하지는 않습니다.
+- [x] 계측한 `⌘Q`의 native `ExitRequested → drain 완료 → ExitRequested → Exit → 직접 drain 완료` 순서는 후속 격리 앱 세 실행에서 확인했습니다. 선행 요청 없는 직접 Exit·메뉴 callback과 모든 중첩 자원 동시 완료까지 일반화하지 않습니다.
 - [x] 후속 [일반 LSP wait QA](2026-09-27-lsp-process-wait-lifecycle.md)에서 정상 coordinator가 제거/교체된 세션의 wait·reader·exit callback 완료도 기다리도록 구현/검증했습니다. child exited만으로 ready를 세우지 않습니다.
 - [x] 직접 Exit의 등록 자원 대기: 합성 감독 operation·설치 lease·AI owner 및 자기 `/bin/sh`의 LSP/PTY callback 완료 검사가 통과했습니다. Tauri source contract도 직접 `Exit`의 같은 drain 호출을 확인했습니다. 정상 종료와 직접 종료는 이제 같은 등록 자원 대기 함수를 사용합니다.
 - [ ] 실제 native 직접 Exit·exit runtime 요청 실패, 감독되지 않은 nested blocking worker·PTY thread와 메인 이벤트 루프 교착 여부를 판정합니다. 등록되지 않은 자원 전체의 완료를 주장하지 않습니다.
