@@ -23,6 +23,13 @@ pub struct WatcherHandle {
     _debouncer: Debouncer<notify::RecommendedWatcher, ScopedIdCache>,
 }
 
+impl WatcherHandle {
+    /// Stops the event thread and waits for its callback to finish.
+    pub fn stop(self) {
+        self._debouncer.stop();
+    }
+}
+
 /// Which of the two watchers a [`start_watch`] call is: the project-root watcher, whose consumers
 /// (tree, editor, git status) have no use for churn inside `IGNORED_DIR_NAMES` directories, and the
 /// `.git`-directory watcher (`domain::git::watch`), where that same name list means nothing —
@@ -547,6 +554,24 @@ mod tests {
             .recv_timeout(WATCHER_STOP_TIMEOUT)
             .expect("watch callback should be released after handle drop");
         cleanup(&root);
+    }
+
+    #[test]
+    fn 명시적_감시_중지는_콜백_자원_해제까지_기다린다() {
+        let root = temp_root("stop");
+        std::fs::create_dir_all(&root).expect("create root");
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let signal = DropSignal(sender);
+
+        let handle = start_watch(root.clone(), WatchScope::Project, move |_| {
+            let _ = &signal;
+        })
+        .expect("watch start");
+
+        handle.stop();
+        let is_released = receiver.try_recv().is_ok();
+        cleanup(&root);
+        assert!(is_released);
     }
 
     #[test]
