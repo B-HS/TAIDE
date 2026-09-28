@@ -978,7 +978,8 @@
       - [x] M7-C3a. legacy settings/session/project/layout JSON을 실제 파서·고유 UUID 디스크 복원·v1→v2 layout migration과 비교했습니다. dirty 파일 탭·활성 프로젝트·기본값을 유지합니다.
       - [x] M7-C3b. legacy hot-exit mirror JSON의 누락된 disk baseline을 실제 buffer 목록에서 복원했습니다. 대상 3건·Clippy·Rust fmt·JSON Prettier가 exit 0입니다.
     - [ ] M7-C4. 실제 앱 GUI·직접 Exit와 사용자 회귀, Phase 0 기능·성능·TS view 기준선을 확인한 뒤 M7/M8 gate를 판정합니다.
-      - [x] M7-C4a. editor·LSP·terminal·preview·shell의 현행 구현과 자동 검사 경로, 실기·형식별 preview 검사 공백을 [기능 inventory](quality-assurance/2026-09-28-rust-native-function-inventory.md)에 고정했습니다. 5도메인의 실제 실기 증거가 없어 Phase 0 기능 baseline은 미완료입니다.
+      - [x] M7-C4a. editor·LSP·terminal·preview·shell의 현행 구현과 자동 검사 경로, 실기·형식별 preview 검사 공백을 [기능 inventory](quality-assurance/2026-09-28-rust-native-function-inventory.md)에 고정했습니다. 작성 당시 5도메인의 실제 실기 증거가 없었고 Phase 0 기능 baseline은 미완료였습니다.
+      - [x] M7-C4a-1. 격리 debug 앱의 임시 파일로 HTML·SVG·CSV 실제 preview, terminal 명령 왕복, vtsls 형식 오류 표시·수정 후 해소를 [부분 실기](quality-assurance/2026-09-29-m7-debug-function-gui-smoke.md)에 기록했습니다. `⌘Q` exit 0·IDE listener/lockfile·LSP PID 정리도 확인했으며 다른 형식·기능·release 성능·전체 Phase 0 gate는 미완료입니다.
       - [ ] M7-C4b. 현재 TS view의 모든 화면·상태·상호작용·접근성 항목을 컴포넌트와 자동·실기 증거에 연결합니다.
         - [x] M7-C4b-1. 메인·보조 창과 주요 화면/탭/설정 진입점, 확인한 상태·동작·자동 근거와 실기 공백을 [TS view inventory](quality-assurance/2026-09-28-ts-view-inventory.md)에 기록했습니다. 테스트 제외 `.tsx` 212개를 모집단으로 확인했고 대상 MD Prettier가 exit 0입니다.
         - [ ] M7-C4b-2. 하위 컴포넌트 212개와 메뉴·dialog별 빈/오류/진행 상태, 키보드·테마/로케일·다중 창·시각/접근성의 자동/실기 증거를 전수 연결합니다.

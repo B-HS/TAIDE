@@ -2,7 +2,7 @@
 
 ## 판정 범위
 
-현행 TS/Tauri 앱의 editor·LSP·terminal·preview·shell을 기능 묶음으로 나누고 실제 구현 파일과 자동 검사 파일을 연결했습니다. `bun test` 전체 2,949건과 Rust workspace 전체 테스트가 통과한 시점의 코드 경로를 기준으로 하되, 그 뒤 추가한 Phase 0 fixture는 대상별로 따로 검증했습니다. 자동 검사 파일이 있다는 사실은 실제 창·OS·외부 프로세스 동작을 증명하지 않습니다. 아래 실기 열의 모든 항목은 아직 미검증입니다.
+현행 TS/Tauri 앱의 editor·LSP·terminal·preview·shell을 기능 묶음으로 나누고 실제 구현 파일과 자동 검사 파일을 연결했습니다. `bun test` 전체 2,949건과 Rust workspace 전체 테스트가 통과한 시점의 코드 경로를 기준으로 하되, 그 뒤 추가한 Phase 0 fixture는 대상별로 따로 검증했습니다. 자동 검사 파일이 있다는 사실은 실제 창·OS·외부 프로세스 동작을 증명하지 않습니다. 이후 [release GUI 부분 실기](2026-09-29-m7-release-gui-smoke.md)와 [debug 기능 부분 실기](2026-09-29-m7-debug-function-gui-smoke.md)를 별도로 수행했으며, 아래 실기 열은 아직 남은 범위입니다.
 
 ## Editor
 
@@ -49,4 +49,4 @@
 
 ## 판정
 
-구현과 자동 검사의 5도메인 연결은 작성했습니다. Preview의 형식별 자동 검사 공백, 모든 항목의 사용자 실기 부재, release 성능 기준선 공백 때문에 Phase 0 기능 baseline 완료·M7 사용자 회귀·M8 native UI 착수 gate는 통과하지 않았습니다. 화면 단위 TS view 전수 inventory는 별도 작업입니다.
+구현과 자동 검사의 5도메인 연결은 작성했습니다. HTML·SVG·CSV 표시, 셸 명령 왕복, TypeScript LSP 진단 표시·해소는 격리 debug 앱에서 부분 실측했습니다. 다른 preview 형식의 자동 검사와 실기, 나머지 기능·접근성 실기, release 성능 기준선이 없어 Phase 0 기능 baseline 완료·M7 사용자 회귀·M8 native UI 착수 gate는 통과하지 않았습니다. 화면 단위 TS view 전수 inventory는 별도 작업입니다.
