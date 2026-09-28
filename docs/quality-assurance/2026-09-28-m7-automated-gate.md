@@ -37,3 +37,5 @@ remote fixture는 Host/Origin 허용·거부, 일회용 link/nonce·세션 폐�
 IDE/MCP fixture는 현행 `2025-03-26`의 initialize·tools/list·tools/call 및 오류·알림 wire를 protocol API와 비교했습니다. `cargo test --offline -p taide --test rust_native_phase0_ide_fixture --quiet` 3건과 해당 대상 Clippy가 exit 0입니다. CLI는 고유 UUID 임시 디렉터리에서 marker 생성·즉시 timeout·제거 뒤 완료를 확인했으며 `cargo test --offline -p taide-cli --bin taide-cli --quiet` 18건과 해당 all-target Clippy가 exit 0입니다. 실제 IDE WebSocket 인증·tool handler, 앱의 CLI marker 인수 전달·닫기 시 제거는 실행하지 않아 Phase 0의 IDE/CLI 항목은 미완료입니다.
 
 Persistence fixture는 legacy settings 키를 메모리 파서와 실제 `settings.json` 로드에 적용하고, 고유 UUID 경로의 `session.json`·`project.json`·v1 `layout.json`을 복원했습니다. dirty 파일 탭과 활성 프로젝트가 유지되며 layout 버전은 v2가 됩니다. legacy hot-exit mirror는 `disk_modified_ms` 필드가 없어도 목록에 unsaved content를 유지합니다. `cargo test --offline -p taide --test rust_native_phase0_persistence_fixture --quiet` 3건과 해당 대상 Clippy는 exit 0입니다. 사용자 실제 데이터·GUI 복원은 실행하지 않았습니다.
+
+기능 inventory는 editor·LSP·terminal·preview·shell의 구현과 기존 자동 검사 파일을 연결했습니다. 모든 항목의 실기 근거와 preview 형식별 자동 검사 공백을 미완료로 표시했으므로 기능 baseline 통과로 계산하지 않습니다. 자세한 목록은 [Phase 0 기능 inventory](2026-09-28-rust-native-function-inventory.md)에 있습니다.

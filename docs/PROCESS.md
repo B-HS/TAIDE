@@ -966,6 +966,9 @@
       - [x] M7-C3a. legacy settings/session/project/layout JSON을 실제 파서·고유 UUID 디스크 복원·v1→v2 layout migration과 비교했습니다. dirty 파일 탭·활성 프로젝트·기본값을 유지합니다.
       - [x] M7-C3b. legacy hot-exit mirror JSON의 누락된 disk baseline을 실제 buffer 목록에서 복원했습니다. 대상 3건·Clippy·Rust fmt·JSON Prettier가 exit 0입니다.
     - [ ] M7-C4. 실제 앱 GUI·직접 Exit와 사용자 회귀, Phase 0 기능·성능·TS view 기준선을 확인한 뒤 M7/M8 gate를 판정합니다.
+      - [x] M7-C4a. editor·LSP·terminal·preview·shell의 현행 구현과 자동 검사 경로, 실기·형식별 preview 검사 공백을 [기능 inventory](quality-assurance/2026-09-28-rust-native-function-inventory.md)에 고정했습니다. 5도메인의 실제 실기 증거가 없어 Phase 0 기능 baseline은 미완료입니다.
+      - [ ] M7-C4b. 현재 TS view의 모든 화면·상태·상호작용·접근성 항목을 컴포넌트와 자동·실기 증거에 연결합니다.
+      - [ ] M7-C4c. 동일 기기·fixture의 release 성능 반복 측정과 GUI·직접 Exit 사용자 회귀를 완료합니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
 > M1~M5의 코드·결합 분리가 완료됐습니다. project·agent·Git·layout의 commands/capability/hooks/watch/plugin overlay/flush/이벤트/IDE·terminal 조립과 PTY·MCP·OS 창 세션/자원은 Tauri 경계에 남깁니다. M6의 runtime·platform·Tauri adapter 분리, M7의 전체·GUI 실기 gate, M8의 native UI 착수 gate는 미완료입니다. `asset_protocol`·`navigation_guard`는 platform으로 이전했고 `WindowRegistry`는 runtime 공유 상태로 이전했습니다. `EventSink`는 기존 이벤트 30종의 발행을 모두 경유합니다. AppServices는 AgentStore·AgentHooksStore·GitStore·RemoteStore·IdeStore·SecretStoreState·IdeSaveFile·EventSink를 포함한 21개 상태·포트를 조립하고 보호된 파일 저장 action은 runtime으로 이전했습니다. 기존 Tauri State 등록은 20개이며 events는 AppServices가 보유합니다. TaskSupervisor는 일곱 setup 작업과 메뉴·보조 창 flush/복원·hot-exit timeout·agent hook attach/서버·LSP 종료/재시작 지연·remote 서버/WebSocket/종료 대기·IDE 서버/연결 작업을 감독하므로 전체 경계는 미완료입니다.

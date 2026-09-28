@@ -20,7 +20,7 @@
 - [ ] IDE/MCP request·response와 CLI `taide --wait` marker fixture — IDE protocol API 3건과 CLI marker 이름·timeout·제거를 포함한 bin 18건은 통과; 실제 WebSocket 인증·도구 수행과 앱 연계 marker 수명은 미완료
 - [x] settings, session, project, layout, hot-exit buffer의 versioned fixture — `persistence-v1.json`과 실제 settings load·session/project restore·v1→v2 layout load·legacy mirror list 3건 통과; 사용자 실제 데이터와 GUI 복원은 별도
 - [ ] `docs/quality-assurance/2026-09-04-perf-baseline.md` 실기 지표 작성
-- [ ] editor, LSP, terminal, preview, shell 기능 inventory에 근거 파일·시험 연결
+- [ ] editor, LSP, terminal, preview, shell 기능 inventory에 근거 파일·시험 연결 — [5도메인 구현·자동 검사 경로](2026-09-28-rust-native-function-inventory.md)는 기록; 실제 앱·외부 시스템 실기 근거와 preview 형식별 검사 공백은 미완료
 - [ ] 현재 TS view 전체의 화면/패널/다이얼로그·상태·동작·키보드·테마/로케일·멀티윈도·접근성·시각 요소 inventory에 실제 컴포넌트 경로와 자동/실기 증거 연결
 
 UI 착수 전 gate: 위 inventory와 Phase 0 기능·데이터·성능 baseline 및 기능별 crate 분리 M1~M7이 모두 준비·검증돼야 합니다. native UI 구현은 이 gate 이후에만 시작합니다. 각 TS view 항목에 native 대응 경로·자동 검사·실기 결과를 연결하고 미대응 항목이 0이 될 때까지 TS/Tauri view를 유지합니다. 시각적 구성의 유사성은 테마별 캡처와 실제 창 크기·포커스·IME·보조 창 동작에서 비교하며, 기능 동등성을 단순한 화면 유사성으로 대체하지 않습니다.
