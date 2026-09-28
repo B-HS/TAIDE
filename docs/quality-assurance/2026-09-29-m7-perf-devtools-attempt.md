@@ -4,7 +4,7 @@
 
 - `target/release/bundle/macos/TAIDE.app`: 별도 identifier의 로컬 계측 산출물
 - `target/debug/bundle/macos/TAIDE.app`: 같은 코드의 격리 debug 대조 실행
-- `docs/quality-assurance/2026-09-04-perf-baseline.md`: release 3회 중앙값 절차
+- `docs/quality-assurance/2026-09-04-perf-baseline.md`: 성능 기준선 절차. 아래 반복 수치는 [단일 검증 결정](../acknowledge/2026-09-29-m7-one-pass-validation-scope.md) 이전에 얻은 역사적 관찰입니다.
 
 ## 관찰
 
@@ -34,4 +34,4 @@
 
 ## 판정
 
-부팅·팔레트의 부분 수치를 얻었지만 기준 체크리스트의 5,000개 이상 파일·1,000개 이상 커밋 fixture가 아니고 프로젝트 전환·파일 열기·트리·Git·검색·터미널·메모리 지표도 측정하지 않았습니다. 따라서 `docs/quality-assurance/2026-09-04-perf-baseline.md` 전체 기준선 및 M7-C4c-2는 미완료로 둡니다. 이 수치로 제품 성능 회귀 여부를 판정하지 않습니다.
+이 실행의 부팅·팔레트는 기준 체크리스트의 5,000개 이상 파일·1,000개 이상 커밋 fixture가 아니었습니다. 후속 fixture 측정은 [단일 세션 실측](2026-09-29-m7-one-session-perf-gui.md)에 기록했습니다. 두 기록의 조건이 달라 수치를 합쳐 중앙값이나 제품 성능 회귀를 판정하지 않습니다.

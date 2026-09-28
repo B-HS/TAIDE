@@ -992,12 +992,14 @@
           - [x] M7-C4b-2b-6. Project·shell slot·snippet·split·tab·theme·welcome·window feature 22개의 상태·행동·자동 근거·실기 공백을 [feature inventory C](quality-assurance/2026-09-29-ts-feature-inventory-c.md)에 연결했습니다. 일곱 문서의 중복 제외 직접 연결 183개·남은 29개입니다.
           - [x] M7-C4b-2b-7. 앱 진입점·shared·widget의 마지막 29개 경로를 [shared/widget inventory](quality-assurance/2026-09-29-ts-shared-widget-inventory.md)에 개별 연결했습니다. 여덟 문서의 중복 제외 직접 연결은 212/212개이며 비시각 context·hook·테스트 helper를 화면과 구분했습니다. 실제 시각·접근성 판정은 별도입니다.
           - [x] M7-C4b-2b-8. 격리 release 앱에서 임시 프로젝트·파일, Search 결과, 비저장소 Git 상태, Settings Appearance 화면을 접근성 트리와 스크린샷으로 [부분 실기](quality-assurance/2026-09-29-m7-release-gui-smoke.md)에 기록했습니다. 파일 원문 복원·저장 뒤 디스크 내용도 확인했고 실제 화면 전수는 미완료입니다.
+          - [x] M7-C4b-2b-9. 종료하지 않은 격리 계측 앱에서 탭 우클릭 메뉴, 파일의 새 OS 창 이동·본창 복귀, 팔레트 키보드 조작, 250개 파일 트리·5,000건 검색·Git 변경 20건·터미널 화면의 접근성 트리와 스크린샷을 [단일 세션 실측](quality-assurance/2026-09-29-m7-one-session-perf-gui.md)에 기록했습니다. 테마·로케일 실제 변경과 화면 전수는 남았습니다.
           - [ ] M7-C4b-2b. 기존 부분 실기를 재사용하고, 남은 대표 메뉴·dialog·키보드·테마/로케일·다중 창·시각/접근성 경로를 한 번씩 확인합니다. 다른 경로는 미실측으로 기록합니다.
       - [ ] M7-C4c. 동일 기기·fixture의 release 성능 지표별 단일 유효 관찰과 GUI·직접 Exit 사용자 회귀를 완료합니다.
         - [x] M7-C4c-1. 전용 identifier의 release `.app` 빌드와 로컬 ad hoc 서명 검증이 exit 0이고 첫 창과 `⌘Q` 뒤 IDE listener·격리 lockfile 정리를 확인했습니다. [release 실측 기록](history/2026-09-29-m6-release-app-smoke.md)에 구분했으며 배포 서명·공증, 기능 전수·성능 수치는 검증하지 않았습니다.
-        - [x] M7-C4c-1a. 같은 release 번들에 `TAIDE_PERF=1`을 지정한 별도 실행에서 팔레트 성능 명령 노출, 임시 프로젝트/검색/에디터/설정 부분 회귀, `⌘Q` exit 0과 IDE listener·lockfile 제거를 [부분 실기](quality-assurance/2026-09-29-m7-release-gui-smoke.md)에 기록했습니다. release 웹뷰에서 수치 출력 경로가 보이지 않아 3회 중앙값은 미측정입니다.
+        - [x] M7-C4c-1a. 같은 release 번들에 `TAIDE_PERF=1`을 지정한 별도 실행에서 팔레트 성능 명령 노출, 임시 프로젝트/검색/에디터/설정 부분 회귀, `⌘Q` exit 0과 IDE listener·lockfile 제거를 [부분 실기](quality-assurance/2026-09-29-m7-release-gui-smoke.md)에 기록했습니다. 당시 release 웹뷰에서 수치 출력 경로가 보이지 않았으며, 후속 단일 검증의 수치는 별도입니다.
         - [x] M7-C4c-1b. 별도 identifier에 `tauri/devtools`를 적용한 계측용 release `.app` 빌드·로컬 서명 검증은 exit 0입니다. 기본 sandbox 직접 실행의 창 전 exit 134와 Launch Services 창 없는 프로세스를 [진단 기록](quality-assurance/2026-09-29-m7-perf-devtools-attempt.md)에 구분했고, 권한 허용 직접 실행에서 debug·release 창과 Inspector가 열리는 것을 재확인했습니다.
         - [x] M7-C4c-1c. 프로젝트를 열지 않은 격리 프로필의 release 부팅 3회와 한 프로세스의 팔레트 3회에서 `TAIDE_PERF=1` 수치·중앙값을 [부분 측정](quality-assurance/2026-09-29-m7-perf-devtools-attempt.md)에 남겼습니다. 전체 기준 fixture와 나머지 지표는 측정하지 않았습니다.
+        - [x] M7-C4c-2a. 종료하지 않은 계측용 release 앱에서 파일 5,002개·커밋 1,000개·변경 20개 fixture의 프로젝트 전환, 1KB/1MiB 파일, 팔레트, 250개 파일 트리, Git, 5,000건 검색, 터미널 200만 줄 및 파일 20개 열기·닫기를 각각 한 번 실측해 [부분 기준선](quality-assurance/2026-09-29-m7-one-session-perf-gui.md)에 기록했습니다. 검색 프런트 제출 마크·정확한 Memory 스냅샷·fixture 복원 부팅·직접 Exit는 미완료로 구분했습니다.
         - [ ] M7-C4c-2. 동일 기기·fixture에서 각 성능 지표를 한 번 유효하게 관찰하고 단일 표본으로 기록한 뒤 GUI·직접 Exit 회귀를 완료합니다. 중앙값·분포를 주장하지 않습니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
