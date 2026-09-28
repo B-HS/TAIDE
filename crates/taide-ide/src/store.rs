@@ -23,6 +23,31 @@ pub struct PendingSave {
     pub responder: oneshot::Sender<bool>,
 }
 
+enum PendingRequestKind {
+    Diff,
+    Save,
+}
+
+#[must_use]
+pub struct PendingRequestOwner {
+    store: IdeStore,
+    request_id: String,
+    kind: PendingRequestKind,
+}
+
+impl Drop for PendingRequestOwner {
+    fn drop(&mut self) {
+        match self.kind {
+            PendingRequestKind::Diff => {
+                self.store.take_pending_diff(&self.request_id);
+            }
+            PendingRequestKind::Save => {
+                self.store.take_pending_save(&self.request_id);
+            }
+        }
+    }
+}
+
 #[derive(Default)]
 struct IdeStoreInner {
     running: bool,
@@ -156,6 +181,11 @@ impl IdeStore {
         self.inner.lock().pending_diffs.insert(request_id, pending);
     }
 
+    pub fn insert_pending_diff_owned(&self, request_id: String, pending: PendingDiff) -> PendingRequestOwner {
+        self.insert_pending_diff(request_id.clone(), pending);
+        PendingRequestOwner { store: self.clone(), request_id, kind: PendingRequestKind::Diff }
+    }
+
     pub fn take_pending_diff(&self, request_id: &str) -> Option<PendingDiff> {
         self.inner.lock().pending_diffs.remove(request_id)
     }
@@ -171,6 +201,11 @@ impl IdeStore {
 
     pub fn insert_pending_save(&self, request_id: String, pending: PendingSave) {
         self.inner.lock().pending_saves.insert(request_id, pending);
+    }
+
+    pub fn insert_pending_save_owned(&self, request_id: String, pending: PendingSave) -> PendingRequestOwner {
+        self.insert_pending_save(request_id.clone(), pending);
+        PendingRequestOwner { store: self.clone(), request_id, kind: PendingRequestKind::Save }
     }
 
     pub fn take_pending_save(&self, request_id: &str) -> Option<PendingSave> {
@@ -301,6 +336,101 @@ mod tests {
         let (outcome, content) = diff_rx.await.unwrap();
         assert_eq!(outcome, IdeDiffOutcome::Rejected);
         assert!(content.is_none());
+        assert!(!save_rx.await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn 취소된_요청의_pending_diff만_제거한다() {
+        let store = IdeStore::default();
+        let (cancelled_tx, cancelled_rx) = oneshot::channel();
+        let owner = store.insert_pending_diff_owned(
+            "cancelled-diff".to_string(),
+            PendingDiff { project_id: ProjectId::from("project".to_string()), new_path: PathBuf::from("/tmp/cancelled.rs"), responder: cancelled_tx },
+        );
+        let (remaining_tx, remaining_rx) = oneshot::channel();
+        store.insert_pending_diff(
+            "remaining-diff".to_string(),
+            PendingDiff { project_id: ProjectId::from("project".to_string()), new_path: PathBuf::from("/tmp/remaining.rs"), responder: remaining_tx },
+        );
+
+        let task = tokio::spawn(async move {
+            let _owner = owner;
+            std::future::pending::<()>().await;
+        });
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(store.take_pending_diff("cancelled-diff").is_none());
+        assert!(cancelled_rx.await.is_err());
+        assert!(store.take_pending_diff("remaining-diff").is_some());
+        assert!(remaining_rx.await.is_err());
+    }
+
+    #[tokio::test]
+    async fn 취소된_요청의_pending_save만_제거한다() {
+        let store = IdeStore::default();
+        let (cancelled_tx, cancelled_rx) = oneshot::channel();
+        let owner = store.insert_pending_save_owned("cancelled-save".to_string(), PendingSave { responder: cancelled_tx });
+        let (remaining_tx, remaining_rx) = oneshot::channel();
+        store.insert_pending_save("remaining-save".to_string(), PendingSave { responder: remaining_tx });
+
+        let task = tokio::spawn(async move {
+            let _owner = owner;
+            std::future::pending::<()>().await;
+        });
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(store.take_pending_save("cancelled-save").is_none());
+        assert!(cancelled_rx.await.is_err());
+        assert!(store.take_pending_save("remaining-save").is_some());
+        assert!(remaining_rx.await.is_err());
+    }
+
+    #[tokio::test]
+    async fn 정상_응답을_받은_요청은_owner_종료에도_결과를_유지한다() {
+        let store = IdeStore::default();
+        let (diff_tx, diff_rx) = oneshot::channel();
+        let diff_owner = store.insert_pending_diff_owned(
+            "resolved-diff".to_string(),
+            PendingDiff { project_id: ProjectId::from("project".to_string()), new_path: PathBuf::from("/tmp/resolved.rs"), responder: diff_tx },
+        );
+        let (save_tx, save_rx) = oneshot::channel();
+        let save_owner = store.insert_pending_save_owned("resolved-save".to_string(), PendingSave { responder: save_tx });
+
+        store.take_pending_diff("resolved-diff").unwrap().responder.send((IdeDiffOutcome::Saved, None)).unwrap();
+        store.take_pending_save("resolved-save").unwrap().responder.send(true).unwrap();
+        drop(diff_owner);
+        drop(save_owner);
+
+        assert_eq!(diff_rx.await.unwrap(), (IdeDiffOutcome::Saved, None));
+        assert!(save_rx.await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn 전체_종료가_회수한_응답은_요청_owner_종료에도_유지된다() {
+        let store = IdeStore::default();
+        assert!(store.mark_started(TEST_SERVER_PORT, "token".to_string(), PathBuf::from("/tmp/ide"), tokio::spawn(async {})).is_some());
+
+        let (diff_tx, diff_rx) = oneshot::channel();
+        let diff_owner = store.insert_pending_diff_owned(
+            "shutdown-diff".to_string(),
+            PendingDiff { project_id: ProjectId::from("project".to_string()), new_path: PathBuf::from("/tmp/shutdown.rs"), responder: diff_tx },
+        );
+        let (save_tx, save_rx) = oneshot::channel();
+        let save_owner = store.insert_pending_save_owned("shutdown-save".to_string(), PendingSave { responder: save_tx });
+
+        let shutdown = store.take_shutdown_state().unwrap();
+        drop(diff_owner);
+        drop(save_owner);
+        assert_eq!(shutdown.pending_diffs.len(), 1);
+        assert_eq!(shutdown.pending_saves.len(), 1);
+
+        for pending in shutdown.pending_diffs {
+            pending.responder.send((IdeDiffOutcome::Rejected, None)).unwrap();
+        }
+        for pending in shutdown.pending_saves {
+            pending.responder.send(false).unwrap();
+        }
+        assert_eq!(diff_rx.await.unwrap(), (IdeDiffOutcome::Rejected, None));
         assert!(!save_rx.await.unwrap());
     }
 

@@ -198,6 +198,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     뒤늦은 작업을 취소하고 후보 lockfile을 제거한다. 등록 실패·종료 중 시작의 후보 lockfile도 정리하고, 정상 중지는 기존 연결 취소·pending diff/save 해소를 유지한다.
     accept는 저장소 등록 뒤 시작되고 각 IDE 연결도 감독 범위에서 IdeStore가 핸들을 보유한다. 연결별 writer/알림 전달/요청 작업은 JoinSet이 소유해
     연결 종료·부모 취소 때 함께 중단되며, 서버 종료 뒤 도착한 연결은 저장소가 등록하지 않고 취소한다.
+    diff/save pending 등록은 요청별 소유자를 함께 만들고, 연결 작업이 취소되면 해당 소유자의 Drop이 자기 request ID만 제거한다. 정상 응답과 서버 전체 drain이
+    먼저 회수한 항목은 건드리지 않으며 실제 WebSocket 단절·재접속 실기는 별도 검증이다.
     원격 WebSocket의 writer·이벤트 작업도 감독 범위에 두되 writer의 제한 시간 종료를 유지한다. 원격 요청 작업은 연결별 자식으로 취소하지 않고
     독립 반복 작업으로 추적하므로 이미 받은 요청이 세션 무효화 뒤에도 permit을 기다려 실행될 수 있는 기존 계약은 그대로다.
     원격 서버의 정상 중지 대기도 감독하며 shutdown 신호→grace wait→시간 초과 abort 순서를 유지한다. 앱 종료로 감독자 등록이 닫혔으면 서버를 직접 취소한다.

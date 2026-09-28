@@ -125,7 +125,7 @@ async fn tool_open_diff(app: &AppHandle, arguments: &Value) -> Result<Value, Too
 
     let request_id = uuid::Uuid::new_v4().to_string();
     let (responder, receiver) = oneshot::channel();
-    app.state::<IdeStore>().insert_pending_diff(
+    let _pending_request_owner = app.state::<IdeStore>().insert_pending_diff_owned(
         request_id.clone(),
         PendingDiff {
             project_id: project_id.clone(),
@@ -268,8 +268,9 @@ async fn tool_save_document(app: &AppHandle, arguments: &Value) -> Result<Value,
 
     let request_id = uuid::Uuid::new_v4().to_string();
     let (responder, receiver) = oneshot::channel();
-    app.state::<IdeStore>()
-        .insert_pending_save(request_id.clone(), PendingSave { responder });
+    let _pending_request_owner = app
+        .state::<IdeStore>()
+        .insert_pending_save_owned(request_id.clone(), PendingSave { responder });
 
     TauriEventSink(app).publish(AppEvent::IdeSaveRequested {
         request_id: request_id.clone(),
