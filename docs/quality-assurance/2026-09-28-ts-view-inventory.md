@@ -6,6 +6,8 @@
 
 212개 경로 전체는 `src-tauri/tests/fixtures/rust-native/ts-view-components-v1.json`에 정렬해 고정했습니다. `src-tauri/tests/rust_native_phase0_ts_view_census.rs`는 현재 `src/`의 비테스트 `.tsx`를 다시 열거해 추가·삭제·이름 변경을 감지합니다. 대상 테스트 1건, 대상 Clippy, Rust fmt, JSON·이 문서 Prettier, diff 검사가 exit 0입니다. 이 경로 census는 전수 작업의 모집단일 뿐 화면·상태·상호작용·접근성의 동등성 판정이 아닙니다. 이 문서에 직접 적힌 비테스트 `.tsx` 경로는 현재 46개이며 나머지 166개는 하위 항목 단위의 의미·증거 연결이 필요합니다.
 
+[대화상자·메뉴 inventory](2026-09-28-ts-overlay-inventory.md)에 별도 26개 경로의 열림·선택 경계와 직접 테스트 유무를 기록했습니다. 두 문서의 중복을 제외하면 경로가 직접 연결된 항목은 70개, 남은 경로는 142개입니다. 경로가 적혔다는 사실만으로 하위 상태나 실기 증거가 충분하다는 뜻은 아닙니다.
+
 ## 창·화면 진입점
 
 | 화면/경계 | 현행 컴포넌트와 상태·동작 | 확인한 자동 근거 | 남은 실기·접근성 확인 |
