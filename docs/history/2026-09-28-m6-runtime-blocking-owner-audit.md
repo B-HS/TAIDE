@@ -19,5 +19,5 @@
 
 ## 남은 판정
 
-- file의 guard/worker owner 4개는 [후속 수리](2026-09-28-file-worker-ownership.md)로 완료했습니다. 현재 직접 `spawn_blocking`은 search 4·tree 1개이며 독립 작업으로 검증합니다. 추가 대상은 외부 요청 중단·정상 root·OS I/O stall을 구분합니다.
+- file의 guard/worker owner 4개는 [파일 후속 수리](2026-09-28-file-worker-ownership.md), tree prefetch 1개는 [트리 후속 수리](2026-09-28-tree-prefetch-owner.md)로 완료했습니다. 현재 직접 `spawn_blocking`은 search 4개이며 독립 작업으로 검증합니다. 추가 대상은 외부 요청 중단·정상 root·OS I/O stall을 구분합니다.
 - 실제 사용자 파일·프로세스·앱을 실행하거나 읽지 않았습니다. 이 정적 조사만으로 M6-HK 전체나 M6 완료를 주장하지 않습니다.

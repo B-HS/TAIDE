@@ -1,7 +1,7 @@
 use tauri::State;
 
-use taide_runtime::tree_actions;
 pub use taide_runtime::TreeStore;
+use taide_runtime::{tree_actions, TaskSupervisor};
 
 use super::types::TreeRowPage;
 use crate::error::AppResult;
@@ -14,11 +14,12 @@ use crate::state::AppState;
 pub async fn tree_rows(
     state: State<'_, AppState>,
     tree_store: State<'_, TreeStore>,
+    tasks: State<'_, TaskSupervisor>,
     project_id: ProjectId,
     offset: u32,
     limit: Option<u32>,
 ) -> AppResult<TreeRowPage> {
-    tree_actions::tree_rows(&state, &tree_store, project_id, offset, limit).await
+    tree_actions::tree_rows(&state, &tree_store, &tasks, project_id, offset, limit).await
 }
 
 #[tauri::command]
@@ -26,11 +27,12 @@ pub async fn tree_rows(
 pub async fn tree_toggle(
     state: State<'_, AppState>,
     tree_store: State<'_, TreeStore>,
+    tasks: State<'_, TaskSupervisor>,
     project_id: ProjectId,
     path: String,
 ) -> AppResult<TreeRowPage> {
     let _span = perf::span(SpanSlot::TreeToggle);
-    tree_actions::tree_toggle(&state, &tree_store, project_id, path).await
+    tree_actions::tree_toggle(&state, &tree_store, &tasks, project_id, path).await
 }
 
 /// "모두 접기" — clears this project's entire expanded set and returns the collapsed page.
@@ -46,9 +48,10 @@ pub async fn tree_toggle(
 pub async fn tree_collapse_all(
     state: State<'_, AppState>,
     tree_store: State<'_, TreeStore>,
+    tasks: State<'_, TaskSupervisor>,
     project_id: ProjectId,
 ) -> AppResult<TreeRowPage> {
-    tree_actions::tree_collapse_all(&state, &tree_store, project_id).await
+    tree_actions::tree_collapse_all(&state, &tree_store, &tasks, project_id).await
 }
 
 #[tauri::command]
@@ -56,11 +59,12 @@ pub async fn tree_collapse_all(
 pub async fn tree_reveal(
     state: State<'_, AppState>,
     tree_store: State<'_, TreeStore>,
+    tasks: State<'_, TaskSupervisor>,
     project_id: ProjectId,
     path: String,
 ) -> AppResult<TreeRowPage> {
     let _span = perf::span(SpanSlot::TreeReveal);
-    tree_actions::tree_reveal(&state, &tree_store, project_id, path).await
+    tree_actions::tree_reveal(&state, &tree_store, &tasks, project_id, path).await
 }
 
 #[tauri::command]
@@ -68,8 +72,9 @@ pub async fn tree_reveal(
 pub async fn tree_refresh(
     state: State<'_, AppState>,
     tree_store: State<'_, TreeStore>,
+    tasks: State<'_, TaskSupervisor>,
     project_id: ProjectId,
     dir: String,
 ) -> AppResult<TreeRowPage> {
-    tree_actions::tree_refresh(&state, &tree_store, project_id, dir).await
+    tree_actions::tree_refresh(&state, &tree_store, &tasks, project_id, dir).await
 }

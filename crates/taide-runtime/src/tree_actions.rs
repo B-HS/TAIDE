@@ -6,7 +6,11 @@ use taide_model::ids::ProjectId;
 use taide_model::tree::TreeRowPage;
 use taide_tree::service::{self, DirectoryListings, TreeState};
 
-use crate::{AppState, TreeStore};
+use crate::{AppState, TaskSupervisor, TreeStore};
+
+fn tree_shutdown_error() -> AppError {
+    AppError::Forbidden("tree runtime is shutting down".to_string())
+}
 
 fn project_root(state: &AppState, project_id: &ProjectId) -> AppResult<PathBuf> {
     state
@@ -73,34 +77,43 @@ fn plan_reads(
     Ok(plan(&service::new_tree_state(root)))
 }
 
-async fn prefetch_listings(dirs: Vec<PathBuf>) -> AppResult<DirectoryListings> {
+async fn prefetch_listings(tasks: &TaskSupervisor, dirs: Vec<PathBuf>) -> AppResult<DirectoryListings> {
     if dirs.is_empty() {
         return Ok(DirectoryListings::default());
     }
 
-    tokio::task::spawn_blocking(move || service::read_directories(dirs))
+    tasks
+        .run_blocking_result("tree-prefetch", move || Ok(service::read_directories(dirs)))
         .await
-        .map_err(|error| AppError::Internal(error.to_string()))
 }
 
 pub async fn tree_rows(
     state: &AppState,
     tree_store: &TreeStore,
+    tasks: &TaskSupervisor,
     project_id: ProjectId,
     offset: u32,
     limit: Option<u32>,
 ) -> AppResult<TreeRowPage> {
+    let _operation = tasks.begin_operation("tree-rows").ok_or_else(tree_shutdown_error)?;
     let dirs = plan_reads(tree_store, state, &project_id, service::plan_root_read)?;
-    let mut listings = prefetch_listings(dirs).await?;
+    let mut listings = prefetch_listings(tasks, dirs).await?;
 
     rows_page_from_store(tree_store, state, &project_id, offset, limit, &mut listings)
 }
 
-pub async fn tree_toggle(state: &AppState, tree_store: &TreeStore, project_id: ProjectId, path: String) -> AppResult<TreeRowPage> {
+pub async fn tree_toggle(
+    state: &AppState,
+    tree_store: &TreeStore,
+    tasks: &TaskSupervisor,
+    project_id: ProjectId,
+    path: String,
+) -> AppResult<TreeRowPage> {
+    let _operation = tasks.begin_operation("tree-toggle").ok_or_else(tree_shutdown_error)?;
     let dirs = plan_reads(tree_store, state, &project_id, |tree| {
         service::plan_toggle_reads(tree, Path::new(&path))
     })?;
-    let mut listings = prefetch_listings(dirs).await?;
+    let mut listings = prefetch_listings(tasks, dirs).await?;
 
     let _guard = state.begin_mutation().await;
     let mut trees = tree_store.0.write();
@@ -109,9 +122,15 @@ pub async fn tree_toggle(state: &AppState, tree_store: &TreeStore, project_id: P
     Ok(service::full_page(tree))
 }
 
-pub async fn tree_collapse_all(state: &AppState, tree_store: &TreeStore, project_id: ProjectId) -> AppResult<TreeRowPage> {
+pub async fn tree_collapse_all(
+    state: &AppState,
+    tree_store: &TreeStore,
+    tasks: &TaskSupervisor,
+    project_id: ProjectId,
+) -> AppResult<TreeRowPage> {
+    let _operation = tasks.begin_operation("tree-collapse-all").ok_or_else(tree_shutdown_error)?;
     let dirs = plan_reads(tree_store, state, &project_id, service::plan_root_read)?;
-    let mut listings = prefetch_listings(dirs).await?;
+    let mut listings = prefetch_listings(tasks, dirs).await?;
 
     let _guard = state.begin_mutation().await;
     let mut trees = tree_store.0.write();
@@ -120,11 +139,18 @@ pub async fn tree_collapse_all(state: &AppState, tree_store: &TreeStore, project
     Ok(service::full_page(tree))
 }
 
-pub async fn tree_reveal(state: &AppState, tree_store: &TreeStore, project_id: ProjectId, path: String) -> AppResult<TreeRowPage> {
+pub async fn tree_reveal(
+    state: &AppState,
+    tree_store: &TreeStore,
+    tasks: &TaskSupervisor,
+    project_id: ProjectId,
+    path: String,
+) -> AppResult<TreeRowPage> {
+    let _operation = tasks.begin_operation("tree-reveal").ok_or_else(tree_shutdown_error)?;
     let dirs = plan_reads(tree_store, state, &project_id, |tree| {
         service::plan_reveal_reads(tree, Path::new(&path))
     })?;
-    let mut listings = prefetch_listings(dirs).await?;
+    let mut listings = prefetch_listings(tasks, dirs).await?;
 
     let _guard = state.begin_mutation().await;
     let mut trees = tree_store.0.write();
@@ -133,11 +159,18 @@ pub async fn tree_reveal(state: &AppState, tree_store: &TreeStore, project_id: P
     Ok(service::full_page(tree))
 }
 
-pub async fn tree_refresh(state: &AppState, tree_store: &TreeStore, project_id: ProjectId, dir: String) -> AppResult<TreeRowPage> {
+pub async fn tree_refresh(
+    state: &AppState,
+    tree_store: &TreeStore,
+    tasks: &TaskSupervisor,
+    project_id: ProjectId,
+    dir: String,
+) -> AppResult<TreeRowPage> {
+    let _operation = tasks.begin_operation("tree-refresh").ok_or_else(tree_shutdown_error)?;
     let dirs = plan_reads(tree_store, state, &project_id, |tree| {
         service::plan_refresh_reads(tree, Path::new(&dir))
     })?;
-    let mut listings = prefetch_listings(dirs).await?;
+    let mut listings = prefetch_listings(tasks, dirs).await?;
 
     let _guard = state.begin_mutation().await;
     let mut trees = tree_store.0.write();
@@ -150,8 +183,11 @@ pub async fn tree_refresh(state: &AppState, tree_store: &TreeStore, project_id: 
 mod tests {
     use super::*;
 
+    use taide_model::error::AppErrorKind;
     use taide_model::paths::AppPaths;
     use taide_model::project::Project;
+
+    use crate::TaskSupervisor;
 
     fn temp_root(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("taide-tree-cmd-{name}-{}", uuid::Uuid::new_v4()));
@@ -174,6 +210,25 @@ mod tests {
             },
         );
         state
+    }
+
+    #[tokio::test]
+    async fn 닫힌_감독자는_트리_캐시_미스와_히트의_신규_입장을_거절한다() {
+        let root = temp_root("stopped");
+        let project_id = ProjectId::new();
+        let state = state_with_project(&project_id, &root);
+        let store = TreeStore::new();
+        let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+
+        tree_rows(&state, &store, &tasks, project_id.clone(), 0, None).await.unwrap();
+        tasks.stop_all();
+        let cached = tree_rows(&state, &store, &tasks, project_id.clone(), 0, None).await.unwrap_err();
+        assert_eq!(cached.kind(), AppErrorKind::Forbidden);
+        store.remove(&project_id);
+        let uncached = tree_rows(&state, &store, &tasks, project_id, 0, None).await.unwrap_err();
+        assert_eq!(uncached.kind(), AppErrorKind::Forbidden);
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

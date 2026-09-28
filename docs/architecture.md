@@ -362,7 +362,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     perf span과 완료 debug 로그는 Tauri adapter에 유지하며 목록 debug 시간은 action 진입부터 프로젝트 조회·blocking walk 완료까지 측정한다.
     `taide-runtime::tree_actions`는 트리 action 5개와 cache hit/miss·prefetch·entry 재확인·인플레이스 수정 정책을 소유한다.
     조회는 전역 mutation guard 없이 캐시의 read lock으로 페이지를 반환하고, miss는 로컬 트리를 만든 뒤 프로젝트와 기존 entry를 재확인한다.
-    수정 action은 prefetch 완료 뒤 기존 mutation/write lock을 취득한다. prefetch는 힌트이며 빠진 디렉터리는 기존 서비스의 read fallback을 유지한다.
+    다섯 action은 같은 등록 TaskSupervisor operation을 처음부터 마지막 페이지 조립까지 보유하고, prefetch의 실제 blocking worker도 감독자에 등록한다. 수정 action은 prefetch 완료 뒤 기존 mutation/write lock을 취득한다. prefetch는 힌트이며 빠진 디렉터리는 기존 서비스의 read fallback을 유지한다.
     Tauri tree command는 기존 인수·응답·TreeStore 재수출·collapse 문서와 TreeToggle/TreeReveal perf span만 보존한다.
     `taide-runtime::app_actions`는 앱 파일 읽기의 live settings snapshot과 쓰기/parsed 설정 적용의 mutation guard·검증·적용 await를 소유한다.
     설정 적용 callback만 기존 SettingsApplyPort/AppHandle adapter에 유지하고 remote gated strip은 gateway에서 먼저 수행한다.

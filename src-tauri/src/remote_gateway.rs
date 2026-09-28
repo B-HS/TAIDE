@@ -914,16 +914,23 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             tree::tree_rows(
                 app.state(),
                 app.state(),
+                app.state(),
                 arg!(args, "projectId"),
                 arg!(args, "offset"),
                 arg!(args, "limit"),
             )
             .await,
         ),
-        "tree_toggle" => respond(tree::tree_toggle(app.state(), app.state(), arg!(args, "projectId"), arg!(args, "path")).await),
-        "tree_collapse_all" => respond(tree::tree_collapse_all(app.state(), app.state(), arg!(args, "projectId")).await),
-        "tree_reveal" => respond(tree::tree_reveal(app.state(), app.state(), arg!(args, "projectId"), arg!(args, "path")).await),
-        "tree_refresh" => respond(tree::tree_refresh(app.state(), app.state(), arg!(args, "projectId"), arg!(args, "dir")).await),
+        "tree_toggle" => {
+            respond(tree::tree_toggle(app.state(), app.state(), app.state(), arg!(args, "projectId"), arg!(args, "path")).await)
+        }
+        "tree_collapse_all" => respond(tree::tree_collapse_all(app.state(), app.state(), app.state(), arg!(args, "projectId")).await),
+        "tree_reveal" => {
+            respond(tree::tree_reveal(app.state(), app.state(), app.state(), arg!(args, "projectId"), arg!(args, "path")).await)
+        }
+        "tree_refresh" => {
+            respond(tree::tree_refresh(app.state(), app.state(), app.state(), arg!(args, "projectId"), arg!(args, "dir")).await)
+        }
 
         "search_run" => respond(
             search::search_run(

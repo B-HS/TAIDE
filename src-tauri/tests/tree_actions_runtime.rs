@@ -7,7 +7,7 @@ use taide_model::error::AppErrorKind;
 use taide_model::ids::ProjectId;
 use taide_model::paths::AppPaths;
 use taide_model::project::Project;
-use taide_runtime::{tree_actions, AppState, TreeStore};
+use taide_runtime::{tree_actions, AppState, TaskSupervisor, TreeStore};
 use uuid::Uuid;
 
 const ACTION_TIMEOUT: Duration = Duration::from_secs(5);
@@ -17,6 +17,7 @@ struct Fixture {
     root: PathBuf,
     state: AppState,
     store: TreeStore,
+    tasks: TaskSupervisor,
     project_id: ProjectId,
 }
 
@@ -45,6 +46,7 @@ impl Fixture {
             root,
             state,
             store: TreeStore::new(),
+            tasks: TaskSupervisor::new(tokio::runtime::Handle::current()),
             project_id,
         }
     }
@@ -63,28 +65,49 @@ impl Drop for Fixture {
 #[tokio::test]
 async fn 다섯_action은_페이지와_캐시와_확장과_접기와_새로고침을_보존한다() {
     let fixture = Fixture::new();
-    let page = tree_actions::tree_rows(&fixture.state, &fixture.store, fixture.project_id.clone(), 0, Some(1))
-        .await
-        .expect("초기 페이지");
+    let page = tree_actions::tree_rows(
+        &fixture.state,
+        &fixture.store,
+        &fixture.tasks,
+        fixture.project_id.clone(),
+        0,
+        Some(1),
+    )
+    .await
+    .expect("초기 페이지");
     assert_eq!(page.total, 1);
     assert_eq!(page.rows[0].name, "sub");
     assert!(!page.rows[0].expanded);
-    let empty = tree_actions::tree_rows(&fixture.state, &fixture.store, fixture.project_id.clone(), 1, Some(1))
-        .await
-        .expect("페이지 범위");
+    let empty = tree_actions::tree_rows(
+        &fixture.state,
+        &fixture.store,
+        &fixture.tasks,
+        fixture.project_id.clone(),
+        1,
+        Some(1),
+    )
+    .await
+    .expect("페이지 범위");
     assert_eq!(empty.total, page.total);
     assert!(empty.rows.is_empty());
-    let expanded = tree_actions::tree_toggle(&fixture.state, &fixture.store, fixture.project_id.clone(), fixture.path("sub"))
-        .await
-        .expect("펼치기");
+    let expanded = tree_actions::tree_toggle(
+        &fixture.state,
+        &fixture.store,
+        &fixture.tasks,
+        fixture.project_id.clone(),
+        fixture.path("sub"),
+    )
+    .await
+    .expect("펼치기");
     assert!(expanded.rows.iter().any(|row| row.name == "child.txt" && row.depth == 1));
-    let collapsed = tree_actions::tree_collapse_all(&fixture.state, &fixture.store, fixture.project_id.clone())
+    let collapsed = tree_actions::tree_collapse_all(&fixture.state, &fixture.store, &fixture.tasks, fixture.project_id.clone())
         .await
         .expect("모두 접기");
     assert_eq!(collapsed, page);
     let revealed = tree_actions::tree_reveal(
         &fixture.state,
         &fixture.store,
+        &fixture.tasks,
         fixture.project_id.clone(),
         fixture.path("sub/child.txt"),
     )
@@ -92,9 +115,15 @@ async fn 다섯_action은_페이지와_캐시와_확장과_접기와_새로고�
     .expect("파일 표시");
     assert_eq!(revealed, expanded);
     std::fs::write(fixture.path("sub/new.txt"), "new").expect("새 파일");
-    let refreshed = tree_actions::tree_refresh(&fixture.state, &fixture.store, fixture.project_id.clone(), fixture.path("sub"))
-        .await
-        .expect("새로고침");
+    let refreshed = tree_actions::tree_refresh(
+        &fixture.state,
+        &fixture.store,
+        &fixture.tasks,
+        fixture.project_id.clone(),
+        fixture.path("sub"),
+    )
+    .await
+    .expect("새로고침");
     assert_eq!(refreshed.total, revealed.total + 1);
     assert!(refreshed.rows.iter().any(|row| row.name == "new.txt"));
 }
@@ -104,11 +133,18 @@ async fn 없는_프로젝트의_다섯_action은_캐시를_만들지_않는다()
     let fixture = Fixture::new();
     let missing = ProjectId::new();
     let results = [
-        tree_actions::tree_rows(&fixture.state, &fixture.store, missing.clone(), 0, None).await,
-        tree_actions::tree_toggle(&fixture.state, &fixture.store, missing.clone(), fixture.path("sub")).await,
-        tree_actions::tree_collapse_all(&fixture.state, &fixture.store, missing.clone()).await,
-        tree_actions::tree_reveal(&fixture.state, &fixture.store, missing.clone(), fixture.path("sub/child.txt")).await,
-        tree_actions::tree_refresh(&fixture.state, &fixture.store, missing, fixture.path("sub")).await,
+        tree_actions::tree_rows(&fixture.state, &fixture.store, &fixture.tasks, missing.clone(), 0, None).await,
+        tree_actions::tree_toggle(&fixture.state, &fixture.store, &fixture.tasks, missing.clone(), fixture.path("sub")).await,
+        tree_actions::tree_collapse_all(&fixture.state, &fixture.store, &fixture.tasks, missing.clone()).await,
+        tree_actions::tree_reveal(
+            &fixture.state,
+            &fixture.store,
+            &fixture.tasks,
+            missing.clone(),
+            fixture.path("sub/child.txt"),
+        )
+        .await,
+        tree_actions::tree_refresh(&fixture.state, &fixture.store, &fixture.tasks, missing, fixture.path("sub")).await,
     ];
     for result in results {
         assert_eq!(result.expect_err("없는 프로젝트 거절").kind(), AppErrorKind::NotFound);
@@ -123,6 +159,7 @@ async fn 전역_mutation이_대기하는_동안에도_조회는_진행하고_뒤
     let mut toggle = Box::pin(tree_actions::tree_toggle(
         &fixture.state,
         &fixture.store,
+        &fixture.tasks,
         fixture.project_id.clone(),
         fixture.path("sub"),
     ));
@@ -133,7 +170,7 @@ async fn 전역_mutation이_대기하는_동안에도_조회는_진행하고_뒤
     .await;
     let page = tokio::time::timeout(
         ACTION_TIMEOUT,
-        tree_actions::tree_rows(&fixture.state, &fixture.store, fixture.project_id.clone(), 0, None),
+        tree_actions::tree_rows(&fixture.state, &fixture.store, &fixture.tasks, fixture.project_id.clone(), 0, None),
     )
     .await
     .expect("조회는 전역 mutation 잠금을 기다리지 않음")
@@ -142,7 +179,7 @@ async fn 전역_mutation이_대기하는_동안에도_조회는_진행하고_뒤
     drop(guard);
     let toggled = toggle.await.expect("대기한 toggle 완료");
     assert!(toggled.rows.iter().any(|row| row.name == "child.txt"));
-    let cached = tree_actions::tree_rows(&fixture.state, &fixture.store, fixture.project_id.clone(), 0, None)
+    let cached = tree_actions::tree_rows(&fixture.state, &fixture.store, &fixture.tasks, fixture.project_id.clone(), 0, None)
         .await
         .expect("수정한 캐시 조회");
     assert_eq!(cached, toggled);
@@ -155,6 +192,7 @@ async fn 먼저_시작한_수정은_대기_중_닫힌_프로젝트_캐시를_부
     let mut toggle = Box::pin(tree_actions::tree_toggle(
         &fixture.state,
         &fixture.store,
+        &fixture.tasks,
         fixture.project_id.clone(),
         fixture.path("sub"),
     ));
