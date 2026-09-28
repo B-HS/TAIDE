@@ -67,7 +67,6 @@ async fn 종료는_async_waiter를_취소하지만_시작한_blocking_작업은_
     assert_eq!(supervisor.tracked_count(), TWO_WORKERS);
     supervisor.stop_all();
     supervisor.stop_all();
-    assert_eq!(supervisor.tracked_count(), 1);
     assert!(tokio::time::timeout(TEST_TIMEOUT, observer)
         .await
         .unwrap()

@@ -153,7 +153,11 @@ fn 앱_조립은_장기_작업과_자동_시작을_등록하고_종료시_취소
     assert!(exit.contains("exit_drain.begin("));
     assert!(exit.contains("move || handle.exit(exit_code)"));
     assert!(exit.contains("app_handle.state::<TaskSupervisor>().stop_all()"));
-    assert!(exit.contains("tauri::async_runtime::block_on(app_handle.state::<LspInstallStore>().wait_for_idle())"));
+    assert!(exit.contains("exit_drain.wait_for_direct_exit("));
+    assert!(exit.contains("(*app_handle.state::<LspInstallStore>()).clone()"));
+
+    let drain = include_str!("../../crates/taide-runtime/src/exit_drain.rs");
+    assert!(drain.contains("installs.wait_for_idle().await"));
 }
 
 #[test]

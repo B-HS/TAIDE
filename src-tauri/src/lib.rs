@@ -1456,7 +1456,10 @@ mod tests {
 
         let ide = include_str!("domain/ide/commands.rs");
         assert!(ide.contains("save_file: State<'_, IdeSaveFile>"));
-        assert!(ide.contains("match (save_file.0)(&state, &pending.new_path, &content)"));
+        assert!(ide.contains("ide_actions::ide_resolve_diff(&state, &save_file, &ide, request_id, outcome, content).await"));
+
+        let actions = include_str!("../../crates/taide-runtime/src/ide_actions.rs");
+        assert!(actions.contains("match (save_file.0)(state, &pending.new_path, &content)"));
 
         let gateway = include_str!("remote_gateway.rs");
         let remote_call = extract_between(gateway, "ide::ide_resolve_diff(", "\n            .await,");
