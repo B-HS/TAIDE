@@ -26,6 +26,12 @@
 
 셋째 실행은 임시 `fixture.ts`를 열어 vtsls 자식 PID 55725의 실행을 확인한 뒤 종료했습니다. 종료 직후 그 PID가 없어졌고 IDE listener 40235·격리 lockfile도 없어졌습니다. 세 실행 모두 종료 drain 실패·panic 로그는 없었습니다.
 
-## 아직 증명하지 않은 범위
+## 최초 세 실행에서 아직 증명하지 않은 범위
 
 두 번째 `ExitRequested` 다음 `Exit`는 첫 요청의 비동기 drain 완료가 다시 종료를 요청한 경로입니다. 선행 `ExitRequested` 없이 OS가 바로 `Exit`를 전달하는 경우의 실앱 수명은 이번 조작에서 일어나지 않았으며 합성 직접 Exit 테스트의 근거와 구분합니다. watcher·PTY·LSP를 한 실행에서 모두 동시에 바쁘게 만든 검사는 아니고 원격 서버도 켜지 않았습니다. 이 결과는 IDE·PTY·LSP의 실제 자식/포트 회수에 한정하며, 다른 OS 강제 종료나 모든 nested 작업의 회수를 입증하지 않습니다.
+
+## 후속 직접 Exit 실측 (2026-09-29)
+
+같은 격리 debug 앱과 임시 프로젝트의 `fixture.ts`·Terminal 탭을 열었습니다. 프로젝트 화면과 `1/1 LSP`가 표시됐고, 로그에 vtsls 기동 PID 11676이 남았습니다. Terminal에서 `/bin/sleep 3600`을 실행한 뒤 `/bin/sleep` PID 11796이 살아 있음을 확인했습니다. 다만 vtsls PID의 종료 직전 생존과 watcher callback의 동시 실행은 별도로 확인하지 않았습니다.
+
+macOS Activity Monitor에서 실행 파일 경로가 이 debug `.app`과 일치하는 TAIDE PID 11627만 선택해 `Quit`을 눌렀습니다. `Force Quit`은 사용하지 않았습니다. 앱 stdout의 종료 단계는 `applicationWillTerminate → 직접 종료 이벤트 수신 → 직접 종료 자원 대기 완료`이며 선행 `종료 요청 이벤트 수신`이 없었습니다. 앱 exit 0 뒤 세 PID 11627·11676·11796의 실행 파일 FD가 사라졌고, TAIDE IDE listener와 격리 `claude/ide` lockfile도 남지 않았습니다. 따라서 실제 직접 `RunEvent::Exit` 경로의 공통 drain 완료는 확인했지만, 활성 원격 WebSocket과 watcher·PTY·LSP 전체가 동시에 지연되는 경계는 여전히 미검증입니다.
