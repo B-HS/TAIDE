@@ -993,7 +993,7 @@
           - [x] M7-C4b-2b-6. Project·shell slot·snippet·split·tab·theme·welcome·window feature 22개의 상태·행동·자동 근거·실기 공백을 [feature inventory C](quality-assurance/2026-09-29-ts-feature-inventory-c.md)에 연결했습니다. 일곱 문서의 중복 제외 직접 연결 183개·남은 29개입니다.
           - [x] M7-C4b-2b-7. 앱 진입점·shared·widget의 마지막 29개 경로를 [shared/widget inventory](quality-assurance/2026-09-29-ts-shared-widget-inventory.md)에 개별 연결했습니다. 여덟 문서의 중복 제외 직접 연결은 212/212개이며 비시각 context·hook·테스트 helper를 화면과 구분했습니다. 실제 시각·접근성 판정은 별도입니다.
           - [x] M7-C4b-2b-8. 격리 release 앱에서 임시 프로젝트·파일, Search 결과, 비저장소 Git 상태, Settings Appearance 화면을 접근성 트리와 스크린샷으로 [부분 실기](quality-assurance/2026-09-29-m7-release-gui-smoke.md)에 기록했습니다. 파일 원문 복원·저장 뒤 디스크 내용도 확인했고 실제 화면 전수는 미완료입니다.
-          - [x] M7-C4b-2b-9. 종료하지 않은 격리 계측 앱에서 탭 우클릭 메뉴, 파일의 새 OS 창 이동·본창 복귀, 팔레트 키보드 조작, 250개 파일 트리·5,000건 검색·Git 변경 20건·터미널 화면의 접근성 트리와 스크린샷을 [단일 세션 실측](quality-assurance/2026-09-29-m7-one-session-perf-gui.md)에 기록했습니다. 테마·로케일 실제 변경과 화면 전수는 남았습니다.
+          - [x] M7-C4b-2b-9. 종료하지 않은 격리 계측 앱에서 탭 우클릭 메뉴, 파일의 새 OS 창 이동·본창 복귀, 팔레트 키보드 조작, 250개 파일 트리·5,000건 검색·Git 변경 20건·터미널 화면의 접근성 트리와 스크린샷을 [단일 세션 실측](quality-assurance/2026-09-29-m7-one-session-perf-gui.md)에 기록했습니다. 후속으로 프로젝트 경로 메뉴·대화상자의 존재하지 않는 경로 오류와 취소도 확인했습니다. 테마·로케일 실제 변경과 화면 전수는 남았습니다.
           - [ ] M7-C4b-2b. 기존 부분 실기를 재사용하고, 남은 대표 메뉴·dialog·키보드·테마/로케일·다중 창·시각/접근성 경로를 한 번씩 확인합니다. 다른 경로는 미실측으로 기록합니다.
       - [ ] M7-C4c. 동일 기기·fixture의 release 성능 지표별 단일 유효 관찰과 GUI·직접 Exit 사용자 회귀를 완료합니다.
         - [x] M7-C4c-1. 전용 identifier의 release `.app` 빌드와 로컬 ad hoc 서명 검증이 exit 0이고 첫 창과 `⌘Q` 뒤 IDE listener·격리 lockfile 정리를 확인했습니다. [release 실측 기록](history/2026-09-29-m6-release-app-smoke.md)에 구분했으며 배포 서명·공증, 기능 전수·성능 수치는 검증하지 않았습니다.
