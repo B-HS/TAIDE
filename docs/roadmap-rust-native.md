@@ -133,7 +133,7 @@ TypeScript/JavaScript의 Monaco 내장 worker를 제거하기 전에 Rust-owned 
 ### Phase 0 — 계약과 baseline 고정
 
 - command/event/raw channel, remote allow·deny, IDE/MCP, CLI marker와 persistence fixture를 golden contract로 고정한다.
-- `docs/quality-assurance/2026-09-04-perf-baseline.md`의 비어 있는 실기 지표를 동일 기기·fixture에서 3회 중앙값으로 채운다.
+- `docs/quality-assurance/2026-09-04-perf-baseline.md`의 비어 있는 실기 지표를 동일 기기·fixture의 유효 관찰 한 번으로 채운다. M7의 [단일 검증 결정](acknowledge/2026-09-29-m7-one-pass-validation-scope.md)에 따른 기준선이며 중앙값·분포는 주장하지 않는다.
 - editor, LSP, terminal, preview, shell의 기능 inventory에 현행 자동·실기 증거를 연결한다.
 - 완료: 이후 모든 phase가 비교할 기능·성능·데이터 기준선이 존재한다.
 

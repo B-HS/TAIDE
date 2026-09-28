@@ -40,8 +40,9 @@ TAIDE_PERF=1 /Applications/TAIDE.app/Contents/MacOS/TAIDE       # 설치본 실�
    평균(`totalMs / count`)으로 읽어야 한다.
 3. **읽기** — 팔레트 `App: Show Performance Snapshot`(프론트 표 2개) + 콘솔
    `invoke('perf_snapshot')`(Rust `entries`·`counters`). 두 표의 이름이 §3 의 "읽는 곳" 이다.
-4. **기록** — §3 표의 빈칸에 `ms` 를 적고 체크박스를 채운다. 같은 기기·같은 저장소에서
-   **3회 반복해 중앙값**을 적는다.
+4. **기록** — §3 표의 빈칸에 `ms` 를 적고 체크박스를 채운다. M7·Phase 0 기준선은
+   [단일 검증 결정](../acknowledge/2026-09-29-m7-one-pass-validation-scope.md)에 따라 같은 기기·같은 저장소의
+   유효 관찰 한 건을 적는다. 이 값은 중앙값이나 분포 추정치가 아니다.
 
 > 기준 픽스처: 파일 5,000개 이상 · 커밋 1,000개 이상인 실제 저장소 1개(예: 이 저장소 자체)와,
 > 1KB·1MB 두 파일. 기기·저장소가 바뀌면 이전 수치와 비교하지 않는다.

@@ -9,7 +9,8 @@
 
 - 현재 앱의 동작을 문서 설명만으로 추정하지 않고 기존 테스트, 실제 fixture, 실기 결과로 기준선을 고정한다.
 - native 구현은 같은 input과 fixture에 대해 semantic output, event ordering, persistent state, 화면과 성능을 비교한다.
-- 벽시계 수치는 같은 기기·release build·fixture에서 3회 이상 측정한 중앙값과 p95·p99만 비교한다.
+- M7·Phase 0의 현행 release 기준선은 [단일 검증 결정](../acknowledge/2026-09-29-m7-one-pass-validation-scope.md)에 따라 같은 기기·fixture의 유효 관찰 한 건으로 기록합니다. 이 값으로 중앙값·p95·p99 또는 통계적 비악화를 주장하지 않습니다.
+- 이후 native 구현의 정량 동등성 비교에는 같은 기기·release build·fixture에서 반복 측정한 중앙값과 p95·p99가 필요합니다. 그 비교 전에 현행 baseline을 다시 측정합니다.
 - 자동화할 수 없는 IME·accessibility·window·GPU·packaging은 대상 OS별 실기 gate로 남긴다.
 - 통과하지 않은 항목을 완료로 표시하지 않고 TS/Tauri fallback을 제거하지 않는다.
 
@@ -21,7 +22,7 @@
 - [x] settings, session, project, layout, hot-exit buffer의 versioned fixture — `persistence-v1.json`과 실제 settings load·session/project restore·v1→v2 layout load·legacy mirror list 3건 통과; 사용자 실제 데이터와 GUI 복원은 별도
 - [ ] `docs/quality-assurance/2026-09-04-perf-baseline.md` 실기 지표 작성
 - [ ] editor, LSP, terminal, preview, shell 기능 inventory에 근거 파일·시험 연결 — [5도메인 구현·자동 검사 경로](2026-09-28-rust-native-function-inventory.md)는 기록; 실제 앱·외부 시스템 실기 근거와 preview 형식별 검사 공백은 미완료
-- [ ] 현재 TS view 전체의 화면/패널/다이얼로그·상태·동작·키보드·테마/로케일·멀티윈도·접근성·시각 요소 inventory에 실제 컴포넌트 경로와 자동/실기 증거 연결
+- [ ] 현재 TS view의 212개 경로에 실제 컴포넌트·자동 근거·미검증 상태를 연결하고, 대표 화면/패널/다이얼로그·키보드·테마/로케일·멀티윈도·접근성 경로를 한 번 실측
 
 UI 착수 전 gate: 위 inventory와 Phase 0 기능·데이터·성능 baseline 및 기능별 crate 분리 M1~M7이 모두 준비·검증돼야 합니다. native UI 구현은 이 gate 이후에만 시작합니다. 각 TS view 항목에 native 대응 경로·자동 검사·실기 결과를 연결하고 미대응 항목이 0이 될 때까지 TS/Tauri view를 유지합니다. 시각적 구성의 유사성은 테마별 캡처와 실제 창 크기·포커스·IME·보조 창 동작에서 비교하며, 기능 동등성을 단순한 화면 유사성으로 대체하지 않습니다.
 
