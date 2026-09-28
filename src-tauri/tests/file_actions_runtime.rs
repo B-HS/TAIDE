@@ -6,7 +6,7 @@ use taide_model::error::AppErrorKind;
 use taide_model::ids::{ProjectId, TabId};
 use taide_model::paths::AppPaths;
 use taide_model::project::Project;
-use taide_runtime::{file_actions, AppState};
+use taide_runtime::{file_actions, AppState, TaskSupervisor};
 use uuid::Uuid;
 
 const ACTION_TIMEOUT: Duration = Duration::from_secs(5);
@@ -15,6 +15,7 @@ struct Fixture {
     dir: PathBuf,
     root: PathBuf,
     state: AppState,
+    tasks: TaskSupervisor,
     project_id: ProjectId,
 }
 
@@ -24,6 +25,7 @@ impl Fixture {
         let root = dir.join("project");
         std::fs::create_dir_all(&root).expect("프로젝트 디렉터리 생성");
         let state = AppState::new(AppPaths::new(dir.join("data")));
+        let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
         let project_id = ProjectId::new();
         state.projects.write().insert(
             project_id.clone(),
@@ -41,6 +43,7 @@ impl Fixture {
             dir,
             root,
             state,
+            tasks,
             project_id,
         }
     }
@@ -63,7 +66,7 @@ async fn 파일_권한_확인이_overlay_조회보다_먼저이며_cli와_raw_�
     std::fs::write(&outside, "outside").expect("외부 파일 생성");
     let path = outside.to_string_lossy().into_owned();
     let overlay_loaded = AtomicBool::new(false);
-    let error = file_actions::file_open(&fixture.state, path.clone(), || {
+    let error = file_actions::file_open(&fixture.state, &fixture.tasks, path.clone(), || {
         overlay_loaded.store(true, Ordering::SeqCst);
         Vec::new()
     })
@@ -80,7 +83,7 @@ async fn 파일_권한_확인이_overlay_조회보다_먼저이며_cli와_raw_�
     assert_eq!(std::fs::read_to_string(&outside).expect("거절 뒤 파일 확인"), "outside");
 
     fixture.state.authorize_cli_opened_path(&outside);
-    let opened = file_actions::file_open(&fixture.state, path.clone(), || {
+    let opened = file_actions::file_open(&fixture.state, &fixture.tasks, path.clone(), || {
         overlay_loaded.store(true, Ordering::SeqCst);
         Vec::new()
     })
@@ -88,7 +91,7 @@ async fn 파일_권한_확인이_overlay_조회보다_먼저이며_cli와_raw_�
     .expect("CLI 승인 파일 열기");
     assert_eq!(opened.content, "outside");
     assert!(overlay_loaded.load(Ordering::SeqCst));
-    file_actions::file_save(&fixture.state, path.clone(), "saved".to_string())
+    file_actions::file_save(&fixture.state, &fixture.tasks, path.clone(), "saved".to_string())
         .await
         .expect("CLI 저장");
     assert_eq!(file_actions::file_read_raw(&fixture.state, path).await.expect("raw 읽기"), b"saved");
@@ -103,19 +106,19 @@ async fn 생성과_이름변경과_복사는_프로젝트_안에서만_동작한
     file_actions::file_create(&fixture.state, source.clone(), false)
         .await
         .expect("파일 생성");
-    file_actions::file_save(&fixture.state, source.clone(), "source".to_string())
+    file_actions::file_save(&fixture.state, &fixture.tasks, source.clone(), "source".to_string())
         .await
         .expect("파일 저장");
     file_actions::file_rename(&fixture.state, source.clone(), renamed.clone())
         .await
         .expect("이름 변경");
     assert!(!PathBuf::from(source).exists());
-    file_actions::file_copy(&fixture.state, renamed.clone(), copied.clone())
+    file_actions::file_copy(&fixture.state, &fixture.tasks, renamed.clone(), copied.clone())
         .await
         .expect("파일 복사");
     assert_eq!(std::fs::read_to_string(copied).expect("복사 파일 읽기"), "source");
     let outside = fixture.dir.join("outside-copy.txt").to_string_lossy().into_owned();
-    assert!(file_actions::file_copy(&fixture.state, renamed, outside.clone())
+    assert!(file_actions::file_copy(&fixture.state, &fixture.tasks, renamed, outside.clone())
         .await
         .is_err_and(|error| error.kind() == AppErrorKind::Forbidden));
     assert!(!PathBuf::from(outside).exists());
@@ -138,7 +141,13 @@ async fn 미러_생성은_mutation을_기다리지_않고_목록과_prune과_cle
     let guard = fixture.state.begin_mutation().await;
     let baseline = tokio::time::timeout(
         ACTION_TIMEOUT,
-        file_actions::file_mirror_dirty(&fixture.state, fixture.project_id.clone(), target.clone(), "draft".to_string()),
+        file_actions::file_mirror_dirty(
+            &fixture.state,
+            &fixture.tasks,
+            fixture.project_id.clone(),
+            target.clone(),
+            "draft".to_string(),
+        ),
     )
     .await
     .expect("미러는 전역 mutation을 기다리지 않음")
@@ -165,9 +174,15 @@ async fn 미러_생성은_mutation을_기다리지_않고_목록과_prune과_cle
     assert!(!fixture.root.join("blocked.txt").exists());
     drop(guard);
 
-    file_actions::file_mirror_dirty(&fixture.state, fixture.project_id.clone(), another, "other".to_string())
-        .await
-        .expect("두 번째 미러");
+    file_actions::file_mirror_dirty(
+        &fixture.state,
+        &fixture.tasks,
+        fixture.project_id.clone(),
+        another,
+        "other".to_string(),
+    )
+    .await
+    .expect("두 번째 미러");
     file_actions::file_prune_mirrors(&fixture.state, fixture.project_id.clone(), vec![target.clone()])
         .await
         .expect("미러 prune");

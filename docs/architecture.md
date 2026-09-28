@@ -340,8 +340,8 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     `IdeSaveFile`도 runtime 포트이며 IDE diff는 조립부가 주입한 같은 저장 action을 호출한다.
     `taide-runtime::file_actions`가 창 flush 완료 확인을 제외한 15개 파일 application action을 소유한다.
     루트/CLI·entry 권한, mutation guard·blocking 실행, self-write와 미러 정책을 runtime에서 조립하고 Tauri 명령은 같은 인수·응답 계약으로 위임한다.
-    file_open의 plugin overlay callback은 권한 확인과 설정 snapshot 뒤에 호출하며 파일 읽기는 blocking worker에서 수행한다.
-    file_save와 file_copy는 mutation guard를 blocking 작업 완료까지 유지한다. dirty/untitled 미러 생성은 기존처럼 전역 mutation guard를 취하지 않는다.
+    file_open의 plugin overlay callback은 권한 확인과 설정 snapshot 뒤에 호출하며 파일 읽기는 같은 등록 TaskSupervisor의 blocking worker에서 수행한다.
+    file_save와 file_copy는 종료 operation을 mutation 대기 전부터 보유하고 owned guard를 실제 worker 완료까지 유지한다. copy의 self-write 표시는 실제 복사 성공 뒤 같은 worker에서 수행한다. dirty mirror의 blocking worker도 같은 감독자가 추적하고 untitled 미러 생성은 기존 동기 경로다. 두 미러 생성은 전역 mutation guard를 취하지 않는다.
     raw action은 바이트를 반환하고 Tauri adapter만 ipc::Response로 감싼다. 실제 창 label 확인과 exit는 file_flush_complete에 남는다.
     `taide-runtime::settings_actions`는 설정 조회·patch·테마 변경과 공통 apply를 소유한다.
     공통 apply는 sanitize→저장→live state 적용→주입한 integration callback await→SettingsChanged 순서를 유지한다.

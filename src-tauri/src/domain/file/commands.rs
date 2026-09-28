@@ -1,4 +1,4 @@
-use taide_runtime::file_actions;
+use taide_runtime::{file_actions, TaskSupervisor};
 use tauri::{AppHandle, State};
 
 use super::service::{MirrorEntry, UntitledMirrorEntry};
@@ -14,17 +14,24 @@ use crate::state::{AppState, FlushScope};
 pub async fn file_open(
     app: AppHandle,
     state: State<'_, AppState>,
+    tasks: State<'_, TaskSupervisor>,
     plugins: State<'_, PluginRuntimePort>,
     path: String,
 ) -> AppResult<OpenedFile> {
-    file_actions::file_open(&state, path, || (plugins.language_overlays)(&app)).await
+    file_actions::file_open(&state, &tasks, path, || (plugins.language_overlays)(&app)).await
 }
 
 /// Delegates mutation-guarded blocking saves to the shared runtime action.
 #[tauri::command]
 #[specta::specta]
-pub async fn file_save(_app: AppHandle, state: State<'_, AppState>, path: String, content: String) -> AppResult<()> {
-    file_actions::file_save(&state, path, content).await
+pub async fn file_save(
+    _app: AppHandle,
+    state: State<'_, AppState>,
+    tasks: State<'_, TaskSupervisor>,
+    path: String,
+    content: String,
+) -> AppResult<()> {
+    file_actions::file_save(&state, &tasks, path, content).await
 }
 
 #[tauri::command]
@@ -48,8 +55,8 @@ pub async fn file_delete(state: State<'_, AppState>, path: String) -> AppResult<
 /// Delegates mutation-guarded blocking copies to the runtime action.
 #[tauri::command]
 #[specta::specta]
-pub async fn file_copy(state: State<'_, AppState>, from: String, to: String) -> AppResult<()> {
-    file_actions::file_copy(&state, from, to).await
+pub async fn file_copy(state: State<'_, AppState>, tasks: State<'_, TaskSupervisor>, from: String, to: String) -> AppResult<()> {
+    file_actions::file_copy(&state, &tasks, from, to).await
 }
 
 /// Delegates dirty mirror writes without acquiring the global mutation guard.
@@ -58,11 +65,12 @@ pub async fn file_copy(state: State<'_, AppState>, from: String, to: String) -> 
 pub async fn file_mirror_dirty(
     _app: AppHandle,
     state: State<'_, AppState>,
+    tasks: State<'_, TaskSupervisor>,
     project_id: ProjectId,
     path: String,
     content: String,
 ) -> AppResult<Option<f64>> {
-    file_actions::file_mirror_dirty(&state, project_id, path, content).await
+    file_actions::file_mirror_dirty(&state, &tasks, project_id, path, content).await
 }
 
 #[tauri::command]

@@ -8,7 +8,7 @@ use taide_model::error::{AppError, AppResult};
 use taide_model::file::OpenedFile;
 use taide_model::ids::{ProjectId, TabId};
 
-use super::AppState;
+use super::{AppState, TaskSupervisor};
 
 #[derive(Clone)]
 pub struct IdeSaveFile(pub fn(&AppState, &Path, &str) -> AppResult<()>);
@@ -27,29 +27,55 @@ pub fn save_file_within_open_projects(state: &AppState, path: &Path, content: &s
     }
 }
 
+fn file_shutdown_error() -> AppError {
+    AppError::Forbidden("file runtime is shutting down".to_string())
+}
+
+async fn run_guarded_file_worker<T: Send + 'static, W: FnOnce() -> AppResult<T> + Send + 'static>(
+    state: &AppState,
+    tasks: &TaskSupervisor,
+    name: &'static str,
+    prepare: impl FnOnce(&AppState) -> AppResult<W>,
+) -> AppResult<T> {
+    let operation = tasks.begin_operation(name).ok_or_else(file_shutdown_error)?;
+    let guard = state.begin_owned_mutation().await;
+    let work = prepare(state)?;
+    tasks
+        .run_blocking_result(name, move || {
+            let _operation = operation;
+            let _guard = guard;
+            work()
+        })
+        .await
+}
+
 /// Validates access before loading language overlays and opens the file on a blocking worker.
 pub async fn file_open(
     state: &AppState,
+    tasks: &TaskSupervisor,
     path: String,
     load_language_overlays: impl FnOnce() -> Vec<LanguageOverlay>,
 ) -> AppResult<OpenedFile> {
+    let _operation = tasks.begin_operation("file-open").ok_or_else(file_shutdown_error)?;
     let _span = perf::span(SpanSlot::FileOpen);
     let projects = state.projects.read().clone();
     let (_, resolved) = root_guard::resolve_owning_project_or_cli_opened(&projects, &state.cli_opened_paths.read(), Path::new(&path))?;
     let editor_config_enabled = state.settings.read().editor_config_enabled;
     let language_overlays = load_language_overlays();
-    tokio::task::spawn_blocking(move || service::open_file(&resolved, &language_overlays, editor_config_enabled))
+    tasks
+        .run_blocking_result("file-open", move || {
+            service::open_file(&resolved, &language_overlays, editor_config_enabled)
+        })
         .await
-        .map_err(|error| AppError::Internal(error.to_string()))?
 }
 
 /// Holds the mutation guard across a blocking atomic save using the shared application state.
-pub async fn file_save(state: &AppState, path: String, content: String) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let shared_state = state.clone();
-    tokio::task::spawn_blocking(move || save_file_within_open_projects(&shared_state, Path::new(&path), &content))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))?
+pub async fn file_save(state: &AppState, tasks: &TaskSupervisor, path: String, content: String) -> AppResult<()> {
+    run_guarded_file_worker(state, tasks, "file-save", |state| {
+        let shared_state = state.clone();
+        Ok(move || save_file_within_open_projects(&shared_state, Path::new(&path), &content))
+    })
+    .await
 }
 
 /// Creates a project entry under the mutation guard and marks the successful self-write.
@@ -85,28 +111,39 @@ pub async fn file_delete(state: &AppState, path: String) -> AppResult<()> {
 }
 
 /// Holds the mutation guard across an authorized blocking copy and marks its destination.
-pub async fn file_copy(state: &AppState, from: String, to: String) -> AppResult<()> {
-    let _guard = state.begin_mutation().await;
-    let projects = state.projects.read().clone();
-    let (_, resolved_from) = root_guard::resolve_owning_project(&projects, Path::new(&from))?;
-    let (_, resolved_to) = root_guard::resolve_owning_project(&projects, Path::new(&to))?;
-    let copy_to = resolved_to.clone();
-    tokio::task::spawn_blocking(move || service::copy_entry(&resolved_from, &copy_to))
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))??;
-    state.self_writes.mark(&resolved_to);
-    Ok(())
+pub async fn file_copy(state: &AppState, tasks: &TaskSupervisor, from: String, to: String) -> AppResult<()> {
+    run_guarded_file_worker(state, tasks, "file-copy", |state| {
+        let projects = state.projects.read().clone();
+        let (_, resolved_from) = root_guard::resolve_owning_project(&projects, Path::new(&from))?;
+        let (_, resolved_to) = root_guard::resolve_owning_project(&projects, Path::new(&to))?;
+        let shared_state = state.clone();
+        Ok(move || {
+            service::copy_entry(&resolved_from, &resolved_to)?;
+            shared_state.self_writes.mark(&resolved_to);
+            Ok(())
+        })
+    })
+    .await
 }
 
 /// Writes an authorized dirty mirror on a blocking worker without taking the mutation guard.
-pub async fn file_mirror_dirty(state: &AppState, project_id: ProjectId, path: String, content: String) -> AppResult<Option<f64>> {
+pub async fn file_mirror_dirty(
+    state: &AppState,
+    tasks: &TaskSupervisor,
+    project_id: ProjectId,
+    path: String,
+    content: String,
+) -> AppResult<Option<f64>> {
+    let _operation = tasks.begin_operation("file-mirror-dirty").ok_or_else(file_shutdown_error)?;
     let projects = state.projects.read().clone();
     let root = root_guard::project_root(&projects, &project_id)?;
     let resolved = root_guard::ensure_within_root(&root, Path::new(&path))?;
     let shared_state = state.clone();
-    tokio::task::spawn_blocking(move || service::mirror_dirty(&shared_state.paths, &project_id, &resolved, &path, &content))
+    tasks
+        .run_blocking_result("file-mirror-dirty", move || {
+            service::mirror_dirty(&shared_state.paths, &project_id, &resolved, &path, &content)
+        })
         .await
-        .map_err(|error| AppError::Internal(error.to_string()))?
 }
 
 /// Lists mirrors only for an open project.
@@ -174,13 +211,109 @@ pub async fn file_read_raw(state: &AppState, path: String) -> AppResult<Vec<u8>>
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use taide_infra::self_write::resolve_from_app;
     use taide_model::error::AppErrorKind;
     use taide_model::file::{FsChange, FsChangeKind};
     use taide_model::paths::AppPaths;
+    use taide_model::project::Project;
+    use tokio::sync::oneshot;
     use uuid::Uuid;
 
     use super::*;
+    use crate::TaskSupervisor;
+
+    const OWNER_PROBE_MS: u64 = 20;
+    const OWNER_TIMEOUT_MS: u64 = 2_000;
+
+    #[tokio::test]
+    async fn 취소된_파일_요청의_worker가_끝날_때까지_guard와_root_owner를_유지한다() {
+        let state = AppState::new(AppPaths::new(
+            std::env::temp_dir().join(format!("taide-file-owner-{}", Uuid::new_v4())),
+        ));
+        let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+        let request_state = state.clone();
+        let request_tasks = tasks.clone();
+        let (started, started_rx) = oneshot::channel();
+        let (release, held) = std::sync::mpsc::channel();
+        let request = tokio::spawn(async move {
+            run_guarded_file_worker(&request_state, &request_tasks, "synthetic-file", |_| {
+                Ok(move || {
+                    started.send(()).ok();
+                    held.recv().ok();
+                    Ok(())
+                })
+            })
+            .await
+        });
+        tokio::time::timeout(Duration::from_millis(OWNER_TIMEOUT_MS), started_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        request.abort();
+        assert!(request.await.unwrap_err().is_cancelled());
+        assert!(tokio::time::timeout(Duration::from_millis(OWNER_PROBE_MS), state.begin_mutation())
+            .await
+            .is_err());
+        let shutdown = tasks.shutdown();
+        tokio::pin!(shutdown);
+        assert!(tokio::time::timeout(Duration::from_millis(OWNER_PROBE_MS), &mut shutdown)
+            .await
+            .is_err());
+        release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_millis(OWNER_TIMEOUT_MS), shutdown)
+            .await
+            .unwrap();
+        let _guard = state.begin_mutation().await;
+        assert_eq!(tasks.tracked_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn 등록된_파일_worker는_열기_저장_복사_mirror의_결과를_유지한다() {
+        let dir = std::env::temp_dir().join(format!("taide-file-worker-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("source.txt");
+        let target = dir.join("target.txt");
+        std::fs::write(&source, "old").unwrap();
+        let project_id = ProjectId::new();
+        let state = AppState::new(AppPaths::new(dir.join("data")));
+        state.projects.write().insert(
+            project_id.clone(),
+            Project {
+                id: project_id.clone(),
+                root: dir.to_string_lossy().to_string(),
+                name: "file-worker-test".to_string(),
+                capabilities: Vec::new(),
+                root_missing: false,
+                last_opened_at: 0.0,
+                display: Default::default(),
+            },
+        );
+        let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+        let source_path = source.to_string_lossy().to_string();
+        let target_path = target.to_string_lossy().to_string();
+
+        assert_eq!(
+            file_open(&state, &tasks, source_path.clone(), Vec::new).await.unwrap().content,
+            "old"
+        );
+        file_save(&state, &tasks, source_path.clone(), "new".to_string()).await.unwrap();
+        file_copy(&state, &tasks, source_path.clone(), target_path.clone()).await.unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "new");
+        assert!(is_self_write(&state, &std::fs::canonicalize(&target).unwrap()));
+        file_mirror_dirty(&state, &tasks, project_id.clone(), source_path, "mirror".to_string())
+            .await
+            .unwrap();
+        assert_eq!(file_list_mirrors(&state, project_id).await.unwrap().len(), 1);
+        assert_eq!(tasks.tracked_count(), 0);
+        tasks.stop_all();
+        let error = file_save(&state, &tasks, target_path, "late".to_string()).await.unwrap_err();
+        assert_eq!(error.kind(), AppErrorKind::Forbidden);
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "new");
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     fn is_self_write(state: &AppState, path: &Path) -> bool {
         resolve_from_app(
