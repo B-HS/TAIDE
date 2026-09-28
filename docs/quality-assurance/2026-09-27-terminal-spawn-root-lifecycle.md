@@ -30,8 +30,10 @@ TerminalStore 입장/완료 목록과 runtime 실제 blocking spawn·동일 muta
 
 - [x] 후속 [PTY 부분 시작 QA](./2026-09-27-pty-partial-startup-lifecycle.md)에서 master reader/writer·세 thread factory 오류/언와인드의 child wait·시작한 worker join·생성 경로 정리를 확인했습니다. 성공-result owner 검사만으로 대체하지 않았으며 실제 OS 오류 회복/abort panic은 별도 gate입니다.
 - [x] 자기 `/bin/sh` PTY의 HUP 무시 상태에서 완료 핸들이 100ms 동안 대기하고 fixture 전용 SIGKILL 뒤 실제 join되는 검사 1건을 통과했습니다. [실측 이력](../history/2026-09-28-pty-sighup-ignore-probe.md)의 관찰 시간을 제품 종료 상한으로 해석하지 않습니다.
-- [ ] OS wait 오류·pipe 보유/그룹 이탈 자손·non-yield callback/Read의 실제 완료와 runtime join 실패는 미검증입니다. SIGHUP 무시 자식의 무기한 대기는 기존 직접 Exit 결정이 수용한 한계이며, 새 강제 종료 정책은 승인되지 않았습니다. 종료 요청/실패 cache를 성공한 회수로 해석하지 않습니다.
-- [ ] Windows/다른 Unix·직접 native Exit·실제 앱 시작/종료는 미실행입니다. native UI 착수나 앱 재시작 권한을 추정하지 않습니다.
-- [ ] M6-JP/JQ 전체·OS/실앱 자원·M7/M8·Phase 0은 미완료입니다. command body 정적 대조 M6-HK는 별도 완료했으며 승인받은 일반 push는 M6 전체 완료 이후입니다.
+- [ ] 실제 커널 waitid/wait 오류: 자기 child의 커널 오류 주입은 현재 호스트에서 안전하고 결정적으로 만들기 어렵습니다. 기존 `Unsupported` wrapper·실패 전파 검사는 커널 오류의 성공 회수가 아닙니다. 위험은 권한 반납 뒤 child wait가 실패하거나 오래 대기하는 경우이며, 전용 OS fault-injection 환경 또는 PTY wait 정책 변경 시 실제 오류를 재현합니다.
+- [ ] pipe 보유/그룹 이탈 자손·비반환 callback/Read: 기존 정책은 전역 종료 상한이나 강제 회수를 보장하지 않습니다. 실제 자손을 남길 수 있는 fixture는 격리된 프로세스 환경과 확실한 cleanup owner 없이는 실행하지 않습니다. 위험은 root의 무기한 대기 또는 그룹 밖 자손 잔류이며, 종료 정책 변경·실제 앱 격리 실기 전에 전용 환경에서 재현합니다.
+- [ ] Windows/다른 Unix 실기: 첫 완료 대상은 [전환 계약](../acknowledge/2026-09-23-rust-native-transition-contract.md)의 macOS Apple Silicon이고 현재 설치된 Rust target도 macOS뿐입니다. 기존 조건부 코드는 유지하며 해당 플랫폼 지원을 완료 대상으로 정할 때 전용 runner와 프로세스/PTY fixture로 검사합니다.
+- [ ] 직접 native Exit·실제 앱 시작/종료는 미실행입니다. 전용 identifier·데이터·키링 격리와 실행 주체를 확인한 뒤 M6/M7에서 수행하며, 합성 성공으로 GUI 결과를 대체하지 않습니다.
+- [x] M6-JP/JQ의 macOS 정상 root 소유·검증·한계 기록은 [완료 판정](../history/2026-09-28-m6-pty-jp-jq-closure.md)의 근거로 확인했습니다. M6 전체·M7/M8·Phase 0은 미완료이며 일반 push는 M6 완료 이후입니다.
 
 당시 infra의 27건 PTY 및 출력 producer 성공은 생산/완료 본문이 같아 재사용했습니다. 후속 infra 검사는 33건까지 통과했습니다. 이번 infra 수정은 같은 worker identity 비교뿐입니다. frontend 코드와 wire payload가 없어 frontend 전체 실행을 추가하지 않습니다. 추가 source 검사·bindings/원격 contract로 State 주입 위험을 직접 확인합니다.
