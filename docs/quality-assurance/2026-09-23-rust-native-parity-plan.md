@@ -16,7 +16,7 @@
 ## 2. Phase 0 기준선
 
 - [x] command, event, raw channel 이름·payload·error code manifest — `src-tauri/tests/fixtures/rust-native/ipc-contract-manifest.json`, `src-tauri/tests/rust_native_phase0_contract.rs`
-- [ ] remote allow·deny, authentication, session revoke와 binary channel fixture
+- [ ] remote allow·deny, authentication, session revoke와 binary channel fixture — `remote-wire-session-v1.json`의 서비스·store·protocol API 3건은 통과; 실제 HTTP/WebSocket handshake·cookie·TTL·전송 큐 기준선은 미완료
 - [ ] IDE/MCP request·response와 CLI `taide --wait` marker fixture
 - [ ] settings, session, project, layout, hot-exit buffer의 versioned fixture
 - [ ] `docs/quality-assurance/2026-09-04-perf-baseline.md` 실기 지표 작성

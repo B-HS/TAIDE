@@ -1,0 +1,32 @@
+{
+    "schemaVersion": 1,
+    "bindPort": 51301,
+    "allowedHosts": ["app.example.test", "*.tunnel.example.test"],
+    "hostOriginCases": [
+        { "name": "loopback", "host": "127.0.0.1:51301", "origin": "http://127.0.0.1:51301", "allowed": true },
+        { "name": "wrong-loopback-port", "host": "127.0.0.1:51302", "origin": "http://127.0.0.1:51302", "allowed": false },
+        { "name": "registered-host", "host": "app.example.test", "origin": "https://app.example.test", "allowed": true },
+        { "name": "single-label-wildcard", "host": "a.tunnel.example.test", "origin": "https://a.tunnel.example.test", "allowed": true },
+        { "name": "nested-wildcard", "host": "a.b.tunnel.example.test", "origin": "https://a.b.tunnel.example.test", "allowed": false },
+        { "name": "mismatched-origin", "host": "app.example.test", "origin": "https://other.example.test", "allowed": false },
+        { "name": "missing-host", "host": null, "origin": null, "allowed": false }
+    ],
+    "session": {
+        "wrongLinkRejected": true,
+        "linkReplayRejected": true,
+        "pendingNonce": true,
+        "nonceReplayRejected": true,
+        "activeSession": true,
+        "revokeEpoch": 1,
+        "revokedSessionRejected": true,
+        "correctPasswordAccepted": true,
+        "wrongPasswordRejected": true
+    },
+    "frames": {
+        "channelBinary": [1, 0, 0, 0, 7, 0, 0, 0, 2, 0, 255],
+        "responseBinary": [2, 0, 0, 0, 9, 1, 2],
+        "responseJson": { "t": "resp", "seq": 9, "ok": true, "payload": { "state": "fixture" } },
+        "channelJson": { "t": "chan", "channelId": 7, "index": 2, "message": { "state": "fixture" } },
+        "channelEnd": { "t": "chanEnd", "channelId": 7, "index": 2 }
+    }
+}

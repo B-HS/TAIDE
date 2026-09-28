@@ -26,5 +26,8 @@
 
 - [x] 권한 허용 Rust workspace 전체 테스트의 최종 exit 확인
 - [x] Rust workspace Clippy의 최종 exit 확인
+- [x] `remote-wire-session-v1.json`의 서비스·store·protocol API 기준 3건, 해당 test target Clippy, Rust fmt와 JSON Prettier 확인
 - [ ] 저장 데이터·IPC fixture와 실제 앱 GUI·직접 Exit·사용자 회귀 확인
 - [ ] M6와 Phase 0 선행 조건을 충족한 뒤 M7 전체 완료 판정
+
+remote fixture는 Host/Origin 허용·거부, 일회용 link/nonce·세션 폐기, password 검증 결과와 JSON/binary frame을 실제 API 결과와 비교했습니다. `cargo test --offline -p taide --test rust_native_phase0_remote_fixture --quiet`는 3건 통과, exit 0이고 `cargo clippy --offline -p taide --test rust_native_phase0_remote_fixture -- -D warnings`도 exit 0입니다. 실제 HTTP/WebSocket handshake·cookie·TTL·전송 큐는 실행하지 않았으므로 Phase 0의 remote fixture 전체와 M7-C는 아직 미완료입니다.

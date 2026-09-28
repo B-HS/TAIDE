@@ -2,6 +2,8 @@
 
 `ipc-contract-manifest.json`은 `src-tauri/tests/rust_native_phase0_contract.rs`가 원천 코드와 양방향 비교하는 IPC 계약 기준선입니다. 스키마와 실측값은 `docs/acknowledge/2026-09-23-rust-native-phase0-contract-baseline.md` §5에 기록돼 있습니다.
 
+`remote-wire-session-v1.json`은 `src-tauri/tests/rust_native_phase0_remote_fixture.rs`가 현재 remote 서비스·store·protocol API와 비교하는 비시크릿 기준선입니다. Host/Origin 허용·거부, 일회용 link/nonce, 세션 폐기, password 검증 결과와 JSON/binary frame을 고정합니다. 발급된 토큰·salt 자체는 fixture나 테스트 출력에 저장하지 않습니다. 실제 HTTP/WebSocket 연결·cookie·TTL 실기는 별도 gate입니다.
+
 - `ordering`은 `source-declaration-order`입니다. event는 `events.rs`, 나머지 목록은 각 등록·정책 원천의 선언 순서를 그대로 쓰며 `collect_events!`에는 등록 집합 일치만 요구합니다.
 - `generatedBindings.sha256`은 `src/shared/api/bindings.ts` 전체 바이트의 SHA-256입니다.
 
