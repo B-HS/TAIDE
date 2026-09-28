@@ -20,6 +20,10 @@
 
 ## 남은 gate와 테스트 부채
 
+2026-09-28 현행 재검증에서 `cargo test --offline -p taide-runtime --lib lsp_install_ --quiet`는 샌드박스의 loopback bind 제한으로 24/29건 통과·5건 실패(exit 101)했고, 같은 자기 fixture의 권한 허용 실행에서는 29/29건 통과했습니다. 직전 같은 제품 코드의 store 14건·infra 설치 16건 성공을 재사용했습니다. `cargo test --offline -p taide --test taide_lsp_install_store_extraction --quiet`는 직접 Exit 대기 위치를 옛 `lib.rs`에서 찾던 source 검사 1/2건 실패 뒤 현재 `ExitDrain` 소유 경로로 수정해 2/2건 통과했습니다. 대상 Clippy·Rust fmt/diff는 exit 0입니다. 아래 OS/실앱 미검증 항목은 이 검사로 닫히지 않습니다.
+
+M6-JD~JG의 자기 자원 합성 검사와 설치 소유·adapter 범위는 완료 처리합니다. 아래 네 미검증 항목은 전체 M6와 후속 플랫폼/실앱 검증의 gate로 남으며, 합성 결과에 합산하지 않습니다. 직접 Exit의 무기한 등록 자원 대기와 그룹 밖 자손 회수 비보장은 사용자 결정 문서에 명시돼 있습니다.
+
 - [ ] Linux/다른 Unix·Windows process tree는 현재 macOS 검사로 통과 처리하지 않습니다. 다른 OS 지원 gate에서 같은 fixture를 실행합니다.
 - [ ] 그룹을 벗어난 자손·권한 변경·여러 좀비만 남은 그룹은 이번 단일-parent 판별로 완료하지 않습니다. 그룹 종료 실패를 보고하며 무관한 PID에 대한 추가 시그널이나 권한 우회는 하지 않습니다.
 - [ ] 시그널 전달은 모든 자손의 wait/join이 아닙니다. 이 fixture는 자기 자손 PID 제거를 관찰하지만 모든 자손의 bounded 종료를 보장하지 않습니다.

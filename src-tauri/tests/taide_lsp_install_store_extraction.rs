@@ -49,10 +49,13 @@ fn 설치_adapter는_runtime_다운로드와_감독자를_주입하고_shutdown�
     assert!(exit.contains("api.prevent_exit()"));
     assert!(exit.contains("exit_drain.begin("));
     assert!(drain.contains("tauri::async_runtime::block_on("));
-    let tasks = drain.find("state::<TaskSupervisor>().stop_all()").unwrap();
-    let slots = drain.find("state::<LspInstallStore>().wait_for_idle()").unwrap();
-    assert!(tasks < slots);
+    let tasks = exit.find("state::<TaskSupervisor>().stop_all()").unwrap();
+    let direct_drain = exit.find("exit_drain.wait_for_direct_exit(").unwrap();
+    assert!(tasks < direct_drain);
+    assert!(drain.contains("(*app_handle.state::<LspInstallStore>()).clone(),"));
     let coordinator = include_str!("../../crates/taide-runtime/src/exit_drain.rs");
+    let direct = coordinator.split_once("pub async fn wait_for_direct_exit(").unwrap().1;
+    assert!(direct.contains("Self::wait_for_owned_resources("));
     let tasks = coordinator.find("tasks.shutdown().await").unwrap();
     let slots = coordinator.find("installs.wait_for_idle().await").unwrap();
     let processes = coordinator.find("processes.wait_for_idle().await").unwrap();

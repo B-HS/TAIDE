@@ -24,4 +24,5 @@
 - [x] 후속 자기 group fixture에서 TERM 무시 자손은 TERM 뒤 살아 있고 store/supervisor 종료 뒤 사라짐을 확인했습니다. 모든 가능한 자손/OS 종료 효과를 증명한 것은 아닙니다.
 - [x] 후속 [부모 선종료 QA](2026-09-27-lsp-install-parent-exit-lifecycle.md)에서 자손 생존을 재현하고 회수 없는 부모 관찰→그룹 KILL→부모 wait로 수정했습니다. 회수 플래그로 늦은 취소의 PID 재사용을 막습니다. 모든 자손/OS의 bounded 종료까지 증명한 것은 아닙니다.
 - [ ] Windows process tree·OS 강제 종료·실제 앱/설치기 실기는 실행 환경/사용자 실기가 필요한 gate입니다. child wait 실패나 비정상 OS 종료에서도 cleanup이 항상 성공한다고 주장하지 않습니다.
-- [ ] LSP wait worker 자체·PTY thread·M6 body 전수 검토·M7/M8와 Phase 0 실기 gate는 별도 완료해야 합니다.
+- [x] 일반 LSP wait worker와 reader의 소유·완료는 후속 M6-JI~JK에서 자기 fixture로 검증했습니다. 이는 설치기 OS 오류나 PTY 완료 증거가 아닙니다.
+- [ ] PTY의 SIGHUP 무시/OS·Windows 분기, 전체 M6·M7/M8와 Phase 0 실기 gate는 별도 완료해야 합니다.
