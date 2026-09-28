@@ -32,6 +32,8 @@ TerminalStore 입장/완료 목록과 runtime 실제 blocking spawn·동일 muta
 
 실기 준비용 macOS `.app`은 전용 identifier·현재 sidecar·frontend/Rust 코드로 빌드됐고 `Info.plist` 식별자 검사가 통과했습니다. 서명을 생략한 로컬 번들이며 실행하거나 GUI에 연결하지 않았습니다. M6 native Exit와 M8 서명·공증의 성공으로 산입하지 않습니다.
 
+후속 읽기 전용 감사에서 기본 설정은 IDE 연동 활성·agent hook/remote 비활성으로 확인했습니다. 프로젝트가 없는 첫 실행의 agent poll은 foreground PID probe를 호출하지 않습니다. 그러나 `fix_path_env::fix()`는 상태 복원 전에 로그인 셸을 `-ilc`로 실행해 `PATH`를 읽으므로, 전용 identifier·`CLAUDE_CONFIG_DIR`만으로 사용자 셸 설정까지 격리된 것은 아닙니다. 앱 재실행 전에 이 시작 경계의 실기 방법도 정해야 하며 현재는 미검증입니다.
+
 - [x] 후속 [PTY 부분 시작 QA](./2026-09-27-pty-partial-startup-lifecycle.md)에서 master reader/writer·세 thread factory 오류/언와인드의 child wait·시작한 worker join·생성 경로 정리를 확인했습니다. 성공-result owner 검사만으로 대체하지 않았으며 실제 OS 오류 회복/abort panic은 별도 gate입니다.
 - [x] 자기 `/bin/sh` PTY의 HUP 무시 상태에서 완료 핸들이 100ms 동안 대기하고 fixture 전용 SIGKILL 뒤 실제 join되는 검사 1건을 통과했습니다. [실측 이력](../history/2026-09-28-pty-sighup-ignore-probe.md)의 관찰 시간을 제품 종료 상한으로 해석하지 않습니다.
 - [ ] 실제 커널 waitid/wait 오류: 자기 child의 커널 오류 주입은 현재 호스트에서 안전하고 결정적으로 만들기 어렵습니다. 기존 `Unsupported` wrapper·실패 전파 검사는 커널 오류의 성공 회수가 아닙니다. 위험은 권한 반납 뒤 child wait가 실패하거나 오래 대기하는 경우이며, 전용 OS fault-injection 환경 또는 PTY wait 정책 변경 시 실제 오류를 재현합니다.

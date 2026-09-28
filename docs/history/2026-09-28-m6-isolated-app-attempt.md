@@ -21,3 +21,9 @@
 이후 프로젝트의 `bun run tauri build --debug --bundles app --no-sign` 경로에 별도 `net.gumyo.taide.m6bundle.*` identifier를 마지막 설정으로 넣고 `CARGO_NET_OFFLINE=true`에서 실행했습니다. sidecar 재빌드, Vite 3930개 모듈의 프런트엔드 빌드, Rust dev profile 21분 9초 빌드와 macOS `.app` 번들 생성이 exit 0으로 끝났습니다. [공식 macOS 앱 번들 안내](https://v2.tauri.app/distribute/macos-application-bundle/)의 방식으로 생성된 `target/debug/bundle/macos/TAIDE.app`의 `Info.plist`는 전용 identifier였고 실행 파일도 존재합니다. `--no-sign`을 사용한 로컬 실기 준비물이므로 서명·공증이나 배포 적합성의 증거는 아닙니다.
 
 이 번들은 실행하지 않았습니다. computer-use 앱 목록에서도 아직 설치된 앱으로 나타나지 않아 GUI 연결 가능 여부는 미검증입니다. 기존 사용자 홈 lockfile은 그대로 있고 작업 트리는 깨끗합니다.
+
+## 후속 시작 경계 감사
+
+`Settings::default`는 `ide_integration_enabled`를 켜고 `agent_hooks_enabled`와 `remote_access_enabled`를 끕니다. 전용 identifier의 첫 실행은 복원 프로젝트가 0개였고, `agent_actions::poll_agents`는 프로젝트 목록이 비어 있으면 foreground PID probe를 호출하지 않습니다. 반면 IDE 자동 시작은 기본값만으로도 사용자 홈 lockfile을 만들 수 있어 `CLAUDE_CONFIG_DIR`의 전용 경로가 필요합니다.
+
+`src-tauri/src/lib.rs::run`의 macOS `fix_path_env::fix()`는 앱 상태 복원보다 먼저 실행됩니다. 현재 고정된 `fix-path-env-rs`의 `fix_vars` 구현은 `SHELL` 또는 기본 `/bin/zsh`를 `-ilc`로 실행하고 홈 디렉터리를 작업 디렉터리로 사용해 로그인 셸 설정에서 `PATH`를 읽습니다. 전용 앱 identifier와 IDE 경로만으로는 이 시작 경계까지 격리되지 않습니다. 다음 실기에서 셸 설정을 어떻게 분리할지는 아직 검증하지 않았으며, 앱을 재실행하거나 사용자 프로필을 수정하지 않았습니다.
