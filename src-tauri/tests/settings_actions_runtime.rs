@@ -1,7 +1,7 @@
 use std::future::{poll_fn, Future};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::Duration;
 
@@ -9,11 +9,13 @@ use taide_model::app_event::AppEvent;
 use taide_model::error::AppErrorKind;
 use taide_model::paths::AppPaths;
 use taide_model::settings::{Settings, SettingsPatch};
-use taide_runtime::{settings_actions, AppState, EventSink};
+use taide_runtime::{settings_actions, AppState, EventSink, TaskSupervisor};
 use taide_settings::service;
+use tokio::sync::oneshot;
 use uuid::Uuid;
 
 const ACTION_TIMEOUT: Duration = Duration::from_secs(5);
+const ROOT_WAIT_PROBE: Duration = Duration::from_millis(20);
 
 struct Fixture {
     dir: PathBuf,
@@ -240,4 +242,53 @@ async fn 없는_테마는_저장과_상태와_observer와_이벤트를_변경하
     assert!(!fixture.state.paths.settings_file().exists());
     assert!(!observer_called.load(Ordering::SeqCst));
     assert!(sink.events.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn 설정_저장_뒤_요청이_취소돼도_observer와_이벤트_완료를_root가_기다린다() {
+    let fixture = Fixture::new();
+    let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+    let sink = Arc::new(RecordingEventSink::default());
+    let state = fixture.state.clone();
+    let request_tasks = tasks.clone();
+    let request_sink = sink.clone();
+    let (started, started_rx) = oneshot::channel();
+    let (release, held) = oneshot::channel();
+    let request = tokio::spawn(async move {
+        request_tasks
+            .run_nonabortable_result("settings-update", async move {
+                settings_actions::settings_update(
+                    &state,
+                    SettingsPatch {
+                        editor_font_size: Some(0),
+                        ..Default::default()
+                    },
+                    |_, _| async move {
+                        started.send(()).ok();
+                        held.await.unwrap();
+                    },
+                    request_sink.as_ref(),
+                )
+                .await
+            })
+            .await
+    });
+    tokio::time::timeout(ACTION_TIMEOUT, started_rx).await.unwrap().unwrap();
+    assert!(sink.events.lock().unwrap().is_empty());
+    request.abort();
+    assert!(request.await.unwrap_err().is_cancelled());
+    tasks.stop_all();
+    let shutdown = tasks.shutdown();
+    tokio::pin!(shutdown);
+    assert!(tokio::time::timeout(ROOT_WAIT_PROBE, &mut shutdown).await.is_err());
+    release.send(()).unwrap();
+    tokio::time::timeout(ACTION_TIMEOUT, shutdown).await.unwrap();
+    let applied = fixture.state.settings.read().clone();
+    assert_eq!(fixture.persisted(), applied);
+    assert_eq!(
+        *sink.events.lock().unwrap(),
+        [AppEvent::SettingsChanged {
+            settings: Box::new(applied)
+        }]
+    );
 }

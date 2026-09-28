@@ -1319,9 +1319,9 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "settings_get" => respond(settings::settings_get(app.state()).await),
         "settings_update" => {
             let patch = strip_remote_gated_settings_patch(arg!(args, "patch"));
-            respond(settings::settings_update(app.clone(), app.state(), patch).await)
+            respond(settings::settings_update(app.clone(), app.state(), app.state(), patch).await)
         }
-        "settings_set_theme" => respond(settings::settings_set_theme(app.clone(), app.state(), arg!(args, "themeId")).await),
+        "settings_set_theme" => respond(settings::settings_set_theme(app.clone(), app.state(), app.state(), arg!(args, "themeId")).await),
 
         "system_usage_get" => respond(system::system_usage_get(app.state(), app.state()).await),
         "system_usage_breakdown" => respond(system::system_usage_breakdown(app.clone(), app.state(), app.state(), app.state()).await),

@@ -346,6 +346,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     `taide-runtime::settings_actions`는 설정 조회·patch·테마 변경과 공통 apply를 소유한다.
     공통 apply는 sanitize→저장→live state 적용→주입한 integration callback await→SettingsChanged 순서를 유지한다.
     callback은 이전/적용 Settings snapshot을 소유하며 실제 IDE→agent→remote observer는 Tauri 조립부의 등록 순서로 완료된다.
+    직접 settings_update·settings_set_theme는 TaskSupervisor의 취소되지 않는 operation으로 요청 중단 뒤에도 callback·이벤트 완료까지 실행하고 정상 root가 이를 기다린다. app_file_write·apply_settings_file·sync_download의 공유 SettingsApplyPort 소비 경로는 별도 종료 소유 검증이 필요하다.
     공통 apply는 mutation guard를 재취득하지 않고 patch·테마 action은 snapshot부터 이벤트 완료까지 같은 guard를 유지한다.
     app_file_write·apply_settings_file·sync_download는 기존 SettingsApplyPort를 통해 같은 runtime apply를 소비한다.
     테마 변경만 SettingsChanged 이후 ThemeChanged를 추가 발행하며 저장 실패·없는 테마는 observer와 이벤트에 도달하지 않는다.

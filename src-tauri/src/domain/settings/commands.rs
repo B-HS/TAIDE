@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use taide_runtime::settings_actions;
+use taide_runtime::{settings_actions, TaskSupervisor};
 use tauri::Manager;
 
 use super::types::{Settings, SettingsPatch};
@@ -65,14 +65,24 @@ pub async fn apply_and_broadcast(app: &tauri::AppHandle, state: &AppState, next:
 
 #[tauri::command]
 #[specta::specta]
-pub async fn settings_update(app: tauri::AppHandle, state: tauri::State<'_, AppState>, patch: SettingsPatch) -> AppResult<Settings> {
-    settings_actions::settings_update(
-        &state,
-        patch,
-        |current, updated| reconcile_integrations(&app, current, updated),
-        &TauriEventSink(&app),
-    )
-    .await
+pub async fn settings_update(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    tasks: tauri::State<'_, TaskSupervisor>,
+    patch: SettingsPatch,
+) -> AppResult<Settings> {
+    let state = state.inner().clone();
+    tasks
+        .run_nonabortable_result("settings-update", async move {
+            settings_actions::settings_update(
+                &state,
+                patch,
+                |current, updated| reconcile_integrations(&app, current, updated),
+                &TauriEventSink(&app),
+            )
+            .await
+        })
+        .await
 }
 
 /// Unlike `settings_update`, this also emits `ThemeChanged` — the narrower event
@@ -81,12 +91,22 @@ pub async fn settings_update(app: tauri::AppHandle, state: tauri::State<'_, AppS
 /// doesn't trigger.
 #[tauri::command]
 #[specta::specta]
-pub async fn settings_set_theme(app: tauri::AppHandle, state: tauri::State<'_, AppState>, theme_id: String) -> AppResult<Settings> {
-    settings_actions::settings_set_theme(
-        &state,
-        theme_id,
-        |current, updated| reconcile_integrations(&app, current, updated),
-        &TauriEventSink(&app),
-    )
-    .await
+pub async fn settings_set_theme(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    tasks: tauri::State<'_, TaskSupervisor>,
+    theme_id: String,
+) -> AppResult<Settings> {
+    let state = state.inner().clone();
+    tasks
+        .run_nonabortable_result("settings-set-theme", async move {
+            settings_actions::settings_set_theme(
+                &state,
+                theme_id,
+                |current, updated| reconcile_integrations(&app, current, updated),
+                &TauriEventSink(&app),
+            )
+            .await
+        })
+        .await
 }

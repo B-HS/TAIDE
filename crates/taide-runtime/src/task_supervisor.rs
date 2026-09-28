@@ -149,6 +149,20 @@ impl TaskSupervisor {
         receiver.await.map_err(|_| task_supervisor_stopped_error())?
     }
 
+    /// Keeps an admitted async action running through caller cancellation and root shutdown.
+    pub async fn run_nonabortable_result<T: Send + 'static>(
+        &self,
+        name: &'static str,
+        work: impl Future<Output = AppResult<T>> + Send + 'static,
+    ) -> AppResult<T> {
+        let operation = self.begin_operation(name).ok_or_else(task_supervisor_stopped_error)?;
+        let worker = self.0.runtime.spawn(async move {
+            let _operation = operation;
+            work.await
+        });
+        worker.await.map_err(|error| AppError::Internal(error.to_string()))?
+    }
+
     fn spawn_locked(&self, state: &mut TaskState, key: TaskKey, task: impl Future<Output = ()> + Send + 'static) -> Option<JoinHandle<()>> {
         state.prune_finished();
         if state.is_stopped || state.handles.contains_key(&key) {
@@ -250,6 +264,48 @@ mod tests {
         assert!(weak.upgrade().is_some());
         drop(second);
         assert!(weak.upgrade().is_none());
+    }
+
+    #[tokio::test]
+    async fn 완료_보장_operation은_요청_취소와_종료_뒤에도_실제_작업을_기다린다() {
+        let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+        let request_tasks = tasks.clone();
+        let (started, started_rx) = oneshot::channel();
+        let (release, held) = oneshot::channel();
+        let request = tokio::spawn(async move {
+            request_tasks
+                .run_nonabortable_result("synthetic-committed-action", async move {
+                    started.send(()).ok();
+                    held.await.unwrap();
+                    Ok::<_, AppError>(7)
+                })
+                .await
+        });
+        tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), started_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        request.abort();
+        assert!(request.await.unwrap_err().is_cancelled());
+        tasks.stop_all();
+        assert!(tasks.begin_operation("late").is_none());
+        let shutdown = tasks.shutdown();
+        tokio::pin!(shutdown);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(BLOCKED_WORK_OBSERVATION_MS), &mut shutdown)
+                .await
+                .is_err()
+        );
+        release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), shutdown)
+            .await
+            .unwrap();
+        assert_eq!(tasks.tracked_count(), 0);
+        let denied = tasks
+            .run_nonabortable_result("late", async { Ok::<_, AppError>(()) })
+            .await
+            .unwrap_err();
+        assert!(matches!(denied, AppError::Forbidden(_)));
     }
 
     #[tokio::test]
