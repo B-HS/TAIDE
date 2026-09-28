@@ -14,6 +14,8 @@
 
 [하위 feature inventory A](2026-09-29-ts-feature-inventory-a.md)는 command palette·editor·explorer·Git의 추가 21개 경로를 연결합니다. 다섯 문서의 중복 제외 직접 연결 경로는 139개, 남은 경로는 73개입니다. 실제 화면 상태·접근성 판정은 남아 있습니다.
 
+[하위 feature inventory B](2026-09-29-ts-feature-inventory-b.md)는 outline·plugin·preview·problems·search의 추가 22개 경로를 연결합니다. 여섯 문서의 중복 제외 직접 연결 경로는 161개, 남은 경로는 51개입니다. 실제 형식별 preview·키보드·접근성 검사는 미완료입니다.
+
 ## 창·화면 진입점
 
 | 화면/경계 | 현행 컴포넌트와 상태·동작 | 확인한 자동 근거 | 남은 실기·접근성 확인 |
