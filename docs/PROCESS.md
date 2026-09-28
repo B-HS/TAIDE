@@ -919,6 +919,9 @@
   - [x] M6-OK. 직접 settings_update/set_theme의 저장→observer await→이벤트 사이 요청 취소와 root 대기 경계를 자기 설정 경로·대기 callback으로 확인했습니다. 새 완료 소유 API 부재 E0599(exit 101)를 먼저 재현했고 app_file_write/apply_settings_file/sync_download 공유 callback은 별도 소유 범위로 구분했습니다.
   - [x] M6-OL. TaskSupervisor의 취소되지 않는 등록 operation이 요청 Drop과 stop_all 뒤에도 직접 설정 action의 실제 완료를 소유합니다. Native·원격의 settings_update/set_theme에 연결하고 기존 mutation guard·IDE→agent→remote observer·SettingsChanged/ThemeChanged 순서와 공개 IPC를 유지했습니다. 공유 callback의 다른 소비처는 완료로 주장하지 않습니다.
   - [x] M6-OM. 감독 11·Tauri 패키지 settings_actions_runtime 6·설정 이벤트 source 2·실제 binding 생성 1의 서로 다른 20건이 통과했습니다. 관련 Clippy·strict runtime rustdoc·Rust fmt/diff·대상 MD 포맷을 확인했습니다. platform_event_sink 전체 29건 중 설정 외 과거 source 경로 검사 5건은 실패했고 별도 QA 부채로 기록했습니다. history·bug·QA·architecture/PROCESS를 갱신하고 검증 단위만 로컬 commit하며 M6 전체 완료 전 push는 보류합니다.
+  - [x] M6-ON. 실패한 platform_event_sink source-scan 5건의 과거 Tauri marker를 현재 runtime·adapter 실제 이벤트 소유자와 대조했습니다. terminal spawn의 store insert→event, sync의 상태/locale 적용→event, project attach/detach→event, agent diff→event, LSP install progress의 변환/port 계약을 유지했습니다.
+  - [x] M6-OO. 실제 소유 파일·심볼을 가리키도록 다섯 검사만 수리했습니다. 첫 전체 실행에서 terminal exit metadata 변수명 한 곳이 남아 28/29건이었고 해당 marker만 수정한 뒤 `cargo test -p taide --test platform_event_sink` 29건, 관련 Clippy·Rust fmt/diff가 exit 0입니다. 제품 동작·IPC는 변경하지 않았습니다.
+  - [x] M6-OP. 조사 시점·수정·검증을 docs/history·QA·PROCESS에 기록하고 테스트/문서만 선별 로컬 commit합니다. 실제 GUI·전체 M6/M7/M8과 M6 완료 전 push 조건은 유지합니다.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 

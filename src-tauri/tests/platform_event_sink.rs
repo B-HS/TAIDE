@@ -172,16 +172,17 @@ fn terminal_세션_이벤트_네_종은_같은_port에서_발행된다() {
 #[test]
 fn terminal_발행은_상태_갱신과_명령_측정_뒤에_수행된다() {
     let commands = include_str!("../src/domain/terminal/commands.rs");
+    let actions = include_str!("../../crates/taide-runtime/src/terminal_actions.rs");
     let adapter = include_str!("../src/platform/event_sink.rs");
     let cwd = commands.split_once("fn report_cwd_change(").unwrap().1;
     let marker = commands.split_once("fn report_command_marker(").unwrap().1;
     let exit = commands.split_once("move |code| {").unwrap().1;
-    let spawned = commands.split_once("let spawned = AppEvent::TerminalSpawned").unwrap().1;
+    let spawned = actions.split_once("let spawned = AppEvent::TerminalSpawned").unwrap().1;
 
     assert!(cwd.find("store.update_cwd(").unwrap() < cwd.find("AppEvent::TerminalCwdChanged").unwrap());
     assert!(marker.find("command_clock.record(").unwrap() < marker.find("AppEvent::TerminalCommandFinished").unwrap());
-    assert!(exit.find("exit_metadata.mark_exited()").unwrap() < exit.find("AppEvent::TerminalExited").unwrap());
-    assert!(spawned.find("store.insert(").unwrap() < spawned.find(".publish(spawned)").unwrap());
+    assert!(exit.find("metadata.mark_exited()").unwrap() < exit.find("AppEvent::TerminalExited").unwrap());
+    assert!(spawned.find("store.insert(").unwrap() < spawned.find("events.publish(spawned)").unwrap());
     assert!(adapter.contains("TerminalSpawned {") && adapter.contains("TerminalExited {") && adapter.contains("TerminalCwdChanged {"));
     assert!(adapter.contains("TerminalCommandFinished {"));
 }
@@ -253,13 +254,18 @@ fn 동기화_상태_이벤트는_tauri_없는_port로_발행된다() {
 #[test]
 fn 동기화_성공_경로_네_곳은_상태_반영_뒤_port로_발행된다() {
     let commands = include_str!("../src/domain/sync/commands.rs");
+    let actions = include_str!("../../crates/taide-runtime/src/sync_actions.rs");
     let adapter = include_str!("../src/platform/event_sink.rs");
-    let connect = commands.split_once("pub async fn sync_connect(").unwrap().1;
-    let disconnect = commands.split_once("pub async fn sync_disconnect(").unwrap().1;
-    let upload = commands.split_once("pub async fn sync_upload(").unwrap().1;
-    let download = commands.split_once("pub async fn sync_download(").unwrap().1;
+    let connect = actions.split_once("pub async fn sync_connect<").unwrap().1;
+    let disconnect = actions.split_once("pub async fn sync_disconnect(").unwrap().1;
+    let upload = actions.split_once("pub async fn sync_upload<").unwrap().1;
+    let download = actions.split_once("pub async fn sync_download<").unwrap().1;
 
-    assert_eq!(commands.matches(".publish(AppEvent::SyncStateChanged").count(), 4);
+    assert_eq!(actions.matches("events.publish(AppEvent::SyncStateChanged").count(), 4);
+    assert!(commands.contains("sync_actions::sync_connect("));
+    assert!(commands.contains("sync_actions::sync_disconnect("));
+    assert!(commands.contains("sync_actions::sync_upload("));
+    assert!(commands.contains("sync_actions::sync_download("));
     assert!(connect.find("*state.settings.write()").unwrap() < connect.find("AppEvent::SyncStateChanged").unwrap());
     assert!(disconnect.find("*state.settings.write()").unwrap() < disconnect.find("AppEvent::SyncStateChanged").unwrap());
     assert!(upload.find("*state.settings.write()").unwrap() < upload.find("AppEvent::SyncStateChanged").unwrap());
@@ -414,22 +420,15 @@ fn 프로젝트_수명주기_발행은_기존_성공_경로와_순서를_유지�
     let actions = include_str!("../../crates/taide-runtime/src/project_actions.rs");
     let adapter = include_str!("../src/platform/event_sink.rs");
     let recent = actions.split_once("pub async fn project_forget_recent(").unwrap().1;
-    let open = commands.split_once("pub async fn project_open(").unwrap().1;
-    let close = commands.split_once("pub async fn project_close(").unwrap().1;
+    let open = actions.split_once("pub async fn project_open(").unwrap().1;
+    let close = actions.split_once("pub async fn project_close(").unwrap().1;
 
-    assert_eq!(commands.matches(".publish(AppEvent::ProjectOpened").count(), 3);
-    assert_eq!(
-        commands.matches(".publish(AppEvent::ProjectActivated").count() + actions.matches(".publish(AppEvent::ProjectActivated").count(),
-        7,
-    );
-    assert_eq!(commands.matches(".publish(AppEvent::ProjectClosed").count(), 1);
-    assert_eq!(
-        commands.matches(".publish(AppEvent::ProjectRecentCleared").count()
-            + actions.matches(".publish(AppEvent::ProjectRecentCleared").count(),
-        1,
-    );
-    assert!(!actions.contains(".publish(AppEvent::ProjectOpened"));
-    assert!(!actions.contains(".publish(AppEvent::ProjectClosed"));
+    assert_eq!(actions.matches("events.publish(AppEvent::ProjectOpened").count(), 3);
+    assert_eq!(actions.matches("events.publish(AppEvent::ProjectActivated").count(), 7);
+    assert_eq!(actions.matches("events.publish(AppEvent::ProjectClosed").count(), 1);
+    assert_eq!(actions.matches("events.publish(AppEvent::ProjectRecentCleared").count(), 1);
+    assert!(commands.contains("project_actions::project_open("));
+    assert!(commands.contains("project_actions::project_close("));
     assert!(open.find("attach_project_capabilities(").unwrap() < open.find("AppEvent::ProjectOpened").unwrap());
     assert!(close.find("detach_all(").unwrap() < close.find("AppEvent::ProjectClosed").unwrap());
     assert!(close.find("AppEvent::ProjectClosed").unwrap() < close.find("AppEvent::ProjectActivated").unwrap());
@@ -532,11 +531,12 @@ fn lsp_상태와_설치_진행은_같은_port에서_payload를_보존한다() {
 #[test]
 fn lsp_helper는_snapshot과_byte_변환_뒤_adapter로_발행한다() {
     let commands = include_str!("../src/domain/lsp/commands.rs");
+    let actions = include_str!("../../crates/taide-runtime/src/lsp_actions.rs");
     let adapter = include_str!("../src/platform/event_sink.rs");
     let status = commands.split_once("fn emit_status(").unwrap().1;
     let set_status = commands.split_once("fn set_status(").unwrap().1;
-    let actions = include_str!("../../crates/taide-runtime/src/lsp_install_actions.rs");
-    let install = actions.split_once("fn emit_install_progress(").unwrap().1;
+    let install_actions = include_str!("../../crates/taide-runtime/src/lsp_install_actions.rs");
+    let install = install_actions.split_once("fn emit_install_progress(").unwrap().1;
 
     assert!(status.contains("AppEvent::LspSessionStatusChanged"));
     assert!(set_status.contains("emit_status(app, session_id, entry.lifecycle.set_status(status, last_error))"));
@@ -544,7 +544,8 @@ fn lsp_helper는_snapshot과_byte_변환_뒤_adapter로_발행한다() {
     assert!(install.contains("received_bytes: received_bytes as f64"));
     assert!(install.contains("total_bytes: total_bytes.map(|value| value as f64)"));
     assert!(install.contains("events.publish(AppEvent::LspInstallProgress"));
-    assert!(commands.contains("taide_runtime::lsp_install_toolchain::run_toolchain_install("));
+    assert!(commands.contains("lsp_actions::lsp_install("));
+    assert!(actions.contains("crate::lsp_install_toolchain::run_toolchain_install("));
     assert!(adapter.contains("LspSessionStatusChanged {") && adapter.contains("generation,"));
     assert!(adapter.contains("LspInstallProgress {") && adapter.contains("received_bytes,"));
 }
@@ -659,13 +660,20 @@ fn agent_상태와_외부_열기는_같은_port에서_payload를_보존한다() 
 fn agent_diff와_외부_열기_queue는_기존_조건_뒤에_port로_발행한다() {
     let hooks = include_str!("../src/domain/agent/hooks.rs");
     let commands = include_str!("../src/domain/agent/commands.rs");
+    let actions = include_str!("../../crates/taide-runtime/src/agent_actions.rs");
     let app = include_str!("../src/lib.rs");
     let adapter = include_str!("../src/platform/event_sink.rs");
-    let hook = hooks
+    let hook = actions
+        .split_once("pub fn apply_hook_payload(")
+        .unwrap()
+        .1
         .split_once("if let Some(changed) = agents.diff(&project_id, &updated) {")
         .unwrap()
         .1;
-    let poll = commands
+    let poll = actions
+        .split_once("pub async fn poll_agents<")
+        .unwrap()
+        .1
         .split_once("if let Some(changed) = agents.diff(&project_id, &detected) {")
         .unwrap()
         .1;
@@ -673,6 +681,8 @@ fn agent_diff와_외부_열기_queue는_기존_조건_뒤에_port로_발행한�
 
     assert!(hook.contains("AppEvent::AgentStateChanged"));
     assert!(poll.contains("AppEvent::AgentStateChanged"));
+    assert!(hooks.contains("agent_actions::apply_hook_payload("));
+    assert!(commands.contains("agent_actions::poll_agents("));
     assert!(
         single_instance.find("queue_external_open(app_handle,").unwrap() < single_instance.find("AppEvent::AgentExternalOpen").unwrap()
     );

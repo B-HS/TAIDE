@@ -9,6 +9,6 @@
 
 ## 기존 검사 실패와 남은 gate
 
-- [ ] `cargo test -p taide --test platform_event_sink`는 29건 중 24건 통과·5건 실패(exit 101)입니다. 실패한 동기화·terminal·agent·LSP·project source-scan은 이번 변경 파일을 읽지 않고, 과거 Tauri body의 문자열/발행 수를 찾지만 현재 runtime 이전 뒤 위치가 달라졌습니다. 전체 이벤트 계약이 green이라고 주장하지 않으며, 각 실제 runtime owner를 가리키도록 별도 테스트 수리가 필요합니다.
+- [x] 직접 설정 단위 실행 당시 `cargo test -p taide --test platform_event_sink`는 29건 중 24건 통과·5건 실패(exit 101)였습니다. 실패한 동기화·terminal·agent·LSP·project source-scan은 과거 Tauri body를 찾고 있었습니다. 후속 [이벤트 source 검사 수리](../history/2026-09-28-event-source-owner-tests.md)에서 실제 runtime owner로 고친 뒤 29건이 모두 통과했습니다. 직접 설정 단위의 원래 실패 결과와 후속 성공을 구분합니다.
 - [ ] `app_file_write`·`apply_settings_file`·`sync_download`의 공유 callback은 caller 보유 guard와 함께 별도 요청 취소 fixture가 필요합니다.
 - [ ] 실제 앱/OS observer·main-thread callback 정지 및 전체 M6/M7/M8은 미검증입니다.
