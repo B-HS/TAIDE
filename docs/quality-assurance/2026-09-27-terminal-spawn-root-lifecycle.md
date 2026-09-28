@@ -30,6 +30,8 @@ TerminalStore 입장/완료 목록과 runtime 실제 blocking spawn·동일 muta
 
 2026-09-28 첫 실행에서는 전용 identifier의 데이터 경로가 없음을 먼저 확인하고 공식 Tauri CLI의 마지막 `--config` 우선순위로 개발 설정 뒤에 고유 identifier를 적용했습니다. 앱은 빌드·기동했고 키링 서비스명은 분리됐으나 IDE 서버가 별도의 `CLAUDE_CONFIG_DIR` 기본 경로인 사용자 홈 `.claude/ide/45059.lock`을 생성했습니다. 그래서 GUI·직접 Exit 검증을 중단했습니다. `Ctrl+C`로 개발 실행을 종료한 뒤 앱 실행 파일 점유와 개발 서버·IDE 포트가 없음을 확인했지만 해당 lockfile은 남았습니다. 파일 내용·기존 사용자 설정은 읽지 않았고 정리 승인을 기다립니다. 다음 실기는 `CLAUDE_CONFIG_DIR`까지 별도 임시 경로로 격리하고, native GUI에 접근할 수 있는 수단을 확인하기 전에는 성공으로 집계하지 않습니다. [실측 이력](../history/2026-09-28-m6-isolated-app-attempt.md)에 실제 결과와 한계를 분리했습니다.
 
+실기 준비용 macOS `.app`은 전용 identifier·현재 sidecar·frontend/Rust 코드로 빌드됐고 `Info.plist` 식별자 검사가 통과했습니다. 서명을 생략한 로컬 번들이며 실행하거나 GUI에 연결하지 않았습니다. M6 native Exit와 M8 서명·공증의 성공으로 산입하지 않습니다.
+
 - [x] 후속 [PTY 부분 시작 QA](./2026-09-27-pty-partial-startup-lifecycle.md)에서 master reader/writer·세 thread factory 오류/언와인드의 child wait·시작한 worker join·생성 경로 정리를 확인했습니다. 성공-result owner 검사만으로 대체하지 않았으며 실제 OS 오류 회복/abort panic은 별도 gate입니다.
 - [x] 자기 `/bin/sh` PTY의 HUP 무시 상태에서 완료 핸들이 100ms 동안 대기하고 fixture 전용 SIGKILL 뒤 실제 join되는 검사 1건을 통과했습니다. [실측 이력](../history/2026-09-28-pty-sighup-ignore-probe.md)의 관찰 시간을 제품 종료 상한으로 해석하지 않습니다.
 - [ ] 실제 커널 waitid/wait 오류: 자기 child의 커널 오류 주입은 현재 호스트에서 안전하고 결정적으로 만들기 어렵습니다. 기존 `Unsupported` wrapper·실패 전파 검사는 커널 오류의 성공 회수가 아닙니다. 위험은 권한 반납 뒤 child wait가 실패하거나 오래 대기하는 경우이며, 전용 OS fault-injection 환경 또는 PTY wait 정책 변경 시 실제 오류를 재현합니다.

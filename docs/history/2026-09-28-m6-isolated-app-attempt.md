@@ -15,3 +15,9 @@
 ## 판정과 다음 조건
 
 이번 결과는 앱 기동의 관찰값이지 M6의 GUI·직접 Exit 합격 증거가 아닙니다. 앱 디버그 실행은 computer-use 앱 목록에서 식별되지 않아 창을 직접 조작하지도 못했습니다. 정확한 lockfile 하나의 정리 방법에 대한 사용자 답을 기다립니다. 다음 시도는 새 임시 경로를 `CLAUDE_CONFIG_DIR`에 주입해 IDE lockfile·stale cleanup을 사용자 홈에서 분리하고, GUI 접근 수단과 종료 시 비강제 cleanup 경계를 먼저 확인해야 합니다. 기존 사용자 설정·키링·lockfile 내용은 조회하지 않습니다.
+
+## 실행하지 않은 번들 준비
+
+이후 프로젝트의 `bun run tauri build --debug --bundles app --no-sign` 경로에 별도 `net.gumyo.taide.m6bundle.*` identifier를 마지막 설정으로 넣고 `CARGO_NET_OFFLINE=true`에서 실행했습니다. sidecar 재빌드, Vite 3930개 모듈의 프런트엔드 빌드, Rust dev profile 21분 9초 빌드와 macOS `.app` 번들 생성이 exit 0으로 끝났습니다. [공식 macOS 앱 번들 안내](https://v2.tauri.app/distribute/macos-application-bundle/)의 방식으로 생성된 `target/debug/bundle/macos/TAIDE.app`의 `Info.plist`는 전용 identifier였고 실행 파일도 존재합니다. `--no-sign`을 사용한 로컬 실기 준비물이므로 서명·공증이나 배포 적합성의 증거는 아닙니다.
+
+이 번들은 실행하지 않았습니다. computer-use 앱 목록에서도 아직 설치된 앱으로 나타나지 않아 GUI 연결 가능 여부는 미검증입니다. 기존 사용자 홈 lockfile은 그대로 있고 작업 트리는 깨끗합니다.
