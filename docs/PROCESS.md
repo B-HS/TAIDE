@@ -987,9 +987,11 @@
           - [x] M7-C4b-2b-5. Outline·plugin·preview·problems·search feature 22개의 상태·행동·자동 근거·실기 공백을 [feature inventory B](quality-assurance/2026-09-29-ts-feature-inventory-b.md)에 연결했습니다. 여섯 문서의 중복 제외 직접 연결 161개·남은 51개입니다.
           - [x] M7-C4b-2b-6. Project·shell slot·snippet·split·tab·theme·welcome·window feature 22개의 상태·행동·자동 근거·실기 공백을 [feature inventory C](quality-assurance/2026-09-29-ts-feature-inventory-c.md)에 연결했습니다. 일곱 문서의 중복 제외 직접 연결 183개·남은 29개입니다.
           - [x] M7-C4b-2b-7. 앱 진입점·shared·widget의 마지막 29개 경로를 [shared/widget inventory](quality-assurance/2026-09-29-ts-shared-widget-inventory.md)에 개별 연결했습니다. 여덟 문서의 중복 제외 직접 연결은 212/212개이며 비시각 context·hook·테스트 helper를 화면과 구분했습니다. 실제 시각·접근성 판정은 별도입니다.
+          - [x] M7-C4b-2b-8. 격리 release 앱에서 임시 프로젝트·파일, Search 결과, 비저장소 Git 상태, Settings Appearance 화면을 접근성 트리와 스크린샷으로 [부분 실기](quality-assurance/2026-09-29-m7-release-gui-smoke.md)에 기록했습니다. 파일 원문 복원·저장 뒤 디스크 내용도 확인했고 실제 화면 전수는 미완료입니다.
           - [ ] M7-C4b-2b. 212개 경로의 메뉴·dialog별 빈/오류/진행 상태를 실제 화면에 대조하고 키보드·테마/로케일·다중 창·시각/접근성 검사를 마칩니다.
       - [ ] M7-C4c. 동일 기기·fixture의 release 성능 반복 측정과 GUI·직접 Exit 사용자 회귀를 완료합니다.
         - [x] M7-C4c-1. 전용 identifier의 release `.app` 빌드와 로컬 ad hoc 서명 검증이 exit 0이고 첫 창과 `⌘Q` 뒤 IDE listener·격리 lockfile 정리를 확인했습니다. [release 실측 기록](history/2026-09-29-m6-release-app-smoke.md)에 구분했으며 배포 서명·공증, 기능 전수·성능 수치는 검증하지 않았습니다.
+        - [x] M7-C4c-1a. 같은 release 번들에 `TAIDE_PERF=1`을 지정한 별도 실행에서 팔레트 성능 명령 노출, 임시 프로젝트/검색/에디터/설정 부분 회귀, `⌘Q` exit 0과 IDE listener·lockfile 제거를 [부분 실기](quality-assurance/2026-09-29-m7-release-gui-smoke.md)에 기록했습니다. release 웹뷰에서 수치 출력 경로가 보이지 않아 3회 중앙값은 미측정입니다.
         - [ ] M7-C4c-2. 동일 기기·fixture에서 성능 지표를 3회 반복해 중앙값을 기록하고 GUI·직접 Exit 회귀를 완료합니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
