@@ -4,6 +4,8 @@
 
 현행 앱은 `src/app/app.tsx`에서 메인 창과 보조 창을 분기합니다. 테스트 파일을 제외한 `src/**/*.tsx`는 212개입니다(`rg --files src | rg '\.tsx$' | rg -v '\.test\.tsx$' | wc -l`). 이 수에는 provider와 공용 UI도 포함되므로 화면 수가 아닙니다. 아래 표는 실제 진입 컴포넌트와 확인한 화면 축의 첫 연결입니다. 테스트 파일의 존재나 전체 `bun test` 통과는 키보드·시각·접근성·실제 OS 창 동작을 입증하지 않습니다. 직접 앱 실기는 아직 수행하지 않았습니다.
 
+212개 경로 전체는 `src-tauri/tests/fixtures/rust-native/ts-view-components-v1.json`에 정렬해 고정했습니다. `src-tauri/tests/rust_native_phase0_ts_view_census.rs`는 현재 `src/`의 비테스트 `.tsx`를 다시 열거해 추가·삭제·이름 변경을 감지합니다. 대상 테스트 1건, 대상 Clippy, Rust fmt, JSON·이 문서 Prettier, diff 검사가 exit 0입니다. 이 경로 census는 전수 작업의 모집단일 뿐 화면·상태·상호작용·접근성의 동등성 판정이 아닙니다. 이 문서에 직접 적힌 비테스트 `.tsx` 경로는 현재 46개이며 나머지 166개는 하위 항목 단위의 의미·증거 연결이 필요합니다.
+
 ## 창·화면 진입점
 
 | 화면/경계 | 현행 컴포넌트와 상태·동작 | 확인한 자동 근거 | 남은 실기·접근성 확인 |
