@@ -1,0 +1,34 @@
+{
+    "schemaVersion": 1,
+    "settingsLegacy": {
+        "version": 1,
+        "themeId": "taide-dark",
+        "editorMinimap": false,
+        "aiAutoTabProvider": "codex"
+    },
+    "sessionLegacy": {
+        "version": 1,
+        "projects": [{ "id": "prj-fixture", "root": "__FIXTURE_ROOT__", "name": "Fixture" }],
+        "activeProject": "prj-fixture"
+    },
+    "projectLegacy": {
+        "id": "prj-fixture",
+        "root": "__FIXTURE_ROOT__",
+        "name": "Fixture"
+    },
+    "layoutLegacy": {
+        "version": 1,
+        "root": {
+            "node": "leaf",
+            "id": "pane-fixture",
+            "tabs": [{ "id": "tab-fixture", "kind": { "kind": "file", "path": "__FIXTURE_FILE__" }, "title": "main.rs", "dirty": true }],
+            "active": "tab-fixture"
+        },
+        "focusedPane": "pane-fixture"
+    },
+    "hotExitLegacy": {
+        "path": "__FIXTURE_FILE__",
+        "content": "unsaved fixture content",
+        "saved_at_ms": 1000.0
+    }
+}

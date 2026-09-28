@@ -18,7 +18,7 @@
 - [x] command, event, raw channel 이름·payload·error code manifest — `src-tauri/tests/fixtures/rust-native/ipc-contract-manifest.json`, `src-tauri/tests/rust_native_phase0_contract.rs`
 - [ ] remote allow·deny, authentication, session revoke와 binary channel fixture — `remote-wire-session-v1.json`의 서비스·store·protocol API 3건은 통과; 실제 HTTP/WebSocket handshake·cookie·TTL·전송 큐 기준선은 미완료
 - [ ] IDE/MCP request·response와 CLI `taide --wait` marker fixture — IDE protocol API 3건과 CLI marker 이름·timeout·제거를 포함한 bin 18건은 통과; 실제 WebSocket 인증·도구 수행과 앱 연계 marker 수명은 미완료
-- [ ] settings, session, project, layout, hot-exit buffer의 versioned fixture
+- [x] settings, session, project, layout, hot-exit buffer의 versioned fixture — `persistence-v1.json`과 실제 settings load·session/project restore·v1→v2 layout load·legacy mirror list 3건 통과; 사용자 실제 데이터와 GUI 복원은 별도
 - [ ] `docs/quality-assurance/2026-09-04-perf-baseline.md` 실기 지표 작성
 - [ ] editor, LSP, terminal, preview, shell 기능 inventory에 근거 파일·시험 연결
 - [ ] 현재 TS view 전체의 화면/패널/다이얼로그·상태·동작·키보드·테마/로케일·멀티윈도·접근성·시각 요소 inventory에 실제 컴포넌트 경로와 자동/실기 증거 연결

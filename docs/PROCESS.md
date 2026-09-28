@@ -962,7 +962,9 @@
     - [ ] M7-C2. IDE/MCP 및 CLI wait marker의 실제 요청·응답·수명 경계를 fixture로 고정합니다.
       - [x] M7-C2a. `ide-mcp-wire-v1.json`과 CLI marker 이름 fixture로 protocol API 3건·CLI bin 18건을 확인했습니다. UUID 임시 marker의 timeout·제거를 포함해 대상 Clippy·Rust fmt가 exit 0입니다. 실제 IDE WebSocket과 앱의 CLI marker 수명은 검증하지 않았습니다.
       - [ ] M7-C2b. 실제 IDE WebSocket 인증·tool handler와 앱 인수 전달·파일 닫기 시 CLI marker 제거를 검증합니다.
-    - [ ] M7-C3. settings/session/project/layout/hot-exit의 versioned persistence fixture를 추가하고 기존 데이터의 복원을 검증합니다.
+    - [x] M7-C3. `persistence-v1.json`과 실제 저장/복원 검사 3건으로 settings/session/project/layout/hot-exit 기준선을 고정했습니다. 사용자 실제 데이터·GUI 복원은 C4에 남깁니다.
+      - [x] M7-C3a. legacy settings/session/project/layout JSON을 실제 파서·고유 UUID 디스크 복원·v1→v2 layout migration과 비교했습니다. dirty 파일 탭·활성 프로젝트·기본값을 유지합니다.
+      - [x] M7-C3b. legacy hot-exit mirror JSON의 누락된 disk baseline을 실제 buffer 목록에서 복원했습니다. 대상 3건·Clippy·Rust fmt·JSON Prettier가 exit 0입니다.
     - [ ] M7-C4. 실제 앱 GUI·직접 Exit와 사용자 회귀, Phase 0 기능·성능·TS view 기준선을 확인한 뒤 M7/M8 gate를 판정합니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 

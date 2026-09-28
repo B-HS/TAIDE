@@ -6,6 +6,8 @@
 
 `ide-mcp-wire-v1.json`은 `src-tauri/tests/rust_native_phase0_ide_fixture.rs`가 현재 IDE protocol API의 initialize, tools/list, tools/call, 오류·알림 wire와 비교합니다. 현행 `2025-03-26` 버전의 [MCP lifecycle](https://modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle)·[tools](https://modelcontextprotocol.io/specification/2025-03-26/server/tools) 형식을 기준으로 하며 실제 WebSocket 인증·요청 처리·사용자 파일 동작을 실행하지 않습니다. CLI marker 이름 fixture와 제거 대기 검사는 `crates/taide-cli/tests/fixtures/wait-marker-v1.txt`·`crates/taide-cli/src/main.rs`에 있습니다. 실제 앱의 marker 인수 전달·닫기 시 제거는 별도 gate입니다.
 
+`persistence-v1.json`은 `src-tauri/tests/rust_native_phase0_persistence_fixture.rs`가 legacy settings/session/project/layout/hot-exit JSON을 실제 파서와 독립 임시 저장 경로에서 복원하는 기준선입니다. 파일 자체의 `schemaVersion`은 fixture 버전이고, 제품에서 별도 버전 필드가 없는 project·hot-exit 파일에 새 버전 필드를 강제하지 않습니다. v1 layout의 dirty 파일 탭, 과거 settings 키, session 기본 필드와 mirror의 누락된 disk baseline을 확인합니다. 사용자 저장 데이터나 실행 중 앱 경로는 읽지 않습니다.
+
 - `ordering`은 `source-declaration-order`입니다. event는 `events.rs`, 나머지 목록은 각 등록·정책 원천의 선언 순서를 그대로 쓰며 `collect_events!`에는 등록 집합 일치만 요구합니다.
 - `generatedBindings.sha256`은 `src/shared/api/bindings.ts` 전체 바이트의 SHA-256입니다.
 
