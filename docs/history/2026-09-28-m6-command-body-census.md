@@ -1,6 +1,6 @@
 # M6 command body 전수 대조
 
-상태: 현재 등록된 Specta 203개와 raw 3개, 합계 206개의 실제 body를 읽고 아래 목록에 대응했습니다. 이 결과는 정적 경계 조사이며 M6 구현 완료나 동작 동등성 검증이 아닙니다.
+상태: 조사 기준 커밋 `8e818b4`에 등록된 Specta 203개와 raw 3개, 합계 206개의 실제 body를 읽고 아래 목록에 대응했습니다. 뒤따른 runtime 이전으로 아래 F/S/A/P 숫자는 현시점 잔여 개수가 아닙니다. 이 결과는 당시 정적 경계 조사이며 M6 구현 완료나 동작 동등성 검증이 아닙니다.
 
 ## 대상과 판정 기준
 
@@ -255,6 +255,8 @@ P 101개는 미구현 사용자 기능 개수가 아니라 공유 경계를 아�
 composition root의 SettingsApplyPort·PluginRuntimePort·ProjectRestoreWatchers·SystemUsageLabelProviders·PtySpawnEnvProvider·PtySessionObservers·AgentForegroundPids·layout close observer·IDE layout/save·remote dispatch·menu sources 연결을 읽었습니다. 단순 toolkit callback인 경우와 아직 state/순서 정책이 들어 있는 경우를 위 domain 설명에 구분했습니다. `ProjectCapabilities` 구현·hook/IDE/remote server 내부·watcher/flush의 nested blocking worker·direct Exit 전체는 후속 실제 body/owner 검증이 필요하므로 HK 전체를 완료하지 않습니다.
 
 새 spawn 검색에서 project capability build/watchers restore의 awaited Tauri blocking 호출과 root 주기 layout flush의 blocking 호출을 확인했습니다. 상위 async 작업이 감독돼도 이미 시작한 내부 blocking 작업의 실제 완료까지 감독됐다는 증거가 아닙니다. AI/select 요청 취소와 plugin/VSIX stage 소유권도 기존 install/PTY owner의 green 결과로 대체할 수 없습니다. 요청형 동기 조회와 장수/외부 프로세스 작업, cfg(test) fixture를 이름만 보고 동일하게 분류하지 않습니다.
+
+후속 상태(2026-09-28): project capability build/watchers restore는 `taide-runtime::project_build::run_project_build`, 주기 layout flush는 등록 TaskSupervisor가 blocking worker를 추적합니다. file·tree·search의 직접 runtime blocking worker 9개도 감독으로 이전했습니다. 위 조사 당시 분류와 위험 설명은 당시 사실로 보존하며, 현재 요청 취소·callback 완료·전체 M6 판정은 [후속 경계 대조](2026-09-28-m6-post-worker-boundary-audit.md)를 따릅니다.
 
 이번 변경은 문서만 수정하며 제품 코드·IPC·bindings·dependency는 불변입니다. 새 Rust·frontend·실기 성공을 주장하지 않으며 같은 제품 상태의 이전 성공 근거만 재사용합니다. 실제 앱·사용자 파일/프로세스·시크릿·키링·push는 실행하지 않습니다. 남은 M 전체와 M6 완료 후 일반 push 조건은 유지합니다.
 
