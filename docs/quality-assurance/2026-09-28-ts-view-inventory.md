@@ -18,6 +18,8 @@
 
 [하위 feature inventory C](2026-09-29-ts-feature-inventory-c.md)는 project·shell slot·snippet·split·tab·theme·welcome·window의 추가 22개 경로를 연결합니다. 일곱 문서의 중복 제외 직접 연결 경로는 183개, 남은 경로는 29개입니다. 실제 다중 창·drag/drop·접근성 검사는 미완료입니다.
 
+[앱 진입점·shared·widget inventory](2026-09-29-ts-shared-widget-inventory.md)는 마지막 29개 경로를 연결합니다. 여덟 문서의 중복 제외 직접 연결 경로는 212/212개이며, 비시각 context·hook·테스트 helper를 화면과 구분했습니다. 실제 화면 상태·시각·접근성 검사는 미완료입니다.
+
 ## 창·화면 진입점
 
 | 화면/경계 | 현행 컴포넌트와 상태·동작 | 확인한 자동 근거 | 남은 실기·접근성 확인 |
@@ -57,4 +59,4 @@
 
 - 테마/로케일은 `src/app/providers/theme-provider.tsx`, `src/app/providers/locale-provider.tsx`가 메인·보조 창 모두에 적용합니다. 로드 오류 배너·재시도와 `documentElement` 적용을 확인했지만, 각 화면의 테마별 캡처·CJK/문자열 길이·접근성은 미검증입니다.
 - 키 입력은 `src/shared/hooks/use-global-keymap.ts`, `src/widgets/editor-area/editor-area.tsx`, palette와 각 tree/리스트가 소유합니다. 실제 shortcut 충돌·IME·VoiceOver는 미검증입니다.
-- 현재 표는 진입점 단위입니다. 212개 `.tsx`의 하위 컴포넌트 전수 대응, 메뉴·dialog별 모든 상태/오류/빈 상태, 각 항목의 시각·접근성 캡처와 실제 창 결과는 아직 연결되지 않았습니다. 따라서 Phase 0 TS view inventory와 M7-C4b는 미완료입니다.
+- 이 표는 진입점 단위이고 연결 문서 여덟 개가 212개 `.tsx` 경로의 역할·자동 근거·실기 공백을 개별 기록합니다. 메뉴·dialog별 모든 상태/오류/빈 상태, 각 항목의 시각·접근성 캡처와 실제 창 결과는 아직 연결되지 않았습니다. 따라서 Phase 0 TS view inventory와 M7-C4b는 미완료입니다.
