@@ -86,6 +86,7 @@ pub struct AppStateInner {
     pub dirty_layouts: RwLock<HashSet<ProjectId>>,
     pub watchers: RwLock<HashMap<ProjectId, WatcherHandle>>,
     pub git_watchers: RwLock<HashMap<ProjectId, WatcherHandle>>,
+    pub watcher_stops: crate::WatcherStopTracker,
     pub self_writes: SelfWriteTracker,
     pub cli_opened_paths: RwLock<HashSet<PathBuf>>,
     mutation_guard: Arc<tokio::sync::Mutex<()>>,
@@ -113,6 +114,7 @@ impl AppState {
             dirty_layouts: RwLock::new(HashSet::new()),
             watchers: RwLock::new(HashMap::new()),
             git_watchers: RwLock::new(HashMap::new()),
+            watcher_stops: crate::WatcherStopTracker::default(),
             self_writes: SelfWriteTracker::new(),
             cli_opened_paths: RwLock::new(HashSet::new()),
             mutation_guard: Arc::new(tokio::sync::Mutex::new(())),
@@ -202,6 +204,13 @@ impl AppState {
     /// happens-before relationship with some other write.
     pub fn begin_shutdown(&self) {
         self.shutting_down.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.stop_watchers();
+    }
+
+    /// Retires every live watcher without waiting while the caller may own an event-loop thread.
+    pub fn stop_watchers(&self) {
+        self.watchers.write().clear();
+        self.git_watchers.write().clear();
     }
 
     /// Polled once per iteration by `domain::project::commands::restore_project_watchers`'s boot-restore loop so a
@@ -371,8 +380,44 @@ impl AppState {
 mod tests {
     use super::*;
 
+    use taide_infra::watcher::{start_watch, WatchScope};
+
+    const WATCHER_WAIT_TIMEOUT: Duration = Duration::from_secs(2);
+    const WATCHER_WAIT_PROBE: Duration = Duration::from_millis(20);
+
     fn labels(values: &[&str]) -> HashSet<String> {
         values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[tokio::test]
+    async fn 종료는_live_watcher를_폐기하고_중지_완료를_남긴다() {
+        let root = std::env::temp_dir().join(format!("taide-watcher-shutdown-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let state = AppState::new(AppPaths::new(root.clone()));
+        let tracker = state.watcher_stops.clone();
+        let (started, started_rx) = tokio::sync::oneshot::channel();
+        let (release, release_rx) = std::sync::mpsc::channel();
+        let release_rx = std::sync::Mutex::new(release_rx);
+        let handle = start_watch(root.clone(), WatchScope::Project, |_| {})
+            .unwrap()
+            .with_stop_scheduler(move |stop| {
+                tracker.schedule(Box::new(move || {
+                    started.send(()).ok();
+                    release_rx.lock().unwrap().recv().unwrap();
+                    stop();
+                }));
+            });
+        state.watchers.write().insert(ProjectId::from("synthetic".to_string()), handle);
+
+        state.begin_shutdown();
+        assert!(state.watchers.read().is_empty());
+        tokio::time::timeout(WATCHER_WAIT_TIMEOUT, started_rx).await.unwrap().unwrap();
+        let idle = state.watcher_stops.wait_for_idle();
+        tokio::pin!(idle);
+        assert!(tokio::time::timeout(WATCHER_WAIT_PROBE, &mut idle).await.is_err());
+        release.send(()).unwrap();
+        tokio::time::timeout(WATCHER_WAIT_TIMEOUT, idle).await.unwrap();
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

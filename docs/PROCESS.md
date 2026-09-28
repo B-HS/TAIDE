@@ -935,10 +935,10 @@
   - [x] M6-OZ. sync_upload 최초 gist create/기존 update await와 guard·bookkeeping·event를 대조했습니다. 완료 owner 부재 source 검사가 RED(exit 101)였고, 자기 메모리 gist의 두 요청 Drop 뒤 원격 결과·정상 root 대기 fixture를 추가했습니다.
   - [x] M6-PA. Native/원격 sync_upload를 등록된 취소되지 않는 완료 operation에 넣어 네트워크 결과 뒤 guard·bookkeeping·event까지 마칩니다. 기존 create 직렬화, update 재검증, 오류/IPC 정책을 유지합니다.
   - [x] M6-PB. sync 통합 21·binding 생성 1건과 관련 Clippy·Rust fmt/diff가 통과했습니다. 생성 binding/manifest diff는 없고 history·bug·QA·architecture/PROCESS에 기록했습니다. 검증 단위만 로컬 commit하며 실제 GitHub·키링/GUI·전체 M6와 push는 별도입니다.
-  - [ ] M6-PC. 설치된 notify-debouncer-full 0.7.0의 Drop과 stop 차이를 자기 UUID watcher/callback fixture로 재현하고 project detach·부팅 restore·정상/직접 Exit에서 live/retired watcher handle의 실제 소유·잠금 순서를 대조합니다.
+  - [x] M6-PC. 설치된 notify-debouncer-full 0.7.0의 Drop과 stop 차이를 자기 UUID watcher/callback fixture로 재현하고 project detach·부팅 restore·정상/직접 Exit에서 live/retired watcher handle의 실제 소유·잠금 순서를 대조했습니다. 두 제품 빌더가 등록 전부터 stop tracker를 부착하고, detach·중복 attach·복원 중 미등록 결과는 join 대신 별도 stop을 예약합니다.
     - 하위 수단 검증(2026-09-28): 명시적 stop API 부재 E0599 RED 뒤 WatcherHandle::stop(self)를 추가했고, 자기 UUID watcher의 callback 자원이 반환 전에 해제되는 검사를 포함해 watcher 26건·infra Clippy·strict rustdoc·Rust fmt/diff가 통과했습니다. 기존 Drop의 비동기 stop과 실제 root 소유는 변경하지 않았으며 PC/PD/PE 전체는 미완료입니다.
-  - [ ] M6-PD. watcher 중지 요청과 callback/thread 완료를 분리해 마지막 worker 완료까지 정상 root가 기다리게 합니다. project close의 mutation guard·capability 순서·중복 attach·이벤트/IPC를 보존하고 OS callback을 abort했다고 주장하지 않습니다.
-  - [ ] M6-PE. infra/project/ExitDrain의 자기 fixture와 배선·관련 정적 검사, docs/history·bug·QA·architecture/PROCESS를 확인한 뒤 검증 단위만 로컬 commit합니다. 실제 watcher/GUI·OS 오류·전체 M6와 push는 별도입니다.
+  - [x] M6-PD. watcher 중지 요청과 callback/thread 완료를 분리하고 정상·직접 Exit가 마지막 stop까지 기다리게 했습니다. 감독 build 완료 후 live 맵을 다시 비우며 project close의 mutation guard·capability 순서·중복 attach·이벤트/IPC를 보존합니다. OS callback을 abort했다고 주장하지 않습니다.
+  - [x] M6-PE. infra watcher 27·runtime tracker/state 각 1·ExitDrain 11·Native project 15·제품 배선 1건과 세 crate Clippy·strict infra/runtime rustdoc·Rust fmt/diff·대상 MD 포맷이 exit 0입니다. history·bug·QA·architecture/PROCESS에 실제 결과를 기록하고 검증 단위만 로컬 commit합니다. 실제 watcher/GUI·OS 오류·전체 M6와 push는 별도입니다.
 - [ ] M7. 전체 crate 분리 gate — Rust workspace tests·clippy·fmt, frontend tests·typecheck·build, 저장 데이터·IPC fixture, 사용자 실기 회귀 결과를 확인. 미검증 항목은 미완료로 남깁니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 

@@ -1134,8 +1134,10 @@ pub fn run() {
                 app_handle.state::<domain::search::commands::SearchStore>().cancel_all();
             }
             if let tauri::RunEvent::ExitRequested { api, code, .. } = &event {
-                let exit_drain =
-                    exit_drain.get_or_insert_with(|| ExitDrain::new((*app_handle.state::<domain::ai::commands::AiRequestStore>()).clone()));
+                let exit_drain = exit_drain.get_or_insert_with(|| {
+                    ExitDrain::new((*app_handle.state::<domain::ai::commands::AiRequestStore>()).clone())
+                        .with_state((*app_handle.state::<AppState>()).clone())
+                });
                 if !exit_drain.is_ready() {
                     api.prevent_exit();
                     let handle = app_handle.clone();
@@ -1151,8 +1153,10 @@ pub fn run() {
                 }
             }
             if matches!(&event, tauri::RunEvent::Exit) {
-                let exit_drain =
-                    exit_drain.get_or_insert_with(|| ExitDrain::new((*app_handle.state::<domain::ai::commands::AiRequestStore>()).clone()));
+                let exit_drain = exit_drain.get_or_insert_with(|| {
+                    ExitDrain::new((*app_handle.state::<domain::ai::commands::AiRequestStore>()).clone())
+                        .with_state((*app_handle.state::<AppState>()).clone())
+                });
                 if let Err(error) = tauri::async_runtime::block_on(exit_drain.wait_for_direct_exit(
                     (*app_handle.state::<TaskSupervisor>()).clone(),
                     (*app_handle.state::<LspInstallStore>()).clone(),
@@ -1377,6 +1381,18 @@ mod tests {
         assert!(direct_exit.contains("app_handle.state::<LspInstallStore>()"));
         assert!(direct_exit.contains("app_handle.state::<LspStore>()"));
         assert!(direct_exit.contains("app_handle.state::<TerminalStore>()"));
+    }
+
+    #[test]
+    fn watcher_종료_소유는_두_builder와_두_exit_경로에_연결된다() {
+        let file = include_str!("domain/file/capability.rs");
+        let git = include_str!("domain/git/watch.rs");
+        let source = include_str!("lib.rs");
+        let exit = extract_between(source, ".run(move |app_handle, event| {", "\n        });");
+
+        assert!(file.contains("handle.with_stop_scheduler(move |stop| tracker.schedule(stop))"));
+        assert!(git.contains("handle.with_stop_scheduler(move |stop| tracker.schedule(stop))"));
+        assert_eq!(exit.matches(".with_state((*app_handle.state::<AppState>()).clone())").count(), 2);
     }
 
     #[test]

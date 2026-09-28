@@ -17,7 +17,8 @@ use crate::state::AppState;
 /// `AppState`: both callers
 /// (`project_open`'s `FileWatcherCapability::build_attachment` and the boot restore path
 /// `domain::project::commands::restore_project_watchers`) run it with no `AppState::begin_mutation`
-/// held, and reach for the guard only around [`register_watcher_handle`].
+/// held. The completed handle borrows the shared watcher-stop tracker before registration; the
+/// mutation guard is needed only around [`register_watcher_handle`].
 ///
 /// The returned handle is already **live** — `start_watch` has subscribed by the time this returns
 /// — so fs changes arriving between the build and its registration are still delivered; the
@@ -47,7 +48,10 @@ pub fn build_watcher_handle(app: &AppHandle, project_id: &ProjectId, root: &str)
             }
         },
     ) {
-        Ok(handle) => Some(handle),
+        Ok(handle) => {
+            let tracker = app.state::<AppState>().watcher_stops.clone();
+            Some(handle.with_stop_scheduler(move |stop| tracker.schedule(stop)))
+        }
         Err(error) => {
             log::warn!("파일 감시를 시작하지 못했습니다 ({root}): {error}");
             None

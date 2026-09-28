@@ -14,19 +14,42 @@ use crate::watch_policy::{is_ignored_dir, WATCH_DEBOUNCE_MS};
 use taide_model::error::{AppError, AppErrorKind, AppResult};
 use taide_model::file::{FsChange, FsChangeKind};
 
-/// One live watch. Dropping it stops the debouncer thread, which is how `project_close` and
-/// `FileWatcherCapability::detach` end a watch (`AppState::watchers`/`git_watchers` hold these).
+/// One live watch. Dropping it requests debouncer shutdown; a registered stop scheduler retains
+/// ownership until the event thread and callback have finished.
 ///
 /// The `notify-debouncer-full` cache type parameter is [`ScopedIdCache`], not the crate's
 /// `RecommendedCache` — see that type's doc for why, and for the one behavior it trades away.
 pub struct WatcherHandle {
-    _debouncer: Debouncer<notify::RecommendedWatcher, ScopedIdCache>,
+    debouncer: Option<Debouncer<notify::RecommendedWatcher, ScopedIdCache>>,
+    stop_scheduler: Option<Box<dyn FnOnce(WatcherStopJob) + Send + Sync>>,
 }
 
+type WatcherStopJob = Box<dyn FnOnce() + Send>;
+
 impl WatcherHandle {
+    /// Registers a host-owned executor for asynchronous stop completion on drop.
+    pub fn with_stop_scheduler(mut self, schedule: impl FnOnce(Box<dyn FnOnce() + Send>) + Send + Sync + 'static) -> Self {
+        self.stop_scheduler = Some(Box::new(schedule));
+        self
+    }
+
     /// Stops the event thread and waits for its callback to finish.
-    pub fn stop(self) {
-        self._debouncer.stop();
+    pub fn stop(mut self) {
+        self.stop_scheduler.take();
+        self.debouncer.take().expect("watcher owns its debouncer").stop();
+    }
+}
+
+impl Drop for WatcherHandle {
+    fn drop(&mut self) {
+        let Some(debouncer) = self.debouncer.take() else {
+            return;
+        };
+        if let Some(schedule) = self.stop_scheduler.take() {
+            schedule(Box::new(move || debouncer.stop()));
+            return;
+        }
+        drop(debouncer);
     }
 }
 
@@ -294,7 +317,10 @@ where
         root.display()
     );
 
-    Ok(WatcherHandle { _debouncer: debouncer })
+    Ok(WatcherHandle {
+        debouncer: Some(debouncer),
+        stop_scheduler: None,
+    })
 }
 
 /// Whether a batch carrying the rescan flag may notify now, given when this watch last did.
@@ -570,6 +596,30 @@ mod tests {
 
         handle.stop();
         let is_released = receiver.try_recv().is_ok();
+        cleanup(&root);
+        assert!(is_released);
+    }
+
+    #[test]
+    fn 등록된_중지_실행기는_drop_뒤에도_콜백_자원을_소유한다() {
+        let root = temp_root("scheduled-stop");
+        std::fs::create_dir_all(&root).expect("create root");
+        let (released, released_rx) = std::sync::mpsc::channel();
+        let signal = DropSignal(released);
+        let (scheduled, scheduled_rx) = std::sync::mpsc::channel();
+        let handle = start_watch(root.clone(), WatchScope::Project, move |_| {
+            let _ = &signal;
+        })
+        .expect("watch start")
+        .with_stop_scheduler(move |stop| {
+            scheduled.send(stop).unwrap();
+        });
+
+        drop(handle);
+        let stop = scheduled_rx.recv_timeout(WATCHER_STOP_TIMEOUT).unwrap();
+        assert!(released_rx.try_recv().is_err());
+        stop();
+        let is_released = released_rx.try_recv().is_ok();
         cleanup(&root);
         assert!(is_released);
     }

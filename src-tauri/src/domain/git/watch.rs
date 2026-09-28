@@ -62,8 +62,7 @@ fn classify_git_changes(changes: &[FsChange]) -> (bool, bool) {
 /// The one `AppState` write [`build_git_watcher_handle`]'s callers need. Split out so both attach
 /// paths (`project_open`'s `GitWatcherCapability::build_attachment` and the boot restore path
 /// `domain::project::commands::restore_project_watchers`) can build the handle — the expensive
-/// `FileIdMap` walk — with no `AppState` access at all, and only reach for
-/// `AppState::begin_mutation` for this insert.
+/// `FileIdMap` walk — without a mutation guard, which is needed only for this insert.
 pub fn register_git_watcher_handle(state: &AppState, project_id: &ProjectId, handle: watcher::WatcherHandle) {
     state.git_watchers.write().insert(project_id.clone(), handle);
 }
@@ -86,7 +85,8 @@ pub fn register_git_watcher_handle(state: &AppState, project_id: &ProjectId, han
 /// has already decided fresh, moments earlier in the same command, and gates the call — there the
 /// probe is a cheap re-check that avoids watching a directory removed in between.
 ///
-/// Touches no `AppState`, so both callers run it with no `AppState::begin_mutation` held.
+/// Borrows the watcher-stop tracker but needs no `AppState::begin_mutation`, so both callers build
+/// outside the mutation guard.
 pub fn build_git_watcher_handle(app: &AppHandle, project_id: &ProjectId, root: &str) -> Option<watcher::WatcherHandle> {
     if !Path::new(root).join(GIT_DIR_NAME).is_dir() {
         return None;
@@ -120,7 +120,10 @@ fn build_watcher_handle_inner(app: &AppHandle, project_id: &ProjectId, root: &st
             });
         }
     }) {
-        Ok(handle) => Some(handle),
+        Ok(handle) => {
+            let tracker = app.state::<AppState>().watcher_stops.clone();
+            Some(handle.with_stop_scheduler(move |stop| tracker.schedule(stop)))
+        }
         Err(error) => {
             log::warn!("git 감시를 시작하지 못했습니다 ({}): {error}", git_dir.display());
             None

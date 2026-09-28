@@ -413,7 +413,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     열린 파일 소유자는 파일 닫힘→임시 경로 소유자→lease 순으로 Drop한다. queued work도 work capture의 cleanup 뒤에 마지막 worker lease를 해제하도록 하나의 소유 구조체로 캡처한다.
     store 취소와 최종 atomic 적용은 같은 gate에서 직렬화한다. 취소가 앞서면 적용/Done을 거절하고, 적용이 먼저 성공했으면 늦은 취소로 완료 결과를 되돌리지 않는다.
     ExitRequested/Exit는 설치 admission을 닫고 취소를 알리며 신규 command도 AppState 종료 gate를 확인한다.
-    정상 ExitRequested는 prevent_exit 후 root callback이 소유한 runtime ExitDrain에서 감독 task/공유 operation owner의 실제 완료·모든 설치 lease·일반 LSP wait/reader/callback·같은 AppServices의 AI token owner·PTY spawn과 PTY worker 종료를 기다린다. coordinator는 자신이 멈추는 TaskSupervisor 밖에 있어 self-wait가 없으며 성공한 완료 뒤 원래 exit code로 종료를 다시 요청한다. PTY join 오류는 준비 플래그/종료 callback을 실행하지 않는다.
+    정상 ExitRequested는 prevent_exit 후 root callback이 소유한 runtime ExitDrain에서 감독 task/공유 operation owner의 실제 완료·모든 설치 lease·일반 LSP wait/reader/callback·같은 AppServices의 AI token owner·PTY spawn과 PTY worker 종료를 기다린다. AppState의 live file/Git watcher를 폐기하고 이미 분리된 watcher의 stop 작업까지 기다린다. coordinator는 자신이 멈추는 TaskSupervisor 밖에 있어 self-wait가 없으며 성공한 완료 뒤 원래 exit code로 종료를 다시 요청한다. PTY join 오류는 준비 플래그/종료 callback을 실행하지 않는다.
     정상 ExitRequested 대기 중 native 이벤트 루프는 계속 동작해 메뉴 worker의 main-thread 응답을 처리할 수 있다. ExitRequested 없이 바로 Exit가 오면 사용자 선택에 따라 같은 등록 자원 전체의 완료를 동기로 기다린다. OS I/O·main-thread callback이 멈추면 시간 제한 없이 대기할 수 있고, 실제 native Exit/GUI 교착 여부와 등록되지 않은 자원 회수는 검증되지 않았다.
     HTTP 파일 생성 중 요청 Drop의 늦은 파일 1개와 슬롯 조기 해제를 재현하고 create/write/flush의 감독 소유권으로 수정했다.
     `taide-runtime::lsp_install_toolchain`은 감독된 blocking worker 안에서 취소 gate와 child spawn을 직렬화한다. store는 자원을 weak 등록해 순환 소유 없이 요청 Drop·명시 취소·shutdown을 동기로 전달한다.
@@ -441,8 +441,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
 
 - Tauri 기본 tokio 런타임 사용. 명령은 원칙적으로 `async fn`.
 - 블로킹 작업(git2 호출, 대형 파일 IO)은 `spawn_blocking` 으로 격리한다 — libgit2 는 동기 API 다.
-- 장수 태스크(pty reader, LSP stdio pump, watcher)는 tokio task 로 상주하며,
-  소유 도메인의 세션 구조체가 JoinHandle/CancellationToken 을 보유해 종료를 보장한다.
+- PTY reader·LSP stdio pump는 각 세션의 작업 소유자가 종료를 추적한다. file/Git watcher는 notify debouncer의 전용 스레드를 사용하며, handle Drop은 중지를 별도 스레드에 예약하고 AppState의 `WatcherStopTracker`가 callback 반환·스레드 join까지 추적한다. 정상/직접 Exit는 마지막 stop 완료를 기다린다.
 - AppState 접근은 짧은 잠금 원칙: 잠금 안에서 IO 금지.
 - `spawn_blocking` 스레드풀(tokio 기본 상한 512)은 **프로세스 전역**이며 데스크톱 IPC 커맨드와
   원격 dispatch 커맨드가 같은 풀을 공유한다 — 원격 쪽은 `RemoteDispatchLimiter`(128, d-35)로
@@ -721,8 +720,7 @@ eslint `no-restricted-imports` 는 import **방향**만 강제하고 레이어�
    커스텀 훅 `useTauriEvent(name, handler)` 하나로 표준화하고 직접 listen 을 금지한다.
 2. **무거운 객체는 dispose 의무**: Monaco model/editor, xterm 인스턴스는 소유 위젯 unmount 시 dispose.
    전역 캐시에 남기는 경우(모델 재사용) LRU 상한과 방출 정책을 명시한다(`features/editor.md`).
-3. **Rust 자원은 세션 구조체가 소유**: pty·LSP·watcher 는 세션 drop 시 자식 프로세스 종료까지 보장해야 한다
-   (Drop 구현 + 명시적 shutdown 경로 이중화). 현재 일반 LSP wait/reader/callback·PTY spawn/worker의 정상 완료 대기와 Drop 종료 요청, 설치 직접 child/부모 선종료 그룹 정리·정상 종료 coordinator는 자기 fixture로 검증했다. Drop의 종료 요청은 실제 join과 다르며 partial spawn/OS 오류·직접 native Exit·runtime 오류/그룹 이탈 자손 및 실제 native 종료의 전체 소유권 gate는 M6 미완료 항목이다.
+3. **Rust 자원은 세션 구조체가 소유**: pty·LSP·watcher의 Drop은 종료를 요청하고, 정상 root는 등록된 실제 완료까지 기다린다. 일반 LSP wait/reader/callback·PTY spawn/worker와 watcher callback/thread 완료, 설치 직접 child/부모 선종료 그룹 정리·정상 종료 coordinator는 자기 fixture로 검증했다. 단독 Drop의 종료 요청은 실제 join과 다르며 partial spawn/OS 오류·직접 native Exit/GUI·runtime 오류/그룹 이탈 자손 및 실제 native 종료의 전체 소유권 gate는 M6 미완료 항목이다.
 
    **§6.3 `project_close` 자원 회수 목록 (정본)** — 프로젝트 종료 시 회수되는 전체 목록이다.
    T1-I(2026-08-19)부터 각 항목의 회수는 그 도메인의 `capability.rs` `detach` 가 소유하고,
@@ -731,14 +729,13 @@ eslint `no-restricted-imports` 는 import **방향**만 강제하고 레이어�
    추가하면 capability 구현 + lib.rs 등록 + 이 표 세 곳에 함께 추가한다.
 
    부착 쪽이 2단(build/register)으로 나뉜 뒤에도(§3.1) 이 표의 대칭 요구는 그대로다 — build 가
-   만든 자원은 **commit 된 것만** `AppState` 에 들어가고(커밋되지 않은 build 결과는 drop 되어 그
-   자리에서 소멸), 들어간 것은 전부 여기 등재된 `detach` 가 회수한다. 새 capability 를 추가할 때
+   만든 자원은 **commit 된 것만** `AppState` 에 들어가고(커밋되지 않은 watcher build 결과의 Drop도 별도 stop 완료 추적에 남는다), 들어간 것은 전부 여기 등재된 `detach` 가 회수한다. 새 capability 를 추가할 때
    "build 에서 만든 것 ↔ detach 에서 회수하는 것" 이 1:1 인지 확인한다.
 
    | 자원 | 회수 방법 | 실패 시 |
    |---|---|---|
    | `dirty_layouts`/`layouts` | 남은 dirty 레이아웃 동기 flush 후 두 맵에서 제거 | 미저장 레이아웃 유실 |
-   | `watchers`/`git_watchers` | 맵에서 제거 (핸들 drop이 watcher 스레드 종료) | 닫힌 프로젝트 파일 변경을 계속 감시 |
+   | `watchers`/`git_watchers` | 맵에서 제거하고 stop을 예약, AppState가 실제 callback/thread 완료를 추적 | 닫힌 프로젝트 파일 변경을 계속 감시 |
    | pty 세션 | `TerminalStore::kill_project` | 프로세스+fd+스레드가 앱 종료까지 잔존 |
    | `GitStore` (projectId→repo_root 캐시 · `git_status` 결과 캐시) | `GitStore::remove` | 재오픈 시 옛 repo_root·옛 status 부활 + 메모리 잔존 |
    | `TreeStore` (트리 캐시) | `TreeStore::remove` | 재오픈 시 옛 디렉터리 목록 부활 + 메모리 잔존 |

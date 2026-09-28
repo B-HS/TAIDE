@@ -40,6 +40,7 @@ pub mod theme_actions;
 pub mod tree_actions;
 mod tree_store;
 pub mod vsix_actions;
+mod watcher_stop;
 mod window_registry;
 
 pub use ai_request_store::{AiRequestStore, AiRequestToken};
@@ -52,6 +53,7 @@ pub use search_store::SearchStore;
 pub use state::{AppState, AppStateInner, FlushScope, FlushTicket};
 pub use task_supervisor::{TaskOperationLease, TaskSupervisor};
 pub use tree_store::TreeStore;
+pub use watcher_stop::WatcherStopTracker;
 pub use window_registry::WindowRegistry;
 
 pub trait EventSink: Send + Sync {

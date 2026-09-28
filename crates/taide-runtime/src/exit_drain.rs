@@ -8,7 +8,7 @@ use taide_terminal::store::TerminalStore;
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 
-use crate::{AiRequestStore, TaskSupervisor};
+use crate::{AiRequestStore, AppState, TaskSupervisor};
 
 /// Owns exit drainage outside the supervisor it stops, keeping the native event loop available.
 #[derive(Default)]
@@ -16,6 +16,7 @@ pub struct ExitDrain {
     task: Option<JoinHandle<()>>,
     ready: Arc<AtomicBool>,
     ai_requests: AiRequestStore,
+    state: Option<AppState>,
 }
 
 impl ExitDrain {
@@ -25,7 +26,14 @@ impl ExitDrain {
             task: None,
             ready: Arc::new(AtomicBool::new(false)),
             ai_requests,
+            state: None,
         }
+    }
+
+    /// Includes the host application state and its watcher completion tracker in exit drainage.
+    pub fn with_state(mut self, state: AppState) -> Self {
+        self.state = Some(state);
+        self
     }
 
     pub fn is_ready(&self) -> bool {
@@ -34,12 +42,17 @@ impl ExitDrain {
 
     async fn wait_for_owned_resources(
         tasks: TaskSupervisor,
+        state: Option<AppState>,
         installs: LspInstallStore,
         processes: LspStore,
         terminals: TerminalStore,
         ai_requests: AiRequestStore,
     ) -> AppResult<()> {
         tasks.shutdown().await;
+        if let Some(state) = state {
+            state.stop_watchers();
+            state.watcher_stops.wait_for_idle().await;
+        }
         installs.wait_for_idle().await;
         processes.wait_for_idle().await;
         ai_requests.wait_for_idle().await;
@@ -54,12 +67,15 @@ impl ExitDrain {
         processes: LspStore,
         terminals: TerminalStore,
     ) -> AppResult<()> {
+        if let Some(state) = &self.state {
+            state.begin_shutdown();
+        }
         installs.shutdown();
         processes.shutdown();
         terminals.shutdown();
         self.ai_requests.shutdown();
         tasks.stop_all();
-        Self::wait_for_owned_resources(tasks, installs, processes, terminals, self.ai_requests.clone()).await
+        Self::wait_for_owned_resources(tasks, self.state.clone(), installs, processes, terminals, self.ai_requests.clone()).await
     }
 
     /// Calls on_ready after tracked resources finish; terminal join errors keep readiness closed.
@@ -75,6 +91,9 @@ impl ExitDrain {
         if self.is_ready() || self.task.as_ref().is_some_and(|task| !task.is_finished()) {
             return false;
         }
+        if let Some(state) = &self.state {
+            state.begin_shutdown();
+        }
         installs.shutdown();
         processes.shutdown();
         terminals.shutdown();
@@ -82,8 +101,9 @@ impl ExitDrain {
         tasks.stop_all();
         let ready = self.ready.clone();
         let ai_requests = self.ai_requests.clone();
+        let state = self.state.clone();
         self.task = Some(runtime.spawn(async move {
-            if let Err(error) = Self::wait_for_owned_resources(tasks, installs, processes, terminals, ai_requests).await {
+            if let Err(error) = Self::wait_for_owned_resources(tasks, state, installs, processes, terminals, ai_requests).await {
                 log::error!("terminal runtime drain failed: {error}");
                 return;
             }
@@ -111,14 +131,86 @@ mod tests {
     use taide_lsp::install::LspInstallStore;
     use taide_lsp::store::LspStore;
     use taide_model::lsp::LspServerId;
+    use taide_model::paths::AppPaths;
     use taide_terminal::store::TerminalStore;
     use tokio::sync::oneshot;
 
     use super::ExitDrain;
-    use crate::{AiRequestStore, TaskSupervisor};
+    use crate::{AiRequestStore, AppState, TaskSupervisor};
 
     const FIXTURE_TIMEOUT_MS: u64 = 2_000;
     const AI_PENDING_PROBE_MS: u64 = 20;
+
+    #[tokio::test]
+    async fn 정상_root_종료는_폐기된_watcher의_실제_중지_완료를_기다린다() {
+        let state = AppState::new(AppPaths::new(std::env::temp_dir().join("taide-watcher-stop-synthetic")));
+        let (started, started_rx) = oneshot::channel();
+        let (release, release_rx) = std::sync::mpsc::channel();
+        state.watcher_stops.schedule(Box::new(move || {
+            started.send(()).ok();
+            release_rx.recv().unwrap();
+        }));
+        tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), started_rx)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let runtime = tokio::runtime::Handle::current();
+        let mut drain = ExitDrain::new(AiRequestStore::new()).with_state(state);
+        let (finished, mut finished_rx) = oneshot::channel();
+        assert!(drain.begin(
+            &runtime,
+            TaskSupervisor::new(runtime.clone()),
+            LspInstallStore::new(),
+            LspStore::new(),
+            TerminalStore::new(),
+            move || {
+                finished.send(()).ok();
+            },
+        ));
+        assert!(tokio::time::timeout(Duration::from_millis(AI_PENDING_PROBE_MS), &mut finished_rx)
+            .await
+            .is_err());
+        assert!(!drain.is_ready());
+        release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), finished_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(drain.is_ready());
+    }
+
+    #[tokio::test]
+    async fn 직접_종료는_폐기된_watcher의_실제_중지_완료를_기다린다() {
+        let state = AppState::new(AppPaths::new(std::env::temp_dir().join("taide-watcher-stop-synthetic")));
+        let (started, started_rx) = oneshot::channel();
+        let (release, release_rx) = std::sync::mpsc::channel();
+        state.watcher_stops.schedule(Box::new(move || {
+            started.send(()).ok();
+            release_rx.recv().unwrap();
+        }));
+        tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), started_rx)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let drain = ExitDrain::new(AiRequestStore::new()).with_state(state);
+        let direct_exit = drain.wait_for_direct_exit(
+            TaskSupervisor::new(tokio::runtime::Handle::current()),
+            LspInstallStore::new(),
+            LspStore::new(),
+            TerminalStore::new(),
+        );
+        tokio::pin!(direct_exit);
+        assert!(tokio::time::timeout(Duration::from_millis(AI_PENDING_PROBE_MS), &mut direct_exit)
+            .await
+            .is_err());
+        release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), direct_exit)
+            .await
+            .unwrap()
+            .unwrap();
+    }
 
     #[tokio::test]
     async fn 직접_종료는_감독_작업_설치_ai_owner의_완료를_모두_기다린다() {
