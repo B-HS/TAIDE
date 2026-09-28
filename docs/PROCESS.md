@@ -959,6 +959,8 @@
   - [ ] M7-C. 저장 데이터·IPC fixture와 사용자 실기 회귀를 검증합니다. M6 실제 GUI·직접 Exit와 Phase 0 선행 조건은 별도로 미완료입니다.
     - [x] M7-C1. `remote-wire-session-v1.json`으로 현재 host/origin 정책·link/nonce/session revoke·password 검증·binary/JSON frame을 비시크릿 기준선으로 고정했습니다. 새 test target 3건·대상 Clippy·Rust fmt·JSON Prettier가 exit 0입니다. 실제 HTTP/WebSocket handshake·cookie·TTL·전송 큐는 별도 미완료로 남깁니다.
     - [ ] M7-C1b. 실제 HTTP/WebSocket handshake·cookie·TTL·전송 큐 경계의 비시크릿 fixture와 검증을 완료합니다.
+      - [x] M7-C1b-1. 현행 `make_channel_factory`의 JSON→binary→channel-end 순서와 index를 대상 테스트 1건으로 확인했습니다. 대상 lib Clippy·Rust fmt/diff·QA MD Prettier가 exit 0이며 실제 WebSocket writer·HTTP router 실기가 아니라는 한계를 QA에 기록했습니다.
+      - [ ] M7-C1b-2. 실제 HTTP/WebSocket upgrade·cookie 왕복·세션 TTL·전송 큐 상한/느린 수신자 경계를 격리 실행에서 검증합니다.
     - [ ] M7-C2. IDE/MCP 및 CLI wait marker의 실제 요청·응답·수명 경계를 fixture로 고정합니다.
       - [x] M7-C2a. `ide-mcp-wire-v1.json`과 CLI marker 이름 fixture로 protocol API 3건·CLI bin 18건을 확인했습니다. UUID 임시 marker의 timeout·제거를 포함해 대상 Clippy·Rust fmt가 exit 0입니다. 실제 IDE WebSocket과 앱의 CLI marker 수명은 검증하지 않았습니다.
       - [ ] M7-C2b. 실제 IDE WebSocket 인증·tool handler와 앱 인수 전달·파일 닫기 시 CLI marker 제거를 검증합니다.

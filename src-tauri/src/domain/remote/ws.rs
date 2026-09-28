@@ -313,13 +313,15 @@ mod tests {
     }
 
     #[test]
-    fn 수신자가_살아있는_채널은_송신_성공을_ok으로_반환한다() {
+    fn 수신자가_살아있는_채널은_json_binary_end를_순서대로_전송한다() {
         let (tx, mut rx) = mpsc::unbounded_channel::<WsOut>();
         let sink = make_channel_factory(tx)("1".to_string());
 
-        let result = sink(InvokeResponseBody::Json("{}".to_string()));
+        let json_result = sink(InvokeResponseBody::Json("{}".to_string()));
+        let binary_result = sink(InvokeResponseBody::Raw(vec![0, 255]));
 
-        assert!(result.is_ok());
+        assert!(json_result.is_ok());
+        assert!(binary_result.is_ok());
         let Ok(WsOut::Text(frame)) = rx.try_recv() else {
             panic!("채널 JSON 프레임을 수신해야 한다");
         };
@@ -327,6 +329,10 @@ mod tests {
             serde_json::from_str::<Value>(&frame).unwrap(),
             serde_json::json!({ "t": "chan", "channelId": 1, "index": 0, "message": {} })
         );
+        let Ok(WsOut::Binary(frame)) = rx.try_recv() else {
+            panic!("채널 binary 프레임을 JSON 다음에 수신해야 한다");
+        };
+        assert_eq!(frame, channel_binary_frame(1, 1, &[0, 255]));
 
         drop(sink);
         let Ok(WsOut::Text(frame)) = rx.try_recv() else {
@@ -334,7 +340,7 @@ mod tests {
         };
         assert_eq!(
             serde_json::from_str::<Value>(&frame).unwrap(),
-            serde_json::json!({ "t": "chanEnd", "channelId": 1, "index": 1 })
+            serde_json::json!({ "t": "chanEnd", "channelId": 1, "index": 2 })
         );
     }
 
