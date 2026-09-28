@@ -801,9 +801,11 @@ pub fn run() {
     let mut exit_drain: Option<ExitDrain> = None;
 
     #[cfg(debug_assertions)]
-    builder
-        .export(specta_typescript::Typescript::default(), BINDINGS_PATH)
-        .expect("failed to export typescript bindings");
+    if tauri::is_dev() {
+        builder
+            .export(specta_typescript::Typescript::default(), BINDINGS_PATH)
+            .expect("failed to export typescript bindings");
+    }
 
     let specta_handler = builder.invoke_handler();
     let raw_channel_handler: Box<dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync> = Box::new(tauri::generate_handler![
