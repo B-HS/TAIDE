@@ -12,6 +12,8 @@
 
 [앱 provider inventory](2026-09-29-ts-provider-inventory.md)는 추가 11개 경로의 전역 이벤트·설정·창 상태 동기화 책임을 연결합니다. 네 문서의 중복 제외 직접 연결 경로는 118개, 남은 경로는 94개입니다. 각 provider의 실제 GUI·접근성 동작은 별도 검증이 필요합니다.
 
+[하위 feature inventory A](2026-09-29-ts-feature-inventory-a.md)는 command palette·editor·explorer·Git의 추가 21개 경로를 연결합니다. 다섯 문서의 중복 제외 직접 연결 경로는 139개, 남은 경로는 73개입니다. 실제 화면 상태·접근성 판정은 남아 있습니다.
+
 ## 창·화면 진입점
 
 | 화면/경계 | 현행 컴포넌트와 상태·동작 | 확인한 자동 근거 | 남은 실기·접근성 확인 |

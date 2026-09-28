@@ -983,7 +983,8 @@
           - [x] M7-C4b-2b-1. 이름이 dialog/menu/popover/modal로 끝나는 26개 경로의 앱별 열림·선택 경계와 공용 wrapper 책임을 [overlay inventory](quality-assurance/2026-09-28-ts-overlay-inventory.md)에 기록했습니다. 두 문서의 직접 연결 경로는 중복 제외 70개이고 대상 MD Prettier·경로 존재·diff 검사가 exit 0입니다. 실제 접근성·상호작용은 미검증입니다.
           - [x] M7-C4b-2b-2. 설정 section 17개와 입력 feature 22개의 경로·주요 상태/조작을 [설정 inventory](quality-assurance/2026-09-28-ts-settings-inventory.md)에 연결했습니다. 세 문서의 중복 제외 직접 연결 107개·남은 105개를 확인했고 대상 MD Prettier·경로 존재·diff 검사가 exit 0입니다. 실제 저장·오류·접근성은 미검증입니다.
           - [x] M7-C4b-2b-3. 앱 provider 11개의 전역 이벤트·설정·창 상태 책임과 기존 자동 근거·실기 공백을 [provider inventory](quality-assurance/2026-09-29-ts-provider-inventory.md)에 연결했습니다. 네 문서의 중복 제외 직접 연결 118개·남은 94개이며 실제 GUI·접근성은 미검증입니다.
-          - [ ] M7-C4b-2b. 남은 94개 경로의 화면 역할·상태·동작·자동 근거를 개별 연결하고 실제 시각/접근성 검사를 마칩니다.
+          - [x] M7-C4b-2b-4. Command palette·editor·explorer·Git 하위 feature 21개의 상태·행동·자동 근거·실기 공백을 [feature inventory A](quality-assurance/2026-09-29-ts-feature-inventory-a.md)에 연결했습니다. 다섯 문서의 중복 제외 직접 연결 139개·남은 73개입니다.
+          - [ ] M7-C4b-2b. 남은 73개 경로의 화면 역할·상태·동작·자동 근거를 개별 연결하고 실제 시각/접근성 검사를 마칩니다.
       - [ ] M7-C4c. 동일 기기·fixture의 release 성능 반복 측정과 GUI·직접 Exit 사용자 회귀를 완료합니다.
         - [x] M7-C4c-1. 전용 identifier의 release `.app` 빌드와 로컬 ad hoc 서명 검증이 exit 0이고 첫 창과 `⌘Q` 뒤 IDE listener·격리 lockfile 정리를 확인했습니다. [release 실측 기록](history/2026-09-29-m6-release-app-smoke.md)에 구분했으며 배포 서명·공증, 기능 전수·성능 수치는 검증하지 않았습니다.
         - [ ] M7-C4c-2. 동일 기기·fixture에서 성능 지표를 3회 반복해 중앙값을 기록하고 GUI·직접 Exit 회귀를 완료합니다.
