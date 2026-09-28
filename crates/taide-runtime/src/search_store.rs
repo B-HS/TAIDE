@@ -39,6 +39,12 @@ impl SearchStore {
             cancelled.store(true, Ordering::SeqCst);
         }
     }
+
+    pub fn cancel_all(&self) {
+        for cancelled in self.0.lock().values() {
+            cancelled.store(true, Ordering::SeqCst);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -119,5 +125,17 @@ mod tests {
 
         assert!(second_window_flag.load(Ordering::SeqCst));
         assert!(!main_flag.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn 전체_종료는_현재_검색_세션을_모두_취소한다() {
+        let store = SearchStore::new();
+        let main = store.begin("main", "panel");
+        let editor = store.begin("editor", "selection");
+
+        store.cancel_all();
+
+        assert!(main.load(Ordering::SeqCst));
+        assert!(editor.load(Ordering::SeqCst));
     }
 }

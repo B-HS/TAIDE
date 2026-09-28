@@ -1130,6 +1130,8 @@ pub fn run() {
                 domain::agent::hooks::stop_hooks_server(app_handle);
                 domain::ide::commands::stop_server(app_handle, &app_handle.state::<IdeStore>());
                 domain::remote::commands::stop_server(app_handle, &app_handle.state::<RemoteStore>());
+                app_handle.state::<TaskSupervisor>().stop_all();
+                app_handle.state::<domain::search::commands::SearchStore>().cancel_all();
             }
             if let tauri::RunEvent::ExitRequested { api, code, .. } = &event {
                 let exit_drain =
@@ -1345,6 +1347,21 @@ mod tests {
             registered, expected,
             "project_capabilities 의 등록 순서가 계약과 다릅니다 — 이 순서는 project_close 의 자원 회수 순서 그 자체입니다"
         );
+    }
+
+    #[test]
+    fn 앱_종료는_검색_신규_입장을_닫고_현재_세션을_취소한다() {
+        let source = include_str!("lib.rs");
+        let shutdown = extract_between(
+            source,
+            "if matches!(&event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {",
+            "\n            }\n            if let tauri::RunEvent::ExitRequested",
+        );
+        let stopped = shutdown.find("app_handle.state::<TaskSupervisor>().stop_all()").unwrap();
+        let cancelled = shutdown
+            .find("app_handle.state::<domain::search::commands::SearchStore>().cancel_all()")
+            .unwrap();
+        assert!(stopped < cancelled);
     }
 
     #[test]

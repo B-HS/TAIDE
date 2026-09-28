@@ -1,8 +1,10 @@
+use std::sync::Arc;
+
 use tauri::ipc::Channel;
 use tauri::{AppHandle, State};
 
-use taide_runtime::search_actions;
 pub use taide_runtime::SearchStore;
+use taide_runtime::{search_actions, AppServices, TaskSupervisor};
 
 use super::types::{SearchFileMatches, SearchQuery, SearchReplaceResult};
 use crate::error::AppResult;
@@ -13,8 +15,7 @@ use crate::state::AppState;
 #[tauri::command]
 #[specta::specta]
 pub async fn search_run(
-    state: State<'_, AppState>,
-    store: State<'_, SearchStore>,
+    services: State<'_, Arc<AppServices>>,
     project_id: ProjectId,
     owner: String,
     session_id: String,
@@ -22,9 +23,20 @@ pub async fn search_run(
     on_match: Channel<SearchFileMatches>,
 ) -> AppResult<u32> {
     let _span = perf::span(SpanSlot::SearchRun);
-    search_actions::search_run(&state, &store, project_id, owner, session_id, query, move |batch| {
-        let _ = on_match.send(batch);
-    })
+    search_actions::search_run(
+        search_actions::SearchRunContext {
+            state: &services.state,
+            store: &services.search,
+            tasks: &services.tasks,
+        },
+        project_id,
+        owner,
+        session_id,
+        query,
+        move |batch| {
+            let _ = on_match.send(batch);
+        },
+    )
     .await
 }
 
@@ -47,12 +59,13 @@ pub async fn search_run(
 pub async fn search_replace(
     _app: AppHandle,
     state: State<'_, AppState>,
+    tasks: State<'_, TaskSupervisor>,
     project_id: ProjectId,
     query: SearchQuery,
     replacement: String,
     paths: Option<Vec<String>>,
 ) -> AppResult<SearchReplaceResult> {
-    search_actions::search_replace(&state, project_id, query, replacement, paths).await
+    search_actions::search_replace(&state, &tasks, project_id, query, replacement, paths).await
 }
 
 #[tauri::command]
@@ -72,10 +85,14 @@ pub async fn search_cancel(state: State<'_, AppState>, store: State<'_, SearchSt
 /// I/O and must not block the async runtime.
 #[tauri::command]
 #[specta::specta]
-pub async fn search_list_files(state: State<'_, AppState>, project_id: ProjectId) -> AppResult<Vec<String>> {
+pub async fn search_list_files(
+    state: State<'_, AppState>,
+    tasks: State<'_, TaskSupervisor>,
+    project_id: ProjectId,
+) -> AppResult<Vec<String>> {
     let _span = perf::span(SpanSlot::SearchListFiles);
     let started = std::time::Instant::now();
-    let paths = search_actions::search_list_files(&state, project_id.clone()).await?;
+    let paths = search_actions::search_list_files(&state, &tasks, project_id.clone()).await?;
     log::debug!(
         "search_list_files 완료 (projectId={project_id}, 건수={}, 소요={}ms)",
         paths.len(),

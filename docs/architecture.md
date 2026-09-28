@@ -356,6 +356,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     settings apply callback은 기존 SettingsApplyPort를 호출하며 보호 설정 strip·기존 payload와 best-effort 파일 적용을 바꾸지 않는다.
     runtime은 이미 workspace에 있는 taide-sync/serde_json을 직접 참조하고 normal graph에 Tauri는 없다. HTTP/keyring 실기·요청 취소와 정상 root 회수는 미완료다.
     `taide-runtime::search_actions`는 프로젝트 루트 확인, 검색 세션 시작/완료/취소, blocking 검색·목록·치환과 파일별 guard/self-write/skip 집계를 소유한다.
+    검색·치환 대상 스캔/파일별 치환·목록의 blocking worker는 등록 TaskSupervisor가 실제 완료까지 추적한다. 검색 세션 finish는 worker 소유로 요청 취소·panic 뒤에도 실행하고, 종료 시 신규 입장을 닫은 뒤 현재 세션의 취소 flag를 설정한다.
     검색 batch는 주입된 Send callback으로 전달하고 Tauri adapter만 기존 Channel 전송을 수행한다.
     치환 worker는 AppHandle 대신 같은 AppState clone을 사용한다. 전체 pass가 아니라 파일마다 mutation guard를 취득하며 기존 root guard·skip 상한을 보존한다.
     검색 목록은 비UTF-8 경로를 lossy 문자열로 바꾸지 않고 제외한다. 기존 synthetic Unix 경로 unit도 runtime에 있다.

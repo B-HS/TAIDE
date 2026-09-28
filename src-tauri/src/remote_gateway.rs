@@ -935,7 +935,6 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
         "search_run" => respond(
             search::search_run(
                 app.state(),
-                app.state(),
                 arg!(args, "projectId"),
                 arg!(args, "owner"),
                 arg!(args, "sessionId"),
@@ -948,6 +947,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             search::search_replace(
                 app.clone(),
                 app.state(),
+                app.state(),
                 arg!(args, "projectId"),
                 arg!(args, "query"),
                 arg!(args, "replacement"),
@@ -956,7 +956,7 @@ pub async fn dispatch(app: &AppHandle, name: &str, args: Value, channel_factory:
             .await,
         ),
         "search_cancel" => respond(search::search_cancel(app.state(), app.state(), arg!(args, "owner"), arg!(args, "sessionId")).await),
-        "search_list_files" => respond(search::search_list_files(app.state(), arg!(args, "projectId")).await),
+        "search_list_files" => respond(search::search_list_files(app.state(), app.state(), arg!(args, "projectId")).await),
 
         "plugin_list" => respond(plugin::plugin_list(app.state(), app.state()).await),
         "plugin_reload" => respond(plugin::plugin_reload(app.state(), app.state()).await),

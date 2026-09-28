@@ -10,13 +10,14 @@ use taide_model::ids::ProjectId;
 use taide_model::paths::AppPaths;
 use taide_model::project::Project;
 use taide_model::search::{ReplaceSkipReason, SearchQuery};
-use taide_runtime::{search_actions, AppState, SearchStore};
+use taide_runtime::{search_actions, AppState, SearchStore, TaskSupervisor};
 use uuid::Uuid;
 
 struct Fixture {
     dir: PathBuf,
     root: PathBuf,
     state: AppState,
+    tasks: TaskSupervisor,
     project_id: ProjectId,
 }
 
@@ -43,6 +44,7 @@ impl Fixture {
             dir,
             root,
             state,
+            tasks: TaskSupervisor::new(tokio::runtime::Handle::current()),
             project_id,
         }
     }
@@ -81,8 +83,11 @@ async fn 검색과_목록은_공유_프로젝트_루트를_사용하고_batch와
     let batches = Arc::new(Mutex::new(Vec::new()));
     let recorded = batches.clone();
     let count = search_actions::search_run(
-        &fixture.state,
-        &store,
+        search_actions::SearchRunContext {
+            state: &fixture.state,
+            store: &store,
+            tasks: &fixture.tasks,
+        },
         fixture.project_id.clone(),
         "main".to_string(),
         "panel".to_string(),
@@ -99,19 +104,22 @@ async fn 검색과_목록은_공유_프로젝트_루트를_사용하고_batch와
         assert_eq!(records[0].matches[0].line, 1);
     }
     assert_eq!(
-        search_actions::search_list_files(&fixture.state, fixture.project_id.clone())
+        search_actions::search_list_files(&fixture.state, &fixture.tasks, fixture.project_id.clone())
             .await
             .expect("파일 목록"),
         [path]
     );
     let missing = ProjectId::new();
-    assert!(search_actions::search_list_files(&fixture.state, missing)
+    assert!(search_actions::search_list_files(&fixture.state, &fixture.tasks, missing)
         .await
         .is_err_and(|error| error.kind() == AppErrorKind::NotFound));
     let first = store.begin("main", "panel");
     search_actions::search_run(
-        &fixture.state,
-        &store,
+        search_actions::SearchRunContext {
+            state: &fixture.state,
+            store: &store,
+            tasks: &fixture.tasks,
+        },
         fixture.project_id.clone(),
         "main".to_string(),
         "panel".to_string(),
@@ -164,6 +172,7 @@ async fn 치환은_외부_경로를_제외하고_파일별_결과와_skip을_집
     std::fs::write(&outside, "needle").expect("외부 파일");
     let result = search_actions::search_replace(
         &fixture.state,
+        &fixture.tasks,
         fixture.project_id.clone(),
         query("needle"),
         "changed".to_string(),
@@ -203,6 +212,49 @@ async fn 치환은_외부_경로를_제외하고_파일별_결과와_skip을_집
     assert_eq!(std::fs::read_to_string(matched).expect("치환 결과"), "changed");
     assert_eq!(std::fs::read_to_string(no_match).expect("불일치 보존"), "other");
     assert_eq!(std::fs::read_to_string(outside).expect("외부 보존"), "needle");
+}
+
+#[tokio::test]
+async fn 닫힌_감독자는_검색_목록과_치환의_신규_작업을_거절한다() {
+    let fixture = Fixture::new();
+    let path = fixture.path("needle.txt");
+    std::fs::write(&path, "needle").unwrap();
+    let store = SearchStore::new();
+    let active = store.begin("main", "panel");
+    fixture.tasks.stop_all();
+
+    let run = search_actions::search_run(
+        search_actions::SearchRunContext {
+            state: &fixture.state,
+            store: &store,
+            tasks: &fixture.tasks,
+        },
+        fixture.project_id.clone(),
+        "main".to_string(),
+        "panel".to_string(),
+        query("needle"),
+        |_| {},
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(run.kind(), AppErrorKind::Forbidden);
+    assert!(!active.load(Ordering::SeqCst));
+    let list = search_actions::search_list_files(&fixture.state, &fixture.tasks, fixture.project_id.clone())
+        .await
+        .unwrap_err();
+    assert_eq!(list.kind(), AppErrorKind::Forbidden);
+    let replace = search_actions::search_replace(
+        &fixture.state,
+        &fixture.tasks,
+        fixture.project_id.clone(),
+        query("needle"),
+        "changed".to_string(),
+        None,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(replace.kind(), AppErrorKind::Forbidden);
+    assert_eq!(std::fs::read_to_string(path).unwrap(), "needle");
 }
 
 #[test]
