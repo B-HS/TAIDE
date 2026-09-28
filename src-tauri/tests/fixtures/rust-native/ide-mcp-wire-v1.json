@@ -1,0 +1,46 @@
+{
+    "schemaVersion": 1,
+    "initialize": {
+        "request": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": { "protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": { "name": "fixture-client", "version": "1" } }
+        },
+        "response": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": { "protocolVersion": "2025-03-26", "serverInfo": { "name": "TAIDE", "version": "fixture" }, "capabilities": { "tools": {} } }
+        }
+    },
+    "toolsList": {
+        "request": { "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {} },
+        "names": [
+            "openFile",
+            "openDiff",
+            "getCurrentSelection",
+            "getLatestSelection",
+            "getOpenEditors",
+            "getWorkspaceFolders",
+            "getDiagnostics",
+            "checkDocumentDirty",
+            "saveDocument",
+            "close_tab",
+            "closeAllDiffTabs",
+            "executeCode"
+        ]
+    },
+    "toolCall": {
+        "request": {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": { "name": "saveDocument", "arguments": { "uri": "file:///fixture.rs" } }
+        },
+        "response": { "jsonrpc": "2.0", "id": 3, "result": { "content": [{ "type": "text", "text": "FILE_SAVED" }] } }
+    },
+    "invalidParams": {
+        "response": { "jsonrpc": "2.0", "id": 4, "error": { "code": -32602, "message": "invalid fixture argument" } }
+    },
+    "notification": { "jsonrpc": "2.0", "method": "at_mentioned", "params": { "filePath": "/fixture.rs", "lineStart": 1, "lineEnd": 2 } }
+}

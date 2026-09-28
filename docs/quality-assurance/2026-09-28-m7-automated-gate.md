@@ -27,7 +27,10 @@
 - [x] 권한 허용 Rust workspace 전체 테스트의 최종 exit 확인
 - [x] Rust workspace Clippy의 최종 exit 확인
 - [x] `remote-wire-session-v1.json`의 서비스·store·protocol API 기준 3건, 해당 test target Clippy, Rust fmt와 JSON Prettier 확인
+- [x] `ide-mcp-wire-v1.json` protocol API 3건·CLI marker bin 18건과 각 대상 Clippy 확인
 - [ ] 저장 데이터·IPC fixture와 실제 앱 GUI·직접 Exit·사용자 회귀 확인
 - [ ] M6와 Phase 0 선행 조건을 충족한 뒤 M7 전체 완료 판정
 
 remote fixture는 Host/Origin 허용·거부, 일회용 link/nonce·세션 폐기, password 검증 결과와 JSON/binary frame을 실제 API 결과와 비교했습니다. `cargo test --offline -p taide --test rust_native_phase0_remote_fixture --quiet`는 3건 통과, exit 0이고 `cargo clippy --offline -p taide --test rust_native_phase0_remote_fixture -- -D warnings`도 exit 0입니다. 실제 HTTP/WebSocket handshake·cookie·TTL·전송 큐는 실행하지 않았으므로 Phase 0의 remote fixture 전체와 M7-C는 아직 미완료입니다.
+
+IDE/MCP fixture는 현행 `2025-03-26`의 initialize·tools/list·tools/call 및 오류·알림 wire를 protocol API와 비교했습니다. `cargo test --offline -p taide --test rust_native_phase0_ide_fixture --quiet` 3건과 해당 대상 Clippy가 exit 0입니다. CLI는 고유 UUID 임시 디렉터리에서 marker 생성·즉시 timeout·제거 뒤 완료를 확인했으며 `cargo test --offline -p taide-cli --bin taide-cli --quiet` 18건과 해당 all-target Clippy가 exit 0입니다. 실제 IDE WebSocket 인증·tool handler, 앱의 CLI marker 인수 전달·닫기 시 제거는 실행하지 않아 Phase 0의 IDE/CLI 항목은 미완료입니다.

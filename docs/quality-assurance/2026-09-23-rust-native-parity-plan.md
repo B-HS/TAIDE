@@ -17,7 +17,7 @@
 
 - [x] command, event, raw channel 이름·payload·error code manifest — `src-tauri/tests/fixtures/rust-native/ipc-contract-manifest.json`, `src-tauri/tests/rust_native_phase0_contract.rs`
 - [ ] remote allow·deny, authentication, session revoke와 binary channel fixture — `remote-wire-session-v1.json`의 서비스·store·protocol API 3건은 통과; 실제 HTTP/WebSocket handshake·cookie·TTL·전송 큐 기준선은 미완료
-- [ ] IDE/MCP request·response와 CLI `taide --wait` marker fixture
+- [ ] IDE/MCP request·response와 CLI `taide --wait` marker fixture — IDE protocol API 3건과 CLI marker 이름·timeout·제거를 포함한 bin 18건은 통과; 실제 WebSocket 인증·도구 수행과 앱 연계 marker 수명은 미완료
 - [ ] settings, session, project, layout, hot-exit buffer의 versioned fixture
 - [ ] `docs/quality-assurance/2026-09-04-perf-baseline.md` 실기 지표 작성
 - [ ] editor, LSP, terminal, preview, shell 기능 inventory에 근거 파일·시험 연결

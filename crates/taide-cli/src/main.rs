@@ -327,6 +327,10 @@ fn main() {
 mod tests {
     use super::*;
 
+    const WAIT_MARKER_NAME: &str = include_str!("../tests/fixtures/wait-marker-v1.txt");
+    const WAIT_FIXTURE_REMOVE_DELAY_MS: u64 = 20;
+    const WAIT_FIXTURE_TIMEOUT_SECS: u64 = 5;
+
     #[test]
     fn 파일_하나만_주면_wait_없이_파싱된다() {
         let args = vec!["file.txt".to_string()];
@@ -398,10 +402,30 @@ mod tests {
         let marker = build_wait_marker_path(Path::new("/tmp"), id);
         assert_eq!(
             marker,
-            PathBuf::from(format!(
-                "/tmp/{WAIT_MARKER_PREFIX}00000000-0000-0000-0000-000000000000"
-            ))
+            PathBuf::from("/tmp").join(WAIT_MARKER_NAME.trim_end())
         );
+    }
+
+    #[test]
+    fn wait_마커는_존재하면_timeout하고_제거되면_완료된다() {
+        let directory = env::temp_dir().join(format!("taide-cli-fixture-{}", Uuid::new_v4()));
+        fs::create_dir(&directory).expect("fixture directory");
+        let marker = build_wait_marker_path(&directory, Uuid::new_v4());
+        fs::write(&marker, b"").expect("fixture marker");
+
+        let timed_out = !block_until_marker_removed(&marker, Duration::ZERO);
+        let removal_marker = marker.clone();
+        let remover = std::thread::spawn(move || {
+            sleep(Duration::from_millis(WAIT_FIXTURE_REMOVE_DELAY_MS));
+            fs::remove_file(removal_marker).expect("remove fixture marker");
+        });
+        let completed =
+            block_until_marker_removed(&marker, Duration::from_secs(WAIT_FIXTURE_TIMEOUT_SECS));
+        remover.join().expect("marker removal thread");
+        fs::remove_dir(&directory).expect("remove fixture directory");
+
+        assert!(timed_out);
+        assert!(completed);
     }
 
     #[test]
