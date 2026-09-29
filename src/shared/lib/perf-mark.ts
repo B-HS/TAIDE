@@ -1,4 +1,6 @@
 const IS_DEV_BUILD = import.meta.env.DEV === true
+const FIRST_PAINT_ENTRY_NAME = 'first-paint'
+const FIRST_CONTENTFUL_PAINT_ENTRY_NAME = 'first-contentful-paint'
 
 /**
  * Session cap on the User Timing entries this module hands to the browser. Marks and measures both
@@ -18,6 +20,7 @@ export const PERF_MARK_LIMIT = 500
  */
 export const PERF_MARK = {
     BOOT_MODULE_EVALUATED: 'boot.module-evaluated',
+    BOOT_WINDOW_SHOWN: 'boot.window-shown',
     PROJECT_SWITCH_REQUESTED: 'project.switch-requested',
     FILE_OPEN_REQUESTED: 'file.open-requested',
     TREE_TOGGLE_REQUESTED: 'tree.toggle-requested',
@@ -50,6 +53,8 @@ export type PerfMeasureName = (typeof PERF_MEASURE)[keyof typeof PERF_MEASURE]
 export const PERF_COUNTER = {
     TERMINAL_OUTPUT_BYTES: 'terminal.output-bytes',
     TERMINAL_OUTPUT_CHUNKS: 'terminal.output-chunks',
+    TERMINAL_PARSED_BYTES: 'terminal.parsed-bytes',
+    TERMINAL_RENDER_FRAMES: 'terminal.render-frames',
 } as const
 
 export type PerfCounterName = (typeof PERF_COUNTER)[keyof typeof PERF_COUNTER]
@@ -72,6 +77,8 @@ const counterTotals = new Map<PerfCounterName, number>()
 
 let isEnabled = resolvePerfEnabled(IS_DEV_BUILD, null)
 let emittedEntryCount = 0
+let terminalLastParsedAtMs: number | null = null
+let terminalLastRenderedAtMs: number | null = null
 
 export const applyNativePerfGate = (nativeGate: boolean) => {
     isEnabled = resolvePerfEnabled(IS_DEV_BUILD, nativeGate)
@@ -91,7 +98,7 @@ const claimEntryBudget = () => {
  * so a measure taken *after* the gate flips on (the boot case: the entry point marks before any IPC
  * could have told the front end that `TAIDE_PERF=1` in a release build) still reports a real
  * duration instead of vanishing. That unconditional half costs one clock read and one `Map.set` at
- * seven low-frequency sites; the `performance.mark` that makes the point visible in the devtools
+ * eight low-frequency sites; the `performance.mark` that makes the point visible in the devtools
  * timeline is the part the gate — and {@link PERF_MARK_LIMIT} — actually withhold. High-frequency
  * paths must use {@link perfCount}, which is a true no-op while off.
  *
@@ -146,11 +153,33 @@ export const perfCount = (name: PerfCounterName, amount = 1) => {
     counterTotals.set(name, (counterTotals.get(name) ?? 0) + amount)
 }
 
+export const perfRecordTerminalParsed = (bytes: number) => {
+    if (!isEnabled) return
+    perfCount(PERF_COUNTER.TERMINAL_PARSED_BYTES, bytes)
+    terminalLastParsedAtMs = performance.timeOrigin + performance.now()
+}
+
+export const perfRecordTerminalRendered = () => {
+    if (!isEnabled) return
+    perfCount(PERF_COUNTER.TERMINAL_RENDER_FRAMES)
+    terminalLastRenderedAtMs = performance.timeOrigin + performance.now()
+}
+
 export type PerfReport = {
     enabled: boolean
     emittedEntryCount: number
     measures: ({ name: PerfMeasureName } & PerfMeasureStat)[]
     counters: { name: PerfCounterName; total: number }[]
+    bootPaint: {
+        timeOriginMs: number
+        windowShownAtMs: number | null
+        firstPaintAtMs: number | null
+        firstContentfulPaintAtMs: number | null
+    } | null
+    terminalTiming: {
+        lastParsedAtMs: number | null
+        lastRenderedAtMs: number | null
+    }
 }
 
 /**
@@ -158,12 +187,27 @@ export type PerfReport = {
  * `perf_snapshot`'s reply carries it: an empty report means "instrumentation is off" or "nothing
  * happened", and only this flag separates the two.
  */
-export const buildPerfReport = (): PerfReport => ({
-    enabled: isEnabled,
-    emittedEntryCount,
-    measures: [...measureStats].map(([name, stat]) => ({ name, ...stat })),
-    counters: [...counterTotals].map(([name, total]) => ({ name, total })),
-})
+export const buildPerfReport = (): PerfReport => {
+    const hasBootMeasure = measureStats.has(PERF_MEASURE.BOOT_REVEAL)
+    const paintEntries = isEnabled && hasBootMeasure ? performance.getEntriesByType('paint') : []
+
+    return {
+        enabled: isEnabled,
+        emittedEntryCount,
+        measures: [...measureStats].map(([name, stat]) => ({ name, ...stat })),
+        counters: [...counterTotals].map(([name, total]) => ({ name, total })),
+        terminalTiming: { lastParsedAtMs: terminalLastParsedAtMs, lastRenderedAtMs: terminalLastRenderedAtMs },
+        bootPaint:
+            isEnabled && hasBootMeasure
+                ? {
+                      timeOriginMs: performance.timeOrigin,
+                      windowShownAtMs: markTimestamps.get(PERF_MARK.BOOT_WINDOW_SHOWN) ?? null,
+                      firstPaintAtMs: paintEntries.find((entry) => entry.name === FIRST_PAINT_ENTRY_NAME)?.startTime ?? null,
+                      firstContentfulPaintAtMs: paintEntries.find((entry) => entry.name === FIRST_CONTENTFUL_PAINT_ENTRY_NAME)?.startTime ?? null,
+                  }
+                : null,
+    }
+}
 
 /**
  * Prints the report to the devtools console — what the `app.showPerfSnapshot` command runs. Console
@@ -185,4 +229,6 @@ export const resetPerfMetrics = () => {
     measureStats.clear()
     counterTotals.clear()
     emittedEntryCount = 0
+    terminalLastParsedAtMs = null
+    terminalLastRenderedAtMs = null
 }

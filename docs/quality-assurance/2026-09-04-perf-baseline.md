@@ -54,8 +54,8 @@ TAIDE_PERF=1 /Applications/TAIDE.app/Contents/MacOS/TAIDE       # 설치본 실�
 
 | # | 지표 | 조작 | 읽는 곳 (프론트 / Rust) | 측정값 | 체크 |
 |---|------|------|------------------------|--------|------|
-| 1 | 부팅 → 첫 페인트 | 앱을 완전히 종료했다 다시 실행 | `boot.reveal` / `setup.main_window`·`setup.locale_warm`·`setup.state_restore`·`setup.deferred_restore` | FE 52ms; Rust 75.739·0.580·0.568·1.982ms(각 1회). 전체 첫 페인트 시간은 아님 | [ ] |
-| 2 | 프로젝트 전환 | 사이드바에서 **다른** 프로젝트 클릭(이번 실행에서 처음 여는 것) | `project.switch` / `project_open`·`project_activate` | 복원 프로젝트 전환 FE 11ms·Rust `project_activate` 11.006ms, `project_open` 0회. 첫 열기 아님 | [ ] |
+| 1 | 부팅 → 첫 페인트 | 앱을 완전히 종료했다 다시 실행 | `boot.reveal` / `setup.main_window`·`setup.locale_warm`·`setup.state_restore`·`setup.deferred_restore` | OS 프로세스 시작→WebKit 첫 콘텐츠 페인트 약 1119.420ms, 창 표시 완료 약 1120.420ms. `first-paint` 누락·콘텐츠 페인트가 표시 완료보다 1ms 앞서 정확한 첫 가시 페인트는 미판정 | [ ] |
+| 2 | 프로젝트 전환 | 사이드바에서 **다른** 프로젝트 클릭(이번 실행에서 처음 여는 것) | `project.switch` / `project_open`·`project_activate` | 이번 프로세스에서 처음 연 닫힌 합성 프로젝트를 native `File > Open Recent`로 선택: FE 31ms·Rust `project_open` 40.844ms(각 1회). 사이드바 클릭은 아니며 같은 디스크 경로의 과거 프로세스 캐시는 남아 있음 | [x] |
 | 3-a | 파일 열기 (소, 1KB) | 탐색기에서 1KB 파일을 **처음** 연다 | `file.open` / `file_open` | FE 91ms; Rust 0.145ms(각 1회) | [x] |
 | 3-b | 파일 열기 (대, 1MB) | 탐색기에서 1MB 파일을 **처음** 연다 | `file.open` / `file_open` | FE 20ms; Rust 1.224ms(각 1회) | [x] |
 | 4-a | 팔레트 열기 | ⌘⇧P | `palette.open` / — | FE 3ms | [x] |
@@ -63,7 +63,7 @@ TAIDE_PERF=1 /Applications/TAIDE.app/Contents/MacOS/TAIDE       # 설치본 실�
 | 5 | 트리 펼침 | 파일 200개 이상인 디렉터리를 펼친다 | `tree.toggle` / `tree_toggle` | FE 8ms; Rust 0.305ms(각 1회) | [x] |
 | 6 | git status | 변경 20건 이상인 상태에서 git 뷰를 연다 | — / `git_status` | Rust 15.717ms(1회), 변경 20건 표시 | [x] |
 | 7 | 전역 검색 | 200건 이상 매치되는 단어를 검색 | `search.results` / `search_run`·`search_list_files` | 5,000건 Enter 검색: FE 62ms, Rust `search_run` 83.306ms(각 1회), 캐시된 `search_list_files` 0회 | [x] |
-| 8 | 터미널 출력 처리량 | 터미널에서 `seq 2000000` 을 실행하고, 실행 전후로 스냅샷을 1회씩 (경과 초와 함께) | `terminal.output-bytes`·`terminal.output-chunks` / `pty.output_bytes`·`pty.output_chunks` | Rust 증가분 기준 약 14.25MB/s; FE 시작값 미보관 | [ ] |
+| 8 | 터미널 출력 처리량 | 터미널에서 `seq 2000000` 을 실행하고, 실행 전후로 스냅샷을 1회씩 (경과 초와 함께) | `terminal.output-bytes`·`terminal.output-chunks`·`terminal.parsed-bytes`·`terminal.render-frames`·`terminalTiming` / `pty.output_bytes`·`pty.output_chunks` | 새 계측 빌드의 한 번의 격리 PTY 직접 출력: writer 2.50s, Rust 20,777,795B·887청크, FE 전달·파서 완료 각 20,778,110B·889청크(재활성화 출력 315B 포함). 최종 파서 시각 `1790659290480ms`; 렌더 이벤트 0건·화면 공백으로 렌더 처리량 미판정 | [ ] |
 | 9 | 메모리 | 파일 20개를 열었다 모두 닫은 뒤 | devtools Memory 스냅샷 + `monaco.editor.getModels().length` + `queryClient.getQueryCache().getAll().length` | 동일 세션 직후 Monaco 모델 0개·쿼리 캐시 105개; WebKit 현재·최대 281.07MB(JavaScript 101.30MB, Page 179.77MB) | [x] |
 
 2026-09-29 최신 수치는 [계측 읽기 화면 단일 실측](2026-09-29-m7-perf-readout-live.md)에서 옮겼습니다. 앞선 [단일 세션](2026-09-29-m7-one-session-perf-gui.md), [복원 부팅](2026-09-29-m7-restored-boot-perf.md), [Memory 기록](2026-09-29-m7-live-settings-memory-remote.md)의 유효 관찰도 보존합니다. 비어 있지 않은 측정값도 이 표의 모든 요구 측정 경계를 충족하지 않으면 체크하지 않았습니다. 입력·환경이 같은 성공 동작은 반복하지 않으며, 표본 한 건을 중앙값·분포로 바꾸어 해석하지 않습니다.
@@ -89,9 +89,12 @@ TAIDE_PERF=1 /Applications/TAIDE.app/Contents/MacOS/TAIDE       # 설치본 실�
   `explorer-sidebar.md` §3.3)은 `search.run-requested` 마크를 찍지도, 결과가 도착해도 닫지도 않는다 —
   둘 중 하나라도 하면 타이핑 중 실행이 표본을 덮거나, 결과 0건으로 끝난 직전 Enter 의 마크를 소비해
   그 경과를 검색 시간으로 보고한다.
-- **지표 8** — 두 카운터의 차이가 **재부착 리플레이 비용**이다. Rust `pty.output_bytes` 는 셸이
-  낸 전량, 프론트 `terminal.output-bytes` 는 이 창의 xterm 이 실제로 그린 양이다. 배경 탭의
-  터미널은 프론트 쪽이 늘지 않고, 탭으로 돌아오면 스크롤백 리플레이만큼 한 번에 늘어난다.
+- **지표 8** — Rust `pty.output_bytes` 는 셸이 낸 전량, 프런트 `terminal.output-bytes` 는 이 창의
+  xterm 에 전달된 양입니다. 전달 카운터는 `term.write` 호출 시점에 증가하므로 파싱·페인트 완료를
+  뜻하지 않습니다. `terminal.parsed-bytes` 는 write callback 완료, `terminal.render-frames` 와
+  `terminalTiming.lastRenderedAtMs` 는 xterm 행 렌더 이벤트를 구분합니다. 배경 탭의 터미널은
+  프런트 쪽이 늘지 않고, 탭으로 돌아오면 스크롤백 리플레이만큼 한 번에 늘어납니다. 렌더 이벤트는
+  실제 디스플레이 픽셀의 캡처와 별개입니다.
 - **지표 9** — 메모리는 상주 계측이 없다. devtools Memory 패널이 정본이고, `FILE.CONTENT`/`FILE.RAW`
   캐시 회수(계약 §C.2-4 M3)의 효과는 닫은 뒤 쿼리 캐시 항목 수로 확인한다.
 

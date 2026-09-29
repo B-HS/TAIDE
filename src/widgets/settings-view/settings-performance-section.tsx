@@ -14,10 +14,13 @@ type SettingsPerformanceSectionProps = {
     id: string
 }
 
+const ANIMATION_FRAME_PROBE_TIMEOUT_MS = 1000
+
 export const SettingsPerformanceSection: FC<SettingsPerformanceSectionProps> = ({ id }) => {
     const [frontendSnapshot, setFrontendSnapshot] = useState<ReturnType<typeof buildPerfReport> | null>(null)
     const [nativeSnapshot, setNativeSnapshot] = useState<PerfSnapshot | null>(null)
     const [memoryCounts, setMemoryCounts] = useState<{ monacoModels: number; queryCacheEntries: number } | null>(null)
+    const [animationFrameProbe, setAnimationFrameProbe] = useState<'fired' | 'timed-out' | null>(null)
     const [isReading, setIsReading] = useState(false)
 
     const queryClient = useQueryClient()
@@ -26,11 +29,19 @@ export const SettingsPerformanceSection: FC<SettingsPerformanceSectionProps> = (
     const handleRead = async () => {
         setIsReading(true)
         try {
+            const frameProbe = await new Promise<'fired' | 'timed-out'>((resolve) => {
+                const timeoutId = window.setTimeout(() => resolve('timed-out'), ANIMATION_FRAME_PROBE_TIMEOUT_MS)
+                window.requestAnimationFrame(() => {
+                    window.clearTimeout(timeoutId)
+                    resolve('fired')
+                })
+            })
             const nextNativeSnapshot = await readDesktopPerfSnapshot()
             const { monaco } = await import('@shared/lib/monaco/setup')
             setFrontendSnapshot(buildPerfReport())
             setNativeSnapshot(nextNativeSnapshot)
             setMemoryCounts({ monacoModels: monaco.editor.getModels().length, queryCacheEntries: queryClient.getQueryCache().getAll().length })
+            setAnimationFrameProbe(frameProbe)
         } catch (error) {
             toast.error(describeIpcError(error))
         } finally {
@@ -46,6 +57,7 @@ export const SettingsPerformanceSection: FC<SettingsPerformanceSectionProps> = (
             setFrontendSnapshot(null)
             setNativeSnapshot(null)
             setMemoryCounts(null)
+            setAnimationFrameProbe(null)
         } catch (error) {
             toast.error(describeIpcError(error))
         } finally {
@@ -66,7 +78,7 @@ export const SettingsPerformanceSection: FC<SettingsPerformanceSectionProps> = (
             {frontendSnapshot && (
                 <div className='min-w-0'>
                     <h3 className='text-xs font-medium'>{t('settings.performanceFrontend')}</h3>
-                    <pre className='overflow-auto text-xs'>{JSON.stringify(frontendSnapshot, null, 2)}</pre>
+                    <pre className='overflow-auto text-xs'>{JSON.stringify({ ...frontendSnapshot, animationFrameProbe }, null, 2)}</pre>
                 </div>
             )}
             {nativeSnapshot && (

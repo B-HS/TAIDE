@@ -10,6 +10,8 @@ import {
     perfCount,
     perfMark,
     perfMeasure,
+    perfRecordTerminalParsed,
+    perfRecordTerminalRendered,
     printPerfReport,
     resetPerfMetrics,
     resolvePerfEnabled,
@@ -105,6 +107,33 @@ describe('perfMark · perfMeasure', () => {
         expect(buildPerfReport().measures.map((entry) => entry.name)).toEqual([PERF_MEASURE.BOOT_REVEAL])
     })
 
+    test('부팅 보고는 창 표시 완료와 WebKit 첫 페인트 시각을 같은 시간축에 담는다', () => {
+        const paintEntries = [
+            { name: 'first-paint', entryType: 'paint', startTime: 120, duration: 0, toJSON: () => ({}) },
+            { name: 'first-contentful-paint', entryType: 'paint', startTime: 140, duration: 0, toJSON: () => ({}) },
+        ]
+        const getEntriesByType = spyOn(performance, 'getEntriesByType').mockImplementation((entryType) => (entryType === 'paint' ? paintEntries : []))
+
+        try {
+            applyNativePerfGate(true)
+            perfMark(PERF_MARK.BOOT_MODULE_EVALUATED)
+            perfMeasure(PERF_MEASURE.BOOT_REVEAL, PERF_MARK.BOOT_MODULE_EVALUATED)
+            perfMark(PERF_MARK.BOOT_WINDOW_SHOWN)
+
+            expect(buildPerfReport().bootPaint).toEqual({
+                timeOriginMs: performance.timeOrigin,
+                windowShownAtMs: expect.any(Number),
+                firstPaintAtMs: 120,
+                firstContentfulPaintAtMs: 140,
+            })
+
+            resetPerfMetrics()
+            expect(buildPerfReport().bootPaint).toBeNull()
+        } finally {
+            getEntriesByType.mockRestore()
+        }
+    })
+
     test('상한을 넘기면 User Timing 발행만 멈추고 누적 통계는 계속 쌓인다', () => {
         applyNativePerfGate(true)
         for (let index = 0; index < PERF_MARK_LIMIT; index += 1) perfMark(PERF_MARK.PALETTE_QUERY_CHANGED)
@@ -147,6 +176,37 @@ describe('perfCount', () => {
         perfCount(PERF_COUNTER.TERMINAL_OUTPUT_BYTES, 4096)
 
         expect(buildPerfReport().counters).toEqual([])
+    })
+})
+
+describe('터미널 파서·렌더 계측', () => {
+    test('파서 완료 바이트와 렌더 프레임을 별도로 센다', () => {
+        applyNativePerfGate(true)
+        perfRecordTerminalParsed(120)
+        perfRecordTerminalRendered()
+
+        expect(buildPerfReport()).toMatchObject({
+            counters: [
+                { name: PERF_COUNTER.TERMINAL_PARSED_BYTES, total: 120 },
+                { name: PERF_COUNTER.TERMINAL_RENDER_FRAMES, total: 1 },
+            ],
+            terminalTiming: { lastParsedAtMs: expect.any(Number), lastRenderedAtMs: expect.any(Number) },
+        })
+    })
+
+    test('게이트 비활성·초기화에서 파서와 렌더 타임스탬프가 남지 않는다', () => {
+        perfRecordTerminalParsed(120)
+        perfRecordTerminalRendered()
+        expect(buildPerfReport().terminalTiming).toEqual({ lastParsedAtMs: null, lastRenderedAtMs: null })
+
+        applyNativePerfGate(true)
+        perfRecordTerminalParsed(120)
+        perfRecordTerminalRendered()
+        resetPerfMetrics()
+        expect(buildPerfReport()).toMatchObject({
+            counters: [],
+            terminalTiming: { lastParsedAtMs: null, lastRenderedAtMs: null },
+        })
     })
 })
 

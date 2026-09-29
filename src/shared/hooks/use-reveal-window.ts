@@ -1,21 +1,24 @@
 import { useEffect } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { PERF_MARK, PERF_MEASURE, perfMeasure } from '@shared/lib/perf-mark'
+import { PERF_MARK, PERF_MEASURE, perfMark, perfMeasure } from '@shared/lib/perf-mark'
 
 /**
- * Closes the boot span opened in `main.tsx` at the moment this window is actually shown — the
- * front-end half of metric 1 in `docs/quality-assurance/2026-09-04-perf-baseline.md`, paired with the
- * Rust `setup.*` spans that cover everything before the webview existed. The start mark is consumed
- * by the first measure, so the second window a session opens (an auxiliary editor window, which
- * runs this same hook) records nothing rather than reporting its own reveal as a boot time.
+ * Closes the boot reveal span before requesting native window display, then records when the
+ * window's `show()` call resolves so the diagnostic report can compare that boundary with WebKit
+ * paint entries. Each webview has its own timing registry.
  */
 export const useRevealWindow = (ready: boolean) => {
     useEffect(() => {
         if (!ready) return
         perfMeasure(PERF_MEASURE.BOOT_REVEAL, PERF_MARK.BOOT_MODULE_EVALUATED)
-        void getCurrentWindow()
-            .show()
-            .catch(() => undefined)
+        void (async () => {
+            try {
+                await getCurrentWindow().show()
+                perfMark(PERF_MARK.BOOT_WINDOW_SHOWN)
+            } catch {
+                return
+            }
+        })()
     }, [ready])
 }
 
