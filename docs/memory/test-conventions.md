@@ -73,7 +73,8 @@ fireEvent.click(screen.getByRole('button', { name: 'tab.close' }))
   `afterEach` 에서 `ns.fn` 으로 원복하면 그 `ns.fn` 은 이미 목이라 가짜가 자기 자신을 부른다 — 스위트가
   실패하지 않고 **통째로 멈춘다**(2026-09-04 `shared/lib/window-appearance.test.ts` 에서 실제 발생).
   원본은 `mock.module` **등록 전에** 상수로 붙잡는다.
-- 다른 테스트가 실제 렌더할 UI 컴포넌트 export를 `mock.module`로 프로세스 전체에서 대체하지 않는다. `app-shell.test.tsx`의 AppSidebar·StatusBarContent 목이 CI #88에서 다른 파일 5건을 실패시켰다. 조립 테스트 안에서만 대체할 때는 실제 모듈을 import한 뒤 `spyOn(...).mockImplementation(...)`을 등록하고 기존 `beforeEach(mock.restore)`로 다음 테스트 전에 원복한다.
+- 다른 테스트가 실제 렌더할 UI 컴포넌트 export를 `mock.module`로 프로세스 전체에서 대체하지 않는다. `app-shell.test.tsx`의 AppSidebar·StatusBarContent 목은 CI #88에서 사이드바 4건을 실패시켰다. 조립 테스트 안에서만 대체할 때는 실제 모듈을 import한 뒤 `spyOn(...).mockImplementation(...)`을 등록하고 기존 `beforeEach(mock.restore)`로 다음 테스트 전에 원복한다.
+- UI에서 IPC를 호출하는지 확인할 때는 그 UI가 직접 사용하는 IPC export를 감시한다. CI #89의 상태바 테스트는 `settings.ipc.updateSettings`가 다른 테스트에서 목 처리된 상황에서 그 아래 `commands.settingsUpdate`를 감시해 버튼을 눌러도 호출을 보지 못했다.
 
 ### `createTestQueryClient` 의 `gcTime` 은 0 이다
 
