@@ -40,8 +40,9 @@ fn spawn_adapter는_감독_worker와_동일한_guard를_등록까지_유지한�
     assert!(!spawn.contains("tauri::async_runtime::spawn_blocking("));
     let root = include_str!("../src/lib.rs");
     let drain = root.split_once("exit_drain.begin(").unwrap().1;
-    let drain = drain.split_once("move || handle.exit(exit_code)").unwrap().0;
+    let drain = drain.split_once("if matches!(&event, tauri::RunEvent::Exit)").unwrap().0;
     assert!(drain.contains("(*app_handle.state::<TerminalStore>()).clone()"));
+    assert!(drain.contains("handle.exit(exit_code)"));
 }
 
 #[test]
