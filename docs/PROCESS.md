@@ -5,10 +5,11 @@
 > 요청: 검증된 `to_rust_native`를 `main`에 병합하고 0.3.0 태그·GitHub draft release를 만든 뒤 `to_rust_native`로 돌아와 TypeScript 제거와 Rust-native M8 착수 준비를 마칩니다.
 > 기준: `docs/deployment.md`, `.github/workflows/{ci,release}.yml`, `docs/roadmap-rust-native.md`, `docs/acknowledge/2026-09-23-rust-native-transition-contract.md`, `~/.codex/llm-rules/{ai-process,git}.md`. 기존 사용자 지시에 따라 메인이 직접 수행하고 서브에이전트는 사용하지 않습니다.
 > 릴리스 정책: 태그는 `v0.3.0`이며 앱 버전 3곳과 `docs/release-notes/v0.3.0.md`를 먼저 반영합니다. 기존 성공 검사는 같은 제품 코드에 재사용합니다. M8 준비는 계획·진입 조건 고정이며 기능 동등성 전 TypeScript 제거는 하지 않습니다.
+> 중단 상태(2026-09-29): `main`과 `to_rust_native`는 제품 기준선 `8d5b83c`까지 일반 push됐고 현재 checkout은 `to_rust_native`입니다. 인계 문서 commit으로 현재 브랜치만 한 커밋 앞설 수 있습니다. main CI #88의 frontend가 2,945 pass·7 fail로 실패해 릴리스 게이트를 통과하지 못했습니다. 사용자 지시에 따라 여기서 디버깅·재검증을 멈춥니다. `v0.3.0` 태그와 draft release는 만들지 않았습니다. 재개 시 전체 실패 로그 7건을 한 번 수집해 공통 원인을 분류한 뒤 영향받은 검사만 1회 검증합니다. Rust job의 최종 결과는 중단 시점에 미확인입니다. M8 착수 문서는 이미 기록·push됐으나 R5 최종 체크는 릴리스 완료 뒤 상태를 확인하고 처리합니다.
 
 - [x] R1. 원격 `main`은 `2ee2938`, `to_rust_native`는 `da4b5f2`로 전자가 후자의 조상이며 원격 `v0.3.0` 태그는 없습니다. 기존 `v*` 태그·앱 버전 일치·릴리스 노트·draft workflow 계약을 확인했습니다. 버전 준비 뒤 fast-forward 병합합니다.
 - [x] R2. 0.3.0 버전 3곳·Cargo.lock·`docs/release-notes/v0.3.0.md`를 동기화해 `ca9929b`로 선별 commit하고 `to_rust_native`에 일반 push했습니다. `cargo metadata --no-deps --locked --offline`의 taide 0.3.0, `bun install --frozen-lockfile --dry-run`, 대상 Prettier·diff 검사 exit 0을 확인했습니다. 제품 코드는 바뀌지 않아 M7 전체 검사는 재사용합니다.
-- [ ] R3. `main`을 해당 검증 커밋으로 fast-forward 병합·일반 push하고 main CI 결과를 확인합니다.
+- [ ] R3. `main`을 해당 검증 커밋으로 fast-forward 병합·일반 push하고 main CI 결과를 확인합니다. 병합·push는 `8d5b83c`까지 완료됐으나 CI #88 frontend 7건 실패로 미완료입니다.
 - [ ] R4. `v0.3.0` 태그를 `main`의 정확한 커밋에 생성·일반 push하고 Release workflow의 빌드·서명·공증·asset·draft 상태를 확인합니다. 공개하지 않습니다.
 - [ ] R5. 다시 `to_rust_native`로 전환해 M8 기술 spike·화면별 parity·단계적 TypeScript 제거·rollback의 착수 체크리스트를 실제 계약에 맞춰 기록하고 commit·push합니다. native 구현·기존 UI 삭제는 이번 준비에 포함하지 않습니다.
 

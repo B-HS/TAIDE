@@ -1,3 +1,41 @@
+# HANDOFF — 2026-09-29 v0.3.0 릴리스 게이트 중단
+
+## 현재 상태와 재개 첫 행동
+
+현재 브랜치는 `to_rust_native`입니다. 중단 직전 양 브랜치의 제품 기준선은 `8d5b83c`이며 `main`·`origin/main`은 그 커밋을 가리킵니다. 이 인계 문서 commit으로 `to_rust_native`만 한 커밋 앞설 수 있습니다. M1~M7 및 Phase 0 기준선은 완료됐지만 v0.3.0 릴리스는 **미완료**입니다. main CI #88의 frontend가 2,945 pass·7 fail로 실패했으므로 사용자가 즉시 중단을 지시했습니다. 이 문서화 외 코드 수정·재검증·태그·draft 생성은 중단했습니다. **재개 첫 기술 행동은 CI #88 전체 frontend 실패 로그를 한 번 확보해 7건을 분류하는 것**입니다. 첫 실패 한 건만 보고 추측 수정하거나 동일 전체 검사를 반복하지 않습니다.
+
+## 이번 작업 목표와 확인된 결과
+
+- 사용자 목표: `to_rust_native`를 `main`에 병합, `v0.3.0` 태그와 GitHub draft release 생성, 다시 `to_rust_native`로 돌아와 M8 Rust-native 전환 준비. `main` 병합·양 브랜치 일반 push까지 완료됐습니다. 사용자 요청은 GitHub에 공개 릴리스가 아니라 **draft**입니다.
+- `package.json`, `src-tauri/Cargo.toml`·`Cargo.lock`, `src-tauri/tauri.conf.json`의 버전은 0.3.0으로 준비됐고 `docs/release-notes/v0.3.0.md`가 있습니다. **`v0.3.0` 태그와 draft release는 아직 없습니다.** CI 성공 전 생성하지 않습니다.
+- M8 착수 문서 `docs/quality-assurance/2026-09-29-m8-entry-and-cutover.md`는 commit·push됐습니다. 현재 native GUI crate와 화면 동등성은 없으며 TS view 213개 경로의 대응이 필요합니다. native parity·beta·rollback 전에는 TS/React/Tauri UI를 제거하지 않습니다. 최종 계약은 단순 코드 비율 99%보다 엄격한 런타임 TS 제거입니다.
+- 현재 최상위 체크리스트는 `docs/PROCESS.md` R1·R2 완료, R3·R4·R5 미완료입니다. R3의 merge 자체는 끝났으나 CI가 실패했습니다. R5 문서 작업은 선행됐지만 릴리스 후 최종 확인이 남았습니다.
+
+## 실패 근거와 이미 시도한 수정
+
+- CI #88: [main 실행](https://github.com/B-HS/TAIDE/actions/runs/36538448680), [frontend job](https://github.com/B-HS/TAIDE/actions/runs/36538448680/job/109307889254), head `8d5b83c`. 중단 시점에 frontend 2,945 pass·7 fail, 첫 표시 실패는 `AuxiliaryWindowShell 사이드바 > SCM 뷰로 전환하면 git 패널이 마운트된다`였습니다. 전체 7건 원인과 Rust job 최종 결과는 아직 확인하지 않았습니다.
+- #84는 stale view census·manifest 포맷, #85~#87은 Bun 파일 간 전역 mock 누수와 Rust source-scan/locale 키 문제로 실패했습니다. 최신 수정은 `819bc30`·`f5d9c3c`·`48a44ef`·`4d89dfd`·`8d5b83c`입니다. #87의 frontend 18 fail·27 error가 #88에서는 7 fail·0 error로 줄었지만 성공이 아니므로 새 릴리스 증거로 쓰지 않습니다.
+- 로컬 동일 Bun 1.3.14에서 frontend 전체 테스트는 통과했고 typecheck·Prettier·lint도 통과했습니다. Rust는 샌드박스 밖 `taide_lib` 192건이 통과했지만 전체 workspace CI 성공은 중단 시점에 미확인입니다. 로컬 성공이 Ubuntu CI 실패를 덮지 않습니다.
+- 사용자는 반복 계측과 긴 CI 재시도를 원하지 않습니다. 전체 CI 로그를 먼저 모아 공통 원인을 확정하고, 수정 영향에 대응하는 단일 검증을 한 번 실시합니다. 같은 상태의 성공 검사는 재실행하지 않습니다.
+
+## 재개 계약
+
+1. 세션 경계 규칙에 따라 다중 에이전트 workflow 사용 여부를 **다시 한 번 질문**하고 답을 받은 뒤 도구 작업을 시작합니다. 이전 세션에서 사용자는 서브에이전트 미사용을 명시했지만 새 세션의 기본 선택으로 저장하지 않습니다.
+2. `docs/PROCESS.md` 상단, 이 HANDOFF, `docs/quality-assurance/2026-09-29-m8-entry-and-cutover.md`, 현재 Git 상태를 확인합니다. `ai-process.md`와 필요한 주제별 llm-rules 전문을 작업 전에 읽습니다. `.env`·키 파일은 읽지 않습니다.
+3. #88의 최종 CI 상태와 frontend 전체 실패 로그를 확보해 7건을 한 번에 분류합니다. 로그 취득이 불가능하면 관찰 가능한 대체 경로를 한 번 확인하고, 근거 없이 수정하지 않습니다. 사용자 요청대로 여기서 중단한 상태를 존중해 그 전에는 CI를 새로 발사하지 않습니다.
+4. 최소 수정·직접 영향 검증 후 `main` CI 성공을 확인합니다. 그 뒤에만 `v0.3.0` 태그를 정확한 main commit에 붙이고 release workflow의 빌드·서명·공증·asset·draft 상태를 확인합니다. 공개하지 않습니다. 마지막에 `to_rust_native`로 돌아와 R5 상태를 마무리합니다.
+
+## 문서 지도와 환경
+
+- 진행 상태: `docs/PROCESS.md` 첫 섹션 R1~R5.
+- 릴리스 절차: `docs/deployment.md`, `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `docs/release-notes/v0.3.0.md`.
+- M8 진입 조건: `docs/quality-assurance/2026-09-29-m8-entry-and-cutover.md`, `docs/roadmap-rust-native.md`, `docs/acknowledge/2026-09-23-rust-native-transition-contract.md`.
+- 저장소: `https://github.com/B-HS/TAIDE`, 브랜치 `main`·`to_rust_native`, macOS arm64 로컬, frontend CI Ubuntu/Bun 1.3.14, Rust CI macOS. GitHub CLI 인증은 이전 확인에서 유효하지 않았고 브라우저 자동화는 중단 직전 연결이 끊겨 재개 시 가용성 확인이 필요합니다. 로컬 테스트용 Bun 1.3.14 경로는 일시적이므로 존재를 다시 확인합니다.
+
+## 이전 스냅샷
+
+아래는 2026-09-22 이하의 역사적 기록입니다. 여기의 옛 현재 목표·workflow 선택·릴리스 상태를 이번 작업의 현재 상태로 해석하지 않습니다.
+
 # HANDOFF — 2026-09-22 세션 스냅샷 (트리 선택·탭·포커스·알림 · v0.2.5 릴리스)
 
 > 최종 갱신: 2026-09-22 / 태그 HEAD = `10431dd`(chore(release) v0.2.5) 위에 이 docs 커밋. 직전 스냅샷 `git show 663f0c1:docs/HANDOFF.md`.
