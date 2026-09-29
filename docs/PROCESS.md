@@ -969,6 +969,8 @@
       - [x] M7-C1b-2a. 사용자가 무상한 WebSocket 전송 큐의 별도 보안 수정을 M7 범위에 추가하고 연결별 256프레임 상한·포화 시 연결 종료, 바이트 상한 생략을 선택했습니다. [범위 기록](acknowledge/2026-09-29-m7-remote-ws-queue-scope.md)에 현행 큐·동기 sink·Tokio API·큰 프레임 잔여 위험을 구분했습니다.
       - [x] M7-C1b-2b. 연결별 256프레임 유한 큐와 포화 신호·즉시 writer 중단 경로를 구현했습니다. 수정 전 257번째 수락 테스트 RED(exit 101), 수정 후 WS 대상 5건·대상 Clippy·Rust fmt·문서 Prettier가 exit 0입니다. [큐 QA](quality-assurance/2026-09-29-m7-remote-ws-queue.md)에 실제 연결 실기와 대형 단일 프레임의 잔여 위험을 분리했습니다.
       - [x] M7-C1b-2c. 격리 앱의 원격 서버를 잠시 켜 무인증 HTTP/WS 401·잘못된 Host/Origin 403을 각각 한 번 실측하고 다시 껐습니다. [실측 기록](quality-assurance/2026-09-29-m7-live-settings-memory-remote.md)에 링크 생성 차단과 인증 경계의 미검증을 분리했습니다.
+      - [x] M7-C1b-2d. 승인된 격리 앱의 일회용 링크로 HTTP 200·HttpOnly/SameSite 쿠키 왕복·인증 WebSocket `remote_status` 성공을 [단일 실측](quality-assurance/2026-09-29-m7-remote-authenticated-session.md)했습니다. 전체 기기 로그아웃 알림과 서버 중지·포트 종료를 확인했지만 검사기 타임아웃이 먼저여서 기존 WebSocket의 폐기 종료·TTL·느린 수신자 포화는 미판정입니다.
+      - [x] M7-C1b-2e. [후속 단일 실측](quality-assurance/2026-09-29-m7-remote-slow-receiver-revoke.md)에서 1KB 합성 파일 요청 6,000건을 보낸 느린 WebSocket이 읽기 재개 전 1006으로 닫히고 별도 제어 연결은 정상 응답하는 것을 확인했습니다. 제어 연결 `1 connected` 상태에서 전체 세션 폐기 뒤 연결 1006·`0 connected`, 서버 `Stopped`·포트 종료를 관찰했습니다. 내부 큐 점유량과 실제 7일 만료는 미계측입니다.
       - [ ] M7-C1b-2. 실제 HTTP/WebSocket upgrade·cookie 왕복·세션 TTL·전송 큐 상한/느린 수신자 경계를 격리 실행에서 검증합니다.
     - [x] M7-C2. IDE/MCP 및 CLI wait marker의 실제 요청·응답·수명 경계를 fixture와 격리 앱 단일 실측으로 고정했습니다. 전체 IDE 도구·장시간 다중 연결 전수는 주장하지 않습니다.
       - [x] M7-C2a. `ide-mcp-wire-v1.json`과 CLI marker 이름 fixture로 protocol API 3건·CLI bin 18건을 확인했습니다. UUID 임시 marker의 timeout·제거를 포함해 대상 Clippy·Rust fmt가 exit 0입니다. 실제 IDE WebSocket과 앱의 CLI marker 수명은 검증하지 않았습니다.
@@ -1004,6 +1006,7 @@
         - [x] M7-C4c-2a. 종료하지 않은 계측용 release 앱에서 파일 5,002개·커밋 1,000개·변경 20개 fixture의 프로젝트 전환, 1KB/1MiB 파일, 팔레트, 250개 파일 트리, Git, 5,000건 검색, 터미널 200만 줄 및 파일 20개 열기·닫기를 각각 한 번 실측해 [부분 기준선](quality-assurance/2026-09-29-m7-one-session-perf-gui.md)에 기록했습니다. 후속 유휴 RSS 약 949MB·비어 있는 대형 malloc 영역 약 788MB와 같은 PID의 `leaks` 미참조 할당 15,616바이트를 확인했고 높은 RSS의 원인은 단정하지 않았습니다. 검색 프런트 제출 마크·정확한 Memory 스냅샷·직접 Exit는 미완료이며 fixture 복원 부팅은 2b에서 별도로 측정했습니다.
         - [x] M7-C4c-2b. 앞선 단일 세션을 마친 뒤 한 번만 재시작해 새 PID에서 합성 프로젝트 탐색기·Settings 탭 복원, 프런트 `boot.reveal` 59ms와 Rust setup 네 구간의 각 1회 표본을 [복원 부팅 실측](quality-assurance/2026-09-29-m7-restored-boot-perf.md)에 기록했습니다. 초기 RSS 약 923MB가 같은 PID에서 138MB로 내려간 관찰과 메모리 원인 미판정을 구분했습니다. 앱은 다시 종료하지 않았고 정확한 Memory·전체 복원·활성 원격 직접 Exit는 남았습니다.
         - [x] M7-C4c-2c. 같은 앱의 WebKit Memory timeline 한 기록에서 종료 시점 164.28MB(JavaScript 72.03MB, Page 92.25MB), 최대 233.11MB를 확인했습니다. Settings 테마·언어 전환 후 원복도 [단일 실측](quality-assurance/2026-09-29-m7-live-settings-memory-remote.md)에 기록했습니다. 장시간 누수·모델/캐시 수와 화면 전수는 미판정입니다.
+        - [x] M7-C4c-2d. [성능 기준선 표](quality-assurance/2026-09-04-perf-baseline.md)에 기존 앱 실측의 유효 단일 표본과 미분리 지표를 구별해 옮겼습니다. 팔레트 2개 행만 표의 요구 경계를 충족해 완료로 표시하고, 다른 지표의 누락값은 미완료로 유지했습니다.
         - [ ] M7-C4c-2. 동일 기기·fixture에서 각 성능 지표를 한 번 유효하게 관찰하고 단일 표본으로 기록한 뒤 GUI·직접 Exit 회귀를 완료합니다. 중앙값·분포를 주장하지 않습니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 

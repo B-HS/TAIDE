@@ -27,9 +27,9 @@ bun run tauri dev                                              # dev = 기본 on
 TAIDE_PERF=1 /Applications/TAIDE.app/Contents/MacOS/TAIDE       # 설치본 실측
 ```
 
-- [ ] 앱을 띄우고 devtools 콘솔에서 `await window.__TAURI_INTERNALS__.invoke('perf_snapshot')` 이
+- [x] 앱을 띄우고 devtools 콘솔에서 `await window.__TAURI_INTERNALS__.invoke('perf_snapshot')` 이
       `enabled: true` 를 돌려주는지 확인한다
-- [ ] 커맨드 팔레트(⌘⇧P)에 **`App: Show Performance Snapshot`** 이 보이는지 확인한다
+- [x] 커맨드 팔레트(⌘⇧P)에 **`App: Show Performance Snapshot`** 이 보이는지 확인한다
       (게이트가 꺼져 있으면 이 커맨드는 아예 나타나지 않는다)
 
 ## 2. 측정 절차 (지표 1건마다 동일)
@@ -56,17 +56,19 @@ TAIDE_PERF=1 /Applications/TAIDE.app/Contents/MacOS/TAIDE       # 설치본 실�
 
 | # | 지표 | 조작 | 읽는 곳 (프론트 / Rust) | 측정값 | 체크 |
 |---|------|------|------------------------|--------|------|
-| 1 | 부팅 → 첫 페인트 | 앱을 완전히 종료했다 다시 실행 | `boot.reveal` / `setup.main_window`·`setup.locale_warm`·`setup.state_restore`·`setup.deferred_restore` | ______ ms | [ ] |
-| 2 | 프로젝트 전환 | 사이드바에서 **다른** 프로젝트 클릭(이번 실행에서 처음 여는 것) | `project.switch` / `project_open`·`project_activate` | ______ ms | [ ] |
-| 3-a | 파일 열기 (소, 1KB) | 탐색기에서 1KB 파일을 **처음** 연다 | `file.open` / `file_open` | ______ ms | [ ] |
-| 3-b | 파일 열기 (대, 1MB) | 탐색기에서 1MB 파일을 **처음** 연다 | `file.open` / `file_open` | ______ ms | [ ] |
-| 4-a | 팔레트 열기 | ⌘⇧P | `palette.open` / — | ______ ms | [ ] |
-| 4-b | 팔레트 입력 응답 | 팔레트에서 4글자 입력 | `palette.filter` / — | ______ ms | [ ] |
-| 5 | 트리 펼침 | 파일 200개 이상인 디렉터리를 펼친다 | `tree.toggle` / `tree_toggle` | ______ ms | [ ] |
-| 6 | git status | 변경 20건 이상인 상태에서 git 뷰를 연다 | — / `git_status` | ______ ms | [ ] |
-| 7 | 전역 검색 | 200건 이상 매치되는 단어를 검색 | `search.results` / `search_run`·`search_list_files` | ______ ms | [ ] |
-| 8 | 터미널 출력 처리량 | 터미널에서 `seq 2000000` 을 실행하고, 실행 전후로 스냅샷을 1회씩 (경과 초와 함께) | `terminal.output-bytes`·`terminal.output-chunks` / `pty.output_bytes`·`pty.output_chunks` | ______ MB/s | [ ] |
-| 9 | 메모리 | 파일 20개를 열었다 모두 닫은 뒤 | devtools Memory 스냅샷 + `monaco.editor.getModels().length` + `queryClient.getQueryCache().getAll().length` | ______ MB / ______ 모델 | [ ] |
+| 1 | 부팅 → 첫 페인트 | 앱을 완전히 종료했다 다시 실행 | `boot.reveal` / `setup.main_window`·`setup.locale_warm`·`setup.state_restore`·`setup.deferred_restore` | FE 59ms; Rust 83.352·0.459·0.773·2.360ms. 첫 페인트 전체 시간은 아님 | [ ] |
+| 2 | 프로젝트 전환 | 사이드바에서 **다른** 프로젝트 클릭(이번 실행에서 처음 여는 것) | `project.switch` / `project_open`·`project_activate` | FE 9ms; Rust `project_open` 2회 합계 89.776ms, 해당 전환은 미분리 | [ ] |
+| 3-a | 파일 열기 (소, 1KB) | 탐색기에서 1KB 파일을 **처음** 연다 | `file.open` / `file_open` | FE 96ms; Rust `file_open` 3회 중 최대 0.374ms, 해당 파일은 미분리 | [ ] |
+| 3-b | 파일 열기 (대, 1MB) | 탐색기에서 1MB 파일을 **처음** 연다 | `file.open` / `file_open` | FE 34ms; Rust `file_open` 3회 중 최대 0.374ms, 해당 파일은 미분리 | [ ] |
+| 4-a | 팔레트 열기 | ⌘⇧P | `palette.open` / — | FE 3ms | [x] |
+| 4-b | 팔레트 입력 응답 | 팔레트에서 4글자 입력 | `palette.filter` / — | FE 5ms | [x] |
+| 5 | 트리 펼침 | 파일 200개 이상인 디렉터리를 펼친다 | `tree.toggle` / `tree_toggle` | FE 5ms; Rust 2회 중 최대 1.370ms, 해당 폴더는 미분리 | [ ] |
+| 6 | git status | 변경 20건 이상인 상태에서 git 뷰를 연다 | — / `git_status` | Rust 누적 5회 중 최대 18.932ms, UI 진입 한 번은 미분리 | [ ] |
+| 7 | 전역 검색 | 200건 이상 매치되는 단어를 검색 | `search.results` / `search_run`·`search_list_files` | Rust 69.787·3.346ms; 실시간 검색이라 FE `search.results` 없음 | [ ] |
+| 8 | 터미널 출력 처리량 | 터미널에서 `seq 2000000` 을 실행하고, 실행 전후로 스냅샷을 1회씩 (경과 초와 함께) | `terminal.output-bytes`·`terminal.output-chunks` / `pty.output_bytes`·`pty.output_chunks` | Rust 증가분 기준 약 14.25MB/s; FE 시작값 미보관 | [ ] |
+| 9 | 메모리 | 파일 20개를 열었다 모두 닫은 뒤 | devtools Memory 스냅샷 + `monaco.editor.getModels().length` + `queryClient.getQueryCache().getAll().length` | 후속 부팅의 WebKit 164.28MB·최대 233.11MB; 모델·캐시 수와 동일 세션 직후 값 없음 | [ ] |
+
+2026-09-29 수치는 [단일 세션](2026-09-29-m7-one-session-perf-gui.md), [복원 부팅](2026-09-29-m7-restored-boot-perf.md), [Memory 기록](2026-09-29-m7-live-settings-memory-remote.md)의 서로 다른 유효 관찰을 옮긴 것입니다. 비어 있지 않은 측정값도 이 표의 모든 요구 측정 경계를 충족하지 않으면 체크하지 않았습니다. 입력·환경이 같은 성공 동작은 반복하지 않으며, 표본 한 건을 중앙값·분포로 바꾸어 해석하지 않습니다.
 
 ### 3.1 각 지표를 읽을 때 주의할 것
 
@@ -180,7 +182,7 @@ Rust 쪽도 벽시계가 아니라 횟수로 잠갔다.
 - [x] 지표 4(팔레트) 마크 지점이 `command-palette.tsx` 에 배선됐는지 확인 (2026-09-04 — 배선 완료)
 - [x] 계약 §C.2-6 대형 3건(Rust) 전후 수치 기록 → §5.1 (**`cargo test` 픽스처 기준**. 실기
       `perf_snapshot` 전/후는 아래 항목으로 남는다)
-- [ ] **실기 8지표 측정** — §2 절차대로 앱을 띄워 §3 표의 빈칸을 채운다 (사용자 몫)
+- [ ] **실기 8지표 측정** — §3에 유효한 단일 표본과 미분리 경계를 구분해 기록했습니다. 같은 성공 조작은 재실행하지 않고 남은 경계만 판정합니다.
 - [ ] 실기에서 §5.1 의 대형 3건을 `perf_snapshot` 으로 재확인 — `project_open`(가드 대기 체감) ·
       워처 attach 후 RSS · `git_status` 평균(§3.1 지표 6 주석)
 - [ ] 계약 §C.2-7 FE 가상화 묶음 전후로 지표 5·7 재측정

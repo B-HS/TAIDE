@@ -17,12 +17,12 @@
 ## 2. Phase 0 기준선
 
 - [x] command, event, raw channel 이름·payload·error code manifest — `src-tauri/tests/fixtures/rust-native/ipc-contract-manifest.json`, `src-tauri/tests/rust_native_phase0_contract.rs`
-- [ ] remote allow·deny, authentication, session revoke와 binary channel fixture — `remote-wire-session-v1.json`의 서비스·store·protocol API 3건은 통과; 실제 HTTP/WebSocket handshake·cookie·TTL·전송 큐 기준선은 미완료
-- [ ] IDE/MCP request·response와 CLI `taide --wait` marker fixture — IDE protocol API 3건과 CLI marker 이름·timeout·제거를 포함한 bin 18건은 통과; 실제 WebSocket 인증·도구 수행과 앱 연계 marker 수명은 미완료
+- [ ] remote allow·deny, authentication, session revoke와 binary channel fixture — `remote-wire-session-v1.json`의 서비스·store·protocol API 3건과 [실제 인증 HTTP/WebSocket 대표 명령](2026-09-29-m7-remote-authenticated-session.md)·[느린 수신자 및 활성 연결 폐기](2026-09-29-m7-remote-slow-receiver-revoke.md)는 관찰; 7일 TTL의 실제 만료·내부 포화 분기 직접 계측은 미완료
+- [x] IDE/MCP request·response와 CLI `taide --wait` marker fixture — IDE protocol API 3건·CLI marker bin 18건과 [실제 앱의 CLI 대기/해제](2026-09-29-m7-cli-wait-gui.md)·[인증 WebSocket 도구/탭 수명](2026-09-29-m7-ide-ws-authenticated-open-file.md)을 각각 한 번 확인. 전체 IDE 도구 전수는 별도
 - [x] settings, session, project, layout, hot-exit buffer의 versioned fixture — `persistence-v1.json`과 실제 settings load·session/project restore·v1→v2 layout load·legacy mirror list 3건 통과; 사용자 실제 데이터와 GUI 복원은 별도
 - [ ] `docs/quality-assurance/2026-09-04-perf-baseline.md` 실기 지표 작성
 - [ ] editor, LSP, terminal, preview, shell 기능 inventory에 근거 파일·시험 연결 — [5도메인 구현·자동 검사 경로](2026-09-28-rust-native-function-inventory.md)는 기록; 실제 앱·외부 시스템 실기 근거와 preview 형식별 검사 공백은 미완료
-- [ ] 현재 TS view의 212개 경로에 실제 컴포넌트·자동 근거·미검증 상태를 연결하고, 대표 화면/패널/다이얼로그·키보드·테마/로케일·멀티윈도·접근성 경로를 한 번 실측
+- [x] 현재 TS view의 212개 경로에 실제 컴포넌트·자동 근거·미검증 상태를 연결하고 [대표 화면·다이얼로그·키보드·테마/로케일·멀티윈도·접근성 경로](2026-09-29-m7-ts-view-representative-gate.md)를 한 번씩 실측. 개별 경로 전수·native 동등성은 별도
 
 UI 착수 전 gate: 위 inventory와 Phase 0 기능·데이터·성능 baseline 및 기능별 crate 분리 M1~M7이 모두 준비·검증돼야 합니다. native UI 구현은 이 gate 이후에만 시작합니다. 각 TS view 항목에 native 대응 경로·자동 검사·실기 결과를 연결하고 미대응 항목이 0이 될 때까지 TS/Tauri view를 유지합니다. 시각적 구성의 유사성은 테마별 캡처와 실제 창 크기·포커스·IME·보조 창 동작에서 비교하며, 기능 동등성을 단순한 화면 유사성으로 대체하지 않습니다.
 

@@ -8,9 +8,9 @@
 
 - [x] 기존 무상한 큐에서 수신하지 않는 상태로 256프레임 다음 1프레임을 보낼 때 거부되지 않는 실패를 대상 테스트로 재현했습니다. `cargo test --offline -p taide --lib 느린_수신자의_전송_큐가_상한을_넘으면_송신을_거부한다 --quiet`는 수정 전 assertion 실패로 exit 101이었습니다.
 - [x] 수정 후 정확히 256프레임까지 수락하고 257번째에서 Err·watch 포화 신호가 발생했습니다. 한 프레임을 수신해 빈자리가 생겨도 후속 송신은 Err이고 guard drop도 추가 프레임을 적재하지 않습니다. 같은 대상 테스트는 exit 0입니다.
-- [ ] 포화 신호를 받은 실제 연결 관리 loop가 writer를 중단해 세션을 종료하는지 격리 WebSocket에서 확인합니다. 현재는 source와 큐 단위 테스트만 있습니다.
+- [x] [격리 WebSocket 단일 실측](2026-09-29-m7-remote-slow-receiver-revoke.md)에서 1KB 응답 요청 6,000건을 보낸 느린 연결이 읽기 재개 전 코드 1006으로 종료되고 독립 제어 연결은 유지됐습니다. 이는 포화 차단 경로와 일치하지만 내부 큐 점유량·writer abort 로그를 직접 보지 않았으므로 실제 종료 분기의 원인은 단정하지 않습니다.
 - [x] JSON→binary→channel-end 순서, 수신자 소멸 Err, close frame 변환과 sender clone의 종료 대기를 포함한 `cargo test --offline -p taide --lib domain::remote::ws::tests --quiet` 5건이 exit 0입니다. 실제 세션 TTL 만료 실기는 미완료입니다.
-- [x] 대상 `cargo clippy --offline -p taide --lib -- -D warnings`, `cargo fmt --all -- --check`, 관련 문서 Prettier가 exit 0입니다. 실제 격리 앱 WebSocket의 느린 수신자 경계는 아직 미판정입니다.
+- [x] 대상 `cargo clippy --offline -p taide --lib -- -D warnings`, `cargo fmt --all -- --check`, 관련 문서 Prettier가 exit 0입니다. 이후 느린 수신자 실측은 위 기록처럼 확인했고 정확한 내부 종료 분기와 7일 TTL은 별도입니다.
 
 ## 잔여 테스트 부채
 
