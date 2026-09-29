@@ -338,6 +338,7 @@ pub async fn handle_socket(socket: WebSocket, app: AppHandle, session_digest: St
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::remote::types::REMOTE_SESSION_COOKIE_NAME;
     use axum::extract::{State, WebSocketUpgrade};
     use axum::http::{HeaderMap, StatusCode};
     use axum::response::{IntoResponse, Response};
@@ -347,7 +348,6 @@ mod tests {
     use taide_remote::types::REMOTE_SESSION_TTL_MS;
     use tokio_tungstenite::tungstenite::client::IntoClientRequest;
     use tokio_tungstenite::tungstenite::Message as ClientMessage;
-    use crate::domain::remote::types::REMOTE_SESSION_COOKIE_NAME;
 
     #[tokio::test]
     async fn 가상_시계_만료는_http_401과_연결된_ws_4001을_반환한다() {

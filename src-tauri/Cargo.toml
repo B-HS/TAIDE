@@ -10,6 +10,11 @@ rust-version = "1.89"
 [lib]
 name = "taide_lib"
 
+[[test]]
+name = "remote_product_router_ttl"
+path = "tests/remote_product_router_ttl.rs"
+harness = false
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
