@@ -7,7 +7,7 @@
 > 릴리스 정책: 태그는 `v0.3.0`이며 앱 버전 3곳과 `docs/release-notes/v0.3.0.md`를 먼저 반영합니다. 기존 성공 검사는 같은 제품 코드에 재사용합니다. M8 준비는 계획·진입 조건 고정이며 기능 동등성 전 TypeScript 제거는 하지 않습니다.
 
 - [x] R1. 원격 `main`은 `2ee2938`, `to_rust_native`는 `da4b5f2`로 전자가 후자의 조상이며 원격 `v0.3.0` 태그는 없습니다. 기존 `v*` 태그·앱 버전 일치·릴리스 노트·draft workflow 계약을 확인했습니다. 버전 준비 뒤 fast-forward 병합합니다.
-- [ ] R2. 0.3.0 버전 3곳·Cargo.lock·릴리스 노트를 동기화하고 버전·노트 계약을 최소 검증한 뒤 `to_rust_native`에 선별 commit·push합니다.
+- [x] R2. 0.3.0 버전 3곳·Cargo.lock·`docs/release-notes/v0.3.0.md`를 동기화해 `ca9929b`로 선별 commit하고 `to_rust_native`에 일반 push했습니다. `cargo metadata --no-deps --locked --offline`의 taide 0.3.0, `bun install --frozen-lockfile --dry-run`, 대상 Prettier·diff 검사 exit 0을 확인했습니다. 제품 코드는 바뀌지 않아 M7 전체 검사는 재사용합니다.
 - [ ] R3. `main`을 해당 검증 커밋으로 fast-forward 병합·일반 push하고 main CI 결과를 확인합니다.
 - [ ] R4. `v0.3.0` 태그를 `main`의 정확한 커밋에 생성·일반 push하고 Release workflow의 빌드·서명·공증·asset·draft 상태를 확인합니다. 공개하지 않습니다.
 - [ ] R5. 다시 `to_rust_native`로 전환해 M8 기술 spike·화면별 parity·단계적 TypeScript 제거·rollback의 착수 체크리스트를 실제 계약에 맞춰 기록하고 commit·push합니다. native 구현·기존 UI 삭제는 이번 준비에 포함하지 않습니다.
