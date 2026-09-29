@@ -3,14 +3,6 @@ import { QueryClient } from '@tanstack/react-query'
 import type { MirrorEntry, OpenedFile, PaneNode, ProjectLayout, Tab, TabPathChange, TabPathChangeResult } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
 
-/**
- * `tab-path-change.ts` reaches `@entities/editor/model-registry` (monaco worker bundles `bun test`
- * cannot load) and the two `.ipc` modules (Tauri command bindings) at import time, so both are
- * stubbed before the module is pulled in through a *dynamic* `import()` — the workaround
- * `reveal-registry.test.ts`/`git.query.test.ts` document. The behavior under test is driven through
- * the injected `deps` seam instead of those stubs, which only need to exist for the module's own
- * default-deps object to be constructible.
- */
 mock.module('@shared/lib/monaco/setup', () => ({ monaco: { Uri: { file: () => ({ toString: () => '' }) }, editor: {} } }))
 mock.module('@entities/layout/layout.ipc', () => ({ applyTabPathChange: () => Promise.resolve(null) }))
 mock.module('@entities/file/file.ipc', () => ({
@@ -18,8 +10,6 @@ mock.module('@entities/file/file.ipc', () => ({
     mirrorDirty: () => Promise.resolve(null),
     clearMirror: () => Promise.resolve(null),
 }))
-mock.module('@entities/agent/agent.ipc', () => ({ releaseWaitMarker: () => Promise.resolve(null) }))
-
 const importTabPathChange = () => import('@entities/layout/tab-path-change')
 
 const PROJECT_ID = 'project-1'

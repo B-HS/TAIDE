@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test'
+import { beforeEach, describe, expect, spyOn, test } from 'bun:test'
+import { toast } from 'sonner'
+import { AGENT_CLI_COMMANDS } from '@entities/agent/agent.commands'
+import { commands } from '@shared/api/bindings'
 import type { CliInstallStatus } from '@shared/api/bindings'
 import type { CommandContext } from '@shared/lib/command-registry'
 
@@ -33,37 +36,6 @@ let installCallCount = 0
 const successMessages: string[] = []
 const errorMessages: string[] = []
 
-/**
- * `agent.ipc` reaches `@shared/api/bindings`, i.e. the Tauri `invoke` bridge that only exists inside
- * a webview — stubbing the entity's own IPC module keeps the command's decision logic (does it
- * install, and what does it report?) testable without one.
- */
-mock.module('@entities/agent/agent.ipc', () => ({
-    getCliInstallStatus: async () => {
-        if (statusFails) throw new Error('status failed')
-        return currentStatus
-    },
-    installCliCommand: async () => {
-        installCallCount += 1
-        return installResult
-    },
-    uninstallCliCommand: async () => MISSING_STATUS,
-}))
-
-mock.module('sonner', () => ({
-    toast: {
-        success: (message: string) => successMessages.push(message),
-        error: (message: string) => errorMessages.push(message),
-    },
-}))
-
-const { AGENT_CLI_COMMANDS } = await import('@entities/agent/agent.commands')
-
-/**
- * `AGENT_CLI_COMMANDS` is `IS_MAC`-gated and `bun test` sees Bun's own `navigator.platform`, so
- * these cases exercise the macOS registration — the only platform where the backend accepts the CLI
- * shell-command install at all, and the only one the release pipeline builds for.
- */
 const runConnectCommand = async () => {
     const command = AGENT_CLI_COMMANDS.find((entry) => entry.id === 'cli.connectExternalEditor')
     expect(command).toBeDefined()
@@ -78,6 +50,23 @@ describe('cli.connectExternalEditor 커맨드', () => {
         installCallCount = 0
         successMessages.length = 0
         errorMessages.length = 0
+        spyOn(commands, 'agentCliStatus').mockImplementation(async () => {
+            if (statusFails) throw new Error('status failed')
+            return { status: 'ok', data: currentStatus }
+        })
+        spyOn(commands, 'agentCliInstall').mockImplementation(async () => {
+            installCallCount += 1
+            return { status: 'ok', data: installResult }
+        })
+        spyOn(commands, 'agentCliUninstall').mockResolvedValue({ status: 'ok', data: MISSING_STATUS })
+        spyOn(toast, 'success').mockImplementation((message) => {
+            successMessages.push(String(message))
+            return 'test'
+        })
+        spyOn(toast, 'error').mockImplementation((message) => {
+            errorMessages.push(String(message))
+            return 'test'
+        })
     })
 
     test('CLI 가 이미 설치되어 있으면 다시 설치하지 않고 연결 안내만 띄운다', async () => {
