@@ -136,6 +136,7 @@ fn 앱_조립은_장기_작업과_자동_시작을_등록하고_종료시_취소
         .1;
     let boot = boot.split_once("let ide_reconcile_handle =").unwrap().0;
     let exit = app.split_once(".run(move |app_handle, event| {").unwrap().1;
+    let requested_exit = exit.split_once("if matches!(&event, tauri::RunEvent::Exit)").unwrap().0;
 
     assert!(app.contains("TaskSupervisor::new(tauri::async_runtime::handle().inner().clone())"));
     assert!(setup.contains("app.manage(services.tasks.clone());"));
@@ -151,7 +152,8 @@ fn 앱_조립은_장기_작업과_자동_시작을_등록하고_종료시_취소
     assert!(exit.contains("ExitDrain::new((*app_handle.state::<domain::ai::commands::AiRequestStore>()).clone())"));
     assert!(exit.contains("api.prevent_exit()"));
     assert!(exit.contains("exit_drain.begin("));
-    assert!(exit.contains("move || handle.exit(exit_code)"));
+    assert!(requested_exit.contains("(*app_handle.state::<TerminalStore>()).clone()"));
+    assert!(requested_exit.contains("handle.exit(exit_code)"));
     assert!(exit.contains("app_handle.state::<TaskSupervisor>().stop_all()"));
     assert!(exit.contains("exit_drain.wait_for_direct_exit("));
     assert!(exit.contains("(*app_handle.state::<LspInstallStore>()).clone()"));
