@@ -970,12 +970,12 @@
       - [x] M7-C1b-2b. 연결별 256프레임 유한 큐와 포화 신호·즉시 writer 중단 경로를 구현했습니다. 수정 전 257번째 수락 테스트 RED(exit 101), 수정 후 WS 대상 5건·대상 Clippy·Rust fmt·문서 Prettier가 exit 0입니다. [큐 QA](quality-assurance/2026-09-29-m7-remote-ws-queue.md)에 실제 연결 실기와 대형 단일 프레임의 잔여 위험을 분리했습니다.
       - [x] M7-C1b-2c. 격리 앱의 원격 서버를 잠시 켜 무인증 HTTP/WS 401·잘못된 Host/Origin 403을 각각 한 번 실측하고 다시 껐습니다. [실측 기록](quality-assurance/2026-09-29-m7-live-settings-memory-remote.md)에 링크 생성 차단과 인증 경계의 미검증을 분리했습니다.
       - [ ] M7-C1b-2. 실제 HTTP/WebSocket upgrade·cookie 왕복·세션 TTL·전송 큐 상한/느린 수신자 경계를 격리 실행에서 검증합니다.
-    - [ ] M7-C2. IDE/MCP 및 CLI wait marker의 실제 요청·응답·수명 경계를 fixture로 고정합니다.
+    - [x] M7-C2. IDE/MCP 및 CLI wait marker의 실제 요청·응답·수명 경계를 fixture와 격리 앱 단일 실측으로 고정했습니다. 전체 IDE 도구·장시간 다중 연결 전수는 주장하지 않습니다.
       - [x] M7-C2a. `ide-mcp-wire-v1.json`과 CLI marker 이름 fixture로 protocol API 3건·CLI bin 18건을 확인했습니다. UUID 임시 marker의 timeout·제거를 포함해 대상 Clippy·Rust fmt가 exit 0입니다. 실제 IDE WebSocket과 앱의 CLI marker 수명은 검증하지 않았습니다.
-      - [ ] M7-C2b. 실제 IDE WebSocket 인증·tool handler와 앱 인수 전달·파일 닫기 시 CLI marker 제거를 검증합니다.
+      - [x] M7-C2b. 실제 IDE WebSocket 인증·대표 tool handler와 앱 인수 전달·파일 닫기 시 CLI marker 제거를 검증했습니다.
         - [x] M7-C2b-1. 동일한 전용 `TMPDIR`을 쓰는 격리 앱·CLI에서 임시 파일 `--wait` 인수 전달, 탭 열림·닫힘, CLI exit 0·marker 제거를 확인했습니다. 처음 앱·CLI 임시 경로가 다른 fixture의 timeout exit 1과 구분해 [CLI 실앱 QA](quality-assurance/2026-09-29-m7-cli-wait-gui.md)에 기록했습니다.
         - [x] M7-C2b-2a. 실행 중인 격리 release 앱의 IDE listener에 무인증 WebSocket upgrade 요청을 한 번 보내 `HTTP/1.1 401 Unauthorized`를 확인했습니다. [실측 기록](quality-assurance/2026-09-29-m7-ide-ws-live-denial.md)은 성공 인증·tool handler를 주장하지 않습니다.
-        - [ ] M7-C2b-2. IDE WebSocket 인증·tool handler의 실제 요청·응답과 추가 파일 수명 경계를 검증합니다.
+        - [x] M7-C2b-2. 격리 앱 IDE WebSocket의 유효 토큰 인증, `initialize`·`tools/list`·`openFile`·`getOpenEditors` 응답과 합성 파일 탭의 열림·닫힘을 [단일 실측](quality-assurance/2026-09-29-m7-ide-ws-authenticated-open-file.md)에서 확인했습니다. 토큰은 사용자 승인에 따라 임시 lockfile 한 개에서 메모리로만 읽었고 출력·저장하지 않았습니다.
     - [x] M7-C3. `persistence-v1.json`과 실제 저장/복원 검사 3건으로 settings/session/project/layout/hot-exit 기준선을 고정했습니다. 사용자 실제 데이터·GUI 복원은 C4에 남깁니다.
       - [x] M7-C3a. legacy settings/session/project/layout JSON을 실제 파서·고유 UUID 디스크 복원·v1→v2 layout migration과 비교했습니다. dirty 파일 탭·활성 프로젝트·기본값을 유지합니다.
       - [x] M7-C3b. legacy hot-exit mirror JSON의 누락된 disk baseline을 실제 buffer 목록에서 복원했습니다. 대상 3건·Clippy·Rust fmt·JSON Prettier가 exit 0입니다.
