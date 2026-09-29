@@ -1,9 +1,21 @@
 # PROCESS — TAIDE 작업 상태
 
-## 진행 중: Rust-native 이전을 위한 전체 기능 crate 분리 (2026-09-23)
+## 진행 중: v0.3.0 draft 릴리스와 M8 착수 준비 (2026-09-29)
+
+> 요청: 검증된 `to_rust_native`를 `main`에 병합하고 0.3.0 태그·GitHub draft release를 만든 뒤 `to_rust_native`로 돌아와 TypeScript 제거와 Rust-native M8 착수 준비를 마칩니다.
+> 기준: `docs/deployment.md`, `.github/workflows/{ci,release}.yml`, `docs/roadmap-rust-native.md`, `docs/acknowledge/2026-09-23-rust-native-transition-contract.md`, `~/.codex/llm-rules/{ai-process,git}.md`. 기존 사용자 지시에 따라 메인이 직접 수행하고 서브에이전트는 사용하지 않습니다.
+> 릴리스 정책: 태그는 `v0.3.0`이며 앱 버전 3곳과 `docs/release-notes/v0.3.0.md`를 먼저 반영합니다. 기존 성공 검사는 같은 제품 코드에 재사용합니다. M8 준비는 계획·진입 조건 고정이며 기능 동등성 전 TypeScript 제거는 하지 않습니다.
+
+- [x] R1. 원격 `main`은 `2ee2938`, `to_rust_native`는 `da4b5f2`로 전자가 후자의 조상이며 원격 `v0.3.0` 태그는 없습니다. 기존 `v*` 태그·앱 버전 일치·릴리스 노트·draft workflow 계약을 확인했습니다. 버전 준비 뒤 fast-forward 병합합니다.
+- [ ] R2. 0.3.0 버전 3곳·Cargo.lock·릴리스 노트를 동기화하고 버전·노트 계약을 최소 검증한 뒤 `to_rust_native`에 선별 commit·push합니다.
+- [ ] R3. `main`을 해당 검증 커밋으로 fast-forward 병합·일반 push하고 main CI 결과를 확인합니다.
+- [ ] R4. `v0.3.0` 태그를 `main`의 정확한 커밋에 생성·일반 push하고 Release workflow의 빌드·서명·공증·asset·draft 상태를 확인합니다. 공개하지 않습니다.
+- [ ] R5. 다시 `to_rust_native`로 전환해 M8 기술 spike·화면별 parity·단계적 TypeScript 제거·rollback의 착수 체크리스트를 실제 계약에 맞춰 기록하고 commit·push합니다. native 구현·기존 UI 삭제는 이번 준비에 포함하지 않습니다.
+
+## 완료: Rust-native 이전을 위한 전체 기능 crate 분리 (2026-09-23)
 
 > 요청: 기존 기능을 가능한 한 독립 crate로 분리하고 동작·테스트를 확인한 뒤에만 native UI 구현에 착수합니다. 매 변경에는 적합한 테스트를 동반하고, 가능한 경우 새 경계 테스트를 먼저 실패시킨 후 통과시키는 TDD로 진행합니다.
-> 현재 실행 목표(2026-09-29): 활성 목표에 따라 M7까지 완료하고 commit·push합니다. M6 분리와 M7 기능·데이터·GUI·성능 gate를 먼저 완료하며 M8 native UI 착수는 이번 실행 범위 밖입니다. GitHub B-HS/TAIDE의 to_rust_native로 기존 미푸시 커밋을 포함한 일반 push는 사용자 명시 승인을 받았으며 M7 완료 후 수행합니다. 현재 실행은 메인이 직접 수행하며 서브에이전트를 사용하지 않습니다.
+> 완료 결과(2026-09-29): M1~M7과 Phase 0 기준선이 완료됐고 `da4b5f2`까지 `to_rust_native`에 일반 push했습니다. M8 native UI 구현은 이 완료 범위 밖입니다. 현재 실행은 메인이 직접 수행하며 서브에이전트를 사용하지 않습니다.
 > 재개 규칙: compact·handoff·새 세션에서도 이 체크리스트와 `docs/acknowledge/2026-09-23-rust-native-crate-migration-contract.md`를 먼저 확인하고 미완료 항목부터 시작합니다. 과거 실행에서 사용자가 지정한 다중 에이전트 workflow와 `ollama-cloud/deepseek-v4.1-flash#max`(DeepSeek V4.1 Flash, variant `max`) 선택은 이력으로만 보존하며 현 실행에 승계하지 않습니다. 재개된 실행 작업에서는 상위 운영 계약에 따라 workflow 여부를 다시 확인하고, 현재 명시된 서브에이전트 미사용 지시를 우선합니다. 완료가 아닌 단계는 `[ ]`로 유지합니다.
 > 현재 브랜치: `to_rust_native`. 기존 Tauri 앱과 TS UI는 대체 native UI 검증 전까지 유지합니다. 초기 앱 실행·재시작 보류는 격리 GUI 실기 승인으로 해소됐으며, 사용자 실제 데이터·프로필을 사용하는 실기는 별도 확인이 필요합니다.
 > 기준: rust-native 전환 계약·로드맵·parity plan, `docs/architecture.md`, `docs/agent-operations.md`, 상위 AGENTS 및 적용 컨벤션.
