@@ -1,34 +1,9 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
-import type { Project } from '@shared/api/bindings'
+import type { GitStatus, Project } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { TooltipProvider } from '@shared/ui/tooltip'
 import { act, createTestQueryClient, fireEvent, renderWithProviders, screen } from '@shared/testing/render'
 
-/**
- * An auxiliary window (`editor-<n>`) used to be editor-only: no explorer, no search, no SCM, and a
- * `⌘P` that answered with "main window only". d-62 §1.D closed that gap — the shell now mounts
- * `ExplorerContainer`, whose own view switcher brings `SearchPanelContainer` and `GitPanelContainer`
- * with it, all three pinned to the window's fixed `projectId`. These cases lock that the three views
- * are reachable (by click and by shortcut) and that the panel reads *this* window's project.
- *
- * Two module fakes, registered before the shell is pulled in through a *dynamic* `import()`
- * (`mock.module` is process-global and last-registration-wins — `docs/memory/test-conventions.md`
- * §3): `EditorArea` is stubbed because the editor body has nothing to do with the sidebar, and
- * `@shared/lib/monaco/setup` follows the existing precedent — `entities/layout/layout.query` reaches
- * monaco at import time.
- *
- * `@tauri-apps/api/window` is deliberately *not* mocked. The shell closes its own window once the
- * tree empties (and `layout_get` fails here, since there is no IPC), which needs `getCurrentWindow()`
- * to resolve — so this file seeds the same `window.__TAURI_INTERNALS__` shape
- * (`docs/memory/test-conventions.md` §4) and removes it afterwards, instead of replacing the module
- * process-wide with a fake window that has no `label` and would make every later file's
- * `isRemoteMirrorRuntime` read the wrong runtime.
- *
- * Every project-scoped query below this shell fails (no IPC), which is why the SCM view is asserted
- * through its "not a repository" branch rather than through a commit list — that branch is what
- * `GitPanelContainer` renders when `git_status` errors, so it is the mount itself that is locked
- * here, not the panel's populated state.
- */
 const MONACO_SYMBOL_KIND_NAMES = [
     'File',
     'Module',
@@ -62,15 +37,12 @@ const MAIN_WINDOW_LABEL = 'main'
 const PROJECT_ID = 'project-1'
 const WINDOW_SLOT = 1
 const PROJECT: Project = { id: PROJECT_ID, root: '/tmp/aux-project', name: 'aux-project' }
+const GIT_STATUS: GitStatus = { rows: [], branch: 'main', ahead: 0, behind: 0, hasRemote: false }
 
-/**
- * The project detail is seeded with `gcTime: Infinity` because the test client collects
- * observer-less queries immediately (`docs/memory/test-conventions.md` §3), and `TooltipProvider` is
- * composed in here because `renderWithProviders` deliberately carries only Query + i18n — the view
- * switcher's `IconButton`s are radix tooltips.
- */
 const renderShell = async () => {
     const queryClient = createTestQueryClient()
+    queryClient.setQueryDefaults(QUERY_KEY.GIT.STATUS(PROJECT_ID), { staleTime: Infinity, gcTime: Infinity })
+    queryClient.setQueryData(QUERY_KEY.GIT.STATUS(PROJECT_ID), GIT_STATUS)
     await queryClient.fetchQuery({ queryKey: QUERY_KEY.PROJECT.DETAIL(PROJECT_ID), queryFn: () => PROJECT, gcTime: Infinity })
     const { AuxiliaryWindowShell } = await importShell()
     return renderWithProviders(
@@ -114,7 +86,7 @@ describe('AuxiliaryWindowShell 사이드바', () => {
 
         act(() => fireEvent.click(viewTab('git.title')))
 
-        expect(await screen.findByText('git.notARepository')).toBeTruthy()
+        expect(await screen.findByPlaceholderText('git.commitMessagePlaceholder')).toBeTruthy()
     })
 
     test('⌃⇧G 는 창 안의 탐색기 브리지를 통해 SCM 뷰를 연다', async () => {

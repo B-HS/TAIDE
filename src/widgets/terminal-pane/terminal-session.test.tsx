@@ -140,9 +140,9 @@ const buildLiveSession = (id: string): TerminalSessionInfo => ({ id, projectId: 
 
 type RenderOverrides = { sessionId?: string; liveSessions?: TerminalSessionInfo[]; settings?: Settings }
 
-/** `gcTime: Infinity` on every seed because the test client collects observer-less queries immediately (`docs/memory/test-conventions.md` §3). */
 const renderTerminalSession = async (tabId: string, paneId: string, { sessionId = '', liveSessions = [], settings }: RenderOverrides = {}) => {
     const queryClient = createTestQueryClient()
+    queryClient.setQueryDefaults(QUERY_KEY.LAYOUT.DETAIL(PROJECT_ID), { staleTime: Infinity, gcTime: Infinity })
     await queryClient.fetchQuery({ queryKey: QUERY_KEY.LAYOUT.DETAIL(PROJECT_ID), queryFn: () => LAYOUT, gcTime: Infinity })
     await queryClient.fetchQuery({ queryKey: QUERY_KEY.THEME.CURRENT, queryFn: () => THEME, gcTime: Infinity })
     await queryClient.fetchQuery({ queryKey: QUERY_KEY.TERMINAL.SESSIONS(PROJECT_ID), queryFn: () => liveSessions, gcTime: Infinity })

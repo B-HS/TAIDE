@@ -10,6 +10,7 @@
 - [x] R1. 원격 `main`은 `2ee2938`, `to_rust_native`는 `da4b5f2`로 전자가 후자의 조상이며 원격 `v0.3.0` 태그는 없습니다. 기존 `v*` 태그·앱 버전 일치·릴리스 노트·draft workflow 계약을 확인했습니다. 버전 준비 뒤 fast-forward 병합합니다.
 - [x] R2. 0.3.0 버전 3곳·Cargo.lock·`docs/release-notes/v0.3.0.md`를 동기화해 `ca9929b`로 선별 commit하고 `to_rust_native`에 일반 push했습니다. `cargo metadata --no-deps --locked --offline`의 taide 0.3.0, `bun install --frozen-lockfile --dry-run`, 대상 Prettier·diff 검사 exit 0을 확인했습니다. 제품 코드는 바뀌지 않아 M7 전체 검사는 재사용합니다.
 - [ ] R3. `main`을 해당 검증 커밋으로 fast-forward 병합·일반 push하고 main CI 결과를 확인합니다. 병합·push는 `8d5b83c`까지 완료됐으나 CI #88 frontend 7건 실패로 미완료입니다.
+  - CI #88 최종 결과: Rust 성공(6m 11s), frontend 실패(2,945 pass·7 fail). 전체 로그 `logs_98940531656.zip`에서 사이드바 4건·상태바 1건·보조 창 SCM 1건·터미널 재시작 cwd 1건을 확인했습니다. 세 테스트 fixture의 전역 module mock·비고정 Query cache를 수정했습니다. Bun 1.3.14 대상 4파일 20/20, 전체 비격리 2,950 pass·2 fail(로컬 sandbox loopback 제한), 실패 2건의 권한 허용 재검증 2/2, TypeScript typecheck와 대상 Prettier·diff 검사 통과. 새 main CI 성공 전에는 R3를 완료 처리하지 않습니다. 원인·대안은 `docs/bug/2026-09-29-ci-88-frontend-test-isolation.md`를 참조합니다.
 - [ ] R4. `v0.3.0` 태그를 `main`의 정확한 커밋에 생성·일반 push하고 Release workflow의 빌드·서명·공증·asset·draft 상태를 확인합니다. 공개하지 않습니다.
 - [ ] R5. 다시 `to_rust_native`로 전환해 M8 기술 spike·화면별 parity·단계적 TypeScript 제거·rollback의 착수 체크리스트를 실제 계약에 맞춰 기록하고 commit·push합니다. native 구현·기존 UI 삭제는 이번 준비에 포함하지 않습니다.
 

@@ -33,30 +33,6 @@ const SlotTabDragStub: FC<{ id: string }> = ({ id }) => {
     )
 }
 
-/**
- * The window-level state `AppShell` owns on behalf of every slot below it. Only the Problems pair is
- * exercised here: it is the one flag that lives *above* the slots (the status bar's toggle has to
- * reach the focused slot), so it is also the one that can outlive the slot it belongs to.
- *
- * The second subject is the nesting `EditorArea` relies on, pinned here in the real shell rather
- * than in the synthetic tree of `project-drag-nesting.test.tsx`: the `ProjectShell` stub carries a
- * `DndContext` of its own where the editor's tab context would be, with a probe on each side of it.
- *
- * Five module fakes, all registered before the shell is pulled in through a dynamic `import()`
- * (`mock.module` is process-global and last-registration-wins — `docs/memory/test-conventions.md`
- * §3). `ProjectShell` still renders the same `shell:<projectId>` line
- * `shell-slot-tree-view.test.tsx` registers, so whichever of the two files runs last the other still
- * reads the flag off the rendered text; the drag stub beside it registers nothing outward and is
- * inert in that file. The status bar is reduced to its Problems pair, the title bar and sidebar to
- * nothing — none of them has anything to do with this file, and all three open project-scoped
- * queries that cannot resolve without IPC. `@tauri-apps/api/webview` is faked because the
- * drag-and-drop subscription calls `getCurrentWebview()` synchronously inside an effect, which
- * throws with no `__TAURI_INTERNALS__`; this is the only module in `src` that imports it.
- *
- * The real `ShellSlotTreeView` is kept — the slot header's ✕ is the only user-facing way to reach
- * `onCloseSlot`, and going through it is what makes this a wiring test rather than a restatement of
- * the reducer.
- */
 mock.module('@shared/lib/monaco/setup', () => ({ monaco: { Uri: { file: () => ({ toString: () => '' }) }, editor: {} } }))
 mock.module('@widgets/app-shell/project-shell', () => ({
     ProjectShell: ({ projectId, isProblemsOpen }: { projectId: string; isProblemsOpen: boolean }) => (
@@ -71,14 +47,6 @@ mock.module('@widgets/app-shell/project-shell', () => ({
     ),
 }))
 mock.module('@widgets/window-chrome/title-bar-content', () => ({ TitleBarContent: () => null }))
-mock.module('@widgets/app-sidebar/app-sidebar', () => ({ AppSidebar: () => null }))
-mock.module('@widgets/window-chrome/status-bar-content', () => ({
-    StatusBarContent: ({ onToggleProblems }: { onToggleProblems: () => void }) => (
-        <button type='button' onClick={onToggleProblems}>
-            toggle problems
-        </button>
-    ),
-}))
 mock.module('@tauri-apps/api/webview', () => ({ getCurrentWebview: () => ({ onDragDropEvent: async () => () => {} }) }))
 
 const importShell = () => import('@widgets/app-shell/app-shell')
@@ -110,22 +78,20 @@ const SHELL_STATE: SessionShellState = {
 /** Drains the mutation's own promise chain so its React Query state lands *inside* the `act` scope the click was fired in. */
 const settleMutation = () => new Promise((resolve) => setTimeout(resolve, 0))
 
-/**
- * Both reads are seeded rather than mocked, with per-key `staleTime`/`gcTime` defaults so the shell
- * never refetches them: the test client collects observer-less queries immediately, and another
- * file's process-global `@entities/project/project.ipc` fake (`listProjects: () => []`) would
- * otherwise win the mount refetch and drop the window to the Welcome screen
- * (`docs/memory/test-conventions.md` §3).
- *
- * Focus is supplied directly instead of mounting `ShellSlotProvider`, which owns a DOM concern this
- * file does not test.
- */
 const renderShell = async () => {
     const queryClient = createTestQueryClient()
     queryClient.setQueryDefaults(QUERY_KEY.PROJECT.LIST, { staleTime: Infinity, gcTime: Infinity })
     queryClient.setQueryDefaults(QUERY_KEY.SESSION.SHELL_STATE, { staleTime: Infinity, gcTime: Infinity })
     queryClient.setQueryData(QUERY_KEY.PROJECT.LIST, PROJECTS)
     queryClient.setQueryData(QUERY_KEY.SESSION.SHELL_STATE, SHELL_STATE)
+    const sidebarModule = await import('@widgets/app-sidebar/app-sidebar')
+    const statusBarModule = await import('@widgets/window-chrome/status-bar-content')
+    spyOn(sidebarModule, 'AppSidebar').mockImplementation(() => <></>)
+    spyOn(statusBarModule, 'StatusBarContent').mockImplementation(({ onToggleProblems }) => (
+        <button type='button' onClick={onToggleProblems}>
+            toggle problems
+        </button>
+    ))
     const { AppShell } = await importShell()
 
     return renderWithProviders(
