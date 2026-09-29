@@ -197,6 +197,7 @@
         "src/widgets/settings-view/settings-language-section.tsx",
         "src/widgets/settings-view/settings-lsp-section.tsx",
         "src/widgets/settings-view/settings-notification-section.tsx",
+        "src/widgets/settings-view/settings-performance-section.tsx",
         "src/widgets/settings-view/settings-plugins-section.tsx",
         "src/widgets/settings-view/settings-remote-section.tsx",
         "src/widgets/settings-view/settings-snippets-section.tsx",
