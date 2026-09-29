@@ -44,12 +44,16 @@ pub async fn serve(listener: TcpListener, router: Router, mut shutdown_rx: watch
     }
 }
 
-fn extract_cookie(headers: &HeaderMap, name: &str) -> Option<String> {
+pub(super) fn extract_cookie(headers: &HeaderMap, name: &str) -> Option<String> {
     let raw = headers.get(header::COOKIE)?.to_str().ok()?;
     raw.split(';').find_map(|part| {
         let (key, value) = part.trim().split_once('=')?;
         (key == name).then(|| value.to_string())
     })
+}
+
+pub(super) fn has_authenticated_session_cookie(remote: &RemoteStore, headers: &HeaderMap) -> bool {
+    extract_cookie(headers, REMOTE_SESSION_COOKIE_NAME).is_some_and(|session_token| remote.has_active_session(&session_token))
 }
 
 fn extract_link_token(uri: &Uri) -> Option<String> {
@@ -152,10 +156,8 @@ async fn auth_middleware(State(app): State<AppHandle>, request: Request, next: N
         return (StatusCode::FORBIDDEN, "origin not allowed").into_response();
     }
 
-    if let Some(session_token) = extract_cookie(request.headers(), REMOTE_SESSION_COOKIE_NAME) {
-        if remote.has_active_session(&session_token) {
-            return next.run(request).await;
-        }
+    if has_authenticated_session_cookie(&remote, request.headers()) {
+        return next.run(request).await;
     }
 
     if request.uri().path() == REMOTE_LOGIN_PATH {

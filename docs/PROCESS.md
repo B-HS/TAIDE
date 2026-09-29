@@ -974,6 +974,8 @@
       - [x] M7-C1b-2c. 격리 앱의 원격 서버를 잠시 켜 무인증 HTTP/WS 401·잘못된 Host/Origin 403을 각각 한 번 실측하고 다시 껐습니다. [실측 기록](quality-assurance/2026-09-29-m7-live-settings-memory-remote.md)에 링크 생성 차단과 인증 경계의 미검증을 분리했습니다.
       - [x] M7-C1b-2d. 승인된 격리 앱의 일회용 링크로 HTTP 200·HttpOnly/SameSite 쿠키 왕복·인증 WebSocket `remote_status` 성공을 [단일 실측](quality-assurance/2026-09-29-m7-remote-authenticated-session.md)했습니다. 전체 기기 로그아웃 알림과 서버 중지·포트 종료를 확인했지만 검사기 타임아웃이 먼저여서 기존 WebSocket의 폐기 종료·TTL·느린 수신자 포화는 미판정입니다.
       - [x] M7-C1b-2e. [후속 단일 실측](quality-assurance/2026-09-29-m7-remote-slow-receiver-revoke.md)에서 1KB 합성 파일 요청 6,000건을 보낸 느린 WebSocket이 읽기 재개 전 1006으로 닫히고 별도 제어 연결은 정상 응답하는 것을 확인했습니다. 제어 연결 `1 connected` 상태에서 전체 세션 폐기 뒤 연결 1006·`0 connected`, 서버 `Stopped`·포트 종료를 관찰했습니다. 내부 큐 점유량과 실제 7일 만료는 미계측입니다.
+      - [x] M7-C1b-2f. [TTL 결정적 검사](quality-assurance/2026-09-29-m7-remote-ttl-deterministic.md) 3건에서 발급 시 7일 시각, 만료 세션 거부·제거, 스윕 시 유효 세션 보존을 확인했습니다. 대상 Clippy·Rust fmt/diff는 exit 0입니다. 실제 HTTP 401과 열린 WebSocket 4001 만료 종료는 별도입니다.
+      - [x] M7-C1b-2g. 세션 저장·WS 데드라인에 Tokio 테스트 시계를 연결하고 7일 전진 후 합성 루프백 서버에서 HTTP 401·열린 WebSocket close 4001을 한 번씩 관찰했습니다. 제품 앱 전체 `build_router`가 아닌 공유 인증·만료 함수를 사용하는 검사라는 한계는 [TTL QA](quality-assurance/2026-09-29-m7-remote-ttl-deterministic.md)에 명시했습니다. 제품 기본 7일 TTL·원격 인증 정책은 유지합니다.
       - [ ] M7-C1b-2. 실제 HTTP/WebSocket upgrade·cookie 왕복·세션 TTL·전송 큐 상한/느린 수신자 경계를 격리 실행에서 검증합니다.
     - [x] M7-C2. IDE/MCP 및 CLI wait marker의 실제 요청·응답·수명 경계를 fixture와 격리 앱 단일 실측으로 고정했습니다. 전체 IDE 도구·장시간 다중 연결 전수는 주장하지 않습니다.
       - [x] M7-C2a. `ide-mcp-wire-v1.json`과 CLI marker 이름 fixture로 protocol API 3건·CLI bin 18건을 확인했습니다. UUID 임시 marker의 timeout·제거를 포함해 대상 Clippy·Rust fmt가 exit 0입니다. 실제 IDE WebSocket과 앱의 CLI marker 수명은 검증하지 않았습니다.

@@ -81,6 +81,7 @@ taide-window = { path = "../crates/taide-window" }
 
 [dev-dependencies]
 taide-infra = { path = "../crates/taide-infra", features = ["test-support"] }
+tokio = { version = "1", features = ["test-util"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"

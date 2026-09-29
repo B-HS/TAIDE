@@ -6,6 +6,7 @@ use parking_lot::Mutex;
 use taide_infra::crypto::constant_time_eq;
 use taide_model::remote::RemoteStatus;
 use tokio::sync::{broadcast, watch};
+use tokio::time::Instant as SessionInstant;
 
 use crate::service;
 use crate::types::{
@@ -23,7 +24,7 @@ struct RemoteStoreInner {
     password_configured: bool,
     pending_link_token_digest: Option<Vec<u8>>,
     pending_login_nonces: HashMap<String, Instant>,
-    session_token_digests: HashMap<String, Instant>,
+    session_token_digests: HashMap<String, SessionInstant>,
     failed_login_attempts_nonce: u32,
     login_locked_until_nonce: Option<Instant>,
     failed_login_attempts_anonymous: u32,
@@ -228,7 +229,7 @@ impl RemoteStore {
 
     fn mint_session(&self) -> String {
         let session_token = service::generate_session_token();
-        let expires_at = Instant::now() + Duration::from_millis(REMOTE_SESSION_TTL_MS);
+        let expires_at = SessionInstant::now() + Duration::from_millis(REMOTE_SESSION_TTL_MS);
         self.inner
             .lock()
             .session_token_digests
@@ -247,7 +248,7 @@ impl RemoteStore {
     pub fn has_active_session_digest(&self, digest: &str) -> bool {
         let mut inner = self.inner.lock();
         match inner.session_token_digests.get(digest) {
-            Some(expires_at) if *expires_at > Instant::now() => true,
+            Some(expires_at) if *expires_at > SessionInstant::now() => true,
             Some(_) => {
                 inner.session_token_digests.remove(digest);
                 false
@@ -263,7 +264,7 @@ impl RemoteStore {
     /// the socket's own read loop — see that function's doc comment for why
     /// this per-session deadline is necessary on top of the bulk
     /// `subscribe_session_epoch` mechanism.
-    pub fn session_expires_at(&self, digest: &str) -> Option<Instant> {
+    pub fn session_expires_at(&self, digest: &str) -> Option<SessionInstant> {
         self.inner.lock().session_token_digests.get(digest).copied()
     }
 
@@ -277,7 +278,7 @@ impl RemoteStore {
     /// to keep the map from growing unbounded without needing a dedicated
     /// background timer.
     pub fn sweep_expired_sessions(&self) {
-        let now = Instant::now();
+        let now = SessionInstant::now();
         self.inner
             .lock()
             .session_token_digests
@@ -588,7 +589,7 @@ mod tests {
     #[test]
     fn session_expires_at은_발급된_세션의_만료_시각을_반환한다() {
         let store = RemoteStore::default();
-        let before = Instant::now();
+        let before = SessionInstant::now();
         let session = store.issue_session_without_nonce();
         let digest = service::digest_hex(&session);
 
@@ -600,6 +601,48 @@ mod tests {
             expires_at > before,
             "만료 시각은 발급 시점보다 미래여야 한다"
         );
+    }
+
+    #[test]
+    fn 세션_만료_시각은_발급_시점부터_정확히_ttl이다() {
+        let store = RemoteStore::default();
+        let before = SessionInstant::now();
+        let session = store.issue_session_without_nonce();
+        let after = SessionInstant::now();
+        let digest = service::digest_hex(&session);
+        let expires_at = store
+            .session_expires_at(&digest)
+            .expect("발급된 세션 만료 시각");
+        let ttl = Duration::from_millis(REMOTE_SESSION_TTL_MS);
+
+        assert!(expires_at >= before + ttl);
+        assert!(expires_at <= after + ttl);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn 세션_만료_후_검증은_세션을_제거한다() {
+        let store = RemoteStore::default();
+        let session = store.issue_session_without_nonce();
+        let digest = service::digest_hex(&session);
+        tokio::time::advance(Duration::from_millis(REMOTE_SESSION_TTL_MS)).await;
+
+        assert!(!store.has_active_session(&session));
+        assert!(store.session_expires_at(&digest).is_none());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn 세션_만료_스윕은_유효한_다른_세션을_보존한다() {
+        let store = RemoteStore::default();
+        let expired_session = store.issue_session_without_nonce();
+        tokio::time::advance(Duration::from_millis(1)).await;
+        let active_session = store.issue_session_without_nonce();
+        let expired_digest = service::digest_hex(&expired_session);
+        tokio::time::advance(Duration::from_millis(REMOTE_SESSION_TTL_MS - 1)).await;
+
+        store.sweep_expired_sessions();
+
+        assert!(store.session_expires_at(&expired_digest).is_none());
+        assert!(store.has_active_session(&active_session));
     }
 
     #[test]

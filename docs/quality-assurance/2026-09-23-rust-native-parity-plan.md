@@ -17,7 +17,7 @@
 ## 2. Phase 0 기준선
 
 - [x] command, event, raw channel 이름·payload·error code manifest — `src-tauri/tests/fixtures/rust-native/ipc-contract-manifest.json`, `src-tauri/tests/rust_native_phase0_contract.rs`
-- [ ] remote allow·deny, authentication, session revoke와 binary channel fixture — `remote-wire-session-v1.json`의 서비스·store·protocol API 3건과 [실제 인증 HTTP/WebSocket 대표 명령](2026-09-29-m7-remote-authenticated-session.md)·[느린 수신자 및 활성 연결 폐기](2026-09-29-m7-remote-slow-receiver-revoke.md)는 관찰; 7일 TTL의 실제 만료·내부 포화 분기 직접 계측은 미완료
+- [ ] remote allow·deny, authentication, session revoke와 binary channel fixture — `remote-wire-session-v1.json`의 서비스·store·protocol API 3건과 [실제 인증 HTTP/WebSocket 대표 명령](2026-09-29-m7-remote-authenticated-session.md)·[느린 수신자 및 활성 연결 폐기](2026-09-29-m7-remote-slow-receiver-revoke.md)·[TTL 결정적 검사](2026-09-29-m7-remote-ttl-deterministic.md)는 통과; 가상 7일 뒤 합성 서버 HTTP 401·WebSocket 4001도 확인했지만 제품 `build_router`에서 같은 만료 직접 계측과 내부 포화 분기는 미완료
 - [x] IDE/MCP request·response와 CLI `taide --wait` marker fixture — IDE protocol API 3건·CLI marker bin 18건과 [실제 앱의 CLI 대기/해제](2026-09-29-m7-cli-wait-gui.md)·[인증 WebSocket 도구/탭 수명](2026-09-29-m7-ide-ws-authenticated-open-file.md)을 각각 한 번 확인. 전체 IDE 도구 전수는 별도
 - [x] settings, session, project, layout, hot-exit buffer의 versioned fixture — `persistence-v1.json`과 실제 settings load·session/project restore·v1→v2 layout load·legacy mirror list 3건 통과; 사용자 실제 데이터와 GUI 복원은 별도
 - [ ] `docs/quality-assurance/2026-09-04-perf-baseline.md` 실기 지표 작성

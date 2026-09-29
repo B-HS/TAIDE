@@ -138,6 +138,19 @@ async fn handle_request(app: &AppHandle, request: RemoteRequest, factory: Channe
     }
 }
 
+async fn session_expiration_close(remote: RemoteStore, session_digest: String) -> Option<WsOut> {
+    let deadline = remote.session_expires_at(&session_digest).unwrap_or_else(tokio::time::Instant::now);
+    tokio::time::sleep_until(deadline).await;
+    if remote.has_active_session_digest(&session_digest) {
+        return None;
+    }
+    log::info!("원격 세션이 만료되어 연결을 종료합니다");
+    Some(WsOut::Close(
+        REMOTE_WS_CLOSE_CODE_SESSION_EXPIRED,
+        REMOTE_WS_CLOSE_REASON_SESSION_EXPIRED,
+    ))
+}
+
 /// Drives one upgraded remote WebSocket connection. Besides the request/
 /// response and event-fanout loops, this races the connection's own read
 /// loop against two independent session-invalidation signals:
@@ -211,10 +224,8 @@ pub async fn handle_socket(socket: WebSocket, app: AppHandle, session_digest: St
     remote.client_connected();
     let mut events = remote.subscribe_events();
     let mut session_epoch = remote.subscribe_session_epoch();
-    let deadline = remote
-        .session_expires_at(&session_digest)
-        .map(tokio::time::Instant::from_std)
-        .unwrap_or_else(tokio::time::Instant::now);
+    let expiry = session_expiration_close((*remote).clone(), session_digest);
+    tokio::pin!(expiry);
 
     let (mut sink, mut stream) = socket.split();
     let (tx, mut rx, mut saturation_signal) = OutboundQueue::new();
@@ -291,10 +302,9 @@ pub async fn handle_socket(socket: WebSocket, app: AppHandle, session_digest: St
                 log::info!("원격 세션이 무효화되어 연결을 종료합니다");
                 break;
             }
-            _ = tokio::time::sleep_until(deadline) => {
-                if !remote.has_active_session_digest(&session_digest) {
-                    log::info!("원격 세션이 만료되어 연결을 종료합니다");
-                    let _ = tx.send(WsOut::Close(REMOTE_WS_CLOSE_CODE_SESSION_EXPIRED, REMOTE_WS_CLOSE_REASON_SESSION_EXPIRED));
+            close = &mut expiry => {
+                if let Some(close) = close {
+                    let _ = tx.send(close);
                 }
                 break;
             }
@@ -328,6 +338,91 @@ pub async fn handle_socket(socket: WebSocket, app: AppHandle, session_digest: St
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::extract::{State, WebSocketUpgrade};
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::response::{IntoResponse, Response};
+    use axum::routing::get;
+    use axum::Router;
+    use taide_remote::service;
+    use taide_remote::types::REMOTE_SESSION_TTL_MS;
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    use tokio_tungstenite::tungstenite::Message as ClientMessage;
+    use crate::domain::remote::types::REMOTE_SESSION_COOKIE_NAME;
+
+    #[tokio::test]
+    async fn 가상_시계_만료는_http_401과_연결된_ws_4001을_반환한다() {
+        let remote = RemoteStore::default();
+        let session = remote.issue_session_without_nonce();
+        let cookie = format!("{REMOTE_SESSION_COOKIE_NAME}={session}");
+        let router = Router::new()
+            .route(
+                "/protected",
+                get(|State(remote): State<RemoteStore>, headers: HeaderMap| async move {
+                    if super::super::server::has_authenticated_session_cookie(&remote, &headers) {
+                        StatusCode::OK
+                    } else {
+                        StatusCode::UNAUTHORIZED
+                    }
+                }),
+            )
+            .route(
+                "/ws",
+                get(
+                    |State(remote): State<RemoteStore>, headers: HeaderMap, upgrade: WebSocketUpgrade| async move {
+                        if !super::super::server::has_authenticated_session_cookie(&remote, &headers) {
+                            return StatusCode::UNAUTHORIZED.into_response();
+                        }
+                        let session = super::super::server::extract_cookie(&headers, REMOTE_SESSION_COOKIE_NAME).expect("인증 쿠키");
+                        let digest = service::digest_hex(&session);
+                        let response: Response = upgrade.on_upgrade(move |mut socket| async move {
+                            if let Some(close) = session_expiration_close(remote, digest).await {
+                                let _ = socket.send(close.into_message()).await;
+                            }
+                        });
+                        response
+                    },
+                ),
+            )
+            .with_state(remote);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("테스트 리스너");
+        let port = listener.local_addr().expect("테스트 주소").port();
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.expect("테스트 서버") });
+        let client = reqwest::Client::new();
+        let http_url = format!("http://127.0.0.1:{port}/protected");
+        let active_response = client
+            .get(&http_url)
+            .header(reqwest::header::COOKIE, &cookie)
+            .send()
+            .await
+            .expect("유효한 세션 요청");
+        assert_eq!(active_response.status(), StatusCode::OK);
+
+        let mut request = format!("ws://127.0.0.1:{port}/ws").into_client_request().expect("웹소켓 요청");
+        request.headers_mut().insert("Cookie", cookie.parse().expect("쿠키 헤더"));
+        let (mut socket, _) = tokio_tungstenite::connect_async(request).await.expect("유효한 웹소켓 연결");
+        tokio::task::yield_now().await;
+        tokio::time::pause();
+        tokio::time::advance(std::time::Duration::from_millis(REMOTE_SESSION_TTL_MS)).await;
+
+        let expired_response = client
+            .get(&http_url)
+            .header(reqwest::header::COOKIE, &cookie)
+            .send()
+            .await
+            .expect("만료된 세션 요청");
+        assert_eq!(expired_response.status(), StatusCode::UNAUTHORIZED);
+
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), socket.next())
+            .await
+            .expect("만료 종료 프레임 대기")
+            .expect("웹소켓 프레임")
+            .expect("유효한 웹소켓 프레임");
+        let ClientMessage::Close(Some(close)) = frame else {
+            panic!("세션 만료 종료 프레임이 아닙니다");
+        };
+        assert_eq!(u16::from(close.code), REMOTE_WS_CLOSE_CODE_SESSION_EXPIRED);
+        server.abort();
+    }
 
     #[test]
     fn 느린_수신자의_전송_큐가_상한을_넘으면_송신을_거부한다() {
