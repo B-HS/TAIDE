@@ -1,6 +1,6 @@
 # Rust-native 기능·성능 동등성 계획
 
-> 상태: Phase 0 진행 중 — IPC contract manifest·drift test 완료
+> 상태: Phase 0 계약·기능·성능 기준선 완료. M6 직접 Exit 전체 adapter gate와 M8 native 동등성은 별도
 > 계약: `docs/acknowledge/2026-09-23-rust-native-transition-contract.md`
 > 로드맵: `docs/roadmap-rust-native.md`
 > 현행 실기 기준선: `docs/quality-assurance/2026-09-04-perf-baseline.md`
@@ -20,7 +20,7 @@
 - [x] remote allow·deny, authentication, session revoke와 binary channel fixture — `remote-wire-session-v1.json`의 서비스·store·protocol API 3건, [실제 인증 HTTP/WebSocket 대표 명령](2026-09-29-m7-remote-authenticated-session.md), [느린 수신자 및 활성 연결 폐기](2026-09-29-m7-remote-slow-receiver-revoke.md), [제품 라우터 가상 7일 만료 HTTP 401·WebSocket 4001](2026-09-29-m7-remote-ttl-deterministic.md), 256프레임 포화 신호 검사를 연결했습니다. 실제 7일 경과와 내부 큐 점유량은 관찰하지 않았습니다.
 - [x] IDE/MCP request·response와 CLI `taide --wait` marker fixture — IDE protocol API 3건·CLI marker bin 18건과 [실제 앱의 CLI 대기/해제](2026-09-29-m7-cli-wait-gui.md)·[인증 WebSocket 도구/탭 수명](2026-09-29-m7-ide-ws-authenticated-open-file.md)을 각각 한 번 확인. 전체 IDE 도구 전수는 별도
 - [x] settings, session, project, layout, hot-exit buffer의 versioned fixture — `persistence-v1.json`과 실제 settings load·session/project restore·v1→v2 layout load·legacy mirror list 3건 통과; 사용자 실제 데이터와 GUI 복원은 별도
-- [ ] `docs/quality-assurance/2026-09-04-perf-baseline.md` 실기 지표 작성
+- [x] `docs/quality-assurance/2026-09-04-perf-baseline.md` 실기 지표 작성 — 11개 세부 행의 단일 표본. 부팅은 [사용자 승인 화면 표시 준비 대리지표](../acknowledge/2026-09-29-m7-boot-visible-ready-proxy.md)이고 실제 첫 픽셀 시각이 아닙니다. 터미널은 [전면 200만 줄 렌더](2026-09-29-m7-terminal-foreground-render.md)의 writer 기준 참고 처리량이며 native의 독립 픽셀 처리량과 같다고 보지 않습니다.
 - [x] editor, LSP, terminal, preview, shell 기능 inventory에 근거 파일·시험 연결 — [5도메인 구현·자동 검사 경로와 미검증 항목](2026-09-28-rust-native-function-inventory.md)을 기록하고 [대표 앱 실기](2026-09-29-m7-debug-function-gui-smoke.md)를 연결했습니다. 형식별 preview·개별 기능 전수 실기는 완료로 주장하지 않습니다.
 - [x] 현재 TS view의 212개 경로에 실제 컴포넌트·자동 근거·미검증 상태를 연결하고 [대표 화면·다이얼로그·키보드·테마/로케일·멀티윈도·접근성 경로](2026-09-29-m7-ts-view-representative-gate.md)를 한 번씩 실측. 개별 경로 전수·native 동등성은 별도
 

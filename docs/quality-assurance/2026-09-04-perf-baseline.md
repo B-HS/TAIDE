@@ -6,7 +6,7 @@
 >
 > **왜 체크리스트인가**: 8지표의 실측은 **앱을 실제로 띄워야** 나온다. 자동 검증으로 잠근 것은
 > 계측 자체의 동작(`src/shared/lib/perf-mark.test.ts`)과 연산 횟수 예산(§5)뿐이고, 밀리초 수치는
-> 이 문서의 절차대로 사용자가 직접 재서 §3 표에 적는다. 수치를 적기 전에는 **어떤 성능 주장도
+> 이 문서의 절차대로 격리 앱에서 재서 §3 표에 적는다. 수치를 적기 전에는 **어떤 성능 주장도
 > 하지 않는다** — 이 배치의 조사에서 "코드만 보면 유력했던 병목" 2건(키맵 디스패치·검색 flatten)이
 > 실측으로 기각됐다.
 
@@ -54,7 +54,7 @@ TAIDE_PERF=1 /Applications/TAIDE.app/Contents/MacOS/TAIDE       # 설치본 실�
 
 | # | 지표 | 조작 | 읽는 곳 (프론트 / Rust) | 측정값 | 체크 |
 |---|------|------|------------------------|--------|------|
-| 1 | 부팅 → 첫 페인트 | 앱을 완전히 종료했다 다시 실행 | `boot.reveal` / `setup.main_window`·`setup.locale_warm`·`setup.state_restore`·`setup.deferred_restore` | OS 프로세스 시작→WebKit 첫 콘텐츠 페인트 약 1119.420ms, 창 표시 완료 약 1120.420ms. `first-paint` 누락·콘텐츠 페인트가 표시 완료보다 1ms 앞서 정확한 첫 가시 페인트는 미판정 | [ ] |
+| 1 | 부팅 → 화면 표시 준비(첫 가시 페인트 대리지표) | 앱을 완전히 종료했다 다시 실행 | `boot.reveal` / `setup.main_window`·`setup.locale_warm`·`setup.state_restore`·`setup.deferred_restore` | 단일 release 부팅의 OS 프로세스 시작→WebKit 콘텐츠 준비 약 1119.420ms, Tauri 창 표시 완료 약 1120.420ms. 사용자 승인에 따라 후자를 표시 준비 기준선으로 채택; 실제 픽셀 페인트 시각은 미계측 | [x] |
 | 2 | 프로젝트 전환 | 사이드바에서 **다른** 프로젝트 클릭(이번 실행에서 처음 여는 것) | `project.switch` / `project_open`·`project_activate` | 이번 프로세스에서 처음 연 닫힌 합성 프로젝트를 native `File > Open Recent`로 선택: FE 31ms·Rust `project_open` 40.844ms(각 1회). 사이드바 클릭은 아니며 같은 디스크 경로의 과거 프로세스 캐시는 남아 있음 | [x] |
 | 3-a | 파일 열기 (소, 1KB) | 탐색기에서 1KB 파일을 **처음** 연다 | `file.open` / `file_open` | FE 91ms; Rust 0.145ms(각 1회) | [x] |
 | 3-b | 파일 열기 (대, 1MB) | 탐색기에서 1MB 파일을 **처음** 연다 | `file.open` / `file_open` | FE 20ms; Rust 1.224ms(각 1회) | [x] |
@@ -63,17 +63,17 @@ TAIDE_PERF=1 /Applications/TAIDE.app/Contents/MacOS/TAIDE       # 설치본 실�
 | 5 | 트리 펼침 | 파일 200개 이상인 디렉터리를 펼친다 | `tree.toggle` / `tree_toggle` | FE 8ms; Rust 0.305ms(각 1회) | [x] |
 | 6 | git status | 변경 20건 이상인 상태에서 git 뷰를 연다 | — / `git_status` | Rust 15.717ms(1회), 변경 20건 표시 | [x] |
 | 7 | 전역 검색 | 200건 이상 매치되는 단어를 검색 | `search.results` / `search_run`·`search_list_files` | 5,000건 Enter 검색: FE 62ms, Rust `search_run` 83.306ms(각 1회), 캐시된 `search_list_files` 0회 | [x] |
-| 8 | 터미널 출력 처리량 | 터미널에서 `seq 2000000` 을 실행하고, 실행 전후로 스냅샷을 1회씩 (경과 초와 함께) | `terminal.output-bytes`·`terminal.output-chunks`·`terminal.parsed-bytes`·`terminal.render-frames`·`terminalTiming` / `pty.output_bytes`·`pty.output_chunks` | 새 계측 빌드의 한 번의 격리 PTY 직접 출력: writer 2.50s, Rust 20,777,795B·887청크, FE 전달·파서 완료 각 20,778,110B·889청크(재활성화 출력 315B 포함). 최종 파서 시각 `1790659290480ms`; 렌더 이벤트 0건·화면 공백으로 렌더 처리량 미판정 | [ ] |
+| 8 | 터미널 출력 처리량 | 터미널에서 `seq 2000000` 을 실행하고, 실행 전후로 스냅샷을 1회씩 (경과 초와 함께) | `terminal.output-bytes`·`terminal.output-chunks`·`terminal.parsed-bytes`·`terminal.render-frames`·`terminalTiming` / `pty.output_bytes`·`pty.output_chunks` | 실제 전면 격리 앱의 PTY 직접 출력 한 번: writer 1.42s, Rust 20,777,785B·464청크(참고 수신량 약 14.63MB/s), FE 전달·파서 완료 각 20,778,944B·466청크(재활성화 출력 1,159B 포함). 렌더 89프레임, 마지막 파서 뒤 5ms에 마지막 렌더, 마지막 `2e+06` 행 가시. 독립 픽셀 처리량·분포는 미계측 | [x] |
 | 9 | 메모리 | 파일 20개를 열었다 모두 닫은 뒤 | devtools Memory 스냅샷 + `monaco.editor.getModels().length` + `queryClient.getQueryCache().getAll().length` | 동일 세션 직후 Monaco 모델 0개·쿼리 캐시 105개; WebKit 현재·최대 281.07MB(JavaScript 101.30MB, Page 179.77MB) | [x] |
 
-2026-09-29 최신 수치는 [계측 읽기 화면 단일 실측](2026-09-29-m7-perf-readout-live.md)에서 옮겼습니다. 앞선 [단일 세션](2026-09-29-m7-one-session-perf-gui.md), [복원 부팅](2026-09-29-m7-restored-boot-perf.md), [Memory 기록](2026-09-29-m7-live-settings-memory-remote.md)의 유효 관찰도 보존합니다. 비어 있지 않은 측정값도 이 표의 모든 요구 측정 경계를 충족하지 않으면 체크하지 않았습니다. 입력·환경이 같은 성공 동작은 반복하지 않으며, 표본 한 건을 중앙값·분포로 바꾸어 해석하지 않습니다.
+2026-09-29 최신 수치는 [계측 읽기 화면 단일 실측](2026-09-29-m7-perf-readout-live.md)과 [전면 터미널 렌더 실측](2026-09-29-m7-terminal-foreground-render.md)에서 옮겼습니다. 앞선 [단일 세션](2026-09-29-m7-one-session-perf-gui.md), [복원 부팅](2026-09-29-m7-restored-boot-perf.md), [Memory 기록](2026-09-29-m7-live-settings-memory-remote.md)의 유효 관찰도 보존합니다. 비어 있지 않은 측정값도 이 표의 모든 요구 측정 경계를 충족하지 않으면 체크하지 않았습니다. 입력·환경이 같은 성공 동작은 반복하지 않으며, 표본 한 건을 중앙값·분포로 바꾸어 해석하지 않습니다.
 
-후속 격리 release 앱에서 원격 직접 Exit 검증 뒤 WebKit Inspector를 열었으나, 콘솔의 간단한 평가식이 입력 후 결과 없이 사라졌습니다. 분리 창과 공식 강제 평가 단축키에서도 결과가 없어서 `perf_reset`·`perf_snapshot`을 실행하거나 값이 나왔다고 주장하지 않습니다. 원격 WebSocket의 `perf_snapshot`·`perf_reset`은 `src-tauri/src/remote_gateway.rs`의 `DesktopProcessDiagnostics` 정책으로 의도적으로 거부되므로, 이를 우회해 빈 Rust 값을 채우지 않았습니다. 앞선 유효 표본은 그대로 보존하고 나머지 행은 미완료로 둡니다.
+후속 격리 release 앱에서 원격 직접 Exit 검증 뒤 WebKit Inspector를 열었으나, 콘솔의 간단한 평가식이 입력 후 결과 없이 사라졌습니다. 분리 창과 공식 강제 평가 단축키에서도 결과가 없어서 당시 `perf_reset`·`perf_snapshot`을 실행하거나 값이 나왔다고 주장하지 않았습니다. 원격 WebSocket의 `perf_snapshot`·`perf_reset`은 `src-tauri/src/remote_gateway.rs`의 `DesktopProcessDiagnostics` 정책으로 의도적으로 거부되므로, 이를 우회해 빈 Rust 값을 채우지 않았습니다. 이 한계는 후속 로컬 계측 화면으로 해소했고 당시 유효 표본도 보존합니다.
 
 ### 3.1 각 지표를 읽을 때 주의할 것
 
-- **지표 1** — 프론트 `boot.reveal` 은 `main.tsx` 모듈 평가 끝 → 창 `show()` 구간이다. 그 앞의
-  Rust 부팅은 `setup.*` 4구간이 따로 있다. 구간의 겹침과 공백을 검증하지 않았으므로 단순 합산을 전체 첫 페인트 시간으로 표기하지 않는다.
+- **지표 1** — [사용자 승인](../acknowledge/2026-09-29-m7-boot-visible-ready-proxy.md)에 따라 M7의 기준선을 첫 가시 페인트가 아닌 **화면 표시 준비**로 정의합니다. 프론트 `boot.reveal` 은 `main.tsx` 모듈 평가 끝 → 창 `show()` 구간이다. 그 앞의
+  Rust 부팅은 `setup.*` 4구간이 따로 있다. 구간의 겹침과 공백을 검증하지 않았으므로 단순 합산을 전체 화면 표시 준비 시간으로 표기하지 않는다.
   창을 2개 이상 여는 세션에서 두 번째 창은 이 값을 기록하지 않는다(시작 마크가 첫 측정에 소비된다).
 - **지표 2·3** — 캐시가 이미 있으면 0에 수렴하는 것이 **정상**이다. 프로젝트/파일을 그 실행에서
   처음 열 때만 유효한 수치가 나온다. `file.open` 은 "탭 활성 → monaco 인스턴스 준비" 구간이라,
@@ -185,7 +185,7 @@ Rust 쪽도 벽시계가 아니라 횟수로 잠갔다.
 - [x] 지표 4(팔레트) 마크 지점이 `command-palette.tsx` 에 배선됐는지 확인 (2026-09-04 — 배선 완료)
 - [x] 계약 §C.2-6 대형 3건(Rust) 전후 수치 기록 → §5.1 (**`cargo test` 픽스처 기준**. 실기
       `perf_snapshot` 전/후는 아래 항목으로 남는다)
-- [ ] **실기 8지표 측정** — §3에 유효한 단일 표본과 미분리 경계를 구분해 기록했습니다. 같은 성공 조작은 재실행하지 않고 남은 경계만 판정합니다.
+- [x] **실기 8지표 측정** — §3의 11개 세부 행에 유효한 단일 표본을 기록했습니다. 부팅 행은 [승인된 화면 표시 준비 대리지표](../acknowledge/2026-09-29-m7-boot-visible-ready-proxy.md)이며 실제 첫 픽셀 시각이 아닙니다. 터미널 행의 writer 기준 MB/s를 독립 픽셀 처리량으로 해석하지 않습니다. 같은 성공 조작은 재실행하지 않았습니다.
 - [ ] 실기에서 §5.1 의 대형 3건을 `perf_snapshot` 으로 재확인 — `project_open`(가드 대기 체감) ·
       워처 attach 후 RSS · `git_status` 평균(§3.1 지표 6 주석)
 - [ ] 계약 §C.2-7 FE 가상화 묶음 전후로 지표 5·7 재측정

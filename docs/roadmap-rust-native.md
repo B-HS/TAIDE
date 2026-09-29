@@ -1,6 +1,6 @@
 # Rust-native 전환 로드맵
 
-> 상태: M1~M5 완료, M6 runtime·platform 분리 진행 중. Phase 0의 실기 기준선과 M7/M8 gate는 미완료
+> 상태: M1~M5·M7 및 Phase 0 기준선 완료. M6 전체 adapter 직접 Exit gate와 M8 native UI 착수 gate는 미완료
 > 계약: `docs/acknowledge/2026-09-23-rust-native-transition-contract.md`
 > 검증: `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`
 > 현행 구조: `docs/architecture.md`
@@ -133,7 +133,7 @@ TypeScript/JavaScript의 Monaco 내장 worker를 제거하기 전에 Rust-owned 
 ### Phase 0 — 계약과 baseline 고정
 
 - command/event/raw channel, remote allow·deny, IDE/MCP, CLI marker와 persistence fixture를 golden contract로 고정한다.
-- `docs/quality-assurance/2026-09-04-perf-baseline.md`의 비어 있는 실기 지표를 동일 기기·fixture의 유효 관찰 한 번으로 채운다. M7의 [단일 검증 결정](acknowledge/2026-09-29-m7-one-pass-validation-scope.md)에 따른 기준선이며 중앙값·분포는 주장하지 않는다.
+- `docs/quality-assurance/2026-09-04-perf-baseline.md`의 실기 지표를 동일 기기·fixture의 유효 관찰 한 번으로 채웠다. M7의 [단일 검증 결정](acknowledge/2026-09-29-m7-one-pass-validation-scope.md)에 따른 기준선이며 중앙값·분포는 주장하지 않는다. 부팅은 [승인된 화면 표시 준비 대리지표](acknowledge/2026-09-29-m7-boot-visible-ready-proxy.md)이고 실제 첫 픽셀 시각이 아니다.
 - editor, LSP, terminal, preview, shell의 기능 inventory에 현행 자동·실기 증거를 연결한다.
 - 완료: 이후 모든 phase가 비교할 기능·성능·데이터 기준선이 존재한다.
 
