@@ -982,9 +982,9 @@
     - [ ] M7-C4. 실제 앱 GUI·직접 Exit와 사용자 회귀, Phase 0 기능·성능·TS view 기준선을 확인한 뒤 M7/M8 gate를 판정합니다. M7 실기는 [단일 검증 결정](acknowledge/2026-09-29-m7-one-pass-validation-scope.md)에 따라 대표 경로·지표별 유효 관찰 한 번으로 제한하며, M8의 native 동등성 판정은 별도입니다.
       - [x] M7-C4a. editor·LSP·terminal·preview·shell의 현행 구현과 자동 검사 경로, 실기·형식별 preview 검사 공백을 [기능 inventory](quality-assurance/2026-09-28-rust-native-function-inventory.md)에 고정했습니다. 작성 당시 5도메인의 실제 실기 증거가 없었고 Phase 0 기능 baseline은 미완료였습니다.
       - [x] M7-C4a-1. 격리 debug 앱의 임시 파일로 HTML·SVG·CSV 실제 preview, terminal 명령 왕복, vtsls 형식 오류 표시·수정 후 해소를 [부분 실기](quality-assurance/2026-09-29-m7-debug-function-gui-smoke.md)에 기록했습니다. `⌘Q` exit 0·IDE listener/lockfile·LSP PID 정리도 확인했으며 다른 형식·기능·release 성능·전체 Phase 0 gate는 미완료입니다.
-      - [ ] M7-C4b. 현재 TS view의 212개 경로를 컴포넌트·자동 근거·미검증 상태에 정적으로 연결하고, 대표 핵심 화면·상태·상호작용·접근성 경로를 실제 앱에서 한 번 확인합니다.
+      - [x] M7-C4b. TS view 212개 경로의 정적 연결과 메뉴·대화상자·키보드·테마/언어·다중 창·화면/접근성 대표 실측을 [종합 판정](quality-assurance/2026-09-29-m7-ts-view-representative-gate.md)에 묶었습니다. 경로별 시각·접근성 전수와 M8 native 동등성은 주장하지 않습니다.
         - [x] M7-C4b-1. 메인·보조 창과 주요 화면/탭/설정 진입점, 확인한 상태·동작·자동 근거와 실기 공백을 [TS view inventory](quality-assurance/2026-09-28-ts-view-inventory.md)에 기록했습니다. 테스트 제외 `.tsx` 212개를 모집단으로 확인했고 대상 MD Prettier가 exit 0입니다.
-        - [ ] M7-C4b-2. 하위 컴포넌트 212개의 정적 근거·실기 공백을 전수 연결하고, 메뉴·dialog·키보드·테마/로케일·다중 창·시각/접근성의 대표 통합 경로를 각 한 번 확인합니다.
+        - [x] M7-C4b-2. 하위 컴포넌트 212개의 정적 근거·실기 공백을 전수 연결하고, 메뉴·dialog·키보드·테마/로케일·다중 창·시각/접근성의 대표 통합 경로를 기존 격리 앱 단일 실측으로 확인했습니다.
           - [x] M7-C4b-2a. 비테스트 `.tsx` 212개 전체 경로를 JSON fixture로 고정하고 실제 `src/`와 대조하는 Rust 대상 검사 1건·대상 Clippy·Rust fmt·JSON/MD Prettier·diff 검사가 exit 0입니다. 경로 coverage와 의미/실기 coverage를 분리해 기록했습니다.
           - [x] M7-C4b-2b-1. 이름이 dialog/menu/popover/modal로 끝나는 26개 경로의 앱별 열림·선택 경계와 공용 wrapper 책임을 [overlay inventory](quality-assurance/2026-09-28-ts-overlay-inventory.md)에 기록했습니다. 두 문서의 직접 연결 경로는 중복 제외 70개이고 대상 MD Prettier·경로 존재·diff 검사가 exit 0입니다. 실제 접근성·상호작용은 미검증입니다.
           - [x] M7-C4b-2b-2. 설정 section 17개와 입력 feature 22개의 경로·주요 상태/조작을 [설정 inventory](quality-assurance/2026-09-28-ts-settings-inventory.md)에 연결했습니다. 세 문서의 중복 제외 직접 연결 107개·남은 105개를 확인했고 대상 MD Prettier·경로 존재·diff 검사가 exit 0입니다. 실제 저장·오류·접근성은 미검증입니다.
@@ -995,7 +995,7 @@
           - [x] M7-C4b-2b-7. 앱 진입점·shared·widget의 마지막 29개 경로를 [shared/widget inventory](quality-assurance/2026-09-29-ts-shared-widget-inventory.md)에 개별 연결했습니다. 여덟 문서의 중복 제외 직접 연결은 212/212개이며 비시각 context·hook·테스트 helper를 화면과 구분했습니다. 실제 시각·접근성 판정은 별도입니다.
           - [x] M7-C4b-2b-8. 격리 release 앱에서 임시 프로젝트·파일, Search 결과, 비저장소 Git 상태, Settings Appearance 화면을 접근성 트리와 스크린샷으로 [부분 실기](quality-assurance/2026-09-29-m7-release-gui-smoke.md)에 기록했습니다. 파일 원문 복원·저장 뒤 디스크 내용도 확인했고 실제 화면 전수는 미완료입니다.
           - [x] M7-C4b-2b-9. 종료하지 않은 격리 계측 앱에서 탭 우클릭 메뉴, 파일의 새 OS 창 이동·본창 복귀, 팔레트 키보드 조작, 250개 파일 트리·5,000건 검색·Git 변경 20건·터미널 화면의 접근성 트리와 스크린샷을 [단일 세션 실측](quality-assurance/2026-09-29-m7-one-session-perf-gui.md)에 기록했습니다. 후속으로 프로젝트 경로 메뉴·대화상자의 존재하지 않는 경로 오류와 취소도 확인했습니다. 테마·로케일 실제 변경과 화면 전수는 남았습니다.
-          - [ ] M7-C4b-2b. 기존 부분 실기를 재사용하고, 남은 대표 메뉴·dialog·키보드·테마/로케일·다중 창·시각/접근성 경로를 한 번씩 확인합니다. 다른 경로는 미실측으로 기록합니다.
+          - [x] M7-C4b-2b. 기존 부분 실기와 후속 설정·IDE 단일 실측을 [대표 통합 판정](quality-assurance/2026-09-29-m7-ts-view-representative-gate.md)에 연결했습니다. 다른 개별 경로는 미실측으로 남깁니다.
       - [ ] M7-C4c. 동일 기기·fixture의 release 성능 지표별 단일 유효 관찰과 GUI·직접 Exit 사용자 회귀를 완료합니다.
         - [x] M7-C4c-1. 전용 identifier의 release `.app` 빌드와 로컬 ad hoc 서명 검증이 exit 0이고 첫 창과 `⌘Q` 뒤 IDE listener·격리 lockfile 정리를 확인했습니다. [release 실측 기록](history/2026-09-29-m6-release-app-smoke.md)에 구분했으며 배포 서명·공증, 기능 전수·성능 수치는 검증하지 않았습니다.
         - [x] M7-C4c-1a. 같은 release 번들에 `TAIDE_PERF=1`을 지정한 별도 실행에서 팔레트 성능 명령 노출, 임시 프로젝트/검색/에디터/설정 부분 회귀, `⌘Q` exit 0과 IDE listener·lockfile 제거를 [부분 실기](quality-assurance/2026-09-29-m7-release-gui-smoke.md)에 기록했습니다. 당시 release 웹뷰에서 수치 출력 경로가 보이지 않았으며, 후속 단일 검증의 수치는 별도입니다.
