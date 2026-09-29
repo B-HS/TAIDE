@@ -49,4 +49,4 @@
 
 ## 판정
 
-구현과 자동 검사의 5도메인 연결은 작성했습니다. HTML·SVG·CSV 표시, 셸 명령 왕복, TypeScript LSP 진단 표시·해소는 격리 debug 앱에서 부분 실측했습니다. 다른 preview 형식의 자동 검사와 실기, 나머지 기능·접근성 실기, release 성능 기준선이 없어 Phase 0 기능 baseline 완료·M7 사용자 회귀·M8 native UI 착수 gate는 통과하지 않았습니다. 화면 단위 TS view 전수 inventory는 별도 작업입니다.
+구현·자동 검사·남은 실기의 5도메인 연결과 HTML·SVG·CSV 표시, 셸 명령 왕복, TypeScript LSP 진단 표시·해소의 격리 debug 앱 대표 실기를 기록했습니다. 따라서 [Phase 0 계획](2026-09-23-rust-native-parity-plan.md)의 **기능 inventory에 근거 파일·시험 연결** 항목은 완료입니다. 이는 [M7 단일 실기 결정](../acknowledge/2026-09-29-m7-one-pass-validation-scope.md)의 대표 경로 판정이며, 다른 preview 형식의 자동 검사·실기나 나머지 기능·접근성 전수를 통과시킨 뜻이 아닙니다. 원격·성능·직접 Exit 등의 다른 미완료 gate 때문에 Phase 0 전체·M7·M8 native UI 착수는 계속 미완료입니다. 화면 단위 TS view inventory는 별도 문서에 있습니다.

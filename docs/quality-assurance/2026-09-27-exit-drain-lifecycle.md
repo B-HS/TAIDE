@@ -41,6 +41,7 @@
 ## 남은 gate
 
 - [x] 계측한 `⌘Q`의 native `ExitRequested → drain 완료 → ExitRequested → Exit → 직접 drain 완료` 순서는 후속 격리 앱 세 실행에서 확인했습니다. 선행 요청 없는 직접 Exit·메뉴 callback과 모든 중첩 자원 동시 완료까지 일반화하지 않습니다.
+- [x] 후속 [활성 원격 직접 Exit 실측](2026-09-29-m7-remote-direct-exit-verified.md)에서 선행 `ExitRequested` 없는 `applicationWillTerminate → 직접 종료 이벤트 수신 → 직접 종료 자원 대기 완료`, 활성 WebSocket·PTY 자식과 포트 정리를 한 번 확인했습니다. 이 결과는 아래의 LSP·watcher 동시 지연이나 OS stall 판정으로 확대하지 않습니다.
 - [x] 후속 [일반 LSP wait QA](2026-09-27-lsp-process-wait-lifecycle.md)에서 정상 coordinator가 제거/교체된 세션의 wait·reader·exit callback 완료도 기다리도록 구현/검증했습니다. child exited만으로 ready를 세우지 않습니다.
 - [x] 직접 Exit의 등록 자원 대기: 합성 감독 operation·설치 lease·AI owner 및 자기 `/bin/sh`의 LSP/PTY callback 완료 검사가 통과했습니다. Tauri source contract도 직접 `Exit`의 같은 drain 호출을 확인했습니다. 정상 종료와 직접 종료는 이제 같은 등록 자원 대기 함수를 사용합니다.
 - [ ] 실제 native 직접 Exit·exit runtime 요청 실패, 감독되지 않은 nested blocking worker·PTY thread와 메인 이벤트 루프 교착 여부를 판정합니다. 등록되지 않은 자원 전체의 완료를 주장하지 않습니다.

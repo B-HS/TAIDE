@@ -967,7 +967,7 @@
   - [x] M7-B. 권한 허용 Rust workspace 전체 테스트는 세 번째 실행에서 전체 타깃 exit 0입니다. `cargo clippy --offline --workspace --all-targets -- -D warnings`, `cargo fmt --all -- --check`, `git diff --check`, 신규 QA 문서 Prettier도 exit 0입니다. 제품 코드는 변경하지 않았고, 과거 위치·취소 시점을 기대한 Rust 테스트 세 곳만 현행 경계에 맞춰 수리했습니다.
   - [ ] M7-C. 저장 데이터·IPC fixture와 사용자 실기 회귀를 검증합니다. M6 실제 GUI·직접 Exit와 Phase 0 선행 조건은 별도로 미완료입니다.
     - [x] M7-C1. `remote-wire-session-v1.json`으로 현재 host/origin 정책·link/nonce/session revoke·password 검증·binary/JSON frame을 비시크릿 기준선으로 고정했습니다. 새 test target 3건·대상 Clippy·Rust fmt·JSON Prettier가 exit 0입니다. 실제 HTTP/WebSocket handshake·cookie·TTL·전송 큐는 별도 미완료로 남깁니다.
-    - [ ] M7-C1b. 실제 HTTP/WebSocket handshake·cookie·TTL·전송 큐 경계의 비시크릿 fixture와 검증을 완료합니다.
+    - [x] M7-C1b. 실제 HTTP/WebSocket handshake·cookie·TTL·전송 큐 경계의 비시크릿 fixture와 검증을 완료했습니다. TTL은 제품 라우터의 가상 7일 전진으로 판정했으며, 실제 7일 경과·내부 큐 점유량은 주장하지 않습니다.
       - [x] M7-C1b-1. 현행 `make_channel_factory`의 JSON→binary→channel-end 순서와 index를 대상 테스트 1건으로 확인했습니다. 대상 lib Clippy·Rust fmt/diff·QA MD Prettier가 exit 0이며 실제 WebSocket writer·HTTP router 실기가 아니라는 한계를 QA에 기록했습니다.
       - [x] M7-C1b-2a. 사용자가 무상한 WebSocket 전송 큐의 별도 보안 수정을 M7 범위에 추가하고 연결별 256프레임 상한·포화 시 연결 종료, 바이트 상한 생략을 선택했습니다. [범위 기록](acknowledge/2026-09-29-m7-remote-ws-queue-scope.md)에 현행 큐·동기 sink·Tokio API·큰 프레임 잔여 위험을 구분했습니다.
       - [x] M7-C1b-2b. 연결별 256프레임 유한 큐와 포화 신호·즉시 writer 중단 경로를 구현했습니다. 수정 전 257번째 수락 테스트 RED(exit 101), 수정 후 WS 대상 5건·대상 Clippy·Rust fmt·문서 Prettier가 exit 0입니다. [큐 QA](quality-assurance/2026-09-29-m7-remote-ws-queue.md)에 실제 연결 실기와 대형 단일 프레임의 잔여 위험을 분리했습니다.
@@ -976,7 +976,8 @@
       - [x] M7-C1b-2e. [후속 단일 실측](quality-assurance/2026-09-29-m7-remote-slow-receiver-revoke.md)에서 1KB 합성 파일 요청 6,000건을 보낸 느린 WebSocket이 읽기 재개 전 1006으로 닫히고 별도 제어 연결은 정상 응답하는 것을 확인했습니다. 제어 연결 `1 connected` 상태에서 전체 세션 폐기 뒤 연결 1006·`0 connected`, 서버 `Stopped`·포트 종료를 관찰했습니다. 내부 큐 점유량과 실제 7일 만료는 미계측입니다.
       - [x] M7-C1b-2f. [TTL 결정적 검사](quality-assurance/2026-09-29-m7-remote-ttl-deterministic.md) 3건에서 발급 시 7일 시각, 만료 세션 거부·제거, 스윕 시 유효 세션 보존을 확인했습니다. 대상 Clippy·Rust fmt/diff는 exit 0입니다. 실제 HTTP 401과 열린 WebSocket 4001 만료 종료는 별도입니다.
       - [x] M7-C1b-2g. 세션 저장·WS 데드라인에 Tokio 테스트 시계를 연결하고 7일 전진 후 합성 루프백 서버에서 HTTP 401·열린 WebSocket close 4001을 한 번씩 관찰했습니다. 제품 앱 전체 `build_router`가 아닌 공유 인증·만료 함수를 사용하는 검사라는 한계는 [TTL QA](quality-assurance/2026-09-29-m7-remote-ttl-deterministic.md)에 명시했습니다. 제품 기본 7일 TTL·원격 인증 정책은 유지합니다.
-      - [ ] M7-C1b-2. 실제 HTTP/WebSocket upgrade·cookie 왕복·세션 TTL·전송 큐 상한/느린 수신자 경계를 격리 실행에서 검증합니다.
+      - [x] M7-C1b-2h. 실제 Tauri `AppHandle`과 제품 `build_router`의 별도 루프백 검사에서 가상 7일 후 HTTP 401·열린 WebSocket close 4001을 확인했습니다. 기본 샌드박스의 포트 권한 오류 뒤 권한 허용 실행은 exit 0이며 [TTL QA](quality-assurance/2026-09-29-m7-remote-ttl-deterministic.md)에 테스트용 메모리 상태·실제 7일 미경과·형식 검사 한계를 기록했습니다.
+      - [x] M7-C1b-2. 실제 HTTP/WebSocket upgrade·cookie 왕복·세션 TTL·전송 큐 상한/느린 수신자 경계를 격리 실행에서 검증했습니다. 제품 라우터 TTL은 가상 시계, 큐 포화는 유한 채널 검사와 실제 느린 연결 종료의 결합 근거입니다.
     - [x] M7-C2. IDE/MCP 및 CLI wait marker의 실제 요청·응답·수명 경계를 fixture와 격리 앱 단일 실측으로 고정했습니다. 전체 IDE 도구·장시간 다중 연결 전수는 주장하지 않습니다.
       - [x] M7-C2a. `ide-mcp-wire-v1.json`과 CLI marker 이름 fixture로 protocol API 3건·CLI bin 18건을 확인했습니다. UUID 임시 marker의 timeout·제거를 포함해 대상 Clippy·Rust fmt가 exit 0입니다. 실제 IDE WebSocket과 앱의 CLI marker 수명은 검증하지 않았습니다.
       - [x] M7-C2b. 실제 IDE WebSocket 인증·대표 tool handler와 앱 인수 전달·파일 닫기 시 CLI marker 제거를 검증했습니다.
@@ -987,7 +988,7 @@
       - [x] M7-C3a. legacy settings/session/project/layout JSON을 실제 파서·고유 UUID 디스크 복원·v1→v2 layout migration과 비교했습니다. dirty 파일 탭·활성 프로젝트·기본값을 유지합니다.
       - [x] M7-C3b. legacy hot-exit mirror JSON의 누락된 disk baseline을 실제 buffer 목록에서 복원했습니다. 대상 3건·Clippy·Rust fmt·JSON Prettier가 exit 0입니다.
     - [ ] M7-C4. 실제 앱 GUI·직접 Exit와 사용자 회귀, Phase 0 기능·성능·TS view 기준선을 확인한 뒤 M7/M8 gate를 판정합니다. M7 실기는 [단일 검증 결정](acknowledge/2026-09-29-m7-one-pass-validation-scope.md)에 따라 대표 경로·지표별 유효 관찰 한 번으로 제한하며, M8의 native 동등성 판정은 별도입니다.
-      - [x] M7-C4a. editor·LSP·terminal·preview·shell의 현행 구현과 자동 검사 경로, 실기·형식별 preview 검사 공백을 [기능 inventory](quality-assurance/2026-09-28-rust-native-function-inventory.md)에 고정했습니다. 작성 당시 5도메인의 실제 실기 증거가 없었고 Phase 0 기능 baseline은 미완료였습니다.
+      - [x] M7-C4a. editor·LSP·terminal·preview·shell의 현행 구현과 자동 검사 경로, 실기·형식별 preview 검사 공백을 [기능 inventory](quality-assurance/2026-09-28-rust-native-function-inventory.md)에 고정했습니다. 후속 대표 앱 실기까지 연결해 Phase 0의 기능 inventory 항목을 완료로 판정했으며, 개별 형식·기능 전수와 Phase 0 전체 gate는 여전히 미완료입니다.
       - [x] M7-C4a-1. 격리 debug 앱의 임시 파일로 HTML·SVG·CSV 실제 preview, terminal 명령 왕복, vtsls 형식 오류 표시·수정 후 해소를 [부분 실기](quality-assurance/2026-09-29-m7-debug-function-gui-smoke.md)에 기록했습니다. `⌘Q` exit 0·IDE listener/lockfile·LSP PID 정리도 확인했으며 다른 형식·기능·release 성능·전체 Phase 0 gate는 미완료입니다.
       - [x] M7-C4b. TS view 212개 경로의 정적 연결과 메뉴·대화상자·키보드·테마/언어·다중 창·화면/접근성 대표 실측을 [종합 판정](quality-assurance/2026-09-29-m7-ts-view-representative-gate.md)에 묶었습니다. 경로별 시각·접근성 전수와 M8 native 동등성은 주장하지 않습니다.
         - [x] M7-C4b-1. 메인·보조 창과 주요 화면/탭/설정 진입점, 확인한 상태·동작·자동 근거와 실기 공백을 [TS view inventory](quality-assurance/2026-09-28-ts-view-inventory.md)에 기록했습니다. 테스트 제외 `.tsx` 212개를 모집단으로 확인했고 대상 MD Prettier가 exit 0입니다.
@@ -1013,7 +1014,7 @@
         - [x] M7-C4c-2c. 같은 앱의 WebKit Memory timeline 한 기록에서 종료 시점 164.28MB(JavaScript 72.03MB, Page 92.25MB), 최대 233.11MB를 확인했습니다. Settings 테마·언어 전환 후 원복도 [단일 실측](quality-assurance/2026-09-29-m7-live-settings-memory-remote.md)에 기록했습니다. 장시간 누수·모델/캐시 수와 화면 전수는 미판정입니다.
         - [x] M7-C4c-2d. [성능 기준선 표](quality-assurance/2026-09-04-perf-baseline.md)에 기존 앱 실측의 유효 단일 표본과 미분리 지표를 구별해 옮겼습니다. 팔레트 2개 행만 표의 요구 경계를 충족해 완료로 표시하고, 다른 지표의 누락값은 미완료로 유지했습니다.
         - [x] M7-C4c-2e. 활성 원격 WebSocket·PTY를 함께 둔 격리 release 앱의 AppleScript 직접 Exit에서 Tauri drain 완료와 앱·자식·포트 정리를 [한 번 실측](quality-assurance/2026-09-29-m7-remote-direct-exit-verified.md)하고, 재시작 뒤 원격 스위치 `off`를 복원했습니다. LSP·watcher callback 동시 지연과 나머지 성능 행은 미완료입니다.
-        - [ ] M7-C4c-2f. 사용자 선택에 따라 `TAIDE_PERF` 전용 앱 내 프런트/Rust 스냅샷 읽기 화면을 구현하고 계측용 격리 release 번들에서 남은 성능 행을 지표당 한 번만 측정합니다. 원격 세션에는 진단 명령을 노출하지 않습니다. [단일 실측](quality-assurance/2026-09-29-m7-perf-readout-live.md)에서 파일·트리·Git·검색·메모리 행은 충족했으나 부팅 전체 첫 페인트·프로젝트 첫 열기 수치·터미널 대량 출력은 미완료입니다.
+        - [ ] M7-C4c-2f. 사용자 선택에 따라 `TAIDE_PERF` 전용 앱 내 프런트/Rust 스냅샷 읽기 화면을 구현하고 계측용 격리 release 번들에서 남은 성능 행을 지표당 한 번만 측정합니다. 원격 세션에는 진단 명령을 노출하지 않습니다. [단일 실측](quality-assurance/2026-09-29-m7-perf-readout-live.md)에서 파일·트리·Git·검색·메모리·프로세스 내 첫 프로젝트 열기 행은 충족했습니다. 부팅은 프로세스 시작→콘텐츠 페인트 약 1119ms와 창 표시 완료 약 1120ms지만 정확한 첫 가시 페인트가 없습니다. 새 파서/렌더 계측 release의 전면 PTY 출력 200만 줄은 20.78MB 파서 완료를 확인했으나 xterm 행 렌더 이벤트 0건·가시 화면 공백입니다. WebGL을 끈 비교도 같았고 전용 프레임 probe가 창 Raise 후에도 1초에 `timed-out`이어서 동일 가정 재시도를 멈췄습니다. 두 지표는 미완료이고 이미 유효하게 측정된 지표를 재실행하지 않습니다.
         - [ ] M7-C4c-2. 동일 기기·fixture에서 각 성능 지표를 한 번 유효하게 관찰하고 단일 표본으로 기록한 뒤 GUI·직접 Exit 회귀를 완료합니다. 중앙값·분포를 주장하지 않습니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 
