@@ -1,9 +1,10 @@
 import type { ComponentProps, FC } from 'react'
-import { lazy, Suspense, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { FileJson } from 'lucide-react'
 import { toast } from 'sonner'
+import { readDesktopPerfSnapshot } from '@entities/app/perf.ipc'
 import { useLspInstallProgressSync } from '@entities/lsp/lsp.query'
 import { useOpenAppFileTab } from '@entities/layout/layout.query'
 import { useIssueRemoteLink } from '@entities/remote/remote.query'
@@ -19,6 +20,7 @@ import { SettingsKeymapSection } from '@widgets/settings-view/settings-keymap-se
 import { SettingsLanguageSection } from '@widgets/settings-view/settings-language-section'
 import { SettingsLspSection } from '@widgets/settings-view/settings-lsp-section'
 import { SettingsNotificationSection } from '@widgets/settings-view/settings-notification-section'
+import { SettingsPerformanceSection } from '@widgets/settings-view/settings-performance-section'
 import { SettingsPluginsSection } from '@widgets/settings-view/settings-plugins-section'
 import { SettingsRemoteSection } from '@widgets/settings-view/settings-remote-section'
 import { SettingsSnippetsSection } from '@widgets/settings-view/settings-snippets-section'
@@ -27,6 +29,8 @@ import { SettingsTerminalSection } from '@widgets/settings-view/settings-termina
 import { SettingsToc } from '@features/settings/settings-toc'
 import { SETTINGS_JSON_TAB_TITLE } from '@shared/constants/app-file'
 import { describeIpcError } from '@shared/lib/ipc-error-message'
+import { isPerfEnabled } from '@shared/lib/perf-mark'
+import { isRemoteMirrorRuntime } from '@shared/lib/remote/runtime-environment'
 import type { AppDataPathKind, ProjectId } from '@shared/api/bindings'
 import { Button } from '@shared/ui/button'
 import { ScrollContainer } from '@shared/scroll/scroll-container'
@@ -68,6 +72,7 @@ const SETTINGS_SECTION_ID = {
     PLUGINS: 'settings-section-plugins',
     SYNC: 'settings-section-sync',
     REMOTE: 'settings-section-remote',
+    PERFORMANCE: 'settings-section-performance',
 } as const
 
 const SETTINGS_TOC_ITEMS = [
@@ -107,6 +112,7 @@ export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
     const [isSnippetEditorOpen, setIsSnippetEditorOpen] = useState(false)
     const [issuedRemoteUrl, setIssuedRemoteUrl] = useState<string | null>(null)
     const [isSyncConflictOpen, setIsSyncConflictOpen] = useState(false)
+    const [canShowPerformance, setCanShowPerformance] = useState(isPerfEnabled() && !isRemoteMirrorRuntime())
 
     const { data: settings, isPending: isSettingsPending } = useQuery(settingsQueryOptions())
     const { data: themes = [] } = useQuery(themeListQueryOptions())
@@ -132,6 +138,19 @@ export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
         const top = target.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - SETTINGS_SCROLL_OFFSET_PX
         container.scrollTo({ top, behavior: 'smooth' })
     }
+
+    useEffect(() => {
+        if (isRemoteMirrorRuntime()) return
+        const readPerformanceGate = async () => {
+            try {
+                const snapshot = await readDesktopPerfSnapshot()
+                setCanShowPerformance(snapshot.enabled)
+            } catch {
+                setCanShowPerformance(false)
+            }
+        }
+        void readPerformanceGate()
+    }, [])
 
     if (isSettingsPending || !settings) return <div className='bg-app-background h-full w-full' />
 
@@ -168,7 +187,10 @@ export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
                 <div className='flex w-full items-start gap-8'>
                     <div className='sticky top-8 self-start'>
                         <SettingsToc
-                            items={SETTINGS_TOC_ITEMS.map((item) => ({ id: item.id, label: t(item.labelKey) }))}
+                            items={[
+                                ...SETTINGS_TOC_ITEMS.map((item) => ({ id: item.id, label: t(item.labelKey) })),
+                                ...(canShowPerformance ? [{ id: SETTINGS_SECTION_ID.PERFORMANCE, label: t('settings.performance') }] : []),
+                            ]}
                             activeId={activeSectionId}
                             onSelect={handleTocSelect}
                         />
@@ -237,6 +259,8 @@ export const SettingsView: FC<SettingsViewProps> = ({ projectId }) => {
                             issueRemoteLink={issueRemoteLink}
                             isIssuingRemoteLink={isIssuingRemoteLink}
                         />
+
+                        {canShowPerformance && <SettingsPerformanceSection id={SETTINGS_SECTION_ID.PERFORMANCE} />}
 
                         <div aria-hidden className='h-[50vh] shrink-0' />
                     </div>

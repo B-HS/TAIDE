@@ -1012,6 +1012,8 @@
         - [x] M7-C4c-2b. 앞선 단일 세션을 마친 뒤 한 번만 재시작해 새 PID에서 합성 프로젝트 탐색기·Settings 탭 복원, 프런트 `boot.reveal` 59ms와 Rust setup 네 구간의 각 1회 표본을 [복원 부팅 실측](quality-assurance/2026-09-29-m7-restored-boot-perf.md)에 기록했습니다. 초기 RSS 약 923MB가 같은 PID에서 138MB로 내려간 관찰과 메모리 원인 미판정을 구분했습니다. 앱은 다시 종료하지 않았고 정확한 Memory·전체 복원·활성 원격 직접 Exit는 남았습니다.
         - [x] M7-C4c-2c. 같은 앱의 WebKit Memory timeline 한 기록에서 종료 시점 164.28MB(JavaScript 72.03MB, Page 92.25MB), 최대 233.11MB를 확인했습니다. Settings 테마·언어 전환 후 원복도 [단일 실측](quality-assurance/2026-09-29-m7-live-settings-memory-remote.md)에 기록했습니다. 장시간 누수·모델/캐시 수와 화면 전수는 미판정입니다.
         - [x] M7-C4c-2d. [성능 기준선 표](quality-assurance/2026-09-04-perf-baseline.md)에 기존 앱 실측의 유효 단일 표본과 미분리 지표를 구별해 옮겼습니다. 팔레트 2개 행만 표의 요구 경계를 충족해 완료로 표시하고, 다른 지표의 누락값은 미완료로 유지했습니다.
+        - [x] M7-C4c-2e. 활성 원격 WebSocket·PTY를 함께 둔 격리 release 앱의 AppleScript 직접 Exit에서 Tauri drain 완료와 앱·자식·포트 정리를 [한 번 실측](quality-assurance/2026-09-29-m7-remote-direct-exit-verified.md)하고, 재시작 뒤 원격 스위치 `off`를 복원했습니다. LSP·watcher callback 동시 지연과 나머지 성능 행은 미완료입니다.
+        - [ ] M7-C4c-2f. 사용자 선택에 따라 `TAIDE_PERF` 전용 앱 내 프런트/Rust 스냅샷 읽기 화면을 구현하고 계측용 격리 release 번들에서 남은 성능 행을 지표당 한 번만 측정합니다. 원격 세션에는 진단 명령을 노출하지 않습니다. [단일 실측](quality-assurance/2026-09-29-m7-perf-readout-live.md)에서 파일·트리·Git·검색·메모리 행은 충족했으나 부팅 전체 첫 페인트·프로젝트 첫 열기 수치·터미널 대량 출력은 미완료입니다.
         - [ ] M7-C4c-2. 동일 기기·fixture에서 각 성능 지표를 한 번 유효하게 관찰하고 단일 표본으로 기록한 뒤 GUI·직접 Exit 회귀를 완료합니다. 중앙값·분포를 주장하지 않습니다.
 - [ ] M8. native UI 착수 gate — M1~M7과 Phase 0의 모든 기능·데이터·성능 baseline 및 TS view 전수 inventory가 준비·통과한 뒤 framework spike의 IME·VoiceOver·다중 창·DnD·메뉴·패키징 hard gate를 수행합니다. 그 뒤에도 TS view의 기능·상태·상호작용·시각/접근성을 항목별로 대응시켜 누락 0을 검증하고, 이전 화면을 삭제하기 전에 native 동등성 실기를 완료합니다.
 

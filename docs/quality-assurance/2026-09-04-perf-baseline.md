@@ -34,12 +34,10 @@ TAIDE_PERF=1 /Applications/TAIDE.app/Contents/MacOS/TAIDE       # 설치본 실�
 
 ## 2. 측정 절차 (지표 1건마다 동일)
 
-1. **초기화** — `await window.__TAURI_INTERNALS__.invoke('perf_reset')` (Rust 누적치 0으로).
-   프론트 누적치는 창을 새로 고치면(⌘R) 0에서 시작한다.
+1. **초기화** — `TAIDE_PERF=1` 데스크톱의 설정 → 성능 진단에서 `지표 초기화`를 눌러 Rust·프런트 누적치를 함께 0으로 만든다. 부팅 지표는 재실행 직후 초기화 전에 읽는다.
 2. **조작** — §3 의 "조작" 열에 적힌 동작을 **1회만** 한다. 여러 번 하면 `count` 가 늘고
    평균(`totalMs / count`)으로 읽어야 한다.
-3. **읽기** — 팔레트 `App: Show Performance Snapshot`(프론트 표 2개) + 콘솔
-   `invoke('perf_snapshot')`(Rust `entries`·`counters`). 두 표의 이름이 §3 의 "읽는 곳" 이다.
+3. **읽기** — 같은 로컬 설정 화면의 `스냅샷 읽기`에서 프런트 `measures`·`counters`, Rust `entries`·`counters`, Monaco 모델·쿼리 캐시 개수를 읽는다. 이 화면은 원격 미러에 나타나지 않으며 원격 진단 IPC 차단도 유지한다. 두 목록의 이름이 §3 의 "읽는 곳" 이다.
 4. **기록** — §3 표의 빈칸에 `ms` 를 적고 체크박스를 채운다. M7·Phase 0 기준선은
    [단일 검증 결정](../acknowledge/2026-09-29-m7-one-pass-validation-scope.md)에 따라 같은 기기·같은 저장소의
    유효 관찰 한 건을 적는다. 이 값은 중앙값이나 분포 추정치가 아니다.
@@ -56,24 +54,26 @@ TAIDE_PERF=1 /Applications/TAIDE.app/Contents/MacOS/TAIDE       # 설치본 실�
 
 | # | 지표 | 조작 | 읽는 곳 (프론트 / Rust) | 측정값 | 체크 |
 |---|------|------|------------------------|--------|------|
-| 1 | 부팅 → 첫 페인트 | 앱을 완전히 종료했다 다시 실행 | `boot.reveal` / `setup.main_window`·`setup.locale_warm`·`setup.state_restore`·`setup.deferred_restore` | FE 59ms; Rust 83.352·0.459·0.773·2.360ms. 첫 페인트 전체 시간은 아님 | [ ] |
-| 2 | 프로젝트 전환 | 사이드바에서 **다른** 프로젝트 클릭(이번 실행에서 처음 여는 것) | `project.switch` / `project_open`·`project_activate` | FE 9ms; Rust `project_open` 2회 합계 89.776ms, 해당 전환은 미분리 | [ ] |
-| 3-a | 파일 열기 (소, 1KB) | 탐색기에서 1KB 파일을 **처음** 연다 | `file.open` / `file_open` | FE 96ms; Rust `file_open` 3회 중 최대 0.374ms, 해당 파일은 미분리 | [ ] |
-| 3-b | 파일 열기 (대, 1MB) | 탐색기에서 1MB 파일을 **처음** 연다 | `file.open` / `file_open` | FE 34ms; Rust `file_open` 3회 중 최대 0.374ms, 해당 파일은 미분리 | [ ] |
+| 1 | 부팅 → 첫 페인트 | 앱을 완전히 종료했다 다시 실행 | `boot.reveal` / `setup.main_window`·`setup.locale_warm`·`setup.state_restore`·`setup.deferred_restore` | FE 52ms; Rust 75.739·0.580·0.568·1.982ms(각 1회). 전체 첫 페인트 시간은 아님 | [ ] |
+| 2 | 프로젝트 전환 | 사이드바에서 **다른** 프로젝트 클릭(이번 실행에서 처음 여는 것) | `project.switch` / `project_open`·`project_activate` | 복원 프로젝트 전환 FE 11ms·Rust `project_activate` 11.006ms, `project_open` 0회. 첫 열기 아님 | [ ] |
+| 3-a | 파일 열기 (소, 1KB) | 탐색기에서 1KB 파일을 **처음** 연다 | `file.open` / `file_open` | FE 91ms; Rust 0.145ms(각 1회) | [x] |
+| 3-b | 파일 열기 (대, 1MB) | 탐색기에서 1MB 파일을 **처음** 연다 | `file.open` / `file_open` | FE 20ms; Rust 1.224ms(각 1회) | [x] |
 | 4-a | 팔레트 열기 | ⌘⇧P | `palette.open` / — | FE 3ms | [x] |
 | 4-b | 팔레트 입력 응답 | 팔레트에서 4글자 입력 | `palette.filter` / — | FE 5ms | [x] |
-| 5 | 트리 펼침 | 파일 200개 이상인 디렉터리를 펼친다 | `tree.toggle` / `tree_toggle` | FE 5ms; Rust 2회 중 최대 1.370ms, 해당 폴더는 미분리 | [ ] |
-| 6 | git status | 변경 20건 이상인 상태에서 git 뷰를 연다 | — / `git_status` | Rust 누적 5회 중 최대 18.932ms, UI 진입 한 번은 미분리 | [ ] |
-| 7 | 전역 검색 | 200건 이상 매치되는 단어를 검색 | `search.results` / `search_run`·`search_list_files` | Rust 69.787·3.346ms; 실시간 검색이라 FE `search.results` 없음 | [ ] |
+| 5 | 트리 펼침 | 파일 200개 이상인 디렉터리를 펼친다 | `tree.toggle` / `tree_toggle` | FE 8ms; Rust 0.305ms(각 1회) | [x] |
+| 6 | git status | 변경 20건 이상인 상태에서 git 뷰를 연다 | — / `git_status` | Rust 15.717ms(1회), 변경 20건 표시 | [x] |
+| 7 | 전역 검색 | 200건 이상 매치되는 단어를 검색 | `search.results` / `search_run`·`search_list_files` | 5,000건 Enter 검색: FE 62ms, Rust `search_run` 83.306ms(각 1회), 캐시된 `search_list_files` 0회 | [x] |
 | 8 | 터미널 출력 처리량 | 터미널에서 `seq 2000000` 을 실행하고, 실행 전후로 스냅샷을 1회씩 (경과 초와 함께) | `terminal.output-bytes`·`terminal.output-chunks` / `pty.output_bytes`·`pty.output_chunks` | Rust 증가분 기준 약 14.25MB/s; FE 시작값 미보관 | [ ] |
-| 9 | 메모리 | 파일 20개를 열었다 모두 닫은 뒤 | devtools Memory 스냅샷 + `monaco.editor.getModels().length` + `queryClient.getQueryCache().getAll().length` | 후속 부팅의 WebKit 164.28MB·최대 233.11MB; 모델·캐시 수와 동일 세션 직후 값 없음 | [ ] |
+| 9 | 메모리 | 파일 20개를 열었다 모두 닫은 뒤 | devtools Memory 스냅샷 + `monaco.editor.getModels().length` + `queryClient.getQueryCache().getAll().length` | 동일 세션 직후 Monaco 모델 0개·쿼리 캐시 105개; WebKit 현재·최대 281.07MB(JavaScript 101.30MB, Page 179.77MB) | [x] |
 
-2026-09-29 수치는 [단일 세션](2026-09-29-m7-one-session-perf-gui.md), [복원 부팅](2026-09-29-m7-restored-boot-perf.md), [Memory 기록](2026-09-29-m7-live-settings-memory-remote.md)의 서로 다른 유효 관찰을 옮긴 것입니다. 비어 있지 않은 측정값도 이 표의 모든 요구 측정 경계를 충족하지 않으면 체크하지 않았습니다. 입력·환경이 같은 성공 동작은 반복하지 않으며, 표본 한 건을 중앙값·분포로 바꾸어 해석하지 않습니다.
+2026-09-29 최신 수치는 [계측 읽기 화면 단일 실측](2026-09-29-m7-perf-readout-live.md)에서 옮겼습니다. 앞선 [단일 세션](2026-09-29-m7-one-session-perf-gui.md), [복원 부팅](2026-09-29-m7-restored-boot-perf.md), [Memory 기록](2026-09-29-m7-live-settings-memory-remote.md)의 유효 관찰도 보존합니다. 비어 있지 않은 측정값도 이 표의 모든 요구 측정 경계를 충족하지 않으면 체크하지 않았습니다. 입력·환경이 같은 성공 동작은 반복하지 않으며, 표본 한 건을 중앙값·분포로 바꾸어 해석하지 않습니다.
+
+후속 격리 release 앱에서 원격 직접 Exit 검증 뒤 WebKit Inspector를 열었으나, 콘솔의 간단한 평가식이 입력 후 결과 없이 사라졌습니다. 분리 창과 공식 강제 평가 단축키에서도 결과가 없어서 `perf_reset`·`perf_snapshot`을 실행하거나 값이 나왔다고 주장하지 않습니다. 원격 WebSocket의 `perf_snapshot`·`perf_reset`은 `src-tauri/src/remote_gateway.rs`의 `DesktopProcessDiagnostics` 정책으로 의도적으로 거부되므로, 이를 우회해 빈 Rust 값을 채우지 않았습니다. 앞선 유효 표본은 그대로 보존하고 나머지 행은 미완료로 둡니다.
 
 ### 3.1 각 지표를 읽을 때 주의할 것
 
 - **지표 1** — 프론트 `boot.reveal` 은 `main.tsx` 모듈 평가 끝 → 창 `show()` 구간이다. 그 앞의
-  Rust 부팅은 `setup.*` 4구간이 따로 있으므로 **둘을 더해야** 사용자가 체감하는 시간에 가깝다.
+  Rust 부팅은 `setup.*` 4구간이 따로 있다. 구간의 겹침과 공백을 검증하지 않았으므로 단순 합산을 전체 첫 페인트 시간으로 표기하지 않는다.
   창을 2개 이상 여는 세션에서 두 번째 창은 이 값을 기록하지 않는다(시작 마크가 첫 측정에 소비된다).
 - **지표 2·3** — 캐시가 이미 있으면 0에 수렴하는 것이 **정상**이다. 프로젝트/파일을 그 실행에서
   처음 열 때만 유효한 수치가 나온다. `file.open` 은 "탭 활성 → monaco 인스턴스 준비" 구간이라,

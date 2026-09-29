@@ -3,6 +3,10 @@ import { unwrapResult } from '@shared/api/unwrap-result'
 import { applyNativePerfGate } from '@shared/lib/perf-mark'
 import { isRemoteMirrorRuntime } from '@shared/lib/remote/runtime-environment'
 
+export const readDesktopPerfSnapshot = () => unwrapResult(commands.perfSnapshot())
+
+export const resetDesktopPerfMetrics = () => unwrapResult(commands.perfReset())
+
 /**
  * Adopts the process-wide `TAIDE_PERF` gate for this window's front-end instrumentation, so both
  * halves of a measurement session are on or off together — a dev build started with `TAIDE_PERF=0`
@@ -24,7 +28,7 @@ import { isRemoteMirrorRuntime } from '@shared/lib/remote/runtime-environment'
 export const syncNativePerfGate = async () => {
     if (isRemoteMirrorRuntime()) return
     try {
-        const snapshot = await unwrapResult(commands.perfSnapshot())
+        const snapshot = await readDesktopPerfSnapshot()
         applyNativePerfGate(snapshot.enabled)
     } catch {
         return
