@@ -23,4 +23,4 @@
 ## 검증과 남은 게이트
 
 - 첫 수정은 Bun 1.3.14에서 대상 4파일 20/20 통과했지만 CI #89에서는 2,951건 통과·상태바 한 건 실패였습니다. CI #90에서는 상태바가 통과하고 검색 패널 이력 한 건이 실패했습니다. 검색 패널 수정 뒤 설정 IPC를 공유하는 4파일 35/35가 통과했습니다. 전체 비격리 로컬 실행에서 남았던 두 실패는 sandbox의 loopback 서버 제한을 받는 `remote-reconnect.test.ts`이며 동일 두 테스트를 권한 허용 환경에서 2/2 통과시켰습니다.
-- 검색 패널 수정까지 `bun run typecheck`, 변경 파일 Prettier 검사, `git diff --check`가 통과했습니다. CI #88~#90은 실패한 과거 실행이므로 릴리스 합격 근거가 아닙니다. 새 `main` CI 성공 전에는 릴리스 태그를 생성하지 않습니다.
+- 검색 패널 수정까지 `bun run typecheck`, 변경 파일 Prettier 검사, `git diff --check`가 통과했습니다. CI #91의 프런트엔드 job과 동일 커밋의 v0.3.0 Release 프런트엔드 job이 성공했습니다. CI #91의 전체 결과는 별개인 PTY 테스트의 3초 대기 초과로 실패했으며, CI #90과 Release의 Rust job은 성공했습니다. PTY 시간 제한 부채는 `docs/quality-assurance/2026-09-29-pty-join-ci-timeout.md`에 기록했습니다.
