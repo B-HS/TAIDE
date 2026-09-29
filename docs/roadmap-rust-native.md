@@ -1,6 +1,6 @@
 # Rust-native 전환 로드맵
 
-> 상태: M1~M5·M7 및 Phase 0 기준선 완료. M6 전체 adapter 직접 Exit gate와 M8 native UI 착수 gate는 미완료
+> 상태: M1~M7 및 Phase 0 기준선 완료. M8 native UI 동등성은 미완료
 > 계약: `docs/acknowledge/2026-09-23-rust-native-transition-contract.md`
 > 검증: `docs/quality-assurance/2026-09-23-rust-native-parity-plan.md`
 > 현행 구조: `docs/architecture.md`

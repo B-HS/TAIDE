@@ -347,7 +347,20 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn 직접_종료는_lsp와_pty_callback_반환까지_기다린다() {
+    async fn 직접_종료는_원격_감독_작업과_watcher_lsp_pty의_완료를_모두_기다린다() {
+        let state = AppState::new(AppPaths::new(std::env::temp_dir().join("taide-direct-exit-resources-synthetic")));
+        let (watcher_started, watcher_started_rx) = oneshot::channel();
+        let (release_watcher, held_watcher) = std::sync::mpsc::channel();
+        let release_watcher = ExitRelease(Some(release_watcher));
+        state.watcher_stops.schedule(Box::new(move || {
+            watcher_started.send(()).ok();
+            held_watcher.recv().ok();
+        }));
+        tokio::time::timeout(Duration::from_millis(FIXTURE_TIMEOUT_MS), watcher_started_rx)
+            .await
+            .unwrap()
+            .unwrap();
+
         let processes = LspStore::new();
         let (lsp_started, lsp_started_rx) = oneshot::channel();
         let (release_lsp, held_lsp) = std::sync::mpsc::channel();
@@ -399,10 +412,20 @@ mod tests {
             .unwrap();
         terminals.retire_session(session);
 
-        let runtime = tokio::runtime::Handle::current();
-        let drain = ExitDrain::default();
-        let direct_exit = drain.wait_for_direct_exit(TaskSupervisor::new(runtime), LspInstallStore::new(), processes, terminals);
+        let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+        let remote_task_owner = tasks.begin_operation("remote-ws-writer").unwrap();
+        let drain = ExitDrain::default().with_state(state);
+        let direct_exit = drain.wait_for_direct_exit(tasks.clone(), LspInstallStore::new(), processes, terminals);
         tokio::pin!(direct_exit);
+        assert!(tokio::time::timeout(Duration::from_millis(PENDING_PROBE_MS), &mut direct_exit)
+            .await
+            .is_err());
+        assert!(tasks.begin_operation("late").is_none());
+        drop(remote_task_owner);
+        assert!(tokio::time::timeout(Duration::from_millis(PENDING_PROBE_MS), &mut direct_exit)
+            .await
+            .is_err());
+        drop(release_watcher);
         assert!(tokio::time::timeout(Duration::from_millis(PENDING_PROBE_MS), &mut direct_exit)
             .await
             .is_err());
@@ -415,6 +438,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
+        assert_eq!(tasks.tracked_count(), 0);
         assert!(process.is_finished() && completion.is_finished());
     }
 

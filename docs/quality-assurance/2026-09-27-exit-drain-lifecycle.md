@@ -1,5 +1,7 @@
 # 정상 종료 드레인 QA
 
+> 현재 판정: [M6 직접 Exit 결합 게이트](2026-09-29-m6-direct-exit-combined-gate.md) 완료. 아래 미완료 표기는 각 검사 당시의 잔여 범위이며 OS stall·미등록 자원·Windows process tree는 여전히 검증하지 않았습니다.
+
 ## 대상 파일과 리포트
 
 대상은 TaskSupervisor 실제 task 완료, LspInstallStore 마지막 lease, ExitDrain 소유권과 Tauri 종료 adapter입니다. 실제 앱/설치기·사용자 파일/프로세스·시크릿을 사용하지 않으며 직접 만든 채널/worker·UUID process-group child만 사용합니다.

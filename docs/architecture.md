@@ -297,7 +297,7 @@ TAIDE/                       (Cargo workspace — members: src-tauri, crates/tai
     41개 blocking action은 공유 operation과 같은 감독 worker를 사용한다. global mutation 23개·push/fetch의 repo lock 2개는 async owned guard로 취득한 뒤
     caller/worker가 단일 owner를 공유하며, 마지막 guard Drop 뒤 operation을 반납한다. guard 없는 조회 16개도 같은 operation으로 추적한다.
     요청 Drop 뒤 시작한 worker가 남아도 guard가 먼저 풀리지 않고 정상 root는 worker와 post-await cache/event action의 마지막 owner 완료를 기다린다.
-    취소된 caller의 post-await cache/event 생략과 동기 cold repo discover는 기존 정책이다. 실제 Git/hook/OS stall·직접 Exit·강제 bounded 종료와 전체 M6 gate는 미완료다.
+    취소된 caller의 post-await cache/event 생략과 동기 cold repo discover는 기존 정책이다. 실제 Git/hook/OS stall·강제 bounded 종료는 미검증이며, 등록 자원의 직접 Exit adapter gate는 [M6 결합 검증](quality-assurance/2026-09-29-m6-direct-exit-combined-gate.md) 범위에서 완료했다.
     status 계산은 슬롯 identity·generation을 함께 검증하므로 슬롯 회수 뒤 같은 프로젝트 ID를 다시 조회해도 이전 계산이 새 캐시를 덮지 않는다.
     프로젝트 조회·활성화/정렬/display·그룹 CRUD·shell slot/chrome·open/open_in_slot/close/group_open의 공개 action 25개와 snapshot helper 3개는
     runtime `project_actions`가 소유한다. 기존 저장→state 반영→함수별 guard 수명→이벤트 순서를 유지한다.
@@ -722,7 +722,7 @@ eslint `no-restricted-imports` 는 import **방향**만 강제하고 레이어�
    커스텀 훅 `useTauriEvent(name, handler)` 하나로 표준화하고 직접 listen 을 금지한다.
 2. **무거운 객체는 dispose 의무**: Monaco model/editor, xterm 인스턴스는 소유 위젯 unmount 시 dispose.
    전역 캐시에 남기는 경우(모델 재사용) LRU 상한과 방출 정책을 명시한다(`features/editor.md`).
-3. **Rust 자원은 세션 구조체가 소유**: pty·LSP·watcher의 Drop은 종료를 요청하고, 정상 root는 등록된 실제 완료까지 기다린다. 일반 LSP wait/reader/callback·PTY spawn/worker와 watcher callback/thread 완료, 설치 직접 child/부모 선종료 그룹 정리·정상 종료 coordinator는 자기 fixture로 검증했다. 단독 Drop의 종료 요청은 실제 join과 다르며 partial spawn/OS 오류·직접 native Exit/GUI·runtime 오류/그룹 이탈 자손 및 실제 native 종료의 전체 소유권 gate는 M6 미완료 항목이다.
+3. **Rust 자원은 세션 구조체가 소유**: pty·LSP·watcher의 Drop은 종료를 요청하고, 정상 root는 등록된 실제 완료까지 기다린다. 일반 LSP wait/reader/callback·PTY spawn/worker와 watcher callback/thread 완료, 설치 직접 child/부모 선종료 그룹 정리·정상 종료 coordinator는 자기 fixture로 검증했다. 단독 Drop의 종료 요청은 실제 join과 다르다. 등록 자원에 대한 직접 native Exit는 [실앱·합성 결합 검증](quality-assurance/2026-09-29-m6-direct-exit-combined-gate.md)으로 판정했고, partial spawn/OS 오류·runtime 오류·그룹 이탈 자손·미등록 자원의 전체 회수는 검증하지 않았다.
 
    **§6.3 `project_close` 자원 회수 목록 (정본)** — 프로젝트 종료 시 회수되는 전체 목록이다.
    T1-I(2026-08-19)부터 각 항목의 회수는 그 도메인의 `capability.rs` `detach` 가 소유하고,
@@ -830,7 +830,7 @@ eslint `no-restricted-imports` 는 import **방향**만 강제하고 레이어�
    - `domain::lsp::commands::LspInstallStore` — `begin`/`finish` 쌍이 `.await` 정상 반환 경로에만
      의존해, 설치 퓨처가 패닉하거나 태스크가 드롭되면 `server_id`가 영구히 "설치 중"으로 잠겼다.
      `LspInstallGuard`(Drop)로 이중화했고 현재는 요청 guard Drop이 취소를 요청한다. 감독된 extraction worker의 `LspInstallLease`까지 모두 Drop된 뒤에만 슬롯을 해제한다.
-     요청 종료와 실제 worker 종료를 구분하며 download 파일 create/write/flush 및 toolchain child/reader도 실제 소유자가 슬롯을 보유한다. 정상 ExitRequested coordinator는 감독 task 완료와 설치 마지막 lease를 기다린다. native 직접 Exit 경로의 전체 작업/자손·실제 앱 회수는 M6 미완료 gate다.
+     요청 종료와 실제 worker 종료를 구분하며 download 파일 create/write/flush 및 toolchain child/reader도 실제 소유자가 슬롯을 보유한다. 정상 ExitRequested coordinator는 감독 task 완료와 설치 마지막 lease를 기다린다. native 직접 Exit의 등록 자원 대기와 실앱 원격·PTY 회수는 [M6 결합 게이트](quality-assurance/2026-09-29-m6-direct-exit-combined-gate.md)에서 확인했고, 미등록 자손·OS stall은 범위 밖이다.
    - `infra::shell_integration`이 만드는 zsh/bash 임시 디렉터리 — 주입된 스크립트 자신의
      `rm -rf` 한 줄에만 의존했고, 셸이 그 줄에 도달하지 못하면(크래시·조기 종료) OS 임시 디렉터리
      아래 영구히 남았다. 이제 `PtySession`이 생성 시점의 경로를 들고 있다가 자신의 `Drop`에서

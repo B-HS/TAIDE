@@ -1,6 +1,6 @@
 # Rust-native 기능·성능 동등성 계획
 
-> 상태: Phase 0 계약·기능·성능 기준선 완료. M6 직접 Exit 전체 adapter gate와 M8 native 동등성은 별도
+> 상태: Phase 0 계약·기능·성능 기준선과 M6 직접 Exit adapter gate 완료. M8 native 동등성은 별도
 > 계약: `docs/acknowledge/2026-09-23-rust-native-transition-contract.md`
 > 로드맵: `docs/roadmap-rust-native.md`
 > 현행 실기 기준선: `docs/quality-assurance/2026-09-04-perf-baseline.md`
