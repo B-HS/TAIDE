@@ -5,13 +5,14 @@
 > 요청: 검증된 `to_rust_native`를 `main`에 병합하고 0.3.0 태그·GitHub draft release를 만든 뒤 `to_rust_native`로 돌아와 TypeScript 제거와 Rust-native M8 착수 준비를 마칩니다.
 > 기준: `docs/deployment.md`, `.github/workflows/{ci,release}.yml`, `docs/roadmap-rust-native.md`, `docs/acknowledge/2026-09-23-rust-native-transition-contract.md`, `~/.codex/llm-rules/{ai-process,git}.md`. 기존 사용자 지시에 따라 메인이 직접 수행하고 서브에이전트는 사용하지 않습니다.
 > 릴리스 정책: 태그는 `v0.3.0`이며 앱 버전 3곳과 `docs/release-notes/v0.3.0.md`를 먼저 반영합니다. 기존 성공 검사는 같은 제품 코드에 재사용합니다. M8 준비는 계획·진입 조건 고정이며 기능 동등성 전 TypeScript 제거는 하지 않습니다.
-> 현재 상태(2026-09-29): `main`과 `to_rust_native`는 `1e190ea`까지 일반 push됐고 checkout은 `to_rust_native`입니다. CI #88의 frontend 7건 중 CI #89에서 6건이 해소됐으나 상태바 테스트 한 건이 남아 릴리스 게이트는 아직 미통과입니다. 상태바 테스트의 설정 IPC 관찰 지점을 고쳐 로컬 관련 35/35가 통과했습니다. `v0.3.0` 태그와 draft release는 만들지 않았습니다. M8 착수 문서는 기록·push됐으나 R5 최종 체크는 릴리스 완료 뒤 처리합니다.
+> 현재 상태(2026-09-29): `main`과 `to_rust_native`는 `bbc1918`까지 일반 push됐고 checkout은 `to_rust_native`입니다. CI #90에서 상태바는 통과했지만 검색 패널 이력 테스트 한 건이 실패해 릴리스 게이트는 아직 미통과입니다. 검색 패널도 전역 설정 IPC 목과 무관하게 실제 호출을 감시하도록 고쳐 로컬 관련 35/35가 통과했습니다. `v0.3.0` 태그와 draft release는 만들지 않았습니다. M8 착수 문서는 기록·push됐으나 R5 최종 체크는 릴리스 완료 뒤 처리합니다.
 
 - [x] R1. 원격 `main`은 `2ee2938`, `to_rust_native`는 `da4b5f2`로 전자가 후자의 조상이며 원격 `v0.3.0` 태그는 없습니다. 기존 `v*` 태그·앱 버전 일치·릴리스 노트·draft workflow 계약을 확인했습니다. 버전 준비 뒤 fast-forward 병합합니다.
 - [x] R2. 0.3.0 버전 3곳·Cargo.lock·`docs/release-notes/v0.3.0.md`를 동기화해 `ca9929b`로 선별 commit하고 `to_rust_native`에 일반 push했습니다. `cargo metadata --no-deps --locked --offline`의 taide 0.3.0, `bun install --frozen-lockfile --dry-run`, 대상 Prettier·diff 검사 exit 0을 확인했습니다. 제품 코드는 바뀌지 않아 M7 전체 검사는 재사용합니다.
-- [ ] R3. `main`을 해당 검증 커밋으로 fast-forward 병합·일반 push하고 main CI 결과를 확인합니다. 병합·push는 `1e190ea`까지 완료됐으나 CI #89 frontend 1건 실패로 미완료입니다.
+- [ ] R3. `main`을 해당 검증 커밋으로 fast-forward 병합·일반 push하고 main CI 결과를 확인합니다. 병합·push는 `bbc1918`까지 완료됐으나 CI #90 frontend 1건 실패로 미완료입니다.
   - CI #88 최종 결과: Rust 성공(6m 11s), frontend 실패(2,945 pass·7 fail). 전체 로그 `logs_98940531656.zip`에서 사이드바 4건·상태바 1건·보조 창 SCM 1건·터미널 재시작 cwd 1건을 확인했습니다. 세 테스트 fixture의 전역 module mock·비고정 Query cache를 수정했습니다. Bun 1.3.14 대상 4파일 20/20, 전체 비격리 2,950 pass·2 fail(로컬 sandbox loopback 제한), 실패 2건의 권한 허용 재검증 2/2, TypeScript typecheck와 대상 Prettier·diff 검사 통과. 새 main CI 성공 전에는 R3를 완료 처리하지 않습니다. 원인·대안은 `docs/bug/2026-09-29-ci-88-frontend-test-isolation.md`를 참조합니다.
   - CI #89 결과: frontend 2,951 pass·상태바 1 fail. 테스트가 직접 설정 IPC 대신 하위 Tauri 명령을 감시한 문제로 관찰 지점을 수정했고, 관련 4파일 35/35가 Bun 1.3.14에서 통과했습니다. 새 main CI 성공 전에는 R3를 완료 처리하지 않습니다.
+  - CI #90 결과: 상태바는 통과했지만 검색 패널의 Enter 이력 테스트 1건 실패. 테스트 내부 목 배열이 다른 파일의 전역 설정 IPC 목 호출을 보지 못해 실행 시점 export를 감시하도록 수정했고, 관련 4파일 35/35가 통과했습니다. 새 main CI 성공 전에는 R3를 완료 처리하지 않습니다.
 - [ ] R4. `v0.3.0` 태그를 `main`의 정확한 커밋에 생성·일반 push하고 Release workflow의 빌드·서명·공증·asset·draft 상태를 확인합니다. 공개하지 않습니다.
 - [ ] R5. 다시 `to_rust_native`로 전환해 M8 기술 spike·화면별 parity·단계적 TypeScript 제거·rollback의 착수 체크리스트를 실제 계약에 맞춰 기록하고 commit·push합니다. native 구현·기존 UI 삭제는 이번 준비에 포함하지 않습니다.
 

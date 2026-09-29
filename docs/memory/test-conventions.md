@@ -75,6 +75,7 @@ fireEvent.click(screen.getByRole('button', { name: 'tab.close' }))
   원본은 `mock.module` **등록 전에** 상수로 붙잡는다.
 - 다른 테스트가 실제 렌더할 UI 컴포넌트 export를 `mock.module`로 프로세스 전체에서 대체하지 않는다. `app-shell.test.tsx`의 AppSidebar·StatusBarContent 목은 CI #88에서 사이드바 4건을 실패시켰다. 조립 테스트 안에서만 대체할 때는 실제 모듈을 import한 뒤 `spyOn(...).mockImplementation(...)`을 등록하고 기존 `beforeEach(mock.restore)`로 다음 테스트 전에 원복한다.
 - UI에서 IPC를 호출하는지 확인할 때는 그 UI가 직접 사용하는 IPC export를 감시한다. CI #89의 상태바 테스트는 `settings.ipc.updateSettings`가 다른 테스트에서 목 처리된 상황에서 그 아래 `commands.settingsUpdate`를 감시해 버튼을 눌러도 호출을 보지 못했다.
+- 다른 파일도 목 처리하는 IPC의 호출을 확인할 때는 특정 파일의 목 구현이 채우는 로컬 배열을 합격 근거로 쓰지 않는다. CI #90의 검색 패널 이력 테스트는 다른 설정 IPC 목이 호출되어도 감지할 수 있도록 실행 시점의 export에 `spyOn`을 등록한다.
 
 ### `createTestQueryClient` 의 `gcTime` 은 0 이다
 

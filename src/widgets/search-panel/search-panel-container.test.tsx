@@ -1,26 +1,11 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test'
+import { beforeEach, describe, expect, mock, spyOn, test } from 'bun:test'
 import * as sonner from 'sonner'
 import type { ProjectLayout, SearchQuery, Settings } from '@shared/api/bindings'
 import { QUERY_KEY } from '@shared/constants/query-key'
 import { TooltipProvider } from '@shared/ui/tooltip'
 import { act, createTestQueryClient, fireEvent, renderWithProviders, screen } from '@shared/testing/render'
+import * as settingsIpc from '@entities/settings/settings.ipc'
 
-/**
- * Search as you type (§1.B B4): the panel runs the query while the term is being typed, and Enter
- * keeps every property it had — immediate, history-recording, toast-reporting. What is locked here
- * is the difference between the two triggers, because that is where the regressions live: a
- * debounce that fires per keystroke would hammer the backend, a live run that recorded history
- * would fill the dropdown with prefixes, and a live run that toasted would stack one error
- * notification per character of a regex still being written.
- *
- * Four module fakes, registered before the container is pulled in through a *dynamic* `import()`
- * (`mock.module` is process-global and last-registration-wins — `docs/memory/test-conventions.md`
- * §3): the real `sonner` namespace is snapshotted before registration so no export disappears for
- * whatever file runs next, `@entities/search/search.ipc` is the assertion surface (which query ran,
- * and when), `@entities/settings/settings.ipc` covers both the settings the panel reads and the
- * history write it must not make, and `@shared/lib/monaco/setup` follows the existing precedent —
- * `entities/layout/layout.query` reaches monaco at import time.
- */
 const realSonner = { ...sonner }
 
 const errorMessages: string[] = []
@@ -33,7 +18,6 @@ const toastFake = Object.assign(ignoreToast, {
 })
 
 const searchRunCalls: SearchQuery[] = []
-const settingsWritePatches: Record<string, unknown>[] = []
 const searchRunOutcome = { shouldFail: false }
 
 const rejectLikeUnavailableIpc = () => Promise.reject(new Error('ipc unavailable under bun:test'))
@@ -54,10 +38,7 @@ mock.module('@entities/search/search.ipc', () => ({
 mock.module('@entities/settings/settings.ipc', () => ({
     emptySettingsPatch: () => ({}),
     getSettings: () => Promise.resolve(buildSettings()),
-    updateSettings: (patch: Record<string, unknown>) => {
-        settingsWritePatches.push(patch)
-        return Promise.resolve(buildSettings())
-    },
+    updateSettings: () => Promise.resolve(buildSettings()),
     setThemeId: rejectLikeUnavailableIpc,
 }))
 
@@ -132,7 +113,6 @@ const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, SETT
 describe('SearchPanelContainer 실시간 검색 (d-58 §1.B B4)', () => {
     beforeEach(() => {
         searchRunCalls.length = 0
-        settingsWritePatches.length = 0
         errorMessages.length = 0
         searchRunOutcome.shouldFail = false
     })
@@ -173,16 +153,18 @@ describe('SearchPanelContainer 실시간 검색 (d-58 §1.B B4)', () => {
     })
 
     test('실시간 실행은 검색 이력을 쌓지 않는다', async () => {
+        const updateSettings = spyOn(settingsIpc, 'updateSettings')
         const { input } = await renderPanel()
 
         typeQuery(input, 'foo')
         await settle()
 
         expect(searchRunCalls).toHaveLength(1)
-        expect(settingsWritePatches).toHaveLength(0)
+        expect(updateSettings.mock.calls).toHaveLength(0)
     })
 
     test('Enter 는 즉시 실행하고 대기 중인 디바운스를 취소하며 이력을 남긴다', async () => {
+        const updateSettings = spyOn(settingsIpc, 'updateSettings')
         const { input } = await renderPanel()
 
         typeQuery(input, 'foo')
@@ -191,8 +173,7 @@ describe('SearchPanelContainer 실시간 검색 (d-58 §1.B B4)', () => {
 
         await settle()
         expect(searchRunCalls).toHaveLength(1)
-        expect(settingsWritePatches).toHaveLength(1)
-        expect(settingsWritePatches[0]?.recentSearches).toEqual(['foo'])
+        expect(updateSettings.mock.calls.map(([patch]) => patch.recentSearches)).toEqual([['foo']])
     })
 
     test('실시간 실행의 실패는 토스트 없이 패널 안에서만 알린다', async () => {
@@ -247,7 +228,6 @@ describe('SearchPanelContainer 실시간 검색 (d-58 §1.B B4)', () => {
 describe('SearchPanelContainer 폴더 범위 (d-67 #23)', () => {
     beforeEach(() => {
         searchRunCalls.length = 0
-        settingsWritePatches.length = 0
         errorMessages.length = 0
         searchRunOutcome.shouldFail = false
     })
