@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
-use taide_infra::terminal_scan::ScanOutcome;
+use taide_infra::terminal_scan::{ScanEvent, ScanOutcome};
 use taide_model::agent::{AgentActivity, DetectedAgent, ExternalOpenRequest};
 use taide_model::ids::ProjectId;
 use tokio::task::JoinHandle;
@@ -92,6 +92,20 @@ impl AgentStore {
             return;
         };
         service::note_input(signals, Instant::now());
+    }
+
+    pub fn record_scan_parts_at<'event>(
+        &self,
+        session_id: &str,
+        events: impl IntoIterator<Item = &'event ScanEvent>,
+        text: &str,
+        overlap: &str,
+        now: Instant,
+    ) {
+        let mut guard = self.0.lock();
+        let Some(signals) = guard.signals.get_mut(session_id) else { return };
+        let agent_name = signals.agent_name;
+        service::apply_scan_parts_to_signals(signals, events, text, overlap, agent_name, now);
     }
 
     pub fn prune_signals(&self, valid_session_ids: &HashSet<String>) {

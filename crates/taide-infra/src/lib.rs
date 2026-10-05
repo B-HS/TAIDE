@@ -5,8 +5,10 @@ pub mod external_url;
 pub mod home;
 pub mod http;
 pub mod language;
+pub mod lsp_frame;
 pub mod lsp_install;
 pub mod lsp_proc;
+pub mod lsp_writer;
 #[cfg(unix)]
 pub mod owned_child;
 pub mod perf;

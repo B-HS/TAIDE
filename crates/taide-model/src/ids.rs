@@ -42,6 +42,7 @@ string_id!(PaneId, "pane");
 string_id!(TabId, "tab");
 string_id!(ShellSlotId, "shellslot");
 string_id!(ProjectGroupId, "group");
+string_id!(MirrorWriteId, "mirrorwrite");
 
 #[cfg(test)]
 mod tests {

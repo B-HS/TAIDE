@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::ids::TabId;
+use crate::ids::{MirrorWriteId, TabId};
 
 pub const LARGE_FILE_BYTES: u64 = 2 * 1024 * 1024;
 pub const LARGE_FILE_LINES: usize = 50_000;
@@ -23,7 +23,7 @@ const _: () = assert!(READ_ONLY_FILE_BYTES < REFUSED_FILE_BYTES);
 /// `disk_modified_ms` can be answered against a file that is not there, so both
 /// come back `false`/`None` and the frontend offers "save as" instead of a
 /// restore.
-#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct MirrorEntry {
     pub path: String,
@@ -32,6 +32,13 @@ pub struct MirrorEntry {
     pub disk_modified_ms: Option<f64>,
     pub conflict: bool,
     pub source_missing: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MirrorWriteReceipt {
+    pub write_id: MirrorWriteId,
+    pub entry: MirrorEntry,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]

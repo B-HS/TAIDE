@@ -16,6 +16,10 @@ pub fn locale_get(state: &AppState, locale_id: String) -> AppResult<ResolvedLoca
 
 pub fn locale_get_current(state: &AppState, system_language: &str) -> AppResult<ResolvedLocale> {
     let language = state.settings.read().language.clone();
-    let locale_id = service::resolve_language(&state.paths, &language, system_language);
+    locale_get_for_language(state, &language, system_language)
+}
+
+pub fn locale_get_for_language(state: &AppState, language: &str, system_language: &str) -> AppResult<ResolvedLocale> {
+    let locale_id = service::resolve_language(&state.paths, language, system_language);
     service::load_locale(&state.paths, &locale_id)
 }

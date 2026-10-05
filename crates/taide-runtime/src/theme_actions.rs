@@ -25,13 +25,19 @@ pub fn theme_delete(state: &AppState, theme_id: String) -> AppResult<()> {
 }
 
 pub fn theme_get_current(state: &AppState, system_theme: &str) -> AppResult<ResolvedTheme> {
-    let theme_id = {
-        let settings = state.settings.read();
-        if settings.follow_system_theme {
-            service::builtin_id_for_system(system_theme).to_string()
-        } else {
-            settings.theme_id.clone()
-        }
+    let settings = state.settings.read().clone();
+    theme_get_for_settings(state, &settings, system_theme)
+}
+
+pub fn theme_get_for_settings(
+    state: &AppState,
+    settings: &taide_model::settings::Settings,
+    system_theme: &str,
+) -> AppResult<ResolvedTheme> {
+    let theme_id = if settings.follow_system_theme {
+        service::builtin_id_for_system(system_theme).to_string()
+    } else {
+        settings.theme_id.clone()
     };
     service::load_theme(&state.paths, &theme_id)
 }

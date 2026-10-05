@@ -1,11 +1,10 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use specta::Type;
 
 pub const ALLOWED_HOST_WILDCARD_PREFIX: &str = "*.";
 
-/// Fixed owner label applied to every owner field in remote request arguments.
-pub const REMOTE_OWNER_LABEL: &str = "remote";
+pub use taide_remote_wire::protocol::RemoteRequest;
+pub use taide_remote_wire::REMOTE_OWNER_LABEL;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -20,12 +19,4 @@ pub struct RemoteStatus {
 #[serde(rename_all = "camelCase")]
 pub struct RemoteLinkInfo {
     pub url: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct RemoteRequest {
-    pub seq: u32,
-    pub command: String,
-    #[serde(default)]
-    pub args: Value,
 }

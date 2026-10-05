@@ -3,7 +3,19 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::ids::{PaneId, ProjectId, TabId};
+
 pub const THEME_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ThemeEditorContext {
+    pub project_id: ProjectId,
+    pub pane_id: PaneId,
+    pub tab_id: TabId,
+    pub source_theme_id: String,
+    pub is_create: bool,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

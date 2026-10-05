@@ -54,7 +54,7 @@ pub struct PerfSnapshot {
 /// kebab-case-serialized wire form (`#[serde(rename_all = "kebab-case")]` below), matching
 /// `ai::prompt`'s existing `*_PROMPT_ID` constants exactly — [`PromptTemplateId::as_str`] ties the
 /// two together so the file name on disk and the id embedded in a tab never drift independently.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "kebab-case")]
 pub enum PromptTemplateId {
     AutoTabDefault,
@@ -75,7 +75,7 @@ impl PromptTemplateId {
 /// Which app-owned config file an `AppFile` tab (or `app_file_read`/`app_file_write`) addresses.
 /// `AppPaths`-derived on the Rust side only — neither variant carries a path, so the frontend and
 /// the persisted layout JSON never see an absolute filesystem path for these tabs (contract §3.3).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum AppFileTarget {
     Settings,

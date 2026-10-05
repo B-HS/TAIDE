@@ -39,3 +39,6 @@ tokio = { version = "1", features = ["io-util", "macros", "process", "rt", "sync
 [dev-dependencies]
 tokio = { version = "1", features = ["io-util", "net"] }
 uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(windows)'.dependencies]
+sysinfo = "0.39"

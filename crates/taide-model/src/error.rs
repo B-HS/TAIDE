@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub enum AppErrorKind {
     Io,
     NotFound,
@@ -16,7 +16,7 @@ pub enum AppErrorKind {
 /// `kind` keeps the pre-taxonomy `AppError` variant so `IpcError.code` consumers keep branching
 /// on the same five values; `fallback` is what the frontend shows when `key` is absent from the
 /// active catalog.
-#[derive(Debug, Clone, Serialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalizedError {
     pub kind: AppErrorKind,
@@ -31,7 +31,7 @@ impl std::fmt::Display for LocalizedError {
     }
 }
 
-#[derive(Debug, thiserror::Error, Serialize, Type)]
+#[derive(Debug, Clone, thiserror::Error, Serialize, Deserialize, Type)]
 #[serde(tag = "code", content = "message")]
 pub enum AppError {
     #[error("io error: {0}")]

@@ -326,7 +326,7 @@ fn step_osc(bytes: &[u8], start: usize, events: &mut Vec<ScanEvent>) -> EscapeSt
     };
 
     if let Ok(payload) = std::str::from_utf8(&rest[..payload_len]) {
-        if let Some(event) = classify_osc(payload) {
+        if let Some(event) = classify_osc_payload(payload) {
             events.push(event);
         }
     }
@@ -407,7 +407,7 @@ fn csi_param(params: &[u8], index: usize) -> Option<u32> {
     std::str::from_utf8(raw).ok()?.parse().ok()
 }
 
-fn classify_osc(payload: &str) -> Option<ScanEvent> {
+pub fn classify_osc_payload(payload: &str) -> Option<ScanEvent> {
     let (ident, rest) = payload.split_once(';')?;
 
     match ident {

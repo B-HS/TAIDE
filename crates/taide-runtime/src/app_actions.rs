@@ -18,6 +18,14 @@ where
     Fut: Future<Output = AppResult<Settings>>,
 {
     let _guard = state.begin_mutation().await;
+    app_file_write_admitted(state, target, content, apply_settings).await
+}
+
+pub async fn app_file_write_admitted<F, Fut>(state: &AppState, target: AppFileTarget, content: String, apply_settings: F) -> AppResult<()>
+where
+    F: FnOnce(Settings) -> Fut,
+    Fut: Future<Output = AppResult<Settings>>,
+{
     match target {
         AppFileTarget::Settings => {
             let parsed = taide_settings::service::parse_settings_json(&content)?;

@@ -20,6 +20,7 @@ const LOGIN_BACKOFF_MAX_EXPONENT: u32 = 16;
 struct RemoteStoreInner {
     running: bool,
     port: u32,
+    server_generation: u64,
     client_count: u32,
     password_configured: bool,
     pending_link_token_digest: Option<Vec<u8>>,
@@ -104,6 +105,7 @@ impl RemoteStore {
         }
         inner.running = true;
         inner.port = port;
+        inner.server_generation = inner.server_generation.wrapping_add(1);
         inner.client_count = 0;
         inner.shutdown_tx = Some(shutdown_tx);
         inner.server_handle = Some(server_handle);
@@ -137,6 +139,29 @@ impl RemoteStore {
         let mut inner = self.inner.lock();
         inner.client_count += 1;
         inner.client_count
+    }
+
+    pub fn connection_generation(&self) -> Option<u64> {
+        let inner = self.inner.lock();
+        inner.running.then_some(inner.server_generation)
+    }
+
+    pub fn client_connected_for_generation(&self, generation: u64) -> Option<u32> {
+        let mut inner = self.inner.lock();
+        if !inner.running || inner.server_generation != generation {
+            return None;
+        }
+        inner.client_count += 1;
+        Some(inner.client_count)
+    }
+
+    pub fn client_disconnected_for_generation(&self, generation: u64) -> Option<u32> {
+        let mut inner = self.inner.lock();
+        if !inner.running || inner.server_generation != generation {
+            return None;
+        }
+        inner.client_count = inner.client_count.saturating_sub(1);
+        Some(inner.client_count)
     }
 
     pub fn client_disconnected(&self) -> u32 {

@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -29,108 +28,11 @@ pub(super) const TAIDE_CLI_TARGET_PATH: &str = "C:/Program Files/TAIDE/bin/taide
 
 pub struct AgentForegroundPids(pub fn(&tauri::AppHandle, &ProjectId) -> Vec<(String, u32)>);
 
-#[cfg(unix)]
-const PS_OUTPUT_FORMAT: &str = "pid=,comm=,args=";
-#[cfg(unix)]
-const PS_PID_SEPARATOR: &str = ",";
-
-/// Probes every pty session's foreground pid with **one** `ps` fork, not one per pid: this runs on
-/// the `AGENT_POLL_INTERVAL_MS` tick for every open project, so the per-pid form spent a process
-/// spawn per session per tick forever. `ps` prints nothing for a pid that has already exited (and
-/// exits non-zero only when *none* of them resolved), so the exit status is deliberately not
-/// consulted — a batch where some pids died still carries the survivors on stdout.
-#[cfg(unix)]
-fn resolve_process_infos(pids: &[u32]) -> HashMap<u32, service::ProcessInfo> {
-    if pids.is_empty() {
-        return HashMap::new();
-    }
-
-    let joined = pids.iter().map(u32::to_string).collect::<Vec<_>>().join(PS_PID_SEPARATOR);
-    let Ok(output) = std::process::Command::new("ps")
-        .args(["-o", PS_OUTPUT_FORMAT, "-p", &joined])
-        .output()
-    else {
-        return HashMap::new();
-    };
-
-    service::parse_ps_process_infos(&String::from_utf8_lossy(&output.stdout))
-}
-
 #[cfg(windows)]
-fn process_snapshot(system: &sysinfo::System) -> Vec<service::ProcessSnapshot> {
-    system
-        .processes()
-        .values()
-        .map(|process| service::ProcessSnapshot {
-            pid: process.pid().as_u32(),
-            parent_pid: process.parent().map(|pid| pid.as_u32()),
-            name: service::strip_windows_exe_suffix(&process.name().to_string_lossy()).to_string(),
-            cmdline: process
-                .cmd()
-                .iter()
-                .map(|part| part.to_string_lossy().to_string())
-                .collect::<Vec<_>>()
-                .join(" "),
-        })
-        .collect()
-}
-
-/// Resolves the agent name (or its absence) for pids the name cache has no answer for yet.
-#[cfg(unix)]
-fn resolve_agent_names(pids: &[u32]) -> HashMap<u32, Option<&'static str>> {
-    let infos = resolve_process_infos(pids);
-    pids.iter()
-        .map(|pid| {
-            let name = infos
-                .get(pid)
-                .and_then(|info| service::detect_agent_name(&info.comm, &info.cmdline));
-            (*pid, name)
-        })
-        .collect()
-}
-
-#[cfg(windows)]
-pub fn detect_agents_for_pids(pids: Vec<(String, u32)>) -> Vec<service::DetectedAgentProbe> {
-    if pids.is_empty() {
-        return Vec::new();
-    }
-
-    let snapshot = process_snapshot(&sysinfo::System::new_all());
-
-    pids.into_iter()
-        .filter_map(|(session_id, shell_pid)| {
-            let (agent_pid, name) = service::find_descendant_agent(&snapshot, shell_pid)?;
-            Some(service::DetectedAgentProbe {
-                session_id,
-                name,
-                pid: agent_pid,
-            })
-        })
-        .collect()
-}
-
-/// Returns immediately for a project with no pty sessions instead of paying a blocking-pool
-/// dispatch for a probe that can only come back empty — the common case for every project whose
-/// terminal panel was never opened, on every poll tick.
-#[cfg(unix)]
-pub async fn detect_agents_for_pids_blocking(
-    tasks: &TaskSupervisor,
-    agents: &AgentStore,
-    pids: Vec<(String, u32)>,
-) -> AppResult<Vec<service::DetectedAgentProbe>> {
-    agent_probe::probe_process_names(tasks, agents, pids, |unresolved| resolve_agent_names(&unresolved)).await
-}
-
-/// The windows probe walks the whole process tree below each shell pid (the agent is a descendant
-/// of it, not the pid itself), so there is no per-pid answer to cache the way the unix path has.
-#[cfg(windows)]
-pub async fn detect_agents_for_pids_blocking(
-    tasks: &TaskSupervisor,
-    _agents: &AgentStore,
-    pids: Vec<(String, u32)>,
-) -> AppResult<Vec<service::DetectedAgentProbe>> {
-    agent_probe::probe_process_tree(tasks, pids, detect_agents_for_pids).await
-}
+pub use taide_runtime::agent_host::detect_agents_for_pids;
+pub use taide_runtime::agent_host::detect_agents_for_pids_blocking;
+#[cfg(all(test, unix))]
+use taide_runtime::agent_host::{resolve_agent_names, resolve_process_infos};
 
 /// Feeds one scanned pty chunk into the agent signals, if that session runs an agent. Wired from
 /// the terminal domain through the assembly-owned `PtySessionObservers` (lib.rs) rather than
@@ -182,15 +84,7 @@ pub(super) async fn resolve_claude_hook_emitter(tasks: &TaskSupervisor) -> servi
 const CLAUDE_VERSION_FLAG: &str = "--version";
 
 fn resolve_cli_install_status() -> CliInstallStatus {
-    let target = Path::new(TAIDE_CLI_TARGET_PATH);
-    match std::fs::symlink_metadata(target) {
-        Ok(_) => {
-            let resolved = std::fs::canonicalize(target).ok().map(|path| path.to_string_lossy().to_string());
-            let dangling = resolved.is_none();
-            service::build_cli_install_status(TAIDE_CLI_TARGET_PATH, true, resolved, dangling)
-        }
-        Err(_) => service::build_cli_install_status(TAIDE_CLI_TARGET_PATH, false, None, false),
-    }
+    taide_runtime::agent_host::cli_install_status(Path::new(TAIDE_CLI_TARGET_PATH))
 }
 
 /// The `taide` CLI to point an injected `EDITOR` at: the installed `/usr/local/bin/taide` symlink

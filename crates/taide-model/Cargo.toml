@@ -11,3 +11,7 @@ serde_json = "1"
 specta = { version = "=2.0.0-rc.25", features = ["derive"] }
 thiserror = "2"
 uuid = { version = "1", features = ["v4"] }
+taide-remote-wire = { path = "../taide-remote-wire" }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+uuid = { version = "1", features = ["js"] }

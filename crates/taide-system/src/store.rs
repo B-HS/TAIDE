@@ -10,6 +10,12 @@ use crate::service::{normalize_cpu_percent, ProcessRecord};
 
 const FALLBACK_CPU_COUNT: usize = 1;
 
+pub fn current_pid() -> AppResult<u32> {
+    sysinfo::get_current_pid()
+        .map(|pid| pid.as_u32())
+        .map_err(|error| AppError::Internal(error.to_string()))
+}
+
 struct AppUsageInner {
     system: System,
     has_previous_sample: bool,

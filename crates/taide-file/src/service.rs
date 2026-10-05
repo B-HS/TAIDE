@@ -1,5 +1,6 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
 use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
@@ -11,7 +12,7 @@ use taide_model::error::{AppError, AppErrorKind, AppResult};
 use taide_model::file::{
     EditorConfigOptions, FileSizeTier, OpenedFile, LARGE_FILE_BYTES, LARGE_FILE_LINES, READ_ONLY_FILE_BYTES, REFUSED_FILE_BYTES,
 };
-use taide_model::ids::{ProjectId, TabId};
+use taide_model::ids::{MirrorWriteId, ProjectId, TabId};
 use taide_model::paths::AppPaths;
 
 use super::editorconfig;
@@ -21,17 +22,20 @@ const MIRROR_FILE_SUFFIX: &str = ".json";
 const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
 const FNV_PRIME: u64 = 0x100000001b3;
 const UNTITLED_MIRROR_DIR_NAME: &str = "untitled";
+static MIRROR_MUTATION_LOCK: Mutex<()> = Mutex::new(());
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct MirrorFile {
     path: String,
     content: String,
     saved_at_ms: f64,
     #[serde(default)]
     disk_modified_ms: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    write_id: Option<MirrorWriteId>,
 }
 
-pub use taide_model::file::{MirrorEntry, UntitledMirrorEntry};
+pub use taide_model::file::{MirrorEntry, MirrorWriteReceipt, UntitledMirrorEntry};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct UntitledMirrorFile {
@@ -274,23 +278,94 @@ pub fn mirror_dirty(
     display_path: &str,
     content: &str,
 ) -> AppResult<Option<f64>> {
+    Ok(mirror_dirty_with_receipt(paths, project_id, storage_path, display_path, content)?
+        .entry
+        .disk_modified_ms)
+}
+
+pub fn mirror_dirty_with_receipt(
+    paths: &AppPaths,
+    project_id: &ProjectId,
+    storage_path: &Path,
+    display_path: &str,
+    content: &str,
+) -> AppResult<MirrorWriteReceipt> {
+    let _guard = mirror_mutation_guard()?;
     let disk_modified_ms = current_modified_ms(storage_path);
+    let write_id = MirrorWriteId::new();
     let mirror = MirrorFile {
         path: display_path.to_string(),
         content: content.to_string(),
         saved_at_ms: now_epoch_ms(),
         disk_modified_ms,
+        write_id: Some(write_id.clone()),
     };
     persist::write_json(&mirror_file_path(paths, project_id, storage_path), &mirror)?;
-    Ok(disk_modified_ms)
+    Ok(MirrorWriteReceipt {
+        write_id,
+        entry: MirrorEntry {
+            path: mirror.path,
+            content: mirror.content,
+            saved_at_ms: mirror.saved_at_ms,
+            disk_modified_ms,
+            conflict: false,
+            source_missing: disk_modified_ms.is_none(),
+        },
+    })
 }
 
 pub fn clear_mirror(paths: &AppPaths, project_id: &ProjectId, path: &Path) -> AppResult<()> {
-    match std::fs::remove_file(mirror_file_path(paths, project_id, path)) {
+    let _guard = mirror_mutation_guard()?;
+    clear_mirror_file(&mirror_file_path(paths, project_id, path))
+}
+
+pub fn clear_mirror_if_current(paths: &AppPaths, project_id: &ProjectId, path: &Path, expected: Option<&MirrorEntry>) -> AppResult<bool> {
+    let _guard = mirror_mutation_guard()?;
+    let target = mirror_file_path(paths, project_id, path);
+    let current = persist::read_json::<MirrorFile>(&target)?.map(resolve_mirror);
+    if current.as_ref() != expected {
+        return Ok(false);
+    }
+    clear_mirror_file(&target)?;
+    Ok(true)
+}
+
+pub fn clear_mirror_if_receipt(paths: &AppPaths, project_id: &ProjectId, path: &Path, expected: &MirrorWriteReceipt) -> AppResult<bool> {
+    let _guard = mirror_mutation_guard()?;
+    let target = mirror_file_path(paths, project_id, path);
+    let Some(current) = persist::read_json::<MirrorFile>(&target)? else {
+        return Ok(true);
+    };
+    let expected = MirrorFile {
+        path: expected.entry.path.clone(),
+        content: expected.entry.content.clone(),
+        saved_at_ms: expected.entry.saved_at_ms,
+        disk_modified_ms: expected.entry.disk_modified_ms,
+        write_id: Some(expected.write_id.clone()),
+    };
+    if current != expected {
+        return Ok(false);
+    }
+    clear_mirror_file(&target)?;
+    Ok(true)
+}
+
+fn mirror_mutation_guard() -> AppResult<MutexGuard<'static, ()>> {
+    MIRROR_MUTATION_LOCK
+        .lock()
+        .map_err(|_| AppError::Internal("file mirror mutation lock is poisoned".into()))
+}
+
+fn clear_mirror_file(path: &Path) -> AppResult<()> {
+    match std::fs::remove_file(path) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error.into()),
     }
+}
+
+pub fn has_mirror(paths: &AppPaths, project_id: &ProjectId, path: &Path) -> AppResult<bool> {
+    Ok(mirror_file_path(paths, project_id, path).try_exists()?)
 }
 
 /// Lists restorable mirrors, including those whose source file no longer
@@ -322,21 +397,25 @@ pub fn list_mirrors(paths: &AppPaths, project_id: &ProjectId) -> AppResult<Vec<M
         let Some(mirror) = persist::read_json::<MirrorFile>(&entry.path())? else {
             continue;
         };
-        let current_disk_modified_ms = current_modified_ms(Path::new(&mirror.path));
-        let conflict = match (current_disk_modified_ms, mirror.disk_modified_ms) {
-            (Some(current), Some(baseline)) => current > baseline,
-            _ => false,
-        };
-        mirrors.push(MirrorEntry {
-            path: mirror.path,
-            content: mirror.content,
-            saved_at_ms: mirror.saved_at_ms,
-            disk_modified_ms: current_disk_modified_ms.and(mirror.disk_modified_ms),
-            conflict,
-            source_missing: current_disk_modified_ms.is_none(),
-        });
+        mirrors.push(resolve_mirror(mirror));
     }
     Ok(mirrors)
+}
+
+fn resolve_mirror(mirror: MirrorFile) -> MirrorEntry {
+    let current_disk_modified_ms = current_modified_ms(Path::new(&mirror.path));
+    let conflict = match (current_disk_modified_ms, mirror.disk_modified_ms) {
+        (Some(current), Some(baseline)) => current > baseline,
+        _ => false,
+    };
+    MirrorEntry {
+        path: mirror.path,
+        content: mirror.content,
+        saved_at_ms: mirror.saved_at_ms,
+        disk_modified_ms: current_disk_modified_ms.and(mirror.disk_modified_ms),
+        conflict,
+        source_missing: current_disk_modified_ms.is_none(),
+    }
 }
 
 /// Deletes every path-mirror not present in `keep_paths` (currently open
@@ -348,6 +427,7 @@ pub fn list_mirrors(paths: &AppPaths, project_id: &ProjectId) -> AppResult<Vec<M
 /// exactly as long as the tab is open, which is what makes
 /// [`MirrorEntry::source_missing`]'s "save as" recovery reachable.
 pub fn prune_mirrors(paths: &AppPaths, project_id: &ProjectId, keep_paths: &[String]) -> AppResult<()> {
+    let _guard = mirror_mutation_guard()?;
     let dir = paths.buffers_dir(project_id);
     let entries = match std::fs::read_dir(&dir) {
         Ok(entries) => entries,
@@ -629,6 +709,90 @@ mod tests {
 
     fn cleanup(dir: &Path) {
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn mirror_receipt는_동일_내용_시각_디스크_변경과_legacy_쓰기를_구별한다() {
+        let dir = temp_dir("mirror-receipt");
+        std::fs::create_dir_all(&dir).unwrap();
+        let paths = AppPaths::new(dir.clone());
+        let project = ProjectId::new();
+        let path = dir.join("draft.txt");
+        std::fs::write(&path, "disk").unwrap();
+        let first = mirror_dirty_with_receipt(&paths, &project, &path, path.to_str().unwrap(), "draft").unwrap();
+        let mut second = mirror_dirty_with_receipt(&paths, &project, &path, path.to_str().unwrap(), "draft").unwrap();
+        assert_ne!(first.write_id, second.write_id);
+        let target = mirror_file_path(&paths, &project, &path);
+        {
+            let _guard = mirror_mutation_guard().unwrap();
+            let mut stored = persist::read_json::<MirrorFile>(&target).unwrap().unwrap();
+            stored.saved_at_ms = first.entry.saved_at_ms;
+            second.entry.saved_at_ms = first.entry.saved_at_ms;
+            persist::write_json(&target, &stored).unwrap();
+        }
+        assert_eq!(first.entry, second.entry);
+        assert!(!clear_mirror_if_receipt(&paths, &project, &path, &first).unwrap());
+        std::fs::remove_file(&path).unwrap();
+        assert!(list_mirrors(&paths, &project).unwrap()[0].source_missing);
+        assert!(clear_mirror_if_receipt(&paths, &project, &path, &second).unwrap());
+        assert!(clear_mirror_if_receipt(&paths, &project, &path, &second).unwrap());
+        let missing = mirror_dirty_with_receipt(&paths, &project, &path, path.to_str().unwrap(), "missing").unwrap();
+        assert!(missing.entry.source_missing);
+        assert_eq!(missing.entry.disk_modified_ms, None);
+        assert_eq!(
+            mirror_dirty(&paths, &project, &path, path.to_str().unwrap(), "missing").unwrap(),
+            None
+        );
+        assert!(!clear_mirror_if_receipt(&paths, &project, &path, &missing).unwrap());
+        {
+            let _guard = mirror_mutation_guard().unwrap();
+            let mut stored = persist::read_json::<MirrorFile>(&target).unwrap().unwrap();
+            stored.write_id = None;
+            persist::write_json(&target, &stored).unwrap();
+            assert_eq!(persist::read_json::<MirrorFile>(&target).unwrap().unwrap().write_id, None);
+        }
+        assert!(!clear_mirror_if_receipt(&paths, &project, &path, &missing).unwrap());
+        assert_eq!(list_mirrors(&paths, &project).unwrap()[0].content, "missing");
+        clear_mirror(&paths, &project, &path).unwrap();
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn 조건부_mirror_삭제와_동시_쓰기는_새_초안을_보존한다() {
+        const PARTICIPANTS: usize = 2;
+        let dir = temp_dir("mirror-conditional-concurrent");
+        std::fs::create_dir_all(&dir).unwrap();
+        let paths = AppPaths::new(dir.clone());
+        let project = ProjectId::new();
+        let path = dir.join("draft.txt");
+        std::fs::write(&path, "disk").unwrap();
+        mirror_dirty(&paths, &project, &path, path.to_str().unwrap(), "old").unwrap();
+        let old = list_mirrors(&paths, &project).unwrap().remove(0);
+        let barrier = std::sync::Barrier::new(PARTICIPANTS);
+        std::thread::scope(|scope| {
+            let clear = scope.spawn(|| {
+                barrier.wait();
+                clear_mirror_if_current(&paths, &project, &path, Some(&old)).unwrap()
+            });
+            let write = scope.spawn(|| {
+                barrier.wait();
+                mirror_dirty(&paths, &project, &path, path.to_str().unwrap(), "new").unwrap()
+            });
+            clear.join().unwrap();
+            write.join().unwrap();
+        });
+        let latest = list_mirrors(&paths, &project).unwrap().remove(0);
+        assert_eq!(latest.content, "new");
+        assert!(!clear_mirror_if_current(&paths, &project, &path, Some(&old)).unwrap());
+        assert!(!clear_mirror_if_current(&paths, &project, &path, None).unwrap());
+        std::fs::remove_file(&path).unwrap();
+        assert!(!clear_mirror_if_current(&paths, &project, &path, Some(&latest)).unwrap());
+        let missing = list_mirrors(&paths, &project).unwrap().remove(0);
+        assert!(missing.source_missing);
+        assert!(clear_mirror_if_current(&paths, &project, &path, Some(&missing)).unwrap());
+        assert!(list_mirrors(&paths, &project).unwrap().is_empty());
+        assert!(clear_mirror_if_current(&paths, &project, &path, None).unwrap());
+        cleanup(&dir);
     }
 
     #[test]
@@ -1080,6 +1244,7 @@ mod tests {
             content: "mirrored content".to_string(),
             saved_at_ms: now_epoch_ms(),
             disk_modified_ms: Some(0.0),
+            write_id: None,
         };
         persist::write_json(&mirror_file_path(&paths, &project_id, &target), &mirror).expect("write mirror directly");
         let mirrors = list_mirrors(&paths, &project_id).expect("list");
@@ -1105,6 +1270,7 @@ mod tests {
             content: "mirrored content".to_string(),
             saved_at_ms: now_epoch_ms(),
             disk_modified_ms: Some(baseline),
+            write_id: None,
         };
         persist::write_json(&mirror_file_path(&paths, &project_id, &target), &mirror).expect("write mirror directly");
         let mirrors = list_mirrors(&paths, &project_id).expect("list");

@@ -686,8 +686,19 @@ fn apply_agent_event(signals: &mut AgentSessionSignals, body: &str, agent_name: 
 /// signature phrase at the prompt latches the session until the next substantive output; that is
 /// self-healing, a missed dialog is not.
 pub fn apply_scan_to_signals(signals: &mut AgentSessionSignals, outcome: &ScanOutcome, agent_name: &str, now: Instant) {
+    apply_scan_parts_to_signals(signals, &outcome.events, &outcome.text, &outcome.overlap, agent_name, now);
+}
+
+pub fn apply_scan_parts_to_signals<'event>(
+    signals: &mut AgentSessionSignals,
+    events: impl IntoIterator<Item = &'event ScanEvent>,
+    text: &str,
+    overlap: &str,
+    agent_name: &str,
+    now: Instant,
+) {
     let mut blocked_by_event = false;
-    for event in &outcome.events {
+    for event in events {
         match event {
             ScanEvent::Title(title) => apply_title(signals, title, now),
             ScanEvent::AgentEvent(body) => {
@@ -700,16 +711,14 @@ pub fn apply_scan_to_signals(signals: &mut AgentSessionSignals, outcome: &ScanOu
         }
     }
 
-    if !is_echo(signals, now) && is_substantive_output(agent_name, &outcome.text) {
+    if !is_echo(signals, now) && is_substantive_output(agent_name, text) {
         signals.last_substantive_output_at = Some(now);
         if !blocked_by_event {
             signals.blocked = None;
         }
     }
 
-    if find_dialog_signature(agent_name, &outcome.text)
-        || find_dialog_signature_across_boundary(agent_name, &outcome.overlap, &outcome.text)
-    {
+    if find_dialog_signature(agent_name, text) || find_dialog_signature_across_boundary(agent_name, overlap, text) {
         signals.blocked = Some(BlockedSource::Dialog);
     }
 }

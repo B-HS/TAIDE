@@ -151,18 +151,7 @@ fn canonicalize_root_and_resolve(root: &Path, path: &Path) -> AppResult<(PathBuf
 /// as a single path component (joined verbatim, not resolved via a project
 /// root). Untitled-tab mirror files are keyed by `TabId` this way, so the id
 /// must not contain path separators or `.`/`..` segments.
-pub fn ensure_safe_component(value: &str) -> AppResult<()> {
-    let is_traversal = value.is_empty() || value == "." || value == ".." || value.contains('/') || value.contains('\\');
-    if is_traversal {
-        return Err(AppError::localized(
-            AppErrorKind::InvalidArgument,
-            "error.path.invalidIdentifier",
-            format!("invalid identifier: {value}"),
-        )
-        .with_arg("value", value));
-    }
-    Ok(())
-}
+pub use taide_model::identifier::ensure_safe_component;
 
 pub fn canonicalize_lenient(path: &Path) -> AppResult<PathBuf> {
     if let Ok(canonical) = std::fs::canonicalize(path) {

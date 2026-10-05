@@ -13,6 +13,14 @@ pub const LAYOUT_SCHEMA_VERSION: u32 = 2;
 pub const CLOSED_TAB_STACK_LIMIT: usize = 20;
 pub const FIRST_UNTITLED_INDEX: u32 = 1;
 
+pub fn find_leaf<'a>(node: &'a PaneNode, pane_id: &PaneId) -> Option<&'a PaneNode> {
+    match node {
+        PaneNode::Leaf { id, .. } if id == pane_id => Some(node),
+        PaneNode::Leaf { .. } => None,
+        PaneNode::Split { children, .. } => children.iter().find_map(|child| find_leaf(child, pane_id)),
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum SplitDir {

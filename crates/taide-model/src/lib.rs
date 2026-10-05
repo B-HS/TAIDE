@@ -9,6 +9,7 @@ pub mod font;
 pub mod git;
 pub mod ide;
 pub mod ids;
+pub mod identifier;
 pub mod layout;
 pub mod locale;
 pub mod lsp;

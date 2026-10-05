@@ -11,6 +11,9 @@ use tokio::sync::Notify;
 
 use taide_model::error::{AppError, AppErrorKind, AppResult};
 
+use crate::lsp_frame::{BoundedMessageBuffer, FrameLimits, TransportFailure};
+use crate::lsp_writer::{QueuedWriter, WriteReceipt, WriterFailure, WriterLimits};
+
 const HEADER_BODY_SEPARATOR: &[u8] = b"\r\n\r\n";
 const CONTENT_LENGTH_HEADER: &str = "content-length";
 const LSP_READ_BUFFER_BYTES: usize = 64 * 1024;
@@ -87,8 +90,13 @@ impl StderrTail {
     }
 }
 
+enum OutgoingTransport {
+    Direct(tokio::sync::Mutex<tokio::process::ChildStdin>),
+    Owned(QueuedWriter),
+}
+
 pub struct LspProcHandle {
-    stdin: tokio::sync::Mutex<tokio::process::ChildStdin>,
+    stdin: OutgoingTransport,
     /// Wakes [`spawn`]'s wait task so it force-kills the child, replacing the `AtomicBool` that task
     /// used to notice only on its next 50ms `try_wait` poll (§2 L-3). The task now parks on
     /// `child.wait()` and this signal at once, so both real process death and a [`kill`](Self::kill)
@@ -103,15 +111,52 @@ pub struct LspProcHandle {
     stderr_tail: Arc<Mutex<StderrTail>>,
     wait_gate: Arc<Mutex<bool>>,
     wait_task: tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+    frame_limits: Option<FrameLimits>,
+    transport_failure: Arc<Mutex<Option<TransportFailure>>>,
 }
 
 impl LspProcHandle {
     pub async fn write_message(&self, payload: &str) -> AppResult<()> {
-        let mut stdin = self.stdin.lock().await;
-        let framed = encode_message(payload);
-        stdin.write_all(&framed).await?;
-        stdin.flush().await?;
-        Ok(())
+        if self.frame_limits.is_some_and(|limits| payload.len() > limits.body_bytes()) {
+            return Err(AppError::InvalidArgument(
+                "outgoing LSP payload exceeds its configured byte limit".into(),
+            ));
+        }
+        match &self.stdin {
+            OutgoingTransport::Owned(writer) => {
+                if let Some(failure) = self.transport_failure() {
+                    return Err(AppError::Internal(format!("LSP transport failed: {failure:?}")));
+                }
+                writer
+                    .write_message(payload)
+                    .await
+                    .map_err(|failure| AppError::Internal(format!("outgoing LSP writer failed: {failure:?}")))
+            }
+            OutgoingTransport::Direct(stdin) => {
+                let mut stdin = stdin.lock().await;
+                if let Some(failure) = self.transport_failure() {
+                    return Err(AppError::Internal(format!("LSP transport failed: {failure:?}")));
+                }
+                let framed = encode_message(payload);
+                stdin.write_all(&framed).await?;
+                stdin.flush().await?;
+                Ok(())
+            }
+        }
+    }
+
+    pub fn transport_failure(&self) -> Option<TransportFailure> {
+        *self.transport_failure.lock()
+    }
+
+    pub fn submit_message(&self, payload: &str) -> Result<WriteReceipt, WriterFailure> {
+        if self.transport_failure().is_some() {
+            return Err(WriterFailure::Closed);
+        }
+        match &self.stdin {
+            OutgoingTransport::Owned(writer) => writer.submit(payload),
+            OutgoingTransport::Direct(_) => Err(WriterFailure::UnsupportedTransport),
+        }
     }
 
     /// Requests termination synchronously while serializing numeric PID use with child wait polling.
@@ -353,6 +398,99 @@ where
     D: Fn(String) + Send + 'static,
     X: FnOnce(Option<i32>, String) + Send + 'static,
 {
+    spawn_with_transport(
+        config,
+        IncomingBuffer::Legacy(MessageBuffer::new()),
+        None,
+        None,
+        move |message| {
+            on_message(message);
+            Ok(())
+        },
+        on_exit,
+    )
+}
+
+pub fn spawn_bounded<D, X>(config: LspProcConfig, limits: FrameLimits, on_message: D, on_exit: X) -> AppResult<LspProcHandle>
+where
+    D: Fn(String) -> Result<(), TransportFailure> + Send + 'static,
+    X: FnOnce(Option<i32>, String) + Send + 'static,
+{
+    let buffer = BoundedMessageBuffer::new(limits)
+        .map_err(|failure| AppError::InvalidArgument(format!("invalid LSP framing limits: {failure:?}")))?;
+    spawn_with_transport(config, IncomingBuffer::Bounded(buffer), Some(limits), None, on_message, on_exit)
+}
+
+pub fn spawn_owned<D, X>(
+    config: LspProcConfig,
+    frame_limits: FrameLimits,
+    writer_limits: WriterLimits,
+    on_message: D,
+    on_exit: X,
+) -> AppResult<LspProcHandle>
+where
+    D: Fn(String) -> Result<(), TransportFailure> + Send + 'static,
+    X: FnOnce(Option<i32>, String) + Send + 'static,
+{
+    let buffer = BoundedMessageBuffer::new(frame_limits)
+        .map_err(|failure| AppError::InvalidArgument(format!("invalid LSP framing limits: {failure:?}")))?;
+    spawn_with_transport(
+        config,
+        IncomingBuffer::Bounded(buffer),
+        Some(frame_limits),
+        Some(writer_limits),
+        on_message,
+        on_exit,
+    )
+}
+
+enum IncomingBuffer {
+    Legacy(MessageBuffer),
+    Bounded(BoundedMessageBuffer),
+}
+
+impl IncomingBuffer {
+    fn push<D>(&mut self, chunk: &[u8], on_message: &D) -> Result<(), TransportFailure>
+    where
+        D: Fn(String) -> Result<(), TransportFailure>,
+    {
+        match self {
+            Self::Legacy(buffer) => {
+                buffer.extend(chunk);
+                while let Some(message) = buffer.take_message() {
+                    on_message(message)?;
+                }
+                Ok(())
+            }
+            Self::Bounded(buffer) => buffer.push(chunk, on_message),
+        }
+    }
+
+    fn finish(&mut self) -> Result<(), TransportFailure> {
+        match self {
+            Self::Legacy(_) => Ok(()),
+            Self::Bounded(buffer) => buffer.finish(),
+        }
+    }
+}
+
+fn record_transport_failure(state: &Mutex<Option<TransportFailure>>, kill: &Notify, failure: TransportFailure) {
+    state.lock().get_or_insert(failure);
+    kill.notify_one();
+}
+
+fn spawn_with_transport<D, X>(
+    config: LspProcConfig,
+    mut buffer: IncomingBuffer,
+    frame_limits: Option<FrameLimits>,
+    writer_limits: Option<WriterLimits>,
+    on_message: D,
+    on_exit: X,
+) -> AppResult<LspProcHandle>
+where
+    D: Fn(String) -> Result<(), TransportFailure> + Send + 'static,
+    X: FnOnce(Option<i32>, String) + Send + 'static,
+{
     let mut command = Command::new(&config.command);
     command
         .args(&config.args)
@@ -403,24 +541,50 @@ where
         }))
     });
 
+    let kill_signal = Arc::new(Notify::new());
+    let kill_for_reader = kill_signal.clone();
+    let transport_failure = Arc::new(Mutex::new(None));
+    let (stdin, writer_task) = match writer_limits {
+        Some(writer_limits) => {
+            let limits = frame_limits.ok_or_else(|| AppError::InvalidArgument("owned LSP writer requires frame limits".into()))?;
+            let failure_for_writer = transport_failure.clone();
+            let kill_for_writer = kill_signal.clone();
+            let (writer, task) = QueuedWriter::start(stdin, limits, writer_limits, move || {
+                record_transport_failure(&failure_for_writer, &kill_for_writer, TransportFailure::WriteFailed);
+            })
+            .map_err(|failure| AppError::Internal(format!("could not create LSP writer: {failure:?}")))?;
+            (OutgoingTransport::Owned(writer), Some(task))
+        }
+        None => (OutgoingTransport::Direct(tokio::sync::Mutex::new(stdin)), None),
+    };
+    let failure_for_reader = transport_failure.clone();
     let stdout_reader = ReaderTask::new(tokio::spawn(async move {
-        let mut buffer = MessageBuffer::new();
         let mut read_buf = [0u8; LSP_READ_BUFFER_BYTES];
 
         loop {
             match stdout.read(&mut read_buf).await {
-                Ok(0) | Err(_) => break,
+                Ok(0) => {
+                    if let Err(failure) = buffer.finish() {
+                        record_transport_failure(&failure_for_reader, &kill_for_reader, failure);
+                    }
+                    break;
+                }
+                Err(_) => {
+                    if frame_limits.is_some() {
+                        record_transport_failure(&failure_for_reader, &kill_for_reader, TransportFailure::ReadFailed);
+                    }
+                    break;
+                }
                 Ok(n) => {
-                    buffer.extend(&read_buf[..n]);
-                    while let Some(message) = buffer.take_message() {
-                        on_message(message);
+                    if let Err(failure) = buffer.push(&read_buf[..n], &on_message) {
+                        record_transport_failure(&failure_for_reader, &kill_for_reader, failure);
+                        break;
                     }
                 }
             }
         }
     }));
 
-    let kill_signal = Arc::new(Notify::new());
     let kill_for_wait = kill_signal.clone();
     let exited = Arc::new(AtomicBool::new(false));
     let exited_for_wait = exited.clone();
@@ -451,20 +615,27 @@ where
                 reader.finish().await;
             }
         };
-        tokio::join!(stdout_reader.finish(), stderr_finish);
+        let writer_finish = async move {
+            if let Some(mut writer) = writer_task {
+                writer.finish().await;
+            }
+        };
+        tokio::join!(stdout_reader.finish(), stderr_finish, writer_finish);
 
         let tail = stderr_tail_for_exit.lock().snapshot();
         on_exit(status.ok().and_then(|status| status.code()), tail);
     });
 
     Ok(LspProcHandle {
-        stdin: tokio::sync::Mutex::new(stdin),
+        stdin,
         kill_signal,
         exited,
         pid,
         stderr_tail,
         wait_gate,
         wait_task: tokio::sync::Mutex::new(Some(wait_task)),
+        frame_limits,
+        transport_failure,
     })
 }
 
@@ -489,13 +660,15 @@ mod tests {
             .spawn()
             .unwrap();
         let handle = LspProcHandle {
-            stdin: tokio::sync::Mutex::new(child.stdin.take().unwrap()),
+            stdin: OutgoingTransport::Direct(tokio::sync::Mutex::new(child.stdin.take().unwrap())),
             kill_signal: Arc::new(Notify::new()),
             exited: Arc::new(AtomicBool::new(false)),
             pid: child.id(),
             stderr_tail: Arc::new(Mutex::new(StderrTail::default())),
             wait_gate: Arc::new(Mutex::new(true)),
             wait_task: tokio::sync::Mutex::new(None),
+            frame_limits: None,
+            transport_failure: Arc::new(Mutex::new(None)),
         };
         drop(handle);
         let exited = tokio::time::timeout(Duration::from_secs(READER_TEST_TIMEOUT_SECS), child.wait()).await;
@@ -944,13 +1117,15 @@ mod tests {
         let victim_stdin = victim.stdin.take().expect("victim stdin 확보");
 
         let stale_handle = LspProcHandle {
-            stdin: tokio::sync::Mutex::new(victim_stdin),
+            stdin: OutgoingTransport::Direct(tokio::sync::Mutex::new(victim_stdin)),
             kill_signal: Arc::new(Notify::new()),
             exited: Arc::new(AtomicBool::new(true)),
             pid: Some(victim_pid),
             stderr_tail: Arc::new(Mutex::new(StderrTail::default())),
             wait_gate: Arc::new(Mutex::new(true)),
             wait_task: tokio::sync::Mutex::new(None),
+            frame_limits: None,
+            transport_failure: Arc::new(Mutex::new(None)),
         };
 
         stale_handle.kill();

@@ -9,7 +9,10 @@ rust-version = "1.89"
 taide-infra = { path = "../taide-infra" }
 taide-model = { path = "../taide-model" }
 log = "0.4"
+lsp-types = "0.97.0"
 parking_lot = "0.12"
+regex = "1.13.1"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 

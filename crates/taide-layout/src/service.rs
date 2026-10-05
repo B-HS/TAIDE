@@ -9,6 +9,7 @@ use taide_model::layout::{
     TabPathMove, CLOSED_TAB_STACK_LIMIT, FIRST_UNTITLED_INDEX, LAYOUT_SCHEMA_VERSION,
 };
 use taide_model::paths::AppPaths;
+pub use taide_model::layout::find_leaf;
 
 const SPLIT_TOTAL_PERCENT: f32 = 100.0;
 const FIRST_WINDOW_SLOT: u32 = 1;
@@ -139,14 +140,6 @@ pub fn contains_pane(node: &PaneNode, pane_id: &PaneId) -> bool {
     match node {
         PaneNode::Split { children, .. } => children.iter().any(|child| contains_pane(child, pane_id)),
         PaneNode::Leaf { .. } => false,
-    }
-}
-
-pub fn find_leaf<'a>(node: &'a PaneNode, pane_id: &PaneId) -> Option<&'a PaneNode> {
-    match node {
-        PaneNode::Leaf { id, .. } if id == pane_id => Some(node),
-        PaneNode::Leaf { .. } => None,
-        PaneNode::Split { children, .. } => children.iter().find_map(|child| find_leaf(child, pane_id)),
     }
 }
 

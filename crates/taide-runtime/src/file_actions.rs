@@ -5,7 +5,7 @@ use taide_infra::language::LanguageOverlay;
 use taide_infra::perf::{self, SpanSlot};
 use taide_infra::{persist, root_guard};
 use taide_model::error::{AppError, AppResult};
-use taide_model::file::OpenedFile;
+use taide_model::file::{MirrorWriteReceipt, OpenedFile};
 use taide_model::ids::{ProjectId, TabId};
 
 use super::{AppState, TaskSupervisor};
@@ -31,7 +31,7 @@ fn file_shutdown_error() -> AppError {
     AppError::Forbidden("file runtime is shutting down".to_string())
 }
 
-async fn run_guarded_file_worker<T: Send + 'static, W: FnOnce() -> AppResult<T> + Send + 'static>(
+pub(crate) async fn run_guarded_file_worker<T: Send + 'static, W: FnOnce() -> AppResult<T> + Send + 'static>(
     state: &AppState,
     tasks: &TaskSupervisor,
     name: &'static str,
@@ -134,6 +134,19 @@ pub async fn file_mirror_dirty(
     path: String,
     content: String,
 ) -> AppResult<Option<f64>> {
+    Ok(file_mirror_dirty_with_receipt(state, tasks, project_id, path, content)
+        .await?
+        .entry
+        .disk_modified_ms)
+}
+
+pub async fn file_mirror_dirty_with_receipt(
+    state: &AppState,
+    tasks: &TaskSupervisor,
+    project_id: ProjectId,
+    path: String,
+    content: String,
+) -> AppResult<MirrorWriteReceipt> {
     let _operation = tasks.begin_operation("file-mirror-dirty").ok_or_else(file_shutdown_error)?;
     let projects = state.projects.read().clone();
     let root = root_guard::project_root(&projects, &project_id)?;
@@ -141,7 +154,7 @@ pub async fn file_mirror_dirty(
     let shared_state = state.clone();
     tasks
         .run_blocking_result("file-mirror-dirty", move || {
-            service::mirror_dirty(&shared_state.paths, &project_id, &resolved, &path, &content)
+            service::mirror_dirty_with_receipt(&shared_state.paths, &project_id, &resolved, &path, &content)
         })
         .await
 }
@@ -160,6 +173,32 @@ pub async fn file_clear_mirror(state: &AppState, project_id: ProjectId, path: St
     let root = root_guard::project_root(&projects, &project_id)?;
     let resolved = root_guard::ensure_within_root(&root, Path::new(&path))?;
     service::clear_mirror(&state.paths, &project_id, &resolved)
+}
+
+pub async fn file_clear_mirror_if_current(
+    state: &AppState,
+    project_id: ProjectId,
+    path: String,
+    expected: Option<MirrorEntry>,
+) -> AppResult<bool> {
+    let _guard = state.begin_mutation().await;
+    let projects = state.projects.read().clone();
+    let root = root_guard::project_root(&projects, &project_id)?;
+    let resolved = root_guard::ensure_within_root(&root, Path::new(&path))?;
+    service::clear_mirror_if_current(&state.paths, &project_id, &resolved, expected.as_ref())
+}
+
+pub async fn file_clear_mirror_if_receipt(
+    state: &AppState,
+    project_id: ProjectId,
+    path: String,
+    expected: MirrorWriteReceipt,
+) -> AppResult<bool> {
+    let _guard = state.begin_mutation().await;
+    let projects = state.projects.read().clone();
+    let root = root_guard::project_root(&projects, &project_id)?;
+    let resolved = root_guard::ensure_within_root(&root, Path::new(&path))?;
+    service::clear_mirror_if_receipt(&state.paths, &project_id, &resolved, &expected)
 }
 
 /// Prunes an open project's mirrors under the mutation guard using their existing display paths.

@@ -1,3 +1,5 @@
+#[path = "command-policy.rs"]
+pub mod command_policy;
 pub mod login_page;
 pub mod policy;
 pub mod protocol;

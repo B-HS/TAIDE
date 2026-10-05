@@ -1,6 +1,6 @@
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use parking_lot::{Condvar, Mutex};
@@ -197,7 +197,24 @@ struct PtyCompletionInner {
 #[derive(Clone)]
 pub struct PtyCompletionHandle(Arc<PtyCompletionInner>);
 
+#[derive(Clone)]
+pub struct PtyStopHandle(Weak<PtyCompletionInner>);
+
+impl PtyStopHandle {
+    pub fn is_same_worker(&self, completion: &PtyCompletionHandle) -> bool {
+        Weak::ptr_eq(&self.0, &Arc::downgrade(&completion.0))
+    }
+
+    pub fn kill(&self) -> AppResult<()> {
+        self.0.upgrade().map_or(Ok(()), |inner| PtyCompletionHandle(inner).kill())
+    }
+}
+
 impl PtyCompletionHandle {
+    pub fn stop_handle(&self) -> PtyStopHandle {
+        PtyStopHandle(Arc::downgrade(&self.0))
+    }
+
     fn new(workers: Vec<PtyWorker>, killer: SharedChildKiller, pause: Arc<PauseGate>) -> Self {
         Self(Arc::new(PtyCompletionInner {
             state: tokio::sync::Mutex::new(PtyWorkerWaitState {
@@ -697,6 +714,7 @@ mod tests {
     struct WaitRecordingChild {
         child: ObservedChild,
         waited: Arc<AtomicBool>,
+        waited_signal: Option<tokio::sync::oneshot::Sender<()>>,
     }
 
     #[cfg(unix)]
@@ -720,6 +738,9 @@ mod tests {
             let result = self.child.lock().wait();
             if result.is_ok() {
                 self.waited.store(true, AtomicOrdering::SeqCst);
+                if let Some(signal) = self.waited_signal.take() {
+                    signal.send(()).ok();
+                }
             }
             result
         }
@@ -742,6 +763,7 @@ mod tests {
         let owner = PtyChildWaitOwner::new(Box::new(WaitRecordingChild {
             child: child.clone(),
             waited: waited.clone(),
+            waited_signal: None,
         }));
         drop(pair);
         drop(owner);
@@ -751,7 +773,10 @@ mod tests {
     }
 
     #[cfg(unix)]
-    fn partial_spawn_fixture(command_text: &str) -> (PtySpawnOwner, ObservedChild, Arc<AtomicBool>) {
+    fn partial_spawn_fixture(
+        command_text: &str,
+        waited_signal: Option<tokio::sync::oneshot::Sender<()>>,
+    ) -> (PtySpawnOwner, ObservedChild, Arc<AtomicBool>) {
         let pair = native_pty_system().openpty(PtySize::default()).unwrap();
         let mut command = CommandBuilder::new("/bin/sh");
         command.args(["-c", command_text]);
@@ -763,6 +788,7 @@ mod tests {
         owner.set_child(Box::new(WaitRecordingChild {
             child: child.clone(),
             waited: waited.clone(),
+            waited_signal,
         }));
         drop(pair.slave);
         (owner, child, waited)
@@ -774,7 +800,7 @@ mod tests {
         use std::sync::atomic::AtomicUsize;
 
         for phase in ["reader", "writer", "flusher", "reader-worker", "wait-worker"] {
-            let (mut owner, child, waited) = partial_spawn_fixture("exit 0");
+            let (mut owner, child, waited) = partial_spawn_fixture("exit 0", None);
             let temp_dir = std::env::temp_dir().join(format!("taide-pty-partial-{}", uuid::Uuid::new_v4()));
             std::fs::create_dir(&temp_dir).unwrap();
             owner.shell_integration_temp_dir = Some(temp_dir.clone());
@@ -833,7 +859,7 @@ mod tests {
         use std::sync::atomic::AtomicUsize;
 
         for phase in ["reader", "writer", "flusher", "reader-worker", "wait-worker"] {
-            let (owner, child, waited) = partial_spawn_fixture("exit 0");
+            let (owner, child, waited) = partial_spawn_fixture("exit 0", None);
             let owner = std::panic::AssertUnwindSafe(owner);
             let finished = Arc::new(AtomicUsize::new(0));
             let finished_workers = finished.clone();
@@ -905,13 +931,18 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn 부분_시작_오류는_child_회수_뒤에도_held_output_callback의_실제_join을_기다린다() {
-        let (owner, child, waited) = partial_spawn_fixture("printf startup; exit 0");
+        const FLUSHER_WORKER_POSITION: usize = 1;
+        let (waited_signal, waited_rx) = tokio::sync::oneshot::channel();
+        let (owner, child, waited) = partial_spawn_fixture("printf startup; exit 0", Some(waited_signal));
         let (started, started_rx) = tokio::sync::oneshot::channel();
         let started = Mutex::new(Some(started));
+        let (returned, mut returned_rx) = tokio::sync::oneshot::channel();
+        let returned = Mutex::new(Some(returned));
+        let (finished_workers, mut finished_rx) = tokio::sync::mpsc::channel(READER_WORKER_POSITION);
         let (callback, callback_rx) = std::sync::mpsc::channel();
         let (release, held) = std::sync::mpsc::channel::<()>();
         let mut position = 0;
-        let mut worker = tokio::task::spawn_blocking(move || {
+        let worker = tokio::task::spawn_blocking(move || {
             start_pty_workers(
                 owner,
                 move |_| {
@@ -920,6 +951,9 @@ mod tests {
                         started.send(()).ok();
                     }
                     held.recv().ok();
+                    if let Some(returned) = returned.lock().take() {
+                        returned.send(()).ok();
+                    }
                 },
                 |_| {},
                 PtySpawnFactories {
@@ -928,33 +962,56 @@ mod tests {
                     spawn_worker: move |work: PtyWork| {
                         position += 1;
                         if position == WAIT_WORKER_POSITION {
-                            callback_rx.recv_timeout(Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS)).unwrap();
+                            callback_rx
+                                .recv_timeout(Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS))
+                                .expect("output callback must start before the synthetic wait-worker failure");
                             return Err(std::io::Error::other("synthetic wait worker launch failure"));
                         }
-                        spawn_pty_worker(work)
+                        let finished = finished_workers.clone();
+                        let worker_position = position;
+                        spawn_pty_worker(Box::new(move || {
+                            let result = work();
+                            finished.blocking_send(worker_position).ok();
+                            result
+                        }))
                     },
                 },
             )
         });
         tokio::time::timeout(Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS), started_rx)
             .await
-            .unwrap()
-            .unwrap();
-        tokio::time::timeout(Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS), async {
-            while !waited.load(AtomicOrdering::SeqCst) {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .unwrap();
-        assert!(tokio::time::timeout(Duration::from_millis(SIGNAL_PROBE_MS), &mut worker)
+            .expect("held output callback did not start")
+            .expect("held output callback start signal was dropped");
+        tokio::time::timeout(Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS), waited_rx)
             .await
-            .is_err());
+            .expect("partial-start cleanup did not reap its child")
+            .expect("child wait signal was dropped before reaping");
+        assert!(waited.load(AtomicOrdering::SeqCst));
+        assert_eq!(returned_rx.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Empty));
+        assert!(
+            !worker.is_finished(),
+            "partial-start cleanup must still own the held callback worker"
+        );
         drop(release);
-        let result = tokio::time::timeout(Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS), worker)
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(SIGNAL_WAKE_TIMEOUT_MS);
+        tokio::time::timeout_at(deadline, returned_rx)
             .await
-            .unwrap()
-            .unwrap();
+            .expect("held output callback did not return after release")
+            .expect("held output callback return signal was dropped");
+        let mut completed_workers = Vec::new();
+        for _ in 0..READER_WORKER_POSITION {
+            let completed = tokio::time::timeout_at(deadline, finished_rx.recv())
+                .await
+                .expect("reader or flusher did not complete after the output callback returned")
+                .expect("worker completion sender was dropped");
+            completed_workers.push(completed);
+        }
+        completed_workers.sort_unstable();
+        assert_eq!(completed_workers, [FLUSHER_WORKER_POSITION, READER_WORKER_POSITION]);
+        let result = tokio::time::timeout_at(deadline, worker)
+            .await
+            .expect("partial-start cleanup did not finish joining the completed workers")
+            .expect("partial-start blocking worker panicked");
         assert!(matches!(result, Err(AppError::Internal(_))));
         child.lock().wait().unwrap();
     }
@@ -1038,6 +1095,7 @@ mod tests {
         let owner = PtyChildWaitOwner::new(Box::new(WaitRecordingChild {
             child: child.clone(),
             waited: waited.clone(),
+            waited_signal: None,
         }));
         let killer = owner.killer.clone();
         drop(pair);

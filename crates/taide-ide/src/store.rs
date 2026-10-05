@@ -169,6 +169,24 @@ impl IdeStore {
         inner.client_count
     }
 
+    pub fn client_connected_for_token(&self, token: &str) -> Option<u32> {
+        let mut inner = self.inner.lock();
+        if !inner.running || inner.token != token {
+            return None;
+        }
+        inner.client_count += 1;
+        Some(inner.client_count)
+    }
+
+    pub fn client_disconnected_for_token(&self, token: &str) -> Option<u32> {
+        let mut inner = self.inner.lock();
+        if !inner.running || inner.token != token {
+            return None;
+        }
+        inner.client_count = inner.client_count.saturating_sub(1);
+        Some(inner.client_count)
+    }
+
     pub fn subscribe(&self) -> broadcast::Receiver<String> {
         self.notify_tx.subscribe()
     }
