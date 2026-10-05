@@ -1,0 +1,249 @@
+{
+  "cssSha256": "b66166f52e29a2ffd85e4eaf679cc6ba3bc72b6580ae57f5ef8485edff53a177",
+  "frameMs": 32,
+  "skipElapsedMs": 350,
+  "cssPresencePaused": true,
+  "results": [
+    {
+      "mode": "plain",
+      "samples": [
+        {
+          "step": "initial",
+          "records": [],
+          "active": null,
+          "hasInput": false,
+          "contents": []
+        },
+        {
+          "step": "focus-first",
+          "records": [
+            "first:open"
+          ],
+          "active": "first",
+          "hasInput": false,
+          "contents": [
+            {
+              "id": "first",
+              "state": "instant-open"
+            }
+          ]
+        },
+        {
+          "step": "focus-second",
+          "records": [
+            "first:open",
+            "first:closed",
+            "second:open"
+          ],
+          "active": "second",
+          "hasInput": false,
+          "contents": [
+            {
+              "id": "first",
+              "state": "closed"
+            },
+            {
+              "id": "second",
+              "state": "instant-open"
+            }
+          ]
+        },
+        {
+          "step": "focus-first",
+          "records": [
+            "first:open",
+            "first:closed",
+            "second:open",
+            "first:open",
+            "second:closed",
+            "first:closed"
+          ],
+          "active": "first",
+          "hasInput": false,
+          "contents": [
+            {
+              "id": "first",
+              "state": "closed"
+            },
+            {
+              "id": "second",
+              "state": "closed"
+            }
+          ]
+        },
+        {
+          "step": "hover-second-before-delay",
+          "records": [
+            "first:open",
+            "first:closed",
+            "second:open",
+            "first:open",
+            "second:closed",
+            "first:closed"
+          ],
+          "active": "first",
+          "hasInput": false,
+          "contents": [
+            {
+              "id": "first",
+              "state": "closed"
+            },
+            {
+              "id": "second",
+              "state": "closed"
+            }
+          ]
+        },
+        {
+          "step": "hover-second-after-delay",
+          "records": [
+            "first:open",
+            "first:closed",
+            "second:open",
+            "first:open",
+            "second:closed",
+            "first:closed",
+            "second:open",
+            "second:closed"
+          ],
+          "active": "first",
+          "hasInput": false,
+          "contents": [
+            {
+              "id": "first",
+              "state": "closed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "controlled",
+      "samples": [
+        {
+          "step": "initial",
+          "records": [],
+          "active": "true",
+          "hasInput": true,
+          "contents": [
+            {
+              "id": "controlled",
+              "state": "instant-open"
+            }
+          ]
+        },
+        {
+          "step": "focus-first",
+          "records": [
+            "input-blur:closed",
+            "controlled:closed",
+            "first:open"
+          ],
+          "active": "first",
+          "hasInput": false,
+          "contents": [
+            {
+              "id": "first",
+              "state": "instant-open"
+            }
+          ]
+        },
+        {
+          "step": "focus-second",
+          "records": [
+            "input-blur:closed",
+            "controlled:closed",
+            "first:open",
+            "first:closed",
+            "second:open"
+          ],
+          "active": "second",
+          "hasInput": false,
+          "contents": [
+            {
+              "id": "first",
+              "state": "closed"
+            },
+            {
+              "id": "second",
+              "state": "instant-open"
+            }
+          ]
+        },
+        {
+          "step": "focus-first",
+          "records": [
+            "input-blur:closed",
+            "controlled:closed",
+            "first:open",
+            "first:closed",
+            "second:open",
+            "first:open",
+            "second:closed",
+            "first:closed"
+          ],
+          "active": "first",
+          "hasInput": false,
+          "contents": [
+            {
+              "id": "first",
+              "state": "closed"
+            },
+            {
+              "id": "second",
+              "state": "closed"
+            }
+          ]
+        },
+        {
+          "step": "hover-second-before-delay",
+          "records": [
+            "input-blur:closed",
+            "controlled:closed",
+            "first:open",
+            "first:closed",
+            "second:open",
+            "first:open",
+            "second:closed",
+            "first:closed"
+          ],
+          "active": "first",
+          "hasInput": false,
+          "contents": [
+            {
+              "id": "first",
+              "state": "closed"
+            },
+            {
+              "id": "second",
+              "state": "closed"
+            }
+          ]
+        },
+        {
+          "step": "hover-second-after-delay",
+          "records": [
+            "input-blur:closed",
+            "controlled:closed",
+            "first:open",
+            "first:closed",
+            "second:open",
+            "first:open",
+            "second:closed",
+            "first:closed",
+            "second:open",
+            "second:closed"
+          ],
+          "active": "first",
+          "hasInput": false,
+          "contents": [
+            {
+              "id": "first",
+              "state": "closed"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

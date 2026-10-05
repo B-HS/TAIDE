@@ -22,4 +22,4 @@
 
 ## 99% 목표의 측정과 삭제 금지선
 
-사용자의 “Rust 99%”는 전환 진척을 수치로 확인할 목표입니다. 구현 중에는 추적된 1차 제품 소스의 Rust LOC / (Rust LOC + TS/TSX LOC)을 같은 제외 규칙으로 비교하고, 테스트·fixture·생성 파일·문서·빌드 산출물은 분모에서 뺍니다. 실제 측정 스크립트와 기준값은 첫 M8 slice에서 고정합니다. 그러나 최종 완료 계약은 이 비율보다 엄격합니다. 앱 런타임의 TS·React·Tauri·Monaco·xterm 참조와 빌드 자산을 0건으로 만들고 native 동등성·성능·보안·패키징·beta를 통과해야 합니다. 이 조건 전에는 TypeScript 파일이나 기존 Tauri 앱을 삭제하지 않습니다.
+사용자의 “Rust 99%”는 전환 진척을 수치로 확인할 목표입니다. 구현 중에는 추적된 1차 제품 소스의 Rust LOC / (Rust LOC + TS/TSX LOC)을 같은 제외 규칙으로 비교하고, 테스트·fixture·생성 파일·문서·빌드 산출물은 분모에서 뺍니다. 첫 M8 slice에서 독립 `tools/migration-metrics`와 `tracked-product-nonblank-physical-v1` 정책을 구현했습니다. commit `2824005`의 공식 기준값은 Rust 42,530 / TS·TSX 47,336줄, 47.3260%이며 정의·명령·검증은 `docs/utils/migration-metrics.md`에 기록합니다. 위 임시 참고치와 제외 규칙이 달라 직접 비교하지 않습니다. 그러나 최종 완료 계약은 이 비율보다 엄격합니다. 앱 런타임의 TS·React·Tauri·Monaco·xterm 참조와 빌드 자산을 0건으로 만들고 native 동등성·성능·보안·패키징·beta를 통과해야 합니다. 이 조건 전에는 TypeScript 파일이나 기존 Tauri 앱을 삭제하지 않습니다.

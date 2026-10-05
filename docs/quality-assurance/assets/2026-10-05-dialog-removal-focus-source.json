@@ -1,0 +1,7 @@
+{
+    "source": "actual shared Dialog; synthetic DOM child removal; reused build",
+    "results": [
+        { "key": "Tab", "before": true, "after": { "container": false, "first": false, "last": false, "tag": "BUTTON" } },
+        { "key": "Shift+Tab", "before": true, "after": { "container": true, "first": false, "last": false, "tag": "DIV" } }
+    ]
+}

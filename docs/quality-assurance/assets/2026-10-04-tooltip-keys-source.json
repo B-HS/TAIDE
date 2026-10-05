@@ -1,0 +1,138 @@
+{
+  "frameMs": 32,
+  "cssPresencePaused": false,
+  "results": [
+    {
+      "order": "focus-escape",
+      "samples": [
+        {
+          "step": "focus",
+          "records": [
+            "first:open",
+            "first:closed",
+            "second:open"
+          ],
+          "triggers": [
+            {
+              "id": "first",
+              "state": "closed",
+              "describedBy": null
+            },
+            {
+              "id": "second",
+              "state": "instant-open",
+              "describedBy": "radix-_r_1_"
+            }
+          ]
+        },
+        {
+          "step": "escape",
+          "records": [
+            "first:open",
+            "first:closed",
+            "second:open",
+            "second:closed"
+          ],
+          "triggers": [
+            {
+              "id": "first",
+              "state": "closed",
+              "describedBy": null
+            },
+            {
+              "id": "second",
+              "state": "closed",
+              "describedBy": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "order": "escape-focus",
+      "samples": [
+        {
+          "step": "escape",
+          "records": [
+            "first:open",
+            "first:closed"
+          ],
+          "triggers": [
+            {
+              "id": "first",
+              "state": "closed",
+              "describedBy": null
+            },
+            {
+              "id": "second",
+              "state": "closed",
+              "describedBy": null
+            }
+          ]
+        },
+        {
+          "step": "focus",
+          "records": [
+            "first:open",
+            "first:closed",
+            "second:open"
+          ],
+          "triggers": [
+            {
+              "id": "first",
+              "state": "closed",
+              "describedBy": null
+            },
+            {
+              "id": "second",
+              "state": "instant-open",
+              "describedBy": "radix-_r_1_"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "order": "initial-focus-escape",
+      "samples": [
+        {
+          "step": "focus",
+          "records": [
+            "second:open"
+          ],
+          "triggers": [
+            {
+              "id": "first",
+              "state": "closed",
+              "describedBy": null
+            },
+            {
+              "id": "second",
+              "state": "instant-open",
+              "describedBy": "radix-_r_1_"
+            }
+          ]
+        },
+        {
+          "step": "escape",
+          "records": [
+            "second:open",
+            "second:closed"
+          ],
+          "triggers": [
+            {
+              "id": "first",
+              "state": "closed",
+              "describedBy": null
+            },
+            {
+              "id": "second",
+              "state": "closed",
+              "describedBy": null
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

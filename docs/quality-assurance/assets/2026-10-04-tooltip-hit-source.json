@@ -1,0 +1,288 @@
+{
+  "results": [
+    {
+      "side": "top",
+      "body": {
+        "x": 151,
+        "y": 60,
+        "width": 121.6875,
+        "height": 30,
+        "top": 60,
+        "right": 272.6875,
+        "bottom": 90,
+        "left": 151
+      },
+      "arrow": {
+        "x": 203.92892456054688,
+        "y": 80.9289321899414,
+        "width": 14.14215087890625,
+        "height": 14.142135620117188,
+        "top": 80.9289321899414,
+        "right": 218.07107543945312,
+        "bottom": 95.0710678100586,
+        "left": 203.92892456054688
+      },
+      "wrapper": {
+        "x": 206,
+        "y": 90,
+        "width": 10,
+        "height": 10,
+        "top": 90,
+        "right": 216,
+        "bottom": 100,
+        "left": 206
+      },
+      "samples": [
+        {
+          "name": "arrow-center",
+          "x": 211,
+          "y": 88,
+          "hitTag": "polygon",
+          "hitTooltip": true,
+          "hitArrow": true,
+          "hitWrapper": false
+        },
+        {
+          "name": "arrow-tip",
+          "x": 211,
+          "y": 94,
+          "hitTag": "svg",
+          "hitTooltip": true,
+          "hitArrow": true,
+          "hitWrapper": false
+        },
+        {
+          "name": "arrow-empty-corner",
+          "x": 216,
+          "y": 93,
+          "hitTag": "DIV",
+          "hitTooltip": false,
+          "hitArrow": false,
+          "hitWrapper": false
+        },
+        {
+          "name": "body-rounded-corner",
+          "x": 151.25,
+          "y": 60.25,
+          "hitTag": "DIV",
+          "hitTooltip": false,
+          "hitArrow": false,
+          "hitWrapper": false
+        }
+      ]
+    },
+    {
+      "side": "bottom",
+      "body": {
+        "x": 151,
+        "y": 134,
+        "width": 121.6875,
+        "height": 30,
+        "top": 134,
+        "right": 272.6875,
+        "bottom": 164,
+        "left": 151
+      },
+      "arrow": {
+        "x": 203.92892456054688,
+        "y": 128.92892456054688,
+        "width": 14.14215087890625,
+        "height": 14.14215087890625,
+        "top": 128.92892456054688,
+        "right": 218.07107543945312,
+        "bottom": 143.07107543945312,
+        "left": 203.92892456054688
+      },
+      "wrapper": {
+        "x": 206,
+        "y": 124,
+        "width": 10,
+        "height": 10,
+        "top": 124,
+        "right": 216,
+        "bottom": 134,
+        "left": 206
+      },
+      "samples": [
+        {
+          "name": "arrow-center",
+          "x": 211,
+          "y": 136,
+          "hitTag": "polygon",
+          "hitTooltip": true,
+          "hitArrow": true,
+          "hitWrapper": false
+        },
+        {
+          "name": "arrow-tip",
+          "x": 211,
+          "y": 130,
+          "hitTag": "svg",
+          "hitTooltip": true,
+          "hitArrow": true,
+          "hitWrapper": false
+        },
+        {
+          "name": "arrow-empty-corner",
+          "x": 216,
+          "y": 131,
+          "hitTag": "DIV",
+          "hitTooltip": false,
+          "hitArrow": false,
+          "hitWrapper": false
+        },
+        {
+          "name": "body-rounded-corner",
+          "x": 151.25,
+          "y": 134.25,
+          "hitTag": "DIV",
+          "hitTooltip": false,
+          "hitArrow": false,
+          "hitWrapper": false
+        }
+      ]
+    },
+    {
+      "side": "left",
+      "body": {
+        "x": 68,
+        "y": 97,
+        "width": 121.6875,
+        "height": 30,
+        "top": 97,
+        "right": 189.6875,
+        "bottom": 127,
+        "left": 68
+      },
+      "arrow": {
+        "x": 180.61642456054688,
+        "y": 103.9289321899414,
+        "width": 14.14215087890625,
+        "height": 14.142135620117188,
+        "top": 103.9289321899414,
+        "right": 194.75857543945312,
+        "bottom": 118.0710678100586,
+        "left": 180.61642456054688
+      },
+      "wrapper": {
+        "x": 189.6875,
+        "y": 106,
+        "width": 10,
+        "height": 10,
+        "top": 106,
+        "right": 199.6875,
+        "bottom": 116,
+        "left": 189.6875
+      },
+      "samples": [
+        {
+          "name": "arrow-center",
+          "x": 187.6875,
+          "y": 111,
+          "hitTag": "polygon",
+          "hitTooltip": true,
+          "hitArrow": true,
+          "hitWrapper": false
+        },
+        {
+          "name": "arrow-tip",
+          "x": 193.6875,
+          "y": 111,
+          "hitTag": "svg",
+          "hitTooltip": true,
+          "hitArrow": true,
+          "hitWrapper": false
+        },
+        {
+          "name": "arrow-empty-corner",
+          "x": 192.6875,
+          "y": 116,
+          "hitTag": "DIV",
+          "hitTooltip": false,
+          "hitArrow": false,
+          "hitWrapper": false
+        },
+        {
+          "name": "body-rounded-corner",
+          "x": 68.25,
+          "y": 97.25,
+          "hitTag": "DIV",
+          "hitTooltip": false,
+          "hitArrow": false,
+          "hitWrapper": false
+        }
+      ]
+    },
+    {
+      "side": "right",
+      "body": {
+        "x": 234,
+        "y": 97,
+        "width": 121.6875,
+        "height": 30,
+        "top": 97,
+        "right": 355.6875,
+        "bottom": 127,
+        "left": 234
+      },
+      "arrow": {
+        "x": 228.92892456054688,
+        "y": 103.9289321899414,
+        "width": 14.14215087890625,
+        "height": 14.142135620117188,
+        "top": 103.9289321899414,
+        "right": 243.07107543945312,
+        "bottom": 118.0710678100586,
+        "left": 228.92892456054688
+      },
+      "wrapper": {
+        "x": 224,
+        "y": 106,
+        "width": 10,
+        "height": 10,
+        "top": 106,
+        "right": 234,
+        "bottom": 116,
+        "left": 224
+      },
+      "samples": [
+        {
+          "name": "arrow-center",
+          "x": 236,
+          "y": 111,
+          "hitTag": "polygon",
+          "hitTooltip": true,
+          "hitArrow": true,
+          "hitWrapper": false
+        },
+        {
+          "name": "arrow-tip",
+          "x": 230,
+          "y": 111,
+          "hitTag": "svg",
+          "hitTooltip": true,
+          "hitArrow": true,
+          "hitWrapper": false
+        },
+        {
+          "name": "arrow-empty-corner",
+          "x": 231,
+          "y": 116,
+          "hitTag": "BUTTON",
+          "hitTooltip": false,
+          "hitArrow": false,
+          "hitWrapper": false
+        },
+        {
+          "name": "body-rounded-corner",
+          "x": 234.25,
+          "y": 97.25,
+          "hitTag": "DIV",
+          "hitTooltip": false,
+          "hitArrow": false,
+          "hitWrapper": false
+        }
+      ]
+    }
+  ]
+}

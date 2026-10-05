@@ -1,0 +1,23 @@
+{
+  "cssSha256": "b66166f52e29a2ffd85e4eaf679cc6ba3bc72b6580ae57f5ef8485edff53a177",
+  "actualDraftRow": true,
+  "virtualClock": false,
+  "cssPresencePaused": false,
+  "results": [
+    {
+      "mode": "valid",
+      "before": { "records": ["normal:open"], "hasInput": true, "inputFocused": true, "normalState": "instant-open", "normalDescription": "radix-_r_0_", "dialogState": "closed" },
+      "after": { "records": ["normal:open", "normal:closed", "draft:cancel"], "hasInput": false, "inputFocused": false, "normalState": "closed", "normalDescription": null, "dialogState": "closed" }
+    },
+    {
+      "mode": "invalid",
+      "before": { "records": ["normal:open"], "hasInput": true, "inputFocused": true, "normalState": "delayed-open", "normalDescription": "radix-_r_0_", "dialogState": "closed" },
+      "after": { "records": ["normal:open", "normal:closed", "draft:cancel"], "hasInput": false, "inputFocused": false, "normalState": "closed", "normalDescription": null, "dialogState": "closed" }
+    },
+    {
+      "mode": "modal",
+      "before": { "records": ["normal:open", "dialog:open"], "hasInput": false, "inputFocused": false, "normalState": "delayed-open", "normalDescription": "radix-_r_0_", "dialogState": "open" },
+      "after": { "records": ["normal:open", "dialog:open", "dialog:closed"], "hasInput": false, "inputFocused": false, "normalState": "delayed-open", "normalDescription": "radix-_r_0_", "dialogState": "closed" }
+    }
+  ]
+}
