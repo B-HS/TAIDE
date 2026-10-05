@@ -1,0 +1,39 @@
+[package]
+name = "taide-remote-web"
+version = "0.1.0"
+license = "MIT"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+[workspace]
+
+[features]
+canvas = ["dep:eframe", "web-sys/HtmlCanvasElement"]
+inspection = ["taide-native-ui/inspection"]
+
+[[test]]
+name = "settings-resources"
+required-features = ["inspection"]
+
+[[test]]
+name = "snippet-operations"
+required-features = ["inspection"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+taide-remote-wire = { path = "../../crates/taide-remote-wire" }
+taide-model = { path = "../../crates/taide-model" }
+taide-native-ui = { path = "../taide-native-ui", default-features = false }
+taide-native-editor = { path = "../taide-native-editor" }
+egui = "=0.36.2"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+eframe = { version = "=0.36.2", path = "../../experiments/native-shell-spike/vendor/eframe", optional = true, default-features = false, features = ["default_fonts", "wgpu", "preserve_empty_paste_shortcuts"] }
+js-sys = "=0.3.106"
+wasm-bindgen = "=0.2.129"
+web-sys = { version = "=0.3.106", features = ["Window", "Location", "Url", "WebSocket", "BinaryType", "Event", "MessageEvent", "CloseEvent", "Navigator", "MediaQueryList", "EventTarget", "Performance", "Document", "Element", "HtmlCanvasElement", "CanvasRenderingContext2d", "ImageData", "TextMetrics", "FontFaceSet"] }
+
+[patch.crates-io]
+egui = { path = "../taide-native-app/vendor/egui-input" }

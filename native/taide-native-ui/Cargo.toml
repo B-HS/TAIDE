@@ -1,0 +1,54 @@
+[package]
+name = "taide-native-ui"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+publish = false
+
+[workspace]
+
+[features]
+default = ["native-host"]
+inspection = []
+native-host = ["dep:taide-runtime", "dep:taide-layout", "dep:taide-project", "dep:taide-infra", "dep:taide-file", "dep:tokio"]
+
+[dependencies]
+egui = { version = "=0.36.2" }
+resvg = { version = "=0.48.1", default-features = false }
+web-time = "=1.1.0"
+icu_normalizer = "=2.3.0"
+icu_locale_core = "=2.3.0"
+icu_collator = "=2.3.1"
+serde_json = "1"
+serde = "1"
+taide-model = { path = "../../crates/taide-model" }
+taide-runtime = { path = "../../crates/taide-runtime", optional = true }
+taide-layout = { path = "../../crates/taide-layout", optional = true }
+taide-project = { path = "../../crates/taide-project", optional = true }
+taide-infra = { path = "../../crates/taide-infra", optional = true }
+taide-file = { path = "../../crates/taide-file", optional = true }
+taide-native-editor = { path = "../taide-native-editor" }
+tokio = { version = "1", features = ["sync"], optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
+
+[[test]]
+name = "controller"
+required-features = ["native-host"]
+
+[[test]]
+name = "document_admission"
+required-features = ["native-host"]
+
+[[test]]
+name = "workbench"
+required-features = ["native-host"]
+
+[[test]]
+name = "snippet-editor"
+required-features = ["native-host", "inspection"]
+
+[patch.crates-io]
+egui = { path = "../taide-native-app/vendor/egui-input" }

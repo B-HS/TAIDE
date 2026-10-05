@@ -1,0 +1,519 @@
+[
+    {
+        "name": "empty",
+        "source": "",
+        "encoding": "utf8",
+        "expected": [{ "name": "Sheet1", "totalRowCount": 1, "truncated": false, "rows": [[{ "kind": "null", "value": "" }]] }]
+    },
+    {
+        "name": "blank",
+        "source": "\n\n",
+        "encoding": "utf8",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 2,
+                "truncated": false,
+                "rows": [[{ "kind": "null", "value": "" }], [{ "kind": "null", "value": "" }]]
+            }
+        ]
+    },
+    {
+        "name": "ragged",
+        "source": "a,b,\n1\n,\n",
+        "encoding": "utf8",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 3,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "text", "value": "a" },
+                        { "kind": "text", "value": "b" },
+                        { "kind": "null", "value": "" }
+                    ],
+                    [
+                        { "kind": "number", "value": "1" },
+                        { "kind": "null", "value": "" },
+                        { "kind": "null", "value": "" }
+                    ],
+                    [
+                        { "kind": "null", "value": "" },
+                        { "kind": "null", "value": "" },
+                        { "kind": "null", "value": "" }
+                    ]
+                ]
+            }
+        ]
+    },
+    {
+        "name": "trailing",
+        "source": "a,,",
+        "encoding": "utf8",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 1,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "text", "value": "a" },
+                        { "kind": "null", "value": "" }
+                    ]
+                ]
+            }
+        ]
+    },
+    {
+        "name": "trailing-newline",
+        "source": "a,\n",
+        "encoding": "utf8",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 1,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "text", "value": "a" },
+                        { "kind": "null", "value": "" }
+                    ]
+                ]
+            }
+        ]
+    },
+    {
+        "name": "typed",
+        "source": "TRUE,FALSE,true,false,=,\"\",\" \"\n",
+        "encoding": "utf8",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 1,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "boolean", "value": "true" },
+                        { "kind": "boolean", "value": "false" },
+                        { "kind": "text", "value": "true" },
+                        { "kind": "text", "value": "false" },
+                        { "kind": "text", "value": "=" },
+                        { "kind": "null", "value": "" },
+                        { "kind": "text", "value": " " }
+                    ]
+                ]
+            }
+        ]
+    },
+    {
+        "name": "formula",
+        "source": "TRUE,FALSE,\"001\",=SUM(A1),=\"hi\"\n",
+        "encoding": "utf8",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 1,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "boolean", "value": "true" },
+                        { "kind": "boolean", "value": "false" },
+                        { "kind": "number", "value": "1" },
+                        { "kind": "null", "value": "" },
+                        { "kind": "text", "value": "hi" }
+                    ]
+                ]
+            }
+        ]
+    },
+    {
+        "name": "quoted",
+        "source": "\"a\r\nb\",\"a\"\"b\",last\n",
+        "encoding": "utf8",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 1,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "text", "value": "a\nb" },
+                        { "kind": "text", "value": "a\"b" },
+                        { "kind": "text", "value": "last" }
+                    ]
+                ]
+            }
+        ]
+    },
+    {
+        "name": "unclosed",
+        "source": "\"unclosed,a\nb",
+        "encoding": "utf8",
+        "expected": [{ "name": "Sheet1", "totalRowCount": 1, "truncated": false, "rows": [[{ "kind": "text", "value": "\"unclosed,a\nb" }]] }]
+    },
+    {
+        "name": "embedded-quote",
+        "source": "a\"b,c\n",
+        "encoding": "utf8",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 1,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "text", "value": "a\"b" },
+                        { "kind": "text", "value": "c" }
+                    ]
+                ]
+            }
+        ]
+    },
+    {
+        "name": "separator",
+        "source": "sep=;\r\na;b\n",
+        "encoding": "utf8",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 1,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "text", "value": "a" },
+                        { "kind": "text", "value": "b" }
+                    ]
+                ]
+            }
+        ]
+    },
+    {
+        "name": "pipe",
+        "source": "sep=|\na|b\n",
+        "encoding": "utf8",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 1,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "text", "value": "a" },
+                        { "kind": "text", "value": "b" }
+                    ]
+                ]
+            }
+        ]
+    },
+    {
+        "name": "tab",
+        "source": "name\tvalue\nx\t2\n",
+        "encoding": "utf8",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 2,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "text", "value": "name" },
+                        { "kind": "text", "value": "value" }
+                    ],
+                    [
+                        { "kind": "text", "value": "x" },
+                        { "kind": "number", "value": "2" }
+                    ]
+                ]
+            }
+        ]
+    },
+    {
+        "name": "numbers",
+        "source": "Infinity,NaN,1e309,$1,\"1,234,567\",(12),2%%\n",
+        "encoding": "utf8",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 1,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "text", "value": "Infinity" },
+                        { "kind": "text", "value": "NaN" },
+                        { "kind": "text", "value": "1e309" },
+                        { "kind": "number", "value": "1" },
+                        { "kind": "number", "value": "1234567" },
+                        { "kind": "number", "value": "-12" },
+                        { "kind": "number", "value": "0.0002" }
+                    ]
+                ]
+            }
+        ]
+    },
+    {
+        "name": "radix",
+        "source": "\"1,2,3\",\"1,234,567\",0xFF,0b10,0o10,-0x1,inf,nan\n",
+        "encoding": "utf8",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 1,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "number", "value": "37623" },
+                        { "kind": "number", "value": "1234567" },
+                        { "kind": "number", "value": "255" },
+                        { "kind": "number", "value": "2" },
+                        { "kind": "number", "value": "8" },
+                        { "kind": "text", "value": "-0x1" },
+                        { "kind": "text", "value": "inf" },
+                        { "kind": "text", "value": "nan" }
+                    ]
+                ]
+            }
+        ]
+    },
+    {
+        "name": "overflow",
+        "source": "\"1%\",\"($1,200)\",\"1e309%\",\"(1e309)\",\"$1e309\"\n",
+        "encoding": "utf8",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 1,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "number", "value": "0.01" },
+                        { "kind": "number", "value": "-1200" },
+                        { "kind": "number", "value": "Infinity" },
+                        { "kind": "number", "value": "-Infinity" },
+                        { "kind": "number", "value": "Infinity" }
+                    ]
+                ]
+            }
+        ]
+    },
+    {
+        "name": "display",
+        "source": "1e-7,1e-6,1e21,1e20,-0,0x20000000000001\n",
+        "encoding": "utf8",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 1,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "number", "value": "1e-7" },
+                        { "kind": "number", "value": "0.000001" },
+                        { "kind": "number", "value": "1e+21" },
+                        { "kind": "number", "value": "100000000000000000000" },
+                        { "kind": "number", "value": "0" },
+                        { "kind": "number", "value": "9007199254740992" }
+                    ]
+                ]
+            }
+        ]
+    },
+    {
+        "name": "dates",
+        "source": "2026-10-02,10/02/2026,10/2/26,2026/10/2,2026-1-2\n",
+        "encoding": "utf8",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 1,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "number", "value": "46297.375" },
+                        { "kind": "number", "value": "46297" },
+                        { "kind": "number", "value": "46297" },
+                        { "kind": "number", "value": "46297" },
+                        { "kind": "number", "value": "46024" }
+                    ]
+                ]
+            }
+        ]
+    },
+    {
+        "name": "dates-boundary",
+        "source": "1/1/2001,1/1/2026,1899-12-31,1900-01-01\n",
+        "encoding": "utf8",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 1,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "number", "value": "36892" },
+                        { "kind": "number", "value": "46023" },
+                        { "kind": "text", "value": "1899-12-31" },
+                        { "kind": "number", "value": "2.375" }
+                    ]
+                ]
+            }
+        ]
+    },
+    {
+        "name": "dates-text",
+        "source": "October 2 2026,Oct 2 2026,2026-10-02T00:00:00Z\n",
+        "encoding": "utf8",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 1,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "number", "value": "46297" },
+                        { "kind": "number", "value": "46297" },
+                        { "kind": "text", "value": "2026-10-02T00:00:00Z" }
+                    ]
+                ]
+            }
+        ]
+    },
+    {
+        "name": "dates-space",
+        "source": "01,12,99,0010,2026-10,2026-10-02 , 2026-10-02\n",
+        "encoding": "utf8",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 1,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "number", "value": "1" },
+                        { "kind": "number", "value": "12" },
+                        { "kind": "number", "value": "99" },
+                        { "kind": "number", "value": "10" },
+                        { "kind": "number", "value": "46296.375" },
+                        { "kind": "number", "value": "46297" },
+                        { "kind": "number", "value": "46297" }
+                    ]
+                ]
+            }
+        ]
+    },
+    {
+        "name": "no-bom",
+        "source": "한글,日本語\n",
+        "encoding": "utf8",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 1,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "text", "value": "íê¸" },
+                        { "kind": "text", "value": "æ¥æ¬èª" }
+                    ]
+                ]
+            }
+        ]
+    },
+    {
+        "name": "bom",
+        "source": "한글,日本語\n",
+        "encoding": "utf8-bom",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 1,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "text", "value": "한글" },
+                        { "kind": "text", "value": "日本語" }
+                    ]
+                ]
+            }
+        ]
+    },
+    {
+        "name": "utf16",
+        "source": "한글,日本語\n",
+        "encoding": "utf16le",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 1,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "text", "value": "한글" },
+                        { "kind": "text", "value": "日本語" }
+                    ]
+                ]
+            }
+        ]
+    },
+    {
+        "name": "safe-string",
+        "source": "first,<script>,=HYPERLINK(\"https://not-approved\"),\" =SUM(A1)\"\n",
+        "encoding": "utf8",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 1,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "text", "value": "first" },
+                        { "kind": "text", "value": "<script>" },
+                        { "kind": "null", "value": "" },
+                        { "kind": "text", "value": " =SUM(A1)" }
+                    ]
+                ]
+            }
+        ]
+    },
+    {
+        "name": "whitespace",
+        "source": " \t ,\"  \", 12 ,\"\\u0085\",=\"\n",
+        "encoding": "utf8",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 1,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "text", "value": " \t " },
+                        { "kind": "text", "value": "  " },
+                        { "kind": "number", "value": "12" },
+                        { "kind": "text", "value": "\\u0085" },
+                        { "kind": "text", "value": "" }
+                    ]
+                ]
+            }
+        ]
+    },
+    {
+        "name": "month-filter",
+        "source": "Jan 1 2026,Jan 2 2026,January 2 2001,October 2 2026 12:34\n",
+        "encoding": "utf8",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "totalRowCount": 1,
+                "truncated": false,
+                "rows": [
+                    [
+                        { "kind": "text", "value": "Jan 1 2026" },
+                        { "kind": "number", "value": "46024" },
+                        { "kind": "text", "value": "January 2 2001" },
+                        { "kind": "number", "value": "46297.52361111111" }
+                    ]
+                ]
+            }
+        ]
+    }
+]

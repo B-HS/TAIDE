@@ -1,0 +1,686 @@
+{
+    "cases": [
+        {
+            "drafts": [
+                {
+                    "id": "1",
+                    "name": "Name",
+                    "prefix": "p",
+                    "body": "line",
+                    "description": "",
+                    "scope": ""
+                }
+            ],
+            "content": "{\n    \"Name\": {\n        \"prefix\": \"p\",\n        \"body\": \"line\"\n    }\n}",
+            "incomplete": 0,
+            "duplicate": false,
+            "valid": [
+                true
+            ]
+        },
+        {
+            "drafts": [
+                {
+                    "id": "1",
+                    "name": " BOM﻿ ",
+                    "prefix": " x, y ,, ",
+                    "body": "한글\n",
+                    "description": " 설명, prose\n둘 ",
+                    "scope": " rust "
+                }
+            ],
+            "content": "{\n    \"BOM\": {\n        \"prefix\": [\n            \"x\",\n            \"y\"\n        ],\n        \"body\": [\n            \"한글\",\n            \"\"\n        ],\n        \"description\": \"설명, prose\\n둘\",\n        \"scope\": \"rust\"\n    }\n}",
+            "incomplete": 0,
+            "duplicate": false,
+            "valid": [
+                true
+            ]
+        },
+        {
+            "drafts": [
+                {
+                    "id": "0",
+                    "name": "10",
+                    "prefix": "p",
+                    "body": "0",
+                    "description": "",
+                    "scope": ""
+                },
+                {
+                    "id": "1",
+                    "name": "2",
+                    "prefix": "p",
+                    "body": "1",
+                    "description": "",
+                    "scope": ""
+                },
+                {
+                    "id": "2",
+                    "name": "01",
+                    "prefix": "p",
+                    "body": "2",
+                    "description": "",
+                    "scope": ""
+                },
+                {
+                    "id": "3",
+                    "name": "4294967295",
+                    "prefix": "p",
+                    "body": "3",
+                    "description": "",
+                    "scope": ""
+                },
+                {
+                    "id": "4",
+                    "name": "z",
+                    "prefix": "p",
+                    "body": "4",
+                    "description": "",
+                    "scope": ""
+                },
+                {
+                    "id": "5",
+                    "name": "0",
+                    "prefix": "p",
+                    "body": "5",
+                    "description": "",
+                    "scope": ""
+                },
+                {
+                    "id": "6",
+                    "name": "-0",
+                    "prefix": "p",
+                    "body": "6",
+                    "description": "",
+                    "scope": ""
+                },
+                {
+                    "id": "7",
+                    "name": "2",
+                    "prefix": "p",
+                    "body": "7",
+                    "description": "",
+                    "scope": ""
+                },
+                {
+                    "id": "8",
+                    "name": "a",
+                    "prefix": "p",
+                    "body": "8",
+                    "description": "",
+                    "scope": ""
+                }
+            ],
+            "content": "{\n    \"0\": {\n        \"prefix\": \"p\",\n        \"body\": \"5\"\n    },\n    \"2\": {\n        \"prefix\": \"p\",\n        \"body\": \"7\"\n    },\n    \"10\": {\n        \"prefix\": \"p\",\n        \"body\": \"0\"\n    },\n    \"01\": {\n        \"prefix\": \"p\",\n        \"body\": \"2\"\n    },\n    \"4294967295\": {\n        \"prefix\": \"p\",\n        \"body\": \"3\"\n    },\n    \"z\": {\n        \"prefix\": \"p\",\n        \"body\": \"4\"\n    },\n    \"-0\": {\n        \"prefix\": \"p\",\n        \"body\": \"6\"\n    },\n    \"a\": {\n        \"prefix\": \"p\",\n        \"body\": \"8\"\n    }\n}",
+            "incomplete": 0,
+            "duplicate": true,
+            "valid": [
+                true,
+                true,
+                true,
+                true,
+                true,
+                true,
+                true,
+                true,
+                true
+            ]
+        },
+        {
+            "drafts": [
+                {
+                    "id": "1",
+                    "name": "﻿N﻿",
+                    "prefix": "﻿x﻿",
+                    "body": "﻿body﻿",
+                    "description": "",
+                    "scope": ""
+                },
+                {
+                    "id": "2",
+                    "name": "",
+                    "prefix": "",
+                    "body": "",
+                    "description": "",
+                    "scope": ""
+                }
+            ],
+            "content": "{\n    \"N\": {\n        \"prefix\": \"x\",\n        \"body\": \"﻿body﻿\"\n    },\n    \"\": {\n        \"prefix\": \"\",\n        \"body\": \"\"\n    }\n}",
+            "incomplete": 0,
+            "duplicate": false,
+            "valid": [
+                true,
+                true
+            ]
+        },
+        {
+            "drafts": [
+                {
+                    "id": "1",
+                    "name": "Name",
+                    "prefix": ",",
+                    "body": "line",
+                    "description": "",
+                    "scope": ""
+                },
+                {
+                    "id": "2",
+                    "name": "second",
+                    "prefix": "p",
+                    "body": "\r\n\n",
+                    "description": "a,b",
+                    "scope": ""
+                }
+            ],
+            "content": "{\n    \"Name\": {\n        \"prefix\": \",\",\n        \"body\": \"line\"\n    }\n}",
+            "incomplete": 1,
+            "duplicate": false,
+            "valid": [
+                true,
+                false
+            ]
+        },
+        {
+            "drafts": [
+                {
+                    "id": "blank",
+                    "name": " ",
+                    "prefix": "",
+                    "body": "",
+                    "description": "",
+                    "scope": ""
+                },
+                {
+                    "id": "half",
+                    "name": "Half",
+                    "prefix": "",
+                    "body": "b",
+                    "description": "",
+                    "scope": ""
+                }
+            ],
+            "content": "{}",
+            "incomplete": 1,
+            "duplicate": false,
+            "valid": [
+                false,
+                false
+            ]
+        },
+        {
+            "drafts": [
+                {
+                    "id": "1",
+                    "name": "Name",
+                    "prefix": "p",
+                    "body": "line",
+                    "description": "",
+                    "scope": ""
+                },
+                {
+                    "id": "2",
+                    "name": " Name ",
+                    "prefix": "p",
+                    "body": "line",
+                    "description": "",
+                    "scope": ""
+                }
+            ],
+            "content": "{\n    \"Name\": {\n        \"prefix\": \"p\",\n        \"body\": \"line\"\n    }\n}",
+            "incomplete": 0,
+            "duplicate": true,
+            "valid": [
+                true,
+                true
+            ]
+        },
+        {
+            "drafts": [
+                {
+                    "id": "1",
+                    "name": "Name",
+                    "prefix": "p",
+                    "body": "line",
+                    "description": "",
+                    "scope": ""
+                },
+                {
+                    "id": "2",
+                    "name": "name",
+                    "prefix": "p",
+                    "body": "line",
+                    "description": "",
+                    "scope": ""
+                }
+            ],
+            "content": "{\n    \"Name\": {\n        \"prefix\": \"p\",\n        \"body\": \"line\"\n    },\n    \"name\": {\n        \"prefix\": \"p\",\n        \"body\": \"line\"\n    }\n}",
+            "incomplete": 0,
+            "duplicate": false,
+            "valid": [
+                true,
+                true
+            ]
+        },
+        {
+            "drafts": [
+                {
+                    "id": "1",
+                    "name": "quoted \"",
+                    "prefix": "p",
+                    "body": "\\\t\u0000  ",
+                    "description": "",
+                    "scope": ""
+                }
+            ],
+            "content": "{\n    \"quoted \\\"\": {\n        \"prefix\": \"p\",\n        \"body\": \"\\\\\\t\\u0000  \"\n    }\n}",
+            "incomplete": 0,
+            "duplicate": false,
+            "valid": [
+                true
+            ]
+        },
+        {
+            "drafts": [],
+            "content": "{}",
+            "incomplete": 0,
+            "duplicate": false,
+            "valid": []
+        }
+    ],
+    "names": [
+        {
+            "name": " name ",
+            "normalized": "name.code-snippets",
+            "safe": true
+        },
+        {
+            "name": "﻿name﻿",
+            "normalized": "name.code-snippets",
+            "safe": true
+        },
+        {
+            "name": "name.code-snippets",
+            "normalized": "name.code-snippets",
+            "safe": true
+        },
+        {
+            "name": "name.CODE-SNIPPETS",
+            "normalized": "name.CODE-SNIPPETS.code-snippets",
+            "safe": true
+        },
+        {
+            "name": "C:bad",
+            "normalized": "C:bad.code-snippets",
+            "safe": false
+        },
+        {
+            "name": "a/b",
+            "normalized": "a/b.code-snippets",
+            "safe": false
+        },
+        {
+            "name": "a\\b",
+            "normalized": "a\\b.code-snippets",
+            "safe": false
+        },
+        {
+            "name": "..",
+            "normalized": "...code-snippets",
+            "safe": false
+        },
+        {
+            "name": "",
+            "normalized": ".code-snippets",
+            "safe": true
+        }
+    ],
+    "saved": {
+        "2": {
+            "prefix": [
+                "a",
+                "b"
+            ],
+            "body": [
+                "one",
+                ""
+            ],
+            "description": [
+                "hello",
+                "world"
+            ],
+            "scope": "rust"
+        },
+        "10": {
+            "prefix": [
+                "a",
+                "b"
+            ],
+            "body": [
+                "one",
+                ""
+            ],
+            "description": [
+                "hello",
+                "world"
+            ],
+            "scope": "rust"
+        },
+        "01": {
+            "prefix": [
+                "a",
+                "b"
+            ],
+            "body": [
+                "one",
+                ""
+            ],
+            "description": [
+                "hello",
+                "world"
+            ],
+            "scope": "rust"
+        },
+        "a": {
+            "prefix": [
+                "a",
+                "b"
+            ],
+            "body": [
+                "one",
+                ""
+            ],
+            "description": [
+                "hello",
+                "world"
+            ],
+            "scope": "rust"
+        },
+        "z": {
+            "prefix": [
+                "a",
+                "b"
+            ],
+            "body": [
+                "one",
+                ""
+            ],
+            "description": [
+                "hello",
+                "world"
+            ],
+            "scope": "rust"
+        }
+    },
+    "loaded": [
+        {
+            "name": "2",
+            "prefix": "a, b",
+            "body": "one\n",
+            "description": "hello\nworld",
+            "scope": "rust"
+        },
+        {
+            "name": "10",
+            "prefix": "a, b",
+            "body": "one\n",
+            "description": "hello\nworld",
+            "scope": "rust"
+        },
+        {
+            "name": "01",
+            "prefix": "a, b",
+            "body": "one\n",
+            "description": "hello\nworld",
+            "scope": "rust"
+        },
+        {
+            "name": "a",
+            "prefix": "a, b",
+            "body": "one\n",
+            "description": "hello\nworld",
+            "scope": "rust"
+        },
+        {
+            "name": "z",
+            "prefix": "a, b",
+            "body": "one\n",
+            "description": "hello\nworld",
+            "scope": "rust"
+        }
+    ],
+    "dirty": [
+        {
+            "drafts": [
+                {
+                    "id": "45cc23b3-cf4f-494b-aa86-de852c0b7eb7",
+                    "name": "2",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                },
+                {
+                    "id": "4b48bed7-9eca-44c3-a0e9-55ffa53d890f",
+                    "name": "10",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                },
+                {
+                    "id": "c6193c60-ba47-4565-8039-c9ecda856281",
+                    "name": "01",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                },
+                {
+                    "id": "c47fd49f-27c3-4362-9d18-99925e85015b",
+                    "name": "a",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                },
+                {
+                    "id": "8a85cec5-23bd-4cb7-abd2-279989e45e94",
+                    "name": "z",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                }
+            ],
+            "dirty": false
+        },
+        {
+            "drafts": [
+                {
+                    "id": "other",
+                    "name": "2",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                },
+                {
+                    "id": "other",
+                    "name": "10",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                },
+                {
+                    "id": "other",
+                    "name": "01",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                },
+                {
+                    "id": "other",
+                    "name": "a",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                },
+                {
+                    "id": "other",
+                    "name": "z",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                }
+            ],
+            "dirty": false
+        },
+        {
+            "drafts": [
+                {
+                    "id": "45cc23b3-cf4f-494b-aa86-de852c0b7eb7",
+                    "name": "2",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                },
+                {
+                    "id": "4b48bed7-9eca-44c3-a0e9-55ffa53d890f",
+                    "name": "10",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                },
+                {
+                    "id": "c6193c60-ba47-4565-8039-c9ecda856281",
+                    "name": "01",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                },
+                {
+                    "id": "c47fd49f-27c3-4362-9d18-99925e85015b",
+                    "name": "a",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                },
+                {
+                    "id": "8a85cec5-23bd-4cb7-abd2-279989e45e94",
+                    "name": "z",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                },
+                {
+                    "id": "blank",
+                    "name": "",
+                    "prefix": "",
+                    "body": "",
+                    "description": "",
+                    "scope": ""
+                }
+            ],
+            "dirty": true
+        },
+        {
+            "drafts": [
+                {
+                    "id": "8a85cec5-23bd-4cb7-abd2-279989e45e94",
+                    "name": "z",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                },
+                {
+                    "id": "c47fd49f-27c3-4362-9d18-99925e85015b",
+                    "name": "a",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                },
+                {
+                    "id": "c6193c60-ba47-4565-8039-c9ecda856281",
+                    "name": "01",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                },
+                {
+                    "id": "4b48bed7-9eca-44c3-a0e9-55ffa53d890f",
+                    "name": "10",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                },
+                {
+                    "id": "45cc23b3-cf4f-494b-aa86-de852c0b7eb7",
+                    "name": "2",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                }
+            ],
+            "dirty": true
+        },
+        {
+            "drafts": [
+                {
+                    "id": "45cc23b3-cf4f-494b-aa86-de852c0b7eb7",
+                    "name": "2",
+                    "prefix": " a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                },
+                {
+                    "id": "4b48bed7-9eca-44c3-a0e9-55ffa53d890f",
+                    "name": "10",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                },
+                {
+                    "id": "c6193c60-ba47-4565-8039-c9ecda856281",
+                    "name": "01",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                },
+                {
+                    "id": "c47fd49f-27c3-4362-9d18-99925e85015b",
+                    "name": "a",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                },
+                {
+                    "id": "8a85cec5-23bd-4cb7-abd2-279989e45e94",
+                    "name": "z",
+                    "prefix": "a, b",
+                    "body": "one\n",
+                    "description": "hello\nworld",
+                    "scope": "rust"
+                }
+            ],
+            "dirty": true
+        }
+    ]
+}

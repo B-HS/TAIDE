@@ -1,0 +1,15 @@
+[package]
+name = "taide-native-editor"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+publish = false
+
+[workspace]
+
+[dependencies]
+lsp-types = "=0.97.0"
+unicode-segmentation = "=1.13.3"
+ropey = { version = "=1.6.1", default-features = false, features = ["cr_lines", "simd"] }
+taide-model = { path = "../../crates/taide-model" }

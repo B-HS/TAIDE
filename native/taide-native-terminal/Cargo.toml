@@ -1,0 +1,27 @@
+[package]
+name = "taide-native-terminal"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+publish = false
+
+[workspace]
+exclude = ["vendor/alacritty-terminal"]
+
+[dependencies]
+alacritty_terminal = { version = "=0.26.0", path = "vendor/alacritty-terminal", default-features = false, features = ["native-retained"] }
+taide-native-retained = { path = "../taide-native-retained" }
+taide-infra = { path = "../../crates/taide-infra" }
+taide-model = { path = "../../crates/taide-model" }
+
+[dev-dependencies]
+log = "0.4"
+tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+
+[[bin]]
+name = "native-session-fixture"
+path = "tests/fixtures/session.rs"
+
+[patch.crates-io]
+vte = { path = "../../experiments/terminal-core-spike/vendor/vte" }

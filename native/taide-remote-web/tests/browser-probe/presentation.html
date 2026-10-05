@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>TAIDE isolated Rust presentation probe</title>
+    </head>
+    <body>
+        <button id="retry" type="button">Retry locale</button>
+        <button id="cut" type="button">Reconnect</button>
+        <button id="dispose" type="button">Dispose</button>
+        <button id="drop" type="button">Drop</button>
+        <pre id="state">{}</pre>
+        <script type="module">
+            import init, { PresentationProbe } from '/probe.js'
+
+            const POLL_MS = 10
+            await init()
+            const response = await fetch('/__fixture/settings', { method: 'POST', body: PresentationProbe.default_settings() })
+            if (!response.ok) throw new Error('Synthetic settings setup failed')
+            let probe = new PresentationProbe()
+            const interval = setInterval(() => {
+                document.getElementById('state').textContent = probe.poll()
+            }, POLL_MS)
+            document.getElementById('retry').addEventListener('click', () => probe.retry_locale())
+            document.getElementById('cut').addEventListener('click', () => probe.cut())
+            document.getElementById('dispose').addEventListener('click', () => probe.dispose())
+            document.getElementById('drop').addEventListener('click', () => {
+                clearInterval(interval)
+                probe.free()
+                probe = null
+                for (const button of document.querySelectorAll('button')) button.disabled = true
+            })
+        </script>
+    </body>
+</html>

@@ -1,0 +1,14 @@
+{
+    "extends": "../../tsconfig.json",
+    "include": [
+        "app/**/*.tsx",
+        "../../tools/m8-tooltip-source-measure.ts",
+        "../../tools/m8-tooltip-motion-source-measure.ts",
+        "../../tools/m8-tooltip-hit-source-measure.ts",
+        "../../tools/m8-tooltip-events-source-measure.ts",
+        "../../tools/m8-tooltip-key-source-measure.ts",
+        "../../tools/m8-tooltip-escape-source-measure.ts",
+        "../../tools/m8-dialog-removal-focus-measure.ts",
+        "../../tools/m8-button-default-key-source-measure.ts"
+    ]
+}

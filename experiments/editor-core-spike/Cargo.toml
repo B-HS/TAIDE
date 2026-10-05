@@ -1,0 +1,18 @@
+[package]
+name = "taide-editor-core-spike"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+publish = false
+
+[workspace]
+
+[dependencies]
+ropey = { version = "=1.6.1", default-features = false, features = ["cr_lines", "simd"] }
+serde_json = "=1.0.151"
+taide-lsp = { path = "../../crates/taide-lsp" }
+cosmic-text = { version = "=0.19.0", default-features = false, features = ["std", "swash"] }
+tree-sitter = "=0.27.0"
+tree-sitter-rust = "=0.24.2"
+unicode-segmentation = "=1.13.3"

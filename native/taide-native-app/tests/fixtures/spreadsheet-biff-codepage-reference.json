@@ -1,0 +1,350 @@
+[
+    {
+        "name": "standard-biff3-cp1252",
+        "version": "0.18.5",
+        "encoded": "CQIGAAMAEAAAAEIAAgDkBAACCgACAAUAAgAFAAAABAILAAIAAgAAAAMAyXTpAwIOAAIAAwAAAAAAAAAAQEVABQIIAAIABAAAAAEACgAAAA==",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "rows": [
+                    [
+                        "Été",
+                        42.5,
+                        true
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ]
+                ],
+                "totalRowCount": 3,
+                "truncated": false
+            }
+        ]
+    },
+    {
+        "name": "standard-biff3-cp932",
+        "version": "0.18.5",
+        "encoded": "CQIGAAMAEAAAAEIAAgCkAwACCgACAAUAAgAFAAAABAIKAAIAAgAAAAIAk/oDAg4AAgADAAAAAAAAAABARUAFAggAAgAEAAAAAQAKAAAA",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "rows": [
+                    [
+                        "日",
+                        42.5,
+                        true
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ]
+                ],
+                "totalRowCount": 3,
+                "truncated": false
+            }
+        ]
+    },
+    {
+        "name": "standard-biff3-cp936",
+        "version": "0.18.5",
+        "encoded": "CQIGAAMAEAAAAEIAAgCoAwACCgACAAUAAgAFAAAABAIKAAIAAgAAAAIA1tADAg4AAgADAAAAAAAAAABARUAFAggAAgAEAAAAAQAKAAAA",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "rows": [
+                    [
+                        "中",
+                        42.5,
+                        true
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ]
+                ],
+                "totalRowCount": 3,
+                "truncated": false
+            }
+        ]
+    },
+    {
+        "name": "standard-biff3-cp949",
+        "version": "0.18.5",
+        "encoded": "CQIGAAMAEAAAAEIAAgC1AwACCgACAAUAAgAFAAAABAIKAAIAAgAAAAIAsKEDAg4AAgADAAAAAAAAAABARUAFAggAAgAEAAAAAQAKAAAA",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "rows": [
+                    [
+                        "가",
+                        42.5,
+                        true
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ]
+                ],
+                "totalRowCount": 3,
+                "truncated": false
+            }
+        ]
+    },
+    {
+        "name": "standard-biff3-cp950",
+        "version": "0.18.5",
+        "encoded": "CQIGAAMAEAAAAEIAAgC2AwACCgACAAUAAgAFAAAABAIKAAIAAgAAAAIApKQDAg4AAgADAAAAAAAAAABARUAFAggAAgAEAAAAAQAKAAAA",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "rows": [
+                    [
+                        "中",
+                        42.5,
+                        true
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ]
+                ],
+                "totalRowCount": 3,
+                "truncated": false
+            }
+        ]
+    },
+    {
+        "name": "standard-biff3-cp32769",
+        "version": "0.18.5",
+        "encoded": "CQIGAAMAEAAAAEIAAgABgAACCgACAAUAAgAFAAAABAIJAAIAAgAAAAEAgAMCDgACAAMAAAAAAAAAAEBFQAUCCAACAAQAAAABAAoAAAA=",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "rows": [
+                    [
+                        "€",
+                        42.5,
+                        true
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ]
+                ],
+                "totalRowCount": 3,
+                "truncated": false
+            }
+        ]
+    },
+    {
+        "name": "standard-biff4-cp1252",
+        "version": "0.18.5",
+        "encoded": "CQQGAAQAEAAAAEIAAgDkBAACCgACAAUAAgAFAAAABAILAAIAAgAAAAMAyXTpAwIOAAIAAwAAAAAAAAAAQEVABQIIAAIABAAAAAEACgAAAA==",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "rows": [
+                    [
+                        "Été",
+                        42.5,
+                        true
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ]
+                ],
+                "totalRowCount": 3,
+                "truncated": false
+            }
+        ]
+    },
+    {
+        "name": "standard-biff4-cp932",
+        "version": "0.18.5",
+        "encoded": "CQQGAAQAEAAAAEIAAgCkAwACCgACAAUAAgAFAAAABAIKAAIAAgAAAAIAk/oDAg4AAgADAAAAAAAAAABARUAFAggAAgAEAAAAAQAKAAAA",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "rows": [
+                    [
+                        "日",
+                        42.5,
+                        true
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ]
+                ],
+                "totalRowCount": 3,
+                "truncated": false
+            }
+        ]
+    },
+    {
+        "name": "standard-biff4-cp936",
+        "version": "0.18.5",
+        "encoded": "CQQGAAQAEAAAAEIAAgCoAwACCgACAAUAAgAFAAAABAIKAAIAAgAAAAIA1tADAg4AAgADAAAAAAAAAABARUAFAggAAgAEAAAAAQAKAAAA",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "rows": [
+                    [
+                        "中",
+                        42.5,
+                        true
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ]
+                ],
+                "totalRowCount": 3,
+                "truncated": false
+            }
+        ]
+    },
+    {
+        "name": "standard-biff4-cp949",
+        "version": "0.18.5",
+        "encoded": "CQQGAAQAEAAAAEIAAgC1AwACCgACAAUAAgAFAAAABAIKAAIAAgAAAAIAsKEDAg4AAgADAAAAAAAAAABARUAFAggAAgAEAAAAAQAKAAAA",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "rows": [
+                    [
+                        "가",
+                        42.5,
+                        true
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ]
+                ],
+                "totalRowCount": 3,
+                "truncated": false
+            }
+        ]
+    },
+    {
+        "name": "standard-biff4-cp950",
+        "version": "0.18.5",
+        "encoded": "CQQGAAQAEAAAAEIAAgC2AwACCgACAAUAAgAFAAAABAIKAAIAAgAAAAIApKQDAg4AAgADAAAAAAAAAABARUAFAggAAgAEAAAAAQAKAAAA",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "rows": [
+                    [
+                        "中",
+                        42.5,
+                        true
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ]
+                ],
+                "totalRowCount": 3,
+                "truncated": false
+            }
+        ]
+    },
+    {
+        "name": "standard-biff4-cp32769",
+        "version": "0.18.5",
+        "encoded": "CQQGAAQAEAAAAEIAAgABgAACCgACAAUAAgAFAAAABAIJAAIAAgAAAAEAgAMCDgACAAMAAAAAAAAAAEBFQAUCCAACAAQAAAABAAoAAAA=",
+        "expected": [
+            {
+                "name": "Sheet1",
+                "rows": [
+                    [
+                        "€",
+                        42.5,
+                        true
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ],
+                    [
+                        null,
+                        null,
+                        null
+                    ]
+                ],
+                "totalRowCount": 3,
+                "truncated": false
+            }
+        ]
+    }
+]

@@ -1,0 +1,304 @@
+[
+    {
+        "id": "quick-open",
+        "key": "p",
+        "mods": ["mod"],
+        "descriptionKey": "keymap.quickOpen"
+    },
+    {
+        "id": "command-palette",
+        "key": "p",
+        "mods": ["mod", "shift"],
+        "descriptionKey": "keymap.commandPalette"
+    },
+    {
+        "id": "workspace-symbol",
+        "key": "t",
+        "mods": ["mod"],
+        "descriptionKey": "palette.workspaceSymbols"
+    },
+    {
+        "id": "close-tab",
+        "key": "w",
+        "mods": ["mod"],
+        "descriptionKey": "keymap.closeTab"
+    },
+    {
+        "id": "toggle-sidebar",
+        "key": "b",
+        "mods": ["mod"],
+        "descriptionKey": "keymap.toggleSidebar"
+    },
+    {
+        "id": "find",
+        "key": "f",
+        "mods": ["mod"],
+        "descriptionKey": "keymap.find"
+    },
+    {
+        "id": "search",
+        "key": "f",
+        "mods": ["mod", "shift"],
+        "descriptionKey": "keymap.search"
+    },
+    {
+        "id": "search-replace",
+        "key": "h",
+        "mods": ["mod", "shift"],
+        "descriptionKey": "keymap.searchReplace"
+    },
+    {
+        "id": "explorer",
+        "key": "e",
+        "mods": ["mod", "shift"],
+        "descriptionKey": "keymap.explorer"
+    },
+    {
+        "id": "git",
+        "key": "g",
+        "mods": ["ctrl", "shift"],
+        "descriptionKey": "git.title"
+    },
+    {
+        "id": "split",
+        "key": "\\",
+        "mods": ["mod"],
+        "descriptionKey": "keymap.split"
+    },
+    {
+        "id": "tab-cycle-next",
+        "key": "Tab",
+        "mods": ["ctrl"],
+        "descriptionKey": "keymap.tabCycleNext"
+    },
+    {
+        "id": "tab-cycle-prev",
+        "key": "Tab",
+        "mods": ["ctrl", "shift"],
+        "descriptionKey": "keymap.tabCyclePrev"
+    },
+    {
+        "id": "editor-previous",
+        "key": "ArrowLeft",
+        "mods": ["mod", "alt"],
+        "descriptionKey": "keymap.editorPrevious"
+    },
+    {
+        "id": "editor-next",
+        "key": "ArrowRight",
+        "mods": ["mod", "alt"],
+        "descriptionKey": "keymap.editorNext"
+    },
+    {
+        "id": "reopen-closed-tab",
+        "key": "t",
+        "mods": ["mod", "shift"],
+        "descriptionKey": "keymap.reopenClosedTab"
+    },
+    {
+        "id": "save",
+        "key": "s",
+        "mods": ["mod"],
+        "descriptionKey": "keymap.save"
+    },
+    {
+        "id": "toggle-terminal",
+        "key": "`",
+        "mods": ["ctrl"],
+        "descriptionKey": "keymap.toggleTerminal"
+    },
+    {
+        "id": "new-terminal",
+        "key": "`",
+        "mods": ["ctrl", "shift"],
+        "descriptionKey": "keymap.newTerminal"
+    },
+    {
+        "id": "terminal-jump-to-previous-command",
+        "key": "ArrowUp",
+        "mods": ["mod"],
+        "when": "terminalFocus",
+        "descriptionKey": "keymap.terminalJumpToPreviousCommand"
+    },
+    {
+        "id": "terminal-jump-to-next-command",
+        "key": "ArrowDown",
+        "mods": ["mod"],
+        "when": "terminalFocus",
+        "descriptionKey": "keymap.terminalJumpToNextCommand"
+    },
+    {
+        "id": "font-size-up",
+        "key": "=",
+        "mods": ["mod"],
+        "descriptionKey": "keymap.fontSizeUp"
+    },
+    {
+        "id": "font-size-down",
+        "key": "-",
+        "mods": ["mod"],
+        "descriptionKey": "keymap.fontSizeDown"
+    },
+    {
+        "id": "open-keybindings-editor",
+        "key": "k",
+        "mods": ["mod"],
+        "chord": {
+            "key": "s",
+            "mods": ["mod"]
+        },
+        "when": "!terminalFocus",
+        "descriptionKey": "settings.keymapOpenEditor"
+    },
+    {
+        "id": "toggle-zen-mode",
+        "key": "k",
+        "mods": ["mod"],
+        "chord": {
+            "key": "z",
+            "mods": []
+        },
+        "when": "!terminalFocus",
+        "descriptionKey": "keymap.toggleZenMode"
+    },
+    {
+        "id": "focus-group-left",
+        "key": "k",
+        "mods": ["mod"],
+        "chord": {
+            "key": "ArrowLeft",
+            "mods": ["mod"]
+        },
+        "when": "!terminalFocus",
+        "descriptionKey": "keymap.focusGroupLeft"
+    },
+    {
+        "id": "focus-group-right",
+        "key": "k",
+        "mods": ["mod"],
+        "chord": {
+            "key": "ArrowRight",
+            "mods": ["mod"]
+        },
+        "when": "!terminalFocus",
+        "descriptionKey": "keymap.focusGroupRight"
+    },
+    {
+        "id": "focus-group-up",
+        "key": "k",
+        "mods": ["mod"],
+        "chord": {
+            "key": "ArrowUp",
+            "mods": ["mod"]
+        },
+        "when": "!terminalFocus",
+        "descriptionKey": "keymap.focusGroupUp"
+    },
+    {
+        "id": "focus-group-down",
+        "key": "k",
+        "mods": ["mod"],
+        "chord": {
+            "key": "ArrowDown",
+            "mods": ["mod"]
+        },
+        "when": "!terminalFocus",
+        "descriptionKey": "keymap.focusGroupDown"
+    },
+    {
+        "id": "move-tab-to-group-left",
+        "key": "k",
+        "mods": ["mod"],
+        "chord": {
+            "key": "ArrowLeft",
+            "mods": ["mod", "shift"]
+        },
+        "when": "!terminalFocus",
+        "descriptionKey": "keymap.moveTabToGroupLeft"
+    },
+    {
+        "id": "move-tab-to-group-right",
+        "key": "k",
+        "mods": ["mod"],
+        "chord": {
+            "key": "ArrowRight",
+            "mods": ["mod", "shift"]
+        },
+        "when": "!terminalFocus",
+        "descriptionKey": "keymap.moveTabToGroupRight"
+    },
+    {
+        "id": "close-all-tabs",
+        "key": "k",
+        "mods": ["mod"],
+        "chord": {
+            "key": "w",
+            "mods": ["mod"]
+        },
+        "when": "!terminalFocus",
+        "descriptionKey": "keymap.closeAllTabs"
+    },
+    {
+        "id": "focus-group-1",
+        "key": "1",
+        "mods": ["mod"],
+        "when": "!terminalFocus",
+        "descriptionKey": "keymap.focusGroup1"
+    },
+    {
+        "id": "focus-group-2",
+        "key": "2",
+        "mods": ["mod"],
+        "when": "!terminalFocus",
+        "descriptionKey": "keymap.focusGroup2"
+    },
+    {
+        "id": "focus-group-3",
+        "key": "3",
+        "mods": ["mod"],
+        "when": "!terminalFocus",
+        "descriptionKey": "keymap.focusGroup3"
+    },
+    {
+        "id": "focus-group-4",
+        "key": "4",
+        "mods": ["mod"],
+        "when": "!terminalFocus",
+        "descriptionKey": "keymap.focusGroup4"
+    },
+    {
+        "id": "focus-group-5",
+        "key": "5",
+        "mods": ["mod"],
+        "when": "!terminalFocus",
+        "descriptionKey": "keymap.focusGroup5"
+    },
+    {
+        "id": "focus-group-6",
+        "key": "6",
+        "mods": ["mod"],
+        "when": "!terminalFocus",
+        "descriptionKey": "keymap.focusGroup6"
+    },
+    {
+        "id": "focus-group-7",
+        "key": "7",
+        "mods": ["mod"],
+        "when": "!terminalFocus",
+        "descriptionKey": "keymap.focusGroup7"
+    },
+    {
+        "id": "focus-group-8",
+        "key": "8",
+        "mods": ["mod"],
+        "when": "!terminalFocus",
+        "descriptionKey": "keymap.focusGroup8"
+    },
+    {
+        "id": "focus-group-9",
+        "key": "9",
+        "mods": ["mod"],
+        "when": "!terminalFocus",
+        "descriptionKey": "keymap.focusGroup9"
+    }
+]

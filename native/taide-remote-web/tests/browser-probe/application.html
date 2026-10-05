@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>TAIDE isolated Rust application pump probe</title>
+    </head>
+    <body>
+        <button id="scope" type="button">Bind scope</button>
+        <button id="setting-switch" type="button">Toggle setting</button>
+        <button id="setting-language" type="button">Change language</button>
+        <button id="setting-theme" type="button">Change theme</button>
+        <button id="setting-failed" type="button">Fail theme</button>
+        <button id="cut" type="button">Cut connection</button>
+        <button id="edit" type="button">Edit</button>
+        <button id="flush" type="button">Flush</button>
+        <button id="save" type="button">Save</button>
+        <button id="choose" type="button">Keep draft</button>
+        <button id="close" type="button">Request close</button>
+        <button id="cancel-close" type="button">Cancel close</button>
+        <button id="retry-persistence" type="button">Retry persistence</button>
+        <button id="closing" type="button">Try update while closing</button>
+        <button id="busy" type="button">Nested update</button>
+        <button id="dispose" type="button">Dispose</button>
+        <button id="drop" type="button">Drop</button>
+        <pre id="state">{}</pre>
+        <pre id="busy-result">false</pre>
+        <pre id="closing-result">false</pre>
+        <script type="module">
+            import init, { ApplicationProbe } from '/probe.js'
+            window.setInterval = () => {
+                throw new Error('The application must not use interval polling')
+            }
+            window.requestAnimationFrame = () => {
+                throw new Error('The application must not depend on a paint callback')
+            }
+            await init()
+            const response = await fetch('/__fixture/settings', { method: 'POST', body: ApplicationProbe.default_settings() })
+            if (!response.ok) throw new Error('Synthetic settings setup failed')
+            let probe = new ApplicationProbe()
+            document.getElementById('scope').addEventListener('click', () => probe.bind_scope())
+            document.getElementById('setting-switch').addEventListener('click', () => probe.change_preference('switch'))
+            document.getElementById('setting-language').addEventListener('click', () => probe.change_preference('language'))
+            document.getElementById('setting-theme').addEventListener('click', () => probe.change_preference('theme'))
+            document.getElementById('setting-failed').addEventListener('click', () => probe.change_preference('failed-theme'))
+            document.getElementById('cut').addEventListener('click', () => probe.cut_connection())
+            document.getElementById('edit').addEventListener('click', () => probe.edit())
+            document.getElementById('flush').addEventListener('click', () => probe.flush())
+            document.getElementById('save').addEventListener('click', () => probe.save())
+            document.getElementById('choose').addEventListener('click', () => probe.choose())
+            document.getElementById('close').addEventListener('click', () => probe.request_close())
+            document.getElementById('cancel-close').addEventListener('click', () => probe.cancel_close())
+            document.getElementById('retry-persistence').addEventListener('click', () => probe.retry_persistence())
+            document.getElementById('closing').addEventListener('click', () => {
+                document.getElementById('closing-result').textContent = String(probe.update_is_closing())
+            })
+            document.getElementById('busy').addEventListener('click', () => {
+                document.getElementById('busy-result').textContent = String(probe.nested_update_is_busy())
+            })
+            document.getElementById('dispose').addEventListener('click', () => probe.dispose())
+            document.getElementById('drop').addEventListener('click', () => {
+                probe.free()
+                probe = null
+                for (const button of document.querySelectorAll('button')) button.disabled = true
+            })
+            document.getElementById('state').addEventListener('snapshot', () => {
+                document.getElementById('state').textContent = probe.snapshot()
+            })
+            document.getElementById('state').textContent = probe.snapshot()
+            document.getElementById('state').setAttribute('data-ready', 'true')
+        </script>
+    </body>
+</html>

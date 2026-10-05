@@ -1,0 +1,63 @@
+{
+    "files": [
+        {
+            "fileName": "global.code-snippets",
+            "snippets": {
+                "2": { "prefix": "two", "body": ["${1:x}", "$0"], "description": ["line1", "line2"] },
+                "10": { "prefix": "ten", "body": "$0" },
+                "01": { "prefix": ["", " raw ", "with,comma"], "body": ["a", ""], "description": [], "scope": "\uFEFFrust, plugin-lang " },
+                "A": { "prefix": "a", "body": "a", "scope": "\u0085rust" },
+                "Z": { "prefix": [], "body": "none", "scope": "rust" }
+            }
+        },
+        { "fileName": "rust.json", "snippets": { "Local": { "prefix": ["r", "rust"], "body": "fn main() {}", "description": "", "scope": "go" } } },
+        { "fileName": "plugin-lang.json", "snippets": { "Plugin": { "prefix": "p", "body": "plugin $0" } } },
+        { "fileName": "UPPER.CODE-SNIPPETS", "snippets": { "Ignored": { "prefix": "no", "body": "no" } } }
+    ],
+    "cases": [
+        {
+            "language": "rust",
+            "expected": [
+                { "name": "2", "prefix": "two", "body": "${1:x}\n$0", "description": "line1\nline2" },
+                { "name": "10", "prefix": "ten", "body": "$0" },
+                { "name": "01", "prefix": "", "body": "a\n", "description": "" },
+                { "name": "01", "prefix": " raw ", "body": "a\n", "description": "" },
+                { "name": "01", "prefix": "with,comma", "body": "a\n", "description": "" },
+                { "name": "Local", "prefix": "r", "body": "fn main() {}", "description": "" },
+                { "name": "Local", "prefix": "rust", "body": "fn main() {}", "description": "" }
+            ]
+        },
+        {
+            "language": "go",
+            "expected": [
+                { "name": "2", "prefix": "two", "body": "${1:x}\n$0", "description": "line1\nline2" },
+                { "name": "10", "prefix": "ten", "body": "$0" }
+            ]
+        },
+        {
+            "language": "plugin-lang",
+            "expected": [
+                { "name": "2", "prefix": "two", "body": "${1:x}\n$0", "description": "line1\nline2" },
+                { "name": "10", "prefix": "ten", "body": "$0" },
+                { "name": "01", "prefix": "", "body": "a\n", "description": "" },
+                { "name": "01", "prefix": " raw ", "body": "a\n", "description": "" },
+                { "name": "01", "prefix": "with,comma", "body": "a\n", "description": "" },
+                { "name": "Plugin", "prefix": "p", "body": "plugin $0" }
+            ]
+        },
+        {
+            "language": "Rust",
+            "expected": [
+                { "name": "2", "prefix": "two", "body": "${1:x}\n$0", "description": "line1\nline2" },
+                { "name": "10", "prefix": "ten", "body": "$0" }
+            ]
+        },
+        {
+            "language": "plaintext",
+            "expected": [
+                { "name": "2", "prefix": "two", "body": "${1:x}\n$0", "description": "line1\nline2" },
+                { "name": "10", "prefix": "ten", "body": "$0" }
+            ]
+        }
+    ]
+}

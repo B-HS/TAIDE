@@ -1,0 +1,108 @@
+[package]
+name = "taide-native-app"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+publish = false
+
+[[example]]
+name = "native-lsp-mock"
+path = "../../experiments/lsp-coordinator-spike/src/bin/mock-server.rs"
+
+[[bin]]
+name = "native-terminal-queue-fixture"
+path = "../taide-native-terminal/tests/fixtures/session.rs"
+
+[workspace]
+exclude = ["vendor/rhwp", "vendor/cfb-retained", "vendor/zip-retained", "vendor/wry-preview", "vendor/egui-input"]
+
+[features]
+inspection = ["taide-native-ui/inspection"]
+
+[dependencies]
+arboard = { version = "=3.6.1", default-features = false }
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+gif = "=0.14.2"
+flate2 = "=1.1.9"
+rhwp = { version = "=0.8.2", path = "vendor/rhwp", default-features = false, features = ["native-retained"] }
+taide-native-retained = { path = "../taide-native-retained" }
+taide-native-terminal = { path = "../taide-native-terminal" }
+zip = { version = "=2.4.2", default-features = false, features = ["deflate"] }
+calamine = { version = "=0.36.1", default-features = false }
+cfb = "=0.15.0"
+codepage = "=0.1.3"
+encoding_rs = "=0.8.42"
+quick-xml = "=0.41.0"
+dom_query = { version = "=0.27.0", default-features = false }
+html5ever = "=0.38.0"
+bytes = "=1.12.1"
+http = "=1.5.0"
+http-body-util = "=0.1.4"
+hyper = { version = "=1.11.0", features = ["server", "http1"] }
+hyper-util = { version = "=0.1.20", features = ["tokio", "service"] }
+futures-util = "=0.3.33"
+tokio-tungstenite = "=0.30.0"
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio", "ws"] }
+chrono = "=0.4.45"
+ryu-js = "=1.0.3"
+num-bigint = "=0.4.8"
+num-traits = "=0.2.19"
+regex = "=1.13.1"
+resvg = { version = "=0.48.1", default-features = false, features = ["text", "system-fonts", "raster-images"] }
+skrifa = "=0.44.0"
+eframe = { version = "=0.36.2", path = "../../experiments/native-shell-spike/vendor/eframe", default-features = false, features = ["accesskit", "default_fonts", "wgpu", "preserve_empty_paste_shortcuts"] }
+sys-locale = "=0.3.2"
+icu_normalizer = "=2.3.0"
+icu_locale_core = "=2.3.0"
+icu_collator = "=2.3.1"
+log = "0.4"
+serde = "1"
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+taide-agent = { path = "../../crates/taide-agent" }
+taide-lsp = { path = "../../crates/taide-lsp" }
+rfd = { version = "=0.17.2", default-features = false }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "process", "io-util", "macros", "net"] }
+url = "=2.5.8"
+taide-model = { path = "../../crates/taide-model" }
+taide-runtime = { path = "../../crates/taide-runtime" }
+taide-terminal = { path = "../../crates/taide-terminal" }
+taide-layout = { path = "../../crates/taide-layout" }
+taide-infra = { path = "../../crates/taide-infra" }
+taide-remote = { path = "../../crates/taide-remote" }
+taide-settings = { path = "../../crates/taide-settings" }
+taide-plugin = { path = "../../crates/taide-plugin" }
+taide-ide = { path = "../../crates/taide-ide" }
+taide-file = { path = "../../crates/taide-file" }
+taide-font = { path = "../../crates/taide-font" }
+taide-git = { path = "../../crates/taide-git" }
+taide-system = { path = "../../crates/taide-system" }
+taide-native-ui = { path = "../taide-native-ui" }
+taide-native-editor = { path = "../taide-native-editor" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "=0.6.2"
+objc2 = "=0.6.4"
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSWorkspace", "NSAccessibility", "NSFont", "NSFontDescriptor", "objc2-core-text"] }
+objc2-core-text = { version = "=0.3.2", default-features = false, features = ["std", "CTFont", "CTFontDescriptor"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "block2", "NSNotification", "NSOperation", "NSObject", "NSString"] }
+wry = { version = "=0.55.1", path = "vendor/wry-preview", default-features = false, features = ["os-webview", "native-preview-deny-permissions"] }
+objc2-core-foundation = { version = "=0.3.2", default-features = false, features = ["std", "CFData", "CFDictionary", "CFNumber", "CFString", "CFURL", "CFCGTypes"] }
+objc2-core-graphics = { version = "=0.3.2", default-features = false, features = ["std", "CGAffineTransform", "CGBitmapContext", "CGColorSpace", "CGContext", "CGDataProvider", "CGGeometry", "CGImage", "CGPDFDictionary", "CGPDFDocument", "CGPDFObject", "CGPDFPage"] }
+objc2-image-io = { version = "=0.3.2", default-features = false, features = ["std", "CGImageSource", "CGImageProperties", "objc2-core-graphics"] }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "=1.1.4", features = ["fs"] }
+
+[dev-dependencies]
+taide-native-ui = { path = "../taide-native-ui", features = ["inspection"] }
+tokio = { version = "1", features = ["test-util"] }
+base64 = "=0.23.1"
+png = "=0.18.1"
+ravif = { version = "=0.13.0", default-features = false }
+winit = { version = "=0.30.13", default-features = false }
+
+[patch.crates-io]
+egui = { path = "vendor/egui-input" }
+vte = { path = "../../experiments/terminal-core-spike/vendor/vte" }

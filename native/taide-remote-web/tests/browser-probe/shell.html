@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>TAIDE isolated Rust shell state probe</title>
+    </head>
+    <body>
+        <button id="pin" type="button">Pin</button>
+        <button id="refresh" type="button">Refresh</button>
+        <button id="cut" type="button">Reconnect</button>
+        <button id="drop" type="button">Drop</button>
+        <pre id="state">{}</pre>
+        <script type="module">
+            import init, { ShellProbe } from '/probe.js'
+
+            const POLL_MS = 10
+            await init()
+            const response = await fetch('/__fixture/settings', { method: 'POST', body: ShellProbe.default_settings() })
+            if (!response.ok) throw new Error('Synthetic settings setup failed')
+            let probe = new ShellProbe()
+            const interval = setInterval(() => {
+                document.getElementById('state').textContent = probe.poll()
+            }, POLL_MS)
+            document.getElementById('pin').addEventListener('click', () => probe.pin())
+            document.getElementById('refresh').addEventListener('click', () => probe.refresh())
+            document.getElementById('cut').addEventListener('click', () => probe.cut())
+            document.getElementById('drop').addEventListener('click', () => {
+                clearInterval(interval)
+                probe.free()
+                probe = null
+                for (const button of document.querySelectorAll('button')) button.disabled = true
+            })
+        </script>
+    </body>
+</html>

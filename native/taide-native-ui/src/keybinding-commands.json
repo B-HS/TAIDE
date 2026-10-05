@@ -1,0 +1,1415 @@
+[
+    {
+        "id": "window.reload",
+        "titleKey": "app.reloadWindow",
+        "categoryKey": "keymap.category.window"
+    },
+    {
+        "id": "settings.open",
+        "titleKey": "settings.title",
+        "categoryKey": "keymap.category.app"
+    },
+    {
+        "id": "app.openSettingsFile",
+        "titleKey": "app.openSettingsFile",
+        "categoryKey": "keymap.category.app"
+    },
+    {
+        "id": "keybindings.open",
+        "titleKey": "settings.keymapOpenEditor",
+        "categoryKey": "keymap.category.app",
+        "keymapId": "open-keybindings-editor"
+    },
+    {
+        "id": "terminal.new",
+        "titleKey": "keymap.newTerminal",
+        "categoryKey": "keymap.category.terminal",
+        "keymapId": "new-terminal"
+    },
+    {
+        "id": "tab.reopenClosed",
+        "titleKey": "keymap.reopenClosedTab",
+        "categoryKey": "keymap.category.tab",
+        "keymapId": "reopen-closed-tab"
+    },
+    {
+        "id": "file.quickOpen",
+        "titleKey": "keymap.quickOpen",
+        "categoryKey": "keymap.category.file",
+        "keymapId": "quick-open"
+    },
+    {
+        "id": "tab.close",
+        "titleKey": "keymap.closeTab",
+        "categoryKey": "keymap.category.tab",
+        "keymapId": "close-tab"
+    },
+    {
+        "id": "view.toggleSidebar",
+        "titleKey": "keymap.toggleSidebar",
+        "categoryKey": "keymap.category.view",
+        "keymapId": "toggle-sidebar"
+    },
+    {
+        "id": "editor.find",
+        "titleKey": "keymap.find",
+        "categoryKey": "keymap.category.editor",
+        "keymapId": "find"
+    },
+    {
+        "id": "search.find",
+        "titleKey": "keymap.search",
+        "categoryKey": "keymap.category.search",
+        "keymapId": "search"
+    },
+    {
+        "id": "search.replace",
+        "titleKey": "keymap.searchReplace",
+        "categoryKey": "keymap.category.search",
+        "keymapId": "search-replace"
+    },
+    {
+        "id": "view.explorer",
+        "titleKey": "keymap.explorer",
+        "categoryKey": "keymap.category.view",
+        "keymapId": "explorer"
+    },
+    {
+        "id": "view.git",
+        "titleKey": "git.title",
+        "categoryKey": "keymap.category.view",
+        "keymapId": "git"
+    },
+    {
+        "id": "view.welcome",
+        "titleKey": "app.welcome",
+        "categoryKey": "keymap.category.view"
+    },
+    {
+        "id": "editor.split",
+        "titleKey": "keymap.split",
+        "categoryKey": "keymap.category.editor",
+        "keymapId": "split"
+    },
+    {
+        "id": "tab.cycleNext",
+        "titleKey": "keymap.tabCycleNext",
+        "categoryKey": "keymap.category.tab",
+        "keymapId": "tab-cycle-next"
+    },
+    {
+        "id": "tab.cyclePrev",
+        "titleKey": "keymap.tabCyclePrev",
+        "categoryKey": "keymap.category.tab",
+        "keymapId": "tab-cycle-prev"
+    },
+    {
+        "id": "editor.save",
+        "titleKey": "keymap.save",
+        "categoryKey": "keymap.category.editor",
+        "keymapId": "save"
+    },
+    {
+        "id": "view.toggleTerminal",
+        "titleKey": "keymap.toggleTerminal",
+        "categoryKey": "keymap.category.view",
+        "keymapId": "toggle-terminal"
+    },
+    {
+        "id": "terminal.copyImeDebug",
+        "titleKey": "terminal.copyImeDebugLog",
+        "categoryKey": "keymap.category.terminal"
+    },
+    {
+        "id": "app.showPerfSnapshot",
+        "titleKey": "app.showPerfSnapshot",
+        "titleDefaultValue": "Show Performance Snapshot",
+        "categoryKey": "keymap.category.app"
+    },
+    {
+        "id": "tab.moveToNewWindow",
+        "titleKey": "tab.moveToNewWindow",
+        "categoryKey": "keymap.category.tab"
+    },
+    {
+        "id": "tab.moveToMainWindow",
+        "titleKey": "tab.moveToMainWindow",
+        "categoryKey": "keymap.category.tab"
+    },
+    {
+        "id": "view.toggleZenMode",
+        "titleKey": "keymap.toggleZenMode",
+        "categoryKey": "keymap.category.view",
+        "keymapId": "toggle-zen-mode"
+    },
+    {
+        "id": "tab.previousEditor",
+        "titleKey": "keymap.editorPrevious",
+        "categoryKey": "keymap.category.tab",
+        "keymapId": "editor-previous"
+    },
+    {
+        "id": "tab.nextEditor",
+        "titleKey": "keymap.editorNext",
+        "categoryKey": "keymap.category.tab",
+        "keymapId": "editor-next"
+    },
+    {
+        "id": "editor.focusGroupLeft",
+        "titleKey": "keymap.focusGroupLeft",
+        "categoryKey": "keymap.category.editor",
+        "keymapId": "focus-group-left"
+    },
+    {
+        "id": "editor.focusGroupRight",
+        "titleKey": "keymap.focusGroupRight",
+        "categoryKey": "keymap.category.editor",
+        "keymapId": "focus-group-right"
+    },
+    {
+        "id": "editor.focusGroupUp",
+        "titleKey": "keymap.focusGroupUp",
+        "categoryKey": "keymap.category.editor",
+        "keymapId": "focus-group-up"
+    },
+    {
+        "id": "editor.focusGroupDown",
+        "titleKey": "keymap.focusGroupDown",
+        "categoryKey": "keymap.category.editor",
+        "keymapId": "focus-group-down"
+    },
+    {
+        "id": "tab.moveToGroupLeft",
+        "titleKey": "keymap.moveTabToGroupLeft",
+        "categoryKey": "keymap.category.tab",
+        "keymapId": "move-tab-to-group-left"
+    },
+    {
+        "id": "tab.moveToGroupRight",
+        "titleKey": "keymap.moveTabToGroupRight",
+        "categoryKey": "keymap.category.tab",
+        "keymapId": "move-tab-to-group-right"
+    },
+    {
+        "id": "tab.closeAllInGroup",
+        "titleKey": "keymap.closeAllTabs",
+        "categoryKey": "keymap.category.tab",
+        "keymapId": "close-all-tabs"
+    },
+    {
+        "id": "editor.focusGroup1",
+        "titleKey": "keymap.focusGroup1",
+        "categoryKey": "keymap.category.editor",
+        "keymapId": "focus-group-1"
+    },
+    {
+        "id": "editor.focusGroup2",
+        "titleKey": "keymap.focusGroup2",
+        "categoryKey": "keymap.category.editor",
+        "keymapId": "focus-group-2"
+    },
+    {
+        "id": "editor.focusGroup3",
+        "titleKey": "keymap.focusGroup3",
+        "categoryKey": "keymap.category.editor",
+        "keymapId": "focus-group-3"
+    },
+    {
+        "id": "editor.focusGroup4",
+        "titleKey": "keymap.focusGroup4",
+        "categoryKey": "keymap.category.editor",
+        "keymapId": "focus-group-4"
+    },
+    {
+        "id": "editor.focusGroup5",
+        "titleKey": "keymap.focusGroup5",
+        "categoryKey": "keymap.category.editor",
+        "keymapId": "focus-group-5"
+    },
+    {
+        "id": "editor.focusGroup6",
+        "titleKey": "keymap.focusGroup6",
+        "categoryKey": "keymap.category.editor",
+        "keymapId": "focus-group-6"
+    },
+    {
+        "id": "editor.focusGroup7",
+        "titleKey": "keymap.focusGroup7",
+        "categoryKey": "keymap.category.editor",
+        "keymapId": "focus-group-7"
+    },
+    {
+        "id": "editor.focusGroup8",
+        "titleKey": "keymap.focusGroup8",
+        "categoryKey": "keymap.category.editor",
+        "keymapId": "focus-group-8"
+    },
+    {
+        "id": "editor.focusGroup9",
+        "titleKey": "keymap.focusGroup9",
+        "categoryKey": "keymap.category.editor",
+        "keymapId": "focus-group-9"
+    },
+    {
+        "id": "sync.uploadNow",
+        "titleKey": "settings.syncUploadNow",
+        "categoryKey": "keymap.category.sync"
+    },
+    {
+        "id": "sync.downloadNow",
+        "titleKey": "settings.syncDownloadNow",
+        "categoryKey": "keymap.category.sync"
+    },
+    {
+        "id": "monaco.actions.find",
+        "titleKey": "keymap.monaco.actions.find",
+        "titleDefaultValue": "Find",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": "⌘F"
+    },
+    {
+        "id": "monaco.actions.findWithSelection",
+        "titleKey": "keymap.monaco.actions.findWithSelection",
+        "titleDefaultValue": "Find with Selection",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": "⌘E"
+    },
+    {
+        "id": "monaco.codelens.showLensesInCurrentLine",
+        "titleKey": "keymap.monaco.codelens.showLensesInCurrentLine",
+        "titleDefaultValue": "Show CodeLens Commands for Current Line",
+        "categoryKey": "keymap.category.editorRefactor",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.cursorRedo",
+        "titleKey": "keymap.monaco.cursorRedo",
+        "titleDefaultValue": "Cursor Redo",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.cursorUndo",
+        "titleKey": "keymap.monaco.cursorUndo",
+        "titleDefaultValue": "Cursor Undo",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": "⌘U"
+    },
+    {
+        "id": "monaco.deleteAllLeft",
+        "titleKey": "keymap.monaco.deleteAllLeft",
+        "titleDefaultValue": "Delete All Left",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": "⌘⌫"
+    },
+    {
+        "id": "monaco.deleteAllRight",
+        "titleKey": "keymap.monaco.deleteAllRight",
+        "titleDefaultValue": "Delete All Right",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": "⌃K"
+    },
+    {
+        "id": "monaco.deleteInsideWord",
+        "titleKey": "keymap.monaco.deleteInsideWord",
+        "titleDefaultValue": "Delete Word",
+        "categoryKey": "keymap.category.editorSelection",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.addCommentLine",
+        "titleKey": "keymap.monaco.editor.action.addCommentLine",
+        "titleDefaultValue": "Add Line Comment",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": "⌘K ⌘C"
+    },
+    {
+        "id": "monaco.editor.action.addCursorsToBottom",
+        "titleKey": "keymap.monaco.editor.action.addCursorsToBottom",
+        "titleDefaultValue": "Add Cursors to Bottom",
+        "categoryKey": "keymap.category.editorSelection",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.addCursorsToTop",
+        "titleKey": "keymap.monaco.editor.action.addCursorsToTop",
+        "titleDefaultValue": "Add Cursors to Top",
+        "categoryKey": "keymap.category.editorSelection",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.addSelectionToNextFindMatch",
+        "titleKey": "keymap.monaco.editor.action.addSelectionToNextFindMatch",
+        "titleDefaultValue": "Add Selection to Next Find Match",
+        "categoryKey": "keymap.category.editorSelection",
+        "defaultBindingLabel": "⌘D"
+    },
+    {
+        "id": "monaco.editor.action.addSelectionToPreviousFindMatch",
+        "titleKey": "keymap.monaco.editor.action.addSelectionToPreviousFindMatch",
+        "titleDefaultValue": "Add Selection to Previous Find Match",
+        "categoryKey": "keymap.category.editorSelection",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.autoFix",
+        "titleKey": "keymap.monaco.editor.action.autoFix",
+        "titleDefaultValue": "Auto Fix...",
+        "categoryKey": "keymap.category.editorRefactor",
+        "defaultBindingLabel": "⌥⌘."
+    },
+    {
+        "id": "monaco.editor.action.blockComment",
+        "titleKey": "keymap.monaco.editor.action.blockComment",
+        "titleDefaultValue": "Toggle Block Comment",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": "⌥⇧A"
+    },
+    {
+        "id": "monaco.editor.action.changeAll",
+        "titleKey": "keymap.monaco.editor.action.changeAll",
+        "titleDefaultValue": "Change All Occurrences",
+        "categoryKey": "keymap.category.editorSelection",
+        "defaultBindingLabel": "⌘F2"
+    },
+    {
+        "id": "monaco.editor.action.changeTabDisplaySize",
+        "titleKey": "keymap.monaco.editor.action.changeTabDisplaySize",
+        "titleDefaultValue": "Change Tab Display Size",
+        "categoryKey": "keymap.category.editorFormat",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.clipboardCopyWithSyntaxHighlightingAction",
+        "titleKey": "keymap.monaco.editor.action.clipboardCopyWithSyntaxHighlightingAction",
+        "titleDefaultValue": "Copy with Syntax Highlighting",
+        "categoryKey": "keymap.category.editorDisplay",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.commentLine",
+        "titleKey": "keymap.monaco.editor.action.commentLine",
+        "titleDefaultValue": "Toggle Line Comment",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": "⌘/"
+    },
+    {
+        "id": "monaco.editor.action.copyLinesDownAction",
+        "titleKey": "keymap.monaco.editor.action.copyLinesDownAction",
+        "titleDefaultValue": "Copy Line Down",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": "⌥⇧↓"
+    },
+    {
+        "id": "monaco.editor.action.copyLinesUpAction",
+        "titleKey": "keymap.monaco.editor.action.copyLinesUpAction",
+        "titleDefaultValue": "Copy Line Up",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": "⌥⇧↑"
+    },
+    {
+        "id": "monaco.editor.action.decreaseHoverVerbosityLevel",
+        "titleKey": "keymap.monaco.editor.action.decreaseHoverVerbosityLevel",
+        "titleDefaultValue": "Decrease Hover Verbosity Level",
+        "categoryKey": "keymap.category.editorDisplay",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.deleteLines",
+        "titleKey": "keymap.monaco.editor.action.deleteLines",
+        "titleDefaultValue": "Delete Line",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": "⇧⌘K"
+    },
+    {
+        "id": "monaco.editor.action.detectIndentation",
+        "titleKey": "keymap.monaco.editor.action.detectIndentation",
+        "titleDefaultValue": "Detect Indentation from Content",
+        "categoryKey": "keymap.category.editorFormat",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.duplicateSelection",
+        "titleKey": "keymap.monaco.editor.action.duplicateSelection",
+        "titleDefaultValue": "Duplicate Selection",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.fixAll",
+        "titleKey": "keymap.monaco.editor.action.fixAll",
+        "titleDefaultValue": "Fix All",
+        "categoryKey": "keymap.category.editorRefactor",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.focusNextCursor",
+        "titleKey": "keymap.monaco.editor.action.focusNextCursor",
+        "titleDefaultValue": "Focus Next Cursor",
+        "categoryKey": "keymap.category.editorSelection",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.focusPreviousCursor",
+        "titleKey": "keymap.monaco.editor.action.focusPreviousCursor",
+        "titleDefaultValue": "Focus Previous Cursor",
+        "categoryKey": "keymap.category.editorSelection",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.fontZoomIn",
+        "titleKey": "keymap.monaco.editor.action.fontZoomIn",
+        "titleDefaultValue": "Increase Editor Font Size",
+        "categoryKey": "keymap.category.editorDisplay",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.fontZoomOut",
+        "titleKey": "keymap.monaco.editor.action.fontZoomOut",
+        "titleDefaultValue": "Decrease Editor Font Size",
+        "categoryKey": "keymap.category.editorDisplay",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.fontZoomReset",
+        "titleKey": "keymap.monaco.editor.action.fontZoomReset",
+        "titleDefaultValue": "Reset Editor Font Size",
+        "categoryKey": "keymap.category.editorDisplay",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.formatDocument",
+        "titleKey": "keymap.monaco.editor.action.formatDocument",
+        "titleDefaultValue": "Format Document",
+        "categoryKey": "keymap.category.editorFormat",
+        "defaultBindingLabel": "⌥⇧F"
+    },
+    {
+        "id": "monaco.editor.action.formatSelection",
+        "titleKey": "keymap.monaco.editor.action.formatSelection",
+        "titleDefaultValue": "Format Selection",
+        "categoryKey": "keymap.category.editorFormat",
+        "defaultBindingLabel": "⌘K ⌘F"
+    },
+    {
+        "id": "monaco.editor.action.goToImplementation",
+        "titleKey": "keymap.monaco.editor.action.goToImplementation",
+        "titleDefaultValue": "Go to Implementation",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": "⌘F12"
+    },
+    {
+        "id": "monaco.editor.action.gotoLine",
+        "titleKey": "keymap.monaco.editor.action.gotoLine",
+        "titleDefaultValue": "Go to Line/Column",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": "⌃G"
+    },
+    {
+        "id": "monaco.editor.action.goToLocation",
+        "titleKey": "keymap.monaco.editor.action.goToLocation",
+        "titleDefaultValue": "Go to Any Symbol",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.goToReferences",
+        "titleKey": "keymap.monaco.editor.action.goToReferences",
+        "titleDefaultValue": "Go to References",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": "⇧F12"
+    },
+    {
+        "id": "monaco.editor.action.goToTypeDefinition",
+        "titleKey": "keymap.monaco.editor.action.goToTypeDefinition",
+        "titleDefaultValue": "Go to Type Definition",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.hideHover",
+        "titleKey": "keymap.monaco.editor.action.hideHover",
+        "titleDefaultValue": "Hide Hover",
+        "categoryKey": "keymap.category.editorDisplay",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.increaseHoverVerbosityLevel",
+        "titleKey": "keymap.monaco.editor.action.increaseHoverVerbosityLevel",
+        "titleDefaultValue": "Increase Hover Verbosity Level",
+        "categoryKey": "keymap.category.editorDisplay",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.indentationToSpaces",
+        "titleKey": "keymap.monaco.editor.action.indentationToSpaces",
+        "titleDefaultValue": "Convert Indentation to Spaces",
+        "categoryKey": "keymap.category.editorFormat",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.indentationToTabs",
+        "titleKey": "keymap.monaco.editor.action.indentationToTabs",
+        "titleDefaultValue": "Convert Indentation to Tabs",
+        "categoryKey": "keymap.category.editorFormat",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.indentLines",
+        "titleKey": "keymap.monaco.editor.action.indentLines",
+        "titleDefaultValue": "Indent Line",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": "⌘]"
+    },
+    {
+        "id": "monaco.editor.action.indentUsingSpaces",
+        "titleKey": "keymap.monaco.editor.action.indentUsingSpaces",
+        "titleDefaultValue": "Indent Using Spaces",
+        "categoryKey": "keymap.category.editorFormat",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.indentUsingTabs",
+        "titleKey": "keymap.monaco.editor.action.indentUsingTabs",
+        "titleDefaultValue": "Indent Using Tabs",
+        "categoryKey": "keymap.category.editorFormat",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.inlineSuggest.toggleAlwaysShowToolbar",
+        "titleKey": "keymap.monaco.editor.action.inlineSuggest.toggleAlwaysShowToolbar",
+        "titleDefaultValue": "Always Show Toolbar",
+        "categoryKey": "keymap.category.editorSuggest",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.inlineSuggest.trigger",
+        "titleKey": "keymap.monaco.editor.action.inlineSuggest.trigger",
+        "titleDefaultValue": "Trigger Inline Suggestion",
+        "categoryKey": "keymap.category.editorSuggest",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.inPlaceReplace.down",
+        "titleKey": "keymap.monaco.editor.action.inPlaceReplace.down",
+        "titleDefaultValue": "Replace with Next Value",
+        "categoryKey": "keymap.category.editorFormat",
+        "defaultBindingLabel": "⇧⌘."
+    },
+    {
+        "id": "monaco.editor.action.inPlaceReplace.up",
+        "titleKey": "keymap.monaco.editor.action.inPlaceReplace.up",
+        "titleDefaultValue": "Replace with Previous Value",
+        "categoryKey": "keymap.category.editorFormat",
+        "defaultBindingLabel": "⇧⌘,"
+    },
+    {
+        "id": "monaco.editor.action.insertCursorAbove",
+        "titleKey": "keymap.monaco.editor.action.insertCursorAbove",
+        "titleDefaultValue": "Add Cursor Above",
+        "categoryKey": "keymap.category.editorSelection",
+        "defaultBindingLabel": "⌥⌘↑"
+    },
+    {
+        "id": "monaco.editor.action.insertCursorAtEndOfEachLineSelected",
+        "titleKey": "keymap.monaco.editor.action.insertCursorAtEndOfEachLineSelected",
+        "titleDefaultValue": "Add Cursors to Line Ends",
+        "categoryKey": "keymap.category.editorSelection",
+        "defaultBindingLabel": "⌥⇧I"
+    },
+    {
+        "id": "monaco.editor.action.insertCursorBelow",
+        "titleKey": "keymap.monaco.editor.action.insertCursorBelow",
+        "titleDefaultValue": "Add Cursor Below",
+        "categoryKey": "keymap.category.editorSelection",
+        "defaultBindingLabel": "⌥⌘↓"
+    },
+    {
+        "id": "monaco.editor.action.insertFinalNewLine",
+        "titleKey": "keymap.monaco.editor.action.insertFinalNewLine",
+        "titleDefaultValue": "Insert Final New Line",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.insertLineAfter",
+        "titleKey": "keymap.monaco.editor.action.insertLineAfter",
+        "titleDefaultValue": "Insert Line Below",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": "⌘⏎"
+    },
+    {
+        "id": "monaco.editor.action.insertLineBefore",
+        "titleKey": "keymap.monaco.editor.action.insertLineBefore",
+        "titleDefaultValue": "Insert Line Above",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": "⇧⌘⏎"
+    },
+    {
+        "id": "monaco.editor.action.joinLines",
+        "titleKey": "keymap.monaco.editor.action.joinLines",
+        "titleDefaultValue": "Join Lines",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": "⌃J"
+    },
+    {
+        "id": "monaco.editor.action.jumpToBracket",
+        "titleKey": "keymap.monaco.editor.action.jumpToBracket",
+        "titleDefaultValue": "Go to Bracket",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": "⇧⌘\\"
+    },
+    {
+        "id": "monaco.editor.action.marker.next",
+        "titleKey": "keymap.monaco.editor.action.marker.next",
+        "titleDefaultValue": "Go to Next Problem (Error, Warning, Info)",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": "⌥F8"
+    },
+    {
+        "id": "monaco.editor.action.marker.nextInFiles",
+        "titleKey": "keymap.monaco.editor.action.marker.nextInFiles",
+        "titleDefaultValue": "Go to Next Problem in Files (Error, Warning, Info)",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": "F8"
+    },
+    {
+        "id": "monaco.editor.action.marker.prev",
+        "titleKey": "keymap.monaco.editor.action.marker.prev",
+        "titleDefaultValue": "Go to Previous Problem (Error, Warning, Info)",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": "⌥⇧F8"
+    },
+    {
+        "id": "monaco.editor.action.marker.prevInFiles",
+        "titleKey": "keymap.monaco.editor.action.marker.prevInFiles",
+        "titleDefaultValue": "Go to Previous Problem in Files (Error, Warning, Info)",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": "⇧F8"
+    },
+    {
+        "id": "monaco.editor.action.moveCarretLeftAction",
+        "titleKey": "keymap.monaco.editor.action.moveCarretLeftAction",
+        "titleDefaultValue": "Move Selected Text Left",
+        "categoryKey": "keymap.category.editorSelection",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.moveCarretRightAction",
+        "titleKey": "keymap.monaco.editor.action.moveCarretRightAction",
+        "titleDefaultValue": "Move Selected Text Right",
+        "categoryKey": "keymap.category.editorSelection",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.moveLinesDownAction",
+        "titleKey": "keymap.monaco.editor.action.moveLinesDownAction",
+        "titleDefaultValue": "Move Line Down",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": "⌥↓"
+    },
+    {
+        "id": "monaco.editor.action.moveLinesUpAction",
+        "titleKey": "keymap.monaco.editor.action.moveLinesUpAction",
+        "titleDefaultValue": "Move Line Up",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": "⌥↑"
+    },
+    {
+        "id": "monaco.editor.action.moveSelectionToNextFindMatch",
+        "titleKey": "keymap.monaco.editor.action.moveSelectionToNextFindMatch",
+        "titleDefaultValue": "Move Last Selection to Next Find Match",
+        "categoryKey": "keymap.category.editorSelection",
+        "defaultBindingLabel": "⌘K ⌘D"
+    },
+    {
+        "id": "monaco.editor.action.moveSelectionToPreviousFindMatch",
+        "titleKey": "keymap.monaco.editor.action.moveSelectionToPreviousFindMatch",
+        "titleDefaultValue": "Move Last Selection to Previous Find Match",
+        "categoryKey": "keymap.category.editorSelection",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.nextMatchFindAction",
+        "titleKey": "keymap.monaco.editor.action.nextMatchFindAction",
+        "titleDefaultValue": "Find Next",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": "⌘G"
+    },
+    {
+        "id": "monaco.editor.action.nextSelectionMatchFindAction",
+        "titleKey": "keymap.monaco.editor.action.nextSelectionMatchFindAction",
+        "titleDefaultValue": "Find Next Selection",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": "⌘F3"
+    },
+    {
+        "id": "monaco.editor.action.openLink",
+        "titleKey": "keymap.monaco.editor.action.openLink",
+        "titleDefaultValue": "Open Link",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.organizeImports",
+        "titleKey": "keymap.monaco.editor.action.organizeImports",
+        "titleDefaultValue": "Organize Imports",
+        "categoryKey": "keymap.category.editorRefactor",
+        "defaultBindingLabel": "⌥⇧O"
+    },
+    {
+        "id": "monaco.editor.action.outdentLines",
+        "titleKey": "keymap.monaco.editor.action.outdentLines",
+        "titleDefaultValue": "Outdent Line",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": "⌘["
+    },
+    {
+        "id": "monaco.editor.action.pasteAs",
+        "titleKey": "keymap.monaco.editor.action.pasteAs",
+        "titleDefaultValue": "Paste As...",
+        "categoryKey": "keymap.category.editorFormat",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.pasteAsText",
+        "titleKey": "keymap.monaco.editor.action.pasteAsText",
+        "titleDefaultValue": "Paste as Text",
+        "categoryKey": "keymap.category.editorFormat",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.peekDeclaration",
+        "titleKey": "keymap.monaco.editor.action.peekDeclaration",
+        "titleDefaultValue": "Peek Declaration",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.peekDefinition",
+        "titleKey": "keymap.monaco.editor.action.peekDefinition",
+        "titleDefaultValue": "Peek Definition",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": "⌥F12"
+    },
+    {
+        "id": "monaco.editor.action.peekImplementation",
+        "titleKey": "keymap.monaco.editor.action.peekImplementation",
+        "titleDefaultValue": "Peek Implementations",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": "⇧⌘F12"
+    },
+    {
+        "id": "monaco.editor.action.peekTypeDefinition",
+        "titleKey": "keymap.monaco.editor.action.peekTypeDefinition",
+        "titleDefaultValue": "Peek Type Definition",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.previousMatchFindAction",
+        "titleKey": "keymap.monaco.editor.action.previousMatchFindAction",
+        "titleDefaultValue": "Find Previous",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": "⇧⌘G"
+    },
+    {
+        "id": "monaco.editor.action.previousSelectionMatchFindAction",
+        "titleKey": "keymap.monaco.editor.action.previousSelectionMatchFindAction",
+        "titleDefaultValue": "Find Previous Selection",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": "⇧⌘F3"
+    },
+    {
+        "id": "monaco.editor.action.quickFix",
+        "titleKey": "keymap.monaco.editor.action.quickFix",
+        "titleDefaultValue": "Quick Fix...",
+        "categoryKey": "keymap.category.editorRefactor",
+        "defaultBindingLabel": "⌘."
+    },
+    {
+        "id": "monaco.editor.action.quickOutline",
+        "titleKey": "keymap.monaco.editor.action.quickOutline",
+        "titleDefaultValue": "Go to Symbol",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": "⇧⌘O"
+    },
+    {
+        "id": "monaco.editor.action.refactor",
+        "titleKey": "keymap.monaco.editor.action.refactor",
+        "titleDefaultValue": "Refactor...",
+        "categoryKey": "keymap.category.editorRefactor",
+        "defaultBindingLabel": "⌃⇧R"
+    },
+    {
+        "id": "monaco.editor.action.referenceSearch.trigger",
+        "titleKey": "keymap.monaco.editor.action.referenceSearch.trigger",
+        "titleDefaultValue": "Peek References",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.reindentlines",
+        "titleKey": "keymap.monaco.editor.action.reindentlines",
+        "titleDefaultValue": "Reindent Lines",
+        "categoryKey": "keymap.category.editorFormat",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.reindentselectedlines",
+        "titleKey": "keymap.monaco.editor.action.reindentselectedlines",
+        "titleDefaultValue": "Reindent Selected Lines",
+        "categoryKey": "keymap.category.editorFormat",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.removeBrackets",
+        "titleKey": "keymap.monaco.editor.action.removeBrackets",
+        "titleDefaultValue": "Remove Brackets",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": "⌥⌘⌫"
+    },
+    {
+        "id": "monaco.editor.action.removeCommentLine",
+        "titleKey": "keymap.monaco.editor.action.removeCommentLine",
+        "titleDefaultValue": "Remove Line Comment",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": "⌘K ⌘U"
+    },
+    {
+        "id": "monaco.editor.action.removeDuplicateLines",
+        "titleKey": "keymap.monaco.editor.action.removeDuplicateLines",
+        "titleDefaultValue": "Delete Duplicate Lines",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.rename",
+        "titleKey": "keymap.monaco.editor.action.rename",
+        "titleDefaultValue": "Rename Symbol",
+        "categoryKey": "keymap.category.editorRefactor",
+        "defaultBindingLabel": "F2"
+    },
+    {
+        "id": "monaco.editor.action.resetSuggestSize",
+        "titleKey": "keymap.monaco.editor.action.resetSuggestSize",
+        "titleDefaultValue": "Reset Suggest Widget Size",
+        "categoryKey": "keymap.category.editorSuggest",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.revealDeclaration",
+        "titleKey": "keymap.monaco.editor.action.revealDeclaration",
+        "titleDefaultValue": "Go to Declaration",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.revealDefinition",
+        "titleKey": "keymap.monaco.editor.action.revealDefinition",
+        "titleDefaultValue": "Go to Definition",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": "F12"
+    },
+    {
+        "id": "monaco.editor.action.revealDefinitionAside",
+        "titleKey": "keymap.monaco.editor.action.revealDefinitionAside",
+        "titleDefaultValue": "Open Definition to the Side",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": "⌘K F12"
+    },
+    {
+        "id": "monaco.editor.action.reverseLines",
+        "titleKey": "keymap.monaco.editor.action.reverseLines",
+        "titleDefaultValue": "Reverse lines",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.selectHighlights",
+        "titleKey": "keymap.monaco.editor.action.selectHighlights",
+        "titleDefaultValue": "Select All Occurrences of Find Match",
+        "categoryKey": "keymap.category.editorSelection",
+        "defaultBindingLabel": "⇧⌘L"
+    },
+    {
+        "id": "monaco.editor.action.selectToBracket",
+        "titleKey": "keymap.monaco.editor.action.selectToBracket",
+        "titleDefaultValue": "Select to Bracket",
+        "categoryKey": "keymap.category.editorSelection",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.setSelectionAnchor",
+        "titleKey": "keymap.monaco.editor.action.setSelectionAnchor",
+        "titleDefaultValue": "Set Selection Anchor",
+        "categoryKey": "keymap.category.editorSelection",
+        "defaultBindingLabel": "⌘K ⌘B"
+    },
+    {
+        "id": "monaco.editor.action.showContextMenu",
+        "titleKey": "keymap.monaco.editor.action.showContextMenu",
+        "titleDefaultValue": "Show Editor Context Menu",
+        "categoryKey": "keymap.category.editorDisplay",
+        "defaultBindingLabel": "⇧F10"
+    },
+    {
+        "id": "monaco.editor.action.showDefinitionPreviewHover",
+        "titleKey": "keymap.monaco.editor.action.showDefinitionPreviewHover",
+        "titleDefaultValue": "Show Definition Preview Hover",
+        "categoryKey": "keymap.category.editorDisplay",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.showHover",
+        "titleKey": "keymap.monaco.editor.action.showHover",
+        "titleDefaultValue": "Show or Focus Hover",
+        "categoryKey": "keymap.category.editorDisplay",
+        "defaultBindingLabel": "⌘K ⌘I"
+    },
+    {
+        "id": "monaco.editor.action.showOrFocusStandaloneColorPicker",
+        "titleKey": "keymap.monaco.editor.action.showOrFocusStandaloneColorPicker",
+        "titleDefaultValue": "Show or Focus Standalone Color Picker",
+        "categoryKey": "keymap.category.editorDisplay",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.smartSelect.expand",
+        "titleKey": "keymap.monaco.editor.action.smartSelect.expand",
+        "titleDefaultValue": "Expand Selection",
+        "categoryKey": "keymap.category.editorSelection",
+        "defaultBindingLabel": "⌃⇧⌘→"
+    },
+    {
+        "id": "monaco.editor.action.smartSelect.shrink",
+        "titleKey": "keymap.monaco.editor.action.smartSelect.shrink",
+        "titleDefaultValue": "Shrink Selection",
+        "categoryKey": "keymap.category.editorSelection",
+        "defaultBindingLabel": "⌃⇧⌘←"
+    },
+    {
+        "id": "monaco.editor.action.sortLinesAscending",
+        "titleKey": "keymap.monaco.editor.action.sortLinesAscending",
+        "titleDefaultValue": "Sort Lines Ascending",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.sortLinesDescending",
+        "titleKey": "keymap.monaco.editor.action.sortLinesDescending",
+        "titleDefaultValue": "Sort Lines Descending",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.sourceAction",
+        "titleKey": "keymap.monaco.editor.action.sourceAction",
+        "titleDefaultValue": "Source Action...",
+        "categoryKey": "keymap.category.editorRefactor",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.startFindReplaceAction",
+        "titleKey": "keymap.monaco.editor.action.startFindReplaceAction",
+        "titleDefaultValue": "Replace",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": "⌥⌘F"
+    },
+    {
+        "id": "monaco.editor.action.toggleStickyScroll",
+        "titleKey": "keymap.monaco.editor.action.toggleStickyScroll",
+        "titleDefaultValue": "Sticky Scroll",
+        "categoryKey": "keymap.category.editorDisplay",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.toggleTabFocusMode",
+        "titleKey": "keymap.monaco.editor.action.toggleTabFocusMode",
+        "titleDefaultValue": "Toggle Tab Key Moves Focus",
+        "categoryKey": "keymap.category.editorDisplay",
+        "defaultBindingLabel": "⌃⇧M"
+    },
+    {
+        "id": "monaco.editor.action.transformToCamelcase",
+        "titleKey": "keymap.monaco.editor.action.transformToCamelcase",
+        "titleDefaultValue": "Transform to Camel Case",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.transformToKebabcase",
+        "titleKey": "keymap.monaco.editor.action.transformToKebabcase",
+        "titleDefaultValue": "Transform to Kebab Case",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.transformToLowercase",
+        "titleKey": "keymap.monaco.editor.action.transformToLowercase",
+        "titleDefaultValue": "Transform to Lowercase",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.transformToPascalcase",
+        "titleKey": "keymap.monaco.editor.action.transformToPascalcase",
+        "titleDefaultValue": "Transform to Pascal Case",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.transformToSnakecase",
+        "titleKey": "keymap.monaco.editor.action.transformToSnakecase",
+        "titleDefaultValue": "Transform to Snake Case",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.transformToTitlecase",
+        "titleKey": "keymap.monaco.editor.action.transformToTitlecase",
+        "titleDefaultValue": "Transform to Title Case",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.transformToUppercase",
+        "titleKey": "keymap.monaco.editor.action.transformToUppercase",
+        "titleDefaultValue": "Transform to Uppercase",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.transpose",
+        "titleKey": "keymap.monaco.editor.action.transpose",
+        "titleDefaultValue": "Transpose Characters around the Cursor",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.transposeLetters",
+        "titleKey": "keymap.monaco.editor.action.transposeLetters",
+        "titleDefaultValue": "Transpose Letters",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": "⌃T"
+    },
+    {
+        "id": "monaco.editor.action.triggerParameterHints",
+        "titleKey": "keymap.monaco.editor.action.triggerParameterHints",
+        "titleDefaultValue": "Trigger Parameter Hints",
+        "categoryKey": "keymap.category.editorSuggest",
+        "defaultBindingLabel": "⇧⌘Space"
+    },
+    {
+        "id": "monaco.editor.action.triggerSuggest",
+        "titleKey": "keymap.monaco.editor.action.triggerSuggest",
+        "titleDefaultValue": "Trigger Suggest",
+        "categoryKey": "keymap.category.editorSuggest",
+        "defaultBindingLabel": "⌃Space"
+    },
+    {
+        "id": "monaco.editor.action.trimTrailingWhitespace",
+        "titleKey": "keymap.monaco.editor.action.trimTrailingWhitespace",
+        "titleDefaultValue": "Trim Trailing Whitespace",
+        "categoryKey": "keymap.category.editorLines",
+        "defaultBindingLabel": "⌘K ⌘X"
+    },
+    {
+        "id": "monaco.editor.action.unicodeHighlight.disableHighlightingOfAmbiguousCharacters",
+        "titleKey": "keymap.monaco.editor.action.unicodeHighlight.disableHighlightingOfAmbiguousCharacters",
+        "titleDefaultValue": "Disable highlighting of ambiguous characters",
+        "categoryKey": "keymap.category.editorDisplay",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.unicodeHighlight.disableHighlightingOfInvisibleCharacters",
+        "titleKey": "keymap.monaco.editor.action.unicodeHighlight.disableHighlightingOfInvisibleCharacters",
+        "titleDefaultValue": "Disable highlighting of invisible characters",
+        "categoryKey": "keymap.category.editorDisplay",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.unicodeHighlight.disableHighlightingOfNonBasicAsciiCharacters",
+        "titleKey": "keymap.monaco.editor.action.unicodeHighlight.disableHighlightingOfNonBasicAsciiCharacters",
+        "titleDefaultValue": "Disable highlighting of non basic ASCII characters",
+        "categoryKey": "keymap.category.editorDisplay",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.unicodeHighlight.showExcludeOptions",
+        "titleKey": "keymap.monaco.editor.action.unicodeHighlight.showExcludeOptions",
+        "titleDefaultValue": "Show Exclude Options",
+        "categoryKey": "keymap.category.editorDisplay",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.action.wordHighlight.next",
+        "titleKey": "keymap.monaco.editor.action.wordHighlight.next",
+        "titleDefaultValue": "Go to Next Symbol Highlight",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": "F7"
+    },
+    {
+        "id": "monaco.editor.action.wordHighlight.prev",
+        "titleKey": "keymap.monaco.editor.action.wordHighlight.prev",
+        "titleDefaultValue": "Go to Previous Symbol Highlight",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": "⇧F7"
+    },
+    {
+        "id": "monaco.editor.action.wordHighlight.trigger",
+        "titleKey": "keymap.monaco.editor.action.wordHighlight.trigger",
+        "titleDefaultValue": "Trigger Symbol Highlight",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.actions.findWithArgs",
+        "titleKey": "keymap.monaco.editor.actions.findWithArgs",
+        "titleDefaultValue": "Find with Arguments",
+        "categoryKey": "keymap.category.editorNavigation",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.createFoldingRangeFromSelection",
+        "titleKey": "keymap.monaco.editor.createFoldingRangeFromSelection",
+        "titleDefaultValue": "Create Folding Range from Selection",
+        "categoryKey": "keymap.category.editorFolding",
+        "defaultBindingLabel": "⌘K ⌘,"
+    },
+    {
+        "id": "monaco.editor.fold",
+        "titleKey": "keymap.monaco.editor.fold",
+        "titleDefaultValue": "Fold",
+        "categoryKey": "keymap.category.editorFolding",
+        "defaultBindingLabel": "⌥⌘["
+    },
+    {
+        "id": "monaco.editor.foldAll",
+        "titleKey": "keymap.monaco.editor.foldAll",
+        "titleDefaultValue": "Fold All",
+        "categoryKey": "keymap.category.editorFolding",
+        "defaultBindingLabel": "⌘K ⌘0"
+    },
+    {
+        "id": "monaco.editor.foldAllBlockComments",
+        "titleKey": "keymap.monaco.editor.foldAllBlockComments",
+        "titleDefaultValue": "Fold All Block Comments",
+        "categoryKey": "keymap.category.editorFolding",
+        "defaultBindingLabel": "⌘K ⌘/"
+    },
+    {
+        "id": "monaco.editor.foldAllExcept",
+        "titleKey": "keymap.monaco.editor.foldAllExcept",
+        "titleDefaultValue": "Fold All Except Selected",
+        "categoryKey": "keymap.category.editorFolding",
+        "defaultBindingLabel": "⌘K ⌘-"
+    },
+    {
+        "id": "monaco.editor.foldAllMarkerRegions",
+        "titleKey": "keymap.monaco.editor.foldAllMarkerRegions",
+        "titleDefaultValue": "Fold All Regions",
+        "categoryKey": "keymap.category.editorFolding",
+        "defaultBindingLabel": "⌘K ⌘8"
+    },
+    {
+        "id": "monaco.editor.foldRecursively",
+        "titleKey": "keymap.monaco.editor.foldRecursively",
+        "titleDefaultValue": "Fold Recursively",
+        "categoryKey": "keymap.category.editorFolding",
+        "defaultBindingLabel": "⌘K ⌘["
+    },
+    {
+        "id": "monaco.editor.gotoNextFold",
+        "titleKey": "keymap.monaco.editor.gotoNextFold",
+        "titleDefaultValue": "Go to Next Folding Range",
+        "categoryKey": "keymap.category.editorFolding",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.gotoParentFold",
+        "titleKey": "keymap.monaco.editor.gotoParentFold",
+        "titleDefaultValue": "Go to Parent Fold",
+        "categoryKey": "keymap.category.editorFolding",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.gotoPreviousFold",
+        "titleKey": "keymap.monaco.editor.gotoPreviousFold",
+        "titleDefaultValue": "Go to Previous Folding Range",
+        "categoryKey": "keymap.category.editorFolding",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.removeManualFoldingRanges",
+        "titleKey": "keymap.monaco.editor.removeManualFoldingRanges",
+        "titleDefaultValue": "Remove Manual Folding Ranges",
+        "categoryKey": "keymap.category.editorFolding",
+        "defaultBindingLabel": "⌘K ⌘."
+    },
+    {
+        "id": "monaco.editor.toggleFold",
+        "titleKey": "keymap.monaco.editor.toggleFold",
+        "titleDefaultValue": "Toggle Fold",
+        "categoryKey": "keymap.category.editorFolding",
+        "defaultBindingLabel": "⌘K ⌘L"
+    },
+    {
+        "id": "monaco.editor.toggleFoldRecursively",
+        "titleKey": "keymap.monaco.editor.toggleFoldRecursively",
+        "titleDefaultValue": "Toggle Fold Recursively",
+        "categoryKey": "keymap.category.editorFolding",
+        "defaultBindingLabel": "⌘K ⇧⌘L"
+    },
+    {
+        "id": "monaco.editor.toggleImportFold",
+        "titleKey": "keymap.monaco.editor.toggleImportFold",
+        "titleDefaultValue": "Toggle Import Fold",
+        "categoryKey": "keymap.category.editorFolding",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.editor.unfold",
+        "titleKey": "keymap.monaco.editor.unfold",
+        "titleDefaultValue": "Unfold",
+        "categoryKey": "keymap.category.editorFolding",
+        "defaultBindingLabel": "⌥⌘]"
+    },
+    {
+        "id": "monaco.editor.unfoldAll",
+        "titleKey": "keymap.monaco.editor.unfoldAll",
+        "titleDefaultValue": "Unfold All",
+        "categoryKey": "keymap.category.editorFolding",
+        "defaultBindingLabel": "⌘K ⌘J"
+    },
+    {
+        "id": "monaco.editor.unfoldAllExcept",
+        "titleKey": "keymap.monaco.editor.unfoldAllExcept",
+        "titleDefaultValue": "Unfold All Except Selected",
+        "categoryKey": "keymap.category.editorFolding",
+        "defaultBindingLabel": "⌘K ⌘="
+    },
+    {
+        "id": "monaco.editor.unfoldAllMarkerRegions",
+        "titleKey": "keymap.monaco.editor.unfoldAllMarkerRegions",
+        "titleDefaultValue": "Unfold All Regions",
+        "categoryKey": "keymap.category.editorFolding",
+        "defaultBindingLabel": "⌘K ⌘9"
+    },
+    {
+        "id": "monaco.editor.unfoldRecursively",
+        "titleKey": "keymap.monaco.editor.unfoldRecursively",
+        "titleDefaultValue": "Unfold Recursively",
+        "categoryKey": "keymap.category.editorFolding",
+        "defaultBindingLabel": "⌘K ⌘]"
+    },
+    {
+        "id": "monaco.expandLineSelection",
+        "titleKey": "keymap.monaco.expandLineSelection",
+        "titleDefaultValue": "Expand Line Selection",
+        "categoryKey": "keymap.category.editorSelection",
+        "defaultBindingLabel": "⌘L"
+    },
+    {
+        "id": "monaco.taide.saveFile",
+        "titleKey": "keymap.monaco.taide.saveFile",
+        "titleDefaultValue": "Save File",
+        "categoryKey": "keymap.category.editor",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.taide.toggleMinimap",
+        "titleKey": "keymap.monaco.taide.toggleMinimap",
+        "titleDefaultValue": "Toggle Minimap",
+        "categoryKey": "keymap.category.editorDisplay",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.taide.aiInlineEdit",
+        "titleKey": "keymap.monaco.taide.aiInlineEdit",
+        "titleDefaultValue": "AI Edit",
+        "categoryKey": "keymap.category.editor",
+        "defaultBindingLabel": "⌘I"
+    },
+    {
+        "id": "monaco.taide.gitStageSelection",
+        "titleKey": "keymap.monaco.taide.gitStageSelection",
+        "titleDefaultValue": "Stage Changes",
+        "categoryKey": "keymap.category.git",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.taide.toggleBlame",
+        "titleKey": "keymap.monaco.taide.toggleBlame",
+        "titleDefaultValue": "Toggle Blame",
+        "categoryKey": "keymap.category.git",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.taide.openFileHistory",
+        "titleKey": "keymap.monaco.taide.openFileHistory",
+        "titleDefaultValue": "File History",
+        "categoryKey": "keymap.category.git",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "monaco.taide.runSelectedTextInTerminal",
+        "titleKey": "keymap.monaco.taide.runSelectedTextInTerminal",
+        "titleDefaultValue": "Run Selected Text in Terminal",
+        "categoryKey": "keymap.category.terminal",
+        "defaultBindingLabel": null
+    },
+    {
+        "id": "cli.connectExternalEditor",
+        "titleKey": "keymap.cliConnectExternalEditor",
+        "categoryKey": "keymap.category.shellCommand",
+        "platform": "mac"
+    },
+    {
+        "id": "cli.installShellCommand",
+        "titleKey": "keymap.cliInstall",
+        "categoryKey": "keymap.category.shellCommand",
+        "platform": "mac"
+    },
+    {
+        "id": "cli.uninstallShellCommand",
+        "titleKey": "keymap.cliUninstall",
+        "categoryKey": "keymap.category.shellCommand",
+        "platform": "mac"
+    },
+    {
+        "id": "ai.inlineEdit",
+        "titleKey": "ai.inlineEditPaletteLabel",
+        "categoryKey": "keymap.category.editor"
+    },
+    {
+        "id": "git.revertHead",
+        "titleKey": "git.revert",
+        "categoryKey": "keymap.category.git"
+    },
+    {
+        "id": "git.createTagOnHead",
+        "titleKey": "git.createTag",
+        "categoryKey": "keymap.category.git"
+    },
+    {
+        "id": "git.toggleBlame",
+        "titleKey": "git.toggleBlame",
+        "categoryKey": "keymap.category.git"
+    },
+    {
+        "id": "git.openFileHistory",
+        "titleKey": "git.fileHistory",
+        "categoryKey": "keymap.category.git"
+    },
+    {
+        "id": "terminal.runSelectedText",
+        "titleKey": "terminal.runSelectedText",
+        "categoryKey": "keymap.category.terminal"
+    },
+    {
+        "id": "task.runTask",
+        "titleKey": "task.runTask",
+        "categoryKey": "keymap.category.terminal"
+    }
+]

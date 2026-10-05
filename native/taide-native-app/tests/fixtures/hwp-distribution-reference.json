@@ -1,0 +1,11 @@
+{
+    "flags": 1,
+    "bodyBytes": 351,
+    "plain": "YQcN9Ncf8DZCpR3fyTQOLKBn8h80q7CpcCMRrlzoKSFxINmEgWCfbSo6ZFfGgxEM5Sk7btv20/+ss121MpHvIdj3DzB+J4/9e+YVZFXR2RCi9Fl8fGHKFkDW7Lbmc5u1um5p0sPhkBY98KFIuP+yhIISBxYFWUWHqP5LS4s1cFyDtkBU7zDs5qrowwFuPPJ7ZulL1O+KLDuITPpZyjQrLlm2xXqgaqW+am73dC5UEOacFzi9iWCRu6Akr1mhYnzsvMmmrgab0suLJubz5cEr1LpsDvu2QyJ0Ztxrab7jW9Xf+vgLw2AKwZ4Xo55qsjbhHOh6qdAm5iwbFGueg0tDgx9XgoIKhJCfWieuKJFuV2vS/cnNWcx8ByotJXwcdVPHAq7OPNbbAG0vyBtLuJa9qZPiMY6cCKhMEPxH4kNKRWHb/x9Nm5pCNQY/fqFhnLFNebCMF210OYnT6+1mg11Zxg==",
+    "deflate": "eYIfLAvC/JBRv+jUdSekqR7Xh+AX05l1hLDRSgxmo/91qxMnUSvswK5LFruwF26gNg/oj8dzln2yPtvJt77GaG78wFDM7zOSqYGrQvEgVFl9/M3p4FuvKGnlG1A+oNbYtnhM4t/F/ANRahzl0Cc7MMFhhDqmQxBKnHwAysHIqWZs1/kVuorbbEUUWzBdwlYtngEzgIm+wlpjfVAonZAtI0P+bN3xxo5DmwYJsFYJ9Sb5B8gLZyaY3imqMdFQhPU1",
+    "zlib": "rbTnCkogHEnlS5x4wRhzVdjvIsCoNxAU5H2bennkV03CkIWxcB4t9te2luaKM0drN0tUltUKTiG4+C19ruoL59hslSXkqobP2xhh62uR4PlKNrh61y3TnnFA8BVXXBqfvKg7P3TKmJgSdUZyiA2SLf12plMiGOyqN1UHuYI8sdPRFwYQQPiTuJ68Z5e6VOls/LlLVVC48jnjLRzAIDM8Qr2/omqifDtP0N5WZtUYhqQLC/S4zUI55orfRtJ34FKO4gUooJDS+/nb6kY/XGDbfg==",
+    "keyHeader": "AAAAACYmJib29vb29vaXl5eXl5etra2tra2tra2tra2trdLS0tLS3d3d3d12dnZ2dnZ2dnZ2OTnx8fHx8fHx8fHx8fHx8bW1tbW1tbW1tfDw8PCXl5cZGRkZGRkZGRkZGRnR/f39/f39/Y6Ojo6Ojo6Ojo6Ojo6OjkhISEhISEhISEhISAsLCwsLCzs7Ozs7Ozs7OzuoqKioXV1dXV1dXV1dXV1dXV1dPz8/Pz8/Pz8/Pz8/Pz8/P21tbW1tbW1tbbS0tLS0tLS0mpqampqampqamprNzc3Nzc3Nzc3Nzc3N9/dERCkpKSkpKSkpKRtiYmJiYmJiYmIwMDAwMDAwMA==",
+    "expansion": "7uyRkzP6Cg7bhSWoDdBjRgVgt+2etfxF6GHoHn60kC8=",
+    "source": "Production blank2010.hwp Section0; synthetic LCG seed 0 and all-zero AES test key; Bun node:crypto AES-128-ECB with manual zero padding and node:zlib raw deflate/zlib",
+    "hugeTable": "oOz6SQIBEU/Hnt10IPGBQw=="
+}

@@ -1,0 +1,43 @@
+[package]
+name = "taide-native-shell-spike"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+publish = false
+
+[workspace]
+
+[features]
+default = ["egui-shell"]
+egui-shell = ["dep:eframe", "dep:muda", "dep:rfd", "dep:pollster", "dep:objc2", "dep:objc2-app-kit"]
+iced-shell = ["dep:iced", "dep:muda", "dep:rfd"]
+
+[dependencies]
+eframe = { version = "=0.36.2", default-features = false, features = ["accesskit", "default_fonts", "wgpu"], optional = true }
+muda = { version = "=0.21.0", default-features = false, optional = true }
+rfd = { version = "=0.17.2", default-features = false, optional = true }
+pollster = { version = "=1.0.1", optional = true }
+iced = { version = "=0.14.0", default-features = false, features = ["wgpu", "tiny-skia", "advanced", "advanced-shaping", "thread-pool"], optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "=0.6.4", optional = true }
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSView", "NSWindow"], optional = true }
+
+[[bin]]
+name = "taide-egui-spike"
+path = "src/main.rs"
+required-features = ["egui-shell"]
+
+[[bin]]
+name = "taide-iced-spike"
+path = "src/iced-main.rs"
+required-features = ["iced-shell"]
+
+[[bin]]
+name = "taide-gpu-adapter-probe"
+path = "src/gpu-adapter-probe.rs"
+required-features = ["egui-shell"]
+
+[patch.crates-io]
+eframe = { path = "vendor/eframe" }

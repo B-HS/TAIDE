@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>TAIDE isolated Rust file consumer probe</title>
+    </head>
+    <body>
+        <button id="first-edit" type="button">First edit</button>
+        <button id="later-edit" type="button">Later edit</button>
+        <button id="tab" type="button">Insert tab</button>
+        <button id="save" type="button">Save prepared</button>
+        <button id="retry" type="button">Read file</button>
+        <button id="keep-mine" type="button">Keep draft after dirty flush</button>
+        <button id="view-disk" type="button">View disk after dirty flush</button>
+        <button id="owned-mine" type="button">Owned keep draft</button>
+        <button id="owned-disk" type="button">Owned view disk</button>
+        <button id="text-input" type="button">Actual text input</button>
+        <button id="retry-dirty" type="button">Retry dirty</button>
+        <button id="scope" type="button">Bind project scopes</button>
+        <button id="retry-mirrors" type="button">Retry mirrors</button>
+        <button id="flush-mirrors" type="button">Flush mirrors</button>
+        <button id="retry-mirror-writes" type="button">Retry mirror writes</button>
+        <button id="pause" type="button">Pause polls</button>
+        <button id="resume" type="button">Resume polls</button>
+        <button id="diagnostic" type="button">Read mirror diagnostic</button>
+        <button id="edit-cut" type="button">Pending edit then reconnect</button>
+        <button id="cut" type="button">Reconnect</button>
+        <button id="unbind-first" type="button">Unbind first</button>
+        <button id="unbind-second" type="button">Unbind second</button>
+        <button id="bind" type="button">Bind first</button>
+        <button id="dispose" type="button">Dispose</button>
+        <button id="drop" type="button">Drop</button>
+        <pre id="state">{}</pre>
+        <pre id="mirror-diagnostic">{}</pre>
+        <script type="module">
+            import init, { FileProbe } from '/probe.js'
+
+            const POLL_MS = 10
+            await init()
+            const response = await fetch('/__fixture/settings', { method: 'POST', body: FileProbe.default_settings() })
+            if (!response.ok) throw new Error('Synthetic settings setup failed')
+            let probe = new FileProbe()
+            const poll = () => {
+                document.getElementById('state').textContent = probe.poll()
+            }
+            let interval = setInterval(poll, POLL_MS)
+            document.getElementById('first-edit').addEventListener('click', () => probe.edit('first '))
+            document.getElementById('later-edit').addEventListener('click', () => probe.edit('later '))
+            document.getElementById('tab').addEventListener('click', () => probe.tab())
+            document.getElementById('save').addEventListener('click', () => probe.save())
+            document.getElementById('retry').addEventListener('click', () => probe.retry())
+            document.getElementById('keep-mine').addEventListener('click', () => probe.choose(true))
+            document.getElementById('view-disk').addEventListener('click', () => probe.choose(false))
+            document.getElementById('owned-mine').addEventListener('click', () => probe.choose_owned(true))
+            document.getElementById('owned-disk').addEventListener('click', () => probe.choose_owned(false))
+            document.getElementById('text-input').addEventListener('click', () => probe.text_input('typed '))
+            document.getElementById('retry-dirty').addEventListener('click', () => probe.retry_dirty())
+            document.getElementById('scope').addEventListener('click', () => probe.bind_project_scope())
+            document.getElementById('retry-mirrors').addEventListener('click', () => probe.retry_mirrors())
+            document.getElementById('flush-mirrors').addEventListener('click', () => probe.flush_mirrors())
+            document.getElementById('retry-mirror-writes').addEventListener('click', () => probe.retry_mirror_writes())
+            document.getElementById('pause').addEventListener('click', () => {
+                clearInterval(interval)
+                interval = null
+            })
+            document.getElementById('resume').addEventListener('click', () => {
+                if (interval === null) interval = setInterval(poll, POLL_MS)
+            })
+            document.getElementById('diagnostic').addEventListener('click', () => {
+                document.getElementById('mirror-diagnostic').textContent = probe.mirror_diagnostics()
+            })
+            document.getElementById('edit-cut').addEventListener('click', () => probe.edit_then_cut())
+            document.getElementById('cut').addEventListener('click', () => probe.cut())
+            document.getElementById('unbind-first').addEventListener('click', () => probe.unbind(false))
+            document.getElementById('unbind-second').addEventListener('click', () => probe.unbind(true))
+            document.getElementById('bind').addEventListener('click', () => probe.bind())
+            document.getElementById('dispose').addEventListener('click', () => probe.dispose())
+            document.getElementById('drop').addEventListener('click', () => {
+                clearInterval(interval)
+                probe.free()
+                probe = null
+                for (const button of document.querySelectorAll('button')) button.disabled = true
+            })
+        </script>
+    </body>
+</html>

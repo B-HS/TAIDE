@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>TAIDE isolated Rust transport probe</title>
+    </head>
+    <body>
+        <form id="request">
+            <label for="command">Synthetic command</label>
+            <input id="command" value="settings_get" />
+            <button type="submit">Invoke</button>
+        </form>
+        <button id="dispose" type="button">Dispose</button>
+        <button id="recreate" type="button">Recreate</button>
+        <pre id="events">[]</pre>
+        <pre id="error"></pre>
+        <output id="wakes">0</output>
+        <script type="module">
+            import init, { Probe } from '/probe.js'
+
+            const POLL_MS = 10
+            await init()
+            let probe = new Probe()
+            let events = []
+            probe.invoke('file_rename', 'null')
+            document.getElementById('request').addEventListener('submit', (event) => {
+                event.preventDefault()
+                try {
+                    probe.invoke(document.getElementById('command').value, 'null')
+                } catch (error) {
+                    document.getElementById('error').textContent = String(error)
+                }
+            })
+            document.getElementById('dispose').addEventListener('click', () => probe.dispose())
+            document.getElementById('recreate').addEventListener('click', () => {
+                probe.free()
+                probe = new Probe()
+            })
+            setInterval(() => {
+                for (let next = probe.poll(); next !== undefined; next = probe.poll()) {
+                    events = [...events, JSON.parse(next)]
+                }
+                document.getElementById('events').textContent = JSON.stringify(events)
+                document.getElementById('wakes').textContent = String(probe.wakes())
+            }, POLL_MS)
+        </script>
+    </body>
+</html>

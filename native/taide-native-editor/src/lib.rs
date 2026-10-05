@@ -1,0 +1,26 @@
+pub mod document;
+pub mod editing;
+pub mod indent;
+pub mod lsp;
+pub mod save_cleanup;
+#[path = "save-preparation.rs"]
+pub mod save_preparation;
+#[path = "snippet-expansion.rs"]
+pub mod snippet_expansion;
+#[path = "snippet-insertion.rs"]
+pub mod snippet_insertion;
+#[path = "snippet-normalization.rs"]
+mod snippet_normalization;
+#[path = "snippet-session.rs"]
+pub mod snippet_session;
+#[path = "snippet-syntax.rs"]
+pub mod snippet_syntax;
+#[path = "snippet-tracking.rs"]
+pub mod snippet_tracking;
+#[path = "snippet-variables.rs"]
+pub mod snippet_variables;
+#[path = "snippet-whitespace.rs"]
+pub mod snippet_whitespace;
+pub mod store;
+pub mod syntax;
+pub mod view;

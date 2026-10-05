@@ -1,0 +1,429 @@
+use std::collections::BTreeSet;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use taide_infra::watcher::WatchNotification;
+use taide_model::app_event::AppEvent;
+use taide_model::file::{FsChange, FsChangeKind};
+use taide_model::ids::{ProjectId, TabId};
+use taide_model::layout::{PaneNode, TabKind};
+use taide_model::paths::AppPaths;
+use taide_model::project::CapabilityKind;
+use taide_native_app::bootstrap::services;
+use taide_native_app::events::TreeChanges;
+use taide_native_app::host::{HostBridge, HostCommand, HostReply};
+use taide_native_app::projects::{NativeProjects, git_invalidation};
+use taide_runtime::{AppState, EventSink, ExitDrain, TaskSupervisor};
+use tokio::sync::Notify;
+
+const TIMEOUT: Duration = Duration::from_secs(5);
+const LARGE_TREE_FILES: usize = 300;
+const DUPLICATE_PATHS: usize = 140;
+const OVERFLOW_DIRECTORIES: usize = 140;
+
+#[derive(Default)]
+struct Events(Mutex<Vec<AppEvent>>, Notify);
+impl EventSink for Events {
+    fn publish(&self, event: AppEvent) {
+        self.0.lock().unwrap().push(event);
+        self.1.notify_one();
+    }
+}
+
+struct Fixture(PathBuf);
+impl Fixture {
+    fn new() -> Self {
+        let path = std::env::temp_dir().join(format!("taide-native-projects-{}", ProjectId::new()));
+        std::fs::create_dir_all(path.join("root/.git/refs/heads")).unwrap();
+        std::fs::create_dir_all(path.join("data")).unwrap();
+        for index in 0..LARGE_TREE_FILES {
+            std::fs::write(path.join(format!("root/file-{index}.rs")), "abc").unwrap();
+        }
+        Self(path)
+    }
+}
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.0).unwrap();
+    }
+}
+
+async fn reply(bridge: &mut HostBridge, signal: &Notify) -> HostReply {
+    tokio::time::timeout(TIMEOUT, async {
+        loop {
+            if let Some(reply) = bridge.poll() {
+                return reply;
+            }
+            signal.notified().await;
+        }
+    })
+    .await
+    .unwrap()
+}
+
+fn file_tab(state: &AppState, project: &ProjectId, path: &str) -> TabId {
+    let layouts = state.layouts.read();
+    let PaneNode::Leaf { tabs, .. } = &layouts[project].root else {
+        panic!("synthetic root pane")
+    };
+    tabs.iter()
+        .find(|tab| matches!(&tab.kind, TabKind::File { path: tab_path } if tab_path == path))
+        .unwrap()
+        .id
+        .clone()
+}
+
+#[test]
+fn 실제_project_open_restore_file_tab_전체_tree와_exit가_같은_소유권을_쓴다() {
+    let fixture = Fixture::new();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let tasks = TaskSupervisor::new(runtime.handle().clone());
+    let state = AppState::new(AppPaths::new(fixture.0.join("data")));
+    let events = Arc::new(Events::default());
+    let services = services(state.clone(), tasks.clone(), events.clone());
+    let projects = NativeProjects::new(services.clone());
+    let signal = Arc::new(Notify::new());
+    let ready = signal.clone();
+    let mut bridge =
+        HostBridge::connect(services.clone(), Arc::new(move || ready.notify_one())).unwrap();
+    runtime.block_on(async {
+        let root = fixture.0.join("root").to_str().unwrap().to_owned();
+        bridge
+            .submit(HostCommand::OpenProject(root.clone()))
+            .unwrap();
+        let project = loop {
+            let project = state.projects.read().values().next().cloned();
+            if let Some(project) = project {
+                break project;
+            }
+            tokio::time::timeout(TIMEOUT, signal.notified())
+                .await
+                .unwrap();
+            if let Some(HostReply::Failed(error)) = bridge.poll() {
+                panic!("{error}")
+            }
+        };
+        let id = project.id;
+        bridge
+            .submit(HostCommand::TreeRows {
+                project: id.clone(),
+                offset: 0,
+            })
+            .unwrap();
+        let HostReply::Tree { result, .. } = reply(&mut bridge, &signal).await else {
+            panic!("tree reply")
+        };
+        let page = result.unwrap();
+        assert!(page.rows.len() >= LARGE_TREE_FILES);
+        assert_eq!(page.rows.len(), page.total as usize);
+        assert_eq!(
+            project.capabilities,
+            vec![CapabilityKind::Git, CapabilityKind::Terminal]
+        );
+        assert!(state.watchers.read().contains_key(&id));
+        assert!(state.git_watchers.read().contains_key(&id));
+        assert!(state.layouts.read().contains_key(&id));
+        let first = fixture
+            .0
+            .join("root/file-0.rs")
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let second = fixture
+            .0
+            .join("root/file-1.rs")
+            .to_str()
+            .unwrap()
+            .to_owned();
+        for _ in 0..2 {
+            bridge
+                .submit(HostCommand::OpenFileTab {
+                    project: id.clone(),
+                    pane: None,
+                    path: first.clone(),
+                    preview: true,
+                })
+                .unwrap();
+        }
+        bridge
+            .submit(HostCommand::TreeRows {
+                project: id.clone(),
+                offset: 0,
+            })
+            .unwrap();
+        assert!(matches!(
+            reply(&mut bridge, &signal).await,
+            HostReply::Tree { result: Ok(_), .. }
+        ));
+        let tab = file_tab(&state, &id, &first);
+        let tab_count = match &state.layouts.read()[&id].root {
+            PaneNode::Leaf { tabs, .. } => tabs.len(),
+            _ => panic!("pane"),
+        };
+        bridge
+            .submit(HostCommand::SetDirty {
+                tab: tab.clone(),
+                dirty: true,
+            })
+            .unwrap();
+        bridge
+            .submit(HostCommand::OpenFileTab {
+                project: id.clone(),
+                pane: None,
+                path: second.clone(),
+                preview: true,
+            })
+            .unwrap();
+        bridge
+            .submit(HostCommand::TreeRows {
+                project: id.clone(),
+                offset: 0,
+            })
+            .unwrap();
+        assert!(matches!(
+            reply(&mut bridge, &signal).await,
+            HostReply::Tree { result: Ok(_), .. }
+        ));
+        assert_eq!(file_tab(&state, &id, &first), tab);
+        assert_ne!(file_tab(&state, &id, &second), tab);
+        {
+            let layouts = state.layouts.read();
+            let PaneNode::Leaf { tabs, .. } = &layouts[&id].root else {
+                panic!("pane")
+            };
+            assert_eq!(tabs.len(), tab_count + 1);
+            assert!(
+                tabs.iter()
+                    .find(|candidate| candidate.id == tab)
+                    .unwrap()
+                    .dirty
+            );
+        }
+        let revision = state.layouts.read()[&id].revision;
+        projects.restore_watchers().await.unwrap();
+        assert_eq!(state.layouts.read()[&id].revision, revision);
+        assert_eq!(state.watchers.read().len(), 1);
+        assert_eq!(state.git_watchers.read().len(), 1);
+        assert_eq!(projects.open(root).await.unwrap().id, id);
+        let added = fixture.0.join("root/added.rs");
+        std::fs::write(&added, "new").unwrap();
+        bridge
+            .submit(HostCommand::RefreshTree {
+                project: id.clone(),
+                dirs: None,
+            })
+            .unwrap();
+        let HostReply::TreeSynced { result, errors, .. } = reply(&mut bridge, &signal).await else {
+            panic!("rescan reply")
+        };
+        assert!(errors.is_empty());
+        assert!(
+            result
+                .unwrap()
+                .rows
+                .iter()
+                .any(|row| row.name == "added.rs")
+        );
+        let outside = fixture.0.join("outside.rs");
+        std::fs::write(&outside, "denied").unwrap();
+        bridge
+            .submit(HostCommand::OpenFileTab {
+                project: id.clone(),
+                pane: None,
+                path: outside.to_str().unwrap().into(),
+                preview: false,
+            })
+            .unwrap();
+        assert!(matches!(
+            reply(&mut bridge, &signal).await,
+            HostReply::Failed(_)
+        ));
+        bridge.disconnect().await.unwrap();
+        let drain = ExitDrain::new(services.ai_requests.clone()).with_state(state.clone());
+        tokio::time::timeout(
+            TIMEOUT,
+            drain.wait_for_direct_exit(
+                tasks.clone(),
+                services.lsp_install.clone(),
+                services.lsp.clone(),
+                services.terminal.clone(),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(state.watchers.read().is_empty());
+        assert!(state.git_watchers.read().is_empty());
+        assert_eq!(tasks.tracked_count(), 0);
+        assert!(
+            events
+                .0
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|event| matches!(event, AppEvent::ProjectOpened { .. }))
+        );
+    });
+}
+
+#[test]
+fn 미연결_hook는_열기_전_거절하고_실패한_attach는_등록을_회수한다() {
+    let fixture = Fixture::new();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let tasks = TaskSupervisor::new(runtime.handle().clone());
+    let state = AppState::new(AppPaths::new(fixture.0.join("data")));
+    let services = services(state.clone(), tasks.clone(), Arc::new(Events::default()));
+    let projects = NativeProjects::new(services.clone());
+    runtime.block_on(async {
+        state.settings.write().agent_hooks_enabled = true;
+        assert!(
+            projects
+                .open(fixture.0.join("root").to_str().unwrap().into())
+                .await
+                .is_err()
+        );
+        assert!(state.projects.read().is_empty());
+        state.settings.write().agent_hooks_enabled = false;
+        let blocked = fixture.0.join("blocked-lockfile-dir");
+        std::fs::write(&blocked, "synthetic failure").unwrap();
+        services
+            .ide
+            .mark_started(0, String::new(), blocked, runtime.spawn(async {}))
+            .unwrap();
+        assert!(
+            projects
+                .open(fixture.0.join("root").to_str().unwrap().into())
+                .await
+                .is_err()
+        );
+        assert!(state.projects.read().is_empty());
+        assert!(state.layouts.read().is_empty());
+        assert!(state.watchers.read().is_empty());
+        assert!(state.git_watchers.read().is_empty());
+        tokio::time::timeout(TIMEOUT, state.watcher_stops.wait_for_idle())
+            .await
+            .unwrap();
+        let shutdown = services.ide.take_shutdown_state().unwrap();
+        shutdown.server_handle.unwrap().await.unwrap();
+        tasks.stop_all();
+        assert!(
+            projects
+                .open(fixture.0.join("root").to_str().unwrap().into())
+                .await
+                .is_err()
+        );
+        assert!(state.projects.read().is_empty());
+        assert!(state.watchers.read().is_empty());
+        assert_eq!(tasks.tracked_count(), 0);
+    });
+}
+
+#[test]
+fn 실제_os_watcher는_파일과_git_변경을_전달하고_종료까지_join한다() {
+    let fixture = Fixture::new();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let tasks = TaskSupervisor::new(runtime.handle().clone());
+    let state = AppState::new(AppPaths::new(fixture.0.join("data")));
+    let events = Arc::new(Events::default());
+    let services = services(state.clone(), tasks.clone(), events.clone());
+    runtime.block_on(async {
+        let projects = NativeProjects::new(services.clone());
+        let project = projects.open(fixture.0.join("root").to_str().unwrap().into()).await.unwrap();
+        events.0.lock().unwrap().clear();
+        std::fs::write(fixture.0.join("root/new-from-outside.rs"), "external").unwrap();
+        std::fs::write(fixture.0.join("root/.git/index"), "synthetic index change").unwrap();
+        let received = tokio::time::timeout(TIMEOUT, async {
+            loop {
+                let ready = {
+                    let captured = events.0.lock().unwrap();
+                    let file = captured.iter().any(|event| matches!(event, AppEvent::FsChanged { project_id, change }
+                        if project_id == &project.id && !change.from_app && change.paths.iter().any(|path| path.ends_with("/new-from-outside.rs"))));
+                    let git = captured.iter().any(|event| matches!(event, AppEvent::GitStatusChanged { project_id } if project_id == &project.id));
+                    file && git
+                };
+                if ready { break }
+                events.1.notified().await;
+            }
+        }).await;
+        let observations = {
+            let captured = events.0.lock().unwrap();
+            let files = captured.iter().filter(|event| matches!(event, AppEvent::FsChanged { .. })).count();
+            let git = captured.iter().filter(|event| matches!(event, AppEvent::GitStatusChanged { .. })).count();
+            (files, git, captured.len())
+        };
+        let drain = ExitDrain::new(services.ai_requests.clone()).with_state(state.clone());
+        tokio::time::timeout(TIMEOUT, drain.wait_for_direct_exit(tasks.clone(), services.lsp_install.clone(), services.lsp.clone(), services.terminal.clone())).await.unwrap().unwrap();
+        assert!(state.watchers.read().is_empty());
+        assert!(state.git_watchers.read().is_empty());
+        assert_eq!(tasks.tracked_count(), 0);
+        assert!(received.is_ok(), "watcher delivery timeout: fs={}, git={}, total={}", observations.0, observations.1, observations.2);
+    });
+}
+
+#[test]
+fn 파일_이벤트는_중복과_self_echo를_합치고_포화는_rescan으로_보존한다() {
+    let changes = TreeChanges::default();
+    let project = ProjectId::new();
+    let mut paths = vec!["/root/first/file.rs".into(); DUPLICATE_PATHS];
+    paths.push("/root/last/file.rs".into());
+    changes.record(&AppEvent::FsChanged {
+        project_id: project.clone(),
+        change: FsChange {
+            paths,
+            kind: FsChangeKind::Created,
+            from_app: true,
+        },
+    });
+    assert_eq!(
+        changes.take([]).remove(&project).unwrap().unwrap(),
+        BTreeSet::from(["/root/first".into(), "/root/last".into()])
+    );
+    changes.record(&AppEvent::FsChanged {
+        project_id: project.clone(),
+        change: FsChange {
+            paths: vec!["/root/file.rs".into()],
+            kind: FsChangeKind::Modified,
+            from_app: true,
+        },
+    });
+    assert!(changes.take([]).is_empty());
+    changes.record(&AppEvent::FsChanged {
+        project_id: project.clone(),
+        change: FsChange {
+            paths: (0..OVERFLOW_DIRECTORIES)
+                .map(|index| format!("/root/dir-{index}/file.rs"))
+                .collect(),
+            kind: FsChangeKind::Renamed,
+            from_app: false,
+        },
+    });
+    assert!(changes.take([]).remove(&project).unwrap().is_none());
+    let tick = WatchNotification::Changes(vec![FsChange {
+        paths: vec![
+            "/root/.git/index".into(),
+            "/root/.git/refs/heads/main".into(),
+            "/root/.git/objects/a/b".into(),
+        ],
+        kind: FsChangeKind::Modified,
+        from_app: false,
+    }]);
+    assert_eq!(git_invalidation(&tick), (true, true));
+    assert_eq!(
+        git_invalidation(&WatchNotification::RescanRequired),
+        (true, true)
+    );
+    assert_eq!(
+        git_invalidation(&WatchNotification::Changes(Vec::new())),
+        (false, false)
+    );
+}

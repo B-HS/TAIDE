@@ -1,0 +1,4 @@
+{
+    "extends": "../../tsconfig.json",
+    "include": ["app/**/*.tsx", "../../tools/m8-terminal-menu-source-measure.ts"]
+}

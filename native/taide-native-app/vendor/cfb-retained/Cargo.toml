@@ -1,0 +1,19 @@
+[package]
+name = "cfb"
+version = "0.14.0"
+edition = "2018"
+rust-version = "1.74"
+license = "MIT"
+repository = "https://github.com/mdsteele/rust-cfb"
+publish = false
+
+[workspace]
+
+[dependencies]
+fnv = "1.0"
+uuid = "1"
+web-time = "1"
+taide-native-retained = { path = "../../../taide-native-retained", optional = true }
+
+[features]
+native-retained = ["dep:taide-native-retained"]

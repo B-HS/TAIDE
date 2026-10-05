@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>TAIDE isolated Rust Settings probe</title>
+        <style>
+            html,
+            body {
+                margin: 0;
+                width: 100%;
+                height: 100%;
+            }
+            body {
+                display: flex;
+                flex-direction: column;
+            }
+            canvas {
+                width: 100%;
+                flex: 1;
+                min-height: 0;
+                display: block;
+            }
+        </style>
+    </head>
+    <body>
+        <canvas id="canvas"></canvas>
+        <button id="unmount" type="button">Unmount Settings</button>
+        <button id="mount" type="button">Mount Settings</button>
+        <button id="close" type="button">Close Settings</button>
+        <button id="cancel" type="button">Cancel close</button>
+        <button id="drop" type="button">Drop</button>
+        <pre id="state">{}</pre>
+        <script type="module">
+            import init, { ApplicationProbe, SettingsProbe } from '/probe.js'
+            await init()
+            for (const [path, body] of [
+                ['settings', ApplicationProbe.default_settings()],
+                ['theme', SettingsProbe.default_theme()],
+            ]) {
+                const response = await fetch(`/__fixture/${path}`, { method: 'POST', body })
+                if (!response.ok) throw new Error('Synthetic Settings setup failed')
+            }
+            let probe = await SettingsProbe.start(document.getElementById('canvas'), new URLSearchParams(window.location.search).has('app-files'))
+            document.getElementById('state').addEventListener('snapshot', () => {
+                document.getElementById('state').textContent = probe.snapshot()
+            })
+            document.getElementById('unmount').addEventListener('click', () => probe.set_mounted(false))
+            document.getElementById('mount').addEventListener('click', () => probe.set_mounted(true))
+            document.getElementById('close').addEventListener('click', () => probe.request_close())
+            document.getElementById('cancel').addEventListener('click', () => probe.cancel_close())
+            document.getElementById('drop').addEventListener('click', () => {
+                probe.free()
+                probe = null
+            })
+            document.getElementById('state').textContent = probe.snapshot()
+            document.getElementById('state').setAttribute('data-ready', 'true')
+        </script>
+    </body>
+</html>
