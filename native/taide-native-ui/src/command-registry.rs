@@ -5,6 +5,7 @@ use serde_json::Value;
 use taide_model::error::{AppError, AppResult};
 use taide_model::ids::{ProjectId, ShellSlotId};
 use taide_model::locale::ResolvedLocale;
+pub use taide_native_editor::folding::FoldCommand;
 
 const CATALOG: &str = include_str!("keybinding-commands.json");
 const EDITOR_ACTION_PREFIX: &str = "monaco.";
@@ -86,6 +87,13 @@ pub enum Run {
     CloseAllTabs,
     ChangeEditorFontSize { increase: bool },
     EditDocument(DocumentEdit),
+    FoldDocument(FoldCommand),
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ActiveEditor {
+    pub is_read_only: bool,
+    pub has_folding: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -230,9 +238,32 @@ fn execution(id: &str, keymap_id: Option<&str>) -> Execution {
         "monaco.deleteAllLeft" => Some(Run::EditDocument(DocumentEdit::DeleteAllLeft)),
         "monaco.editor.action.outdentLines" => Some(Run::EditDocument(DocumentEdit::OutdentLines)),
         "monaco.taide.saveFile" => Some(Run::SaveActiveTab),
-        _ => keymap_id.and_then(keymap_run),
+        _ => id
+            .strip_prefix(EDITOR_ACTION_PREFIX)
+            .and_then(fold_command)
+            .map(Run::FoldDocument)
+            .or_else(|| keymap_id.and_then(keymap_run)),
     };
     run.map_or(Execution::Unavailable, Execution::Native)
+}
+
+fn fold_command(action: &str) -> Option<FoldCommand> {
+    Some(match action {
+        "editor.fold" => FoldCommand::Fold,
+        "editor.unfold" => FoldCommand::Unfold,
+        "editor.toggleFold" => FoldCommand::ToggleFold,
+        "editor.foldRecursively" => FoldCommand::FoldRecursively,
+        "editor.unfoldRecursively" => FoldCommand::UnfoldRecursively,
+        "editor.toggleFoldRecursively" => FoldCommand::ToggleFoldRecursively,
+        "editor.foldAll" => FoldCommand::FoldAll,
+        "editor.unfoldAll" => FoldCommand::UnfoldAll,
+        "editor.foldAllExcept" => FoldCommand::FoldAllExcept,
+        "editor.unfoldAllExcept" => FoldCommand::UnfoldAllExcept,
+        "editor.gotoParentFold" => FoldCommand::GotoParentFold,
+        "editor.gotoPreviousFold" => FoldCommand::GotoPreviousFold,
+        "editor.gotoNextFold" => FoldCommand::GotoNextFold,
+        _ => return None,
+    })
 }
 
 pub fn keymap_run(keymap_id: &str) -> Option<Run> {
@@ -322,13 +353,14 @@ impl Registry {
         self.commands.iter().find(|command| command.id == id)
     }
 
-    pub fn editor_action_ids(&self, is_read_only: bool) -> HashSet<String> {
+    pub fn editor_action_ids(&self, editor: ActiveEditor) -> HashSet<String> {
         self.commands
             .iter()
             .filter_map(|command| {
                 let action = command.editor_action_id()?;
                 match command.execution {
-                    Execution::Native(Run::EditDocument(_)) if is_read_only => None,
+                    Execution::Native(Run::EditDocument(_)) if editor.is_read_only => None,
+                    Execution::Native(Run::FoldDocument(_)) if !editor.has_folding => None,
                     Execution::Native(_) => Some(action.to_owned()),
                     Execution::Unavailable => None,
                 }
@@ -356,6 +388,47 @@ mod tests {
     const COMMAND_COUNT: usize = 212;
     const KEYMAP_COUNT: usize = 41;
     const NATIVE_KEYMAP_COUNT: usize = 34;
+    const FOLD_COMMANDS: [(&str, FoldCommand); 13] = [
+        ("monaco.editor.fold", FoldCommand::Fold),
+        ("monaco.editor.foldAll", FoldCommand::FoldAll),
+        ("monaco.editor.foldAllExcept", FoldCommand::FoldAllExcept),
+        (
+            "monaco.editor.foldRecursively",
+            FoldCommand::FoldRecursively,
+        ),
+        ("monaco.editor.gotoNextFold", FoldCommand::GotoNextFold),
+        ("monaco.editor.gotoParentFold", FoldCommand::GotoParentFold),
+        (
+            "monaco.editor.gotoPreviousFold",
+            FoldCommand::GotoPreviousFold,
+        ),
+        ("monaco.editor.toggleFold", FoldCommand::ToggleFold),
+        (
+            "monaco.editor.toggleFoldRecursively",
+            FoldCommand::ToggleFoldRecursively,
+        ),
+        ("monaco.editor.unfold", FoldCommand::Unfold),
+        ("monaco.editor.unfoldAll", FoldCommand::UnfoldAll),
+        (
+            "monaco.editor.unfoldAllExcept",
+            FoldCommand::UnfoldAllExcept,
+        ),
+        (
+            "monaco.editor.unfoldRecursively",
+            FoldCommand::UnfoldRecursively,
+        ),
+    ];
+    const UNSUPPORTED_FOLD_COMMANDS: [&str; 6] = [
+        "monaco.editor.createFoldingRangeFromSelection",
+        "monaco.editor.foldAllBlockComments",
+        "monaco.editor.foldAllMarkerRegions",
+        "monaco.editor.removeManualFoldingRanges",
+        "monaco.editor.toggleImportFold",
+        "monaco.editor.unfoldAllMarkerRegions",
+    ];
+    const DOCUMENT_ACTIONS: [&str; 2] = ["deleteAllLeft", "editor.action.outdentLines"];
+    const SAVE_ACTION: &str = "taide.saveFile";
+    const FOLDING_CATEGORY: &str = "keymap.category.editorFolding";
     const NATIVE_COMMANDS: [(&str, Run); 35] = [
         ("settings.open", Run::OpenSettingsTab),
         ("app.openSettingsFile", Run::OpenSettingsFile),
@@ -456,7 +529,10 @@ mod tests {
 
     fn editor_context(registry: &Registry, is_read_only: bool) -> CommandContext {
         CommandContext {
-            active_editor_actions: Some(registry.editor_action_ids(is_read_only)),
+            active_editor_actions: Some(registry.editor_action_ids(ActiveEditor {
+                is_read_only,
+                has_folding: false,
+            })),
             ..Default::default()
         }
     }
@@ -538,7 +614,9 @@ mod tests {
                 Execution::Unavailable => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(native, NATIVE_COMMANDS);
+        let fold_commands = FOLD_COMMANDS.map(|(id, command)| (id, Run::FoldDocument(command)));
+        let (before_folds, after_folds) = NATIVE_COMMANDS.split_at(NATIVE_COMMANDS.len() - 1);
+        assert_eq!(native, [before_folds, &fold_commands, after_folds].concat());
         let defaults: Vec<Value> = serde_json::from_str(KEYMAP_DEFAULTS).unwrap();
         assert_eq!(defaults.len(), KEYMAP_COUNT);
         let keymap_ids = defaults
@@ -583,17 +661,67 @@ mod tests {
                 );
             }
         }
+        let fold_actions =
+            FOLD_COMMANDS.map(|(id, _)| id.strip_prefix(EDITOR_ACTION_PREFIX).unwrap());
+        for (is_read_only, has_folding) in
+            [(false, false), (true, false), (false, true), (true, true)]
+        {
+            let expected = [SAVE_ACTION]
+                .into_iter()
+                .chain(DOCUMENT_ACTIONS.into_iter().filter(|_| !is_read_only))
+                .chain(fold_actions.into_iter().filter(|_| has_folding))
+                .map(str::to_owned)
+                .collect::<HashSet<_>>();
+            assert_eq!(
+                registry.editor_action_ids(ActiveEditor {
+                    is_read_only,
+                    has_folding,
+                }),
+                expected,
+                "read only {is_read_only} folding {has_folding}"
+            );
+        }
+    }
+
+    #[test]
+    fn 접기_명령은_접기가_켜진_활성_editor에서만_실행되고_언어_구성이나_수동_범위가_필요한_명령은_실행경로가_없다()
+     {
+        let registry = registry().unwrap();
+        let foldable = CommandContext {
+            active_editor_actions: Some(registry.editor_action_ids(ActiveEditor {
+                is_read_only: true,
+                has_folding: true,
+            })),
+            ..Default::default()
+        };
+        let unfoldable = editor_context(registry, false);
+        for (id, fold) in FOLD_COMMANDS {
+            let command = registry.command(id).unwrap();
+            assert_eq!(
+                command.enablement,
+                Enablement::SupportedEditorAction,
+                "{id}"
+            );
+            assert_eq!(
+                command.runnable(&foldable),
+                Some(Run::FoldDocument(fold)),
+                "{id}"
+            );
+            assert!(!command.is_runnable(&unfoldable), "{id}");
+            assert!(!command.is_runnable(&CommandContext::default()), "{id}");
+        }
+        for id in UNSUPPORTED_FOLD_COMMANDS {
+            let command = registry.command(id).unwrap();
+            assert_eq!(command.execution, Execution::Unavailable, "{id}");
+            assert!(!command.is_runnable(&foldable), "{id}");
+        }
         assert_eq!(
-            registry.editor_action_ids(false),
-            HashSet::from([
-                "deleteAllLeft".to_owned(),
-                "editor.action.outdentLines".to_owned(),
-                "taide.saveFile".to_owned(),
-            ])
-        );
-        assert_eq!(
-            registry.editor_action_ids(true),
-            HashSet::from(["taide.saveFile".to_owned()])
+            registry
+                .commands()
+                .iter()
+                .filter(|command| command.category_key.as_deref() == Some(FOLDING_CATEGORY))
+                .count(),
+            FOLD_COMMANDS.len() + UNSUPPORTED_FOLD_COMMANDS.len()
         );
     }
 

@@ -10,7 +10,9 @@ use taide_native_ui::commands::ShellIntent;
 use taide_native_ui::shell::WindowScope;
 use taide_native_ui::snapshot::ShellSnapshot;
 
-use crate::command_registry::{CommandContext, DocumentEdit, Run, WindowKind, registry};
+use crate::command_registry::{
+    ActiveEditor, CommandContext, DocumentEdit, FoldCommand, Run, WindowKind, registry,
+};
 
 pub(crate) fn active_editor_actions(
     store: &EditorStore,
@@ -18,11 +20,10 @@ pub(crate) fn active_editor_actions(
 ) -> Option<HashSet<String>> {
     let view = store.views().get(store.views().find(focused_view?)?)?;
     let document = store.documents().snapshot(view.document).ok()?;
-    Some(
-        registry()
-            .ok()?
-            .editor_action_ids(document.metadata.read_only),
-    )
+    Some(registry().ok()?.editor_action_ids(ActiveEditor {
+        is_read_only: document.metadata.read_only,
+        has_folding: taide_native_ui::presentation::editor_folding(document.metadata.tier),
+    }))
 }
 
 pub(crate) fn context(
@@ -66,6 +67,16 @@ pub(crate) fn intent(
         return crate::shell_keymap::action(id, snapshot);
     }
     crate::shell_keymap::intent(command_run(id, context)?, snapshot)
+}
+
+pub(crate) fn take_fold_commands(
+    tab: &TabId,
+    pending: &mut Vec<(TabId, FoldCommand)>,
+) -> Vec<FoldCommand> {
+    pending
+        .extract_if(.., |(owner, _)| owner == tab)
+        .map(|(_, command)| command)
+        .collect()
 }
 
 pub(crate) fn apply_document_edits(
@@ -163,11 +174,45 @@ mod tests {
         "toggle-zen-mode",
     ];
 
-    fn editor_context(is_read_only: bool) -> CommandContext {
+    const FOLD_ACTIONS: [(&str, FoldCommand); 13] = [
+        ("editor.fold", FoldCommand::Fold),
+        ("editor.unfold", FoldCommand::Unfold),
+        ("editor.toggleFold", FoldCommand::ToggleFold),
+        ("editor.foldRecursively", FoldCommand::FoldRecursively),
+        ("editor.unfoldRecursively", FoldCommand::UnfoldRecursively),
+        (
+            "editor.toggleFoldRecursively",
+            FoldCommand::ToggleFoldRecursively,
+        ),
+        ("editor.foldAll", FoldCommand::FoldAll),
+        ("editor.unfoldAll", FoldCommand::UnfoldAll),
+        ("editor.foldAllExcept", FoldCommand::FoldAllExcept),
+        ("editor.unfoldAllExcept", FoldCommand::UnfoldAllExcept),
+        ("editor.gotoParentFold", FoldCommand::GotoParentFold),
+        ("editor.gotoPreviousFold", FoldCommand::GotoPreviousFold),
+        ("editor.gotoNextFold", FoldCommand::GotoNextFold),
+    ];
+    const UNSUPPORTED_FOLD_COMMANDS: [&str; 6] = [
+        "monaco.editor.createFoldingRangeFromSelection",
+        "monaco.editor.foldAllBlockComments",
+        "monaco.editor.foldAllMarkerRegions",
+        "monaco.editor.removeManualFoldingRanges",
+        "monaco.editor.toggleImportFold",
+        "monaco.editor.unfoldAllMarkerRegions",
+    ];
+
+    fn editor_actions(is_read_only: bool, has_folding: bool) -> CommandContext {
         CommandContext {
-            active_editor_actions: Some(registry().unwrap().editor_action_ids(is_read_only)),
+            active_editor_actions: Some(registry().unwrap().editor_action_ids(ActiveEditor {
+                is_read_only,
+                has_folding,
+            })),
             ..Default::default()
         }
+    }
+
+    fn editor_context(is_read_only: bool) -> CommandContext {
+        editor_actions(is_read_only, true)
     }
 
     #[test]
@@ -218,6 +263,21 @@ mod tests {
             true,
             &editor_context(true)
         ));
+        for (action, _) in FOLD_ACTIONS {
+            let fold = format!("monaco.{action}");
+            assert!(!accepts(&fold, true, &context), "{fold}");
+            assert!(accepts(&fold, true, &editor_context(true)), "{fold}");
+            assert!(
+                !accepts(&fold, true, &editor_actions(false, false)),
+                "{fold}"
+            );
+        }
+        for unsupported in UNSUPPORTED_FOLD_COMMANDS {
+            assert!(
+                !accepts(unsupported, true, &editor_context(false)),
+                "{unsupported}"
+            );
+        }
         assert!(!accepts(
             "view.toggleZenMode",
             true,
@@ -358,6 +418,18 @@ mod tests {
                 Some(ShellIntent::RequestSaveTab(tab)) if tab == editor.id
             ));
         }
+        for (action, expected) in FOLD_ACTIONS {
+            let fold = format!("monaco.{action}");
+            assert!(
+                matches!(
+                    intent(&fold, &writable, &snapshot),
+                    Some(ShellIntent::FoldDocument { tab, command })
+                        if tab == editor.id && command == expected
+                ),
+                "{fold}"
+            );
+            assert!(intent(&fold, &main, &snapshot).is_none(), "{fold}");
+        }
         let mut terminal_active = snapshot.clone();
         let PaneNode::Leaf { active, .. } =
             &mut terminal_active.layouts.get_mut(&project).unwrap().root
@@ -369,6 +441,7 @@ mod tests {
             "monaco.deleteAllLeft",
             "monaco.editor.action.outdentLines",
             "monaco.taide.saveFile",
+            "monaco.editor.toggleFold",
             "save",
         ] {
             assert!(
@@ -402,11 +475,17 @@ mod tests {
         store.attach_view(key.clone(), document).unwrap();
         assert_eq!(
             active_editor_actions(&store, Some(&key)),
-            Some(HashSet::from([
-                "deleteAllLeft".to_owned(),
-                "editor.action.outdentLines".to_owned(),
-                "taide.saveFile".to_owned(),
-            ]))
+            Some(
+                [
+                    "deleteAllLeft",
+                    "editor.action.outdentLines",
+                    "taide.saveFile"
+                ]
+                .into_iter()
+                .chain(FOLD_ACTIONS.map(|(action, _)| action))
+                .map(str::to_owned)
+                .collect()
+            )
         );
         let detached = ViewKey {
             tab: TabId::new(),
@@ -414,6 +493,23 @@ mod tests {
         };
         assert!(active_editor_actions(&store, Some(&detached)).is_none());
         assert!(active_editor_actions(&store, None).is_none());
+    }
+
+    #[test]
+    fn 접기_요청은_대상_탭의_것만_들어온_순서로_꺼내고_다른_탭_요청을_남긴다() {
+        let tab = TabId::new();
+        let other = TabId::new();
+        let mut pending = vec![
+            (tab.clone(), FoldCommand::FoldAll),
+            (other.clone(), FoldCommand::Fold),
+            (tab.clone(), FoldCommand::Unfold),
+        ];
+        assert_eq!(
+            take_fold_commands(&tab, &mut pending),
+            [FoldCommand::FoldAll, FoldCommand::Unfold]
+        );
+        assert_eq!(pending, [(other, FoldCommand::Fold)]);
+        assert!(take_fold_commands(&tab, &mut pending).is_empty());
     }
 
     #[test]

@@ -10,6 +10,7 @@ pub use crate::line_breaks::{WrapSettings, WrappingIndent};
 
 const UTF8_CONTINUATION_MASK: u8 = 0xC0;
 const UTF8_CONTINUATION_TAG: u8 = 0x80;
+const FIRST_HIDEABLE_LINE: usize = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RowSegment {
@@ -18,6 +19,80 @@ pub struct RowSegment {
     pub is_continuation: bool,
     pub indent_columns: u32,
     pub ends_folded: bool,
+}
+
+pub fn merged_line_ranges(
+    ranges: impl IntoIterator<Item = Range<usize>>,
+    line_count: usize,
+) -> Vec<Range<usize>> {
+    let mut sorted: Vec<Range<usize>> = ranges
+        .into_iter()
+        .map(|range| range.start.max(FIRST_HIDEABLE_LINE)..range.end.min(line_count))
+        .filter(|range| range.start < range.end)
+        .collect();
+    sorted.sort_by_key(|range| range.start);
+    let mut merged: Vec<Range<usize>> = Vec::with_capacity(sorted.len());
+    for range in sorted {
+        match merged.last_mut() {
+            Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
+            _ => merged.push(range),
+        }
+    }
+    merged
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+struct HiddenLines {
+    ranges: Vec<Range<usize>>,
+    shown_before: Vec<usize>,
+}
+
+impl HiddenLines {
+    fn new(ranges: Vec<Range<usize>>) -> Self {
+        let mut hidden = 0;
+        let shown_before = ranges
+            .iter()
+            .map(|range| {
+                let shown = range.start - hidden;
+                hidden += range.len();
+                shown
+            })
+            .collect();
+        Self {
+            ranges,
+            shown_before,
+        }
+    }
+
+    fn count(&self) -> usize {
+        self.ranges
+            .last()
+            .zip(self.shown_before.last())
+            .map_or(0, |(range, shown)| range.end - shown)
+    }
+
+    fn containing(&self, line: usize) -> Option<&Range<usize>> {
+        let preceding = self.ranges.partition_point(|range| range.start <= line);
+        self.ranges[..preceding]
+            .last()
+            .filter(|range| line < range.end)
+    }
+
+    fn shown_lines_before(&self, line: usize) -> usize {
+        let preceding = self.ranges.partition_point(|range| range.start < line);
+        match preceding.checked_sub(1) {
+            Some(last) => self.shown_before[last] + line - line.min(self.ranges[last].end),
+            None => line,
+        }
+    }
+
+    fn shown_line(&self, index: usize) -> usize {
+        let preceding = self.shown_before.partition_point(|shown| *shown <= index);
+        match preceding.checked_sub(1) {
+            Some(last) => index + self.ranges[last].end - self.shown_before[last],
+            None => index,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -39,15 +114,17 @@ impl WrappedLines {
                 .collect(),
             first_rows: vec![0],
         };
-        wrapped.number_rows_from(0);
+        wrapped.number_rows_from(0, &HiddenLines::default());
         wrapped
     }
 
-    fn number_rows_from(&mut self, line: usize) {
+    fn number_rows_from(&mut self, line: usize, hidden: &HiddenLines) {
         self.first_rows.truncate(line + 1);
         let mut next = self.first_rows[line];
-        for data in &self.breaks[line..] {
-            next += data.as_ref().map_or(1, |data| data.break_offsets.len());
+        for (index, data) in self.breaks.iter().enumerate().skip(line) {
+            if hidden.containing(index).is_none() {
+                next += data.as_ref().map_or(1, |data| data.break_offsets.len());
+            }
             self.first_rows.push(next);
         }
     }
@@ -65,7 +142,7 @@ impl WrappedLines {
         (line, row - self.first_rows[line])
     }
 
-    fn update(&mut self, rope: &Rope) {
+    fn update(&mut self, rope: &Rope) -> usize {
         let shorter = self.rope.len_bytes().min(rope.len_bytes());
         let mut prefix = shared_bytes(self.rope.chunks(), rope.chunks(), shorter, false);
         while prefix > 0 && is_continuation_byte(&self.rope, prefix) {
@@ -95,7 +172,7 @@ impl WrappedLines {
             .collect();
         self.breaks.splice(replaced, replacement);
         self.rope = rope.clone();
-        self.number_rows_from(first);
+        first
     }
 }
 
@@ -164,6 +241,7 @@ pub struct DisplayMap {
     line_count: usize,
     revision: u64,
     wrapped: Option<WrappedLines>,
+    hidden: HiddenLines,
 }
 
 impl DisplayMap {
@@ -172,6 +250,7 @@ impl DisplayMap {
             line_count,
             revision,
             wrapped: None,
+            hidden: HiddenLines::default(),
         }
     }
 
@@ -180,6 +259,7 @@ impl DisplayMap {
             line_count: document.rope.len_lines(),
             revision: document.revision,
             wrapped: wrap.map(|settings| WrappedLines::new(&document.rope, settings)),
+            hidden: HiddenLines::default(),
         }
     }
 
@@ -187,11 +267,43 @@ impl DisplayMap {
         if self.revision == document.revision {
             return;
         }
+        let previous = std::mem::take(&mut self.hidden);
         if let Some(wrapped) = &mut self.wrapped {
-            wrapped.update(&document.rope);
+            let changed = wrapped.update(&document.rope);
+            let renumbered = previous
+                .ranges
+                .first()
+                .map_or(changed, |range| changed.min(range.start));
+            wrapped.number_rows_from(renumbered, &self.hidden);
         }
         self.line_count = document.rope.len_lines();
         self.revision = document.revision;
+    }
+
+    pub fn set_hidden_lines(&mut self, hidden: &[Range<usize>]) -> bool {
+        let ranges = merged_line_ranges(hidden.iter().cloned(), self.line_count);
+        if ranges == self.hidden.ranges {
+            return false;
+        }
+        let renumbered = [self.hidden.ranges.first(), ranges.first()]
+            .into_iter()
+            .flatten()
+            .map(|range| range.start)
+            .min()
+            .unwrap_or(0);
+        self.hidden = HiddenLines::new(ranges);
+        if let Some(wrapped) = &mut self.wrapped {
+            wrapped.number_rows_from(renumbered, &self.hidden);
+        }
+        true
+    }
+
+    pub fn hidden_lines(&self) -> &[Range<usize>] {
+        &self.hidden.ranges
+    }
+
+    pub fn hidden_lines_at(&self, line: usize) -> Option<Range<usize>> {
+        self.hidden.containing(line).cloned()
     }
 
     pub fn revision(&self) -> u64 {
@@ -203,16 +315,20 @@ impl DisplayMap {
     }
 
     pub fn row_count(&self) -> usize {
-        self.wrapped
-            .as_ref()
-            .map_or(self.line_count, WrappedLines::row_count)
+        self.wrapped.as_ref().map_or(
+            self.line_count - self.hidden.count(),
+            WrappedLines::row_count,
+        )
     }
 
     pub fn rows_of_line(&self, line: usize) -> Range<usize> {
         let line = line.min(self.line_count.saturating_sub(1));
         match &self.wrapped {
             Some(wrapped) => wrapped.first_rows[line]..wrapped.first_rows[line + 1],
-            None => line..line + 1,
+            None => {
+                let first = self.hidden.shown_lines_before(line);
+                first..first + usize::from(self.hidden.containing(line).is_none())
+            }
         }
     }
 
@@ -231,24 +347,27 @@ impl DisplayMap {
 
     pub fn segment(&self, document: &DocumentSnapshot, row: usize) -> RowSegment {
         let Some(wrapped) = &self.wrapped else {
-            let line = row.min(self.line_count.saturating_sub(1));
+            let line = self
+                .hidden
+                .shown_line(row.min(self.row_count().saturating_sub(1)));
             return RowSegment {
                 line,
                 bytes: line_content_range(document, line),
                 is_continuation: false,
                 indent_columns: 0,
-                ends_folded: false,
+                ends_folded: self.hidden.containing(line + 1).is_some(),
             };
         };
         let (line, index) = wrapped.locate(row);
         let content = line_content_range(document, line);
+        let heads_hidden_lines = self.hidden.containing(line + 1).is_some();
         let Some(data) = &wrapped.breaks[line] else {
             return RowSegment {
                 line,
                 bytes: content,
                 is_continuation: false,
                 indent_columns: 0,
-                ends_folded: false,
+                ends_folded: heads_hidden_lines,
             };
         };
         let is_continuation = index > 0;
@@ -265,7 +384,7 @@ impl DisplayMap {
             } else {
                 0
             },
-            ends_folded: false,
+            ends_folded: heads_hidden_lines && index + 1 == data.break_offsets.len(),
         }
     }
 
@@ -273,8 +392,11 @@ impl DisplayMap {
         let line = document
             .rope
             .byte_to_line(byte.min(document.rope.len_bytes()));
+        if let Some(hidden) = self.hidden.containing(line) {
+            return self.rows_of_line(hidden.start - 1).end - 1;
+        }
         let Some(wrapped) = &self.wrapped else {
-            return line;
+            return self.hidden.shown_lines_before(line);
         };
         let line = line.min(self.line_count.saturating_sub(1));
         let first = wrapped.first_rows[line];

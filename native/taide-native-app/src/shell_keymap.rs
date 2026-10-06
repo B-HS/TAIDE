@@ -201,6 +201,10 @@ pub(crate) fn intent(run: Run, snapshot: &ShellSnapshot) -> Option<ShellIntent> 
             tab: tab.id.clone(),
             edit,
         }),
+        Run::FoldDocument(command) if has_document => Some(ShellIntent::FoldDocument {
+            tab: tab.id.clone(),
+            command,
+        }),
         Run::CloseTab => Some(ShellIntent::RequestCloseTab(tab.id.clone())),
         Run::Split => Some(ShellIntent::Mutate(ShellMutation::SplitTab {
             pane: layout.focused_pane.clone(),

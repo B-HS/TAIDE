@@ -13,6 +13,7 @@ use crate::document::{
     DiskChoice, DiskSnapshot, DocumentId, DocumentKey, DocumentMetadata, DocumentSnapshot, Edit,
     EditorError, UndoGroup, apply_edits, byte_to_char,
 };
+use crate::folding::tracked_folds;
 use crate::view::{
     Composition, EditRun, GoalColumns, ScrollPosition, SelectionSet, ViewId, ViewKey, ViewState,
     WrapAffinities,
@@ -81,6 +82,23 @@ struct Document {
     syntax_tokens: Option<crate::syntax::SyntaxSnapshot>,
     observed_disk: Option<DiskSnapshot>,
     journal: ChangeJournal,
+}
+
+fn tracked_view_folds(
+    journal: &ChangeJournal,
+    (revision_before, revision_after): (u64, u64),
+    (before, after): (&Rope, &Rope),
+    folds: &[std::ops::Range<usize>],
+) -> Vec<std::ops::Range<usize>> {
+    if folds.is_empty() {
+        return Vec::new();
+    }
+    let ChangesSince::Tracked(mut changes) = journal.since(revision_before, revision_after) else {
+        return Vec::new();
+    };
+    changes.next_back().map_or_else(Vec::new, |change| {
+        tracked_folds(before, after, change, folds)
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1289,10 +1307,11 @@ impl EditorStore {
                 owner.undo.pop_front();
             }
         }
+        let revisions = (owner.revision, next_revision);
         owner
             .journal
-            .record_edits((owner.revision, next_revision), &owner.rope, &after, &edits);
-        owner.rope = after;
+            .record_edits(revisions, &owner.rope, &after, &edits);
+        let before = std::mem::replace(&mut owner.rope, after);
         owner.revision = next_revision;
         owner.requires_save = true;
         owner.syntax_tokens = None;
@@ -1308,24 +1327,12 @@ impl EditorStore {
                 .remove(&view.id)
                 .ok_or(EditorError::NotFound)?;
             view.composition = None;
-            let fold_set = SelectionSet {
-                primary: 0,
-                selections: view
-                    .folds
-                    .iter()
-                    .map(|fold| crate::view::Selection {
-                        anchor: fold.start,
-                        head: fold.end,
-                    })
-                    .collect(),
-            }
-            .mapped(&edits);
-            view.folds = fold_set
-                .selections
-                .into_iter()
-                .filter(|selection| selection.anchor < selection.head)
-                .map(|selection| selection.anchor..selection.head)
-                .collect();
+            view.folds = tracked_view_folds(
+                &owner.journal,
+                revisions,
+                (&before, &owner.rope),
+                &view.folds,
+            );
         }
         Ok(next_revision)
     }
@@ -1364,6 +1371,10 @@ impl EditorStore {
         } else {
             (&entry.before, &entry.before_selections)
         };
+        let revisions = (owner.revision, revision);
+        owner
+            .journal
+            .record_replacement(revisions, &owner.rope, text);
         for view in self
             .views
             .views
@@ -1375,11 +1386,9 @@ impl EditorStore {
                 .cloned()
                 .unwrap_or_else(|| view.selection.clamped(text));
             view.composition = None;
-            view.folds.clear();
+            view.folds =
+                tracked_view_folds(&owner.journal, revisions, (&owner.rope, text), &view.folds);
         }
-        owner
-            .journal
-            .record_replacement((owner.revision, revision), &owner.rope, text);
         owner.rope = text.clone();
         owner.revision = revision;
         owner.requires_save = true;

@@ -56,6 +56,11 @@ const HUGE_LINES: usize = 300_000;
 const LARGE_WRAP_COLUMN: u32 = 100;
 const LARGE_LONG_LINE_INTERVAL: usize = 10;
 const LARGE_LONG_LINE_ARGUMENTS: usize = 20;
+const MIXED_LINES: usize = 7;
+const HIDDEN_LINES: [std::ops::Range<usize>; 2] = [1..3, 4..6];
+const HIDDEN_EDIT_ROUNDS: usize = 150;
+const HIDDEN_RANGE_COUNT: usize = 3;
+const LONGEST_HIDDEN_RANGE: usize = 3;
 
 struct Random(u64);
 
@@ -391,6 +396,161 @@ fn wrap_갱신은_연속된_편집과_undo_redo_뒤에_전체를_다시_계산�
                 "wrap {wrap_column} round {round}"
             );
             assert_eq!(identity, DisplayMap::build(&document, None));
+        }
+    }
+}
+
+#[test]
+fn 숨김_줄과_wrap이_함께_있으면_보이는_줄만_표시_줄을_가지고_숨김_줄의_바이트는_머리_줄의_마지막_표시_줄로_돌아온다()
+ {
+    let document = snapshot(MIXED_CONTENT);
+    let line_count = document.rope.len_lines();
+    assert_eq!(line_count, MIXED_LINES);
+    for wrap_column in WRAP_COLUMNS.map(Some).into_iter().chain([None]) {
+        let unhidden = DisplayMap::build(&document, wrap_column.map(wrap));
+        let mut map = unhidden.clone();
+        assert!(map.hidden_lines().is_empty());
+        assert!(map.set_hidden_lines(&HIDDEN_LINES));
+        assert!(!map.set_hidden_lines(&HIDDEN_LINES));
+        assert_eq!(map.hidden_lines(), HIDDEN_LINES);
+        let is_hidden = |line: usize| HIDDEN_LINES.iter().any(|lines| lines.contains(&line));
+        let mut next_row = 0;
+        for line in 0..line_count {
+            let rows = map.rows_of_line(line);
+            let content = line_content_range(&document, line);
+            assert_eq!(rows.start, next_row, "wrap {wrap_column:?} line {line}");
+            if is_hidden(line) {
+                assert!(rows.is_empty());
+                assert_eq!(
+                    map.hidden_lines_at(line),
+                    HIDDEN_LINES
+                        .iter()
+                        .find(|lines| lines.contains(&line))
+                        .cloned()
+                );
+                for byte in content.start..=content.end {
+                    assert_eq!(map.row_of_byte(&document, byte), next_row - 1);
+                    assert_eq!(map.row_of_head(&document, byte, true), next_row - 1);
+                }
+                continue;
+            }
+            assert_eq!(map.hidden_lines_at(line), None);
+            assert_eq!(rows.len(), unhidden.rows_of_line(line).len());
+            next_row = rows.end;
+            let mut covered = content.start;
+            for row in rows.clone() {
+                let segment = map.segment(&document, row);
+                let unhidden_row = unhidden.rows_of_line(line).start + row - rows.start;
+                assert_eq!(
+                    segment,
+                    RowSegment {
+                        ends_folded: row + 1 == rows.end && is_hidden(line + 1),
+                        ..unhidden.segment(&document, unhidden_row)
+                    }
+                );
+                assert_eq!(
+                    map.row_start_column(row),
+                    unhidden.row_start_column(unhidden_row)
+                );
+                assert_eq!(segment.bytes.start, covered);
+                covered = segment.bytes.end;
+                let slice = document.rope.byte_slice(segment.bytes.clone());
+                for byte in (0..=slice.len_chars())
+                    .map(|character| segment.bytes.start + slice.char_to_byte(character))
+                {
+                    let downstream = if byte == segment.bytes.end && row + 1 < rows.end {
+                        row + 1
+                    } else {
+                        row
+                    };
+                    assert_eq!(map.row_of_byte(&document, byte), downstream);
+                }
+            }
+            assert_eq!(covered, content.end);
+        }
+        assert_eq!(next_row, map.row_count());
+        assert_eq!(
+            map.segment(&document, map.row_count()),
+            map.segment(&document, map.row_count() - 1)
+        );
+        assert!(map.set_hidden_lines(&[]));
+        assert_eq!(map, unhidden);
+    }
+}
+
+#[test]
+fn 숨김_줄_범위는_첫_줄을_빼고_문서_안으로_자른_뒤_겹치거나_맞닿은_범위를_합친다() {
+    let document = snapshot(MIXED_CONTENT);
+    for wrap_column in [Some(WRAP_COLUMN), None] {
+        let mut map = DisplayMap::build(&document, wrap_column.map(wrap));
+        let rows = map.row_count();
+        assert!(!map.set_hidden_lines(&[3..3, 0..1, MIXED_LINES..MIXED_LINES + 2]));
+        assert_eq!(map.row_count(), rows);
+        assert!(map.set_hidden_lines(&[5..MIXED_LINES + 2, 0..2, 1..3, 3..4]));
+        assert_eq!(map.hidden_lines(), [1..4, 5..MIXED_LINES]);
+        assert_eq!(map.rows_of_line(0).len(), rows_of(&map, &document, 0));
+        assert_eq!(map.segment(&document, map.row_count() - 1).line, 4);
+        assert!(map.segment(&document, map.row_count() - 1).ends_folded);
+        assert_eq!(
+            map.row_of_byte(&document, document.rope.len_bytes()),
+            map.row_count() - 1
+        );
+    }
+}
+
+fn rows_of(map: &DisplayMap, document: &DocumentSnapshot, line: usize) -> usize {
+    (0..map.row_count())
+        .filter(|row| map.segment(document, *row).line == line)
+        .count()
+}
+
+#[test]
+fn 숨김_줄은_문서가_바뀌면_지워지고_다시_주면_처음부터_계산한_결과와_같다() {
+    for wrap_column in [Some(5), Some(20), None] {
+        let (mut store, id) = opened(MIXED_CONTENT, LARGE_BYTE_LIMIT);
+        let settings = wrap_column.map(wrap);
+        let mut map = DisplayMap::build(&store.documents().snapshot(id).unwrap(), settings);
+        let mut random = Random(RANDOM_SEED);
+        for round in 0..HIDDEN_EDIT_ROUNDS {
+            let document = store.documents().snapshot(id).unwrap();
+            let boundary =
+                |byte: usize| document.rope.char_to_byte(document.rope.byte_to_char(byte));
+            let length = document.rope.len_bytes();
+            let start = boundary(random.below(length + 1));
+            let end = boundary((start + random.below(LONGEST_DELETION + 1)).min(length));
+            replace(
+                &mut store,
+                id,
+                start..end,
+                INSERTIONS[random.below(INSERTIONS.len())],
+            );
+            let document = store.documents().snapshot(id).unwrap();
+            let line_count = document.rope.len_lines();
+            let hidden: Vec<std::ops::Range<usize>> = (0..HIDDEN_RANGE_COUNT)
+                .map(|_| {
+                    let first = random.below(line_count + 1);
+                    first..first + random.below(LONGEST_HIDDEN_RANGE + 1)
+                })
+                .collect();
+            map.refresh(&document);
+            assert_eq!(
+                map,
+                DisplayMap::build(&document, settings),
+                "wrap {wrap_column:?} round {round}"
+            );
+            map.set_hidden_lines(&hidden);
+            let mut rebuilt = DisplayMap::build(&document, settings);
+            rebuilt.set_hidden_lines(&hidden);
+            assert_eq!(map, rebuilt, "wrap {wrap_column:?} round {round}");
+            let shown: usize = (0..line_count)
+                .map(|line| map.rows_of_line(line).len())
+                .sum();
+            assert_eq!(map.row_count(), shown);
+            for row in 0..map.row_count() {
+                let segment = map.segment(&document, row);
+                assert!(map.rows_of_line(segment.line).contains(&row));
+                assert_eq!(map.hidden_lines_at(segment.line), None);
+            }
         }
     }
 }

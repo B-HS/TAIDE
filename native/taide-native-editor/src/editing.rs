@@ -1,5 +1,6 @@
 use std::ops::Range;
 
+use ropey::Rope;
 use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete, UnicodeSegmentation};
 
 use crate::display_map::{DisplayMap, RowSegment};
@@ -583,6 +584,22 @@ fn line_start_target(document: &DocumentSnapshot, head: usize) -> usize {
     }
 }
 
+fn shown_offset(
+    document: &DocumentSnapshot,
+    display: &DisplayMap,
+    offset: usize,
+    forward: bool,
+) -> usize {
+    let Some(hidden) = display.hidden_lines_at(document.rope.byte_to_line(offset)) else {
+        return offset;
+    };
+    if forward && hidden.end < document.rope.len_lines() {
+        document.rope.line_to_byte(hidden.end)
+    } else {
+        line_content_range(document, hidden.start - 1).end
+    }
+}
+
 fn row_start_target(
     document: &DocumentSnapshot,
     display: &DisplayMap,
@@ -803,7 +820,10 @@ pub fn grapheme_boundary(
 }
 
 pub fn line_content_range(document: &DocumentSnapshot, line: usize) -> Range<usize> {
-    let rope = &document.rope;
+    rope_line_content_range(&document.rope, line)
+}
+
+pub(crate) fn rope_line_content_range(rope: &Rope, line: usize) -> Range<usize> {
     let line = line.min(rope.len_lines() - 1);
     let start = rope.line_to_byte(line);
     let start_char = rope.line_to_char(line);
@@ -902,17 +922,36 @@ fn move_selection_across(
         .iter()
         .enumerate()
         .map(|(index, selection)| {
-            let head = selection.head;
+            let head = shown_offset(&document, display, selection.head, false);
             let range = ordered(selection);
             let collapses = !extend && !range.is_empty();
             let head_at_row_end = current.head_at_row_end(index, document.revision);
             let head_row = display.row_of_head(&document, head, head_at_row_end);
             let (target, at_row_end) = match motion {
-                Motion::Left if collapses => (range.start, range.start == head && head_at_row_end),
-                Motion::Right if collapses => (range.end, range.end == head && head_at_row_end),
-                Motion::Left => (grapheme_boundary(&document, head, false)?, false),
+                Motion::Left if collapses => {
+                    let start = shown_offset(&document, display, range.start, false);
+                    (start, start == head && head_at_row_end)
+                }
+                Motion::Right if collapses => {
+                    let end = shown_offset(&document, display, range.end, false);
+                    (end, end == head && head_at_row_end)
+                }
+                Motion::Left => (
+                    shown_offset(
+                        &document,
+                        display,
+                        grapheme_boundary(&document, head, false)?,
+                        false,
+                    ),
+                    false,
+                ),
                 Motion::Right => {
-                    let target = grapheme_boundary(&document, head, true)?;
+                    let target = shown_offset(
+                        &document,
+                        display,
+                        grapheme_boundary(&document, head, true)?,
+                        true,
+                    );
                     let row = display.row_of_byte(&document, head);
                     (
                         target,

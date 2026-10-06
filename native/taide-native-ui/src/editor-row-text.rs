@@ -40,11 +40,18 @@ pub struct RowTokens<'a> {
     pub row_start_byte: usize,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct RowInlineStyle {
+    pub foreground: Option<Color32>,
+    pub underline: Option<Color32>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct RowText {
     pub text: String,
     pub sections: Vec<RowSection>,
     pub font_styles: Vec<RowFontStyle>,
+    pub underline_colors: Vec<Option<Color32>>,
     pub model_bytes: Vec<u32>,
     pub indent_chars: usize,
 }
@@ -91,6 +98,7 @@ impl RowText {
                 foreground,
             }],
             font_styles: vec![RowFontStyle::default()],
+            underline_colors: vec![None],
             text,
             model_bytes,
             indent_chars,
@@ -150,8 +158,46 @@ impl RowText {
             });
             font_styles.push(font_style);
         }
+        self.underline_colors = vec![None; sections.len()];
         self.sections = sections;
         self.font_styles = font_styles;
+    }
+
+    pub fn decorate(&mut self, chars: Range<usize>, style: RowInlineStyle) {
+        if chars.is_empty() {
+            return;
+        }
+        self.font_styles
+            .resize(self.sections.len(), RowFontStyle::default());
+        self.underline_colors.resize(self.sections.len(), None);
+        self.split_section(chars.start);
+        self.split_section(chars.end);
+        let decorated = self
+            .sections
+            .iter_mut()
+            .zip(&mut self.underline_colors)
+            .filter(|(section, _)| {
+                chars.start <= section.chars.start && section.chars.end <= chars.end
+            });
+        for (section, underline) in decorated {
+            section.foreground = style.foreground.unwrap_or(section.foreground);
+            *underline = style.underline.or(*underline);
+        }
+    }
+
+    fn split_section(&mut self, display_char: usize) {
+        let Some(index) = self.sections.iter().position(|section| {
+            section.chars.start < display_char && display_char < section.chars.end
+        }) else {
+            return;
+        };
+        let mut tail = self.sections[index].clone();
+        tail.chars.start = display_char;
+        self.sections[index].chars.end = display_char;
+        self.sections.insert(index + 1, tail);
+        self.font_styles.insert(index + 1, self.font_styles[index]);
+        self.underline_colors
+            .insert(index + 1, self.underline_colors[index]);
     }
 
     pub fn layout_job(&self, font: &FontId) -> LayoutJob {
@@ -187,12 +233,16 @@ impl RowText {
                             Stroke::NONE
                         }
                     };
+                    let underline = self.underline_colors.get(index).copied().flatten();
                     LayoutSection {
                         leading_space: 0.0,
                         byte_range: text_byte(section.chars.start)..text_byte(section.chars.end),
                         format: TextFormat {
                             italics: font_style.is_italic,
-                            underline: decoration(font_style.is_underlined),
+                            underline: underline.map_or_else(
+                                || decoration(font_style.is_underlined),
+                                |color| Stroke::new(TEXT_DECORATION_STROKE, color),
+                            ),
                             strikethrough: decoration(font_style.is_struck_through),
                             ..TextFormat::simple(
                                 match bold_family.filter(|_| font_style.is_bold) {

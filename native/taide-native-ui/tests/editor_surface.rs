@@ -1,26 +1,39 @@
-use egui::epaint::{ClippedShape, Shape};
+use egui::epaint::{ClippedShape, ColorMode, PathShape, Shape};
 use egui::os::OperatingSystem;
 use egui::text::{CCursor, LayoutJob};
 use egui::{
     Color32, Context, Event, FontDefinitions, FontFamily, FontId, ImeEvent, Key, Modifiers,
-    MouseWheelUnit, OutputCommand, PointerButton, Pos2, RawInput, Rect, Stroke, TouchPhase, Vec2,
-    pos2, vec2,
+    MouseWheelUnit, OutputCommand, PointerButton, Pos2, RawInput, Rect, Response, Stroke,
+    TouchPhase, Ui, Vec2, pos2, vec2,
 };
 use taide_model::file::{EditorConfigOptions, FileSizeTier, OpenedFile};
 use taide_model::ids::{PaneId, TabId};
 use taide_model::settings::Settings;
+use taide_native_editor::decoration::{
+    Decoration, DecorationKind, DecorationLayer, InlineStyle, LaneMark, Stickiness, Underline,
+    UnderlineKind,
+};
 use taide_native_editor::document::{Edit, EditorError, UndoGroup};
+use taide_native_editor::folding::FoldCommand;
 use taide_native_editor::indent::IndentOptions;
 use taide_native_editor::line_breaks::{WrapSettings, WrappingIndent, create_line_breaks};
 use taide_native_editor::line_tokens::{LineTokens, TokenStyle, TokenStyleTable};
 use taide_native_editor::store::{EditorLimits, EditorStore, Transaction};
 use taide_native_editor::syntax::TokenKind;
 use taide_native_editor::view::{ScrollPosition, Selection, SelectionSet, ViewId, ViewKey};
-use taide_native_ui::editor_row_text::{RowColumns, RowFontStyle, RowSection, RowText, RowTokens};
-use taide_native_ui::editor_surface::{
-    EditorAppearance, EditorDisplayOptions, EditorPresentation, EditorTokens, NativeEditor,
+use taide_native_ui::css_motion::ease;
+use taide_native_ui::editor_geometry::EditorGeometry;
+use taide_native_ui::editor_overlay::{
+    OverlayBounds, OverlayPlacement, OverlayPreference, place_overlay,
 };
-use taide_native_ui::presentation::{editor_presentation, update_editor_font_size};
+use taide_native_ui::editor_row_text::{
+    RowColumns, RowFontStyle, RowInlineStyle, RowSection, RowText, RowTokens,
+};
+use taide_native_ui::editor_surface::{
+    EditorAppearance, EditorDisplayOptions, EditorPresentation, EditorRequest, EditorTokens,
+    FoldControl, NativeEditor,
+};
+use taide_native_ui::presentation::{editor_folding, editor_presentation, update_editor_font_size};
 
 const DOCUMENT_LIMIT: usize = 2;
 const VIEW_LIMIT: usize = 4;
@@ -31,6 +44,9 @@ const SCROLL_LINE: usize = 40_000;
 const FONT_SIZE: f32 = 14.0;
 const LINE_HEIGHT: f32 = 20.0;
 const PADDING: f32 = 8.0;
+const LINE_NUMBERS_MIN_CHARS: usize = 3;
+const LINE_DECORATIONS_WIDTH: f32 = 10.0;
+const FOLDING_CONTROLS_WIDTH: f32 = 16.0;
 const SCREEN: [f32; 2] = [800.0, 200.0];
 const REVEAL_PREFIX: usize = 1000;
 const CENTER_DIVISOR: f32 = 2.0;
@@ -117,83 +133,131 @@ const MIXED_LINE_PREFIX: &str = "\t값😀 = \"한글 𐐀\" ";
 const TOKEN_ROW_SOURCE: &str = "\t값x";
 const TOKEN_ROW_SPLIT: usize = 2;
 const CONTINUED_ROW_START_BYTE: usize = 10;
+const OVERLAY_VIEWPORT: Rect = Rect {
+    min: pos2(100.0, 50.0),
+    max: pos2(500.0, 350.0),
+};
+const OVERLAY_EDITOR: Rect = Rect {
+    min: pos2(300.0, 100.0),
+    max: pos2(700.0, 590.0),
+};
+const OVERLAY_WINDOW: Rect = Rect {
+    min: pos2(0.0, 0.0),
+    max: pos2(1000.0, 600.0),
+};
+const OVERLAY_SIZE: Vec2 = vec2(120.0, 80.0);
+const OVERLAY_TALL_SIZE: Vec2 = vec2(120.0, 200.0);
+const OVERLAY_WIDE_SIZE: Vec2 = vec2(450.0, 80.0);
+const OVERLAY_ANCHOR_LEFT: f32 = 200.0;
+const OVERLAY_ANCHOR_HEIGHT: f32 = 20.0;
+const OVERLAY_SHORTFALL: f32 = 1.0;
+const OVERLAY_PAGE_VERTICAL_PADDING: f32 = 22.0;
+const OVERLAY_PAGE_HORIZONTAL_PADDING: f32 = 15.0;
+const DECORATED_DOCUMENT: &str = "\tab = c;\n값 x\nend";
+const DECORATED_FIRST_ROW: &str = "    ab = c;";
+const DECORATED_ROWS: usize = 3;
+const DECORATION_ADDED: [u8; 4] = [46, 160, 67, 255];
+const DECORATION_DELETED: [u8; 4] = [248, 81, 73, 255];
+const DECORATION_CONFLICT: [u8; 4] = [64, 200, 174, 51];
+const DECORATION_FIND: [u8; 4] = [234, 92, 0, 85];
+const DECORATION_SELECTION_MATCH: [u8; 4] = [173, 214, 255, 38];
+const DECORATION_WARNING: [u8; 4] = [204, 167, 0, 255];
+const DECORATION_BRACKET: [u8; 4] = [255, 215, 0, 255];
+const DECORATION_LINK: [u8; 4] = [79, 193, 255, 255];
+const GUTTER_Z_ORDER: u8 = 0;
+const CONFLICT_Z_ORDER: u8 = 1;
+const FIND_Z_ORDER: u8 = 2;
+const DIAGNOSTICS_Z_ORDER: u8 = 3;
+const LANE_BAR_WIDTH: f32 = 3.0;
+const DELETED_TRIANGLE_WIDTH: f32 = 6.0;
+const DELETED_TRIANGLE_HALF_HEIGHT: f32 = 4.0;
+const SQUIGGLE_PERIOD: f32 = 6.0;
+const SQUIGGLE_HEIGHT: f32 = 3.0;
+const SQUIGGLE_TROUGH_OFFSET: f32 = 1.75;
+const SQUIGGLE_STROKE: f32 = 1.0;
+const SQUIGGLE_TOLERANCE: f32 = 0.001;
+const WRAPPED_DECORATION_TAIL: usize = 5;
+const WRAPPED_DECORATION_ROWS: usize = 2;
+const MANY_LINES: usize = 1200;
+const MANY_LINES_DIGITS: usize = 4;
+const UNTRACKED_REVISION: u64 = u64::MAX;
 const PLAIN_FRAME: &[&str] = &[
     "rect 0.00,0.00..800.00,200.00 fill 000000ff clip 0.00,0.00..800.00,200.00",
     "rect 0.00,0.00..800.00,20.00 fill 606060ff clip 0.00,0.00..800.00,200.00",
-    "line 41.28,0.00 to 41.28,20.00 stroke 1.00 ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"fn main() {\" at 41.28,2.00 size 92.72,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"1\" at 24.84,2.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
-    "text \"    let 값 = \\\"漢字\\\";\" at 41.28,22.00 size 143.28,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"2\" at 24.84,22.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
-    "text \"\" at 41.28,42.00 size 0.00,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"3\" at 24.84,42.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
-    "text \"    // e\\u{301} 𐐀\" at 41.28,62.00 size 84.28,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"4\" at 24.84,62.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
-    "text \"}\" at 41.28,82.00 size 8.44,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"5\" at 24.84,82.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
-    "text \"\" at 41.28,102.00 size 0.00,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"6\" at 24.84,102.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
-    "ime 0.00,0.00..800.00,200.00 cursor 41.28,2.00..41.28,18.00",
+    "line 35.00,0.00 to 35.00,20.00 stroke 1.00 ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"fn main() {\" at 35.00,2.00 size 92.72,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"1\" at 16.56,2.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
+    "text \"    let 값 = \\\"漢字\\\";\" at 35.00,22.00 size 143.28,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"2\" at 16.56,22.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
+    "text \"\" at 35.00,42.00 size 0.00,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"3\" at 16.56,42.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
+    "text \"    // e\\u{301} 𐐀\" at 35.00,62.00 size 84.28,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"4\" at 16.56,62.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
+    "text \"}\" at 35.00,82.00 size 8.44,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"5\" at 16.56,82.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
+    "text \"\" at 35.00,102.00 size 0.00,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"6\" at 16.56,102.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
+    "ime 0.00,0.00..800.00,200.00 cursor 35.00,2.00..35.00,18.00",
     "scroll 0.00,0.00 selection 0..0 preedit None",
 ];
 const SELECTION_FRAME: &[&str] = &[
     "rect 0.00,0.00..800.00,200.00 fill 000000ff clip 0.00,0.00..800.00,200.00",
-    "text \"fn main() {\" at 41.28,2.00 size 92.72,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"1\" at 24.84,2.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
-    "rect 83.28,20.00..800.00,40.00 fill 0000ffff clip 41.28,0.00..800.00,200.00",
-    "text \"    let 값 = \\\"漢字\\\";\" at 41.28,22.00 size 143.28,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"2\" at 24.84,22.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
-    "rect 41.28,40.00..800.00,60.00 fill 0000ffff clip 41.28,0.00..800.00,200.00",
-    "text \"\" at 41.28,42.00 size 0.00,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"3\" at 24.84,42.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
+    "text \"fn main() {\" at 35.00,2.00 size 92.72,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"1\" at 16.56,2.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
+    "rect 77.00,20.00..800.00,40.00 fill 0000ffff clip 35.00,0.00..800.00,200.00",
+    "text \"    let 값 = \\\"漢字\\\";\" at 35.00,22.00 size 143.28,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"2\" at 16.56,22.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
+    "rect 35.00,40.00..800.00,60.00 fill 0000ffff clip 35.00,0.00..800.00,200.00",
+    "text \"\" at 35.00,42.00 size 0.00,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"3\" at 16.56,42.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
     "rect 0.00,60.00..800.00,80.00 fill 606060ff clip 0.00,0.00..800.00,200.00",
-    "rect 41.28,60.00..125.56,80.00 fill 0000ffff clip 41.28,0.00..800.00,200.00",
-    "text \"    // e\\u{301} 𐐀\" at 41.28,62.00 size 84.28,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"4\" at 24.84,62.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
-    "text \"}\" at 41.28,82.00 size 8.44,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"5\" at 24.84,82.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
-    "text \"\" at 41.28,102.00 size 0.00,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"6\" at 24.84,102.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
-    "ime 0.00,0.00..800.00,200.00 cursor 125.56,62.00..125.56,78.00",
+    "rect 35.00,60.00..119.28,80.00 fill 0000ffff clip 35.00,0.00..800.00,200.00",
+    "text \"    // e\\u{301} 𐐀\" at 35.00,62.00 size 84.28,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"4\" at 16.56,62.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
+    "text \"}\" at 35.00,82.00 size 8.44,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"5\" at 16.56,82.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
+    "text \"\" at 35.00,102.00 size 0.00,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"6\" at 16.56,102.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
+    "ime 0.00,0.00..800.00,200.00 cursor 119.28,62.00..119.28,78.00",
     "scroll 0.00,0.00 selection 14..50 preedit None",
 ];
-const REVEALED_VIEW: &str = "scroll 85.16,70.00 selection 148..148 preedit None";
+const REVEALED_VIEW: &str = "scroll 78.88,70.00 selection 148..148 preedit None";
 const SCROLLED_COMPOSITION_TRACE: &[&str] = &[
     "scroll 24.00,130.00 selection 0..0 preedit None",
     "scroll 24.00,130.00 selection 70..70 preedit None",
-    "scroll 85.16,130.00 selection 148..148 preedit None",
+    "scroll 78.88,130.00 selection 148..148 preedit None",
     "rect 0.00,0.00..800.00,200.00 fill 000000ff clip 0.00,0.00..800.00,200.00",
-    "text \"row 6\" at -43.88,-8.00 size 42.16,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"7\" at 24.84,-8.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
-    "text \"row 7\" at -43.88,12.00 size 42.16,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"8\" at 24.84,12.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
+    "text \"row 6\" at -43.88,-8.00 size 42.16,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"7\" at 16.56,-8.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
+    "text \"row 7\" at -43.88,12.00 size 42.16,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"8\" at 16.56,12.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
     "rect 0.00,30.00..800.00,50.00 fill 606060ff clip 0.00,0.00..800.00,200.00",
-    "line 799.00,30.00 to 799.00,50.00 stroke 1.00 ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\" at -43.88,32.00 size 842.88,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"9\" at 24.84,32.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
-    "text \"row 9\" at -43.88,52.00 size 42.16,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"10\" at 16.44,52.00 size 16.84,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
-    "text \"row 10\" at -43.88,72.00 size 50.56,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"11\" at 16.44,72.00 size 16.84,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
-    "text \"row 11\" at -43.88,92.00 size 50.56,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"12\" at 16.44,92.00 size 16.84,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
-    "text \"row 12\" at -43.88,112.00 size 50.56,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"13\" at 16.44,112.00 size 16.84,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
-    "text \"row 13\" at -43.88,132.00 size 50.56,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"14\" at 16.44,132.00 size 16.84,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
-    "text \"row 14\" at -43.88,152.00 size 50.56,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"15\" at 16.44,152.00 size 16.84,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
-    "text \"row 15\" at -43.88,172.00 size 50.56,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"16\" at 16.44,172.00 size 16.84,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
-    "text \"row 16\" at -43.88,192.00 size 50.56,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "text \"17\" at 16.44,192.00 size 16.84,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
-    "rect 799.00,32.00..815.84,48.00 fill 000000ff clip 41.28,0.00..800.00,200.00",
-    "text \"한글\" at 799.00,32.00 size 16.84,16.00 color ffffffff job simple ffffffff clip 41.28,0.00..800.00,200.00",
-    "line 799.00,48.00 to 815.84,48.00 stroke 1.00 ffffffff clip 41.28,0.00..800.00,200.00",
+    "line 799.00,30.00 to 799.00,50.00 stroke 1.00 ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\" at -43.88,32.00 size 842.88,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"9\" at 16.56,32.00 size 8.44,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
+    "text \"row 9\" at -43.88,52.00 size 42.16,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"10\" at 8.16,52.00 size 16.84,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
+    "text \"row 10\" at -43.88,72.00 size 50.56,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"11\" at 8.16,72.00 size 16.84,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
+    "text \"row 11\" at -43.88,92.00 size 50.56,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"12\" at 8.16,92.00 size 16.84,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
+    "text \"row 12\" at -43.88,112.00 size 50.56,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"13\" at 8.16,112.00 size 16.84,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
+    "text \"row 13\" at -43.88,132.00 size 50.56,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"14\" at 8.16,132.00 size 16.84,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
+    "text \"row 14\" at -43.88,152.00 size 50.56,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"15\" at 8.16,152.00 size 16.84,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
+    "text \"row 15\" at -43.88,172.00 size 50.56,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"16\" at 8.16,172.00 size 16.84,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
+    "text \"row 16\" at -43.88,192.00 size 50.56,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "text \"17\" at 8.16,192.00 size 16.84,16.00 color a0a0a0ff job simple a0a0a0ff clip 0.00,0.00..800.00,200.00",
+    "rect 799.00,32.00..815.84,48.00 fill 000000ff clip 35.00,0.00..800.00,200.00",
+    "text \"한글\" at 799.00,32.00 size 16.84,16.00 color ffffffff job simple ffffffff clip 35.00,0.00..800.00,200.00",
+    "line 799.00,48.00 to 815.84,48.00 stroke 1.00 ffffffff clip 35.00,0.00..800.00,200.00",
     "rect 786.00,22.00..800.00,55.00 fill 35353555 clip 0.00,0.00..800.00,200.00",
-    "rect 112.28,188.00..746.28,200.00 fill 35353555 clip 0.00,0.00..800.00,200.00",
+    "rect 102.00,188.00..747.00,200.00 fill 35353555 clip 0.00,0.00..800.00,200.00",
     "ime 0.00,0.00..800.00,200.00 cursor 799.00,32.00..799.00,48.00",
-    "scroll 85.16,130.00 selection 148..148 preedit Some(\"한글\")",
+    "scroll 78.88,130.00 selection 148..148 preedit Some(\"한글\")",
 ];
 
 struct Drawn {
@@ -257,6 +321,15 @@ fn measure_with(context: &Context, text: &str, font: FontId) -> f32 {
     });
     output.textures_delta.clear();
     width
+}
+
+fn line_numbers_width(context: &Context, font: FontId, digits: usize) -> f32 {
+    let digit = measure_with(context, &"0".repeat(ADVANCE_SAMPLE), font) / ADVANCE_SAMPLE as f32;
+    (digits as f32 * digit).round()
+}
+
+fn gutter_width(context: &Context, font: FontId) -> f32 {
+    line_numbers_width(context, font, LINE_NUMBERS_MIN_CHARS) + LINE_DECORATIONS_WIDTH
 }
 
 fn chord(key: Key, modifiers: Modifiers) -> Event {
@@ -535,7 +608,7 @@ fn scrollbar는_가로_scroll을_가장_긴_표시_줄로_제한하고_track_클
     let context = Context::default();
     let widest = measure(&context, &"x".repeat(LONG_LINE)).ceil();
     let beyond = measure(&context, &" ".repeat(SCROLL_BEYOND_LAST_COLUMN));
-    let gutter = measure(&context, "000") + PADDING * 2.0;
+    let gutter = gutter_width(&context, FontId::monospace(FONT_SIZE));
     let viewport = draw(&context, &mut store, view, Vec::new()).viewport;
     let text_width = viewport.width() - gutter;
     let content_width = widest + beyond + VERTICAL_SCROLLBAR_SIZE;
@@ -1523,7 +1596,7 @@ fn 기본_presentation의_show_presented는_기존_show와_같은_화면과_좌�
         &shapes,
         &PLAIN_FRAME[..PLAIN_FRAME.len() - FRAME_STATE_LINES],
     );
-    let gutter = measure(&context, "000") + PADDING * 2.0;
+    let gutter = gutter_width(&context, FontId::monospace(FONT_SIZE));
     let geometry = geometry.unwrap();
     assert_eq!(geometry.rect, viewport);
     assert_eq!(
@@ -1676,7 +1749,7 @@ fn 큰_글꼴에서_줄_상자의_위아래_가장자리_클릭은_클릭한_열
     ));
     let font = surface.appearance.font.clone();
     let line_height = surface.appearance.line_height;
-    let gutter = measure_with(&context, "000", font.clone()) + PADDING * 2.0;
+    let gutter = gutter_width(&context, font.clone());
     let prefix = measure_with(&context, LARGE_CLICK_PREFIX, font);
     let viewport = present(&context, &surface, &mut store, view, Vec::new()).viewport;
     let x = viewport.left() + gutter + prefix + LARGE_CLICK_PAST_BOUNDARY;
@@ -1883,7 +1956,7 @@ fn caret_offset(context: &Context, text: &str, chars: usize) -> f32 {
 fn wrap_columns(context: &Context, font: FontId, width: f32) -> (usize, f32) {
     let advance =
         measure_with(context, &"x".repeat(ADVANCE_SAMPLE), font.clone()) / ADVANCE_SAMPLE as f32;
-    let gutter = measure_with(context, "000", font) + PADDING * 2.0;
+    let gutter = gutter_width(context, font);
     (
         ((width - gutter - VERTICAL_SCROLLBAR_SIZE - WRAP_CURSOR_ROOM) / advance).floor() as usize,
         gutter,
@@ -3064,7 +3137,7 @@ fn reveal은_토큰의_굵은_글꼴로_그린_줄의_끝에_가로_스크롤을
         SCROLLED_LONG_ROW_COLUMNS,
         FontId::new(FONT_SIZE, bold_family.clone()),
     );
-    let text_width = SCREEN[0] - (measure(&context, "000") + PADDING * 2.0);
+    let text_width = SCREEN[0] - gutter_width(&context, FontId::monospace(FONT_SIZE));
     assert!((bold_end - regular_end).abs() > WIDTH_TOLERANCE);
     assert!(
         (scrolled - (bold_end + CARET_STROKE - text_width).max(0.0)).abs() <= WIDTH_TOLERANCE,
@@ -3223,5 +3296,2646 @@ fn 줄_토큰은_탭과_들여쓰기를_건너_표시_문자_구간이_되고_�
             token_color(TOKEN_DEFAULT),
             f32::INFINITY
         )
+    );
+}
+
+fn overlay_anchor(left: f32, top: f32) -> Rect {
+    Rect::from_min_size(pos2(left, top), vec2(0.0, OVERLAY_ANCHOR_HEIGHT))
+}
+
+fn overlay_at(left: f32, top: f32, preference: OverlayPreference) -> Option<OverlayPlacement> {
+    Some(OverlayPlacement {
+        position: pos2(left, top),
+        preference,
+    })
+}
+
+#[test]
+fn 오버레이는_선호_순서에서_처음_맞는_쪽에_놓이고_어느_쪽도_맞지_않으면_첫_선호에_놓인다() {
+    let viewport = OverlayBounds::Viewport(OVERLAY_VIEWPORT);
+    let above_first = [OverlayPreference::Above, OverlayPreference::Below];
+    let below_first = [OverlayPreference::Below, OverlayPreference::Above];
+    let placed = |top: f32, size: Vec2, preferences: &[OverlayPreference]| {
+        place_overlay(
+            overlay_anchor(OVERLAY_ANCHOR_LEFT, top),
+            size,
+            preferences,
+            viewport,
+        )
+    };
+    let above = |top: f32, size: Vec2| {
+        overlay_at(OVERLAY_ANCHOR_LEFT, top - size.y, OverlayPreference::Above)
+    };
+    let below = |top: f32| {
+        overlay_at(
+            OVERLAY_ANCHOR_LEFT,
+            top + OVERLAY_ANCHOR_HEIGHT,
+            OverlayPreference::Below,
+        )
+    };
+    let middle = OVERLAY_VIEWPORT.center().y;
+    assert_eq!(
+        placed(middle, OVERLAY_SIZE, &above_first),
+        above(middle, OVERLAY_SIZE)
+    );
+    assert_eq!(placed(middle, OVERLAY_SIZE, &below_first), below(middle));
+    let barely_above = OVERLAY_VIEWPORT.top() + OVERLAY_SIZE.y;
+    let near_top = barely_above - OVERLAY_SHORTFALL;
+    assert_eq!(
+        placed(barely_above, OVERLAY_SIZE, &above_first),
+        above(barely_above, OVERLAY_SIZE)
+    );
+    assert_eq!(
+        placed(near_top, OVERLAY_SIZE, &above_first),
+        below(near_top)
+    );
+    let barely_below = OVERLAY_VIEWPORT.bottom() - OVERLAY_SIZE.y - OVERLAY_ANCHOR_HEIGHT;
+    let near_bottom = barely_below + OVERLAY_SHORTFALL;
+    assert_eq!(
+        placed(barely_below, OVERLAY_SIZE, &below_first),
+        below(barely_below)
+    );
+    assert_eq!(
+        placed(near_bottom, OVERLAY_SIZE, &below_first),
+        above(near_bottom, OVERLAY_SIZE)
+    );
+    assert!(OVERLAY_TALL_SIZE.y > OVERLAY_VIEWPORT.height() / CENTER_DIVISOR);
+    assert_eq!(
+        placed(middle, OVERLAY_TALL_SIZE, &above_first),
+        above(middle, OVERLAY_TALL_SIZE)
+    );
+    assert_eq!(
+        placed(middle, OVERLAY_TALL_SIZE, &below_first),
+        below(middle)
+    );
+    assert_eq!(
+        placed(near_top, OVERLAY_SIZE, &[OverlayPreference::Above]),
+        above(near_top, OVERLAY_SIZE)
+    );
+    assert_eq!(
+        placed(near_bottom, OVERLAY_SIZE, &[OverlayPreference::Below]),
+        below(near_bottom)
+    );
+    assert_eq!(placed(middle, OVERLAY_SIZE, &[]), None);
+}
+
+#[test]
+fn 오버레이의_가로_위치는_경계_안으로_당기고_exact_선호는_앵커_위치를_그대로_쓴다() {
+    let viewport = OverlayBounds::Viewport(OVERLAY_VIEWPORT);
+    let top = OVERLAY_VIEWPORT.center().y;
+    let left_of = |anchor_left: f32, size: Vec2, preference: OverlayPreference| {
+        place_overlay(
+            overlay_anchor(anchor_left, top),
+            size,
+            &[preference],
+            viewport,
+        )
+        .map(|placement| placement.position.x)
+    };
+    let inside = OVERLAY_VIEWPORT.right() - OVERLAY_SIZE.x;
+    let past_right = inside + OVERLAY_SHORTFALL;
+    let past_left = OVERLAY_VIEWPORT.left() - OVERLAY_SHORTFALL;
+    for preference in [OverlayPreference::Above, OverlayPreference::Below] {
+        assert_eq!(left_of(inside, OVERLAY_SIZE, preference), Some(inside));
+        assert_eq!(left_of(past_right, OVERLAY_SIZE, preference), Some(inside));
+        assert_eq!(
+            left_of(past_left, OVERLAY_SIZE, preference),
+            Some(OVERLAY_VIEWPORT.left())
+        );
+        assert!(OVERLAY_WIDE_SIZE.x > OVERLAY_VIEWPORT.width());
+        assert_eq!(
+            left_of(OVERLAY_ANCHOR_LEFT, OVERLAY_WIDE_SIZE, preference),
+            Some(OVERLAY_VIEWPORT.left())
+        );
+    }
+    for anchor_left in [past_left, past_right] {
+        assert_eq!(
+            place_overlay(
+                overlay_anchor(anchor_left, top),
+                OVERLAY_WIDE_SIZE,
+                &[OverlayPreference::Exact, OverlayPreference::Below],
+                viewport,
+            ),
+            overlay_at(anchor_left, top, OverlayPreference::Exact)
+        );
+    }
+}
+
+#[test]
+fn 편집기_밖으로_넘칠_수_있는_오버레이는_창의_여백을_기준으로_뒤집고_당긴다() {
+    let page = OverlayBounds::Page {
+        editor: OVERLAY_EDITOR,
+        window: OVERLAY_WINDOW,
+    };
+    let above_first = [OverlayPreference::Above, OverlayPreference::Below];
+    let below_first = [OverlayPreference::Below, OverlayPreference::Above];
+    let placed = |left: f32, top: f32, preferences: &[OverlayPreference], bounds| {
+        place_overlay(overlay_anchor(left, top), OVERLAY_SIZE, preferences, bounds)
+    };
+    let left = OVERLAY_EDITOR.center().x;
+    let barely_above = OVERLAY_WINDOW.top() + OVERLAY_PAGE_VERTICAL_PADDING + OVERLAY_SIZE.y;
+    assert!(barely_above - OVERLAY_SIZE.y < OVERLAY_EDITOR.top());
+    assert_eq!(
+        placed(left, barely_above, &above_first, page),
+        overlay_at(
+            left,
+            barely_above - OVERLAY_SIZE.y,
+            OverlayPreference::Above
+        )
+    );
+    let near_top = barely_above - OVERLAY_SHORTFALL;
+    assert_eq!(
+        placed(left, near_top, &above_first, page),
+        overlay_at(
+            left,
+            near_top + OVERLAY_ANCHOR_HEIGHT,
+            OverlayPreference::Below
+        )
+    );
+    let barely_below = OVERLAY_WINDOW.bottom()
+        - OVERLAY_PAGE_VERTICAL_PADDING
+        - OVERLAY_SIZE.y
+        - OVERLAY_ANCHOR_HEIGHT;
+    assert_eq!(
+        placed(left, barely_below, &below_first, page),
+        overlay_at(
+            left,
+            barely_below + OVERLAY_ANCHOR_HEIGHT,
+            OverlayPreference::Below
+        )
+    );
+    let near_bottom = barely_below + OVERLAY_SHORTFALL;
+    assert_eq!(
+        placed(left, near_bottom, &below_first, page),
+        overlay_at(left, near_bottom - OVERLAY_SIZE.y, OverlayPreference::Above)
+    );
+    let top = OVERLAY_EDITOR.center().y;
+    let x = |left: f32, bounds| {
+        placed(left, top, &below_first, bounds).map(|placement| placement.position.x)
+    };
+    let overflowing = OVERLAY_EDITOR.right() - OVERLAY_SHORTFALL;
+    assert_eq!(x(overflowing, page), Some(overflowing));
+    assert_eq!(
+        x(OVERLAY_EDITOR.right() + OVERLAY_SIZE.x, page),
+        Some(OVERLAY_EDITOR.right())
+    );
+    assert_eq!(
+        x(
+            OVERLAY_EDITOR.left() - OVERLAY_SIZE.x - OVERLAY_SHORTFALL,
+            page
+        ),
+        Some(OVERLAY_EDITOR.left() - OVERLAY_SIZE.x)
+    );
+    let narrow = OverlayBounds::Page {
+        editor: OVERLAY_EDITOR,
+        window: Rect::from_min_max(
+            OVERLAY_WINDOW.min,
+            pos2(OVERLAY_EDITOR.right(), OVERLAY_WINDOW.bottom()),
+        ),
+    };
+    assert_eq!(
+        x(overflowing, narrow),
+        Some(OVERLAY_EDITOR.right() - OVERLAY_PAGE_HORIZONTAL_PADDING - OVERLAY_SIZE.x)
+    );
+    let flush = OverlayBounds::Page {
+        editor: Rect::from_min_max(OVERLAY_WINDOW.min, OVERLAY_EDITOR.max),
+        window: OVERLAY_WINDOW,
+    };
+    assert_eq!(
+        x(OVERLAY_WINDOW.left(), flush),
+        Some(OVERLAY_WINDOW.left() + OVERLAY_PAGE_HORIZONTAL_PADDING)
+    );
+}
+
+fn layer(
+    revision: u64,
+    z_order: u8,
+    stickiness: Stickiness,
+    items: Vec<(std::ops::Range<usize>, DecorationKind)>,
+) -> DecorationLayer {
+    DecorationLayer::new(
+        revision,
+        z_order,
+        items
+            .into_iter()
+            .map(|(bytes, kind)| Decoration {
+                bytes,
+                kind,
+                stickiness,
+            })
+            .collect(),
+    )
+}
+
+fn lane(mark: LaneMark, color: [u8; 4]) -> DecorationKind {
+    DecorationKind::Lane { mark, color }
+}
+
+fn range_background(color: [u8; 4]) -> DecorationKind {
+    DecorationKind::Inline(InlineStyle {
+        background: Some(color),
+        ..InlineStyle::default()
+    })
+}
+
+fn squiggle(color: [u8; 4]) -> DecorationKind {
+    DecorationKind::Inline(InlineStyle {
+        underline: Some(Underline {
+            kind: UnderlineKind::Squiggly,
+            color,
+        }),
+        ..InlineStyle::default()
+    })
+}
+
+fn show_decorated(
+    context: &Context,
+    surface: &NativeEditor,
+    store: &mut EditorStore,
+    view: ViewId,
+    presentation: &EditorPresentation,
+    layers: &[&DecorationLayer],
+    events: Vec<Event>,
+) -> (Wrapped, EditorGeometry) {
+    let mut shown = None;
+    let mut output = context.run_ui(
+        RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                pos2(0.0, 0.0),
+                vec2(SCREEN[0], SCREEN[1]),
+            )),
+            events,
+            ..Default::default()
+        },
+        |ui| {
+            let viewport = ui.available_rect_before_wrap().intersect(ui.clip_rect());
+            let output = surface
+                .show_request(
+                    ui,
+                    store,
+                    view,
+                    EditorRequest {
+                        request_focus: true,
+                        keymap: |_: &Ui, _: &Event, _: bool| false,
+                        route: |_: &Response| None,
+                        presentation,
+                        tokens: |_: &EditorStore| None,
+                        decorations: layers,
+                        fold_commands: &[],
+                        fold_controls: None,
+                    },
+                )
+                .unwrap();
+            assert!(output.errors.is_empty());
+            shown = Some((viewport, output.rendered_lines, output.geometry));
+        },
+    );
+    output.textures_delta.clear();
+    let (viewport, rendered_lines, geometry) = shown.unwrap();
+    (
+        Wrapped {
+            shapes: output.shapes,
+            viewport,
+            rendered_lines,
+            visible_rows: geometry.visible_rows.clone(),
+            ime_cursor: output.platform_output.ime.map(|ime| ime.cursor_rect),
+        },
+        geometry,
+    )
+}
+
+fn stroke_color(path: &PathShape) -> Color32 {
+    match &path.stroke.color {
+        ColorMode::Solid(color) => *color,
+        ColorMode::UV(_) => Color32::PLACEHOLDER,
+    }
+}
+
+fn outline(clipped: &ClippedShape) -> String {
+    match &clipped.shape {
+        Shape::Rect(rect) => format!("rect {}", hex(rect.fill)),
+        Shape::LineSegment { stroke, .. } => format!("line {}", hex(stroke.color)),
+        Shape::Text(text) => format!("text {:?}", text.galley.job.text),
+        Shape::Path(path) if path.closed => format!("polygon {}", hex(path.fill)),
+        Shape::Path(path) => format!("stroke {}", hex(stroke_color(path))),
+        _ => "other".into(),
+    }
+}
+
+fn paths(shapes: &[ClippedShape], is_closed: bool) -> Vec<(&PathShape, Rect)> {
+    shapes
+        .iter()
+        .filter_map(|clipped| match &clipped.shape {
+            Shape::Path(path) if path.closed == is_closed => Some((path, clipped.clip_rect)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn fill(color: [u8; 4]) -> String {
+    hex(token_color(color))
+}
+
+fn assert_squiggle(wave: &PathShape, clip: Rect, band: Rect, color: [u8; 4]) {
+    assert_eq!(clip, band);
+    assert_eq!(band.height(), SQUIGGLE_HEIGHT);
+    assert_eq!(wave.fill, Color32::TRANSPARENT);
+    assert_eq!(
+        (wave.stroke.width, stroke_color(wave)),
+        (SQUIGGLE_STROKE, token_color(color))
+    );
+    let points = &wave.points;
+    assert!(points[0].x <= band.left());
+    assert!(points[points.len() - 1].x >= band.right());
+    let trough = points
+        .iter()
+        .find(|point| point.y == band.bottom())
+        .expect("squiggle reaches the bottom of its band");
+    assert!((trough.x - band.left() - SQUIGGLE_TROUGH_OFFSET).abs() < SQUIGGLE_TOLERANCE);
+    for pair in points.windows(2) {
+        let half_period = pair[1].x - pair[0].x;
+        assert!((half_period - SQUIGGLE_PERIOD / CENTER_DIVISOR).abs() < SQUIGGLE_TOLERANCE);
+        let mut heights = [pair[0].y, pair[1].y];
+        heights.sort_by(f32::total_cmp);
+        assert_eq!(heights, [band.top(), band.bottom()]);
+    }
+}
+
+#[test]
+fn 장식_층은_선택과_본문_사이에_그리고_gutter의_lane_표식은_줄_번호_앞에_그린다() {
+    let (mut store, view) = fixture(DECORATED_DOCUMENT, false);
+    let context = Context::default();
+    let surface = editor();
+    let presentation = EditorPresentation::default();
+    let marked = DECORATED_DOCUMENT.find("ab").unwrap();
+    let second = DECORATED_DOCUMENT.find('값').unwrap();
+    let third = DECORATED_DOCUMENT.find("end").unwrap();
+    let current = revision(&store, view);
+    let sticky = Stickiness::default();
+    let lanes = layer(
+        current,
+        GUTTER_Z_ORDER,
+        sticky,
+        vec![
+            (0..second, lane(LaneMark::Bar, DECORATION_ADDED)),
+            (
+                third..third,
+                lane(LaneMark::DeletedTriangle, DECORATION_DELETED),
+            ),
+        ],
+    );
+    let conflict = layer(
+        current,
+        CONFLICT_Z_ORDER,
+        sticky,
+        vec![(
+            second..second,
+            DecorationKind::LineBackground(DECORATION_CONFLICT),
+        )],
+    );
+    let find = layer(
+        current,
+        FIND_Z_ORDER,
+        sticky,
+        vec![(marked..marked + 2, range_background(DECORATION_FIND))],
+    );
+    let diagnostics = layer(
+        current,
+        DIAGNOSTICS_Z_ORDER,
+        sticky,
+        vec![
+            (0..marked + 2, squiggle(DECORATION_WARNING)),
+            (
+                second..second + '값'.len_utf8(),
+                DecorationKind::Inline(InlineStyle {
+                    foreground: Some(DECORATION_BRACKET),
+                    underline: Some(Underline {
+                        kind: UnderlineKind::Straight,
+                        color: DECORATION_LINK,
+                    }),
+                    ..InlineStyle::default()
+                }),
+            ),
+        ],
+    );
+    let layers = [&diagnostics, &lanes, &find, &conflict];
+    let mut draw = |layers: &[&DecorationLayer]| {
+        show_decorated(
+            &context,
+            &surface,
+            &mut store,
+            view,
+            &presentation,
+            layers,
+            Vec::new(),
+        )
+        .0
+    };
+    draw(&layers);
+    let shown = draw(&layers);
+    assert_eq!(shown.rendered_lines, 0..DECORATED_ROWS);
+    assert_eq!(
+        shown.shapes.iter().map(outline).collect::<Vec<_>>(),
+        [
+            format!("rect {}", hex(Color32::BLACK)),
+            format!("rect {}", hex(Color32::DARK_GRAY)),
+            format!("rect {}", fill(DECORATION_FIND)),
+            format!("stroke {}", fill(DECORATION_WARNING)),
+            format!("line {}", hex(Color32::WHITE)),
+            format!("text {DECORATED_FIRST_ROW:?}"),
+            format!("rect {}", fill(DECORATION_ADDED)),
+            format!("text {:?}", "1"),
+            format!("rect {}", fill(DECORATION_CONFLICT)),
+            format!("text {:?}", "값 x"),
+            format!("rect {}", fill(DECORATION_ADDED)),
+            format!("text {:?}", "2"),
+            format!("text {:?}", "end"),
+            format!("polygon {}", fill(DECORATION_DELETED)),
+            format!("text {:?}", "3"),
+        ]
+    );
+    let font = FontId::monospace(FONT_SIZE);
+    let lane_left =
+        shown.viewport.left() + line_numbers_width(&context, font, LINE_NUMBERS_MIN_CHARS);
+    let left = lane_left + LINE_DECORATIONS_WIDTH;
+    let row = |index: usize| shown.viewport.top() + index as f32 * LINE_HEIGHT;
+    let x = |chars: usize| left + caret_offset(&context, DECORATED_FIRST_ROW, chars);
+    let tab_chars = TAB_SIZE as usize;
+    assert_eq!(
+        filled(&shown.shapes, token_color(DECORATION_FIND)),
+        [Rect::from_min_max(
+            pos2(x(tab_chars), row(0)),
+            pos2(x(tab_chars + 2), row(1))
+        )]
+    );
+    assert_eq!(
+        filled(&shown.shapes, token_color(DECORATION_CONFLICT)),
+        [Rect::from_min_max(
+            pos2(left, row(1)),
+            pos2(shown.viewport.right(), row(2))
+        )]
+    );
+    assert_eq!(
+        filled(&shown.shapes, token_color(DECORATION_ADDED)),
+        [0, 1].map(|index| Rect::from_min_size(
+            pos2(lane_left, row(index)),
+            vec2(LANE_BAR_WIDTH, LINE_HEIGHT)
+        ))
+    );
+    let waves = paths(&shown.shapes, false);
+    assert_eq!(waves.len(), 1);
+    assert_squiggle(
+        waves[0].0,
+        waves[0].1,
+        Rect::from_min_max(
+            pos2(x(0), row(1) - SQUIGGLE_HEIGHT),
+            pos2(x(tab_chars + 2), row(1)),
+        ),
+        DECORATION_WARNING,
+    );
+    let polygons = paths(&shown.shapes, true);
+    assert_eq!(polygons.len(), 1);
+    let (triangle, clip) = polygons[0];
+    assert_eq!(clip, shown.viewport);
+    assert_eq!(triangle.fill, token_color(DECORATION_DELETED));
+    assert_eq!(
+        triangle.points,
+        [
+            pos2(lane_left, row(2) - DELETED_TRIANGLE_HALF_HEIGHT),
+            pos2(lane_left + DELETED_TRIANGLE_WIDTH, row(2)),
+            pos2(lane_left, row(2) + DELETED_TRIANGLE_HALF_HEIGHT),
+        ]
+    );
+    let plain = |text: &str| Run {
+        color: Color32::WHITE,
+        ..run(text, DECORATION_BRACKET)
+    };
+    assert_eq!(
+        body_runs(&shown),
+        [
+            vec![plain(DECORATED_FIRST_ROW)],
+            vec![
+                Run {
+                    underline: decoration(DECORATION_LINK),
+                    ..run("값", DECORATION_BRACKET)
+                },
+                plain(" x"),
+            ],
+            vec![plain("end")],
+        ]
+    );
+    let undecorated = draw(&[]);
+    for body in [true, false] {
+        assert_eq!(
+            texts(&shown.shapes, shown.viewport, body),
+            texts(&undecorated.shapes, undecorated.viewport, body)
+        );
+    }
+}
+
+#[test]
+fn 겹치거나_맞닿은_같은_모양의_범위_장식은_합치고_같은_lane_표식은_줄마다_한_번_그린다() {
+    let content = "abcdefghij";
+    let (mut store, view) = fixture(content, false);
+    let context = Context::default();
+    let surface = editor();
+    let presentation = EditorPresentation::default();
+    let current = revision(&store, view);
+    let sticky = Stickiness::default();
+    let find = layer(
+        current,
+        FIND_Z_ORDER,
+        sticky,
+        vec![
+            (1..3, range_background(DECORATION_FIND)),
+            (2..5, range_background(DECORATION_FIND)),
+            (5..6, range_background(DECORATION_FIND)),
+            (6..7, range_background(DECORATION_SELECTION_MATCH)),
+            (8..9, range_background(DECORATION_FIND)),
+            (1..2, squiggle(DECORATION_WARNING)),
+            (2..4, squiggle(DECORATION_WARNING)),
+        ],
+    );
+    let lanes = [(); 2].map(|()| {
+        layer(
+            current,
+            GUTTER_Z_ORDER,
+            sticky,
+            vec![(0..0, lane(LaneMark::Bar, DECORATION_ADDED))],
+        )
+    });
+    let layers = [&find, &lanes[0], &lanes[1]];
+    let mut draw = || {
+        show_decorated(
+            &context,
+            &surface,
+            &mut store,
+            view,
+            &presentation,
+            &layers,
+            Vec::new(),
+        )
+        .0
+    };
+    draw();
+    let shown = draw();
+    let left = shown.viewport.left() + gutter_width(&context, FontId::monospace(FONT_SIZE));
+    let top = shown.viewport.top();
+    let span = |chars: std::ops::Range<usize>| {
+        Rect::from_min_max(
+            pos2(left + caret_offset(&context, content, chars.start), top),
+            pos2(
+                left + caret_offset(&context, content, chars.end),
+                top + LINE_HEIGHT,
+            ),
+        )
+    };
+    assert_eq!(
+        filled(&shown.shapes, token_color(DECORATION_FIND)),
+        [span(1..6), span(8..9)]
+    );
+    assert_eq!(
+        filled(&shown.shapes, token_color(DECORATION_SELECTION_MATCH)),
+        [span(6..7)]
+    );
+    assert_eq!(
+        filled(&shown.shapes, token_color(DECORATION_ADDED)).len(),
+        1
+    );
+    let waves = paths(&shown.shapes, false);
+    assert_eq!(waves.len(), 1);
+    let underlined = span(1..4);
+    assert_squiggle(
+        waves[0].0,
+        waves[0].1,
+        Rect::from_min_max(
+            pos2(underlined.left(), underlined.bottom() - SQUIGGLE_HEIGHT),
+            underlined.max,
+        ),
+        DECORATION_WARNING,
+    );
+}
+
+#[test]
+fn 장식_범위는_탭_전각_문자_wrap_줄에서_글자의_x_범위에_놓이고_줄_장식은_모든_표시_줄에_놓인다() {
+    let context = Context::default();
+    let (columns, gutter) = wrap_columns(&context, FontId::monospace(FONT_SIZE), SCREEN[0]);
+    let prefix = "\tab\t값 ";
+    let line = format!("{prefix}{}", "word ".repeat(INDENTED_WORDS));
+    let breaks = create_line_breaks(
+        &WrapSettings {
+            wrap_column: u32::try_from(columns).unwrap(),
+            tab_size: TAB_SIZE,
+            full_width_columns: FULL_WIDTH_COLUMNS,
+            wrapping_indent: WrappingIndent::Same,
+        },
+        &line,
+    )
+    .unwrap();
+    let wrapped_rows = breaks.break_offsets.len();
+    assert!(wrapped_rows >= WRAPPED_DECORATION_ROWS);
+    assert_eq!(breaks.wrapped_text_indent_length, TAB_SIZE);
+    let first_row_end = breaks.break_offsets[0];
+    let (mut store, view) = fixture(&format!("{line}\nnext"), false);
+    let surface = editor();
+    let presentation = wrapping();
+    let current = revision(&store, view);
+    let sticky = Stickiness::default();
+    let inner_tab = prefix.rfind('\t').unwrap();
+    let wide = prefix.find('값').unwrap();
+    let range = inner_tab..first_row_end + WRAPPED_DECORATION_TAIL;
+    let marks = layer(
+        current,
+        GUTTER_Z_ORDER,
+        sticky,
+        vec![
+            (
+                line.len()..line.len(),
+                DecorationKind::LineBackground(DECORATION_CONFLICT),
+            ),
+            (
+                line.len()..line.len(),
+                lane(LaneMark::Bar, DECORATION_ADDED),
+            ),
+        ],
+    );
+    let find = layer(
+        current,
+        FIND_Z_ORDER,
+        sticky,
+        vec![(range.clone(), range_background(DECORATION_FIND))],
+    );
+    let diagnostics = layer(
+        current,
+        DIAGNOSTICS_Z_ORDER,
+        sticky,
+        vec![(wide..wide + '값'.len_utf8(), squiggle(DECORATION_WARNING))],
+    );
+    let layers = [&marks, &find, &diagnostics];
+    let mut draw = || {
+        show_decorated(
+            &context,
+            &surface,
+            &mut store,
+            view,
+            &presentation,
+            &layers,
+            Vec::new(),
+        )
+    };
+    draw();
+    let (shown, geometry) = draw();
+    let rows = body_rows(&shown);
+    assert_eq!(rows.len(), wrapped_rows + 1);
+    let indent = TAB_SIZE as usize;
+    let inner_tab_chars = rows[0].find('b').unwrap() + 1;
+    let wide_chars = rows[0]
+        .chars()
+        .position(|character| character == '값')
+        .unwrap();
+    assert!(inner_tab_chars < wide_chars - 1);
+    assert!(rows[1].starts_with(&format!("{}word ", " ".repeat(indent))));
+    let lane_left = shown.viewport.left() + gutter - LINE_DECORATIONS_WIDTH;
+    let left = shown.viewport.left() + gutter;
+    let row = |index: usize| shown.viewport.top() + index as f32 * LINE_HEIGHT;
+    let x = |index: usize, chars: usize| left + caret_offset(&context, &rows[index], chars);
+    let highlighted = [
+        Rect::from_min_max(
+            pos2(x(0, inner_tab_chars), row(0)),
+            pos2(x(0, rows[0].chars().count()), row(1)),
+        ),
+        Rect::from_min_max(
+            pos2(x(1, indent), row(1)),
+            pos2(x(1, indent + WRAPPED_DECORATION_TAIL), row(2)),
+        ),
+    ];
+    assert_eq!(
+        filled(&shown.shapes, token_color(DECORATION_FIND)),
+        highlighted
+    );
+    assert_eq!(geometry.range_rects(range), highlighted);
+    assert_eq!(
+        geometry.caret_rect(first_row_end),
+        Some(Rect::from_min_max(
+            pos2(x(1, indent), row(1)),
+            pos2(x(1, indent), row(2))
+        ))
+    );
+    let waves = paths(&shown.shapes, false);
+    assert_eq!(waves.len(), 1);
+    assert_squiggle(
+        waves[0].0,
+        waves[0].1,
+        Rect::from_min_max(
+            pos2(x(0, wide_chars), row(1) - SQUIGGLE_HEIGHT),
+            pos2(x(0, wide_chars + 1), row(1)),
+        ),
+        DECORATION_WARNING,
+    );
+    let wrapped_rows = 0..wrapped_rows;
+    assert_eq!(
+        filled(&shown.shapes, token_color(DECORATION_CONFLICT)),
+        wrapped_rows
+            .clone()
+            .map(|index| Rect::from_min_max(
+                pos2(left, row(index)),
+                pos2(shown.viewport.right(), row(index + 1))
+            ))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        filled(&shown.shapes, token_color(DECORATION_ADDED)),
+        wrapped_rows
+            .map(|index| Rect::from_min_size(
+                pos2(lane_left, row(index)),
+                vec2(LANE_BAR_WIDTH, LINE_HEIGHT)
+            ))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn 스크롤된_화면의_범위_장식은_글자와_함께_움직이고_줄_장식은_본문과_gutter_폭에_남는다() {
+    let content = scrolled_document();
+    let (mut store, view) = fixture(&content, false);
+    let context = Context::default();
+    let surface = editor();
+    let presentation = EditorPresentation::default();
+    let long_row = content
+        .split_inclusive('\n')
+        .take(SCROLLED_LONG_ROW)
+        .map(str::len)
+        .sum::<usize>();
+    let marked_chars = WRAP_CLICK_COLUMN..WRAP_CLICK_COLUMN + WRAPPED_DECORATION_TAIL;
+    let marked = long_row + marked_chars.start..long_row + marked_chars.end;
+    let marks = layer(
+        revision(&store, view),
+        FIND_Z_ORDER,
+        Stickiness::default(),
+        vec![
+            (marked.clone(), range_background(DECORATION_FIND)),
+            (
+                long_row..long_row,
+                DecorationKind::LineBackground(DECORATION_CONFLICT),
+            ),
+            (long_row..long_row, lane(LaneMark::Bar, DECORATION_ADDED)),
+        ],
+    );
+    let draw = |store: &mut EditorStore| {
+        show_decorated(
+            &context,
+            &surface,
+            store,
+            view,
+            &presentation,
+            &[&marks],
+            Vec::new(),
+        )
+    };
+    draw(&mut store);
+    let current = store.views().get(view).unwrap().clone();
+    store
+        .set_view_state(
+            view,
+            current.selection,
+            ScrollPosition {
+                x: -WHEEL_DELTA.x,
+                y: -WHEEL_DELTA.y,
+            },
+            current.folds,
+        )
+        .unwrap();
+    let (shown, geometry) = draw(&mut store);
+    assert_eq!(geometry.scroll, -WHEEL_DELTA);
+    let lane_left = shown.viewport.left()
+        + line_numbers_width(
+            &context,
+            FontId::monospace(FONT_SIZE),
+            LINE_NUMBERS_MIN_CHARS,
+        );
+    let left = lane_left + LINE_DECORATIONS_WIDTH;
+    let top = shown.viewport.top() + SCROLLED_LONG_ROW as f32 * LINE_HEIGHT + WHEEL_DELTA.y;
+    let long = "x".repeat(SCROLLED_LONG_ROW_COLUMNS);
+    let x = |chars: usize| left + WHEEL_DELTA.x + caret_offset(&context, &long, chars);
+    let highlighted = filled(&shown.shapes, token_color(DECORATION_FIND));
+    assert_eq!(highlighted.len(), 1);
+    assert!((highlighted[0].left() - x(marked_chars.start)).abs() < SQUIGGLE_TOLERANCE);
+    assert!((highlighted[0].right() - x(marked_chars.end)).abs() < SQUIGGLE_TOLERANCE);
+    assert_eq!(
+        (highlighted[0].top(), highlighted[0].bottom()),
+        (top, top + LINE_HEIGHT)
+    );
+    assert_eq!(
+        filled(&shown.shapes, token_color(DECORATION_CONFLICT)),
+        [Rect::from_min_max(
+            pos2(left, top),
+            pos2(shown.viewport.right(), top + LINE_HEIGHT)
+        )]
+    );
+    assert_eq!(
+        filled(&shown.shapes, token_color(DECORATION_ADDED)),
+        [Rect::from_min_size(
+            pos2(lane_left, top),
+            vec2(LANE_BAR_WIDTH, LINE_HEIGHT)
+        )]
+    );
+    assert_eq!(geometry.range_rects(marked.clone()), highlighted);
+    let caret = geometry
+        .caret_rect(marked.start)
+        .expect("the long row is on screen");
+    assert_eq!(
+        (caret.left(), caret.right(), caret.top(), caret.bottom()),
+        (
+            highlighted[0].left(),
+            highlighted[0].left(),
+            top,
+            top + LINE_HEIGHT
+        )
+    );
+    assert_eq!(geometry.byte_at(caret.center()), Some(marked.start));
+}
+
+#[test]
+fn 뒤처진_장식_층은_그_프레임의_편집까지_저널로_옮겨_그리고_따라갈_수_없는_층은_그리지_않는다() {
+    let (mut store, view) = fixture("abcdef\nsecond", false);
+    let context = Context::default();
+    let surface = editor();
+    let presentation = EditorPresentation::default();
+    let items = || {
+        vec![
+            (2..4, range_background(DECORATION_FIND)),
+            (0..0, lane(LaneMark::Bar, DECORATION_ADDED)),
+        ]
+    };
+    let stale = layer(
+        revision(&store, view),
+        FIND_Z_ORDER,
+        Stickiness::default(),
+        items(),
+    );
+    let draw = |store: &mut EditorStore, layers: &[&DecorationLayer], events: Vec<Event>| {
+        show_decorated(
+            &context,
+            &surface,
+            store,
+            view,
+            &presentation,
+            layers,
+            events,
+        )
+        .0
+    };
+    let shown = draw(&mut store, &[&stale], Vec::new());
+    let lane_left = shown.viewport.left()
+        + line_numbers_width(
+            &context,
+            FontId::monospace(FONT_SIZE),
+            LINE_NUMBERS_MIN_CHARS,
+        );
+    let left = lane_left + LINE_DECORATIONS_WIDTH;
+    let row = |index: usize| shown.viewport.top() + index as f32 * LINE_HEIGHT;
+    let span = |text: &str, chars: std::ops::Range<usize>, index: usize| {
+        Rect::from_min_max(
+            pos2(left + caret_offset(&context, text, chars.start), row(index)),
+            pos2(
+                left + caret_offset(&context, text, chars.end),
+                row(index + 1),
+            ),
+        )
+    };
+    let bar = |index: usize| {
+        Rect::from_min_size(
+            pos2(lane_left, row(index)),
+            vec2(LANE_BAR_WIDTH, LINE_HEIGHT),
+        )
+    };
+    let typed = draw(&mut store, &[&stale], vec![Event::Text("XY".into())]);
+    assert_eq!(text(&store, view), "XYabcdef\nsecond");
+    assert_eq!(stale.revision() + 1, revision(&store, view));
+    assert_eq!(
+        filled(&typed.shapes, token_color(DECORATION_FIND)),
+        [span("XYabcdef", 4..6, 0)]
+    );
+    assert_eq!(
+        filled(&typed.shapes, token_color(DECORATION_ADDED)),
+        [bar(0)]
+    );
+    let broken = draw(&mut store, &[&stale], vec![key(Key::Enter, false)]);
+    assert_eq!(text(&store, view), "XY\nabcdef\nsecond");
+    assert_eq!(
+        filled(&broken.shapes, token_color(DECORATION_FIND)),
+        [span("abcdef", 2..4, 1)]
+    );
+    assert_eq!(
+        filled(&broken.shapes, token_color(DECORATION_ADDED)),
+        [bar(0), bar(1)]
+    );
+    let untracked = layer(
+        UNTRACKED_REVISION,
+        FIND_Z_ORDER,
+        Stickiness::default(),
+        items(),
+    );
+    let fresh = layer(
+        revision(&store, view),
+        DIAGNOSTICS_Z_ORDER,
+        Stickiness::default(),
+        vec![(0..2, range_background(DECORATION_SELECTION_MATCH))],
+    );
+    let shown = draw(&mut store, &[&untracked, &fresh], Vec::new());
+    assert!(filled(&shown.shapes, token_color(DECORATION_FIND)).is_empty());
+    assert!(filled(&shown.shapes, token_color(DECORATION_ADDED)).is_empty());
+    assert_eq!(
+        filled(&shown.shapes, token_color(DECORATION_SELECTION_MATCH)),
+        [span("XY", 0..2, 0)]
+    );
+}
+
+#[test]
+fn 문자_중간의_장식_경계는_문자_시작으로_내리고_문서_끝을_넘으면_문서_끝에서_자른다() {
+    let content = "값x\n끝";
+    let (mut store, view) = fixture(content, false);
+    let context = Context::default();
+    let surface = editor();
+    let presentation = EditorPresentation::default();
+    let last = content.find('끝').unwrap();
+    let marks = layer(
+        revision(&store, view),
+        FIND_Z_ORDER,
+        Stickiness::default(),
+        vec![
+            (1..last - 1, range_background(DECORATION_FIND)),
+            (
+                last + 1..content.len() + last,
+                range_background(DECORATION_SELECTION_MATCH),
+            ),
+            (
+                content.len() + 1..content.len() + last,
+                DecorationKind::LineBackground(DECORATION_CONFLICT),
+            ),
+        ],
+    );
+    let mut draw = || {
+        show_decorated(
+            &context,
+            &surface,
+            &mut store,
+            view,
+            &presentation,
+            &[&marks],
+            Vec::new(),
+        )
+        .0
+    };
+    draw();
+    let shown = draw();
+    let left = shown.viewport.left() + gutter_width(&context, FontId::monospace(FONT_SIZE));
+    let row = |index: usize| shown.viewport.top() + index as f32 * LINE_HEIGHT;
+    assert_eq!(
+        filled(&shown.shapes, token_color(DECORATION_FIND)),
+        [Rect::from_min_max(
+            pos2(left, row(0)),
+            pos2(left + caret_offset(&context, "값x", 2), row(1))
+        )]
+    );
+    assert_eq!(
+        filled(&shown.shapes, token_color(DECORATION_SELECTION_MATCH)),
+        [Rect::from_min_max(
+            pos2(left, row(1)),
+            pos2(left + caret_offset(&context, "끝", 1), row(2))
+        )]
+    );
+    assert!(filled(&shown.shapes, token_color(DECORATION_CONFLICT)).is_empty());
+}
+
+#[test]
+fn gutter_폭은_줄_번호와_줄_장식과_접기_폭의_합이고_줄_번호는_그_폭의_오른쪽에_맞춘다() {
+    let context = Context::default();
+    let font = FontId::monospace(FONT_SIZE);
+    let numbers = |digits: usize| line_numbers_width(&context, font.clone(), digits);
+    let folding = |word_wrap: bool| EditorPresentation {
+        options: EditorDisplayOptions {
+            word_wrap,
+            folding: true,
+            ..Default::default()
+        },
+    };
+    let unnumbered = || NativeEditor {
+        appearance: EditorAppearance {
+            line_numbers: false,
+            ..editor().appearance
+        },
+    };
+    let many_lines = "x\n".repeat(MANY_LINES);
+    assert_eq!(
+        (many_lines.lines().count() + 1).to_string().len(),
+        MANY_LINES_DIGITS
+    );
+    let shown = |surface: &NativeEditor, content: &str, presentation: &EditorPresentation| {
+        let (mut store, view) = fixture(content, false);
+        let context = Context::default();
+        show_decorated(
+            &context,
+            surface,
+            &mut store,
+            view,
+            presentation,
+            &[],
+            Vec::new(),
+        )
+    };
+    let plain = EditorPresentation::default();
+    for (surface, content, presentation, line_numbers, decorations) in [
+        (
+            editor(),
+            PLAIN_DOCUMENT,
+            &plain,
+            numbers(LINE_NUMBERS_MIN_CHARS),
+            LINE_DECORATIONS_WIDTH,
+        ),
+        (
+            editor(),
+            PLAIN_DOCUMENT,
+            &folding(false),
+            numbers(LINE_NUMBERS_MIN_CHARS),
+            LINE_DECORATIONS_WIDTH + FOLDING_CONTROLS_WIDTH,
+        ),
+        (
+            editor(),
+            many_lines.as_str(),
+            &plain,
+            numbers(MANY_LINES_DIGITS),
+            LINE_DECORATIONS_WIDTH,
+        ),
+        (
+            unnumbered(),
+            PLAIN_DOCUMENT,
+            &plain,
+            0.0,
+            LINE_DECORATIONS_WIDTH,
+        ),
+        (
+            unnumbered(),
+            PLAIN_DOCUMENT,
+            &folding(false),
+            0.0,
+            LINE_DECORATIONS_WIDTH + FOLDING_CONTROLS_WIDTH,
+        ),
+    ] {
+        let (frame, geometry) = shown(&surface, content, presentation);
+        let viewport = frame.viewport;
+        let content_left = viewport.left() + line_numbers + decorations;
+        assert_eq!(
+            geometry.gutter_rect,
+            Rect::from_min_max(viewport.min, pos2(content_left, viewport.bottom()))
+        );
+        assert_eq!(
+            geometry.content_rect,
+            Rect::from_min_max(pos2(content_left, viewport.top()), viewport.max)
+        );
+        for (_, position, _) in texts(&frame.shapes, viewport, true) {
+            assert_eq!(position.x, content_left);
+        }
+        let numbered = texts(&frame.shapes, viewport, false);
+        assert_eq!(numbered.is_empty(), !surface.appearance.line_numbers);
+        for (_, position, width) in numbered {
+            assert_eq!(position.x + width, viewport.left() + line_numbers);
+        }
+    }
+    assert_eq!(numbers(LINE_NUMBERS_MIN_CHARS).fract(), 0.0);
+    assert!(numbers(MANY_LINES_DIGITS) > numbers(LINE_NUMBERS_MIN_CHARS));
+    let (mut store, view) = fixture(&"x".repeat(WRAPPED_LINE), false);
+    let wrapped_context = Context::default();
+    show_decorated(
+        &wrapped_context,
+        &editor(),
+        &mut store,
+        view,
+        &folding(true),
+        &[],
+        Vec::new(),
+    );
+    let advance = measure(&context, &"x".repeat(ADVANCE_SAMPLE)) / ADVANCE_SAMPLE as f32;
+    let text_width = SCREEN[0]
+        - numbers(LINE_NUMBERS_MIN_CHARS)
+        - LINE_DECORATIONS_WIDTH
+        - FOLDING_CONTROLS_WIDTH;
+    assert_eq!(
+        store
+            .views()
+            .get(view)
+            .unwrap()
+            .display
+            .as_ref()
+            .and_then(|display| display.wrap_settings())
+            .map(|settings| settings.wrap_column),
+        Some(((text_width - VERTICAL_SCROLLBAR_SIZE - WRAP_CURSOR_ROOM) / advance).floor() as u32)
+    );
+    let (mut scrolled, scrolled_view) = fixture(&scrolled_document(), false);
+    let reveal_context = Context::default();
+    let mut output = reveal_context.run_ui(
+        RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                pos2(0.0, 0.0),
+                vec2(SCREEN[0], SCREEN[1]),
+            )),
+            ..Default::default()
+        },
+        |ui| {
+            editor()
+                .reveal_presented(
+                    ui,
+                    &mut scrolled,
+                    scrolled_view,
+                    (SCROLLED_LONG_ROW + 1) as f64,
+                    (SCROLLED_LONG_ROW_COLUMNS + 1) as f64,
+                    &folding(false),
+                )
+                .unwrap();
+        },
+    );
+    output.textures_delta.clear();
+    let long_row_end = caret_offset(
+        &context,
+        &"x".repeat(SCROLLED_LONG_ROW_COLUMNS),
+        SCROLLED_LONG_ROW_COLUMNS,
+    );
+    let revealed = scrolled.views().get(scrolled_view).unwrap().scroll.x;
+    assert!((revealed - (long_row_end + CARET_STROKE - text_width)).abs() <= WIDTH_TOLERANCE);
+}
+
+#[test]
+fn 좌표_질의는_보이는_표시_줄에서_문서_위치와_화면_rect를_서로_바꾼다() {
+    let (mut store, view) = fixture(DECORATED_DOCUMENT, false);
+    let context = Context::default();
+    let surface = editor();
+    let presentation = EditorPresentation::default();
+    let draw = |store: &mut EditorStore, view: ViewId| {
+        show_decorated(
+            &context,
+            &surface,
+            store,
+            view,
+            &presentation,
+            &[],
+            Vec::new(),
+        )
+    };
+    draw(&mut store, view);
+    let (shown, geometry) = draw(&mut store, view);
+    let viewport = shown.viewport;
+    let left = viewport.left() + gutter_width(&context, FontId::monospace(FONT_SIZE));
+    let row = |index: usize| viewport.top() + index as f32 * LINE_HEIGHT;
+    let x = |chars: usize| left + caret_offset(&context, DECORATED_FIRST_ROW, chars);
+    let caret = |x: f32, index: usize| {
+        Some(Rect::from_min_max(
+            pos2(x, row(index)),
+            pos2(x, row(index + 1)),
+        ))
+    };
+    let marked = DECORATED_DOCUMENT.find("ab").unwrap();
+    let second = DECORATED_DOCUMENT.find('값').unwrap();
+    let third = DECORATED_DOCUMENT.find("end").unwrap();
+    let tab_chars = TAB_SIZE as usize;
+    let first_row_chars = DECORATED_FIRST_ROW.chars().count();
+    assert_eq!(geometry.caret_rect(0), caret(left, 0));
+    assert_eq!(geometry.caret_rect(marked), caret(x(tab_chars), 0));
+    assert_eq!(
+        geometry.caret_rect(second - 1),
+        caret(x(first_row_chars), 0)
+    );
+    assert_eq!(geometry.caret_rect(second), caret(left, 1));
+    assert_eq!(
+        geometry.caret_rect(DECORATED_DOCUMENT.len()),
+        caret(left + caret_offset(&context, "end", 3), 2)
+    );
+    assert_eq!(geometry.caret_rect(DECORATED_DOCUMENT.len() + 1), None);
+    assert_eq!(
+        geometry.range_rects(marked..second + '값'.len_utf8()),
+        [
+            Rect::from_min_max(pos2(x(tab_chars), row(0)), pos2(x(first_row_chars), row(1))),
+            Rect::from_min_max(
+                pos2(left, row(1)),
+                pos2(left + caret_offset(&context, "값 x", 1), row(2))
+            ),
+        ]
+    );
+    assert!(geometry.range_rects(marked..marked).is_empty());
+    let inside = |x: f32, index: usize| pos2(x, row(index) + LINE_HEIGHT / CENTER_DIVISOR);
+    let nudge = LARGE_CLICK_PAST_BOUNDARY;
+    assert_eq!(
+        geometry.byte_at(inside(x(tab_chars) + nudge, 0)),
+        Some(marked)
+    );
+    assert_eq!(geometry.byte_at(inside(left + nudge, 0)), Some(0));
+    assert_eq!(
+        geometry.byte_at(inside(x(tab_chars) - nudge, 0)),
+        Some(marked)
+    );
+    assert_eq!(
+        geometry.byte_at(inside(viewport.right() - nudge, 1)),
+        Some(third - 1)
+    );
+    assert_eq!(geometry.byte_at(inside(left - nudge, 0)), None);
+    assert_eq!(geometry.byte_at(inside(left + nudge, DECORATED_ROWS)), None);
+    assert_eq!(
+        geometry.byte_at(pos2(left + nudge, viewport.bottom() + nudge)),
+        None
+    );
+    let boundaries = DECORATED_DOCUMENT
+        .char_indices()
+        .map(|(byte, _)| byte)
+        .chain([DECORATED_DOCUMENT.len()]);
+    for byte in boundaries {
+        let rect = geometry
+            .caret_rect(byte)
+            .expect("every boundary is on a shown row");
+        assert_eq!(geometry.byte_at(rect.center()), Some(byte));
+    }
+    let content = scrolled_document();
+    let (mut scrolled, scrolled_view) = fixture(&content, false);
+    let context = Context::default();
+    let draw = |store: &mut EditorStore, view: ViewId| {
+        show_decorated(
+            &context,
+            &surface,
+            store,
+            view,
+            &presentation,
+            &[],
+            Vec::new(),
+        )
+    };
+    draw(&mut scrolled, scrolled_view);
+    let (_, geometry) = draw(&mut scrolled, scrolled_view);
+    let shown_rows = (SCREEN[1] / LINE_HEIGHT) as usize;
+    assert_eq!(geometry.visible_rows, 0..shown_rows + 1);
+    let row_start = |index: usize| {
+        content
+            .split_inclusive('\n')
+            .take(index)
+            .map(str::len)
+            .sum::<usize>()
+    };
+    assert!(geometry.caret_rect(row_start(shown_rows - 1)).is_some());
+    assert_eq!(geometry.caret_rect(row_start(shown_rows)), None);
+    assert!(
+        geometry
+            .range_rects(row_start(shown_rows)..row_start(shown_rows + 1))
+            .is_empty()
+    );
+    assert_eq!(geometry.caret_rect(content.len()), None);
+}
+
+#[test]
+fn 장식이_없는_요청은_기존_평문_화면과_같고_보이지_않는_줄의_장식은_도형을_더하지_않는다() {
+    let (mut store, view) = fixture(PLAIN_DOCUMENT, false);
+    let context = Context::default();
+    let surface = editor();
+    let presentation = EditorPresentation::default();
+    let draw =
+        |context: &Context, store: &mut EditorStore, view: ViewId, layers: &[&DecorationLayer]| {
+            show_decorated(
+                context,
+                &surface,
+                store,
+                view,
+                &presentation,
+                layers,
+                Vec::new(),
+            )
+            .0
+            .shapes
+            .iter()
+            .map(painted)
+            .collect::<Vec<_>>()
+        };
+    draw(&context, &mut store, view, &[]);
+    assert_frame(
+        &draw(&context, &mut store, view, &[]),
+        &PLAIN_FRAME[..PLAIN_FRAME.len() - FRAME_STATE_LINES],
+    );
+    let content = scrolled_document();
+    let (mut scrolled, scrolled_view) = fixture(&content, false);
+    let end = content.len();
+    let hidden = layer(
+        revision(&scrolled, scrolled_view),
+        FIND_Z_ORDER,
+        Stickiness::default(),
+        vec![
+            (end - 2..end, range_background(DECORATION_FIND)),
+            (end - 2..end, squiggle(DECORATION_WARNING)),
+            (
+                end..end,
+                DecorationKind::LineBackground(DECORATION_CONFLICT),
+            ),
+            (end..end, lane(LaneMark::Bar, DECORATION_ADDED)),
+            (
+                end..end,
+                lane(LaneMark::DeletedTriangle, DECORATION_DELETED),
+            ),
+        ],
+    );
+    let context = Context::default();
+    draw(&context, &mut scrolled, scrolled_view, &[]);
+    let undecorated = draw(&context, &mut scrolled, scrolled_view, &[]);
+    assert_eq!(
+        draw(&context, &mut scrolled, scrolled_view, &[&hidden]),
+        undecorated
+    );
+}
+
+#[test]
+fn 표시_줄_장식은_구간을_경계에서_나누어_전경색과_밑줄색만_바꾸고_글꼴_스타일은_남긴다() {
+    let styles = token_styles();
+    let font = FontId::monospace(FONT_SIZE);
+    let source = "\tabcd";
+    let string_start = source.find('c').unwrap();
+    let mut row = row_text(source, TAB_SIZE, 0.0, 0);
+    row.highlight(RowTokens {
+        spans: &spans(&[(0, KEYWORD_STYLE_ID), (string_start, STRING_STYLE_ID)]),
+        styles: &styles,
+        row_start_byte: 0,
+    });
+    let tab_chars = TAB_SIZE as usize;
+    let string_chars = tab_chars + 2;
+    let end = string_chars + 2;
+    let link = token_color(DECORATION_LINK);
+    let style = RowInlineStyle {
+        foreground: Some(token_color(DECORATION_BRACKET)),
+        underline: Some(link),
+    };
+    let undecorated = row.clone();
+    row.decorate(string_chars..string_chars, style);
+    assert_eq!(row, undecorated);
+    row.decorate(string_chars - 1..string_chars + 1, style);
+    let bold = RowFontStyle {
+        is_bold: true,
+        ..RowFontStyle::default()
+    };
+    let slanted = RowFontStyle {
+        is_italic: true,
+        is_underlined: true,
+        ..RowFontStyle::default()
+    };
+    assert_eq!(
+        row.sections,
+        [
+            row_section(TOKEN_KEYWORD, 0..string_chars - 1),
+            row_section(DECORATION_BRACKET, string_chars - 1..string_chars),
+            row_section(DECORATION_BRACKET, string_chars..string_chars + 1),
+            row_section(TOKEN_STRING, string_chars + 1..end),
+        ]
+    );
+    assert_eq!(row.font_styles, [bold, bold, slanted, slanted]);
+    assert_eq!(row.underline_colors, [None, Some(link), Some(link), None]);
+    assert_eq!(row.text, undecorated.text);
+    assert_eq!(row.model_bytes, undecorated.model_bytes);
+    let job = row.styled_layout_job(&font, None);
+    assert_eq!(
+        job.sections
+            .iter()
+            .map(|section| (
+                section.format.color,
+                section.format.italics,
+                section.format.underline
+            ))
+            .collect::<Vec<_>>(),
+        [
+            (token_color(TOKEN_KEYWORD), false, Stroke::NONE),
+            (
+                token_color(DECORATION_BRACKET),
+                false,
+                decoration(DECORATION_LINK)
+            ),
+            (
+                token_color(DECORATION_BRACKET),
+                true,
+                decoration(DECORATION_LINK)
+            ),
+            (token_color(TOKEN_STRING), true, decoration(TOKEN_STRING)),
+        ]
+    );
+    row.decorate(
+        0..end,
+        RowInlineStyle {
+            foreground: None,
+            underline: Some(link),
+        },
+    );
+    assert_eq!(row.sections.len(), 4);
+    assert_eq!(
+        row.sections[0],
+        row_section(TOKEN_KEYWORD, 0..string_chars - 1)
+    );
+    assert_eq!(row.underline_colors, [Some(link); 4]);
+}
+
+const FOLD_CONTROL_MARGIN: f32 = 2.0;
+const FOLD_CONTROL_CLICK_INSET: f32 = 4.0;
+const FOLD_CONTROL_FONT_SCALE: f32 = 1.4;
+const FOLD_CONTROL_FADE_SECONDS: f64 = 0.5;
+const FOLD_BACKGROUND_OPACITY: f32 = 0.3;
+const FOLD_PLACEHOLDER: &str = "\u{22EF}";
+const FOLD_PLACEHOLDER_MARGIN_EM: f32 = 0.2;
+const FOLD_PLACEHOLDER_GRAY: u8 = 128;
+const FOLD_LINES: [&str; 7] = [
+    "fn outer() {",
+    "    if a {",
+    "        one();",
+    "    }",
+    "    tail();",
+    "}",
+    "end",
+];
+const INNER_HEADER: usize = 1;
+const INNER_HIDDEN: std::ops::RangeInclusive<usize> = 2..=2;
+const OUTER_HIDDEN: std::ops::RangeInclusive<usize> = 1..=4;
+const FOLD_CLICK_INSIDE: f32 = 1.0;
+const WRAPPED_HEADER_CHARS: usize = 100;
+const TRAILING_FOLD_DOCUMENT: &str = "a\n  b\n  c";
+const FOLD_BLOCKS: usize = 40;
+const FOLD_LONG_LINES: usize = 200;
+const FOLD_LONG_HEADER: usize = 150;
+const FOLD_ABOVE_HEADER: usize = 10;
+const FOLD_ABOVE_LAST: usize = 19;
+const FOLD_SCROLLED_LINE: usize = 100;
+const FOLD_SCROLLED_HIDDEN_LINE: usize = 15;
+const FOLD_EDGE_CLICK_INSET: f32 = 3.0;
+const FOLD_SHOWN_LINE: usize = 4;
+const FOLD_SHOWN_ROW: usize = 3;
+const FOLD_SHOWN_MARK: std::ops::Range<usize> = 4..8;
+const FOLD_HIDDEN_MARK_BYTES: usize = 2;
+const FOLD_DRAG_FROM_COLUMN: usize = 3;
+const FOLD_DRAG_TO_LINE: usize = 3;
+const FOLD_DRAG_TO_ROW: usize = 2;
+const FOLD_DRAG_TO_COLUMN: usize = 5;
+const HOVER_START: f64 = 2.0;
+const HOVER_END: f64 = 3.0;
+const GUTTER_POINT: Pos2 = pos2(5.0, 30.0);
+const TEXT_POINT: Pos2 = pos2(400.0, 130.0);
+
+fn fold_document() -> String {
+    FOLD_LINES.join("\n")
+}
+
+fn line_starts(text: &str) -> Vec<usize> {
+    std::iter::once(0)
+        .chain(text.match_indices('\n').map(|(index, _)| index + 1))
+        .collect()
+}
+
+fn lines_fold(text: &str, hidden: std::ops::RangeInclusive<usize>) -> std::ops::Range<usize> {
+    let starts = line_starts(text);
+    let end = starts
+        .get(hidden.end() + 1)
+        .map_or(text.len(), |next| next - 1);
+    starts[*hidden.start()]..end
+}
+
+fn fold_line_start(line: usize) -> usize {
+    line_starts(&fold_document())[line]
+}
+
+fn fold_line_end(line: usize) -> usize {
+    fold_line_start(line) + FOLD_LINES[line].len()
+}
+
+fn hidden_fold(hidden: std::ops::RangeInclusive<usize>) -> std::ops::Range<usize> {
+    lines_fold(&fold_document(), hidden)
+}
+
+fn folds(store: &EditorStore, view: ViewId) -> Vec<std::ops::Range<usize>> {
+    store.views().get(view).unwrap().folds.clone()
+}
+
+fn only_fold(store: &EditorStore, view: ViewId) -> std::ops::Range<usize> {
+    let folds = folds(store, view);
+    assert_eq!(folds.len(), 1);
+    folds[0].clone()
+}
+
+fn hide(store: &mut EditorStore, view: ViewId, folds: Vec<std::ops::Range<usize>>) {
+    let current = store.views().get(view).unwrap().clone();
+    store
+        .set_view_state(view, current.selection, current.scroll, folds)
+        .unwrap();
+}
+
+fn place_caret(store: &mut EditorStore, view: ViewId, byte: usize) {
+    let current = store.views().get(view).unwrap().clone();
+    store
+        .set_view_state(
+            view,
+            SelectionSet {
+                primary: 0,
+                selections: vec![Selection {
+                    anchor: byte,
+                    head: byte,
+                }],
+            },
+            current.scroll,
+            current.folds,
+        )
+        .unwrap();
+}
+
+fn folding_presentation(word_wrap: bool) -> EditorPresentation {
+    EditorPresentation {
+        options: EditorDisplayOptions {
+            word_wrap,
+            folding: true,
+            ..Default::default()
+        },
+    }
+}
+
+struct FoldFrame<'a> {
+    presentation: &'a EditorPresentation,
+    commands: &'a [FoldCommand],
+    events: Vec<Event>,
+    modifiers: Modifiers,
+    time: Option<f64>,
+    tokens: Option<EditorTokens<'a>>,
+    decorations: &'a [&'a DecorationLayer],
+}
+
+impl<'a> FoldFrame<'a> {
+    fn idle(presentation: &'a EditorPresentation) -> Self {
+        Self {
+            presentation,
+            commands: &[],
+            events: Vec::new(),
+            modifiers: Modifiers::NONE,
+            time: None,
+            tokens: None,
+            decorations: &[],
+        }
+    }
+}
+
+struct Folded {
+    shown: Wrapped,
+    controls: Vec<FoldControl>,
+    control_color: Color32,
+}
+
+fn show_folding(
+    context: &Context,
+    store: &mut EditorStore,
+    view: ViewId,
+    frame: FoldFrame<'_>,
+) -> Folded {
+    let mut shown = None;
+    let mut controls = Vec::new();
+    let mut output = context.run_ui(
+        RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                pos2(0.0, 0.0),
+                vec2(SCREEN[0], SCREEN[1]),
+            )),
+            events: std::iter::once(Event::ModifiersChanged(frame.modifiers))
+                .chain(frame.events)
+                .collect(),
+            time: frame.time,
+            ..Default::default()
+        },
+        |ui| {
+            let viewport = ui.available_rect_before_wrap().intersect(ui.clip_rect());
+            let control_color = ui.visuals().weak_text_color();
+            let mut record = |_: &Ui, control: FoldControl| controls.push(control);
+            let output = editor()
+                .show_request(
+                    ui,
+                    store,
+                    view,
+                    EditorRequest {
+                        request_focus: true,
+                        keymap: |_: &Ui, _: &Event, _: bool| false,
+                        route: |_: &Response| None,
+                        presentation: frame.presentation,
+                        tokens: |_: &EditorStore| frame.tokens,
+                        decorations: frame.decorations,
+                        fold_commands: frame.commands,
+                        fold_controls: Some(&mut record),
+                    },
+                )
+                .unwrap();
+            assert!(output.errors.is_empty());
+            shown = Some((
+                viewport,
+                output.rendered_lines,
+                output.geometry.visible_rows,
+                control_color,
+            ));
+        },
+    );
+    output.textures_delta.clear();
+    let (viewport, rendered_lines, visible_rows, control_color) = shown.unwrap();
+    Folded {
+        shown: Wrapped {
+            shapes: output.shapes,
+            viewport,
+            rendered_lines,
+            visible_rows,
+            ime_cursor: output.platform_output.ime.map(|ime| ime.cursor_rect),
+        },
+        controls,
+        control_color,
+    }
+}
+
+fn run_folds(
+    context: &Context,
+    store: &mut EditorStore,
+    view: ViewId,
+    presentation: &EditorPresentation,
+    commands: &[FoldCommand],
+) -> Folded {
+    show_folding(
+        context,
+        store,
+        view,
+        FoldFrame {
+            commands,
+            ..FoldFrame::idle(presentation)
+        },
+    )
+}
+
+fn press_keys(
+    context: &Context,
+    store: &mut EditorStore,
+    view: ViewId,
+    presentation: &EditorPresentation,
+    events: Vec<Event>,
+) -> Folded {
+    show_folding(
+        context,
+        store,
+        view,
+        FoldFrame {
+            events,
+            ..FoldFrame::idle(presentation)
+        },
+    )
+}
+
+fn fold_click(
+    context: &Context,
+    store: &mut EditorStore,
+    view: ViewId,
+    position: Pos2,
+    (button, modifiers): (PointerButton, Modifiers),
+) -> Folded {
+    let presentation = folding_presentation(false);
+    let pressed = |pressed: bool| Event::PointerButton {
+        pos: position,
+        button,
+        pressed,
+        modifiers,
+    };
+    for events in [
+        vec![Event::PointerMoved(position), pressed(true)],
+        vec![pressed(false)],
+    ] {
+        show_folding(
+            context,
+            store,
+            view,
+            FoldFrame {
+                events,
+                modifiers,
+                ..FoldFrame::idle(&presentation)
+            },
+        );
+    }
+    show_folding(context, store, view, FoldFrame::idle(&presentation))
+}
+
+fn fold_lane_left(context: &Context) -> f32 {
+    line_numbers_width(
+        context,
+        FontId::monospace(FONT_SIZE),
+        LINE_NUMBERS_MIN_CHARS,
+    )
+}
+
+fn fold_text_left(context: &Context) -> f32 {
+    fold_lane_left(context) + LINE_DECORATIONS_WIDTH + FOLDING_CONTROLS_WIDTH
+}
+
+fn row_middle(row: usize) -> f32 {
+    (row as f32 + 1.0 / CENTER_DIVISOR) * LINE_HEIGHT
+}
+
+fn fold_control_rect(context: &Context, row: usize) -> Rect {
+    Rect::from_center_size(
+        pos2(
+            fold_lane_left(context)
+                + FOLD_CONTROL_MARGIN
+                + (LINE_DECORATIONS_WIDTH + FOLDING_CONTROLS_WIDTH) / CENTER_DIVISOR,
+            row_middle(row),
+        ),
+        Vec2::splat(FONT_SIZE * FOLD_CONTROL_FONT_SCALE),
+    )
+}
+
+fn fold_control_point(context: &Context, row: usize) -> Pos2 {
+    pos2(
+        fold_lane_left(context)
+            + FOLD_CONTROL_MARGIN
+            + FOLD_CONTROL_CLICK_INSET
+            + FOLD_CLICK_INSIDE,
+        row_middle(row),
+    )
+}
+
+fn gutter_numbers(folded: &Folded) -> Vec<String> {
+    texts(&folded.shown.shapes, folded.shown.viewport, false)
+        .into_iter()
+        .map(|(text, _, _)| text)
+        .collect()
+}
+
+fn fold_background() -> Color32 {
+    Color32::BLUE.gamma_multiply(FOLD_BACKGROUND_OPACITY)
+}
+
+fn collapsed_control(context: &Context, folded: &Folded, row: usize) -> FoldControl {
+    FoldControl {
+        rect: fold_control_rect(context, row),
+        chevron_rotation: 0.0,
+        color: folded.control_color,
+    }
+}
+
+#[test]
+fn 접힌_머리_줄은_배경과_생략_표식과_펼침_컨트롤을_가지고_숨김_줄은_본문과_줄_번호에서_빠진다() {
+    let (mut store, view) = fixture(&fold_document(), false);
+    let context = Context::default();
+    let presentation = folding_presentation(false);
+    let unfolded = show_folding(&context, &mut store, view, FoldFrame::idle(&presentation));
+    assert_eq!(body_rows(&unfolded.shown), FOLD_LINES);
+    assert!(unfolded.controls.is_empty());
+    assert!(filled(&unfolded.shown.shapes, fold_background()).is_empty());
+    hide(&mut store, view, vec![hidden_fold(INNER_HIDDEN)]);
+    let folded = show_folding(&context, &mut store, view, FoldFrame::idle(&presentation));
+    let viewport = folded.shown.viewport;
+    let header = FOLD_LINES[INNER_HEADER];
+    assert_eq!(
+        body_rows(&folded.shown),
+        [
+            FOLD_LINES[0],
+            header,
+            FOLD_PLACEHOLDER,
+            FOLD_LINES[3],
+            FOLD_LINES[4],
+            FOLD_LINES[5],
+            FOLD_LINES[6]
+        ]
+    );
+    assert_eq!(gutter_numbers(&folded), ["1", "2", "4", "5", "6", "7"]);
+    assert_eq!(folded.shown.rendered_lines, 0..FOLD_LINES.len());
+    assert_eq!(folded.shown.visible_rows, 0..FOLD_LINES.len() - 1);
+    let left = viewport.left() + fold_text_left(&context);
+    let row_top = |row: usize| viewport.top() + row as f32 * LINE_HEIGHT;
+    assert_eq!(
+        filled(&folded.shown.shapes, fold_background()),
+        [Rect::from_min_max(
+            pos2(left, row_top(INNER_HEADER)),
+            pos2(viewport.right(), row_top(INNER_HEADER + 1))
+        )]
+    );
+    let body = texts(&folded.shown.shapes, viewport, true);
+    assert_eq!(
+        body[INNER_HEADER + 1].1,
+        pos2(
+            left + caret_offset(&context, header, header.len())
+                + FOLD_PLACEHOLDER_MARGIN_EM * FONT_SIZE,
+            body[INNER_HEADER].1.y
+        )
+    );
+    assert_eq!(
+        colored_rows(&folded.shown)[INNER_HEADER + 1],
+        [(
+            FOLD_PLACEHOLDER.to_owned(),
+            Color32::from_gray(FOLD_PLACEHOLDER_GRAY)
+        )]
+    );
+    assert_eq!(
+        folded.controls,
+        [collapsed_control(&context, &folded, INNER_HEADER)]
+    );
+    hide(
+        &mut store,
+        view,
+        vec![hidden_fold(OUTER_HIDDEN), hidden_fold(INNER_HIDDEN)],
+    );
+    let nested = show_folding(&context, &mut store, view, FoldFrame::idle(&presentation));
+    assert_eq!(
+        body_rows(&nested.shown),
+        [
+            FOLD_LINES[0],
+            FOLD_PLACEHOLDER,
+            FOLD_LINES[5],
+            FOLD_LINES[6]
+        ]
+    );
+    assert_eq!(gutter_numbers(&nested), ["1", "6", "7"]);
+    assert_eq!(nested.controls, [collapsed_control(&context, &nested, 0)]);
+}
+
+#[test]
+fn 줄바꿈된_접힌_머리_줄은_모든_표시_줄에_배경을_마지막_표시_줄에_생략_표식을_첫_표시_줄에_컨트롤을_둔다()
+ {
+    let long = "x".repeat(WRAPPED_HEADER_CHARS);
+    let document = format!("{long}\n    body\nend");
+    let (mut store, view) = fixture(&document, false);
+    let context = Context::default();
+    let presentation = folding_presentation(true);
+    hide(&mut store, view, vec![lines_fold(&document, 1..=1)]);
+    show_folding(&context, &mut store, view, FoldFrame::idle(&presentation));
+    let folded = show_folding(&context, &mut store, view, FoldFrame::idle(&presentation));
+    let viewport = folded.shown.viewport;
+    let left = viewport.left() + fold_text_left(&context);
+    let advance = measure(&context, &"x".repeat(ADVANCE_SAMPLE)) / ADVANCE_SAMPLE as f32;
+    let columns =
+        ((viewport.width() - fold_text_left(&context) - VERTICAL_SCROLLBAR_SIZE - WRAP_CURSOR_ROOM)
+            / advance)
+            .floor() as usize;
+    assert!(columns < WRAPPED_HEADER_CHARS && WRAPPED_HEADER_CHARS < columns * 2);
+    assert_eq!(
+        body_rows(&folded.shown),
+        [&long[..columns], &long[columns..], FOLD_PLACEHOLDER, "end"]
+    );
+    assert_eq!(gutter_numbers(&folded), ["1", "3"]);
+    let row_top = |row: usize| viewport.top() + row as f32 * LINE_HEIGHT;
+    assert_eq!(
+        filled(&folded.shown.shapes, fold_background()),
+        [0, 1].map(|row| Rect::from_min_max(
+            pos2(left, row_top(row)),
+            pos2(viewport.right(), row_top(row + 1))
+        ))
+    );
+    let body = texts(&folded.shown.shapes, viewport, true);
+    assert_eq!(
+        body[2].1,
+        pos2(
+            left + caret_offset(&context, &long[columns..], WRAPPED_HEADER_CHARS - columns)
+                + FOLD_PLACEHOLDER_MARGIN_EM * FONT_SIZE,
+            body[1].1.y
+        )
+    );
+    assert_eq!(folded.controls, [collapsed_control(&context, &folded, 0)]);
+}
+
+#[test]
+fn 펼쳐진_영역의_접기_컨트롤은_gutter에_포인터가_있는_동안만_반_초에_걸쳐_나타나고_사라진다() {
+    let (mut store, view) = fixture(&fold_document(), false);
+    let context = Context::default();
+    let presentation = folding_presentation(false);
+    let mut at = |time: f64, events: Vec<Event>| {
+        show_folding(
+            &context,
+            &mut store,
+            view,
+            FoldFrame {
+                events,
+                time: Some(time),
+                ..FoldFrame::idle(&presentation)
+            },
+        )
+    };
+    let half = FOLD_CONTROL_FADE_SECONDS / f64::from(CENTER_DIVISOR);
+    let measuring = Context::default();
+    let rects = [0, INNER_HEADER].map(|row| fold_control_rect(&measuring, row));
+    let expanded = |folded: &Folded, opacity: f32| {
+        rects.map(|rect| FoldControl {
+            rect,
+            chevron_rotation: std::f32::consts::FRAC_PI_2,
+            color: folded.control_color.gamma_multiply(opacity),
+        })
+    };
+    let half_eased = ease(1.0 / CENTER_DIVISOR);
+    assert!(at(HOVER_START - half, Vec::new()).controls.is_empty());
+    assert!(
+        at(HOVER_START, vec![Event::PointerMoved(GUTTER_POINT)])
+            .controls
+            .is_empty()
+    );
+    let appearing = at(HOVER_START + half, Vec::new());
+    assert_eq!(appearing.controls, expanded(&appearing, half_eased));
+    let appeared = at(HOVER_START + FOLD_CONTROL_FADE_SECONDS, Vec::new());
+    assert_eq!(appeared.controls, expanded(&appeared, 1.0));
+    let leaving = at(HOVER_END, vec![Event::PointerMoved(TEXT_POINT)]);
+    assert_eq!(leaving.controls, expanded(&leaving, 1.0));
+    let disappearing = at(HOVER_END + half, Vec::new());
+    assert_eq!(
+        disappearing.controls,
+        expanded(&disappearing, 1.0 - half_eased)
+    );
+    assert!(
+        at(HOVER_END + FOLD_CONTROL_FADE_SECONDS, Vec::new())
+            .controls
+            .is_empty()
+    );
+}
+
+#[test]
+fn gutter의_접기_컨트롤_클릭은_캐럿을_옮기지_않고_그_줄의_영역을_전환하며_수정_키와_가운데_버튼은_재귀와_주변_전환이다()
+ {
+    let (mut store, view) = fixture(&fold_document(), false);
+    let context = Context::default();
+    let plain = (PointerButton::Primary, Modifiers::NONE);
+    let shifted = (PointerButton::Primary, Modifiers::SHIFT);
+    let inner = hidden_fold(INNER_HIDDEN);
+    let outer = hidden_fold(OUTER_HIDDEN);
+    show_folding(
+        &context,
+        &mut store,
+        view,
+        FoldFrame::idle(&folding_presentation(false)),
+    );
+    let measuring = Context::default();
+    let control = |row: usize| fold_control_point(&measuring, row);
+    let folded = fold_click(&context, &mut store, view, control(INNER_HEADER), plain);
+    assert_eq!(only_fold(&store, view), inner);
+    assert_eq!(selection(&store, view), (0, 0));
+    assert_eq!(body_rows(&folded.shown).len(), FOLD_LINES.len());
+    assert_eq!(gutter_numbers(&folded), ["1", "2", "4", "5", "6", "7"]);
+    fold_click(&context, &mut store, view, control(INNER_HEADER), plain);
+    assert!(folds(&store, view).is_empty());
+    fold_click(&context, &mut store, view, control(4), plain);
+    assert!(folds(&store, view).is_empty());
+    assert_eq!(selection(&store, view), (0, 0));
+    let outside = pos2(
+        control(INNER_HEADER).x - FOLD_CLICK_INSIDE * CENTER_DIVISOR,
+        row_middle(INNER_HEADER),
+    );
+    fold_click(&context, &mut store, view, outside, plain);
+    assert!(folds(&store, view).is_empty());
+    let header_start = fold_line_start(INNER_HEADER);
+    assert_eq!(selection(&store, view), (header_start, header_start));
+    fold_click(&context, &mut store, view, control(0), shifted);
+    assert_eq!(only_fold(&store, view), inner);
+    assert_eq!(selection(&store, view), (header_start, header_start));
+    let folded = fold_click(&context, &mut store, view, control(0), shifted);
+    assert_eq!(folds(&store, view), [outer.clone(), inner.clone()]);
+    let outer_end = fold_line_end(0);
+    assert_eq!(selection(&store, view), (outer_end, outer_end));
+    assert_eq!(gutter_numbers(&folded), ["1", "6", "7"]);
+    fold_click(
+        &context,
+        &mut store,
+        view,
+        control(0),
+        (PointerButton::Primary, Modifiers::ALT),
+    );
+    assert_eq!(folds(&store, view), [outer, inner]);
+    fold_click(
+        &context,
+        &mut store,
+        view,
+        control(0),
+        (PointerButton::Middle, Modifiers::NONE),
+    );
+    assert!(folds(&store, view).is_empty());
+    assert_eq!(selection(&store, view), (outer_end, outer_end));
+}
+
+#[test]
+fn 접힌_줄_끝의_생략_표식_클릭은_캐럿을_줄_끝에_두고_펼치며_그_뒤의_빈_곳과_줄_안의_클릭은_펼치지_않는다()
+ {
+    let (mut store, view) = fixture(&fold_document(), false);
+    let context = Context::default();
+    let plain = (PointerButton::Primary, Modifiers::NONE);
+    let inner = hidden_fold(INNER_HIDDEN);
+    let header = FOLD_LINES[INNER_HEADER];
+    let text_end = fold_text_left(&context) + caret_offset(&context, header, header.len());
+    let margin = FOLD_PLACEHOLDER_MARGIN_EM * FONT_SIZE;
+    let placeholder_width = measure(&context, FOLD_PLACEHOLDER);
+    let at = |x: f32| pos2(x, row_middle(INNER_HEADER));
+    let header_end = fold_line_end(INNER_HEADER);
+    for (x, unfolds, head) in [
+        (
+            text_end + margin + placeholder_width / CENTER_DIVISOR,
+            true,
+            header_end,
+        ),
+        (
+            text_end + margin * CENTER_DIVISOR + placeholder_width + LINE_HEIGHT,
+            false,
+            header_end,
+        ),
+        (text_end + margin / CENTER_DIVISOR, true, header_end),
+        (
+            fold_text_left(&context) + FOLD_CLICK_INSIDE,
+            false,
+            fold_line_start(INNER_HEADER),
+        ),
+    ] {
+        hide(&mut store, view, vec![inner.clone()]);
+        place_caret(&mut store, view, 0);
+        show_folding(
+            &context,
+            &mut store,
+            view,
+            FoldFrame::idle(&folding_presentation(false)),
+        );
+        fold_click(&context, &mut store, view, at(x), plain);
+        assert_eq!(folds(&store, view).is_empty(), unfolds, "{x}");
+        assert_eq!(selection(&store, view), (head, head), "{x}");
+    }
+}
+
+#[test]
+fn 접기_명령은_그_프레임에_적용되어_캐럿을_머리_줄_끝으로_옮기고_접기가_꺼진_표시에서는_접힘을_지운다()
+ {
+    let (mut store, view) = fixture(&fold_document(), false);
+    let context = Context::default();
+    let presentation = folding_presentation(false);
+    let inner = hidden_fold(INNER_HIDDEN);
+    let outer = hidden_fold(OUTER_HIDDEN);
+    place_caret(&mut store, view, fold_line_start(2));
+    show_folding(&context, &mut store, view, FoldFrame::idle(&presentation));
+    let folded = run_folds(
+        &context,
+        &mut store,
+        view,
+        &presentation,
+        &[FoldCommand::Fold],
+    );
+    assert_eq!(only_fold(&store, view), inner);
+    let header = FOLD_LINES[INNER_HEADER];
+    let header_end = fold_line_end(INNER_HEADER);
+    assert_eq!(selection(&store, view), (header_end, header_end));
+    assert_eq!(gutter_numbers(&folded), ["1", "2", "4", "5", "6", "7"]);
+    assert_caret(
+        &folded.shown,
+        fold_text_left(&context) + caret_offset(&context, header, header.len()),
+        INNER_HEADER as f32 * LINE_HEIGHT,
+    );
+    let all = run_folds(
+        &context,
+        &mut store,
+        view,
+        &presentation,
+        &[FoldCommand::FoldAll],
+    );
+    assert_eq!(folds(&store, view), [outer, inner.clone()]);
+    assert_eq!(
+        selection(&store, view),
+        (fold_line_end(0), fold_line_end(0))
+    );
+    assert_eq!(
+        body_rows(&all.shown),
+        [
+            FOLD_LINES[0],
+            FOLD_PLACEHOLDER,
+            FOLD_LINES[5],
+            FOLD_LINES[6]
+        ]
+    );
+    run_folds(
+        &context,
+        &mut store,
+        view,
+        &presentation,
+        &[FoldCommand::UnfoldAll],
+    );
+    assert!(folds(&store, view).is_empty());
+    run_folds(
+        &context,
+        &mut store,
+        view,
+        &presentation,
+        &[FoldCommand::FoldAll, FoldCommand::UnfoldAll],
+    );
+    assert!(folds(&store, view).is_empty());
+    let unfoldable = EditorPresentation::default();
+    run_folds(
+        &context,
+        &mut store,
+        view,
+        &unfoldable,
+        &[FoldCommand::FoldAll],
+    );
+    assert!(folds(&store, view).is_empty());
+    hide(&mut store, view, vec![inner]);
+    let shown = run_folds(&context, &mut store, view, &unfoldable, &[]);
+    assert!(folds(&store, view).is_empty());
+    assert_eq!(body_rows(&shown.shown), FOLD_LINES);
+    assert!(shown.controls.is_empty());
+}
+
+fn long_fold_document(header: usize, last: usize) -> String {
+    (0..FOLD_LONG_LINES)
+        .map(|line| {
+            if line == header {
+                "head {"
+            } else if line > header && line <= last {
+                "    body"
+            } else {
+                "x"
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn 접기_명령_뒤에_선택의_시작이_화면_밖이면_가운데로_보이게_하고_화면_안이면_스크롤을_그대로_둔다()
+{
+    let document = long_fold_document(FOLD_LONG_HEADER, FOLD_LONG_HEADER + 1);
+    let starts = line_starts(&document);
+    let (mut store, view) = fixture(&document, false);
+    let context = Context::default();
+    let presentation = folding_presentation(false);
+    place_caret(&mut store, view, starts[FOLD_LONG_HEADER + 1]);
+    show_folding(&context, &mut store, view, FoldFrame::idle(&presentation));
+    assert_eq!(
+        store.views().get(view).unwrap().scroll,
+        ScrollPosition::default()
+    );
+    run_folds(
+        &context,
+        &mut store,
+        view,
+        &presentation,
+        &[FoldCommand::Fold],
+    );
+    let hidden = lines_fold(&document, FOLD_LONG_HEADER + 1..=FOLD_LONG_HEADER + 1);
+    assert_eq!(folds(&store, view), [hidden]);
+    let header_end = starts[FOLD_LONG_HEADER + 1] - 1;
+    assert_eq!(selection(&store, view), (header_end, header_end));
+    let centered = row_middle(FOLD_LONG_HEADER) - SCREEN[1] / CENTER_DIVISOR;
+    assert_eq!(store.views().get(view).unwrap().scroll.y, centered);
+    run_folds(
+        &context,
+        &mut store,
+        view,
+        &presentation,
+        &[FoldCommand::Unfold],
+    );
+    assert!(folds(&store, view).is_empty());
+    assert_eq!(store.views().get(view).unwrap().scroll.y, centered);
+}
+
+#[test]
+fn 접기_컨트롤_클릭_뒤에_머리_줄이_화면에_다_보이지_않으면_가운데로_보이게_하고_다_보이면_스크롤을_그대로_둔다()
+ {
+    let document = long_fold_document(FOLD_ABOVE_HEADER, FOLD_ABOVE_LAST);
+    let hidden = lines_fold(&document, FOLD_ABOVE_HEADER + 1..=FOLD_ABOVE_LAST);
+    let (mut store, view) = fixture(&document, false);
+    let context = Context::default();
+    let measuring = Context::default();
+    let presentation = folding_presentation(false);
+    let plain = (PointerButton::Primary, Modifiers::NONE);
+    let scroll_y = |store: &EditorStore| store.views().get(view).unwrap().scroll.y;
+    let header_top = FOLD_ABOVE_HEADER as f32 * LINE_HEIGHT;
+    let clipped = header_top + STABLE_DELTA - SCREEN[1];
+    scroll_to(&mut store, view, clipped);
+    show_folding(&context, &mut store, view, FoldFrame::idle(&presentation));
+    assert_eq!(scroll_y(&store), clipped);
+    let control_x = fold_control_point(&measuring, FOLD_ABOVE_HEADER).x;
+    fold_click(
+        &context,
+        &mut store,
+        view,
+        pos2(control_x, header_top - clipped + FOLD_EDGE_CLICK_INSET),
+        plain,
+    );
+    assert_eq!(folds(&store, view), [hidden]);
+    let centered = row_middle(FOLD_ABOVE_HEADER) - SCREEN[1] / CENTER_DIVISOR;
+    assert_eq!(scroll_y(&store), centered);
+    fold_click(
+        &context,
+        &mut store,
+        view,
+        pos2(control_x, row_middle(FOLD_ABOVE_HEADER) - centered),
+        plain,
+    );
+    assert!(folds(&store, view).is_empty());
+    assert_eq!(scroll_y(&store), centered);
+}
+
+#[test]
+fn 접힌_상태의_좌우_이동은_숨김_줄을_건너뛰고_캐럿이_숨김_줄에_들어가면_그_프레임에_펼친다() {
+    let (mut store, view) = fixture(&fold_document(), false);
+    let context = Context::default();
+    let presentation = folding_presentation(false);
+    let inner = hidden_fold(INNER_HIDDEN);
+    hide(&mut store, view, vec![inner.clone()]);
+    place_caret(&mut store, view, fold_line_start(3));
+    show_folding(&context, &mut store, view, FoldFrame::idle(&presentation));
+    for (pressed, head) in [
+        (Key::ArrowLeft, fold_line_end(INNER_HEADER)),
+        (Key::ArrowRight, fold_line_start(3)),
+        (Key::ArrowUp, fold_line_start(INNER_HEADER)),
+        (Key::ArrowDown, fold_line_start(3)),
+    ] {
+        press_keys(
+            &context,
+            &mut store,
+            view,
+            &presentation,
+            vec![key(pressed, false)],
+        );
+        assert_eq!(selection(&store, view), (head, head), "{pressed:?}");
+        assert_eq!(only_fold(&store, view), inner, "{pressed:?}");
+    }
+
+    let (mut store, view) = fixture(TRAILING_FOLD_DOCUMENT, false);
+    let context = Context::default();
+    let trailing = lines_fold(TRAILING_FOLD_DOCUMENT, 1..=2);
+    let end = TRAILING_FOLD_DOCUMENT.len();
+    hide(&mut store, view, vec![trailing.clone()]);
+    show_folding(&context, &mut store, view, FoldFrame::idle(&presentation));
+    let extended = press_keys(
+        &context,
+        &mut store,
+        view,
+        &presentation,
+        vec![chord(
+            Key::End,
+            Modifiers {
+                command: true,
+                shift: true,
+                ..Modifiers::default()
+            },
+        )],
+    );
+    assert_eq!(selection(&store, view), (0, end));
+    assert_eq!(only_fold(&store, view), trailing);
+    assert_eq!(body_rows(&extended.shown), ["a", FOLD_PLACEHOLDER]);
+    place_caret(&mut store, view, 0);
+    let revealed = press_keys(
+        &context,
+        &mut store,
+        view,
+        &presentation,
+        vec![key(Key::End, true)],
+    );
+    assert_eq!(selection(&store, view), (end, end));
+    assert!(folds(&store, view).is_empty());
+    assert_eq!(body_rows(&revealed.shown), ["a", "  b", "  c"]);
+
+    let (mut store, view) = fixture(&fold_document(), false);
+    let context = Context::default();
+    hide(&mut store, view, vec![inner]);
+    let mut output = context.run_ui(
+        RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                pos2(0.0, 0.0),
+                vec2(SCREEN[0], SCREEN[1]),
+            )),
+            ..Default::default()
+        },
+        |ui| {
+            editor()
+                .reveal_presented(ui, &mut store, view, 3.0, 1.0, &presentation)
+                .unwrap();
+        },
+    );
+    output.textures_delta.clear();
+    assert!(folds(&store, view).is_empty());
+    assert_eq!(
+        selection(&store, view),
+        (fold_line_start(2), fold_line_start(2))
+    );
+}
+
+#[test]
+fn 접힌_상태의_page_이동과_세로_이동은_보이는_표시_줄_수를_따른다() {
+    let document = (0..FOLD_BLOCKS)
+        .map(|block| format!("h{block}\n  b{block}"))
+        .chain(["end".to_owned()])
+        .collect::<Vec<_>>()
+        .join("\n");
+    let starts = line_starts(&document);
+    let (mut store, view) = fixture(&document, false);
+    let context = Context::default();
+    let presentation = folding_presentation(false);
+    show_folding(&context, &mut store, view, FoldFrame::idle(&presentation));
+    let folded = run_folds(
+        &context,
+        &mut store,
+        view,
+        &presentation,
+        &[FoldCommand::FoldAll],
+    );
+    assert_eq!(folds(&store, view).len(), FOLD_BLOCKS);
+    assert_eq!(selection(&store, view), (0, 0));
+    let page_rows = (folded.shown.viewport.height() / LINE_HEIGHT - PAGE_OVERLAP_LINES) as usize;
+    let header = |block: usize| starts[block * 2];
+    for (pressed, block) in [
+        (Key::PageDown, page_rows),
+        (Key::ArrowDown, page_rows + 1),
+        (Key::ArrowUp, page_rows),
+        (Key::ArrowUp, page_rows - 1),
+        (Key::PageDown, page_rows * 2 - 1),
+    ] {
+        press_keys(
+            &context,
+            &mut store,
+            view,
+            &presentation,
+            vec![key(pressed, false)],
+        );
+        assert_eq!(
+            selection(&store, view),
+            (header(block), header(block)),
+            "{pressed:?}"
+        );
+    }
+    assert_eq!(folds(&store, view).len(), FOLD_BLOCKS);
+    let shown = show_folding(&context, &mut store, view, FoldFrame::idle(&presentation));
+    assert_eq!(
+        store.views().get(view).unwrap().scroll.y,
+        (page_rows * 2) as f32 * LINE_HEIGHT - shown.shown.viewport.height()
+    );
+}
+
+#[test]
+fn 접힌_머리_줄_끝의_입력은_접힘을_유지하고_줄바꿈은_펼치며_undo는_접힘을_지우지_않는다() {
+    let (mut store, view) = fixture(&fold_document(), false);
+    let context = Context::default();
+    let presentation = folding_presentation(false);
+    let inner = hidden_fold(INNER_HIDDEN);
+    hide(&mut store, view, vec![inner.clone()]);
+    place_caret(&mut store, view, fold_line_end(INNER_HEADER));
+    show_folding(&context, &mut store, view, FoldFrame::idle(&presentation));
+    let typed = press_keys(
+        &context,
+        &mut store,
+        view,
+        &presentation,
+        vec![Event::Text("x".into())],
+    );
+    assert_eq!(only_fold(&store, view), inner.start + 1..inner.end + 1);
+    assert_eq!(
+        body_rows(&typed.shown)[INNER_HEADER..=INNER_HEADER + 1],
+        [
+            format!("{}x", FOLD_LINES[INNER_HEADER]),
+            FOLD_PLACEHOLDER.to_owned()
+        ]
+    );
+    press_keys(
+        &context,
+        &mut store,
+        view,
+        &presentation,
+        vec![key(Key::Z, true)],
+    );
+    assert_eq!(text(&store, view), fold_document());
+    assert_eq!(only_fold(&store, view), inner);
+    let broken = press_keys(
+        &context,
+        &mut store,
+        view,
+        &presentation,
+        vec![key(Key::Enter, false)],
+    );
+    assert!(folds(&store, view).is_empty());
+    assert_eq!(body_rows(&broken.shown).len(), FOLD_LINES.len() + 1);
+    press_keys(
+        &context,
+        &mut store,
+        view,
+        &presentation,
+        vec![key(Key::Z, true)],
+    );
+    assert_eq!(text(&store, view), fold_document());
+    assert!(folds(&store, view).is_empty());
+
+    hide(&mut store, view, vec![inner.clone()]);
+    place_caret(&mut store, view, fold_document().len());
+    press_keys(
+        &context,
+        &mut store,
+        view,
+        &presentation,
+        vec![Event::Text("y".into())],
+    );
+    assert_eq!(only_fold(&store, view), inner);
+    press_keys(
+        &context,
+        &mut store,
+        view,
+        &presentation,
+        vec![key(Key::Z, true)],
+    );
+    assert_eq!(folds(&store, view), [inner]);
+}
+
+#[test]
+fn 접기_옵션은_대형과_읽기_전용_크기의_파일에서_꺼지고_설정만으로는_켜지지_않는다() {
+    for (tier, is_foldable) in [
+        (FileSizeTier::Normal, true),
+        (FileSizeTier::Large, false),
+        (FileSizeTier::ReadOnly, false),
+        (FileSizeTier::Refused, true),
+    ] {
+        assert_eq!(editor_folding(tier), is_foldable, "{tier:?}");
+    }
+    assert!(!editor_presentation(&Settings::default()).options.folding);
+}
+
+#[test]
+fn 화면_위쪽의_접힘이_바뀌어도_맨_위에_보이던_줄은_그_자리에_남고_그_줄이_숨겨지면_스크롤을_옮기지_않는다()
+ {
+    let document = long_fold_document(FOLD_ABOVE_HEADER, FOLD_ABOVE_LAST);
+    let hidden = lines_fold(&document, FOLD_ABOVE_HEADER + 1..=FOLD_ABOVE_LAST);
+    let hidden_height = (FOLD_ABOVE_LAST - FOLD_ABOVE_HEADER) as f32 * LINE_HEIGHT;
+    let (mut store, view) = fixture(&document, false);
+    let context = Context::default();
+    let presentation = folding_presentation(false);
+    let shown = |store: &mut EditorStore| {
+        show_folding(&context, store, view, FoldFrame::idle(&presentation));
+        store.views().get(view).unwrap().scroll.y
+    };
+    let scrolled = FOLD_SCROLLED_LINE as f32 * LINE_HEIGHT + STABLE_DELTA;
+    scroll_to(&mut store, view, scrolled);
+    assert_eq!(shown(&mut store), scrolled);
+    hide(&mut store, view, vec![hidden.clone()]);
+    assert_eq!(shown(&mut store), scrolled - hidden_height);
+    hide(&mut store, view, Vec::new());
+    assert_eq!(shown(&mut store), scrolled);
+    let inside = FOLD_SCROLLED_HIDDEN_LINE as f32 * LINE_HEIGHT + STABLE_DELTA;
+    scroll_to(&mut store, view, inside);
+    assert_eq!(shown(&mut store), inside);
+    hide(&mut store, view, vec![hidden]);
+    assert_eq!(shown(&mut store), inside);
+}
+
+#[test]
+fn 접힌_상태의_토큰과_장식과_현재_줄_강조와_ime_좌표와_드래그_선택은_숨김_줄을_뺀_표시_줄에_놓인다()
+{
+    let (mut store, view) = fixture(&fold_document(), false);
+    let context = Context::default();
+    let presentation = folding_presentation(false);
+    let inner = hidden_fold(INNER_HIDDEN);
+    hide(&mut store, view, vec![inner.clone()]);
+    place_caret(&mut store, view, fold_line_start(FOLD_SHOWN_LINE));
+    show_folding(&context, &mut store, view, FoldFrame::idle(&presentation));
+    let styles = token_styles();
+    let lines = line_tokens(&[
+        Vec::new(),
+        Vec::new(),
+        spans(&[(0, KEYWORD_STYLE_ID)]),
+        spans(&[(0, STRING_STYLE_ID)]),
+        spans(&[(0, COMMENT_STYLE_ID)]),
+        Vec::new(),
+        Vec::new(),
+    ]);
+    let hidden_start = fold_line_start(*INNER_HIDDEN.start());
+    let shown_start = fold_line_start(FOLD_SHOWN_LINE);
+    let current = revision(&store, view);
+    let marks = layer(
+        current,
+        FIND_Z_ORDER,
+        Stickiness::default(),
+        vec![
+            (
+                hidden_start..hidden_start + FOLD_HIDDEN_MARK_BYTES,
+                range_background(DECORATION_SELECTION_MATCH),
+            ),
+            (
+                shown_start + FOLD_SHOWN_MARK.start..shown_start + FOLD_SHOWN_MARK.end,
+                range_background(DECORATION_FIND),
+            ),
+        ],
+    );
+    let folded = show_folding(
+        &context,
+        &mut store,
+        view,
+        FoldFrame {
+            tokens: Some(EditorTokens {
+                revision: current,
+                lines: &lines,
+                styles: &styles,
+            }),
+            decorations: &[&marks],
+            ..FoldFrame::idle(&presentation)
+        },
+    );
+    assert_eq!(only_fold(&store, view), inner);
+    let measuring = Context::default();
+    let viewport = folded.shown.viewport;
+    let left = viewport.left() + fold_text_left(&measuring);
+    let row_top = |row: usize| viewport.top() + row as f32 * LINE_HEIGHT;
+    let x = |line: usize, chars: usize| left + caret_offset(&measuring, FOLD_LINES[line], chars);
+    let colored = |line: usize, foreground: [u8; 4]| {
+        vec![(FOLD_LINES[line].to_owned(), token_color(foreground))]
+    };
+    assert_eq!(
+        colored_rows(&folded.shown),
+        [
+            colored(0, TOKEN_DEFAULT),
+            colored(INNER_HEADER, TOKEN_DEFAULT),
+            vec![(
+                FOLD_PLACEHOLDER.to_owned(),
+                Color32::from_gray(FOLD_PLACEHOLDER_GRAY)
+            )],
+            colored(3, TOKEN_STRING),
+            colored(FOLD_SHOWN_LINE, TOKEN_COMMENT),
+            colored(5, TOKEN_DEFAULT),
+            colored(6, TOKEN_DEFAULT),
+        ]
+    );
+    assert_eq!(
+        filled(&folded.shown.shapes, token_color(DECORATION_FIND)),
+        [Rect::from_min_max(
+            pos2(
+                x(FOLD_SHOWN_LINE, FOLD_SHOWN_MARK.start),
+                row_top(FOLD_SHOWN_ROW)
+            ),
+            pos2(
+                x(FOLD_SHOWN_LINE, FOLD_SHOWN_MARK.end),
+                row_top(FOLD_SHOWN_ROW + 1)
+            )
+        )]
+    );
+    assert!(
+        filled(
+            &folded.shown.shapes,
+            token_color(DECORATION_SELECTION_MATCH)
+        )
+        .is_empty()
+    );
+    assert_eq!(
+        filled(&folded.shown.shapes, Color32::DARK_GRAY),
+        [Rect::from_min_max(
+            pos2(viewport.left(), row_top(FOLD_SHOWN_ROW)),
+            pos2(viewport.right(), row_top(FOLD_SHOWN_ROW + 1))
+        )]
+    );
+    assert_caret(
+        &folded.shown,
+        x(FOLD_SHOWN_LINE, 0),
+        row_top(FOLD_SHOWN_ROW),
+    );
+    let cursor = folded
+        .shown
+        .ime_cursor
+        .expect("focused editor reports its caret");
+    assert_eq!(cursor.left(), x(FOLD_SHOWN_LINE, 0));
+    assert_eq!(
+        cursor.top() - row_top(FOLD_SHOWN_ROW),
+        row_top(FOLD_SHOWN_ROW + 1) - cursor.bottom()
+    );
+    let row_center = |row: usize| row_top(row) + LINE_HEIGHT / CENTER_DIVISOR;
+    let from = pos2(
+        x(0, FOLD_DRAG_FROM_COLUMN) + FOLD_CLICK_INSIDE,
+        row_center(0),
+    );
+    let to = pos2(
+        x(FOLD_DRAG_TO_LINE, FOLD_DRAG_TO_COLUMN) + FOLD_CLICK_INSIDE,
+        row_center(FOLD_DRAG_TO_ROW),
+    );
+    for events in [
+        vec![Event::PointerMoved(from), press(from, true)],
+        vec![press(from, false)],
+        vec![press(from, true)],
+        vec![Event::PointerMoved(to)],
+    ] {
+        press_keys(&context, &mut store, view, &presentation, events);
+    }
+    let dragged = press_keys(
+        &context,
+        &mut store,
+        view,
+        &presentation,
+        vec![press(to, false)],
+    );
+    assert_eq!(
+        selection(&store, view),
+        (
+            FOLD_DRAG_FROM_COLUMN,
+            fold_line_start(FOLD_DRAG_TO_LINE) + FOLD_DRAG_TO_COLUMN
+        )
+    );
+    assert_eq!(only_fold(&store, view), inner);
+    assert_eq!(
+        filled(&dragged.shown.shapes, Color32::BLUE),
+        [
+            Rect::from_min_max(
+                pos2(x(0, FOLD_DRAG_FROM_COLUMN), row_top(0)),
+                pos2(viewport.right(), row_top(1))
+            ),
+            Rect::from_min_max(
+                pos2(left, row_top(INNER_HEADER)),
+                pos2(viewport.right(), row_top(INNER_HEADER + 1))
+            ),
+            Rect::from_min_max(
+                pos2(left, row_top(FOLD_DRAG_TO_ROW)),
+                pos2(
+                    x(FOLD_DRAG_TO_LINE, FOLD_DRAG_TO_COLUMN),
+                    row_top(FOLD_DRAG_TO_ROW + 1)
+                )
+            ),
+        ]
     );
 }

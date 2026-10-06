@@ -1,11 +1,14 @@
+use std::borrow::Cow;
+use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
 
 use egui::os::OperatingSystem;
 use egui::{
-    Color32, Event, FontFamily, FontId, Id, ImeEvent, Key, Modifiers, Painter, Pos2, Rect,
-    Response, Sense, Ui, Vec2, pos2, vec2,
+    Color32, Event, FontFamily, FontId, Id, ImeEvent, Key, Modifiers, Painter, PointerButton, Pos2,
+    Rect, Response, Sense, Ui, Vec2, pos2, vec2,
 };
+use taide_native_editor::decoration::DecorationLayer;
 use taide_native_editor::display_layout::VerticalLayout;
 use taide_native_editor::display_map::DisplayMap;
 use taide_native_editor::document::{DocumentId, DocumentSnapshot, EditorError};
@@ -13,6 +16,10 @@ use taide_native_editor::editing::{
     ClipboardText, Motion, clipboard_text, compose_text, cut, delete_backward, delete_forward,
     delete_to_line_start, delete_word, insert_line_break, move_selection_displayed, outdent, paste,
     reveal_position, select_all, tab, type_text,
+};
+use taide_native_editor::folding::{
+    FoldClick, FoldCommand, FoldRegion, FoldToggle, FoldingModel, MAX_FOLDING_REGIONS, click_fold,
+    hidden_lines, indent_regions, reconcile_folds, reveal_carets, run_fold_command,
 };
 use taide_native_editor::indent::{IndentOptions, resolve};
 use taide_native_editor::line_tokens::{LineTokens, TokenStyleTable};
@@ -22,9 +29,11 @@ use taide_native_editor::view::{
 };
 
 use crate::editor_geometry::{
-    EditorGeometry, Row, RowLayout, gutter_width, half_leading, scroll_x_revealing, wrap_settings,
+    EditorGeometry, FOLD_PLACEHOLDER, FOLD_PLACEHOLDER_MARGIN_EM, Row, RowLayout, half_leading,
+    scroll_x_revealing, wrap_settings,
 };
-use crate::editor_paint::{Carets, Layers};
+use crate::editor_gutter::{FoldControlFade, Gutter};
+use crate::editor_paint::{Carets, Layers, frame_decorations};
 
 const ROW_OVERSCAN: usize = 1;
 const CENTER_DIVISOR: f32 = 2.0;
@@ -39,6 +48,8 @@ const SCROLLBAR_FADE_IN: f32 = 0.1;
 const SCROLLBAR_FADE_OUT: f32 = 0.8;
 const CLIPBOARD_MEMORY: &str = "native-code-editor-clipboard";
 const SCROLLBAR_FADE: &str = "scrollbar-fade";
+const COLLAPSED_CHEVRON_ROTATION: f32 = 0.0;
+const EXPANDED_CHEVRON_ROTATION: f32 = std::f32::consts::FRAC_PI_2;
 
 type KeyboardInputRoute = (Vec<(Option<bool>, bool)>, (Option<bool>, bool));
 
@@ -121,6 +132,44 @@ impl EditorTokens<'_> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FoldControl {
+    pub rect: Rect,
+    pub chevron_rotation: f32,
+    pub color: Color32,
+}
+
+pub type FoldControlPainter<'a> = dyn FnMut(&Ui, FoldControl) + 'a;
+
+pub struct EditorRequest<'a, Keymap, Route, Tokens> {
+    pub request_focus: bool,
+    pub keymap: Keymap,
+    pub route: Route,
+    pub presentation: &'a EditorPresentation,
+    pub tokens: Tokens,
+    pub decorations: &'a [&'a DecorationLayer],
+    pub fold_commands: &'a [FoldCommand],
+    pub fold_controls: Option<&'a mut FoldControlPainter<'a>>,
+}
+
+fn tracked_layers<'a>(
+    store: &EditorStore,
+    document: &DocumentSnapshot,
+    layers: &[&'a DecorationLayer],
+) -> Result<Vec<Cow<'a, DecorationLayer>>, EditorError> {
+    let mut tracked = Vec::with_capacity(layers.len());
+    for layer in layers {
+        let changes = store.changes_since(document.id, layer.revision())?;
+        tracked.extend(
+            layer
+                .tracking(changes)
+                .filter(|layer| layer.revision() == document.revision),
+        );
+    }
+    tracked.sort_by_key(|layer| layer.z_order());
+    Ok(tracked)
+}
+
 fn registered_family<'a>(ui: &Ui, family: Option<&'a FontFamily>) -> Option<&'a FontFamily> {
     family.filter(|family| ui.fonts(|fonts| fonts.definitions().families.contains_key(*family)))
 }
@@ -144,6 +193,20 @@ struct RenderedViewport {
     line_height: f32,
 }
 
+#[derive(Clone)]
+struct FoldRegionCache {
+    document: DocumentId,
+    revision: u64,
+    tab_size: u32,
+    regions: Arc<[FoldRegion]>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct FoldPress {
+    line: usize,
+    is_on_control: bool,
+}
+
 #[derive(Default, Clone)]
 struct InputState {
     ime_revision: Option<u64>,
@@ -153,6 +216,80 @@ struct InputState {
     scrollbar_drag: Option<ScrollbarDrag>,
     scrolled_at: Option<f64>,
     rendered_viewport: Option<RenderedViewport>,
+    fold_regions: Option<FoldRegionCache>,
+    fold_press: Option<FoldPress>,
+    clicked_fold_line: Option<usize>,
+    fold_control_fade: FoldControlFade,
+}
+
+impl InputState {
+    fn fold_regions(
+        &mut self,
+        store: &mut EditorStore,
+        view: ViewId,
+        tab_size: u32,
+    ) -> Result<Arc<[FoldRegion]>, EditorError> {
+        let owner = store
+            .views()
+            .get(view)
+            .ok_or(EditorError::NotFound)?
+            .document;
+        let document = store.documents().snapshot(owner)?;
+        let cached = self.fold_regions.as_ref().filter(|cache| {
+            cache.document == document.id
+                && cache.revision == document.revision
+                && cache.tab_size == tab_size
+        });
+        if let Some(cache) = cached {
+            return Ok(Arc::clone(&cache.regions));
+        }
+        let regions: Arc<[FoldRegion]> =
+            indent_regions(&document.rope, tab_size, MAX_FOLDING_REGIONS).into();
+        reconcile_folds(store, view, &regions)?;
+        self.fold_regions = Some(FoldRegionCache {
+            document: document.id,
+            revision: document.revision,
+            tab_size,
+            regions: Arc::clone(&regions),
+        });
+        Ok(regions)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum FoldReveal {
+    Head,
+    SelectionStart,
+    LineStart(usize),
+}
+
+fn maintain_folds(
+    store: &mut EditorStore,
+    view: ViewId,
+    state: &mut InputState,
+    tab_size: Option<u32>,
+    commands: &[FoldCommand],
+) -> Result<(Arc<[FoldRegion]>, Option<FoldReveal>), EditorError> {
+    let clicked_line = state.clicked_fold_line.take();
+    let Some(tab_size) = tab_size else {
+        state.fold_regions = None;
+        let current = store.views().get(view).ok_or(EditorError::NotFound)?;
+        if !current.folds.is_empty() {
+            let (selection, scroll) = (current.selection.clone(), current.scroll.clone());
+            store.set_view_state(view, selection, scroll, Vec::new())?;
+        }
+        return Ok((Arc::from(Vec::new()), None));
+    };
+    let regions = state.fold_regions(store, view, tab_size)?;
+    let mut reveal = clicked_line.map(FoldReveal::LineStart);
+    if reveal_carets(store, view)? {
+        reveal = Some(FoldReveal::Head);
+    }
+    for command in commands {
+        run_fold_command(store, view, &regions, *command)?;
+        reveal = Some(FoldReveal::SelectionStart);
+    }
+    Ok((regions, reveal))
 }
 
 struct Projection<'a> {
@@ -160,34 +297,49 @@ struct Projection<'a> {
     appearance: &'a EditorAppearance,
     width: f32,
     wrap_tab_size: Option<u32>,
+    has_folding: bool,
     cached: Option<Arc<DisplayMap>>,
     rendered_viewport: Option<RenderedViewport>,
     stable_scroll_top: Option<f32>,
 }
 
 impl Projection<'_> {
-    fn map(&mut self, document: &DocumentSnapshot) -> &DisplayMap {
-        self.map_with_stable_scroll_top(document).0
+    fn map(&mut self, document: &DocumentSnapshot, folds: &[Range<usize>]) -> &DisplayMap {
+        self.map_with_stable_scroll_top(document, folds).0
     }
 
     fn map_with_stable_scroll_top(
         &mut self,
         document: &DocumentSnapshot,
+        folds: &[Range<usize>],
     ) -> (&DisplayMap, Option<f32>) {
         let wrap = self.wrap_tab_size.map(|tab_size| {
-            let gutter = gutter_width(&self.painter, document.rope.len_lines(), self.appearance);
+            let gutter = Gutter::measure(
+                &self.painter,
+                document.rope.len_lines(),
+                self.appearance,
+                self.has_folding,
+            );
             wrap_settings(
                 &self.painter,
                 self.appearance,
-                self.width - gutter,
+                self.width - gutter.width(),
                 VERTICAL_SCROLLBAR_SIZE,
                 tab_size,
             )
         });
+        let hidden = if self.has_folding {
+            hidden_lines(&document.rope, folds)
+        } else {
+            Vec::new()
+        };
         let viewport_start = self
             .cached
-            .take_if(|map| map.wrap_settings() != wrap.as_ref())
-            .filter(|stale| stale.revision() == document.revision)
+            .as_ref()
+            .filter(|stale| {
+                stale.revision() == document.revision
+                    && (stale.wrap_settings() != wrap.as_ref() || stale.hidden_lines() != hidden)
+            })
             .zip(
                 self.rendered_viewport
                     .filter(|rendered| rendered.scroll_top > 0.0),
@@ -200,12 +352,19 @@ impl Projection<'_> {
                     rendered.scroll_top - layout.row_top(row),
                 )
             });
+        self.cached
+            .take_if(|map| map.wrap_settings() != wrap.as_ref());
         let map = Arc::make_mut(
             self.cached
                 .get_or_insert_with(|| Arc::new(DisplayMap::build(document, wrap))),
         );
         map.refresh(document);
-        if let Some((byte, delta)) = viewport_start {
+        map.set_hidden_lines(&hidden);
+        if let Some((byte, delta)) = viewport_start
+            && map
+                .hidden_lines_at(document.rope.byte_to_line(byte))
+                .is_none()
+        {
             let layout = VerticalLayout::new(self.appearance.line_height, map.row_count());
             self.stable_scroll_top = Some(layout.row_top(map.row_of_byte(document, byte)) + delta);
         }
@@ -438,6 +597,9 @@ impl NativeEditor {
         }
         let cached = store.take_display(view)?;
         let byte = reveal_position(store, view, line, column)?;
+        if presentation.options.folding {
+            reveal_carets(store, view)?;
+        }
         let current = store
             .views()
             .get(view)
@@ -450,11 +612,12 @@ impl NativeEditor {
             appearance,
             width: rect.width(),
             wrap_tab_size: presentation.options.word_wrap.then_some(tab_size),
+            has_folding: presentation.options.folding,
             cached,
             rendered_viewport: None,
             stable_scroll_top: None,
         };
-        let display = projection.map(&document);
+        let display = projection.map(&document, &current.folds);
         let layout = VerticalLayout::new(appearance.line_height, display.row_count());
         let index = display.row_of_byte(&document, byte);
         let row = RowLayout {
@@ -466,10 +629,16 @@ impl NativeEditor {
             tab_size,
             tokens: tokens.filter(|tokens| tokens.describes(&document)),
             bold_family: registered_family(ui, presentation.options.bold_family.as_ref()),
+            decorations: &[],
         }
         .row(index, Pos2::ZERO);
-        let gutter = gutter_width(ui.painter(), document.rope.len_lines(), appearance);
-        let text_width = (rect.width() - gutter).max(0.0);
+        let gutter = Gutter::measure(
+            ui.painter(),
+            document.rope.len_lines(),
+            appearance,
+            presentation.options.folding,
+        );
+        let text_width = (rect.width() - gutter.width()).max(0.0);
         let mut scroll = current.scroll;
         scroll.x = scroll_x_revealing(scroll.x, row.caret(byte), text_width).max(0.0);
         let maximum = (layout.content_height() - rect.height()).max(0.0);
@@ -558,11 +727,50 @@ impl NativeEditor {
         store: &mut EditorStore,
         view: ViewId,
         request_focus: bool,
-        mut keymap: impl FnMut(&Ui, &Event, bool) -> bool,
+        keymap: impl FnMut(&Ui, &Event, bool) -> bool,
         route: impl FnOnce(&Response) -> Option<KeyboardInputRoute>,
         presentation: &EditorPresentation,
         tokens: impl FnOnce(&EditorStore) -> Option<EditorTokens<'tokens>>,
     ) -> Result<EditorOutput, EditorError> {
+        self.show_request(
+            ui,
+            store,
+            view,
+            EditorRequest {
+                request_focus,
+                keymap,
+                route,
+                presentation,
+                tokens,
+                decorations: &[],
+                fold_commands: &[],
+                fold_controls: None,
+            },
+        )
+    }
+
+    pub fn show_request<'tokens>(
+        &self,
+        ui: &mut Ui,
+        store: &mut EditorStore,
+        view: ViewId,
+        request: EditorRequest<
+            '_,
+            impl FnMut(&Ui, &Event, bool) -> bool,
+            impl FnOnce(&Response) -> Option<KeyboardInputRoute>,
+            impl FnOnce(&EditorStore) -> Option<EditorTokens<'tokens>>,
+        >,
+    ) -> Result<EditorOutput, EditorError> {
+        let EditorRequest {
+            request_focus,
+            mut keymap,
+            route,
+            presentation,
+            tokens,
+            decorations,
+            fold_commands,
+            fold_controls,
+        } = request;
         let appearance = &self.appearance;
         if !appearance.line_height.is_finite()
             || appearance.line_height <= 0.0
@@ -606,6 +814,7 @@ impl NativeEditor {
                 appearance,
                 width: rect.width(),
                 wrap_tab_size: presentation.options.word_wrap.then_some(indent.tab_size),
+                has_folding: presentation.options.folding,
                 cached,
                 rendered_viewport: input_state
                     .rendered_viewport
@@ -671,15 +880,25 @@ impl NativeEditor {
             ui.ctx()
                 .data_mut(|data| data.insert_temp(Id::new(CLIPBOARD_MEMORY), copied));
         }
+        let has_folding = presentation.options.folding;
+        let (fold_regions, fold_reveal) = maintain_folds(
+            store,
+            view,
+            &mut input_state,
+            has_folding.then_some(indent.tab_size),
+            fold_commands,
+        )?;
         let document = store.documents().snapshot(current.document)?;
         let tokens = tokens(store).filter(|tokens| tokens.describes(&document));
+        let layers = tracked_layers(store, &document, decorations)?;
         let mut state = store
             .views()
             .get(view)
             .ok_or(EditorError::NotFound)?
             .clone();
         let mut projection = input_context.projection;
-        let (display, stable_scroll_top) = projection.map_with_stable_scroll_top(&document);
+        let (display, stable_scroll_top) =
+            projection.map_with_stable_scroll_top(&document, &state.folds);
         let wrap_column = display.wrap_settings().map(|settings| settings.wrap_column);
         let head_row = |state: &ViewState, selection: usize| {
             display.row_of_head(
@@ -692,6 +911,25 @@ impl NativeEditor {
         let content_height = layout.content_height();
         let scroll_max = (content_height - rect.height()).max(0.0);
         state.scroll.y = stable_scroll_top.unwrap_or(state.scroll.y).min(scroll_max);
+        if let Some(reveal) = fold_reveal {
+            let primary = state.selection.selections[state.selection.primary];
+            let row = display.row_of_byte(
+                &document,
+                match reveal {
+                    FoldReveal::Head => primary.head,
+                    FoldReveal::SelectionStart => primary.anchor.min(primary.head),
+                    FoldReveal::LineStart(line) => document
+                        .rope
+                        .line_to_byte(line.min(document.rope.len_lines() - 1)),
+                },
+            );
+            if layout.row_top(row) < state.scroll.y
+                || layout.row_bottom(row) > state.scroll.y + rect.height()
+            {
+                state.scroll.y = (layout.row_center(row) - rect.height() / CENTER_DIVISOR)
+                    .clamp(0.0, scroll_max);
+            }
+        }
         let moved = document.revision != previous.revision || state.selection != current.selection;
         let head = state.selection.selections[state.selection.primary].head;
         let caret_row = head_row(&state, state.selection.primary);
@@ -735,9 +973,22 @@ impl NativeEditor {
             state.scroll.y = scrollbar.drag(&mut input_state, &press, state.scroll.y);
         }
         let painter = ui.painter().with_clip_rect(rect);
-        let gutter = gutter_width(&painter, document.rope.len_lines(), appearance);
-        let text_rect = Rect::from_min_max(pos2(rect.left() + gutter, rect.top()), rect.max);
+        let gutter = Gutter::measure(
+            &painter,
+            document.rope.len_lines(),
+            appearance,
+            presentation.options.folding,
+        );
+        let text_rect =
+            Rect::from_min_max(pos2(rect.left() + gutter.width(), rect.top()), rect.max);
         let visible = layout.visible_rows(state.scroll.y, rect.height(), ROW_OVERSCAN);
+        let visible_lines = if visible.is_empty() {
+            0..0
+        } else {
+            display.segment(&document, visible.start).line
+                ..display.segment(&document, visible.end - 1).line + 1
+        };
+        let decorations = frame_decorations(&document, &layers, visible_lines);
         let row_layout = RowLayout {
             painter: &painter,
             document: &document,
@@ -747,6 +998,7 @@ impl NativeEditor {
             tab_size: indent.tab_size,
             tokens,
             bold_family: registered_family(ui, presentation.options.bold_family.as_ref()),
+            decorations: &decorations,
         };
         let mut rows: Vec<Row> = visible
             .clone()
@@ -827,7 +1079,55 @@ impl NativeEditor {
             state.scroll.clone(),
             state.folds.clone(),
         )?;
+        let fold_placeholder_width = painter
+            .layout_no_wrap(
+                FOLD_PLACEHOLDER.into(),
+                appearance.font.clone(),
+                appearance.foreground,
+            )
+            .size()
+            .x
+            + FOLD_PLACEHOLDER_MARGIN_EM * appearance.font.size;
+        let fold_target = |position: Pos2| {
+            if !has_folding || !rect.contains(position) {
+                return None;
+            }
+            let row = rows.iter().find(|row| {
+                (row.origin.y..row.origin.y + appearance.line_height).contains(&position.y)
+            })?;
+            let is_on_control = gutter.fold_click_zone(rect.left()).contains(position.x);
+            let is_on_folded_end = row.segment.ends_folded
+                && text_rect.contains(position)
+                && row.byte_at(position) == row.segment.bytes.end
+                && position.x < row.fold_placeholder_left(appearance) + fold_placeholder_width;
+            (is_on_control || is_on_folded_end).then_some(FoldPress {
+                line: row.segment.line,
+                is_on_control,
+            })
+        };
+        let (is_fold_button_pressed, is_fold_button_released, is_middle_released) =
+            ui.input(|input| {
+                let pointer = &input.pointer;
+                (
+                    pointer.button_pressed(PointerButton::Primary)
+                        || pointer.button_pressed(PointerButton::Middle),
+                    pointer.button_released(PointerButton::Primary)
+                        || pointer.button_released(PointerButton::Middle),
+                    pointer.button_released(PointerButton::Middle),
+                )
+            });
+        if is_fold_button_pressed {
+            input_state.fold_press = press
+                .origin
+                .filter(|_| ui.is_enabled() && response.is_pointer_button_down_on())
+                .and_then(&fold_target);
+        }
+        let fold_press = input_state.fold_press;
+        if is_fold_button_released {
+            input_state.fold_press = None;
+        }
         if !scrolling
+            && !fold_press.is_some_and(|press| press.is_on_control)
             && (response.clicked() || response.drag_started() || response.dragged())
             && let Some(pointer) = response.interact_pointer_pos()
             && !rows.is_empty()
@@ -866,6 +1166,31 @@ impl NativeEditor {
                 store.set_wrap_affinities(view, state.wrap_affinities.clone())?;
             }
         }
+        if is_fold_button_released
+            && let Some(pressed) = fold_press
+            && ui
+                .input(|input| input.pointer.interact_pos())
+                .and_then(&fold_target)
+                == Some(pressed)
+        {
+            let modifiers = ui.input(|input| input.modifiers);
+            let toggle = if modifiers.alt {
+                FoldToggle::Surrounding
+            } else if modifiers.shift || is_middle_released {
+                FoldToggle::Recursive
+            } else {
+                FoldToggle::Region
+            };
+            let click = FoldClick {
+                line: pressed.line,
+                is_on_control: pressed.is_on_control,
+                toggle,
+            };
+            if click_fold(store, view, &fold_regions, click)? {
+                input_state.clicked_fold_line = Some(pressed.line);
+                ui.ctx().request_repaint();
+            }
+        }
         let text_painter = painter.with_clip_rect(text_rect);
         let layers = Layers {
             painter: &painter,
@@ -874,6 +1199,7 @@ impl NativeEditor {
             text_rect,
             gutter,
             appearance,
+            decorations: &decorations,
         };
         let primary = state.selection.selections[state.selection.primary];
         let head_rows: Vec<usize> = (0..state.selection.selections.len())
@@ -890,6 +1216,42 @@ impl NativeEditor {
         layers.background();
         for row in &rows {
             layers.row(row, &carets);
+        }
+        let time = ui.input(|input| input.time);
+        if has_folding && let Some(paint) = fold_controls {
+            let gutter_rect = Rect::from_min_max(rect.min, pos2(text_rect.left(), rect.bottom()));
+            let is_gutter_hovered = ui.is_enabled()
+                && response
+                    .hover_pos()
+                    .is_some_and(|pointer| gutter_rect.contains(pointer));
+            let (opacity, is_fading) = input_state
+                .fold_control_fade
+                .sample(is_gutter_hovered, time);
+            if is_fading {
+                ui.ctx().request_repaint();
+            }
+            let model = FoldingModel::new(&fold_regions, &document, &state.folds);
+            let color = ui.visuals().weak_text_color();
+            let clip = ui.clip_rect();
+            ui.set_clip_rect(gutter_rect.intersect(clip));
+            for row in rows.iter().filter(|row| !row.segment.is_continuation) {
+                let (chevron_rotation, color) = match model.header(row.segment.line) {
+                    Some(true) => (COLLAPSED_CHEVRON_ROTATION, color),
+                    Some(false) if opacity > 0.0 => {
+                        (EXPANDED_CHEVRON_ROTATION, color.gamma_multiply(opacity))
+                    }
+                    _ => continue,
+                };
+                paint(
+                    ui,
+                    FoldControl {
+                        rect: gutter.fold_control_rect(rect.left(), row, appearance),
+                        chevron_rotation,
+                        color,
+                    },
+                );
+            }
+            ui.set_clip_rect(clip);
         }
         let caret_rect = rows
             .iter()
@@ -917,7 +1279,6 @@ impl NativeEditor {
                 });
             });
         }
-        let time = ui.input(|input| input.time);
         if state.scroll != current.scroll {
             input_state.scrolled_at = Some(time);
         }
@@ -978,6 +1339,7 @@ impl NativeEditor {
                 line_height: appearance.line_height,
                 visible_rows: visible,
                 scroll: vec2(state.scroll.x, state.scroll.y),
+                rows: rows.into(),
             },
         })
     }
@@ -1106,7 +1468,7 @@ impl NativeEditor {
                         view,
                         motion,
                         modifiers.shift,
-                        context.projection.map(&document),
+                        context.projection.map(&document, &current.folds),
                     )?,
                     KeyAction::SelectAll => select_all(store, view)?,
                     KeyAction::Undo => {

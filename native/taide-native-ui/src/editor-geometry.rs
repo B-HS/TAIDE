@@ -3,22 +3,24 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use egui::text::CCursor;
-use egui::{Color32, FontFamily, FontId, Galley, Painter, Pos2, Rect, Vec2, pos2, vec2};
+use egui::{Color32, FontFamily, FontId, Galley, Painter, Pos2, Rangef, Rect, Vec2, pos2, vec2};
+use taide_native_editor::decoration::{DecorationKind, UnderlineKind};
 use taide_native_editor::display_map::{DisplayMap, RowSegment, WrapSettings, WrappingIndent};
 use taide_native_editor::document::DocumentSnapshot;
 
-use crate::editor_row_text::{RowColumns, RowText, RowTokens};
+use crate::editor_paint::{FrameDecoration, color32};
+use crate::editor_row_text::{RowColumns, RowInlineStyle, RowText, RowTokens};
 use crate::editor_surface::{EditorAppearance, EditorTokens};
 
 pub(crate) const CURSOR_STROKE: f32 = 1.0;
-const LINE_NUMBER_MIN_DIGITS: usize = 3;
-const PADDING_SIDES: f32 = 2.0;
 const LEADING_SIDES: f32 = 2.0;
 const TYPICAL_HALF_WIDTH_CHARACTER: char = 'n';
 const TYPICAL_FULL_WIDTH_CHARACTER: char = '\u{FF4D}';
-const UNREADABLE_CHARACTER_WIDTH: f32 = 2.0;
-const FALLBACK_CHARACTER_WIDTH: f32 = 5.0;
+pub(crate) const UNREADABLE_CHARACTER_WIDTH: f32 = 2.0;
+pub(crate) const FALLBACK_CHARACTER_WIDTH: f32 = 5.0;
 const WRAP_CURSOR_ROOM: f32 = 2.0;
+pub(crate) const FOLD_PLACEHOLDER: &str = "\u{22EF}";
+pub(crate) const FOLD_PLACEHOLDER_MARGIN_EM: f32 = 0.2;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EditorGeometry {
@@ -28,12 +30,61 @@ pub struct EditorGeometry {
     pub line_height: f32,
     pub visible_rows: Range<usize>,
     pub scroll: Vec2,
+    pub(crate) rows: Arc<[Row]>,
 }
 
+impl EditorGeometry {
+    fn row_band(&self, row: &Row) -> Rangef {
+        Rangef::new(row.origin.y, row.origin.y + self.line_height)
+    }
+
+    fn shown_rows(&self) -> impl Iterator<Item = &Row> {
+        self.rows.iter().filter(|row| {
+            let band = self.row_band(row);
+            band.max > self.rect.top() && band.min < self.rect.bottom()
+        })
+    }
+
+    pub fn caret_rect(&self, byte: usize) -> Option<Rect> {
+        let row = self.shown_rows().find(|row| {
+            let bytes = &row.segment.bytes;
+            bytes.start <= byte && (byte < bytes.end || (byte == bytes.end && !row.wraps))
+        })?;
+        Some(Rect::from_x_y_ranges(
+            Rangef::point(row.caret_rect(byte).left()),
+            self.row_band(row),
+        ))
+    }
+
+    pub fn range_rects(&self, bytes: Range<usize>) -> Vec<Rect> {
+        self.shown_rows()
+            .filter_map(|row| {
+                row.extent(&bytes)
+                    .map(|extent| Rect::from_x_y_ranges(extent, self.row_band(row)))
+            })
+            .collect()
+    }
+
+    pub fn byte_at(&self, position: Pos2) -> Option<usize> {
+        if !self.content_rect.contains(position) {
+            return None;
+        }
+        self.rows
+            .iter()
+            .find(|row| {
+                let band = self.row_band(row);
+                band.min <= position.y && position.y < band.max
+            })
+            .map(|row| row.byte_at(position))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Row {
     pub(crate) index: usize,
     pub(crate) segment: RowSegment,
     pub(crate) wraps: bool,
+    pub(crate) heads_hidden_lines: bool,
     pub(crate) text: RowText,
     pub(crate) origin: Pos2,
     pub(crate) half_leading: f32,
@@ -49,6 +100,7 @@ pub(crate) struct RowLayout<'a> {
     pub(crate) tab_size: u32,
     pub(crate) tokens: Option<EditorTokens<'a>>,
     pub(crate) bold_family: Option<&'a FontFamily>,
+    pub(crate) decorations: &'a [FrameDecoration],
 }
 
 impl RowLayout<'_> {
@@ -72,12 +124,33 @@ impl RowLayout<'_> {
                 row_start_byte: segment.bytes.start.saturating_sub(line_start),
             });
         }
+        for decoration in self.decorations {
+            let DecorationKind::Inline(inline) = decoration.kind else {
+                continue;
+            };
+            let style = RowInlineStyle {
+                foreground: inline.foreground.map(color32),
+                underline: inline
+                    .underline
+                    .filter(|underline| underline.kind == UnderlineKind::Straight)
+                    .map(|underline| color32(underline.color)),
+            };
+            let start = decoration.bytes.start.max(segment.bytes.start);
+            let end = decoration.bytes.end.min(segment.bytes.end);
+            if start >= end || style == RowInlineStyle::default() {
+                continue;
+            }
+            let row_char = |byte: usize| text.display_char(byte - segment.bytes.start);
+            let chars = row_char(start)..row_char(end);
+            text.decorate(chars, style);
+        }
         let galley = self
             .painter
             .layout_job(text.styled_layout_job(&self.appearance.font, self.bold_family));
         Row {
             index,
             wraps: index + 1 < self.display.rows_of_line(segment.line).end,
+            heads_hidden_lines: self.display.hidden_lines_at(segment.line + 1).is_some(),
             segment,
             text,
             origin,
@@ -111,31 +184,26 @@ impl Row {
         (self.segment.bytes.start + self.text.model_byte(cursor.index.0))
             .min(self.segment.bytes.end)
     }
+
+    pub(crate) fn fold_placeholder_left(&self, appearance: &EditorAppearance) -> f32 {
+        self.caret_rect(self.segment.bytes.end).left()
+            + FOLD_PLACEHOLDER_MARGIN_EM * appearance.font.size
+    }
+
+    pub(crate) fn extent(&self, bytes: &Range<usize>) -> Option<Rangef> {
+        let start = bytes.start.max(self.segment.bytes.start);
+        let end = bytes.end.min(self.segment.bytes.end);
+        if start >= end {
+            return None;
+        }
+        let extent = Rangef::new(self.caret_rect(start).left(), self.caret_rect(end).left());
+        (extent.span() > 0.0).then_some(extent)
+    }
 }
 
 pub(crate) fn half_leading(painter: &Painter, appearance: &EditorAppearance) -> f32 {
     let font_height = painter.fonts_mut(|fonts| fonts.row_height(&appearance.font));
     ((appearance.line_height - font_height) / LEADING_SIDES).round()
-}
-
-pub(crate) fn gutter_width(
-    painter: &Painter,
-    line_count: usize,
-    appearance: &EditorAppearance,
-) -> f32 {
-    if !appearance.line_numbers {
-        return appearance.horizontal_padding;
-    }
-    let digits = line_count.to_string().len().max(LINE_NUMBER_MIN_DIGITS);
-    let width = painter
-        .layout_no_wrap(
-            "0".repeat(digits),
-            appearance.font.clone(),
-            appearance.muted,
-        )
-        .size()
-        .x;
-    width + appearance.horizontal_padding * PADDING_SIDES
 }
 
 fn advance_width(painter: &Painter, font: &FontId, character: char) -> f32 {

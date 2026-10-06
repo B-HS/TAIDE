@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use taide_model::error::{AppError, AppResult};
+use taide_model::plugin::LoadedPlugin;
 use taide_model::theme::ResolvedTheme;
 use taide_native_editor::change_journal::ChangesSince;
 use taide_native_editor::document::DocumentId;
@@ -11,19 +12,59 @@ use taide_native_editor::save_cleanup::CleanupFlags;
 use taide_native_editor::store::{DocumentVersion, EditorStore};
 use taide_native_editor::syntax::SyntaxSnapshot;
 use taide_native_syntax::{
-    LeadingTrailingDebounce, THEME_REAPPLY_DEBOUNCE, TokenPipeline, TokenTheme, WorkerClient,
-    is_bundled_language, token_worker,
+    LeadingTrailingDebounce, PluginGrammar, THEME_REAPPLY_DEBOUNCE, TokenPipeline, TokenTheme,
+    WorkerClient, token_worker,
 };
 use taide_native_ui::editor_surface::EditorTokens;
-use taide_runtime::TaskSupervisor;
+use taide_plugin::service::PluginStore;
+use taide_runtime::{AppState, TaskSupervisor, plugin_actions};
+use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 const WORKER_NAME: &str = "native-editor-syntax";
+const PLUGIN_GRAMMAR_REQUEST_NAME: &str = "native-editor-plugin-grammar-request";
+const PLUGIN_GRAMMAR_READ_NAME: &str = "native-editor-plugin-grammar-read";
+
+type Wake = Arc<dyn Fn() + Send + Sync>;
+type PluginList = Option<Vec<LoadedPlugin>>;
 
 struct TrackedDocument {
     revision: u64,
     language_id: String,
     shown_lines: Option<Range<usize>>,
+}
+
+struct PluginGrammarRead {
+    plugins: Vec<LoadedPlugin>,
+    grammars: Vec<PluginGrammar>,
+}
+
+async fn plugin_grammars(state: &AppState, store: &PluginStore) -> AppResult<PluginGrammarRead> {
+    let plugins = plugin_actions::plugin_list(state, store).await?;
+    let mut grammars = Vec::new();
+    for plugin in plugins.iter().filter(|plugin| plugin.enabled) {
+        for language in &plugin.manifest.contributes.languages {
+            if language.grammar.as_deref().is_none_or(str::is_empty) {
+                continue;
+            }
+            let Ok(grammar_json) = plugin_actions::plugin_read_grammar(
+                state,
+                store,
+                plugin.manifest.id.clone(),
+                language.id.clone(),
+            )
+            .await
+            else {
+                continue;
+            };
+            grammars.extend(PluginGrammar::from_contribution(
+                &language.id,
+                language.embedded_languages.as_deref().unwrap_or_default(),
+                &grammar_json,
+            ));
+        }
+    }
+    Ok(PluginGrammarRead { plugins, grammars })
 }
 
 pub(crate) async fn finished(worker: Option<JoinHandle<()>>) {
@@ -37,9 +78,12 @@ pub(crate) async fn finished(worker: Option<JoinHandle<()>>) {
 pub struct EditorSyntax {
     pipeline: TokenPipeline,
     worker: Option<JoinHandle<()>>,
+    wake: Wake,
     documents: HashMap<DocumentId, TrackedDocument>,
     theme: Option<ResolvedTheme>,
     theme_debounce: LeadingTrailingDebounce,
+    followed_plugins: Option<PluginList>,
+    plugin_grammar_read: Option<oneshot::Receiver<AppResult<PluginGrammarRead>>>,
 }
 
 impl EditorSyntax {
@@ -47,21 +91,90 @@ impl EditorSyntax {
         tasks: &TaskSupervisor,
         repaint: Arc<dyn Fn() + Send + Sync>,
     ) -> AppResult<Self> {
-        let (client, task) = token_worker(repaint);
+        let (client, task) = token_worker(repaint.clone());
         let worker = tasks
             .spawn_blocking_transient_handle(WORKER_NAME, move || task.run())
             .ok_or_else(|| AppError::Forbidden("native editor syntax host is stopping".into()))?;
-        Ok(Self::new(client, Some(worker)))
+        Ok(Self::with_wake(client, Some(worker), repaint))
     }
 
+    #[cfg(test)]
     fn new(client: WorkerClient, worker: Option<JoinHandle<()>>) -> Self {
+        Self::with_wake(client, worker, Arc::new(|| {}))
+    }
+
+    fn with_wake(client: WorkerClient, worker: Option<JoinHandle<()>>, wake: Wake) -> Self {
         Self {
             pipeline: TokenPipeline::new(client),
             worker,
+            wake,
             documents: HashMap::new(),
             theme: None,
             theme_debounce: LeadingTrailingDebounce::new(THEME_REAPPLY_DEBOUNCE),
+            followed_plugins: None,
+            plugin_grammar_read: None,
         }
+    }
+
+    pub fn follow_plugins(
+        &mut self,
+        state: &AppState,
+        store: &PluginStore,
+        tasks: &TaskSupervisor,
+    ) {
+        if let Some(read) = &mut self.plugin_grammar_read {
+            let result = match read.try_recv() {
+                Ok(result) => result,
+                Err(oneshot::error::TryRecvError::Empty) => return,
+                Err(oneshot::error::TryRecvError::Closed) => Err(AppError::Internal(
+                    "native editor plugin grammar worker stopped".into(),
+                )),
+            };
+            self.plugin_grammar_read = None;
+            match result {
+                Ok(read) => {
+                    self.followed_plugins = Some(Some(read.plugins));
+                    self.install_plugin_grammars(read.grammars);
+                }
+                Err(error) => {
+                    log::warn!("native editor plugin grammars were not read: {error}");
+                }
+            }
+        }
+        if self.followed_plugins.as_ref() == Some(&*store.0.read()) {
+            return;
+        }
+        let (sender, read) = oneshot::channel();
+        let wake = self.wake.clone();
+        let supervisor = tasks.clone();
+        let read_state = state.clone();
+        let read_store = store.clone();
+        if !tasks.spawn_transient(PLUGIN_GRAMMAR_REQUEST_NAME, async move {
+            let runtime = tokio::runtime::Handle::current();
+            let result = supervisor
+                .run_blocking_result(PLUGIN_GRAMMAR_READ_NAME, move || {
+                    runtime.block_on(plugin_grammars(&read_state, &read_store))
+                })
+                .await;
+            drop(sender.send(result));
+            wake();
+        }) {
+            return;
+        }
+        self.followed_plugins = Some(store.0.read().clone());
+        self.plugin_grammar_read = Some(read);
+    }
+
+    fn install_plugin_grammars(&mut self, grammars: Vec<PluginGrammar>) {
+        self.pipeline.set_plugin_grammars(grammars);
+        let pipeline = &mut self.pipeline;
+        self.documents.retain(|document, tracked| {
+            let is_accepted = pipeline.accepts_language(&tracked.language_id);
+            if !is_accepted {
+                pipeline.close(*document);
+            }
+            is_accepted
+        });
     }
 
     pub fn tick(
@@ -226,7 +339,7 @@ impl EditorSyntax {
     }
 
     fn track(&mut self, store: &EditorStore, version: DocumentVersion<'_>) {
-        if !is_bundled_language(version.language_id)
+        if !self.pipeline.accepts_language(version.language_id)
             || store.views().for_document(version.id).next().is_none()
         {
             return;
@@ -253,7 +366,7 @@ impl EditorSyntax {
         if is_same_language && tracked.revision == version.revision {
             return;
         }
-        if !is_bundled_language(version.language_id) {
+        if !self.pipeline.accepts_language(version.language_id) {
             self.documents.remove(&version.id);
             self.pipeline.close(version.id);
             return;

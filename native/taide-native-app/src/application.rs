@@ -18,14 +18,14 @@ use taide_native_editor::view::{ViewId, ViewKey};
 use taide_native_ui::commands::{ShellIntent, ShellMutation};
 use taide_native_ui::conflict_banner::{BannerAction, BannerAppearance, BannerVariant};
 use taide_native_ui::controller::ShellController;
-use taide_native_ui::editor_surface::NativeEditor;
+use taide_native_ui::editor_surface::{EditorRequest, EditorTokens, FoldControl, NativeEditor};
 use taide_native_ui::shell::{NativeShell, ShellSurfaces, WindowScope};
 use taide_runtime::{AppServices, AppState, EventSink, ExitDrain, TaskSupervisor, file_actions};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 
 use crate::bootstrap;
-use crate::command_registry::{CommandContext, DocumentEdit};
+use crate::command_registry::{CommandContext, DocumentEdit, FoldCommand};
 use crate::host::{HostBridge, HostCommand, HostReply};
 use crate::presentation;
 
@@ -200,6 +200,7 @@ pub struct NativeApplication {
     focused: Option<(PaneId, TabId)>,
     reveals: crate::editor_reveal::Reveals,
     document_edits: Vec<(TabId, DocumentEdit)>,
+    fold_commands: Vec<(TabId, FoldCommand)>,
     status: Option<String>,
     closing: Option<oneshot::Receiver<AppResult<()>>>,
     close_request_active: bool,
@@ -479,6 +480,7 @@ impl NativeApplication {
             focused: None,
             reveals: Default::default(),
             document_edits: Vec::new(),
+            fold_commands: Vec::new(),
             status: None,
             closing: None,
             close_request_active: false,
@@ -3685,6 +3687,11 @@ impl NativeApplication {
             self.settings_views.clear();
             self.app_file_views.clear();
         } else {
+            self.editor_syntax.follow_plugins(
+                &self.services.state,
+                &self.services.plugin,
+                &self.services.tasks,
+            );
             let syntax_theme = self.preview_theme.as_ref().unwrap_or(&self.resolved_theme);
             if let Some(delay) = self
                 .editor_syntax
@@ -3968,6 +3975,7 @@ impl eframe::App for NativeApplication {
         self.terminal_views
             .set_command_context(command_context.clone());
         let mut document_edits = std::mem::take(&mut self.document_edits);
+        let mut fold_commands = std::mem::take(&mut self.fold_commands);
         let mut command_errors = Vec::new();
         let mut commands = Vec::new();
         let mut load_settings = Vec::new();
@@ -4073,6 +4081,7 @@ impl eframe::App for NativeApplication {
             status_view: focused_view,
             command_context: &command_context,
             document_edits: &mut document_edits,
+            fold_commands: &mut fold_commands,
             command_errors: &mut command_errors,
             lsp_summary,
             lsp_status_appearance: &self.lsp_status_appearance,
@@ -4427,6 +4436,10 @@ impl eframe::App for NativeApplication {
                     }
                     ShellIntent::EditDocument { tab, edit } => {
                         self.document_edits.push((tab, edit));
+                        context.request_repaint();
+                    }
+                    ShellIntent::FoldDocument { tab, command } => {
+                        self.fold_commands.push((tab, command));
                         context.request_repaint();
                     }
                     ShellIntent::OpenSettings => {
@@ -4841,6 +4854,7 @@ struct AppSurfaces<'a> {
     status_view: Option<ViewKey>,
     command_context: &'a CommandContext,
     document_edits: &'a mut Vec<(TabId, DocumentEdit)>,
+    fold_commands: &'a mut Vec<(TabId, FoldCommand)>,
     command_errors: &'a mut Vec<AppError>,
     lsp_summary: Option<crate::lsp::status::Summary>,
     lsp_status_appearance: &'a crate::lsp::status::Appearance,
@@ -5626,9 +5640,11 @@ impl AppSurfaces<'_> {
                         insert_spaces: settings.editor_insert_spaces,
                     },
                 );
-                let editor_presentation =
+                let mut editor_presentation =
                     crate::presentation_refresh::editor_presentation(&settings);
                 drop(settings);
+                editor_presentation.options.folding =
+                    taide_native_ui::presentation::editor_folding(snapshot.metadata.tier);
                 let editor = self.editor.with_indent(indent);
                 if ui.is_enabled()
                     && let Some(path) = path
@@ -5663,52 +5679,83 @@ impl AppSurfaces<'_> {
                     );
                 self.command_errors
                     .extend(edit_errors.into_iter().map(editor_error));
+                let fold_commands = if ui.is_enabled() {
+                    crate::command_dispatch::take_fold_commands(&tab.id, self.fold_commands)
+                } else {
+                    Vec::new()
+                };
                 let terminal_views = &mut *self.terminal_views;
                 let keymap_actions = &mut *self.keymap_actions;
                 let services = self.services;
                 let status = &mut *self.status;
                 let has_focused_shell = self.target.is_some();
                 let editor_syntax = &mut *self.editor_syntax;
+                let chevrons = &mut *self.explorer_icons;
+                let mut fold_control_error = None;
+                let mut paint_fold_control = |ui: &Ui, control: FoldControl| {
+                    let painted = chevrons.paint(
+                        ui,
+                        control.rect,
+                        crate::problems_icons::Glyph::ChevronRight,
+                        control.color,
+                        control.chevron_rotation,
+                    );
+                    if let Err(error) = painted {
+                        fold_control_error.get_or_insert(error);
+                    }
+                };
                 let output = editor
-                    .show_tokenized(
+                    .show_request(
                         ui,
                         self.store,
                         view,
-                        focus,
-                        |ui, event, composing| {
-                            let index = crate::keymap::event_index(ui.ctx(), event, &mut next);
-                            match terminal_views.route_keymap(
-                                crate::keymap::Route {
-                                    context: ui.ctx(),
-                                    event,
-                                    index,
-                                    scope: crate::keymap::Context {
-                                        terminal: false,
-                                        editor: true,
+                        EditorRequest {
+                            request_focus: focus,
+                            keymap: |ui: &Ui, event: &egui::Event, composing: bool| {
+                                let index = crate::keymap::event_index(ui.ctx(), event, &mut next);
+                                match terminal_views.route_keymap(
+                                    crate::keymap::Route {
+                                        context: ui.ctx(),
+                                        event,
+                                        index,
+                                        scope: crate::keymap::Context {
+                                            terminal: false,
+                                            editor: true,
+                                        },
+                                        composing,
+                                        overrides: services
+                                            .state
+                                            .settings
+                                            .read()
+                                            .keymap_overrides
+                                            .as_deref(),
                                     },
-                                    composing,
-                                    overrides: services
-                                        .state
-                                        .settings
-                                        .read()
-                                        .keymap_overrides
-                                        .as_deref(),
-                                },
-                                keymap_actions,
-                                has_focused_shell,
-                            ) {
-                                Ok(handled) => handled,
-                                Err(error) => {
-                                    *status = Some(error.to_string());
-                                    true
+                                    keymap_actions,
+                                    has_focused_shell,
+                                ) {
+                                    Ok(handled) => handled,
+                                    Err(error) => {
+                                        *status = Some(error.to_string());
+                                        true
+                                    }
                                 }
-                            }
+                            },
+                            route: |response: &egui::Response| {
+                                response.ctx.keyboard_input_route(response.id)
+                            },
+                            presentation: &editor_presentation,
+                            tokens: tokens_supplier(move |store| {
+                                editor_syntax.tokens(store, document)
+                            }),
+                            decorations: &[],
+                            fold_commands: &fold_commands,
+                            fold_controls: Some(&mut paint_fold_control),
                         },
-                        |response| response.ctx.keyboard_input_route(response.id),
-                        &editor_presentation,
-                        move |store| editor_syntax.tokens(store, document),
                     )
                     .map_err(editor_error)?;
+                if let Some(error) = fold_control_error {
+                    *self.status = Some(error.to_string());
+                }
                 self.editor_syntax
                     .show_lines(document, output.rendered_lines.clone());
                 self.keymap_documents.insert(tab.id.clone(), document);
@@ -5771,6 +5818,13 @@ impl AppSurfaces<'_> {
 
 fn editor_error(error: taide_native_editor::document::EditorError) -> AppError {
     AppError::Internal(format!("native editor: {error:?}"))
+}
+
+fn tokens_supplier<'tokens, Supplier>(supplier: Supplier) -> Supplier
+where
+    Supplier: FnOnce(&EditorStore) -> Option<EditorTokens<'tokens>>,
+{
+    supplier
 }
 
 fn connect_web(

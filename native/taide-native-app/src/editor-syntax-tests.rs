@@ -7,15 +7,18 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 use taide_model::file::{EditorConfigOptions, FileSizeTier, OpenedFile};
 use taide_model::ids::{PaneId, TabId};
+use taide_model::paths::AppPaths;
 use taide_model::theme::ResolvedTheme;
 use taide_native_editor::document::{DocumentId, DocumentMetadata, Edit, UndoGroup};
 use taide_native_editor::line_tokens::{LineTokens, TokenStyleTable};
 use taide_native_editor::store::{EditorLimits, EditorStore, Transaction};
 use taide_native_editor::view::{ViewId, ViewKey};
 use taide_native_syntax::{
-    TextmateTokenizer, TokenTheme, TokenizerLimits, bundled_grammar_set, token_worker,
+    PluginGrammar, TextmateTokenizer, TokenTheme, TokenizerLimits, UNSTYLED_STYLE_ID,
+    bundled_grammar_set, token_worker,
 };
-use taide_runtime::TaskSupervisor;
+use taide_plugin::service::PluginStore;
+use taide_runtime::{AppState, TaskSupervisor, plugin_actions};
 
 use super::EditorSyntax;
 
@@ -677,4 +680,335 @@ fn 화면이_알린_보이는_줄은_다음_tick까지_합쳐_두었다가_한_�
     assert!(!harness.syntax.documents.contains_key(&plain));
     harness.syntax.tick(&store, &theme, now);
     assert_eq!(harness.syntax.documents[&document].shown_lines, None);
+}
+
+const PLUGIN_MANIFEST_FILE: &str = "taide-plugin.json";
+const FIRST_PLUGIN_VERSION: &str = "1.0.0";
+const SECOND_PLUGIN_VERSION: &str = "1.0.1";
+const INI_PLUGIN_ID: &str = "taide-ini-plugin";
+const INI_LANGUAGE_ID: &str = "taide-ini";
+const INI_GRAMMAR: &str = r##"{
+    "scopeName": "source.taide-ini",
+    "patterns": [
+        { "match": ";.*$", "name": "comment.line.semicolon.taide-ini" },
+        { "begin": "\"", "end": "\"", "name": "string.quoted.double.taide-ini" }
+    ]
+}"##;
+const INI_HASH_COMMENT_GRAMMAR: &str = r##"{
+    "scopeName": "source.taide-ini",
+    "patterns": [{ "match": "#.*$", "name": "comment.line.number-sign.taide-ini" }]
+}"##;
+const INI_SOURCE: &str = "; note\nkey = \"open\nclosed\" # hash";
+const UNPARSABLE_GRAMMAR: &str = "{";
+const UNREAD_GRAMMAR: &str = r##"{ "scopeName": "source.taide-unread", "patterns": [] }"##;
+const CYCLE_GRAMMAR: &str = r##"{
+    "scopeName": "source.taide-cycle",
+    "patterns": [{ "include": "#a" }],
+    "repository": {
+        "a": { "patterns": [{ "include": "#b" }] },
+        "b": { "patterns": [{ "include": "#a" }] }
+    }
+}"##;
+
+struct PluginHost {
+    runtime: tokio::runtime::Runtime,
+    directory: PathBuf,
+    state: AppState,
+    plugins: PluginStore,
+    tasks: TaskSupervisor,
+}
+
+impl PluginHost {
+    fn new() -> Self {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let directory =
+            std::env::temp_dir().join(format!("taide-native-editor-syntax-{}", TabId::new()));
+        let state = AppState::new(AppPaths::new(directory.join("data")));
+        let tasks = TaskSupervisor::new(runtime.handle().clone());
+        Self {
+            runtime,
+            directory,
+            state,
+            plugins: PluginStore::new(),
+            tasks,
+        }
+    }
+
+    fn plugin_root(&self, plugin_id: &str) -> PathBuf {
+        self.state.paths.plugins_dir().join(plugin_id)
+    }
+
+    fn install(
+        &self,
+        plugin_id: &str,
+        version: &str,
+        language_id: &str,
+        grammar: &str,
+        language_ids_without_grammar: &[&str],
+    ) {
+        let root = self.plugin_root(plugin_id);
+        let grammar_file = root.join(imported_grammar_file(language_id));
+        std::fs::create_dir_all(grammar_file.parent().unwrap()).unwrap();
+        std::fs::write(grammar_file, grammar).unwrap();
+        let languages: Vec<Value> = std::iter::once(language(
+            language_id,
+            Some(imported_grammar_file(language_id)),
+        ))
+        .chain(
+            language_ids_without_grammar
+                .iter()
+                .map(|language_id| language(language_id, None)),
+        )
+        .collect();
+        let manifest = json!({
+            "manifestVersion": 1,
+            "id": plugin_id,
+            "name": plugin_id,
+            "version": version,
+            "contributes": { "languages": languages, "lsp": [], "themes": [] },
+        });
+        std::fs::write(root.join(PLUGIN_MANIFEST_FILE), manifest.to_string()).unwrap();
+    }
+
+    fn reload(&self) {
+        self.runtime
+            .block_on(plugin_actions::plugin_reload(&self.state, &self.plugins))
+            .unwrap();
+    }
+}
+
+impl Drop for PluginHost {
+    fn drop(&mut self) {
+        self.tasks.stop_all();
+        std::fs::remove_dir_all(&self.directory).unwrap();
+    }
+}
+
+fn imported_grammar_file(language_id: &str) -> String {
+    format!("grammars/{language_id}.tmLanguage.json")
+}
+
+fn language(language_id: &str, grammar: Option<String>) -> Value {
+    json!({
+        "id": language_id,
+        "extensions": [format!(".{language_id}")],
+        "aliases": [],
+        "grammar": grammar,
+        "embeddedLanguages": null,
+    })
+}
+
+fn plugin_harness() -> Harness {
+    let (wake_sender, wake) = mpsc::channel();
+    let (finished_sender, finished) = mpsc::channel();
+    let signal: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+        wake_sender.send(()).ok();
+    });
+    let (client, task) = token_worker(signal.clone());
+    std::thread::spawn(move || {
+        task.run();
+        finished_sender.send(()).ok();
+    });
+    Harness {
+        syntax: EditorSyntax::with_wake(client, None, signal),
+        wake,
+        finished,
+    }
+}
+
+fn settle_with_plugins(
+    harness: &mut Harness,
+    host: &PluginHost,
+    store: &EditorStore,
+    theme: &ResolvedTheme,
+    now: Instant,
+) {
+    loop {
+        harness
+            .syntax
+            .follow_plugins(&host.state, &host.plugins, &host.tasks);
+        harness.syntax.tick(store, theme, now);
+        if harness.syntax.plugin_grammar_read.is_none() && harness.syntax.pipeline.is_settled() {
+            return;
+        }
+        harness.wake.recv_timeout(TIMEOUT).unwrap();
+    }
+}
+
+fn plugin_spans(
+    theme: &ResolvedTheme,
+    plugins: &[PluginGrammar],
+    store: &EditorStore,
+    document: DocumentId,
+) -> Vec<Vec<u32>> {
+    let snapshot = store.documents().snapshot(document).unwrap();
+    let token_theme = TokenTheme::from_resolved(theme).unwrap();
+    let mut tokenizer = TextmateTokenizer::with_plugin_grammars(
+        &CORE_AND_RUST,
+        plugins,
+        token_theme.settings(),
+        TokenizerLimits::default(),
+    )
+    .unwrap();
+    let mut state = None;
+    snapshot
+        .rope
+        .to_string()
+        .split('\n')
+        .map(|line| {
+            let tokenized = tokenizer
+                .try_tokenize_line(&snapshot.metadata.language_id, line, state.as_ref())
+                .unwrap();
+            state = Some(tokenized.end_state);
+            tokenized.spans
+        })
+        .collect()
+}
+
+#[test]
+fn 플러그인_목록의_문법을_읽어_그_언어의_문서를_토큰화하고_목록이_바뀌면_다시_읽는다() {
+    let host = PluginHost::new();
+    host.install(
+        INI_PLUGIN_ID,
+        FIRST_PLUGIN_VERSION,
+        INI_LANGUAGE_ID,
+        INI_GRAMMAR,
+        &[],
+    );
+    let theme = theme("dark", "#6a9955");
+    let mut harness = plugin_harness();
+    let mut store = store();
+    let ini = open(
+        &mut store,
+        "/synthetic/app.taide-ini",
+        INI_LANGUAGE_ID,
+        INI_SOURCE,
+    );
+    let rust = open(&mut store, "/synthetic/main.rs", "rust", RUST_SOURCE);
+    attach(&mut store, ini);
+    attach(&mut store, rust);
+    let now = Instant::now();
+    harness.settle(&store, &theme, now);
+    assert!(!harness.syntax.pipeline.contains(ini));
+    assert!(harness.syntax.tokens(&store, ini).is_none());
+    assert!(host.plugins.0.read().is_none());
+
+    settle_with_plugins(&mut harness, &host, &store, &theme, now);
+    assert!(host.plugins.0.read().is_some());
+    let first = [PluginGrammar::from_contribution(INI_LANGUAGE_ID, &[], INI_GRAMMAR).unwrap()];
+    let first_spans = plugin_spans(&theme, &first, &store, ini);
+    assert_eq!(harness.spans(ini), first_spans);
+    assert_eq!(harness.spans(rust), expected_spans(&theme, &store, rust));
+    assert_eq!(
+        harness.syntax.tokens(&store, ini).unwrap().revision,
+        revision(&store, ini)
+    );
+
+    host.install(
+        INI_PLUGIN_ID,
+        SECOND_PLUGIN_VERSION,
+        INI_LANGUAGE_ID,
+        INI_HASH_COMMENT_GRAMMAR,
+        &[],
+    );
+    settle_with_plugins(&mut harness, &host, &store, &theme, now);
+    assert_eq!(harness.spans(ini), first_spans);
+
+    host.reload();
+    settle_with_plugins(&mut harness, &host, &store, &theme, now);
+    let second = [
+        PluginGrammar::from_contribution(INI_LANGUAGE_ID, &[], INI_HASH_COMMENT_GRAMMAR).unwrap(),
+    ];
+    let second_spans = plugin_spans(&theme, &second, &store, ini);
+    assert_ne!(second_spans, first_spans);
+    assert_eq!(harness.spans(ini), second_spans);
+
+    std::fs::remove_dir_all(host.plugin_root(INI_PLUGIN_ID)).unwrap();
+    host.reload();
+    settle_with_plugins(&mut harness, &host, &store, &theme, now);
+    assert!(!harness.syntax.pipeline.contains(ini));
+    assert!(harness.syntax.tokens(&store, ini).is_none());
+    assert_eq!(harness.spans(rust), expected_spans(&theme, &store, rust));
+}
+
+#[test]
+fn 읽지_못하거나_잘못된_플러그인_문법은_그_언어만_평문으로_두고_다른_언어의_강조는_그대로다() {
+    let host = PluginHost::new();
+    let version = FIRST_PLUGIN_VERSION;
+    host.install(
+        "taide-unparsable-plugin",
+        version,
+        "taide-unparsable",
+        UNPARSABLE_GRAMMAR,
+        &[],
+    );
+    host.install(
+        "taide-unread-plugin",
+        version,
+        "taide-unread",
+        UNREAD_GRAMMAR,
+        &[],
+    );
+    host.install(
+        "taide-cycle-plugin",
+        version,
+        "taide-cycle",
+        CYCLE_GRAMMAR,
+        &["taide-plain"],
+    );
+    host.install(INI_PLUGIN_ID, version, INI_LANGUAGE_ID, INI_GRAMMAR, &[]);
+    host.reload();
+    std::fs::remove_file(
+        host.plugin_root("taide-unread-plugin")
+            .join(imported_grammar_file("taide-unread")),
+    )
+    .unwrap();
+
+    let theme = theme("dark", "#6a9955");
+    let mut harness = plugin_harness();
+    let mut store = store();
+    let unlisted = ["taide-unparsable", "taide-unread", "taide-plain"].map(|language_id| {
+        let document = open(
+            &mut store,
+            &format!("/synthetic/unlisted.{language_id}"),
+            language_id,
+            INI_SOURCE,
+        );
+        attach(&mut store, document);
+        document
+    });
+    let cycle = open(
+        &mut store,
+        "/synthetic/loop.taide-cycle",
+        "taide-cycle",
+        INI_SOURCE,
+    );
+    let ini = open(
+        &mut store,
+        "/synthetic/app.taide-ini",
+        INI_LANGUAGE_ID,
+        INI_SOURCE,
+    );
+    let rust = open(&mut store, "/synthetic/main.rs", "rust", RUST_SOURCE);
+    for document in [cycle, ini, rust] {
+        attach(&mut store, document);
+    }
+    let now = Instant::now();
+    settle_with_plugins(&mut harness, &host, &store, &theme, now);
+    assert!(harness.syntax.pipeline.is_worker_running());
+    for document in unlisted {
+        assert!(!harness.syntax.pipeline.contains(document));
+        assert!(harness.syntax.tokens(&store, document).is_none());
+    }
+    assert_eq!(
+        harness.spans(cycle),
+        vec![vec![0, UNSTYLED_STYLE_ID]; INI_SOURCE.split('\n').count()]
+    );
+    let ini_grammar =
+        [PluginGrammar::from_contribution(INI_LANGUAGE_ID, &[], INI_GRAMMAR).unwrap()];
+    assert_eq!(
+        harness.spans(ini),
+        plugin_spans(&theme, &ini_grammar, &store, ini)
+    );
+    assert_eq!(harness.spans(rust), expected_spans(&theme, &store, rust));
 }

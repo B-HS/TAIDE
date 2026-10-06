@@ -7,7 +7,7 @@ use taide_model::project::WindowChromePatch;
 #[cfg(feature = "native-host")]
 use taide_runtime::{AppState, EventSink, layout_actions, project_actions};
 
-use crate::command_registry::{DocumentEdit, PaletteEntry};
+use crate::command_registry::{DocumentEdit, FoldCommand, PaletteEntry};
 
 #[derive(Debug, Clone)]
 pub enum ShellMutation {
@@ -68,6 +68,7 @@ pub enum ShellIntent {
     RequestCloseTabs(Vec<TabId>),
     RequestSaveTab(TabId),
     EditDocument { tab: TabId, edit: DocumentEdit },
+    FoldDocument { tab: TabId, command: FoldCommand },
 }
 
 #[cfg(feature = "native-host")]

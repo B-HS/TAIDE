@@ -24,6 +24,10 @@ pub mod css_motion;
 pub mod document_admission;
 #[path = "editor-geometry.rs"]
 pub mod editor_geometry;
+#[path = "editor-gutter.rs"]
+mod editor_gutter;
+#[path = "editor-overlay.rs"]
+pub mod editor_overlay;
 #[path = "editor-paint.rs"]
 mod editor_paint;
 #[path = "editor-row-text.rs"]

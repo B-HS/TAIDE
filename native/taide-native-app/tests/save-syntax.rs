@@ -1,9 +1,11 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::json;
 use taide_model::file::{EditorConfigOptions, FileSizeTier, OpenedFile};
 use taide_model::ids::{PaneId, TabId};
+use taide_model::paths::AppPaths;
 use taide_model::theme::ResolvedTheme;
 use taide_native_app::editor_syntax::EditorSyntax;
 use taide_native_app::save;
@@ -13,7 +15,8 @@ use taide_native_editor::store::{EditorLimits, EditorStore, Transaction};
 use taide_native_editor::syntax::TokenKind;
 use taide_native_editor::view::{ViewId, ViewKey};
 use taide_native_syntax::MAX_TOKENIZED_DOCUMENT_LINES;
-use taide_runtime::TaskSupervisor;
+use taide_plugin::service::PluginStore;
+use taide_runtime::{AppState, TaskSupervisor};
 use tokio::sync::Notify;
 
 const TIMEOUT: Duration = Duration::from_secs(60);
@@ -29,6 +32,20 @@ const EDITED_PREFIX: &str = "/";
 const FIRST_LINE_TRIMMED: &str =
     "let a = 1;\n/// note \t\nlet s = \"open  \nclosed\"; \nlet b = 2; \t";
 const EDITED_TRIMMED: &str = "let a = 1;\n/// note\nlet s = \"open  \nclosed\";\nlet b = 2;";
+const PLUGIN_ID: &str = "taide-ini-plugin";
+const PLUGIN_LANGUAGE_ID: &str = "taide-ini";
+const PLUGIN_MANIFEST_FILE: &str = "taide-plugin.json";
+const PLUGIN_GRAMMAR_FILE: &str = "grammar.json";
+const PLUGIN_GRAMMAR: &str = r##"{
+    "scopeName": "source.taide-ini",
+    "patterns": [
+        { "match": ";.*$", "name": "comment.line.semicolon.taide-ini" },
+        { "begin": "\"", "end": "\"", "name": "string.quoted.double.taide-ini" }
+    ]
+}"##;
+const PLUGIN_PATH: &str = "/synthetic/save-syntax.taide-ini";
+const PLUGIN_SOURCE: &str = "key = 1  \n; note \t\nname = \"open  \nclosed\" \nlast = 2 \t";
+const PLUGIN_TRIMMED: &str = "key = 1\n; note\nname = \"open  \nclosed\"\nlast = 2";
 const UNTOKENIZED_LINE: &str = "a \n";
 const UNTOKENIZED_LAST_LINE: &str = "\"open  ";
 const TRIM: CleanupFlags = CleanupFlags {
@@ -58,6 +75,14 @@ fn theme() -> ResolvedTheme {
 }
 
 fn open(content: &str) -> (EditorStore, DocumentId, ViewId) {
+    open_language(PATH, "rust", content)
+}
+
+fn open_language(
+    path: &str,
+    language_id: &str,
+    content: &str,
+) -> (EditorStore, DocumentId, ViewId) {
     let mut store = EditorStore::new(EditorLimits {
         max_documents: DOCUMENT_LIMIT,
         max_views: VIEW_LIMIT,
@@ -67,11 +92,11 @@ fn open(content: &str) -> (EditorStore, DocumentId, ViewId) {
     .unwrap();
     let document = store
         .open_file(
-            PATH.into(),
+            path.into(),
             OpenedFile {
-                path: PATH.into(),
+                path: path.into(),
                 content: content.into(),
-                language_id: "rust".into(),
+                language_id: language_id.into(),
                 byte_size: content.len().try_into().unwrap(),
                 line_count: content.lines().count().try_into().unwrap(),
                 tier: FileSizeTier::Normal,
@@ -115,10 +140,60 @@ fn insert(store: &mut EditorStore, document: DocumentId, at: usize, text: &str) 
 }
 
 fn open_dirty(content: &str) -> (EditorStore, DocumentId, ViewId) {
+    open_dirty_language(PATH, "rust", content)
+}
+
+fn open_dirty_language(
+    path: &str,
+    language_id: &str,
+    content: &str,
+) -> (EditorStore, DocumentId, ViewId) {
     let (first, rest) = content.split_at(1);
-    let (mut store, document, view) = open(rest);
+    let (mut store, document, view) = open_language(path, language_id, rest);
     insert(&mut store, document, 0, first);
     (store, document, view)
+}
+
+struct PluginHost {
+    directory: PathBuf,
+    state: AppState,
+    plugins: PluginStore,
+}
+
+impl PluginHost {
+    fn with_ini_plugin() -> Self {
+        let directory =
+            std::env::temp_dir().join(format!("taide-native-save-syntax-{}", TabId::new()));
+        let state = AppState::new(AppPaths::new(directory.join("data")));
+        let root = state.paths.plugins_dir().join(PLUGIN_ID);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join(PLUGIN_GRAMMAR_FILE), PLUGIN_GRAMMAR).unwrap();
+        let manifest = json!({
+            "manifestVersion": 1,
+            "id": PLUGIN_ID,
+            "name": PLUGIN_ID,
+            "version": "1.0.0",
+            "contributes": {
+                "languages": [{
+                    "id": PLUGIN_LANGUAGE_ID,
+                    "extensions": [".taide-ini"],
+                    "grammar": PLUGIN_GRAMMAR_FILE,
+                }],
+            },
+        });
+        std::fs::write(root.join(PLUGIN_MANIFEST_FILE), manifest.to_string()).unwrap();
+        Self {
+            directory,
+            state,
+            plugins: PluginStore::new(),
+        }
+    }
+}
+
+impl Drop for PluginHost {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.directory).unwrap();
+    }
 }
 
 fn prepare(
@@ -155,6 +230,15 @@ impl Coordinator {
     }
 
     async fn tokenize(&mut self, store: &mut EditorStore, document: DocumentId) {
+        self.tokenize_following(None, store, document).await;
+    }
+
+    async fn tokenize_following(
+        &mut self,
+        host: Option<&PluginHost>,
+        store: &mut EditorStore,
+        document: DocumentId,
+    ) {
         let line_count = store
             .documents()
             .snapshot(document)
@@ -163,6 +247,10 @@ impl Coordinator {
             .len_lines();
         tokio::time::timeout(TIMEOUT, async {
             loop {
+                if let Some(host) = host {
+                    self.syntax
+                        .follow_plugins(&host.state, &host.plugins, &self.tasks);
+                }
                 self.syntax.tick(store, &self.theme, Instant::now());
                 self.syntax.supply_save_cleanup(store, document, TRIM);
                 let is_tokenized = store
@@ -255,6 +343,36 @@ fn 저장_정리는_아직_다시_토큰화되지_않은_줄을_건너뛰고_토
         assert_eq!(
             prepare(&mut store, document, view, TRIM),
             (true, EDITED_TRIMMED.into())
+        );
+        coordinator.disconnect().await;
+    });
+}
+
+#[test]
+fn 플러그인_문법_언어의_저장_정리도_문자열_안_후행_공백을_남기고_주석_뒤는_지운다() {
+    block_on(async {
+        let host = PluginHost::with_ini_plugin();
+        let mut coordinator = Coordinator::connect();
+        let (mut store, document, view) =
+            open_dirty_language(PLUGIN_PATH, PLUGIN_LANGUAGE_ID, PLUGIN_SOURCE);
+        coordinator
+            .syntax
+            .tick(&store, &coordinator.theme, Instant::now());
+        coordinator
+            .syntax
+            .supply_save_cleanup(&mut store, document, TRIM);
+        assert!(store.syntax(document).unwrap().is_none());
+        assert_eq!(
+            prepare(&mut store, document, view, TRIM),
+            (false, PLUGIN_SOURCE.into())
+        );
+
+        coordinator
+            .tokenize_following(Some(&host), &mut store, document)
+            .await;
+        assert_eq!(
+            prepare(&mut store, document, view, TRIM),
+            (true, PLUGIN_TRIMMED.into())
         );
         coordinator.disconnect().await;
     });

@@ -1,11 +1,13 @@
 #[path = "change-journal.rs"]
 pub mod change_journal;
+pub mod decoration;
 #[path = "display-layout.rs"]
 pub mod display_layout;
 #[path = "display-map.rs"]
 pub mod display_map;
 pub mod document;
 pub mod editing;
+pub mod folding;
 pub mod indent;
 #[path = "line-breaks.rs"]
 pub mod line_breaks;

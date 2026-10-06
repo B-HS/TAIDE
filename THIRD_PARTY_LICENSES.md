@@ -491,6 +491,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 - `src/document-tokens.rs` and `src/token-worker.rs` port the line end state
   store and the tokenization stop rule from Monaco Editor 0.56.0
   (`TokenizationStateStore`, `TrackingTokenizationStateStore`).
+- `src/grammar-registrations.rs` ports the language registration order of
+  `@shikijs/primitive` 4.4.3 (`Resolver.addLanguage`,
+  `Registry.loadLanguages`, `Registry.loadLanguage`, `resolveLangAlias`; MIT,
+  same copyright holders as `@shikijs/monaco`) and follows the grammar cache
+  rule of `@shikijs/vscode-textmate` 10.0.2 (`SyncRegistry.addGrammar`,
+  `SyncRegistry.grammarForScopeName`; MIT, Copyright (c) Microsoft
+  Corporation).
 
 ### Ported source in `native/taide-native-editor`
 
@@ -499,6 +506,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   editing rules (`ContiguousTokensStore.acceptEdit`,
   `ContiguousTokensEditing`) from Monaco Editor 0.56.0 (MIT, Copyright (c)
   Microsoft Corporation). The license text is kept next to the code as
+  `native/taide-native-editor/LICENSE-MONACO-SNIPPET`.
+- `src/folding.rs` ports the indentation based folding of Monaco Editor
+  0.56.0 (MIT, Copyright (c) Microsoft Corporation), all from
+  `editor/contrib/folding/browser` unless noted: the region computation of
+  `indentRangeProvider.js` (`computeRanges`, `RangesCollector.insertFirst`,
+  `RangesCollector.toIndentRanges`) with `computeIndentLevel` from
+  `editor/common/model/utils.js`, the region merge and lookup of
+  `foldingRanges.js` (`FoldingRegions.sanitizeAndMerge`,
+  `FoldingRegions.ensureParentIndices`, `FoldingRegions.findRange`), the
+  collapse state rules of `foldingModel.js` (`FoldingModel.update`,
+  `FoldingModel.toggleCollapseState`, `FoldingModel.getAllRegionsAtLine`,
+  `FoldingModel.getRegionAtLine`, `FoldingModel.getRegionsInside`,
+  `toggleCollapseState`, `setCollapseStateLevelsDown`, `setCollapseStateUp`,
+  `setCollapseStateForRest`, `getParentFoldLine`, `getPreviousFoldLine`,
+  `getNextFoldLine`), the hidden range rules of `hiddenRangeModel.js`
+  (`HiddenRangeModel.updateHiddenRanges`,
+  `HiddenRangeModel.adjustSelections`) and the click and caret reveal rules
+  of `folding.js` (`FoldingController.onEditorMouseUp`,
+  `FoldingController.revealCursor`). The license text is the same
   `native/taide-native-editor/LICENSE-MONACO-SNIPPET`.
 
 ---

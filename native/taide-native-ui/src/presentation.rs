@@ -2,6 +2,7 @@ use egui::epaint::Shadow;
 use egui::style::Selection;
 use egui::{Color32, CornerRadius, FontId, Stroke, Visuals};
 use taide_model::error::{AppError, AppResult};
+use taide_model::file::FileSizeTier;
 use taide_model::locale::ResolvedLocale;
 use taide_model::settings::Settings;
 use taide_model::theme::{ResolvedTheme, ThemeType};
@@ -239,6 +240,10 @@ pub fn editor_presentation(settings: &Settings) -> EditorPresentation {
             ..Default::default()
         },
     }
+}
+
+pub fn editor_folding(tier: FileSizeTier) -> bool {
+    !matches!(tier, FileSizeTier::Large | FileSizeTier::ReadOnly)
 }
 
 pub fn banner_appearance(theme: &ResolvedTheme) -> AppResult<BannerAppearance> {
