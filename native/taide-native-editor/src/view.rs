@@ -3,7 +3,7 @@ use std::ops::Range;
 use ropey::Rope;
 use taide_model::ids::{PaneId, TabId};
 
-use crate::document::{DocumentId, Edit, EditorError, byte_to_char};
+use crate::document::{DocumentId, Edit, EditorError, UndoGroup, byte_to_char};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ViewId(pub(crate) u64);
@@ -110,6 +110,30 @@ pub struct Composition {
     pub preedit: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditOperation {
+    Other,
+    DeletingLeft,
+    DeletingRight,
+    TypingOther,
+    TypingFirstSpace,
+    TypingConsecutiveSpace,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditRun {
+    pub operation: EditOperation,
+    pub group: UndoGroup,
+    pub revision: u64,
+    pub selection: SelectionSet,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GoalColumns {
+    pub revision: u64,
+    pub leftover_visible_columns: Vec<isize>,
+}
+
 #[derive(Debug, Clone)]
 pub struct ViewState {
     pub id: ViewId,
@@ -119,4 +143,6 @@ pub struct ViewState {
     pub scroll: ScrollPosition,
     pub folds: Vec<Range<usize>>,
     pub composition: Option<Composition>,
+    pub edit_run: Option<EditRun>,
+    pub goal_columns: Option<GoalColumns>,
 }

@@ -232,6 +232,8 @@ fn 동일_저장_관찰은_undo를_유지하고_실제_교체만_초기화하며
     assert!(store.undo(document).unwrap());
     assert!(store.documents().snapshot(document).unwrap().dirty);
     assert!(store.redo(document).unwrap());
+    let settled = store.save_snapshot(document).unwrap();
+    assert!(store.mark_saved(settled, None).unwrap());
     assert!(
         !store
             .observe_file(document, Path::new(PATH), file("replacement"))

@@ -10,7 +10,9 @@ use crate::document::{
     DiskChoice, DiskSnapshot, DocumentId, DocumentKey, DocumentMetadata, DocumentSnapshot, Edit,
     EditorError, UndoGroup, apply_edits, byte_to_char,
 };
-use crate::view::{Composition, ScrollPosition, SelectionSet, ViewId, ViewKey, ViewState};
+use crate::view::{
+    Composition, EditRun, GoalColumns, ScrollPosition, SelectionSet, ViewId, ViewKey, ViewState,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct EditorLimits {
@@ -1001,6 +1003,8 @@ impl EditorStore {
                 scroll: ScrollPosition::default(),
                 folds: Vec::new(),
                 composition: None,
+                edit_run: None,
+                goal_columns: None,
             },
         );
         self.views.by_key.insert(key, id);
@@ -1038,9 +1042,40 @@ impl EditorStore {
             .views
             .get_mut(&view)
             .ok_or(EditorError::NotFound)?;
+        if current.selection != selection {
+            current.goal_columns = None;
+        }
         current.selection = selection;
         current.scroll = scroll;
         current.folds = folds;
+        Ok(())
+    }
+
+    pub fn set_edit_run(&mut self, view: ViewId, run: Option<EditRun>) -> Result<(), EditorError> {
+        self.views
+            .views
+            .get_mut(&view)
+            .ok_or(EditorError::NotFound)?
+            .edit_run = run;
+        Ok(())
+    }
+
+    pub fn set_goal_columns(
+        &mut self,
+        view: ViewId,
+        goal: Option<GoalColumns>,
+    ) -> Result<(), EditorError> {
+        let current = self
+            .views
+            .views
+            .get_mut(&view)
+            .ok_or(EditorError::NotFound)?;
+        if goal.as_ref().is_some_and(|goal| {
+            goal.leftover_visible_columns.len() != current.selection.selections.len()
+        }) {
+            return Err(EditorError::InvalidBoundary);
+        }
+        current.goal_columns = goal;
         Ok(())
     }
 

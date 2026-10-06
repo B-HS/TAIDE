@@ -5,7 +5,8 @@ use taide_model::ids::{PaneId, TabId};
 use taide_native_editor::document::{DocumentId, DocumentKey, Edit, EditorError, UndoGroup};
 use taide_native_editor::store::{EditorLimits, EditorStore, Transaction};
 use taide_native_editor::view::{
-    Composition, ScrollPosition, Selection, SelectionSet, ViewId, ViewKey,
+    Composition, EditOperation, EditRun, GoalColumns, ScrollPosition, Selection, SelectionSet,
+    ViewId, ViewKey,
 };
 
 const DOCUMENT_COUNT: usize = 4;
@@ -14,6 +15,66 @@ const HISTORY_COUNT: usize = 2;
 const SCROLL_Y: f32 = 100.0;
 const FIRST_SAVE_TIME: f64 = 2.0;
 const RESTORE_BYTE_LIMIT: usize = 8;
+const GOAL_LEFTOVER: isize = 3;
+
+#[test]
+fn goal_column과_edit_run은_view에만_남고_선택_변경은_goal_column만_지운다() {
+    let mut store = store();
+    let document = open(&mut store, "ab\ncd");
+    let first = view(&mut store, document, "main");
+    let second = view(&mut store, document, "auxiliary");
+    assert_eq!(
+        store.set_goal_columns(
+            first,
+            Some(GoalColumns {
+                revision: 0,
+                leftover_visible_columns: Vec::new(),
+            })
+        ),
+        Err(EditorError::InvalidBoundary)
+    );
+    let goal = GoalColumns {
+        revision: 0,
+        leftover_visible_columns: vec![GOAL_LEFTOVER],
+    };
+    let run = EditRun {
+        operation: EditOperation::TypingOther,
+        group: UndoGroup(0),
+        revision: 0,
+        selection: caret(0),
+    };
+    store.set_goal_columns(first, Some(goal.clone())).unwrap();
+    store.set_edit_run(first, Some(run.clone())).unwrap();
+    store
+        .set_view_state(
+            first,
+            caret(0),
+            ScrollPosition {
+                x: 0.0,
+                y: SCROLL_Y,
+            },
+            Vec::new(),
+        )
+        .unwrap();
+    assert_eq!(store.views().get(first).unwrap().goal_columns, Some(goal));
+    store
+        .set_view_state(first, caret(1), ScrollPosition::default(), Vec::new())
+        .unwrap();
+    let moved = store.views().get(first).unwrap();
+    assert_eq!(moved.goal_columns, None);
+    assert_eq!(moved.edit_run, Some(run));
+    let other = store.views().get(second).unwrap();
+    assert_eq!(other.goal_columns, None);
+    assert_eq!(other.edit_run, None);
+    store.set_edit_run(first, None).unwrap();
+    assert_eq!(store.views().get(first).unwrap().edit_run, None);
+    store.detach_view(first).unwrap();
+    assert_eq!(store.set_edit_run(first, None), Err(EditorError::NotFound));
+    assert_eq!(
+        store.set_goal_columns(first, None),
+        Err(EditorError::NotFound)
+    );
+}
 
 #[test]
 fn clean_file_갱신은_공유_view를_유지하고_dirty_문서와_잘못된_경로를_거절한다() {
