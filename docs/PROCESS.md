@@ -10,8 +10,11 @@
 - [x] b. native 앱 컴파일 상태 확인 — `cargo check --manifest-path native/taide-native-app/Cargo.toml --locked --offline --target-dir experiments/native-shell-spike/target` exit 0(51.34초, vendored wry 경고 17건). 기존 Tauri 워크스페이스 `cargo check --workspace --locked --offline`도 exit 0(1분 21초). 첫 실행은 rustc가 CPU 0%로 24분간 멈춰 종료 후 재실행했으며 원인은 확인하지 못했습니다(루트 `target/` 약 465GB, 디스크 여유 70GB)
 - [x] c. 전수 감사 workflow — 영역 10개 완료(작업자 10, 오류 0). 화면 기능 600개 중 done 212·partial 90·unwired 85·missing 186·n/a 27(n/a 제외 37.0%). 영역별 보고서 `docs/quality-assurance/2026-10-06-native-audit-*.md`
 - [x] d. 감사 통합 — `docs/quality-assurance/2026-10-06-native-audit-summary.md`에 기능 대응 집계, 결함·구조 문제, 전환 배치 1~10, 사용자 결정 7건 정리. 핵심 판정 6건은 메인이 `rg`로 교차 확인
-- [ ] e. 전환 배치 1 구현 workflow — 직렬 3단계(편집기 입력 결함 → 터미널·에이전트 동작 결함 → 셸 기반·테마 Visuals), 단계별 구현 opus·리뷰 sonnet·필요 시 수정 opus. 새 의존성 없음. 리뷰 비교 기준은 스크래치패드의 `baseline/native`·`baseline/crates` 사본
-- [ ] f. 배치 1 검증·기록 — 변경 위험을 덮는 최소 검증 1회와 결과 기록
+- [x] e. 전환 배치 1 구현 workflow — 직렬 3단계(편집기 입력 결함 → 터미널·에이전트 동작 결함 → 셸 기반·테마 Visuals) 완료. 작업자 6(구현 opus 3, 리뷰 sonnet 3), 리뷰 판정 전부 pass라 수정 단계는 실행되지 않았습니다. 새 의존성 없음
+- [x] f. 배치 1 검증·기록 — 메인이 lib 테스트를 배치 1 적용 상태와 커밋 기준 양쪽에서 실행해 회귀 1건(`remote_assets`, 에이전트 폴링 등록 위치)을 찾아 수정했습니다. 기준에서도 실패하던 7건과 화면 미확인 항목은 `docs/quality-assurance/2026-10-06-native-batch1-integration.md`에 부채로 기록
+- [x] h. 재개 시각 변경 — 사용자 지시가 "배치 1 뒤 일시정지, 14:00 재개"에서 "사용량 한도가 리셋되는 12:30부터 시작"으로 바뀌어 14:00 예약을 취소했습니다. 배치 1 workflow는 한도 도달로 단계 3 구현이 10:49에 중단됐다가 12:31에 같은 단계가 자동 재시작됐습니다(단계 1·2 구현과 리뷰는 완료, 리뷰 판정 pass)
+- [x] i. 터미널 크레이트 lockfile 보정 — `native/taide-native-terminal/Cargo.lock`에 `taide-remote-wire`가 없어 `--locked` 명령이 시작되지 않던 기존 문제를 `--offline` 실행으로 갱신(+9줄). `cargo test --manifest-path native/taide-native-terminal/Cargo.toml --offline` 전체 통과(lib 4, session 8 포함 33건)
+- [ ] j. 전환 배치 2 — 명령 레지스트리·커맨드 팔레트·공용 Dialog/Popover/아이콘·toast 일반 API. 배치 1 정리 직후 착수
 
 - [x] g. 체크포인트 커밋·푸시 — 사용자 지시(2026-10-06 "지금 커밋해놔")로 이전 에이전트의 미커밋 작업을 배치 1 변경 전 상태 그대로 논리 단위로 커밋: `81e9619` crate 리팩터링, `4005731` native·experiments, `fe241af` tools, `8da7c52` M8 문서, 이어서 감사 문서. 스테이징 내용이 배치 1 시작 전 기준 사본과 같음을 `diff -rq`로 확인. `81e9619` 메시지는 커밋 시점 기준으로 src-tauri 컴파일 미확인이라 적었으나 직후 워크스페이스 check가 exit 0으로 끝났습니다
 
