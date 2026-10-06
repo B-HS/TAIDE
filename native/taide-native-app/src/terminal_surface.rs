@@ -261,6 +261,7 @@ struct View {
     outbox: Arc<Mutex<Outbox>>,
     pending: VecDeque<u16>,
     error: Option<String>,
+    logged_error: Option<String>,
     blink: Blink,
 }
 
@@ -1217,7 +1218,7 @@ pub struct Views {
     command_context: CommandContext,
     outboxes: HashMap<String, Arc<Mutex<Outbox>>>,
     attaching: HashSet<TabId>,
-    failed: HashMap<TabId, String>,
+    failed: HashMap<TabId, AppError>,
     attaching_geometry: HashMap<TabId, Arc<Mutex<WindowSize>>>,
     geometry: HashMap<String, Arc<Mutex<WindowSize>>>,
     resizing: HashSet<String>,
@@ -1941,7 +1942,7 @@ fn terminal_context_menu(ui: &Ui, view: &mut View, request: MenuRequest<'_>) -> 
                         .transpose()
                         .map(Option::flatten)
                 })?? {
-                    commands.push(HostCommand::CopyText(text));
+                    commands.push(HostCommand::CopyTerminalSelection(text));
                 }
             }
             MenuAction::Paste => commands.push(HostCommand::ReadTerminalClipboard(paste)),
@@ -2467,7 +2468,7 @@ impl Views {
                 }
             }
             Err(error) => {
-                self.failed.insert(tab.clone(), error.to_string());
+                self.failed.insert(tab.clone(), error.clone());
                 for ((_, _, owner), view) in &mut self.views {
                     if owner == &tab {
                         view.pending.clear();
@@ -3226,7 +3227,8 @@ impl Views {
                 return Ok(response);
             }
             if let Some(error) = self.failed.get(tab) {
-                if !status(ui, rect, id, appearance, error, &restart_label) {
+                let message = crate::toast::describe_error(locale, error);
+                if !status(ui, rect, id, appearance, &message, &restart_label) {
                     return Ok(response);
                 }
                 self.failed.remove(tab);
@@ -3319,19 +3321,7 @@ impl Views {
             return Ok(response);
         }
         session.configure_command_colors(appearance.command_colors)?;
-        let ended_message = self.failed.get(tab).cloned().or_else(|| match phase {
-            Phase::Exited(code) => {
-                let mut message =
-                    crate::presentation::message(locale, "terminal.processExited", &[]);
-                if let Some(code) = code {
-                    message.push_str(&format!(" ({code})"));
-                }
-                Some(message)
-            }
-            Phase::Failed(failure) => Some(format!("native terminal failed: {failure:?}")),
-            _ => None,
-        });
-        if let Some(message) = ended_message {
+        if let Some(message) = ended_message(locale, self.failed.get(tab), phase) {
             if status(ui, rect, id, appearance, &message, &restart_label)
                 && self.attaching.insert(tab.clone())
             {
@@ -3640,14 +3630,12 @@ impl Views {
             .map_err(|_| AppError::Internal("native terminal input queue lock poisoned".into()))?
             .error
             .clone();
-        if let Some(error) = view.error.as_ref().or(queue_error.as_ref()) {
-            ui.painter().text(
-                rect.min,
-                egui::Align2::LEFT_TOP,
-                error,
-                appearance.font.clone(),
-                color32(appearance.foreground),
-            );
+        let failure = view.error.clone().or(queue_error);
+        if failure != view.logged_error {
+            if let Some(error) = &failure {
+                log::warn!("native terminal view failed: {error}");
+            }
+            view.logged_error = failure;
         }
         Ok(response)
     }
@@ -4240,6 +4228,26 @@ fn effect_ports(
         event: Arc::new(|_| Ok(())),
         stream: Arc::new(|_| Ok(())),
     }
+}
+
+fn ended_message(
+    locale: &ResolvedLocale,
+    attach_failure: Option<&AppError>,
+    phase: Phase,
+) -> Option<String> {
+    if let Some(error) = attach_failure {
+        return Some(crate::toast::describe_error(locale, error));
+    }
+    let exit_code = match phase {
+        Phase::Exited(code) => code,
+        Phase::Failed(_) => None,
+        Phase::Running | Phase::Draining(_) => return None,
+    };
+    let mut message = crate::presentation::message(locale, "terminal.processExited", &[]);
+    if let Some(code) = exit_code {
+        message.push_str(&format!(" ({code})"));
+    }
+    Some(message)
 }
 
 fn status(
@@ -8318,5 +8326,48 @@ mod tests {
         assert_eq!(core.grid().unwrap().display_offset(), 0);
         assert_eq!(view.offset, 1);
         output.textures_delta.clear();
+    }
+
+    #[test]
+    fn 종료_화면_문구는_로컬라이즈된_실패와_종료_문구만_사용한다() {
+        let locale = ResolvedLocale {
+            id: "en".into(),
+            name: "English".into(),
+            warnings: Vec::new(),
+            messages: std::collections::BTreeMap::from([
+                ("terminal.processExited".into(), "Process exited".into()),
+                ("test.failure".into(), "Cannot spawn {{target}}".into()),
+            ]),
+        };
+        let spawn = AppError::localized(
+            taide_model::error::AppErrorKind::Io,
+            "test.failure",
+            "fallback",
+        )
+        .with_arg("target", "synthetic-shell");
+        assert_eq!(
+            ended_message(&locale, Some(&spawn), Phase::Running).as_deref(),
+            Some("Cannot spawn synthetic-shell")
+        );
+        assert_eq!(
+            ended_message(&locale, None, Phase::Exited(Some(3))).as_deref(),
+            Some("Process exited (3)")
+        );
+        assert_eq!(
+            ended_message(&locale, None, Phase::Exited(None)).as_deref(),
+            Some("Process exited")
+        );
+        for failure in [
+            taide_native_terminal::session::Failure::Parser,
+            taide_native_terminal::session::Failure::Delivery,
+            taide_native_terminal::session::Failure::Spawn,
+        ] {
+            assert_eq!(
+                ended_message(&locale, None, Phase::Failed(failure)).as_deref(),
+                Some("Process exited")
+            );
+        }
+        assert_eq!(ended_message(&locale, None, Phase::Running), None);
+        assert_eq!(ended_message(&locale, None, Phase::Draining(Some(0))), None);
     }
 }

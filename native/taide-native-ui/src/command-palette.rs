@@ -2,7 +2,6 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use egui::epaint::Shadow;
 use egui::text::{CCursor, CCursorRange, LayoutJob, TextFormat, TextWrapping};
 use egui::{Color32, Event, FontFamily, FontId, Galley, Id, Key, Modifiers, Sense, Stroke, Ui};
 use taide_model::error::AppResult;
@@ -15,7 +14,9 @@ use crate::command_palette_query::{
 };
 use crate::command_registry::{CommandContext, PaletteEntry, Run, registry};
 use crate::fuzzy_match::{Matcher, Ranked, highlight_segments};
+use crate::icons::{Icon, Icons};
 use crate::keymap::catalog::{Overrides, rows};
+use crate::modal::{self, BORDER_WIDTH, Chrome, Composition, FocusReturn, Layer, Presence};
 use crate::presentation::{color, message};
 
 const MODAL_ID: &str = "native-command-palette";
@@ -26,14 +27,13 @@ const FILE_RESULT_LIMIT: usize = 200;
 const MAX_WIDTH: f32 = 512.0;
 const RESPONSIVE_BREAKPOINT: f32 = 640.0;
 const SCREEN_MARGIN: f32 = 16.0;
-const DIALOG_RADIUS: u8 = 8;
 const SURFACE_RADIUS: u8 = 6;
-const BORDER_WIDTH: f32 = 1.0;
-const SCRIM_OPACITY: f32 = 0.5;
-const SHADOW_OFFSET: [i8; 2] = [0, 8];
-const SHADOW_BLUR: u8 = 24;
+const DIALOG_PADDING: i8 = 0;
+const EXITING_CONTENT_ALPHA: f32 = 1.0;
 const INPUT_ROW_HEIGHT: f32 = 36.0;
 const INPUT_PADDING_X: f32 = 12.0;
+const INPUT_ICON_GAP: f32 = 8.0;
+const INPUT_ICON_OPACITY: f32 = 0.5;
 const LIST_MAX_HEIGHT: f32 = 300.0;
 const LIST_SCROLL_PADDING: f32 = 4.0;
 const LIST_TOP: f32 = 0.0;
@@ -42,6 +42,9 @@ const GROUP_PADDING: f32 = 4.0;
 const HEADING_PADDING_X: f32 = 8.0;
 const HEADING_PADDING_Y: f32 = 6.0;
 const HEADING_GAP: f32 = 6.0;
+const REFRESHING_GAP: f32 = 4.0;
+const SPIN_SECONDS: f64 = 1.0;
+const ROTATION_ORIGIN: f32 = 0.5;
 const ITEM_PADDING_X: f32 = 8.0;
 const ITEM_PADDING_Y: f32 = 6.0;
 const ITEM_GAP: f32 = 8.0;
@@ -53,12 +56,6 @@ const DETAIL_LINE_HEIGHT: f32 = 16.0;
 const SHORTCUT_LETTER_SPACING: f32 = 1.2;
 const DISABLED_OPACITY: f32 = 0.5;
 const ELLIPSIS: char = '…';
-const INPUT_EVENT_FILTER: egui::EventFilter = egui::EventFilter {
-    tab: true,
-    horizontal_arrows: true,
-    vertical_arrows: true,
-    escape: true,
-};
 
 pub struct Appearance {
     modal_background: Color32,
@@ -89,6 +86,14 @@ impl Appearance {
             selection_ring: color(theme, "app.accent")?,
             match_highlight: color(theme, "panel.matchHighlight")?,
         })
+    }
+
+    fn chrome(&self) -> Chrome {
+        Chrome {
+            background: self.modal_background,
+            border: self.modal_border,
+            shadow: self.shadow,
+        }
     }
 }
 
@@ -132,6 +137,9 @@ pub struct RowInspection {
     pub is_enabled: bool,
     pub is_selected: bool,
     pub rect: egui::Rect,
+    pub icon: Icon,
+    pub icon_rect: egui::Rect,
+    pub label_left: f32,
 }
 
 #[cfg(any(test, feature = "inspection"))]
@@ -146,6 +154,9 @@ pub struct Inspection {
     pub rows: Vec<RowInspection>,
     pub dialog: Option<egui::Rect>,
     pub input: Option<egui::Rect>,
+    pub input_icon: Option<egui::Rect>,
+    pub input_field: Option<egui::Rect>,
+    pub refreshing_icon: Option<(egui::Rect, f32)>,
     pub list: Option<egui::Rect>,
     pub has_input_focus: bool,
 }
@@ -163,6 +174,7 @@ enum Navigation {
 struct Item {
     key: String,
     action: Action,
+    icon: Icon,
     label: String,
     indices: Vec<usize>,
     detail: Option<(String, Vec<usize>)>,
@@ -215,20 +227,28 @@ struct Typography {
     highlight: Color32,
 }
 
+struct RowLayout {
+    response: egui::Response,
+    icon: egui::Rect,
+    label_left: f32,
+}
+
 pub struct Palette {
     is_open: bool,
     query: String,
     listed_query: Option<String>,
     selected: Option<String>,
-    previous_focus: Option<Id>,
-    restorable_focus: Option<Id>,
+    focus_return: FocusReturn,
+    presence: Option<Presence>,
+    is_reduced_motion: bool,
     should_place_caret_at_end: bool,
     should_reveal_selected: bool,
     should_reset_scroll: bool,
-    is_composing: bool,
+    composition: Composition,
     is_mac: bool,
     matcher: Matcher,
     appearance: Appearance,
+    icons: Icons,
     shortcuts: Option<Shortcuts>,
     file_ranking: Option<FileRanking>,
     #[cfg(any(test, feature = "inspection"))]
@@ -250,15 +270,17 @@ impl Palette {
             query: String::new(),
             listed_query: None,
             selected: None,
-            previous_focus: None,
-            restorable_focus: None,
+            focus_return: FocusReturn::default(),
+            presence: None,
+            is_reduced_motion: false,
             should_place_caret_at_end: false,
             should_reveal_selected: false,
             should_reset_scroll: false,
-            is_composing: false,
+            composition: Composition::default(),
             is_mac,
             matcher: Matcher::new(collation_locale)?,
             appearance,
+            icons: Icons::new()?,
             shortcuts: None,
             file_ranking: None,
             #[cfg(any(test, feature = "inspection"))]
@@ -283,12 +305,13 @@ impl Palette {
         &self.inspection
     }
 
+    pub fn set_reduced_motion(&mut self, is_reduced_motion: bool) {
+        self.is_reduced_motion = is_reduced_motion;
+    }
+
     pub fn open(&mut self, context: &egui::Context, entry: PaletteEntry) {
         if !self.is_open {
-            self.previous_focus = self
-                .restorable_focus
-                .take()
-                .or_else(|| context.memory(|memory| memory.focused()));
+            self.focus_return.capture(context);
             self.is_open = true;
             self.selected = None;
             self.listed_query = None;
@@ -306,24 +329,44 @@ impl Palette {
     fn close(&mut self, context: &egui::Context, should_restore_focus: bool) {
         self.is_open = false;
         self.query.clear();
+        self.composition.reset();
+        self.clear_listing();
+        let now = context.input(|input| input.time);
+        if let Some(presence) = &mut self.presence {
+            presence.target(false, now);
+        }
+        let input = input_id(context);
+        context.memory_mut(|memory| memory.surrender_focus(input));
+        self.focus_return.release(context, should_restore_focus);
+        context.request_repaint();
+    }
+
+    fn clear_listing(&mut self) {
         self.listed_query = None;
         self.selected = None;
         self.should_place_caret_at_end = false;
         self.should_reveal_selected = false;
         self.should_reset_scroll = false;
-        self.is_composing = false;
         self.file_ranking = None;
-        self.restorable_focus = self.previous_focus.take().filter(|_| should_restore_focus);
-        let input = input_id(context);
-        context.memory_mut(|memory| memory.surrender_focus(input));
-        context.request_repaint();
     }
 
-    fn restore_focus(&mut self, context: &egui::Context) {
-        if let Some(previous) = self.restorable_focus.take() {
-            context.memory_mut(|memory| memory.request_focus(previous));
-            context.request_repaint();
+    fn sync_presence(&mut self, context: &egui::Context) -> Option<Presence> {
+        let now = context.input(|input| input.time);
+        match &mut self.presence {
+            Some(presence) => presence.target(self.is_open, now),
+            None if self.is_open => self.presence = Some(Presence::enter(now)),
+            None => (),
         }
+        let is_reduced_motion = self.is_reduced_motion;
+        let presence = self.presence.as_mut()?;
+        presence.set_reduced_motion(is_reduced_motion);
+        if presence.is_present(now) {
+            return Some(*presence);
+        }
+        modal::unmount(context, modal::layer_id(Id::new(MODAL_ID)));
+        self.presence = None;
+        self.clear_listing();
+        None
     }
 
     pub fn show(
@@ -334,39 +377,48 @@ impl Palette {
     ) -> AppResult<Output> {
         let mut output = Output::default();
         self.reset_inspection();
-        if !self.is_open {
-            self.restore_focus(context);
+        let Some(presence) = self.sync_presence(context) else {
+            self.focus_return.settle(context);
             return Ok(output);
+        };
+        self.icons.prepare(context)?;
+        let transition = presence.sample(context.input(|input| input.time));
+        if transition.is_active {
+            context.request_repaint();
         }
-        self.restorable_focus = None;
-        let layer = egui::LayerId::new(egui::Order::Foreground, Id::new(MODAL_ID));
+        let is_open = self.is_open;
+        let dialog = Layer {
+            id: Id::new(MODAL_ID),
+            chrome: self.appearance.chrome(),
+            padding: DIALOG_PADDING,
+            transition: Some(transition),
+            is_modal: is_open,
+        };
+        let layer = dialog.layer_id();
         let is_covered =
             context.memory(|memory| memory.top_modal_layer().is_some_and(|top| top != layer));
-        let accepts_input = enabled && !is_covered;
-        let is_composing = self.observe_composition(context);
+        let accepts_input = enabled && is_open && !is_covered;
+        let is_composing = context.input(|input| self.composition.observe(&input.raw.events));
         let keys = if accepts_input && !is_composing {
             take_navigation(context)
         } else {
             Vec::new()
         };
-        let frame = egui::Frame::NONE
-            .fill(self.appearance.modal_background)
-            .stroke(Stroke::new(BORDER_WIDTH, self.appearance.modal_border))
-            .shadow(Shadow {
-                offset: SHADOW_OFFSET,
-                blur: SHADOW_BLUR,
-                spread: 0,
-                color: self.appearance.shadow,
+        let response = dialog.show(context, |ui| {
+            if !is_open {
+                ui.visuals_mut().disabled_alpha = EXITING_CONTENT_ALPHA;
+            }
+            ui.add_enabled_ui(enabled && is_open, |ui| {
+                self.content(ui, &scope, &keys, accepts_input)
             })
-            .corner_radius(DIALOG_RADIUS);
-        let response = egui::Modal::new(Id::new(MODAL_ID))
-            .frame(frame)
-            .backdrop_color(self.appearance.shadow.gamma_multiply(SCRIM_OPACITY))
-            .show(context, |ui| {
-                ui.add_enabled_ui(enabled, |ui| self.content(ui, &scope, &keys, accepts_input))
-                    .inner
-            });
+            .inner
+        });
         let interaction = response.inner?;
+        if !is_open {
+            self.reset_inspection();
+            self.focus_return.settle(context);
+            return Ok(output);
+        }
         self.trace_dialog(response.response.rect);
         if !accepts_input {
             return Ok(output);
@@ -395,24 +447,6 @@ impl Palette {
             None => (),
         }
         Ok(output)
-    }
-
-    fn observe_composition(&mut self, context: &egui::Context) -> bool {
-        context.input(|input| {
-            let mut has_composition_event = false;
-            for event in &input.raw.events {
-                let Event::Ime(composition) = event else {
-                    continue;
-                };
-                has_composition_event = true;
-                match composition {
-                    egui::ImeEvent::Preedit { text, .. } => self.is_composing = !text.is_empty(),
-                    egui::ImeEvent::Commit(_) => self.is_composing = false,
-                    _ => (),
-                }
-            }
-            has_composition_event || self.is_composing
-        })
     }
 
     fn content(
@@ -463,10 +497,26 @@ impl Palette {
             row.bottom() - BORDER_WIDTH / 2.0,
             Stroke::new(BORDER_WIDTH, self.appearance.separator),
         );
+        let icon = egui::Rect::from_center_size(
+            egui::pos2(
+                row.left() + INPUT_PADDING_X + Icon::Search.size() / 2.0,
+                row.center().y,
+            ),
+            egui::Vec2::splat(Icon::Search.size()),
+        );
+        if let Some(image) = self.icons.image(
+            Icon::Search,
+            self.appearance
+                .foreground
+                .gamma_multiply(INPUT_ICON_OPACITY),
+        ) {
+            image.paint_at(ui, icon);
+        }
         let field = egui::Rect::from_min_max(
-            egui::pos2(row.left() + INPUT_PADDING_X, row.top()),
+            egui::pos2(icon.right() + INPUT_ICON_GAP, row.top()),
             egui::pos2(row.right() - INPUT_PADDING_X, row.bottom() - BORDER_WIDTH),
         );
+        self.trace_input_layout(icon, field);
         let id = input_id(ui.ctx());
         if std::mem::take(&mut self.should_place_caret_at_end) {
             let mut state = egui::TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
@@ -494,7 +544,7 @@ impl Palette {
             .text_color(self.appearance.foreground)
             .hint_text(placeholder)
             .return_key(None)
-            .event_filter(INPUT_EVENT_FILTER)
+            .event_filter(modal::FOCUS_FILTER)
             .show(&mut field_ui)
             .response;
         response.widget_info(|| {
@@ -505,7 +555,7 @@ impl Palette {
             )
         });
         if is_enabled && !response.has_focus() {
-            ui.memory_mut(|memory| memory.request_focus_with_filter(id, INPUT_EVENT_FILTER));
+            ui.memory_mut(|memory| memory.request_focus_with_filter(id, modal::FOCUS_FILTER));
         }
         self.trace_focus(ui.memory(|memory| memory.has_focus(id)));
     }
@@ -568,6 +618,7 @@ impl Palette {
                         items: vec![Item {
                             key: LINE_ITEM_KEY.into(),
                             action: Action::RevealLine(target),
+                            icon: Icon::CornerDownLeft,
                             label: target.label(),
                             indices: Vec::new(),
                             detail: None,
@@ -627,6 +678,7 @@ impl Palette {
             .map(|ranked| Item {
                 key: ranked.item.id.clone(),
                 action: Action::RunCommand(ranked.item.id.clone()),
+                icon: Icon::Terminal,
                 label: ranked.label,
                 indices: ranked.matched.indices,
                 detail: None,
@@ -683,6 +735,7 @@ impl Palette {
                 Item {
                     key: ranked.item.clone(),
                     action: Action::OpenFile(ranked.item.clone()),
+                    icon: Icon::File,
                     label: display.file_name.to_owned(),
                     indices: display.file_name_indices,
                     detail: display
@@ -784,7 +837,11 @@ impl Palette {
                             .map(|heading| self.heading(ui, heading, group.refreshing.as_deref()));
                         for (index, item) in group.items.iter().enumerate() {
                             let is_selected = self.selected.as_ref() == Some(&item.key);
-                            let response = self.row(ui, item, is_selected);
+                            let RowLayout {
+                                response,
+                                icon,
+                                label_left,
+                            } = self.row(ui, item, is_selected);
                             if is_selected && should_reveal {
                                 let target = match heading {
                                     Some(heading) if index == 0 => heading.union(response.rect),
@@ -804,7 +861,7 @@ impl Palette {
                                     self.selected = Some(item.key.clone());
                                 }
                             }
-                            self.trace_row(item, is_selected, response.rect);
+                            self.trace_row(item, is_selected, response.rect, icon, label_left);
                         }
                     });
             })
@@ -840,7 +897,7 @@ impl Palette {
         );
     }
 
-    fn heading(&self, ui: &mut Ui, text: &str, refreshing: Option<&str>) -> egui::Rect {
+    fn heading(&mut self, ui: &mut Ui, text: &str, refreshing: Option<&str>) -> egui::Rect {
         let (rect, _) = ui.allocate_exact_size(
             egui::vec2(
                 ui.available_width(),
@@ -848,28 +905,54 @@ impl Palette {
             ),
             Sense::hover(),
         );
-        let format = TextFormat {
-            font_id: FontId::new(DETAIL_FONT, crate::font_families::medium(ui)),
-            line_height: Some(DETAIL_LINE_HEIGHT),
-            color: self.appearance.muted,
-            ..Default::default()
+        let muted = self.appearance.muted;
+        let family = crate::font_families::medium(ui);
+        let caption = |ui: &Ui, text: &str, max_width: f32| {
+            let mut job = LayoutJob::single_section(
+                text.to_owned(),
+                TextFormat {
+                    font_id: FontId::new(DETAIL_FONT, family.clone()),
+                    line_height: Some(DETAIL_LINE_HEIGHT),
+                    color: muted,
+                    ..Default::default()
+                },
+            );
+            job.wrap = truncation(max_width.max(0.0));
+            ui.fonts_mut(|fonts| fonts.layout_job(job))
         };
-        let mut job = LayoutJob::default();
-        job.append(text, 0.0, format.clone());
-        if let Some(refreshing) = refreshing {
-            job.append(refreshing, HEADING_GAP, format);
-        }
-        job.wrap = truncation((rect.width() - HEADING_PADDING_X * 2.0).max(0.0));
-        let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
-        ui.painter().galley(
-            rect.min + egui::vec2(HEADING_PADDING_X, HEADING_PADDING_Y),
-            galley,
-            self.appearance.muted,
+        let left = rect.left() + HEADING_PADDING_X;
+        let right = rect.right() - HEADING_PADDING_X;
+        let top = rect.top() + HEADING_PADDING_Y;
+        let title = caption(ui, text, right - left);
+        let title_right = left + title.size().x;
+        ui.painter().galley(egui::pos2(left, top), title, muted);
+        let Some(refreshing) = refreshing else {
+            return rect;
+        };
+        let spinner = egui::Rect::from_center_size(
+            egui::pos2(
+                title_right + HEADING_GAP + Icon::Loader.size() / 2.0,
+                rect.center().y,
+            ),
+            egui::Vec2::splat(Icon::Loader.size()),
         );
+        let turn = ui.input(|input| input.time).rem_euclid(SPIN_SECONDS) / SPIN_SECONDS;
+        let angle = turn as f32 * std::f32::consts::TAU;
+        if let Some(image) = self.icons.image(Icon::Loader, muted) {
+            image
+                .rotate(angle, egui::Vec2::splat(ROTATION_ORIGIN))
+                .paint_at(ui, spinner);
+        }
+        ui.ctx().request_repaint();
+        let label_left = spinner.right() + REFRESHING_GAP;
+        let label = caption(ui, refreshing, right - label_left);
+        ui.painter()
+            .galley(egui::pos2(label_left, top), label, muted);
+        self.trace_refreshing(spinner, angle);
         rect
     }
 
-    fn row(&self, ui: &mut Ui, item: &Item, is_selected: bool) -> egui::Response {
+    fn row(&self, ui: &mut Ui, item: &Item, is_selected: bool) -> RowLayout {
         let opacity = if item.is_enabled {
             1.0
         } else {
@@ -878,7 +961,8 @@ impl Palette {
         let muted = self.appearance.muted.gamma_multiply(opacity);
         let highlight = self.appearance.match_highlight.gamma_multiply(opacity);
         let width = ui.available_width();
-        let text_width = (width - ITEM_PADDING_X * 2.0).max(0.0);
+        let icon_side = item.icon.size();
+        let text_width = (width - ITEM_PADDING_X * 2.0 - icon_side - ITEM_GAP).max(0.0);
         let shortcut = item.shortcut.as_deref().map(|shortcut| {
             let mut job = LayoutJob::single_section(
                 shortcut.to_owned(),
@@ -938,8 +1022,19 @@ impl Palette {
             ),
             Sense::CLICK,
         );
+        let content = rect.shrink2(egui::vec2(ITEM_PADDING_X, ITEM_PADDING_Y));
+        let icon = egui::Rect::from_center_size(
+            egui::pos2(content.left() + icon_side / 2.0, rect.center().y),
+            egui::Vec2::splat(icon_side),
+        );
+        let label_left = icon.right() + ITEM_GAP;
+        let layout = RowLayout {
+            response,
+            icon,
+            label_left,
+        };
         if !ui.is_rect_visible(rect) {
-            return response;
+            return layout;
         }
         if is_selected {
             ui.painter().rect(
@@ -953,12 +1048,15 @@ impl Palette {
                 egui::StrokeKind::Inside,
             );
         }
-        let content = rect.shrink2(egui::vec2(ITEM_PADDING_X, ITEM_PADDING_Y));
+        if let Some(image) = self.icons.image(item.icon, muted) {
+            image.paint_at(ui, icon);
+        }
         let detail_top = content.top() + label.size().y;
-        ui.painter().galley(content.min, label, label_color);
+        ui.painter()
+            .galley(egui::pos2(label_left, content.top()), label, label_color);
         if let Some(detail) = detail {
             ui.painter()
-                .galley(egui::pos2(content.left(), detail_top), detail, muted);
+                .galley(egui::pos2(label_left, detail_top), detail, muted);
         }
         if let Some(shortcut) = shortcut {
             ui.painter().galley(
@@ -970,7 +1068,7 @@ impl Palette {
                 muted,
             );
         }
-        response
+        layout
     }
 
     fn reset_inspection(&mut self) {
@@ -1001,6 +1099,25 @@ impl Palette {
         let _ = (placeholder, rect);
     }
 
+    fn trace_input_layout(&mut self, icon: egui::Rect, field: egui::Rect) {
+        #[cfg(any(test, feature = "inspection"))]
+        {
+            self.inspection.input_icon = Some(icon);
+            self.inspection.input_field = Some(field);
+        }
+        #[cfg(not(any(test, feature = "inspection")))]
+        let _ = (icon, field);
+    }
+
+    fn trace_refreshing(&mut self, spinner: egui::Rect, angle: f32) {
+        #[cfg(any(test, feature = "inspection"))]
+        {
+            self.inspection.refreshing_icon = Some((spinner, angle));
+        }
+        #[cfg(not(any(test, feature = "inspection")))]
+        let _ = (spinner, angle);
+    }
+
     fn trace_focus(&mut self, has_input_focus: bool) {
         #[cfg(any(test, feature = "inspection"))]
         {
@@ -1010,7 +1127,14 @@ impl Palette {
         let _ = has_input_focus;
     }
 
-    fn trace_row(&mut self, item: &Item, is_selected: bool, rect: egui::Rect) {
+    fn trace_row(
+        &mut self,
+        item: &Item,
+        is_selected: bool,
+        rect: egui::Rect,
+        icon_rect: egui::Rect,
+        label_left: f32,
+    ) {
         #[cfg(any(test, feature = "inspection"))]
         self.inspection.rows.push(RowInspection {
             key: item.key.clone(),
@@ -1020,9 +1144,12 @@ impl Palette {
             is_enabled: item.is_enabled,
             is_selected,
             rect,
+            icon: item.icon,
+            icon_rect,
+            label_left,
         });
         #[cfg(not(any(test, feature = "inspection")))]
-        let _ = (item, is_selected, rect);
+        let _ = (item, is_selected, rect, icon_rect, label_left);
     }
 
     fn trace_list(&mut self, listing: &Listing, rect: egui::Rect) {

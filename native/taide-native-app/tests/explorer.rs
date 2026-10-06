@@ -1738,6 +1738,135 @@ fn page() -> TreeRowPage {
 }
 
 #[test]
+fn 탐색기_행은_들여쓰기_뒤에_chevron_칸과_타입_아이콘을_두고_이름을_그_뒤에_그린다() {
+    use taide_native_app::explorer::{Appearance, RowIcons};
+    use taide_native_ui::icons::glyphs::{FileColor, Glyph, Icons};
+
+    const ROW_INDENT: f32 = 12.0;
+    const CHEVRON_SLOT: f32 = 16.0;
+    const CHEVRON_SIZE: f32 = 12.0;
+    const ROW_ICON_SIZE: f32 = 14.0;
+    const ROW_SLOT_GAP: f32 = 4.0;
+    const EXPANDED_CHEVRON_ANGLE: f32 = std::f32::consts::FRAC_PI_2;
+    const PAINTED_TEXTURE_COUNT: usize = 4;
+
+    let context = Context::default();
+    let project = ProjectId::new();
+    let row = |name: &str, kind, depth, expanded| TreeRow {
+        path: format!("/synthetic/{name}"),
+        name: name.rsplit('/').next().unwrap().into(),
+        kind,
+        depth,
+        expanded,
+        has_children: expanded,
+    };
+    let page = TreeRowPage {
+        total: 3,
+        rows: vec![
+            row("src", TreeEntryKind::Directory, 0, true),
+            row("src/main.rs", TreeEntryKind::File, 1, false),
+            row("notes", TreeEntryKind::Directory, 0, false),
+        ],
+    };
+    let mut explorer = Explorer::default();
+    explorer.root = Some("/synthetic".into());
+    let output = frame(&context, &mut explorer, &project, &page, Vec::new());
+    for (row, glyph, color, chevron_angle) in [
+        (
+            &page.rows[0],
+            Glyph::FolderCode,
+            FileColor::Info,
+            Some(EXPANDED_CHEVRON_ANGLE),
+        ),
+        (&page.rows[1], Glyph::Cog, FileColor::Staged, None),
+        (&page.rows[2], Glyph::Folder, FileColor::Folder, Some(0.0)),
+    ] {
+        let rect = output.rows[&row.path].rect;
+        let icon = output.icons[&row.path];
+        let slot_left = rect.left() + row.depth as f32 * ROW_INDENT;
+        assert_eq!(rect.height(), SOURCE_ROW_HEIGHT, "{}", row.name);
+        assert_eq!((icon.glyph, icon.color), (glyph, color), "{}", row.name);
+        assert_eq!(
+            icon.chevron.map(|(_, angle)| angle),
+            chevron_angle,
+            "{}",
+            row.name
+        );
+        if let Some((chevron, _)) = icon.chevron {
+            assert_eq!(chevron.size(), vec2(CHEVRON_SIZE, CHEVRON_SIZE));
+            assert_eq!(
+                chevron.center(),
+                pos2(slot_left + CHEVRON_SLOT / 2.0, rect.center().y)
+            );
+        }
+        assert_eq!(icon.rect.size(), vec2(ROW_ICON_SIZE, ROW_ICON_SIZE));
+        assert_eq!(icon.rect.left(), slot_left + CHEVRON_SLOT + ROW_SLOT_GAP);
+        assert_eq!(icon.rect.center().y, rect.center().y);
+        assert_eq!(icon.label_left, icon.rect.right() + ROW_SLOT_GAP);
+    }
+    assert!(output.draft_icon.is_none());
+
+    let state = AppState::new(AppPaths::new(
+        std::env::temp_dir().join(format!("taide-native-explorer-icons-{}", ProjectId::new())),
+    ));
+    let theme =
+        taide_runtime::theme_actions::theme_get(&state, "vscode-dark-modern".into()).unwrap();
+    let appearance = Appearance::new(&theme).unwrap();
+    let mut glyphs = Icons::new().unwrap();
+    let mut painted = None;
+    let mut drawing = context.run_ui(
+        RawInput {
+            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(WIDTH, HEIGHT))),
+            ..Default::default()
+        },
+        |ui| {
+            painted = Some(explorer.show_with_icons(
+                ui,
+                &project,
+                &page,
+                &locale(),
+                RowIcons {
+                    glyphs: &mut glyphs,
+                    appearance: &appearance,
+                },
+            ));
+        },
+    );
+    let painted = painted.unwrap();
+    assert!(painted.icon_error.is_none());
+    assert_eq!(painted.icons, output.icons);
+    let icon_sides = [CHEVRON_SIZE as usize, ROW_ICON_SIZE as usize];
+    assert_eq!(
+        drawing
+            .textures_delta
+            .set
+            .iter()
+            .flat_map(|(_, deltas)| deltas.iter())
+            .filter(|delta| {
+                let egui::ImageData::Color(image) = &delta.image;
+                image.size[0] == image.size[1] && icon_sides.contains(&image.size[0])
+            })
+            .count(),
+        PAINTED_TEXTURE_COUNT,
+        "chevron 1종과 타입 아이콘 3종을 한 번씩 래스터화한다"
+    );
+    drawing.textures_delta.clear();
+
+    assert_eq!(explorer.start_create(TreeEntryKind::Directory, &page), None);
+    let creating = frame(&context, &mut explorer, &project, &page, Vec::new());
+    let draft = creating.draft_icon.unwrap();
+    let input = creating.input.unwrap().rect;
+    assert_eq!(draft.chevron, None);
+    assert_eq!(
+        (draft.glyph, draft.color),
+        (Glyph::Folder, FileColor::Folder)
+    );
+    assert_eq!(draft.rect.size(), vec2(ROW_ICON_SIZE, ROW_ICON_SIZE));
+    assert_eq!(draft.label_left, draft.rect.right() + ROW_SLOT_GAP);
+    assert!(input.left() >= draft.label_left);
+}
+
+#[test]
 fn 탐색기_이름입력은_선택_키보드_검증_중복확정_취소와_ime를_보존한다() {
     let context = Context::default();
     let project = ProjectId::new();

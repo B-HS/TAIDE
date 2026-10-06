@@ -9,12 +9,21 @@ const FRAME_STEP: f64 = 0.1;
 const COLLATION_LOCALE: &str = "en-US";
 const ROOT: &str = "/synthetic/project";
 const ACTIVE_FILE: &str = "/synthetic/project/src/main.rs";
+const EXIT_FRAME_STEP: f64 = 0.02;
+const EXIT_FRAME_COUNT: usize = 4;
 const PREVIOUS_FOCUS: &str = "synthetic-previous-focus";
 const PREVIOUS_FOCUS_SIDE: f32 = 8.0;
+const BACKGROUND_BUTTON: &str = "synthetic-background-button";
+const BACKGROUND_BUTTON_CENTER: Pos2 = Pos2::new(4.0, 12.0);
 const OUTSIDE_DIALOG: Pos2 = Pos2::new(20.0, 780.0);
 const SINGLE_LINE_ROW_HEIGHT: f32 = 32.0;
 const TWO_LINE_ROW_HEIGHT: f32 = 48.0;
 const OVERSIZED_FILE_COUNT: usize = 250;
+const ENTER_SCALE: f32 = 0.95;
+const GEOMETRY_TOLERANCE: f32 = 0.01;
+const LIST_ITEM_ICON_SIDE: f32 = 16.0;
+const SPINNER_SIDE: f32 = 12.0;
+const SETTLE_FRAME_COUNT: usize = 3;
 
 struct Scene {
     context: egui::Context,
@@ -31,6 +40,9 @@ struct Scene {
     screen: [f32; 2],
     enabled: bool,
     time: f64,
+    frame_step: f64,
+    should_focus_previous: bool,
+    background_clicks: usize,
     unconsumed_keys: Vec<Key>,
 }
 
@@ -61,6 +73,9 @@ impl Scene {
             screen: SCREEN,
             enabled: true,
             time: 0.0,
+            frame_step: FRAME_STEP,
+            should_focus_previous: false,
+            background_clicks: 0,
             unconsumed_keys: Vec::new(),
         }
     }
@@ -78,7 +93,7 @@ impl Scene {
     }
 
     fn frame(&mut self, events: Vec<Event>) -> Output {
-        self.time += FRAME_STEP;
+        self.time += self.frame_step;
         let mut output = None;
         let mut drawing = self.context.run_ui(
             RawInput {
@@ -92,11 +107,23 @@ impl Scene {
                 ..Default::default()
             },
             |ui| {
-                ui.interact(
+                let previous = ui.interact(
                     Rect::from_min_size(Pos2::ZERO, egui::Vec2::splat(PREVIOUS_FOCUS_SIDE)),
                     Id::new(PREVIOUS_FOCUS),
                     Sense::focusable_noninteractive(),
                 );
+                if std::mem::take(&mut self.should_focus_previous) {
+                    previous.request_focus();
+                }
+                let button = ui.interact(
+                    Rect::from_center_size(
+                        BACKGROUND_BUTTON_CENTER,
+                        egui::Vec2::splat(PREVIOUS_FOCUS_SIDE),
+                    ),
+                    Id::new(BACKGROUND_BUTTON),
+                    Sense::click(),
+                );
+                self.background_clicks += usize::from(button.clicked());
                 output = Some(
                     self.palette
                         .show(
@@ -920,4 +947,242 @@ fn 팔레트_색상은_모든_builtin_테마의_정본_키로_초기화된다() 
     let mut broken = theme();
     broken.colors.remove("panel.matchHighlight");
     assert!(Appearance::new(&broken).is_err());
+}
+
+fn dialog_layer() -> egui::LayerId {
+    modal::layer_id(Id::new(MODAL_ID))
+}
+
+fn dialog_scale(scene: &Scene) -> Option<f32> {
+    scene
+        .context
+        .layer_transform_to_global(dialog_layer())
+        .map(|transform| transform.scaling)
+}
+
+fn top_modal_layer(scene: &Scene) -> Option<egui::LayerId> {
+    scene.context.memory(|memory| memory.top_modal_layer())
+}
+
+fn is_near(left: f32, right: f32) -> bool {
+    (left - right).abs() < GEOMETRY_TOLERANCE
+}
+
+fn settle(scene: &mut Scene) {
+    for _ in 0..SETTLE_FRAME_COUNT {
+        scene.frame(Vec::new());
+    }
+}
+
+#[test]
+fn 열림_전환은_200ms_동안_본문을_95퍼센트에서_키우고_첫_프레임부터_입력을_받는다() {
+    let mut scene = Scene::new();
+    scene.frame(Vec::new());
+    scene.palette.open(&scene.context, PaletteEntry::Commands);
+    scene.frame(Vec::new());
+    let entering = dialog_scale(&scene).unwrap();
+    assert!(is_near(entering, ENTER_SCALE));
+    assert!(scene.inspection().is_open);
+    assert_eq!(top_modal_layer(&scene), Some(dialog_layer()));
+
+    scene.frame(Vec::new());
+    let halfway = dialog_scale(&scene).unwrap();
+    assert!(halfway > entering && halfway < 1.0);
+    assert!(scene.inspection().has_input_focus);
+    scene.type_text("set");
+    assert_eq!(scene.inspection().query, ">set");
+    assert_eq!(dialog_scale(&scene), None, "200ms 뒤에는 제 크기로 그린다");
+    assert_eq!(scene.inspection().dialog.unwrap().width(), MAX_WIDTH);
+}
+
+#[test]
+fn 닫힘_전환_동안_레이어는_남아_있지만_키를_받지_않고_200ms_뒤에_사라진다() {
+    let mut scene = Scene::new();
+    scene.focus_previous();
+    scene.open(PaletteEntry::Commands);
+    settle(&mut scene);
+    assert_eq!(dialog_scale(&scene), None);
+
+    scene.press(Key::Escape);
+    assert!(!scene.palette.is_open());
+    scene.frame(vec![
+        key_event(Key::Enter, Modifiers::NONE),
+        key_event(Key::Escape, Modifiers::NONE),
+    ]);
+    let leaving = dialog_scale(&scene).unwrap();
+    assert!(leaving < 1.0 && leaving > ENTER_SCALE);
+    assert_eq!(scene.unconsumed_keys, [Key::Enter, Key::Escape]);
+    assert_eq!(scene.inspection(), Inspection::default());
+    assert_eq!(scene.focused(), Some(Id::new(PREVIOUS_FOCUS)));
+
+    settle(&mut scene);
+    assert_eq!(dialog_scale(&scene), None);
+    assert_eq!(top_modal_layer(&scene), None);
+    assert!(
+        !scene
+            .context
+            .dismissal_layers()
+            .contains(&Id::new(MODAL_ID))
+    );
+    scene.frame(Vec::new());
+    assert_eq!(scene.focused(), Some(Id::new(PREVIOUS_FOCUS)));
+}
+
+#[test]
+fn 동작으로_닫힌_뒤_뒤_화면_위젯이_요청한_포커스는_닫힘_전환이_끝난_뒤에도_유지된다() {
+    let mut scene = Scene::new();
+    scene.open(PaletteEntry::Commands);
+    settle(&mut scene);
+    scene.type_text("app settings");
+    assert_eq!(
+        scene.press(Key::Enter).action,
+        Some(Action::RunCommand("settings.open".into()))
+    );
+    assert!(!scene.palette.is_open());
+
+    scene.frame_step = EXIT_FRAME_STEP;
+    scene.should_focus_previous = true;
+    for _ in 0..EXIT_FRAME_COUNT {
+        scene.frame(Vec::new());
+        assert!(
+            dialog_scale(&scene).is_some(),
+            "닫힘 전환이 아직 진행 중이다"
+        );
+        assert_eq!(
+            scene.focused(),
+            Some(Id::new(PREVIOUS_FOCUS)),
+            "닫힘 전환 중인 팔레트는 뒤 화면 위젯의 포커스를 빼앗지 않는다"
+        );
+    }
+    scene.frame_step = FRAME_STEP;
+    settle(&mut scene);
+    assert_eq!(dialog_scale(&scene), None);
+    assert_eq!(scene.focused(), Some(Id::new(PREVIOUS_FOCUS)));
+}
+
+#[test]
+fn 닫힘_전환_동안_뒤_화면은_포인터_입력을_받지_않고_전환이_끝나면_다시_받는다() {
+    let mut scene = Scene::new();
+    scene.open(PaletteEntry::Commands);
+    settle(&mut scene);
+    scene.press(Key::Escape);
+    assert!(!scene.palette.is_open());
+
+    scene.frame_step = EXIT_FRAME_STEP;
+    scene.click(BACKGROUND_BUTTON_CENTER);
+    assert!(
+        dialog_scale(&scene).is_some(),
+        "클릭이 닫힘 전환 안에서 끝났다"
+    );
+    assert_eq!(
+        scene.background_clicks, 0,
+        "닫힘 전환이 끝날 때까지 뒤 화면의 포인터 입력을 막는다"
+    );
+
+    scene.frame_step = FRAME_STEP;
+    settle(&mut scene);
+    assert_eq!(dialog_scale(&scene), None);
+    scene.click(BACKGROUND_BUTTON_CENTER);
+    assert_eq!(scene.background_clicks, 1);
+}
+
+#[test]
+fn 닫힘_전환_중에_다시_열면_열림_전환을_처음부터_시작하고_입력에_포커스한다() {
+    let mut scene = Scene::new();
+    scene.focus_previous();
+    scene.open(PaletteEntry::Commands);
+    settle(&mut scene);
+    scene.press(Key::Escape);
+    scene.palette.open(&scene.context, PaletteEntry::Files);
+    scene.frame(Vec::new());
+    assert!(is_near(dialog_scale(&scene).unwrap(), ENTER_SCALE));
+    let reopened = scene.inspection();
+    assert!(reopened.is_open && reopened.has_input_focus);
+    assert_eq!(reopened.heading.as_deref(), Some("Files"));
+}
+
+#[test]
+fn reduced_motion에서는_전환_없이_열리고_닫힌_다음_프레임에_사라진다() {
+    let mut scene = Scene::new();
+    scene.palette.set_reduced_motion(true);
+    scene.palette.open(&scene.context, PaletteEntry::Commands);
+    scene.frame(Vec::new());
+    assert_eq!(dialog_scale(&scene), None);
+    assert!(scene.inspection().is_open);
+    assert_eq!(top_modal_layer(&scene), Some(dialog_layer()));
+
+    scene.frame(Vec::new());
+    scene.press(Key::Escape);
+    scene.frame(Vec::new());
+    assert_eq!(top_modal_layer(&scene), None);
+    assert!(
+        !scene
+            .context
+            .dismissal_layers()
+            .contains(&Id::new(MODAL_ID))
+    );
+}
+
+#[test]
+fn 입력과_항목은_모드별_고정_아이콘을_왼쪽에_두고_글자를_8px_뒤에_둔다() {
+    let mut scene = Scene::new().with_project(&["src/main.rs", "README.md"]);
+    scene.active_file = Some(ACTIVE_FILE.into());
+    scene.is_refreshing = true;
+    scene.open(PaletteEntry::Files);
+    settle(&mut scene);
+    let files = scene.inspection();
+    let input = files.input.unwrap();
+    let search = files.input_icon.unwrap();
+    assert_eq!(search.size(), egui::Vec2::splat(Icon::Search.size()));
+    assert_eq!(Icon::Search.size(), LIST_ITEM_ICON_SIDE);
+    assert!(is_near(search.left(), input.left() + INPUT_PADDING_X));
+    assert!(is_near(search.center().y, input.center().y));
+    let field = files.input_field.unwrap();
+    assert!(is_near(field.left(), search.right() + INPUT_ICON_GAP));
+    assert!(is_near(field.right(), input.right() - INPUT_PADDING_X));
+
+    let assert_rows = |inspection: &Inspection, icon: Icon| {
+        assert!(!inspection.rows.is_empty());
+        for row in &inspection.rows {
+            assert_eq!(row.icon, icon, "{}", row.key);
+            assert_eq!(row.icon_rect.size(), egui::Vec2::splat(LIST_ITEM_ICON_SIDE));
+            assert!(is_near(
+                row.icon_rect.left(),
+                row.rect.left() + ITEM_PADDING_X
+            ));
+            assert!(is_near(row.icon_rect.center().y, row.rect.center().y));
+            assert!(is_near(row.label_left, row.icon_rect.right() + ITEM_GAP));
+        }
+    };
+    assert_rows(&files, Icon::File);
+    assert_eq!(files.rows[0].rect.height(), TWO_LINE_ROW_HEIGHT);
+    assert_eq!(files.rows[1].rect.height(), SINGLE_LINE_ROW_HEIGHT);
+
+    let (spinner, angle) = files.refreshing_icon.unwrap();
+    assert_eq!(spinner.size(), egui::Vec2::splat(SPINNER_SIDE));
+    assert!(spinner.left() > files.rows[0].rect.left() + HEADING_PADDING_X);
+    assert!(spinner.bottom() <= files.rows[0].rect.top());
+    scene.frame(Vec::new());
+    let (_, next_angle) = scene.inspection().refreshing_icon.unwrap();
+    let turned = (next_angle - angle).rem_euclid(std::f32::consts::TAU);
+    assert!(
+        is_near(
+            turned,
+            (FRAME_STEP / SPIN_SECONDS) as f32 * std::f32::consts::TAU
+        ),
+        "1초에 한 바퀴를 등속으로 돈다"
+    );
+    scene.is_refreshing = false;
+    scene.frame(Vec::new());
+    assert_eq!(scene.inspection().refreshing_icon, None);
+
+    scene.palette.open(&scene.context, PaletteEntry::Commands);
+    scene.frame(Vec::new());
+    assert_rows(&scene.inspection(), Icon::Terminal);
+
+    scene.palette.set_query(":12".into());
+    scene.frame(Vec::new());
+    let line = scene.inspection();
+    assert_eq!(scene.labels(), ["12"]);
+    assert_rows(&line, Icon::CornerDownLeft);
 }

@@ -232,6 +232,9 @@ fn controlled_tooltip은_오류없는_input의_focus_열기시도로_기존_tool
                     &crate::explorer::Output {
                         actions: Vec::new(),
                         rows: HashMap::new(),
+                        icons: HashMap::new(),
+                        draft_icon: None,
+                        icon_error: None,
                         input: Some(response),
                         validation_error: None,
                         toolbar: HashMap::new(),

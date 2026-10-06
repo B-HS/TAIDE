@@ -55,6 +55,8 @@ pub mod lsp_process;
 pub mod lsp_workspace;
 pub mod lsp_workspace_worker;
 pub mod missing_draft;
+#[cfg(test)]
+mod modal;
 #[path = "motion-preference.rs"]
 mod motion_preference;
 pub mod open_with;

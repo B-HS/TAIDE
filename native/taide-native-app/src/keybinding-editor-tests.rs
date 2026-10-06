@@ -11,6 +11,8 @@ mod tests {
     const MIN_ROW_FOCUS_CONTROL_COUNT: usize = 2;
     const INPUT_FRAME_TIME: f64 = 1.0;
     const SETTLEMENT_DELAY: f64 = 0.5;
+    const BACKGROUND_FOCUS_SIDE: f32 = 8.0;
+    const SETTLED_FRAME_COUNT: usize = 3;
 
     fn assert_focused_control_visible(context: &egui::Context) -> Id {
         let focused = context
@@ -835,6 +837,50 @@ mod tests {
             editor.capture.searched_key.as_ref().unwrap().key(),
             "ArrowDown"
         );
+    }
+
+    #[test]
+    fn keybinding_escape로_닫힌_뒤_이어지는_프레임에도_이전_포커스가_유지된다() {
+        let context = egui::Context::default();
+        let locale = locale("en");
+        let mut editor = Editor::new(&theme(), "en-US", true).unwrap();
+        let background = Id::new("synthetic-background-focus");
+        let frame_over_background = |editor: &mut Editor, events: Vec<Event>| {
+            let mut drawing = context.run_ui(raw(events), |ui| {
+                ui.interact(
+                    egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::Vec2::splat(BACKGROUND_FOCUS_SIDE),
+                    ),
+                    background,
+                    egui::Sense::focusable_noninteractive(),
+                );
+                editor.show(ui.ctx(), &locale, None, true).unwrap();
+            });
+            drawing.textures_delta.clear();
+            context.memory(|memory| memory.focused())
+        };
+        context.memory_mut(|memory| memory.request_focus(background));
+        assert_eq!(
+            frame_over_background(&mut editor, Vec::new()),
+            Some(background)
+        );
+        editor.open(&context);
+        frame_over_background(&mut editor, Vec::new());
+        let focused = frame_over_background(&mut editor, Vec::new());
+        assert!(focused.is_some() && focused == editor.search_focus);
+        assert_eq!(
+            frame_over_background(&mut editor, vec![key(Key::Escape, false)]),
+            Some(background)
+        );
+        assert!(!editor.is_open());
+        for _ in 0..SETTLED_FRAME_COUNT {
+            assert_eq!(
+                frame_over_background(&mut editor, Vec::new()),
+                Some(background),
+                "닫는 프레임에 되돌린 포커스가 이후 프레임에도 남는다"
+            );
+        }
     }
 
     #[test]

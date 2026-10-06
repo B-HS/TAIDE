@@ -2,13 +2,20 @@ use egui::{self, Color32, ColorImage, Image, TextureHandle};
 use resvg::{tiny_skia, usvg};
 use taide_model::error::{AppError, AppResult};
 
+#[cfg(test)]
+#[path = "glyph-icons-tests.rs"]
+mod glyph_tests;
+#[path = "glyph-icons.rs"]
+pub mod glyphs;
+
 const ICON_VIEWBOX: f32 = 24.0;
 const SMALL_ICON: f32 = 12.0;
 const KEYBOARD_ICON: f32 = 14.0;
 const CLOSE_ICON: f32 = 16.0;
+const LIST_ITEM_ICON: f32 = 16.0;
 const MAX_RASTER_SIDE: f32 = 1024.0;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Icon {
     Reset,
     Unbind,
@@ -22,9 +29,14 @@ pub enum Icon {
     Trash,
     Plus,
     FolderOpen,
+    Search,
+    Terminal,
+    File,
+    CornerDownLeft,
+    Loader,
 }
 
-const ICONS: [Icon; 12] = [
+const ICONS: [Icon; 17] = [
     Icon::Reset,
     Icon::Unbind,
     Icon::Warning,
@@ -37,6 +49,11 @@ const ICONS: [Icon; 12] = [
     Icon::Trash,
     Icon::Plus,
     Icon::FolderOpen,
+    Icon::Search,
+    Icon::Terminal,
+    Icon::File,
+    Icon::CornerDownLeft,
+    Icon::Loader,
 ];
 
 impl Icon {
@@ -54,12 +71,18 @@ impl Icon {
             Self::Trash => 9,
             Self::Plus => 10,
             Self::FolderOpen => 11,
+            Self::Search => 12,
+            Self::Terminal => 13,
+            Self::File => 14,
+            Self::CornerDownLeft => 15,
+            Self::Loader => 16,
         }
     }
 
     pub fn size(self) -> f32 {
         match self {
-            Self::Reset | Self::Unbind | Self::Warning => SMALL_ICON,
+            Self::Reset | Self::Unbind | Self::Warning | Self::Loader => SMALL_ICON,
+            Self::Search | Self::Terminal | Self::File | Self::CornerDownLeft => LIST_ITEM_ICON,
             Self::Keyboard
             | Self::ThemeReset
             | Self::Copy
@@ -96,6 +119,17 @@ impl Icon {
             Self::Plus => include_bytes!("../../taide-native-app/resources/snippets/plus.svg"),
             Self::FolderOpen => {
                 include_bytes!("../../taide-native-app/resources/snippets/folder-open.svg")
+            }
+            Self::Search => include_bytes!("../../taide-native-app/resources/icons/search.svg"),
+            Self::Terminal => {
+                include_bytes!("../../taide-native-app/resources/problems/terminal.svg")
+            }
+            Self::File => include_bytes!("../../taide-native-app/resources/problems/file.svg"),
+            Self::CornerDownLeft => {
+                include_bytes!("../../taide-native-app/resources/icons/corner-down-left.svg")
+            }
+            Self::Loader => {
+                include_bytes!("../../taide-native-app/resources/icons/loader-circle.svg")
             }
         }
     }

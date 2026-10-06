@@ -59,12 +59,23 @@ const LIGHT_SUCCESS: [[u8; 3]; 3] = [[236, 253, 243], [211, 251, 223], [0, 138, 
 const DARK_SUCCESS: [[u8; 3]; 3] = [[0, 31, 15], [0, 61, 28], [89, 243, 166]];
 const LIGHT_CLOSE_HOVER: [[u8; 3]; 2] = [[248, 248, 248], [232, 232, 232]];
 const DARK_CLOSE_HOVER: [[u8; 3]; 2] = [[31, 31, 31], [64, 64, 64]];
+const LIGHT_INFO: [[u8; 3]; 3] = [[240, 248, 255], [221, 231, 253], [9, 115, 220]];
+const DARK_INFO: [[u8; 3]; 3] = [[0, 13, 31], [25, 35, 62], [88, 150, 243]];
+const LIGHT_ACTION: [[u8; 3]; 2] = [[23, 23, 23], [255, 255, 255]];
+const DARK_ACTION: [[u8; 3]; 2] = [[252, 252, 252], [0, 0, 0]];
+const ACTION_HEIGHT: f32 = 24.0;
+const ACTION_PADDING: f32 = 8.0;
+const ACTION_FONT: f32 = 12.0;
+const ACTION_RADIUS: u8 = 4;
+const ACTION_FOCUS_RING: f32 = 2.0;
+const ACTION_FOCUS_ALPHA: u8 = 102;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Kind {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
     Warning,
     Error,
     Success,
+    Info,
 }
 
 impl Kind {
@@ -73,6 +84,30 @@ impl Kind {
             Self::Warning => 0,
             Self::Error => 1,
             Self::Success => 2,
+            Self::Info => 3,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NoAction {}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Action<A> {
+    pub label: String,
+    pub id: A,
+}
+
+pub struct Options<A> {
+    pub description: Option<String>,
+    pub action: Option<Action<A>>,
+}
+
+impl<A> Default for Options<A> {
+    fn default() -> Self {
+        Self {
+            description: None,
+            action: None,
         }
     }
 }
@@ -156,11 +191,12 @@ impl Position {
     }
 }
 
-struct Toast {
+struct Toast<A> {
     id: u64,
     kind: Kind,
     title: String,
     description: Option<String>,
+    action: Option<Action<A>>,
     remaining: Duration,
     running_since: Option<Instant>,
     dismissed_at: Option<Instant>,
@@ -169,7 +205,7 @@ struct Toast {
     swipe_exit: Option<swipe::Exit>,
 }
 
-impl Toast {
+impl<A> Toast<A> {
     fn dismiss(&mut self, now: Instant) {
         self.dismissed_at = Some(now);
         self.scheduled_removal_at.get_or_insert(now);
@@ -195,6 +231,10 @@ impl Mount {
     fn close(self, toast: u64) -> Id {
         Id::new(("native-toast-close", self.0, toast))
     }
+
+    fn action(self, toast: u64) -> Id {
+        Id::new(("native-toast-action", self.0, toast))
+    }
 }
 
 struct SwipeOwner {
@@ -207,6 +247,7 @@ struct HitTarget {
     toast: u64,
     card: Rect,
     close: Rect,
+    action: Option<Rect>,
 }
 
 struct Assets {
@@ -228,6 +269,7 @@ impl Assets {
             include_bytes!("../../taide-native-app/resources/toasts/warning.svg").as_slice(),
             include_bytes!("../../taide-native-app/resources/toasts/error.svg").as_slice(),
             include_bytes!("../../taide-native-app/resources/toasts/success.svg").as_slice(),
+            include_bytes!("../../taide-native-app/resources/toasts/info.svg").as_slice(),
         ]
         .into_iter()
         .map(|source| {
@@ -281,8 +323,9 @@ impl Assets {
     }
 }
 
-pub struct Toasts {
-    entries: Vec<Toast>,
+pub struct Toasts<A = NoAction> {
+    entries: Vec<Toast<A>>,
+    actions: Vec<A>,
     next_id: u64,
     paused: bool,
     hovered: bool,
@@ -304,26 +347,42 @@ pub struct Toasts {
 
 #[cfg(any(test, feature = "inspection"))]
 pub struct Inspection {
+    pub kind: Kind,
     pub title: String,
     pub description: Option<String>,
+    pub action_label: Option<String>,
     pub is_dismissed: bool,
     pub close: Option<Rect>,
+    pub action: Option<Rect>,
 }
 
 impl Toasts {
+    pub fn new() -> AppResult<Self> {
+        Self::with_actions()
+    }
+}
+
+impl<A: Clone> Toasts<A> {
     #[cfg(any(test, feature = "inspection"))]
     pub fn inspection(&self) -> Vec<Inspection> {
         self.entries
             .iter()
             .map(|toast| Inspection {
+                kind: toast.kind,
                 title: toast.title.clone(),
                 description: toast.description.clone(),
+                action_label: toast.action.as_ref().map(|action| action.label.clone()),
                 is_dismissed: toast.dismissed_at.is_some(),
                 close: self
                     .hit_targets
                     .iter()
                     .find(|target| target.toast == toast.id)
                     .map(|target| target.close),
+                action: self
+                    .hit_targets
+                    .iter()
+                    .find(|target| target.toast == toast.id)
+                    .and_then(|target| target.action),
             })
             .collect()
     }
@@ -333,9 +392,10 @@ impl Toasts {
         self.is_reduced_motion
     }
 
-    pub fn new() -> AppResult<Self> {
+    pub fn with_actions() -> AppResult<Self> {
         Ok(Self {
             entries: Vec::new(),
+            actions: Vec::new(),
             next_id: 0,
             paused: false,
             hovered: false,
@@ -414,6 +474,18 @@ impl Toasts {
     }
 
     fn push(&mut self, kind: Kind, title: String, description: Option<String>, now: Instant) {
+        self.notify(
+            kind,
+            title,
+            Options {
+                description,
+                action: None,
+            },
+            now,
+        );
+    }
+
+    pub fn notify(&mut self, kind: Kind, title: String, options: Options<A>, now: Instant) {
         let id = self.next_id;
         self.next_id = self
             .next_id
@@ -425,7 +497,8 @@ impl Toasts {
                 id,
                 kind,
                 title,
-                description,
+                description: options.description,
+                action: options.action,
                 remaining: LIFETIME,
                 running_since: (!self.paused).then_some(now),
                 dismissed_at: None,
@@ -441,6 +514,28 @@ impl Toasts {
 
     pub fn warning(&mut self, title: String, now: Instant) {
         self.push(Kind::Warning, title, None, now);
+    }
+
+    pub fn success(&mut self, title: String, now: Instant) {
+        self.push(Kind::Success, title, None, now);
+    }
+
+    pub fn error(&mut self, title: String, now: Instant) {
+        self.push(Kind::Error, title, None, now);
+    }
+
+    pub fn info(&mut self, title: String, now: Instant) {
+        self.push(Kind::Info, title, None, now);
+    }
+
+    pub fn is_showing(&self, kind: Kind, title: &str) -> bool {
+        self.entries
+            .iter()
+            .any(|toast| toast.dismissed_at.is_none() && toast.kind == kind && toast.title == title)
+    }
+
+    pub fn take_actions(&mut self) -> Vec<A> {
+        std::mem::take(&mut self.actions)
     }
 
     pub fn snippet(
@@ -562,7 +657,9 @@ impl Toasts {
         focused.is_some_and(|focused| {
             focused == self.mount.list()
                 || self.entries.iter().any(|toast| {
-                    focused == self.mount.card(toast.id) || focused == self.mount.close(toast.id)
+                    focused == self.mount.card(toast.id)
+                        || focused == self.mount.close(toast.id)
+                        || focused == self.mount.action(toast.id)
                 })
         })
     }
@@ -746,6 +843,18 @@ impl Toasts {
             .iter_mut()
             .map(|toast| {
                 let (background, border, foreground) = colors(theme, toast.kind);
+                let action = toast.action.as_ref().map(|action| {
+                    context.fonts_mut(|fonts| {
+                        fonts.layout_no_wrap(
+                            action.label.clone(),
+                            FontId::proportional(ACTION_FONT),
+                            action_colors(theme).1,
+                        )
+                    })
+                });
+                let text_width = action.as_ref().map_or(text_width, |label| {
+                    (text_width - CONTENT_GAP - label.size().x - ACTION_PADDING * 2.0).max(0.0)
+                });
                 let title = layout(
                     context,
                     toast.title.clone(),
@@ -766,7 +875,12 @@ impl Toasts {
                     + description
                         .as_ref()
                         .map_or(0.0, |galley| DESCRIPTION_GAP + galley.size().y);
-                let height = content_height.max(ICON_WRAPPER) + (PADDING + BORDER) * 2.0;
+                let control_height = if action.is_some() {
+                    ACTION_HEIGHT
+                } else {
+                    ICON_WRAPPER
+                };
+                let height = content_height.max(control_height) + (PADDING + BORDER) * 2.0;
                 (
                     toast,
                     background,
@@ -775,6 +889,7 @@ impl Toasts {
                     title,
                     description,
                     height,
+                    action,
                 )
             })
             .collect::<Vec<_>>();
@@ -836,10 +951,11 @@ impl Toasts {
             plans.push((index, rect, visual_rect, transform, sample, card));
         }
         let mut dismissed = Vec::new();
+        let mut triggered = Vec::new();
         self.hit_targets = plans
             .iter()
             .filter(|(index, _, _, _, _, card)| *index < VISIBLE && card.0.dismissed_at.is_none())
-            .map(|(_, rect, visual_rect, transform, _, card)| HitTarget {
+            .map(|(index, rect, visual_rect, transform, _, card)| HitTarget {
                 toast: card.0.id,
                 card: *visual_rect,
                 close: transformed_rect(
@@ -849,6 +965,11 @@ impl Toasts {
                         egui::Vec2::splat(CLOSE_SIZE),
                     ),
                 ),
+                action: card
+                    .7
+                    .as_ref()
+                    .filter(|_| *index == 0 || expanded)
+                    .map(|label| transformed_rect(*transform, action_rect(*rect, label))),
             })
             .collect();
         self.bounds = plans
@@ -914,7 +1035,7 @@ impl Toasts {
                         },
                     )
                 });
-                for (index, rect, _, transform, sample, (_, background, border, _, _, _, _)) in
+                for (index, rect, _, transform, sample, (_, background, border, _, _, _, _, _)) in
                     plans.iter().rev()
                 {
                     if *index >= VISIBLE {
@@ -947,7 +1068,7 @@ impl Toasts {
                     visual_rect,
                     transform,
                     sample,
-                    (toast, background, border, foreground, title, description, _),
+                    (toast, background, border, foreground, title, description, _, action_label),
                 ) in plans
                 {
                     let visible = index < VISIBLE;
@@ -1138,9 +1259,72 @@ impl Toasts {
                     if close.clicked() {
                         dismissed.push(toast.id);
                     }
+                    if let (Some(label), Some(action)) = (&action_label, &toast.action)
+                        && visible
+                        && sample.content_opacity > 0.0
+                        && (index == 0 || expanded)
+                    {
+                        let button_rect = action_rect(rect, label);
+                        let action_id = mount.action(toast.id);
+                        let mut action_ui = card_ui.new_child(
+                            egui::UiBuilder::new()
+                                .id_salt("native-toast-action")
+                                .accessibility_parent(card_id)
+                                .max_rect(button_rect),
+                        );
+                        action_ui.set_opacity(sample.opacity * sample.content_opacity);
+                        let button = action_ui.interact(
+                            transformed_rect(transform, button_rect),
+                            action_id,
+                            egui::Sense::click(),
+                        );
+                        let (action_background, action_foreground) = action_colors(theme);
+                        if button.has_focus() {
+                            action_ui.painter().rect_stroke(
+                                button_rect.expand(ACTION_FOCUS_RING),
+                                (f32::from(ACTION_RADIUS) + ACTION_FOCUS_RING).round() as u8,
+                                Stroke::new(
+                                    ACTION_FOCUS_RING,
+                                    Color32::from_black_alpha(ACTION_FOCUS_ALPHA),
+                                ),
+                                egui::StrokeKind::Inside,
+                            );
+                        }
+                        action_ui.painter().rect_filled(
+                            button_rect,
+                            ACTION_RADIUS,
+                            action_background,
+                        );
+                        action_ui.painter().galley(
+                            button_rect.center() - label.size() * 0.5,
+                            label.clone(),
+                            action_foreground,
+                        );
+                        button.widget_info(|| {
+                            egui::WidgetInfo::labeled(
+                                egui::WidgetType::Button,
+                                action_ui.is_enabled(),
+                                &action.label,
+                            )
+                        });
+                        context.memory_mut(|memory| {
+                            memory.set_focus_lock_filter(
+                                action_id,
+                                egui::EventFilter {
+                                    escape: true,
+                                    ..Default::default()
+                                },
+                            )
+                        });
+                        if button.clicked() {
+                            triggered.push(action.id.clone());
+                            dismissed.push(toast.id);
+                        }
+                    }
                     transform_shapes(ui, transform, start);
                 }
             });
+        self.actions.extend(triggered);
         for toast in &mut self.entries {
             if dismissed.contains(&toast.id) && toast.dismissed_at.is_none() {
                 toast.dismiss(now);
@@ -1167,7 +1351,7 @@ impl Toasts {
     }
 }
 
-impl Toasts {
+impl<A: Clone> Toasts<A> {
     fn process_swipes(
         &mut self,
         context: &egui::Context,
@@ -1216,6 +1400,7 @@ impl Toasts {
                         .iter()
                         .find(|target| target.card.contains(pos) || target.close.contains(pos))
                         && !target.close.contains(pos)
+                        && !target.action.is_some_and(|action| action.contains(pos))
                         && self
                             .entries
                             .iter()
@@ -1375,13 +1560,33 @@ fn colors(theme: ThemeType, kind: Kind) -> (Color32, Color32, Color32) {
         (ThemeType::Dark, Kind::Error) => DARK_ERROR,
         (ThemeType::Light, Kind::Success) => LIGHT_SUCCESS,
         (ThemeType::Dark, Kind::Success) => DARK_SUCCESS,
+        (ThemeType::Light, Kind::Info) => LIGHT_INFO,
+        (ThemeType::Dark, Kind::Info) => DARK_INFO,
     };
     let [background, border, foreground] =
         [background, border, foreground].map(|[r, g, b]| Color32::from_rgb(r, g, b));
     (background, border, foreground)
 }
 
-fn describe_error(locale: &ResolvedLocale, error: &AppError) -> String {
+fn action_colors(theme: ThemeType) -> (Color32, Color32) {
+    let [background, foreground] = match theme {
+        ThemeType::Light => LIGHT_ACTION,
+        ThemeType::Dark => DARK_ACTION,
+    }
+    .map(|[red, green, blue]| Color32::from_rgb(red, green, blue));
+    (background, foreground)
+}
+
+fn action_rect(card: Rect, label: &egui::Galley) -> Rect {
+    let body = card.shrink(PADDING + BORDER);
+    let top = body.center().y - ACTION_HEIGHT * 0.5;
+    Rect::from_min_max(
+        egui::pos2(body.right() - label.size().x - ACTION_PADDING * 2.0, top),
+        egui::pos2(body.right(), top + ACTION_HEIGHT),
+    )
+}
+
+pub fn describe_error(locale: &ResolvedLocale, error: &AppError) -> String {
     match error {
         AppError::Localized(error) if locale.messages.contains_key(&error.key) => {
             crate::presentation::message(
@@ -1465,7 +1670,7 @@ mod tests {
         }
         let context = egui::Context::default();
         toasts.assets.prepare(&context).unwrap();
-        assert_eq!(toasts.assets.textures.len(), 3);
+        assert_eq!(toasts.assets.textures.len(), 4);
         assert_ne!(
             toasts.assets.textures[Kind::Success.index()].id(),
             toasts.assets.textures[Kind::Error.index()].id()
@@ -2914,5 +3119,246 @@ mod tests {
                 .iter()
                 .all(|toast| toast.dismissed_at.is_some())
         );
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum Probe {
+        Retry,
+        PullRemote,
+    }
+
+    fn action_frame(
+        toasts: &mut Toasts<Probe>,
+        context: &egui::Context,
+        now: Instant,
+        events: Vec<egui::Event>,
+    ) -> egui::FullOutput {
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1000.0, 800.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let mut output = context.run_ui(input, |ui| {
+            toasts.tick(ui.ctx(), now, true);
+            toasts
+                .show(ui.ctx(), ThemeType::Light, "bottom-right", now, true)
+                .unwrap();
+        });
+        output.textures_delta.clear();
+        output
+    }
+
+    #[test]
+    fn 일반_toast는_네_종류와_선택적_설명_액션을_보존한다() {
+        let now = Instant::now();
+        let mut toasts = Toasts::<Probe>::with_actions().unwrap();
+        toasts.success("Synthetic success".into(), now);
+        assert!(toasts.entries[0].kind == Kind::Success);
+        toasts.error("Synthetic error".into(), now);
+        assert!(toasts.entries[0].kind == Kind::Error);
+        toasts.info("Synthetic info".into(), now);
+        assert!(toasts.entries[0].kind == Kind::Info);
+        toasts.warning("Synthetic warning".into(), now);
+        assert!(toasts.entries[0].kind == Kind::Warning);
+        assert!(toasts.entries.iter().all(|toast| {
+            toast.description.is_none() && toast.action.is_none() && toast.remaining == LIFETIME
+        }));
+        toasts.notify(
+            Kind::Warning,
+            "Synthetic conflict".into(),
+            Options {
+                description: Some("Synthetic conflict description".into()),
+                action: Some(Action {
+                    label: "Pull Remote".into(),
+                    id: Probe::PullRemote,
+                }),
+            },
+            now,
+        );
+        assert_eq!(toasts.entries.len(), 5);
+        assert_eq!(toasts.entries[0].title, "Synthetic conflict");
+        assert_eq!(
+            toasts.entries[0].description.as_deref(),
+            Some("Synthetic conflict description")
+        );
+        assert!(
+            toasts.entries[0].action
+                == Some(Action {
+                    label: "Pull Remote".into(),
+                    id: Probe::PullRemote,
+                })
+        );
+        let inspection = toasts.inspection();
+        assert!(inspection[0].kind == Kind::Warning);
+        assert_eq!(inspection[0].action_label.as_deref(), Some("Pull Remote"));
+        assert!(inspection[2].kind == Kind::Info);
+        assert!(inspection[2].action_label.is_none());
+        let context = egui::Context::default();
+        toasts.assets.prepare(&context).unwrap();
+        assert_ne!(
+            toasts.assets.textures[Kind::Info.index()].id(),
+            toasts.assets.textures[Kind::Error.index()].id()
+        );
+        assert_eq!(
+            colors(ThemeType::Light, Kind::Info),
+            (
+                Color32::from_rgb(240, 248, 255),
+                Color32::from_rgb(221, 231, 253),
+                Color32::from_rgb(9, 115, 220)
+            )
+        );
+        assert_eq!(
+            colors(ThemeType::Dark, Kind::Info),
+            (
+                Color32::from_rgb(0, 13, 31),
+                Color32::from_rgb(25, 35, 62),
+                Color32::from_rgb(88, 150, 243)
+            )
+        );
+    }
+
+    #[test]
+    fn 일반_toast는_살아있는_같은_알림만_표시중으로_답한다() {
+        let now = Instant::now();
+        let mut toasts = Toasts::<Probe>::with_actions().unwrap();
+        assert!(!toasts.is_showing(Kind::Error, "Synthetic failure"));
+        toasts.error("Synthetic failure".into(), now);
+        assert!(toasts.is_showing(Kind::Error, "Synthetic failure"));
+        assert!(!toasts.is_showing(Kind::Warning, "Synthetic failure"));
+        assert!(!toasts.is_showing(Kind::Error, "Synthetic other"));
+        toasts.update(now + LIFETIME, false);
+        assert!(toasts.entries[0].dismissed_at.is_some());
+        assert!(!toasts.is_showing(Kind::Error, "Synthetic failure"));
+    }
+
+    #[test]
+    fn 일반_toast_액션은_버튼을_그리고_식별자를_한번만_돌려준_뒤_닫는다() {
+        let context = egui::Context::default();
+        let now = Instant::now();
+        let mut toasts = Toasts::<Probe>::with_actions().unwrap();
+        toasts.notify(
+            Kind::Error,
+            "Synthetic create failure".into(),
+            Options {
+                description: None,
+                action: Some(Action {
+                    label: "Retry".into(),
+                    id: Probe::Retry,
+                }),
+            },
+            now,
+        );
+        action_frame(&mut toasts, &context, now, Vec::new());
+        let now = now + Duration::from_millis(400);
+        let output = action_frame(&mut toasts, &context, now, Vec::new());
+        let texts = output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(texts.iter().any(|text| text == "Synthetic create failure"));
+        assert!(texts.iter().any(|text| text == "Retry"));
+        let card = toasts.hit_targets[0].card;
+        let button = toasts.hit_targets[0].action.unwrap();
+        let is_near = |left: f32, right: f32| (left - right).abs() < 0.01;
+        assert!(is_near(
+            card.height(),
+            ACTION_HEIGHT + (PADDING + BORDER) * 2.0
+        ));
+        assert!(is_near(button.height(), ACTION_HEIGHT));
+        assert!(is_near(button.right(), card.right() - PADDING - BORDER));
+        assert!(is_near(button.center().y, card.center().y));
+        let [background, _] = LIGHT_ACTION;
+        assert!(output.shapes.iter().any(|shape| matches!(
+            &shape.shape,
+            egui::Shape::Rect(rect)
+                if rect.rect == button
+                    && rect.fill == Color32::from_rgb(background[0], background[1], background[2])
+        )));
+        assert!(toasts.take_actions().is_empty());
+        action_frame(
+            &mut toasts,
+            &context,
+            now,
+            vec![
+                egui::Event::PointerMoved(button.center()),
+                egui::Event::PointerButton {
+                    pos: button.center(),
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+        assert!(toasts.swipe_owner.is_none());
+        assert!(toasts.entries[0].dismissed_at.is_none());
+        action_frame(
+            &mut toasts,
+            &context,
+            now,
+            vec![egui::Event::PointerButton {
+                pos: button.center(),
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            }],
+        );
+        assert_eq!(toasts.take_actions(), vec![Probe::Retry]);
+        assert_eq!(toasts.entries[0].dismissed_at, Some(now));
+        action_frame(&mut toasts, &context, now + EXIT_DURATION / 2, Vec::new());
+        assert!(toasts.take_actions().is_empty());
+        action_frame(&mut toasts, &context, now + EXIT_DURATION, Vec::new());
+        assert!(toasts.entries.is_empty());
+        assert!(toasts.take_actions().is_empty());
+    }
+
+    #[test]
+    fn 일반_toast_액션이_없으면_기존_높이와_본문_너비를_유지한다() {
+        let context = egui::Context::default();
+        let now = Instant::now();
+        let mut toasts = Toasts::<Probe>::with_actions().unwrap();
+        toasts.info("Synthetic info".into(), now);
+        action_frame(&mut toasts, &context, now, Vec::new());
+        let output = action_frame(
+            &mut toasts,
+            &context,
+            now + Duration::from_millis(400),
+            Vec::new(),
+        );
+        assert!(toasts.hit_targets[0].action.is_none());
+        let icon_space = ICON_WRAPPER + ICON_LEFT_MARGIN + ICON_RIGHT_MARGIN + CONTENT_GAP;
+        let title = layout(
+            &context,
+            "Synthetic info".into(),
+            Color32::WHITE,
+            WIDTH - (PADDING + BORDER) * 2.0 - icon_space,
+            TITLE_LINE_HEIGHT,
+        );
+        assert!(
+            (toasts.hit_targets[0].card.height()
+                - (title.size().y.max(ICON_WRAPPER) + (PADDING + BORDER) * 2.0))
+                .abs()
+                < 0.01
+        );
+        let texture = toasts.assets.textures[Kind::Info.index()].id();
+        assert!(output.shapes.iter().any(|shape| matches!(
+            &shape.shape,
+            egui::Shape::Rect(rect)
+                if rect
+                    .brush
+                    .as_ref()
+                    .is_some_and(|brush| brush.fill_texture_id == texture)
+        )));
+        let (background, _, _) = colors(ThemeType::Light, Kind::Info);
+        assert!(output.shapes.iter().any(|shape| matches!(
+            &shape.shape,
+            egui::Shape::Rect(rect) if rect.fill == background
+        )));
     }
 }

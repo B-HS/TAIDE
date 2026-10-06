@@ -1,15 +1,24 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 
-use eframe::egui::{self, Id, Key, Modifiers, Response, Ui};
+use eframe::egui::{self, Color32, Id, Key, Modifiers, Response, Ui};
 use taide_model::error::{AppError, AppResult};
 use taide_model::ids::ProjectId;
 use taide_model::locale::ResolvedLocale;
+use taide_model::theme::ResolvedTheme;
 use taide_model::tree::{TreeEntryKind, TreeRow, TreeRowPage};
+
+use crate::problems_icons::{FileColor, Glyph, Icons, file, folder};
 
 const ROW_HEIGHT: f32 = 22.0;
 const ROW_INDENT: f32 = 12.0;
 const ROW_FONT_SIZE: f32 = 12.0;
+const CHEVRON_SLOT_SIZE: f32 = 16.0;
+const CHEVRON_SIZE: f32 = 12.0;
+const ROW_ICON_SIZE: f32 = 14.0;
+const ROW_SLOT_GAP: f32 = 4.0;
+const COLLAPSED_CHEVRON_ANGLE: f32 = 0.0;
+const EXPANDED_CHEVRON_ANGLE: f32 = std::f32::consts::FRAC_PI_2;
 const HEADER_HEIGHT: f32 = 32.0;
 const HEADER_PADDING: f32 = 8.0;
 const HEADER_GAP: f32 = 4.0;
@@ -114,11 +123,138 @@ pub fn open_to_side_request(
 pub struct Output {
     pub actions: Vec<Action>,
     pub rows: HashMap<String, Response>,
+    pub icons: HashMap<String, RowIcon>,
+    pub draft_icon: Option<RowIcon>,
+    pub icon_error: Option<AppError>,
     pub input: Option<Response>,
     pub(crate) validation_error: Option<String>,
     pub toolbar: HashMap<&'static str, Response>,
     pub menu: HashMap<&'static str, Response>,
     pub blank: Option<Response>,
+}
+
+pub struct Appearance {
+    files: HashMap<FileColor, Color32>,
+}
+
+impl Appearance {
+    pub fn new(theme: &ResolvedTheme) -> AppResult<Self> {
+        Ok(Self {
+            files: FileColor::ALL
+                .into_iter()
+                .map(|color| Ok((color, crate::presentation::color(theme, color.theme_key())?)))
+                .collect::<AppResult<_>>()?,
+        })
+    }
+
+    pub fn file_color(&self, color: FileColor) -> Color32 {
+        self.files[&color]
+    }
+}
+
+pub struct RowIcons<'a> {
+    pub glyphs: &'a mut Icons,
+    pub appearance: &'a Appearance,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RowIcon {
+    pub chevron: Option<(egui::Rect, f32)>,
+    pub glyph: Glyph,
+    pub color: FileColor,
+    pub rect: egui::Rect,
+    pub label_left: f32,
+}
+
+impl RowIcon {
+    fn new(
+        row_rect: egui::Rect,
+        depth: u32,
+        chevron_angle: Option<f32>,
+        (glyph, color): (Glyph, FileColor),
+    ) -> Self {
+        let slot_left = row_rect.left() + depth as f32 * ROW_INDENT;
+        let center_y = row_rect.center().y;
+        let chevron = chevron_angle.map(|angle| {
+            (
+                egui::Rect::from_center_size(
+                    egui::pos2(slot_left + CHEVRON_SLOT_SIZE / 2.0, center_y),
+                    egui::Vec2::splat(CHEVRON_SIZE),
+                ),
+                angle,
+            )
+        });
+        let rect = egui::Rect::from_center_size(
+            egui::pos2(
+                slot_left + CHEVRON_SLOT_SIZE + ROW_SLOT_GAP + ROW_ICON_SIZE / 2.0,
+                center_y,
+            ),
+            egui::Vec2::splat(ROW_ICON_SIZE),
+        );
+        Self {
+            chevron,
+            glyph,
+            color,
+            rect,
+            label_left: rect.right() + ROW_SLOT_GAP,
+        }
+    }
+
+    fn of_row(row_rect: egui::Rect, row: &TreeRow) -> Self {
+        match row.kind {
+            TreeEntryKind::Directory => Self::new(
+                row_rect,
+                row.depth,
+                Some(if row.expanded {
+                    EXPANDED_CHEVRON_ANGLE
+                } else {
+                    COLLAPSED_CHEVRON_ANGLE
+                }),
+                folder(&row.name, row.expanded),
+            ),
+            TreeEntryKind::File => Self::new(row_rect, row.depth, None, file(&row.name)),
+        }
+    }
+
+    fn of_draft(row_rect: egui::Rect, draft: &RenameDraft) -> Self {
+        let icon = match draft.row.kind {
+            TreeEntryKind::Directory => folder(&draft.name, false),
+            TreeEntryKind::File => file(&draft.name),
+        };
+        Self::new(row_rect, draft.row.depth, None, icon)
+    }
+
+    fn paint(&self, ui: &Ui, icons: &mut RowIcons<'_>) -> AppResult<()> {
+        if let Some((rect, angle)) = self.chevron {
+            icons.glyphs.paint(
+                ui,
+                rect,
+                Glyph::ChevronRight,
+                ui.visuals().text_color(),
+                angle,
+            )?;
+        }
+        icons.glyphs.paint(
+            ui,
+            self.rect,
+            self.glyph,
+            icons.appearance.file_color(self.color),
+            0.0,
+        )
+    }
+}
+
+fn paint_row_icon(
+    ui: &Ui,
+    icon: &RowIcon,
+    icons: &mut Option<RowIcons<'_>>,
+    error: &mut Option<AppError>,
+) {
+    if let Some(icons) = icons
+        && let Err(failure) = icon.paint(ui, icons)
+    {
+        error.get_or_insert(failure);
+    }
 }
 
 pub struct RenameDraft {
@@ -551,6 +687,41 @@ impl Explorer {
         }
     }
 
+    pub fn retry_create(
+        &mut self,
+        failed: &CreateRequest,
+        rows: &[TreeRow],
+        locale: &ResolvedLocale,
+    ) -> Option<CreateRequest> {
+        if self.pending_create.is_some() {
+            return None;
+        }
+        let name = Path::new(&failed.path)
+            .strip_prefix(&failed.parent)
+            .ok()?
+            .to_str()?;
+        if let Some(error) = name_error(name, rows, &failed.path, None) {
+            if let Some(draft) = &mut self.create {
+                draft.input.error = Some(crate::presentation::message(
+                    locale,
+                    error,
+                    &[("name", name)],
+                ));
+            }
+            return None;
+        }
+        self.serial = self.serial.checked_add(1)?;
+        let request = CreateRequest {
+            token: self.serial,
+            ..failed.clone()
+        };
+        if let Some(draft) = &mut self.create {
+            draft.input.error = None;
+        }
+        self.pending_create = Some(request.clone());
+        Some(request)
+    }
+
     pub fn start_rename(&mut self, row: &TreeRow) {
         if self.pending.is_some() || self.pending_create.is_some() || self.pending_parent.is_some()
         {
@@ -628,6 +799,41 @@ impl Explorer {
         }
     }
 
+    pub fn retry_rename(
+        &mut self,
+        failed: &RenameRequest,
+        rows: &[TreeRow],
+        locale: &ResolvedLocale,
+    ) -> Option<RenameRequest> {
+        if self.pending.is_some() {
+            return None;
+        }
+        let name = Path::new(&failed.to)
+            .strip_prefix(Path::new(&failed.from).parent()?)
+            .ok()?
+            .to_str()?;
+        if let Some(error) = name_error(name, rows, &failed.to, Some(&failed.from)) {
+            if let Some(draft) = self.rename.as_mut() {
+                draft.error = Some(crate::presentation::message(
+                    locale,
+                    error,
+                    &[("name", name)],
+                ));
+            }
+            return None;
+        }
+        self.serial = self.serial.checked_add(1)?;
+        let request = RenameRequest {
+            token: self.serial,
+            ..failed.clone()
+        };
+        if let Some(draft) = self.rename.as_mut() {
+            draft.error = None;
+        }
+        self.pending = Some(request.clone());
+        Some(request)
+    }
+
     pub fn moved(&mut self, from: &Path, to: &Path) {
         self.synchronize_selection();
         if let Some(selected) = &self.selected
@@ -658,6 +864,28 @@ impl Explorer {
         page: &TreeRowPage,
         locale: &ResolvedLocale,
     ) -> Output {
+        self.render(ui, project, page, locale, None)
+    }
+
+    pub fn show_with_icons(
+        &mut self,
+        ui: &mut Ui,
+        project: &ProjectId,
+        page: &TreeRowPage,
+        locale: &ResolvedLocale,
+        icons: RowIcons<'_>,
+    ) -> Output {
+        self.render(ui, project, page, locale, Some(icons))
+    }
+
+    fn render(
+        &mut self,
+        ui: &mut Ui,
+        project: &ProjectId,
+        page: &TreeRowPage,
+        locale: &ResolvedLocale,
+        mut icons: Option<RowIcons<'_>>,
+    ) -> Output {
         self.synchronize_selection();
         let time = ui.input(|input| input.time);
         if self
@@ -670,6 +898,9 @@ impl Explorer {
         let mut output = Output {
             actions: Vec::new(),
             rows: HashMap::new(),
+            icons: HashMap::new(),
+            draft_icon: None,
+            icon_error: None,
             input: None,
             validation_error: None,
             toolbar: HashMap::new(),
@@ -860,7 +1091,14 @@ impl Explorer {
                             let draft = self.create.as_mut().expect("create row exists");
                             ui.horizontal(|ui| {
                                 ui.set_min_height(ROW_HEIGHT);
-                                ui.add_space(draft.input.row.depth as f32 * ROW_INDENT);
+                                let row_rect = egui::Rect::from_min_size(
+                                    ui.max_rect().left_top(),
+                                    egui::vec2(ui.available_width(), ROW_HEIGHT),
+                                );
+                                let icon = RowIcon::of_draft(row_rect, &draft.input);
+                                paint_row_icon(ui, &icon, &mut icons, &mut output.icon_error);
+                                output.draft_icon = Some(icon);
+                                ui.add_space(icon.label_left - row_rect.left());
                                 let result = draft.input.show(
                                     ui,
                                     locale,
@@ -888,7 +1126,6 @@ impl Explorer {
                                     egui::vec2(ui.available_width(), ROW_HEIGHT),
                                 );
                                 ui.set_min_width(row_rect.width());
-                                ui.add_space(row.depth as f32 * ROW_INDENT);
                                 if self
                                     .rename
                                     .as_ref()
@@ -896,6 +1133,10 @@ impl Explorer {
                                 {
                                     let draft =
                                         self.rename.as_mut().expect("rename row is present");
+                                    let icon = RowIcon::of_draft(row_rect, draft);
+                                    paint_row_icon(ui, &icon, &mut icons, &mut output.icon_error);
+                                    output.draft_icon = Some(icon);
+                                    ui.add_space(icon.label_left - row_rect.left());
                                     let result = draft.show(
                                         ui,
                                         locale,
@@ -907,6 +1148,8 @@ impl Explorer {
                                     output.input = Some(result.response);
                                     return;
                                 }
+                                let icon = RowIcon::of_row(row_rect, row);
+                                ui.add_space(icon.label_left - row_rect.left());
                                 let selected = self.selected_paths.contains(&row.path);
                                 let response = ui.interact(
                                     row_rect,
@@ -921,6 +1164,8 @@ impl Explorer {
                                     };
                                     ui.painter().rect_filled(row_rect, 0.0, fill);
                                 }
+                                paint_row_icon(ui, &icon, &mut icons, &mut output.icon_error);
+                                output.icons.insert(row.path.clone(), icon);
                                 ui.add(
                                     egui::Label::new(
                                         egui::RichText::new(&row.name).size(ROW_FONT_SIZE),

@@ -1,3 +1,4 @@
+use egui::emath::GuiRounding as _;
 use egui::{
     Align, Color32, Id, Layout, Rect, RichText, Sense, Stroke, Ui, UiBuilder, Vec2, pos2, vec2,
 };
@@ -31,6 +32,8 @@ const PADDING: f32 = 8.0;
 const WELCOME_WIDTH: f32 = 384.0;
 const BORDER_WIDTH: f32 = 1.0;
 const DIRTY_RADIUS: f32 = 3.0;
+const TAB_ICON_SIZE: f32 = 14.0;
+const TAB_ICON_GAP: f32 = 6.0;
 const ADD_MENU_SIZE: f32 = 24.0;
 const ADD_MENU_ICON_SIZE: f32 = 14.0;
 const PROBLEMS_DEFAULT_HEIGHT: f32 = 220.0;
@@ -83,6 +86,7 @@ pub trait ShellSurfaces {
         tab: &Tab,
         intents: &mut Vec<ShellIntent>,
     );
+    fn tab_icon(&mut self, ui: &Ui, rect: Rect, tab: &Tab, title_color: Color32);
     fn status_bar(
         &mut self,
         ui: &mut Ui,
@@ -820,7 +824,7 @@ impl NativeShell {
         ui: &mut Ui,
         tab: &Tab,
         active: bool,
-        surfaces: &impl ShellSurfaces,
+        surfaces: &mut impl ShellSurfaces,
         intents: &mut Vec<ShellIntent>,
     ) {
         ui.push_id(&tab.id, |ui| {
@@ -835,6 +839,8 @@ impl NativeShell {
                     ui.set_max_width(TAB_MAX_WIDTH);
                     ui.set_min_width(TAB_MIN_WIDTH);
                     ui.horizontal(|ui| {
+                        let icon_left = ui.cursor().left();
+                        ui.add_space(TAB_ICON_SIZE + TAB_ICON_GAP);
                         let mut text = RichText::new(&tab.title);
                         if tab.preview {
                             text = text.italics();
@@ -843,6 +849,21 @@ impl NativeShell {
                             egui::Button::selectable(active, text)
                                 .frame(false)
                                 .wrap_mode(egui::TextWrapMode::Truncate),
+                        );
+                        let title_color = if active {
+                            ui.visuals().selection.stroke.color
+                        } else {
+                            ui.visuals().text_color()
+                        };
+                        let icon_top = response.rect.center().y - TAB_ICON_SIZE / 2.0;
+                        surfaces.tab_icon(
+                            ui,
+                            Rect::from_min_size(
+                                pos2(icon_left, icon_top).round_to_pixels(ui.pixels_per_point()),
+                                Vec2::splat(TAB_ICON_SIZE),
+                            ),
+                            tab,
+                            title_color,
                         );
                         if response.clicked() {
                             intents.push(ShellIntent::Mutate(ShellMutation::ActivateTab(

@@ -13,6 +13,7 @@ use taide_model::{
 
 use crate::{
     icons::{Icon, Icons},
+    modal::{self, Chrome, Composition, Layer, Presence},
     presentation::{color, message},
     settings_owner::Owner,
     settings_view::{
@@ -23,7 +24,6 @@ use crate::{
     snippet_edit::{Kind, Outcome, Reply, Request},
     snippet_editor_state::{Navigation, State},
     tooltip_trigger::Trigger,
-    tooltips::motion::Motion,
 };
 
 const HEADER_X: i8 = 24;
@@ -61,7 +61,6 @@ const BODY_HEIGHT: f32 = 64.0;
 const TRASH_TOP: f32 = 20.0;
 const MODAL_WIDTH: f32 = 512.0;
 const MODAL_BREAKPOINT: f32 = 640.0;
-const MODAL_RADIUS: u8 = 8;
 const SMALL_MODAL_WIDTH: f32 = 320.0;
 const MODAL_PADDING: i8 = 24;
 const MODAL_VIEWPORT_MARGIN: f32 = 32.0;
@@ -73,16 +72,6 @@ const MODAL_BUTTON_X: f32 = 16.0;
 const TITLE_LINE_HEIGHT: f32 = 20.0;
 const ALERT_TITLE_LINE_HEIGHT: f32 = 28.0;
 const MODAL_TITLE_FONT: f32 = 18.0;
-const MODAL_DURATION: f64 = 0.2;
-const DIALOG_FOCUS_FILTER: egui::EventFilter = egui::EventFilter {
-    tab: true,
-    horizontal_arrows: true,
-    vertical_arrows: true,
-    escape: true,
-};
-const MODAL_SHADOW_OFFSET: [i8; 2] = [0, 8];
-const MODAL_SHADOW_BLUR: u8 = 24;
-const SCRIM_OPACITY: f32 = 0.5;
 const BUTTON_HOVER_OPACITY: f32 = 0.9;
 const DISABLED_OPACITY: f32 = 0.5;
 const CLOSE_OPACITY: f32 = 0.7;
@@ -337,12 +326,11 @@ pub struct Editor {
     load_error: Option<AppError>,
     picker: Picker,
     focused_dialog: Option<Dialog>,
-    dialog_motion: Option<Motion>,
-    scrim_motion: Option<Motion>,
+    dialog_presence: Option<Presence>,
     dialog_layer: Option<(egui::Context, egui::LayerId)>,
     focus_pending: bool,
     global_input_present: bool,
-    composing: bool,
+    composition: Composition,
     button_motion_owner: Option<crate::button_color_motion::Owner>,
 }
 
@@ -360,12 +348,11 @@ impl Editor {
             load_error: None,
             picker: Picker::default(),
             focused_dialog: None,
-            dialog_motion: None,
-            scrim_motion: None,
+            dialog_presence: None,
             dialog_layer: None,
             focus_pending: false,
             global_input_present: false,
-            composing: false,
+            composition: Composition::default(),
             button_motion_owner: None,
         }
     }
@@ -949,7 +936,7 @@ impl Editor {
     }
 
     fn cancel_dialog(&mut self, dialog: Dialog) {
-        self.composing = false;
+        self.composition.reset();
         if dialog == Dialog::New {
             self.picker = Picker::default();
         }
@@ -963,16 +950,7 @@ impl Editor {
 
     fn clear_dialog_layer(&mut self) {
         if let Some((context, layer)) = self.dialog_layer.take() {
-            context.set_transform_layer(layer, egui::emath::TSTransform::IDENTITY);
-            context.unregister_dismissal_layer(layer.id);
-            let focused = context.memory(|memory| memory.focused());
-            if let Some(focused) = focused
-                && context
-                    .read_response(focused)
-                    .is_some_and(|response| response.layer_id == layer)
-            {
-                context.memory_mut(|memory| memory.surrender_focus(focused));
-            }
+            modal::unmount(&context, layer);
         }
     }
 
@@ -983,27 +961,22 @@ impl Editor {
             if self.focused_dialog != Some(dialog) {
                 self.clear_dialog_layer();
                 self.focused_dialog = Some(dialog);
-                self.dialog_motion = Some(Motion::with_duration(true, now, MODAL_DURATION));
-                self.scrim_motion = Some(Motion::new(true, now));
+                self.dialog_presence = Some(Presence::enter(now));
                 self.focus_pending = true;
             }
         }
-        if let Some(motion) = &mut self.dialog_motion {
-            motion.target(desired.is_some(), now);
-        }
-        if let Some(motion) = &mut self.scrim_motion {
-            motion.target(desired.is_some(), now);
+        if let Some(presence) = &mut self.dialog_presence {
+            presence.target(desired.is_some(), now);
         }
         if self
-            .dialog_motion
-            .is_some_and(|motion| !motion.is_present(now))
+            .dialog_presence
+            .is_some_and(|presence| !presence.is_present(now))
         {
             self.clear_dialog_layer();
             self.focused_dialog = None;
-            self.dialog_motion = None;
-            self.scrim_motion = None;
+            self.dialog_presence = None;
             self.global_input_present = false;
-            self.composing = false;
+            self.composition.reset();
         }
     }
 
@@ -1022,9 +995,8 @@ impl Editor {
         };
         let open = self.dialog() == Some(dialog);
         let now = ui.input(|input| input.time);
-        let sample = self.dialog_motion.unwrap().sample_popup(now);
-        let scrim = self.scrim_motion.unwrap().sample_popup(now);
-        if sample.active || scrim.active {
+        let transition = self.dialog_presence.unwrap().sample(now);
+        if transition.is_active {
             ui.ctx().request_repaint();
         }
         let id = ui.make_persistent_id("snippet-dialog").with(match dialog {
@@ -1050,443 +1022,363 @@ impl Editor {
         let width = width.min(maximum_width.max(0.0));
         let mut confirm = false;
         let mut cancel = false;
-        let mut ime_frame = false;
-        ui.input(|input| {
-            for event in &input.events {
-                if let egui::Event::Ime(event) = event {
-                    ime_frame = true;
-                    match event {
-                        egui::ImeEvent::Preedit { text, .. } => self.composing = !text.is_empty(),
-                        egui::ImeEvent::Commit(_) => self.composing = false,
-                        _ => {}
-                    }
-                }
-            }
-        });
-        let frame = egui::Frame::NONE
-            .fill(appearance.modal)
-            .stroke(Stroke::new(BORDER, appearance.modal_border))
-            .corner_radius(MODAL_RADIUS)
-            .inner_margin(MODAL_PADDING)
-            .shadow(egui::epaint::Shadow {
-                offset: MODAL_SHADOW_OFFSET,
-                blur: MODAL_SHADOW_BLUR,
-                spread: 0,
-                color: appearance.shadow,
-            });
+        let is_composing = ui.input(|input| self.composition.observe(&input.events));
         let enabled = ui.is_enabled() && open;
-        let area = egui::Modal::default_area(id).fade_in(false);
-        let layer = area.layer();
-        let transform = sample.transform(ui.ctx().content_rect().center());
-        ui.ctx().set_transform_layer(layer, transform);
-        self.dialog_layer = Some((ui.ctx().clone(), layer));
-        ui.ctx().register_dismissal_layer(id);
-        let is_top_modal = ui.ctx().memory_mut(|memory| {
-            memory.set_modal_layer(layer);
-            memory.top_modal_layer() == Some(layer)
-        });
-        let any_popup_open = egui::Popup::is_any_open(ui.ctx());
-        let mut focus_nodes = Vec::new();
-        let shown = area.show(ui.ctx(), |ui| {
-            let backdrop_rect = transform.inverse() * ui.ctx().content_rect();
-            ui.set_clip_rect(backdrop_rect);
-            let backdrop_response = ui.interact(
-                backdrop_rect,
-                id.with("backdrop-hit"),
-                egui::Sense::CLICK | egui::Sense::DRAG,
-            );
-            ui.painter().rect_filled(
-                backdrop_rect,
-                0.0,
-                appearance
-                    .shadow
-                    .gamma_multiply(SCRIM_OPACITY * scrim.opacity),
-            );
-            let inner = ui.scope_builder(
-                egui::UiBuilder::new().sense(egui::Sense::CLICK | egui::Sense::DRAG),
-                |ui| {
-                    ui.set_opacity(sample.opacity);
-                    frame.show(ui, |ui| {
-                        appearance.apply(ui);
-                        if !enabled {
-                            ui.disable();
-                        }
-                        ui.set_width(
-                            (width - f32::from(MODAL_PADDING) * SIDES - BORDER * SIDES).max(0.0),
-                        );
-                        ui.spacing_mut().item_spacing.y = MODAL_GAP;
-                        let (title, description, action) = match dialog {
-                            Dialog::New => {
-                                ("snippetEditor.newFileDialogTitle", None, "common.confirm")
-                            }
-                            Dialog::DeleteFile => (
-                                "snippetEditor.deleteFileConfirmTitle",
-                                Some((
-                                    "snippetEditor.deleteFileConfirmDescription",
-                                    "fileName",
-                                    self.state
-                                        .selected_file_name()
-                                        .unwrap_or_default()
-                                        .to_owned(),
-                                )),
-                                "snippetEditor.deleteFileButton",
-                            ),
-                            Dialog::Discard => (
-                                "common.unsavedChangesTitle",
-                                Some(("common.unsavedChangesDescription", "", String::new())),
-                                "common.discardChanges",
-                            ),
-                            Dialog::DeleteEntry => (
-                                "snippetEditor.deleteConfirmTitle",
-                                Some((
-                                    "snippetEditor.deleteConfirmDescription",
-                                    "name",
-                                    self.state.pending_delete_entry_name().to_owned(),
-                                )),
-                                "snippetEditor.deleteSnippetButton",
-                            ),
-                        };
-                        let dialog_node = ui.unique_id();
-                        ui.ctx().accesskit_node_builder(dialog_node, |node| {
-                            node.set_role(if dialog == Dialog::New {
-                                egui::accesskit::Role::Dialog
-                            } else {
-                                egui::accesskit::Role::AlertDialog
-                            });
-                        });
-                        let header_align = if mobile || dialog == Dialog::Discard {
-                            Align::Center
-                        } else {
-                            Align::Min
-                        };
-                        ui.with_layout(egui::Layout::top_down_justified(header_align), |ui| {
-                            ui.spacing_mut().item_spacing.y = if dialog == Dialog::New {
-                                DIALOG_HEADER_GAP
-                            } else {
-                                MODAL_HEADER_GAP
-                            };
-                            let label = ui.label(
-                                RichText::new(message(locale, title, &[]))
-                                    .size(MODAL_TITLE_FONT)
-                                    .line_height(Some(if dialog == Dialog::New {
-                                        MODAL_TITLE_FONT
-                                    } else {
-                                        ALERT_TITLE_LINE_HEIGHT
-                                    }))
-                                    .family(crate::font_families::semibold(ui))
-                                    .color(appearance.foreground),
-                            );
-                            ui.ctx().accesskit_node_builder(dialog_node, |node| {
-                                node.push_labelled_by(label.id.accesskit_id());
-                            });
-                            if let Some((key, param, value)) = description {
-                                let description = ui.label(
-                                    RichText::new(message(locale, key, &[(param, &value)]))
-                                        .size(TITLE_FONT)
-                                        .line_height(Some(TITLE_LINE_HEIGHT))
-                                        .color(appearance.muted),
-                                );
-                                ui.ctx().accesskit_node_builder(dialog_node, |node| {
-                                    node.push_described_by(description.id.accesskit_id());
-                                });
-                                trace(output, "dialog-description", &description);
-                            }
-                        });
-                        if dialog == Dialog::New {
-                            ui.scope(|ui| {
-                                ui.spacing_mut().item_spacing.y = ROW_GAP;
-                                let mut picker_output = settings_view::Output::default();
-                                let mut choices = vec![Choice {
-                                    identity: "global".into(),
-                                    value: "global".to_owned(),
-                                    label: message(
-                                        locale,
-                                        "snippetEditor.newFileGlobalOption",
-                                        &[],
-                                    ),
-                                    search: String::new(),
-                                    font: None,
-                                }];
-                                choices.extend(LANGUAGE_IDS.iter().map(|language| Choice {
-                                    identity: (*language).into(),
-                                    value: (*language).to_owned(),
-                                    label: (*language).into(),
-                                    search: String::new(),
-                                    font: None,
-                                }));
-                                let active = self.state.new_file.option().to_owned();
-                                let text = choices
-                                    .iter()
-                                    .find(|choice| choice.value == active)
-                                    .map(|choice| choice.label.as_str())
-                                    .unwrap_or_default();
-                                if let Some(option) = self.picker.show(
-                                    ui,
-                                    "snippetEditor.newFileLanguagePlaceholder",
-                                    text,
-                                    &active,
-                                    &choices,
-                                    None,
-                                    None,
-                                    false,
-                                    egui::emath::RectAlign::BOTTOM_END,
-                                    locale,
-                                    settings_appearance,
-                                    &mut picker_output,
-                                ) {
-                                    self.state.new_file.select(&option);
-                                }
-                                if self.focus_pending
-                                    && !self.state.new_file.is_global()
-                                    && !ui.is_sizing_pass()
-                                {
-                                    let trigger = ui.make_persistent_id((
-                                        "snippetEditor.newFileLanguagePlaceholder",
-                                        "picker",
-                                    ));
-                                    if let Some(response) = ui.ctx().read_response(trigger) {
-                                        ui.memory_mut(|memory| {
-                                            memory.request_focus_with_filter(
-                                                response.id,
-                                                DIALOG_FOCUS_FILTER,
-                                            )
-                                        });
-                                        self.focus_pending = false;
-                                    }
-                                }
-                                focus_nodes.push(ui.make_persistent_id((
-                                    "snippetEditor.newFileLanguagePlaceholder",
-                                    "picker",
-                                )));
-                                #[cfg(any(test, feature = "inspection"))]
-                                for trace in picker_output.traces.drain(..) {
-                                    if trace.enabled {
-                                        output.interactions.insert(trace.id, trace.interact_rect);
-                                    }
-                                    output
-                                        .traces
-                                        .push((trace.field.into(), trace.id, trace.rect));
-                                }
-                                if self.state.new_file.is_global() {
-                                    let mut layouter =
-                                        |ui: &Ui, buffer: &dyn egui::TextBuffer, _: f32| {
-                                            let mut job = egui::text::LayoutJob::simple(
-                                                buffer.as_str().into(),
-                                                FontId::proportional(TITLE_FONT),
-                                                appearance.foreground,
-                                                f32::INFINITY,
-                                            );
-                                            job.keep_trailing_whitespace = true;
-                                            for section in &mut job.sections {
-                                                section.format.line_height =
-                                                    Some(TITLE_LINE_HEIGHT);
-                                            }
-                                            ui.fonts_mut(|fonts| fonts.layout_job(job))
-                                        };
-                                    let response = ui.add(
-                                        egui::TextEdit::singleline(
-                                            &mut self.state.new_file.global_name,
-                                        )
-                                        .id_salt("snippet-global-name")
-                                        .desired_width(ui.available_width())
-                                        .font(FontId::proportional(TITLE_FONT))
-                                        .layouter(&mut layouter)
-                                        .hint_text(
-                                            RichText::new(message(
-                                                locale,
-                                                "snippetEditor.newFileGlobalNamePlaceholder",
-                                                &[],
-                                            ))
-                                            .size(TITLE_FONT)
-                                            .line_height(Some(TITLE_LINE_HEIGHT)),
-                                        )
-                                        .margin(egui::Margin::symmetric(INPUT_X, INPUT_Y))
-                                        .frame(
-                                            egui::Frame::NONE
-                                                .fill(appearance.input)
-                                                .inner_margin(egui::Margin::symmetric(
-                                                    INPUT_X, INPUT_Y,
-                                                ))
-                                                .stroke(Stroke::new(
-                                                    BORDER,
-                                                    appearance.input_border,
-                                                ))
-                                                .corner_radius(INPUT_RADIUS),
-                                        ),
-                                    );
-                                    response.widget_info(|| {
-                                        egui::WidgetInfo::text_edit(
-                                            response.enabled(),
-                                            "",
-                                            &self.state.new_file.global_name,
-                                            message(
-                                                locale,
-                                                "snippetEditor.newFileGlobalNamePlaceholder",
-                                                &[],
-                                            ),
-                                        )
-                                    });
-                                    if (!self.global_input_present || self.focus_pending)
-                                        && !ui.is_sizing_pass()
-                                    {
-                                        ui.memory_mut(|memory| {
-                                            memory.request_focus_with_filter(
-                                                response.id,
-                                                DIALOG_FOCUS_FILTER,
-                                            )
-                                        });
-                                        self.focus_pending = false;
-                                    }
-                                    trace(output, "new-global-name", &response);
-                                    focus_nodes.push(response.id);
-                                    self.global_input_present = true;
-                                } else {
-                                    self.global_input_present = false;
-                                }
-                            });
-                            let close_rect = Rect::from_min_size(
-                                egui::pos2(
-                                    ui.max_rect().right() + f32::from(MODAL_PADDING)
-                                        - CLOSE_INSET
-                                        - CLOSE_SIZE,
-                                    ui.max_rect().top() - f32::from(MODAL_PADDING) + CLOSE_INSET,
-                                ),
-                                egui::Vec2::splat(CLOSE_SIZE),
-                            );
-                            let close = ui.place(
-                                close_rect,
-                                egui::Button::new(())
-                                    .frame(false)
-                                    .small()
-                                    .min_size(egui::Vec2::splat(CLOSE_SIZE)),
-                            );
-                            let close_opacity = crate::button_color_motion::animate_amount(
-                                ui.ctx(),
-                                close.id.with("snippet-dialog-close-opacity"),
-                                if close.hovered() { 1.0 } else { CLOSE_OPACITY },
-                            );
-                            let parent_opacity = ui.opacity();
-                            ui.multiply_opacity(close_opacity);
-                            if let Some(image) = icons.image(Icon::Close, appearance.foreground) {
-                                image.paint_at(ui, close.rect);
-                            }
-                            if close.has_focus() {
-                                ui.painter().rect_stroke(
-                                    close.rect,
-                                    CLOSE_RADIUS,
-                                    Stroke::new(CLOSE_RING_WIDTH, appearance.background),
-                                    egui::StrokeKind::Outside,
-                                );
-                                ui.painter().rect_stroke(
-                                    close.rect.expand(CLOSE_RING_WIDTH),
-                                    f32::from(CLOSE_RADIUS) + CLOSE_RING_WIDTH,
-                                    Stroke::new(CLOSE_RING_WIDTH, appearance.focus),
-                                    egui::StrokeKind::Outside,
-                                );
-                            }
-                            ui.set_opacity(parent_opacity);
-                            close.widget_info(|| {
-                                egui::WidgetInfo::labeled(
-                                    egui::WidgetType::Button,
-                                    close.enabled(),
-                                    message(locale, "common.close", &[]),
-                                )
-                            });
-                            trace(output, "dialog-close", &close);
-                            cancel |= close.clicked();
-                            focus_nodes.push(close.id);
-                        }
-                        let footer_layout = if mobile && dialog != Dialog::Discard {
-                            egui::Layout::top_down_justified(Align::Center)
-                        } else {
-                            egui::Layout::right_to_left(Align::Center)
-                        };
-                        ui.with_layout(footer_layout, |ui| {
-                            ui.spacing_mut().item_spacing.x = ROW_GAP;
-                            ui.spacing_mut().item_spacing.y = ROW_GAP;
-                            ui.spacing_mut().button_padding.x = MODAL_BUTTON_X;
-                            let button_width = if dialog == Dialog::Discard {
-                                (ui.available_width() - ROW_GAP) / SIDES
-                            } else if mobile {
-                                ui.available_width()
-                            } else {
-                                0.0
-                            };
-                            let enabled = dialog != Dialog::New
-                                || self.state.new_file.can_create(self.state.files());
-                            let confirm_button = button(
-                                ui,
-                                message(locale, action, &[]),
-                                appearance,
-                                if dialog == Dialog::New {
-                                    ButtonStyle::Primary
-                                } else {
-                                    ButtonStyle::Destructive
-                                },
-                                enabled,
-                                (button_width > 0.0).then_some(button_width),
-                            )
-                            .min_size(egui::vec2(button_width, MODAL_BUTTON_HEIGHT));
-                            let response = add_button(
-                                confirm_button,
-                                enabled,
-                                ui,
-                                appearance,
-                                if dialog == Dialog::New {
-                                    ButtonStyle::Primary
-                                } else {
-                                    ButtonStyle::Destructive
-                                },
-                            );
-                            trace(output, "dialog-confirm", &response);
-                            let confirm_id = response.enabled().then_some(response.id);
-                            confirm = response.clicked();
-                            let response = add_button(
-                                button(
-                                    ui,
-                                    message(locale, "common.cancel", &[]),
-                                    appearance,
-                                    ButtonStyle::Outline,
-                                    true,
-                                    (button_width > 0.0).then_some(button_width),
-                                )
-                                .min_size(egui::vec2(button_width, MODAL_BUTTON_HEIGHT)),
-                                true,
-                                ui,
-                                appearance,
-                                ButtonStyle::Outline,
-                            );
-                            if self.focus_pending && !ui.is_sizing_pass() {
-                                ui.memory_mut(|memory| {
-                                    memory
-                                        .request_focus_with_filter(response.id, DIALOG_FOCUS_FILTER)
-                                });
-                                self.focus_pending = false;
-                            }
-                            trace(output, "dialog-cancel", &response);
-                            let footer_start = if dialog == Dialog::New {
-                                focus_nodes.len().saturating_sub(1)
-                            } else {
-                                focus_nodes.len()
-                            };
-                            focus_nodes.insert(footer_start, response.id);
-                            if let Some(confirm_id) = confirm_id {
-                                focus_nodes.insert(footer_start + 1, confirm_id);
-                            }
-                            cancel |= response.clicked();
-                        });
-                    });
-                },
-            );
-            (inner, backdrop_response)
-        });
-        let response = egui::ModalResponse {
-            response: shown.response,
-            backdrop_response: shown.inner.1,
-            inner: shown.inner.0,
-            is_top_modal,
-            any_popup_open,
+        let layer = Layer {
+            id,
+            chrome: Chrome {
+                background: appearance.modal,
+                border: appearance.modal_border,
+                shadow: appearance.shadow,
+            },
+            padding: MODAL_PADDING,
+            transition: Some(transition),
+            is_modal: true,
         };
+        #[cfg(any(test, feature = "inspection"))]
+        let transform = transition.transform(ui.ctx().content_rect().center());
+        self.dialog_layer = Some((ui.ctx().clone(), layer.layer_id()));
+        let mut focus_nodes = Vec::new();
+        let response = layer.show(ui.ctx(), |ui| {
+            appearance.apply(ui);
+            if !enabled {
+                ui.disable();
+            }
+            ui.set_width((width - f32::from(MODAL_PADDING) * SIDES - BORDER * SIDES).max(0.0));
+            ui.spacing_mut().item_spacing.y = MODAL_GAP;
+            let (title, description, action) = match dialog {
+                Dialog::New => ("snippetEditor.newFileDialogTitle", None, "common.confirm"),
+                Dialog::DeleteFile => (
+                    "snippetEditor.deleteFileConfirmTitle",
+                    Some((
+                        "snippetEditor.deleteFileConfirmDescription",
+                        "fileName",
+                        self.state
+                            .selected_file_name()
+                            .unwrap_or_default()
+                            .to_owned(),
+                    )),
+                    "snippetEditor.deleteFileButton",
+                ),
+                Dialog::Discard => (
+                    "common.unsavedChangesTitle",
+                    Some(("common.unsavedChangesDescription", "", String::new())),
+                    "common.discardChanges",
+                ),
+                Dialog::DeleteEntry => (
+                    "snippetEditor.deleteConfirmTitle",
+                    Some((
+                        "snippetEditor.deleteConfirmDescription",
+                        "name",
+                        self.state.pending_delete_entry_name().to_owned(),
+                    )),
+                    "snippetEditor.deleteSnippetButton",
+                ),
+            };
+            let dialog_node = ui.unique_id();
+            ui.ctx().accesskit_node_builder(dialog_node, |node| {
+                node.set_role(if dialog == Dialog::New {
+                    egui::accesskit::Role::Dialog
+                } else {
+                    egui::accesskit::Role::AlertDialog
+                });
+            });
+            let header_align = if mobile || dialog == Dialog::Discard {
+                Align::Center
+            } else {
+                Align::Min
+            };
+            ui.with_layout(egui::Layout::top_down_justified(header_align), |ui| {
+                ui.spacing_mut().item_spacing.y = if dialog == Dialog::New {
+                    DIALOG_HEADER_GAP
+                } else {
+                    MODAL_HEADER_GAP
+                };
+                let label = ui.label(
+                    RichText::new(message(locale, title, &[]))
+                        .size(MODAL_TITLE_FONT)
+                        .line_height(Some(if dialog == Dialog::New {
+                            MODAL_TITLE_FONT
+                        } else {
+                            ALERT_TITLE_LINE_HEIGHT
+                        }))
+                        .family(crate::font_families::semibold(ui))
+                        .color(appearance.foreground),
+                );
+                ui.ctx().accesskit_node_builder(dialog_node, |node| {
+                    node.push_labelled_by(label.id.accesskit_id());
+                });
+                if let Some((key, param, value)) = description {
+                    let description = ui.label(
+                        RichText::new(message(locale, key, &[(param, &value)]))
+                            .size(TITLE_FONT)
+                            .line_height(Some(TITLE_LINE_HEIGHT))
+                            .color(appearance.muted),
+                    );
+                    ui.ctx().accesskit_node_builder(dialog_node, |node| {
+                        node.push_described_by(description.id.accesskit_id());
+                    });
+                    trace(output, "dialog-description", &description);
+                }
+            });
+            if dialog == Dialog::New {
+                ui.scope(|ui| {
+                    ui.spacing_mut().item_spacing.y = ROW_GAP;
+                    let mut picker_output = settings_view::Output::default();
+                    let mut choices = vec![Choice {
+                        identity: "global".into(),
+                        value: "global".to_owned(),
+                        label: message(locale, "snippetEditor.newFileGlobalOption", &[]),
+                        search: String::new(),
+                        font: None,
+                    }];
+                    choices.extend(LANGUAGE_IDS.iter().map(|language| Choice {
+                        identity: (*language).into(),
+                        value: (*language).to_owned(),
+                        label: (*language).into(),
+                        search: String::new(),
+                        font: None,
+                    }));
+                    let active = self.state.new_file.option().to_owned();
+                    let text = choices
+                        .iter()
+                        .find(|choice| choice.value == active)
+                        .map(|choice| choice.label.as_str())
+                        .unwrap_or_default();
+                    if let Some(option) = self.picker.show(
+                        ui,
+                        "snippetEditor.newFileLanguagePlaceholder",
+                        text,
+                        &active,
+                        &choices,
+                        None,
+                        None,
+                        false,
+                        egui::emath::RectAlign::BOTTOM_END,
+                        locale,
+                        settings_appearance,
+                        &mut picker_output,
+                    ) {
+                        self.state.new_file.select(&option);
+                    }
+                    if self.focus_pending
+                        && !self.state.new_file.is_global()
+                        && !ui.is_sizing_pass()
+                    {
+                        let trigger = ui.make_persistent_id((
+                            "snippetEditor.newFileLanguagePlaceholder",
+                            "picker",
+                        ));
+                        if let Some(response) = ui.ctx().read_response(trigger) {
+                            ui.memory_mut(|memory| {
+                                memory.request_focus_with_filter(response.id, modal::FOCUS_FILTER)
+                            });
+                            self.focus_pending = false;
+                        }
+                    }
+                    focus_nodes.push(ui.make_persistent_id((
+                        "snippetEditor.newFileLanguagePlaceholder",
+                        "picker",
+                    )));
+                    #[cfg(any(test, feature = "inspection"))]
+                    for trace in picker_output.traces.drain(..) {
+                        if trace.enabled {
+                            output.interactions.insert(trace.id, trace.interact_rect);
+                        }
+                        output
+                            .traces
+                            .push((trace.field.into(), trace.id, trace.rect));
+                    }
+                    if self.state.new_file.is_global() {
+                        let mut layouter = |ui: &Ui, buffer: &dyn egui::TextBuffer, _: f32| {
+                            let mut job = egui::text::LayoutJob::simple(
+                                buffer.as_str().into(),
+                                FontId::proportional(TITLE_FONT),
+                                appearance.foreground,
+                                f32::INFINITY,
+                            );
+                            job.keep_trailing_whitespace = true;
+                            for section in &mut job.sections {
+                                section.format.line_height = Some(TITLE_LINE_HEIGHT);
+                            }
+                            ui.fonts_mut(|fonts| fonts.layout_job(job))
+                        };
+                        let response = ui.add(
+                            egui::TextEdit::singleline(&mut self.state.new_file.global_name)
+                                .id_salt("snippet-global-name")
+                                .desired_width(ui.available_width())
+                                .font(FontId::proportional(TITLE_FONT))
+                                .layouter(&mut layouter)
+                                .hint_text(
+                                    RichText::new(message(
+                                        locale,
+                                        "snippetEditor.newFileGlobalNamePlaceholder",
+                                        &[],
+                                    ))
+                                    .size(TITLE_FONT)
+                                    .line_height(Some(TITLE_LINE_HEIGHT)),
+                                )
+                                .margin(egui::Margin::symmetric(INPUT_X, INPUT_Y))
+                                .frame(
+                                    egui::Frame::NONE
+                                        .fill(appearance.input)
+                                        .inner_margin(egui::Margin::symmetric(INPUT_X, INPUT_Y))
+                                        .stroke(Stroke::new(BORDER, appearance.input_border))
+                                        .corner_radius(INPUT_RADIUS),
+                                ),
+                        );
+                        response.widget_info(|| {
+                            egui::WidgetInfo::text_edit(
+                                response.enabled(),
+                                "",
+                                &self.state.new_file.global_name,
+                                message(locale, "snippetEditor.newFileGlobalNamePlaceholder", &[]),
+                            )
+                        });
+                        if (!self.global_input_present || self.focus_pending)
+                            && !ui.is_sizing_pass()
+                        {
+                            ui.memory_mut(|memory| {
+                                memory.request_focus_with_filter(response.id, modal::FOCUS_FILTER)
+                            });
+                            self.focus_pending = false;
+                        }
+                        trace(output, "new-global-name", &response);
+                        focus_nodes.push(response.id);
+                        self.global_input_present = true;
+                    } else {
+                        self.global_input_present = false;
+                    }
+                });
+                let close_rect = Rect::from_min_size(
+                    egui::pos2(
+                        ui.max_rect().right() + f32::from(MODAL_PADDING) - CLOSE_INSET - CLOSE_SIZE,
+                        ui.max_rect().top() - f32::from(MODAL_PADDING) + CLOSE_INSET,
+                    ),
+                    egui::Vec2::splat(CLOSE_SIZE),
+                );
+                let close = ui.place(
+                    close_rect,
+                    egui::Button::new(())
+                        .frame(false)
+                        .small()
+                        .min_size(egui::Vec2::splat(CLOSE_SIZE)),
+                );
+                let close_opacity = crate::button_color_motion::animate_amount(
+                    ui.ctx(),
+                    close.id.with("snippet-dialog-close-opacity"),
+                    if close.hovered() { 1.0 } else { CLOSE_OPACITY },
+                );
+                let parent_opacity = ui.opacity();
+                ui.multiply_opacity(close_opacity);
+                if let Some(image) = icons.image(Icon::Close, appearance.foreground) {
+                    image.paint_at(ui, close.rect);
+                }
+                if close.has_focus() {
+                    ui.painter().rect_stroke(
+                        close.rect,
+                        CLOSE_RADIUS,
+                        Stroke::new(CLOSE_RING_WIDTH, appearance.background),
+                        egui::StrokeKind::Outside,
+                    );
+                    ui.painter().rect_stroke(
+                        close.rect.expand(CLOSE_RING_WIDTH),
+                        f32::from(CLOSE_RADIUS) + CLOSE_RING_WIDTH,
+                        Stroke::new(CLOSE_RING_WIDTH, appearance.focus),
+                        egui::StrokeKind::Outside,
+                    );
+                }
+                ui.set_opacity(parent_opacity);
+                close.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Button,
+                        close.enabled(),
+                        message(locale, "common.close", &[]),
+                    )
+                });
+                trace(output, "dialog-close", &close);
+                cancel |= close.clicked();
+                focus_nodes.push(close.id);
+            }
+            let footer_layout = if mobile && dialog != Dialog::Discard {
+                egui::Layout::top_down_justified(Align::Center)
+            } else {
+                egui::Layout::right_to_left(Align::Center)
+            };
+            ui.with_layout(footer_layout, |ui| {
+                ui.spacing_mut().item_spacing.x = ROW_GAP;
+                ui.spacing_mut().item_spacing.y = ROW_GAP;
+                ui.spacing_mut().button_padding.x = MODAL_BUTTON_X;
+                let button_width = if dialog == Dialog::Discard {
+                    (ui.available_width() - ROW_GAP) / SIDES
+                } else if mobile {
+                    ui.available_width()
+                } else {
+                    0.0
+                };
+                let enabled =
+                    dialog != Dialog::New || self.state.new_file.can_create(self.state.files());
+                let confirm_button = button(
+                    ui,
+                    message(locale, action, &[]),
+                    appearance,
+                    if dialog == Dialog::New {
+                        ButtonStyle::Primary
+                    } else {
+                        ButtonStyle::Destructive
+                    },
+                    enabled,
+                    (button_width > 0.0).then_some(button_width),
+                )
+                .min_size(egui::vec2(button_width, MODAL_BUTTON_HEIGHT));
+                let response = add_button(
+                    confirm_button,
+                    enabled,
+                    ui,
+                    appearance,
+                    if dialog == Dialog::New {
+                        ButtonStyle::Primary
+                    } else {
+                        ButtonStyle::Destructive
+                    },
+                );
+                trace(output, "dialog-confirm", &response);
+                let confirm_id = response.enabled().then_some(response.id);
+                confirm = response.clicked();
+                let response = add_button(
+                    button(
+                        ui,
+                        message(locale, "common.cancel", &[]),
+                        appearance,
+                        ButtonStyle::Outline,
+                        true,
+                        (button_width > 0.0).then_some(button_width),
+                    )
+                    .min_size(egui::vec2(button_width, MODAL_BUTTON_HEIGHT)),
+                    true,
+                    ui,
+                    appearance,
+                    ButtonStyle::Outline,
+                );
+                if self.focus_pending && !ui.is_sizing_pass() {
+                    ui.memory_mut(|memory| {
+                        memory.request_focus_with_filter(response.id, modal::FOCUS_FILTER)
+                    });
+                    self.focus_pending = false;
+                }
+                trace(output, "dialog-cancel", &response);
+                let footer_start = if dialog == Dialog::New {
+                    focus_nodes.len().saturating_sub(1)
+                } else {
+                    focus_nodes.len()
+                };
+                focus_nodes.insert(footer_start, response.id);
+                if let Some(confirm_id) = confirm_id {
+                    focus_nodes.insert(footer_start + 1, confirm_id);
+                }
+                cancel |= response.clicked();
+            });
+        });
         #[cfg(any(test, feature = "inspection"))]
         {
             for (name, node, rect) in &mut output.traces {
@@ -1511,56 +1403,10 @@ impl Editor {
                 transform * response.backdrop_response.rect,
             ));
         }
-        if enabled && is_top_modal && !any_popup_open {
-            let focused = ui.memory(|memory| memory.focused());
-            if let Some(focused) = focused {
-                ui.memory_mut(|memory| memory.set_focus_lock_filter(focused, DIALOG_FOCUS_FILTER));
-            }
-            let direction = ui.input_mut(|input| {
-                let mut direction = None;
-                input.events.retain(|event| {
-                    if let egui::Event::Key {
-                        key: egui::Key::Tab,
-                        modifiers,
-                        pressed: true,
-                        ..
-                    } = event
-                        && (!modifiers.any() || modifiers.shift_only())
-                    {
-                        direction.get_or_insert(!modifiers.shift);
-                        return false;
-                    }
-                    true
-                });
-                direction
-            });
-            if let Some(forward) = direction
-                && !focus_nodes.is_empty()
-            {
-                let index =
-                    focused.and_then(|focused| focus_nodes.iter().position(|id| *id == focused));
-                let next = match (index, forward) {
-                    (Some(index), true) => (index + 1) % focus_nodes.len(),
-                    (Some(index), false) => (index + focus_nodes.len() - 1) % focus_nodes.len(),
-                    (None, true) => 0,
-                    (None, false) => focus_nodes.len() - 1,
-                };
-                ui.memory_mut(|memory| {
-                    memory.request_focus_with_filter(focus_nodes[next], DIALOG_FOCUS_FILTER)
-                });
-            }
+        if enabled && response.is_top_modal && !response.any_popup_open {
+            modal::trap_focus(ui.ctx(), &focus_nodes);
         }
-        let can_escape = enabled
-            && response.is_top_modal
-            && !response.any_popup_open
-            && !self.composing
-            && !ime_frame;
-        if can_escape
-            && ui.ctx().dismissal_layers().last() == Some(&response.response.layer_id.id)
-            && ui
-                .ctx()
-                .input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
-        {
+        if enabled && !is_composing && modal::takes_escape(ui.ctx(), &response) {
             cancel = true;
         }
         if enabled && dialog == Dialog::New && response.backdrop_response.clicked() {
@@ -1760,11 +1606,15 @@ fn add_button(
     } else {
         1.0
     };
-    let opacity = crate::button_color_motion::animate_amount(
-        ui.ctx(),
-        ui.next_auto_id().with("snippet-button-opacity"),
-        target_opacity,
-    );
+    let opacity = if ui.is_sizing_pass() {
+        target_opacity
+    } else {
+        crate::button_color_motion::animate_amount(
+            ui.ctx(),
+            ui.next_auto_id().with("snippet-button-opacity"),
+            target_opacity,
+        )
+    };
     ui.visuals_mut().disabled_alpha = 1.0;
     ui.set_opacity(parent_opacity * opacity);
     let shadow_index = (style == ButtonStyle::Outline).then(|| ui.painter().add(egui::Shape::Noop));

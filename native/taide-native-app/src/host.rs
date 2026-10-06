@@ -87,6 +87,7 @@ pub enum HostCommand {
     ReadPresentationPreview(crate::preview_presentation::Request),
     ReadSpreadsheetPreview(crate::preview_spreadsheet::Request),
     CopyText(String),
+    CopyTerminalSelection(String),
     RevealPath(String),
     OpenInBrowser(String),
     OpenPath(String),
@@ -268,6 +269,9 @@ pub enum HostReply {
         result: AppResult<crate::preview::Raster>,
     },
     CopiedText {
+        result: AppResult<()>,
+    },
+    TerminalSelectionCopied {
         result: AppResult<()>,
     },
     SystemFinished {
@@ -1057,18 +1061,14 @@ async fn dispatch(
             Some(HostReply::SystemFinished { result })
         }
         HostCommand::CopyText(text) => {
-            let clipboard = clipboard.clone();
-            let state = services.state.clone();
-            let result = services
-                .tasks
-                .run_blocking_result("native-explorer-copy-path", move || {
-                    if state.is_shutting_down() {
-                        return Err(stopped());
-                    }
-                    clipboard(&text)
-                })
-                .await;
+            let result =
+                write_clipboard(services, clipboard, "native-explorer-copy-path", text).await;
             Some(HostReply::CopiedText { result })
+        }
+        HostCommand::CopyTerminalSelection(text) => {
+            let result =
+                write_clipboard(services, clipboard, "native-terminal-copy-selection", text).await;
+            Some(HostReply::TerminalSelectionCopied { result })
         }
         HostCommand::RevealPath(path) => {
             let task_services = services.clone();
@@ -1485,6 +1485,25 @@ async fn open_file_tab(
     )
     .await
     .map(drop)
+}
+
+async fn write_clipboard(
+    services: &AppServices,
+    clipboard: &ClipboardWriter,
+    task: &'static str,
+    text: String,
+) -> AppResult<()> {
+    let clipboard = clipboard.clone();
+    let state = services.state.clone();
+    services
+        .tasks
+        .run_blocking_result(task, move || {
+            if state.is_shutting_down() {
+                return Err(stopped());
+            }
+            clipboard(&text)
+        })
+        .await
 }
 
 pub(crate) fn authorize_terminal_link(

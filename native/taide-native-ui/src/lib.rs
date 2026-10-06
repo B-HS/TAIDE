@@ -35,6 +35,7 @@ pub mod keybinding_editor;
 #[path = "keybinding-search.rs"]
 pub mod keybinding_search;
 pub mod keymap;
+pub mod modal;
 pub mod presentation;
 #[path = "settings-code-controls.rs"]
 pub mod settings_code_controls;

@@ -12,6 +12,7 @@ use crate::keymap::{
         capture::{Capture, Effect, Target},
     },
 };
+use crate::modal::{self, Chrome, Composition, FocusReturn, Layer};
 use crate::presentation::{color, message};
 
 use crate::ui_icons::{Icon, Icons};
@@ -28,11 +29,7 @@ const ROW_PADDING_Y: i8 = 6;
 const SMALL_FONT: f32 = 12.0;
 const DETAIL_FONT: f32 = 10.0;
 const TITLE_FONT: f32 = 18.0;
-const CORNER_RADIUS: u8 = 8;
 const ROW_RADIUS: u8 = 2;
-const SCRIM_OPACITY: f32 = 0.5;
-const SHADOW_OFFSET: [i8; 2] = [0, 8];
-const SHADOW_BLUR: u8 = 24;
 const BORDER_WIDTH: f32 = 1.0;
 const ROW_CONTROL_GAP: f32 = 12.0;
 const ICON_BUTTON_SIZE: f32 = 24.0;
@@ -233,7 +230,7 @@ pub struct Editor {
     unassigned_only: bool,
     context_keys: Vec<&'static str>,
     polled_at: Option<Instant>,
-    previous_focus: Option<Id>,
+    previous_focus: FocusReturn,
     capture_focus: Option<Id>,
     search_focus: Option<Id>,
     close_focus: Option<Id>,
@@ -249,7 +246,7 @@ pub struct Editor {
     search: Search,
     appearance: Appearance,
     icons: Icons,
-    composing: bool,
+    composition: Composition,
     is_mac: bool,
 }
 
@@ -496,7 +493,7 @@ impl Editor {
             unassigned_only: false,
             context_keys: Vec::new(),
             polled_at: None,
-            previous_focus: None,
+            previous_focus: FocusReturn::default(),
             capture_focus: None,
             search_focus: None,
             close_focus: None,
@@ -512,7 +509,7 @@ impl Editor {
             search: Search::new(collation_locale)?,
             appearance,
             icons: Icons::new()?,
-            composing: false,
+            composition: Composition::default(),
             is_mac,
         })
     }
@@ -532,7 +529,7 @@ impl Editor {
         if self.open {
             return;
         }
-        self.previous_focus = context.memory(|memory| memory.focused());
+        self.previous_focus.capture(context);
         self.open = true;
         self.mounted = true;
         self.search_focus_next = true;
@@ -574,10 +571,8 @@ impl Editor {
         self.focus_next = false;
         self.search_focus_next = false;
         self.polled_at = None;
-        self.composing = false;
-        if let Some(previous) = self.previous_focus.take() {
-            context.memory_mut(|memory| memory.request_focus(previous));
-        }
+        self.composition.reset();
+        self.previous_focus.release(context, true);
         context.request_repaint();
     }
 
@@ -649,6 +644,7 @@ impl Editor {
     ) -> AppResult<Output> {
         let mut output = Output::default();
         if !self.open {
+            self.previous_focus.settle(context);
             return Ok(output);
         }
         self.icons.prepare(context)?;
@@ -677,24 +673,7 @@ impl Editor {
                 memory.request_focus(container_focus);
             });
         }
-        let raw_ime = context.input(|input| {
-            input
-                .raw
-                .events
-                .iter()
-                .any(|event| matches!(event, Event::Ime(_)))
-        });
-        context.input(|input| {
-            for event in &input.raw.events {
-                match event {
-                    Event::Ime(egui::ImeEvent::Preedit { text, .. }) => {
-                        self.composing = !text.is_empty()
-                    }
-                    Event::Ime(egui::ImeEvent::Commit(_)) => self.composing = false,
-                    _ => (),
-                }
-            }
-        });
+        let is_composing = context.input(|input| self.composition.observe(&input.raw.events));
         if !context.input(|input| input.raw.focused) {
             self.capture.blur();
         }
@@ -735,8 +714,8 @@ impl Editor {
                 })
             });
         }
-        let should_escape = escape && !raw_ime && !self.composing && !has_popup;
-        if enabled && !was_capturing && !has_popup && !raw_ime && !self.composing {
+        let should_escape = escape && !is_composing && !has_popup;
+        if enabled && !was_capturing && !has_popup && !is_composing {
             let focused = context.memory(|memory| memory.focused());
             let target = context.input(|input| {
                 input.events.iter().find_map(|event| {
@@ -797,32 +776,29 @@ impl Editor {
         }
         self.focus_order.clear();
         self.focus_rows.clear();
-        let frame = egui::Frame::popup(&context.global_style())
-            .fill(self.appearance.background)
-            .stroke(Stroke::new(BORDER_WIDTH, self.appearance.modal_border))
-            .shadow(egui::epaint::Shadow {
-                offset: SHADOW_OFFSET,
-                blur: SHADOW_BLUR,
-                spread: 0,
-                color: self.appearance.shadow,
-            })
-            .corner_radius(CORNER_RADIUS)
-            .inner_margin(PADDING);
-        let response = egui::Modal::new(Id::new("native-keybindings-editor"))
-            .frame(frame)
-            .backdrop_color(self.appearance.shadow.gamma_multiply(SCRIM_OPACITY))
-            .show(context, |ui| {
-                let available = context.content_rect().size();
-                let width = (available.x - SCREEN_MARGIN * 2.0).min(MAX_WIDTH)
-                    - (f32::from(PADDING) + BORDER_WIDTH) * 2.0;
-                let height = available.y * HEIGHT_RATIO - (f32::from(PADDING) + BORDER_WIDTH) * 2.0;
-                ui.set_width(width.max(0.0));
-                ui.set_height(height.max(0.0));
-                ui.spacing_mut().item_spacing.y = SECTION_GAP;
-                ui.visuals_mut().override_text_color = Some(self.appearance.foreground);
-                ui.add_enabled_ui(enabled, |ui| self.content(ui, locale, &mut output))
-                    .inner
-            });
+        let dialog = Layer {
+            id: Id::new("native-keybindings-editor"),
+            chrome: Chrome {
+                background: self.appearance.background,
+                border: self.appearance.modal_border,
+                shadow: self.appearance.shadow,
+            },
+            padding: PADDING,
+            transition: None,
+            is_modal: true,
+        };
+        let response = dialog.show(context, |ui| {
+            let available = context.content_rect().size();
+            let width = (available.x - SCREEN_MARGIN * 2.0).min(MAX_WIDTH)
+                - (f32::from(PADDING) + BORDER_WIDTH) * 2.0;
+            let height = available.y * HEIGHT_RATIO - (f32::from(PADDING) + BORDER_WIDTH) * 2.0;
+            ui.set_width(width.max(0.0));
+            ui.set_height(height.max(0.0));
+            ui.spacing_mut().item_spacing.y = SECTION_GAP;
+            ui.visuals_mut().override_text_color = Some(self.appearance.foreground);
+            ui.add_enabled_ui(enabled, |ui| self.content(ui, locale, &mut output))
+                .inner
+        });
         if enabled && response.is_top_modal {
             if response.inner
                 || response.backdrop_response.clicked()
@@ -912,15 +888,7 @@ impl Editor {
                     self.focus_next = false;
                 }
                 capture.ctx.memory_mut(|memory| {
-                    memory.set_focus_lock_filter(
-                        capture.id,
-                        egui::EventFilter {
-                            tab: true,
-                            horizontal_arrows: true,
-                            vertical_arrows: true,
-                            escape: true,
-                        },
-                    )
+                    memory.set_focus_lock_filter(capture.id, modal::FOCUS_FILTER)
                 });
             } else {
                 let response = ui.add_sized(
@@ -1428,15 +1396,7 @@ impl Editor {
                             }
                             reveal_focused_control(&capture);
                             capture.ctx.memory_mut(|memory| {
-                                memory.set_focus_lock_filter(
-                                    capture.id,
-                                    egui::EventFilter {
-                                        tab: true,
-                                        horizontal_arrows: true,
-                                        vertical_arrows: true,
-                                        escape: true,
-                                    },
-                                )
+                                memory.set_focus_lock_filter(capture.id, modal::FOCUS_FILTER)
                             });
                             if first.is_some() {
                                 self.badge(

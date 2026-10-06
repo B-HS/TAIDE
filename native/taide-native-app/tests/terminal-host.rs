@@ -3310,7 +3310,7 @@ async fn verify_terminal_menu_actions(keyboard: Option<eframe::egui::Key>) {
             )
         };
         if key == "terminal.copy" && !copied {
-            if let Some(HostCommand::CopyText(text)) = commands.pop() {
+            if let Some(HostCommand::CopyTerminalSelection(text)) = commands.pop() {
                 assert!(text.contains("한𐐀e\u{301}"));
                 copied = true;
             } else {

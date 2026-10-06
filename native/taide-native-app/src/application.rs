@@ -137,6 +137,8 @@ pub struct NativeApplication {
     tooltips: crate::tooltips::Provider,
     tooltip_appearance: crate::tooltips::Appearance,
     problems_appearance: crate::problems::Appearance,
+    explorer_appearance: crate::explorer::Appearance,
+    explorer_icons: crate::problems_icons::Icons,
     shell: NativeShell,
     zen_fullscreen_state: crate::zen::Fullscreen,
     keybindings: crate::keybinding_editor::Editor,
@@ -260,6 +262,9 @@ impl NativeApplication {
         let locale = resolved.locale?;
         egui.set_fonts(fonts.definitions);
         warnings.extend(fonts.warnings);
+        for warning in &warnings {
+            log::warn!("{warning}");
+        }
         let appearances =
             crate::presentation_refresh::Appearances::new(&theme, &presentation_inputs.settings)?;
         presentation::apply_visuals(&egui, &appearances.visuals);
@@ -366,7 +371,7 @@ impl NativeApplication {
             &collation_locale,
             cfg!(target_os = "macos"),
         )?;
-        let toasts = crate::toast::Toasts::new()?;
+        let toasts = crate::toast::Toasts::with_actions()?;
         let toast_theme = theme.theme_type;
         let tooltips = crate::tooltips::Provider::default();
         let mut settings_views = crate::settings_view::Views::default();
@@ -404,6 +409,8 @@ impl NativeApplication {
             tooltips,
             tooltip_appearance: appearances.tooltip,
             problems_appearance: appearances.problems,
+            explorer_appearance: appearances.explorer,
+            explorer_icons: crate::problems_icons::Icons::new()?,
             shell,
             zen_fullscreen_state,
             keybindings,
@@ -469,7 +476,7 @@ impl NativeApplication {
             focused: None,
             reveals: Default::default(),
             document_edits: Vec::new(),
-            status: (!warnings.is_empty()).then(|| warnings.join("\n")),
+            status: None,
             closing: None,
             close_request_active: false,
             is_exit_ready: false,
@@ -511,7 +518,7 @@ impl NativeApplication {
             }
         }
         if let Some(error) = self.controller.take_error() {
-            self.status = Some(error.to_string());
+            self.report(&error);
         }
         self.settings_views
             .observe_theme_revision(self.presentation_changes.theme_revision());
@@ -524,7 +531,6 @@ impl NativeApplication {
             self.status = Some(editor_error(error).to_string());
         }
         while let Some(reply) = self.bridge.as_mut().and_then(HostBridge::poll) {
-            let is_problem_reply = matches!(&reply, HostReply::ProblemOpened { .. });
             match reply {
                 HostReply::AppFileWritten { request, result } => {
                     if self.closing.is_none()
@@ -621,6 +627,7 @@ impl NativeApplication {
                                         self.system_usage_appearance = appearances.system_usage;
                                         self.status_chord_appearance = appearances.status_chord;
                                         self.problems_appearance = appearances.problems;
+                                        self.explorer_appearance = appearances.explorer;
                                         self.tooltip_appearance = appearances.tooltip;
                                         self.terminal_appearance = appearances.terminal;
                                         self.keybindings.set_appearance(appearances.keybindings);
@@ -676,17 +683,7 @@ impl NativeApplication {
                                 );
                                 context.request_repaint_after(crate::editor_reveal::REVEAL_TTL);
                             }
-                            Err(error) => {
-                                self.status = Some(if is_problem_reply {
-                                    error.to_string()
-                                } else {
-                                    presentation::message(
-                                        &self.locale,
-                                        "terminal.openLinkFailed",
-                                        &[],
-                                    )
-                                });
-                            }
+                            Err(error) => self.report(&error),
                         }
                     }
                 }
@@ -700,11 +697,14 @@ impl NativeApplication {
                                     self.terminals.hub(),
                                     &self.services,
                                 ) {
-                                    self.status = Some(error.to_string());
+                                    log::warn!("native terminal paste failed: {:?}", error.kind());
                                 }
                             }
                             Err(error) if target.is_alive() => {
-                                self.status = Some(error.to_string())
+                                log::warn!(
+                                    "native terminal clipboard read failed: {:?}",
+                                    error.kind()
+                                )
                             }
                             Err(_) => {}
                         }
@@ -718,13 +718,13 @@ impl NativeApplication {
                         &self.services,
                     );
                     if let Err(error) = result {
-                        self.status = Some(error.to_string());
+                        self.report(&error);
                     }
                 }
                 HostReply::TerminalResized { session, result } => {
                     self.terminal_views.resized(&session);
                     if let Err(error) = result {
-                        self.status = Some(error.to_string());
+                        log::warn!("native terminal resize failed: {error}");
                     }
                 }
                 HostReply::HwpSourceReady(request) => {
@@ -846,7 +846,7 @@ impl NativeApplication {
                         Instant::now(),
                     );
                     if let Err(error) = result {
-                        self.status = Some(error.to_string());
+                        log::warn!("native draft mirror failed: {error}");
                     }
                 }
                 HostReply::ObservedFile {
@@ -1018,7 +1018,7 @@ impl NativeApplication {
                             });
                         }
                         Err(error) => {
-                            self.status = Some(error.to_string());
+                            self.report(&error);
                             if let Some(pending) = self
                                 .pending_tab_close
                                 .as_mut()
@@ -1086,7 +1086,7 @@ impl NativeApplication {
                             }
                         }
                         Err(error) => {
-                            self.status = Some(error.to_string());
+                            self.report(&error);
                             if let Some(pending) = self
                                 .pending_tab_close
                                 .as_mut()
@@ -1119,19 +1119,11 @@ impl NativeApplication {
                             self.restore_notices.remove(&tab);
                             self.pending_dirty.remove(&tab);
                             if let Err(error) = self.release_tab(closed, approved) {
-                                if let Some(batch) = batch.as_mut() {
-                                    batch.failure.get_or_insert_with(|| error.to_string());
-                                }
-                                self.status = Some(error.to_string());
+                                self.report_close_failure(batch.as_mut(), &error);
                             }
                         }
                         Err(AppError::NotFound(_)) if batch.is_some() => (),
-                        Err(error) => {
-                            if let Some(batch) = batch.as_mut() {
-                                batch.failure.get_or_insert_with(|| error.to_string());
-                            }
-                            self.status = Some(error.to_string());
-                        }
+                        Err(error) => self.report_close_failure(batch.as_mut(), &error),
                     }
                     if let Some(batch) = batch {
                         self.advance_close_batch(batch);
@@ -1152,7 +1144,7 @@ impl NativeApplication {
                         }
                     }
                     Err(error) => {
-                        self.status = Some(error.to_string());
+                        self.report(&error);
                         if let Some(pending) = self
                             .pending_tab_close
                             .as_mut()
@@ -1238,7 +1230,7 @@ impl NativeApplication {
                         if let Some(lsp) = &self.lsp
                             && let Err(error) = lsp.saved(document)
                         {
-                            self.status = Some(error.to_string());
+                            log::warn!("native save notification failed: {error}");
                         }
                     }
                     let key = snapshot.key().clone();
@@ -1291,7 +1283,7 @@ impl NativeApplication {
                             }
                         }
                         Err(error) => {
-                            self.status = Some(error.to_string());
+                            self.report(&error);
                             if let Some(pending) = self.pending_tab_close.as_mut()
                                 && matches!(pending.phase, TabClosePhase::Saving(Some(id)) if id == document)
                             {
@@ -1351,27 +1343,32 @@ impl NativeApplication {
                         Err(error) => self.status = Some(error.to_string()),
                     }
                 }
-                HostReply::CopiedText { result } => {
-                    if result.is_err() {
-                        self.status = Some(presentation::message(
-                            &self.locale,
-                            "common.copyFailed",
-                            &[],
-                        ));
-                    }
-                }
+                HostReply::CopiedText { result } => crate::toast::copy_finished(
+                    &mut self.toasts,
+                    &self.locale,
+                    crate::toast::CopyOrigin::Explorer,
+                    &result,
+                    Instant::now(),
+                ),
+                HostReply::TerminalSelectionCopied { result } => crate::toast::copy_finished(
+                    &mut self.toasts,
+                    &self.locale,
+                    crate::toast::CopyOrigin::Terminal,
+                    &result,
+                    Instant::now(),
+                ),
                 HostReply::TerminalUrlOpened { result } => {
                     if result.is_err() {
-                        self.status = Some(presentation::message(
+                        crate::toast::open_link_failed(
+                            &mut self.toasts,
                             &self.locale,
-                            "terminal.openLinkFailed",
-                            &[],
-                        ));
+                            Instant::now(),
+                        );
                     }
                 }
                 HostReply::SystemFinished { result } => {
                     if let Err(error) = result {
-                        self.status = Some(error.to_string());
+                        self.report(&error);
                     }
                 }
                 HostReply::SettingsFailed(error) => {
@@ -1389,7 +1386,148 @@ impl NativeApplication {
                         self.toasts.ipc_error(&self.locale, &error, Instant::now());
                     }
                 }
-                HostReply::Failed(error) => self.status = Some(error.to_string()),
+                HostReply::Failed(error) => self.report(&error),
+            }
+        }
+    }
+
+    fn report(&mut self, error: &AppError) {
+        self.toasts.ipc_error(&self.locale, error, Instant::now());
+    }
+
+    fn report_close_failure(
+        &mut self,
+        batch: Option<&mut crate::tab_close_batch::Batch>,
+        error: &AppError,
+    ) {
+        match batch {
+            Some(batch) => {
+                batch
+                    .failure
+                    .get_or_insert_with(|| crate::toast::describe_error(&self.locale, error));
+            }
+            None => self.report(error),
+        }
+    }
+
+    fn report_once(&mut self, error: &AppError) {
+        crate::toast::error_once(&mut self.toasts, &self.locale, error, Instant::now());
+    }
+
+    fn report_save_failure(
+        &mut self,
+        error: taide_native_editor::document::EditorError,
+        auto_save: bool,
+    ) {
+        crate::toast::save_failed(
+            &mut self.toasts,
+            &self.locale,
+            error,
+            auto_save,
+            Instant::now(),
+        );
+    }
+
+    fn notify_open_project_first(&mut self) {
+        crate::toast::open_project_first(&mut self.toasts, &self.locale, Instant::now());
+    }
+
+    fn report_create_failure(
+        &mut self,
+        project: &ProjectId,
+        request: &crate::explorer::CreateRequest,
+        error: &AppError,
+    ) {
+        let message = crate::toast::describe_error(&self.locale, error);
+        if let Some(explorer) = self.explorers.get_mut(project) {
+            explorer.create_finished(request, Err(message.clone()));
+        }
+        crate::toast::entry_failed(
+            &mut self.toasts,
+            &self.locale,
+            message,
+            crate::toast::Action::RetryCreate {
+                project: project.clone(),
+                request: request.clone(),
+            },
+            Instant::now(),
+        );
+    }
+
+    fn report_rename_failure(
+        &mut self,
+        project: &ProjectId,
+        request: &crate::explorer::RenameRequest,
+        error: &AppError,
+    ) {
+        let message = crate::toast::describe_error(&self.locale, error);
+        if let Some(explorer) = self.explorers.get_mut(project) {
+            explorer.rename_finished(request, Err(message.clone()));
+        }
+        crate::toast::entry_failed(
+            &mut self.toasts,
+            &self.locale,
+            message,
+            crate::toast::Action::RetryRename {
+                project: project.clone(),
+                request: request.clone(),
+            },
+            Instant::now(),
+        );
+    }
+
+    fn create_entry(&mut self, project: ProjectId, request: crate::explorer::CreateRequest) {
+        let result = self
+            .lsp
+            .as_ref()
+            .ok_or_else(|| AppError::Internal("native workspace host is unavailable".into()))
+            .and_then(|bridge| bridge.create_entry(project.clone(), request.clone()));
+        if let Err(error) = result {
+            self.report_create_failure(&project, &request, &error);
+        }
+    }
+
+    fn rename_entry(&mut self, project: ProjectId, request: crate::explorer::RenameRequest) {
+        let result = self
+            .lsp
+            .as_ref()
+            .ok_or_else(|| AppError::Internal("native workspace host is unavailable".into()))
+            .and_then(|bridge| bridge.rename_entry(project.clone(), request.clone()));
+        if let Err(error) = result {
+            self.report_rename_failure(&project, &request, &error);
+        }
+    }
+
+    fn run_toast_actions(&mut self) {
+        for action in self.toasts.take_actions() {
+            if !self.flush_dirty() {
+                return;
+            }
+            match action {
+                crate::toast::Action::RetryCreate { project, request } => {
+                    let retried = self.trees.get(&project).and_then(|page| {
+                        self.explorers.get_mut(&project)?.retry_create(
+                            &request,
+                            &page.rows,
+                            &self.locale,
+                        )
+                    });
+                    if let Some(request) = retried {
+                        self.create_entry(project, request);
+                    }
+                }
+                crate::toast::Action::RetryRename { project, request } => {
+                    let retried = self.trees.get(&project).and_then(|page| {
+                        self.explorers.get_mut(&project)?.retry_rename(
+                            &request,
+                            &page.rows,
+                            &self.locale,
+                        )
+                    });
+                    if let Some(request) = retried {
+                        self.rename_entry(project, request);
+                    }
+                }
             }
         }
     }
@@ -1499,7 +1637,7 @@ impl NativeApplication {
                         return true;
                     }
                     Err(error) => {
-                        self.status = Some(error.to_string());
+                        log::warn!("native save participation failed: {error}");
                         self.resumed_save_epochs.insert(document, epoch);
                     }
                 }
@@ -1531,7 +1669,7 @@ impl NativeApplication {
                     }
                     Err(error) => {
                         self.persistence.submission_failed(document);
-                        self.status = Some(editor_error(error).to_string());
+                        self.report_save_failure(error, auto_save);
                         return false;
                     }
                 };
@@ -1612,7 +1750,7 @@ impl NativeApplication {
                 self.toasts
                     .settings_failed(&self.locale, &error, Instant::now());
             } else {
-                self.status = Some(error.to_string());
+                self.report_once(&error);
             }
             return false;
         }
@@ -1637,7 +1775,7 @@ impl NativeApplication {
                     })
                 });
             if let Err(error) = result {
-                self.status = Some(error.to_string());
+                self.report_once(&error);
                 return false;
             }
             self.pending_dirty.remove(&tab);
@@ -1704,11 +1842,12 @@ impl NativeApplication {
             return;
         };
         if tab.pinned {
-            self.status = Some(presentation::message(
+            crate::toast::pinned_close_blocked(
+                &mut self.toasts,
                 &self.locale,
-                "tab.pinnedCloseBlocked",
-                &[("title", &tab.title)],
-            ));
+                &tab.title,
+                Instant::now(),
+            );
             return;
         }
         let dirty = self.is_dirty_close_tab(&tab);
@@ -1775,7 +1914,7 @@ impl NativeApplication {
         use crate::tab_close_batch::Task;
         let Some(task) = batch.next() else {
             if let Some(failure) = batch.failure {
-                self.status = Some(failure);
+                self.toasts.error(failure, Instant::now());
             }
             return;
         };
@@ -1851,7 +1990,7 @@ impl NativeApplication {
             }
             Ok(Some(crate::save::KeymapSave::Untitled(tab))) => self.save_untitled(&tab, frame),
             Ok(None) => (),
-            Err(error) => self.status = Some(editor_error(error).to_string()),
+            Err(error) => self.report_save_failure(error, false),
         }
     }
 
@@ -2059,17 +2198,8 @@ impl NativeApplication {
                         if let Some(document) = self.files.get(path) {
                             let id = document.id;
                             self.store
-                                .documents()
-                                .snapshot(id)
-                                .map_err(editor_error)
-                                .and_then(|snapshot| {
-                                    if snapshot.metadata.read_only {
-                                        return Err(AppError::Forbidden(
-                                            "native document is read-only".into(),
-                                        ));
-                                    }
-                                    self.store.save_snapshot(id).map_err(editor_error)
-                                })
+                                .save_snapshot(id)
+                                .map_err(crate::toast::save_error)
                                 .map(|snapshot| {
                                     (
                                         Some(id),
@@ -2104,7 +2234,7 @@ impl NativeApplication {
                             };
                         }
                     }
-                    Err(error) => self.status = Some(error.to_string()),
+                    Err(error) => self.report(&error),
                 }
             }
             None => {}
@@ -2189,7 +2319,7 @@ impl NativeApplication {
         ) {
             Ok((_, target)) => target,
             Err(error) => {
-                self.status = Some(error.to_string());
+                self.toasts.ipc_error(&self.locale, &error, Instant::now());
                 return;
             }
         };
@@ -2219,7 +2349,7 @@ impl NativeApplication {
         let snapshot = match self.store.save_snapshot(document_id) {
             Ok(snapshot) => snapshot,
             Err(error) => {
-                self.status = Some(editor_error(error).to_string());
+                self.report_save_failure(error, false);
                 return;
             }
         };
@@ -2287,7 +2417,7 @@ impl NativeApplication {
         ) {
             Ok((_, target)) => target,
             Err(error) => {
-                self.status = Some(error.to_string());
+                self.toasts.ipc_error(&self.locale, &error, Instant::now());
                 return;
             }
         };
@@ -2563,7 +2693,7 @@ impl NativeApplication {
                                     return;
                                 }
                             }
-                            Err(error) => self.status = Some(editor_error(error).to_string()),
+                            Err(error) => self.report_save_failure(error, true),
                         }
                     }
                     continue;
@@ -2583,7 +2713,7 @@ impl NativeApplication {
                             self.persistence.mirror_started(&job);
                         }
                     }
-                    Err(error) => self.status = Some(editor_error(error).to_string()),
+                    Err(error) => log::warn!("native draft mirror snapshot failed: {error:?}"),
                 }
             }
         }
@@ -2713,7 +2843,7 @@ impl NativeApplication {
                             }
                         }
                         Err(error) => {
-                            self.status = Some(error.to_string());
+                            self.report(&error);
                             None
                         }
                     };
@@ -2745,10 +2875,7 @@ impl NativeApplication {
                         }
                     }
                     Err(error) => {
-                        if let Some(explorer) = self.explorers.get_mut(&event.project) {
-                            explorer.create_finished(&event.request, Err(error.to_string()));
-                        }
-                        self.status = Some(error.to_string());
+                        self.report_create_failure(&event.project, &event.request, &error)
                     }
                 },
                 crate::lsp::Reply::ExplorerRenamed(event) => match event.result {
@@ -2759,10 +2886,7 @@ impl NativeApplication {
                         }
                     }
                     Err(error) => {
-                        if let Some(explorer) = self.explorers.get_mut(&event.project) {
-                            explorer.rename_finished(&event.request, Err(error.to_string()));
-                        }
-                        self.status = Some(error.to_string());
+                        self.report_rename_failure(&event.project, &event.request, &error)
                     }
                 },
                 crate::lsp::Reply::RenamePrepare(event) => {
@@ -3009,7 +3133,7 @@ impl NativeApplication {
                                 });
                             }
                         }
-                        Err(error) => self.status = Some(error.to_string()),
+                        Err(error) => self.report(&error),
                     }
                 }
                 crate::lsp::Reply::Deleted(event) => {
@@ -3148,13 +3272,13 @@ impl NativeApplication {
                                 }
                                 Ok(false) => {}
                                 Err(taide_native_editor::document::EditorError::StaleRevision) => {}
-                                Err(error) => self.status = Some(editor_error(error).to_string()),
+                                Err(error) => {
+                                    log::warn!("native save formatter edit failed: {error:?}")
+                                }
                             }
                         }
                         Ok(None) | Err(taide_lsp::native::Failure::StaleRevision) => {}
-                        Err(error) => {
-                            self.status = Some(format!("native save formatter: {error:?}"))
-                        }
+                        Err(error) => log::warn!("native save formatter failed: {error:?}"),
                     }
                     self.resumed_save_epochs.insert(document, pending.epoch);
                     match self.store.save_snapshot(document) {
@@ -3182,7 +3306,7 @@ impl NativeApplication {
                         Err(error) => {
                             self.resumed_save_epochs.remove(&document);
                             self.persistence.submission_failed(document);
-                            self.status = Some(editor_error(error).to_string());
+                            self.report_save_failure(error, pending.auto_save);
                             if let Some(close) = self.pending_tab_close.as_mut()
                                 && matches!(close.phase, TabClosePhase::Saving(Some(id)) if id == document)
                             {
@@ -3372,6 +3496,8 @@ impl NativeApplication {
         let root = project
             .and_then(|project| snapshot.project(project))
             .map(|project| project.root.as_str());
+        self.palette
+            .set_reduced_motion(self.motion_preference.current().unwrap_or(false));
         let output = self.palette.show(
             context,
             crate::command_palette::Scope {
@@ -3397,11 +3523,7 @@ impl NativeApplication {
             }
             Some(crate::command_palette::Action::OpenFile(path)) => {
                 let Some(project) = project else {
-                    self.status = Some(presentation::message(
-                        &self.locale,
-                        "app.openProjectFirst",
-                        &[],
-                    ));
+                    self.notify_open_project_first();
                     return;
                 };
                 let pane = snapshot
@@ -3479,6 +3601,7 @@ impl NativeApplication {
                 self.system_usage_appearance = appearances.system_usage;
                 self.status_chord_appearance = appearances.status_chord;
                 self.problems_appearance = appearances.problems;
+                self.explorer_appearance = appearances.explorer;
                 self.tooltip_appearance = appearances.tooltip;
                 self.terminal_appearance = appearances.terminal;
                 self.keybindings.set_appearance(appearances.keybindings);
@@ -3528,8 +3651,11 @@ impl NativeApplication {
                 .update(family, context, &self.services.tasks)
             {
                 match result {
-                    Ok(warnings) if !warnings.is_empty() => self.status = Some(warnings.join("; ")),
-                    Ok(_) => {}
+                    Ok(warnings) => {
+                        for warning in warnings {
+                            log::warn!("{warning}");
+                        }
+                    }
                     Err(error) => self.status = Some(error.to_string()),
                 }
             }
@@ -3915,6 +4041,8 @@ impl eframe::App for NativeApplication {
             tooltip_appearance: &self.tooltip_appearance,
             problems: &mut self.problems,
             problems_appearance: &self.problems_appearance,
+            explorer_appearance: &self.explorer_appearance,
+            explorer_icons: &mut self.explorer_icons,
             diagnostics: &self.lsp_diagnostics,
             focused_slot: snapshot.shell.focused.as_ref(),
             chord_status: self.terminal_views.chord_status(&context, Instant::now()),
@@ -4089,7 +4217,6 @@ impl eframe::App for NativeApplication {
                     self.status = Some(error.to_string());
                 }
             }
-            let command_intents_start = intents.len();
             keymap_actions.append(&mut self.palette_commands);
             intents.extend(keymap_actions.into_iter().filter_map(|action| {
                 crate::command_dispatch::intent(&action, &command_context, &snapshot)
@@ -4237,34 +4364,10 @@ impl eframe::App for NativeApplication {
                 return;
             }
             for (project, request) in create_entries {
-                let result = self
-                    .lsp
-                    .as_ref()
-                    .ok_or_else(|| {
-                        AppError::Internal("native workspace host is unavailable".into())
-                    })
-                    .and_then(|bridge| bridge.create_entry(project.clone(), request.clone()));
-                if let Err(error) = result {
-                    if let Some(explorer) = self.explorers.get_mut(&project) {
-                        explorer.create_finished(&request, Err(error.to_string()));
-                    }
-                    self.status = Some(error.to_string());
-                }
+                self.create_entry(project, request);
             }
             for (project, request) in rename_entries {
-                let result = self
-                    .lsp
-                    .as_ref()
-                    .ok_or_else(|| {
-                        AppError::Internal("native workspace host is unavailable".into())
-                    })
-                    .and_then(|bridge| bridge.rename_entry(project.clone(), request.clone()));
-                if let Err(error) = result {
-                    if let Some(explorer) = self.explorers.get_mut(&project) {
-                        explorer.rename_finished(&request, Err(error.to_string()));
-                    }
-                    self.status = Some(error.to_string());
-                }
+                self.rename_entry(project, request);
             }
             for (project, request) in paste_entries {
                 let result = self
@@ -4275,7 +4378,7 @@ impl eframe::App for NativeApplication {
                     })
                     .and_then(|bridge| bridge.paste_entry(project, request));
                 if let Err(error) = result {
-                    self.status = Some(error.to_string());
+                    self.report(&error);
                 }
             }
             for command in actions {
@@ -4284,7 +4387,7 @@ impl eframe::App for NativeApplication {
                     break;
                 }
             }
-            for (index, intent) in intents.into_iter().enumerate() {
+            for intent in intents {
                 match intent {
                     ShellIntent::OpenSettingsFile => {
                         let project = match &self.shell.scope {
@@ -4301,11 +4404,7 @@ impl eframe::App for NativeApplication {
                         if let Some(command) = command {
                             self.submit(command);
                         } else {
-                            self.status = Some(presentation::message(
-                                &self.locale,
-                                "app.openProjectFirst",
-                                &[],
-                            ));
+                            self.notify_open_project_first();
                         }
                     }
                     ShellIntent::EditDocument { tab, edit } => {
@@ -4339,11 +4438,7 @@ impl eframe::App for NativeApplication {
                                 title: presentation::message(&self.locale, "settings.title", &[]),
                             });
                         } else {
-                            self.status = Some(presentation::message(
-                                &self.locale,
-                                "app.openProjectFirst",
-                                &[],
-                            ));
+                            self.notify_open_project_first();
                         }
                     }
                     ShellIntent::OpenKeybindings => self.keybindings.open(&context),
@@ -4358,13 +4453,7 @@ impl eframe::App for NativeApplication {
                     ShellIntent::NewUntitled { project, pane } => {
                         self.submit(HostCommand::NewUntitled { project, pane });
                     }
-                    ShellIntent::ShowOpenProjectNotice => {
-                        self.status = Some(presentation::message(
-                            &self.locale,
-                            "app.openProjectFirst",
-                            &[],
-                        ));
-                    }
+                    ShellIntent::ShowOpenProjectNotice => self.notify_open_project_first(),
                     ShellIntent::ChangeEditorFontSize { increase } => {
                         let current = self.services.state.settings.read().editor_font_size;
                         self.submit(HostCommand::SetEditorFontSize(
@@ -4420,11 +4509,7 @@ impl eframe::App for NativeApplication {
                     }
                     ShellIntent::Mutate(command) => {
                         if let Err(error) = self.controller.submit(command) {
-                            if index >= command_intents_start {
-                                self.toasts.ipc_error(&self.locale, &error, Instant::now());
-                            } else {
-                                self.status = Some(error.to_string());
-                            }
+                            self.report(&error);
                         }
                     }
                 }
@@ -4495,7 +4580,7 @@ impl eframe::App for NativeApplication {
                         .and_then(|bridge| bridge.delete_entry(request));
                     match result {
                         Ok(()) => self.deleting_entry = true,
-                        Err(error) => self.status = Some(error.to_string()),
+                        Err(error) => self.report(&error),
                     }
                 }
                 context.request_repaint();
@@ -4521,7 +4606,7 @@ impl eframe::App for NativeApplication {
                 ..Default::default()
             },
         )) {
-            self.status = Some(error.to_string());
+            self.report(&error);
         }
         if let Err(error) =
             self.terminal_views
@@ -4570,6 +4655,7 @@ impl eframe::App for NativeApplication {
         ) {
             self.status = Some(error.to_string());
         }
+        self.run_toast_actions();
     }
 
     fn on_exit(&mut self) {
@@ -4717,6 +4803,8 @@ struct AppSurfaces<'a> {
     tooltip_appearance: &'a crate::tooltips::Appearance,
     problems: &'a mut crate::problems::Views,
     problems_appearance: &'a crate::problems::Appearance,
+    explorer_appearance: &'a crate::explorer::Appearance,
+    explorer_icons: &'a mut crate::problems_icons::Icons,
     diagnostics: &'a crate::diagnostics::Store,
     focused_slot: Option<&'a ShellSlotId>,
     chord_status: crate::keymap::ChordStatus,
@@ -4870,7 +4958,19 @@ impl ShellSurfaces for AppSurfaces<'_> {
             explorer.root = Some(project.root.clone());
             explorer.title = Some(project.name.clone());
         }
-        let output = explorer.show(ui, project, page, self.locale);
+        let output = explorer.show_with_icons(
+            ui,
+            project,
+            page,
+            self.locale,
+            crate::explorer::RowIcons {
+                glyphs: &mut *self.explorer_icons,
+                appearance: self.explorer_appearance,
+            },
+        );
+        if let Some(error) = &output.icon_error {
+            *self.status = Some(error.to_string());
+        }
         crate::explorer_toolbar::show_tooltips(
             &output,
             self.locale,
@@ -5338,6 +5438,15 @@ impl ShellSurfaces for AppSurfaces<'_> {
             return;
         };
         self.show_document(ui, pane, tab, document.id, Some(path), intents);
+    }
+    fn tab_icon(&mut self, ui: &Ui, rect: egui::Rect, tab: &Tab, title_color: egui::Color32) {
+        let (glyph, color) = crate::problems_icons::tab(&tab.kind);
+        let color = color.map_or(title_color, |color| {
+            self.explorer_appearance.file_color(color)
+        });
+        if let Err(error) = self.explorer_icons.paint(ui, rect, glyph, color, 0.0) {
+            *self.status = Some(error.to_string());
+        }
     }
     fn status_bar(&mut self, ui: &mut Ui, _: Option<&ProjectId>, _: &mut Vec<ShellIntent>) {
         ui.horizontal(|ui| {

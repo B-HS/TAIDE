@@ -41,6 +41,9 @@ const OVERFLOWING_TAB_COUNT: usize = 24;
 const WHEEL_DELTA: f32 = -200.0;
 const WHEEL_SETTLE_FRAMES: usize = 30;
 const FRAME_SECONDS: f64 = 1.0 / 60.0;
+const TAB_ICON_SIDE: f32 = 14.0;
+const TAB_ICON_GAP: f32 = 6.0;
+const PIXEL_SNAP_TOLERANCE: f32 = 0.5;
 
 #[derive(Default)]
 struct Sink(Mutex<Vec<AppEvent>>);
@@ -58,6 +61,7 @@ struct Surfaces {
     status_projects: Vec<Option<ProjectId>>,
     problems_open: std::collections::HashSet<ShellSlotId>,
     problems: Vec<(ShellSlotId, Rect)>,
+    tab_icons: Vec<(TabId, Rect, Color32)>,
 }
 
 impl ShellSurfaces for Surfaces {
@@ -99,6 +103,9 @@ impl ShellSurfaces for Surfaces {
         self.panes
             .push((project.clone(), pane.clone(), tab.id.clone(), ui.max_rect()));
         ui.label(&tab.title);
+    }
+    fn tab_icon(&mut self, _: &Ui, rect: Rect, tab: &Tab, title_color: Color32) {
+        self.tab_icons.push((tab.id.clone(), rect, title_color));
     }
     fn status_bar(&mut self, ui: &mut Ui, project: Option<&ProjectId>, _: &mut Vec<ShellIntent>) {
         self.status_projects.push(project.cloned());
@@ -1067,6 +1074,109 @@ fn 탭바는_세로_휠을_가로_스크롤로_바꾼다() {
         .1;
     }
     assert!(tab_left(&output) < before);
+}
+
+#[test]
+fn 탭은_제목_앞에_14px_아이콘_칸을_두고_6px_뒤에_제목을_그린다() {
+    let mut snapshot = fixture();
+    let project = snapshot.focused_project().unwrap().clone();
+    let layout = snapshot.layouts.get_mut(&project).unwrap();
+    let PaneNode::Leaf { tabs, active, .. } = &mut layout.root else {
+        panic!("expected leaf")
+    };
+    *tabs = ["synthetic-first", "synthetic-second"]
+        .into_iter()
+        .map(|title| Tab {
+            id: TabId::new(),
+            kind: TabKind::Settings,
+            title: title.into(),
+            pinned: false,
+            preview: false,
+            dirty: false,
+            view_state: None,
+        })
+        .collect();
+    *active = tabs.first().map(|tab| tab.id.clone());
+    let tabs = tabs.clone();
+    let (surfaces, output) = frame(
+        &egui::Context::default(),
+        &shell(WindowScope::Main),
+        &snapshot,
+        0.0,
+        Vec::new(),
+    );
+    let content = surfaces
+        .panes
+        .iter()
+        .find(|pane| pane.0 == project)
+        .unwrap()
+        .3;
+    let bar_top = content.top() - taide_native_ui::shell::TAB_HEIGHT;
+    let title = |tab: &Tab| {
+        output
+            .shapes
+            .iter()
+            .find_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(text)
+                    if text.galley.text() == tab.title
+                        && (bar_top..content.top()).contains(&text.pos.y) =>
+                {
+                    Some((
+                        Rect::from_min_size(text.pos, text.galley.size()),
+                        text.fallback_color,
+                    ))
+                }
+                _ => None,
+            })
+            .unwrap()
+    };
+    let icons = tabs
+        .iter()
+        .map(|tab| {
+            let recorded = surfaces
+                .tab_icons
+                .iter()
+                .filter(|(id, _, _)| id == &tab.id)
+                .collect::<Vec<_>>();
+            assert_eq!(recorded.len(), 1, "{}", tab.title);
+            (recorded[0].1, recorded[0].2)
+        })
+        .collect::<Vec<_>>();
+    for (tab, (icon, icon_color)) in tabs.iter().zip(&icons) {
+        let (title, title_color) = title(tab);
+        assert_eq!(icon.size(), vec2(TAB_ICON_SIDE, TAB_ICON_SIDE));
+        assert_eq!(
+            icon.min,
+            icon.min.round(),
+            "{}: 아이콘은 픽셀 격자에 맞춰 그린다",
+            tab.title
+        );
+        assert!(
+            (title.left() - icon.right() - TAB_ICON_GAP).abs() <= PIXEL_SNAP_TOLERANCE,
+            "{}: {icon:?} {title:?}",
+            tab.title
+        );
+        assert!(
+            (title.center().y - icon.center().y).abs() <= PIXEL_SNAP_TOLERANCE,
+            "{}: {icon:?} {title:?}",
+            tab.title
+        );
+        assert!(icon.top() >= bar_top && icon.bottom() <= content.top());
+        assert_eq!(
+            *icon_color, title_color,
+            "{}: 종류 색이 없는 아이콘은 제목 글자색을 따른다",
+            tab.title
+        );
+    }
+    assert_ne!(
+        icons[0].1, icons[1].1,
+        "활성 탭과 비활성 탭의 제목 글자색이 다르다"
+    );
+    assert!(
+        (icons[0].0.left() - content.left()).abs() <= PIXEL_SNAP_TOLERANCE,
+        "{icons:?} {content:?}"
+    );
+    assert!(icons[1].0.left() - icons[0].0.left() >= taide_native_ui::shell::TAB_MIN_WIDTH);
 }
 
 #[tokio::test]
