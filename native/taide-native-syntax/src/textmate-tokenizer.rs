@@ -5,11 +5,16 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use ferriki_textmate::{
-    EncodedTokenAttributes, Grammar, GrammarConfiguration, RawTheme, RawThemeScope,
+    EncodedTokenAttributes, Grammar, GrammarConfiguration, RawGrammar, RawTheme, RawThemeScope,
     RawThemeSetting, RawThemeStyle, StateStack, SyncRegistry, parse_raw_grammar,
 };
+use serde_json::Value;
 use taide_native_editor::syntax::{Token, TokenKind};
 
+use crate::bundled_grammars::{BundledRegistration, bundled_registrations};
+use crate::grammar_registrations::{LanguageRegistration, loaded_grammars};
+use crate::include_cycles::{IncludeSource, plugins_on_include_only_cycles};
+use crate::plugin_grammars::PluginGrammar;
 use crate::style_scopes::{StyleScopes, standard_token_kind};
 use crate::theme_settings::ThemeSetting;
 use crate::tokenizer::{
@@ -86,19 +91,159 @@ pub struct TextmateTokenizer {
     limits: TokenizerLimits,
 }
 
+fn themed_registry(theme: &[ThemeSetting]) -> Result<SyncRegistry, SyntaxError> {
+    SyncRegistry::new(Some(raw_theme(theme)), None)
+        .map_err(|error| SyntaxError::InvalidTheme(error.to_string()))
+}
+
+fn bundled_raw_grammar(source: &str) -> Result<RawGrammar, SyntaxError> {
+    parse_raw_grammar(source, Some(GRAMMAR_FILE_NAME))
+        .map_err(|error| SyntaxError::InvalidGrammar(error.to_string()))
+}
+
+fn grammar_configuration() -> GrammarConfiguration {
+    GrammarConfiguration::default()
+        .with_initial_language_id(ROOT_LANGUAGE_ID)
+        .with_balanced_bracket_selectors(Some(vec![ANY_BALANCED_BRACKET_SELECTOR.to_owned()]))
+}
+
+fn plugin_grammars_without_include_cycles<'a>(
+    bundled: &[BundledRegistration],
+    plugins: Vec<(&'a PluginGrammar, RawGrammar)>,
+) -> Result<Vec<(&'a PluginGrammar, RawGrammar)>, SyntaxError> {
+    if plugins.is_empty() {
+        return Ok(plugins);
+    }
+    let mut bundled_grammars: BTreeMap<&str, Value> = BTreeMap::new();
+    for registration in bundled {
+        if bundled_grammars.contains_key(registration.scope_name) {
+            continue;
+        }
+        let grammar = serde_json::from_str(registration.source)
+            .map_err(|error| SyntaxError::InvalidGrammar(error.to_string()))?;
+        bundled_grammars.insert(registration.scope_name, grammar);
+    }
+    let sources: Vec<IncludeSource<'_>> = bundled_grammars
+        .iter()
+        .map(|(scope_name, grammar)| IncludeSource {
+            scope_name,
+            grammar,
+            plugin: None,
+        })
+        .chain(
+            plugins
+                .iter()
+                .enumerate()
+                .map(|(index, (plugin, _))| IncludeSource {
+                    scope_name: plugin.scope_name(),
+                    grammar: plugin.registration(),
+                    plugin: Some(index),
+                }),
+        )
+        .collect();
+    let cyclic = plugins_on_include_only_cycles(&sources);
+    Ok(plugins
+        .into_iter()
+        .enumerate()
+        .filter(|(index, _)| !cyclic.contains(index))
+        .map(|(_, plugin)| plugin)
+        .collect())
+}
+
 impl TextmateTokenizer {
     pub fn new(
         grammars: &GrammarSet<'_>,
         theme: &[ThemeSetting],
         limits: TokenizerLimits,
     ) -> Result<Self, SyntaxError> {
-        let mut registry = SyncRegistry::new(Some(raw_theme(theme)), None)
-            .map_err(|error| SyntaxError::InvalidTheme(error.to_string()))?;
+        let mut registry = themed_registry(theme)?;
         for source in &grammars.grammar_sources {
-            let grammar = parse_raw_grammar(source, Some(GRAMMAR_FILE_NAME))
-                .map_err(|error| SyntaxError::InvalidGrammar(error.to_string()))?;
-            registry.add_grammar(grammar, Vec::new());
+            registry.add_grammar(bundled_raw_grammar(source)?, Vec::new());
         }
+        Ok(Self::with_registry(
+            registry,
+            grammars
+                .languages
+                .iter()
+                .map(|language| {
+                    (
+                        language.language_id.to_owned(),
+                        language.scope_name.to_owned(),
+                    )
+                })
+                .collect(),
+            BTreeMap::new(),
+            theme,
+            limits,
+        ))
+    }
+
+    pub fn with_plugin_grammars(
+        requested_language_ids: &[&str],
+        plugin_grammars: &[PluginGrammar],
+        theme: &[ThemeSetting],
+        limits: TokenizerLimits,
+    ) -> Result<Self, SyntaxError> {
+        let bundled = bundled_registrations(requested_language_ids)?;
+        let plugins = plugin_grammars_without_include_cycles(
+            &bundled,
+            plugin_grammars
+                .iter()
+                .filter_map(|plugin| Some((plugin, plugin.raw_grammar()?)))
+                .collect(),
+        )?;
+        let registrations: Vec<LanguageRegistration<'_>> = bundled
+            .iter()
+            .map(|registration| LanguageRegistration {
+                name: registration.name,
+                scope_name: registration.scope_name,
+                aliases: registration.aliases,
+            })
+            .chain(plugins.iter().map(|(plugin, _)| LanguageRegistration {
+                name: plugin.language_id(),
+                scope_name: plugin.scope_name(),
+                aliases: &[],
+            }))
+            .collect();
+        let loaded = loaded_grammars(&registrations);
+        let raw_grammar = |index: usize| match index.checked_sub(bundled.len()) {
+            Some(plugin) => Ok(plugins[plugin].1.clone()),
+            None => bundled_raw_grammar(bundled[index].source),
+        };
+        let mut registry = themed_registry(theme)?;
+        for index in loaded.included_by_scope_name.values() {
+            registry.add_grammar(raw_grammar(*index)?, Vec::new());
+        }
+        let mut grammar_by_scope_name = BTreeMap::new();
+        for (scope_name, root) in &loaded.root_by_scope_name {
+            let included = loaded.included_by_scope_name[scope_name];
+            if *root == included {
+                continue;
+            }
+            registry.add_grammar(raw_grammar(*root)?, Vec::new());
+            let grammar = registry
+                .grammar_for_scope_name(scope_name, grammar_configuration())
+                .map_err(|error| SyntaxError::InvalidTheme(error.to_string()))?
+                .ok_or_else(|| SyntaxError::InvalidGrammar(scope_name.clone()))?;
+            grammar_by_scope_name.insert(scope_name.clone(), grammar);
+            registry.add_grammar(raw_grammar(included)?, Vec::new());
+        }
+        Ok(Self::with_registry(
+            registry,
+            loaded.scope_name_by_language_id,
+            grammar_by_scope_name,
+            theme,
+            limits,
+        ))
+    }
+
+    fn with_registry(
+        registry: SyncRegistry,
+        scope_name_by_language_id: BTreeMap<String, String>,
+        grammar_by_scope_name: BTreeMap<String, Rc<Grammar>>,
+        theme: &[ThemeSetting],
+        limits: TokenizerLimits,
+    ) -> Self {
         let color_map = registry.get_color_map();
         let style_scopes = StyleScopes::from_theme(theme);
         let monaco_scope_by_style_id: Vec<String> = color_map
@@ -112,24 +257,15 @@ impl TextmateTokenizer {
             .iter()
             .map(|scope| standard_token_kind(scope))
             .collect();
-        Ok(Self {
+        Self {
             registry,
-            scope_name_by_language_id: grammars
-                .languages
-                .iter()
-                .map(|language| {
-                    (
-                        language.language_id.to_owned(),
-                        language.scope_name.to_owned(),
-                    )
-                })
-                .collect(),
-            grammar_by_scope_name: BTreeMap::new(),
+            scope_name_by_language_id,
+            grammar_by_scope_name,
             color_map,
             monaco_scope_by_style_id,
             kind_by_style_id,
             limits,
-        })
+        }
     }
 
     pub fn color_map(&self) -> &[String] {
@@ -230,12 +366,9 @@ impl TextmateTokenizer {
         if let Some(grammar) = self.grammar_by_scope_name.get(scope_name) {
             return Ok(Rc::clone(grammar));
         }
-        let configuration = GrammarConfiguration::default()
-            .with_initial_language_id(ROOT_LANGUAGE_ID)
-            .with_balanced_bracket_selectors(Some(vec![ANY_BALANCED_BRACKET_SELECTOR.to_owned()]));
         let grammar = self
             .registry
-            .grammar_for_scope_name(scope_name, configuration)
+            .grammar_for_scope_name(scope_name, grammar_configuration())
             .map_err(|error| SyntaxError::InvalidTheme(error.to_string()))?
             .ok_or_else(|| SyntaxError::UnknownLanguage(language_id.to_owned()))?;
         self.grammar_by_scope_name

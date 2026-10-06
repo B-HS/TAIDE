@@ -46,6 +46,26 @@ each piece of this crate to it.
   `TrackingTokenizationStateStore`) and the document size limits of
   `esm/vs/editor/common/model/textModel.js`. License: MIT
   (`LICENSE-MONACO-SNIPPET`).
+- `src/grammar-registrations.rs` ports the language registration order of
+  `@shikijs/primitive` 4.4.3 (`dist/index.mjs`: `Resolver.addLanguage`,
+  `Registry.loadLanguages`, `Registry.loadLanguage`, `Registry.getGrammar`,
+  `resolveLangAlias`). License: MIT (`LICENSE-SHIKI`). The rule that the first
+  grammar compiled for a scope name is reused while a later raw grammar
+  replaces it for includes follows `SyncRegistry.addGrammar` and
+  `SyncRegistry.grammarForScopeName` of `@shikijs/vscode-textmate` 10.0.2
+  (`dist/index.js`), a fork of `vscode-textmate`. License: MIT, Copyright (c)
+  Microsoft Corporation (the same license text as `LICENSE-MONACO-SNIPPET`).
+  The registration order of the bundled grammars in `src/bundled-grammars.rs`
+  follows the default export arrays of `@shikijs/langs` 4.4.3
+  (`dist/<id>.mjs`).
+- `src/include-cycles.rs` follows the include reference kinds and the rule
+  kinds of `@shikijs/vscode-textmate` 10.0.2 (`dist/index.js`: `parseInclude`,
+  `RuleFactory.getCompiledRuleId`, `RuleFactory._compilePatterns`) to find
+  include-only cycles before a grammar reaches the engine. It contains no
+  copied source. License of the reference: MIT, Copyright (c) Microsoft
+  Corporation.
+- `src/plugin-grammars.rs` follows TAIDE's own
+  `src/entities/plugin/plugin-grammar.ts`.
 
 ## Dependencies
 

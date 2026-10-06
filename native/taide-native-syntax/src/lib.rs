@@ -2,10 +2,16 @@
 mod bundled_grammars;
 #[path = "document-tokens.rs"]
 mod document_tokens;
+#[path = "grammar-registrations.rs"]
+mod grammar_registrations;
+#[path = "include-cycles.rs"]
+mod include_cycles;
 #[path = "leading-trailing-debounce.rs"]
 mod leading_trailing_debounce;
 #[path = "monaco-token-theme.rs"]
 mod monaco_token_theme;
+#[path = "plugin-grammars.rs"]
+mod plugin_grammars;
 #[path = "requested-languages.rs"]
 mod requested_languages;
 #[path = "style-scopes.rs"]
@@ -30,6 +36,7 @@ pub use document_tokens::{
     TokenizationPlan, is_too_large_for_tokenization,
 };
 pub use leading_trailing_debounce::{LeadingTrailingDebounce, THEME_REAPPLY_DEBOUNCE};
+pub use plugin_grammars::PluginGrammar;
 pub use requested_languages::{CORE_LANGUAGE_IDS, RequestedLanguages, is_bundled_language};
 pub use textmate_tokenizer::{GrammarSet, LanguageGrammar, TextmateTokenizer, TokenizerLimits};
 pub use theme_settings::{ThemeSetting, ThemeStyle};

@@ -9,8 +9,8 @@ use taide_native_editor::editing::line_content_range;
 use taide_native_editor::line_tokens::TokenStyleTable;
 use taide_native_editor::syntax::{Token, TokenKind};
 
-use crate::bundled_grammars::bundled_grammar_set;
 use crate::document_tokens::TokenizationPlan;
+use crate::plugin_grammars::PluginGrammar;
 use crate::textmate_tokenizer::{EngineState, TextmateTokenizer, TokenizerLimits};
 use crate::token_theme::TokenTheme;
 use crate::tokenizer::{LineState, SyntaxError, TokenizedLine, UNSTYLED_STYLE_ID};
@@ -39,6 +39,7 @@ pub struct TokenizationJob {
 }
 
 pub enum WorkerRequest {
+    SetPluginGrammars(Vec<PluginGrammar>),
     Configure(Box<WorkerConfiguration>),
     Tokenize(Box<TokenizationJob>),
     Cancel {
@@ -156,15 +157,18 @@ struct Engine {
 }
 
 impl Engine {
-    fn new(configuration: &WorkerConfiguration) -> Result<(Self, TokenStyleTable), SyntaxError> {
+    fn new(
+        configuration: &WorkerConfiguration,
+        plugin_grammars: &[PluginGrammar],
+    ) -> Result<(Self, TokenStyleTable), SyntaxError> {
         let language_ids: Vec<&str> = configuration
             .language_ids
             .iter()
             .map(String::as_str)
             .collect();
-        let grammars = bundled_grammar_set(&language_ids)?;
-        let tokenizer = TextmateTokenizer::new(
-            &grammars,
+        let tokenizer = TextmateTokenizer::with_plugin_grammars(
+            &language_ids,
+            plugin_grammars,
             configuration.theme.settings(),
             configuration.limits,
         )?;
@@ -227,6 +231,7 @@ impl RunningJob {
 #[derive(Default)]
 struct WorkerState {
     engine: Option<Engine>,
+    plugin_grammars: Vec<PluginGrammar>,
     jobs: VecDeque<RunningJob>,
     line_text: String,
 }
@@ -234,12 +239,18 @@ struct WorkerState {
 impl WorkerState {
     fn accept(&mut self, request: WorkerRequest) -> Option<WorkerResponse> {
         match request {
+            WorkerRequest::SetPluginGrammars(plugin_grammars) => {
+                self.plugin_grammars = plugin_grammars;
+                None
+            }
             WorkerRequest::Configure(configuration) => {
                 self.jobs.clear();
-                let result = Engine::new(&configuration).map(|(engine, style_table)| {
-                    self.engine = Some(engine);
-                    style_table
-                });
+                let result = Engine::new(&configuration, &self.plugin_grammars).map(
+                    |(engine, style_table)| {
+                        self.engine = Some(engine);
+                        style_table
+                    },
+                );
                 Some(WorkerResponse::Configured {
                     generation: configuration.generation,
                     result,

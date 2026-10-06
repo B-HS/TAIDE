@@ -6,7 +6,8 @@ use taide_native_editor::document::{DocumentId, DocumentSnapshot};
 use taide_native_editor::line_tokens::{LineTokens, TokenStyleTable};
 
 use crate::document_tokens::{DocumentTokens, is_too_large_for_tokenization};
-use crate::requested_languages::RequestedLanguages;
+use crate::plugin_grammars::PluginGrammar;
+use crate::requested_languages::{RequestedLanguages, is_bundled_language};
 use crate::textmate_tokenizer::TokenizerLimits;
 use crate::token_theme::TokenTheme;
 use crate::token_worker::{
@@ -51,6 +52,8 @@ pub struct TokenPipeline {
     client: Option<WorkerClient>,
     limits: TokenizerLimits,
     languages: RequestedLanguages,
+    plugin_grammars: Vec<PluginGrammar>,
+    is_plugin_grammar_set_unsent: bool,
     theme: Option<TokenTheme>,
     is_configuration_stale: bool,
     pending: Option<PendingConfiguration>,
@@ -71,6 +74,8 @@ impl TokenPipeline {
             client: Some(client),
             limits,
             languages: RequestedLanguages::default(),
+            plugin_grammars: Vec::new(),
+            is_plugin_grammar_set_unsent: false,
             theme: None,
             is_configuration_stale: false,
             pending: None,
@@ -125,6 +130,31 @@ impl TokenPipeline {
             return;
         }
         self.theme = Some(theme);
+        self.is_configuration_stale = true;
+    }
+
+    pub fn accepts_language(&self, language_id: &str) -> bool {
+        is_bundled_language(language_id)
+            || self
+                .plugin_grammars
+                .iter()
+                .any(|grammar| grammar.language_id() == language_id)
+    }
+
+    pub fn set_plugin_grammars(&mut self, plugin_grammars: Vec<PluginGrammar>) {
+        for language_id in plugin_grammars
+            .iter()
+            .flat_map(PluginGrammar::embedded_languages)
+        {
+            if self.languages.request(language_id) {
+                self.is_configuration_stale = true;
+            }
+        }
+        if self.plugin_grammars == plugin_grammars {
+            return;
+        }
+        self.plugin_grammars = plugin_grammars;
+        self.is_plugin_grammar_set_unsent = true;
         self.is_configuration_stale = true;
     }
 
@@ -332,6 +362,13 @@ impl TokenPipeline {
         let Some(theme) = self.theme.clone() else {
             return;
         };
+        if self.is_plugin_grammar_set_unsent {
+            let plugin_grammars = self.plugin_grammars.clone();
+            if !self.send(WorkerRequest::SetPluginGrammars(plugin_grammars)) {
+                return;
+            }
+            self.is_plugin_grammar_set_unsent = false;
+        }
         let generation = self.last_generation + 1;
         let language_ids = self.languages.ids().to_vec();
         let is_sent = self.send(WorkerRequest::Configure(Box::new(WorkerConfiguration {
@@ -347,7 +384,14 @@ impl TokenPipeline {
         self.is_configuration_stale = false;
         self.pending = Some(PendingConfiguration {
             generation,
-            language_ids,
+            language_ids: language_ids
+                .into_iter()
+                .chain(
+                    self.plugin_grammars
+                        .iter()
+                        .map(|grammar| grammar.language_id().to_owned()),
+                )
+                .collect(),
         });
         for document in self.documents.values_mut() {
             document.job = None;

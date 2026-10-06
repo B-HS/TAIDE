@@ -75,7 +75,16 @@ struct ManifestLanguage {
 struct ManifestGrammar {
     id: String,
     scope_name: String,
+    aliases: Vec<String>,
     imports: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct BundledRegistration {
+    pub name: &'static str,
+    pub scope_name: &'static str,
+    pub aliases: &'static [String],
+    pub source: &'static str,
 }
 
 fn manifest() -> Result<&'static Manifest, SyntaxError> {
@@ -154,6 +163,52 @@ pub fn bundled_grammar_set(
         grammar_sources,
         languages,
     })
+}
+
+fn register(
+    manifest: &'static Manifest,
+    grammar_id: &'static str,
+    name: &'static str,
+    registered: &mut BTreeSet<(&'static str, &'static str)>,
+    registrations: &mut Vec<BundledRegistration>,
+) -> Result<(), SyntaxError> {
+    if !registered.insert((grammar_id, name)) {
+        return Ok(());
+    }
+    let listed = grammar(manifest, grammar_id)?;
+    for import in &listed.imports {
+        register(manifest, import, import, registered, registrations)?;
+    }
+    registrations.push(BundledRegistration {
+        name,
+        scope_name: &listed.scope_name,
+        aliases: &listed.aliases,
+        source: grammar_source(grammar_id)?,
+    });
+    Ok(())
+}
+
+pub(crate) fn bundled_registrations(
+    requested_language_ids: &[&str],
+) -> Result<Vec<BundledRegistration>, SyntaxError> {
+    let manifest = manifest()?;
+    let mut registered = BTreeSet::new();
+    let mut registrations = Vec::new();
+    for requested in requested_language_ids {
+        let language = manifest
+            .languages
+            .iter()
+            .find(|language| language.language_id == *requested)
+            .ok_or_else(|| SyntaxError::UnknownLanguage((*requested).to_owned()))?;
+        register(
+            manifest,
+            &language.grammar_id,
+            &language.language_id,
+            &mut registered,
+            &mut registrations,
+        )?;
+    }
+    Ok(registrations)
 }
 
 #[cfg(test)]

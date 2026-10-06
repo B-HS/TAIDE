@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 
-use super::{GRAMMAR_SOURCES, bundled_grammar_set, bundled_language_ids, manifest};
+use super::{
+    GRAMMAR_SOURCES, bundled_grammar_set, bundled_language_ids, bundled_registrations, manifest,
+};
 use crate::tokenizer::SyntaxError;
 
 const TAIDE_LANGUAGE_IDS: [&str; 31] = [
@@ -118,5 +120,53 @@ fn 번들에_없는_언어는_오류로_돌려준다() {
     assert_eq!(
         bundled_grammar_set(&["plaintext"]).unwrap_err(),
         SyntaxError::UnknownLanguage("plaintext".to_owned())
+    );
+    assert_eq!(
+        bundled_registrations(&["json", "plaintext"]).unwrap_err(),
+        SyntaxError::UnknownLanguage("plaintext".to_owned())
+    );
+}
+
+#[test]
+fn 등록_목록은_ts가_문법을_싣는_순서로_끌어오는_문법을_앞에_두고_이름만_다른_언어를_따로_둔다() {
+    let names = |requested: &[&str]| -> Vec<(&str, &str)> {
+        bundled_registrations(requested)
+            .unwrap()
+            .iter()
+            .map(|registration| (registration.name, registration.scope_name))
+            .collect()
+    };
+    assert_eq!(
+        names(&["heex", "html", "typescriptreact", "heex"]),
+        [
+            ("javascript", "source.js"),
+            ("css", "source.css"),
+            ("heex", HTML_SCOPE_NAME),
+            ("html", HTML_SCOPE_NAME),
+            ("typescriptreact", "source.tsx"),
+        ]
+    );
+    assert_eq!(
+        names(&["cpp", "c"]),
+        [
+            ("regexp", "source.regexp.python"),
+            ("c", "source.c"),
+            ("glsl", "source.glsl"),
+            ("cpp-macro", "source.cpp.embedded.macro"),
+            ("cpp", "source.cpp"),
+        ]
+    );
+    let ruby = bundled_registrations(&["ruby"]).unwrap();
+    assert_eq!(ruby.len(), RUBY_GRAMMAR_COUNT);
+    assert_eq!(ruby[RUBY_GRAMMAR_COUNT - 1].name, "ruby");
+    assert_eq!(ruby[RUBY_GRAMMAR_COUNT - 1].aliases, ["rb"]);
+    let shell = ruby
+        .iter()
+        .find(|registration| registration.name == "shellscript")
+        .unwrap();
+    assert_eq!(shell.aliases, ["bash", "sh", "shell", "zsh"]);
+    assert_eq!(
+        scope_names(&[shell.source]),
+        BTreeSet::from([shell.scope_name.to_owned()])
     );
 }
