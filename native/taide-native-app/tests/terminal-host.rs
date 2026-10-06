@@ -34,6 +34,45 @@ const CELL_HEIGHT: u16 = 16;
 const IDE_PORT: u32 = 12345;
 const MENU_SCREEN: [f32; 2] = [640.0, 320.0];
 const SMALL_MENU_SCREEN: [f32; 2] = [200.0, 220.0];
+
+struct ViewFailures(Mutex<Vec<(std::thread::ThreadId, String)>>);
+
+impl log::Log for ViewFailures {
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        metadata.level() <= log::Level::Warn
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        if self.enabled(record.metadata()) {
+            self.0
+                .lock()
+                .unwrap()
+                .push((std::thread::current().id(), record.args().to_string()));
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+static VIEW_FAILURES: ViewFailures = ViewFailures(Mutex::new(Vec::new()));
+
+fn capture_view_failures() {
+    static INSTALL: std::sync::Once = std::sync::Once::new();
+    INSTALL.call_once(|| {
+        log::set_logger(&VIEW_FAILURES).unwrap();
+        log::set_max_level(log::LevelFilter::Warn);
+    });
+}
+
+fn reported_view_failure(fragment: &str) -> bool {
+    let reporter = std::thread::current().id();
+    VIEW_FAILURES
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|(thread, message)| *thread == reporter && message.contains(fragment))
+}
 const RESIZED_COLUMNS: u16 = 96;
 const RESIZED_ROWS: u16 = 32;
 
@@ -4587,6 +4626,7 @@ async fn headless_input_budget은_포화에서_선택을_유지하고_취소된_
     use taide_native_app::terminal_surface::{Request, Views};
     const SCREEN: [f32; 2] = [480.0, 240.0];
     const QUEUE_INPUTS: usize = 64;
+    capture_view_failures();
     let fixture = Fixture::new();
     let hub = Hub::new(
         fixture.services.clone(),
@@ -4675,9 +4715,7 @@ async fn headless_input_budget은_포화에서_선택을_유지하고_취소된_
     let copied = rendered.platform_output.commands.iter().any(|command| {
         matches!(command, egui::OutputCommand::CopyText(text) if text.contains("한𐐀e\u{301}\n"))
     });
-    let overflow = rendered.shapes.iter().any(|shape| {
-        matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text.contains("budget exceeded"))
-    });
+    let overflow = reported_view_failure("budget exceeded");
     views.cancel_inputs();
     views
         .flush_inputs(&hub, &fixture.services, &context)
