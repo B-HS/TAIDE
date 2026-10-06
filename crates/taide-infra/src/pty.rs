@@ -587,6 +587,24 @@ fn build_command(config: &PtySpawnConfig) -> (CommandBuilder, Option<PathBuf>) {
     (cmd, integration.map(|plan| plan.temp_dir))
 }
 
+const XNU_REDRIVE_OPEN_ERRNO: i32 = -6;
+const PTY_OPEN_REDRIVE_LIMIT: usize = 3;
+
+fn open_pty_redriving_raced_allocation<T, E: std::fmt::Display>(mut open: impl FnMut() -> Result<T, E>) -> AppResult<T> {
+    let mut redrives_left = PTY_OPEN_REDRIVE_LIMIT;
+    loop {
+        let failure = match open() {
+            Ok(pair) => return Ok(pair),
+            Err(error) => error.to_string(),
+        };
+        let is_redrive_request = failure.contains(&format!("{:?}", std::io::Error::from_raw_os_error(XNU_REDRIVE_OPEN_ERRNO)));
+        if redrives_left == 0 || !is_redrive_request {
+            return Err(AppError::Internal(failure));
+        }
+        redrives_left -= 1;
+    }
+}
+
 /// Transfers the child, workers, and integration directory only after complete session startup.
 /// Partial startup cleanup runs synchronously; call from a blocking worker, not the async or native event loop.
 /// Existing termination policy is retained, and cleanup may wait for OS reads or callbacks without a deadline.
@@ -596,14 +614,14 @@ where
     X: FnOnce(Option<i32>) + Send + 'static,
 {
     let pty_system = native_pty_system();
-    let pair = pty_system
-        .openpty(PtySize {
+    let pair = open_pty_redriving_raced_allocation(|| {
+        pty_system.openpty(PtySize {
             rows: config.rows,
             cols: config.cols,
             pixel_width: 0,
             pixel_height: 0,
         })
-        .map_err(|error| AppError::Internal(error.to_string()))?;
+    })?;
 
     let (cmd, shell_integration_temp_dir) = build_command(&config);
 
@@ -1220,6 +1238,46 @@ mod tests {
             .unwrap()
             .0;
         assert!(commit.contains("PtyCompletionHandle::new(std::mem::take(&mut self.workers)"));
+    }
+
+    fn openpty_failure(errno: i32) -> String {
+        format!("failed to openpty: {:?}", std::io::Error::from_raw_os_error(errno))
+    }
+
+    #[test]
+    fn 할당_경합으로_밀린_pty_열기는_한도_안에서_다시_열어_성공한다() {
+        let mut attempts = 0;
+        let opened = open_pty_redriving_raced_allocation(|| {
+            attempts += 1;
+            if attempts <= PTY_OPEN_REDRIVE_LIMIT {
+                return Err(openpty_failure(XNU_REDRIVE_OPEN_ERRNO));
+            }
+            Ok(attempts)
+        });
+        assert_eq!(opened.unwrap(), PTY_OPEN_REDRIVE_LIMIT + 1);
+    }
+
+    #[test]
+    fn 다시_열기_한도를_넘긴_할당_경합은_마지막_오류를_그대로_돌려준다() {
+        let mut attempts = 0;
+        let failed = open_pty_redriving_raced_allocation(|| -> Result<(), String> {
+            attempts += 1;
+            Err(openpty_failure(XNU_REDRIVE_OPEN_ERRNO))
+        });
+        assert!(matches!(failed, Err(AppError::Internal(message)) if message == openpty_failure(XNU_REDRIVE_OPEN_ERRNO)));
+        assert_eq!(attempts, PTY_OPEN_REDRIVE_LIMIT + 1);
+    }
+
+    #[test]
+    fn 할당_경합이_아닌_pty_열기_실패는_다시_열지_않는다() {
+        const DEVICE_NOT_CONFIGURED_ERRNO: i32 = 6;
+        let mut attempts = 0;
+        let failed = open_pty_redriving_raced_allocation(|| -> Result<(), String> {
+            attempts += 1;
+            Err(openpty_failure(DEVICE_NOT_CONFIGURED_ERRNO))
+        });
+        assert!(matches!(failed, Err(AppError::Internal(message)) if message == openpty_failure(DEVICE_NOT_CONFIGURED_ERRNO)));
+        assert_eq!(attempts, 1);
     }
 
     #[cfg(unix)]
