@@ -1,6 +1,12 @@
+#[path = "display-layout.rs"]
+pub mod display_layout;
+#[path = "display-map.rs"]
+pub mod display_map;
 pub mod document;
 pub mod editing;
 pub mod indent;
+#[path = "line-breaks.rs"]
+pub mod line_breaks;
 pub mod lsp;
 pub mod save_cleanup;
 #[path = "save-preparation.rs"]

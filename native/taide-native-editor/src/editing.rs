@@ -2,11 +2,12 @@ use std::ops::Range;
 
 use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete, UnicodeSegmentation};
 
+use crate::display_map::{DisplayMap, RowSegment};
 use crate::document::{DocumentSnapshot, Edit, EditorError, LineEnding, UndoGroup, byte_to_char};
 use crate::indent::IndentOptions;
 use crate::store::{EditorStore, Transaction};
 use crate::view::{
-    EditOperation, EditRun, GoalColumns, Selection, SelectionSet, ViewId, ViewState,
+    EditOperation, EditRun, GoalColumns, Selection, SelectionSet, ViewId, ViewState, WrapAffinities,
 };
 
 const WORD_SEPARATORS: &str = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
@@ -582,41 +583,92 @@ fn line_start_target(document: &DocumentSnapshot, head: usize) -> usize {
     }
 }
 
+fn row_start_target(
+    document: &DocumentSnapshot,
+    display: &DisplayMap,
+    head: usize,
+    head_row: usize,
+) -> usize {
+    let row = display.segment(document, head_row);
+    if !row.is_continuation {
+        return line_start_target(document, head);
+    }
+    let first_non_blank = document
+        .rope
+        .byte_slice(row.bytes.clone())
+        .bytes()
+        .position(|byte| !matches!(byte, b' ' | b'\t'));
+    if first_non_blank == Some(head.saturating_sub(row.bytes.start)) {
+        line_start_target(document, head)
+    } else {
+        row.bytes.start + first_non_blank.unwrap_or(0)
+    }
+}
+
+fn row_end_target(
+    document: &DocumentSnapshot,
+    display: &DisplayMap,
+    head: usize,
+    head_row: usize,
+) -> (usize, bool) {
+    let row = display.segment(document, head_row);
+    let line_end = line_content_range(document, row.line).end;
+    if head == row.bytes.end || row.bytes.end == line_end {
+        (line_end, false)
+    } else {
+        (row.bytes.end, true)
+    }
+}
+
+fn row_content(document: &DocumentSnapshot, row: &RowSegment) -> String {
+    let mut content = " ".repeat(row.indent_columns as usize);
+    content.extend(document.rope.byte_slice(row.bytes.clone()).chunks());
+    content
+}
+
 fn vertical_target(
     document: &DocumentSnapshot,
-    from: usize,
-    lines: isize,
+    display: &DisplayMap,
+    (from, from_row): (usize, usize),
+    rows: isize,
     leftover: isize,
     tab_size: usize,
-) -> (usize, isize) {
-    let line = document.rope.byte_to_line(from);
-    let last_line = document.rope.len_lines() - 1;
-    let content = line_text(document, line);
-    let column = (from - content.start).min(content.text.len());
-    let current = visible_column(&content.text[..column], tab_size) as isize + leftover;
-    let requested = line as isize + lines;
-    let was_at_edge = if lines < 0 {
-        line == 0 && column == 0
+) -> (usize, isize, bool) {
+    let last_row = display.row_count() - 1;
+    let row = display.segment(document, from_row);
+    let content = row_content(document, &row);
+    let column =
+        row.indent_columns as usize + from.saturating_sub(row.bytes.start).min(row.bytes.len());
+    let current = visible_column(&content[..column], tab_size) as isize + leftover;
+    let requested = from_row as isize + rows;
+    let was_at_edge = if rows < 0 {
+        from_row == 0 && column == 0
     } else {
-        line == last_line && column == content.text.len()
+        from_row == last_row && column == content.len()
     };
-    let (target, target_column) = if requested < 0 {
-        (line_text(document, 0), 0)
-    } else if requested > last_line as isize {
-        let target = line_text(document, last_line);
-        let column = target.text.len();
-        (target, column)
+    let target_row = requested.clamp(0, last_row as isize) as usize;
+    let target = display.segment(document, target_row);
+    let target_content = row_content(document, &target);
+    let target_indent = target.indent_columns as usize;
+    let target_column = if requested < 0 {
+        target_indent
+    } else if requested > last_row as isize {
+        target_content.len()
     } else {
-        let target = line_text(document, requested as usize);
-        let column = offset_at_visible_column(&target.text, current.max(0) as usize, tab_size);
-        (target, column)
+        offset_at_visible_column(&target_content, current.max(0) as usize, tab_size)
+            .max(target_indent)
     };
     let remaining = if was_at_edge {
         0
     } else {
-        current - visible_column(&target.text[..target_column], tab_size) as isize
+        current - visible_column(&target_content[..target_column], tab_size) as isize
     };
-    (target.start + target_column, remaining)
+    let byte = target.bytes.start + target_column - target_indent;
+    (
+        byte,
+        remaining,
+        display.row_of_byte(document, byte) != target_row,
+    )
 }
 
 fn is_typing(operation: EditOperation) -> bool {
@@ -812,13 +864,38 @@ pub fn move_selection(
     motion: Motion,
     extend: bool,
 ) -> Result<(), EditorError> {
+    move_selection_across(store, view, motion, extend, None)
+}
+
+pub fn move_selection_displayed(
+    store: &mut EditorStore,
+    view: ViewId,
+    motion: Motion,
+    extend: bool,
+    display: &DisplayMap,
+) -> Result<(), EditorError> {
+    move_selection_across(store, view, motion, extend, Some(display))
+}
+
+fn move_selection_across(
+    store: &mut EditorStore,
+    view: ViewId,
+    motion: Motion,
+    extend: bool,
+    display: Option<&DisplayMap>,
+) -> Result<(), EditorError> {
     let (current, document) = view_document(store, view)?;
+    let identity = DisplayMap::identity(document.rope.len_lines(), document.revision);
+    let display = display
+        .filter(|display| display.revision() == document.revision)
+        .unwrap_or(&identity);
     let has_multiple_cursors = current.selection.selections.len() > 1;
     let goal = current.goal_columns.as_ref().filter(|goal| {
         goal.revision == document.revision
             && goal.leftover_visible_columns.len() == current.selection.selections.len()
     });
     let mut leftover_visible_columns = Vec::new();
+    let mut heads_at_row_end = Vec::new();
     let selections = current
         .selection
         .selections
@@ -828,36 +905,54 @@ pub fn move_selection(
             let head = selection.head;
             let range = ordered(selection);
             let collapses = !extend && !range.is_empty();
-            let target = match motion {
-                Motion::Left if collapses => range.start,
-                Motion::Right if collapses => range.end,
-                Motion::Left => grapheme_boundary(&document, head, false)?,
-                Motion::Right => grapheme_boundary(&document, head, true)?,
-                Motion::WordLeft => word_left_target(&document, head, has_multiple_cursors),
-                Motion::WordRight => word_right_target(&document, head),
-                Motion::LineStart => line_start_target(&document, head),
-                Motion::LineEnd => {
-                    line_content_range(&document, document.rope.byte_to_line(head)).end
+            let head_at_row_end = current.head_at_row_end(index, document.revision);
+            let head_row = display.row_of_head(&document, head, head_at_row_end);
+            let (target, at_row_end) = match motion {
+                Motion::Left if collapses => (range.start, range.start == head && head_at_row_end),
+                Motion::Right if collapses => (range.end, range.end == head && head_at_row_end),
+                Motion::Left => (grapheme_boundary(&document, head, false)?, false),
+                Motion::Right => {
+                    let target = grapheme_boundary(&document, head, true)?;
+                    let row = display.row_of_byte(&document, head);
+                    (
+                        target,
+                        target == display.segment(&document, row).bytes.end
+                            && display.row_of_byte(&document, target) != row,
+                    )
                 }
-                Motion::DocumentStart => 0,
-                Motion::DocumentEnd => document.rope.len_bytes(),
+                Motion::WordLeft => (
+                    word_left_target(&document, head, has_multiple_cursors),
+                    false,
+                ),
+                Motion::WordRight => (word_right_target(&document, head), false),
+                Motion::LineStart => (row_start_target(&document, display, head, head_row), false),
+                Motion::LineEnd => row_end_target(&document, display, head, head_row),
+                Motion::DocumentStart => (0, false),
+                Motion::DocumentEnd => (document.rope.len_bytes(), false),
                 Motion::Vertical { lines, tab_size } => {
                     let from = match (collapses, lines < 0) {
                         (true, true) => range.start,
                         (true, false) => range.end,
                         (false, _) => head,
                     };
-                    let (target, remaining) = vertical_target(
+                    let from_row = if from == head {
+                        head_row
+                    } else {
+                        display.row_of_byte(&document, from)
+                    };
+                    let (target, remaining, at_row_end) = vertical_target(
                         &document,
-                        from,
+                        display,
+                        (from, from_row),
                         lines,
                         goal.map_or(0, |goal| goal.leftover_visible_columns[index]),
                         (tab_size as usize).max(1),
                     );
                     leftover_visible_columns.push(remaining);
-                    target
+                    (target, at_row_end)
                 }
             };
+            heads_at_row_end.push(at_row_end);
             Ok(Selection {
                 anchor: if extend { selection.anchor } else { target },
                 head: target,
@@ -880,6 +975,13 @@ pub fn move_selection(
         matches!(motion, Motion::Vertical { .. }).then_some(GoalColumns {
             revision: document.revision,
             leftover_visible_columns,
+        }),
+    )?;
+    store.set_wrap_affinities(
+        view,
+        heads_at_row_end.contains(&true).then_some(WrapAffinities {
+            revision: document.revision,
+            heads_at_row_end,
         }),
     )
 }

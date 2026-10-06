@@ -22,6 +22,12 @@ pub mod controller;
 pub mod css_motion;
 #[cfg(feature = "native-host")]
 pub mod document_admission;
+#[path = "editor-geometry.rs"]
+pub mod editor_geometry;
+#[path = "editor-paint.rs"]
+mod editor_paint;
+#[path = "editor-row-text.rs"]
+pub mod editor_row_text;
 pub mod editor_surface;
 #[path = "font-families.rs"]
 pub mod font_families;

@@ -2,26 +2,31 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use egui::os::OperatingSystem;
-use egui::text::CCursor;
 use egui::{
-    Color32, Event, FontId, Galley, Id, ImeEvent, Key, Modifiers, Pos2, Rect, Response, Sense,
-    Stroke, Ui, Vec2, pos2, vec2,
+    Color32, Event, FontFamily, FontId, Id, ImeEvent, Key, Modifiers, Painter, Pos2, Rect,
+    Response, Sense, Ui, Vec2, pos2, vec2,
 };
+use taide_native_editor::display_layout::VerticalLayout;
+use taide_native_editor::display_map::DisplayMap;
 use taide_native_editor::document::{DocumentId, DocumentSnapshot, EditorError};
 use taide_native_editor::editing::{
     ClipboardText, Motion, clipboard_text, compose_text, cut, delete_backward, delete_forward,
-    delete_to_line_start, delete_word, insert_line_break, line_content_range, move_selection,
-    outdent, paste, reveal_position, select_all, tab, type_text,
+    delete_to_line_start, delete_word, insert_line_break, move_selection_displayed, outdent, paste,
+    reveal_position, select_all, tab, type_text,
 };
 use taide_native_editor::indent::{IndentOptions, resolve};
 use taide_native_editor::store::EditorStore;
-use taide_native_editor::view::{Composition, Selection, SelectionSet, ViewId};
+use taide_native_editor::view::{
+    Composition, Selection, SelectionSet, ViewId, ViewState, WrapAffinities,
+};
 
-const LINE_NUMBER_MIN_DIGITS: usize = 3;
-const CURSOR_STROKE: f32 = 1.0;
+use crate::editor_geometry::{
+    EditorGeometry, Row, RowLayout, gutter_width, half_leading, scroll_x_revealing, wrap_settings,
+};
+use crate::editor_paint::{Carets, Layers};
+
 const ROW_OVERSCAN: usize = 1;
 const CENTER_DIVISOR: f32 = 2.0;
-const PADDING_SIDES: f32 = 2.0;
 const FALLBACK_TAB_SIZE: u32 = 4;
 const PAGE_OVERLAP_LINES: isize = 2;
 const VERTICAL_SCROLLBAR_SIZE: f32 = 14.0;
@@ -31,8 +36,6 @@ const SCROLL_BEYOND_LAST_COLUMN: usize = 4;
 const SCROLLBAR_HIDE_DELAY: f64 = 0.5;
 const SCROLLBAR_FADE_IN: f32 = 0.1;
 const SCROLLBAR_FADE_OUT: f32 = 0.8;
-const SCROLLBAR_IDLE_OPACITY: f32 = 0.4;
-const SCROLLBAR_ENGAGED_OPACITY: f32 = 0.7;
 const CLIPBOARD_MEMORY: &str = "native-code-editor-clipboard";
 const SCROLLBAR_FADE: &str = "scrollbar-fade";
 
@@ -53,6 +56,57 @@ pub struct EditorAppearance {
     pub indent: String,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RenderWhitespace {
+    #[default]
+    None,
+    Boundary,
+    Selection,
+    All,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CursorStyle {
+    #[default]
+    LineThin,
+    Line,
+    Block,
+    Underline,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CursorBlinking {
+    #[default]
+    Solid,
+    Blink,
+    Smooth,
+    Phase,
+    Expand,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct EditorDisplayOptions {
+    pub word_wrap: bool,
+    pub render_whitespace: RenderWhitespace,
+    pub rulers: Vec<u32>,
+    pub cursor_style: CursorStyle,
+    pub cursor_blinking: CursorBlinking,
+    pub smooth_caret: bool,
+    pub scroll_beyond_last_line: bool,
+    pub smooth_scrolling: bool,
+    pub sticky_scroll: bool,
+    pub minimap: bool,
+    pub folding: bool,
+    pub bracket_pair_colorization: bool,
+    pub bracket_pair_guides: bool,
+    pub bold_family: Option<FontFamily>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct EditorPresentation {
+    pub options: EditorDisplayOptions,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ScrollAxis {
     Vertical,
@@ -66,21 +120,88 @@ struct ScrollbarDrag {
     slider: f32,
 }
 
+#[derive(Clone, Copy)]
+struct RenderedViewport {
+    scroll_top: f32,
+    line_height: f32,
+}
+
 #[derive(Default, Clone)]
 struct InputState {
     ime_revision: Option<u64>,
     widest_line: f32,
     widest_document: Option<DocumentId>,
+    widest_wrap_column: Option<u32>,
     scrollbar_drag: Option<ScrollbarDrag>,
     scrolled_at: Option<f64>,
+    rendered_viewport: Option<RenderedViewport>,
 }
 
-struct InputContext {
+struct Projection<'a> {
+    painter: Painter,
+    appearance: &'a EditorAppearance,
+    width: f32,
+    wrap_tab_size: Option<u32>,
+    cached: Option<Arc<DisplayMap>>,
+    rendered_viewport: Option<RenderedViewport>,
+    stable_scroll_top: Option<f32>,
+}
+
+impl Projection<'_> {
+    fn map(&mut self, document: &DocumentSnapshot) -> &DisplayMap {
+        self.map_with_stable_scroll_top(document).0
+    }
+
+    fn map_with_stable_scroll_top(
+        &mut self,
+        document: &DocumentSnapshot,
+    ) -> (&DisplayMap, Option<f32>) {
+        let wrap = self.wrap_tab_size.map(|tab_size| {
+            let gutter = gutter_width(&self.painter, document.rope.len_lines(), self.appearance);
+            wrap_settings(
+                &self.painter,
+                self.appearance,
+                self.width - gutter,
+                VERTICAL_SCROLLBAR_SIZE,
+                tab_size,
+            )
+        });
+        let viewport_start = self
+            .cached
+            .take_if(|map| map.wrap_settings() != wrap.as_ref())
+            .filter(|stale| stale.revision() == document.revision)
+            .zip(
+                self.rendered_viewport
+                    .filter(|rendered| rendered.scroll_top > 0.0),
+            )
+            .map(|(stale, rendered)| {
+                let layout = VerticalLayout::new(rendered.line_height, stale.row_count());
+                let row = layout.row_at(rendered.scroll_top);
+                (
+                    stale.segment(document, row).bytes.start,
+                    rendered.scroll_top - layout.row_top(row),
+                )
+            });
+        let map = Arc::make_mut(
+            self.cached
+                .get_or_insert_with(|| Arc::new(DisplayMap::build(document, wrap))),
+        );
+        map.refresh(document);
+        if let Some((byte, delta)) = viewport_start {
+            let layout = VerticalLayout::new(self.appearance.line_height, map.row_count());
+            self.stable_scroll_top = Some(layout.row_top(map.row_of_byte(document, byte)) + delta);
+        }
+        (map, self.stable_scroll_top)
+    }
+}
+
+struct InputContext<'a> {
     is_mac: bool,
     force_crlf: bool,
     page_lines: isize,
     indent: IndentOptions,
     clipboard: Option<ClipboardText>,
+    projection: Projection<'a>,
 }
 
 pub struct EditorOutput {
@@ -89,6 +210,7 @@ pub struct EditorOutput {
     pub changed: bool,
     pub rendered_lines: std::ops::Range<usize>,
     pub errors: Vec<EditorError>,
+    pub geometry: EditorGeometry,
 }
 
 #[derive(Default)]
@@ -208,14 +330,6 @@ impl Scrollbar {
     }
 }
 
-struct Row {
-    line: usize,
-    start_char: usize,
-    byte_range: std::ops::Range<usize>,
-    origin: Pos2,
-    galley: Arc<Galley>,
-}
-
 pub struct NativeEditor {
     pub appearance: EditorAppearance,
 }
@@ -260,6 +374,25 @@ impl NativeEditor {
         line: f64,
         column: f64,
     ) -> Result<(), EditorError> {
+        self.reveal_presented(
+            ui,
+            store,
+            view,
+            line,
+            column,
+            &EditorPresentation::default(),
+        )
+    }
+
+    pub fn reveal_presented(
+        &self,
+        ui: &Ui,
+        store: &mut EditorStore,
+        view: ViewId,
+        line: f64,
+        column: f64,
+        presentation: &EditorPresentation,
+    ) -> Result<(), EditorError> {
         let appearance = &self.appearance;
         if !appearance.line_height.is_finite()
             || appearance.line_height <= 0.0
@@ -272,6 +405,7 @@ impl NativeEditor {
         if !rect.is_finite() || rect.width() <= 0.0 || rect.height() <= 0.0 {
             return Err(EditorError::InvalidBoundary);
         }
+        let cached = store.take_display(view)?;
         let byte = reveal_position(store, view, line, column)?;
         let current = store
             .views()
@@ -279,29 +413,35 @@ impl NativeEditor {
             .ok_or(EditorError::NotFound)?
             .clone();
         let document = store.documents().snapshot(current.document)?;
-        let line = document.rope.byte_to_line(byte);
-        let range = line_content_range(&document, line);
-        let start = document.rope.byte_to_char(range.start);
-        let end = document.rope.byte_to_char(range.end);
-        let galley = ui.painter().layout_no_wrap(
-            document.rope.slice(start..end).to_string(),
-            appearance.font.clone(),
-            appearance.foreground,
-        );
-        let cursor = galley.pos_from_cursor(CCursor::new(document.rope.byte_to_char(byte) - start));
-        let text_width = (rect.width() - gutter_width(ui, &document, appearance)).max(0.0);
+        let tab_size = self.indent_options(&document).tab_size;
+        let mut projection = Projection {
+            painter: ui.painter().clone(),
+            appearance,
+            width: rect.width(),
+            wrap_tab_size: presentation.options.word_wrap.then_some(tab_size),
+            cached,
+            rendered_viewport: None,
+            stable_scroll_top: None,
+        };
+        let display = projection.map(&document);
+        let layout = VerticalLayout::new(appearance.line_height, display.row_count());
+        let index = display.row_of_byte(&document, byte);
+        let row = RowLayout {
+            painter: ui.painter(),
+            document: &document,
+            display,
+            appearance,
+            half_leading: half_leading(ui.painter(), appearance),
+            tab_size,
+        }
+        .row(index, Pos2::ZERO);
+        let gutter = gutter_width(ui.painter(), document.rope.len_lines(), appearance);
+        let text_width = (rect.width() - gutter).max(0.0);
         let mut scroll = current.scroll;
-        if cursor.left() < scroll.x {
-            scroll.x = cursor.left();
-        }
-        if cursor.right() + CURSOR_STROKE > scroll.x + text_width {
-            scroll.x = (cursor.right() + CURSOR_STROKE - text_width).max(0.0);
-        }
-        let maximum =
-            (document.rope.len_lines() as f32 * appearance.line_height - rect.height()).max(0.0);
-        scroll.y = ((line as f32 + 1.0 / CENTER_DIVISOR) * appearance.line_height
-            - rect.height() / CENTER_DIVISOR)
-            .clamp(0.0, maximum);
+        scroll.x = scroll_x_revealing(scroll.x, row.caret(byte), text_width).max(0.0);
+        let maximum = (layout.content_height() - rect.height()).max(0.0);
+        scroll.y = (layout.row_center(index) - rect.height() / CENTER_DIVISOR).clamp(0.0, maximum);
+        store.set_display(view, projection.cached)?;
         store.set_view_state(view, current.selection, scroll, current.folds)?;
         Ok(())
     }
@@ -343,8 +483,29 @@ impl NativeEditor {
         store: &mut EditorStore,
         view: ViewId,
         request_focus: bool,
+        keymap: impl FnMut(&Ui, &Event, bool) -> bool,
+        route: impl FnOnce(&Response) -> Option<KeyboardInputRoute>,
+    ) -> Result<EditorOutput, EditorError> {
+        self.show_presented(
+            ui,
+            store,
+            view,
+            request_focus,
+            keymap,
+            route,
+            &EditorPresentation::default(),
+        )
+    }
+
+    pub fn show_presented(
+        &self,
+        ui: &mut Ui,
+        store: &mut EditorStore,
+        view: ViewId,
+        request_focus: bool,
         mut keymap: impl FnMut(&Ui, &Event, bool) -> bool,
         route: impl FnOnce(&Response) -> Option<KeyboardInputRoute>,
+        presentation: &EditorPresentation,
     ) -> Result<EditorOutput, EditorError> {
         let appearance = &self.appearance;
         if !appearance.line_height.is_finite()
@@ -361,6 +522,7 @@ impl NativeEditor {
         if ui.is_enabled() && (request_focus || response.clicked() || response.drag_started()) {
             response.request_focus();
         }
+        let cached = store.take_display(view)?;
         let current = store
             .views()
             .get(view)
@@ -372,16 +534,28 @@ impl NativeEditor {
             .data_mut(|data| data.get_temp::<InputState>(id).unwrap_or_default());
         let mut output = InputOutput::default();
         let os = ui.ctx().os();
-        let input_context = InputContext {
+        let indent = self.indent_options(&previous);
+        let mut input_context = InputContext {
             is_mac: os.is_mac(),
             force_crlf: os == OperatingSystem::Windows,
             page_lines: ((rect.height() / appearance.line_height).floor() as isize
                 - PAGE_OVERLAP_LINES)
                 .max(1),
-            indent: self.indent_options(&previous),
+            indent,
             clipboard: ui
                 .ctx()
                 .data_mut(|data| data.get_temp(Id::new(CLIPBOARD_MEMORY))),
+            projection: Projection {
+                painter: ui.painter().clone(),
+                appearance,
+                width: rect.width(),
+                wrap_tab_size: presentation.options.word_wrap.then_some(indent.tab_size),
+                cached,
+                rendered_viewport: input_state
+                    .rendered_viewport
+                    .filter(|rendered| rendered.scroll_top == current.scroll.y),
+                stable_scroll_top: None,
+            },
         };
         let (ownership, (routed_focus, lost_after_events)) = route(&response).unwrap_or_default();
         let focused = routed_focus.unwrap_or_else(|| response.has_focus());
@@ -423,7 +597,7 @@ impl NativeEditor {
                     &event,
                     &mut input_state,
                     &mut output,
-                    &input_context,
+                    &mut input_context,
                 ) {
                     Ok(true) => {}
                     Ok(false) => remaining.push(event),
@@ -447,20 +621,31 @@ impl NativeEditor {
             .get(view)
             .ok_or(EditorError::NotFound)?
             .clone();
-        let line_count = document.rope.len_lines();
-        let content_height = line_count as f32 * appearance.line_height;
+        let mut projection = input_context.projection;
+        let (display, stable_scroll_top) = projection.map_with_stable_scroll_top(&document);
+        let wrap_column = display.wrap_settings().map(|settings| settings.wrap_column);
+        let head_row = |state: &ViewState, selection: usize| {
+            display.row_of_head(
+                &document,
+                state.selection.selections[selection].head,
+                state.head_at_row_end(selection, document.revision),
+            )
+        };
+        let layout = VerticalLayout::new(appearance.line_height, display.row_count());
+        let content_height = layout.content_height();
         let scroll_max = (content_height - rect.height()).max(0.0);
-        state.scroll.y = state.scroll.y.min(scroll_max);
+        state.scroll.y = stable_scroll_top.unwrap_or(state.scroll.y).min(scroll_max);
         let moved = document.revision != previous.revision || state.selection != current.selection;
         let head = state.selection.selections[state.selection.primary].head;
-        let caret_line = document.rope.byte_to_line(head);
+        let caret_row = head_row(&state, state.selection.primary);
         if moved {
-            let top = caret_line as f32 * appearance.line_height;
+            let top = layout.row_top(caret_row);
             if top < state.scroll.y {
                 state.scroll.y = top;
             }
-            if top + appearance.line_height > state.scroll.y + rect.height() {
-                state.scroll.y = (top + appearance.line_height - rect.height()).max(0.0);
+            let bottom = layout.row_bottom(caret_row);
+            if bottom > state.scroll.y + rect.height() {
+                state.scroll.y = (bottom - rect.height()).max(0.0);
             }
         }
         let wheel = if response.hovered() && ui.is_enabled() {
@@ -493,32 +678,35 @@ impl NativeEditor {
             state.scroll.y = scrollbar.drag(&mut input_state, &press, state.scroll.y);
         }
         let painter = ui.painter().with_clip_rect(rect);
-        let gutter = gutter_width(ui, &document, appearance);
+        let gutter = gutter_width(&painter, document.rope.len_lines(), appearance);
         let text_rect = Rect::from_min_max(pos2(rect.left() + gutter, rect.top()), rect.max);
-        let first = (state.scroll.y / appearance.line_height).floor() as usize;
-        let end = (first + (rect.height() / appearance.line_height).ceil() as usize + ROW_OVERSCAN)
-            .min(line_count);
-        let mut rows = Vec::new();
-        for line in first.min(end)..end {
-            let byte_range = line_content_range(&document, line);
-            let start_char = document.rope.byte_to_char(byte_range.start);
-            let end_char = document.rope.byte_to_char(byte_range.end);
-            let text = document.rope.slice(start_char..end_char).to_string();
-            let galley =
-                painter.layout_no_wrap(text, appearance.font.clone(), appearance.foreground);
-            rows.push(Row {
-                line,
-                start_char,
-                byte_range,
-                origin: pos2(
-                    text_rect.left(),
-                    rect.top() + line as f32 * appearance.line_height - state.scroll.y,
-                ),
-                galley,
-            });
-        }
-        if input_state.widest_document != Some(document.id) || (first == 0 && end == line_count) {
+        let visible = layout.visible_rows(state.scroll.y, rect.height(), ROW_OVERSCAN);
+        let row_layout = RowLayout {
+            painter: &painter,
+            document: &document,
+            display,
+            appearance,
+            half_leading: half_leading(&painter, appearance),
+            tab_size: indent.tab_size,
+        };
+        let mut rows: Vec<Row> = visible
+            .clone()
+            .map(|index| {
+                row_layout.row(
+                    index,
+                    pos2(
+                        text_rect.left(),
+                        rect.top() + layout.row_top(index) - state.scroll.y,
+                    ),
+                )
+            })
+            .collect();
+        if input_state.widest_document != Some(document.id)
+            || input_state.widest_wrap_column != wrap_column
+            || (visible.start == 0 && visible.end == display.row_count())
+        {
             input_state.widest_document = Some(document.id);
+            input_state.widest_wrap_column = wrap_column;
             input_state.widest_line = 0.0;
         }
         input_state.widest_line = rows
@@ -534,19 +722,19 @@ impl NativeEditor {
             .size()
             .x;
         let text_width = text_rect.width().max(0.0);
-        let content_width = input_state.widest_line + beyond_last_column + VERTICAL_SCROLLBAR_SIZE;
+        let content_width = if wrap_column.is_some() {
+            input_state.widest_line
+        } else {
+            input_state.widest_line + beyond_last_column + VERTICAL_SCROLLBAR_SIZE
+        };
         let scroll_x_max = (content_width - text_width).max(0.0);
         state.scroll.x -= wheel.x;
-        if moved && let Some(row) = rows.iter().find(|row| row.line == caret_line) {
-            let cursor = row.galley.pos_from_cursor(CCursor::new(
-                document.rope.byte_to_char(head.min(row.byte_range.end)) - row.start_char,
-            ));
-            if cursor.left() < state.scroll.x {
-                state.scroll.x = cursor.left();
-            }
-            if cursor.right() + CURSOR_STROKE > state.scroll.x + text_width {
-                state.scroll.x = cursor.right() + CURSOR_STROKE - text_width;
-            }
+        if moved && let Some(row) = rows.iter().find(|row| row.index == caret_row) {
+            state.scroll.x = scroll_x_revealing(
+                state.scroll.x,
+                row.caret(head.min(row.segment.bytes.end)),
+                text_width,
+            );
         }
         state.scroll.x = state.scroll.x.clamp(0.0, scroll_x_max);
         let horizontal = Scrollbar::new(
@@ -585,16 +773,11 @@ impl NativeEditor {
             && let Some(pointer) = response.interact_pointer_pos()
             && !rows.is_empty()
         {
-            let line = (((pointer.y - rect.top() + state.scroll.y) / appearance.line_height)
-                .floor()
-                .max(0.0) as usize)
-                .clamp(rows[0].line, rows[rows.len() - 1].line);
-            if let Some(row) = rows.iter().find(|row| row.line == line) {
-                let cursor = row.galley.cursor_from_pos(pointer - row.origin);
-                let head = document
-                    .rope
-                    .char_to_byte(row.start_char + cursor.index.0)
-                    .min(row.byte_range.end);
+            let target = layout
+                .row_at(pointer.y - rect.top() + state.scroll.y)
+                .clamp(rows[0].index, rows[rows.len() - 1].index);
+            if let Some(row) = rows.iter().find(|row| row.index == target) {
+                let head = row.byte_at(pointer);
                 let extending = response.dragged() || ui.input(|input| input.modifiers.shift);
                 let anchor = if extending {
                     state.selection.selections[state.selection.primary].anchor
@@ -605,6 +788,11 @@ impl NativeEditor {
                     primary: 0,
                     selections: vec![Selection { anchor, head }],
                 };
+                state.wrap_affinities =
+                    (display.row_of_byte(&document, head) != row.index).then(|| WrapAffinities {
+                        revision: document.revision,
+                        heads_at_row_end: vec![true],
+                    });
                 state.composition = None;
                 input_state.ime_revision = None;
                 store.set_composition(view, None)?;
@@ -616,99 +804,45 @@ impl NativeEditor {
                     state.scroll.clone(),
                     state.folds.clone(),
                 )?;
+                store.set_wrap_affinities(view, state.wrap_affinities.clone())?;
             }
         }
-        painter.rect_filled(rect, 0.0, appearance.background);
         let text_painter = painter.with_clip_rect(text_rect);
+        let layers = Layers {
+            painter: &painter,
+            text_painter: &text_painter,
+            rect,
+            text_rect,
+            gutter,
+            appearance,
+        };
         let primary = state.selection.selections[state.selection.primary];
-        let caret_line = document.rope.byte_to_line(primary.head);
-        let mut caret_rect = None;
+        let head_rows: Vec<usize> = (0..state.selection.selections.len())
+            .map(|selection| head_row(&state, selection))
+            .collect();
+        let primary_row = head_rows[state.selection.primary];
+        let carets = Carets {
+            selections: &state.selection,
+            head_rows: &head_rows,
+            primary_row,
+            primary_line: display.segment(&document, primary_row).line,
+            focused,
+        };
+        layers.background();
         for row in &rows {
-            if row.line == caret_line {
-                painter.rect_filled(
-                    Rect::from_min_size(
-                        pos2(rect.left(), row.origin.y),
-                        vec2(rect.width(), appearance.line_height),
-                    ),
-                    0.0,
-                    appearance.current_line,
-                );
-            }
-            for selection in &state.selection.selections {
-                let start = selection.anchor.min(selection.head);
-                let end = selection.anchor.max(selection.head);
-                if start < end && start <= row.byte_range.end && end > row.byte_range.start {
-                    let left = cursor_rect(&document, row, start.max(row.byte_range.start));
-                    let right = cursor_rect(&document, row, end.min(row.byte_range.end));
-                    let right_x = if end > row.byte_range.end {
-                        text_rect.right().max(right.left())
-                    } else {
-                        right.left()
-                    };
-                    text_painter.rect_filled(
-                        Rect::from_min_max(
-                            pos2(left.left(), row.origin.y),
-                            pos2(right_x, row.origin.y + appearance.line_height),
-                        ),
-                        0.0,
-                        appearance.selection,
-                    );
-                }
-                if selection.anchor == selection.head
-                    && document.rope.byte_to_line(selection.head) == row.line
-                {
-                    let cursor =
-                        cursor_rect(&document, row, selection.head.min(row.byte_range.end));
-                    if focused {
-                        text_painter.line_segment(
-                            [
-                                cursor.min,
-                                pos2(cursor.left(), row.origin.y + appearance.line_height),
-                            ],
-                            Stroke::new(CURSOR_STROKE, appearance.cursor),
-                        );
-                    }
-                }
-            }
-            if row.line == caret_line {
-                caret_rect = Some(cursor_rect(
-                    &document,
-                    row,
-                    primary.head.min(row.byte_range.end),
-                ));
-            }
-            text_painter.galley(row.origin, row.galley.clone(), appearance.foreground);
-            if appearance.line_numbers {
-                painter.text(
-                    pos2(
-                        rect.left() + gutter - appearance.horizontal_padding,
-                        row.origin.y,
-                    ),
-                    egui::Align2::RIGHT_TOP,
-                    (row.line + 1).to_string(),
-                    appearance.font.clone(),
-                    appearance.muted,
-                );
-            }
+            layers.row(row, &carets);
         }
+        let caret_rect = rows
+            .iter()
+            .find(|row| row.index == carets.primary_row)
+            .map(|row| row.caret_rect(primary.head.min(row.segment.bytes.end)));
         if focused
             && ui.is_enabled()
             && !document.metadata.read_only
             && let Some(cursor_rect) = caret_rect
         {
             if let Some(composition) = &state.composition {
-                let galley = text_painter.layout_no_wrap(
-                    composition.preedit.clone(),
-                    appearance.font.clone(),
-                    appearance.foreground,
-                );
-                let preedit_rect = Rect::from_min_size(cursor_rect.min, galley.size());
-                text_painter.rect_filled(preedit_rect, 0.0, appearance.background);
-                text_painter.galley(cursor_rect.min, galley, appearance.foreground);
-                text_painter.line_segment(
-                    [preedit_rect.left_bottom(), preedit_rect.right_bottom()],
-                    Stroke::new(CURSOR_STROKE, appearance.cursor),
-                );
+                layers.composition(cursor_rect, &composition.preedit);
             }
             let transform = ui
                 .ctx()
@@ -757,25 +891,35 @@ impl NativeEditor {
                 let slider = scrollbar.slider_rect(scroll);
                 let engaged = dragged_axis == Some(scrollbar.axis)
                     || pointer.is_some_and(|pointer| slider.contains(pointer));
-                let strength = if engaged {
-                    SCROLLBAR_ENGAGED_OPACITY
-                } else {
-                    SCROLLBAR_IDLE_OPACITY
-                };
-                painter.rect_filled(
-                    slider,
-                    0.0,
-                    appearance.muted.gamma_multiply(strength * opacity),
-                );
+                layers.scrollbar(slider, engaged, opacity);
             }
         }
+        let rendered_lines = rows
+            .first()
+            .zip(rows.last())
+            .map_or(visible.clone(), |(first, last)| {
+                first.segment.line..last.segment.line + 1
+            });
+        store.set_display(view, projection.cached)?;
+        input_state.rendered_viewport = Some(RenderedViewport {
+            scroll_top: state.scroll.y,
+            line_height: appearance.line_height,
+        });
         ui.ctx().data_mut(|data| data.insert_temp(id, input_state));
         Ok(EditorOutput {
             response,
             save_requested: false,
             changed: document.revision != previous.revision,
-            rendered_lines: first.min(end)..end,
+            rendered_lines,
             errors: output.errors,
+            geometry: EditorGeometry {
+                rect,
+                content_rect: text_rect,
+                gutter_rect: Rect::from_min_max(rect.min, pos2(text_rect.left(), rect.bottom())),
+                line_height: appearance.line_height,
+                visible_rows: visible,
+                scroll: vec2(state.scroll.x, state.scroll.y),
+            },
         })
     }
 
@@ -786,7 +930,7 @@ impl NativeEditor {
         event: &Event,
         state: &mut InputState,
         output: &mut InputOutput,
-        context: &InputContext,
+        context: &mut InputContext<'_>,
     ) -> Result<bool, EditorError> {
         let current = store
             .views()
@@ -898,9 +1042,13 @@ impl NativeEditor {
                     },
                 };
                 match action {
-                    KeyAction::Move(motion) => {
-                        move_selection(store, view, motion, modifiers.shift)?
-                    }
+                    KeyAction::Move(motion) => move_selection_displayed(
+                        store,
+                        view,
+                        motion,
+                        modifiers.shift,
+                        context.projection.map(&document),
+                    )?,
                     KeyAction::SelectAll => select_all(store, view)?,
                     KeyAction::Undo => {
                         store.undo(document.id)?;
@@ -943,6 +1091,12 @@ impl NativeEditor {
                                 head: primary.head,
                             }
                         };
+                        let affinities = current
+                            .head_at_row_end(current.selection.primary, document.revision)
+                            .then(|| WrapAffinities {
+                                revision: document.revision,
+                                heads_at_row_end: vec![true],
+                            });
                         store.break_undo_group(document.id)?;
                         store.set_view_state(
                             view,
@@ -953,6 +1107,7 @@ impl NativeEditor {
                             current.scroll,
                             current.folds,
                         )?;
+                        store.set_wrap_affinities(view, affinities)?;
                     }
                 }
             }
@@ -977,7 +1132,7 @@ fn command_action(key: Key, modifiers: Modifiers) -> Option<KeyAction> {
     })
 }
 
-fn key_action(key: Key, modifiers: Modifiers, context: &InputContext) -> Option<KeyAction> {
+fn key_action(key: Key, modifiers: Modifiers, context: &InputContext<'_>) -> Option<KeyAction> {
     let line_chord = context.is_mac && modifiers.mac_cmd && !modifiers.alt && !modifiers.ctrl;
     let word_chord = if context.is_mac {
         modifiers.alt && !modifiers.ctrl && !modifiers.command
@@ -1024,34 +1179,4 @@ fn key_action(key: Key, modifiers: Modifiers, context: &InputContext) -> Option<
 
 fn is_same_clipboard_text(copied: &str, pasted: &str) -> bool {
     copied.replace("\r\n", "\n") == pasted.replace("\r\n", "\n")
-}
-
-fn gutter_width(ui: &Ui, document: &DocumentSnapshot, appearance: &EditorAppearance) -> f32 {
-    if !appearance.line_numbers {
-        return appearance.horizontal_padding;
-    }
-    let digits = document
-        .rope
-        .len_lines()
-        .to_string()
-        .len()
-        .max(LINE_NUMBER_MIN_DIGITS);
-    let width = ui
-        .painter()
-        .layout_no_wrap(
-            "0".repeat(digits),
-            appearance.font.clone(),
-            appearance.muted,
-        )
-        .size()
-        .x;
-    width + appearance.horizontal_padding * PADDING_SIDES
-}
-
-fn cursor_rect(document: &DocumentSnapshot, row: &Row, byte: usize) -> Rect {
-    row.galley
-        .pos_from_cursor(CCursor::new(
-            document.rope.byte_to_char(byte) - row.start_char,
-        ))
-        .translate(row.origin.to_vec2())
 }

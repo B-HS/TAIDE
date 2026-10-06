@@ -8,11 +8,13 @@ use taide_model::error::{AppError, AppResult};
 use taide_runtime::TaskSupervisor;
 use tokio::sync::oneshot;
 
+use crate::editor_fonts::Families;
+
 const TERMINAL_FAMILY: &str = "taide-terminal";
 const FONT_BYTES: usize = 64 * 1024 * 1024;
 const TOTAL_FONT_BYTES: usize = 128 * 1024 * 1024;
 const FAMILY_BYTES: usize = 512;
-const FONT_FALLBACKS: [&str; 3] = ["SFMono-Regular", "Menlo", "Apple SD Gothic Neo"];
+pub(crate) const FONT_FALLBACKS: [&str; 3] = ["SFMono-Regular", "Menlo", "Apple SD Gothic Neo"];
 
 pub(crate) fn family() -> FontFamily {
     FontFamily::Name(TERMINAL_FAMILY.into())
@@ -41,27 +43,27 @@ pub(crate) fn requested(family: Option<&str>) -> Requested {
 }
 
 struct Pending {
-    family: Requested,
+    families: Families,
     cancelled: bool,
     reply: oneshot::Receiver<AppResult<Prepared>>,
 }
 
 pub(crate) struct Loader {
-    attempted: Option<Requested>,
+    attempted: Option<Families>,
     pending: Option<Pending>,
 }
 
 impl Loader {
-    pub fn new(family: Requested) -> Self {
+    pub fn new(families: Families) -> Self {
         Self {
-            attempted: Some(family),
+            attempted: Some(families),
             pending: None,
         }
     }
 
     pub fn update(
         &mut self,
-        family: Requested,
+        families: Families,
         context: &egui::Context,
         tasks: &TaskSupervisor,
     ) -> Option<AppResult<Vec<String>>> {
@@ -75,7 +77,7 @@ impl Loader {
                 ))),
             };
             if let Some(result) = result {
-                if !pending.cancelled && pending.family == family {
+                if !pending.cancelled && pending.families == families {
                     completed = Some(result.map(|prepared| {
                         context.set_fonts(prepared.definitions);
                         context.request_repaint();
@@ -85,12 +87,12 @@ impl Loader {
                 self.pending = None;
             }
         }
-        if self.pending.is_some() || self.attempted.as_ref() == Some(&family) {
+        if self.pending.is_some() || self.attempted.as_ref() == Some(&families) {
             return completed;
         }
-        self.attempted = Some(family.clone());
+        self.attempted = Some(families.clone());
         let (sender, reply) = oneshot::channel();
-        let requested = family.clone();
+        let requested = families.clone();
         let repaint = context.clone();
         let supervisor = tasks.clone();
         if !tasks.spawn_transient("native-terminal-font-request", async move {
@@ -105,7 +107,7 @@ impl Loader {
             )));
         }
         self.pending = Some(Pending {
-            family,
+            families,
             reply,
             cancelled: false,
         });
@@ -126,8 +128,8 @@ impl Loader {
     }
 }
 
-pub(crate) fn load(family: &Requested) -> AppResult<Prepared> {
-    prepare_requested(&crate::system_fonts::database(), family)
+pub(crate) fn load(families: &Families) -> AppResult<Prepared> {
+    prepare_requested(&crate::system_fonts::database(), families)
 }
 
 pub(crate) fn named(database: &Database, name: &str, weight: Weight) -> Option<ID> {
@@ -163,7 +165,7 @@ pub(crate) fn named(database: &Database, name: &str, weight: Weight) -> Option<I
     })
 }
 
-fn ui_monospace(database: &Database) -> Option<ID> {
+pub(crate) fn ui_monospace(database: &Database) -> Option<ID> {
     #[cfg(target_os = "macos")]
     const NAMES: [&str; 3] = ["SFMono-Regular", "SF Mono", "Menlo"];
     #[cfg(target_os = "windows")]
@@ -175,10 +177,10 @@ fn ui_monospace(database: &Database) -> Option<ID> {
         .find_map(|name| named(database, name, Weight::NORMAL))
 }
 
-fn prepare_requested(database: &Database, requested: &Requested) -> AppResult<Prepared> {
+pub(crate) fn prepare_requested(database: &Database, requested: &Families) -> AppResult<Prepared> {
     let mut warnings = Vec::new();
     let mut selected = Vec::new();
-    match requested {
+    match &requested.terminal {
         Requested::Default => {}
         Requested::Invalid => {
             warnings.push("native terminal font family is invalid; using fallback fonts".into())
@@ -206,6 +208,7 @@ fn prepare_requested(database: &Database, requested: &Requested) -> AppResult<Pr
     let mut definitions = FontDefinitions::default();
     let mut chain = Vec::new();
     let mut loaded = Vec::new();
+    let mut faces = Vec::new();
     let mut remaining = TOTAL_FONT_BYTES;
     for id in selected {
         if loaded.contains(&id) {
@@ -223,6 +226,7 @@ fn prepare_requested(database: &Database, requested: &Requested) -> AppResult<Pr
                     .ok_or_else(|| invalid("native terminal fonts exceed their byte budget"))?;
                 let name = format!("{TERMINAL_FAMILY}/{}", chain.len());
                 definitions.font_data.insert(name.clone(), Arc::new(data));
+                faces.push((id, name.clone()));
                 chain.push(name);
             }
             Err(_) => warnings
@@ -241,6 +245,13 @@ fn prepare_requested(database: &Database, requested: &Requested) -> AppResult<Pr
         database,
         &mut definitions,
         &mut remaining,
+    ));
+    warnings.extend(crate::editor_fonts::prepare(
+        database,
+        &mut definitions,
+        &mut remaining,
+        &requested.editor,
+        &faces,
     ));
     Ok(Prepared {
         definitions,
@@ -319,8 +330,15 @@ mod tests {
     const TABLE_OFFSET_BYTES: usize = 8;
     const COUNT_BYTES: usize = 4;
 
+    fn families(family: Option<&str>) -> Families {
+        Families {
+            terminal: requested(family),
+            editor: Requested::Default,
+        }
+    }
+
     fn prepare(database: &Database, family: Option<&str>) -> AppResult<Prepared> {
-        prepare_requested(database, &requested(family))
+        prepare_requested(database, &families(family))
     }
 
     fn terminal_warnings(warnings: &[String]) -> Vec<&str> {
@@ -477,10 +495,10 @@ mod tests {
         );
 
         let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
-        let mut loader = Loader::new(requested(Some(&name)));
+        let mut loader = Loader::new(families(Some(&name)));
         let (sender, reply) = oneshot::channel();
         loader.pending = Some(Pending {
-            family: requested(Some(&name)),
+            families: families(Some(&name)),
             reply,
             cancelled: false,
         });
@@ -488,7 +506,7 @@ mod tests {
         assert!(
             terminal_warnings(
                 &loader
-                    .update(requested(Some(&name)), &context, &tasks)
+                    .update(families(Some(&name)), &context, &tasks)
                     .unwrap()
                     .unwrap()
             )
@@ -501,7 +519,7 @@ mod tests {
         );
         let (sender, reply) = oneshot::channel();
         loader.pending = Some(Pending {
-            family: requested(Some(&name)),
+            families: families(Some(&name)),
             reply,
             cancelled: false,
         });
@@ -511,7 +529,7 @@ mod tests {
         assert!(sender.send(prepare(&ttc, Some("Synthetic TTC"))).is_ok());
         assert!(
             loader
-                .update(requested(Some(&name)), &context, &tasks)
+                .update(families(Some(&name)), &context, &tasks)
                 .unwrap()
                 .is_err()
         );
@@ -523,7 +541,7 @@ mod tests {
         assert!(loader.pending.is_none());
         assert!(
             loader
-                .update(requested(Some(&name)), &context, &tasks)
+                .update(families(Some(&name)), &context, &tasks)
                 .is_none()
         );
         tasks.shutdown().await;

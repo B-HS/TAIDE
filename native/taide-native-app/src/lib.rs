@@ -25,6 +25,8 @@ pub mod command_registry;
 mod css_motion;
 pub mod delete_dialog;
 pub mod diagnostics;
+#[path = "editor-fonts.rs"]
+mod editor_fonts;
 pub mod editor_reveal;
 #[path = "event-relay.rs"]
 pub mod event_relay;

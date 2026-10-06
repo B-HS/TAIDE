@@ -85,7 +85,7 @@ fn 원격_presentation은_필수_시스템_인자와_같은_색상_편집기_번
     assert_eq!(editor.font.size, settings.editor_font_size as f32);
     assert_eq!(
         editor.line_height,
-        editor.font.size * taide_native_ui::presentation::EDITOR_LINE_HEIGHT_FACTOR
+        (editor.font.size * taide_native_ui::presentation::EDITOR_LINE_HEIGHT_FACTOR).round()
     );
     assert_eq!(
         state.message("hello", &[("name", "Rust")]).unwrap(),

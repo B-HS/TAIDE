@@ -2,6 +2,8 @@ use egui::{FontFamily, Ui};
 
 pub const MEDIUM_FAMILY: &str = "taide-ui-medium";
 pub const SEMIBOLD_FAMILY: &str = "taide-ui-semibold";
+pub const EDITOR_FAMILY: &str = "taide-editor";
+pub const EDITOR_BOLD_FAMILY: &str = "taide-editor-bold";
 
 pub fn medium(ui: &Ui) -> FontFamily {
     available(ui, MEDIUM_FAMILY)

@@ -7,7 +7,7 @@ use taide_model::settings::Settings;
 use taide_model::theme::{ResolvedTheme, ThemeType};
 
 use crate::conflict_banner::BannerAppearance;
-use crate::editor_surface::EditorAppearance;
+use crate::editor_surface::{EditorAppearance, EditorDisplayOptions, EditorPresentation};
 use crate::shell::ShellColors;
 
 const HEX_RGB: usize = 6;
@@ -16,6 +16,7 @@ const HEX_SHORT: usize = 3;
 const HEX_SHORT_CHANNEL_FACTOR: u8 = 17;
 const HEX_CHANNEL: usize = 2;
 pub const EDITOR_LINE_HEIGHT_FACTOR: f32 = 1.5;
+const EDITOR_MIN_LINE_HEIGHT: f32 = 8.0;
 pub const EDITOR_PADDING: f32 = 8.0;
 pub const MIN_CODE_FONT_SIZE: u32 = 6;
 pub const MAX_CODE_FONT_SIZE: u32 = 48;
@@ -37,9 +38,15 @@ pub fn next_editor_font_size(current: u32, increase: bool) -> u32 {
     next.clamp(MIN_CODE_FONT_SIZE, MAX_CODE_FONT_SIZE)
 }
 
+fn editor_line_height(font_size: f32) -> f32 {
+    (font_size * EDITOR_LINE_HEIGHT_FACTOR)
+        .round()
+        .max(EDITOR_MIN_LINE_HEIGHT)
+}
+
 pub fn update_editor_font_size(appearance: &mut EditorAppearance, size: u32) -> bool {
     let size = size as f32;
-    let line_height = size * EDITOR_LINE_HEIGHT_FACTOR;
+    let line_height = editor_line_height(size);
     if appearance.font.size == size && appearance.line_height == line_height {
         return false;
     }
@@ -208,7 +215,7 @@ pub fn editor_appearance(
     let font_size = settings.editor_font_size as f32;
     Ok(EditorAppearance {
         font: FontId::monospace(font_size),
-        line_height: font_size * EDITOR_LINE_HEIGHT_FACTOR,
+        line_height: editor_line_height(font_size),
         horizontal_padding: EDITOR_PADDING,
         background: color(theme, "editor.background")?,
         foreground: color(theme, "editor.foreground")?,
@@ -223,6 +230,15 @@ pub fn editor_appearance(
             "\t".into()
         },
     })
+}
+
+pub fn editor_presentation(settings: &Settings) -> EditorPresentation {
+    EditorPresentation {
+        options: EditorDisplayOptions {
+            word_wrap: settings.editor_word_wrap,
+            ..Default::default()
+        },
+    }
 }
 
 pub fn banner_appearance(theme: &ResolvedTheme) -> AppResult<BannerAppearance> {

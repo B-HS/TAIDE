@@ -1,17 +1,20 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::{Component, PathBuf};
+use std::sync::Arc;
 
 use ropey::Rope;
 use taide_model::app::AppFileTarget;
 use taide_model::file::{EditorConfigOptions, FileSizeTier, OpenedFile};
 use taide_model::ids::TabId;
 
+use crate::display_map::DisplayMap;
 use crate::document::{
     DiskChoice, DiskSnapshot, DocumentId, DocumentKey, DocumentMetadata, DocumentSnapshot, Edit,
     EditorError, UndoGroup, apply_edits, byte_to_char,
 };
 use crate::view::{
     Composition, EditRun, GoalColumns, ScrollPosition, SelectionSet, ViewId, ViewKey, ViewState,
+    WrapAffinities,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -1005,6 +1008,8 @@ impl EditorStore {
                 composition: None,
                 edit_run: None,
                 goal_columns: None,
+                wrap_affinities: None,
+                display: None,
             },
         );
         self.views.by_key.insert(key, id);
@@ -1044,6 +1049,7 @@ impl EditorStore {
             .ok_or(EditorError::NotFound)?;
         if current.selection != selection {
             current.goal_columns = None;
+            current.wrap_affinities = None;
         }
         current.selection = selection;
         current.scroll = scroll;
@@ -1076,6 +1082,48 @@ impl EditorStore {
             return Err(EditorError::InvalidBoundary);
         }
         current.goal_columns = goal;
+        Ok(())
+    }
+
+    pub fn set_wrap_affinities(
+        &mut self,
+        view: ViewId,
+        affinities: Option<WrapAffinities>,
+    ) -> Result<(), EditorError> {
+        let current = self
+            .views
+            .views
+            .get_mut(&view)
+            .ok_or(EditorError::NotFound)?;
+        if affinities.as_ref().is_some_and(|affinities| {
+            affinities.heads_at_row_end.len() != current.selection.selections.len()
+        }) {
+            return Err(EditorError::InvalidBoundary);
+        }
+        current.wrap_affinities = affinities;
+        Ok(())
+    }
+
+    pub fn take_display(&mut self, view: ViewId) -> Result<Option<Arc<DisplayMap>>, EditorError> {
+        Ok(self
+            .views
+            .views
+            .get_mut(&view)
+            .ok_or(EditorError::NotFound)?
+            .display
+            .take())
+    }
+
+    pub fn set_display(
+        &mut self,
+        view: ViewId,
+        display: Option<Arc<DisplayMap>>,
+    ) -> Result<(), EditorError> {
+        self.views
+            .views
+            .get_mut(&view)
+            .ok_or(EditorError::NotFound)?
+            .display = display;
         Ok(())
     }
 

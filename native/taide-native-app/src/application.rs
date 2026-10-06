@@ -246,15 +246,14 @@ impl NativeApplication {
         let presentation_revision = presentation_changes.revision();
         let loaded_inputs = presentation_inputs.clone();
         let theme_state = state.clone();
-        let terminal_font_family =
-            crate::terminal_fonts::requested(state.settings.read().terminal_font_family.as_deref());
-        let requested_font = terminal_font_family.clone();
+        let font_families = crate::editor_fonts::Families::new(&state.settings.read());
+        let requested_fonts = font_families.clone();
         let (resolved, fonts) = runtime.block_on(tasks.run_blocking_result(
             "native-presentation-load",
             move || {
                 Ok((
                     loaded_inputs.load(&theme_state),
-                    crate::terminal_fonts::load(&requested_font)?,
+                    crate::terminal_fonts::load(&requested_fonts)?,
                 ))
             },
         ))?;
@@ -385,7 +384,7 @@ impl NativeApplication {
             terminals,
             terminal_views,
             terminal_appearance,
-            terminal_fonts: crate::terminal_fonts::Loader::new(terminal_font_family),
+            terminal_fonts: crate::terminal_fonts::Loader::new(font_families),
             web_bridge: Some(web_bridge),
             helper_executable,
             web_previews: crate::preview_web_cache::Cache::default(),
@@ -3638,17 +3637,10 @@ impl NativeApplication {
         }
         if self.closing.is_none() && !self.is_exit_ready && !self.services.state.is_shutting_down()
         {
-            let family = crate::terminal_fonts::requested(
-                self.services
-                    .state
-                    .settings
-                    .read()
-                    .terminal_font_family
-                    .as_deref(),
-            );
-            if let Some(result) = self
-                .terminal_fonts
-                .update(family, context, &self.services.tasks)
+            let families = crate::editor_fonts::Families::new(&self.services.state.settings.read());
+            if let Some(result) =
+                self.terminal_fonts
+                    .update(families, context, &self.services.tasks)
             {
                 match result {
                     Ok(warnings) => {
@@ -5589,18 +5581,6 @@ impl AppSurfaces<'_> {
                         .focused
                         .as_ref()
                         .is_none_or(|(old_pane, old_tab)| old_pane != pane || old_tab != &tab.id);
-                if ui.is_enabled()
-                    && let Some(path) = path
-                    && let Some(position) =
-                        self.reveals
-                            .consume(&tab.id, path, ui.ctx().viewport_id(), Instant::now())
-                {
-                    self.editor
-                        .reveal(ui, self.store, view, position.line, position.column)
-                        .map_err(editor_error)?;
-                    focus = true;
-                }
-                let mut next = 0;
                 let snapshot = self
                     .store
                     .documents()
@@ -5614,8 +5594,29 @@ impl AppSurfaces<'_> {
                         insert_spaces: settings.editor_insert_spaces,
                     },
                 );
+                let editor_presentation =
+                    taide_native_ui::presentation::editor_presentation(&settings);
                 drop(settings);
                 let editor = self.editor.with_indent(indent);
+                if ui.is_enabled()
+                    && let Some(path) = path
+                    && let Some(position) =
+                        self.reveals
+                            .consume(&tab.id, path, ui.ctx().viewport_id(), Instant::now())
+                {
+                    editor
+                        .reveal_presented(
+                            ui,
+                            self.store,
+                            view,
+                            position.line,
+                            position.column,
+                            &editor_presentation,
+                        )
+                        .map_err(editor_error)?;
+                    focus = true;
+                }
+                let mut next = 0;
                 let mut edit_errors = Vec::new();
                 let edited = ui.is_enabled()
                     && crate::command_dispatch::apply_document_edits(
@@ -5634,7 +5635,7 @@ impl AppSurfaces<'_> {
                 let status = &mut *self.status;
                 let has_focused_shell = self.target.is_some();
                 let output = editor
-                    .show_with_input_route(
+                    .show_presented(
                         ui,
                         self.store,
                         view,
@@ -5669,6 +5670,7 @@ impl AppSurfaces<'_> {
                             }
                         },
                         |response| response.ctx.keyboard_input_route(response.id),
+                        &editor_presentation,
                     )
                     .map_err(editor_error)?;
                 self.keymap_documents.insert(tab.id.clone(), document);

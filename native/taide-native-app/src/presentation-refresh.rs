@@ -186,10 +186,12 @@ impl Appearances {
         let mut terminal =
             crate::terminal_surface::Appearance::new(theme, settings.terminal_font_size)?;
         terminal.font.family = crate::terminal_fonts::family();
+        let mut editor = editor_appearance(theme, settings)?;
+        editor.font.family = crate::editor_fonts::family();
         Ok(Self {
             visuals: visuals(theme)?,
             shell: shell_colors(theme)?,
-            editor: editor_appearance(theme, settings)?,
+            editor,
             banner: taide_native_ui::presentation::banner_appearance(theme)?,
             terminal,
             lsp_status: crate::lsp::status::Appearance::new(theme)?,
@@ -455,6 +457,7 @@ mod tests {
                 theme.theme_type == ThemeType::Dark
             );
             assert_eq!(prepared.editor.font.size, settings.editor_font_size as f32);
+            assert_eq!(prepared.editor.font.family, crate::editor_fonts::family());
             assert_eq!(
                 prepared.terminal.font.family,
                 crate::terminal_fonts::family()

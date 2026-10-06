@@ -1,8 +1,10 @@
 use std::ops::Range;
+use std::sync::Arc;
 
 use ropey::Rope;
 use taide_model::ids::{PaneId, TabId};
 
+use crate::display_map::DisplayMap;
 use crate::document::{DocumentId, Edit, EditorError, UndoGroup, byte_to_char};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -134,6 +136,12 @@ pub struct GoalColumns {
     pub leftover_visible_columns: Vec<isize>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WrapAffinities {
+    pub revision: u64,
+    pub heads_at_row_end: Vec<bool>,
+}
+
 #[derive(Debug, Clone)]
 pub struct ViewState {
     pub id: ViewId,
@@ -145,4 +153,19 @@ pub struct ViewState {
     pub composition: Option<Composition>,
     pub edit_run: Option<EditRun>,
     pub goal_columns: Option<GoalColumns>,
+    pub wrap_affinities: Option<WrapAffinities>,
+    pub display: Option<Arc<DisplayMap>>,
+}
+
+impl ViewState {
+    pub fn head_at_row_end(&self, selection: usize, revision: u64) -> bool {
+        self.wrap_affinities.as_ref().is_some_and(|affinities| {
+            affinities.revision == revision
+                && affinities
+                    .heads_at_row_end
+                    .get(selection)
+                    .copied()
+                    .unwrap_or(false)
+        })
+    }
 }
