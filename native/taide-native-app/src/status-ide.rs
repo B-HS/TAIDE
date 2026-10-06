@@ -260,10 +260,12 @@ mod tests {
                         ..Default::default()
                     },
                     |ui| {
+                        icons.tooltips.begin_frame(ui.ctx());
                         ui.add_space(SCREEN.y / 2.0);
                         bounds = show(ui, &locale, &appearance, &mut icons, status)
                             .unwrap()
                             .rect;
+                        icons.tooltips.finish_frame(ui.ctx());
                     },
                 );
                 output.textures_delta.clear();

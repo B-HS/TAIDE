@@ -501,10 +501,12 @@ fn problems_tooltip은_ax_role과_trigger_description을_열린_동안만_연결
                 ..input(events)
             },
             |ui| {
+                views.tooltips.begin_frame(ui.ctx());
                 ui.add_space(HEIGHT / 2.0);
                 views
                     .show_status(ui, Some(&slot), &store, &locale, &appearance)
                     .unwrap();
+                views.tooltips.finish_frame(ui.ctx());
             },
         );
         output.textures_delta.clear();
@@ -639,10 +641,12 @@ fn problems_tooltip은_테마색과_원본_글꼴_여백_테두리를_렌더한�
                     ..input(events)
                 },
                 |ui| {
+                    views.tooltips.begin_frame(ui.ctx());
                     ui.add_space(HEIGHT / 2.0);
                     views
                         .show_status(ui, Some(&slot), &store, &locale, &appearance)
                         .unwrap();
+                    views.tooltips.finish_frame(ui.ctx());
                 },
             );
             output.textures_delta.clear();
@@ -737,6 +741,7 @@ fn problems_버튼은_원본_모서리와_높이_툴팁방향을_렌더한다() 
                     ..input(events)
                 },
                 |ui| {
+                    views.tooltips.begin_frame(ui.ctx());
                     ui.add_space(HEIGHT / 2.0);
                     if status {
                         views
@@ -747,6 +752,7 @@ fn problems_버튼은_원본_모서리와_높이_툴팁방향을_렌더한다() 
                             .show_panel(ui, &slot, &store, &locale, &appearance)
                             .unwrap();
                     }
+                    views.tooltips.finish_frame(ui.ctx());
                 },
             );
             output.textures_delta.clear();

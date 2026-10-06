@@ -91,8 +91,17 @@ struct Control {
     finished: AtomicUsize,
 }
 
+static OS_WATCH_REGISTRATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+impl NativeProjects {
+    pub(crate) async fn exclusive_os_watch_registration() -> tokio::sync::MutexGuard<'static, ()> {
+        OS_WATCH_REGISTRATION.lock().await
+    }
+}
+
 #[tokio::test]
 async fn hooks_enabled_프로젝트는_거절없이_열리고_guard밖_reconcile을_기다리지_않는다() {
+    let _os_watch_registration = NativeProjects::exclusive_os_watch_registration().await;
     let fixture = Fixture::new();
     let control = Arc::new(Control::default());
     let worker_control = control.clone();
@@ -153,6 +162,7 @@ async fn hooks_enabled_프로젝트는_거절없이_열리고_guard밖_reconcile
 
 #[tokio::test]
 async fn hooks_off_생산용_factory는_서버없이_restore하고_종료후_새_attach를_거절한다() {
+    let _os_watch_registration = NativeProjects::exclusive_os_watch_registration().await;
     let fixture = Fixture::new();
     fixture.services.state.settings.write().agent_hooks_enabled = false;
     let projects = NativeProjects::new(fixture.services.clone());
@@ -182,6 +192,7 @@ async fn hooks_off_생산용_factory는_서버없이_restore하고_종료후_새
 
 #[tokio::test]
 async fn 원본처럼_watcher와_lockfile_준비_실패는_프로젝트_commit을_거절하지_않는다() {
+    let _os_watch_registration = NativeProjects::exclusive_os_watch_registration().await;
     tokio::time::timeout(DEADLINE, async {
         let fixture = Fixture::new();
         fixture.services.state.settings.write().agent_hooks_enabled = false;

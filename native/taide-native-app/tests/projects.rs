@@ -31,6 +31,14 @@ impl EventSink for Events {
     }
 }
 
+static OS_WATCH_REGISTRATION: Mutex<()> = Mutex::new(());
+
+fn exclusive_os_watch_registration() -> std::sync::MutexGuard<'static, ()> {
+    OS_WATCH_REGISTRATION
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
@@ -76,6 +84,7 @@ fn file_tab(state: &AppState, project: &ProjectId, path: &str) -> TabId {
 
 #[test]
 fn 실제_project_open_restore_file_tab_전체_tree와_exit가_같은_소유권을_쓴다() {
+    let _os_watch_registration = exclusive_os_watch_registration();
     let fixture = Fixture::new();
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -271,62 +280,8 @@ fn 실제_project_open_restore_file_tab_전체_tree와_exit가_같은_소유권�
 }
 
 #[test]
-fn 미연결_hook는_열기_전_거절하고_실패한_attach는_등록을_회수한다() {
-    let fixture = Fixture::new();
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    let tasks = TaskSupervisor::new(runtime.handle().clone());
-    let state = AppState::new(AppPaths::new(fixture.0.join("data")));
-    let services = services(state.clone(), tasks.clone(), Arc::new(Events::default()));
-    let projects = NativeProjects::new(services.clone());
-    runtime.block_on(async {
-        state.settings.write().agent_hooks_enabled = true;
-        assert!(
-            projects
-                .open(fixture.0.join("root").to_str().unwrap().into())
-                .await
-                .is_err()
-        );
-        assert!(state.projects.read().is_empty());
-        state.settings.write().agent_hooks_enabled = false;
-        let blocked = fixture.0.join("blocked-lockfile-dir");
-        std::fs::write(&blocked, "synthetic failure").unwrap();
-        services
-            .ide
-            .mark_started(0, String::new(), blocked, runtime.spawn(async {}))
-            .unwrap();
-        assert!(
-            projects
-                .open(fixture.0.join("root").to_str().unwrap().into())
-                .await
-                .is_err()
-        );
-        assert!(state.projects.read().is_empty());
-        assert!(state.layouts.read().is_empty());
-        assert!(state.watchers.read().is_empty());
-        assert!(state.git_watchers.read().is_empty());
-        tokio::time::timeout(TIMEOUT, state.watcher_stops.wait_for_idle())
-            .await
-            .unwrap();
-        let shutdown = services.ide.take_shutdown_state().unwrap();
-        shutdown.server_handle.unwrap().await.unwrap();
-        tasks.stop_all();
-        assert!(
-            projects
-                .open(fixture.0.join("root").to_str().unwrap().into())
-                .await
-                .is_err()
-        );
-        assert!(state.projects.read().is_empty());
-        assert!(state.watchers.read().is_empty());
-        assert_eq!(tasks.tracked_count(), 0);
-    });
-}
-
-#[test]
 fn 실제_os_watcher는_파일과_git_변경을_전달하고_종료까지_join한다() {
+    let _os_watch_registration = exclusive_os_watch_registration();
     let fixture = Fixture::new();
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()

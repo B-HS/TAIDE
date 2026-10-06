@@ -314,6 +314,7 @@ async fn catalog_실제_arm_입력_policy_remaining과_종료_후_거절을_보�
 
 #[tokio::test]
 async fn 실제23명령의_프로젝트_그룹_슬롯_파일저장과_native_수명을_보존한다() {
+    let _os_watch_registration = NativeProjects::exclusive_os_watch_registration().await;
     let fixture = Fixture::new();
     let first = fixture.open("first").await;
     assert_eq!(first.capabilities, vec![CapabilityKind::Terminal]);
@@ -519,6 +520,7 @@ async fn 실제23명령의_프로젝트_그룹_슬롯_파일저장과_native_수
 
 #[tokio::test]
 async fn 열기3진입점의_취소와_감독종료는_승인된_작업을_남기고_닫기_flush는_취소된다() {
+    let _os_watch_registration = NativeProjects::exclusive_os_watch_registration().await;
     for name in ["project_open", "project_open_in_slot", "project_group_open"] {
         let fixture = Fixture::new();
         let args = match name {

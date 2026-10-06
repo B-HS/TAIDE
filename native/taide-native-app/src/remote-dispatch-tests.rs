@@ -447,6 +447,7 @@ async fn catalog177과_전체_chain의_입력_routing_default_deny_모드를_검
 
 #[tokio::test]
 async fn 실제_project_file_raw_search_channel과_설정_sync는_동일_services와_reconcile을_사용한다() {
+    let _os_watch_registration = NativeProjects::exclusive_os_watch_registration().await;
     let fixture = Fixture::new();
     let project = fixture.open().await;
     assert_eq!(fixture.factory_calls.load(Ordering::Acquire), 1);
@@ -553,6 +554,7 @@ async fn 실제_project_file_raw_search_channel과_설정_sync는_동일_service
 #[cfg(unix)]
 #[tokio::test]
 async fn 실제_pty_spawn_attach와_layout_close는_공유_hub_core_child를_회수한다() {
+    let _os_watch_registration = NativeProjects::exclusive_os_watch_registration().await;
     let fixture = Fixture::new();
     let project = fixture.open().await;
     let opts = PtySpawnOptions {
