@@ -158,6 +158,7 @@ pub struct NativeApplication {
     presentation_refresh: crate::presentation_refresh::Refresh,
     presentation_system_language: String,
     editor: NativeEditor,
+    editor_syntax: crate::editor_syntax::EditorSyntax,
     editor_keymap_targets: HashMap<(egui::ViewportId, egui::Id), (ViewId, u64)>,
     banner_appearance: BannerAppearance,
     restore_notices: HashMap<TabId, BannerVariant>,
@@ -332,6 +333,8 @@ impl NativeApplication {
             helper_executable.clone(),
             &pdf_appearance,
         )?;
+        let editor_syntax =
+            crate::editor_syntax::EditorSyntax::connect(&services.tasks, repaint.clone())?;
         let lsp = crate::lsp::LspBridge::connect(
             services.clone(),
             std::env::var_os("PATH").unwrap_or_default(),
@@ -432,6 +435,7 @@ impl NativeApplication {
             ),
             presentation_system_language: system_language,
             editor,
+            editor_syntax,
             editor_keymap_targets: HashMap::new(),
             banner_appearance,
             restore_notices: HashMap::new(),
@@ -1656,6 +1660,8 @@ impl NativeApplication {
                     insert_final_newline: settings.insert_final_newline_on_save,
                 }
             };
+            self.editor_syntax
+                .supply_save_cleanup(&mut self.store, document, flags);
             let prepared =
                 match crate::save::prepare(&mut self.store, snapshot, view, flags, auto_save) {
                     Ok(Some(prepared)) => prepared,
@@ -1805,6 +1811,7 @@ impl NativeApplication {
             .web_bridge
             .take()
             .map(crate::preview_web_host::Bridge::disconnect);
+        let syntax = self.editor_syntax.disconnect();
         self.web_previews.invalidate_all();
         self.web_views.clear();
         let drafts = self.drafts();
@@ -1813,7 +1820,10 @@ impl NativeApplication {
         let (sender, receiver) = oneshot::channel();
         self.closing = Some(receiver);
         self.runtime.spawn(async move {
-            let result = shutdown(services, bridge, lsp, web, drafts).await;
+            let (result, ()) = tokio::join!(
+                shutdown(services, bridge, lsp, web, drafts),
+                crate::editor_syntax::finished(syntax),
+            );
             drop(sender.send(result));
             repaint.request_repaint();
         });
@@ -3675,6 +3685,13 @@ impl NativeApplication {
             self.settings_views.clear();
             self.app_file_views.clear();
         } else {
+            let syntax_theme = self.preview_theme.as_ref().unwrap_or(&self.resolved_theme);
+            if let Some(delay) = self
+                .editor_syntax
+                .tick(&self.store, syntax_theme, Instant::now())
+            {
+                context.request_repaint_after(delay);
+            }
             if let Some(request) = self.settings_views.next_snippet_read() {
                 self.submit(HostCommand::ReadSnippetCatalog(request));
             }
@@ -3779,6 +3796,14 @@ impl NativeApplication {
                                     Arc::new(move || repaint_context.request_repaint()),
                                 ) {
                                     Ok(lsp) => self.lsp = Some(lsp),
+                                    Err(error) => self.status = Some(error.to_string()),
+                                }
+                                let repaint_context = context.clone();
+                                match crate::editor_syntax::EditorSyntax::connect(
+                                    &self.services.tasks,
+                                    Arc::new(move || repaint_context.request_repaint()),
+                                ) {
+                                    Ok(syntax) => self.editor_syntax = syntax,
                                     Err(error) => self.status = Some(error.to_string()),
                                 }
                                 self.observing_files.clear();
@@ -4071,6 +4096,7 @@ impl eframe::App for NativeApplication {
             locale: &self.locale,
             store: &mut self.store,
             editor: &self.editor,
+            editor_syntax: &mut self.editor_syntax,
             banner_appearance: &self.banner_appearance,
             restore_notices: &self.restore_notices,
             banner_actions: &mut banner_actions,
@@ -4661,6 +4687,7 @@ impl eframe::App for NativeApplication {
             .web_bridge
             .take()
             .map(crate::preview_web_host::Bridge::disconnect);
+        let syntax = self.editor_syntax.disconnect();
         self.web_previews.invalidate_all();
         self.web_views.clear();
         let drafts = self.drafts();
@@ -4673,7 +4700,11 @@ impl eframe::App for NativeApplication {
                     )))
                 })
             } else {
-                shutdown(services.clone(), bridge, lsp, web, drafts).await
+                tokio::join!(
+                    shutdown(services.clone(), bridge, lsp, web, drafts),
+                    crate::editor_syntax::finished(syntax),
+                )
+                .0
             };
             if let Err(error) = finish_direct_exit(&services, result).await {
                 log::error!("native direct exit failed: {:?}", error.kind());
@@ -4833,6 +4864,7 @@ struct AppSurfaces<'a> {
     locale: &'a ResolvedLocale,
     store: &'a mut EditorStore,
     editor: &'a NativeEditor,
+    editor_syntax: &'a mut crate::editor_syntax::EditorSyntax,
     banner_appearance: &'a BannerAppearance,
     restore_notices: &'a HashMap<TabId, BannerVariant>,
     banner_actions: &'a mut Vec<(TabId, BannerAction)>,
@@ -5595,7 +5627,7 @@ impl AppSurfaces<'_> {
                     },
                 );
                 let editor_presentation =
-                    taide_native_ui::presentation::editor_presentation(&settings);
+                    crate::presentation_refresh::editor_presentation(&settings);
                 drop(settings);
                 let editor = self.editor.with_indent(indent);
                 if ui.is_enabled()
@@ -5604,14 +5636,16 @@ impl AppSurfaces<'_> {
                         self.reveals
                             .consume(&tab.id, path, ui.ctx().viewport_id(), Instant::now())
                 {
+                    let tokens = self.editor_syntax.tokens(self.store, document);
                     editor
-                        .reveal_presented(
+                        .reveal_tokenized(
                             ui,
                             self.store,
                             view,
                             position.line,
                             position.column,
                             &editor_presentation,
+                            tokens,
                         )
                         .map_err(editor_error)?;
                     focus = true;
@@ -5634,8 +5668,9 @@ impl AppSurfaces<'_> {
                 let services = self.services;
                 let status = &mut *self.status;
                 let has_focused_shell = self.target.is_some();
+                let editor_syntax = &mut *self.editor_syntax;
                 let output = editor
-                    .show_presented(
+                    .show_tokenized(
                         ui,
                         self.store,
                         view,
@@ -5671,8 +5706,11 @@ impl AppSurfaces<'_> {
                         },
                         |response| response.ctx.keyboard_input_route(response.id),
                         &editor_presentation,
+                        move |store| editor_syntax.tokens(store, document),
                     )
                     .map_err(editor_error)?;
+                self.editor_syntax
+                    .show_lines(document, output.rendered_lines.clone());
                 self.keymap_documents.insert(tab.id.clone(), document);
                 if output.response.enabled() {
                     self.editor_keymap_targets.insert(

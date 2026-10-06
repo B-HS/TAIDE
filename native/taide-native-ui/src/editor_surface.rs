@@ -15,6 +15,7 @@ use taide_native_editor::editing::{
     reveal_position, select_all, tab, type_text,
 };
 use taide_native_editor::indent::{IndentOptions, resolve};
+use taide_native_editor::line_tokens::{LineTokens, TokenStyleTable};
 use taide_native_editor::store::EditorStore;
 use taide_native_editor::view::{
     Composition, Selection, SelectionSet, ViewId, ViewState, WrapAffinities,
@@ -105,6 +106,23 @@ pub struct EditorDisplayOptions {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct EditorPresentation {
     pub options: EditorDisplayOptions,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct EditorTokens<'a> {
+    pub revision: u64,
+    pub lines: &'a LineTokens,
+    pub styles: &'a TokenStyleTable,
+}
+
+impl EditorTokens<'_> {
+    fn describes(&self, document: &DocumentSnapshot) -> bool {
+        self.revision == document.revision && self.lines.line_count() == document.rope.len_lines()
+    }
+}
+
+fn registered_family<'a>(ui: &Ui, family: Option<&'a FontFamily>) -> Option<&'a FontFamily> {
+    family.filter(|family| ui.fonts(|fonts| fonts.definitions().families.contains_key(*family)))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -393,6 +411,19 @@ impl NativeEditor {
         column: f64,
         presentation: &EditorPresentation,
     ) -> Result<(), EditorError> {
+        self.reveal_tokenized(ui, store, view, line, column, presentation, None)
+    }
+
+    pub fn reveal_tokenized(
+        &self,
+        ui: &Ui,
+        store: &mut EditorStore,
+        view: ViewId,
+        line: f64,
+        column: f64,
+        presentation: &EditorPresentation,
+        tokens: Option<EditorTokens<'_>>,
+    ) -> Result<(), EditorError> {
         let appearance = &self.appearance;
         if !appearance.line_height.is_finite()
             || appearance.line_height <= 0.0
@@ -433,6 +464,8 @@ impl NativeEditor {
             appearance,
             half_leading: half_leading(ui.painter(), appearance),
             tab_size,
+            tokens: tokens.filter(|tokens| tokens.describes(&document)),
+            bold_family: registered_family(ui, presentation.options.bold_family.as_ref()),
         }
         .row(index, Pos2::ZERO);
         let gutter = gutter_width(ui.painter(), document.rope.len_lines(), appearance);
@@ -503,9 +536,32 @@ impl NativeEditor {
         store: &mut EditorStore,
         view: ViewId,
         request_focus: bool,
+        keymap: impl FnMut(&Ui, &Event, bool) -> bool,
+        route: impl FnOnce(&Response) -> Option<KeyboardInputRoute>,
+        presentation: &EditorPresentation,
+    ) -> Result<EditorOutput, EditorError> {
+        self.show_tokenized(
+            ui,
+            store,
+            view,
+            request_focus,
+            keymap,
+            route,
+            presentation,
+            |_| None,
+        )
+    }
+
+    pub fn show_tokenized<'tokens>(
+        &self,
+        ui: &mut Ui,
+        store: &mut EditorStore,
+        view: ViewId,
+        request_focus: bool,
         mut keymap: impl FnMut(&Ui, &Event, bool) -> bool,
         route: impl FnOnce(&Response) -> Option<KeyboardInputRoute>,
         presentation: &EditorPresentation,
+        tokens: impl FnOnce(&EditorStore) -> Option<EditorTokens<'tokens>>,
     ) -> Result<EditorOutput, EditorError> {
         let appearance = &self.appearance;
         if !appearance.line_height.is_finite()
@@ -616,6 +672,7 @@ impl NativeEditor {
                 .data_mut(|data| data.insert_temp(Id::new(CLIPBOARD_MEMORY), copied));
         }
         let document = store.documents().snapshot(current.document)?;
+        let tokens = tokens(store).filter(|tokens| tokens.describes(&document));
         let mut state = store
             .views()
             .get(view)
@@ -688,6 +745,8 @@ impl NativeEditor {
             appearance,
             half_leading: half_leading(&painter, appearance),
             tab_size: indent.tab_size,
+            tokens,
+            bold_family: registered_family(ui, presentation.options.bold_family.as_ref()),
         };
         let mut rows: Vec<Row> = visible
             .clone()

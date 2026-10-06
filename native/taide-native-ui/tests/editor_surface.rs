@@ -2,8 +2,9 @@ use egui::epaint::{ClippedShape, Shape};
 use egui::os::OperatingSystem;
 use egui::text::{CCursor, LayoutJob};
 use egui::{
-    Color32, Context, Event, FontId, ImeEvent, Key, Modifiers, MouseWheelUnit, OutputCommand,
-    PointerButton, Pos2, RawInput, Rect, TouchPhase, Vec2, pos2, vec2,
+    Color32, Context, Event, FontDefinitions, FontFamily, FontId, ImeEvent, Key, Modifiers,
+    MouseWheelUnit, OutputCommand, PointerButton, Pos2, RawInput, Rect, Stroke, TouchPhase, Vec2,
+    pos2, vec2,
 };
 use taide_model::file::{EditorConfigOptions, FileSizeTier, OpenedFile};
 use taide_model::ids::{PaneId, TabId};
@@ -11,11 +12,13 @@ use taide_model::settings::Settings;
 use taide_native_editor::document::{Edit, EditorError, UndoGroup};
 use taide_native_editor::indent::IndentOptions;
 use taide_native_editor::line_breaks::{WrapSettings, WrappingIndent, create_line_breaks};
+use taide_native_editor::line_tokens::{LineTokens, TokenStyle, TokenStyleTable};
 use taide_native_editor::store::{EditorLimits, EditorStore, Transaction};
+use taide_native_editor::syntax::TokenKind;
 use taide_native_editor::view::{ScrollPosition, Selection, SelectionSet, ViewId, ViewKey};
-use taide_native_ui::editor_row_text::{RowColumns, RowSection, RowText};
+use taide_native_ui::editor_row_text::{RowColumns, RowFontStyle, RowSection, RowText, RowTokens};
 use taide_native_ui::editor_surface::{
-    EditorAppearance, EditorDisplayOptions, EditorPresentation, NativeEditor,
+    EditorAppearance, EditorDisplayOptions, EditorPresentation, EditorTokens, NativeEditor,
 };
 use taide_native_ui::presentation::{editor_presentation, update_editor_font_size};
 
@@ -92,6 +95,28 @@ const INDENTED_WORDS: usize = 40;
 const FULL_WIDTH_COLUMNS: f64 = 2.0;
 const STABLE_LINE: usize = 12;
 const STABLE_DELTA: f32 = 7.0;
+const TOKEN_DEFAULT: [u8; 4] = [200, 200, 200, 255];
+const TOKEN_KEYWORD: [u8; 4] = [86, 156, 214, 255];
+const TOKEN_STRING: [u8; 4] = [206, 145, 120, 255];
+const TOKEN_COMMENT: [u8; 4] = [106, 153, 85, 255];
+const DEFAULT_STYLE_ID: u32 = 0;
+const KEYWORD_STYLE_ID: u32 = 1;
+const STRING_STYLE_ID: u32 = 2;
+const COMMENT_STYLE_ID: u32 = 3;
+const DOC_COMMENT_STYLE_ID: u32 = 4;
+const TOKEN_DOCUMENT: &str = "let s = \"값\";\n// done\ntail\n";
+const TOKEN_DOCUMENT_ROWS: usize = 4;
+const KEYWORD_END: usize = 3;
+const DOC_COMMENT_START: usize = 2;
+const TEXT_DECORATION_STROKE: f32 = 1.0;
+const CARET_STROKE: f32 = 1.0;
+const BOLD_FAMILY: &str = "synthetic-editor-bold";
+const MISSING_FAMILY: &str = "synthetic-missing";
+const TOKEN_CROSSING_BYTES: usize = 7;
+const MIXED_LINE_PREFIX: &str = "\t값😀 = \"한글 𐐀\" ";
+const TOKEN_ROW_SOURCE: &str = "\t값x";
+const TOKEN_ROW_SPLIT: usize = 2;
+const CONTINUED_ROW_START_BYTE: usize = 10;
 const PLAIN_FRAME: &[&str] = &[
     "rect 0.00,0.00..800.00,200.00 fill 000000ff clip 0.00,0.00..800.00,200.00",
     "rect 0.00,0.00..800.00,20.00 fill 606060ff clip 0.00,0.00..800.00,200.00",
@@ -2402,4 +2427,801 @@ fn wrap_설정이_바뀌어도_맨_위에_보이던_문서_위치는_맨_위에_
     assert_eq!(shown.rendered_lines.start, STABLE_LINE);
     present(&context, &surface, &mut store, view, Vec::new());
     assert_eq!(scroll_top(&store), top(STABLE_LINE, LINE_HEIGHT));
+}
+
+fn token_style(foreground: [u8; 4]) -> TokenStyle {
+    TokenStyle {
+        foreground,
+        is_italic: false,
+        is_bold: false,
+        is_underlined: false,
+        is_struck_through: false,
+        kind: TokenKind::Other,
+    }
+}
+
+fn token_styles() -> TokenStyleTable {
+    let comment = TokenStyle {
+        is_struck_through: true,
+        kind: TokenKind::Comment,
+        ..token_style(TOKEN_COMMENT)
+    };
+    TokenStyleTable::new(
+        token_style(TOKEN_DEFAULT),
+        vec![
+            token_style(TOKEN_DEFAULT),
+            TokenStyle {
+                is_bold: true,
+                ..token_style(TOKEN_KEYWORD)
+            },
+            TokenStyle {
+                is_italic: true,
+                is_underlined: true,
+                kind: TokenKind::String,
+                ..token_style(TOKEN_STRING)
+            },
+            comment,
+            comment,
+        ],
+    )
+}
+
+fn token_color(foreground: [u8; 4]) -> Color32 {
+    let [red, green, blue, alpha] = foreground;
+    Color32::from_rgba_unmultiplied(red, green, blue, alpha)
+}
+
+fn decoration(foreground: [u8; 4]) -> Stroke {
+    Stroke::new(TEXT_DECORATION_STROKE, token_color(foreground))
+}
+
+fn spans(tokens: &[(usize, u32)]) -> Vec<u32> {
+    tokens
+        .iter()
+        .flat_map(|(start, style_id)| [u32::try_from(*start).unwrap(), *style_id])
+        .collect()
+}
+
+fn line_tokens(lines: &[Vec<u32>]) -> LineTokens {
+    let mut tokens = LineTokens::new(lines.len());
+    for (line, spans) in lines.iter().enumerate() {
+        if !spans.is_empty() {
+            tokens.set_line(line, spans.clone(), false);
+        }
+    }
+    tokens
+}
+
+fn revision(store: &EditorStore, view: ViewId) -> u64 {
+    store
+        .documents()
+        .snapshot(store.views().get(view).unwrap().document)
+        .unwrap()
+        .revision
+}
+
+fn bold_context(family: &FontFamily, faces: FontFamily) -> Context {
+    let context = Context::default();
+    let mut definitions = FontDefinitions::default();
+    let chain = definitions.families[&faces].clone();
+    definitions.families.insert(family.clone(), chain);
+    context.set_fonts(definitions);
+    context
+}
+
+fn bold_presentation(bold_family: Option<FontFamily>) -> EditorPresentation {
+    EditorPresentation {
+        options: EditorDisplayOptions {
+            bold_family,
+            ..Default::default()
+        },
+    }
+}
+
+struct Highlight<'a> {
+    surface: NativeEditor,
+    presentation: EditorPresentation,
+    tokens: Option<EditorTokens<'a>>,
+}
+
+fn show_highlighted(
+    context: &Context,
+    store: &mut EditorStore,
+    view: ViewId,
+    highlight: &Highlight<'_>,
+    events: Vec<Event>,
+) -> Wrapped {
+    let mut shown = None;
+    let mut output = context.run_ui(
+        RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                pos2(0.0, 0.0),
+                vec2(SCREEN[0], SCREEN[1]),
+            )),
+            events,
+            ..Default::default()
+        },
+        |ui| {
+            let viewport = ui.available_rect_before_wrap().intersect(ui.clip_rect());
+            let output = highlight
+                .surface
+                .show_tokenized(
+                    ui,
+                    store,
+                    view,
+                    true,
+                    |_, _, _| false,
+                    |_| None,
+                    &highlight.presentation,
+                    |_| highlight.tokens,
+                )
+                .unwrap();
+            assert!(output.errors.is_empty());
+            shown = Some((
+                viewport,
+                output.rendered_lines,
+                output.geometry.visible_rows,
+            ));
+        },
+    );
+    output.textures_delta.clear();
+    let (viewport, rendered_lines, visible_rows) = shown.unwrap();
+    Wrapped {
+        shapes: output.shapes,
+        viewport,
+        rendered_lines,
+        visible_rows,
+        ime_cursor: output.platform_output.ime.map(|ime| ime.cursor_rect),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Run {
+    text: String,
+    color: Color32,
+    family: FontFamily,
+    is_italic: bool,
+    underline: Stroke,
+    strikethrough: Stroke,
+}
+
+fn run(text: &str, foreground: [u8; 4]) -> Run {
+    Run {
+        text: text.into(),
+        color: token_color(foreground),
+        family: FontFamily::Monospace,
+        is_italic: false,
+        underline: Stroke::NONE,
+        strikethrough: Stroke::NONE,
+    }
+}
+
+fn body_runs(shown: &Wrapped) -> Vec<Vec<Run>> {
+    shown
+        .shapes
+        .iter()
+        .filter_map(|clipped| match &clipped.shape {
+            Shape::Text(text) if clipped.clip_rect.left() > shown.viewport.left() => {
+                let job = &text.galley.job;
+                Some(
+                    job.sections
+                        .iter()
+                        .map(|section| Run {
+                            text: job.text[section.byte_range.start.0..section.byte_range.end.0]
+                                .to_owned(),
+                            color: section.format.color,
+                            family: section.format.font_id.family.clone(),
+                            is_italic: section.format.italics,
+                            underline: section.format.underline,
+                            strikethrough: section.format.strikethrough,
+                        })
+                        .collect(),
+                )
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn token_document_lines() -> LineTokens {
+    let string = TOKEN_DOCUMENT.find('"').unwrap();
+    let string_end = TOKEN_DOCUMENT.rfind('"').unwrap() + 1;
+    line_tokens(&[
+        spans(&[
+            (0, KEYWORD_STYLE_ID),
+            (KEYWORD_END, DEFAULT_STYLE_ID),
+            (string, STRING_STYLE_ID),
+            (string_end, DEFAULT_STYLE_ID),
+        ]),
+        spans(&[
+            (0, COMMENT_STYLE_ID),
+            (DOC_COMMENT_START, DOC_COMMENT_STYLE_ID),
+        ]),
+        Vec::new(),
+        Vec::new(),
+    ])
+}
+
+fn token_document_runs(keyword_family: FontFamily) -> Vec<Vec<Run>> {
+    vec![
+        vec![
+            Run {
+                family: keyword_family,
+                ..run("let", TOKEN_KEYWORD)
+            },
+            run(" s = ", TOKEN_DEFAULT),
+            Run {
+                is_italic: true,
+                underline: decoration(TOKEN_STRING),
+                ..run("\"값\"", TOKEN_STRING)
+            },
+            run(";", TOKEN_DEFAULT),
+        ],
+        vec![Run {
+            strikethrough: decoration(TOKEN_COMMENT),
+            ..run("// done", TOKEN_COMMENT)
+        }],
+        vec![run("tail", TOKEN_DEFAULT)],
+        vec![run("", TOKEN_DEFAULT)],
+    ]
+}
+
+#[test]
+fn 토큰_구간의_색과_글꼴_스타일은_스타일_표와_같고_토큰_없는_줄은_표의_기본_스타일이다() {
+    let (mut store, view) = fixture(TOKEN_DOCUMENT, false);
+    let styles = token_styles();
+    let lines = token_document_lines();
+    let bold_family = FontFamily::Name(BOLD_FAMILY.into());
+    let highlight = |bold_family: Option<FontFamily>| Highlight {
+        surface: editor(),
+        presentation: bold_presentation(bold_family),
+        tokens: Some(EditorTokens {
+            revision: revision(&store, view),
+            lines: &lines,
+            styles: &styles,
+        }),
+    };
+    let unregistered = [
+        None,
+        Some(FontFamily::Name(MISSING_FAMILY.into())),
+        Some(bold_family.clone()),
+    ]
+    .map(highlight);
+    let registered = highlight(Some(bold_family.clone()));
+    let context = Context::default();
+    show_highlighted(&context, &mut store, view, &unregistered[0], Vec::new());
+    for highlight in &unregistered {
+        let shown = show_highlighted(&context, &mut store, view, highlight, Vec::new());
+        assert_eq!(shown.rendered_lines, 0..TOKEN_DOCUMENT_ROWS);
+        assert_eq!(
+            body_runs(&shown),
+            token_document_runs(FontFamily::Monospace)
+        );
+    }
+    let context = bold_context(&bold_family, FontFamily::Monospace);
+    show_highlighted(&context, &mut store, view, &registered, Vec::new());
+    let shown = show_highlighted(&context, &mut store, view, &registered, Vec::new());
+    assert_eq!(body_runs(&shown), token_document_runs(bold_family));
+}
+
+fn placed(shown: &Wrapped) -> Vec<String> {
+    let mut lines: Vec<String> = shown
+        .shapes
+        .iter()
+        .map(|clipped| match &clipped.shape {
+            Shape::Text(text) => format!(
+                "text {:?} at {} size {}",
+                text.galley.job.text,
+                point(text.pos),
+                point(text.galley.size().to_pos2())
+            ),
+            _ => painted(clipped),
+        })
+        .collect();
+    lines.push(format!("ime {:?}", shown.ime_cursor.map(bounds)));
+    lines
+}
+
+#[test]
+fn 토큰은_본문_글자의_구간만_바꾸고_선택_캐럿_현재_줄_ime_좌표는_평문_화면과_같다() {
+    let styles = token_styles();
+    let lines = token_document_lines();
+    let frames = |tokens: Option<EditorTokens<'_>>| {
+        let (mut store, view) = fixture(TOKEN_DOCUMENT, false);
+        let context = Context::default();
+        let highlight = Highlight {
+            surface: editor(),
+            presentation: EditorPresentation::default(),
+            tokens,
+        };
+        [
+            Vec::new(),
+            vec![
+                Event::PointerMoved(SELECTION_PRESS),
+                press(SELECTION_PRESS, true),
+            ],
+            vec![Event::PointerMoved(SELECTION_RELEASE)],
+            vec![press(SELECTION_RELEASE, false)],
+            vec![Event::Ime(ImeEvent::Preedit {
+                text: "한".into(),
+                active_range_chars: None,
+            })],
+        ]
+        .map(|events| show_highlighted(&context, &mut store, view, &highlight, events))
+    };
+    let plain = frames(None);
+    let highlighted = frames(Some(EditorTokens {
+        revision: 0,
+        lines: &lines,
+        styles: &styles,
+    }));
+    let [.., selected, composing] = &plain;
+    assert!(!filled(&selected.shapes, Color32::BLUE).is_empty());
+    assert!(!filled(&selected.shapes, Color32::DARK_GRAY).is_empty());
+    assert!(composing.ime_cursor.is_some());
+    for (plain, highlighted) in plain.iter().zip(&highlighted) {
+        assert_eq!(
+            body_runs(highlighted)[..TOKEN_DOCUMENT_ROWS],
+            token_document_runs(FontFamily::Monospace)
+        );
+        assert_eq!(placed(highlighted), placed(plain));
+    }
+}
+
+fn expected_runs(
+    line: &str,
+    tokens: &[(usize, u32)],
+    row: std::ops::Range<usize>,
+    indent: &str,
+) -> Vec<(String, Color32)> {
+    let styles = token_styles();
+    let color = |style_id: u32| token_color(styles.style(style_id).foreground);
+    let indented = (row.start > 0).then(|| (indent.to_owned(), color(DEFAULT_STYLE_ID)));
+    let pieces = tokens
+        .iter()
+        .enumerate()
+        .filter_map(|(index, (start, style_id))| {
+            let end = tokens.get(index + 1).map_or(line.len(), |(next, _)| *next);
+            let piece = (*start).max(row.start)..end.min(row.end);
+            (piece.start < piece.end).then(|| (line[piece].replace('\t', indent), color(*style_id)))
+        });
+    let mut runs: Vec<(String, Color32)> = Vec::new();
+    for (text, color) in indented.into_iter().chain(pieces) {
+        match runs.last_mut() {
+            Some((merged, last)) if *last == color => merged.push_str(&text),
+            _ => runs.push((text, color)),
+        }
+    }
+    runs
+}
+
+fn colored_rows(shown: &Wrapped) -> Vec<Vec<(String, Color32)>> {
+    body_runs(shown)
+        .into_iter()
+        .map(|row| row.into_iter().map(|run| (run.text, run.color)).collect())
+        .collect()
+}
+
+#[test]
+fn 탭_wrap_cjk_emoji가_섞인_줄에서_토큰_경계는_문서_바이트에_맞는_표시_문자에_놓인다() {
+    let line = format!("{MIXED_LINE_PREFIX}{}", "word ".repeat(INDENTED_WORDS));
+    let (mut store, view) = fixture(&line, false);
+    let context = Context::default();
+    let styles = token_styles();
+    let wrapped = Highlight {
+        surface: editor(),
+        presentation: wrapping(),
+        tokens: None,
+    };
+    show_highlighted(&context, &mut store, view, &wrapped, Vec::new());
+    let breaks = create_line_breaks(
+        store
+            .views()
+            .get(view)
+            .unwrap()
+            .display
+            .as_ref()
+            .and_then(|display| display.wrap_settings())
+            .unwrap(),
+        &line,
+    )
+    .unwrap();
+    let crossing = breaks.break_offsets[0];
+    let tokens = [
+        (0, KEYWORD_STYLE_ID),
+        (line.find(" = ").unwrap(), DEFAULT_STYLE_ID),
+        (line.find('"').unwrap(), STRING_STYLE_ID),
+        (line.rfind('"').unwrap() + 1, DEFAULT_STYLE_ID),
+        (crossing - TOKEN_CROSSING_BYTES, COMMENT_STYLE_ID),
+        (crossing + TOKEN_CROSSING_BYTES, DEFAULT_STYLE_ID),
+    ];
+    let lines = line_tokens(&[spans(&tokens)]);
+    let tokenized = Some(EditorTokens {
+        revision: revision(&store, view),
+        lines: &lines,
+        styles: &styles,
+    });
+    let indent = " ".repeat(TAB_SIZE as usize);
+    assert!(breaks.break_offsets.len() >= WRAPPED_LINE_ROWS);
+    assert_eq!(breaks.wrapped_text_indent_length, TAB_SIZE);
+    let mut start = 0;
+    let expected: Vec<_> = breaks
+        .break_offsets
+        .iter()
+        .map(|end| {
+            let row = expected_runs(&line, &tokens, start..*end, &indent);
+            start = *end;
+            row
+        })
+        .collect();
+    assert_eq!(
+        expected[0][..3],
+        [
+            (format!("{indent}값😀"), token_color(TOKEN_KEYWORD)),
+            (" = ".to_owned(), token_color(TOKEN_DEFAULT)),
+            ("\"한글 𐐀\"".to_owned(), token_color(TOKEN_STRING)),
+        ]
+    );
+    assert_eq!(
+        expected[1][..2],
+        [
+            (indent.clone(), token_color(TOKEN_DEFAULT)),
+            (
+                line[crossing..crossing + TOKEN_CROSSING_BYTES].to_owned(),
+                token_color(TOKEN_COMMENT)
+            ),
+        ]
+    );
+    let shown = show_highlighted(
+        &context,
+        &mut store,
+        view,
+        &Highlight {
+            tokens: tokenized,
+            ..wrapped
+        },
+        Vec::new(),
+    );
+    assert_eq!(colored_rows(&shown), expected);
+    let shown = show_highlighted(
+        &context,
+        &mut store,
+        view,
+        &Highlight {
+            surface: editor(),
+            presentation: EditorPresentation::default(),
+            tokens: tokenized,
+        },
+        Vec::new(),
+    );
+    assert_eq!(
+        colored_rows(&shown),
+        [expected_runs(&line, &tokens, 0..line.len(), &indent)]
+    );
+}
+
+#[test]
+fn 토큰이_없거나_현재_문서와_맞지_않으면_기존_평문_화면과_같다() {
+    let styles = token_styles();
+    let keyword_lines = |count: usize| line_tokens(&vec![spans(&[(0, KEYWORD_STYLE_ID)]); count]);
+    let matching = keyword_lines(PLAIN_ROWS);
+    let shorter = keyword_lines(PLAIN_ROWS - 1);
+    let frame = |tokens: Option<EditorTokens<'_>>| {
+        let (mut store, view) = fixture(PLAIN_DOCUMENT, false);
+        let context = Context::default();
+        draw(&context, &mut store, view, Vec::new());
+        let highlight = Highlight {
+            surface: editor(),
+            presentation: EditorPresentation::default(),
+            tokens,
+        };
+        show_highlighted(&context, &mut store, view, &highlight, Vec::new())
+            .shapes
+            .iter()
+            .map(painted)
+            .collect::<Vec<_>>()
+    };
+    let plain = &PLAIN_FRAME[..PLAIN_FRAME.len() - FRAME_STATE_LINES];
+    for tokens in [
+        None,
+        Some(EditorTokens {
+            revision: 1,
+            lines: &matching,
+            styles: &styles,
+        }),
+        Some(EditorTokens {
+            revision: 0,
+            lines: &shorter,
+            styles: &styles,
+        }),
+    ] {
+        assert_frame(&frame(tokens), plain);
+    }
+    let highlighted = frame(Some(EditorTokens {
+        revision: 0,
+        lines: &matching,
+        styles: &styles,
+    }));
+    assert!(highlighted.as_slice() != plain, "{highlighted:#?}");
+}
+
+#[test]
+fn 토큰은_그_프레임의_입력을_반영한_문서에_대해_요청된다() {
+    let (mut store, view) = fixture("ab", false);
+    let document = store.views().get(view).unwrap().document;
+    let context = Context::default();
+    draw(&context, &mut store, view, Vec::new());
+    let before = revision(&store, view);
+    let mut requested = None;
+    let mut output = context.run_ui(
+        RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                pos2(0.0, 0.0),
+                vec2(SCREEN[0], SCREEN[1]),
+            )),
+            events: vec![Event::Text("x".into())],
+            ..Default::default()
+        },
+        |ui| {
+            editor()
+                .show_tokenized(
+                    ui,
+                    &mut store,
+                    view,
+                    true,
+                    |_, _, _| false,
+                    |_| None,
+                    &EditorPresentation::default(),
+                    |store| {
+                        let snapshot = store.documents().snapshot(document).unwrap();
+                        requested = Some((snapshot.revision, snapshot.rope.to_string()));
+                        None
+                    },
+                )
+                .unwrap();
+        },
+    );
+    output.textures_delta.clear();
+    assert_eq!(requested, Some((before + 1, "xab".to_owned())));
+}
+
+fn caret_offset_with(context: &Context, text: &str, chars: usize, font: FontId) -> f32 {
+    let mut offset = 0.0;
+    let mut output = context.run_ui(RawInput::default(), |ui| {
+        offset = ui
+            .painter()
+            .layout_no_wrap(text.into(), font.clone(), Color32::WHITE)
+            .pos_from_cursor(CCursor::new(chars))
+            .left();
+    });
+    output.textures_delta.clear();
+    offset
+}
+
+#[test]
+fn reveal은_토큰의_굵은_글꼴로_그린_줄의_끝에_가로_스크롤을_맞춘다() {
+    let bold_family = FontFamily::Name(BOLD_FAMILY.into());
+    let presentation = bold_presentation(Some(bold_family.clone()));
+    let styles = token_styles();
+    let lines = line_tokens(
+        &(0..SCROLLED_ROWS)
+            .map(|row| {
+                spans(&[(
+                    0,
+                    if row == SCROLLED_LONG_ROW {
+                        KEYWORD_STYLE_ID
+                    } else {
+                        DEFAULT_STYLE_ID
+                    },
+                )])
+            })
+            .collect::<Vec<_>>(),
+    );
+    let reveal = |tokens: Option<EditorTokens<'_>>| {
+        let (mut store, view) = fixture(&scrolled_document(), false);
+        let context = bold_context(&bold_family, FontFamily::Proportional);
+        let mut output = context.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    pos2(0.0, 0.0),
+                    vec2(SCREEN[0], SCREEN[1]),
+                )),
+                ..Default::default()
+            },
+            |ui| {
+                editor()
+                    .reveal_tokenized(
+                        ui,
+                        &mut store,
+                        view,
+                        (SCROLLED_LONG_ROW + 1) as f64,
+                        (SCROLLED_LONG_ROW_COLUMNS + 1) as f64,
+                        &presentation,
+                        tokens,
+                    )
+                    .unwrap();
+            },
+        );
+        output.textures_delta.clear();
+        (
+            context,
+            view_line(&store, view),
+            store.views().get(view).unwrap().scroll.x,
+        )
+    };
+    let (_, plain, _) = reveal(None);
+    assert_eq!(plain, REVEALED_VIEW);
+    let (context, _, scrolled) = reveal(Some(EditorTokens {
+        revision: 0,
+        lines: &lines,
+        styles: &styles,
+    }));
+    let long = "x".repeat(SCROLLED_LONG_ROW_COLUMNS);
+    let regular_end = caret_offset(&context, &long, SCROLLED_LONG_ROW_COLUMNS);
+    let bold_end = caret_offset_with(
+        &context,
+        &long,
+        SCROLLED_LONG_ROW_COLUMNS,
+        FontId::new(FONT_SIZE, bold_family.clone()),
+    );
+    let text_width = SCREEN[0] - (measure(&context, "000") + PADDING * 2.0);
+    assert!((bold_end - regular_end).abs() > WIDTH_TOLERANCE);
+    assert!(
+        (scrolled - (bold_end + CARET_STROKE - text_width).max(0.0)).abs() <= WIDTH_TOLERANCE,
+        "{scrolled}"
+    );
+}
+
+fn row_section(foreground: [u8; 4], chars: std::ops::Range<usize>) -> RowSection {
+    RowSection {
+        chars,
+        foreground: token_color(foreground),
+    }
+}
+
+#[test]
+fn 줄_토큰은_탭과_들여쓰기를_건너_표시_문자_구간이_되고_어긋난_경계는_문자_시작으로_내린다() {
+    let styles = token_styles();
+    let font = FontId::monospace(FONT_SIZE);
+    let bold_family = FontFamily::Name(BOLD_FAMILY.into());
+    let highlighted = |mut row: RowText, tokens: &[(usize, u32)], row_start_byte: usize| {
+        row.highlight(RowTokens {
+            spans: &spans(tokens),
+            styles: &styles,
+            row_start_byte,
+        });
+        row
+    };
+    let plain = RowFontStyle::default();
+    let bold = RowFontStyle {
+        is_bold: true,
+        ..plain
+    };
+    let slanted = RowFontStyle {
+        is_italic: true,
+        is_underlined: true,
+        ..plain
+    };
+    let struck = RowFontStyle {
+        is_struck_through: true,
+        ..plain
+    };
+    let tab_spaces = TAB_SIZE as usize;
+    let value_end = TOKEN_ROW_SOURCE.find('x').unwrap();
+    let [aligned, inside_character] = [1, TOKEN_ROW_SPLIT].map(|string_start| {
+        highlighted(
+            row_text(TOKEN_ROW_SOURCE, TAB_SIZE, 0.0, 0),
+            &[
+                (0, KEYWORD_STYLE_ID),
+                (string_start, STRING_STYLE_ID),
+                (value_end, DEFAULT_STYLE_ID),
+            ],
+            0,
+        )
+    });
+    assert_eq!(
+        aligned.sections,
+        [
+            row_section(TOKEN_KEYWORD, 0..tab_spaces),
+            row_section(TOKEN_STRING, tab_spaces..tab_spaces + 1),
+            row_section(TOKEN_DEFAULT, tab_spaces + 1..tab_spaces + 2),
+        ]
+    );
+    assert_eq!(aligned.font_styles, [bold, slanted, plain]);
+    assert_eq!(inside_character, aligned);
+    let formats = |job: LayoutJob| {
+        job.sections
+            .into_iter()
+            .map(|section| {
+                (
+                    section.format.font_id,
+                    section.format.italics,
+                    section.format.underline,
+                    section.format.strikethrough,
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        formats(aligned.styled_layout_job(&font, Some(&bold_family))),
+        [
+            (
+                FontId::new(FONT_SIZE, bold_family),
+                false,
+                Stroke::NONE,
+                Stroke::NONE
+            ),
+            (font.clone(), true, decoration(TOKEN_STRING), Stroke::NONE),
+            (font.clone(), false, Stroke::NONE, Stroke::NONE),
+        ]
+    );
+    assert_eq!(
+        aligned.layout_job(&font),
+        aligned.styled_layout_job(&font, None)
+    );
+    assert_eq!(aligned.layout_job(&font).sections[0].format.font_id, font);
+    let continued = highlighted(
+        row_text("\tb", TAB_SIZE, CONTINUED_START_COLUMN, CONTINUED_INDENT),
+        &[
+            (0, KEYWORD_STYLE_ID),
+            (CONTINUED_ROW_START_BYTE - 1, STRING_STYLE_ID),
+            (CONTINUED_ROW_START_BYTE + 1, COMMENT_STYLE_ID),
+        ],
+        CONTINUED_ROW_START_BYTE,
+    );
+    let indent = CONTINUED_INDENT as usize;
+    let tab_end = continued.text.chars().count() - 1;
+    assert_eq!(
+        continued.sections,
+        [
+            row_section(TOKEN_DEFAULT, 0..indent),
+            row_section(TOKEN_STRING, indent..tab_end),
+            row_section(TOKEN_COMMENT, tab_end..tab_end + 1),
+        ]
+    );
+    assert_eq!(continued.font_styles, [plain, slanted, struck]);
+    let short = || row_text("abcd", TAB_SIZE, 0.0, 0);
+    let untokenized = highlighted(short(), &[], 0);
+    assert_eq!(untokenized.sections, [row_section(TOKEN_DEFAULT, 0..4)]);
+    assert_eq!(untokenized.font_styles, [plain]);
+    let late = highlighted(short(), &[(TOKEN_ROW_SPLIT, KEYWORD_STYLE_ID)], 0);
+    assert_eq!(
+        late.sections,
+        [
+            row_section(TOKEN_DEFAULT, 0..TOKEN_ROW_SPLIT),
+            row_section(TOKEN_KEYWORD, TOKEN_ROW_SPLIT..4),
+        ]
+    );
+    assert_eq!(late.font_styles, [plain, bold]);
+    let merged = highlighted(
+        short(),
+        &[
+            (0, COMMENT_STYLE_ID),
+            (TOKEN_ROW_SPLIT, DOC_COMMENT_STYLE_ID),
+        ],
+        0,
+    );
+    assert_eq!(merged.sections, [row_section(TOKEN_COMMENT, 0..4)]);
+    assert_eq!(merged.font_styles, [struck]);
+    let beyond = highlighted(
+        short(),
+        &[
+            (0, KEYWORD_STYLE_ID),
+            (4, STRING_STYLE_ID),
+            (9, COMMENT_STYLE_ID),
+        ],
+        0,
+    );
+    assert_eq!(beyond.sections, [row_section(TOKEN_KEYWORD, 0..4)]);
+    let empty = highlighted(row_text("", TAB_SIZE, 0.0, 0), &[(0, KEYWORD_STYLE_ID)], 0);
+    assert_eq!(empty.sections, [row_section(TOKEN_DEFAULT, 0..0)]);
+    assert_eq!(
+        empty.layout_job(&font),
+        LayoutJob::simple(
+            String::new(),
+            font,
+            token_color(TOKEN_DEFAULT),
+            f32::INFINITY
+        )
+    );
 }

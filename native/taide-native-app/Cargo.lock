@@ -1762,6 +1762,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b97b65636e5b9ef369943878ac74335ba1c55c1cb6adbf1e2c293c624248d693"
 
 [[package]]
+name = "ferriki-textmate"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a3d60dee1263bdb076f9ef5845a678c9fbe9c2e89038999ce841b9e6f498fe2"
+dependencies = [
+ "ferroni",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ferroni"
+version = "1.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e4faf5f28f70bab2e92a8a60ec72d1a84e35c46ea984414ecf780f3884e8c4f"
+dependencies = [
+ "aho-corasick",
+ "bitflags 2.13.1",
+ "memchr",
+ "smallvec",
+]
+
+[[package]]
 name = "field-offset"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6106,6 +6129,7 @@ dependencies = [
  "taide-model",
  "taide-native-editor",
  "taide-native-retained",
+ "taide-native-syntax",
  "taide-native-terminal",
  "taide-native-ui",
  "taide-plugin",
@@ -6147,6 +6171,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "taide-native-syntax"
+version = "0.1.0"
+dependencies = [
+ "ferriki-textmate",
+ "serde",
+ "serde_json",
+ "taide-model",
+ "taide-native-editor",
 ]
 
 [[package]]

@@ -1,0 +1,680 @@
+use std::ops::Range;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::mpsc::{self, Receiver};
+use std::time::{Duration, Instant};
+
+use serde_json::{Value, json};
+use taide_model::file::{EditorConfigOptions, FileSizeTier, OpenedFile};
+use taide_model::ids::{PaneId, TabId};
+use taide_model::theme::ResolvedTheme;
+use taide_native_editor::document::{DocumentId, DocumentMetadata, Edit, UndoGroup};
+use taide_native_editor::line_tokens::{LineTokens, TokenStyleTable};
+use taide_native_editor::store::{EditorLimits, EditorStore, Transaction};
+use taide_native_editor::view::{ViewId, ViewKey};
+use taide_native_syntax::{
+    TextmateTokenizer, TokenTheme, TokenizerLimits, bundled_grammar_set, token_worker,
+};
+use taide_runtime::TaskSupervisor;
+
+use super::EditorSyntax;
+
+const TIMEOUT: Duration = Duration::from_secs(60);
+const DOCUMENT_COUNT: usize = 8;
+const VIEW_COUNT: usize = 8;
+const HISTORY_COUNT: usize = 8;
+const DOCUMENT_BYTE_LIMIT: usize = 1024 * 1024;
+const CORE_AND_RUST: [&str; 4] = ["json", "jsonc", "markdown", "rust"];
+const RUST_SOURCE: &str =
+    "fn main() {\n    let value = 1; // one\n    let text = \"a\";\n}\n\nfn other() {}";
+const RELOADED_SOURCE: &str = "// reloaded\nfn reloaded() -> &'static str {\n    \"text\"\n}";
+const COMMENT_FOREGROUND_KEY: &str = "comment";
+
+struct Harness {
+    syntax: EditorSyntax,
+    wake: Receiver<()>,
+    finished: Receiver<()>,
+}
+
+impl Harness {
+    fn new() -> Self {
+        let (wake_sender, wake) = mpsc::channel();
+        let (finished_sender, finished) = mpsc::channel();
+        let (client, task) = token_worker(Arc::new(move || {
+            wake_sender.send(()).ok();
+        }));
+        std::thread::spawn(move || {
+            task.run();
+            finished_sender.send(()).ok();
+        });
+        Self {
+            syntax: EditorSyntax::new(client, None),
+            wake,
+            finished,
+        }
+    }
+
+    fn settle(&mut self, store: &EditorStore, theme: &ResolvedTheme, now: Instant) {
+        loop {
+            self.syntax.tick(store, theme, now);
+            if self.syntax.pipeline.is_settled() {
+                return;
+            }
+            self.wake.recv_timeout(TIMEOUT).unwrap();
+        }
+    }
+
+    fn invalid_lines(&self, document: DocumentId) -> Vec<(usize, usize)> {
+        self.syntax
+            .pipeline
+            .tokens(document)
+            .unwrap()
+            .invalid_ranges()
+            .iter()
+            .map(|range| (range.start, range.end))
+            .collect()
+    }
+
+    fn spans(&self, document: DocumentId) -> Vec<Vec<u32>> {
+        let tokens = self.syntax.pipeline.tokens(document).unwrap();
+        assert_eq!(tokens.first_invalid_line(), None);
+        (0..tokens.line_count())
+            .map(|line| tokens.spans(line).to_vec())
+            .collect()
+    }
+}
+
+fn theme(id: &str, comment_foreground: &str) -> ResolvedTheme {
+    theme_with_rules(
+        id,
+        json!([
+            { "scope": [COMMENT_FOREGROUND_KEY], "settings": { "foreground": comment_foreground } },
+            { "scope": ["string"], "settings": { "foreground": "#ce9178" } },
+            { "scope": ["keyword", "storage"], "settings": { "foreground": "#569cd6" } },
+        ]),
+    )
+}
+
+fn theme_with_rules(id: &str, token_colors: Value) -> ResolvedTheme {
+    serde_json::from_value(json!({
+        "id": id,
+        "name": id,
+        "type": "dark",
+        "colors": { "editor.foreground": "#d4d4d4", "editor.background": "#1e1e1e" },
+        "syntax": {},
+        "terminal": {},
+        "tokenColors": token_colors,
+    }))
+    .unwrap()
+}
+
+fn tokenizer(theme: &ResolvedTheme) -> (TokenTheme, TextmateTokenizer) {
+    let token_theme = TokenTheme::from_resolved(theme).unwrap();
+    let tokenizer = TextmateTokenizer::new(
+        &bundled_grammar_set(&CORE_AND_RUST).unwrap(),
+        token_theme.settings(),
+        TokenizerLimits::default(),
+    )
+    .unwrap();
+    (token_theme, tokenizer)
+}
+
+fn expected_table(theme: &ResolvedTheme) -> TokenStyleTable {
+    let (token_theme, tokenizer) = tokenizer(theme);
+    token_theme.style_table(&tokenizer).unwrap()
+}
+
+fn expected_spans(
+    theme: &ResolvedTheme,
+    store: &EditorStore,
+    document: DocumentId,
+) -> Vec<Vec<u32>> {
+    let snapshot = store.documents().snapshot(document).unwrap();
+    let (_, mut tokenizer) = tokenizer(theme);
+    let mut state = None;
+    snapshot
+        .rope
+        .to_string()
+        .split('\n')
+        .map(|line| {
+            let tokenized = tokenizer
+                .try_tokenize_line(&snapshot.metadata.language_id, line, state.as_ref())
+                .unwrap();
+            state = Some(tokenized.end_state);
+            tokenized.spans
+        })
+        .collect()
+}
+
+fn store() -> EditorStore {
+    EditorStore::new(EditorLimits {
+        max_documents: DOCUMENT_COUNT,
+        max_views: VIEW_COUNT,
+        max_undo_groups: HISTORY_COUNT,
+        max_document_bytes: DOCUMENT_BYTE_LIMIT,
+    })
+    .unwrap()
+}
+
+fn file(path: &str, language_id: &str, content: &str) -> OpenedFile {
+    OpenedFile {
+        path: path.into(),
+        content: content.into(),
+        language_id: language_id.into(),
+        byte_size: content.len().try_into().unwrap(),
+        line_count: content.lines().count().try_into().unwrap(),
+        tier: FileSizeTier::Normal,
+        read_only: false,
+        encoding_lossy: false,
+        modified_ms: 1.0,
+        editor_config: EditorConfigOptions::default(),
+    }
+}
+
+fn open(store: &mut EditorStore, path: &str, language_id: &str, content: &str) -> DocumentId {
+    store
+        .open_file(PathBuf::from(path), file(path, language_id, content))
+        .unwrap()
+}
+
+fn attach(store: &mut EditorStore, document: DocumentId) -> ViewId {
+    store
+        .attach_view(
+            ViewKey {
+                window: "main".into(),
+                pane: PaneId::new(),
+                tab: TabId::new(),
+            },
+            document,
+        )
+        .unwrap()
+}
+
+fn apply(store: &mut EditorStore, document: DocumentId, bytes: Range<usize>, text: &str) {
+    let revision = store.documents().snapshot(document).unwrap().revision;
+    store
+        .apply_separate(
+            document,
+            Transaction {
+                revision,
+                edits: vec![Edit {
+                    bytes,
+                    text: text.into(),
+                }],
+                group: UndoGroup(revision),
+                origin: None,
+                selection_after: None,
+            },
+        )
+        .unwrap();
+}
+
+#[test]
+fn 뷰가_붙은_번들_언어_문서만_추적해_토큰화한다() {
+    let theme = theme("dark", "#6a9955");
+    let mut harness = Harness::new();
+    let mut store = store();
+    let shown = open(&mut store, "/synthetic/shown.rs", "rust", RUST_SOURCE);
+    let hidden = open(&mut store, "/synthetic/hidden.rs", "rust", RUST_SOURCE);
+    let plain = open(&mut store, "/synthetic/notes.txt", "plaintext", "plain");
+    attach(&mut store, shown);
+    attach(&mut store, plain);
+    let now = Instant::now();
+    harness.settle(&store, &theme, now);
+    assert!(harness.syntax.pipeline.contains(shown));
+    assert!(!harness.syntax.pipeline.contains(hidden));
+    assert!(!harness.syntax.pipeline.contains(plain));
+    assert_eq!(harness.spans(shown), expected_spans(&theme, &store, shown));
+    assert_eq!(
+        harness.syntax.pipeline.style_table(),
+        Some(&expected_table(&theme))
+    );
+
+    attach(&mut store, hidden);
+    harness.settle(&store, &theme, now);
+    assert_eq!(
+        harness.spans(hidden),
+        expected_spans(&theme, &store, hidden)
+    );
+}
+
+#[test]
+fn 편집은_저널로_이어가고_저널이_끊긴_변경은_문서_전체를_다시_토큰화한다() {
+    let theme = theme("dark", "#6a9955");
+    let mut harness = Harness::new();
+    let mut store = store();
+    let path = "/synthetic/main.rs";
+    let document = open(&mut store, path, "rust", RUST_SOURCE);
+    attach(&mut store, document);
+    let now = Instant::now();
+    harness.settle(&store, &theme, now);
+
+    let value = RUST_SOURCE.find("value").unwrap();
+    apply(
+        &mut store,
+        document,
+        value..value + "value".len(),
+        "renamed",
+    );
+    apply(&mut store, document, 0..0, "// top\n");
+    harness.syntax.tick(&store, &theme, now);
+    let tokens = harness.syntax.pipeline.tokens(document).unwrap();
+    assert_eq!(tokens.line_count(), 7);
+    assert_eq!(harness.invalid_lines(document), [(0, 3)]);
+    harness.settle(&store, &theme, now);
+    assert_eq!(
+        harness.spans(document),
+        expected_spans(&theme, &store, document)
+    );
+
+    assert!(store.undo(document).unwrap());
+    harness.syntax.tick(&store, &theme, now);
+    assert_eq!(harness.invalid_lines(document), [(0, 1)]);
+    harness.settle(&store, &theme, now);
+    assert_eq!(
+        harness.spans(document),
+        expected_spans(&theme, &store, document)
+    );
+
+    let saved = store.save_snapshot(document).unwrap();
+    store.mark_saved(saved, None).unwrap();
+    store
+        .refresh_clean_file(
+            document,
+            &PathBuf::from(path),
+            file(path, "rust", RELOADED_SOURCE),
+        )
+        .unwrap();
+    harness.syntax.tick(&store, &theme, now);
+    assert_eq!(harness.invalid_lines(document), [(0, 4)]);
+    harness.settle(&store, &theme, now);
+    assert_eq!(
+        harness.spans(document),
+        expected_spans(&theme, &store, document)
+    );
+}
+
+#[test]
+fn 닫힌_문서와_번들_밖_언어로_바뀐_문서는_추적에서_뺀다() {
+    let theme = theme("dark", "#6a9955");
+    let mut harness = Harness::new();
+    let mut store = store();
+    let closed = open(&mut store, "/synthetic/closed.rs", "rust", RUST_SOURCE);
+    let renamed = open(&mut store, "/synthetic/renamed.rs", "rust", RUST_SOURCE);
+    let closed_view = attach(&mut store, closed);
+    attach(&mut store, renamed);
+    let now = Instant::now();
+    harness.settle(&store, &theme, now);
+    assert!(harness.syntax.pipeline.contains(closed));
+    assert!(harness.syntax.pipeline.contains(renamed));
+
+    store.detach_view(closed_view).unwrap();
+    harness.syntax.tick(&store, &theme, now);
+    assert!(harness.syntax.pipeline.contains(closed));
+    store.discard_document(closed, 0).unwrap();
+    harness.syntax.tick(&store, &theme, now);
+    assert!(!harness.syntax.pipeline.contains(closed));
+    assert!(harness.syntax.pipeline.contains(renamed));
+
+    let plain_path = "/synthetic/renamed.txt";
+    let snapshot = store.documents().snapshot(renamed).unwrap();
+    store
+        .retarget_file(
+            &snapshot,
+            PathBuf::from(plain_path),
+            DocumentMetadata::from_opened(&file(plain_path, "plaintext", RUST_SOURCE)),
+        )
+        .unwrap();
+    harness.syntax.tick(&store, &theme, now);
+    assert!(!harness.syntax.pipeline.contains(renamed));
+
+    let json_path = "/synthetic/renamed.json";
+    let snapshot = store.documents().snapshot(renamed).unwrap();
+    store
+        .retarget_file(
+            &snapshot,
+            PathBuf::from(json_path),
+            DocumentMetadata::from_opened(&file(json_path, "json", RUST_SOURCE)),
+        )
+        .unwrap();
+    harness.settle(&store, &theme, now);
+    assert_eq!(
+        harness.spans(renamed),
+        expected_spans(&theme, &store, renamed)
+    );
+
+    let rust_path = "/synthetic/renamed-again.rs";
+    let snapshot = store.documents().snapshot(renamed).unwrap();
+    store
+        .retarget_file(
+            &snapshot,
+            PathBuf::from(rust_path),
+            DocumentMetadata::from_opened(&file(rust_path, "rust", RUST_SOURCE)),
+        )
+        .unwrap();
+    harness.settle(&store, &theme, now);
+    assert_eq!(
+        harness.spans(renamed),
+        expected_spans(&theme, &store, renamed)
+    );
+}
+
+#[test]
+fn 한_tick_안에_닫힌_문서와_언어가_바뀐_문서와_새_문서를_함께_정리한다() {
+    let theme = theme("dark", "#6a9955");
+    let mut harness = Harness::new();
+    let mut store = store();
+    let closed = open(&mut store, "/synthetic/closed.rs", "rust", RUST_SOURCE);
+    let renamed = open(&mut store, "/synthetic/renamed.rs", "rust", RUST_SOURCE);
+    let kept = open(&mut store, "/synthetic/kept.rs", "rust", RUST_SOURCE);
+    let closed_view = attach(&mut store, closed);
+    attach(&mut store, renamed);
+    let kept_view = attach(&mut store, kept);
+    let now = Instant::now();
+    harness.settle(&store, &theme, now);
+
+    store.detach_view(closed_view).unwrap();
+    store.discard_document(closed, 0).unwrap();
+    let plain_path = "/synthetic/renamed.txt";
+    let snapshot = store.documents().snapshot(renamed).unwrap();
+    store
+        .retarget_file(
+            &snapshot,
+            PathBuf::from(plain_path),
+            DocumentMetadata::from_opened(&file(plain_path, "plaintext", RUST_SOURCE)),
+        )
+        .unwrap();
+    harness.syntax.tick(&store, &theme, now);
+    assert!(!harness.syntax.pipeline.contains(closed));
+    assert!(!harness.syntax.pipeline.contains(renamed));
+    assert!(harness.syntax.pipeline.contains(kept));
+
+    let added = open(&mut store, "/synthetic/added.rs", "rust", RUST_SOURCE);
+    attach(&mut store, added);
+    store.detach_view(kept_view).unwrap();
+    store.discard_document(kept, 0).unwrap();
+    harness.settle(&store, &theme, now);
+    assert!(!harness.syntax.pipeline.contains(kept));
+    assert_eq!(harness.spans(added), expected_spans(&theme, &store, added));
+}
+
+#[test]
+fn 연속된_테마_변경은_150ms_뒤에_마지막_테마로_한_번만_다시_적용한다() {
+    let first = theme("first", "#6a9955");
+    let skipped = theme("skipped", "#111111");
+    let last = theme("last", "#222222");
+    let mut harness = Harness::new();
+    let mut store = store();
+    let document = open(&mut store, "/synthetic/main.rs", "rust", RUST_SOURCE);
+    attach(&mut store, document);
+    let start = Instant::now();
+    harness.settle(&store, &first, start);
+    assert_eq!(
+        harness.syntax.pipeline.style_table(),
+        Some(&expected_table(&first))
+    );
+
+    let step = Duration::from_millis(50);
+    assert_eq!(
+        harness.syntax.tick(&store, &skipped, start + step),
+        Some(Duration::from_millis(150))
+    );
+    assert_eq!(
+        harness.syntax.tick(&store, &last, start + step * 2),
+        Some(Duration::from_millis(150))
+    );
+    assert_eq!(
+        harness.syntax.tick(&store, &last, start + step * 4),
+        Some(step)
+    );
+    assert!(harness.syntax.pipeline.is_settled());
+    assert_eq!(
+        harness.syntax.pipeline.style_table(),
+        Some(&expected_table(&first))
+    );
+
+    assert_eq!(harness.syntax.tick(&store, &last, start + step * 5), None);
+    assert!(!harness.syntax.pipeline.is_settled());
+    harness.settle(&store, &last, start + step * 5);
+    assert_eq!(
+        harness.syntax.pipeline.style_table(),
+        Some(&expected_table(&last))
+    );
+    assert_ne!(expected_table(&last), expected_table(&skipped));
+    assert_eq!(
+        harness.spans(document),
+        expected_spans(&last, &store, document)
+    );
+}
+
+#[test]
+fn 거절된_테마는_이전_스타일_표를_남기고_다음_테마는_다시_적용한다() {
+    let valid = theme("valid", "#6a9955");
+    let rejected = theme("rejected", "#0083080");
+    let next = theme("next", "#333333");
+    let mut harness = Harness::new();
+    let mut store = store();
+    let document = open(&mut store, "/synthetic/main.rs", "rust", RUST_SOURCE);
+    attach(&mut store, document);
+    let start = Instant::now();
+    harness.settle(&store, &valid, start);
+
+    let later = start + Duration::from_secs(1);
+    assert_eq!(harness.syntax.tick(&store, &rejected, later), None);
+    assert!(harness.syntax.pipeline.is_settled());
+    assert_eq!(
+        harness.syntax.pipeline.style_table(),
+        Some(&expected_table(&valid))
+    );
+    assert_eq!(
+        harness.spans(document),
+        expected_spans(&valid, &store, document)
+    );
+
+    let latest = later + Duration::from_secs(1);
+    harness.settle(&store, &next, latest);
+    assert_eq!(
+        harness.syntax.pipeline.style_table(),
+        Some(&expected_table(&next))
+    );
+}
+
+#[test]
+fn 연결을_끊으면_worker가_끝나고_이후_tick은_토큰을_바꾸지_않는다() {
+    let theme = theme("dark", "#6a9955");
+    let mut harness = Harness::new();
+    let mut store = store();
+    let document = open(&mut store, "/synthetic/main.rs", "rust", RUST_SOURCE);
+    attach(&mut store, document);
+    let now = Instant::now();
+    harness.settle(&store, &theme, now);
+    assert!(harness.syntax.disconnect().is_none());
+    harness.finished.recv_timeout(TIMEOUT).unwrap();
+    apply(&mut store, document, 0..0, "/* open\n");
+    harness.syntax.tick(&store, &theme, now);
+    assert!(!harness.syntax.pipeline.is_worker_running());
+    assert_eq!(
+        harness
+            .syntax
+            .pipeline
+            .tokens(document)
+            .unwrap()
+            .first_invalid_line(),
+        Some(0)
+    );
+}
+
+#[test]
+fn worker는_task_supervisor에_등록되고_연결을_끊거나_버리면_끝난다() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let tasks = TaskSupervisor::new(runtime.handle().clone());
+    let mut syntax = EditorSyntax::connect(&tasks, Arc::new(|| {})).unwrap();
+    assert_eq!(tasks.tracked_count(), 1);
+    let worker = syntax.disconnect().unwrap();
+    runtime
+        .block_on(async { tokio::time::timeout(TIMEOUT, worker).await })
+        .unwrap()
+        .unwrap();
+    assert_eq!(tasks.tracked_count(), 0);
+    assert!(syntax.disconnect().is_none());
+
+    let dropped = EditorSyntax::connect(&tasks, Arc::new(|| {})).unwrap();
+    assert_eq!(tasks.tracked_count(), 1);
+    drop(dropped);
+    runtime
+        .block_on(async { tokio::time::timeout(TIMEOUT, tasks.shutdown()).await })
+        .unwrap();
+    assert_eq!(tasks.tracked_count(), 0);
+    assert!(EditorSyntax::connect(&tasks, Arc::new(|| {})).is_err());
+}
+
+fn revision(store: &EditorStore, document: DocumentId) -> u64 {
+    store.documents().snapshot(document).unwrap().revision
+}
+
+fn line_spans(tokens: &LineTokens) -> Vec<Vec<u32>> {
+    (0..tokens.line_count())
+        .map(|line| tokens.spans(line).to_vec())
+        .collect()
+}
+
+#[test]
+fn 화면에_빌려주는_토큰은_편집_직후에도_현재_revision의_줄에_맞고_재토큰화를_바로_시작한다() {
+    let theme = theme("dark", "#6a9955");
+    let mut harness = Harness::new();
+    let mut store = store();
+    let document = open(&mut store, "/synthetic/main.rs", "rust", RUST_SOURCE);
+    attach(&mut store, document);
+    let now = Instant::now();
+    harness.settle(&store, &theme, now);
+    let settled = harness.spans(document);
+
+    apply(&mut store, document, 0..0, "// top\n");
+    let tokens = harness.syntax.tokens(&store, document).unwrap();
+    assert_eq!(tokens.revision, revision(&store, document));
+    assert_eq!(*tokens.styles, expected_table(&theme));
+    assert_eq!(tokens.lines.first_invalid_line(), Some(0));
+    let shifted = line_spans(tokens.lines);
+    assert_eq!(shifted.len(), settled.len() + 1);
+    assert_eq!(shifted[2..], settled[1..]);
+    assert!(!harness.syntax.pipeline.is_settled());
+    harness.settle(&store, &theme, now);
+    assert_eq!(
+        harness.spans(document),
+        expected_spans(&theme, &store, document)
+    );
+}
+
+#[test]
+fn 테마가_다시_적용되거나_언어가_바뀐_문서는_이전_토큰을_새_스타일_표로_빌려주지_않는다() {
+    let first = theme("first", "#6a9955");
+    let second = theme("second", "#222222");
+    let mut harness = Harness::new();
+    let mut store = store();
+    let document = open(&mut store, "/synthetic/main.rs", "rust", RUST_SOURCE);
+    attach(&mut store, document);
+    let start = Instant::now();
+    harness.settle(&store, &first, start);
+    let settled = harness.spans(document);
+
+    let later = start + Duration::from_secs(1);
+    let untokenized: Vec<Vec<u32>> = vec![Vec::new(); settled.len()];
+    let second_table = expected_table(&second);
+    harness.syntax.tick(&store, &second, later);
+    let tokens = harness.syntax.tokens(&store, document).unwrap();
+    assert_eq!(*tokens.styles, expected_table(&first));
+    assert_eq!(line_spans(tokens.lines), settled);
+    while harness.syntax.pipeline.style_table() != Some(&second_table) {
+        harness.wake.recv_timeout(TIMEOUT).unwrap();
+        harness.syntax.tick(&store, &second, later);
+    }
+    let tokens = harness.syntax.tokens(&store, document).unwrap();
+    assert_eq!(*tokens.styles, second_table);
+    assert_eq!(tokens.lines.first_invalid_line(), Some(0));
+    assert_eq!(line_spans(tokens.lines), untokenized);
+    harness.settle(&store, &second, later);
+    assert_eq!(
+        harness.spans(document),
+        expected_spans(&second, &store, document)
+    );
+
+    let json_path = "/synthetic/main.json";
+    let snapshot = store.documents().snapshot(document).unwrap();
+    store
+        .retarget_file(
+            &snapshot,
+            PathBuf::from(json_path),
+            DocumentMetadata::from_opened(&file(json_path, "json", RUST_SOURCE)),
+        )
+        .unwrap();
+    let tokens = harness.syntax.tokens(&store, document).unwrap();
+    assert_eq!(tokens.revision, revision(&store, document));
+    assert_eq!(line_spans(tokens.lines), untokenized);
+
+    let plain_path = "/synthetic/main.txt";
+    let snapshot = store.documents().snapshot(document).unwrap();
+    store
+        .retarget_file(
+            &snapshot,
+            PathBuf::from(plain_path),
+            DocumentMetadata::from_opened(&file(plain_path, "plaintext", RUST_SOURCE)),
+        )
+        .unwrap();
+    assert!(harness.syntax.tokens(&store, document).is_none());
+    assert!(!harness.syntax.pipeline.contains(document));
+}
+
+#[test]
+fn 토큰은_번들_밖_언어와_닫힌_문서에는_없고_처음_보인_문서는_tick_없이_추적을_시작한다() {
+    let theme = theme("dark", "#6a9955");
+    let mut harness = Harness::new();
+    let mut store = store();
+    let closed = open(&mut store, "/synthetic/closed.rs", "rust", RUST_SOURCE);
+    let plain = open(&mut store, "/synthetic/notes.txt", "plaintext", "plain");
+    let closed_view = attach(&mut store, closed);
+    attach(&mut store, plain);
+    assert!(harness.syntax.tokens(&store, closed).is_none());
+    let now = Instant::now();
+    harness.settle(&store, &theme, now);
+    assert!(harness.syntax.tokens(&store, closed).is_some());
+    assert!(harness.syntax.tokens(&store, plain).is_none());
+
+    store.detach_view(closed_view).unwrap();
+    store.discard_document(closed, 0).unwrap();
+    assert!(harness.syntax.tokens(&store, closed).is_none());
+    assert!(!harness.syntax.pipeline.contains(closed));
+
+    let added = open(&mut store, "/synthetic/added.rs", "rust", RUST_SOURCE);
+    attach(&mut store, added);
+    let tokens = harness.syntax.tokens(&store, added).unwrap();
+    assert_eq!(tokens.revision, revision(&store, added));
+    assert_eq!(tokens.lines.first_invalid_line(), Some(0));
+    assert!(!harness.syntax.pipeline.is_settled());
+    harness.settle(&store, &theme, now);
+    assert_eq!(harness.spans(added), expected_spans(&theme, &store, added));
+}
+
+#[test]
+fn 화면이_알린_보이는_줄은_다음_tick까지_합쳐_두었다가_한_번_전달한다() {
+    let theme = theme("dark", "#6a9955");
+    let mut harness = Harness::new();
+    let mut store = store();
+    let document = open(&mut store, "/synthetic/main.rs", "rust", RUST_SOURCE);
+    let plain = open(&mut store, "/synthetic/notes.txt", "plaintext", "plain");
+    attach(&mut store, document);
+    attach(&mut store, plain);
+    let now = Instant::now();
+    harness.settle(&store, &theme, now);
+
+    let [lower, upper] = [4..6, 1..3];
+    harness.syntax.show_lines(document, lower.clone());
+    harness.syntax.show_lines(document, upper.clone());
+    harness.syntax.show_lines(plain, upper.clone());
+    assert_eq!(
+        harness.syntax.documents[&document].shown_lines,
+        Some(upper.start..lower.end)
+    );
+    assert!(!harness.syntax.documents.contains_key(&plain));
+    harness.syntax.tick(&store, &theme, now);
+    assert_eq!(harness.syntax.documents[&document].shown_lines, None);
+}

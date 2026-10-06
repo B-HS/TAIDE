@@ -1,3 +1,5 @@
+#[path = "change-journal.rs"]
+pub mod change_journal;
 #[path = "display-layout.rs"]
 pub mod display_layout;
 #[path = "display-map.rs"]
@@ -7,6 +9,8 @@ pub mod editing;
 pub mod indent;
 #[path = "line-breaks.rs"]
 pub mod line_breaks;
+#[path = "line-tokens.rs"]
+pub mod line_tokens;
 pub mod lsp;
 pub mod save_cleanup;
 #[path = "save-preparation.rs"]

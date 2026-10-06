@@ -28,6 +28,8 @@ pub mod diagnostics;
 #[path = "editor-fonts.rs"]
 mod editor_fonts;
 pub mod editor_reveal;
+#[path = "editor-syntax.rs"]
+pub mod editor_syntax;
 #[path = "event-relay.rs"]
 pub mod event_relay;
 pub mod events;

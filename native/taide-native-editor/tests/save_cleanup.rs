@@ -2,6 +2,7 @@ use taide_model::file::{EditorConfigOptions, FileSizeTier, OpenedFile};
 use taide_model::ids::{PaneId, TabId};
 use taide_native_editor::document::{DocumentId, EditorError, LineEnding};
 use taide_native_editor::editing::replace_selections;
+use taide_native_editor::line_tokens::{LineTokens, TokenStyle, TokenStyleTable};
 use taide_native_editor::save_cleanup::{CleanupFlags, run};
 use taide_native_editor::store::{EditorLimits, EditorStore};
 use taide_native_editor::syntax::{SyntaxSnapshot, Token, TokenKind, TokenLine};
@@ -12,6 +13,15 @@ const DOCUMENT_LIMIT: usize = 4;
 const VIEW_LIMIT: usize = 8;
 const HISTORY_LIMIT: usize = 8;
 const BYTE_LIMIT: usize = 1024;
+const CODE_STYLE_ID: u32 = 0;
+const PUNCTUATION_STYLE_ID: u32 = 1;
+const STRING_STYLE_ID: u32 = 2;
+const COMMENT_STYLE_ID: u32 = 3;
+const TOKENIZED_CONTENT: &str = "code \t\n\"open   \nclosed\"; \n// note \t\nlater  ";
+const TOKENIZED_LINES: usize = 5;
+const CODE_END: u32 = 4;
+const STRING_CLOSE_LINE: usize = 2;
+const UNTOKENIZED_LINE: usize = 4;
 
 fn fixture(
     content: &str,
@@ -370,5 +380,149 @@ fn 참여자_실패와_view_부재는_저장을_취소하지_않고_editorconfig
             .rope
             .to_string(),
         "abc \t"
+    );
+}
+
+fn token_style(kind: TokenKind) -> TokenStyle {
+    TokenStyle {
+        foreground: [u8::MAX; 4],
+        is_italic: false,
+        is_bold: false,
+        is_underlined: false,
+        is_struck_through: false,
+        kind,
+    }
+}
+
+fn token_styles() -> TokenStyleTable {
+    TokenStyleTable::new(
+        token_style(TokenKind::Other),
+        [
+            TokenKind::Other,
+            TokenKind::Other,
+            TokenKind::String,
+            TokenKind::Comment,
+        ]
+        .map(token_style)
+        .to_vec(),
+    )
+}
+
+fn string_close() -> usize {
+    TOKENIZED_CONTENT
+        .lines()
+        .nth(STRING_CLOSE_LINE)
+        .unwrap()
+        .find(';')
+        .unwrap()
+}
+
+fn tokenized_lines() -> LineTokens {
+    let mut tokens = LineTokens::new(TOKENIZED_LINES);
+    for (line, spans) in [
+        vec![0, CODE_STYLE_ID, CODE_END, PUNCTUATION_STYLE_ID],
+        vec![0, STRING_STYLE_ID],
+        vec![
+            0,
+            STRING_STYLE_ID,
+            string_close().try_into().unwrap(),
+            PUNCTUATION_STYLE_ID,
+        ],
+        vec![0, COMMENT_STYLE_ID],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        tokens.set_line(line, spans, false);
+    }
+    tokens
+}
+
+fn trimmed(tokens: &LineTokens) -> (Vec<usize>, String) {
+    let (mut store, document, view, _) = fixture(TOKENIZED_CONTENT, "rust", BYTE_LIMIT);
+    let syntax = SyntaxSnapshot::from_accurate_lines(0, "rust".into(), tokens, &token_styles());
+    let lines = syntax.lines.iter().map(|line| line.line).collect();
+    store.install_syntax(document, syntax).unwrap();
+    let only_trim = CleanupFlags {
+        trim_trailing_whitespace: true,
+        insert_final_newline: false,
+    };
+    run(&mut store, document, Some(view), only_trim, false).unwrap();
+    (
+        lines,
+        store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+    )
+}
+
+#[test]
+fn 토큰_저장소의_정확한_줄만_저장_정리_스냅샷이_되고_그_아래_줄은_지우지_않는다() {
+    let tokens = tokenized_lines();
+    let syntax = SyntaxSnapshot::from_accurate_lines(0, "rust".into(), &tokens, &token_styles());
+    assert_eq!(
+        syntax.lines[0].tokens,
+        [Token {
+            start_byte: 0,
+            kind: TokenKind::Other
+        }]
+    );
+    assert_eq!(
+        syntax.lines[STRING_CLOSE_LINE].tokens,
+        [
+            Token {
+                start_byte: 0,
+                kind: TokenKind::String
+            },
+            Token {
+                start_byte: string_close(),
+                kind: TokenKind::Other
+            }
+        ]
+    );
+    assert_eq!(
+        trimmed(&tokens),
+        (
+            (0..UNTOKENIZED_LINE).collect(),
+            "code\n\"open   \nclosed\";\n// note\nlater  ".into()
+        )
+    );
+    let mut interrupted = tokens;
+    interrupted.invalidate(1..STRING_CLOSE_LINE);
+    assert_eq!(
+        trimmed(&interrupted),
+        (
+            vec![0],
+            "code\n\"open   \nclosed\"; \n// note \t\nlater  ".into()
+        )
+    );
+    assert_eq!(
+        trimmed(&LineTokens::new(TOKENIZED_LINES)),
+        (Vec::new(), TOKENIZED_CONTENT.into())
+    );
+}
+
+#[test]
+fn 토크나이저가_없는_문서의_스냅샷은_모든_줄을_일반_토큰으로_두어_후행_공백을_지우게_한다() {
+    let (mut store, document, view, _) = fixture(TOKENIZED_CONTENT, "rust", BYTE_LIMIT);
+    let syntax = SyntaxSnapshot::without_tokenizer(0, "rust".into(), TOKENIZED_LINES);
+    assert_eq!(syntax.lines.len(), TOKENIZED_LINES);
+    store.install_syntax(document, syntax).unwrap();
+    let only_trim = CleanupFlags {
+        trim_trailing_whitespace: true,
+        insert_final_newline: false,
+    };
+    run(&mut store, document, Some(view), only_trim, false).unwrap();
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        "code\n\"open\nclosed\";\n// note\nlater"
     );
 }

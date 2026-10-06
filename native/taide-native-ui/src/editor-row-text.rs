@@ -2,17 +2,28 @@ use std::iter::repeat_n;
 use std::ops::Range;
 
 use egui::text::{ByteIndex, LayoutJob, LayoutSection, TextFormat, TextWrapping};
-use egui::{Color32, FontId};
+use egui::{Color32, FontFamily, FontId, Stroke};
 use taide_native_editor::line_breaks::{is_full_width_character, tab_columns};
+use taide_native_editor::line_tokens::{TokenStyle, TokenStyleTable};
 
 const FIRST_SUPPLEMENTARY_CODE: u32 = 0x10000;
 const WIDE_CHARACTER_COLUMNS: f64 = 2.0;
 const TAB_HALVES: usize = 2;
+const SPAN_FIELDS: usize = 2;
+const TEXT_DECORATION_STROKE: f32 = 1.0;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RowSection {
     pub chars: Range<usize>,
     pub foreground: Color32,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RowFontStyle {
+    pub is_italic: bool,
+    pub is_bold: bool,
+    pub is_underlined: bool,
+    pub is_struck_through: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -22,12 +33,33 @@ pub struct RowColumns {
     pub indent_columns: u32,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct RowTokens<'a> {
+    pub spans: &'a [u32],
+    pub styles: &'a TokenStyleTable,
+    pub row_start_byte: usize,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct RowText {
     pub text: String,
     pub sections: Vec<RowSection>,
+    pub font_styles: Vec<RowFontStyle>,
     pub model_bytes: Vec<u32>,
     pub indent_chars: usize,
+}
+
+fn section_style(style: TokenStyle) -> (Color32, RowFontStyle) {
+    let [red, green, blue, alpha] = style.foreground;
+    (
+        Color32::from_rgba_unmultiplied(red, green, blue, alpha),
+        RowFontStyle {
+            is_italic: style.is_italic,
+            is_bold: style.is_bold,
+            is_underlined: style.is_underlined,
+            is_struck_through: style.is_struck_through,
+        },
+    )
 }
 
 impl RowText {
@@ -58,29 +90,119 @@ impl RowText {
                 chars: 0..model_bytes.len() - 1,
                 foreground,
             }],
+            font_styles: vec![RowFontStyle::default()],
             text,
             model_bytes,
             indent_chars,
         }
     }
 
+    pub fn highlight(&mut self, tokens: RowTokens<'_>) {
+        let char_count = self.model_bytes.len() - 1;
+        let default_style = tokens.styles.default_style();
+        let spans = tokens.spans.as_chunks::<SPAN_FIELDS>().0;
+        let covering = spans
+            .partition_point(|[start, _]| *start as usize <= tokens.row_start_byte)
+            .saturating_sub(1);
+        let row_char = |line_byte: u32| {
+            self.display_char((line_byte as usize).saturating_sub(tokens.row_start_byte))
+        };
+        let mut sections: Vec<RowSection> = Vec::new();
+        let mut font_styles: Vec<RowFontStyle> = Vec::new();
+        let mut cover = |chars: Range<usize>, style: TokenStyle| {
+            if chars.is_empty() {
+                return;
+            }
+            let (foreground, font_style) = section_style(style);
+            match sections.last_mut().zip(font_styles.last()) {
+                Some((previous, previous_font_style))
+                    if previous.foreground == foreground && *previous_font_style == font_style =>
+                {
+                    previous.chars.end = chars.end;
+                }
+                _ => {
+                    sections.push(RowSection { chars, foreground });
+                    font_styles.push(font_style);
+                }
+            }
+        };
+        cover(0..self.indent_chars, default_style);
+        let mut covered = self.indent_chars;
+        for (index, [start, style_id]) in spans.iter().enumerate().skip(covering) {
+            if covered == char_count {
+                break;
+            }
+            let first = row_char(*start).max(covered);
+            let end = spans
+                .get(index + 1)
+                .map_or(char_count, |[next, _]| row_char(*next))
+                .max(first);
+            cover(covered..first, default_style);
+            cover(first..end, tokens.styles.style(*style_id));
+            covered = end;
+        }
+        cover(covered..char_count, default_style);
+        if sections.is_empty() {
+            let (foreground, font_style) = section_style(default_style);
+            sections.push(RowSection {
+                chars: 0..char_count,
+                foreground,
+            });
+            font_styles.push(font_style);
+        }
+        self.sections = sections;
+        self.font_styles = font_styles;
+    }
+
     pub fn layout_job(&self, font: &FontId) -> LayoutJob {
-        let text_byte = |display_char: usize| {
-            ByteIndex(
-                self.text
-                    .char_indices()
-                    .nth(display_char)
-                    .map_or(self.text.len(), |(offset, _)| offset),
-            )
+        self.styled_layout_job(font, None)
+    }
+
+    pub fn styled_layout_job(&self, font: &FontId, bold_family: Option<&FontFamily>) -> LayoutJob {
+        let mut located = (0, 0);
+        let mut text_byte = |display_char: usize| {
+            let (from_char, from_byte) = if display_char < located.0 {
+                (0, 0)
+            } else {
+                located
+            };
+            let byte = self.text[from_byte..]
+                .char_indices()
+                .nth(display_char - from_char)
+                .map_or(self.text.len(), |(offset, _)| from_byte + offset);
+            located = (display_char, byte);
+            ByteIndex(byte)
         };
         LayoutJob {
             sections: self
                 .sections
                 .iter()
-                .map(|section| LayoutSection {
-                    leading_space: 0.0,
-                    byte_range: text_byte(section.chars.start)..text_byte(section.chars.end),
-                    format: TextFormat::simple(font.clone(), section.foreground),
+                .enumerate()
+                .map(|(index, section)| {
+                    let font_style = self.font_styles.get(index).copied().unwrap_or_default();
+                    let decoration = |is_drawn: bool| {
+                        if is_drawn {
+                            Stroke::new(TEXT_DECORATION_STROKE, section.foreground)
+                        } else {
+                            Stroke::NONE
+                        }
+                    };
+                    LayoutSection {
+                        leading_space: 0.0,
+                        byte_range: text_byte(section.chars.start)..text_byte(section.chars.end),
+                        format: TextFormat {
+                            italics: font_style.is_italic,
+                            underline: decoration(font_style.is_underlined),
+                            strikethrough: decoration(font_style.is_struck_through),
+                            ..TextFormat::simple(
+                                match bold_family.filter(|_| font_style.is_bold) {
+                                    Some(family) => FontId::new(font.size, family.clone()),
+                                    None => font.clone(),
+                                },
+                                section.foreground,
+                            )
+                        },
+                    }
                 })
                 .collect(),
             text: self.text.clone(),

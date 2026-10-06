@@ -7,6 +7,7 @@ use taide_model::app::AppFileTarget;
 use taide_model::file::{EditorConfigOptions, FileSizeTier, OpenedFile};
 use taide_model::ids::TabId;
 
+use crate::change_journal::{ChangeJournal, ChangesSince};
 use crate::display_map::DisplayMap;
 use crate::document::{
     DiskChoice, DiskSnapshot, DocumentId, DocumentKey, DocumentMetadata, DocumentSnapshot, Edit,
@@ -79,6 +80,14 @@ struct Document {
     requires_save: bool,
     syntax_tokens: Option<crate::syntax::SyntaxSnapshot>,
     observed_disk: Option<DiskSnapshot>,
+    journal: ChangeJournal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DocumentVersion<'a> {
+    pub id: DocumentId,
+    pub revision: u64,
+    pub language_id: &'a str,
 }
 
 impl Document {
@@ -128,6 +137,13 @@ impl DocumentStore {
     }
     pub fn snapshots(&self) -> impl Iterator<Item = DocumentSnapshot> + '_ {
         self.documents.values().map(Document::snapshot)
+    }
+    pub fn versions(&self) -> impl Iterator<Item = DocumentVersion<'_>> + '_ {
+        self.documents.values().map(|document| DocumentVersion {
+            id: document.id,
+            revision: document.revision,
+            language_id: &document.metadata.language_id,
+        })
     }
     pub fn len(&self) -> usize {
         self.documents.len()
@@ -230,6 +246,19 @@ impl EditorStore {
         Ok(owner.syntax_tokens.as_ref().filter(|syntax| {
             syntax.revision == owner.revision && syntax.language_id == owner.metadata.language_id
         }))
+    }
+
+    pub fn changes_since(
+        &self,
+        document: DocumentId,
+        revision: u64,
+    ) -> Result<ChangesSince<'_>, EditorError> {
+        let owner = self
+            .documents
+            .documents
+            .get(&document)
+            .ok_or(EditorError::NotFound)?;
+        Ok(owner.journal.since(revision, owner.revision))
     }
 
     pub fn install_syntax(
@@ -964,6 +993,7 @@ impl EditorStore {
                 requires_save: false,
                 syntax_tokens: None,
                 observed_disk,
+                journal: ChangeJournal::default(),
             },
         );
         self.documents.by_key.insert(key, id);
@@ -1259,6 +1289,9 @@ impl EditorStore {
                 owner.undo.pop_front();
             }
         }
+        owner
+            .journal
+            .record_edits((owner.revision, next_revision), &owner.rope, &after, &edits);
         owner.rope = after;
         owner.revision = next_revision;
         owner.requires_save = true;
@@ -1344,6 +1377,9 @@ impl EditorStore {
             view.composition = None;
             view.folds.clear();
         }
+        owner
+            .journal
+            .record_replacement((owner.revision, revision), &owner.rope, text);
         owner.rope = text.clone();
         owner.revision = revision;
         owner.requires_save = true;

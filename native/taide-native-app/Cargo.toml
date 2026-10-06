@@ -80,6 +80,7 @@ taide-git = { path = "../../crates/taide-git" }
 taide-system = { path = "../../crates/taide-system" }
 taide-native-ui = { path = "../taide-native-ui" }
 taide-native-editor = { path = "../taide-native-editor" }
+taide-native-syntax = { path = "../taide-native-syntax" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "=0.6.2"

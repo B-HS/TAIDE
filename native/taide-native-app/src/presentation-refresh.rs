@@ -171,6 +171,16 @@ pub(crate) struct Appearances {
     pub(crate) toast: ThemeType,
 }
 
+pub(crate) fn editor_presentation(
+    settings: &Settings,
+) -> taide_native_ui::editor_surface::EditorPresentation {
+    let mut presentation = taide_native_ui::presentation::editor_presentation(settings);
+    presentation.options.bold_family = Some(eframe::egui::FontFamily::Name(
+        taide_native_ui::font_families::EDITOR_BOLD_FAMILY.into(),
+    ));
+    presentation
+}
+
 impl Appearances {
     pub(crate) fn new(theme: &ResolvedTheme, settings: &Settings) -> AppResult<Self> {
         use crate::presentation::{color, editor_appearance, shell_colors, visuals};
@@ -481,5 +491,21 @@ mod tests {
         assert_eq!(light.locale.unwrap().id, "ko");
         assert_eq!(dark.locale.unwrap().id, "ja");
         assert_eq!(state.settings.read().clone(), settings);
+    }
+
+    #[test]
+    fn native_editor_presentation은_설정의_word_wrap과_편집기_굵은_글꼴_패밀리를_전달한다() {
+        let mut settings = Settings::default();
+        for word_wrap in [false, true] {
+            settings.editor_word_wrap = word_wrap;
+            let presentation = editor_presentation(&settings);
+            assert_eq!(presentation.options.word_wrap, word_wrap);
+            assert_eq!(
+                presentation.options.bold_family,
+                Some(eframe::egui::FontFamily::Name(
+                    taide_native_ui::font_families::EDITOR_BOLD_FAMILY.into()
+                ))
+            );
+        }
     }
 }

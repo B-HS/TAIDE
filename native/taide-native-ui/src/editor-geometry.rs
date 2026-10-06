@@ -3,12 +3,12 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use egui::text::CCursor;
-use egui::{Color32, FontId, Galley, Painter, Pos2, Rect, Vec2, pos2, vec2};
+use egui::{Color32, FontFamily, FontId, Galley, Painter, Pos2, Rect, Vec2, pos2, vec2};
 use taide_native_editor::display_map::{DisplayMap, RowSegment, WrapSettings, WrappingIndent};
 use taide_native_editor::document::DocumentSnapshot;
 
-use crate::editor_row_text::{RowColumns, RowText};
-use crate::editor_surface::EditorAppearance;
+use crate::editor_row_text::{RowColumns, RowText, RowTokens};
+use crate::editor_surface::{EditorAppearance, EditorTokens};
 
 pub(crate) const CURSOR_STROKE: f32 = 1.0;
 const LINE_NUMBER_MIN_DIGITS: usize = 3;
@@ -47,13 +47,15 @@ pub(crate) struct RowLayout<'a> {
     pub(crate) appearance: &'a EditorAppearance,
     pub(crate) half_leading: f32,
     pub(crate) tab_size: u32,
+    pub(crate) tokens: Option<EditorTokens<'a>>,
+    pub(crate) bold_family: Option<&'a FontFamily>,
 }
 
 impl RowLayout<'_> {
     pub(crate) fn row(&self, index: usize, origin: Pos2) -> Row {
         let segment = self.display.segment(self.document, index);
         let source = Cow::from(self.document.rope.byte_slice(segment.bytes.clone()));
-        let text = RowText::expanded(
+        let mut text = RowText::expanded(
             &source,
             RowColumns {
                 tab_size: self.tab_size,
@@ -62,9 +64,17 @@ impl RowLayout<'_> {
             },
             self.appearance.foreground,
         );
+        if let Some(tokens) = self.tokens {
+            let line_start = self.document.rope.line_to_byte(segment.line);
+            text.highlight(RowTokens {
+                spans: tokens.lines.spans(segment.line),
+                styles: tokens.styles,
+                row_start_byte: segment.bytes.start.saturating_sub(line_start),
+            });
+        }
         let galley = self
             .painter
-            .layout_job(text.layout_job(&self.appearance.font));
+            .layout_job(text.styled_layout_job(&self.appearance.font, self.bold_family));
         Row {
             index,
             wraps: index + 1 < self.display.rows_of_line(segment.line).end,
