@@ -1,13 +1,58 @@
 use std::sync::Arc;
+use std::time::Duration;
 
+use taide_agent::constants::{AGENT_POLL_UNIX_MS, AGENT_POLL_WINDOWS_MS};
 use taide_model::app::AppInfo;
-use taide_runtime::AppServices;
+use taide_model::app_event::AppEvent;
 use taide_runtime::sync_gist_http::SyncGistHttpPort;
+use taide_runtime::{AppServices, EventSink, agent_actions, agent_host};
 
 use crate::event_relay::GitEvents;
 use crate::remote_preferences::Reconcile;
 use crate::remote_serving::AssetResolver;
 use crate::remote_ws::Dispatch;
+
+const AGENT_POLL_TASK: &str = "agent-poll";
+const AGENT_POLL_INTERVAL: Duration = Duration::from_millis(if cfg!(windows) {
+    AGENT_POLL_WINDOWS_MS
+} else {
+    AGENT_POLL_UNIX_MS
+});
+
+struct AgentPollEvents(Arc<dyn EventSink>);
+
+impl EventSink for AgentPollEvents {
+    fn publish(&self, event: AppEvent) {
+        self.0.publish(event);
+    }
+}
+
+pub(crate) fn start_agent_poll(services: Arc<AppServices>) {
+    let tasks = services.tasks.clone();
+    tasks.spawn(AGENT_POLL_TASK, async move {
+        let events = AgentPollEvents(services.events.clone());
+        let mut ticker = tokio::time::interval(AGENT_POLL_INTERVAL);
+        loop {
+            ticker.tick().await;
+            agent_actions::poll_agents(
+                &services.state,
+                &services.agents,
+                &services.agent_hooks,
+                &events,
+                &services.tasks,
+                |project| services.terminal.foreground_pids(project),
+                |pids| {
+                    agent_host::detect_agents_for_pids_blocking(
+                        &services.tasks,
+                        &services.agents,
+                        pids,
+                    )
+                },
+            )
+            .await;
+        }
+    });
+}
 
 pub struct Ports {
     pub ide: Arc<crate::ide_server::Ports>,
@@ -64,6 +109,7 @@ impl Ports {
                 loading_assets,
             ))
             .reconcile();
+            let terminals = terminal.terminals.clone();
             let dispatch = Arc::new(crate::remote_dispatch::create_dispatch(
                 crate::remote_dispatch::Ports {
                     preferences: crate::remote_preferences::Ports {
@@ -80,7 +126,9 @@ impl Ports {
                     ),
                     create_gist_client: Arc::new(SyncGistHttpPort::default),
                 },
-                crate::projects::NativeProjects::new,
+                move |services| {
+                    crate::projects::NativeProjects::new(services).with_terminals(terminals.clone())
+                },
             ));
             let socket = crate::remote_ws::socket_action(dispatch.clone());
             connections = Some((reconcile, dispatch));

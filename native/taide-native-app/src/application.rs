@@ -459,6 +459,7 @@ impl NativeApplication {
     }
 
     fn poll(&mut self, context: &egui::Context) {
+        crate::application_ports::start_agent_poll(application.services.clone());
         while let Some(reply) = self
             .web_bridge
             .as_mut()

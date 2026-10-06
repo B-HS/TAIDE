@@ -22,6 +22,7 @@ const TIMEOUT: Duration = Duration::from_secs(3);
 const CAPTURE_BYTES: usize = 64 * 1024;
 const RESIZED_COLUMNS: u16 = 96;
 const RESIZED_ROWS: u16 = 32;
+const PAUSE_PROBE: Duration = Duration::from_millis(200);
 
 fn terminal() -> SharedTerminal {
     SharedTerminal::new(
@@ -315,6 +316,120 @@ async fn 실제_pty는_단일_core_snapshot_live와_join_뒤_마지막_sync를_�
     drop(pty);
     drop(completion);
     stop.kill().unwrap();
+}
+
+#[tokio::test]
+async fn 출력_보류는_pty를_실패시키지_않고_재개_뒤_남은_출력을_순서대로_전달한다() {
+    let terminal = terminal();
+    let captured = Arc::new(Mutex::new(Capture::default()));
+    let observed = captured.clone();
+    let (send_ready, ready) = oneshot::channel();
+    let send_ready = Mutex::new(Some(send_ready));
+    let pty = terminal
+        .spawn(config(), move |frame| {
+            let mut observed = observed.lock().unwrap();
+            observed.revisions.push(frame.revision);
+            observed.text.push_str(&frame.outcome.text);
+            for effect in frame.outcome.effects {
+                if let Effect::Stream(ScanEvent::Title(title)) = effect {
+                    if title == "native-ready"
+                        && let Some(sender) = send_ready.lock().unwrap().take()
+                    {
+                        let _ = sender.send(());
+                    }
+                    observed.titles.push(title);
+                }
+            }
+            true
+        })
+        .unwrap();
+    let completion = pty.completion_handle();
+    timeout(TIMEOUT, ready).await.unwrap().unwrap();
+    terminal.set_output_paused(true);
+    let InputAction::Write(input) = terminal
+        .encode_input(NativeInput::CommittedText("continue\n"), CAPTURE_BYTES)
+        .unwrap()
+    else {
+        panic!("fixture input was not encoded");
+    };
+    pty.write(&input).unwrap();
+    assert!(
+        timeout(PAUSE_PROBE, completion.wait_for_completion())
+            .await
+            .is_err()
+    );
+    assert!(!completion.is_finished());
+    assert!(matches!(
+        terminal.snapshot(|snapshot| snapshot.phase).unwrap(),
+        Phase::Running | Phase::Draining(_)
+    ));
+    assert!(!captured.lock().unwrap().text.contains("row-"));
+    terminal.set_output_paused(false);
+    let final_frame = timeout(TIMEOUT, terminal.finish(&completion))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        terminal.snapshot(|snapshot| snapshot.phase).unwrap(),
+        Phase::Exited(Some(0))
+    );
+    let observed = captured.lock().unwrap();
+    let expected = format!(
+        "한𐐀e\u{301}\n{}",
+        (0..OUTPUT_ROWS)
+            .map(|row| format!("row-{row} 한e\u{301}\n"))
+            .collect::<String>()
+    );
+    assert_eq!(observed.text, expected);
+    assert!(
+        observed
+            .revisions
+            .windows(2)
+            .all(|pair| pair[1] == pair[0] + 1)
+    );
+    assert_eq!(final_frame.revision, observed.revisions.last().unwrap() + 1);
+}
+
+#[tokio::test]
+async fn 보류된_출력은_실패_중단으로_풀려_worker_join을_막지_않는다() {
+    let terminal = terminal();
+    let (send_ready, ready) = oneshot::channel();
+    let send_ready = Mutex::new(Some(send_ready));
+    let pty = terminal
+        .spawn(config(), move |_| {
+            if let Some(sender) = send_ready.lock().unwrap().take() {
+                let _ = sender.send(());
+            }
+            true
+        })
+        .unwrap();
+    let completion = pty.completion_handle();
+    timeout(TIMEOUT, ready).await.unwrap().unwrap();
+    terminal.set_output_paused(true);
+    let InputAction::Write(input) = terminal
+        .encode_input(NativeInput::CommittedText("continue\n"), CAPTURE_BYTES)
+        .unwrap()
+    else {
+        panic!("fixture input was not encoded");
+    };
+    pty.write(&input).unwrap();
+    assert!(
+        timeout(PAUSE_PROBE, completion.wait_for_completion())
+            .await
+            .is_err()
+    );
+    terminal.fail_and_stop(Failure::Delivery).unwrap();
+    timeout(TIMEOUT, completion.wait_for_completion())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(completion.is_finished());
+    assert_eq!(
+        terminal.snapshot(|snapshot| snapshot.phase).unwrap(),
+        Phase::Failed(Failure::Delivery)
+    );
+    terminal.set_output_paused(true);
+    assert!(terminal.finish(&completion).await.is_err());
 }
 
 #[tokio::test]

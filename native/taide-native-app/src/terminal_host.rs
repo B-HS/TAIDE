@@ -628,6 +628,16 @@ impl Hub {
             .remove(id);
     }
 
+    pub fn discard_project(&self, project: &ProjectId) {
+        let discarded = self
+            .sessions
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .extract_if(|_, entry| entry.session.metadata.project_id() == project)
+            .collect::<Vec<_>>();
+        drop(discarded);
+    }
+
     pub async fn close(&self, id: &str) -> AppResult<()> {
         let mut entry = self
             .sessions
@@ -754,8 +764,12 @@ impl Hub {
                         &services.state.settings.read(),
                     ))?;
                     terminal.configure_command_colors(command_colors)?;
-                    let (sender, receiver) =
-                        terminal_frames::channel(limits.frames).map_err(queue_error)?;
+                    let paused_terminal = terminal.clone();
+                    let (sender, receiver) = terminal_frames::channel_with_flow(
+                        limits.frames,
+                        Arc::new(move |paused| paused_terminal.set_output_paused(paused)),
+                    )
+                    .map_err(queue_error)?;
                     let output = sender.clone();
                     let exit_metadata = metadata.clone();
                     let admission = Arc::new(admission);

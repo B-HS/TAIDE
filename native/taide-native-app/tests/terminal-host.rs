@@ -6097,3 +6097,142 @@ async fn live_sync_deadline과_실제_resize는_같은_core와_frame_순서를_�
     timeout(TIMEOUT, hub.close(&id)).await.unwrap().unwrap();
     fixture.finish().await;
 }
+
+#[tokio::test]
+async fn 포커스없는_단일_view는_측정_크기로_resize를_요청하고_공유_view는_focus_owner를_유지한다() {
+    use eframe::egui::{self, Rect, pos2, vec2};
+    use taide_model::ids::{PaneId, TabId};
+    use taide_native_app::{
+        host::HostCommand,
+        terminal_surface::{Request, Views},
+    };
+    const SCREEN: [f32; 2] = [640.0, 320.0];
+    const SOLE_VIEW: [f32; 2] = [400.0, 200.0];
+    const SHARED_VIEW_LEFT: f32 = 420.0;
+    const SHARED_VIEW: [f32; 2] = [200.0, 100.0];
+    let fixture = Fixture::new();
+    let hub = Hub::new(fixture.services.clone(), limits()).unwrap();
+    let output = Output::default();
+    let id = hub
+        .spawn(
+            fixture.opts(),
+            HISTORY,
+            async { Vec::new() },
+            output.ports(),
+        )
+        .await
+        .unwrap();
+    output.wait_ready().await;
+    let context = egui::Context::default();
+    let mut views = Views::default();
+    let mut commands = Vec::new();
+    let appearance = terminal_appearance();
+    let locale = taide_model::locale::ResolvedLocale {
+        id: "en".into(),
+        name: "English".into(),
+        messages: Default::default(),
+        warnings: Vec::new(),
+    };
+    let sole = (
+        PaneId::new(),
+        TabId::new(),
+        Rect::from_min_size(pos2(0.0, 0.0), vec2(SOLE_VIEW[0], SOLE_VIEW[1])),
+    );
+    let shared = (
+        PaneId::new(),
+        TabId::new(),
+        Rect::from_min_size(
+            pos2(SHARED_VIEW_LEFT, 0.0),
+            vec2(SHARED_VIEW[0], SHARED_VIEW[1]),
+        ),
+    );
+    let frame = |shown: &[(&(PaneId, TabId, Rect), bool)],
+                 views: &mut Views,
+                 commands: &mut Vec<HostCommand>| {
+        let mut rendered = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    pos2(0.0, 0.0),
+                    vec2(SCREEN[0], SCREEN[1]),
+                )),
+                ..Default::default()
+            },
+            |ui| {
+                for ((pane, tab, rect), request_focus) in shown {
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(*rect), |ui| {
+                        views
+                            .show(
+                                ui,
+                                Request {
+                                    pane,
+                                    tab,
+                                    session_id: &id,
+                                    hub: &hub,
+                                    services: &fixture.services,
+                                    appearance: &appearance,
+                                    locale: &locale,
+                                    request_focus: *request_focus,
+                                    commands: &mut *commands,
+                                },
+                            )
+                            .unwrap();
+                    });
+                }
+            },
+        );
+        rendered.textures_delta.clear();
+    };
+    frame(&[(&sole, false)], &mut views, &mut commands);
+    assert_eq!(context.memory(|memory| memory.focused()), None);
+    let [
+        HostCommand::ResizeTerminal {
+            session,
+            size: sole_size,
+        },
+    ] = commands.as_slice()
+    else {
+        panic!("unfocused sole view did not request its measured size")
+    };
+    assert_eq!(session, &id);
+    let sole_size = *sole_size;
+    assert_ne!(
+        sole_size,
+        Size {
+            columns: COLUMNS,
+            rows: ROWS
+        }
+    );
+    commands.clear();
+    views.resized(&id);
+    frame(
+        &[(&sole, false), (&shared, false)],
+        &mut views,
+        &mut commands,
+    );
+    commands.clear();
+    views.resized(&id);
+    frame(
+        &[(&sole, false), (&shared, false)],
+        &mut views,
+        &mut commands,
+    );
+    assert!(commands.is_empty());
+    frame(
+        &[(&sole, false), (&shared, true)],
+        &mut views,
+        &mut commands,
+    );
+    let [
+        HostCommand::ResizeTerminal {
+            session,
+            size: owner_size,
+        },
+    ] = commands.as_slice()
+    else {
+        panic!("focused view of a shared session did not own the size")
+    };
+    assert_eq!(session, &id);
+    assert_ne!(*owner_size, sole_size);
+    timeout(TIMEOUT, hub.close(&id)).await.unwrap().unwrap();
+    fixture.finish().await;
+}

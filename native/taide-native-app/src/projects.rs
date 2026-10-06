@@ -17,6 +17,7 @@ pub type HookReconcile = Arc<dyn Fn(Arc<AppServices>) -> BoxFuture<'static, ()> 
 pub struct NativeProjects {
     services: Arc<AppServices>,
     reconcile_hooks: HookReconcile,
+    terminals: Option<Arc<crate::terminal_host::Hub>>,
 }
 
 struct Attachment {
@@ -37,7 +38,13 @@ impl NativeProjects {
         Self {
             services,
             reconcile_hooks,
+            terminals: None,
         }
+    }
+
+    pub fn with_terminals(mut self, terminals: Arc<crate::terminal_host::Hub>) -> Self {
+        self.terminals = Some(terminals);
+        self
     }
 
     pub async fn open(&self, path: String) -> AppResult<Project> {
@@ -189,6 +196,9 @@ impl ProjectLifecyclePort for NativeProjects {
         self.services.state.watchers.write().remove(project);
         self.services.state.git_watchers.write().remove(project);
         self.services.terminal.kill_project(project);
+        if let Some(terminals) = &self.terminals {
+            terminals.discard_project(project);
+        }
         self.services.git.remove(project);
         self.services.tree.remove(project);
         if let Err(error) = refresh_lockfile(&self.services) {

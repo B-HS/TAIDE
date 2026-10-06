@@ -2,6 +2,8 @@ use std::io::{self, BufRead, Read, Write};
 use std::process::Command;
 
 const OUTPUT_ROWS: usize = 1000;
+const FLOOD_ENV: &str = "TAIDE_NATIVE_FIXTURE_FLOOD";
+const FLOOD_ROWS: usize = 60_000;
 const INITIAL_OUTPUT: &str = "한𐐀e\u{301}\n\x1b]2;native-ready\x07";
 const LINKS_ENV: &str = "TAIDE_NATIVE_FIXTURE_LINKS";
 const COMMANDS_ENV: &str = "TAIDE_NATIVE_FIXTURE_COMMANDS";
@@ -388,8 +390,16 @@ fn main() -> io::Result<()> {
             "unexpected fixture command",
         ));
     }
-    for row in 0..OUTPUT_ROWS {
-        write!(output, "row-{row} 한e\u{301}\r\n")?;
+    if std::env::var_os(FLOOD_ENV).as_deref() == Some(std::ffi::OsStr::new("1")) {
+        let mut flood = Vec::new();
+        for row in 0..FLOOD_ROWS {
+            write!(flood, "row-{row} 한e\u{301}\r\n")?;
+        }
+        output.write_all(&flood)?;
+    } else {
+        for row in 0..OUTPUT_ROWS {
+            write!(output, "row-{row} 한e\u{301}\r\n")?;
+        }
     }
     output.write_all(FINAL_OUTPUT.as_bytes())?;
     if std::env::var_os(FINAL_QUERY_ENV).as_deref() == Some(std::ffi::OsStr::new("1")) {

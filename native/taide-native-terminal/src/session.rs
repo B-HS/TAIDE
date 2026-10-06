@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
 use taide_infra::pty::{self, PtyCompletionHandle, PtySession, PtySpawnConfig, PtyStopHandle};
 use taide_model::error::{AppError, AppResult};
@@ -47,10 +47,66 @@ struct State {
     is_bound: bool,
     completion: Option<PtyStopHandle>,
     exit_code: Option<Option<i32>>,
+    output: OutputGate,
 }
 
 #[derive(Clone)]
-pub struct SharedTerminal(Arc<Mutex<State>>, Arc<Mutex<()>>);
+pub struct SharedTerminal(Arc<Mutex<State>>, Arc<Mutex<()>>, OutputGate);
+
+#[derive(Default)]
+struct OutputHold {
+    is_paused: bool,
+    is_retired: bool,
+}
+
+#[derive(Default)]
+struct OutputFlow {
+    hold: Mutex<OutputHold>,
+    resumed: Condvar,
+}
+
+#[derive(Clone, Default)]
+struct OutputGate(Arc<OutputFlow>);
+
+impl OutputGate {
+    fn set_paused(&self, paused: bool) {
+        let mut hold = self
+            .0
+            .hold
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        hold.is_paused = paused && !hold.is_retired;
+        if !hold.is_paused {
+            self.0.resumed.notify_all();
+        }
+    }
+
+    fn retire(&self) {
+        let mut hold = self
+            .0
+            .hold
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        hold.is_retired = true;
+        hold.is_paused = false;
+        self.0.resumed.notify_all();
+    }
+
+    fn wait_while_paused(&self) {
+        let mut hold = self
+            .0
+            .hold
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        while hold.is_paused {
+            hold = self
+                .0
+                .resumed
+                .wait(hold)
+                .unwrap_or_else(|error| error.into_inner());
+        }
+    }
+}
 
 #[derive(Default)]
 struct StopState {
@@ -145,6 +201,7 @@ impl State {
         }
         self.core.retire();
         self.phase = Phase::Failed(failure);
+        self.output.retire();
     }
 
     fn next_revision(&mut self) -> AppResult<u64> {
@@ -164,6 +221,7 @@ impl State {
 
 impl SharedTerminal {
     pub fn new(size: Size, history: usize, limits: Limits) -> AppResult<Self> {
+        let output = OutputGate::default();
         Ok(Self(
             Arc::new(Mutex::new(State {
                 core: TerminalCore::new(size, history, limits)?,
@@ -173,9 +231,15 @@ impl SharedTerminal {
                 is_bound: false,
                 completion: None,
                 exit_code: None,
+                output: output.clone(),
             })),
             Arc::new(Mutex::new(())),
+            output,
         ))
+    }
+
+    pub fn set_output_paused(&self, paused: bool) {
+        self.2.set_paused(paused);
     }
 
     pub fn snapshot<R>(&self, read: impl FnOnce(Snapshot<'_>) -> R) -> AppResult<R> {
@@ -263,6 +327,21 @@ impl SharedTerminal {
     ) -> AppResult<bool> {
         let _publishing = lock(&self.1)?;
         Ok(deliver(self.advance(bytes)?))
+    }
+
+    fn feed_with_delivery(
+        &self,
+        bytes: &[u8],
+        deliver: &impl Fn(Frame) -> bool,
+    ) -> AppResult<bool> {
+        let feed_limit = lock(&self.0)?.core.feed_limit();
+        for chunk in bytes.chunks(feed_limit) {
+            self.2.wait_while_paused();
+            if !self.advance_with_delivery(chunk, deliver)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     pub fn flush_sync_if_due(
@@ -423,10 +502,7 @@ impl SharedTerminal {
                     is_armed: true,
                 };
                 on_chunk(bytes);
-                if output
-                    .advance_with_delivery(bytes, &deliver)
-                    .unwrap_or(false)
-                {
+                if output.feed_with_delivery(bytes, &deliver).unwrap_or(false) {
                     guard.is_armed = false;
                 }
             },
@@ -583,5 +659,40 @@ mod tests {
         assert!(output.join().unwrap());
         assert!(resize.join().unwrap());
         assert_eq!(*revisions.lock().unwrap(), vec![1, 2]);
+    }
+
+    #[test]
+    fn feed_한도를_넘는_pty_batch는_한도_단위로_나눠_순서대로_제출한다() {
+        let limits = Limits::default();
+        let terminal = SharedTerminal::new(
+            Size {
+                columns: COLUMNS,
+                rows: ROWS,
+            },
+            HISTORY,
+            limits,
+        )
+        .unwrap();
+        let delivered = Mutex::new(Vec::new());
+        let batch = vec![b'x'; limits.feed_bytes + 1];
+        assert!(
+            terminal
+                .feed_with_delivery(&batch, &|frame| {
+                    delivered
+                        .lock()
+                        .unwrap()
+                        .push((frame.revision, frame.outcome.text.len()));
+                    true
+                })
+                .unwrap()
+        );
+        assert_eq!(
+            *delivered.lock().unwrap(),
+            vec![(1, limits.feed_bytes), (2, 1)]
+        );
+        assert_eq!(
+            terminal.snapshot(|state| state.phase).unwrap(),
+            Phase::Running
+        );
     }
 }

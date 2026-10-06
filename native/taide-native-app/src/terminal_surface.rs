@@ -247,6 +247,7 @@ struct View {
     mouse: Mouse,
     mouse_geometry: Option<MouseGeometry>,
     processed_frame: Option<u64>,
+    processed_pass: Option<u64>,
     wheel_target: Option<WheelTarget>,
     captured_wheel: CapturedWheel,
     is_wheel_routed: bool,
@@ -522,9 +523,7 @@ impl Outbox {
                 break;
             };
             self.receipts.pop_front();
-            if let Err(error) = result {
-                self.error = Some(error.to_string());
-            }
+            self.error = result.err().map(|error| error.to_string());
         }
         while self.receipts.len() < INPUT_RECEIPTS {
             let (pending, is_focus) = match self.pending.pop_front() {
@@ -2263,6 +2262,25 @@ impl Views {
         view
     }
 
+    fn is_shown_elsewhere(
+        &self,
+        context: &egui::Context,
+        pane: &PaneId,
+        tab: &TabId,
+        session: &str,
+    ) -> bool {
+        let viewport = context.viewport_id();
+        self.views
+            .iter()
+            .any(|((owner, shown_pane, shown_tab), view)| {
+                (*owner != viewport || shown_pane != pane || shown_tab != tab)
+                    && view.session == session
+                    && view.processed_pass.is_some_and(|pass| {
+                        pass.saturating_add(1) >= context.cumulative_pass_nr_for(*owner)
+                    })
+            })
+    }
+
     pub fn raw_input(&mut self, context: &egui::Context, input: &mut egui::RawInput) {
         self.raw_input_with_replay(context, input, 0);
     }
@@ -3342,7 +3360,9 @@ impl Views {
                 snapshot.core.mode()?,
             ))
         })??;
-        if running && response.has_focus() && ui.is_enabled() {
+        let owns_size =
+            response.has_focus() || !self.is_shown_elsewhere(ui.ctx(), pane, tab, session_id);
+        if running && owns_size && ui.is_enabled() {
             if let Some(geometry) = self.geometry.get(session_id) {
                 *geometry.lock().map_err(|_| {
                     AppError::Internal("native terminal geometry lock poisoned".into())
@@ -3379,9 +3399,6 @@ impl Views {
             let outbox = view.outbox.lock().map_err(|_| {
                 AppError::Internal("native terminal input queue lock poisoned".into())
             })?;
-            if let Some(error) = &outbox.error {
-                view.error = Some(error.clone());
-            }
             if outbox.is_pending() {
                 ui.ctx().request_repaint_after(RECEIPT_POLL);
             }
@@ -3575,6 +3592,7 @@ impl Views {
             dispatch_wheel_input(view, ui, &response, &session, services, cell, None);
         }
         view.processed_frame = Some(ui.ctx().cumulative_frame_nr());
+        view.processed_pass = Some(ui.ctx().cumulative_pass_nr());
         if view
             .outbox
             .lock()
@@ -3613,7 +3631,13 @@ impl Views {
             }
             Ok::<_, AppError>(())
         })??;
-        if let Some(error) = &view.error {
+        let queue_error = view
+            .outbox
+            .lock()
+            .map_err(|_| AppError::Internal("native terminal input queue lock poisoned".into()))?
+            .error
+            .clone();
+        if let Some(error) = view.error.as_ref().or(queue_error.as_ref()) {
             ui.painter().text(
                 rect.min,
                 egui::Align2::LEFT_TOP,
@@ -4021,6 +4045,7 @@ fn submit_input(
         Ok(None) => {
             if !is_focus {
                 view.offset = 0;
+                view.error = None;
             }
             None
         }

@@ -427,3 +427,161 @@ fn 파일_이벤트는_중복과_self_echo를_합치고_포화는_rescan으로_�
         (false, false)
     );
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn project_닫기는_해당_project의_terminal_hub_entry와_admission만_회수한다() {
+    use taide_model::error::AppError;
+    use taide_model::project::Project;
+    use taide_model::terminal::PtySpawnOptions;
+    use taide_native_app::terminal_dispatch::EffectPorts;
+    use taide_native_app::terminal_host::{Hub, Limits};
+    use taide_native_app::{terminal_frames, terminal_writer};
+    use taide_native_terminal::session::Phase;
+    use taide_native_terminal::{Rgb, WindowSize};
+    use taide_runtime::project_actions::ProjectLifecyclePort;
+
+    const SESSIONS: usize = 2;
+    const QUEUE_BYTES: usize = 256 * 1024;
+    const QUEUE_COUNT: usize = 64;
+    const QUEUE_VISITS: usize = 4096;
+    const COLUMNS: u16 = 80;
+    const ROWS: u16 = 24;
+    const HISTORY: usize = 128;
+    const RETIRE_POLL: Duration = Duration::from_millis(5);
+    let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+    let state = AppState::new(AppPaths::new(std::env::temp_dir().join(format!(
+        "taide-native-project-terminals-{}",
+        ProjectId::new()
+    ))));
+    let closed_project = ProjectId::new();
+    let kept_project = ProjectId::new();
+    for project in [&closed_project, &kept_project] {
+        state.projects.write().insert(
+            project.clone(),
+            Project {
+                id: project.clone(),
+                root: env!("CARGO_MANIFEST_DIR").into(),
+                name: "synthetic project terminal".into(),
+                capabilities: Vec::new(),
+                root_missing: false,
+                last_opened_at: 0.0,
+                display: Default::default(),
+            },
+        );
+    }
+    let services = services(state, tasks.clone(), Arc::new(Events::default()));
+    let hub = Arc::new(
+        Hub::new(
+            services.clone(),
+            Limits {
+                sessions: SESSIONS,
+                core: Default::default(),
+                frames: terminal_frames::Limits {
+                    bytes: QUEUE_BYTES,
+                    count: QUEUE_COUNT,
+                    visits: QUEUE_VISITS,
+                },
+                writer: terminal_writer::Limits {
+                    bytes: QUEUE_BYTES,
+                    count: QUEUE_COUNT,
+                },
+            },
+        )
+        .unwrap(),
+    );
+    let opts = |project: &ProjectId| PtySpawnOptions {
+        project_id: project.clone(),
+        cwd: env!("CARGO_MANIFEST_DIR").into(),
+        shell: Some("/bin/cat".into()),
+        cols: COLUMNS,
+        rows: ROWS,
+        scrollback_bytes: None,
+    };
+    let ports = || EffectPorts {
+        command_colors: Default::default(),
+        updated: Arc::new(|| {}),
+        color: Arc::new(|_| Ok(Rgb { r: 0, g: 0, b: 0 })),
+        geometry: Arc::new(|| {
+            Ok(WindowSize {
+                num_cols: COLUMNS,
+                num_lines: ROWS,
+                cell_width: 1,
+                cell_height: 1,
+            })
+        }),
+        event: Arc::new(|_| Ok(())),
+        stream: Arc::new(|_| Ok(())),
+    };
+    let closed = hub
+        .spawn(
+            opts(&closed_project),
+            HISTORY,
+            async { Vec::new() },
+            ports(),
+        )
+        .await
+        .unwrap();
+    let kept = hub
+        .spawn(opts(&kept_project), HISTORY, async { Vec::new() }, ports())
+        .await
+        .unwrap();
+    assert!(matches!(
+        hub.spawn(
+            opts(&ProjectId::new()),
+            HISTORY,
+            async { Vec::new() },
+            ports()
+        )
+        .await,
+        Err(AppError::InvalidArgument(_))
+    ));
+    let retired = Arc::downgrade(&hub.get(&closed).unwrap());
+    NativeProjects::new(services.clone())
+        .with_terminals(hub.clone())
+        .detach_all(&closed_project);
+    assert!(hub.get(&closed).is_none());
+    assert!(
+        services
+            .terminal
+            .sessions_for_project(&closed_project)
+            .is_empty()
+    );
+    assert_eq!(
+        hub.get(&kept)
+            .unwrap()
+            .snapshot(|state| state.phase)
+            .unwrap(),
+        Phase::Running
+    );
+    tokio::time::timeout(TIMEOUT, async {
+        while retired.upgrade().is_some() {
+            tokio::time::sleep(RETIRE_POLL).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(matches!(
+        hub.spawn(
+            opts(&ProjectId::new()),
+            HISTORY,
+            async { Vec::new() },
+            ports()
+        )
+        .await,
+        Err(AppError::NotFound(_))
+    ));
+    tokio::time::timeout(TIMEOUT, hub.close(&kept))
+        .await
+        .unwrap()
+        .unwrap();
+    services.terminal.shutdown();
+    tokio::time::timeout(TIMEOUT, services.terminal.wait_for_idle())
+        .await
+        .unwrap()
+        .unwrap();
+    tokio::time::timeout(TIMEOUT, tasks.shutdown())
+        .await
+        .unwrap();
+    assert_eq!(tasks.tracked_count(), 0);
+}

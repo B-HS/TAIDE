@@ -232,6 +232,54 @@ async fn prepared_input은_소유_입장_퇴역과_재시도_epoch를_보존한�
 }
 
 #[tokio::test]
+async fn 입력_오류는_성공한_후속_입력과_write_뒤에_해제된다() {
+    let fixture = Fixture::new().await;
+    let source = &fixture.sessions[0];
+    let mut view = View {
+        session: source.id().into(),
+        ..Default::default()
+    };
+    let oversized = "x".repeat(INPUT_BYTES + 1);
+    submit_input(
+        &mut view,
+        source,
+        &fixture.services,
+        NativeInput::CommittedText(&oversized),
+    );
+    assert!(view.error.is_some());
+    submit_input(
+        &mut view,
+        source,
+        &fixture.services,
+        NativeInput::Focus(true),
+    );
+    assert!(view.error.is_some());
+    submit_input(
+        &mut view,
+        source,
+        &fixture.services,
+        NativeInput::CommittedText("x"),
+    );
+    assert_eq!(view.error, None);
+    view.outbox.lock().unwrap().error = Some("synthetic write failure".into());
+    timeout(DEADLINE, async {
+        loop {
+            let mut outbox = view.outbox.lock().unwrap();
+            outbox.poll(source, &fixture.services);
+            if outbox.receipts.is_empty() {
+                break;
+            }
+            drop(outbox);
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(view.outbox.lock().unwrap().error, None);
+    fixture.finish().await;
+}
+
+#[tokio::test]
 async fn staged_input은_count_byte_focus_상한을_입장전에_검사한다() {
     let fixture = Fixture::new().await;
     let source = &fixture.sessions[0];

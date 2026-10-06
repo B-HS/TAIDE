@@ -5,6 +5,13 @@ use taide_native_retained::measure;
 use taide_native_terminal::session::Frame;
 use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, mpsc};
 
+pub const HIGH_WATER_BYTES: usize = 512 * 1024;
+pub const LOW_WATER_BYTES: usize = 64 * 1024;
+const LOW_WATER_SHARE: usize = HIGH_WATER_BYTES / LOW_WATER_BYTES;
+const HIGH_WATER_LIMIT_SHARE: usize = 2;
+
+pub type FlowPort = Arc<dyn Fn(bool) + Send + Sync>;
+
 #[derive(Clone, Copy)]
 pub struct Limits {
     pub bytes: usize,
@@ -27,6 +34,7 @@ pub struct Delivery {
     observed_at: Instant,
     _bytes: OwnedSemaphorePermit,
     _count: OwnedSemaphorePermit,
+    _backlog: BacklogLease,
 }
 
 impl Delivery {
@@ -39,9 +47,57 @@ impl Delivery {
     }
 }
 
+struct BacklogLease {
+    shared: Arc<Shared>,
+    weight: usize,
+}
+
+impl Drop for BacklogLease {
+    fn drop(&mut self) {
+        self.shared.release(self.weight);
+    }
+}
+
+#[derive(Default)]
+struct Backlog {
+    bytes: usize,
+    count: usize,
+    is_paused: bool,
+}
+
+#[derive(Clone, Copy)]
+struct Watermarks {
+    high_bytes: usize,
+    low_bytes: usize,
+    high_count: usize,
+    low_count: usize,
+}
+
+impl Watermarks {
+    fn new(limits: Limits) -> Self {
+        let high_bytes = HIGH_WATER_BYTES.min(limits.bytes / HIGH_WATER_LIMIT_SHARE);
+        let high_count = (limits.count / HIGH_WATER_LIMIT_SHARE).max(1);
+        Self {
+            high_bytes,
+            low_bytes: LOW_WATER_BYTES.min(high_bytes / LOW_WATER_SHARE).max(1),
+            high_count,
+            low_count: (high_count / LOW_WATER_SHARE).max(1),
+        }
+    }
+
+    fn is_high(self, backlog: &Backlog) -> bool {
+        backlog.bytes > self.high_bytes || backlog.count >= self.high_count
+    }
+
+    fn is_low(self, backlog: &Backlog) -> bool {
+        backlog.bytes < self.low_bytes && backlog.count < self.low_count
+    }
+}
+
 struct Order {
     revision: u64,
     failure: Option<Error>,
+    backlog: Backlog,
 }
 
 struct Shared {
@@ -50,13 +106,21 @@ struct Shared {
     order: Mutex<Order>,
     changed: Notify,
     limits: Limits,
+    watermarks: Watermarks,
+    flow: Option<FlowPort>,
 }
 
 impl Shared {
     fn fail(&self, error: Error) -> Error {
         let failure = match self.order.lock() {
-            Ok(mut order) => *order.failure.get_or_insert(error),
-            Err(_) => Error::Poisoned,
+            Ok(mut order) => {
+                self.resume(&mut order.backlog);
+                *order.failure.get_or_insert(error)
+            }
+            Err(_) => {
+                self.signal(false);
+                Error::Poisoned
+            }
         };
         self.bytes.close();
         self.count.close();
@@ -68,6 +132,37 @@ impl Shared {
         match self.order.lock() {
             Ok(order) => order.failure,
             Err(_) => Some(Error::Poisoned),
+        }
+    }
+
+    fn pause_above_high_water(&self, backlog: &mut Backlog) {
+        if backlog.is_paused || !self.watermarks.is_high(backlog) {
+            return;
+        }
+        backlog.is_paused = true;
+        self.signal(true);
+    }
+
+    fn resume(&self, backlog: &mut Backlog) {
+        if !backlog.is_paused {
+            return;
+        }
+        backlog.is_paused = false;
+        self.signal(false);
+    }
+
+    fn signal(&self, paused: bool) {
+        if let Some(flow) = &self.flow {
+            flow(paused);
+        }
+    }
+
+    fn release(&self, weight: usize) {
+        let mut order = self.order.lock().unwrap_or_else(|error| error.into_inner());
+        order.backlog.bytes = order.backlog.bytes.saturating_sub(weight);
+        order.backlog.count = order.backlog.count.saturating_sub(1);
+        if self.watermarks.is_low(&order.backlog) {
+            self.resume(&mut order.backlog);
         }
     }
 }
@@ -84,6 +179,14 @@ pub struct Receiver {
 }
 
 pub fn channel(limits: Limits) -> Result<(Sender, Receiver), Error> {
+    open(limits, None)
+}
+
+pub fn channel_with_flow(limits: Limits, flow: FlowPort) -> Result<(Sender, Receiver), Error> {
+    open(limits, Some(flow))
+}
+
+fn open(limits: Limits, flow: Option<FlowPort>) -> Result<(Sender, Receiver), Error> {
     if limits.bytes == 0
         || limits.count == 0
         || limits.visits == 0
@@ -100,9 +203,12 @@ pub fn channel(limits: Limits) -> Result<(Sender, Receiver), Error> {
         order: Mutex::new(Order {
             revision: 0,
             failure: None,
+            backlog: Backlog::default(),
         }),
         changed: Notify::new(),
         limits,
+        watermarks: Watermarks::new(limits),
+        flow,
     });
     Ok((
         Sender {
@@ -140,13 +246,12 @@ impl Sender {
         let weight = report
             .bytes
             .checked_add(size_of::<Delivery>() - size_of::<Frame>())
-            .and_then(|weight| u32::try_from(weight).ok())
             .ok_or(Error::Capacity)?;
         let bytes = self
             .shared
             .bytes
             .clone()
-            .try_acquire_many_owned(weight)
+            .try_acquire_many_owned(u32::try_from(weight).map_err(|_| Error::Capacity)?)
             .map_err(quota_error)?;
         let count = self
             .shared
@@ -162,18 +267,27 @@ impl Sender {
             return Err(Error::Sequence);
         }
         let revision = frame.revision;
-        self.sender
-            .try_send(Delivery {
-                frame,
-                observed_at,
-                _bytes: bytes,
-                _count: count,
-            })
-            .map_err(|error| match error {
+        order.backlog.bytes += weight;
+        order.backlog.count += 1;
+        let delivery = Delivery {
+            frame,
+            observed_at,
+            _bytes: bytes,
+            _count: count,
+            _backlog: BacklogLease {
+                shared: self.shared.clone(),
+                weight,
+            },
+        };
+        if let Err(rejected) = self.sender.try_send(delivery) {
+            drop(order);
+            return Err(match rejected {
                 mpsc::error::TrySendError::Full(_) => Error::Capacity,
                 mpsc::error::TrySendError::Closed(_) => Error::Closed,
-            })?;
+            });
+        }
         order.revision = revision;
+        self.shared.pause_above_high_water(&mut order.backlog);
         Ok(())
     }
 

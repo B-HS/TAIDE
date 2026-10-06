@@ -364,6 +364,10 @@ impl TerminalCore {
         input::encode_input(mode, input, capacity)
     }
 
+    pub fn feed_limit(&self) -> usize {
+        self.limits.feed_bytes
+    }
+
     pub fn advance_outcome(&mut self, bytes: &[u8]) -> AppResult<Outcome> {
         if bytes.len() > self.limits.feed_bytes {
             return Err(invalid("terminal feed exceeds its chunk limit"));
