@@ -1752,6 +1752,7 @@ dependencies = [
  "serde",
  "serde_json",
  "specta",
+ "taide-remote-wire",
  "thiserror 2.0.21",
  "uuid",
 ]
@@ -1782,6 +1783,14 @@ dependencies = [
  "taide-model",
  "taide-native-retained",
  "tokio",
+]
+
+[[package]]
+name = "taide-remote-wire"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

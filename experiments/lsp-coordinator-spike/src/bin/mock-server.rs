@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::io::{self, BufRead, Read, Write};
 use std::process::ExitCode;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const MAX_HEADER_BYTES: usize = 4 * 1024;
 const MAX_BODY_BYTES: usize = 1024 * 1024;
