@@ -14,6 +14,12 @@ pub mod bootstrap;
 #[path = "button-key-tests.rs"]
 mod button_key_tests;
 pub mod close_dialog;
+#[path = "command-dispatch.rs"]
+mod command_dispatch;
+#[path = "command-palette.rs"]
+mod command_palette;
+#[path = "command-registry.rs"]
+pub mod command_registry;
 #[path = "css-motion.rs"]
 #[cfg(test)]
 mod css_motion;

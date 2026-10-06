@@ -162,6 +162,7 @@ pub(crate) struct Appearances {
     pub(crate) tooltip: crate::tooltips::Appearance,
     pub(crate) terminal: crate::terminal_surface::Appearance,
     pub(crate) keybindings: crate::keybinding_editor::Appearance,
+    pub(crate) palette: crate::command_palette::Appearance,
     pub(crate) settings: crate::settings_view::Appearance,
     pub(crate) pdf: crate::preview_pdf_surface::Appearance,
     pub(crate) presentation: crate::preview_presentation_surface::Appearance,
@@ -198,6 +199,7 @@ impl Appearances {
             problems: crate::problems::Appearance::new(theme)?,
             tooltip: crate::tooltips::Appearance::new(theme)?,
             keybindings: crate::keybinding_editor::Appearance::new(theme)?,
+            palette: crate::command_palette::Appearance::new(theme)?,
             settings: crate::settings_view::Appearance::new(theme)?,
             pdf: crate::preview_pdf_surface::Appearance {
                 background: color(theme, "editor.background")?,

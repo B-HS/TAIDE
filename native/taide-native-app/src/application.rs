@@ -25,6 +25,7 @@ use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 
 use crate::bootstrap;
+use crate::command_registry::{CommandContext, DocumentEdit};
 use crate::host::{HostBridge, HostCommand, HostReply};
 use crate::presentation;
 
@@ -48,12 +49,14 @@ const UNAVAILABLE_TAB_TEXT_OPACITY: f32 = 0.6;
 struct PaintSink {
     context: egui::Context,
     trees: Arc<crate::events::TreeChanges>,
+    file_indexes: Arc<crate::command_palette::FileIndexChanges>,
     presentation: Arc<crate::presentation_refresh::Changes>,
 }
 
 impl EventSink for PaintSink {
     fn publish(&self, event: AppEvent) {
         self.trees.record(&event);
+        self.file_indexes.record(&event);
         self.presentation.record(&event);
         self.context.request_repaint();
     }
@@ -137,6 +140,10 @@ pub struct NativeApplication {
     shell: NativeShell,
     zen_fullscreen_state: crate::zen::Fullscreen,
     keybindings: crate::keybinding_editor::Editor,
+    palette: crate::command_palette::Palette,
+    palette_files: crate::command_palette::FileIndexes,
+    palette_file_changes: Arc<crate::command_palette::FileIndexChanges>,
+    palette_commands: Vec<String>,
     settings_views: crate::settings_view::Views,
     app_file_views: crate::app_file_views::Views,
     settings_appearance: crate::settings_view::Appearance,
@@ -189,6 +196,7 @@ pub struct NativeApplication {
     pending_tab_close: Option<PendingTabClose>,
     focused: Option<(PaneId, TabId)>,
     reveals: crate::editor_reveal::Reveals,
+    document_edits: Vec<(TabId, DocumentEdit)>,
     status: Option<String>,
     closing: Option<oneshot::Receiver<AppResult<()>>>,
     close_request_active: bool,
@@ -209,6 +217,7 @@ impl NativeApplication {
         let repaint: Arc<dyn Fn() + Send + Sync> =
             Arc::new(move || repaint_context.request_repaint());
         let tree_changes = Arc::new(crate::events::TreeChanges::default());
+        let palette_file_changes = Arc::new(crate::command_palette::FileIndexChanges::default());
         let presentation_changes = Arc::new(crate::presentation_refresh::Changes::default());
         let (assembly, connection) = runtime.block_on(bootstrap::connect_shell(
             state.clone(),
@@ -216,6 +225,7 @@ impl NativeApplication {
             Arc::new(PaintSink {
                 context: egui.clone(),
                 trees: tree_changes.clone(),
+                file_indexes: palette_file_changes.clone(),
                 presentation: presentation_changes.clone(),
             }),
             repaint.clone(),
@@ -351,6 +361,11 @@ impl NativeApplication {
             &collation_locale,
             cfg!(target_os = "macos"),
         )?;
+        let palette = crate::command_palette::Palette::with_appearance(
+            appearances.palette,
+            &collation_locale,
+            cfg!(target_os = "macos"),
+        )?;
         let toasts = crate::toast::Toasts::new()?;
         let toast_theme = theme.theme_type;
         let tooltips = crate::tooltips::Provider::default();
@@ -392,6 +407,10 @@ impl NativeApplication {
             shell,
             zen_fullscreen_state,
             keybindings,
+            palette,
+            palette_files: Default::default(),
+            palette_file_changes,
+            palette_commands: Vec::new(),
             settings_views,
             app_file_views: crate::app_file_views::Views::default(),
             settings_appearance: appearances.settings,
@@ -449,6 +468,7 @@ impl NativeApplication {
             pending_tab_close: None,
             focused: None,
             reveals: Default::default(),
+            document_edits: Vec::new(),
             status: (!warnings.is_empty()).then(|| warnings.join("\n")),
             closing: None,
             close_request_active: false,
@@ -604,6 +624,7 @@ impl NativeApplication {
                                         self.tooltip_appearance = appearances.tooltip;
                                         self.terminal_appearance = appearances.terminal;
                                         self.keybindings.set_appearance(appearances.keybindings);
+                                        self.palette.set_appearance(appearances.palette);
                                         self.settings_appearance = appearances.settings;
                                         self.pdf_appearance = appearances.pdf;
                                         self.presentation_appearance = appearances.presentation;
@@ -1356,6 +1377,17 @@ impl NativeApplication {
                 HostReply::SettingsFailed(error) => {
                     self.toasts
                         .settings_failed(&self.locale, &error, Instant::now())
+                }
+                HostReply::ProjectFiles { project, result } => {
+                    self.palette_files.accept(&project, result, Instant::now());
+                }
+                HostReply::PaletteFileOpened { project, result } => {
+                    if let Err(error) = result {
+                        if error.kind() == taide_model::error::AppErrorKind::NotFound {
+                            self.palette_files.invalidate(&project);
+                        }
+                        self.toasts.ipc_error(&self.locale, &error, Instant::now());
+                    }
                 }
                 HostReply::Failed(error) => self.status = Some(error.to_string()),
             }
@@ -3310,10 +3342,108 @@ impl NativeApplication {
         )
     }
 
+    fn show_palette(
+        &mut self,
+        context: &egui::Context,
+        snapshot: &taide_native_ui::snapshot::ShellSnapshot,
+        command_context: &CommandContext,
+        keymap_overrides: Option<&str>,
+        enabled: bool,
+    ) {
+        let now = Instant::now();
+        let project = command_context.active_project.as_ref();
+        if let Some(stale) = self
+            .palette_files
+            .observe(project, self.palette.observes_files(), now)
+            && !self.submit(HostCommand::ListProjectFiles(stale.clone()))
+        {
+            self.palette_files.accept(
+                &stale,
+                Err(AppError::Forbidden(
+                    "native file index host is disconnected or full".into(),
+                )),
+                now,
+            );
+        }
+        let active_file = snapshot.focused_tab().and_then(|tab| match &tab.kind {
+            TabKind::File { path } => Some((tab, path.as_str())),
+            _ => None,
+        });
+        let root = project
+            .and_then(|project| snapshot.project(project))
+            .map(|project| project.root.as_str());
+        let output = self.palette.show(
+            context,
+            crate::command_palette::Scope {
+                locale: &self.locale,
+                commands: command_context,
+                keymap_overrides,
+                files: self.palette_files.view(project, root),
+                active_file: active_file.map(|(_, path)| path),
+            },
+            enabled,
+        );
+        let action = match output {
+            Ok(output) => output.action,
+            Err(error) => {
+                self.status = Some(error.to_string());
+                return;
+            }
+        };
+        match action {
+            Some(crate::command_palette::Action::RunCommand(id)) => {
+                self.palette_commands.push(id);
+                context.request_repaint();
+            }
+            Some(crate::command_palette::Action::OpenFile(path)) => {
+                let Some(project) = project else {
+                    self.status = Some(presentation::message(
+                        &self.locale,
+                        "app.openProjectFirst",
+                        &[],
+                    ));
+                    return;
+                };
+                let pane = snapshot
+                    .layouts
+                    .get(project)
+                    .and_then(|layout| crate::command_palette::file_tab_pane(layout, &path));
+                self.submit(HostCommand::OpenPaletteFile {
+                    project: project.clone(),
+                    pane,
+                    path,
+                });
+            }
+            Some(crate::command_palette::Action::RevealLine(target)) => {
+                if let Some(project) = project
+                    && let Some((tab, path)) = active_file
+                {
+                    self.reveals.queue_position(
+                        crate::editor_reveal::Target {
+                            project,
+                            tab: &tab.id,
+                            path,
+                            viewport: context.viewport_id(),
+                        },
+                        crate::editor_reveal::Position {
+                            line: target.line,
+                            column: target.column,
+                        },
+                        &snapshot.layouts,
+                        now,
+                    );
+                    context.request_repaint();
+                }
+            }
+            None => (),
+        }
+    }
+
     fn toast_interaction_enabled(&self) -> bool {
         self.closing.is_none()
             && !self.system_usage.detail_open
             && !self.keybindings.is_open()
+            && !self.palette.is_open()
             && self.pending_tab_close.is_none()
             && self.pending_entry_delete.is_none()
     }
@@ -3352,6 +3482,7 @@ impl NativeApplication {
                 self.tooltip_appearance = appearances.tooltip;
                 self.terminal_appearance = appearances.terminal;
                 self.keybindings.set_appearance(appearances.keybindings);
+                self.palette.set_appearance(appearances.palette);
                 self.settings_appearance = appearances.settings;
                 self.pdf_appearance = appearances.pdf;
                 self.presentation_appearance = appearances.presentation;
@@ -3496,6 +3627,7 @@ impl NativeApplication {
                     if !self.services.state.is_shutting_down() {
                         self.loading.clear();
                         self.tree_loading.clear();
+                        self.palette_files.cancel_fetches();
                         self.previews.reset_pending();
                         self.hwp_previews.reset_pending();
                         self.pdf_previews.reset_pending();
@@ -3578,6 +3710,11 @@ impl NativeApplication {
             self.close_request_active = false;
         }
         let snapshot = self.controller.snapshot();
+        for project in self.palette_file_changes.take() {
+            self.palette_files.invalidate(&project);
+        }
+        self.palette_files
+            .retain(|project| snapshot.layouts.contains_key(project));
         if self.closing.is_none() && !self.is_exit_ready && !self.services.state.is_shutting_down()
         {
             let open_projects: HashSet<_> = snapshot.layouts.keys().cloned().collect();
@@ -3672,6 +3809,23 @@ impl eframe::App for NativeApplication {
             .focused_project()
             .and_then(|project| snapshot.layouts.get(project))
             .map(|layout| layout.focused_pane.clone());
+        let focused_view = snapshot
+            .focused_tab()
+            .zip(target.as_ref())
+            .map(|(tab, pane)| ViewKey {
+                window: WINDOW_LABEL.into(),
+                pane: pane.clone(),
+                tab: tab.id.clone(),
+            });
+        let command_context = crate::command_dispatch::context(
+            &snapshot,
+            &self.shell.scope,
+            crate::command_dispatch::active_editor_actions(&self.store, focused_view.as_ref()),
+        );
+        self.terminal_views
+            .set_command_context(command_context.clone());
+        let mut document_edits = std::mem::take(&mut self.document_edits);
+        let mut command_errors = Vec::new();
         let mut commands = Vec::new();
         let mut load_settings = Vec::new();
         let mut load_settings_resources = Vec::new();
@@ -3771,14 +3925,10 @@ impl eframe::App for NativeApplication {
             status_editor_appearance: &self.status_editor_appearance,
             status_ide_appearance: &self.status_ide_appearance,
             status_ide_icons: &mut self.status_ide_icons,
-            status_view: snapshot
-                .focused_tab()
-                .zip(target.as_ref())
-                .map(|(tab, pane)| ViewKey {
-                    window: WINDOW_LABEL.into(),
-                    pane: pane.clone(),
-                    tab: tab.id.clone(),
-                }),
+            status_view: focused_view,
+            command_context: &command_context,
+            document_edits: &mut document_edits,
+            command_errors: &mut command_errors,
             lsp_summary,
             lsp_status_appearance: &self.lsp_status_appearance,
             app_file_views: &mut self.app_file_views,
@@ -3851,9 +4001,10 @@ impl eframe::App for NativeApplication {
             status: &mut status,
         };
         let mut intents = ui
-            .add_enabled_ui(is_enabled && !self.keybindings.is_open(), |ui| {
-                self.shell.show(ui, &snapshot, &mut surfaces)
-            })
+            .add_enabled_ui(
+                is_enabled && !self.keybindings.is_open() && !self.palette.is_open(),
+                |ui| self.shell.show(ui, &snapshot, &mut surfaces),
+            )
             .inner;
         self.focused = new_focus;
         self.status = status;
@@ -3874,7 +4025,7 @@ impl eframe::App for NativeApplication {
             self.toasts
                 .settings_failed(&self.locale, &error, Instant::now());
         }
-        for error in theme_errors {
+        for error in theme_errors.into_iter().chain(command_errors) {
             self.toasts.ipc_error(&self.locale, &error, Instant::now());
         }
         for notice in snippet_notices {
@@ -3938,11 +4089,11 @@ impl eframe::App for NativeApplication {
                     self.status = Some(error.to_string());
                 }
             }
-            intents.extend(
-                keymap_actions
-                    .into_iter()
-                    .filter_map(|action| crate::shell_keymap::action(&action, &snapshot)),
-            );
+            let command_intents_start = intents.len();
+            keymap_actions.append(&mut self.palette_commands);
+            intents.extend(keymap_actions.into_iter().filter_map(|action| {
+                crate::command_dispatch::intent(&action, &command_context, &snapshot)
+            }));
             let now = Instant::now();
             for (document, view) in changed_documents {
                 self.last_edited_views.insert(document, view);
@@ -3954,6 +4105,7 @@ impl eframe::App for NativeApplication {
                 }
             }
             if !self.keybindings.is_capturing()
+                && !self.palette.is_open()
                 && context
                     .input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::N))
                 && let Some(project) = snapshot.focused_project()
@@ -4132,8 +4284,34 @@ impl eframe::App for NativeApplication {
                     break;
                 }
             }
-            for intent in intents {
+            for (index, intent) in intents.into_iter().enumerate() {
                 match intent {
+                    ShellIntent::OpenSettingsFile => {
+                        let project = match &self.shell.scope {
+                            WindowScope::Main => snapshot.focused_project(),
+                            WindowScope::Auxiliary { project, .. } => Some(project),
+                        };
+                        let command = project.and_then(|project| {
+                            crate::app_file_views::settings_command(
+                                project,
+                                snapshot.layouts.get(project)?,
+                                &self.shell.scope,
+                            )
+                        });
+                        if let Some(command) = command {
+                            self.submit(command);
+                        } else {
+                            self.status = Some(presentation::message(
+                                &self.locale,
+                                "app.openProjectFirst",
+                                &[],
+                            ));
+                        }
+                    }
+                    ShellIntent::EditDocument { tab, edit } => {
+                        self.document_edits.push((tab, edit));
+                        context.request_repaint();
+                    }
                     ShellIntent::OpenSettings => {
                         let owner = match &self.shell.scope {
                             WindowScope::Main => snapshot.focused_project().and_then(|project| {
@@ -4169,6 +4347,7 @@ impl eframe::App for NativeApplication {
                         }
                     }
                     ShellIntent::OpenKeybindings => self.keybindings.open(&context),
+                    ShellIntent::OpenPalette(entry) => self.palette.open(&context, entry),
                     ShellIntent::NewTerminal { project, pane } => {
                         self.submit(HostCommand::NewTerminal {
                             project,
@@ -4241,7 +4420,11 @@ impl eframe::App for NativeApplication {
                     }
                     ShellIntent::Mutate(command) => {
                         if let Err(error) = self.controller.submit(command) {
-                            self.status = Some(error.to_string());
+                            if index >= command_intents_start {
+                                self.toasts.ipc_error(&self.locale, &error, Instant::now());
+                            } else {
+                                self.status = Some(error.to_string());
+                            }
                         }
                     }
                 }
@@ -4267,7 +4450,7 @@ impl eframe::App for NativeApplication {
             &context,
             &self.locale,
             raw_overrides.as_deref(),
-            keybindings_enabled,
+            keybindings_enabled && !self.palette.is_open(),
         ) {
             Ok(output) => {
                 output.show_tooltips(&self.locale, &self.tooltips, &self.tooltip_appearance);
@@ -4283,6 +4466,13 @@ impl eframe::App for NativeApplication {
             }
             Err(error) => self.status = Some(error.to_string()),
         }
+        self.show_palette(
+            &context,
+            &snapshot,
+            &command_context,
+            raw_overrides.as_deref(),
+            keybindings_enabled,
+        );
         self.tooltips.finish_frame(&context);
         if let Some(pending) = self.pending_entry_delete.as_mut() {
             let choice = pending.show(&context, &self.locale).choice;
@@ -4317,6 +4507,7 @@ impl eframe::App for NativeApplication {
             snapshot.shell.window_chrome.zen,
             is_enabled
                 && !self.keybindings.is_open()
+                && !self.palette.is_open()
                 && self.pending_tab_close.is_none()
                 && self.pending_entry_delete.is_none()
                 && !self.deleting_entry
@@ -4351,6 +4542,7 @@ impl eframe::App for NativeApplication {
             .collect();
         let web_enabled = is_enabled
             && !self.keybindings.is_open()
+            && !self.palette.is_open()
             && self.pending_tab_close.is_none()
             && self.pending_entry_delete.is_none()
             && !egui::Popup::is_any_open(&context)
@@ -4536,6 +4728,9 @@ struct AppSurfaces<'a> {
     status_ide_appearance: &'a crate::status_ide::Appearance,
     status_ide_icons: &'a mut crate::status_ide::Icons,
     status_view: Option<ViewKey>,
+    command_context: &'a CommandContext,
+    document_edits: &'a mut Vec<(TabId, DocumentEdit)>,
+    command_errors: &'a mut Vec<AppError>,
     lsp_summary: Option<crate::lsp::status::Summary>,
     lsp_status_appearance: &'a crate::lsp::status::Appearance,
     app_file_views: &'a mut crate::app_file_views::Views,
@@ -4860,6 +5055,7 @@ impl ShellSurfaces for AppSurfaces<'_> {
                     .is_none_or(|(old_pane, old_tab)| old_pane != pane || old_tab != &tab.id);
             let keymap_actions = &mut *self.keymap_actions;
             let has_focused_shell = self.target.is_some();
+            let command_context = self.command_context;
             match self.terminal_views.show_with_keymap(
                 ui,
                 crate::terminal_surface::Request {
@@ -4874,18 +5070,7 @@ impl ShellSurfaces for AppSurfaces<'_> {
                     commands: self.commands,
                 },
                 |action| {
-                    if !crate::shell_keymap::supports(action)
-                        || (!has_focused_shell
-                            && !matches!(
-                                action,
-                                "toggle-sidebar"
-                                    | "open-keybindings-editor"
-                                    | "new-terminal"
-                                    | "reopen-closed-tab"
-                                    | "font-size-up"
-                                    | "font-size-down"
-                                    | "toggle-zen-mode"
-                            ))
+                    if !crate::command_dispatch::accepts(action, has_focused_shell, command_context)
                     {
                         return false;
                     }
@@ -5322,6 +5507,18 @@ impl AppSurfaces<'_> {
                 );
                 drop(settings);
                 let editor = self.editor.with_indent(indent);
+                let mut edit_errors = Vec::new();
+                let edited = ui.is_enabled()
+                    && crate::command_dispatch::apply_document_edits(
+                        self.store,
+                        view,
+                        &tab.id,
+                        editor.indent_options(&snapshot),
+                        self.document_edits,
+                        &mut edit_errors,
+                    );
+                self.command_errors
+                    .extend(edit_errors.into_iter().map(editor_error));
                 let terminal_views = &mut *self.terminal_views;
                 let keymap_actions = &mut *self.keymap_actions;
                 let services = self.services;
@@ -5386,7 +5583,7 @@ impl AppSurfaces<'_> {
                 if output.response.clicked() {
                     intents.push(ShellIntent::Mutate(ShellMutation::FocusPane(pane.clone())));
                 }
-                if output.changed {
+                if output.changed || edited {
                     if matches!(tab.kind, TabKind::AppFile { .. }) {
                         self.app_file_views.changed(document);
                     }

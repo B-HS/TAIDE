@@ -190,6 +190,107 @@ async fn 실제_problems_open은_preview_tab과_reveal_경계_거절_호스트�
     assert!(owner.upgrade().is_none());
 }
 
+#[tokio::test]
+async fn 실제_host는_프로젝트_파일_목록과_팔레트_파일_열기의_결과를_프로젝트와_함께_돌려준다() {
+    let fixture = Fixture::new();
+    let root = std::path::Path::new(&fixture.path).parent().unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    let nested = root.join("src").join("main.rs");
+    std::fs::write(&nested, "fn main() {}").unwrap();
+    let nested = nested.to_str().unwrap().to_owned();
+    let missing = root.join("missing.rs").to_str().unwrap().to_owned();
+    let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+    let services = services(fixture.state.clone(), tasks.clone(), Arc::new(Sink));
+    let owner = Arc::downgrade(&services);
+    fixture.state.settings.write().enable_preview_tabs = true;
+    fixture.state.layouts.write().insert(
+        fixture.project.clone(),
+        taide_layout::service::default_layout(),
+    );
+    let ready = Arc::new(Notify::new());
+    let signal = ready.clone();
+    let mut host = HostBridge::connect_with_clipboard_ports(
+        services.clone(),
+        Arc::new(move || signal.notify_one()),
+        Arc::new(|_| panic!("clipboard write is forbidden")),
+        Arc::new(|| panic!("clipboard read is forbidden")),
+        None,
+    )
+    .unwrap();
+
+    host.submit(HostCommand::ListProjectFiles(fixture.project.clone()))
+        .unwrap();
+    let HostReply::ProjectFiles { project, result } = reply(&mut host, &ready).await else {
+        panic!("expected project file listing");
+    };
+    assert_eq!(project, fixture.project);
+    let mut listed = result.unwrap();
+    listed.sort();
+    assert_eq!(listed, [fixture.path.clone(), nested.clone()]);
+
+    let closed = ProjectId::new();
+    host.submit(HostCommand::ListProjectFiles(closed.clone()))
+        .unwrap();
+    let HostReply::ProjectFiles { project, result } = reply(&mut host, &ready).await else {
+        panic!("expected project file listing failure");
+    };
+    assert_eq!(project, closed);
+    assert_eq!(
+        result.unwrap_err().kind(),
+        taide_model::error::AppErrorKind::NotFound
+    );
+
+    let before = fixture.state.layouts.read()[&fixture.project].clone();
+    host.submit(HostCommand::OpenPaletteFile {
+        project: fixture.project.clone(),
+        pane: None,
+        path: missing,
+    })
+    .unwrap();
+    let HostReply::PaletteFileOpened { project, result } = reply(&mut host, &ready).await else {
+        panic!("expected stale palette row rejection");
+    };
+    assert_eq!(project, fixture.project);
+    assert_eq!(
+        result.unwrap_err().kind(),
+        taide_model::error::AppErrorKind::NotFound
+    );
+    assert_eq!(fixture.state.layouts.read()[&fixture.project], before);
+
+    host.submit(HostCommand::OpenPaletteFile {
+        project: fixture.project.clone(),
+        pane: None,
+        path: nested.clone(),
+    })
+    .unwrap();
+    let HostReply::PaletteFileOpened { project, result } = reply(&mut host, &ready).await else {
+        panic!("expected palette file open");
+    };
+    assert_eq!(project, fixture.project);
+    result.unwrap();
+    let layout = fixture.state.layouts.read()[&fixture.project].clone();
+    let taide_model::layout::PaneNode::Leaf { tabs, active, .. } = &layout.root else {
+        panic!("expected actual leaf");
+    };
+    assert!(tabs.iter().any(|tab| {
+        Some(&tab.id) == active.as_ref()
+            && tab.preview
+            && matches!(&tab.kind, taide_model::layout::TabKind::File { path } if path == &nested)
+    }));
+
+    tokio::time::timeout(TIMEOUT, host.disconnect())
+        .await
+        .unwrap()
+        .unwrap();
+    fixture.state.begin_shutdown();
+    services.lsp.shutdown();
+    services.lsp.wait_for_idle().await;
+    tasks.shutdown().await;
+    assert_eq!(tasks.tracked_count(), 0);
+    drop(services);
+    assert!(owner.upgrade().is_none());
+}
+
 #[test]
 fn 실제_host_옆으로열기는_빈그룹과_중복파일을_원본_단일mutation으로_처리한다() {
     let fixture = Fixture::new();

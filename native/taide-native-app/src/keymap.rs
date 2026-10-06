@@ -8,6 +8,8 @@ use eframe::egui;
 #[cfg(test)]
 use std::time::Instant;
 #[cfg(test)]
+use taide_native_ui::command_registry;
+#[cfg(test)]
 use taide_native_ui::status_chord;
 
 #[cfg(test)]

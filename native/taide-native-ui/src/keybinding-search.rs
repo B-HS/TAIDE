@@ -8,6 +8,7 @@ use icu_normalizer::ComposingNormalizer;
 use taide_model::error::{AppError, AppResult};
 use taide_model::locale::ResolvedLocale;
 
+use crate::command_registry::format_categorized_label;
 use crate::keymap::catalog::Row;
 
 const MAX_QUERY_TOKENS: usize = 8;
@@ -103,29 +104,12 @@ impl Search {
 }
 
 pub fn label(row: &Row, locale: &ResolvedLocale) -> String {
-    let title = locale
-        .messages
-        .get(&row.title_key)
-        .map(String::as_str)
-        .or_else(|| {
-            row.title_default_value
-                .as_deref()
-                .filter(|value| !value.is_empty())
-        })
-        .unwrap_or(&row.title_key);
-    let Some(category) = row
-        .category_key
-        .as_deref()
-        .filter(|value| !value.is_empty())
-    else {
-        return title.to_owned();
-    };
-    let category = locale
-        .messages
-        .get(category)
-        .map(String::as_str)
-        .unwrap_or(category);
-    format!("{category}: {title}")
+    format_categorized_label(
+        locale,
+        row.category_key.as_deref(),
+        &row.title_key,
+        row.title_default_value.as_deref(),
+    )
 }
 
 fn normalize(value: &str) -> Cow<'_, str> {

@@ -3,9 +3,10 @@ use std::collections::{HashMap, HashSet};
 use serde_json::{Value, json};
 use taide_model::error::{AppError, AppResult};
 
-use super::{Context, DEFAULTS, Entry, KeyEvent, Keymap, Modifiers, Stage, canonical};
+use super::{
+    Context, DEFAULTS, Entry, KeyEvent, Keymap, Modifiers, Stage, canonical, command_registry,
+};
 
-const COMMANDS: &str = include_str!("keybinding-commands.json");
 #[path = "keybinding-capture.rs"]
 pub mod capture;
 
@@ -234,47 +235,45 @@ impl Overrides {
 
 pub fn rows(overrides: &Overrides, is_mac: bool) -> AppResult<Vec<Row>> {
     let map = Keymap::new()?;
-    let commands: Vec<Value> =
-        serde_json::from_str(COMMANDS).map_err(|error| AppError::Internal(error.to_string()))?;
+    let commands = command_registry::registry()?.commands();
     let defaults: Vec<Value> =
         serde_json::from_str(DEFAULTS).map_err(|error| AppError::Internal(error.to_string()))?;
     let mut represented = HashSet::new();
     let mut rows = Vec::with_capacity(commands.len() + defaults.len());
     for command in commands {
-        if !is_mac && command.get("platform").and_then(Value::as_str) == Some("mac") {
+        if !command.is_registered(is_mac) {
             continue;
         }
-        let command_id = required(&command, "id")?;
-        let keymap_id = text(&command, "keymapId");
         let entry =
-            match keymap_id.as_deref() {
+            match command.keymap_id.as_deref() {
                 Some(id) => Some(map.base.iter().find(|entry| entry.id == id).ok_or_else(
                     || AppError::Internal(format!("native command has unknown keymap: {id}")),
                 )?),
                 None => None,
             };
-        if let Some(id) = &keymap_id {
+        if let Some(id) = &command.keymap_id {
             represented.insert(id.clone());
         }
-        let is_monaco = command_id.starts_with("monaco.");
-        let default_binding_label = text(&command, "defaultBindingLabel");
-        let binding = binding(entry);
         rows.push(Row {
-            id: keymap_id.clone().unwrap_or_else(|| command_id.clone()),
-            title_key: required(&command, "titleKey")?,
-            title_default_value: text(&command, "titleDefaultValue"),
-            category_key: text(&command, "categoryKey"),
-            command_id: Some(command_id),
-            keymap_id,
-            binding,
+            id: command
+                .keymap_id
+                .clone()
+                .unwrap_or_else(|| command.id.clone()),
+            title_key: command.title_key.clone(),
+            title_default_value: command.title_default_value.clone(),
+            category_key: command.category_key.clone(),
+            command_id: Some(command.id.clone()),
+            keymap_id: command.keymap_id.clone(),
+            binding: binding(entry),
             when: entry.and_then(|entry| entry.when.clone()),
             is_overridden: false,
-            runs_via_command: entry.is_none() && !is_monaco,
-            is_monaco,
-            default_binding: default_binding_label
+            runs_via_command: command.runs_via_command(),
+            is_monaco: command.editor_action_id().is_some(),
+            default_binding: command
+                .default_binding_label
                 .as_deref()
                 .and_then(parse_default_label),
-            default_binding_label,
+            default_binding_label: command.default_binding_label.clone(),
         });
     }
     for (entry, metadata) in map.base.iter().zip(defaults) {
@@ -627,5 +626,49 @@ mod tests {
         for label in ["", "⌘", "⌘K ", "⌘K ⌘S X", " ⌘S"] {
             assert!(parse_default_label(label).is_none(), "{label}");
         }
+    }
+
+    #[test]
+    fn keymap의_명령행_dispatch는_catalog의_runnable_command와_같은_행을_앱_keymap_뒤에_고른다() {
+        use super::super::{Decision, Instant};
+
+        let fixtures: Vec<Value> = serde_json::from_str(FIXTURE).unwrap();
+        let now = Instant::now();
+        let mut command_dispatches = Vec::new();
+        for fixture in fixtures {
+            let name = fixture["name"].as_str().unwrap();
+            let is_mac = fixture["mac"].as_bool().unwrap();
+            let raw = fixture["json"].as_str();
+            let rows = rows(&Overrides::parse(raw), is_mac).unwrap();
+            let mut map = Keymap::new().unwrap();
+            map.update(raw);
+            for row in rows
+                .iter()
+                .filter(|row| row.runs_via_command && !row.binding.key().is_empty())
+            {
+                let event = row.binding.event(is_mac);
+                let expected = runnable_command(&rows, &event, is_mac)
+                    .and_then(|row| row.command_id.as_deref());
+                let decision = map.decide(&event, Context::default(), is_mac, now);
+                map.pending = None;
+                match &decision {
+                    Decision::Dispatch(id) if map.base.iter().any(|entry| &entry.id == id) => (),
+                    Decision::EnterChord => (),
+                    Decision::Dispatch(id) => {
+                        assert_eq!(Some(id.as_str()), expected, "{name}: {}", row.id);
+                        command_dispatches.push(format!("{name}:{id}"));
+                    }
+                    Decision::None => assert_eq!(None, expected, "{name}: {}", row.id),
+                    other => panic!("{name}: {} decided {other:?}", row.id),
+                }
+            }
+        }
+        assert_eq!(
+            command_dispatches,
+            [
+                "non-mac-control-space-and-chord-gate-removal:sync.uploadNow",
+                "non-mac-control-space-and-chord-gate-removal:sync.uploadNow"
+            ]
+        );
     }
 }

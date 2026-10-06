@@ -5,39 +5,7 @@ use taide_model::{
 use taide_native_ui::commands::{ShellIntent, ShellMutation};
 use taide_native_ui::snapshot::ShellSnapshot;
 
-const ACTIONS: [&str; 31] = [
-    "open-keybindings-editor",
-    "close-tab",
-    "toggle-sidebar",
-    "split",
-    "tab-cycle-next",
-    "tab-cycle-prev",
-    "editor-next",
-    "editor-previous",
-    "save",
-    "close-all-tabs",
-    "toggle-terminal",
-    "new-terminal",
-    "reopen-closed-tab",
-    "font-size-up",
-    "font-size-down",
-    "toggle-zen-mode",
-    "focus-group-left",
-    "focus-group-right",
-    "focus-group-up",
-    "focus-group-down",
-    "focus-group-1",
-    "focus-group-2",
-    "focus-group-3",
-    "focus-group-4",
-    "focus-group-5",
-    "focus-group-6",
-    "focus-group-7",
-    "focus-group-8",
-    "focus-group-9",
-    "move-tab-to-group-left",
-    "move-tab-to-group-right",
-];
+use crate::command_registry::{Direction, GroupTarget, Run, TabCycle, keymap_run};
 
 fn leaves(node: &PaneNode) -> Vec<&PaneNode> {
     match node {
@@ -79,79 +47,106 @@ fn adjacent<'a>(node: &'a PaneNode, focused: &PaneId, edge: DropEdge) -> Option<
     }
 }
 
+fn drop_edge(direction: Direction) -> DropEdge {
+    match direction {
+        Direction::Left => DropEdge::Left,
+        Direction::Right => DropEdge::Right,
+        Direction::Up => DropEdge::Top,
+        Direction::Down => DropEdge::Bottom,
+    }
+}
+
 pub(crate) fn supports(action: &str) -> bool {
-    ACTIONS.contains(&action)
+    keymap_run(action).is_some()
+}
+
+pub(crate) fn runs_without_focused_project(action: &str) -> bool {
+    matches!(
+        keymap_run(action),
+        Some(
+            Run::OpenPalette(_)
+                | Run::ToggleSidebar
+                | Run::OpenKeybindingsEditor
+                | Run::OpenTerminalTab
+                | Run::ReopenClosedTab
+                | Run::ChangeEditorFontSize { .. }
+                | Run::ToggleZenMode
+        )
+    )
 }
 
 pub(crate) fn action(action: &str, snapshot: &ShellSnapshot) -> Option<ShellIntent> {
-    if action == "open-keybindings-editor" {
-        return Some(ShellIntent::OpenKeybindings);
-    }
-    if action == "toggle-zen-mode" {
-        return Some(ShellIntent::Mutate(ShellMutation::SetWindowChrome(
-            taide_model::project::WindowChromePatch {
-                zen: Some(!snapshot.shell.window_chrome.zen),
-                ..Default::default()
-            },
-        )));
-    }
-    if matches!(action, "font-size-up" | "font-size-down") {
-        return Some(ShellIntent::ChangeEditorFontSize {
-            increase: action == "font-size-up",
-        });
-    }
-    if action == "new-terminal" && snapshot.focused_project().is_none() {
-        return Some(ShellIntent::ShowOpenProjectNotice);
+    intent(keymap_run(action)?, snapshot)
+}
+
+pub(crate) fn intent(run: Run, snapshot: &ShellSnapshot) -> Option<ShellIntent> {
+    match run {
+        Run::OpenPalette(entry) => return Some(ShellIntent::OpenPalette(entry)),
+        Run::OpenKeybindingsEditor => return Some(ShellIntent::OpenKeybindings),
+        Run::OpenSettingsTab => return Some(ShellIntent::OpenSettings),
+        Run::OpenSettingsFile => return Some(ShellIntent::OpenSettingsFile),
+        Run::ToggleZenMode => {
+            return Some(ShellIntent::Mutate(ShellMutation::SetWindowChrome(
+                taide_model::project::WindowChromePatch {
+                    zen: Some(!snapshot.shell.window_chrome.zen),
+                    ..Default::default()
+                },
+            )));
+        }
+        Run::ChangeEditorFontSize { increase } => {
+            return Some(ShellIntent::ChangeEditorFontSize { increase });
+        }
+        Run::OpenTerminalTab if snapshot.focused_project().is_none() => {
+            return Some(ShellIntent::ShowOpenProjectNotice);
+        }
+        _ => (),
     }
     let project = snapshot.focused_project()?;
     let layout = snapshot.layouts.get(project)?;
-    if action == "reopen-closed-tab" {
-        return Some(ShellIntent::Mutate(ShellMutation::ReopenClosed(
-            project.clone(),
-        )));
-    }
-    if action == "toggle-sidebar" {
-        if snapshot.shell.window_chrome.zen {
-            return None;
+    match run {
+        Run::ReopenClosedTab => {
+            return Some(ShellIntent::Mutate(ShellMutation::ReopenClosed(
+                project.clone(),
+            )));
         }
-        return Some(ShellIntent::Mutate(ShellMutation::SetSidebarCollapsed {
-            project: project.clone(),
-            collapsed: !layout.shell_view.sidebar_collapsed,
-        }));
-    }
-    let direction = match action {
-        "focus-group-left" | "move-tab-to-group-left" => Some(DropEdge::Left),
-        "focus-group-right" | "move-tab-to-group-right" => Some(DropEdge::Right),
-        "focus-group-up" => Some(DropEdge::Top),
-        "focus-group-down" => Some(DropEdge::Bottom),
-        _ => None,
-    };
-    if action.starts_with("focus-group-") {
-        let target = match direction {
-            Some(direction) => adjacent(&layout.root, &layout.focused_pane, direction),
-            None => {
-                let position = action.strip_prefix("focus-group-")?.parse::<usize>().ok()?;
-                leaves(&layout.root).get(position.checked_sub(1)?).copied()
+        Run::ToggleSidebar => {
+            if snapshot.shell.window_chrome.zen {
+                return None;
             }
-        }?;
-        let PaneNode::Leaf { id, .. } = target else {
-            return None;
-        };
-        return (id != &layout.focused_pane)
-            .then(|| ShellIntent::Mutate(ShellMutation::FocusPane(id.clone())));
+            return Some(ShellIntent::Mutate(ShellMutation::SetSidebarCollapsed {
+                project: project.clone(),
+                collapsed: !layout.shell_view.sidebar_collapsed,
+            }));
+        }
+        Run::FocusGroup(target) => {
+            let target = match target {
+                GroupTarget::Direction(direction) => {
+                    adjacent(&layout.root, &layout.focused_pane, drop_edge(direction))
+                }
+                GroupTarget::Position(position) => {
+                    leaves(&layout.root).get(position.checked_sub(1)?).copied()
+                }
+            }?;
+            let PaneNode::Leaf { id, .. } = target else {
+                return None;
+            };
+            return (id != &layout.focused_pane)
+                .then(|| ShellIntent::Mutate(ShellMutation::FocusPane(id.clone())));
+        }
+        _ => (),
     }
     let PaneNode::Leaf { tabs, active, .. } =
         taide_layout::service::find_leaf(&layout.root, &layout.focused_pane)?
     else {
         return None;
     };
-    if action == "new-terminal" {
+    if run == Run::OpenTerminalTab {
         return Some(ShellIntent::NewTerminal {
             project: project.clone(),
             pane: layout.focused_pane.clone(),
         });
     }
-    if action == "toggle-terminal" {
+    if run == Run::ToggleTerminal {
         let active_terminal = tabs.iter().any(|tab| {
             Some(&tab.id) == active.as_ref() && matches!(tab.kind, TabKind::Terminal { .. })
         });
@@ -169,7 +164,7 @@ pub(crate) fn action(action: &str, snapshot: &ShellSnapshot) -> Option<ShellInte
             pane: layout.focused_pane.clone(),
         });
     }
-    if action == "close-all-tabs" {
+    if run == Run::CloseAllTabs {
         return Some(ShellIntent::RequestCloseTabs(
             tabs.iter()
                 .filter(|tab| !tab.pinned)
@@ -177,12 +172,12 @@ pub(crate) fn action(action: &str, snapshot: &ShellSnapshot) -> Option<ShellInte
                 .collect(),
         ));
     }
-    if action.starts_with("move-tab-to-group-") {
+    if let Run::MoveTabToGroup(direction) = run {
         let PaneNode::Leaf {
             id,
             tabs: target_tabs,
             ..
-        } = adjacent(&layout.root, &layout.focused_pane, direction?)?
+        } = adjacent(&layout.root, &layout.focused_pane, drop_edge(direction))?
         else {
             return None;
         };
@@ -196,25 +191,26 @@ pub(crate) fn action(action: &str, snapshot: &ShellSnapshot) -> Option<ShellInte
         .iter()
         .position(|tab| Some(&tab.id) == active.as_ref())?;
     let tab = &tabs[current];
-    match action {
-        "save"
-            if matches!(
-                tab.kind,
-                TabKind::File { .. } | TabKind::AppFile { .. } | TabKind::Untitled { .. }
-            ) =>
-        {
-            Some(ShellIntent::RequestSaveTab(tab.id.clone()))
-        }
-        "close-tab" => Some(ShellIntent::RequestCloseTab(tab.id.clone())),
-        "split" => Some(ShellIntent::Mutate(ShellMutation::SplitTab {
+    let has_document = matches!(
+        tab.kind,
+        TabKind::File { .. } | TabKind::AppFile { .. } | TabKind::Untitled { .. }
+    );
+    match run {
+        Run::SaveActiveTab if has_document => Some(ShellIntent::RequestSaveTab(tab.id.clone())),
+        Run::EditDocument(edit) if has_document => Some(ShellIntent::EditDocument {
+            tab: tab.id.clone(),
+            edit,
+        }),
+        Run::CloseTab => Some(ShellIntent::RequestCloseTab(tab.id.clone())),
+        Run::Split => Some(ShellIntent::Mutate(ShellMutation::SplitTab {
             pane: layout.focused_pane.clone(),
             edge: DropEdge::Right,
             tab: tab.id.clone(),
         })),
-        "tab-cycle-next" | "editor-next" if tabs.len() > 1 => Some(ShellIntent::Mutate(
+        Run::CycleTab(TabCycle::Next) if tabs.len() > 1 => Some(ShellIntent::Mutate(
             ShellMutation::ActivateTab(tabs[(current + 1) % tabs.len()].id.clone()),
         )),
-        "tab-cycle-prev" | "editor-previous" if tabs.len() > 1 => Some(ShellIntent::Mutate(
+        Run::CycleTab(TabCycle::Previous) if tabs.len() > 1 => Some(ShellIntent::Mutate(
             ShellMutation::ActivateTab(tabs[(current + tabs.len() - 1) % tabs.len()].id.clone()),
         )),
         _ => None,
@@ -507,6 +503,79 @@ mod tests {
             } else {
                 assert!(actions.is_empty());
             }
+        }
+    }
+
+    #[test]
+    fn 명령행_override는_window_route에서_실행경로가_있는_명령만_소비한다() {
+        let context = egui::Context::default();
+        let mut views = crate::terminal_surface::Views::default();
+        let modifiers = if cfg!(target_os = "macos") {
+            egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND
+        } else {
+            egui::Modifiers::CTRL | egui::Modifiers::COMMAND
+        };
+        for (overrides, expected) in [
+            (
+                r#"[{"actionId":"settings.open","key":"j","mods":["mod"]}]"#,
+                Some("settings.open"),
+            ),
+            (
+                r#"[{"actionId":"app.openSettingsFile","key":"j","mods":["mod"]}]"#,
+                Some("app.openSettingsFile"),
+            ),
+            (
+                r#"[{"actionId":"sync.uploadNow","key":"j","mods":["mod"]}]"#,
+                None,
+            ),
+            (
+                r#"[{"actionId":"window.reload","key":"j","mods":["mod"]}]"#,
+                None,
+            ),
+        ] {
+            let event = Event::Key {
+                key: Key::J,
+                physical_key: Some(Key::J),
+                pressed: true,
+                repeat: false,
+                modifiers,
+            };
+            let mut actions = Vec::new();
+            let mut observed = Vec::new();
+            let mut output = context.run_ui(
+                egui::RawInput {
+                    events: vec![event],
+                    ..Default::default()
+                },
+                |ui| {
+                    let events = ui.input_mut(|input| std::mem::take(&mut input.events));
+                    for (index, event) in events.iter().enumerate() {
+                        observed.push(
+                            views
+                                .route_keymap(
+                                    crate::keymap::Route {
+                                        context: ui.ctx(),
+                                        event,
+                                        index,
+                                        scope: Default::default(),
+                                        composing: false,
+                                        overrides: Some(overrides),
+                                    },
+                                    &mut actions,
+                                    false,
+                                )
+                                .unwrap(),
+                        );
+                    }
+                },
+            );
+            output.textures_delta.clear();
+            assert_eq!(observed, [expected.is_some()], "{overrides}");
+            assert_eq!(
+                actions,
+                expected.into_iter().collect::<Vec<_>>(),
+                "{overrides}"
+            );
         }
     }
 

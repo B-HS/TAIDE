@@ -14,6 +14,13 @@ pub struct Position {
     pub column: f64,
 }
 
+pub struct Target<'a> {
+    pub project: &'a ProjectId,
+    pub tab: &'a TabId,
+    pub path: &'a str,
+    pub viewport: ViewportId,
+}
+
 struct Pending {
     project: ProjectId,
     viewport: ViewportId,
@@ -34,20 +41,40 @@ impl Reveals {
         layouts: &HashMap<ProjectId, ProjectLayout>,
         now: Instant,
     ) -> bool {
+        self.queue_position(
+            Target {
+                project: &opened.project,
+                tab: &opened.tab,
+                path: &opened.path,
+                viewport: opened.viewport,
+            },
+            Position {
+                line: opened.line,
+                column: opened.column,
+            },
+            layouts,
+            now,
+        )
+    }
+
+    pub fn queue_position(
+        &mut self,
+        target: Target<'_>,
+        position: Position,
+        layouts: &HashMap<ProjectId, ProjectLayout>,
+        now: Instant,
+    ) -> bool {
         self.reconcile(layouts, now);
-        if !is_live(layouts, &opened.project, &opened.tab, &opened.path) {
+        if !is_live(layouts, target.project, target.tab, target.path) {
             return false;
         }
         self.pending.insert(
-            opened.tab.clone(),
+            target.tab.clone(),
             Pending {
-                project: opened.project.clone(),
-                viewport: opened.viewport,
-                path: opened.path.clone(),
-                position: Position {
-                    line: opened.line,
-                    column: opened.column,
-                },
+                project: target.project.clone(),
+                viewport: target.viewport,
+                path: target.path.to_owned(),
+                position,
                 deadline: now + REVEAL_TTL,
             },
         );

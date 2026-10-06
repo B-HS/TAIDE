@@ -76,6 +76,85 @@ mod tests {
     }
 
     #[test]
+    fn keymap_override는_keymap_id없는_명령행을_앱_keymap_다음_순위와_등록순서로_dispatch한다() {
+        let mut map = Keymap::new().unwrap();
+        let now = Instant::now();
+        let terminal = Context {
+            terminal: true,
+            editor: false,
+        };
+        let editor = Context {
+            editor: true,
+            terminal: false,
+        };
+        map.update(Some(r#"[{"actionId":"app.openSettingsFile","key":"j","mods":["mod"]},{"actionId":"settings.open","key":"j","mods":["mod"]},{"actionId":"settings.open","key":"u","mods":["mod"]},{"actionId":"sync.uploadNow","key":"p","mods":["mod"]},{"actionId":"sync.downloadNow","key":"y","mods":["mod"],"chord":{"key":"s","mods":["mod"]}},{"actionId":"task.runTask","key":"","mods":[]},{"actionId":"monaco.deleteAllLeft","key":"i","mods":["mod"]},{"actionId":"editor.save","key":"o","mods":["mod"]}]"#));
+        for context in [Context::default(), terminal, editor] {
+            assert_eq!(
+                map.decide(&key("j", true), context, true, now),
+                Decision::Dispatch("settings.open".into())
+            );
+        }
+        assert_eq!(
+            map.decide(&key("u", true), Context::default(), true, now),
+            Decision::None
+        );
+        assert_eq!(
+            map.decide(&key("p", true), Context::default(), true, now),
+            Decision::Dispatch("quick-open".into())
+        );
+        for unbound in ["y", "i", "o"] {
+            assert_eq!(
+                map.decide(&key(unbound, true), Context::default(), true, now),
+                Decision::None,
+                "{unbound}"
+            );
+        }
+        assert_eq!(
+            map.decide(&key("k", true), Context::default(), true, now),
+            Decision::EnterChord
+        );
+        assert_eq!(
+            map.decide(&key("j", true), Context::default(), true, now),
+            Decision::NoMatch
+        );
+        assert_eq!(
+            map.decide(&key("k", true), editor, true, now),
+            Decision::ObserveEditorPrefix
+        );
+        assert_eq!(
+            map.decide(&key("j", true), editor, true, now),
+            Decision::DeferToEditor
+        );
+        map.update(Some(r#"[{"actionId":"cli.installShellCommand","key":"j","mods":["mod"]}]"#));
+        assert_eq!(
+            map.decide(&key("j", true), Context::default(), true, now),
+            Decision::Dispatch("cli.installShellCommand".into())
+        );
+        assert_eq!(
+            map.decide(&key("j", false), Context::default(), false, now),
+            Decision::None
+        );
+        map.update(Some(r#"[{"actionId":"settings.open","key":"j","mods":[]}]"#));
+        let mut composing = key("j", true);
+        composing.modifiers.meta = false;
+        composing.composing = true;
+        assert_eq!(
+            map.decide(&composing, Context::default(), true, now),
+            Decision::Ignore
+        );
+        composing.composing = false;
+        assert_eq!(
+            map.decide(&composing, Context::default(), true, now),
+            Decision::Dispatch("settings.open".into())
+        );
+        map.update(None);
+        assert_eq!(
+            map.decide(&composing, Context::default(), true, now),
+            Decision::None
+        );
+    }
+
+    #[test]
     fn keymap_chord는_형제_두단계_삼킴_repeat_ime_editor_유예와_timeout을_보존한다() {
         let mut map = Keymap::new().unwrap();
         let now = Instant::now();

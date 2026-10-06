@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use super::Instant;
+use super::command_registry;
 use super::egui;
 
 use serde_json::Value;
@@ -139,6 +140,19 @@ impl Entry {
     }
 }
 
+struct CommandBinding {
+    id: String,
+    first: Stage,
+    second: Option<Stage>,
+    is_mac_only: bool,
+}
+
+impl CommandBinding {
+    fn matches(&self, event: &KeyEvent<'_>, is_mac: bool) -> bool {
+        self.second.is_none() && (is_mac || !self.is_mac_only) && self.first.matches(event, is_mac)
+    }
+}
+
 struct Pending {
     candidates: Vec<usize>,
     started: Instant,
@@ -169,6 +183,8 @@ pub struct Keymap {
     editor_deferral: Option<Instant>,
     editor_prefixes: Vec<Stage>,
     editor_pending: Option<EditorPending>,
+    commands: &'static command_registry::Registry,
+    command_bindings: Vec<CommandBinding>,
 }
 
 struct Window {
@@ -421,6 +437,8 @@ impl Keymap {
             editor_deferral: None,
             editor_prefixes: Vec::new(),
             editor_pending: None,
+            commands: command_registry::registry()?,
+            command_bindings: Vec::new(),
         })
     }
 
@@ -431,6 +449,7 @@ impl Keymap {
         self.overrides = json.map(str::to_owned);
         self.entries = self.base.clone();
         self.editor_prefixes.clear();
+        self.command_bindings.clear();
         let Some(Value::Array(overrides)) = json.and_then(|json| serde_json::from_str(json).ok())
         else {
             return;
@@ -459,6 +478,25 @@ impl Keymap {
                 self.editor_prefixes.push(stage);
             }
         }
+        self.command_bindings = self
+            .commands
+            .commands()
+            .iter()
+            .filter(|command| command.runs_via_command())
+            .filter_map(|command| {
+                overrides.iter().find_map(|value| {
+                    if value.get("actionId").and_then(Value::as_str) != Some(command.id.as_str()) {
+                        return None;
+                    }
+                    Some(CommandBinding {
+                        id: command.id.clone(),
+                        first: Stage::parse(value)?,
+                        second: value.get("chord").and_then(Stage::parse),
+                        is_mac_only: command.is_mac_only,
+                    })
+                })
+            })
+            .collect();
     }
 
     pub fn decide(
@@ -549,7 +587,14 @@ impl Keymap {
                     && entry.enabled(context)
                     && entry.first.matches(event, is_mac)
             })
-            .map(|entry| Decision::Dispatch(entry.id.clone()))
+            .map(|entry| entry.id.as_str())
+            .or_else(|| {
+                self.command_bindings
+                    .iter()
+                    .find(|binding| binding.matches(event, is_mac))
+                    .map(|binding| binding.id.as_str())
+            })
+            .map(|id| Decision::Dispatch(id.to_owned()))
             .unwrap_or(Decision::None)
     }
 

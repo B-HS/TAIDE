@@ -155,6 +155,12 @@ pub enum HostCommand {
         preview: bool,
     },
     OpenFileToSide(taide_model::layout::OpenTabInSplitRequest),
+    ListProjectFiles(ProjectId),
+    OpenPaletteFile {
+        project: ProjectId,
+        pane: Option<PaneId>,
+        path: String,
+    },
     OpenProblem {
         project: ProjectId,
         path: String,
@@ -189,6 +195,14 @@ pub enum HostReply {
     },
     ProblemOpened {
         result: AppResult<crate::terminal_tabs::OpenedFileLink>,
+    },
+    ProjectFiles {
+        project: ProjectId,
+        result: AppResult<Vec<String>>,
+    },
+    PaletteFileOpened {
+        project: ProjectId,
+        result: AppResult<()>,
     },
     AppFile {
         request: crate::app_file::ReadRequest,
@@ -1310,26 +1324,26 @@ async fn dispatch(
             pane,
             path,
             preview,
-        } => {
-            let title = std::path::Path::new(&path)
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or(&path)
-                .to_owned();
-            match layout_actions::layout_open_tab(
-                services.events.as_ref(),
-                &services.state,
-                project,
-                TabKind::File { path },
-                title,
-                pane,
-                preview,
-            )
+        } => open_file_tab(services, project, pane, path, preview)
             .await
-            {
-                Ok(_) => None,
-                Err(error) => Some(HostReply::Failed(error)),
-            }
+            .err()
+            .map(HostReply::Failed),
+        HostCommand::ListProjectFiles(project) => {
+            let result = taide_runtime::search_actions::search_list_files(
+                &services.state,
+                &services.tasks,
+                project.clone(),
+            )
+            .await;
+            Some(HostReply::ProjectFiles { project, result })
+        }
+        HostCommand::OpenPaletteFile {
+            project,
+            pane,
+            path,
+        } => {
+            let result = open_file_tab(services, project.clone(), pane, path, true).await;
+            Some(HostReply::PaletteFileOpened { project, result })
         }
         HostCommand::OpenFileToSide(request) => {
             match layout_actions::layout_open_tab_in_split(
@@ -1446,6 +1460,31 @@ async fn dispatch(
             }
         }
     }
+}
+
+async fn open_file_tab(
+    services: &AppServices,
+    project: ProjectId,
+    pane: Option<PaneId>,
+    path: String,
+    preview: bool,
+) -> AppResult<()> {
+    let title = std::path::Path::new(&path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(&path)
+        .to_owned();
+    layout_actions::layout_open_tab(
+        services.events.as_ref(),
+        &services.state,
+        project,
+        TabKind::File { path },
+        title,
+        pane,
+        preview,
+    )
+    .await
+    .map(drop)
 }
 
 pub(crate) fn authorize_terminal_link(

@@ -7,6 +7,8 @@ use taide_model::project::WindowChromePatch;
 #[cfg(feature = "native-host")]
 use taide_runtime::{AppState, EventSink, layout_actions, project_actions};
 
+use crate::command_registry::{DocumentEdit, PaletteEntry};
+
 #[derive(Debug, Clone)]
 pub enum ShellMutation {
     ActivateProject(ProjectId),
@@ -57,12 +59,15 @@ pub enum ShellIntent {
     NewUntitled { project: ProjectId, pane: PaneId },
     NewTerminal { project: ProjectId, pane: PaneId },
     OpenSettings,
+    OpenSettingsFile,
     OpenKeybindings,
+    OpenPalette(PaletteEntry),
     ShowOpenProjectNotice,
     ChangeEditorFontSize { increase: bool },
     RequestCloseTab(TabId),
     RequestCloseTabs(Vec<TabId>),
     RequestSaveTab(TabId),
+    EditDocument { tab: TabId, edit: DocumentEdit },
 }
 
 #[cfg(feature = "native-host")]

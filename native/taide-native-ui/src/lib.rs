@@ -4,6 +4,14 @@ pub(crate) use web_time::Instant;
 #[path = "button-color-motion.rs"]
 mod button_color_motion;
 
+#[path = "command-palette.rs"]
+pub mod command_palette;
+#[path = "command-palette-file-match.rs"]
+pub mod command_palette_file_match;
+#[path = "command-palette-query.rs"]
+pub mod command_palette_query;
+#[path = "command-registry.rs"]
+pub mod command_registry;
 #[path = "command-score.rs"]
 pub mod command_score;
 pub mod commands;
@@ -19,6 +27,8 @@ pub mod editor_surface;
 pub mod font_families;
 #[path = "font-preview.rs"]
 pub mod font_preview;
+#[path = "fuzzy-match.rs"]
+pub mod fuzzy_match;
 pub mod icons;
 #[path = "keybinding-editor.rs"]
 pub mod keybinding_editor;

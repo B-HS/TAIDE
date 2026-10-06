@@ -19,6 +19,7 @@ use taide_native_terminal::{
 use taide_runtime::AppServices;
 
 use crate::{
+    command_registry::CommandContext,
     host::HostCommand,
     keymap::{Context as KeymapContext, Decision as KeymapDecision},
     terminal_dispatch::{EffectPorts, ObservePorts},
@@ -1193,21 +1194,11 @@ fn application_keymap_decision(
     actions: &mut Vec<String>,
     has_focused_shell: bool,
     consume_unhandled_chord: bool,
+    command_context: &CommandContext,
 ) -> bool {
     match decision {
         KeymapDecision::Dispatch(id) | KeymapDecision::ResolveChord(id)
-            if crate::shell_keymap::supports(id)
-                && (has_focused_shell
-                    || matches!(
-                        id.as_str(),
-                        "toggle-sidebar"
-                            | "open-keybindings-editor"
-                            | "new-terminal"
-                            | "reopen-closed-tab"
-                            | "font-size-up"
-                            | "font-size-down"
-                            | "toggle-zen-mode"
-                    )) =>
+            if crate::command_dispatch::accepts(id, has_focused_shell, command_context) =>
         {
             actions.push(id.clone());
             true
@@ -1223,6 +1214,7 @@ pub struct Views {
     palette: Arc<Mutex<Option<Appearance>>>,
     views: HashMap<(egui::ViewportId, PaneId, TabId), View>,
     keymaps: crate::keymap::Windows,
+    command_context: CommandContext,
     outboxes: HashMap<String, Arc<Mutex<Outbox>>>,
     attaching: HashSet<TabId>,
     failed: HashMap<TabId, String>,
@@ -3013,6 +3005,7 @@ impl Views {
                             actions,
                             has_focused_shell,
                             !scope.terminal && !scope.editor,
+                            &self.command_context,
                         )
                     },
                 ),
@@ -3129,8 +3122,18 @@ impl Views {
         has_focused_shell: bool,
     ) -> AppResult<bool> {
         self.keymaps.route(request, |decision| {
-            application_keymap_decision(decision, actions, has_focused_shell, true)
+            application_keymap_decision(
+                decision,
+                actions,
+                has_focused_shell,
+                true,
+                &self.command_context,
+            )
         })
+    }
+
+    pub(crate) fn set_command_context(&mut self, context: CommandContext) {
+        self.command_context = context;
     }
 
     pub(crate) fn has_keyboard_focus(&self, context: &egui::Context) -> bool {
