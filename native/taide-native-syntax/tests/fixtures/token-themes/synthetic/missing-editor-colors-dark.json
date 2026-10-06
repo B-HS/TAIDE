@@ -1,0 +1,15 @@
+{
+    "id": "missing-editor-colors-dark",
+    "name": "Missing Editor Colors Dark",
+    "type": "dark",
+    "colors": {},
+    "syntax": {
+        "keyword": { "fg": "#ff0000" }
+    },
+    "terminal": {},
+    "tokenColors": [
+        { "scope": ["comment"], "settings": { "foreground": "#008000" } },
+        { "scope": ["string"], "settings": { "foreground": "#bbbbbb" } },
+        { "scope": ["constant"], "settings": { "foreground": "black" } }
+    ]
+}

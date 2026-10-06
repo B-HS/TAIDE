@@ -1,0 +1,25 @@
+@use 'sass:math';
+@import 'variables', 'mixins';
+// line comment 한글 😀
+/* block comment */
+$primary: #06c !default;
+$map: (small: 576px, medium: 768px);
+%placeholder { margin: 0; }
+@mixin respond($breakpoint, $args...) {
+    @media (min-width: map-get($map, $breakpoint)) { @content; }
+}
+@function double($value) { @return $value * 2; }
+.card {
+    @extend %placeholder;
+    color: darken($primary, 10%);
+    width: calc(100% - #{$gap});
+    &:hover, &.is-active { color: lighten($primary, 20%); }
+    &__title { font: { family: 'Helvetica'; size: math.div(16px, 2); } }
+    .nested > & { display: none; }
+    @include respond(medium) { padding: double(4px); }
+    @each $name, $size in $map {
+        .w-#{$name} { max-width: $size; }
+    }
+    @if $primary == red { border: 1px solid; } @else if not index($map, x) { border: 0; } @else { border: none; }
+    @for $i from 1 through 3 { .m-#{$i} { margin: #{$i * 4}px; } }
+}

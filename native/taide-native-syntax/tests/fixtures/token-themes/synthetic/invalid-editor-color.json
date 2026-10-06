@@ -1,0 +1,14 @@
+{
+    "id": "invalid-editor-color",
+    "name": "Invalid Editor Color",
+    "type": "light",
+    "colors": {
+        "editor.background": "#ffffff",
+        "editor.foreground": "#12345"
+    },
+    "syntax": {},
+    "terminal": {},
+    "tokenColors": [
+        { "scope": ["comment"], "settings": { "foreground": "#6a9955" } }
+    ]
+}

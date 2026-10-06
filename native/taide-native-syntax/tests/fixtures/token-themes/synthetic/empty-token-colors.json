@@ -1,0 +1,17 @@
+{
+    "id": "empty-token-colors",
+    "name": "Empty Token Colors",
+    "type": "light",
+    "colors": {
+        "editor.background": "#fdf6e3",
+        "editor.foreground": "#657b83"
+    },
+    "syntax": {
+        "keyword": { "fg": "#859900" },
+        "string": { "fg": "#2aa198" },
+        "comment": { "fg": "#93a1a1", "italic": true },
+        "tag": { "fg": "#268bd2" }
+    },
+    "terminal": {},
+    "tokenColors": []
+}

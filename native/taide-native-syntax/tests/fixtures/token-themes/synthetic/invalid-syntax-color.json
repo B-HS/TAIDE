@@ -1,0 +1,14 @@
+{
+    "id": "invalid-syntax-color",
+    "name": "Invalid Syntax Color",
+    "type": "dark",
+    "colors": {
+        "editor.background": "#1e1e1e",
+        "editor.foreground": "#d4d4d4"
+    },
+    "syntax": {
+        "string": { "fg": "#ce9178" },
+        "markdownQuote": { "fg": "red" }
+    },
+    "terminal": {}
+}

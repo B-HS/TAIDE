@@ -1,0 +1,43 @@
+{
+    "longLineFill": "x",
+    "samples": [
+        { "id": "rust", "languageId": "rust", "file": "rust.sample", "longLine": { "prefix": "let long = \"", "suffix": "\";", "tail": "let tail = 1;" } },
+        { "id": "typescript", "languageId": "typescript", "file": "typescript.sample", "longLine": { "prefix": "const long = \"", "suffix": "\"", "tail": "const tail = 1" } },
+        { "id": "typescriptreact", "languageId": "typescriptreact", "file": "typescriptreact.sample", "longLine": { "prefix": "const long = \"", "suffix": "\"", "tail": "const tail = <b>1</b>" } },
+        { "id": "javascript", "languageId": "javascript", "file": "javascript.sample", "longLine": { "prefix": "const long = \"", "suffix": "\"", "tail": "const tail = 1" } },
+        { "id": "javascriptreact", "languageId": "javascriptreact", "file": "javascriptreact.sample", "longLine": { "prefix": "const long = \"", "suffix": "\"", "tail": "const tail = <b>1</b>" } },
+        { "id": "json", "languageId": "json", "file": "json.sample", "longLine": { "prefix": "\"", "suffix": "\"", "tail": "{ \"tail\": 1 }" } },
+        { "id": "jsonc", "languageId": "jsonc", "file": "jsonc.sample", "longLine": { "prefix": "\"", "suffix": "\"", "tail": "{ \"tail\": 1 } // tail" } },
+        { "id": "markdown", "languageId": "markdown", "file": "markdown.sample", "longLine": { "prefix": "Long **", "suffix": "** end", "tail": "# Tail" } },
+        {
+            "id": "markdown-with-languages",
+            "languageId": "markdown",
+            "file": "markdown.sample",
+            "additionalLanguageIds": ["typescript", "rust", "shellscript"],
+            "longLine": { "prefix": "Long **", "suffix": "** end", "tail": "# Tail" }
+        },
+        { "id": "toml", "languageId": "toml", "file": "toml.sample", "longLine": { "prefix": "long = \"", "suffix": "\"", "tail": "tail = 1" } },
+        { "id": "yaml", "languageId": "yaml", "file": "yaml.sample", "longLine": { "prefix": "long: \"", "suffix": "\"", "tail": "tail: 1" } },
+        { "id": "html", "languageId": "html", "file": "html.sample", "longLine": { "prefix": "<p>", "suffix": "</p>", "tail": "<p class=\"tail\">tail</p>" } },
+        { "id": "css", "languageId": "css", "file": "css.sample", "longLine": { "prefix": "/* ", "suffix": " */", "tail": ".tail { color: red; }" } },
+        { "id": "scss", "languageId": "scss", "file": "scss.sample", "longLine": { "prefix": "// ", "suffix": "", "tail": ".tail { color: red; }" } },
+        { "id": "python", "languageId": "python", "file": "python.sample", "longLine": { "prefix": "long = \"", "suffix": "\"", "tail": "tail = 1" } },
+        { "id": "go", "languageId": "go", "file": "go.sample", "longLine": { "prefix": "var long = \"", "suffix": "\"", "tail": "var tail = 1" } },
+        { "id": "shellscript", "languageId": "shellscript", "file": "shellscript.sample", "longLine": { "prefix": "long=\"", "suffix": "\"", "tail": "tail=1" } },
+        { "id": "java", "languageId": "java", "file": "java.sample", "longLine": { "prefix": "// ", "suffix": "", "tail": "class Tail {}" } },
+        { "id": "ruby", "languageId": "ruby", "file": "ruby.sample", "longLine": { "prefix": "long = \"", "suffix": "\"", "tail": "tail = 1" } },
+        { "id": "erb", "languageId": "erb", "file": "erb.sample", "longLine": { "prefix": "<p>", "suffix": "</p>", "tail": "<%= tail %>" } },
+        { "id": "dart", "languageId": "dart", "file": "dart.sample", "longLine": { "prefix": "var long = \"", "suffix": "\";", "tail": "var tail = 1;" } },
+        { "id": "swift", "languageId": "swift", "file": "swift.sample", "longLine": { "prefix": "let long = \"", "suffix": "\"", "tail": "let tail = 1" } },
+        { "id": "scala", "languageId": "scala", "file": "scala.sample", "longLine": { "prefix": "val long = \"", "suffix": "\"", "tail": "val tail = 1" } },
+        { "id": "elixir", "languageId": "elixir", "file": "elixir.sample", "longLine": { "prefix": "long = \"", "suffix": "\"", "tail": "tail = 1" } },
+        { "id": "heex", "languageId": "heex", "file": "heex.sample", "longLine": { "prefix": "<p>", "suffix": "</p>", "tail": "<p class=\"tail\">tail</p>" } },
+        { "id": "haskell", "languageId": "haskell", "file": "haskell.sample", "longLine": { "prefix": "long = \"", "suffix": "\"", "tail": "tailValue = 1" } },
+        { "id": "c", "languageId": "c", "file": "c.sample", "longLine": { "prefix": "const char *lng = \"", "suffix": "\";", "tail": "int tail = 1;" } },
+        { "id": "cpp", "languageId": "cpp", "file": "cpp.sample", "longLine": { "prefix": "const char *lng = \"", "suffix": "\";", "tail": "int tail = 1;" } },
+        { "id": "kotlin", "languageId": "kotlin", "file": "kotlin.sample", "longLine": { "prefix": "val long = \"", "suffix": "\"", "tail": "val tail = 1" } },
+        { "id": "lua", "languageId": "lua", "file": "lua.sample", "longLine": { "prefix": "local long = \"", "suffix": "\"", "tail": "local tail = 1" } },
+        { "id": "zig", "languageId": "zig", "file": "zig.sample", "longLine": { "prefix": "const long = \"", "suffix": "\";", "tail": "const tail = 1;" } },
+        { "id": "hcl", "languageId": "hcl", "file": "hcl.sample", "longLine": { "prefix": "long = \"", "suffix": "\"", "tail": "tail = 1" } }
+    ]
+}

@@ -1,0 +1,44 @@
+/* block comment 한글 漢字 😀 */
+// line comment
+#include <stdio.h>
+#include "local.h"
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MULTI_LINE(x) do { \
+        printf("%d\n", (x)); \
+    } while (0)
+#ifdef DEBUG
+#  pragma once
+#elif defined(NDEBUG) && !defined(TEST)
+#  error "unsupported"
+#endif
+
+typedef struct point {
+    int x, y;
+    unsigned long long flags : 3;
+    union { float f; char bytes[4]; } data;
+} point_t;
+
+enum color { RED = 1 << 0, GREEN = 0x02, BLUE = 04 };
+static const char *const names[] = { "red", "green\t\"quoted\"", "한글 😀" };
+extern volatile int counter;
+
+static inline int add(const int *restrict a, register int b) {
+    return *a + b;
+}
+
+int main(int argc, char **argv) {
+    point_t p = { .x = 1, .y = -2, .data.f = 1.5e-3f };
+    char c = '\n', wide = L'x';
+    unsigned u = 42u + 0b101 + 100000L;
+    for (int i = 0; i < argc; ++i) {
+        if (argv[i] == NULL) continue;
+        else if (i > MAX(1, 2)) goto end;
+        switch (argv[i][0]) {
+            case 'a': break;
+            default: printf("%s: %5.2f %c\n", argv[i], (double)p.x, c);
+        }
+    }
+    do { counter--; } while (counter > 0 && sizeof(p) != 0);
+end:
+    return (int)(u & 0xFF) | wide;
+}

@@ -1,0 +1,63 @@
+// Line comment with unicode: 한글 漢字 😀
+/**
+ * JSDoc block.
+ * @param value - the input
+ */
+import type { Readable } from 'node:stream'
+import { readFile } from 'node:fs/promises'
+
+export const enum Direction { Up = 1, Down }
+declare module 'virtual' {
+    export const value: number
+}
+
+type Mapper<T, U extends keyof T = keyof T> = { readonly [K in U]?: T[K] extends infer R ? R : never }
+
+interface Shape {
+    kind: 'circle' | 'square'
+    area(): number
+}
+
+abstract class Base<T> implements Shape {
+    static #count = 0
+    private readonly items: Map<string, T> = new Map()
+    constructor(public kind: 'circle' | 'square') {}
+    abstract area(): number
+    @decorator()
+    get size(): number {
+        return this.items.size
+    }
+}
+
+const pattern = /^(?<year>\d{4})-(\d{2})[^/\]]*\/?$/giu
+const template = `total: ${[1, 2, 3].map((n) => `<${n * 2}>`).join(', ')} 😀 한글`
+const text = "double \"escaped\" \u{1F600} \n" + 'single \'escaped\''
+const big = 0b1010n + 0xff + 1_000.5e-3
+
+export async function* generate<T>(source: AsyncIterable<T>): AsyncGenerator<T, void, undefined> {
+    for await (const item of source) {
+        if (item === null || typeof item !== 'object') continue
+        yield item as unknown as T
+    }
+}
+
+function assertIsString(value: unknown): asserts value is string {
+    if (typeof value !== 'string') throw new TypeError(`not a string: ${String(value)}`)
+}
+
+namespace Legacy {
+    export const answer = <number>(<unknown>'42')
+}
+
+label: for (let i = 0; i < 10; i++) {
+    switch (i % 3) {
+        case 0:
+            continue label
+        default:
+            break
+    }
+}
+const multiline = `line one
+line two ${template.length}
+line three`
+export default multiline satisfies string

@@ -1,0 +1,50 @@
+# comment 한글 漢字 😀
+// line comment
+/* block
+   comment */
+terraform {
+  required_version = ">= 1.5.0"
+  required_providers {
+    aws = { source = "hashicorp/aws", version = "~> 5.0" }
+  }
+}
+
+variable "names" {
+  type        = list(object({ name = string, count = optional(number, 1) }))
+  default     = []
+  description = "escaped \"quote\" \n ${var.prefix} 한글 😀"
+  sensitive   = false
+}
+
+locals {
+  enabled = var.count > 0 && !var.disabled ? true : null
+  tags    = merge(var.tags, { Name = "app-${terraform.workspace}", "quoted key" = 1.5e3 })
+  names   = [for item in var.names : upper(item.name) if item.count != 0]
+  map     = { for k, v in local.tags : k => v... }
+  heredoc = <<-EOT
+    heredoc with ${local.enabled}
+    %{ for name in local.names ~}
+    - ${name}
+    %{ endfor ~}
+  EOT
+}
+
+resource "aws_instance" "web" {
+  count         = length(local.names)
+  ami           = data.aws_ami.ubuntu.id
+  instance_type = "t3.${var.size}"
+  dynamic "ebs_block_device" {
+    for_each = var.volumes
+    content {
+      device_name = ebs_block_device.value["name"]
+      volume_size = 0x10
+    }
+  }
+  lifecycle {
+    ignore_changes = [tags, ami]
+  }
+}
+
+output "ids" {
+  value = aws_instance.web[*].id
+}

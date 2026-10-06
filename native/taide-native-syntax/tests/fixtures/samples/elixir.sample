@@ -1,0 +1,59 @@
+# comment 한글 漢字 😀
+defmodule Sample.Greeter do
+  @moduledoc """
+  Module docs with `code`.
+  """
+  use GenServer
+  alias Sample.{Helper, Other}
+  import Enum, only: [map: 2]
+  require Logger
+
+  @type t :: %__MODULE__{name: String.t(), count: non_neg_integer()}
+  @default_count 0x1F
+  defstruct name: "", count: @default_count
+
+  @doc "Greets `name`."
+  @spec greet(t(), keyword()) :: {:ok, String.t()} | {:error, atom()}
+  def greet(%__MODULE__{name: name} = state, opts \\ []) when is_binary(name) do
+    suffix = Keyword.get(opts, :suffix, ?!)
+    text = "Hello, #{String.upcase(name)}#{<<suffix::utf8>>} \n \"quoted\" 한글 😀"
+    charlist = 'single #{1 + 1}'
+    atoms = [:ok, :"quoted atom", Elixir.String, nil, true]
+    numbers = [1_000, 0b1010, 0o17, 1.5e-3, ?a]
+    words = ~w(one two three)a
+    regex = ~r/^(?<word>\w+)\s*#{name}$/iu
+    sigil = ~S"""
+    raw #{not} interpolated
+    """
+    result =
+      numbers
+      |> Enum.map(&(&1 * 2))
+      |> Enum.filter(fn n -> rem(n, 2) == 0 end)
+    case Regex.run(regex, text) do
+      [_, word] -> {:ok, word <> inspect(result)}
+      nil when atoms != [] -> {:error, :no_match}
+      _ -> raise ArgumentError, message: "bad #{inspect(words)} #{charlist} #{sigil}"
+    end
+  end
+
+  def render(assigns) do
+    ~H"""
+    <div class={@class} id="x"><%= @name %></div>
+    """
+  end
+
+  defp private_fun(a, b), do: a + b
+  defmacro unless_true(expr, do: block), do: quote(do: if(!unquote(expr), do: unquote(block)))
+
+  @impl true
+  def handle_call({:get, key}, _from, %{} = state) do
+    with {:ok, value} <- Map.fetch(state, key),
+         true <- value > 0 do
+      {:reply, value, state}
+    else
+      :error -> {:reply, nil, state}
+    end
+  rescue
+    e in RuntimeError -> reraise e, __STACKTRACE__
+  end
+end

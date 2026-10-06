@@ -1,0 +1,11 @@
+{
+    "name": "taide",
+    "version": "1.0.0",
+    "private": true,
+    "count": -12.5e+3,
+    "nothing": null,
+    "unicode": "한글 漢字 😀 é \"quoted\" \\ \/ \n",
+    "nested": { "list": [1, 2, { "deep": [true, false] }], "empty": {} },
+    "invalid": [01, 'single', undefined, ],
+    "url": "https://example.com/path?query=1#hash"
+}

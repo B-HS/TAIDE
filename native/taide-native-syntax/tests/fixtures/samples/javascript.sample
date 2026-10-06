@@ -1,0 +1,48 @@
+#!/usr/bin/env node
+'use strict'
+// 주석: 한글 漢字 😀
+/* block
+   comment */
+import fs, { promises as fsp } from 'node:fs'
+export * as utils from './utils.js'
+
+class Queue extends Array {
+    static #instances = 0
+    #items = []
+    constructor(...items) {
+        super(...items)
+        Queue.#instances++
+    }
+    get size() {
+        return this.#items.length
+    }
+    static async *drain(queue) {
+        while (queue.size > 0) yield await queue.shift()
+    }
+}
+
+const regex = /(?:^|\s)#([a-z\d_-]+)(?=\s|$)/gim
+const division = 10 / 2 / 5
+const template = `sum: ${1 + 2} nested ${`inner ${regex.source}`} 😀 한글`
+const tagged = String.raw`C:\path\${division}`
+const object = { 'quoted-key': 1, [`computed${division}`]: 2, method() {}, get value() { return 1 }, ...fs }
+const optional = object?.missing?.[0] ?? 0xff ** 2
+const numbers = [1e3, .5, 0o17, 0b11, 1_000n]
+
+function legacy(a, b = 2, ...rest) {
+    var self = this
+    try {
+        if (!a) throw new Error("fail: " + b)
+    } catch ({ message }) {
+        console.error(message, rest, self)
+    } finally {
+        delete object.method
+    }
+    return void 0
+}
+
+const arrow = async ({ a, b: [c, d] = [] }) => (await a) instanceof Queue ? c : d
+label: do {
+    break label
+} while (true)
+export default legacy

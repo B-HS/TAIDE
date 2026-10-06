@@ -1,0 +1,15 @@
+{
+    "id": "missing-editor-colors-light",
+    "name": "Missing Editor Colors Light",
+    "type": "light",
+    "colors": {
+        "editor.background": "",
+        "app.accent": "#0366d6"
+    },
+    "syntax": {},
+    "terminal": {},
+    "tokenColors": [
+        { "scope": ["comment"], "settings": { "foreground": "#008000", "fontStyle": "italic" } },
+        { "scope": ["string"], "settings": { "foreground": "#333333" } }
+    ]
+}

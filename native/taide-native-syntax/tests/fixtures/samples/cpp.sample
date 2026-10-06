@@ -1,0 +1,63 @@
+// line comment 한글 漢字 😀
+/* block comment */
+#include <iostream>
+#include <vector>
+#include "local.hpp"
+#define STRINGIFY(x) #x
+#if __cplusplus >= 202002L
+#  define MODERN 1
+#endif
+
+namespace sample::detail {
+
+template <typename T, std::size_t N = 3>
+concept Numeric = std::is_arithmetic_v<T> && requires(T a) { a + a; };
+
+enum class Color : unsigned char { Red, Green = 0x02 };
+
+template <Numeric T>
+class Vector final : public Base<T>, private Mixin {
+public:
+    explicit Vector(std::initializer_list<T> values) noexcept : data_{values} {}
+    virtual ~Vector() override = default;
+    Vector(const Vector&) = delete;
+    Vector& operator=(Vector&& other) & noexcept { data_ = std::move(other.data_); return *this; }
+    [[nodiscard]] constexpr auto size() const -> std::size_t { return data_.size(); }
+    T& operator[](std::size_t index) { return data_.at(index); }
+    friend std::ostream& operator<<(std::ostream& os, const Vector& v) { return os << v.size(); }
+
+private:
+    std::vector<T> data_;
+    static inline thread_local int count_ = 0;
+    mutable bool dirty_ : 1 = false;
+};
+
+} // namespace sample::detail
+
+using namespace std::string_literals;
+
+int main(int argc, char* argv[]) {
+    auto text = "escaped \"quote\" \n 한글 😀"s;
+    const char* raw = R"delim(raw "string" \n no escape)delim";
+    const char* shader = R"glsl(
+        uniform mat4 mvp; void main() { gl_Position = mvp * vec4(1.0); }
+    )glsl";
+    const char* query = R"sql(SELECT id FROM users WHERE age > 18)sql";
+    std::regex pattern{R"regex(^(\d+)-[a-z]*$)regex"};
+    auto wide = L'x'; char8_t utf = u8'a';
+    auto numbers = {1'000, 0xFF, 0b1010, 017};
+    double ratio = 1.5e-3;
+    auto lambda = [&, ratio](auto&&... args) mutable -> decltype(auto) { return (args + ...); };
+    for (const auto& [index, value] : std::vector<std::pair<int, int>>{{1, 2}}) {
+        if (auto it = numbers.begin(); it != numbers.end() && value <=> index != 0) [[likely]] {
+            std::cout << STRINGIFY(value) << lambda(index, value) << '\n';
+        }
+    }
+    try {
+        throw std::runtime_error{"fail"};
+    } catch (const std::exception& e) {
+        static_assert(sizeof(int) >= 4, "int too small");
+        return dynamic_cast<const std::runtime_error*>(&e) != nullptr ? 1 : 0;
+    }
+    co_return;
+}

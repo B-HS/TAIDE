@@ -1,0 +1,29 @@
+<%# ERB comment 한글 😀 %>
+<!DOCTYPE html>
+<html>
+<head>
+  <title><%= @title || "Default &amp; title" %></title>
+  <style>.item { color: <%= color %>; }</style>
+</head>
+<body class="<%= body_class %>">
+  <% if @items.any? { |item| item.visible? } %>
+    <ul id="list">
+      <% @items.each_with_index do |item, index| -%>
+        <li class="<%= index.even? ? 'even' : "odd" %>" data-id="<%= item.id %>">
+          <%= link_to item.name, item_path(item), class: "link #{item.kind}" %>
+          <%== raw_html(item) %>
+        </li>
+      <% end %>
+    </ul>
+  <% elsif @empty_message.present? %>
+    <p><%= @empty_message.gsub(/\s+/, ' ') %> 😀</p>
+  <% else %>
+    <%# nothing %>
+  <% end %>
+  <%% literal %>
+  <script>
+    const data = <%= raw @items.to_json %>;
+    console.log(`count: ${data.length}`)
+  </script>
+</body>
+</html>

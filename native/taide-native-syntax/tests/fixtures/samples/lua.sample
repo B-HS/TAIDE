@@ -1,0 +1,38 @@
+#!/usr/bin/env lua
+-- line comment 한글 漢字 😀
+--[[ block
+comment ]]
+--[==[ leveled
+block ]==]
+local M = {}
+local json <const> = require("json")
+local unpack = table.unpack or unpack
+
+---@param name string
+---@return string
+function M.greet(name, ...)
+    local args = { ... }
+    local text = "escaped \"quote\" \n \u{1F600} 한글 😀" .. 'single \'quote\''
+    local long = [[
+long string
+with "quotes" ]]
+    local leveled = [==[ contains ]] inside ]==]
+    local numbers = { 1, 0xFF, 1.5e-3, 0x1p4, 3 // 2, 2 ^ 10, #args }
+    for index, value in ipairs(numbers) do
+        if value > 1 and index ~= 2 then
+            goto continue
+        elseif not value then
+            break
+        end
+        io.write(string.format("%d: %s\n", index, tostring(value)))
+        ::continue::
+    end
+    while #text > 0 do text = text:sub(2) end
+    repeat local done = true until done
+    return name .. long .. leveled
+end
+
+local Class = setmetatable({}, { __index = M, __call = function(cls, ...) return cls.new(...) end })
+function Class:method(a, b) return self.value + a + (b or 0) end
+local ok, err = pcall(function() error({ code = 1 }) end)
+return M

@@ -1,0 +1,30 @@
+# comment 한글 😀
+title = "TOML \"example\" \u00e9"
+literal = 'C:\path\no\escape'
+multi = """
+multi-line
+basic string \
+"""
+multi_literal = '''
+raw
+'''
+integer = +1_000
+hex = 0xDEADBEEF
+float = -6.626e-34
+special = inf
+flag = true
+date = 1979-05-27T07:32:00-08:00
+array = [1, 2, ["a", 'b'], { x = 1 }]
+
+[owner]
+name = "Tom"
+"quoted key" = 1
+dotted.key.path = "value"
+
+[[products]]
+name = "Hammer"
+sku = 738594937
+
+[servers.alpha]
+ip = "10.0.0.1"
+inline = { first = "a", second = { nested = true } }

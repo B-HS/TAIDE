@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# comment 한글 漢字 😀
+set -euo pipefail
+readonly NAME="world"
+declare -a items=(one "two three" 'four')
+export PATH="$HOME/bin:${PATH:-/usr/bin}"
+
+greet() {
+    local who="${1:?missing}" count=$(( ${#items[@]} + 2 ** 3 ))
+    echo "Hello, ${who^^}! $(date +%Y-%m-%d) `uname -s` \$escaped \"quoted\" $count"
+    printf '%s\n' 'single $not_expanded' $'ansi\tquoted\n'
+}
+
+if [[ -f "$1" && ! -d ${2:-} ]] || [ "$#" -gt 2 ]; then
+    greet "$NAME" >&2
+elif (( $# == 0 )); then
+    exit 1
+else
+    cat <<EOF
+heredoc with $NAME and $(echo sub)
+EOF
+    cat <<-'RAW'
+	raw $NAME heredoc
+	RAW
+fi
+
+for item in "${items[@]}"; do
+    case "$item" in
+        one|two*) continue ;;
+        *[0-9]) break ;;
+        *) echo "${item//o/0}" | sed -e 's/[aeiou]/_/g' | awk '{ print $1 }' ;;
+    esac
+done
+
+while read -r line; do echo "$line"; done < <(grep -E '^[a-z]+=' /etc/os-release 2>/dev/null || true)
+function cleanup { rm -rf -- "${TMPDIR:?}/$$"; }
+trap cleanup EXIT INT

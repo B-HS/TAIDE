@@ -6,7 +6,8 @@ belongs to someone else.
 
 This file covers four kinds of third-party code TAIDE distributes notices for:
 bundled color themes (shipped inside the app), bundled TextMate grammars used
-for syntax highlighting (shipped inside the app via the `shiki` package),
+for syntax highlighting (shipped inside the app via the `shiki` package, and
+embedded as the same files in the Rust-native build),
 language servers that the in-app LSP installer downloads on demand (not
 bundled — fetched from the upstream project's own release infrastructure at
 install time, and cached under the user's app-data directory), and a small
@@ -238,6 +239,15 @@ values from the file." TAIDE imports 30 of these grammars individually
 (never the full `@shikijs/langs` barrel — see "Individual subpath imports
 only" below).
 
+**The Rust-native build ships the same grammar files.**
+`native/taide-native-syntax/grammars/` holds 37 `.tmLanguage.json` files — the
+30 grammars below plus the 7 grammar modules they import (see "Embedded
+grammar modules" below). They are extracted from `@shikijs/langs` 4.4.3 by
+`docs/utils/2026-10-06-extract-shiki-grammars.ts`, which writes out the JSON
+text of each module as is, without parsing and re-serializing it, and they are
+compiled into the native binary with `include_str!`. Every notice in this
+section therefore applies to the native binary as well as to the web bundle.
+
 ### shiki packages (MIT)
 
 - `@shikijs/core`, `@shikijs/langs`, `@shikijs/monaco`,
@@ -292,6 +302,34 @@ recorded by the individual upstream projects; TAIDE does not modify the
 grammar files, satisfying the MIT notice-preservation requirement via
 unmodified redistribution. See `## Full MIT License Text` above for the
 license text.
+
+### Embedded grammar modules — 7
+
+The `@shikijs/langs` modules of `cpp` and `ruby` statically import further
+grammar modules, so loading those two languages also loads the grammars
+below. They are part of both the web bundle and the native binary (37 grammar
+files in total: the 30 above plus these 7). The module list is produced by
+`docs/utils/2026-10-06-extract-shiki-grammars.ts` and recorded in
+`native/taide-native-syntax/grammars/manifest.json`.
+
+| shiki language id | Scope name                  | Imported by        | Upstream source                       | License (see note)     |
+| ----------------- | --------------------------- | ------------------ | ------------------------------------- | ---------------------- |
+| `cpp-macro`       | `source.cpp.embedded.macro` | `cpp`              | github.com/microsoft/vscode           | MIT                    |
+| `regexp`          | `source.regexp.python`      | `cpp`, `cpp-macro` | github.com/MagicStack/MagicPython     | MIT                    |
+| `glsl`            | `source.glsl`               | `cpp`, `cpp-macro` | github.com/polym0rph/GLSL.tmbundle    | _no license specified_ |
+| `sql`             | `source.sql`                | `ruby`             | github.com/microsoft/vscode           | MIT                    |
+| `graphql`         | `source.graphql`            | `ruby`             | github.com/prisma-labs/vscode-graphql | MIT                    |
+| `haml`            | `text.haml`                 | `ruby`             | github.com/karuna/haml-vscode         | MIT                    |
+| `xml`             | `text.xml`                  | `ruby`             | github.com/microsoft/vscode           | MIT                    |
+
+**Note.** The grammar files carry no upstream or license metadata. The
+upstream source and license columns were checked on 2026-10-07 against the
+grammar table of the `tm-grammars` package README on the `main` branch of
+github.com/shikijs/textmate-grammars-themes, not against the exact revision
+that `@shikijs/langs` 4.4.3 was built from. That table lists no license for
+`glsl`, so it is a gray-area entry like the four below; it already ships in
+the web bundle through the `cpp` module. None of the seven is one of the
+GPL-3.0 grammars listed under "Individual subpath imports only".
 
 ### Haskell grammar — BSD-3-Clause
 
@@ -378,6 +416,90 @@ TAIDE imports each grammar via its own `@shikijs/langs/<id>` subpath (e.g.
 (barrel import). This is a deliberate license-hygiene measure: `@shikijs/langs`
 as a whole also ships several GPL-3.0 grammars (`ada`, `gnuplot`, `nginx`,
 `org`, `racket`) that TAIDE does not use and must not pull in incidentally.
+
+The native extraction script follows the same rule. It starts from the
+grammar modules named in `src/shared/lib/shiki/lang-map.ts`, follows only
+their static imports, and aborts if any of the five GPL-3.0 grammar ids
+appears in that closure.
+
+---
+
+## Native syntax highlighting engine
+
+The Rust-native build tokenizes the grammars above with two crates that
+`native/taide-native-syntax` depends on. Neither is part of the web bundle.
+
+### ferriki-textmate 0.12.0
+
+- Source: https://github.com/sebastian-software/ferriki
+- License: MIT OR Apache-2.0 (MIT text: see `## Full MIT License Text` above;
+  Apache-2.0 text: https://www.apache.org/licenses/LICENSE-2.0)
+- Copyright (c) 2026 Sebastian Software GmbH, Mainz, Germany
+- Portions Copyright (c) 2021 Pine Wu
+- Portions Copyright (c) 2023 Anthony Fu
+- A port of `vscode-textmate` — MIT, Copyright (c) Microsoft Corporation.
+
+### ferroni 1.8.1
+
+- Source: https://github.com/sebastian-software/ferroni
+- License: BSD-2-Clause
+- Portions of its scanner are derived from `vscode-oniguruma` — MIT,
+  Copyright (c) Microsoft Corporation.
+
+```
+Copyright (c) 2002-2021 K. Kosako <kkosako0@gmail.com> (Oniguruma C original)
+Copyright (c) 2026 Sebastian Software GmbH (Rust port)
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+### Ported source in `native/taide-native-syntax`
+
+- `src/style-scopes.rs` ports the color and font style lookup of
+  `@shikijs/monaco` 4.4.3 (MIT, Copyright (c) 2021 Pine Wu, Copyright (c) 2023
+  Anthony Fu) and `toStandardTokenType` from Monaco Editor 0.56.0 (MIT,
+  Copyright (c) Microsoft Corporation). The license texts are kept next to
+  the code as `native/taide-native-syntax/LICENSE-SHIKI` and
+  `native/taide-native-syntax/LICENSE-MONACO-SNIPPET`.
+- `src/token-theme.rs` ports `normalizeTheme` from `@shikijs/primitive` 4.4.3
+  and the rule list of `textmateThemeToMonacoTheme` from `@shikijs/monaco`
+  4.4.3 (both MIT, same copyright holders as above), and the default token
+  rule of `StandaloneTheme.tokenTheme` from Monaco Editor 0.56.0.
+- `src/monaco-token-theme.rs` ports the token theme trie from Monaco Editor
+  0.56.0 (`parseTokenTheme`, `resolveParsedTokenThemeRules`, `ColorMap`,
+  `ThemeTrieElement`, `ThemeTrieElementRule`).
+- `src/document-tokens.rs` and `src/token-worker.rs` port the line end state
+  store and the tokenization stop rule from Monaco Editor 0.56.0
+  (`TokenizationStateStore`, `TrackingTokenizationStateStore`).
+
+### Ported source in `native/taide-native-editor`
+
+- `src/line-tokens.rs` ports the invalid line range queue
+  (`RangePriorityQueueImpl`, `OffsetRange.addRange`) and the line token
+  editing rules (`ContiguousTokensStore.acceptEdit`,
+  `ContiguousTokensEditing`) from Monaco Editor 0.56.0 (MIT, Copyright (c)
+  Microsoft Corporation). The license text is kept next to the code as
+  `native/taide-native-editor/LICENSE-MONACO-SNIPPET`.
 
 ---
 
@@ -520,6 +642,8 @@ dependency closure, 171 packages) and `cargo metadata
 - CDLA-Permissive-2.0 — `webpki-roots` (Mozilla CA bundle).
 - Zlib, BSD-2-Clause, BSD-3-Clause, Unlicense, CC0-1.0 — a handful of small
   crates (`foldhash`, `slotmap`, `subtle`, `Inflector`, `walkdir`, `notify`).
+- `ferriki-textmate` (MIT OR Apache-2.0) and `ferroni` (BSD-2-Clause) — the
+  Rust-native build only; see "Native syntax highlighting engine" above.
 - **MPL-2.0 (file-level copyleft)** — `cssparser`, `cssparser-macros`,
   `selectors`, `dtoa-short`, `option-ext`. TAIDE uses them unmodified, as it
   does the HCL grammar above; modifying any of these files would require

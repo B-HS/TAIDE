@@ -1,0 +1,16 @@
+[package]
+name = "taide-native-syntax"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+publish = false
+
+[workspace]
+
+[dependencies]
+ferriki-textmate = "=0.12.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+taide-model = { path = "../../crates/taide-model" }
+taide-native-editor = { path = "../taide-native-editor" }

@@ -1,0 +1,31 @@
+{
+    "id": "syntax-overrides",
+    "name": "Syntax Overrides",
+    "type": "dark",
+    "colors": {
+        "editor.background": "#1e1e1e",
+        "editor.foreground": "#d4d4d4"
+    },
+    "syntax": {
+        "keyword": { "fg": "#c586c0", "italic": true },
+        "storage": { "fg": "#569cd6" },
+        "operator": { "fg": "#d4d4d4" },
+        "string": { "fg": "#ce9178" },
+        "number": { "fg": "#b5cea8" },
+        "regexp": { "fg": "#d16969" },
+        "comment": { "fg": "#6a9955" },
+        "function": { "fg": "#dcdcaa" },
+        "variable": { "fg": "#9cdcfe" },
+        "type": { "fg": "#4ec9b0" },
+        "constant": { "fg": "#4fc1ff" }
+    },
+    "terminal": {},
+    "tokenColors": [
+        { "scope": ["comment", "punctuation.definition.comment"], "settings": { "foreground": "#6A9955" } },
+        { "scope": ["keyword.control"], "settings": { "foreground": "#C586C0" } },
+        { "scope": ["string", "string.quoted.double"], "settings": { "foreground": "#ce9178" } },
+        { "scope": ["keyword"], "settings": { "foreground": "#569cd6", "fontStyle": "bold" } },
+        { "scope": ["entity.name.function"], "settings": { "foreground": "#dcdcaa", "fontStyle": "" } }
+    ],
+    "syntaxOverrides": ["string", "notASyntaxToken", "keyword", "comment", "docComment"]
+}

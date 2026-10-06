@@ -1,0 +1,32 @@
+import { useState, type FC, type PropsWithChildren } from 'react'
+
+type CardProps = PropsWithChildren<{ title: string; count?: number }>
+
+// 주석: 한글 漢字 😀
+export const Card: FC<CardProps> = ({ title, count = 0, children }) => {
+    const [open, setOpen] = useState<boolean>(false)
+    const label = `${title} (${count})`
+    return (
+        <section className="card" data-open={open} aria-label={label}>
+            {/* JSX comment */}
+            <header onClick={() => setOpen((value) => !value)}>
+                <h2 style={{ color: 'red', fontSize: 12 }}>{label}</h2>
+            </header>
+            {open && count > 0 ? <p>Items &amp; more: {count} 😀 한글</p> : null}
+            <ul>
+                {[1, 2, 3].map((item) => (
+                    <li key={item}>{item < 2 ? 'low' : "high"}</li>
+                ))}
+            </ul>
+            <Generic<string> value="x" {...{ extra: true }} />
+            <>
+                {children}
+                <input type="text" disabled />
+            </>
+        </section>
+    )
+}
+
+const Generic = <T,>({ value }: { value: T }) => <span>{String(value)}</span>
+const pattern = /<\/?[a-z]+>/gi
+export default Card

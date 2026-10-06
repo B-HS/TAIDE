@@ -1,0 +1,14 @@
+{
+    "id": "invalid-rule-background",
+    "name": "Invalid Rule Background",
+    "type": "dark",
+    "colors": {
+        "editor.background": "#1e1e1e",
+        "editor.foreground": "#d4d4d4"
+    },
+    "syntax": {},
+    "terminal": {},
+    "tokenColors": [
+        { "scope": ["comment"], "settings": { "foreground": "#6a9955", "background": "#zzzzzz" } }
+    ]
+}

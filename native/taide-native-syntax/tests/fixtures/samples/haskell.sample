@@ -1,0 +1,49 @@
+{-# LANGUAGE OverloadedStrings, LambdaCase #-}
+{- block {- nested -} comment 한글 😀 -}
+-- | Haddock comment for the module.
+module Sample.Main (main, Shape (..), area) where
+
+import qualified Data.Map.Strict as Map
+import Data.List (sortBy, foldl')
+import Data.Maybe (fromMaybe)
+
+data Shape a
+  = Circle {radius :: !a}
+  | Rect a a
+  | Empty
+  deriving (Show, Eq, Ord)
+
+newtype Wrapper f a = Wrapper {unwrap :: f a}
+type Name = String
+
+class Describable a where
+  describe :: a -> String
+  describe _ = "thing"
+
+instance (Show a, Floating a) => Describable (Shape a) where
+  describe = \case
+    Circle r -> "circle " ++ show (area (Circle r))
+    other -> show other
+
+area :: (Floating a) => Shape a -> a
+area (Circle r) = pi * r ^ (2 :: Int)
+area (Rect w h) = w * h
+area Empty = 0
+
+infixr 5 +++
+(+++) :: [a] -> [a] -> [a]
+xs +++ ys = foldr (:) ys xs
+
+main :: IO ()
+main = do
+  let text = "escaped \"quote\" \n \1234 한글 😀" :: String
+      char = '\''
+      numbers = [1, 0xFF, 0o17, 1.5e-3, 2 `div` 1] :: [Double]
+      table = Map.fromList [(n, n * 2) | n <- [1 .. 10 :: Int], even n]
+  mapM_ (putStrLn . describe) [Circle 1.0, Rect 2 3, Empty]
+  case Map.lookup 2 table of
+    Just v | v > 3 -> print v
+           | otherwise -> pure ()
+    Nothing -> putStrLn $ text ++ [char] ++ show (sum numbers)
+  where
+    helper x = if x then 1 else 0 :: Int

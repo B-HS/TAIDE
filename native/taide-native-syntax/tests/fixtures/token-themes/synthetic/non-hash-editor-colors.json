@@ -1,0 +1,16 @@
+{
+    "id": "non-hash-editor-colors",
+    "name": "Non Hash Editor Colors",
+    "type": "dark",
+    "colors": {
+        "editor.background": "black",
+        "editor.foreground": "white"
+    },
+    "syntax": {},
+    "terminal": {},
+    "tokenColors": [
+        { "scope": ["comment"], "settings": { "foreground": "white" } },
+        { "scope": ["string"], "settings": { "foreground": "black", "background": "white" } },
+        { "scope": ["keyword"], "settings": { "foreground": "#569cd6" } }
+    ]
+}

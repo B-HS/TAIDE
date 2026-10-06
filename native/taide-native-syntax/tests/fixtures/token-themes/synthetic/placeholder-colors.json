@@ -1,0 +1,41 @@
+{
+    "id": "placeholder-colors",
+    "name": "Placeholder Colors",
+    "type": "dark",
+    "colors": {
+        "editor.background": "#101010",
+        "editor.foreground": "#f0f0f0"
+    },
+    "syntax": {
+        "keyword": { "fg": "#ff0000" },
+        "tag": { "fg": "not-a-color" }
+    },
+    "terminal": {},
+    "tokenColors": [
+        { "scope": ["variable.named"], "settings": { "foreground": "red" } },
+        { "scope": ["variable.functional"], "settings": { "foreground": "rgb(1, 2, 3)", "background": "blue" } },
+        { "scope": ["variable.named.again"], "settings": { "foreground": "red", "fontStyle": "italic" } },
+        { "scope": ["short.rgb"], "settings": { "foreground": "#abc" } },
+        { "scope": ["short.rgba"], "settings": { "foreground": "#abcd" } },
+        { "scope": ["long.rgba"], "settings": { "foreground": "#11223344" } },
+        { "scope": ["upper.case"], "settings": { "foreground": "#AABBCC" } },
+        { "scope": ["background.only"], "settings": { "background": "#222222" } },
+        { "scope": ["style.only"], "settings": { "fontStyle": "bold" } },
+        { "scope": ["style.alias"], "settings": { "foreground": "#010203", "fontStyle": "line-through" } },
+        { "scope": ["style.mixed"], "settings": { "foreground": "#040506", "fontStyle": "bold italic underline" } },
+        { "scope": ["style.commas"], "settings": { "foreground": "#070809", "fontStyle": "italic,bold" } },
+        { "scope": ["style.unknown"], "settings": { "foreground": "#0a0b0c", "fontStyle": "ITALIC wavy  strikethrough" } },
+        { "scope": [], "settings": { "foreground": "#0d0e0f" } },
+        { "scope": [""], "settings": { "fontStyle": "underline" } },
+        { "scope": ["first.owner", "second.owner.string"], "settings": { "foreground": "#123456" } },
+        { "scope": ["string.later"], "settings": { "foreground": "#123456" } },
+        { "scope": ["comment.block"], "settings": { "foreground": "#654321", "fontStyle": "italic" } },
+        { "scope": ["comment"], "settings": { "foreground": "#654321" } },
+        { "scope": ["comment.block.documentation"], "settings": { "fontStyle": "bold" } },
+        { "scope": ["string.regexp"], "settings": { "foreground": "#765432" } },
+        { "scope": ["meta.embedded", "source.groovy.embedded"], "settings": { "foreground": "#f0f0f0" } },
+        { "scope": ["nested", "nested.child", "nested.child.leaf"], "settings": { "foreground": "#345678", "fontStyle": "underline" } },
+        { "scope": ["nested.child"], "settings": { "foreground": "#456789" } },
+        { "scope": ["nested.other.leaf"], "settings": { "background": "#333333", "fontStyle": "strikethrough" } }
+    ]
+}

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <title>Sample &amp; test — 한글 😀</title>
+    <!-- comment
+         multi-line -->
+    <style media="screen">
+        body > .card:hover::after { color: #ff0000; margin: 0 auto !important; }
+        @media (max-width: 600px) { .card { display: none; } }
+    </style>
+    <script type="module">
+        import { value } from './module.js'
+        const template = `<p>${value}</p>` // comment
+        document.querySelector('#app').innerHTML = template.replace(/<\/?p>/g, '')
+    </script>
+    <script type="application/json">{ "key": [1, 2] }</script>
+</head>
+<body class="main" data-value='single' hidden>
+    <h1 id=unquoted>Title</h1>
+    <p style="color: red; font-size: 12px">Text with <em>emphasis</em> &nbsp; &#x1F600; &invalid</p>
+    <a href="https://example.com?a=1&amp;b=2" onclick="alert('hi'); return false">link</a>
+    <img src="a.png" alt="">
+    <br/>
+    <custom-element some-attr></custom-element>
+    <svg viewBox="0 0 10 10"><path d="M0 0L10 10"/></svg>
+</body>
+</html>

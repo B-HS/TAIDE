@@ -1,0 +1,12 @@
+// line comment 한글 😀
+{
+    /* block comment */
+    "editor.fontSize": 14, // trailing comment
+    "files.exclude": { "**/.git": true, "**/node_modules": false },
+    "list": [1, 2, 3,],
+    "text": "string with // not a comment and /* neither */",
+    /**
+     * doc style
+     */
+    "nested": { "key": null }
+}

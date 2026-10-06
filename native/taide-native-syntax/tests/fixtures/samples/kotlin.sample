@@ -1,0 +1,55 @@
+// Line comment 한글 漢字 😀
+/** KDoc with [reference] and `code`. */
+/* block /* nested */ comment */
+@file:JvmName("Sample")
+package com.example.sample
+
+import kotlin.math.max
+import java.util.concurrent.atomic.AtomicInteger as Counter
+
+typealias Mapper<T> = (T) -> String
+
+sealed interface Shape {
+    val area: Double
+}
+
+data class Circle(val radius: Double, private var label: String? = null) : Shape {
+    override val area: Double get() = PI * radius * radius
+
+    companion object {
+        const val PI = 3.14159
+        @JvmStatic fun unit() = Circle(1.0)
+    }
+}
+
+enum class Color(val hex: Int) { RED(0xFF0000), GREEN(0x00_FF_00); }
+
+inline fun <reified T : Any> List<*>.filterTyped(noinline predicate: (T) -> Boolean = { true }): List<T> =
+    filterIsInstance<T>().filter(predicate)
+
+suspend fun process(items: List<Shape?>, vararg flags: Boolean): Int {
+    val text = "escaped \"quote\" \n é ${items.size} $flags 한글 😀"
+    val raw = """
+        raw "string" with ${text.length}
+        |margin
+    """.trimMargin()
+    val char = '\''
+    val numbers = listOf(1_000L, 0b1010, 1.5e-3f, 2u)
+    var total = 0
+    loop@ for ((index, item) in items.withIndex()) {
+        when (item) {
+            null -> continue@loop
+            is Circle -> total += item.area.toInt()
+            !in items.take(index) -> break@loop
+            else -> throw IllegalStateException("unexpected: $item")
+        }
+    }
+    val lambda: Mapper<Int> = { it.toString() }
+    return try {
+        max(total, numbers.size).also { println(lambda(it) + raw + char) }
+    } catch (e: Exception) {
+        -1
+    } finally {
+        object : Runnable { override fun run() = Unit }.run()
+    }
+}

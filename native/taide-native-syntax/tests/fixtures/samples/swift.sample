@@ -1,0 +1,69 @@
+// Line comment 한글 漢字 😀
+/// Doc comment with `code`.
+/* block /* nested */ comment */
+import Foundation
+@testable import Module
+
+protocol Shape: AnyObject, CustomStringConvertible {
+    associatedtype Unit: Numeric
+    var area: Unit { get }
+    func scaled(by factor: Unit) -> Self
+}
+
+@available(iOS 15.0, macOS 12, *)
+public final class Circle<T: BinaryFloatingPoint>: Shape where T: Codable {
+    private(set) var radius: T
+    static let pi: Double = 3.14159_26
+    lazy var label: String? = nil
+    weak var parent: Circle?
+
+    init?(radius: T) {
+        guard radius > 0 else { return nil }
+        self.radius = radius
+    }
+
+    var area: T { T(Circle.pi) * radius * radius }
+    var description: String { "Circle(\(radius), \(String(format: "%.2f", 1.5))) \"quoted\" \u{1F600} 한글" }
+
+    func scaled(by factor: T) -> Self {
+        radius *= factor
+        return self
+    }
+}
+
+enum Result<Value, Failure: Error> {
+    case success(Value)
+    indirect case failure(Failure, retry: Int = 0)
+}
+
+extension Array where Element: Comparable {
+    subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
+}
+
+let multi = """
+    multi-line \(1 + 1)
+    "quotes" \
+    end
+    """
+let raw = #"raw \(not) "interpolated" \#(yes)"#
+let regex = /(?<year>\d{4})-(\d{2})/
+let numbers: [Any] = [0xFF, 0b1010, 0o17, 1_000.5e-3, 0x1p-2]
+
+func process<T>(_ items: [T], using block: @escaping (T) async throws -> Void) async rethrows {
+    for case let item? in items.map(Optional.some) where !(item is NSNull) {
+        do {
+            try await block(item)
+        } catch let error as NSError {
+            print(#file, #line, error)
+        }
+    }
+    defer { print("done") }
+    switch items.count {
+    case 0: break
+    case 1...3: fallthrough
+    default: _ = items.first!
+    }
+}
+#if DEBUG
+#warning("debug build")
+#endif

@@ -1,0 +1,53 @@
+package com.example.demo;
+
+import java.util.*;
+import static java.lang.Math.max;
+
+/**
+ * Javadoc with {@link String} and unicode: 한글 漢字 😀
+ * @param <T> element type
+ */
+@SuppressWarnings({"unchecked", "rawtypes"})
+public final class Sample<T extends Comparable<? super T>> implements Runnable {
+    private static final long BIG = 0xFFFF_FFFFL;
+    private final List<T> items = new ArrayList<>();
+    protected volatile double ratio = 1.5e-3d;
+    char letter = 'é';
+    String text = "escaped \"quote\" \n 한글 😀";
+    String block = """
+        text block "with quotes"
+        second line \
+        """;
+
+    // line comment
+    public Sample(T... initial) {
+        items.addAll(Arrays.asList(initial));
+    }
+
+    /* block comment */
+    @Override
+    public void run() {
+        for (T item : items) {
+            if (item == null || !(item instanceof Comparable<?> c)) continue;
+            System.out.printf("%s %d%n", item, max(1, items.size()));
+        }
+        Runnable lambda = () -> { throw new IllegalStateException("x"); };
+        var result = switch (items.size()) {
+            case 0 -> "empty";
+            case 1, 2 -> "few";
+            default -> { yield "many"; }
+        };
+        try (var scanner = new Scanner(System.in)) {
+            int[] numbers = {1, 2, 3};
+            assert numbers.length > 0 : result;
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } finally {
+            synchronized (this) { ratio++; }
+        }
+    }
+
+    record Pair<A, B>(A first, B second) {}
+    sealed interface Node permits Leaf {}
+    enum Color { RED, GREEN; }
+}

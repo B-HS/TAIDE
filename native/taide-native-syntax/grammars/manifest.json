@@ -1,0 +1,761 @@
+{
+    "package": "@shikijs/langs",
+    "version": "4.4.3",
+    "languages": [
+        {
+            "languageId": "rust",
+            "grammarId": "rust"
+        },
+        {
+            "languageId": "typescript",
+            "grammarId": "typescript"
+        },
+        {
+            "languageId": "typescriptreact",
+            "grammarId": "tsx"
+        },
+        {
+            "languageId": "javascript",
+            "grammarId": "javascript"
+        },
+        {
+            "languageId": "javascriptreact",
+            "grammarId": "jsx"
+        },
+        {
+            "languageId": "json",
+            "grammarId": "json"
+        },
+        {
+            "languageId": "jsonc",
+            "grammarId": "jsonc"
+        },
+        {
+            "languageId": "markdown",
+            "grammarId": "markdown"
+        },
+        {
+            "languageId": "toml",
+            "grammarId": "toml"
+        },
+        {
+            "languageId": "yaml",
+            "grammarId": "yaml"
+        },
+        {
+            "languageId": "html",
+            "grammarId": "html"
+        },
+        {
+            "languageId": "css",
+            "grammarId": "css"
+        },
+        {
+            "languageId": "scss",
+            "grammarId": "scss"
+        },
+        {
+            "languageId": "python",
+            "grammarId": "python"
+        },
+        {
+            "languageId": "go",
+            "grammarId": "go"
+        },
+        {
+            "languageId": "shellscript",
+            "grammarId": "shellscript"
+        },
+        {
+            "languageId": "java",
+            "grammarId": "java"
+        },
+        {
+            "languageId": "ruby",
+            "grammarId": "ruby"
+        },
+        {
+            "languageId": "erb",
+            "grammarId": "erb"
+        },
+        {
+            "languageId": "dart",
+            "grammarId": "dart"
+        },
+        {
+            "languageId": "swift",
+            "grammarId": "swift"
+        },
+        {
+            "languageId": "scala",
+            "grammarId": "scala"
+        },
+        {
+            "languageId": "elixir",
+            "grammarId": "elixir"
+        },
+        {
+            "languageId": "heex",
+            "grammarId": "html"
+        },
+        {
+            "languageId": "haskell",
+            "grammarId": "haskell"
+        },
+        {
+            "languageId": "c",
+            "grammarId": "c"
+        },
+        {
+            "languageId": "cpp",
+            "grammarId": "cpp"
+        },
+        {
+            "languageId": "kotlin",
+            "grammarId": "kotlin"
+        },
+        {
+            "languageId": "lua",
+            "grammarId": "lua"
+        },
+        {
+            "languageId": "zig",
+            "grammarId": "zig"
+        },
+        {
+            "languageId": "hcl",
+            "grammarId": "hcl"
+        }
+    ],
+    "grammars": [
+        {
+            "id": "c",
+            "scopeName": "source.c",
+            "displayName": "C",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 69561,
+            "sha256": "201258d55162d9df1ba96254f77bfe69729ed78257aabf7ef854668eb4d6591d"
+        },
+        {
+            "id": "cpp",
+            "scopeName": "source.cpp",
+            "displayName": "C++",
+            "embeddedLangs": [
+                "cpp-macro",
+                "regexp",
+                "glsl"
+            ],
+            "embeddedLangsLazy": [],
+            "aliases": [
+                "c++"
+            ],
+            "injectTo": [],
+            "imports": [
+                "cpp-macro",
+                "regexp",
+                "glsl"
+            ],
+            "bytes": 476145,
+            "sha256": "9d88fed8670455ceb4bb7325a16052096c585897dee82764a73a4520dc2bbad8"
+        },
+        {
+            "id": "cpp-macro",
+            "scopeName": "source.cpp.embedded.macro",
+            "displayName": "C++",
+            "embeddedLangs": [
+                "regexp",
+                "glsl"
+            ],
+            "embeddedLangsLazy": [],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [
+                "regexp",
+                "glsl"
+            ],
+            "bytes": 270396,
+            "sha256": "48cbcd37a9781fae1e5f1e48b8472559d04056498b42bfa79bb72c17caee2bde"
+        },
+        {
+            "id": "css",
+            "scopeName": "source.css",
+            "displayName": "CSS",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 48071,
+            "sha256": "1fc05256b7851097ec5389fe4241b8c870fe41def4b1fa320c69f80dd875dda6"
+        },
+        {
+            "id": "dart",
+            "scopeName": "source.dart",
+            "displayName": "Dart",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 8207,
+            "sha256": "82c96fcbdb0fbcb5867aad9053f196f134cd018ce7e110219d31a35715d1baaa"
+        },
+        {
+            "id": "elixir",
+            "scopeName": "source.elixir",
+            "displayName": "Elixir",
+            "embeddedLangs": [
+                "html"
+            ],
+            "embeddedLangsLazy": [],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [
+                "html"
+            ],
+            "bytes": 15583,
+            "sha256": "2f27283269254d5cec105e6bc4f064250f0efd04a2adef6e9a61d09a5eb64424"
+        },
+        {
+            "id": "erb",
+            "scopeName": "text.html.erb",
+            "displayName": "ERB",
+            "embeddedLangs": [
+                "html",
+                "ruby"
+            ],
+            "embeddedLangsLazy": [],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [
+                "html",
+                "ruby"
+            ],
+            "bytes": 1974,
+            "sha256": "af91f250a1d820bf31b5cdf497340aa1923ef64a479887f9c98351b9b37fc6d2"
+        },
+        {
+            "id": "glsl",
+            "scopeName": "source.glsl",
+            "displayName": "GLSL",
+            "embeddedLangs": [
+                "c"
+            ],
+            "embeddedLangsLazy": [],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [
+                "c"
+            ],
+            "bytes": 3490,
+            "sha256": "176e2c12edd0837b591a9ea387503e63470a89c9c42e6b3b1d8b529ed05af4ef"
+        },
+        {
+            "id": "go",
+            "scopeName": "source.go",
+            "displayName": "Go",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 44514,
+            "sha256": "4f5d671acb3e3a85795ca1e808ca6f49faa65addedc71b6a7abee9e93775a762"
+        },
+        {
+            "id": "graphql",
+            "scopeName": "source.graphql",
+            "displayName": "GraphQL",
+            "embeddedLangs": [
+                "javascript",
+                "typescript",
+                "jsx",
+                "tsx"
+            ],
+            "embeddedLangsLazy": [],
+            "aliases": [
+                "gql"
+            ],
+            "injectTo": [],
+            "imports": [
+                "javascript",
+                "typescript",
+                "jsx",
+                "tsx"
+            ],
+            "bytes": 17390,
+            "sha256": "3aab32e38a90adf4ca55d4ce90a9d9e107e228f72f2d46bf82cc6197504d05f7"
+        },
+        {
+            "id": "haml",
+            "scopeName": "text.haml",
+            "displayName": "Ruby Haml",
+            "embeddedLangs": [
+                "javascript",
+                "css"
+            ],
+            "embeddedLangsLazy": [
+                "ruby",
+                "sass",
+                "coffee",
+                "markdown"
+            ],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [
+                "javascript",
+                "css"
+            ],
+            "bytes": 7812,
+            "sha256": "2f2492f5baaa719e29fb08acb116c2b71f19a4b42f9b5bc64bbbf163b6e2b33a"
+        },
+        {
+            "id": "haskell",
+            "scopeName": "source.haskell",
+            "displayName": "Haskell",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [
+                "hs"
+            ],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 39465,
+            "sha256": "2aeaad0b701be7cc5fbbe9620010edf77c84e812c1a69f1b9eb3c23a9cadfb16"
+        },
+        {
+            "id": "hcl",
+            "scopeName": "source.hcl",
+            "displayName": "HashiCorp HCL",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 9714,
+            "sha256": "d534ba88d85acfc9a7adc3eb367d3759409d4e522040b139e3a8d8177daa0ecb"
+        },
+        {
+            "id": "html",
+            "scopeName": "text.html.basic",
+            "displayName": "HTML",
+            "embeddedLangs": [
+                "javascript",
+                "css"
+            ],
+            "embeddedLangsLazy": [],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [
+                "javascript",
+                "css"
+            ],
+            "bytes": 56408,
+            "sha256": "2d1c727fefade4b057b2ce0f00b13206fc413800b15964393b69c2abc42d84e0"
+        },
+        {
+            "id": "java",
+            "scopeName": "source.java",
+            "displayName": "Java",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 26339,
+            "sha256": "e80b07bc37436b92c451766b708fc30b7fb2e631511dc0837a093b5a90798fcd"
+        },
+        {
+            "id": "javascript",
+            "scopeName": "source.js",
+            "displayName": "JavaScript",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [
+                "js",
+                "cjs",
+                "mjs"
+            ],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 159352,
+            "sha256": "61b3cc25da815da1f8625bffdb3282f48a561f6c2fca3457e477765bffb24eef"
+        },
+        {
+            "id": "json",
+            "scopeName": "source.json",
+            "displayName": "JSON",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 2705,
+            "sha256": "265030d70a20a2d86ce3110c80f2e3499b9a6f7ad1ea3daeb11f89897c7bdb06"
+        },
+        {
+            "id": "jsonc",
+            "scopeName": "source.json.comments",
+            "displayName": "JSON with Comments",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 2990,
+            "sha256": "6ad016e60fb0a05ede5c72f07263d35e4443a31a3b1b9a776ea20a4fd36667dc"
+        },
+        {
+            "id": "jsx",
+            "scopeName": "source.js.jsx",
+            "displayName": "JSX",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 162317,
+            "sha256": "08dc208c4b63a1976fb3820fc24df4edad273b48973403a53d0cb1031481f1b8"
+        },
+        {
+            "id": "kotlin",
+            "scopeName": "source.kotlin",
+            "displayName": "Kotlin",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [
+                "kt",
+                "kts"
+            ],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 8409,
+            "sha256": "aba5b51c1ccea953a0b68ffe443ae972cee239d4d7b7b85df57dec7d696546ab"
+        },
+        {
+            "id": "lua",
+            "scopeName": "source.lua",
+            "displayName": "Lua",
+            "embeddedLangs": [
+                "c"
+            ],
+            "embeddedLangsLazy": [],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [
+                "c"
+            ],
+            "bytes": 14841,
+            "sha256": "b651788ac65f1c0a469b47442e886917274af421011da8ab4f3c1af632182e8a"
+        },
+        {
+            "id": "markdown",
+            "scopeName": "text.html.markdown",
+            "displayName": "Markdown",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [
+                "css",
+                "html",
+                "ini",
+                "java",
+                "lua",
+                "make",
+                "perl",
+                "r",
+                "ruby",
+                "php",
+                "sql",
+                "vb",
+                "xml",
+                "xsl",
+                "yaml",
+                "bat",
+                "clojure",
+                "coffee",
+                "c",
+                "cpp",
+                "diff",
+                "docker",
+                "git-commit",
+                "git-rebase",
+                "go",
+                "groovy",
+                "pug",
+                "javascript",
+                "json",
+                "jsonc",
+                "jsonl",
+                "less",
+                "objective-c",
+                "swift",
+                "scss",
+                "raku",
+                "powershell",
+                "python",
+                "julia",
+                "regexp",
+                "rust",
+                "scala",
+                "shellscript",
+                "typescript",
+                "tsx",
+                "csharp",
+                "fsharp",
+                "dart",
+                "handlebars",
+                "log",
+                "erlang",
+                "elixir",
+                "latex",
+                "bibtex",
+                "abap",
+                "rst",
+                "html-derivative"
+            ],
+            "aliases": [
+                "md"
+            ],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 56874,
+            "sha256": "25ab9696f0b1cd4dee3d24373a3c561db567f2cf2a641590f422d473777a4734"
+        },
+        {
+            "id": "python",
+            "scopeName": "source.python",
+            "displayName": "Python",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [
+                "py"
+            ],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 68156,
+            "sha256": "c5ee757de40010f44f5f1f88872baafa3b91f696ed3d61d88572a22c8feb7141"
+        },
+        {
+            "id": "regexp",
+            "scopeName": "source.regexp.python",
+            "displayName": "RegExp",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [
+                "regex"
+            ],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 7736,
+            "sha256": "9953773b204f33129756b734be26eef27731144af84b51ee8a3f65ea2ae19429"
+        },
+        {
+            "id": "ruby",
+            "scopeName": "source.ruby",
+            "displayName": "Ruby",
+            "embeddedLangs": [
+                "html",
+                "haml",
+                "xml",
+                "sql",
+                "graphql",
+                "css",
+                "cpp",
+                "c",
+                "javascript",
+                "shellscript",
+                "lua",
+                "yaml"
+            ],
+            "embeddedLangsLazy": [],
+            "aliases": [
+                "rb"
+            ],
+            "injectTo": [],
+            "imports": [
+                "html",
+                "haml",
+                "xml",
+                "sql",
+                "graphql",
+                "css",
+                "cpp",
+                "c",
+                "javascript",
+                "shellscript",
+                "lua",
+                "yaml"
+            ],
+            "bytes": 44537,
+            "sha256": "31545bd26625206c875bb68a3c602fd6b751472942200ce261bbda3496223071"
+        },
+        {
+            "id": "rust",
+            "scopeName": "source.rust",
+            "displayName": "Rust",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [
+                "rs"
+            ],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 14706,
+            "sha256": "23946a0b4f8c0a9b2e86b18ed511b99ee7f30333bde85c8740ce9089a4f35642"
+        },
+        {
+            "id": "scala",
+            "scopeName": "source.scala",
+            "displayName": "Scala",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 26958,
+            "sha256": "39933ac1abade6852b7f4d49c596400e399f0e0f4b15d45fe21f0aeeeaddd3ad"
+        },
+        {
+            "id": "scss",
+            "scopeName": "source.css.scss",
+            "displayName": "SCSS",
+            "embeddedLangs": [
+                "css"
+            ],
+            "embeddedLangsLazy": [],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [
+                "css"
+            ],
+            "bytes": 26449,
+            "sha256": "c59595d6e2966a47fd6e9c6076b717b19dec310d83ac485e4c1ed409b817fb4b"
+        },
+        {
+            "id": "shellscript",
+            "scopeName": "source.shell",
+            "displayName": "Shell",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [
+                "bash",
+                "sh",
+                "shell",
+                "zsh"
+            ],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 39955,
+            "sha256": "9261d28a7a40077bd4af281c9e1cdaca5861eda3b70584436551e05b72a995e4"
+        },
+        {
+            "id": "sql",
+            "scopeName": "source.sql",
+            "displayName": "SQL",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 22888,
+            "sha256": "d4d1e03187c37c6e08ff0b6a1de38369d280afe86cce79de20cb97787160bdad"
+        },
+        {
+            "id": "swift",
+            "scopeName": "source.swift",
+            "displayName": "Swift",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 84244,
+            "sha256": "908a09ebf0e42d8bc19f64310791ec8cfd5b2103b117613db3fa1cebcbab505f"
+        },
+        {
+            "id": "toml",
+            "scopeName": "source.toml",
+            "displayName": "TOML",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 6126,
+            "sha256": "b534839b4f9fb78c307cc2d61798c2f8eb3878d224e36fd7f725d37a9c19fc29"
+        },
+        {
+            "id": "tsx",
+            "scopeName": "source.tsx",
+            "displayName": "TSX",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 160061,
+            "sha256": "1fc9566ecdf9c6f079896d18d633fcfb1062fd4e194772b671fc840cf790e991"
+        },
+        {
+            "id": "typescript",
+            "scopeName": "source.ts",
+            "displayName": "TypeScript",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [
+                "ts",
+                "cts",
+                "mts"
+            ],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 163900,
+            "sha256": "e4fac5af22dfc3b05cda262151f3d163f4eb0cd6c4c2d599be686e9c617b564b"
+        },
+        {
+            "id": "xml",
+            "scopeName": "text.xml",
+            "displayName": "XML",
+            "embeddedLangs": [
+                "java"
+            ],
+            "embeddedLangsLazy": [],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [
+                "java"
+            ],
+            "bytes": 5235,
+            "sha256": "5b8c33883759c41d4b058d38d3c212f3b021a65cacbdae81742e0203687dcce0"
+        },
+        {
+            "id": "yaml",
+            "scopeName": "source.yaml",
+            "displayName": "YAML",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [
+                "yml"
+            ],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 9997,
+            "sha256": "cea61ca61948d6af1b38b82886ce4b698a7c9e23fe545d3a1f376c7fa2f7f995"
+        },
+        {
+            "id": "zig",
+            "scopeName": "source.zig",
+            "displayName": "Zig",
+            "embeddedLangs": [],
+            "embeddedLangsLazy": [],
+            "aliases": [],
+            "injectTo": [],
+            "imports": [],
+            "bytes": 5053,
+            "sha256": "a4b74b24b7d5955b4de9b880db3ed06ffd6e91aa7b6e53e404f58b8c9dd18149"
+        }
+    ]
+}

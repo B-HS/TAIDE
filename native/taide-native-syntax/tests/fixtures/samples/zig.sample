@@ -1,0 +1,51 @@
+//! Module doc comment 한글 漢字 😀
+/// Doc comment for item.
+// line comment
+const std = @import("std");
+const builtin = @import("builtin");
+
+pub const Point = struct {
+    x: f32 = 0,
+    y: f32 = 0,
+    pub fn length(self: Point) f32 {
+        return @sqrt(self.x * self.x + self.y * self.y);
+    }
+};
+
+const Color = enum(u8) { red, green = 2, _ };
+const Value = union(enum) { int: i64, float: f64, none };
+const Error = error{ OutOfMemory, Invalid };
+
+pub fn max(comptime T: type, a: T, b: T) T {
+    return if (a > b) a else b;
+}
+
+fn parse(allocator: std.mem.Allocator, input: []const u8) Error!?*Value {
+    var list = std.ArrayList(u8).init(allocator);
+    defer list.deinit();
+    errdefer |err| std.debug.print("failed: {}\n", .{err});
+    const text = "escaped \"quote\" \n \x41 \u{1F600} 한글 😀";
+    const char: u21 = '\'';
+    const multi =
+        \\multi-line string
+        \\with "quotes"
+    ;
+    const numbers = [_]i64{ 1_000, 0xFF, 0o17, 0b1010 };
+    const float: f64 = 1.5e-3;
+    for (input, 0..) |byte, index| {
+        switch (byte) {
+            '0'...'9' => try list.append(byte),
+            ' ', '\t' => continue,
+            else => |other| if (index > numbers.len) return Error.Invalid else break,
+        }
+    }
+    while (list.popOrNull()) |item| : (_ = item) {}
+    const result = try allocator.create(Value);
+    result.* = .{ .int = @intCast(text.len + multi.len + char) };
+    return if (float > 0) result else null;
+}
+
+test "max works" {
+    try std.testing.expectEqual(@as(i32, 2), max(i32, 1, 2));
+    comptime std.debug.assert(builtin.os.tag != .freestanding or true);
+}

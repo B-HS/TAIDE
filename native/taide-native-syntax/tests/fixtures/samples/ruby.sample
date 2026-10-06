@@ -1,0 +1,87 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+# comment 한글 漢字 😀
+require 'json'
+require_relative "lib/helper"
+
+=begin
+block comment
+=end
+module Sample
+  VERSION = "1.0.#{RUBY_VERSION}".freeze
+  Point = Struct.new(:x, :y, keyword_init: true)
+
+  class Greeter < Base
+    include Comparable
+    attr_reader :name, :count
+    @@instances = 0
+
+    def initialize(name, count: 1, **options, &block)
+      @name = name
+      @count = count
+      $stdout.puts "created #{name.upcase} #{'%.2f' % 1.5e3} \n\t\"quoted\""
+    end
+
+    def greet?(other = nil)
+      return false unless other.respond_to?(:name)
+      text = 'single #{not} interpolated \' escaped'
+      symbols = %i[one two] + %w[three four] + [:"quoted sym", :plain, key: 1]
+      regex = /^(?<word>\w+)\s*#{name}[^\/]*$/ix
+      matched = text =~ regex ? $~[:word] : nil
+      range = (1..10).step(2).map { |n| n ** 2 }.select(&:even?)
+      hash = { "a" => 1, b: 0x1F, 'c': 1_000, d: ?x, e: 1r + 2i }
+      matched || range.sum <=> hash.size
+    end
+
+    def self.build(*args) = new(*args)
+  end
+
+  SQL = <<~SQL
+    SELECT id, name FROM users WHERE age > #{18} -- comment
+  SQL
+  HTML = <<-HTML
+    <p class="x">#{VERSION}</p>
+  HTML
+  RAW = <<~'TEXT'
+    raw #{not} interpolated
+  TEXT
+  GRAPHQL = <<~GRAPHQL
+    query Users($first: Int = 10) { users(first: $first) { id name } }
+  GRAPHQL
+  XML = <<~XML
+    <root attr="value"><!-- comment --><child/></root>
+  XML
+  HAML = <<~HAML
+    %ul.items
+      %li= item.name
+  HAML
+  SCRIPT = <<~JS
+    const answer = `value ${40 + 2}`
+  JS
+  STYLE = <<~CSS
+    .item > a:hover { color: #fff; }
+  CSS
+  SHELL = <<~SH
+    echo "$HOME" | grep -c x
+  SH
+  LUA = <<~LUA
+    local t = { 1, "two" }
+  LUA
+  YAML = <<~YAML
+    key: [1, true]
+  YAML
+  CPP = <<~CPP
+    std::vector<int> v{1, 2};
+  CPP
+  C = <<~C
+    int main(void) { return 0; }
+  C
+end
+
+begin
+  Sample::Greeter.build("x").greet? rescue nil
+ensure
+  puts __FILE__, __LINE__, %q(paren (nested) string), %Q[interp #{1 + 1}], `echo shell`
+end
+__END__
+data section

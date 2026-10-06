@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Module docstring with unicode: 한글 漢字 😀."""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from typing import Generic, TypeVar
+
+T = TypeVar("T")
+PATTERN = re.compile(r"^(?P<year>\d{4})-(?:\d{2})[^/\]]*$", re.IGNORECASE | re.M)
+VERBOSE = re.compile(r"""
+    \d+  # digits
+    (?=\s)
+""", re.X)
+
+
+@dataclass(frozen=True)
+class Point(Generic[T]):
+    """Class docstring."""
+
+    x: T
+    y: T = field(default=0)
+
+    def __repr__(self) -> str:
+        return f"Point({self.x!r}, {self.y:>{10}.2f}) {{literal}}"
+
+    @staticmethod
+    async def load(path: str, *args, **kwargs) -> "Point[int]":
+        async with open(path) as handle:
+            data = [int(line) async for line in handle if line.strip()]
+        return Point(*data[:2])
+
+
+def main(argv: list[str] | None = None) -> int:
+    values = {"a": 1, 'b': 0x1F, "c": 1_000.5e-3, "d": 3j, "e": b"bytes\x00", "f": rb'raw\d'}
+    total = sum(v for v in values.values() if isinstance(v, (int, float)))
+    lambda_fn = lambda x, /, y=2, *, z: x**y @ z
+    match argv:
+        case [first, *rest] if first:
+            print(f"{first=} {len(rest)}", end="")
+        case _:
+            pass
+    try:
+        assert total >= 0, "negative"
+    except (ValueError, TypeError) as error:
+        raise RuntimeError("failed") from error
+    finally:
+        del values
+    global T
+    return 0 if total else not None
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

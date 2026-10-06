@@ -1,0 +1,66 @@
+// Package main demonstrates syntax. 한글 漢字 😀
+package main
+
+import (
+	"context"
+	"fmt"
+	str "strings"
+)
+
+/* block
+comment */
+type Shape interface {
+	Area() float64
+	~int | ~string
+}
+
+type Point[T any] struct {
+	X, Y T      `json:"x,omitempty"`
+	name string // unexported
+}
+
+const (
+	First = iota << 1
+	Second
+	Pi    = 3.14159e0
+	Hex   = 0xFF_FF
+	Rune  = 'é'
+)
+
+var raw = `raw string
+with "quotes" and \n no escapes`
+
+func (p *Point[T]) String() string {
+	return fmt.Sprintf("(%v, %v) %q\n", p.X, p.Y, "escaped \"text\" 한글 😀")
+}
+
+func worker(ctx context.Context, jobs <-chan int, results chan<- string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic: %w", r.(error))
+		}
+	}()
+	for {
+		select {
+		case job, ok := <-jobs:
+			if !ok {
+				return nil
+			}
+			results <- str.Repeat("x", job)
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			goto done
+		}
+	}
+done:
+	return
+}
+
+func main() {
+	m := map[string][]int{"a": {1, 2}, "b": nil}
+	for key, values := range m {
+		go func(k string) { fmt.Println(k, len(values), 1i, 0b101, 07) }(key)
+	}
+	var _ Shape = nil
+}

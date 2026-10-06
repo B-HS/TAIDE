@@ -1,0 +1,51 @@
+// Line comment 한글 漢字 😀
+/** Scaladoc with `code` and @param x value */
+/* block /* nested */ comment */
+package com.example
+
+import scala.collection.mutable.{Map => MMap, _}
+import scala.concurrent.{ExecutionContext, Future}
+
+sealed trait Shape[+A] extends Product with Serializable
+final case class Circle(radius: Double) extends Shape[Nothing]
+case object Empty extends Shape[Nothing]
+
+object Sample extends App {
+  implicit val ec: ExecutionContext = ExecutionContext.global
+  private[this] lazy val pi: Double = 3.14159e0
+  var count = 0xFFL
+  val symbol = 'sym
+  val char = 'é'
+  val text = "escaped \"quote\" \n 한글 😀"
+  val interpolated = s"total: ${count + 1} $pi"
+  val formatted = f"$pi%.2f and raw ${text.length}%d"
+  val raw = raw"no \n escape $count"
+  val multi = """multi-line
+                |"quotes" inside
+                |""".stripMargin
+
+  def area[A <: Shape[_]](shape: A)(implicit ev: A =:= A): Double = shape match {
+    case Circle(r) if r > 0 => pi * r * r
+    case c @ Circle(_)      => 0.0
+    case Empty | _          => -1
+  }
+
+  @annotation.tailrec
+  def loop(n: Int, acc: List[Int] = Nil): List[Int] =
+    if (n <= 0) acc else loop(n - 1, n :: acc)
+
+  val future: Future[Seq[Int]] = for {
+    a <- Future(1)
+    b = a + 1
+    if b > 0
+  } yield Seq(a, b).map(_ * 2).filter { x => x % 2 == 0 }
+
+  try throw new RuntimeException("x")
+  catch { case e: Exception => println(e.getMessage) }
+  finally count += 1
+
+  type Alias[T] = Either[String, T]
+  val xml = <p class="x">{text}</p>
+  given Ordering[Circle] = Ordering.by(_.radius)
+  enum Color { case Red, Green }
+}

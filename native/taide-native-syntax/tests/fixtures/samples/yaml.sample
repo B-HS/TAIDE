@@ -1,0 +1,35 @@
+# comment 한글 😀
+%YAML 1.2
+---
+string: plain text
+quoted: "double \"escaped\" \n é"
+single: 'single ''escaped'''
+number: 12.5e3
+octal: 0o14
+bool: [true, False, yes, NO]
+nothing: null
+tilde: ~
+date: 2001-12-14t21:59:43.10-05:00
+anchor: &base
+  key: value
+  list:
+    - one
+    - two: 2
+alias: *base
+merge:
+  <<: *base
+  extra: !!str 123
+literal: |
+  line one
+    indented
+  line two
+folded: >-
+  folded text
+  continues
+flow: { a: 1, b: [x, y], "c": 'd' }
+? complex key
+: complex value
+multi doc: end
+...
+---
+second: document

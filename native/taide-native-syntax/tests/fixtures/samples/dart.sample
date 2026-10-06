@@ -1,0 +1,62 @@
+// Line comment 한글 漢字 😀
+/// Doc comment with [reference].
+/* block /* nested */ comment */
+library sample;
+
+import 'dart:async';
+import 'package:flutter/material.dart' show Widget, BuildContext hide Text;
+
+part 'sample.g.dart';
+
+typedef Mapper<T, R> = R Function(T value);
+
+enum Status { active, inactive }
+
+mixin Logger on Object {
+  void log(String message) => print('[${runtimeType}] $message');
+}
+
+abstract class Shape<T extends num> with Logger implements Comparable<Shape<T>> {
+  static const double pi = 3.14159;
+  final T size;
+  late final String? label;
+  int _count = 0x1F;
+
+  Shape(this.size, {this.label, required int count}) : _count = count;
+  factory Shape.unit() => throw UnimplementedError();
+
+  double get area;
+  set count(int value) => _count = value;
+
+  @override
+  int compareTo(Shape<T> other) => area.compareTo(other.area);
+}
+
+extension StringExt on String {
+  String get reversed => split('').reversed.join();
+}
+
+Future<void> main(List<String> args) async {
+  var text = "double \"escaped\" ${args.length} \$literal \n 한글 😀";
+  final raw = r'raw $not ${interpolated}';
+  const multi = '''
+multi-line ${1 + 1}
+''';
+  final list = <int>[1, 2, ...?null, if (args.isEmpty) 3, for (var i = 0; i < 2; i++) i];
+  final map = {'a': 1.5e3, #symbol: null};
+  await for (final value in Stream<int>.fromIterable(list)) {
+    switch (value) {
+      case 1:
+        continue;
+      default:
+        break;
+    }
+  }
+  try {
+    assert(text is String && raw is! int);
+  } on FormatException catch (e, stack) {
+    rethrow;
+  } finally {
+    print(map?['a'] ?? multi);
+  }
+}

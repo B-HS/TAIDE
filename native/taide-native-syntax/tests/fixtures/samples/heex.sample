@@ -1,0 +1,19 @@
+<%!-- HEEx comment 한글 😀 --%>
+<div class={["card", @active && "is-active"]} id={"card-#{@id}"} phx-click="toggle">
+  <.header title={@title} :if={@show_header}>
+    <:actions :let={item}>
+      <button type="button" phx-click={JS.push("delete", value: %{id: item.id})}>Delete</button>
+    </:actions>
+  </.header>
+  <%= if @items == [] do %>
+    <p class="empty">Nothing &amp; nobody</p>
+  <% else %>
+    <ul>
+      <li :for={item <- @items} id={"item-#{item.id}"}>{item.name} 😀</li>
+    </ul>
+  <% end %>
+  <!-- html comment -->
+  <style>.card { color: red; }</style>
+  <script>window.addEventListener("phx:ready", (event) => console.log(`ready ${event.detail}`))</script>
+  <MyApp.Components.modal id="confirm" />
+</div>
