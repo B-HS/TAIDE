@@ -1,8 +1,10 @@
-use egui::{Color32, FontId};
+use egui::epaint::Shadow;
+use egui::style::Selection;
+use egui::{Color32, CornerRadius, FontId, Stroke, Visuals};
 use taide_model::error::{AppError, AppResult};
 use taide_model::locale::ResolvedLocale;
 use taide_model::settings::Settings;
-use taide_model::theme::ResolvedTheme;
+use taide_model::theme::{ResolvedTheme, ThemeType};
 
 use crate::conflict_banner::BannerAppearance;
 use crate::editor_surface::EditorAppearance;
@@ -18,6 +20,13 @@ pub const EDITOR_PADDING: f32 = 8.0;
 pub const MIN_CODE_FONT_SIZE: u32 = 6;
 pub const MAX_CODE_FONT_SIZE: u32 = 48;
 const CODE_FONT_SIZE_STEP: u32 = 1;
+const BORDER_WIDTH: f32 = 1.0;
+const WIDGET_CORNER_RADIUS: u8 = 6;
+const DIALOG_CORNER_RADIUS: u8 = 8;
+const OVERLAY_SHADOW_OFFSET: [i8; 2] = [0, 2];
+const OVERLAY_SHADOW_BLUR: u8 = 8;
+const DIALOG_SHADOW_OFFSET: [i8; 2] = [0, 8];
+const DIALOG_SHADOW_BLUR: u8 = 24;
 
 pub fn next_editor_font_size(current: u32, increase: bool) -> u32 {
     let next = if increase {
@@ -99,7 +108,97 @@ pub fn shell_colors(theme: &ResolvedTheme) -> AppResult<ShellColors> {
         active_tab: color(theme, "tabBar.tabActiveBackground")?,
         inactive_tab: color(theme, "tabBar.tabInactiveBackground")?,
         active_indicator: color(theme, "tabBar.tabActiveIndicator")?,
+        editor_background: color(theme, "editor.background")?,
+        editor_foreground: color(theme, "editor.foreground")?,
     })
+}
+
+pub fn visuals(theme: &ResolvedTheme) -> AppResult<Visuals> {
+    let mut visuals = match theme.theme_type {
+        ThemeType::Dark => Visuals::dark(),
+        ThemeType::Light => Visuals::light(),
+    };
+    let foreground = color(theme, "app.foreground")?;
+    let background = color(theme, "app.background")?;
+    let button_foreground = color(theme, "button.foreground")?;
+    let button_hover = color(theme, "button.hoverBackground")?;
+    let input_background = color(theme, "panel.inputBackground")?;
+    let input_border = Stroke::new(BORDER_WIDTH, color(theme, "panel.inputBorder")?);
+    let shadow = color(theme, "app.shadow")?;
+    let corner_radius = CornerRadius::same(WIDGET_CORNER_RADIUS);
+
+    let widgets = &mut visuals.widgets;
+    widgets.noninteractive.bg_fill = background;
+    widgets.noninteractive.weak_bg_fill = background;
+    widgets.noninteractive.bg_stroke = Stroke::new(BORDER_WIDTH, color(theme, "app.border")?);
+    widgets.noninteractive.fg_stroke.color = foreground;
+    widgets.noninteractive.corner_radius = corner_radius;
+    for (state, fill, stroke, text) in [
+        (
+            &mut widgets.inactive,
+            color(theme, "button.background")?,
+            input_border,
+            button_foreground,
+        ),
+        (
+            &mut widgets.hovered,
+            button_hover,
+            input_border,
+            button_foreground,
+        ),
+        (
+            &mut widgets.active,
+            button_hover,
+            Stroke::new(BORDER_WIDTH, color(theme, "app.focusBorder")?),
+            button_foreground,
+        ),
+        (
+            &mut widgets.open,
+            color(theme, "menu.itemHover")?,
+            input_border,
+            foreground,
+        ),
+    ] {
+        state.bg_fill = fill;
+        state.weak_bg_fill = fill;
+        state.bg_stroke = stroke;
+        state.fg_stroke.color = text;
+        state.corner_radius = corner_radius;
+    }
+
+    visuals.weak_text_color = Some(color(theme, "appSidebar.iconDefault")?);
+    visuals.selection = Selection {
+        bg_fill: color(theme, "list.activeBackground")?,
+        stroke: Stroke::new(BORDER_WIDTH, color(theme, "list.foreground")?),
+    };
+    visuals.hyperlink_color = color(theme, "app.accent")?;
+    visuals.extreme_bg_color = input_background;
+    visuals.text_edit_bg_color = Some(input_background);
+    visuals.text_cursor.stroke.color = foreground;
+    visuals.warn_fg_color = color(theme, "statusIndicator.warning")?;
+    visuals.error_fg_color = color(theme, "statusIndicator.error")?;
+    visuals.panel_fill = background;
+    visuals.window_fill = color(theme, "menu.background")?;
+    visuals.window_stroke = Stroke::new(BORDER_WIDTH, color(theme, "menu.border")?);
+    visuals.window_corner_radius = CornerRadius::same(DIALOG_CORNER_RADIUS);
+    visuals.window_shadow = Shadow {
+        offset: DIALOG_SHADOW_OFFSET,
+        blur: DIALOG_SHADOW_BLUR,
+        spread: 0,
+        color: shadow,
+    };
+    visuals.menu_corner_radius = corner_radius;
+    visuals.popup_shadow = Shadow {
+        offset: OVERLAY_SHADOW_OFFSET,
+        blur: OVERLAY_SHADOW_BLUR,
+        spread: 0,
+        color: shadow,
+    };
+    Ok(visuals)
+}
+
+pub fn apply_visuals(context: &egui::Context, visuals: &Visuals) {
+    context.all_styles_mut(|style| style.visuals = visuals.clone());
 }
 
 pub fn editor_appearance(

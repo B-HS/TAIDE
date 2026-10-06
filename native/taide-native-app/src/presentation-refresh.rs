@@ -149,6 +149,7 @@ impl Refresh {
 }
 
 pub(crate) struct Appearances {
+    pub(crate) visuals: eframe::egui::Visuals,
     pub(crate) shell: taide_native_ui::shell::ShellColors,
     pub(crate) editor: taide_native_ui::editor_surface::EditorAppearance,
     pub(crate) banner: taide_native_ui::conflict_banner::BannerAppearance,
@@ -170,7 +171,7 @@ pub(crate) struct Appearances {
 
 impl Appearances {
     pub(crate) fn new(theme: &ResolvedTheme, settings: &Settings) -> AppResult<Self> {
-        use crate::presentation::{color, editor_appearance, shell_colors};
+        use crate::presentation::{color, editor_appearance, shell_colors, visuals};
 
         let status = || -> AppResult<crate::preview_status::Appearance> {
             Ok(crate::preview_status::Appearance {
@@ -184,6 +185,7 @@ impl Appearances {
             crate::terminal_surface::Appearance::new(theme, settings.terminal_font_size)?;
         terminal.font.family = crate::terminal_fonts::family();
         Ok(Self {
+            visuals: visuals(theme)?,
             shell: shell_colors(theme)?,
             editor: editor_appearance(theme, settings)?,
             banner: taide_native_ui::presentation::banner_appearance(theme)?,
@@ -442,6 +444,11 @@ mod tests {
             assert_eq!(
                 prepared.shell.background,
                 crate::presentation::color(&theme, "app.background").unwrap()
+            );
+            assert_eq!(prepared.visuals.panel_fill, prepared.shell.background);
+            assert_eq!(
+                prepared.visuals.dark_mode,
+                theme.theme_type == ThemeType::Dark
             );
             assert_eq!(prepared.editor.font.size, settings.editor_font_size as f32);
             assert_eq!(

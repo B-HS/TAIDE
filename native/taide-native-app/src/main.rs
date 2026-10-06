@@ -3,8 +3,9 @@ use taide_native_app::application::NativeApplication;
 use taide_native_app::bootstrap::{LaunchConfig, restore};
 use taide_runtime::TaskSupervisor;
 
-const INITIAL_SIZE: [f32; 2] = [1280.0, 800.0];
-const WINDOW_TITLE: &str = "TAIDE Native";
+const INITIAL_SIZE: [f32; 2] = [1400.0, 900.0];
+const MINIMUM_SIZE: [f32; 2] = [720.0, 480.0];
+const WINDOW_TITLE: &str = "TAIDE";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut arguments = std::env::args().skip(1).peekable();
@@ -30,7 +31,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tasks = TaskSupervisor::new(runtime.handle().clone());
     let (state, warnings) = runtime.block_on(restore(config, &tasks))?;
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size(INITIAL_SIZE),
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size(INITIAL_SIZE)
+            .with_min_inner_size(MINIMUM_SIZE)
+            .with_fullsize_content_view(true)
+            .with_title_shown(false)
+            .with_titlebar_shown(false),
         ..Default::default()
     };
     eframe::run_native(

@@ -1,7 +1,7 @@
-pub use taide_native_ui::presentation::{color, editor_appearance, message, shell_colors};
 pub(crate) use taide_native_ui::presentation::{
-    next_editor_font_size, parse_color, update_editor_font_size,
+    apply_visuals, next_editor_font_size, parse_color, update_editor_font_size, visuals,
 };
+pub use taide_native_ui::presentation::{color, editor_appearance, message, shell_colors};
 
 #[cfg(test)]
 mod tests {

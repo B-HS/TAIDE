@@ -990,6 +990,7 @@
     "tab.confirmCloseDirtyDiscard": "Don't Save",
     "tab.confirmCloseDirtySave": "Save",
     "tab.confirmCloseDirtyTitle": "Save changes before closing?",
+    "tab.contentUnavailable": "This tab can't be displayed yet",
     "tab.copyRelativePath": "Copy Relative Path",
     "tab.keepOpen": "Keep Open",
     "tab.moveToMainWindow": "Move back to Main Window",

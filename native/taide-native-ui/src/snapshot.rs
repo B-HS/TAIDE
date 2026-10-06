@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use taide_model::ids::{PaneId, ProjectId, ShellSlotId};
+use taide_model::ids::{PaneId, ProjectGroupId, ProjectId, ShellSlotId};
 use taide_model::layout::{PaneNode, ProjectLayout, Tab, find_leaf};
 use taide_model::project::{ProjectGroup, ProjectRef, SessionShellState, ShellSlotTree};
 #[cfg(feature = "native-host")]
@@ -14,6 +14,7 @@ pub struct ShellSnapshot {
     pub layouts: HashMap<ProjectId, ProjectLayout>,
     pub hide_status_in_zen: bool,
     pub resizer_thickness: f32,
+    pub welcome_on_empty_editor: bool,
 }
 
 impl ShellSnapshot {
@@ -29,6 +30,7 @@ impl ShellSnapshot {
             layouts: state.layouts.read().clone(),
             hide_status_in_zen: settings.zen_hide_status_bar,
             resizer_thickness: settings.resizer_thickness as f32,
+            welcome_on_empty_editor: settings.welcome_on_empty_editor,
         }
     }
 
@@ -45,6 +47,37 @@ impl ShellSnapshot {
     pub fn focused_tab(&self) -> Option<&Tab> {
         let layout = self.layouts.get(self.focused_project()?)?;
         active_tab(&layout.root, &layout.focused_pane)
+    }
+}
+
+pub struct ProjectGroupSections<'a> {
+    pub sections: Vec<(&'a ProjectGroup, Vec<&'a ProjectRef>)>,
+    pub ungrouped: Vec<&'a ProjectRef>,
+}
+
+pub fn project_group_sections<'a>(
+    projects: &'a [ProjectRef],
+    groups: &'a [ProjectGroup],
+) -> ProjectGroupSections<'a> {
+    let owners: HashMap<&ProjectId, &ProjectGroupId> = groups
+        .iter()
+        .flat_map(|group| group.members.iter().map(move |member| (member, &group.id)))
+        .collect();
+    ProjectGroupSections {
+        sections: groups
+            .iter()
+            .map(|group| {
+                let members = projects
+                    .iter()
+                    .filter(|project| owners.get(&project.id) == Some(&&group.id))
+                    .collect();
+                (group, members)
+            })
+            .collect(),
+        ungrouped: projects
+            .iter()
+            .filter(|project| !owners.contains_key(&project.id))
+            .collect(),
     }
 }
 

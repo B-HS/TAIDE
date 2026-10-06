@@ -28,11 +28,15 @@ const BYTE_LIMIT: usize = 1024;
 const NARROW_WIDTH: f32 = 180.0;
 const VIRTUAL_ROWS: usize = 40;
 const SOURCE_ROW_HEIGHT: f32 = 22.0;
+const SOURCE_HEADER_HEIGHT: f32 = 32.0;
 const SOURCE_TOOLBAR_BUTTON_SIZE: f32 = 24.0;
 const ROW_EDGE_OFFSET: f32 = 2.0;
 const CLICK_SEQUENCE_RESET_SECONDS: f64 = 1.0;
 const SEARCH_START_SECONDS: f64 = 10.0;
 const MENU_TEST_HEIGHT: f32 = 480.0;
+const SCROLL_OVERFLOW_ROW: usize = 20;
+const SCROLL_START_ROW: usize = 2;
+const SCROLL_EPSILON: f32 = egui::emath::GUI_ROUNDING;
 
 fn menu_frame(
     context: &Context,
@@ -1336,6 +1340,109 @@ fn 탐색기_선택검색_타이핑은_대소문자_순환_시간과_ime_focus�
         vec![Event::Text("c".into())],
     );
     assert_selected(&explorer, &page, &[2]);
+}
+
+#[test]
+fn 탐색기_키보드_선택은_가시범위를_벗어날_때만_최소로_스크롤한다() {
+    let context = Context::default();
+    let project = ProjectId::new();
+    let page = TreeRowPage {
+        total: u32::try_from(VIRTUAL_ROWS).unwrap(),
+        rows: (0..VIRTUAL_ROWS)
+            .map(|index| TreeRow {
+                path: format!("/synthetic/file-{index}.txt"),
+                name: format!("file-{index}.txt"),
+                kind: TreeEntryKind::File,
+                depth: 0,
+                expanded: false,
+                has_children: false,
+            })
+            .collect(),
+    };
+    let mut explorer = Explorer::default();
+    selection_click(&context, &mut explorer, &project, &page, 0, Modifiers::NONE);
+    let row_top = |output: &Output, index: usize| {
+        output
+            .rows
+            .get(&page.rows[index].path)
+            .map(|response| response.rect.top())
+    };
+    let is_near = |actual: Option<f32>, expected: f32| {
+        actual.is_some_and(|actual| (actual - expected).abs() < SCROLL_EPSILON)
+    };
+    let list_top = row_top(
+        &frame(&context, &mut explorer, &project, &page, Vec::new()),
+        0,
+    )
+    .unwrap();
+    assert!(
+        is_near(Some(list_top), SOURCE_HEADER_HEIGHT),
+        "list_top={list_top}"
+    );
+    let mut output = frame(
+        &context,
+        &mut explorer,
+        &project,
+        &page,
+        vec![key(Key::ArrowDown)],
+    );
+    assert_selected(&explorer, &page, &[1]);
+    assert!(is_near(row_top(&output, 0), list_top));
+    assert!(is_near(row_top(&output, 1), list_top + SOURCE_ROW_HEIGHT));
+    for _ in 1..SCROLL_OVERFLOW_ROW {
+        output = frame(
+            &context,
+            &mut explorer,
+            &project,
+            &page,
+            vec![key(Key::ArrowDown)],
+        );
+    }
+    assert_selected(&explorer, &page, &[SCROLL_OVERFLOW_ROW]);
+    let end_aligned = row_top(&output, SCROLL_OVERFLOW_ROW).unwrap();
+    assert!(end_aligned > list_top + SOURCE_ROW_HEIGHT);
+    assert!(
+        is_near(Some(end_aligned + SOURCE_ROW_HEIGHT), HEIGHT),
+        "list_top={list_top}, end_aligned={end_aligned}"
+    );
+    output = frame(
+        &context,
+        &mut explorer,
+        &project,
+        &page,
+        vec![key(Key::ArrowDown)],
+    );
+    assert!(is_near(
+        row_top(&output, SCROLL_OVERFLOW_ROW + 1),
+        end_aligned
+    ));
+    output = frame(
+        &context,
+        &mut explorer,
+        &project,
+        &page,
+        vec![key(Key::ArrowUp)],
+    );
+    assert_selected(&explorer, &page, &[SCROLL_OVERFLOW_ROW]);
+    assert!(is_near(
+        row_top(&output, SCROLL_OVERFLOW_ROW + 1),
+        end_aligned
+    ));
+    assert!(is_near(
+        row_top(&output, SCROLL_OVERFLOW_ROW),
+        end_aligned - SOURCE_ROW_HEIGHT
+    ));
+    for _ in SCROLL_START_ROW..SCROLL_OVERFLOW_ROW {
+        output = frame(
+            &context,
+            &mut explorer,
+            &project,
+            &page,
+            vec![key(Key::ArrowUp)],
+        );
+    }
+    assert_selected(&explorer, &page, &[SCROLL_START_ROW]);
+    assert!(is_near(row_top(&output, SCROLL_START_ROW), list_top));
 }
 
 #[test]

@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::io::{Cursor, Read};
 
 use calamine::{DataRef, Dimensions, Reader, Xlsx};
+use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, TimeZone};
 use quick_xml::events::Event;
 use taide_model::error::AppResult;
 use zip::{CompressionMethod, ZipArchive};
@@ -17,6 +18,10 @@ pub(crate) const MAX_EXCEL_COLUMNS: u32 = 16_384;
 const MAX_SHARED_STRINGS: usize = MAX_DECODED_BYTES / (size_of::<String>() * 2);
 const SPARSE_ENTRY_BYTES: usize = size_of::<Cell>() * 2 + size_of::<(u32, u32)>();
 const COMPOUND_SIGNATURE: [u8; 8] = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+const MILLISECONDS_PER_DAY: f64 = 86_400_000.0;
+const SERIAL_EPOCH_YEAR_MONTH_DAY: (i32, u32, u32) = (1899, 12, 30);
+const ISO_DATE_FORMAT: &str = "%Y-%m-%d";
+const ISO_LOCAL_DATE_TIME_FORMAT: &str = "%Y-%m-%dT%H:%M:%S%.f";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Request {
@@ -193,16 +198,42 @@ fn preflight(bytes: &[u8]) -> AppResult<()> {
     Ok(())
 }
 
-fn cell(value: &DataRef<'_>) -> AppResult<Cell> {
+fn iso_date_instant(text: &str) -> Option<NaiveDateTime> {
+    if let Ok(instant) = DateTime::parse_from_rfc3339(text) {
+        return Some(instant.naive_utc());
+    }
+    if let Ok(date) = NaiveDate::parse_from_str(text, ISO_DATE_FORMAT) {
+        return date.and_hms_opt(0, 0, 0);
+    }
+    let local = NaiveDateTime::parse_from_str(text, ISO_LOCAL_DATE_TIME_FORMAT).ok()?;
+    Some(Local.from_local_datetime(&local).earliest()?.naive_utc())
+}
+
+fn iso_date_serial(text: &str) -> f64 {
+    let epoch = NaiveDate::from_ymd_opt(
+        SERIAL_EPOCH_YEAR_MONTH_DAY.0,
+        SERIAL_EPOCH_YEAR_MONTH_DAY.1,
+        SERIAL_EPOCH_YEAR_MONTH_DAY.2,
+    )
+    .and_then(|date| date.and_hms_opt(0, 0, 0));
+    match (iso_date_instant(text), epoch) {
+        (Some(instant), Some(epoch)) => {
+            instant.signed_duration_since(epoch).num_milliseconds() as f64 / MILLISECONDS_PER_DAY
+        }
+        _ => f64::NAN,
+    }
+}
+
+fn cell(value: &DataRef<'_>) -> Cell {
     match value {
-        DataRef::Empty | DataRef::Error(_) => Ok(Cell::Null),
-        DataRef::String(text) => Ok(Cell::Text(text.clone())),
-        DataRef::SharedString(text) => Ok(Cell::Text((*text).into())),
-        DataRef::Bool(value) => Ok(Cell::Boolean(*value)),
-        DataRef::Int(value) => Ok(Cell::Number(*value as f64)),
-        DataRef::Float(value) if value.is_finite() => Ok(Cell::Number(*value)),
-        DataRef::DateTime(value) => Ok(Cell::Number(value.as_f64())),
-        _ => Err(invalid("native spreadsheet cell type is not connected yet")),
+        DataRef::Empty | DataRef::Error(_) => Cell::Null,
+        DataRef::String(text) | DataRef::DurationIso(text) => Cell::Text(text.clone()),
+        DataRef::SharedString(text) => Cell::Text((*text).into()),
+        DataRef::Bool(value) => Cell::Boolean(*value),
+        DataRef::Int(value) => Cell::Number(*value as f64),
+        DataRef::Float(value) => Cell::Number(*value),
+        DataRef::DateTime(value) => Cell::Number(value.as_f64()),
+        DataRef::DateTimeIso(text) => Cell::Number(iso_date_serial(text)),
     }
 }
 
@@ -265,7 +296,7 @@ pub fn decode_xlsx(bytes: &[u8]) -> AppResult<Workbook> {
             {
                 continue;
             }
-            let value = cell(value.get_value())?;
+            let value = cell(value.get_value());
             text_bytes = text_bytes.saturating_add(value.text_bytes());
             if let Some(previous) = values.insert((row, column), value) {
                 text_bytes -= previous.text_bytes();

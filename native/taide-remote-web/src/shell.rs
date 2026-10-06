@@ -323,6 +323,7 @@ impl ShellState {
             layouts: self.layouts.clone(),
             hide_status_in_zen: settings.zen_hide_status_bar,
             resizer_thickness: settings.resizer_thickness as f32,
+            welcome_on_empty_editor: settings.welcome_on_empty_editor,
         });
     }
 }

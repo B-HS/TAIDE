@@ -294,6 +294,7 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "moveToWindowNumbered",
             "rename",
             "openWelcome",
+            "contentUnavailable",
         ],
     ),
     ("editorArea", &["splitLeft", "splitRight", "splitTop", "splitBottom"]),

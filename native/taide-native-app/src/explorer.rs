@@ -259,6 +259,16 @@ pub struct Explorer {
     typeahead_deadline: Option<f64>,
     composing: bool,
     clipboard: Option<crate::explorer_clipboard::Entry>,
+    scroll_offset: f32,
+}
+
+fn revealing_scroll_offset(current: f32, viewport_height: f32, index: usize) -> Option<f32> {
+    let row_top = index as f32 * ROW_HEIGHT;
+    let row_bottom = row_top + ROW_HEIGHT;
+    if row_bottom > current + viewport_height {
+        return Some(row_bottom - viewport_height);
+    }
+    (row_top < current).then_some(row_top)
 }
 
 impl Explorer {
@@ -833,8 +843,10 @@ impl Explorer {
                 })
             });
         let mut area = egui::ScrollArea::vertical().id_salt(("native-tree", project));
-        if let Some(index) = reveal_index {
-            area = area.vertical_scroll_offset(index as f32 * ROW_HEIGHT);
+        if let Some(offset) = reveal_index.and_then(|index| {
+            revealing_scroll_offset(self.scroll_offset, ui.available_height(), index)
+        }) {
+            area = area.vertical_scroll_offset(offset);
         }
         let mut start_rename = None;
         let mut context_create = None;
@@ -872,7 +884,7 @@ impl Explorer {
                             ui.horizontal(|ui| {
                                 ui.set_min_height(ROW_HEIGHT);
                                 let row_rect = egui::Rect::from_min_size(
-                                    ui.next_widget_position(),
+                                    ui.max_rect().left_top(),
                                     egui::vec2(ui.available_width(), ROW_HEIGHT),
                                 );
                                 ui.set_min_width(row_rect.width());
@@ -1143,14 +1155,10 @@ impl Explorer {
                         });
                     }
                 });
+        self.scroll_offset = area.state.offset.y;
         if self.rename.is_none() && self.create.is_none() {
             let content_bottom = area.inner_rect.top() + area.content_size.y - area.state.offset.y;
-            let row_bottom = output
-                .rows
-                .values()
-                .map(|response| response.rect.bottom())
-                .fold(content_bottom, f32::max);
-            let blank_top = row_bottom.clamp(area.inner_rect.top(), area.inner_rect.bottom());
+            let blank_top = content_bottom.clamp(area.inner_rect.top(), area.inner_rect.bottom());
             let rect = egui::Rect::from_min_max(
                 egui::pos2(area.inner_rect.left(), blank_top),
                 area.inner_rect.right_bottom(),

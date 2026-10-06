@@ -2,11 +2,13 @@ use egui::{
     Align, Color32, Id, Layout, Rect, RichText, Sense, Stroke, Ui, UiBuilder, Vec2, pos2, vec2,
 };
 use taide_model::ids::{PaneId, ProjectId, ShellSlotId};
-use taide_model::layout::{PaneNode, SplitDir, Tab};
+use taide_model::layout::{PaneNode, SplitDir, Tab, TabKind};
 use taide_model::project::{ProjectRef, ShellSlotTree};
 
 use crate::commands::{ShellIntent, ShellMutation, request_close_tab};
-use crate::snapshot::{ShellSnapshot, active_tab, slot_count, slot_project};
+use crate::snapshot::{
+    ShellSnapshot, active_tab, project_group_sections, slot_count, slot_project,
+};
 use crate::split::{
     KEYBOARD_RESIZE_STEP, RESIZE_HIT_SIZE, child_rects, normalized_sizes, resized_pair,
 };
@@ -36,6 +38,8 @@ const PROBLEMS_MIN_HEIGHT: f32 = 120.0;
 const PROBLEMS_MAX_FRACTION: f32 = 0.7;
 const PROBLEMS_KEYBOARD_STEP: f32 = 0.05;
 const PANEL_PERCENT_PRECISION: f32 = 1000.0;
+const EMPTY_EDITOR_FONT_SIZE: f32 = 14.0;
+const EMPTY_EDITOR_TEXT_OPACITY: f32 = 0.4;
 
 #[derive(Clone, Copy)]
 pub struct ShellColors {
@@ -48,6 +52,8 @@ pub struct ShellColors {
     pub active_tab: Color32,
     pub inactive_tab: Color32,
     pub active_indicator: Color32,
+    pub editor_background: Color32,
+    pub editor_foreground: Color32,
 }
 
 #[derive(Clone)]
@@ -88,6 +94,7 @@ pub trait ShellSurfaces {
 pub struct NativeShell {
     pub scope: WindowScope,
     pub colors: ShellColors,
+    pub has_title_bar: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -95,6 +102,7 @@ struct PaneViewContext<'a> {
     project: &'a ProjectId,
     zen: bool,
     resizer_thickness: f32,
+    welcome_on_empty: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -153,6 +161,7 @@ impl NativeShell {
                             project,
                             zen: false,
                             resizer_thickness: snapshot.resizer_thickness,
+                            welcome_on_empty: false,
                         },
                         surfaces,
                         &mut intents,
@@ -228,6 +237,9 @@ impl NativeShell {
         branch: Option<&str>,
         surfaces: &impl ShellSurfaces,
     ) -> Rect {
+        if !self.has_title_bar {
+            return rect;
+        }
         let title = Rect::from_min_max(
             rect.min,
             pos2(rect.right(), (rect.top() + TITLE_HEIGHT).min(rect.bottom())),
@@ -237,6 +249,18 @@ impl NativeShell {
             title.bottom(),
             Stroke::new(BORDER_WIDTH, self.colors.border),
         );
+        let drag_region = ui.interact(
+            title,
+            ui.id().with("title-bar-drag-region"),
+            Sense::CLICK | Sense::DRAG,
+        );
+        if drag_region.double_clicked() {
+            let is_maximized = ui.input(|input| input.viewport().maximized.unwrap_or(false));
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::Maximized(!is_maximized));
+        } else if drag_region.drag_started_by(egui::PointerButton::Primary) {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+        }
         let text_rect = title.shrink2(vec2(TRAFFIC_LIGHT_INSET.min(title.width() / 2.0), 0.0));
         child(ui, text_rect, "title", |ui| {
             ui.with_layout(
@@ -258,7 +282,7 @@ impl NativeShell {
                     if let Some(branch) = branch {
                         text.push_str(&format!("  {branch}"));
                     }
-                    ui.add(egui::Label::new(text).truncate());
+                    ui.add(egui::Label::new(text).truncate().selectable(false));
                 },
             );
         });
@@ -305,7 +329,8 @@ impl NativeShell {
             "project-rail",
             |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    for group in &snapshot.groups {
+                    let rail = project_group_sections(&snapshot.projects, &snapshot.groups);
+                    for (group, members) in rail.sections {
                         if ui
                             .add(
                                 egui::Button::new(&group.name)
@@ -319,11 +344,7 @@ impl NativeShell {
                             }));
                         }
                         if !group.collapsed {
-                            for project in snapshot
-                                .projects
-                                .iter()
-                                .filter(|project| group.members.contains(&project.id))
-                            {
+                            for project in members {
                                 self.project_button(
                                     ui,
                                     project,
@@ -334,12 +355,7 @@ impl NativeShell {
                             }
                         }
                     }
-                    for project in snapshot.projects.iter().filter(|project| {
-                        !snapshot
-                            .groups
-                            .iter()
-                            .any(|group| group.members.contains(&project.id))
-                    }) {
+                    for project in rail.ungrouped {
                         self.project_button(
                             ui,
                             project,
@@ -596,6 +612,7 @@ impl NativeShell {
                 project,
                 zen,
                 resizer_thickness: snapshot.resizer_thickness,
+                welcome_on_empty: snapshot.welcome_on_empty_editor,
             },
             surfaces,
             intents,
@@ -639,6 +656,7 @@ impl NativeShell {
             project,
             zen,
             resizer_thickness,
+            welcome_on_empty,
         } = context;
         match node {
             PaneNode::Split {
@@ -690,6 +708,7 @@ impl NativeShell {
                         pos2((add_rect.left() - PADDING).max(bar.left()), bar.bottom()),
                     );
                     child(ui, tabs_rect, ("tab-bar", project, id), |ui| {
+                        ui.style_mut().always_scroll_the_only_direction = true;
                         egui::ScrollArea::horizontal().show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 for tab in tabs {
@@ -757,10 +776,29 @@ impl NativeShell {
                     content.min.y = bar.bottom();
                 }
                 child(ui, content, ("pane-content", project, id), |ui| {
-                    if let Some(tab) = tabs.iter().find(|tab| Some(&tab.id) == active.as_ref()) {
+                    let shown_tab = tabs.iter().find(|tab| Some(&tab.id) == active.as_ref());
+                    let shows_welcome = match shown_tab {
+                        Some(tab) => matches!(tab.kind, TabKind::Welcome),
+                        None => welcome_on_empty,
+                    };
+                    if shows_welcome {
+                        self.welcome(ui, content, Some((project, id)), surfaces, intents);
+                    } else if let Some(tab) = shown_tab {
                         surfaces.tab_content(ui, project, id, tab, intents);
                     } else {
-                        self.welcome(ui, content, Some((project, id)), surfaces, intents);
+                        ui.painter()
+                            .rect_filled(content, 0.0, self.colors.editor_background);
+                        ui.centered_and_justified(|ui| {
+                            ui.label(
+                                RichText::new(surfaces.text("editor.noFileOpen"))
+                                    .size(EMPTY_EDITOR_FONT_SIZE)
+                                    .color(
+                                        self.colors
+                                            .editor_foreground
+                                            .gamma_multiply(EMPTY_EDITOR_TEXT_OPACITY),
+                                    ),
+                            );
+                        });
                     }
                 });
                 let focus_requested = ui.input(|input| {

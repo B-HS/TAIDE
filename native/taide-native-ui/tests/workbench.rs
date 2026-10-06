@@ -1,18 +1,20 @@
 use std::sync::Mutex;
 
-use egui::{Color32, Rect, Ui, pos2, vec2};
+use egui::epaint::Shadow;
+use egui::{Color32, CornerRadius, Rect, Stroke, Ui, pos2, vec2};
 use taide_model::app_event::AppEvent;
-use taide_model::ids::{PaneId, ProjectId, ShellSlotId, TabId};
-use taide_model::layout::{AuxWindowLayout, PaneNode, SplitDir, Tab};
+use taide_model::ids::{PaneId, ProjectGroupId, ProjectId, ShellSlotId, TabId};
+use taide_model::layout::{AuxWindowLayout, PaneNode, ProjectLayout, SplitDir, Tab, TabKind};
 use taide_model::paths::AppPaths;
 use taide_model::project::{
-    ProjectDisplay, ProjectRef, SessionShellState, ShellSlotTree, WindowChrome,
+    ProjectDisplay, ProjectGroup, ProjectRef, SessionShellState, ShellSlotTree, WindowChrome,
 };
 use taide_native_ui::commands::{ShellIntent, ShellMutation, dispatch, request_close_tab};
-use taide_native_ui::shell::{NativeShell, ShellColors, ShellSurfaces, WindowScope};
-use taide_native_ui::snapshot::ShellSnapshot;
+use taide_native_ui::presentation::{apply_visuals, visuals};
+use taide_native_ui::shell::{NativeShell, ShellColors, ShellSurfaces, TITLE_HEIGHT, WindowScope};
+use taide_native_ui::snapshot::{ShellSnapshot, project_group_sections};
 use taide_native_ui::split::{MIN_PANE_SIZE, child_rects, normalized_sizes, resized_pair};
-use taide_runtime::{AppState, EventSink};
+use taide_runtime::{AppState, EventSink, theme_actions};
 
 const WINDOW_SIZE: [f32; 2] = [1280.0, 800.0];
 const AUX_SLOT: u32 = 1;
@@ -28,6 +30,17 @@ const PROBLEMS_DEFAULT_HEIGHT: f32 = 220.0;
 const RESIZED_WINDOW_HEIGHT: f32 = 1100.0;
 const LOW_WINDOW_HEIGHTS: [f32; 2] = [180.0, 220.0];
 const PANEL_PERCENT_PRECISION: f32 = 1000.0;
+const CSS_BORDER_WIDTH: f32 = 1.0;
+const CSS_RADIUS_MEDIUM: u8 = 6;
+const CSS_RADIUS_LARGE: u8 = 8;
+const CSS_SHADOW_OVERLAY: ([i8; 2], u8) = ([0, 2], 8);
+const CSS_SHADOW_OVERLAY_LARGE: ([i8; 2], u8) = ([0, 8], 24);
+const CLICK_INTERVAL_SECONDS: f64 = 0.05;
+const DRAG_DISTANCE: f32 = 40.0;
+const OVERFLOWING_TAB_COUNT: usize = 24;
+const WHEEL_DELTA: f32 = -200.0;
+const WHEEL_SETTLE_FRAMES: usize = 30;
+const FRAME_SECONDS: f64 = 1.0 / 60.0;
 
 #[derive(Default)]
 struct Sink(Mutex<Vec<AppEvent>>);
@@ -106,25 +119,69 @@ fn shell(scope: WindowScope) -> NativeShell {
             active_tab: COLOR,
             inactive_tab: COLOR,
             active_indicator: COLOR,
+            editor_background: COLOR,
+            editor_foreground: COLOR,
         },
+        has_title_bar: true,
     }
 }
 
-fn render(shell: &NativeShell, snapshot: &ShellSnapshot) -> Surfaces {
+fn frame(
+    context: &egui::Context,
+    shell: &NativeShell,
+    snapshot: &ShellSnapshot,
+    time: f64,
+    events: Vec<egui::Event>,
+) -> (Surfaces, egui::FullOutput) {
     let mut surfaces = Surfaces::default();
-    let context = egui::Context::default();
     let input = egui::RawInput {
         screen_rect: Some(Rect::from_min_size(
             pos2(0.0, 0.0),
             vec2(WINDOW_SIZE[0], WINDOW_SIZE[1]),
         )),
+        time: Some(time),
+        events,
         ..Default::default()
     };
     let mut output = context.run_ui(input, |ui| {
         shell.show(ui, snapshot, &mut surfaces);
     });
     output.textures_delta.clear();
-    surfaces
+    (surfaces, output)
+}
+
+fn render(shell: &NativeShell, snapshot: &ShellSnapshot) -> Surfaces {
+    frame(&egui::Context::default(), shell, snapshot, 0.0, Vec::new()).0
+}
+
+fn rendered_texts(shell: &NativeShell, snapshot: &ShellSnapshot) -> (Surfaces, Vec<String>) {
+    let (surfaces, output) = frame(&egui::Context::default(), shell, snapshot, 0.0, Vec::new());
+    let texts = output
+        .shapes
+        .iter()
+        .filter_map(|clipped| match &clipped.shape {
+            egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+            _ => None,
+        })
+        .collect();
+    (surfaces, texts)
+}
+
+fn surface_layout() -> ProjectLayout {
+    let mut layout = taide_layout::service::default_layout();
+    let PaneNode::Leaf { tabs, active, .. } = &mut layout.root else {
+        panic!("expected leaf")
+    };
+    *active = tabs
+        .iter()
+        .find(|tab| !matches!(tab.kind, TabKind::Welcome))
+        .map(|tab| tab.id.clone());
+    layout
+}
+
+fn rgb(hex: u32) -> Color32 {
+    let [_, red, green, blue] = hex.to_be_bytes();
+    Color32::from_rgb(red, green, blue)
 }
 
 fn fixture() -> ShellSnapshot {
@@ -161,10 +218,11 @@ fn fixture() -> ShellSnapshot {
         },
         layouts: projects
             .into_iter()
-            .map(|project| (project, taide_layout::service::default_layout()))
+            .map(|project| (project, surface_layout()))
             .collect(),
         hide_status_in_zen: true,
         resizer_thickness: SPLIT_THICKNESS,
+        welcome_on_empty_editor: true,
     }
 }
 
@@ -186,7 +244,7 @@ fn 실제_레이아웃_렌더는_두_프로젝트와_zen_보조창_범위를_분
     );
     assert!(!normal.panes[0].3.intersects(normal.panes[1].3));
     let layout = snapshot.layouts.get_mut(&snapshot.projects[0].id).unwrap();
-    let auxiliary = taide_layout::service::default_layout();
+    let auxiliary = surface_layout();
     let expected_tab = match &auxiliary.root {
         PaneNode::Leaf { active, .. } => active.clone().unwrap(),
         _ => panic!("expected leaf"),
@@ -575,6 +633,440 @@ fn 분할_좌표와_resize는_퍼센트_보존과_최소크기를_유지한다()
     let clamped = resized_pair(&resized, 0, -WINDOW_SIZE[0], WINDOW_SIZE[0]).unwrap();
     assert_eq!(clamped[0] / 100.0 * WINDOW_SIZE[0], MIN_PANE_SIZE);
     assert!(resized_pair(&resized, 1, RESIZE_DELTA, WINDOW_SIZE[0]).is_none());
+}
+
+struct CssVariables {
+    theme: &'static str,
+    is_dark: bool,
+    background: u32,
+    foreground: u32,
+    border: u32,
+    ring: u32,
+    secondary: u32,
+    secondary_foreground: u32,
+    button_hover: u32,
+    input_background: u32,
+    input_border: u32,
+    list_active: u32,
+    accent_foreground: u32,
+    app_accent: u32,
+    muted_foreground: u32,
+    destructive: u32,
+    warning: u32,
+    menu_background: u32,
+    menu_border: u32,
+    menu_item_hover: u32,
+    shadow_alpha: u8,
+}
+
+const BUILTIN_CSS_VARIABLES: [CssVariables; 2] = [
+    CssVariables {
+        theme: "taide-dark",
+        is_dark: true,
+        background: 0x1e1e2e,
+        foreground: 0xcdd6f4,
+        border: 0x313244,
+        ring: 0x89b4fa,
+        secondary: 0x313244,
+        secondary_foreground: 0xcdd6f4,
+        button_hover: 0x45475a,
+        input_background: 0x1e1e2e,
+        input_border: 0x313244,
+        list_active: 0x45475a,
+        accent_foreground: 0xcdd6f4,
+        app_accent: 0x89b4fa,
+        muted_foreground: 0xa6adc8,
+        destructive: 0xf38ba8,
+        warning: 0xf9e2af,
+        menu_background: 0x181825,
+        menu_border: 0x313244,
+        menu_item_hover: 0x45475a,
+        shadow_alpha: 0x66,
+    },
+    CssVariables {
+        theme: "taide-light",
+        is_dark: false,
+        background: 0xeff1f5,
+        foreground: 0x4c4f69,
+        border: 0xccd0da,
+        ring: 0x1e66f5,
+        secondary: 0xccd0da,
+        secondary_foreground: 0x4c4f69,
+        button_hover: 0xbcc0cc,
+        input_background: 0xeff1f5,
+        input_border: 0xccd0da,
+        list_active: 0xbcc0cc,
+        accent_foreground: 0x4c4f69,
+        app_accent: 0x1e66f5,
+        muted_foreground: 0x6c6f85,
+        destructive: 0xd20f39,
+        warning: 0xba7718,
+        menu_background: 0xe6e9ef,
+        menu_border: 0xccd0da,
+        menu_item_hover: 0xbcc0cc,
+        shadow_alpha: 0x26,
+    },
+];
+
+#[test]
+fn 테마_토큰은_원본_css변수의_egui_visuals로_변환되어_두_테마_슬롯에_적용된다() {
+    let state = AppState::new(AppPaths::new(
+        std::env::temp_dir().join(format!("taide-native-visuals-{}", ProjectId::new())),
+    ));
+    for css in BUILTIN_CSS_VARIABLES {
+        let theme = theme_actions::theme_get(&state, css.theme.into()).unwrap();
+        let converted = visuals(&theme).unwrap();
+        let shadow = Color32::from_rgba_unmultiplied(0, 0, 0, css.shadow_alpha);
+        assert_eq!(converted.dark_mode, css.is_dark);
+        assert_eq!(converted.panel_fill, rgb(css.background));
+        assert_eq!(converted.text_color(), rgb(css.foreground));
+        assert_eq!(
+            converted.widgets.noninteractive.bg_stroke,
+            Stroke::new(CSS_BORDER_WIDTH, rgb(css.border))
+        );
+        assert_eq!(converted.widgets.inactive.weak_bg_fill, rgb(css.secondary));
+        assert_eq!(converted.widgets.inactive.bg_fill, rgb(css.secondary));
+        assert_eq!(
+            converted.widgets.inactive.bg_stroke,
+            Stroke::new(CSS_BORDER_WIDTH, rgb(css.input_border))
+        );
+        assert_eq!(
+            converted.widgets.hovered.weak_bg_fill,
+            rgb(css.button_hover)
+        );
+        assert_eq!(
+            converted.widgets.active.bg_stroke,
+            Stroke::new(CSS_BORDER_WIDTH, rgb(css.ring))
+        );
+        for widget in [
+            converted.widgets.inactive,
+            converted.widgets.hovered,
+            converted.widgets.active,
+        ] {
+            assert_eq!(widget.text_color(), rgb(css.secondary_foreground));
+            assert_eq!(widget.corner_radius, CornerRadius::same(CSS_RADIUS_MEDIUM));
+        }
+        assert_eq!(
+            converted.widgets.open.weak_bg_fill,
+            rgb(css.menu_item_hover)
+        );
+        assert_eq!(converted.text_edit_bg_color(), rgb(css.input_background));
+        assert_eq!(converted.text_cursor.stroke.color, rgb(css.foreground));
+        assert_eq!(converted.selection.bg_fill, rgb(css.list_active));
+        assert_eq!(
+            converted.selection.stroke,
+            Stroke::new(CSS_BORDER_WIDTH, rgb(css.accent_foreground))
+        );
+        assert_eq!(converted.hyperlink_color, rgb(css.app_accent));
+        assert_eq!(converted.weak_text_color(), rgb(css.muted_foreground));
+        assert_eq!(converted.error_fg_color, rgb(css.destructive));
+        assert_eq!(converted.warn_fg_color, rgb(css.warning));
+        assert_eq!(converted.window_fill, rgb(css.menu_background));
+        assert_eq!(
+            converted.window_stroke,
+            Stroke::new(CSS_BORDER_WIDTH, rgb(css.menu_border))
+        );
+        assert_eq!(
+            converted.menu_corner_radius,
+            CornerRadius::same(CSS_RADIUS_MEDIUM)
+        );
+        assert_eq!(
+            converted.window_corner_radius,
+            CornerRadius::same(CSS_RADIUS_LARGE)
+        );
+        assert_eq!(
+            converted.popup_shadow,
+            Shadow {
+                offset: CSS_SHADOW_OVERLAY.0,
+                blur: CSS_SHADOW_OVERLAY.1,
+                spread: 0,
+                color: shadow,
+            }
+        );
+        assert_eq!(
+            converted.window_shadow,
+            Shadow {
+                offset: CSS_SHADOW_OVERLAY_LARGE.0,
+                blur: CSS_SHADOW_OVERLAY_LARGE.1,
+                spread: 0,
+                color: shadow,
+            }
+        );
+        let context = egui::Context::default();
+        apply_visuals(&context, &converted);
+        for slot in [egui::Theme::Dark, egui::Theme::Light] {
+            assert_eq!(context.style_of(slot).visuals, converted);
+        }
+        let mut incomplete = theme;
+        incomplete.colors.remove("menu.background");
+        assert!(visuals(&incomplete).is_err());
+    }
+}
+
+#[test]
+fn 프로젝트_rail_구역은_열린_순서와_마지막_그룹_소속으로_한번씩만_배치한다() {
+    let mut snapshot = fixture();
+    let template = snapshot.projects[0].clone();
+    snapshot.projects.push(ProjectRef {
+        id: ProjectId::new(),
+        ..template
+    });
+    let ids: Vec<_> = snapshot
+        .projects
+        .iter()
+        .map(|project| project.id.clone())
+        .collect();
+    let group = |members: Vec<ProjectId>| ProjectGroup {
+        id: ProjectGroupId::new(),
+        name: String::new(),
+        color: None,
+        members,
+        collapsed: false,
+    };
+    snapshot.groups = vec![
+        group(vec![ids[2].clone(), ids[0].clone(), ProjectId::new()]),
+        group(vec![ids[0].clone()]),
+    ];
+    let rail = project_group_sections(&snapshot.projects, &snapshot.groups);
+    let member_ids = |index: usize| -> Vec<&ProjectId> {
+        rail.sections[index]
+            .1
+            .iter()
+            .map(|project| &project.id)
+            .collect()
+    };
+    assert_eq!(rail.sections.len(), snapshot.groups.len());
+    assert_eq!(rail.sections[0].0.id, snapshot.groups[0].id);
+    assert_eq!(member_ids(0), [&ids[2]]);
+    assert_eq!(member_ids(1), [&ids[0]]);
+    assert_eq!(
+        rail.ungrouped
+            .iter()
+            .map(|project| &project.id)
+            .collect::<Vec<_>>(),
+        [&ids[1]]
+    );
+    snapshot.groups.reverse();
+    let rail = project_group_sections(&snapshot.projects, &snapshot.groups);
+    assert!(rail.sections[0].1.is_empty());
+    assert_eq!(
+        rail.sections[1]
+            .1
+            .iter()
+            .map(|project| &project.id)
+            .collect::<Vec<_>>(),
+        [&ids[0], &ids[2]]
+    );
+}
+
+#[test]
+fn 빈_pane과_welcome_탭은_설정과_창_범위에_따라_welcome과_파일없음_안내로_나뉜다() {
+    let count = |texts: &[String], key: &str| texts.iter().filter(|text| *text == key).count();
+    let mut snapshot = fixture();
+    let project = snapshot.projects[0].id.clone();
+    let mut welcome_tab = snapshot.clone();
+    for layout in snapshot.layouts.values_mut() {
+        let PaneNode::Leaf { tabs, active, .. } = &mut layout.root else {
+            panic!("expected leaf")
+        };
+        tabs.clear();
+        *active = None;
+    }
+    let (surfaces, texts) = rendered_texts(&shell(WindowScope::Main), &snapshot);
+    assert!(surfaces.panes.is_empty());
+    assert_eq!(count(&texts, "app.openFolderHint"), snapshot.projects.len());
+    assert_eq!(count(&texts, "editor.noFileOpen"), 0);
+    snapshot.welcome_on_empty_editor = false;
+    let (surfaces, texts) = rendered_texts(&shell(WindowScope::Main), &snapshot);
+    assert!(surfaces.panes.is_empty());
+    assert_eq!(count(&texts, "app.openFolderHint"), 0);
+    assert_eq!(count(&texts, "editor.noFileOpen"), snapshot.projects.len());
+    welcome_tab.welcome_on_empty_editor = false;
+    for layout in welcome_tab.layouts.values_mut() {
+        *layout = taide_layout::service::default_layout();
+    }
+    let (surfaces, texts) = rendered_texts(&shell(WindowScope::Main), &welcome_tab);
+    assert!(surfaces.panes.is_empty());
+    assert_eq!(
+        count(&texts, "app.openFolderHint"),
+        welcome_tab.projects.len()
+    );
+    snapshot.welcome_on_empty_editor = true;
+    let empty = snapshot.layouts[&project].clone();
+    snapshot
+        .layouts
+        .get_mut(&project)
+        .unwrap()
+        .auxiliary_windows
+        .push(AuxWindowLayout {
+            slot: AUX_SLOT,
+            root: empty.root,
+            focused_pane: empty.focused_pane,
+        });
+    let (_, texts) = rendered_texts(
+        &shell(WindowScope::Auxiliary {
+            project,
+            slot: AUX_SLOT,
+        }),
+        &snapshot,
+    );
+    assert_eq!(count(&texts, "app.openFolderHint"), 0);
+    assert_eq!(count(&texts, "editor.noFileOpen"), 1);
+}
+
+#[test]
+fn 타이틀바는_mac_전용_drag_region이고_없으면_본문이_창_위에서_시작한다() {
+    let snapshot = fixture();
+    let titled = shell(WindowScope::Main);
+    let plain = NativeShell {
+        has_title_bar: false,
+        ..shell(WindowScope::Main)
+    };
+    let with_title = render(&titled, &snapshot);
+    let without_title = render(&plain, &snapshot);
+    for (project, _, _, rect) in &with_title.panes {
+        let other = without_title
+            .panes
+            .iter()
+            .find(|pane| &pane.0 == project)
+            .unwrap()
+            .3;
+        assert_eq!(rect.top() - other.top(), TITLE_HEIGHT);
+    }
+    let position = pos2(WINDOW_SIZE[0] / 2.0, TITLE_HEIGHT / 2.0);
+    let button = |pressed| egui::Event::PointerButton {
+        pos: position,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let starts_drag = |output: &egui::FullOutput| {
+        output
+            .viewport_output
+            .values()
+            .flat_map(|viewport| &viewport.commands)
+            .any(|command| matches!(command, egui::ViewportCommand::StartDrag))
+    };
+    let drag = |shell: &NativeShell| {
+        let context = egui::Context::default();
+        frame(&context, shell, &snapshot, 0.0, Vec::new());
+        let (_, pressed) = frame(
+            &context,
+            shell,
+            &snapshot,
+            CLICK_INTERVAL_SECONDS,
+            vec![egui::Event::PointerMoved(position), button(true)],
+        );
+        let (_, dragged) = frame(
+            &context,
+            shell,
+            &snapshot,
+            CLICK_INTERVAL_SECONDS * 2.0,
+            vec![egui::Event::PointerMoved(
+                position + vec2(DRAG_DISTANCE, 0.0),
+            )],
+        );
+        (starts_drag(&pressed), starts_drag(&dragged))
+    };
+    assert_eq!(drag(&titled), (false, true));
+    assert_eq!(drag(&plain), (false, false));
+    let context = egui::Context::default();
+    frame(&context, &titled, &snapshot, 0.0, Vec::new());
+    let mut is_maximize_requested = false;
+    for (step, pressed) in [true, false, true, false].into_iter().enumerate() {
+        let (_, output) = frame(
+            &context,
+            &titled,
+            &snapshot,
+            CLICK_INTERVAL_SECONDS * (step + 1) as f64,
+            vec![egui::Event::PointerMoved(position), button(pressed)],
+        );
+        assert!(!starts_drag(&output));
+        is_maximize_requested |= output
+            .viewport_output
+            .values()
+            .flat_map(|viewport| &viewport.commands)
+            .any(|command| matches!(command, egui::ViewportCommand::Maximized(true)));
+    }
+    assert!(is_maximize_requested);
+}
+
+#[test]
+fn 탭바는_세로_휠을_가로_스크롤로_바꾼다() {
+    let mut snapshot = fixture();
+    let project = snapshot.focused_project().unwrap().clone();
+    let layout = snapshot.layouts.get_mut(&project).unwrap();
+    let PaneNode::Leaf { tabs, active, .. } = &mut layout.root else {
+        panic!("expected leaf")
+    };
+    *tabs = (0..OVERFLOWING_TAB_COUNT)
+        .map(|index| Tab {
+            id: TabId::new(),
+            kind: TabKind::Settings,
+            title: format!("synthetic-tab-{index}"),
+            pinned: false,
+            preview: false,
+            dirty: false,
+            view_state: None,
+        })
+        .collect();
+    *active = tabs.first().map(|tab| tab.id.clone());
+    let first_title = tabs[0].title.clone();
+    let shell = shell(WindowScope::Main);
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let tab_left = |output: &egui::FullOutput| {
+        output
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .find(|(_, node)| node.label() == Some(first_title.as_str()))
+            .and_then(|(_, node)| node.bounds())
+            .unwrap()
+            .x0
+    };
+    let (surfaces, output) = frame(&context, &shell, &snapshot, 0.0, Vec::new());
+    let before = tab_left(&output);
+    let content = surfaces
+        .panes
+        .iter()
+        .find(|pane| pane.0 == project)
+        .unwrap()
+        .3;
+    let hover = pos2(
+        content.center().x,
+        content.top() - taide_native_ui::shell::TAB_HEIGHT / 2.0,
+    );
+    let mut output = frame(
+        &context,
+        &shell,
+        &snapshot,
+        FRAME_SECONDS,
+        vec![
+            egui::Event::PointerMoved(hover),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: vec2(0.0, WHEEL_DELTA),
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    )
+    .1;
+    for step in 2..WHEEL_SETTLE_FRAMES {
+        output = frame(
+            &context,
+            &shell,
+            &snapshot,
+            FRAME_SECONDS * step as f64,
+            Vec::new(),
+        )
+        .1;
+    }
+    assert!(tab_left(&output) < before);
 }
 
 #[tokio::test]

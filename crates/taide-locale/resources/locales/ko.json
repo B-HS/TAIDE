@@ -990,6 +990,7 @@
     "tab.confirmCloseDirtyDiscard": "저장 안 함",
     "tab.confirmCloseDirtySave": "저장",
     "tab.confirmCloseDirtyTitle": "닫기 전에 저장할까요?",
+    "tab.contentUnavailable": "이 탭은 아직 표시할 수 없습니다",
     "tab.copyRelativePath": "상대 경로 복사",
     "tab.keepOpen": "계속 열어두기",
     "tab.moveToMainWindow": "메인 창으로 이동",

@@ -990,6 +990,7 @@
     "tab.confirmCloseDirtyDiscard": "保存しない",
     "tab.confirmCloseDirtySave": "保存",
     "tab.confirmCloseDirtyTitle": "閉じる前に保存しますか?",
+    "tab.contentUnavailable": "このタブはまだ表示できません",
     "tab.copyRelativePath": "相対パスをコピー",
     "tab.keepOpen": "開いたままにする",
     "tab.moveToMainWindow": "メインウィンドウへ戻す",

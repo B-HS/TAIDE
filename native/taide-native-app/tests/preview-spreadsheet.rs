@@ -6,6 +6,10 @@ use taide_native_app::preview_spreadsheet::{
 };
 use zip::write::SimpleFileOptions;
 
+const MILLISECONDS_PER_DAY: f64 = 86_400_000.0;
+const SERIAL_2024_01_02: f64 = 45_293.0;
+const UTC_TIME_OF_DAY_MILLISECONDS: f64 = 11_045_000.0;
+const OFFSET_TIME_OF_DAY_MILLISECONDS: f64 = 65_045_000.0;
 const SHARED: &str = r#"<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" uniqueCount="1"><si><t>&lt;script&gt; 한글 日本語</t></si></sst>"#;
 const STYLES: &str = r#"<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="14"/></cellXfs></styleSheet>"#;
 
@@ -138,4 +142,34 @@ fn xlsx_stream의_순서_타입_빈행_500행_total과_할당전_비신뢰_경�
     assert_eq!(parsed.sheets[0].total_row_count, 1000);
     assert_eq!(parsed.sheets[0].rows[0], [Cell::Number(1.0)]);
     assert_eq!(parsed.sheets[0].rows[499], [Cell::Null]);
+}
+
+#[test]
+fn xlsx_iso날짜와_비유한_숫자는_워크북을_실패시키지_않고_원본_라이브러리의_숫자로_표시한다() {
+    let body = r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="d"><v>2024-01-02T03:04:05Z</v></c><c r="B1" t="d"><v>2024-01-02</v></c><c r="C1" t="d"><v>2024-01-02T03:04:05+09:00</v></c><c r="D1" t="d"><v>not-a-date</v></c><c r="E1"><v>1e999</v></c><c r="F1"><v>-1e999</v></c><c r="G1"><v>NaN</v></c><c r="H1" t="s"><v>0</v></c></row></sheetData></worksheet>"#;
+    let parsed = decode_xlsx(&workbook(&[("Dates", body)], SHARED)).unwrap();
+    let row = &parsed.sheets[0].rows[0];
+    assert_eq!(
+        row[0],
+        Cell::Number(
+            (SERIAL_2024_01_02 * MILLISECONDS_PER_DAY + UTC_TIME_OF_DAY_MILLISECONDS)
+                / MILLISECONDS_PER_DAY
+        )
+    );
+    assert_eq!(row[1], Cell::Number(SERIAL_2024_01_02));
+    assert_eq!(
+        row[2],
+        Cell::Number(
+            ((SERIAL_2024_01_02 - 1.0) * MILLISECONDS_PER_DAY + OFFSET_TIME_OF_DAY_MILLISECONDS)
+                / MILLISECONDS_PER_DAY
+        )
+    );
+    assert!(matches!(row[3], Cell::Number(value) if value.is_nan()));
+    assert_eq!(row[3].display(), "NaN");
+    assert_eq!(row[4], Cell::Number(f64::INFINITY));
+    assert_eq!(row[4].display(), "Infinity");
+    assert_eq!(row[5], Cell::Number(f64::NEG_INFINITY));
+    assert_eq!(row[5].display(), "-Infinity");
+    assert_eq!(row[6].display(), "NaN");
+    assert_eq!(row[7], Cell::Text("<script> 한글 日本語".into()));
 }

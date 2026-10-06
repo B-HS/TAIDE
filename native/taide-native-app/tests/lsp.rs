@@ -109,6 +109,7 @@ fn 실제_shell의_visible_file만_활성_tab과_zen_slot_창_scope에_맞춰_�
         ]),
         hide_status_in_zen: false,
         resizer_thickness: RESIZER_THICKNESS,
+        welcome_on_empty_editor: true,
     };
     assert_eq!(
         visible_files(&snapshot, &WindowScope::Main),

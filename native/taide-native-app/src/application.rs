@@ -42,6 +42,8 @@ const WEB_CONNECTIONS: usize = 16;
 const WEB_HEADER_TIMEOUT: Duration = Duration::from_secs(5);
 const WEB_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 const WEB_HELPER_TIMEOUT: Duration = Duration::from_secs(30);
+const UNAVAILABLE_TAB_FONT_SIZE: f32 = 14.0;
+const UNAVAILABLE_TAB_TEXT_OPACITY: f32 = 0.6;
 
 struct PaintSink {
     context: egui::Context,
@@ -250,9 +252,11 @@ impl NativeApplication {
         warnings.extend(fonts.warnings);
         let appearances =
             crate::presentation_refresh::Appearances::new(&theme, &presentation_inputs.settings)?;
+        presentation::apply_visuals(&egui, &appearances.visuals);
         let shell = NativeShell {
             scope: WindowScope::Main,
             colors: appearances.shell,
+            has_title_bar: cfg!(target_os = "macos"),
         };
         let editor = NativeEditor {
             appearance: appearances.editor,
@@ -455,11 +459,11 @@ impl NativeApplication {
                 .application_ports
                 .start(application.services.clone()),
         );
+        crate::application_ports::start_agent_poll(application.services.clone());
         Ok(application)
     }
 
     fn poll(&mut self, context: &egui::Context) {
-        crate::application_ports::start_agent_poll(application.services.clone());
         while let Some(reply) = self
             .web_bridge
             .as_mut()
@@ -587,6 +591,7 @@ impl NativeApplication {
                                     Ok((appearances, theme)) => {
                                         self.resolved_theme = theme;
                                         self.preview_theme = None;
+                                        presentation::apply_visuals(context, &appearances.visuals);
                                         self.shell.colors = appearances.shell;
                                         self.editor.appearance = appearances.editor;
                                         self.banner_appearance = appearances.banner;
@@ -3334,6 +3339,7 @@ impl NativeApplication {
         );
         match result {
             Ok(appearances) => {
+                presentation::apply_visuals(context, &appearances.visuals);
                 self.shell.colors = appearances.shell;
                 self.editor.appearance = appearances.editor;
                 self.banner_appearance = appearances.banner;
@@ -4915,11 +4921,32 @@ impl ShellSurfaces for AppSurfaces<'_> {
             return;
         }
         let TabKind::File { path } = &tab.kind else {
-            ui.label(&tab.title);
-            *self.status = Some(format!(
-                "native tab surface is not connected: {:?}",
-                tab.kind
-            ));
+            let rect = ui.available_rect_before_wrap();
+            ui.painter()
+                .rect_filled(rect, 0.0, self.editor.appearance.background);
+            ui.allocate_ui_with_layout(
+                rect.size(),
+                egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                |ui| {
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(format!(
+                                "{}\n{}",
+                                tab.title,
+                                presentation::message(self.locale, "tab.contentUnavailable", &[])
+                            ))
+                            .size(UNAVAILABLE_TAB_FONT_SIZE)
+                            .color(
+                                self.editor
+                                    .appearance
+                                    .foreground
+                                    .gamma_multiply(UNAVAILABLE_TAB_TEXT_OPACITY),
+                            ),
+                        )
+                        .halign(egui::Align::Center),
+                    );
+                },
+            );
             return;
         };
         if let crate::open_with::Surface::Preview(kind) = self.open_with.surface(path) {
