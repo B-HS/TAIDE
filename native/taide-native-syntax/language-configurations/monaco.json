@@ -1,0 +1,2142 @@
+{
+    "package": "monaco-editor",
+    "version": "0.56.0",
+    "languages": [
+        {
+            "languageId": "plaintext",
+            "monacoModule": "editor/common/languages/languageConfigurationRegistry.js",
+            "configuration": {
+                "brackets": [
+                    [
+                        "(",
+                        ")"
+                    ],
+                    [
+                        "[",
+                        "]"
+                    ],
+                    [
+                        "{",
+                        "}"
+                    ]
+                ],
+                "surroundingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "<",
+                        "close": ">"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    },
+                    {
+                        "open": "`",
+                        "close": "`"
+                    }
+                ],
+                "folding": {
+                    "offSide": true
+                },
+                "colorizedBracketPairs": []
+            }
+        },
+        {
+            "languageId": "rust",
+            "monacoModule": "languages/definitions/rust/rust.js",
+            "configuration": {
+                "comments": {
+                    "lineComment": "//",
+                    "blockComment": [
+                        "/*",
+                        "*/"
+                    ]
+                },
+                "brackets": [
+                    [
+                        "{",
+                        "}"
+                    ],
+                    [
+                        "[",
+                        "]"
+                    ],
+                    [
+                        "(",
+                        ")"
+                    ]
+                ],
+                "autoClosingPairs": [
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\"",
+                        "notIn": [
+                            "string"
+                        ]
+                    }
+                ],
+                "surroundingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    }
+                ],
+                "folding": {
+                    "markers": {
+                        "start": {
+                            "source": "^\\s*#pragma\\s+region\\b",
+                            "flags": ""
+                        },
+                        "end": {
+                            "source": "^\\s*#pragma\\s+endregion\\b",
+                            "flags": ""
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "languageId": "typescript",
+            "monacoModule": "languages/definitions/typescript/typescript.js",
+            "configuration": {
+                "wordPattern": {
+                    "source": "(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\@\\#\\%\\^\\&\\*\\(\\)\\-\\=\\+\\[\\{\\]\\}\\\\\\|\\;\\:\\'\\\"\\,\\.\\<\\>\\/\\?\\s]+)",
+                    "flags": "g"
+                },
+                "comments": {
+                    "lineComment": "//",
+                    "blockComment": [
+                        "/*",
+                        "*/"
+                    ]
+                },
+                "brackets": [
+                    [
+                        "{",
+                        "}"
+                    ],
+                    [
+                        "[",
+                        "]"
+                    ],
+                    [
+                        "(",
+                        ")"
+                    ]
+                ],
+                "onEnterRules": [
+                    {
+                        "beforeText": {
+                            "source": "^\\s*\\/\\*\\*(?!\\/)([^\\*]|\\*(?!\\/))*$",
+                            "flags": ""
+                        },
+                        "afterText": {
+                            "source": "^\\s*\\*\\/$",
+                            "flags": ""
+                        },
+                        "action": {
+                            "indentAction": "IndentOutdent",
+                            "appendText": " * "
+                        }
+                    },
+                    {
+                        "beforeText": {
+                            "source": "^\\s*\\/\\*\\*(?!\\/)([^\\*]|\\*(?!\\/))*$",
+                            "flags": ""
+                        },
+                        "action": {
+                            "indentAction": "None",
+                            "appendText": " * "
+                        }
+                    },
+                    {
+                        "beforeText": {
+                            "source": "^(\\t|(\\ \\ ))*\\ \\*(\\ ([^\\*]|\\*(?!\\/))*)?$",
+                            "flags": ""
+                        },
+                        "action": {
+                            "indentAction": "None",
+                            "appendText": "* "
+                        }
+                    },
+                    {
+                        "beforeText": {
+                            "source": "^(\\t|(\\ \\ ))*\\ \\*\\/\\s*$",
+                            "flags": ""
+                        },
+                        "action": {
+                            "indentAction": "None",
+                            "removeText": 1
+                        }
+                    }
+                ],
+                "autoClosingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\"",
+                        "notIn": [
+                            "string"
+                        ]
+                    },
+                    {
+                        "open": "'",
+                        "close": "'",
+                        "notIn": [
+                            "string",
+                            "comment"
+                        ]
+                    },
+                    {
+                        "open": "`",
+                        "close": "`",
+                        "notIn": [
+                            "string",
+                            "comment"
+                        ]
+                    },
+                    {
+                        "open": "/**",
+                        "close": " */",
+                        "notIn": [
+                            "string"
+                        ]
+                    }
+                ],
+                "folding": {
+                    "markers": {
+                        "start": {
+                            "source": "^\\s*\\/\\/\\s*#?region\\b",
+                            "flags": ""
+                        },
+                        "end": {
+                            "source": "^\\s*\\/\\/\\s*#?endregion\\b",
+                            "flags": ""
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "languageId": "typescriptreact",
+            "monacoModule": null,
+            "configuration": null
+        },
+        {
+            "languageId": "javascript",
+            "monacoModule": "languages/definitions/javascript/javascript.js",
+            "configuration": {
+                "wordPattern": {
+                    "source": "(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\@\\#\\%\\^\\&\\*\\(\\)\\-\\=\\+\\[\\{\\]\\}\\\\\\|\\;\\:\\'\\\"\\,\\.\\<\\>\\/\\?\\s]+)",
+                    "flags": "g"
+                },
+                "comments": {
+                    "lineComment": "//",
+                    "blockComment": [
+                        "/*",
+                        "*/"
+                    ]
+                },
+                "brackets": [
+                    [
+                        "{",
+                        "}"
+                    ],
+                    [
+                        "[",
+                        "]"
+                    ],
+                    [
+                        "(",
+                        ")"
+                    ]
+                ],
+                "onEnterRules": [
+                    {
+                        "beforeText": {
+                            "source": "^\\s*\\/\\*\\*(?!\\/)([^\\*]|\\*(?!\\/))*$",
+                            "flags": ""
+                        },
+                        "afterText": {
+                            "source": "^\\s*\\*\\/$",
+                            "flags": ""
+                        },
+                        "action": {
+                            "indentAction": "IndentOutdent",
+                            "appendText": " * "
+                        }
+                    },
+                    {
+                        "beforeText": {
+                            "source": "^\\s*\\/\\*\\*(?!\\/)([^\\*]|\\*(?!\\/))*$",
+                            "flags": ""
+                        },
+                        "action": {
+                            "indentAction": "None",
+                            "appendText": " * "
+                        }
+                    },
+                    {
+                        "beforeText": {
+                            "source": "^(\\t|(\\ \\ ))*\\ \\*(\\ ([^\\*]|\\*(?!\\/))*)?$",
+                            "flags": ""
+                        },
+                        "action": {
+                            "indentAction": "None",
+                            "appendText": "* "
+                        }
+                    },
+                    {
+                        "beforeText": {
+                            "source": "^(\\t|(\\ \\ ))*\\ \\*\\/\\s*$",
+                            "flags": ""
+                        },
+                        "action": {
+                            "indentAction": "None",
+                            "removeText": 1
+                        }
+                    }
+                ],
+                "autoClosingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\"",
+                        "notIn": [
+                            "string"
+                        ]
+                    },
+                    {
+                        "open": "'",
+                        "close": "'",
+                        "notIn": [
+                            "string",
+                            "comment"
+                        ]
+                    },
+                    {
+                        "open": "`",
+                        "close": "`",
+                        "notIn": [
+                            "string",
+                            "comment"
+                        ]
+                    },
+                    {
+                        "open": "/**",
+                        "close": " */",
+                        "notIn": [
+                            "string"
+                        ]
+                    }
+                ],
+                "folding": {
+                    "markers": {
+                        "start": {
+                            "source": "^\\s*\\/\\/\\s*#?region\\b",
+                            "flags": ""
+                        },
+                        "end": {
+                            "source": "^\\s*\\/\\/\\s*#?endregion\\b",
+                            "flags": ""
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "languageId": "javascriptreact",
+            "monacoModule": null,
+            "configuration": null
+        },
+        {
+            "languageId": "json",
+            "monacoModule": "languages/features/json/jsonMode.js",
+            "configuration": {
+                "wordPattern": {
+                    "source": "(-?\\d*\\.\\d\\w*)|([^\\[\\{\\]\\}\\:\\\"\\,\\s]+)",
+                    "flags": "g"
+                },
+                "comments": {
+                    "lineComment": "//",
+                    "blockComment": [
+                        "/*",
+                        "*/"
+                    ]
+                },
+                "brackets": [
+                    [
+                        "{",
+                        "}"
+                    ],
+                    [
+                        "[",
+                        "]"
+                    ]
+                ],
+                "autoClosingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}",
+                        "notIn": [
+                            "string"
+                        ]
+                    },
+                    {
+                        "open": "[",
+                        "close": "]",
+                        "notIn": [
+                            "string"
+                        ]
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\"",
+                        "notIn": [
+                            "string"
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            "languageId": "jsonc",
+            "monacoModule": null,
+            "configuration": null
+        },
+        {
+            "languageId": "markdown",
+            "monacoModule": "languages/definitions/markdown/markdown.js",
+            "configuration": {
+                "comments": {
+                    "blockComment": [
+                        "<!--",
+                        "-->"
+                    ]
+                },
+                "brackets": [
+                    [
+                        "{",
+                        "}"
+                    ],
+                    [
+                        "[",
+                        "]"
+                    ],
+                    [
+                        "(",
+                        ")"
+                    ]
+                ],
+                "autoClosingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "<",
+                        "close": ">",
+                        "notIn": [
+                            "string"
+                        ]
+                    }
+                ],
+                "surroundingPairs": [
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "`",
+                        "close": "`"
+                    }
+                ],
+                "folding": {
+                    "markers": {
+                        "start": {
+                            "source": "^\\s*<!--\\s*#?region\\b.*-->",
+                            "flags": ""
+                        },
+                        "end": {
+                            "source": "^\\s*<!--\\s*#?endregion\\b.*-->",
+                            "flags": ""
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "languageId": "toml",
+            "monacoModule": null,
+            "configuration": null
+        },
+        {
+            "languageId": "yaml",
+            "monacoModule": "languages/definitions/yaml/yaml.js",
+            "configuration": {
+                "comments": {
+                    "lineComment": "#"
+                },
+                "brackets": [
+                    [
+                        "{",
+                        "}"
+                    ],
+                    [
+                        "[",
+                        "]"
+                    ],
+                    [
+                        "(",
+                        ")"
+                    ]
+                ],
+                "autoClosingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    }
+                ],
+                "surroundingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    }
+                ],
+                "folding": {
+                    "offSide": true
+                },
+                "onEnterRules": [
+                    {
+                        "beforeText": {
+                            "source": ":\\s*$",
+                            "flags": ""
+                        },
+                        "action": {
+                            "indentAction": "Indent"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "languageId": "html",
+            "monacoModule": "languages/definitions/html/html.js",
+            "configuration": {
+                "wordPattern": {
+                    "source": "(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\@\\$\\^\\&\\*\\(\\)\\=\\+\\[\\{\\]\\}\\\\\\|\\;\\:\\'\\\"\\,\\.\\<\\>\\/\\s]+)",
+                    "flags": "g"
+                },
+                "comments": {
+                    "blockComment": [
+                        "<!--",
+                        "-->"
+                    ]
+                },
+                "brackets": [
+                    [
+                        "<!--",
+                        "-->"
+                    ],
+                    [
+                        "<",
+                        ">"
+                    ],
+                    [
+                        "{",
+                        "}"
+                    ],
+                    [
+                        "(",
+                        ")"
+                    ]
+                ],
+                "autoClosingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    }
+                ],
+                "surroundingPairs": [
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    },
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "<",
+                        "close": ">"
+                    }
+                ],
+                "onEnterRules": [
+                    {
+                        "beforeText": {
+                            "source": "<(?!(?:area|base|br|col|embed|hr|img|input|keygen|link|menuitem|meta|param|source|track|wbr))([_:\\w][_:\\w-.\\d]*)([^/>]*(?!\\/)>)[^<]*$",
+                            "flags": "i"
+                        },
+                        "afterText": {
+                            "source": "^<\\/([_:\\w][_:\\w-.\\d]*)\\s*>$",
+                            "flags": "i"
+                        },
+                        "action": {
+                            "indentAction": "IndentOutdent"
+                        }
+                    },
+                    {
+                        "beforeText": {
+                            "source": "<(?!(?:area|base|br|col|embed|hr|img|input|keygen|link|menuitem|meta|param|source|track|wbr))(\\w[\\w\\d]*)([^/>]*(?!\\/)>)[^<]*$",
+                            "flags": "i"
+                        },
+                        "action": {
+                            "indentAction": "Indent"
+                        }
+                    }
+                ],
+                "folding": {
+                    "markers": {
+                        "start": {
+                            "source": "^\\s*<!--\\s*#region\\b.*-->",
+                            "flags": ""
+                        },
+                        "end": {
+                            "source": "^\\s*<!--\\s*#endregion\\b.*-->",
+                            "flags": ""
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "languageId": "css",
+            "monacoModule": "languages/definitions/css/css.js",
+            "configuration": {
+                "wordPattern": {
+                    "source": "(#?-?\\d*\\.\\d\\w*%?)|((::|[@#.!:])?[\\w-?]+%?)|::|[@#.!:]",
+                    "flags": "g"
+                },
+                "comments": {
+                    "blockComment": [
+                        "/*",
+                        "*/"
+                    ]
+                },
+                "brackets": [
+                    [
+                        "{",
+                        "}"
+                    ],
+                    [
+                        "[",
+                        "]"
+                    ],
+                    [
+                        "(",
+                        ")"
+                    ]
+                ],
+                "autoClosingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}",
+                        "notIn": [
+                            "string",
+                            "comment"
+                        ]
+                    },
+                    {
+                        "open": "[",
+                        "close": "]",
+                        "notIn": [
+                            "string",
+                            "comment"
+                        ]
+                    },
+                    {
+                        "open": "(",
+                        "close": ")",
+                        "notIn": [
+                            "string",
+                            "comment"
+                        ]
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\"",
+                        "notIn": [
+                            "string",
+                            "comment"
+                        ]
+                    },
+                    {
+                        "open": "'",
+                        "close": "'",
+                        "notIn": [
+                            "string",
+                            "comment"
+                        ]
+                    }
+                ],
+                "surroundingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    }
+                ],
+                "folding": {
+                    "markers": {
+                        "start": {
+                            "source": "^\\s*\\/\\*\\s*#region\\b\\s*(.*?)\\s*\\*\\/",
+                            "flags": ""
+                        },
+                        "end": {
+                            "source": "^\\s*\\/\\*\\s*#endregion\\b.*\\*\\/",
+                            "flags": ""
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "languageId": "scss",
+            "monacoModule": "languages/definitions/scss/scss.js",
+            "configuration": {
+                "wordPattern": {
+                    "source": "(#?-?\\d*\\.\\d\\w*%?)|([@$#!.:]?[\\w-?]+%?)|[@#!.]",
+                    "flags": "g"
+                },
+                "comments": {
+                    "blockComment": [
+                        "/*",
+                        "*/"
+                    ],
+                    "lineComment": "//"
+                },
+                "brackets": [
+                    [
+                        "{",
+                        "}"
+                    ],
+                    [
+                        "[",
+                        "]"
+                    ],
+                    [
+                        "(",
+                        ")"
+                    ]
+                ],
+                "autoClosingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}",
+                        "notIn": [
+                            "string",
+                            "comment"
+                        ]
+                    },
+                    {
+                        "open": "[",
+                        "close": "]",
+                        "notIn": [
+                            "string",
+                            "comment"
+                        ]
+                    },
+                    {
+                        "open": "(",
+                        "close": ")",
+                        "notIn": [
+                            "string",
+                            "comment"
+                        ]
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\"",
+                        "notIn": [
+                            "string",
+                            "comment"
+                        ]
+                    },
+                    {
+                        "open": "'",
+                        "close": "'",
+                        "notIn": [
+                            "string",
+                            "comment"
+                        ]
+                    }
+                ],
+                "surroundingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    }
+                ],
+                "folding": {
+                    "markers": {
+                        "start": {
+                            "source": "^\\s*\\/\\*\\s*#region\\b\\s*(.*?)\\s*\\*\\/",
+                            "flags": ""
+                        },
+                        "end": {
+                            "source": "^\\s*\\/\\*\\s*#endregion\\b.*\\*\\/",
+                            "flags": ""
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "languageId": "python",
+            "monacoModule": "languages/definitions/python/python.js",
+            "configuration": {
+                "comments": {
+                    "lineComment": "#",
+                    "blockComment": [
+                        "'''",
+                        "'''"
+                    ]
+                },
+                "brackets": [
+                    [
+                        "{",
+                        "}"
+                    ],
+                    [
+                        "[",
+                        "]"
+                    ],
+                    [
+                        "(",
+                        ")"
+                    ]
+                ],
+                "autoClosingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\"",
+                        "notIn": [
+                            "string"
+                        ]
+                    },
+                    {
+                        "open": "'",
+                        "close": "'",
+                        "notIn": [
+                            "string",
+                            "comment"
+                        ]
+                    }
+                ],
+                "surroundingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    }
+                ],
+                "onEnterRules": [
+                    {
+                        "beforeText": {
+                            "source": "^\\s*(?:def|class|for|if|elif|else|while|try|with|finally|except|async|match|case).*?:\\s*$",
+                            "flags": ""
+                        },
+                        "action": {
+                            "indentAction": "Indent"
+                        }
+                    }
+                ],
+                "folding": {
+                    "offSide": true,
+                    "markers": {
+                        "start": {
+                            "source": "^\\s*#region\\b",
+                            "flags": ""
+                        },
+                        "end": {
+                            "source": "^\\s*#endregion\\b",
+                            "flags": ""
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "languageId": "go",
+            "monacoModule": "languages/definitions/go/go.js",
+            "configuration": {
+                "comments": {
+                    "lineComment": "//",
+                    "blockComment": [
+                        "/*",
+                        "*/"
+                    ]
+                },
+                "brackets": [
+                    [
+                        "{",
+                        "}"
+                    ],
+                    [
+                        "[",
+                        "]"
+                    ],
+                    [
+                        "(",
+                        ")"
+                    ]
+                ],
+                "autoClosingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "`",
+                        "close": "`",
+                        "notIn": [
+                            "string"
+                        ]
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\"",
+                        "notIn": [
+                            "string"
+                        ]
+                    },
+                    {
+                        "open": "'",
+                        "close": "'",
+                        "notIn": [
+                            "string",
+                            "comment"
+                        ]
+                    }
+                ],
+                "surroundingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "`",
+                        "close": "`"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    }
+                ]
+            }
+        },
+        {
+            "languageId": "shellscript",
+            "monacoModule": null,
+            "configuration": null
+        },
+        {
+            "languageId": "java",
+            "monacoModule": "languages/definitions/java/java.js",
+            "configuration": {
+                "wordPattern": {
+                    "source": "(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\#\\%\\^\\&\\*\\(\\)\\-\\=\\+\\[\\{\\]\\}\\\\\\|\\;\\:\\'\\\"\\,\\.\\<\\>\\/\\?\\s]+)",
+                    "flags": "g"
+                },
+                "comments": {
+                    "lineComment": "//",
+                    "blockComment": [
+                        "/*",
+                        "*/"
+                    ]
+                },
+                "brackets": [
+                    [
+                        "{",
+                        "}"
+                    ],
+                    [
+                        "[",
+                        "]"
+                    ],
+                    [
+                        "(",
+                        ")"
+                    ]
+                ],
+                "autoClosingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    }
+                ],
+                "surroundingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    },
+                    {
+                        "open": "<",
+                        "close": ">"
+                    }
+                ],
+                "folding": {
+                    "markers": {
+                        "start": {
+                            "source": "^\\s*\\/\\/\\s*(?:(?:#?region\\b)|(?:<editor-fold\\b))",
+                            "flags": ""
+                        },
+                        "end": {
+                            "source": "^\\s*\\/\\/\\s*(?:(?:#?endregion\\b)|(?:<\\/editor-fold>))",
+                            "flags": ""
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "languageId": "ruby",
+            "monacoModule": "languages/definitions/ruby/ruby.js",
+            "configuration": {
+                "comments": {
+                    "lineComment": "#",
+                    "blockComment": [
+                        "=begin",
+                        "=end"
+                    ]
+                },
+                "brackets": [
+                    [
+                        "(",
+                        ")"
+                    ],
+                    [
+                        "{",
+                        "}"
+                    ],
+                    [
+                        "[",
+                        "]"
+                    ]
+                ],
+                "autoClosingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    }
+                ],
+                "surroundingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    }
+                ],
+                "indentationRules": {
+                    "increaseIndentPattern": {
+                        "source": "^\\s*((begin|class|(private|protected)\\s+def|def|else|elsif|ensure|for|if|module|rescue|unless|until|when|while|case)|([^#]*\\sdo\\b)|([^#]*=\\s*(case|if|unless)))\\b([^#\\{;]|(\"|'|\\/).*\\4)*(#.*)?$",
+                        "flags": ""
+                    },
+                    "decreaseIndentPattern": {
+                        "source": "^\\s*([}\\]]([,)]?\\s*(#|$)|\\.[a-zA-Z_]\\w*\\b)|(end|rescue|ensure|else|elsif|when)\\b)",
+                        "flags": ""
+                    }
+                }
+            }
+        },
+        {
+            "languageId": "erb",
+            "monacoModule": null,
+            "configuration": null
+        },
+        {
+            "languageId": "dart",
+            "monacoModule": "languages/definitions/dart/dart.js",
+            "configuration": {
+                "comments": {
+                    "lineComment": "//",
+                    "blockComment": [
+                        "/*",
+                        "*/"
+                    ]
+                },
+                "brackets": [
+                    [
+                        "{",
+                        "}"
+                    ],
+                    [
+                        "[",
+                        "]"
+                    ],
+                    [
+                        "(",
+                        ")"
+                    ]
+                ],
+                "autoClosingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "'",
+                        "close": "'",
+                        "notIn": [
+                            "string",
+                            "comment"
+                        ]
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\"",
+                        "notIn": [
+                            "string"
+                        ]
+                    },
+                    {
+                        "open": "`",
+                        "close": "`",
+                        "notIn": [
+                            "string",
+                            "comment"
+                        ]
+                    },
+                    {
+                        "open": "/**",
+                        "close": " */",
+                        "notIn": [
+                            "string"
+                        ]
+                    }
+                ],
+                "surroundingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "<",
+                        "close": ">"
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "`",
+                        "close": "`"
+                    }
+                ],
+                "folding": {
+                    "markers": {
+                        "start": {
+                            "source": "^\\s*\\s*#?region\\b",
+                            "flags": ""
+                        },
+                        "end": {
+                            "source": "^\\s*\\s*#?endregion\\b",
+                            "flags": ""
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "languageId": "swift",
+            "monacoModule": "languages/definitions/swift/swift.js",
+            "configuration": {
+                "comments": {
+                    "lineComment": "//",
+                    "blockComment": [
+                        "/*",
+                        "*/"
+                    ]
+                },
+                "brackets": [
+                    [
+                        "{",
+                        "}"
+                    ],
+                    [
+                        "[",
+                        "]"
+                    ],
+                    [
+                        "(",
+                        ")"
+                    ]
+                ],
+                "autoClosingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    },
+                    {
+                        "open": "`",
+                        "close": "`"
+                    }
+                ],
+                "surroundingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    },
+                    {
+                        "open": "`",
+                        "close": "`"
+                    }
+                ]
+            }
+        },
+        {
+            "languageId": "scala",
+            "monacoModule": "languages/definitions/scala/scala.js",
+            "configuration": {
+                "wordPattern": {
+                    "source": "(unary_[@~!#%^&*()\\-=+\\\\|:<>\\/?]+)|([a-zA-Z_$][\\w$]*?_=)|(`[^`]+`)|([a-zA-Z_$][\\w$]*)",
+                    "flags": "g"
+                },
+                "comments": {
+                    "lineComment": "//",
+                    "blockComment": [
+                        "/*",
+                        "*/"
+                    ]
+                },
+                "brackets": [
+                    [
+                        "{",
+                        "}"
+                    ],
+                    [
+                        "[",
+                        "]"
+                    ],
+                    [
+                        "(",
+                        ")"
+                    ]
+                ],
+                "autoClosingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    }
+                ],
+                "surroundingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    }
+                ],
+                "folding": {
+                    "markers": {
+                        "start": {
+                            "source": "^\\s*\\/\\/\\s*(?:(?:#?region\\b)|(?:<editor-fold\\b))",
+                            "flags": ""
+                        },
+                        "end": {
+                            "source": "^\\s*\\/\\/\\s*(?:(?:#?endregion\\b)|(?:<\\/editor-fold>))",
+                            "flags": ""
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "languageId": "elixir",
+            "monacoModule": "languages/definitions/elixir/elixir.js",
+            "configuration": {
+                "comments": {
+                    "lineComment": "#"
+                },
+                "brackets": [
+                    [
+                        "{",
+                        "}"
+                    ],
+                    [
+                        "[",
+                        "]"
+                    ],
+                    [
+                        "(",
+                        ")"
+                    ]
+                ],
+                "surroundingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    }
+                ],
+                "autoClosingPairs": [
+                    {
+                        "open": "'",
+                        "close": "'",
+                        "notIn": [
+                            "string",
+                            "comment"
+                        ]
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\"",
+                        "notIn": [
+                            "comment"
+                        ]
+                    },
+                    {
+                        "open": "\"\"\"",
+                        "close": "\"\"\""
+                    },
+                    {
+                        "open": "`",
+                        "close": "`",
+                        "notIn": [
+                            "string",
+                            "comment"
+                        ]
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "<<",
+                        "close": ">>"
+                    }
+                ],
+                "indentationRules": {
+                    "increaseIndentPattern": {
+                        "source": "^\\s*(after|else|catch|rescue|fn|[^#]*(do|<\\-|\\->|\\{|\\[|\\=))\\s*$",
+                        "flags": ""
+                    },
+                    "decreaseIndentPattern": {
+                        "source": "^\\s*((\\}|\\])\\s*$|(after|else|catch|rescue|end)\\b)",
+                        "flags": ""
+                    }
+                }
+            }
+        },
+        {
+            "languageId": "heex",
+            "monacoModule": null,
+            "configuration": null
+        },
+        {
+            "languageId": "haskell",
+            "monacoModule": null,
+            "configuration": null
+        },
+        {
+            "languageId": "c",
+            "monacoModule": "languages/definitions/cpp/cpp.js",
+            "configuration": {
+                "comments": {
+                    "lineComment": "//",
+                    "blockComment": [
+                        "/*",
+                        "*/"
+                    ]
+                },
+                "brackets": [
+                    [
+                        "{",
+                        "}"
+                    ],
+                    [
+                        "[",
+                        "]"
+                    ],
+                    [
+                        "(",
+                        ")"
+                    ]
+                ],
+                "autoClosingPairs": [
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "'",
+                        "close": "'",
+                        "notIn": [
+                            "string",
+                            "comment"
+                        ]
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\"",
+                        "notIn": [
+                            "string"
+                        ]
+                    }
+                ],
+                "surroundingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    }
+                ],
+                "folding": {
+                    "markers": {
+                        "start": {
+                            "source": "^\\s*#pragma\\s+region\\b",
+                            "flags": ""
+                        },
+                        "end": {
+                            "source": "^\\s*#pragma\\s+endregion\\b",
+                            "flags": ""
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "languageId": "cpp",
+            "monacoModule": "languages/definitions/cpp/cpp.js",
+            "configuration": {
+                "comments": {
+                    "lineComment": "//",
+                    "blockComment": [
+                        "/*",
+                        "*/"
+                    ]
+                },
+                "brackets": [
+                    [
+                        "{",
+                        "}"
+                    ],
+                    [
+                        "[",
+                        "]"
+                    ],
+                    [
+                        "(",
+                        ")"
+                    ]
+                ],
+                "autoClosingPairs": [
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "'",
+                        "close": "'",
+                        "notIn": [
+                            "string",
+                            "comment"
+                        ]
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\"",
+                        "notIn": [
+                            "string"
+                        ]
+                    }
+                ],
+                "surroundingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    }
+                ],
+                "folding": {
+                    "markers": {
+                        "start": {
+                            "source": "^\\s*#pragma\\s+region\\b",
+                            "flags": ""
+                        },
+                        "end": {
+                            "source": "^\\s*#pragma\\s+endregion\\b",
+                            "flags": ""
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "languageId": "kotlin",
+            "monacoModule": "languages/definitions/kotlin/kotlin.js",
+            "configuration": {
+                "wordPattern": {
+                    "source": "(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\#\\%\\^\\&\\*\\(\\)\\-\\=\\+\\[\\{\\]\\}\\\\\\|\\;\\:\\'\\\"\\,\\.\\<\\>\\/\\?\\s]+)",
+                    "flags": "g"
+                },
+                "comments": {
+                    "lineComment": "//",
+                    "blockComment": [
+                        "/*",
+                        "*/"
+                    ]
+                },
+                "brackets": [
+                    [
+                        "{",
+                        "}"
+                    ],
+                    [
+                        "[",
+                        "]"
+                    ],
+                    [
+                        "(",
+                        ")"
+                    ]
+                ],
+                "autoClosingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    }
+                ],
+                "surroundingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    },
+                    {
+                        "open": "<",
+                        "close": ">"
+                    }
+                ],
+                "folding": {
+                    "markers": {
+                        "start": {
+                            "source": "^\\s*\\/\\/\\s*(?:(?:#?region\\b)|(?:<editor-fold\\b))",
+                            "flags": ""
+                        },
+                        "end": {
+                            "source": "^\\s*\\/\\/\\s*(?:(?:#?endregion\\b)|(?:<\\/editor-fold>))",
+                            "flags": ""
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "languageId": "lua",
+            "monacoModule": "languages/definitions/lua/lua.js",
+            "configuration": {
+                "comments": {
+                    "lineComment": "--",
+                    "blockComment": [
+                        "--[[",
+                        "]]"
+                    ]
+                },
+                "brackets": [
+                    [
+                        "{",
+                        "}"
+                    ],
+                    [
+                        "[",
+                        "]"
+                    ],
+                    [
+                        "(",
+                        ")"
+                    ]
+                ],
+                "autoClosingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    }
+                ],
+                "surroundingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    },
+                    {
+                        "open": "'",
+                        "close": "'"
+                    }
+                ]
+            }
+        },
+        {
+            "languageId": "zig",
+            "monacoModule": null,
+            "configuration": null
+        },
+        {
+            "languageId": "hcl",
+            "monacoModule": "languages/definitions/hcl/hcl.js",
+            "configuration": {
+                "comments": {
+                    "lineComment": "#",
+                    "blockComment": [
+                        "/*",
+                        "*/"
+                    ]
+                },
+                "brackets": [
+                    [
+                        "{",
+                        "}"
+                    ],
+                    [
+                        "[",
+                        "]"
+                    ],
+                    [
+                        "(",
+                        ")"
+                    ]
+                ],
+                "autoClosingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\"",
+                        "notIn": [
+                            "string"
+                        ]
+                    }
+                ],
+                "surroundingPairs": [
+                    {
+                        "open": "{",
+                        "close": "}"
+                    },
+                    {
+                        "open": "[",
+                        "close": "]"
+                    },
+                    {
+                        "open": "(",
+                        "close": ")"
+                    },
+                    {
+                        "open": "\"",
+                        "close": "\""
+                    }
+                ]
+            }
+        }
+    ]
+}

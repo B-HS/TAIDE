@@ -65,7 +65,7 @@ pub fn run(
     Ok(output)
 }
 
-fn trim_trailing_whitespace(
+pub(crate) fn trim_trailing_whitespace(
     store: &mut EditorStore,
     document: DocumentId,
     view: ViewId,
@@ -136,7 +136,7 @@ fn trim_trailing_whitespace(
     Ok(true)
 }
 
-fn insert_final_newline(
+pub(crate) fn insert_final_newline(
     store: &mut EditorStore,
     document: DocumentId,
     view: ViewId,

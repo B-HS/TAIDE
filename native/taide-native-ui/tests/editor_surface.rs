@@ -16,6 +16,10 @@ use taide_native_editor::decoration::{
 use taide_native_editor::document::{Edit, EditorError, UndoGroup};
 use taide_native_editor::folding::FoldCommand;
 use taide_native_editor::indent::IndentOptions;
+use taide_native_editor::language_configuration::{
+    AutoClosingPair, BracketPair, CharacterPairs, EnterAction, FoldMarker, IndentAction,
+    IndentMetadata, Language, LanguageRules, UntokenizedLines,
+};
 use taide_native_editor::line_breaks::{WrapSettings, WrappingIndent, create_line_breaks};
 use taide_native_editor::line_tokens::{LineTokens, TokenStyle, TokenStyleTable};
 use taide_native_editor::store::{EditorLimits, EditorStore, Transaction};
@@ -3580,6 +3584,7 @@ fn show_decorated(
                         route: |_: &Response| None,
                         presentation,
                         tokens: |_: &EditorStore| None,
+                        language: None,
                         decorations: layers,
                         fold_commands: &[],
                         fold_controls: None,
@@ -4857,6 +4862,7 @@ struct FoldFrame<'a> {
     modifiers: Modifiers,
     time: Option<f64>,
     tokens: Option<EditorTokens<'a>>,
+    language: Option<Language<'a>>,
     decorations: &'a [&'a DecorationLayer],
 }
 
@@ -4869,6 +4875,7 @@ impl<'a> FoldFrame<'a> {
             modifiers: Modifiers::NONE,
             time: None,
             tokens: None,
+            language: None,
             decorations: &[],
         }
     }
@@ -4915,6 +4922,7 @@ fn show_folding(
                         route: |_: &Response| None,
                         presentation: frame.presentation,
                         tokens: |_: &EditorStore| frame.tokens,
+                        language: frame.language,
                         decorations: frame.decorations,
                         fold_commands: frame.commands,
                         fold_controls: Some(&mut record),
@@ -5937,5 +5945,273 @@ fn 접힌_상태의_토큰과_장식과_현재_줄_강조와_ime_좌표와_드�
                 )
             ),
         ]
+    );
+}
+
+const BRACE_BRACKETS: [char; 4] = ['{', '}', '(', ')'];
+const BRACE_AUTO_CLOSE_BEFORE: &str = ";:.,=}])> \n\t";
+const REGION_START: &str = "#region";
+const REGION_END: &str = "#endregion";
+
+struct BraceRules {
+    pairs: CharacterPairs,
+}
+
+fn brace_rules() -> BraceRules {
+    let pair = |open: &str, close: &str| BracketPair {
+        open: open.into(),
+        close: close.into(),
+    };
+    BraceRules {
+        pairs: CharacterPairs {
+            brackets: vec![pair("{", "}"), pair("(", ")")],
+            auto_closing_pairs: [("{", "}"), ("(", ")"), ("\"", "\"")]
+                .map(|(open, close)| AutoClosingPair {
+                    open: open.into(),
+                    close: close.into(),
+                    excluded_tokens: Vec::new(),
+                })
+                .into(),
+            surrounding_pairs: vec![pair("(", ")")],
+            auto_close_before_quotes: BRACE_AUTO_CLOSE_BEFORE.into(),
+            auto_close_before_brackets: BRACE_AUTO_CLOSE_BEFORE.into(),
+            block_comment_start: None,
+        },
+    }
+}
+
+impl LanguageRules for BraceRules {
+    fn pairs(&self) -> &CharacterPairs {
+        &self.pairs
+    }
+
+    fn enter_action(&self, _: &str, before_enter: &str, after_enter: &str) -> Option<EnterAction> {
+        let indent_action = if after_enter.trim_start().starts_with('}') {
+            IndentAction::IndentOutdent
+        } else {
+            IndentAction::Indent
+        };
+        before_enter
+            .trim_end()
+            .ends_with('{')
+            .then_some(EnterAction {
+                indent_action,
+                append_text: None,
+                remove_text: None,
+            })
+    }
+
+    fn indent_metadata(&self, _: &str) -> Option<IndentMetadata> {
+        None
+    }
+
+    fn without_brackets(&self, text: &str) -> String {
+        text.replace(BRACE_BRACKETS, "")
+    }
+
+    fn bracket_ranges(&self, line: &str) -> Vec<std::ops::Range<usize>> {
+        line.match_indices(BRACE_BRACKETS)
+            .map(|(start, bracket)| start..start + bracket.len())
+            .collect()
+    }
+
+    fn last_bracket(&self, text: &str) -> Option<std::ops::Range<usize>> {
+        text.rmatch_indices(BRACE_BRACKETS)
+            .next()
+            .map(|(start, bracket)| start..start + bracket.len())
+    }
+
+    fn is_off_side(&self) -> bool {
+        false
+    }
+
+    fn fold_marker(&self, line: &str) -> Option<FoldMarker> {
+        if line.starts_with(REGION_START) {
+            Some(FoldMarker::Start)
+        } else {
+            line.starts_with(REGION_END).then_some(FoldMarker::End)
+        }
+    }
+
+    fn starts_marker_region(&self, line: &str) -> bool {
+        line.starts_with(REGION_START)
+    }
+}
+
+fn type_in_language(
+    context: &Context,
+    store: &mut EditorStore,
+    view: ViewId,
+    rules: &BraceRules,
+    events: Vec<Event>,
+) -> (String, (usize, usize)) {
+    let presentation = folding_presentation(false);
+    show_folding(
+        context,
+        store,
+        view,
+        FoldFrame {
+            events,
+            language: Some(Language {
+                rules,
+                syntax: &UntokenizedLines,
+            }),
+            ..FoldFrame::idle(&presentation)
+        },
+    );
+    (text(store, view), selection(store, view))
+}
+
+#[test]
+fn 언어_구성이_있으면_입력이_괄호_쌍과_enter_들여쓰기를_따른다() {
+    let rules = brace_rules();
+    let context = Context::default();
+    let (mut store, view) = fixture("run", false);
+    place_caret(&mut store, view, 3);
+    let mut press =
+        |events: Vec<Event>| type_in_language(&context, &mut store, view, &rules, events);
+    press(Vec::new());
+    assert_eq!(
+        press(vec![Event::Text("{".into())]),
+        ("run{}".into(), (4, 4))
+    );
+    assert_eq!(
+        press(vec![key(Key::Enter, false)]),
+        ("run{\n    \n}".into(), (9, 9))
+    );
+    assert_eq!(
+        press(vec![Event::Text("(".into()), Event::Text(")".into())]),
+        ("run{\n    ()\n}".into(), (11, 11))
+    );
+    assert_eq!(
+        press(vec![Event::Text("(".into())]),
+        ("run{\n    ()()\n}".into(), (12, 12))
+    );
+    assert_eq!(
+        press(vec![key(Key::Backspace, false)]),
+        ("run{\n    ()\n}".into(), (11, 11))
+    );
+    assert_eq!(
+        press(vec![Event::Text("}".into())]),
+        ("run{\n    ()}\n}".into(), (12, 12))
+    );
+}
+
+#[test]
+fn 캐럿이_자동으로_닫은_짝을_벗어나면_다음_프레임에도_덮어쓰지_않는다() {
+    let rules = brace_rules();
+    let context = Context::default();
+    let (mut store, view) = fixture("run", false);
+    place_caret(&mut store, view, 3);
+    let mut press =
+        |events: Vec<Event>| type_in_language(&context, &mut store, view, &rules, events);
+    press(Vec::new());
+    assert_eq!(
+        press(vec![Event::Text("(".into())]),
+        ("run()".into(), (4, 4))
+    );
+    assert_eq!(
+        press(vec![
+            key(Key::ArrowLeft, false),
+            key(Key::ArrowRight, false),
+            Event::Text(")".into())
+        ]),
+        ("run())".into(), (5, 5))
+    );
+}
+
+#[test]
+fn 공백뿐인_줄의_닫는_괄호_입력은_여는_줄의_들여쓰기로_맞춘다() {
+    let rules = brace_rules();
+    let context = Context::default();
+    let (mut store, view) = fixture("run {\n    work\n    ", false);
+    place_caret(&mut store, view, 19);
+    let mut press =
+        |events: Vec<Event>| type_in_language(&context, &mut store, view, &rules, events);
+    press(Vec::new());
+    assert_eq!(
+        press(vec![Event::Text("}".into())]),
+        ("run {\n    work\n}".into(), (16, 16))
+    );
+}
+
+#[test]
+fn 조합이_끝난_한_글자도_짝을_닫고_언어_구성이_없으면_그대로_넣는다() {
+    let rules = brace_rules();
+    let context = Context::default();
+    let (mut store, view) = fixture("x = ", false);
+    place_caret(&mut store, view, 4);
+    let composed = |text: &str| {
+        vec![
+            Event::Ime(ImeEvent::Preedit {
+                text: text.into(),
+                active_range_chars: None,
+            }),
+            Event::Ime(ImeEvent::Commit(text.into())),
+        ]
+    };
+    type_in_language(&context, &mut store, view, &rules, Vec::new());
+    assert_eq!(
+        type_in_language(&context, &mut store, view, &rules, composed("\"")),
+        ("x = \"\"".into(), (5, 5))
+    );
+    assert_eq!(
+        type_in_language(&context, &mut store, view, &rules, composed("한")),
+        ("x = \"한\"".into(), (8, 8))
+    );
+
+    let (mut plain, plain_view) = fixture("x = ", false);
+    place_caret(&mut plain, plain_view, 4);
+    let presentation = folding_presentation(false);
+    press_keys(&context, &mut plain, plain_view, &presentation, Vec::new());
+    press_keys(
+        &context,
+        &mut plain,
+        plain_view,
+        &presentation,
+        [
+            composed("\""),
+            vec![Event::Text("{".into()), key(Key::Enter, false)],
+        ]
+        .concat(),
+    );
+    assert_eq!(text(&plain, plain_view), "x = \"{\n");
+}
+
+#[test]
+fn 표식_접기_명령은_언어_구성의_시작_표식_영역을_접는다() {
+    let rules = brace_rules();
+    let context = Context::default();
+    let content = "#region a\nx\n#endregion\nrun {\n    work\n}";
+    let (mut store, view) = fixture(content, false);
+    place_caret(&mut store, view, 0);
+    let presentation = folding_presentation(false);
+    let mut run = |commands: &[FoldCommand], language: Option<Language<'_>>| {
+        show_folding(
+            &context,
+            &mut store,
+            view,
+            FoldFrame {
+                commands,
+                language,
+                ..FoldFrame::idle(&presentation)
+            },
+        );
+        folds(&store, view)
+    };
+    let language = Language {
+        rules: &rules,
+        syntax: &UntokenizedLines,
+    };
+    let unfolded = Vec::<std::ops::Range<usize>>::new();
+    assert_eq!(run(&[FoldCommand::FoldAllMarkerRegions], None), unfolded);
+    let marker_fold = content.find("x\n").unwrap()..content.find("\nrun").unwrap();
+    assert_eq!(
+        run(&[FoldCommand::FoldAllMarkerRegions], Some(language)),
+        [marker_fold]
+    );
+    assert_eq!(
+        run(&[FoldCommand::UnfoldAllMarkerRegions], Some(language)),
+        unfolded
     );
 }

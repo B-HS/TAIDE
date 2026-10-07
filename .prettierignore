@@ -10,3 +10,4 @@ src/shared/api/bindings.ts
 bun.lock
 native/taide-native-syntax/grammars
 native/taide-native-syntax/tests/fixtures
+native/taide-native-syntax/language-configurations

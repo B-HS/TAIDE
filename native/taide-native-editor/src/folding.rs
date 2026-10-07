@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::iter::successors;
 use std::ops::{Range, RangeInclusive};
 
@@ -7,7 +8,8 @@ use crate::change_journal::ChangeSet;
 use crate::decoration::{Decoration, DecorationKind, DecorationLayer, InlineStyle, Stickiness};
 use crate::display_map::merged_line_ranges;
 use crate::document::{DocumentSnapshot, EditorError};
-use crate::editing::rope_line_content_range;
+use crate::editing::{line_text, rope_line_content_range};
+use crate::language_configuration::{FoldMarker, LanguageRules, is_js_whitespace};
 use crate::store::EditorStore;
 use crate::view::{Selection, SelectionSet, ViewId, ViewState};
 
@@ -16,6 +18,7 @@ const MAX_FOLDABLE_LINE: usize = 0xFF_FFFF;
 const COUNTED_INDENT_LIMIT: usize = 1000;
 const TRACKED_RANGE_Z_ORDER: u8 = 0;
 const SINGLE_LEVEL: usize = 1;
+const LINE_BREAK_CHARACTERS: [char; 2] = ['\n', '\r'];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FoldRegion {
@@ -44,6 +47,9 @@ pub enum FoldCommand {
     GotoParentFold,
     GotoPreviousFold,
     GotoNextFold,
+    FoldAllBlockComments,
+    FoldAllMarkerRegions,
+    UnfoldAllMarkerRegions,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,9 +66,17 @@ pub struct FoldClick {
     pub toggle: FoldToggle,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OpenLevel {
+    Sentinel,
+    EndMarker,
+    Indent(usize),
+}
+
 struct OpenIndent {
-    indent: Option<usize>,
+    level: OpenLevel,
     ends_above: usize,
+    line: usize,
 }
 
 fn indent_level(line: RopeSlice<'_>, tab_size: usize) -> Option<usize> {
@@ -79,46 +93,106 @@ fn indent_level(line: RopeSlice<'_>, tab_size: usize) -> Option<usize> {
 }
 
 pub fn indent_regions(rope: &Rope, tab_size: u32, limit: usize) -> Vec<FoldRegion> {
+    fold_regions(rope, tab_size, limit, None)
+}
+
+pub fn language_regions(
+    rope: &Rope,
+    tab_size: u32,
+    limit: usize,
+    rules: &dyn LanguageRules,
+) -> Vec<FoldRegion> {
+    fold_regions(rope, tab_size, limit, Some(rules))
+}
+
+fn fold_regions(
+    rope: &Rope,
+    tab_size: u32,
+    limit: usize,
+    rules: Option<&dyn LanguageRules>,
+) -> Vec<FoldRegion> {
     let tab_size = (tab_size as usize).max(1);
     let line_count = rope.len_lines();
+    let is_off_side = rules.is_some_and(LanguageRules::is_off_side);
     let mut found: Vec<(FoldRegion, usize)> = Vec::new();
     let mut indent_occurrences: Vec<usize> = Vec::new();
+    let mut record = |start_line: usize, end_line: usize, indent: usize| {
+        if end_line >= MAX_FOLDABLE_LINE {
+            return;
+        }
+        let region = FoldRegion {
+            start_line,
+            end_line,
+        };
+        found.push((region, indent));
+        if indent < COUNTED_INDENT_LIMIT {
+            if indent_occurrences.len() <= indent {
+                indent_occurrences.resize(indent + 1, 0);
+            }
+            indent_occurrences[indent] += 1;
+        }
+    };
     let mut open = vec![OpenIndent {
-        indent: None,
+        level: OpenLevel::Sentinel,
         ends_above: line_count,
+        line: line_count,
     }];
     let lines = (0..line_count)
         .rev()
         .zip(rope.lines_at(line_count).reversed());
     for (line, content) in lines {
         let Some(indent) = indent_level(content, tab_size) else {
+            if is_off_side && let Some(previous) = open.last_mut() {
+                previous.ends_above = line;
+            }
             continue;
         };
-        let is_deeper = |open: &OpenIndent| open.indent.is_some_and(|open| open > indent);
+        let marker = rules.and_then(|rules| {
+            let text = Cow::from(content);
+            rules.fold_marker(text.trim_end_matches(LINE_BREAK_CHARACTERS))
+        });
+        match marker {
+            Some(FoldMarker::Start) => {
+                let end_marker = open
+                    .iter()
+                    .rposition(|open| open.level == OpenLevel::EndMarker);
+                if let Some(index) = end_marker {
+                    open.truncate(index + 1);
+                    let closed = &mut open[index];
+                    record(line, closed.line, indent);
+                    closed.line = line;
+                    closed.level = OpenLevel::Indent(indent);
+                    closed.ends_above = line;
+                    continue;
+                }
+            }
+            Some(FoldMarker::End) => {
+                open.push(OpenIndent {
+                    level: OpenLevel::EndMarker,
+                    ends_above: line,
+                    line,
+                });
+                continue;
+            }
+            None => {}
+        }
+        let is_deeper =
+            |open: &OpenIndent| matches!(open.level, OpenLevel::Indent(open) if open > indent);
         if open.last().is_some_and(is_deeper) {
             while open.last().is_some_and(is_deeper) {
                 open.pop();
             }
             let end_line = open.last().map_or(line, |outer| outer.ends_above - 1);
-            if end_line > line && end_line < MAX_FOLDABLE_LINE {
-                let region = FoldRegion {
-                    start_line: line,
-                    end_line,
-                };
-                found.push((region, indent));
-                if indent < COUNTED_INDENT_LIMIT {
-                    if indent_occurrences.len() <= indent {
-                        indent_occurrences.resize(indent + 1, 0);
-                    }
-                    indent_occurrences[indent] += 1;
-                }
+            if end_line > line {
+                record(line, end_line, indent);
             }
         }
         match open.last_mut() {
-            Some(outer) if outer.indent == Some(indent) => outer.ends_above = line,
+            Some(outer) if outer.level == OpenLevel::Indent(indent) => outer.ends_above = line,
             _ => open.push(OpenIndent {
-                indent: Some(indent),
+                level: OpenLevel::Indent(indent),
                 ends_above: line,
+                line,
             }),
         }
     }
@@ -517,8 +591,25 @@ impl FoldingModel {
             FoldCommand::GotoParentFold => return self.parent_fold_line(first?),
             FoldCommand::GotoPreviousFold => return self.previous_fold_line(first?),
             FoldCommand::GotoNextFold => return self.next_fold_line(first?),
+            FoldCommand::FoldAllBlockComments
+            | FoldCommand::FoldAllMarkerRegions
+            | FoldCommand::UnfoldAllMarkerRegions => false,
         };
         None
+    }
+
+    pub fn set_collapsed_where(
+        &mut self,
+        collapse: bool,
+        matches_header_line: impl Fn(usize) -> bool,
+    ) -> bool {
+        let toggled = (0..self.regions.len())
+            .filter(|index| {
+                self.collapsed[*index] != collapse
+                    && matches_header_line(self.regions[*index].start_line)
+            })
+            .collect();
+        self.toggle(toggled)
     }
 
     pub fn click(&mut self, click: FoldClick) -> bool {
@@ -734,6 +825,40 @@ pub fn run_fold_command(
         None => current.selection.clone(),
     };
     let folds = model.folds(rope);
+    store_folds(store, current, &document, folds, selection)
+}
+
+pub fn run_language_fold_command(
+    store: &mut EditorStore,
+    view: ViewId,
+    regions: &[FoldRegion],
+    command: FoldCommand,
+    rules: &dyn LanguageRules,
+) -> Result<bool, EditorError> {
+    let collapse = match command {
+        FoldCommand::FoldAllBlockComments | FoldCommand::FoldAllMarkerRegions => true,
+        FoldCommand::UnfoldAllMarkerRegions => false,
+        _ => return run_fold_command(store, view, regions, command),
+    };
+    let (current, document) = view_document(store, view)?;
+    let mut model = FoldingModel::new(regions, &document, &current.folds);
+    model.set_collapsed_where(collapse, |line| {
+        let header = line_text(&document, line).text;
+        if command != FoldCommand::FoldAllBlockComments {
+            return rules.starts_marker_region(&header);
+        }
+        rules
+            .pairs()
+            .block_comment_start
+            .as_deref()
+            .is_some_and(|start| {
+                header
+                    .trim_start_matches(is_js_whitespace)
+                    .starts_with(start)
+            })
+    });
+    let folds = model.folds(&document.rope);
+    let selection = current.selection.clone();
     store_folds(store, current, &document, folds, selection)
 }
 

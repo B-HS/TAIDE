@@ -1,0 +1,398 @@
+use std::ops::Range;
+
+use taide_model::file::{EditorConfigOptions, FileSizeTier, OpenedFile};
+use taide_model::ids::{PaneId, TabId};
+use taide_native_editor::auto_closing::AutoClosedPairs;
+use taide_native_editor::folding::{MAX_FOLDING_REGIONS, language_regions};
+use taide_native_editor::indent::IndentOptions;
+use taide_native_editor::language_configuration::{
+    AutoClosingPair, BracketPair, CharacterPairs, EnterAction, FoldMarker, IndentAction,
+    IndentMetadata, Language, LanguageRules, UntokenizedLines, is_js_whitespace, token_kind_at,
+    without_brackets_outside_code,
+};
+use taide_native_editor::language_typing::{Typing, insert_line_break, type_text};
+use taide_native_editor::store::{EditorLimits, EditorStore};
+use taide_native_editor::syntax::{Token, TokenKind};
+use taide_native_editor::view::{Selection, SelectionSet, ViewId, ViewKey};
+
+const DOCUMENT_LIMIT: usize = 2;
+const VIEW_LIMIT: usize = 4;
+const HISTORY_LIMIT: usize = 8;
+const BYTE_LIMIT: usize = 64 * 1024;
+const TAB_SIZE: u32 = 4;
+const SPACES: IndentOptions = IndentOptions {
+    tab_size: TAB_SIZE,
+    insert_spaces: true,
+};
+const TABS: IndentOptions = IndentOptions {
+    tab_size: TAB_SIZE,
+    insert_spaces: false,
+};
+const AUTO_CLOSE_BEFORE: &str = ";:.,=}])> \n\t";
+const BRACKETS: [char; 2] = ['{', '}'];
+const UNINDENTED_PREFIX: char = '#';
+const OUTDENT_KEYWORD: &str = "return";
+const LIST_MARKER: &str = "- ";
+const TRAILER: &str = "*/";
+const REGION_START: &str = "#region";
+const REGION_END: &str = "#endregion";
+
+#[derive(Default)]
+struct ScriptedRules {
+    pairs: CharacterPairs,
+    has_indentation_rules: bool,
+    is_off_side: bool,
+}
+
+impl LanguageRules for ScriptedRules {
+    fn pairs(&self) -> &CharacterPairs {
+        &self.pairs
+    }
+
+    fn enter_action(&self, _: &str, before_enter: &str, _: &str) -> Option<EnterAction> {
+        let action = |indent_action, append_text: Option<&str>, remove_text| EnterAction {
+            indent_action,
+            append_text: append_text.map(str::to_owned),
+            remove_text,
+        };
+        let content = before_enter.trim_start();
+        if content.starts_with(OUTDENT_KEYWORD) {
+            Some(action(IndentAction::Outdent, None, None))
+        } else if content.starts_with(LIST_MARKER) && content.ends_with(':') {
+            Some(action(IndentAction::Indent, Some(LIST_MARKER), None))
+        } else if content.ends_with(TRAILER) {
+            Some(action(
+                IndentAction::None,
+                None,
+                Some(TAB_SIZE as usize + 1),
+            ))
+        } else {
+            None
+        }
+    }
+
+    fn indent_metadata(&self, line: &str) -> Option<IndentMetadata> {
+        let content = line.trim();
+        self.has_indentation_rules.then(|| IndentMetadata {
+            increases: content.ends_with('{'),
+            decreases: content.starts_with('}'),
+            indents_next_line: content.ends_with(')'),
+            is_unindented: content.starts_with(UNINDENTED_PREFIX),
+        })
+    }
+
+    fn without_brackets(&self, text: &str) -> String {
+        text.replace(BRACKETS, "")
+    }
+
+    fn bracket_ranges(&self, line: &str) -> Vec<Range<usize>> {
+        line.match_indices(BRACKETS)
+            .map(|(start, bracket)| start..start + bracket.len())
+            .collect()
+    }
+
+    fn last_bracket(&self, text: &str) -> Option<Range<usize>> {
+        text.rmatch_indices(BRACKETS)
+            .next()
+            .map(|(start, bracket)| start..start + bracket.len())
+    }
+
+    fn is_off_side(&self) -> bool {
+        self.is_off_side
+    }
+
+    fn fold_marker(&self, line: &str) -> Option<FoldMarker> {
+        if line.starts_with(REGION_START) {
+            Some(FoldMarker::Start)
+        } else {
+            line.starts_with(REGION_END).then_some(FoldMarker::End)
+        }
+    }
+
+    fn starts_marker_region(&self, line: &str) -> bool {
+        line.starts_with(REGION_START)
+    }
+}
+
+fn pair(open: &str, close: &str) -> AutoClosingPair {
+    AutoClosingPair {
+        open: open.into(),
+        close: close.into(),
+        excluded_tokens: Vec::new(),
+    }
+}
+
+fn rules_with_pairs(auto_closing_pairs: Vec<AutoClosingPair>) -> ScriptedRules {
+    ScriptedRules {
+        pairs: CharacterPairs {
+            brackets: vec![BracketPair {
+                open: "{".into(),
+                close: "}".into(),
+            }],
+            auto_closing_pairs,
+            auto_close_before_quotes: AUTO_CLOSE_BEFORE.into(),
+            auto_close_before_brackets: AUTO_CLOSE_BEFORE.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+fn indentation_rules() -> ScriptedRules {
+    ScriptedRules {
+        has_indentation_rules: true,
+        ..rules_with_pairs(Vec::new())
+    }
+}
+
+fn fixture(text: &str, caret: usize) -> (EditorStore, ViewId) {
+    let mut store = EditorStore::new(EditorLimits {
+        max_documents: DOCUMENT_LIMIT,
+        max_views: VIEW_LIMIT,
+        max_undo_groups: HISTORY_LIMIT,
+        max_document_bytes: BYTE_LIMIT,
+    })
+    .unwrap();
+    let document = store
+        .open_file(
+            "/synthetic/language-typing.txt".into(),
+            OpenedFile {
+                path: "/synthetic/language-typing.txt".into(),
+                content: text.into(),
+                language_id: "plaintext".into(),
+                byte_size: text.len().try_into().unwrap(),
+                line_count: text.lines().count().try_into().unwrap(),
+                tier: FileSizeTier::Normal,
+                read_only: false,
+                encoding_lossy: false,
+                modified_ms: 1.0,
+                editor_config: EditorConfigOptions::default(),
+            },
+        )
+        .unwrap();
+    let view = store
+        .attach_view(
+            ViewKey {
+                window: "main".into(),
+                pane: PaneId::new(),
+                tab: TabId::new(),
+            },
+            document,
+        )
+        .unwrap();
+    let current = store.views().get(view).unwrap().clone();
+    store
+        .set_view_state(
+            view,
+            SelectionSet {
+                primary: 0,
+                selections: vec![Selection {
+                    anchor: caret,
+                    head: caret,
+                }],
+            },
+            current.scroll,
+            current.folds,
+        )
+        .unwrap();
+    (store, view)
+}
+
+fn marked(store: &EditorStore, view: ViewId) -> String {
+    let current = store.views().get(view).unwrap();
+    let mut text = store
+        .documents()
+        .snapshot(current.document)
+        .unwrap()
+        .rope
+        .to_string();
+    text.insert(current.selection.selections[0].head, '|');
+    text
+}
+
+fn entered(rules: &ScriptedRules, indent: IndentOptions, text: &str, caret: usize) -> String {
+    let (mut store, view) = fixture(text, caret);
+    let mut auto_closed = AutoClosedPairs::default();
+    let mut typing = Typing {
+        language: Some(Language {
+            rules,
+            syntax: &UntokenizedLines,
+        }),
+        indent,
+        auto_closed: &mut auto_closed,
+    };
+    insert_line_break(&mut store, view, &mut typing).unwrap();
+    marked(&store, view)
+}
+
+fn typed(rules: &ScriptedRules, text: &str, caret: usize, input: &[&str]) -> String {
+    let (mut store, view) = fixture(text, caret);
+    let mut auto_closed = AutoClosedPairs::default();
+    let mut typing = Typing {
+        language: Some(Language {
+            rules,
+            syntax: &UntokenizedLines,
+        }),
+        indent: SPACES,
+        auto_closed: &mut auto_closed,
+    };
+    for character in input {
+        type_text(&mut store, view, character, &mut typing).unwrap();
+    }
+    marked(&store, view)
+}
+
+fn at_end(rules: &ScriptedRules, text: &str) -> String {
+    entered(rules, SPACES, text, text.len())
+}
+
+#[test]
+fn enter_동작은_내어쓰기와_덧붙일_글자와_지울_들여쓰기를_적용한다() {
+    let rules = rules_with_pairs(Vec::new());
+    assert_eq!(
+        at_end(&rules, "        return x"),
+        "        return x\n    |"
+    );
+    assert_eq!(at_end(&rules, "return x"), "return x\n|");
+    assert_eq!(at_end(&rules, "  - key:"), "  - key:\n    - |");
+    assert_eq!(entered(&rules, TABS, "\t- key:", 7), "\t- key:\n\t\t- |");
+    assert_eq!(at_end(&rules, "      */"), "      */\n |");
+    assert_eq!(at_end(&rules, "  */"), "  */\n|");
+    assert_eq!(at_end(&rules, "  plain"), "  plain\n  |");
+}
+
+#[test]
+fn 들여쓰기_규칙은_위_줄에서_다음_줄의_들여쓰기를_물려받는다() {
+    let rules = indentation_rules();
+    assert_eq!(at_end(&rules, "  a {"), "  a {\n    |");
+    assert_eq!(at_end(&rules, "if (a)"), "if (a)\n    |");
+    assert_eq!(at_end(&rules, "if (a)\n    work;"), "if (a)\n    work;\n|");
+    assert_eq!(at_end(&rules, "  a {\n#x"), "  a {\n#x\n    |");
+    assert_eq!(at_end(&rules, "a {\n    b;\n  }"), "a {\n    b;\n  }\n  |");
+    assert_eq!(at_end(&rules, "\n\n"), "\n\n\n|");
+    assert_eq!(at_end(&rules, "    \n  x"), "    \n  x\n  |");
+}
+
+#[test]
+fn 들여쓰기_규칙은_캐럿_뒤_글자가_내어쓰기_줄이면_한_단계_줄인다() {
+    let rules = indentation_rules();
+    assert_eq!(entered(&rules, SPACES, "a {}", 3), "a {\n|}");
+    assert_eq!(entered(&rules, SPACES, "  a {  }", 5), "  a {\n|  }");
+    assert_eq!(entered(&rules, SPACES, "    a {}", 7), "    a {\n    |}");
+}
+
+#[test]
+fn 선행_공백_안에서_enter_하면_캐럿의_열을_유지한다() {
+    let rules = indentation_rules();
+    assert_eq!(entered(&rules, SPACES, "a {\n    b", 6), "a {\n  \n  |  b");
+    assert_eq!(
+        entered(&rules, SPACES, "a {\n    b", 8),
+        "a {\n    \n    |b"
+    );
+}
+
+#[test]
+fn 내어쓰기_줄이_되는_글자를_치면_물려받은_들여쓰기로_맞춘다() {
+    let rules = indentation_rules();
+    assert_eq!(
+        typed(&rules, "a {\n    b;\n    ", 15, &["}"]),
+        "a {\n    b;\n}|"
+    );
+    assert_eq!(
+        typed(&rules, "a {\n    b;\n", 11, &["}"]),
+        "a {\n    b;\n}|"
+    );
+    assert_eq!(
+        typed(&rules, "a {\n    b;\n    }", 16, &["x"]),
+        "a {\n    b;\n    }x|"
+    );
+}
+
+#[test]
+fn 포함된_짝이_이미_닫혀_있으면_남은_닫는_글자만_넣는다() {
+    let rules = rules_with_pairs(vec![pair("(", ")"), pair("(*", "*)")]);
+    assert_eq!(typed(&rules, "", 0, &["("]), "(|)");
+    assert_eq!(typed(&rules, "", 0, &["(", "*"]), "(*|*)");
+    assert_eq!(typed(&rules, "(", 1, &["*"]), "(*|*)");
+}
+
+#[test]
+fn 짝의_중립_문자는_여는_글자와_닫는_글자에_없는_첫_숫자나_영문자다() {
+    assert_eq!(pair("(", ")").neutral_character(), Some('0'));
+    assert_eq!(pair("0a", "1").neutral_character(), Some('2'));
+    assert_eq!(
+        pair("0123456789", "abcdefghijklmnopqrstuvwxyz").neutral_character(),
+        Some('A')
+    );
+}
+
+#[test]
+fn 문자열과_주석_토큰의_괄호만_지우고_토큰_종류를_위치로_찾는다() {
+    let rules = rules_with_pairs(Vec::new());
+    let text = "a{ \"{\" }// }";
+    let tokens = [
+        Token {
+            start_byte: 0,
+            kind: TokenKind::Other,
+        },
+        Token {
+            start_byte: 3,
+            kind: TokenKind::String,
+        },
+        Token {
+            start_byte: 6,
+            kind: TokenKind::Other,
+        },
+        Token {
+            start_byte: 8,
+            kind: TokenKind::Comment,
+        },
+    ];
+    assert_eq!(
+        without_brackets_outside_code(&rules, text, &tokens, 0..text.len()),
+        "a{ \"\" }// "
+    );
+    assert_eq!(
+        without_brackets_outside_code(&rules, text, &tokens, 4..7),
+        "\" "
+    );
+    assert_eq!(without_brackets_outside_code(&rules, text, &[], 0..2), "a{");
+    assert_eq!(token_kind_at(&tokens, 0), TokenKind::Other);
+    assert_eq!(token_kind_at(&tokens, 5), TokenKind::String);
+    assert_eq!(token_kind_at(&tokens, 6), TokenKind::Other);
+    assert_eq!(token_kind_at(&tokens, text.len()), TokenKind::Comment);
+    assert_eq!(token_kind_at(&[], 0), TokenKind::Other);
+}
+
+#[test]
+fn js_공백은_정규식의_공백_목록과_같다() {
+    for whitespace in [
+        ' ', '\t', '\u{B}', '\u{A0}', '\u{2028}', '\u{3000}', '\u{FEFF}',
+    ] {
+        assert!(is_js_whitespace(whitespace), "{whitespace:?}");
+    }
+    for other in ['a', '\u{85}', '\u{200B}', '\u{180E}'] {
+        assert!(!is_js_whitespace(other), "{other:?}");
+    }
+}
+
+#[test]
+fn 접기_영역은_표식과_off_side_규칙을_따른다() {
+    let regions = |rules: &ScriptedRules, text: &str| -> Vec<(usize, usize)> {
+        language_regions(&text.into(), TAB_SIZE, MAX_FOLDING_REGIONS, rules)
+            .iter()
+            .map(|region| (region.start_line, region.end_line))
+            .collect()
+    };
+    let rules = rules_with_pairs(Vec::new());
+    assert_eq!(
+        regions(&rules, "#region\na\n    b\n#endregion\nc"),
+        [(0, 3), (1, 2)]
+    );
+    assert_eq!(regions(&rules, "a\n    b\n\nc"), [(0, 2)]);
+    let off_side = ScriptedRules {
+        is_off_side: true,
+        ..rules_with_pairs(Vec::new())
+    };
+    assert_eq!(regions(&off_side, "a\n    b\n\nc"), [(0, 1)]);
+}

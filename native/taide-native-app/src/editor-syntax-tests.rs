@@ -10,8 +10,10 @@ use taide_model::ids::{PaneId, TabId};
 use taide_model::paths::AppPaths;
 use taide_model::theme::ResolvedTheme;
 use taide_native_editor::document::{DocumentId, DocumentMetadata, Edit, UndoGroup};
+use taide_native_editor::language_configuration::LineSyntax;
 use taide_native_editor::line_tokens::{LineTokens, TokenStyleTable};
 use taide_native_editor::store::{EditorLimits, EditorStore, Transaction};
+use taide_native_editor::syntax::{Token, TokenKind};
 use taide_native_editor::view::{ViewId, ViewKey};
 use taide_native_syntax::{
     PluginGrammar, TextmateTokenizer, TokenTheme, TokenizerLimits, UNSTYLED_STYLE_ID,
@@ -20,7 +22,7 @@ use taide_native_syntax::{
 use taide_plugin::service::PluginStore;
 use taide_runtime::{AppState, TaskSupervisor, plugin_actions};
 
-use super::EditorSyntax;
+use super::{EditorSyntax, SyntaxLease, language_rules};
 
 const TIMEOUT: Duration = Duration::from_secs(60);
 const DOCUMENT_COUNT: usize = 8;
@@ -32,6 +34,9 @@ const RUST_SOURCE: &str =
     "fn main() {\n    let value = 1; // one\n    let text = \"a\";\n}\n\nfn other() {}";
 const RELOADED_SOURCE: &str = "// reloaded\nfn reloaded() -> &'static str {\n    \"text\"\n}";
 const COMMENT_FOREGROUND_KEY: &str = "comment";
+const RUST_COMMENT_LINE: usize = 1;
+const RUST_STRING_LINE: usize = 2;
+const RUST_EMPTY_LINE: usize = 4;
 
 struct Harness {
     syntax: EditorSyntax,
@@ -566,6 +571,71 @@ fn 화면에_빌려주는_토큰은_편집_직후에도_현재_revision의_줄�
         harness.spans(document),
         expected_spans(&theme, &store, document)
     );
+}
+
+#[test]
+fn 입력_경로에_빌려주는_줄_토큰은_표준_종류를_알리고_따라잡기_전의_revision은_모른다고_답한다() {
+    let theme = theme("dark", "#6a9955");
+    let mut harness = Harness::new();
+    let mut store = store();
+    let document = open(&mut store, "/synthetic/main.rs", "rust", RUST_SOURCE);
+    let plain = open(&mut store, "/synthetic/note.txt", "plaintext", "a {\n");
+    attach(&mut store, document);
+    attach(&mut store, plain);
+    harness.settle(&store, &theme, Instant::now());
+    let snapshot = store.documents().snapshot(document).unwrap();
+    let plain_snapshot = store.documents().snapshot(plain).unwrap();
+    let comment_line = RUST_SOURCE.lines().nth(RUST_COMMENT_LINE).unwrap();
+    let inside_comment = comment_line.find("//").unwrap() + 1;
+    {
+        let lease = SyntaxLease::new(&mut harness.syntax, plain);
+        let syntax: &dyn LineSyntax = &lease;
+        assert_eq!(
+            syntax.tokens(&plain_snapshot, 0),
+            Some(vec![Token {
+                start_byte: 0,
+                kind: TokenKind::Other
+            }])
+        );
+        assert_eq!(syntax.tokens(&plain_snapshot, 1), Some(Vec::new()));
+    }
+    let lease = SyntaxLease::new(&mut harness.syntax, document);
+    let syntax: &dyn LineSyntax = &lease;
+    let kinds = |line: usize| -> Vec<TokenKind> {
+        let tokens = syntax.tokens(&snapshot, line).unwrap();
+        tokens.iter().map(|token| token.kind).collect()
+    };
+    assert_eq!(kinds(RUST_COMMENT_LINE).last(), Some(&TokenKind::Comment));
+    assert!(kinds(RUST_STRING_LINE).contains(&TokenKind::String));
+    assert_eq!(kinds(RUST_EMPTY_LINE), []);
+    assert_eq!(
+        syntax.kind_if_inserting(&snapshot, RUST_COMMENT_LINE, inside_comment, '0'),
+        TokenKind::Comment
+    );
+    assert_eq!(
+        syntax.kind_if_inserting(&snapshot, RUST_COMMENT_LINE, 0, '0'),
+        TokenKind::Other
+    );
+
+    apply(&mut store, document, 0..0, "x");
+    let edited = store.documents().snapshot(document).unwrap();
+    assert_eq!(syntax.tokens(&edited, 0), None);
+    syntax.follow_edits(&store);
+    assert!(syntax.tokens(&edited, 0).is_some());
+    assert_eq!(
+        lease.frame_tokens(&store).unwrap().revision,
+        edited.revision
+    );
+    assert_eq!(syntax.tokens(&edited, 0), None);
+    assert_eq!(
+        syntax.kind_if_inserting(&edited, RUST_COMMENT_LINE, inside_comment, '0'),
+        TokenKind::Other
+    );
+
+    assert!(language_rules("rust").is_some());
+    assert!(language_rules("plaintext").is_some());
+    assert!(language_rules("toml").is_none());
+    assert!(language_rules("taide-unknown").is_none());
 }
 
 #[test]

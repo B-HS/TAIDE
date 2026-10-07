@@ -6,6 +6,10 @@ mod document_tokens;
 mod grammar_registrations;
 #[path = "include-cycles.rs"]
 mod include_cycles;
+#[path = "js-regex.rs"]
+mod js_regex;
+#[path = "language-configuration.rs"]
+mod language_configuration;
 #[path = "leading-trailing-debounce.rs"]
 mod leading_trailing_debounce;
 #[path = "monaco-token-theme.rs"]
@@ -34,6 +38,11 @@ pub use bundled_grammars::{bundled_grammar_set, bundled_language_ids};
 pub use document_tokens::{
     DocumentTokens, MAX_TOKENIZED_DOCUMENT_LINES, MAX_TOKENIZED_DOCUMENT_UTF16_LENGTH,
     TokenizationPlan, is_too_large_for_tokenization,
+};
+pub use js_regex::{JsRegex, JsRegexError, oniguruma_source};
+pub use language_configuration::{
+    BracketPatternSources, LanguageConfigurationError, MonacoLanguage, Pattern, monaco_language,
+    monaco_language_ids,
 };
 pub use leading_trailing_debounce::{LeadingTrailingDebounce, THEME_REAPPLY_DEBOUNCE};
 pub use plugin_grammars::PluginGrammar;

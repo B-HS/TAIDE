@@ -11,7 +11,7 @@ use crate::view::{
     EditOperation, EditRun, GoalColumns, Selection, SelectionSet, ViewId, ViewState, WrapAffinities,
 };
 
-const WORD_SEPARATORS: &str = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
+pub(crate) const WORD_SEPARATORS: &str = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
 const WIDE_CHARACTER_COLUMNS: usize = 2;
 const WIDE_CHARACTER_RANGES: [(u32, u32); 16] = [
     (0x2E80, 0xD7AF),
@@ -52,9 +52,9 @@ pub struct ClipboardText {
     pub multicursor: Option<Vec<String>>,
 }
 
-struct LineText {
-    start: usize,
-    text: String,
+pub(crate) struct LineText {
+    pub(crate) start: usize,
+    pub(crate) text: String,
 }
 
 struct LineCharacters {
@@ -76,7 +76,7 @@ impl LineCharacters {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum CharacterClass {
+pub(crate) enum CharacterClass {
     Regular,
     Whitespace,
     WordSeparator,
@@ -96,33 +96,34 @@ struct Word {
     next_class: CharacterClass,
 }
 
-struct Step {
-    operation: EditOperation,
-    stop_before: bool,
-    stop_after: bool,
+pub(crate) struct Step {
+    pub(crate) operation: EditOperation,
+    pub(crate) stop_before: bool,
+    pub(crate) stop_after: bool,
 }
 
-const SEPARATE_STEP: Step = Step {
+pub(crate) const SEPARATE_STEP: Step = Step {
     operation: EditOperation::Other,
     stop_before: true,
     stop_after: true,
 };
 
 #[derive(Clone, Copy)]
-enum Mark {
+pub(crate) enum Mark {
     AfterEdit(usize),
+    BeforeEditEnd { edit: usize, bytes: usize },
     Tracked { offset: usize, sticks: bool },
     Anchored { offset: usize, line_start: usize },
 }
 
-struct Plan {
+pub(crate) struct Plan {
     edits: Vec<Edit>,
-    marks: Vec<(Mark, Mark)>,
+    pub(crate) marks: Vec<(Mark, Mark)>,
     primary: usize,
 }
 
 impl Plan {
-    fn new(selection: &SelectionSet) -> Self {
+    pub(crate) fn new(selection: &SelectionSet) -> Self {
         Self {
             edits: Vec::new(),
             marks: selection
@@ -145,7 +146,7 @@ impl Plan {
         }
     }
 
-    fn edit(&mut self, bytes: Range<usize>, text: String) -> Option<usize> {
+    pub(crate) fn edit(&mut self, bytes: Range<usize>, text: String) -> Option<usize> {
         if bytes.is_empty() && text.is_empty() {
             return None;
         }
@@ -166,13 +167,21 @@ impl Plan {
         Some(self.edits.len() - 1)
     }
 
-    fn replace(&mut self, index: usize, bytes: Range<usize>, text: String) {
+    pub(crate) fn replace(&mut self, index: usize, bytes: Range<usize>, text: String) {
         if let Some(edit) = self.edit(bytes, text) {
             self.marks[index] = (Mark::AfterEdit(edit), Mark::AfterEdit(edit));
         }
     }
 
-    fn transaction(self, document: &DocumentSnapshot, view: ViewId) -> Option<Transaction> {
+    pub(crate) fn has_edits(&self) -> bool {
+        !self.edits.is_empty()
+    }
+
+    pub(crate) fn transaction(
+        self,
+        document: &DocumentSnapshot,
+        view: ViewId,
+    ) -> Option<Transaction> {
         if self.edits.is_empty() {
             return None;
         }
@@ -191,6 +200,7 @@ impl Plan {
             }
             let resolve = |mark: Mark| match mark {
                 Mark::AfterEdit(index) => insertion_ends[index],
+                Mark::BeforeEditEnd { edit, bytes } => insertion_ends[edit] - bytes,
                 Mark::Tracked { offset, sticks } => tracked_offset(&ordered, offset, sticks),
                 Mark::Anchored { offset, line_start } => tracked_offset(&ordered, offset, false)
                     .min(tracked_offset(&ordered, line_start, true) + offset - line_start),
@@ -216,7 +226,7 @@ impl Plan {
     }
 }
 
-fn tracked_offset(edits: &[&Edit], offset: usize, sticks: bool) -> usize {
+pub(crate) fn tracked_offset(edits: &[&Edit], offset: usize, sticks: bool) -> usize {
     let mut removed_before = 0;
     let mut inserted_before = 0;
     for edit in edits {
@@ -246,7 +256,7 @@ fn tracked_offset(edits: &[&Edit], offset: usize, sticks: bool) -> usize {
     offset - removed_before + inserted_before
 }
 
-fn view_document(
+pub(crate) fn view_document(
     store: &EditorStore,
     view: ViewId,
 ) -> Result<(ViewState, DocumentSnapshot), EditorError> {
@@ -259,11 +269,11 @@ fn view_document(
     Ok((current, document))
 }
 
-fn ordered(selection: &Selection) -> Range<usize> {
+pub(crate) fn ordered(selection: &Selection) -> Range<usize> {
     selection.anchor.min(selection.head)..selection.anchor.max(selection.head)
 }
 
-fn line_text(document: &DocumentSnapshot, line: usize) -> LineText {
+pub(crate) fn line_text(document: &DocumentSnapshot, line: usize) -> LineText {
     let range = line_content_range(document, line);
     LineText {
         start: range.start,
@@ -286,7 +296,7 @@ fn line_characters(document: &DocumentSnapshot, line: usize) -> LineCharacters {
     }
 }
 
-fn leading_whitespace(text: &str) -> &str {
+pub(crate) fn leading_whitespace(text: &str) -> &str {
     let length = text
         .bytes()
         .take_while(|byte| matches!(byte, b' ' | b'\t'))
@@ -298,15 +308,15 @@ fn spans_lines(document: &DocumentSnapshot, range: &Range<usize>) -> bool {
     document.rope.byte_to_line(range.start) != document.rope.byte_to_line(range.end)
 }
 
-fn tab_width(indent: IndentOptions) -> usize {
+pub(crate) fn tab_width(indent: IndentOptions) -> usize {
     (indent.tab_size as usize).max(1)
 }
 
-fn next_tab_stop(column: usize, size: usize) -> usize {
+pub(crate) fn next_tab_stop(column: usize, size: usize) -> usize {
     column + size - column % size
 }
 
-fn previous_tab_stop(column: usize, size: usize) -> usize {
+pub(crate) fn previous_tab_stop(column: usize, size: usize) -> usize {
     column.checked_sub(1).map_or(0, |last| last - last % size)
 }
 
@@ -321,7 +331,7 @@ fn next_visible_column(character: char, column: usize, tab_size: usize) -> usize
     column + if wide { WIDE_CHARACTER_COLUMNS } else { 1 }
 }
 
-fn visible_column(text: &str, tab_size: usize) -> usize {
+pub(crate) fn visible_column(text: &str, tab_size: usize) -> usize {
     text.graphemes(true)
         .filter_map(|grapheme| grapheme.chars().next())
         .fold(0, |column, character| {
@@ -354,7 +364,7 @@ fn offset_at_visible_column(text: &str, visible: usize, tab_size: usize) -> usiz
     text.len()
 }
 
-fn indentation(columns: usize, indent: IndentOptions) -> String {
+pub(crate) fn indentation(columns: usize, indent: IndentOptions) -> String {
     if indent.insert_spaces {
         return " ".repeat(columns);
     }
@@ -384,7 +394,7 @@ fn normalize_line_breaks(text: &str, line_break: &str) -> String {
     normalized
 }
 
-fn character_class(character: char) -> CharacterClass {
+pub(crate) fn character_class(character: char) -> CharacterClass {
     if matches!(character, ' ' | '\t') {
         CharacterClass::Whitespace
     } else if WORD_SEPARATORS.contains(character) {
@@ -569,6 +579,66 @@ fn word_delete_right_range(document: &DocumentSnapshot, head: usize) -> Range<us
     }
 }
 
+fn word_delete_inside_range(document: &DocumentSnapshot, head: usize) -> Range<usize> {
+    let line = document.rope.byte_to_line(head);
+    let content = line_characters(document, line);
+    let length = content.characters.len();
+    if length == 0 {
+        if line > 0 {
+            return line_content_range(document, line - 1).end..head;
+        }
+        if line + 1 < document.rope.len_lines() {
+            return head..document.rope.line_to_byte(line + 1);
+        }
+        return head..head;
+    }
+    let column = content.index_of(head);
+    let is_blank = |index: usize| matches!(content.characters[index], ' ' | '\t');
+    let left = column.saturating_sub(1);
+    let right = column.min(length - 1);
+    if is_blank(left) && is_blank(right) {
+        let start = (0..left)
+            .rev()
+            .find(|index| !is_blank(*index))
+            .map_or(0, |index| index + 1);
+        let end = (right + 1..length)
+            .find(|index| !is_blank(*index))
+            .unwrap_or(length);
+        return content.byte_of(start)..content.byte_of(end);
+    }
+    let around_caret = |start: usize, end: usize| {
+        content.byte_of(start.min(column))..content.byte_of(end.max(column))
+    };
+    let touches = |word: &Word| word.start <= column && column <= word.end;
+    let with_adjacent_blanks = |word: &Word| {
+        let end = (word.end..length)
+            .find(|index| !is_blank(*index))
+            .unwrap_or(length);
+        let start = if end > word.end {
+            word.start
+        } else {
+            (0..word.start)
+                .rev()
+                .find(|index| !is_blank(*index))
+                .map_or(0, |index| index + 1)
+        };
+        around_caret(start, end)
+    };
+    let previous = previous_word(&content.characters, column);
+    if let Some(word) = previous.as_ref().filter(|word| touches(word)) {
+        return with_adjacent_blanks(word);
+    }
+    let next = next_word(&content.characters, column);
+    if let Some(word) = next.as_ref().filter(|word| touches(word)) {
+        return with_adjacent_blanks(word);
+    }
+    match (previous, next) {
+        (Some(previous), Some(next)) => around_caret(previous.end, next.start),
+        (Some(word), None) | (None, Some(word)) => around_caret(word.start, word.end),
+        (None, None) => around_caret(0, length),
+    }
+}
+
 fn line_start_target(document: &DocumentSnapshot, head: usize) -> usize {
     let content = line_text(document, document.rope.byte_to_line(head));
     let indentation = leading_whitespace(&content.text).len();
@@ -715,7 +785,10 @@ fn pushes_undo_stop_between(previous: EditOperation, next: EditOperation) -> boo
     undo_class(previous) != undo_class(next)
 }
 
-fn previous_operation(current: &ViewState, document: &DocumentSnapshot) -> EditOperation {
+pub(crate) fn previous_operation(
+    current: &ViewState,
+    document: &DocumentSnapshot,
+) -> EditOperation {
     current
         .edit_run
         .as_ref()
@@ -723,7 +796,7 @@ fn previous_operation(current: &ViewState, document: &DocumentSnapshot) -> EditO
         .map_or(EditOperation::Other, |run| run.operation)
 }
 
-fn typing_step(previous: EditOperation, operation: EditOperation) -> Step {
+pub(crate) fn typing_step(previous: EditOperation, operation: EditOperation) -> Step {
     Step {
         operation,
         stop_before: pushes_undo_stop_between(previous, operation),
@@ -731,7 +804,7 @@ fn typing_step(previous: EditOperation, operation: EditOperation) -> Step {
     }
 }
 
-fn apply_step(
+pub(crate) fn apply_step(
     store: &mut EditorStore,
     view: ViewId,
     transaction: Option<Transaction>,
@@ -1287,6 +1360,12 @@ pub fn delete_word(
     })
 }
 
+pub fn delete_inside_word(store: &mut EditorStore, view: ViewId) -> Result<bool, EditorError> {
+    delete_ranges(store, view, EditOperation::Other, |document, selection| {
+        Ok(word_delete_inside_range(document, selection.head))
+    })
+}
+
 pub fn delete_to_line_start(store: &mut EditorStore, view: ViewId) -> Result<bool, EditorError> {
     let (current, document) = view_document(store, view)?;
     let ranges = current
@@ -1461,18 +1540,35 @@ pub fn tab(
     apply_step(store, view, transaction, SEPARATE_STEP)
 }
 
+fn shift_selected_lines(
+    store: &mut EditorStore,
+    view: ViewId,
+    indent: IndentOptions,
+    outdents: bool,
+) -> Result<bool, EditorError> {
+    let (current, document) = view_document(store, view)?;
+    let mut plan = Plan::new(&current.selection);
+    for (index, selection) in current.selection.selections.iter().enumerate() {
+        shift_lines(&mut plan, &document, index, selection, indent, outdents);
+    }
+    let transaction = plan.transaction(&document, view);
+    apply_step(store, view, transaction, SEPARATE_STEP)
+}
+
 pub fn outdent(
     store: &mut EditorStore,
     view: ViewId,
     indent: IndentOptions,
 ) -> Result<bool, EditorError> {
-    let (current, document) = view_document(store, view)?;
-    let mut plan = Plan::new(&current.selection);
-    for (index, selection) in current.selection.selections.iter().enumerate() {
-        shift_lines(&mut plan, &document, index, selection, indent, true);
-    }
-    let transaction = plan.transaction(&document, view);
-    apply_step(store, view, transaction, SEPARATE_STEP)
+    shift_selected_lines(store, view, indent, true)
+}
+
+pub fn indent_lines(
+    store: &mut EditorStore,
+    view: ViewId,
+    indent: IndentOptions,
+) -> Result<bool, EditorError> {
+    shift_selected_lines(store, view, indent, false)
 }
 
 pub fn clipboard_text(

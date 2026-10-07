@@ -262,6 +262,9 @@ fn fold_command(action: &str) -> Option<FoldCommand> {
         "editor.gotoParentFold" => FoldCommand::GotoParentFold,
         "editor.gotoPreviousFold" => FoldCommand::GotoPreviousFold,
         "editor.gotoNextFold" => FoldCommand::GotoNextFold,
+        "editor.foldAllBlockComments" => FoldCommand::FoldAllBlockComments,
+        "editor.foldAllMarkerRegions" => FoldCommand::FoldAllMarkerRegions,
+        "editor.unfoldAllMarkerRegions" => FoldCommand::UnfoldAllMarkerRegions,
         _ => return None,
     })
 }
@@ -388,10 +391,18 @@ mod tests {
     const COMMAND_COUNT: usize = 212;
     const KEYMAP_COUNT: usize = 41;
     const NATIVE_KEYMAP_COUNT: usize = 34;
-    const FOLD_COMMANDS: [(&str, FoldCommand); 13] = [
+    const FOLD_COMMANDS: [(&str, FoldCommand); 16] = [
         ("monaco.editor.fold", FoldCommand::Fold),
         ("monaco.editor.foldAll", FoldCommand::FoldAll),
+        (
+            "monaco.editor.foldAllBlockComments",
+            FoldCommand::FoldAllBlockComments,
+        ),
         ("monaco.editor.foldAllExcept", FoldCommand::FoldAllExcept),
+        (
+            "monaco.editor.foldAllMarkerRegions",
+            FoldCommand::FoldAllMarkerRegions,
+        ),
         (
             "monaco.editor.foldRecursively",
             FoldCommand::FoldRecursively,
@@ -414,17 +425,18 @@ mod tests {
             FoldCommand::UnfoldAllExcept,
         ),
         (
+            "monaco.editor.unfoldAllMarkerRegions",
+            FoldCommand::UnfoldAllMarkerRegions,
+        ),
+        (
             "monaco.editor.unfoldRecursively",
             FoldCommand::UnfoldRecursively,
         ),
     ];
-    const UNSUPPORTED_FOLD_COMMANDS: [&str; 6] = [
+    const UNSUPPORTED_FOLD_COMMANDS: [&str; 3] = [
         "monaco.editor.createFoldingRangeFromSelection",
-        "monaco.editor.foldAllBlockComments",
-        "monaco.editor.foldAllMarkerRegions",
         "monaco.editor.removeManualFoldingRanges",
         "monaco.editor.toggleImportFold",
-        "monaco.editor.unfoldAllMarkerRegions",
     ];
     const DOCUMENT_ACTIONS: [&str; 2] = ["deleteAllLeft", "editor.action.outdentLines"];
     const SAVE_ACTION: &str = "taide.saveFile";
@@ -684,7 +696,7 @@ mod tests {
     }
 
     #[test]
-    fn 접기_명령은_접기가_켜진_활성_editor에서만_실행되고_언어_구성이나_수동_범위가_필요한_명령은_실행경로가_없다()
+    fn 접기_명령은_접기가_켜진_활성_editor에서만_실행되고_수동_범위나_provider가_필요한_명령은_실행경로가_없다()
      {
         let registry = registry().unwrap();
         let foldable = CommandContext {

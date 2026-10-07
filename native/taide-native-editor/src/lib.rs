@@ -1,3 +1,7 @@
+#[path = "auto-closing.rs"]
+pub mod auto_closing;
+#[path = "auto-indent.rs"]
+mod auto_indent;
 #[path = "change-journal.rs"]
 pub mod change_journal;
 pub mod decoration;
@@ -9,6 +13,10 @@ pub mod document;
 pub mod editing;
 pub mod folding;
 pub mod indent;
+#[path = "language-configuration.rs"]
+pub mod language_configuration;
+#[path = "language-typing.rs"]
+pub mod language_typing;
 #[path = "line-breaks.rs"]
 pub mod line_breaks;
 #[path = "line-tokens.rs"]

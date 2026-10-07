@@ -360,6 +360,7 @@ name = "taide-native-syntax"
 version = "0.1.0"
 dependencies = [
  "ferriki-textmate",
+ "ferroni",
  "serde",
  "serde_json",
  "taide-model",

@@ -5689,7 +5689,15 @@ impl AppSurfaces<'_> {
                 let services = self.services;
                 let status = &mut *self.status;
                 let has_focused_shell = self.target.is_some();
-                let editor_syntax = &mut *self.editor_syntax;
+                let syntax_lease =
+                    crate::editor_syntax::SyntaxLease::new(&mut *self.editor_syntax, document);
+                let language = crate::editor_syntax::language_rules(&snapshot.metadata.language_id)
+                    .map(
+                        |rules| taide_native_editor::language_configuration::Language {
+                            rules,
+                            syntax: &syntax_lease,
+                        },
+                    );
                 let chevrons = &mut *self.explorer_icons;
                 let mut fold_control_error = None;
                 let mut paint_fold_control = |ui: &Ui, control: FoldControl| {
@@ -5744,9 +5752,8 @@ impl AppSurfaces<'_> {
                                 response.ctx.keyboard_input_route(response.id)
                             },
                             presentation: &editor_presentation,
-                            tokens: tokens_supplier(move |store| {
-                                editor_syntax.tokens(store, document)
-                            }),
+                            tokens: tokens_supplier(|store| syntax_lease.frame_tokens(store)),
+                            language,
                             decorations: &[],
                             fold_commands: &fold_commands,
                             fold_controls: Some(&mut paint_fold_control),

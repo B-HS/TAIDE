@@ -1,19 +1,25 @@
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use taide_model::error::{AppError, AppResult};
 use taide_model::plugin::LoadedPlugin;
 use taide_model::theme::ResolvedTheme;
 use taide_native_editor::change_journal::ChangesSince;
-use taide_native_editor::document::DocumentId;
+use taide_native_editor::document::{DocumentId, DocumentSnapshot};
+use taide_native_editor::editing::line_content_range;
+use taide_native_editor::language_configuration::{
+    LanguageRules, LineSyntax, UntokenizedLines, token_kind_at,
+};
 use taide_native_editor::save_cleanup::CleanupFlags;
 use taide_native_editor::store::{DocumentVersion, EditorStore};
-use taide_native_editor::syntax::SyntaxSnapshot;
+use taide_native_editor::syntax::{SyntaxSnapshot, Token, TokenKind};
 use taide_native_syntax::{
-    LeadingTrailingDebounce, PluginGrammar, THEME_REAPPLY_DEBOUNCE, TokenPipeline, TokenTheme,
-    WorkerClient, token_worker,
+    LeadingTrailingDebounce, PluginGrammar, SPAN_FIELDS, THEME_REAPPLY_DEBOUNCE, TokenPipeline,
+    TokenTheme, WorkerClient, monaco_language, token_worker,
 };
 use taide_native_ui::editor_surface::EditorTokens;
 use taide_plugin::service::PluginStore;
@@ -72,6 +78,75 @@ pub(crate) async fn finished(worker: Option<JoinHandle<()>>) {
         && let Err(error) = worker.await
     {
         log::warn!("native editor syntax worker did not finish cleanly: {error}");
+    }
+}
+
+pub fn language_rules(language_id: &str) -> Option<&'static dyn LanguageRules> {
+    static IS_FAILURE_REPORTED: AtomicBool = AtomicBool::new(false);
+    match monaco_language(language_id) {
+        Ok(language) => language.map(|language| language as &dyn LanguageRules),
+        Err(error) => {
+            if !IS_FAILURE_REPORTED.swap(true, Ordering::Relaxed) {
+                log::warn!("native editor language configuration was rejected: {error:?}");
+            }
+            None
+        }
+    }
+}
+
+pub struct SyntaxLease<'a> {
+    syntax: Cell<Option<&'a mut EditorSyntax>>,
+    document: DocumentId,
+}
+
+impl<'a> SyntaxLease<'a> {
+    pub fn new(syntax: &'a mut EditorSyntax, document: DocumentId) -> Self {
+        Self {
+            syntax: Cell::new(Some(syntax)),
+            document,
+        }
+    }
+
+    pub fn frame_tokens(&self, store: &EditorStore) -> Option<EditorTokens<'a>> {
+        self.syntax.take()?.tokens(store, self.document)
+    }
+
+    fn read<T>(&self, read: impl FnOnce(&mut EditorSyntax) -> T) -> Option<T> {
+        let syntax = self.syntax.take()?;
+        let value = read(syntax);
+        self.syntax.set(Some(syntax));
+        Some(value)
+    }
+}
+
+impl LineSyntax for SyntaxLease<'_> {
+    fn follow_edits(&self, store: &EditorStore) {
+        self.read(|syntax| syntax.catch_up(store, self.document));
+    }
+
+    fn tokens(&self, document: &DocumentSnapshot, line: usize) -> Option<Vec<Token>> {
+        self.read(|syntax| syntax.line_kinds(document, line))
+            .flatten()
+    }
+
+    fn kind_if_inserting(
+        &self,
+        document: &DocumentSnapshot,
+        line: usize,
+        byte_in_line: usize,
+        _character: char,
+    ) -> TokenKind {
+        let line_length = line_content_range(document, line).len();
+        self.read(|syntax| syntax.line_kinds(document, line))
+            .flatten()
+            .filter(|tokens| {
+                byte_in_line > 0
+                    && byte_in_line < line_length
+                    && tokens.iter().all(|token| token.start_byte != byte_in_line)
+            })
+            .map_or(TokenKind::Other, |tokens| {
+                token_kind_at(&tokens, byte_in_line)
+            })
     }
 }
 
@@ -210,6 +285,35 @@ impl EditorSyntax {
             lines: self.pipeline.tokens(document)?,
             styles: self.pipeline.style_table()?,
         })
+    }
+
+    fn line_kinds(&self, document: &DocumentSnapshot, line: usize) -> Option<Vec<Token>> {
+        let Some(tracked) = self.documents.get(&document.id) else {
+            return UntokenizedLines.tokens(document, line);
+        };
+        if tracked.revision != document.revision {
+            return None;
+        }
+        let tokens = self.pipeline.tokens(document.id)?;
+        let is_exempt_from_tokenization = tokens.line_count() == 0;
+        if is_exempt_from_tokenization || line_content_range(document, line).is_empty() {
+            return UntokenizedLines.tokens(document, line);
+        }
+        if line >= tokens.line_count() {
+            return None;
+        }
+        let styles = self.pipeline.style_table()?;
+        let mut kinds: Vec<Token> = Vec::new();
+        for [start_byte, style_id] in tokens.spans(line).as_chunks::<SPAN_FIELDS>().0 {
+            let kind = styles.style(*style_id).kind;
+            if kinds.last().is_none_or(|previous| previous.kind != kind) {
+                kinds.push(Token {
+                    start_byte: *start_byte as usize,
+                    kind,
+                });
+            }
+        }
+        Some(kinds)
     }
 
     pub fn show_lines(&mut self, document: DocumentId, lines: Range<usize>) {

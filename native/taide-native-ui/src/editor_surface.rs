@@ -8,20 +8,25 @@ use egui::{
     Color32, Event, FontFamily, FontId, Id, ImeEvent, Key, Modifiers, Painter, PointerButton, Pos2,
     Rect, Response, Sense, Ui, Vec2, pos2, vec2,
 };
+use taide_native_editor::auto_closing::AutoClosedPairs;
 use taide_native_editor::decoration::DecorationLayer;
 use taide_native_editor::display_layout::VerticalLayout;
 use taide_native_editor::display_map::DisplayMap;
 use taide_native_editor::document::{DocumentId, DocumentSnapshot, EditorError};
 use taide_native_editor::editing::{
-    ClipboardText, Motion, clipboard_text, compose_text, cut, delete_backward, delete_forward,
-    delete_to_line_start, delete_word, insert_line_break, move_selection_displayed, outdent, paste,
-    reveal_position, select_all, tab, type_text,
+    ClipboardText, Motion, clipboard_text, compose_text, cut, delete_forward, delete_to_line_start,
+    delete_word, move_selection_displayed, outdent, paste, reveal_position, select_all, tab,
 };
 use taide_native_editor::folding::{
     FoldClick, FoldCommand, FoldRegion, FoldToggle, FoldingModel, MAX_FOLDING_REGIONS, click_fold,
-    hidden_lines, indent_regions, reconcile_folds, reveal_carets, run_fold_command,
+    hidden_lines, indent_regions, language_regions, reconcile_folds, reveal_carets,
+    run_fold_command, run_language_fold_command,
 };
 use taide_native_editor::indent::{IndentOptions, resolve};
+use taide_native_editor::language_configuration::{Language, LanguageRules};
+use taide_native_editor::language_typing::{
+    Typing, commit_composition, delete_backward, insert_line_break, type_text,
+};
 use taide_native_editor::line_tokens::{LineTokens, TokenStyleTable};
 use taide_native_editor::store::EditorStore;
 use taide_native_editor::view::{
@@ -147,6 +152,7 @@ pub struct EditorRequest<'a, Keymap, Route, Tokens> {
     pub route: Route,
     pub presentation: &'a EditorPresentation,
     pub tokens: Tokens,
+    pub language: Option<Language<'a>>,
     pub decorations: &'a [&'a DecorationLayer],
     pub fold_commands: &'a [FoldCommand],
     pub fold_controls: Option<&'a mut FoldControlPainter<'a>>,
@@ -198,6 +204,7 @@ struct FoldRegionCache {
     document: DocumentId,
     revision: u64,
     tab_size: u32,
+    language_id: Option<String>,
     regions: Arc<[FoldRegion]>,
 }
 
@@ -220,6 +227,7 @@ struct InputState {
     fold_press: Option<FoldPress>,
     clicked_fold_line: Option<usize>,
     fold_control_fade: FoldControlFade,
+    auto_closed: AutoClosedPairs,
 }
 
 impl InputState {
@@ -228,6 +236,7 @@ impl InputState {
         store: &mut EditorStore,
         view: ViewId,
         tab_size: u32,
+        rules: Option<&dyn LanguageRules>,
     ) -> Result<Arc<[FoldRegion]>, EditorError> {
         let owner = store
             .views()
@@ -235,21 +244,27 @@ impl InputState {
             .ok_or(EditorError::NotFound)?
             .document;
         let document = store.documents().snapshot(owner)?;
+        let language_id = rules.map(|_| document.metadata.language_id.as_str());
         let cached = self.fold_regions.as_ref().filter(|cache| {
             cache.document == document.id
                 && cache.revision == document.revision
                 && cache.tab_size == tab_size
+                && cache.language_id.as_deref() == language_id
         });
         if let Some(cache) = cached {
             return Ok(Arc::clone(&cache.regions));
         }
-        let regions: Arc<[FoldRegion]> =
-            indent_regions(&document.rope, tab_size, MAX_FOLDING_REGIONS).into();
+        let regions: Arc<[FoldRegion]> = match rules {
+            Some(rules) => language_regions(&document.rope, tab_size, MAX_FOLDING_REGIONS, rules),
+            None => indent_regions(&document.rope, tab_size, MAX_FOLDING_REGIONS),
+        }
+        .into();
         reconcile_folds(store, view, &regions)?;
         self.fold_regions = Some(FoldRegionCache {
             document: document.id,
             revision: document.revision,
             tab_size,
+            language_id: language_id.map(str::to_owned),
             regions: Arc::clone(&regions),
         });
         Ok(regions)
@@ -269,6 +284,7 @@ fn maintain_folds(
     state: &mut InputState,
     tab_size: Option<u32>,
     commands: &[FoldCommand],
+    rules: Option<&dyn LanguageRules>,
 ) -> Result<(Arc<[FoldRegion]>, Option<FoldReveal>), EditorError> {
     let clicked_line = state.clicked_fold_line.take();
     let Some(tab_size) = tab_size else {
@@ -280,13 +296,16 @@ fn maintain_folds(
         }
         return Ok((Arc::from(Vec::new()), None));
     };
-    let regions = state.fold_regions(store, view, tab_size)?;
+    let regions = state.fold_regions(store, view, tab_size, rules)?;
     let mut reveal = clicked_line.map(FoldReveal::LineStart);
     if reveal_carets(store, view)? {
         reveal = Some(FoldReveal::Head);
     }
     for command in commands {
-        run_fold_command(store, view, &regions, *command)?;
+        match rules {
+            Some(rules) => run_language_fold_command(store, view, &regions, *command, rules)?,
+            None => run_fold_command(store, view, &regions, *command)?,
+        };
         reveal = Some(FoldReveal::SelectionStart);
     }
     Ok((regions, reveal))
@@ -377,6 +396,7 @@ struct InputContext<'a> {
     force_crlf: bool,
     page_lines: isize,
     indent: IndentOptions,
+    language: Option<Language<'a>>,
     clipboard: Option<ClipboardText>,
     projection: Projection<'a>,
 }
@@ -742,6 +762,7 @@ impl NativeEditor {
                 route,
                 presentation,
                 tokens,
+                language: None,
                 decorations: &[],
                 fold_commands: &[],
                 fold_controls: None,
@@ -767,6 +788,7 @@ impl NativeEditor {
             route,
             presentation,
             tokens,
+            language,
             decorations,
             fold_commands,
             fold_controls,
@@ -799,6 +821,7 @@ impl NativeEditor {
         let mut output = InputOutput::default();
         let os = ui.ctx().os();
         let indent = self.indent_options(&previous);
+        input_state.auto_closed.follow(store, view)?;
         let mut input_context = InputContext {
             is_mac: os.is_mac(),
             force_crlf: os == OperatingSystem::Windows,
@@ -806,6 +829,7 @@ impl NativeEditor {
                 - PAGE_OVERLAP_LINES)
                 .max(1),
             indent,
+            language,
             clipboard: ui
                 .ctx()
                 .data_mut(|data| data.get_temp(Id::new(CLIPBOARD_MEMORY))),
@@ -856,6 +880,9 @@ impl NativeEditor {
                 if keymap(ui, &event, composing) {
                     continue;
                 }
+                if let Some(language) = language {
+                    language.syntax.follow_edits(store);
+                }
                 match self.input(
                     store,
                     view,
@@ -864,7 +891,7 @@ impl NativeEditor {
                     &mut output,
                     &mut input_context,
                 ) {
-                    Ok(true) => {}
+                    Ok(true) => input_state.auto_closed.follow(store, view)?,
                     Ok(false) => remaining.push(event),
                     Err(error) => output.errors.push(error),
                 }
@@ -887,6 +914,7 @@ impl NativeEditor {
             &mut input_state,
             has_folding.then_some(indent.tab_size),
             fold_commands,
+            language.map(|language| language.rules),
         )?;
         let document = store.documents().snapshot(current.document)?;
         let tokens = tokens(store).filter(|tokens| tokens.describes(&document));
@@ -1359,6 +1387,11 @@ impl NativeEditor {
             .ok_or(EditorError::NotFound)?
             .clone();
         let document = store.documents().snapshot(current.document)?;
+        let mut typing = Typing {
+            language: context.language,
+            indent: context.indent,
+            auto_closed: &mut state.auto_closed,
+        };
         match event {
             Event::Copy => {
                 if let Some(copied) = clipboard_text(store, view, context.force_crlf)? {
@@ -1383,7 +1416,7 @@ impl NativeEditor {
                 paste(store, view, text, source)?;
             }
             Event::Text(text) if current.composition.is_none() => {
-                type_text(store, view, text)?;
+                type_text(store, view, text, &mut typing)?;
             }
             Event::Text(_) => {}
             Event::Ime(ImeEvent::Preedit { text, .. }) => {
@@ -1425,9 +1458,9 @@ impl NativeEditor {
                 }
                 if !text.is_empty() {
                     if let Some(composition) = current.composition {
-                        compose_text(store, view, composition.replace, text)?;
+                        commit_composition(store, view, composition.replace, text, &mut typing)?;
                     } else {
-                        type_text(store, view, text)?;
+                        type_text(store, view, text, &mut typing)?;
                     }
                 }
                 store.set_composition(view, None)?;
@@ -1478,7 +1511,7 @@ impl NativeEditor {
                         store.redo(document.id)?;
                     }
                     KeyAction::DeleteBackward => {
-                        delete_backward(store, view, context.indent)?;
+                        delete_backward(store, view, &mut typing)?;
                     }
                     KeyAction::DeleteForward => {
                         delete_forward(store, view)?;
@@ -1490,7 +1523,7 @@ impl NativeEditor {
                         delete_to_line_start(store, view)?;
                     }
                     KeyAction::LineBreak => {
-                        insert_line_break(store, view, context.indent)?;
+                        insert_line_break(store, view, &mut typing)?;
                     }
                     KeyAction::Tab => {
                         tab(store, view, context.indent)?;
