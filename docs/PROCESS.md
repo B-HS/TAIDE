@@ -37,7 +37,7 @@
     - 끝난 것: 찾기 정규식 조사(`docs/research/2026-10-07-native-find-regex-dialect.md`, 커밋됨), 단계 1 언어 구성 구현(`docs/quality-assurance/2026-10-06-native-batch7-language-config.md`, 작업자 보고 기준 검증 통과), 단계 1 리뷰(판정 needs-fix, 차단 1건 미수정)
     - 미수정 차단 항목: `native/taide-native-editor/src/auto-indent.rs`의 `enclosing_opener_line`이 닫는 괄호 내어쓰기의 짝을 찾을 때 문자열·주석·정규식 안의 괄호까지 셉니다. Monaco는 표준 토큰 종류가 Other인 토큰의 괄호만 인식합니다(`bracketPairsTree/tokenizer.js:140-144`). 줄 토큰 종류로 걸러야 합니다
     - 중간에 끊긴 것: 단계 2 편집 명령 1(줄·텍스트 조작) 구현 도중 중단. 단계 3(커서·다중 커서)은 시작 전
-    - 작업 트리: 단계 1 완료분과 단계 2 진행분이 **미커밋**으로 섞여 있습니다(수정 16개, 신규 14개 경로). 컴파일·테스트 상태는 중단 후 확인하지 않았습니다. 되돌리거나 정리하지 않았습니다
+    - 작업 트리: 사용자 지시("일단 여기까지 commit push 해놔")로 단계 1 완료분과 단계 2 진행분을 한 커밋으로 올렸습니다. 커밋 전 메인 확인: 5개 native 크레이트 `cargo check --tests` 오류 0, syntax 136·editor 134·ui(lib + editor_surface) 189·앱 lib 369 통과. 앱 전체 통합 테스트 대상은 실행하지 않았습니다. 단계 2 진행분은 `editing.rs`·`command-registry.rs`·`command-dispatch.rs`의 일부 변경이며 리뷰를 거치지 않았습니다
     - 재개 방법: 같은 세션이면 Workflow를 `scriptPath` + `resumeFromRunId: wf_54a185cc-5bd`로 다시 실행(완료된 작업자는 캐시, 단계 2는 미커밋 변경을 읽고 이어서 작업하도록 지시돼 있음). 새 세션이면 `docs/utils/2026-10-07-native-batch7-workflow.js`(스크립트 사본)로 새로 실행하되, 먼저 작업 트리가 컴파일되는지 확인하고 단계 1은 이미 구현돼 있음을 작업자에게 알려야 합니다
     - 재개 뒤에도 배치 7까지만 하고 멈추라는 직전 지시가 유효합니다
     - 찾기 정규식 조사의 추천: JS 방언 유지, `regress =0.12.0`을 게이트 조건부 채택(새 의존성 1개, 네트워크 내려받기 필요). 결정 7건은 조사 문서 참조
