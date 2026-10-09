@@ -213,6 +213,10 @@ fn show_problems(
                         fold_commands: &[],
                         #[cfg(feature = "native-host")]
                         syntax_folds: None,
+                        #[cfg(feature = "native-host")]
+                        documentation: None,
+                        #[cfg(feature = "native-host")]
+                        documentation_commands: &[],
                         fold_controls: None,
                         problems: if let Some(provider) = problems.as_mut() {
                             Some(&mut **provider)
@@ -1280,6 +1284,10 @@ fn show_brackets_frame(
                         fold_commands: &[],
                         #[cfg(feature = "native-host")]
                         syntax_folds: None,
+                        #[cfg(feature = "native-host")]
+                        documentation: None,
+                        #[cfg(feature = "native-host")]
+                        documentation_commands: &[],
                         fold_controls: None,
                         #[cfg(feature = "native-host")]
                         problems: None,
@@ -1575,6 +1583,10 @@ fn 괄호_일치_위젯_포커스는_본문_강조를_유지하면서_외부_입
                             fold_commands: &[],
                             #[cfg(feature = "native-host")]
                             syntax_folds: None,
+                            #[cfg(feature = "native-host")]
+                            documentation: None,
+                            #[cfg(feature = "native-host")]
+                            documentation_commands: &[],
                             fold_controls: None,
                             #[cfg(feature = "native-host")]
                             problems: None,
@@ -3189,6 +3201,10 @@ fn 문제_외부_입력창의_기본키와_문자는_보존하고_닫기클릭_�
                             fold_commands: &[],
                             #[cfg(feature = "native-host")]
                             syntax_folds: None,
+                            #[cfg(feature = "native-host")]
+                            documentation: None,
+                            #[cfg(feature = "native-host")]
+                            documentation_commands: &[],
                             fold_controls: None,
                             problems: Some(&mut provider),
                             #[cfg(feature = "native-host")]

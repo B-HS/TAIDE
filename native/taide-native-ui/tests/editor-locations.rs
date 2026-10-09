@@ -344,6 +344,10 @@ impl Fixture {
                             fold_commands: &[],
                             fold_controls: None,
                             syntax_folds: None,
+                            #[cfg(feature = "native-host")]
+                            documentation: None,
+                            #[cfg(feature = "native-host")]
+                            documentation_commands: &[],
                             problems: None,
                             locations: Some(&mut self.provider),
                         },

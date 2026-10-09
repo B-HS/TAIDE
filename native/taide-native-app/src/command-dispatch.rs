@@ -97,7 +97,10 @@ pub(crate) fn apply_document_edits(
         owner == tab
             && !matches!(
                 edit,
-                DocumentEdit::Find(_) | DocumentEdit::Problem(_) | DocumentEdit::Location(_)
+                DocumentEdit::Find(_)
+                    | DocumentEdit::Problem(_)
+                    | DocumentEdit::Location(_)
+                    | DocumentEdit::Documentation(_)
             )
     }) {
         let result = match edit {
@@ -113,7 +116,10 @@ pub(crate) fn apply_document_edits(
                     store, view, command, context,
                 )
             }
-            DocumentEdit::Find(_) | DocumentEdit::Problem(_) | DocumentEdit::Location(_) => {
+            DocumentEdit::Find(_)
+            | DocumentEdit::Problem(_)
+            | DocumentEdit::Location(_)
+            | DocumentEdit::Documentation(_) => {
                 continue;
             }
         };

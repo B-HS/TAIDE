@@ -443,6 +443,21 @@ pub fn editor_location_colors(theme: &ResolvedTheme) -> AppResult<crate::editor_
     })
 }
 
+#[cfg(feature = "native-host")]
+pub fn editor_documentation_colors(
+    theme: &ResolvedTheme,
+) -> AppResult<crate::editor_documentation::Colors> {
+    Ok(crate::editor_documentation::Colors {
+        background: color(theme, "editor.hoverBackground")?,
+        foreground: color(theme, "editor.foreground")?,
+        border: color(theme, "editor.widgetBorder")?,
+        highlight: color(theme, "app.accent")?,
+        link: color(theme, "terminal.linkForeground")?,
+        code_background: color(theme, "panel.background")?,
+        shadow: color(theme, "app.shadow")?,
+    })
+}
+
 pub fn banner_appearance(theme: &ResolvedTheme) -> AppResult<BannerAppearance> {
     Ok(BannerAppearance {
         error: color(theme, "statusIndicator.error")?,

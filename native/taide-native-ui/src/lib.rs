@@ -38,6 +38,9 @@ pub mod editor_diagnostics;
 #[path = "editor-display.rs"]
 pub mod editor_display;
 #[cfg(feature = "native-host")]
+#[path = "editor-documentation.rs"]
+pub mod editor_documentation;
+#[cfg(feature = "native-host")]
 #[path = "editor-find.rs"]
 pub mod editor_find;
 #[cfg(feature = "native-host")]

@@ -75,6 +75,10 @@ fn 열린_peek의_anchor는_본문_편집을_추적하고_preview_view는_닫을
     );
     let preview = state.current(view).unwrap().preview.unwrap();
     assert_ne!(preview, view);
+    assert_eq!(
+        state.preview_bindings(&store),
+        vec![(project.clone(), document)]
+    );
     store
         .apply(
             document,
@@ -98,6 +102,7 @@ fn 열린_peek의_anchor는_본문_편집을_추적하고_preview_view는_닫을
     assert!(state.preview_views().contains(&preview));
     state.close(view);
     state.detach_retired(&mut store);
+    assert!(state.preview_bindings(&store).is_empty());
     assert!(request.is_cancelled());
     assert!(store.views().get(preview).is_none());
     assert!(store.views().get(view).is_some());
@@ -489,6 +494,7 @@ fn 실제_preview의_직렬_본문_명령과_저장은_대상_문서와_포커�
                     focus_targets: targets,
                     find_history: None,
                     find_appearance: None,
+                    documentation: None,
                 };
                 provider
                     .render_preview(&mut ui, store, view, rect, false)

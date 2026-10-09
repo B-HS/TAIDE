@@ -871,6 +871,28 @@ dependency closure, 171 packages) and `cargo metadata
   `class-variance-authority`. Full text: https://www.apache.org/licenses/LICENSE-2.0
 - `dompurify` — MPL-2.0 OR Apache-2.0; TAIDE takes it under Apache-2.0.
 
+### Native editor documentation Markdown
+
+`native/taide-native-editor/src/documentation.rs` and the native UI/app
+`editor-documentation*` paths adapt the hover/parameter hints model,
+keyboard/pointer/resize interactions and theme/layout rules from Monaco
+Editor 0.56.0 (MIT, Copyright (c) Microsoft Corporation), revision
+`f487add297079a02eb836810185b165e50cadabc`. The language aliases JSON is
+extracted from its language registration files. The native app
+`src/editor-markup-autolinks.rs` adapts the bundled Marked GFM URL/email
+and punctuation expressions from `base/common/marked/marked.js` (MIT,
+Copyright (c) 2011-2024 Christopher Jeffrey). The Monaco/Marked license
+texts are retained in `native/taide-native-app/LICENSE-MARKED` and
+`native/taide-native-editor/LICENSE-MONACO-SNIPPET`, with the original
+package notices retained as well.
+
+The Rust-native app uses unmodified `pulldown-cmark` 0.13.4 (MIT) and
+`unicase` 2.10.0 (MIT OR Apache-2.0) for LSP documentation Markdown parsing.
+The parser is confined to `native/taide-native-app/src/editor-markup.rs`;
+its HTML output and CLI features are disabled. The editor and UI consume
+plain display structures without adding a Markdown or syntax engine.
+Upstream license: https://github.com/pulldown-cmark/pulldown-cmark/blob/v0.13.4/LICENSE
+
 ### Rust crates (compiled into the app binary)
 
 - MIT and/or Apache-2.0 (dual or either) — the large majority, including

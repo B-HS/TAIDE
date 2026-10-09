@@ -19,6 +19,7 @@ pub type ClipboardWriter = Arc<dyn Fn(&str) -> AppResult<()> + Send + Sync>;
 pub type ClipboardReader = Arc<dyn Fn() -> AppResult<String> + Send + Sync>;
 
 pub enum HostCommand {
+    OpenDocumentationFile(crate::editor_documentation::FileRequest),
     OpenSymbolLocation(crate::symbol_location_host::Request),
     ReadPeekModels {
         request: crate::editor_locations::Request,
@@ -204,6 +205,9 @@ pub enum HostCommand {
 }
 
 pub enum HostReply {
+    DocumentationFileOpened {
+        result: AppResult<crate::terminal_tabs::OpenedFileLink>,
+    },
     SymbolLocationOpened {
         request: crate::symbol_location_host::Request,
         result: AppResult<crate::terminal_tabs::OpenedFileLink>,
@@ -612,6 +616,9 @@ async fn dispatch(
     let terminals = integrations.terminals.as_ref();
     let reconcile = &integrations.reconcile;
     match command {
+        HostCommand::OpenDocumentationFile(request) => Some(HostReply::DocumentationFileOpened {
+            result: request.open(services).await,
+        }),
         HostCommand::OpenSymbolLocation(request) => {
             let result = crate::symbol_location_host::open(services, &request).await;
             Some(HostReply::SymbolLocationOpened { request, result })

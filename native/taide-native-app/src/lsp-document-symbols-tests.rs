@@ -32,6 +32,15 @@ pub(super) fn fixture(mode: &str) -> (Fixture, ProjectId, EditorStore, DocumentI
     assert!(matches!(
         mode,
         "--native-symbols"
+            | "--native-documentation"
+            | "--native-documentation-empty"
+            | "--native-documentation-null"
+            | "--native-documentation-error"
+            | "--native-documentation-bad"
+            | "--native-documentation-wait"
+            | "--native-documentation-crash"
+            | "--native-documentation-alternate"
+            | "--native-documentation-unsupported"
             | "--native-symbols-flat"
             | "--native-symbols-wait"
             | "--native-symbols-bad"

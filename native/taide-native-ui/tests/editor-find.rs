@@ -445,6 +445,10 @@ fn frame_with_shapes(
                         fold_commands: &[],
                         #[cfg(feature = "native-host")]
                         syntax_folds: None,
+                        #[cfg(feature = "native-host")]
+                        documentation: None,
+                        #[cfg(feature = "native-host")]
+                        documentation_commands: &[],
                         fold_controls: None,
                         #[cfg(feature = "native-host")]
                         problems: None,

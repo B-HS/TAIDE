@@ -19,6 +19,7 @@ pub mod display_map;
 pub mod document;
 #[path = "document-symbols.rs"]
 pub mod document_symbols;
+pub mod documentation;
 pub mod editing;
 pub mod find;
 #[path = "find-replacement.rs"]

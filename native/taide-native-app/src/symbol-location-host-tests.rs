@@ -24,6 +24,85 @@ const FONT_SIZE: f32 = 14.0;
 const LINE_HEIGHT: f32 = 20.0;
 const HORIZONTAL_PADDING: f32 = 8.0;
 
+#[tokio::test]
+async fn 문서_파일_링크는_본문과_보조창의_원본_pane_줄열과_늦은_owner를_검사한다() {
+    for auxiliary in [false, true] {
+        let fixture = Fixture::new(auxiliary);
+        let mut uri = url::Url::parse(fixture.request.target.uri.as_str()).unwrap();
+        uri.set_fragment(Some("L2,5-L3,1"));
+        let request = crate::editor_documentation::FileRequest::new(
+            fixture.request.source.project.clone(),
+            fixture.request.source.source_key.clone(),
+            &uri,
+            fixture.request.viewport,
+        )
+        .unwrap();
+        let opened = request.open(&fixture.services).await.unwrap();
+        assert_eq!(opened.project, fixture.request.source.project);
+        assert_eq!(opened.pane, fixture.request.source.source_key.pane);
+        assert_eq!(opened.viewport, fixture.request.viewport);
+        assert_eq!((opened.line, opened.column), (2.0, 5.0));
+        assert!(crate::editor_problems::reply_is_current(
+            &opened,
+            &fixture.services.state.layouts.read()
+        ));
+        assert!(request.open(&fixture.services).await.is_err());
+        fixture
+            .services
+            .state
+            .projects
+            .write()
+            .remove(&opened.project);
+        assert!(request.open(&fixture.services).await.is_err());
+    }
+}
+
+#[tokio::test]
+async fn 문서_파일_링크는_같은_dirty_tab을_재사용하고_허용되지_않은_파일을_거절한다() {
+    let fixture = Fixture::new(false);
+    let project = fixture.request.source.project.clone();
+    let key = fixture.request.source.source_key.clone();
+    let taide_native_editor::document::DocumentKey::File(path) =
+        &fixture.request.source.snapshot.key
+    else {
+        panic!()
+    };
+    let mut uri = url::Url::from_file_path(path).unwrap();
+    uri.set_fragment(Some("L1,3"));
+    {
+        let mut layouts = fixture.services.state.layouts.write();
+        let layout = layouts.get_mut(&project).unwrap();
+        let PaneNode::Leaf { tabs, .. } = &mut layout.root else {
+            panic!()
+        };
+        tabs.iter_mut().find(|tab| tab.id == key.tab).unwrap().dirty = true;
+    }
+    let request = crate::editor_documentation::FileRequest::new(
+        project.clone(),
+        key.clone(),
+        &uri,
+        fixture.request.viewport,
+    )
+    .unwrap();
+    let opened = request.open(&fixture.services).await.unwrap();
+    assert_eq!(opened.tab, key.tab);
+    assert!(
+        taide_native_ui::snapshot::active_tab(&opened.layout.root, &key.pane)
+            .unwrap()
+            .dirty
+    );
+    let outside = fixture.directory.join("outside.rs");
+    std::fs::write(&outside, "synthetic").unwrap();
+    let request = crate::editor_documentation::FileRequest::new(
+        project,
+        key,
+        &url::Url::from_file_path(outside).unwrap(),
+        fixture.request.viewport,
+    )
+    .unwrap();
+    assert!(request.open(&fixture.services).await.is_err());
+}
+
 struct Events;
 impl EventSink for Events {
     fn publish(&self, _: AppEvent) {}
@@ -330,6 +409,7 @@ async fn 연속_참조_이동은_같은_파일로_돌아와도_앞선_파일_열
         focus_targets: &mut focus_targets,
         find_history: None,
         find_appearance: None,
+        documentation: None,
     };
     assert!(
         provider

@@ -142,6 +142,7 @@ pub(crate) struct Session {
     focus: Option<(u64, taide_native_ui::editor_locations::Focus)>,
     find: taide_native_ui::editor_find::EditorFind,
     folds: Vec<taide_native_editor::folding::FoldCommand>,
+    documentation: Vec<taide_native_editor::documentation::Command>,
 }
 
 impl Drop for Session {
@@ -479,6 +480,7 @@ impl State {
                 focus: None,
                 find: Default::default(),
                 folds: Vec::new(),
+                documentation: Vec::new(),
                 anchor: DecorationLayer::new(
                     request.snapshot.revision,
                     0,
@@ -638,6 +640,28 @@ impl State {
                     .iter()
                     .filter_map(|pending| pending.session.preview),
             )
+            .collect()
+    }
+
+    pub(crate) fn preview_bindings(&self, store: &EditorStore) -> Vec<(ProjectId, DocumentId)> {
+        self.sessions
+            .values()
+            .filter(|session| {
+                session.shown
+                    && store
+                        .views()
+                        .get(session.request.source)
+                        .is_some_and(|source| {
+                            source.key == session.request.source_key
+                                && source.document == session.request.snapshot.id
+                        })
+            })
+            .filter_map(|session| {
+                Some((
+                    session.request.project.clone(),
+                    store.views().get(session.preview?)?.document,
+                ))
+            })
             .collect()
     }
 
@@ -998,6 +1022,8 @@ pub(crate) struct Provider<'a> {
     pub(crate) focus_targets: &'a mut Vec<(eframe::egui::Id, ViewId)>,
     pub(crate) find_history: Option<&'a mut taide_native_ui::editor_find_widget::FindHistory>,
     pub(crate) find_appearance: Option<&'a taide_native_ui::editor_find_widget::FindAppearance>,
+    pub(crate) documentation:
+        Option<std::rc::Rc<std::cell::RefCell<&'a mut crate::editor_documentation::State>>>,
 }
 
 impl Provider<'_> {
@@ -1131,6 +1157,11 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_> {
                 session.focus.map_or(0, |(generation, _)| generation + 1),
                 focus,
             ));
+        }
+    }
+    fn clear_preview_chord(&mut self, view: ViewId) {
+        if let Some(session) = self.state.sessions.get_mut(&view) {
+            session.keymap.clear_chord(self.viewport);
         }
     }
     fn definition_available(&self, store: &EditorStore, view: ViewId) -> bool {
@@ -1672,6 +1703,23 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_> {
         let mut next = 0;
         let fold_commands = std::mem::take(&mut session.folds);
         let pending_folds = &mut session.folds;
+        let documentation_commands = std::mem::take(&mut session.documentation);
+        let pending_documentation = &mut session.documentation;
+        let mut documentation_host_commands = Vec::new();
+        let mut documentation_provider =
+            self.documentation
+                .as_ref()
+                .map(|state| crate::editor_documentation::Provider {
+                    state: state.clone(),
+                    project: self.project.clone(),
+                    owner: view,
+                    owner_key: session.request.source_key.clone(),
+                    lsp: self.lsp,
+                    viewport: self.viewport,
+                    commands: &mut documentation_host_commands,
+                    appearance: &self.editor.appearance,
+                    language: snapshot.metadata.language_id.clone(),
+                });
         let find = &mut session.find;
         let has_find = self.find_appearance.is_some() && self.find_history.is_some();
         let output = self.editor.show_request_with_editor_keymap(
@@ -1693,6 +1741,10 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_> {
                 problems: None,
                 locations: None,
                 syntax_folds: None,
+                documentation: documentation_provider.as_mut().map(|provider| {
+                    provider as &mut dyn taide_native_ui::editor_documentation::Provider
+                }),
+                documentation_commands: &documentation_commands,
             },
             |ui, store, preview, event, composing| {
                 let index = crate::keymap::event_index(ui.ctx(), event, &mut next);
@@ -1753,6 +1805,13 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_> {
                             let crate::command_registry::Run::EditDocument(edit) = run else {
                                 return false;
                             };
+                            if let crate::command_registry::DocumentEdit::Documentation(command) =
+                                edit
+                            {
+                                pending_documentation.push(command);
+                                ui.ctx().request_repaint();
+                                return true;
+                            }
                             if let crate::command_registry::DocumentEdit::Find(command) = edit {
                                 if !has_find {
                                     return false;
@@ -1797,6 +1856,7 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_> {
                     .unwrap_or(false)
             },
         )?;
+        self.commands.append(&mut documentation_host_commands);
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
         }

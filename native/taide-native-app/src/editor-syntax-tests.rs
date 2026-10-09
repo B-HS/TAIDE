@@ -164,6 +164,163 @@ fn store() -> EditorStore {
     .unwrap()
 }
 
+#[test]
+fn 문서_도움말_코드는_본문_textmate와_테마를_쓰고_닫힌_소스만_회수한다() {
+    use eframe::egui::{Color32, FontId};
+    use taide_native_editor::documentation::{Block, ListItem, RichDocument};
+    use taide_native_ui::editor_surface::EditorAppearance;
+
+    const FONT_SIZE: f32 = 14.0;
+    const LINE_HEIGHT: f32 = 20.0;
+    const THEME_WAIT: Duration = Duration::from_secs(1);
+    let mut harness = Harness::new();
+    let mut store = store();
+    let source = open(&mut store, "/synthetic/main.rs", "rust", RUST_SOURCE);
+    let view = attach(&mut store, source);
+    apply(&mut store, source, 0..0, "// dirty\n");
+    let source_snapshot = store.documents().snapshot(source).unwrap();
+    let mut cache = crate::editor_documentation_code::Cache::default();
+    let document = RichDocument {
+        blocks: vec![
+            Block::Quote(vec![Block::Code {
+                language: "Rust".into(),
+                text: RUST_SOURCE.into(),
+            }]),
+            Block::List {
+                start: None,
+                items: vec![ListItem {
+                    checked: None,
+                    blocks: vec![Block::Code {
+                        language: String::new(),
+                        text: RUST_SOURCE.into(),
+                    }],
+                }],
+            },
+            Block::Code {
+                language: "js".into(),
+                text: "const value = 1;".into(),
+            },
+            Block::Code {
+                language: "unknown language".into(),
+                text: "plain text".into(),
+            },
+        ],
+    };
+    let prepare = |cache: &mut crate::editor_documentation_code::Cache,
+                   store: &mut EditorStore,
+                   syntax: &mut EditorSyntax| {
+        cache
+            .prepare(store, syntax, std::iter::once((&document, "rust")), &[])
+            .unwrap()
+    };
+    prepare(&mut cache, &mut store, &mut harness.syntax);
+    let ids = store
+        .documents()
+        .versions()
+        .map(|version| version.id)
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(ids.len(), 4);
+    assert!(
+        store
+            .documents()
+            .versions()
+            .any(|version| version.language_id == "javascript")
+    );
+    assert!(
+        store
+            .documents()
+            .versions()
+            .any(|version| version.language_id == "plaintext")
+    );
+    let now = Instant::now();
+    let first = theme("first", "#6a9955");
+    harness.settle(&store, &first, now);
+    prepare(&mut cache, &mut store, &mut harness.syntax);
+    assert_eq!(
+        ids,
+        store
+            .documents()
+            .versions()
+            .map(|version| version.id)
+            .collect()
+    );
+    let appearance = EditorAppearance {
+        font: FontId::monospace(FONT_SIZE),
+        line_height: LINE_HEIGHT,
+        horizontal_padding: 0.0,
+        background: Color32::BLACK,
+        foreground: Color32::WHITE,
+        muted: Color32::GRAY,
+        selection: Color32::BLUE,
+        cursor: Color32::WHITE,
+        current_line: Color32::TRANSPARENT,
+        line_numbers: false,
+        indent: "    ".into(),
+    };
+    let job = cache.job("Rust", RUST_SOURCE, "rust", &appearance).unwrap();
+    assert_eq!(job.text, RUST_SOURCE);
+    assert!(
+        job.sections
+            .iter()
+            .any(|section| section.format.color == Color32::from_rgb(0x6a, 0x99, 0x55))
+    );
+    assert!(
+        job.sections
+            .iter()
+            .any(|section| section.format.color == Color32::from_rgb(0x56, 0x9c, 0xd6))
+    );
+    assert_eq!(
+        cache
+            .job("", RUST_SOURCE, "rust", &appearance)
+            .unwrap()
+            .sections,
+        job.sections
+    );
+    assert_eq!(
+        cache
+            .job("unknown language", "plain text", "rust", &appearance)
+            .unwrap()
+            .text,
+        "plain text"
+    );
+    let second = theme("second", "#222222");
+    harness.syntax.tick(&store, &second, now + THEME_WAIT);
+    harness.settle(&store, &second, now + THEME_WAIT * 2);
+    prepare(&mut cache, &mut store, &mut harness.syntax);
+    let updated = cache.job("Rust", RUST_SOURCE, "rust", &appearance).unwrap();
+    assert!(
+        updated
+            .sections
+            .iter()
+            .any(|section| section.format.color == Color32::from_rgb(0x22, 0x22, 0x22))
+    );
+    cache
+        .prepare(&mut store, &mut harness.syntax, std::iter::empty(), &[])
+        .unwrap();
+    harness.settle(&store, &second, now + THEME_WAIT * 2);
+    assert_eq!(
+        store
+            .documents()
+            .versions()
+            .map(|version| version.id)
+            .collect::<Vec<_>>(),
+        vec![source]
+    );
+    assert_eq!(store.views().get(view).unwrap().document, source);
+    assert_eq!(
+        store.documents().snapshot(source).unwrap().rope,
+        source_snapshot.rope
+    );
+    assert!(store.documents().snapshot(source).unwrap().dirty);
+    assert!(
+        ids.iter()
+            .filter(|document| **document != source)
+            .all(|document| !harness.syntax.pipeline.contains(*document))
+    );
+    harness.syntax.disconnect();
+    harness.finished.recv_timeout(TIMEOUT).unwrap();
+}
+
 fn file(path: &str, language_id: &str, content: &str) -> OpenedFile {
     OpenedFile {
         path: path.into(),

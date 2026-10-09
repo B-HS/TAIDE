@@ -1,0 +1,4 @@
+[
+    { "id": "monaco.editor.action.showHover", "key": "k", "mods": ["mod"], "chord": { "key": "i", "mods": ["mod"] } },
+    { "id": "monaco.editor.action.triggerParameterHints", "key": "Space", "mods": ["mod", "shift"] }
+]

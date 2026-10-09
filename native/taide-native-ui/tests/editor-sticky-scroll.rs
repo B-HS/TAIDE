@@ -196,6 +196,10 @@ impl Fixture {
                             fold_commands: &[],
                             #[cfg(feature = "native-host")]
                             syntax_folds: self.syntax_folds.clone(),
+                            #[cfg(feature = "native-host")]
+                            documentation: None,
+                            #[cfg(feature = "native-host")]
+                            documentation_commands: &[],
                             fold_controls: Some(&mut paint),
                             #[cfg(feature = "native-host")]
                             problems: None,

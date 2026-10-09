@@ -23,6 +23,17 @@ enum Selector {
 }
 
 impl Selector {
+    fn matches(&self, document: Option<&DocumentMirror>) -> bool {
+        match (self, document) {
+            (Self::Workspace, _) => true,
+            (_, None) => false,
+            (Self::Client, Some(_)) => true,
+            (Self::Filters(filters), Some(document)) => {
+                filters.iter().any(|filter| filter.matches(document))
+            }
+        }
+    }
+
     fn filter_count(&self) -> usize {
         match self {
             Self::Filters(filters) => filters.len(),
@@ -203,6 +214,22 @@ impl Registry {
         *self = Self::default();
     }
 
+    pub(crate) fn signature_options(
+        &self,
+        document: &DocumentMirror,
+    ) -> Vec<lsp_types::SignatureHelpOptions> {
+        self.entries
+            .values()
+            .filter(|entry| {
+                entry.method == "textDocument/signatureHelp"
+                    && entry.selector.matches(Some(document))
+            })
+            .filter_map(|entry| {
+                serde_json::from_value(entry.capabilities["signatureHelpProvider"].clone()).ok()
+            })
+            .collect()
+    }
+
     pub(crate) fn supports(
         &self,
         method: &str,
@@ -216,15 +243,7 @@ impl Registry {
         self.entries.values().any(|entry| {
             entry.method == base
                 && capabilities::supports(&entry.capabilities, method)
-                && (is_query
-                    || match (&entry.selector, document) {
-                        (Selector::Workspace, _) => true,
-                        (_, None) => false,
-                        (Selector::Client, Some(_)) => true,
-                        (Selector::Filters(filters), Some(document)) => {
-                            filters.iter().any(|filter| filter.matches(document))
-                        }
-                    })
+                && (is_query || entry.selector.matches(document))
                 && (method != "workspace/executeCommand"
                     || is_query
                     || command.is_some_and(|command| {
@@ -312,6 +331,7 @@ impl Registry {
                 }
                 "textDocument/signatureHelp" => {
                     validate_options!(options, lsp_types::SignatureHelpRegistrationOptions);
+                    validate_options!(options, lsp_types::SignatureHelpOptions);
                 }
                 "textDocument/onTypeFormatting" => {
                     validate_options!(
@@ -397,5 +417,31 @@ impl Registry {
         }
         self.revision = revision;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn signature_동적등록은_잘못된_trigger_형식을_원자적으로_거절한다() {
+        let client = json!({"textDocument":{"signatureHelp":{"dynamicRegistration":true}}});
+        for field in ["triggerCharacters", "retriggerCharacters"] {
+            for value in [json!(["(", 1]), json!(1), json!({})] {
+                let mut registry = Registry::default();
+                let mut options = json!({"documentSelector":null});
+                options[field] = value;
+                let params = serde_json::from_value(json!({"registrations":[{
+                    "id":"signature", "method":"textDocument/signatureHelp", "registerOptions":options
+                }]})).unwrap();
+                assert_eq!(
+                    registry.register(params, &client),
+                    Err(Failure::MalformedResponse)
+                );
+                assert_eq!(registry.count(), 0);
+                assert_eq!(registry.revision(), 0);
+            }
+        }
     }
 }

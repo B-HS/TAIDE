@@ -142,6 +142,8 @@ pub struct EditorDisplayOptions {
     pub problem_colors: Option<crate::editor_problems::Colors>,
     #[cfg(feature = "native-host")]
     pub location_colors: Option<crate::editor_locations::Colors>,
+    #[cfg(feature = "native-host")]
+    pub documentation_colors: Option<crate::editor_documentation::Colors>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -185,6 +187,10 @@ pub struct EditorRequest<'a, Keymap, Route, Tokens> {
     pub problems: Option<&'a mut dyn crate::editor_problems::Provider>,
     #[cfg(feature = "native-host")]
     pub locations: Option<&'a mut dyn crate::editor_locations::Provider>,
+    #[cfg(feature = "native-host")]
+    pub documentation: Option<&'a mut dyn crate::editor_documentation::Provider>,
+    #[cfg(feature = "native-host")]
+    pub documentation_commands: &'a [taide_native_editor::documentation::Command],
     #[cfg(feature = "native-host")]
     pub syntax_folds: Option<Arc<taide_native_editor::syntax_folding::SyntaxFolds>>,
 }
@@ -279,6 +285,8 @@ struct InputState {
     locations: crate::editor_locations::State,
     #[cfg(feature = "native-host")]
     definition_link: crate::editor_definition_link::State,
+    #[cfg(feature = "native-host")]
+    documentation: crate::editor_documentation::State,
     #[cfg(feature = "native-host")]
     caret: crate::editor_caret::CaretState,
     #[cfg(feature = "native-host")]
@@ -639,6 +647,8 @@ pub struct EditorOutput {
     pub focus_ids: Vec<Id>,
     #[cfg(feature = "native-host")]
     pub toggle_sticky_scroll: bool,
+    #[cfg(all(feature = "native-host", feature = "inspection"))]
+    pub documentation_geometry: crate::editor_documentation::Geometry,
 }
 
 #[derive(Default)]
@@ -1045,6 +1055,10 @@ impl NativeEditor {
                 locations: None,
                 #[cfg(feature = "native-host")]
                 syntax_folds: None,
+                #[cfg(feature = "native-host")]
+                documentation: None,
+                #[cfg(feature = "native-host")]
+                documentation_commands: &[],
             },
         )
     }
@@ -1091,6 +1105,10 @@ impl NativeEditor {
             mut problems,
             #[cfg(feature = "native-host")]
             mut locations,
+            #[cfg(feature = "native-host")]
+            mut documentation,
+            #[cfg(feature = "native-host")]
+            documentation_commands,
             #[cfg(feature = "native-host")]
             syntax_folds,
         } = request;
@@ -1165,6 +1183,19 @@ impl NativeEditor {
             .scroll
             .begin(previous.id, vec2(current.scroll.x, current.scroll.y));
         let mut output = InputOutput::default();
+        #[cfg(feature = "native-host")]
+        let documentation_input = if let Some(provider) = documentation.as_deref_mut() {
+            input_state.documentation.input(
+                ui,
+                store,
+                view,
+                id,
+                provider,
+                documentation_commands,
+            )?
+        } else {
+            crate::editor_documentation::Input::default()
+        };
         #[cfg(feature = "native-host")]
         let initial_location = locations
             .as_deref_mut()
@@ -1341,13 +1372,18 @@ impl NativeEditor {
         let problem_owned = false;
         #[cfg(feature = "native-host")]
         let location_owned = !location_input.consumed.is_empty();
+        #[cfg(feature = "native-host")]
+        let documentation_owned = !documentation_input.consumed.is_empty();
+        #[cfg(not(feature = "native-host"))]
+        let documentation_owned = false;
         #[cfg(not(feature = "native-host"))]
         let location_owned = false;
         if (response.has_focus()
             || has_owned_input
             || sticky_owned
             || problem_owned
-            || location_owned)
+            || location_owned
+            || documentation_owned)
             && ui.is_enabled()
         {
             ui.memory_mut(|memory| {
@@ -1371,7 +1407,9 @@ impl NativeEditor {
                 #[cfg(feature = "native-host")]
                 let raw_index = egui::Context::raw_event_index(&raw_events, &event, &mut raw_next);
                 #[cfg(feature = "native-host")]
-                if location_input.consumed.contains(&raw_index) {
+                if location_input.consumed.contains(&raw_index)
+                    || documentation_input.consumed.contains(&raw_index)
+                {
                     continue;
                 }
                 #[cfg(feature = "native-host")]
@@ -1504,6 +1542,10 @@ impl NativeEditor {
                 let owns_body = location_input
                     .release_at
                     .is_some_and(|index| raw_index > index)
+                    || documentation_input
+                        .release_at
+                        .is_some_and(|index| raw_index > index)
+                    || documentation_input.release_from_start
                     || problem_released
                     || owned.unwrap_or(fallback_focus);
                 #[cfg(not(feature = "native-host"))]
@@ -1611,6 +1653,13 @@ impl NativeEditor {
                 if let Some(language) = language {
                     language.syntax.follow_edits(store);
                 }
+                #[cfg(feature = "native-host")]
+                let documentation_before = store.views().get(view).and_then(|view| {
+                    Some((
+                        store.documents().snapshot(view.document).ok()?.revision,
+                        view.selection.clone(),
+                    ))
+                });
                 match self.input(
                     store,
                     view,
@@ -1625,6 +1674,25 @@ impl NativeEditor {
                             last_editor_event = Some(raw_index);
                         }
                         input_state.auto_closed.follow(store, view)?;
+                        #[cfg(feature = "native-host")]
+                        if let Some(provider) = documentation.as_deref_mut() {
+                            let changed = store.views().get(view).is_some_and(|view| {
+                                store
+                                    .documents()
+                                    .snapshot(view.document)
+                                    .is_ok_and(|document| {
+                                        documentation_before.as_ref().is_none_or(
+                                            |(revision, selection)| {
+                                                *revision != document.revision
+                                                    || *selection != view.selection
+                                            },
+                                        )
+                                    })
+                            });
+                            input_state
+                                .documentation
+                                .after_event(ui, store, view, provider, &event, changed);
+                        }
                     }
                     Ok(false) => remaining.push(event),
                     Err(error) => output.errors.push(error),
@@ -1949,6 +2017,7 @@ impl NativeEditor {
         #[cfg(feature = "native-host")]
         let (wheel, precise_wheel) = if ui.is_enabled()
             && !location_hovered
+            && !input_state.documentation.contains_pointer(ui)
             && (response.hovered()
                 || minimap_input
                     .as_ref()
@@ -2948,7 +3017,7 @@ impl NativeEditor {
                 },
             );
         #[cfg(feature = "native-host")]
-        let focus_ids = input_state
+        let mut focus_ids: Vec<Id> = input_state
             .sticky
             .focus_ids()
             .into_iter()
@@ -2974,6 +3043,26 @@ impl NativeEditor {
             rows: rows.into(),
         };
         #[cfg(feature = "native-host")]
+        if let Some(provider) = documentation.as_deref_mut()
+            && let Some(colors) = presentation.options.documentation_colors
+        {
+            let definition_active = locations
+                .as_deref()
+                .and_then(|provider| provider.keyboard_link(store, view))
+                .is_some();
+            focus_ids.extend(input_state.documentation.paint(
+                ui,
+                store,
+                view,
+                id,
+                &geometry,
+                appearance,
+                colors,
+                provider,
+                definition_active,
+            )?);
+        }
+        #[cfg(feature = "native-host")]
         input_state.definition_link.paint(
             ui,
             store,
@@ -2988,6 +3077,8 @@ impl NativeEditor {
                 .location_colors
                 .map_or(appearance.foreground, |colors| colors.link),
         )?;
+        #[cfg(all(feature = "native-host", feature = "inspection"))]
+        let documentation_geometry = input_state.documentation.geometry();
         ui.ctx().data_mut(|data| data.insert_temp(id, input_state));
         Ok(EditorOutput {
             response,
@@ -2999,6 +3090,8 @@ impl NativeEditor {
             focus_ids,
             #[cfg(feature = "native-host")]
             toggle_sticky_scroll,
+            #[cfg(all(feature = "native-host", feature = "inspection"))]
+            documentation_geometry,
             geometry,
         })
     }

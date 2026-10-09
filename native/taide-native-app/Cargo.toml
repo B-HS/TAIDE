@@ -21,6 +21,7 @@ exclude = ["vendor/rhwp", "vendor/cfb-retained", "vendor/zip-retained", "vendor/
 inspection = ["taide-native-ui/inspection"]
 
 [dependencies]
+base64 = "=0.23.1"
 arboard = { version = "=3.6.1", default-features = false }
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 gif = "=0.14.2"
@@ -81,6 +82,7 @@ taide-system = { path = "../../crates/taide-system" }
 taide-native-ui = { path = "../taide-native-ui" }
 taide-native-editor = { path = "../taide-native-editor" }
 taide-native-syntax = { path = "../taide-native-syntax" }
+pulldown-cmark = { version = "=0.13.4", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "=0.6.2"
@@ -99,7 +101,6 @@ rustix = { version = "=1.1.4", features = ["fs"] }
 [dev-dependencies]
 taide-native-ui = { path = "../taide-native-ui", features = ["inspection"] }
 tokio = { version = "1", features = ["test-util"] }
-base64 = "=0.23.1"
 png = "=0.18.1"
 ravif = { version = "=0.13.0", default-features = false }
 winit = { version = "=0.30.13", default-features = false }

@@ -216,6 +216,26 @@ impl LspCoordinator {
         self.registrations.revision()
     }
 
+    pub(crate) fn signature_options(&self, uri: &str) -> Vec<lsp_types::SignatureHelpOptions> {
+        if self.phase != Phase::Running {
+            return Vec::new();
+        }
+        let Some(document) = self.documents.get(uri) else {
+            return Vec::new();
+        };
+        let mut options = self
+            .capabilities
+            .as_ref()
+            .and_then(|capabilities| capabilities.get("signatureHelpProvider"))
+            .and_then(|value| {
+                serde_json::from_value::<lsp_types::SignatureHelpOptions>(value.clone()).ok()
+            })
+            .into_iter()
+            .collect::<Vec<_>>();
+        options.extend(self.registrations.signature_options(&document.mirror));
+        options
+    }
+
     pub fn register_capabilities(
         &mut self,
         generation: u64,

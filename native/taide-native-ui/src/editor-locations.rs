@@ -99,6 +99,7 @@ pub trait Provider {
         None
     }
     fn preserve_focus(&mut self, _view: ViewId, _focus: Focus) {}
+    fn clear_preview_chord(&mut self, _view: ViewId) {}
     fn preview_find_visible(&self, _view: ViewId) -> bool {
         false
     }
@@ -407,6 +408,9 @@ impl State {
             {
                 if self.chord && *key == Key::F2 && modifiers.is_none() {
                     self.chord = false;
+                    if let Some(provider) = provider.as_deref_mut() {
+                        provider.clear_preview_chord(view);
+                    }
                     let tree = self.scene.as_ref().map(|scene| scene.tree);
                     let in_tree =
                         tree_owned || tree.is_some_and(|id| owns_event(ui.ctx(), id, index));
@@ -423,7 +427,7 @@ impl State {
                 }
                 self.chord =
                     *key == Key::K && modifiers.command && !modifiers.alt && !modifiers.shift;
-                if self.chord {
+                if self.chord && !preview_owned {
                     input.consumed.insert(index);
                     continue;
                 }

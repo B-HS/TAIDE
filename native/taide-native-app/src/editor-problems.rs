@@ -29,12 +29,16 @@ pub struct Request {
 
 impl Request {
     pub(crate) fn source_is_active(&self, layout: &ProjectLayout) -> bool {
-        pane_is_focused(layout, &self.source_key.pane)
-            && taide_layout::service::all_roots(layout).any(|root| {
-                taide_native_ui::snapshot::active_tab(root, &self.source_key.pane)
-                    .is_some_and(|tab| tab.id == self.source_key.tab)
-            })
+        view_key_is_active(layout, &self.source_key)
     }
+}
+
+pub(crate) fn view_key_is_active(layout: &ProjectLayout, key: &ViewKey) -> bool {
+    pane_is_focused(layout, &key.pane)
+        && taide_layout::service::all_roots(layout).any(|root| {
+            taide_native_ui::snapshot::active_tab(root, &key.pane)
+                .is_some_and(|tab| tab.id == key.tab)
+        })
 }
 
 fn pane_is_focused(layout: &ProjectLayout, pane: &taide_model::ids::PaneId) -> bool {

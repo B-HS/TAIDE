@@ -33,12 +33,20 @@ pub mod delete_dialog;
 pub mod diagnostics;
 #[path = "editor-command-text.rs"]
 mod editor_command_text;
+#[path = "editor-documentation.rs"]
+mod editor_documentation;
+#[path = "editor-documentation-code.rs"]
+mod editor_documentation_code;
+#[path = "editor-documentation-images.rs"]
+mod editor_documentation_images;
 #[path = "editor-folding.rs"]
 mod editor_folding;
 #[path = "editor-fonts.rs"]
 mod editor_fonts;
 #[path = "editor-locations.rs"]
 mod editor_locations;
+#[path = "editor-markup.rs"]
+mod editor_markup;
 #[path = "editor-problems.rs"]
 mod editor_problems;
 pub mod editor_reveal;

@@ -42,6 +42,8 @@ struct MockServer {
     held_fold: Option<Value>,
     locations: Option<&'static str>,
     held_location: Option<Value>,
+    documentation: Option<&'static str>,
+    held_documentation: BTreeMap<u64, Value>,
     workspace_symbols: Option<&'static str>,
     held_workspace_symbol: Option<Value>,
     workspace_folders: Vec<Value>,
@@ -243,6 +245,7 @@ impl MockServer {
             let has_valid_root = if self.should_format_documents
                 || self.workspace_symbols.is_some()
                 || self.locations.is_some()
+                || self.documentation.is_some()
             {
                 params["rootUri"]
                     .as_str()
@@ -353,6 +356,21 @@ impl MockServer {
             if self.should_track_workspace_roots {
                 capabilities["workspace"] =
                     json!({"workspaceFolders":{"supported":true,"changeNotifications":true}});
+            }
+            if let Some(mode) = self.documentation {
+                if params["capabilities"]["textDocument"]["hover"]["contentFormat"]
+                    != json!(["markdown", "plaintext"])
+                    || !params["capabilities"]["textDocument"]["signatureHelp"].is_object()
+                {
+                    return Err(invalid(
+                        "native documentation requires typed client capabilities",
+                    ));
+                }
+                capabilities["hoverProvider"] = json!(mode != "unsupported");
+                if mode != "unsupported" {
+                    capabilities["signatureHelpProvider"] =
+                        json!({"triggerCharacters":["(",","],"retriggerCharacters":[")"]});
+                }
             }
             if self.should_run_save_actions {
                 capabilities["codeActionProvider"] = json!({"resolveProvider":true,"codeActionKinds":["source.fixAll","source.organizeImports"]});
@@ -484,6 +502,17 @@ impl MockServer {
             let cancelled_id = message["params"]["id"]
                 .as_u64()
                 .ok_or_else(|| invalid("cancel must identify a numeric request"))?;
+            if let Some(held) = self.held_documentation.remove(&cancelled_id) {
+                write_response(output, &held["id"], Value::Null)?;
+                write_document_diagnostic(
+                    output,
+                    held["uri"]
+                        .as_str()
+                        .ok_or_else(|| invalid("held documentation requires URI"))?,
+                    &held["version"],
+                    "synthetic documentation cancelled",
+                )?;
+            }
             if self
                 .held_location
                 .as_ref()
@@ -692,6 +721,85 @@ impl MockServer {
             .and_then(Value::as_str)
             .ok_or_else(|| invalid("document requires URI"))?;
         match method {
+            "textDocument/hover" | "textDocument/signatureHelp" if self.documentation.is_some() => {
+                let current = self
+                    .documents
+                    .get(uri)
+                    .ok_or_else(|| invalid("documentation requires current mirror"))?;
+                let id = id.ok_or_else(|| invalid("documentation requires ID"))?;
+                let mode = self
+                    .documentation
+                    .ok_or_else(|| invalid("documentation mode required"))?;
+                if params.get("context").is_some()
+                    || !params["position"]["line"].is_u64()
+                    || !params["position"]["character"].is_u64()
+                {
+                    return Err(invalid(
+                        "documentation requires UTF-16 position without extra context",
+                    ));
+                }
+                if mode == "wait" {
+                    self.held_documentation.insert(
+                        id.as_u64()
+                            .ok_or_else(|| invalid("hold requires numeric ID"))?,
+                        json!({"id":id,"uri":uri,"version":current["version"]}),
+                    );
+                    write_document_diagnostic(
+                        output,
+                        uri,
+                        &current["version"],
+                        "synthetic documentation held",
+                    )?;
+                    return Ok(None);
+                }
+                if mode == "crash"
+                    && current["text"]
+                        .as_str()
+                        .is_some_and(|text| text.starts_with("crash"))
+                {
+                    return Ok(Some(ExitCode::from(CRASH_EXIT_CODE)));
+                }
+                if mode == "error" {
+                    write_payload(
+                        output,
+                        &json!({"jsonrpc":"2.0","id":id,"error":{"code":-32603,"message":"synthetic documentation error"}}),
+                    )?;
+                    return Ok(None);
+                }
+                let result = if mode == "null" {
+                    Value::Null
+                } else if mode == "bad" {
+                    if method == "textDocument/hover" {
+                        json!({"contents":false})
+                    } else {
+                        json!({"signatures":true})
+                    }
+                } else if method == "textDocument/hover" {
+                    if mode == "empty" {
+                        json!({"contents":[]})
+                    } else {
+                        let name = if mode == "alternate" {
+                            "alternate"
+                        } else {
+                            "primary"
+                        };
+                        json!({"contents":[format!("**{name} docs**"),{"language":"rust","value":format!("fn {name}() {{}}")}]})
+                    }
+                } else if mode == "empty" {
+                    json!({"signatures":[]})
+                } else {
+                    let (label, parameter) = if mode == "alternate" {
+                        ("alternate(\u{1f642}, x)", [10, 12])
+                    } else {
+                        ("f(\u{1f642}, x)", [2, 4])
+                    };
+                    json!({"activeSignature":0,"activeParameter":1,"signatures":[{
+                        "label":label,"documentation":{"kind":"markdown","value":"**signature docs**"},"activeParameter":0,
+                        "parameters":[{"label":parameter,"documentation":{"kind":"plaintext","value":"**literal parameter**"}},{"label":"x"}]
+                    },{"label":"second(x)","parameters":[{"label":"x"}]}]})
+                };
+                write_response(output, id, result)?;
+            }
             method
                 if self.locations.is_some()
                     && matches!(
@@ -1136,6 +1244,34 @@ fn main() -> io::Result<ExitCode> {
             server.should_track_saves = true;
             server.should_format_documents = true;
             server.should_run_save_actions = true;
+        }
+        Some(
+            mode @ ("--native-documentation"
+            | "--native-documentation-peek"
+            | "--native-documentation-empty"
+            | "--native-documentation-null"
+            | "--native-documentation-error"
+            | "--native-documentation-bad"
+            | "--native-documentation-wait"
+            | "--native-documentation-crash"
+            | "--native-documentation-alternate"
+            | "--native-documentation-unsupported"),
+        ) => {
+            server.should_track_saves = true;
+            if mode == "--native-documentation-peek" {
+                server.locations = Some("normal");
+            }
+            server.documentation = Some(match mode {
+                "--native-documentation-empty" => "empty",
+                "--native-documentation-null" => "null",
+                "--native-documentation-error" => "error",
+                "--native-documentation-bad" => "bad",
+                "--native-documentation-wait" => "wait",
+                "--native-documentation-crash" => "crash",
+                "--native-documentation-alternate" => "alternate",
+                "--native-documentation-unsupported" => "unsupported",
+                _ => "normal",
+            });
         }
         Some(
             mode @ ("--native-locations"

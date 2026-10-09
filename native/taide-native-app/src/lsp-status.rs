@@ -125,6 +125,7 @@ mod tests {
             registrations: 0,
             capability_revision: 0,
             document_methods: Default::default(),
+            document_signature_options: Default::default(),
             pid: None,
             failure: None,
         }

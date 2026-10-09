@@ -3,6 +3,57 @@ use taide_native_ui::keymap::{Context, Decision, Route, Windows};
 
 #[cfg(feature = "native-host")]
 #[test]
+fn 문서_호버와_시그니처_기본키는_os와_재지정을_따른다() {
+    for os in [
+        OperatingSystem::Mac,
+        OperatingSystem::Windows,
+        OperatingSystem::Nix,
+    ] {
+        let context = egui::Context::default();
+        context.set_os(os);
+        let modifiers = if os == OperatingSystem::Mac {
+            Modifiers::MAC_CMD | Modifiers::COMMAND
+        } else {
+            Modifiers::CTRL | Modifiers::COMMAND
+        };
+        let mut windows = Windows::default();
+        editor_event(&mut windows, &context, Key::K, modifiers, None, false);
+        assert!(
+            editor_event(&mut windows, &context, Key::I, modifiers, None, false).contains(
+                &Decision::ResolveChord("monaco.editor.action.showHover".into())
+            )
+        );
+        assert!(
+            editor_event(
+                &mut windows,
+                &context,
+                Key::Space,
+                modifiers | Modifiers::SHIFT,
+                None,
+                false
+            )
+            .contains(&Decision::Dispatch(
+                "monaco.editor.action.triggerParameterHints".into()
+            ))
+        );
+        let overrides =
+            r#"[{"actionId":"monaco.editor.action.showHover","key":"r","mods":["mod"]}]"#;
+        assert!(
+            editor_event(
+                &mut windows,
+                &context,
+                Key::R,
+                modifiers,
+                Some(overrides),
+                false
+            )
+            .contains(&Decision::Dispatch("monaco.editor.action.showHover".into()))
+        );
+    }
+}
+
+#[cfg(feature = "native-host")]
+#[test]
 fn 수동과_전체_접기_기본_chord는_플랫폼과_재지정과_ime를_따른다() {
     for os in [
         OperatingSystem::Mac,

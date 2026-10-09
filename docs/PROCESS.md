@@ -6,15 +6,15 @@
 
 기준: 실제 TS hover/signature-help adapter·initialize·code-editor와 Monaco hover/parameterHints·Markdown renderer·키/원본 테마, 현재 native typed LSP/문서 mirror/owner/세대/취소·본문/peek 입력/좌표/토큰입니다. 일반 LSP 문서 호버와 자동/명시적 시그니처의 Markdown/코드·현재 인자·복수 서명·요청 수명을 원본 화면/상호작용에 연결합니다. 새 기능/디자인·원본 버그/내부 수치 강제 재현·동결 browser/OS 합성 입력·editor/UI regex 또는 구문 engine 의존성을 추가하지 않습니다.
 
-- [ ] a. 실제 기준·공식 API·공급 경계 — TS와 Monaco의 provider 우선순위/Markup/범위·지연/자동 trigger/retrigger/키/포커스·원본 theme, 설치된 typed LSP와 현재 native source/preview 경계를 대조해 QA에 기록합니다. Markdown은 기존 구현/표준/캐시와 필요성을 확인하고 의존성 결정은 실제 근거에 따릅니다.
-- [ ] b. 호버·시그니처 모델 — MarkedString/MarkupContent·복수 결과/서명·문자열/UTF-16 parameter label·문서/뷰/revision/언어/위치와 요청 교체/지연/취소·빈/오류를 검증합니다. 원본 Markdown/코드와 안전한 링크를 표시 모델로 연결하고 문서에 없는 동작을 추측하지 않습니다.
-- [ ] c. 실제 typed LSP 공급·수명 — 현재 프로젝트의 준비 provider와 정적/동적 지원, trigger/retrigger 정보를 소비하고 실제 child의 성공/없음/오류·편집/닫힘/프로젝트/재시작·늦은 응답을 확인합니다. 순수 peek의 mirror/공급을 실제 문서 소유 경계로 연결합니다.
-- [ ] d. 표시·명령·직렬 입력 — 포인터/키보드 호버·자동/명시 시그니처·현재 인자 강조·복수 서명 순환/닫기·위치/clip/스크롤·원본 테마/Markdown 코드와 본문/peek 포커스를 연결합니다. OS 합성 입력 대신 메모리 UI로 본문 입력 소유를 검증합니다.
-- [ ] e. 실제 앱 통합·의미 있는 회귀 — 본문/peek·dirty 모델·다중 뷰/창·읽기 전용/대형·편집/선택/언어/서버/테마 수명과 종료 task 회수를 실제 앱/파일 fixture에서 검증합니다. 별도 완성/rename/actions/semantic/inlay/code-lens와 실기 pixel/IME/접근성은 잔여 범위로 보존합니다.
-- [ ] f. 전체 게이트 — 변경 크레이트의 전체 대상을 --no-fail-fast로 직접 1회 실행하고 실패 영향만 재검사합니다. 동결 host/Wasm 컴파일·포맷/diff·manifest/lock/engine 경계와 디스크를 확인하고 보호 Trash/기존 ignored·실기 부채를 구분합니다.
+- [x] a. 실제 기준·공식 API·공급 경계 — TS와 Monaco의 provider 우선순위/Markup/범위·지연/자동 trigger/retrigger/키/포커스·원본 theme, 설치된 typed LSP와 현재 native source/preview 경계를 대조해 QA에 기록했습니다. 기존 Rust Markdown 구현/캐시가 없어 공식 최신 API/라이선스를 확인한 앱 전용 pulldown-cmark =0.13.4를 default-features=false로 반입했습니다. app lock 두 패키지만 추가하며 editor/UI engine·동결 경계를 유지했습니다.
+- [x] b. 호버·시그니처 모델 — core 7·앱 Markdown 7·요청 상태 8·SDK 2건이 통과했습니다. MarkedString/MarkupContent·복수 결과/서명·UTF-16 인자·trigger/retrigger·표/중첩 강조/목록/코드/안전한 링크·문서/뷰/revision/언어/provider와 취소를 확인했습니다. loose task list 소유와 잘못된 동적 trigger 형식은 실패 재현 후 수정했습니다. 호버의 부분 응답은 우선순위로 정렬하며 기존 문서 Arc를 보존하고 서명은 재요청 중 표시를 유지합니다. 실제 표시/타이밍은 d에서 이어갑니다.
+- [x] c. 실제 typed LSP 공급·수명 — 실제 child 5건·SDK 2건과 실제 앱 peek 통합 1건이 통과했습니다. 정적/동적 문서별 지원·trigger/retrigger·provider 우선순위/프로젝트 격리·편집/닫힘 cancel·재시작/늦은 응답을 소비합니다. 순수 peek를 원본문 프로젝트 root 안의 소유 문서만 mirror에 포함해 실제 요청/응답과 owner를 확인했습니다. 명시 호버의 modifier 숨김과 peek prefix 충돌은 실패 재현 후 수정했습니다.
+- [x] d. 표시·명령·직렬 입력 — 최신 메모리 UI 13건에서 호버/시그니처의 타이밍·직렬 입력/포커스·원본 테마/Markdown·이미지 링크·복수 서명·크기/스크롤·readonly/두 뷰를 확인했습니다. 기존 TextMate 코드/테마·안전한 파일 링크 3건·이미지 4건과 실제 본문/peek 공급을 연결했습니다. OS 합성 입력은 사용하지 않았습니다.
+- [x] e. 실제 앱 통합·의미 있는 회귀 — 실제 앱의 본문/peek typed 응답·코드 색/서명 순환·dirty 같은 모델 인수·열린 도움말 종료/소유 코드 모델 회수와 task 0을 확인했습니다. 닫힌 이미지 대기의 즉시 취소 실패를 재현해 수정했습니다. 파일 host의 보조 pane/viewport와 메모리 UI의 두 뷰/readonly를 검증했고 실기 보조 창·pixel/IME/접근성/성능과 기타 LSP 기능은 잔여 범위로 보존합니다.
+- [x] f. 전체 게이트 — 변경 editor/UI/app/SDK의 전체 121대상과 실패 영향 재검사에서 서로 다른 1412건이 통과했습니다(editor 219·UI 390·app 719·SDK 84). 최초 UI 기대값 1/app 기존 child 초기화 대기 3실패를 기록했고 해당 검사만 재확인했습니다. frozen host/Wasm·4크레이트 fmt/diff exit 0, 앱 전용 parser 2패키지 추가/기존 base64 이동·engine/동결 경계 유지, 보호 Trash 3/ignored·실기 부채를 구분했습니다. 디스크 여유는 623GiB·사용 66%입니다.
 - [ ] g. 실제 기록·선별 Git·계속 진행 — 닫힌 요구사항만 QA/기능표/완료 근거/PROCESS에 반영하고 검증한 논리 단위를 선별 커밋·일반 푸시합니다. 다음 범위를 작성해 전체 전환을 계속합니다.
 
-진척: 배치 21 체크리스트 0/7(0%), 현재 기능 대응표 284/588(48.3%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. 다음 행동은 원본 호버·시그니처의 표시·입력·요청 수명을 확인하는 것입니다.
+진척: 배치 21 체크리스트 6/7(85.7%), 현재 기능 대응표 284/588(48.3%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. 전체 121대상과 영향 재검사의 서로 다른 1412건·동결/포맷/경계 검증을 마쳤습니다. 실제 요구사항 완료 기록과 선별 Git을 이어갑니다.
 
 ## 완료: 배치 20 — 정의·선언·타입/구현 이동과 참조·peek (2026-10-10)
 

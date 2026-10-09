@@ -4019,6 +4019,10 @@ fn show_decorated(
                         fold_commands: &[],
                         #[cfg(feature = "native-host")]
                         syntax_folds: None,
+                        #[cfg(feature = "native-host")]
+                        documentation: None,
+                        #[cfg(feature = "native-host")]
+                        documentation_commands: &[],
                         fold_controls: None,
                         #[cfg(feature = "native-host")]
                         problems: None,
@@ -5483,6 +5487,10 @@ fn show_folding(
                         fold_commands: frame.commands,
                         #[cfg(feature = "native-host")]
                         syntax_folds: frame.syntax.clone(),
+                        #[cfg(feature = "native-host")]
+                        documentation: None,
+                        #[cfg(feature = "native-host")]
+                        documentation_commands: &[],
                         fold_controls: Some(&mut record),
                         #[cfg(feature = "native-host")]
                         problems: None,

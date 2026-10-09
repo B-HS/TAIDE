@@ -15,6 +15,7 @@ const MAC_PLATFORM: &str = "mac";
 pub const EDITOR_FIND_AVAILABLE: bool = cfg!(feature = "native-host");
 pub const EDITOR_SYNTAX_FOLDING_AVAILABLE: bool = cfg!(feature = "native-host");
 pub const EDITOR_LOCATIONS_AVAILABLE: bool = cfg!(feature = "native-host");
+pub const EDITOR_DOCUMENTATION_AVAILABLE: bool = cfg!(feature = "native-host");
 const EDITOR_ACTIONS_WITHOUT_SUPPORT_GATE: [&str; 21] = [
     "editor.action.goToImplementation",
     "editor.action.goToLocation",
@@ -71,6 +72,8 @@ pub enum DocumentEdit {
     Problem(taide_native_editor::problem_navigation::Command),
     #[cfg(feature = "native-host")]
     Location(taide_native_editor::symbol_locations::Command),
+    #[cfg(feature = "native-host")]
+    Documentation(taide_native_editor::documentation::Command),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -263,6 +266,13 @@ fn enablement(id: &str) -> Enablement {
 }
 
 fn execution(id: &str, keymap_id: Option<&str>) -> Execution {
+    #[cfg(feature = "native-host")]
+    if let Some(command) = id
+        .strip_prefix(EDITOR_ACTION_PREFIX)
+        .and_then(taide_native_editor::documentation::Command::from_action)
+    {
+        return Execution::Native(Run::EditDocument(DocumentEdit::Documentation(command)));
+    }
     #[cfg(feature = "native-host")]
     if let Some(command) = id
         .strip_prefix(EDITOR_ACTION_PREFIX)
@@ -534,6 +544,10 @@ impl Registry {
                     }
                     #[cfg(feature = "native-host")]
                     Execution::Native(Run::EditDocument(DocumentEdit::Location(_))) => {
+                        Some(action.to_owned())
+                    }
+                    #[cfg(feature = "native-host")]
+                    Execution::Native(Run::EditDocument(DocumentEdit::Documentation(_))) => {
                         Some(action.to_owned())
                     }
                     Execution::Native(Run::EditDocument(_)) if editor.is_read_only => None,
@@ -910,6 +924,8 @@ mod tests {
                 Execution::Native(Run::EditDocument(DocumentEdit::Problem(_))) => None,
                 #[cfg(feature = "native-host")]
                 Execution::Native(Run::EditDocument(DocumentEdit::Location(_))) => None,
+                #[cfg(feature = "native-host")]
+                Execution::Native(Run::EditDocument(DocumentEdit::Documentation(_))) => None,
                 Execution::Native(Run::EditDocument(
                     DocumentEdit::Line(_) | DocumentEdit::Cursor(_),
                 )) => None,
@@ -1035,6 +1051,14 @@ mod tests {
                     .into_iter()
                     .filter(|_| EDITOR_LOCATIONS_AVAILABLE),
                 )
+                .chain(
+                    [
+                        "editor.action.showHover",
+                        "editor.action.triggerParameterHints",
+                    ]
+                    .into_iter()
+                    .filter(|_| EDITOR_DOCUMENTATION_AVAILABLE),
+                )
                 .map(str::to_owned)
                 .collect::<HashSet<_>>();
             assert_eq!(
@@ -1064,6 +1088,36 @@ mod tests {
             assert_eq!(command.runnable(&context), Some(Run::ToggleEditorMinimap));
         }
         assert!(!command.is_runnable(&CommandContext::default()));
+    }
+
+    #[test]
+    #[cfg(feature = "native-host")]
+    fn 문서_도움말은_읽기전용_editor에서도_실행되고_본문이_없으면_비활성이다() {
+        use taide_native_editor::documentation::{Command, SignatureCommand};
+        let registry = registry().unwrap();
+        for (action, operation) in [
+            ("editor.action.showHover", Command::ShowHover),
+            (
+                "editor.action.triggerParameterHints",
+                Command::Signature(SignatureCommand::Trigger),
+            ),
+        ] {
+            let command = registry.command(&format!("monaco.{action}")).unwrap();
+            for is_read_only in [false, true] {
+                let context = CommandContext {
+                    active_editor_actions: Some(registry.editor_action_ids(ActiveEditor {
+                        is_read_only,
+                        has_folding: false,
+                    })),
+                    ..Default::default()
+                };
+                assert_eq!(
+                    command.runnable(&context),
+                    Some(Run::EditDocument(DocumentEdit::Documentation(operation)))
+                );
+            }
+            assert!(!command.is_runnable(&CommandContext::default()));
+        }
     }
 
     #[test]

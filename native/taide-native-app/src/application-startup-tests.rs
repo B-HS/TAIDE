@@ -613,7 +613,7 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
     );
     std::fs::write(
         &executable,
-        format!("#!/bin/sh\nexec '{mock}' --native-locations\n"),
+        format!("#!/bin/sh\nexec '{mock}' --native-documentation-peek\n"),
     )
     .unwrap();
     runtime
@@ -642,6 +642,144 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
             )
             .is_empty()
     });
+    application.document_edits.push((
+        tab.clone(),
+        DocumentEdit::Documentation(taide_native_editor::documentation::Command::ShowHover),
+    ));
+    paint(application, Vec::new());
+    wait_for(
+        application,
+        &context,
+        "main-body-hover-response",
+        |application| {
+            application
+                .editor_documentation
+                .payload(
+                    &application.store,
+                    view,
+                    crate::editor_documentation::Kind::Hover,
+                )
+                .is_some()
+        },
+    );
+    let body_hover = application
+        .editor_documentation
+        .request(
+            &application.store,
+            view,
+            crate::editor_documentation::Kind::Hover,
+        )
+        .unwrap()
+        .clone();
+    assert_eq!(body_hover.owner, view);
+    assert_eq!(body_hover.source, view);
+    assert_eq!(body_hover.snapshot.id, document);
+    runtime.block_on(async {
+        tokio::time::timeout(DEADLINE, async {
+            loop {
+                eframe::App::logic(application, &context, &mut eframe::Frame::_new_kittest());
+                let output = paint(application, Vec::new());
+                if output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text)
+                    if text.galley.job.text == "fn primary() {}"
+                    && text.galley.job.sections.iter().map(|section| section.format.color).collect::<HashSet<_>>().len() > 1)) { break; }
+                tokio::task::yield_now().await;
+            }
+        }).await.expect("actual main-body documentation code did not receive TextMate colors");
+    });
+    application.document_edits.push((
+        tab.clone(),
+        DocumentEdit::Documentation(taide_native_editor::documentation::Command::ShowHover),
+    ));
+    paint(application, Vec::new());
+    assert_eq!(
+        application
+            .editor_documentation
+            .request(
+                &application.store,
+                view,
+                crate::editor_documentation::Kind::Hover
+            )
+            .unwrap()
+            .token,
+        body_hover.token
+    );
+    assert!(
+        context
+            .memory(|memory| memory.focused())
+            .is_some_and(|focus| application
+                .editor_keymap_targets
+                .get(&(egui::ViewportId::ROOT, focus))
+                .is_some_and(|(owner, _)| *owner == view))
+    );
+    paint(
+        application,
+        vec![egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: Some(egui::Key::Escape),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert!(body_hover.is_cancelled());
+    application.document_edits.push((
+        tab.clone(),
+        DocumentEdit::Documentation(taide_native_editor::documentation::Command::Signature(
+            taide_native_editor::documentation::SignatureCommand::Trigger,
+        )),
+    ));
+    paint(application, Vec::new());
+    wait_for(
+        application,
+        &context,
+        "main-body-signature-response",
+        |application| {
+            application
+                .editor_documentation
+                .payload(
+                    &application.store,
+                    view,
+                    crate::editor_documentation::Kind::Signature,
+                )
+                .is_some()
+        },
+    );
+    application.document_edits.push((
+        tab.clone(),
+        DocumentEdit::Documentation(taide_native_editor::documentation::Command::Signature(
+            taide_native_editor::documentation::SignatureCommand::Next,
+        )),
+    ));
+    paint(application, Vec::new());
+    assert!(
+        matches!(application.editor_documentation.payload(&application.store, view, crate::editor_documentation::Kind::Signature), Some(crate::editor_documentation::Payload::Signature(signature)) if signature.model.index() == 1)
+    );
+    application.document_edits.push((
+        tab.clone(),
+        DocumentEdit::Documentation(taide_native_editor::documentation::Command::Signature(
+            taide_native_editor::documentation::SignatureCommand::Close,
+        )),
+    ));
+    paint(application, Vec::new());
+    assert!(
+        application
+            .editor_documentation
+            .payload(
+                &application.store,
+                view,
+                crate::editor_documentation::Kind::Signature
+            )
+            .is_none()
+    );
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .revision,
+        snapshot.revision
+    );
     application.document_edits.push((
         tab.clone(),
         DocumentEdit::Location(taide_native_editor::symbol_locations::Command::Request {
@@ -867,7 +1005,177 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
         })
         .unwrap();
     context.memory_mut(|memory| memory.request_focus(focus));
+    application.reconcile_lsp();
+    wait_for(
+        application,
+        &context,
+        "pure-peek-documentation-provider",
+        |application| {
+            !application
+                .lsp
+                .as_ref()
+                .unwrap()
+                .documentation_providers(
+                    &project,
+                    &application
+                        .store
+                        .documents()
+                        .snapshot(peek_document)
+                        .unwrap(),
+                    crate::editor_documentation::Kind::Hover,
+                )
+                .is_empty()
+        },
+    );
+    context.set_os(egui::os::OperatingSystem::Mac);
+    let documentation_key = |key| egui::Event::Key {
+        key,
+        physical_key: Some(key),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND,
+    };
+    paint(
+        application,
+        vec![
+            egui::Event::ModifiersChanged(egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND),
+            documentation_key(egui::Key::K),
+            documentation_key(egui::Key::I),
+        ],
+    );
+    paint(application, Vec::new());
+    assert!(
+        application
+            .editor_documentation
+            .request(
+                &application.store,
+                preview,
+                crate::editor_documentation::Kind::Hover
+            )
+            .is_some(),
+        "peek hover request was not created; focus={:?}, preview={preview:?}, status={:?}",
+        context.memory(|memory| memory.focused()),
+        application.status
+    );
+    wait_for(
+        application,
+        &context,
+        "pure-peek-hover-response",
+        |application| {
+            application
+                .editor_documentation
+                .payload(
+                    &application.store,
+                    preview,
+                    crate::editor_documentation::Kind::Hover,
+                )
+                .is_some()
+        },
+    );
+    let request = application
+        .editor_documentation
+        .request(
+            &application.store,
+            preview,
+            crate::editor_documentation::Kind::Hover,
+        )
+        .unwrap()
+        .clone();
+    assert_eq!(request.owner, view);
+    assert_eq!(request.snapshot.id, peek_document);
+    assert_eq!(request.project, project);
+    paint(application, Vec::new());
+    let hover = paint(application, Vec::new());
+    assert!(hover.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text.contains("primary docs"))));
+    paint(
+        application,
+        vec![
+            egui::Event::ModifiersChanged(
+                egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+            ),
+            egui::Event::Key {
+                key: egui::Key::Space,
+                physical_key: Some(egui::Key::Space),
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::MAC_CMD
+                    | egui::Modifiers::COMMAND
+                    | egui::Modifiers::SHIFT,
+            },
+        ],
+    );
+    paint(application, Vec::new());
+    wait_for(
+        application,
+        &context,
+        "pure-peek-signature-response",
+        |application| {
+            application
+                .editor_documentation
+                .payload(
+                    &application.store,
+                    preview,
+                    crate::editor_documentation::Kind::Signature,
+                )
+                .is_some()
+        },
+    );
+    let Some(crate::editor_documentation::Payload::Signature(signature)) =
+        application.editor_documentation.payload(
+            &application.store,
+            preview,
+            crate::editor_documentation::Kind::Signature,
+        )
+    else {
+        panic!("expected peek signature")
+    };
+    assert_eq!(signature.model.parameter_range(), Some(2..6));
+    paint(application, Vec::new());
+    let signature = paint(application, Vec::new());
+    assert!(signature.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == "**literal parameter**")));
+    paint(
+        application,
+        vec![
+            egui::Event::ModifiersChanged(egui::Modifiers::NONE),
+            egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: Some(egui::Key::Escape),
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::SHIFT,
+            },
+        ],
+    );
+    assert!(
+        application
+            .editor_documentation
+            .payload(
+                &application.store,
+                preview,
+                crate::editor_documentation::Kind::Signature
+            )
+            .is_none()
+    );
+    assert!(!application.files.contains_key(&peek_path));
+    for _ in 0..2 {
+        paint(
+            application,
+            vec![
+                documentation_key(egui::Key::K),
+                egui::Event::Key {
+                    key: egui::Key::F2,
+                    physical_key: Some(egui::Key::F2),
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        paint(application, Vec::new());
+    }
+    assert!(context.memory(|memory| memory.has_focus(focus)));
     paint(application, vec![egui::Event::Text("x".into())]);
+    assert!(request.is_cancelled());
     assert!(
         application
             .store
@@ -1212,7 +1520,60 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
             .revision,
         snapshot.revision
     );
+    let baseline_documents = application
+        .store
+        .documents()
+        .versions()
+        .map(|version| version.id)
+        .collect::<HashSet<_>>();
+    let closing_tab = application
+        .controller
+        .snapshot()
+        .focused_tab()
+        .unwrap()
+        .id
+        .clone();
+    application.document_edits.push((
+        closing_tab,
+        DocumentEdit::Documentation(taide_native_editor::documentation::Command::ShowHover),
+    ));
+    paint(application, Vec::new());
+    wait_for(
+        application,
+        &context,
+        "active-documentation-before-exit",
+        |application| {
+            application
+                .editor_documentation
+                .payload(
+                    &application.store,
+                    destination_view,
+                    crate::editor_documentation::Kind::Hover,
+                )
+                .is_some()
+        },
+    );
+    paint(application, Vec::new());
+    let closing_hover = application
+        .editor_documentation
+        .request(
+            &application.store,
+            destination_view,
+            crate::editor_documentation::Kind::Hover,
+        )
+        .unwrap()
+        .clone();
     application.close(&context);
+    assert!(closing_hover.is_cancelled());
+    assert_eq!(
+        baseline_documents,
+        application
+            .store
+            .documents()
+            .versions()
+            .map(|version| version.id)
+            .collect()
+    );
     wait_for(application, &context, "navigation-exit", |application| {
         application.is_exit_ready
     });
