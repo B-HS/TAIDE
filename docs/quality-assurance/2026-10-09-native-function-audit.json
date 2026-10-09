@@ -1,6 +1,6 @@
 {
     "date": "2026-10-10",
-    "baseline": "bf515fd6",
+    "baseline": "24044a94",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -634,8 +634,46 @@
                 "native/taide-native-ui/tests/editor-locations.rs",
                 "native/taide-native-ui/tests/keymap-platform.rs"
             ],
-            "reports": ["docs/quality-assurance/2026-10-10-native-batch20-symbol-locations.md"],
-            "limitation": "현재 본문 위치 요청·정의 링크·참조/peek·preview 편집/찾기/치환/접기/저장·미저장 모델 인수를 실제 child/앱/메모리 UI에서 검증했습니다. 일반 hover/완성·순수 preview의 별도 LSP 공급·고정 줄 정의 링크와 실기 pixel/IME/접근성/성능·출시는 잔여입니다."
+            "reports": [
+                "docs/quality-assurance/2026-10-10-native-batch20-symbol-locations.md",
+                "docs/quality-assurance/2026-10-10-native-batch21-hover-signature.md"
+            ],
+            "limitation": "현재 본문 위치 요청·정의 링크·참조/peek·preview 편집/찾기/치환/접기/저장·미저장 모델 인수를 실제 child/앱/메모리 UI에서 검증했습니다. 순수 preview의 소유 root mirror와 일반 호버/서명은 batch21에서 연결했습니다. 완성·고정 줄 정의 링크와 실기 pixel/IME/접근성/성능·출시는 잔여입니다."
+        },
+        "editor-documentation": {
+            "sources": [
+                "native/taide-native-editor/src/documentation.rs",
+                "native/taide-native-app/src/editor-documentation.rs",
+                "native/taide-native-app/src/lsp-editor-documentation.rs",
+                "native/taide-native-app/src/editor-markup.rs",
+                "native/taide-native-app/src/editor-markup-autolinks.rs",
+                "native/taide-native-app/src/editor-documentation-code.rs",
+                "native/taide-native-app/src/editor-documentation-images.rs",
+                "native/taide-native-app/src/editor-locations.rs",
+                "native/taide-native-app/src/application.rs",
+                "native/taide-native-app/src/lsp.rs",
+                "native/taide-native-ui/src/editor-documentation.rs",
+                "native/taide-native-ui/src/editor-documentation-markup.rs",
+                "native/taide-native-ui/src/editor_surface.rs",
+                "native/taide-native-ui/src/command-registry.rs",
+                "native/taide-native-ui/src/keymap.rs",
+                "crates/taide-lsp/src/native/session.rs"
+            ],
+            "tests": [
+                "native/taide-native-editor/tests/documentation.rs",
+                "native/taide-native-app/src/editor-documentation-tests.rs",
+                "native/taide-native-app/src/lsp-editor-documentation-tests.rs",
+                "native/taide-native-app/src/editor-markup-tests.rs",
+                "native/taide-native-app/src/editor-documentation-images-tests.rs",
+                "native/taide-native-app/src/editor-syntax-tests.rs",
+                "native/taide-native-app/src/application-startup-tests.rs",
+                "native/taide-native-app/src/symbol-location-host-tests.rs",
+                "native/taide-native-ui/tests/editor-documentation.rs",
+                "native/taide-native-ui/tests/keymap-platform.rs",
+                "crates/taide-lsp/src/native/registration.rs"
+            ],
+            "reports": ["docs/quality-assurance/2026-10-10-native-batch21-hover-signature.md"],
+            "limitation": "본문/순수 peek의 typed 호버·자동/명시 서명·provider 우선순위/부분 응답/취소·Markdown/기존 TextMate 코드·안전한 이미지/파일 링크·직렬 입력/포커스·원본 크기/테마·readonly/두 뷰/열린 도움말 종료를 검증했습니다. 실기 pixel/OS IME/접근성·보조 창·대형/성능/soak·기타 LSP·출시는 잔여입니다."
         }
     },
     "rows": [
@@ -2186,9 +2224,9 @@
             "ts": "`lsp/adapters/hover.ts:17`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:113",
             "domain": "editor",
-            "status": "missing",
-            "proof": "editor-missing",
-            "note": "해당 사용자 동작의 실제 native 편집기/앱 소비 경로가 없습니다. 프로토콜·설정·backend만으로 완료 처리하지 않습니다."
+            "status": "complete",
+            "proof": "editor-documentation",
+            "note": "포인터/명시 호버·부분 응답/등록 우선순위·안전한 Markdown/이미지/파일 링크/기존 TextMate 코드와 원본 테마/크기/스크롤·본문/peek 포커스를 실제 앱에 연결했습니다. provider/문서/뷰/선택/언어/서버 세대·닫힘 취소/소유 모델 회수·readonly/두 뷰와 전체 게이트를 검증했습니다. 실기/성능/출시는 별도입니다."
         },
         {
             "id": "editor-43",
@@ -2197,9 +2235,9 @@
             "ts": "`lsp/adapters/signature-help.ts:14`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:114",
             "domain": "editor",
-            "status": "missing",
-            "proof": "editor-missing",
-            "note": "해당 사용자 동작의 실제 native 편집기/앱 소비 경로가 없습니다. 프로토콜·설정·backend만으로 완료 처리하지 않습니다."
+            "status": "complete",
+            "proof": "editor-documentation",
+            "note": "정적/동적 trigger/retrigger·자동 120ms trailing/명시 요청·provider 우선순위/빈/오류·UTF-16 현재 인자·복수 서명 키/버튼·Markdown/코드/이미지와 본문/peek 포커스를 실제 앱에 연결했습니다. 요청 교체/취소·비활성 서명 문서 제외·readonly/두 뷰·종료 수명과 전체 게이트를 검증했습니다. 실기/성능/출시는 별도입니다."
         },
         {
             "id": "editor-44",
@@ -7229,5 +7267,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "배치 20 변경 editor/UI/app/LSP SDK 전체 121대상을 직접 1회 실행했고 최초 UI 1/app 초기화 대기 2실패는 영향 검사로 해소했습니다. 현재 서로 다른 성공은 editor 212·UI 375·app 689·SDK 82, 총 1358건입니다. 변경 없는 syntax batch13 159·egui SDK batch12 단위 52/문서 167은 별도 근거이며 보호 Trash 3·기존 ignored 5·실기 부채는 성공으로 세지 않습니다. frozen host/Wasm·변경 native/SDK fmt/diff exit 0, 디스크 651GiB·65%입니다. prototype standalone lock/edition 부채와 최초 전체 실패·후속 영향 검사를 batch20 QA에 보존했습니다."
+    "validation": "배치 21 변경 editor/UI/app/LSP SDK 전체 121대상을 직접 1회 실행했고 최초 UI 기대값 1/app 기존 child 초기화 대기 3실패는 해당 검사만 재확인했습니다. 현재 서로 다른 성공은 editor 219·UI 390·app 719·SDK 84, 총 1412건입니다. 보호 Trash 3·editor 기존 성능 1ignored·변경 없는 syntax 3/egui SDK 문서 1ignored와 실기 부채는 성공으로 세지 않습니다. frozen host/Wasm·변경 native/SDK fmt/diff exit 0, 앱 전용 Markdown parser 2패키지·기존 base64 이동/engine 경계 유지, 디스크 623GiB·66%입니다. prototype standalone lock/edition 부채와 최초 실패/영향 재검사를 batch21 QA에 보존했습니다."
 }
