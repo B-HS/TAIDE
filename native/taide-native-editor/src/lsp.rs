@@ -1,5 +1,6 @@
 use std::ops::Range;
 
+pub use lsp_types::Range as LspRange;
 pub use lsp_types::{Position, TextEdit};
 
 use crate::document::{DocumentSnapshot, Edit, EditorError, UndoGroup, byte_to_char};

@@ -45,6 +45,70 @@ struct PluginGrammarRead {
     grammars: Vec<PluginGrammar>,
 }
 
+pub(crate) struct PeekTokens {
+    pub(crate) document: DocumentId,
+    pub(crate) revision: u64,
+    pub(crate) language_id: String,
+    lines: taide_native_editor::line_tokens::LineTokens,
+    styles: taide_native_editor::line_tokens::TokenStyleTable,
+}
+
+impl PeekTokens {
+    pub(crate) fn frame(&self) -> EditorTokens<'_> {
+        EditorTokens {
+            revision: self.revision,
+            lines: &self.lines,
+            styles: &self.styles,
+        }
+    }
+}
+
+impl LineSyntax for PeekTokens {
+    fn tokens(&self, document: &DocumentSnapshot, line: usize) -> Option<Vec<Token>> {
+        if document.id != self.document
+            || document.revision != self.revision
+            || document.metadata.language_id != self.language_id
+        {
+            return None;
+        }
+        if self.lines.line_count() == 0 {
+            return UntokenizedLines.tokens(document, line);
+        }
+        if !self.lines.has_accurate_tokens(line) {
+            return None;
+        }
+        let mut kinds: Vec<Token> = Vec::new();
+        for [start_byte, style_id] in self.lines.spans(line).as_chunks::<SPAN_FIELDS>().0 {
+            let kind = self.styles.style(*style_id).kind;
+            if kinds.last().is_none_or(|previous| previous.kind != kind) {
+                kinds.push(Token {
+                    start_byte: *start_byte as usize,
+                    kind,
+                });
+            }
+        }
+        Some(kinds)
+    }
+
+    fn kind_if_inserting(
+        &self,
+        document: &DocumentSnapshot,
+        line: usize,
+        byte_in_line: usize,
+        _character: char,
+    ) -> TokenKind {
+        self.tokens(document, line)
+            .filter(|tokens| {
+                byte_in_line > 0
+                    && byte_in_line < line_content_range(document, line).len()
+                    && tokens.iter().all(|token| token.start_byte != byte_in_line)
+            })
+            .map_or(TokenKind::Other, |tokens| {
+                token_kind_at(&tokens, byte_in_line)
+            })
+    }
+}
+
 async fn plugin_grammars(state: &AppState, store: &PluginStore) -> AppResult<PluginGrammarRead> {
     let plugins = plugin_actions::plugin_list(state, store).await?;
     let mut grammars = Vec::new();
@@ -172,6 +236,7 @@ pub struct EditorSyntax {
     theme_debounce: LeadingTrailingDebounce,
     followed_plugins: Option<PluginList>,
     plugin_grammar_read: Option<oneshot::Receiver<AppResult<PluginGrammarRead>>>,
+    peek_tokens: HashMap<DocumentId, Arc<PeekTokens>>,
 }
 
 impl EditorSyntax {
@@ -201,6 +266,7 @@ impl EditorSyntax {
             theme_debounce: LeadingTrailingDebounce::new(THEME_REAPPLY_DEBOUNCE),
             followed_plugins: None,
             plugin_grammar_read: None,
+            peek_tokens: HashMap::new(),
         }
     }
 
@@ -273,6 +339,8 @@ impl EditorSyntax {
     ) -> Option<Duration> {
         self.follow_theme(theme, now);
         self.follow_documents(store);
+        self.peek_tokens
+            .retain(|document, _| self.documents.contains_key(document));
         for (document, tracked) in &mut self.documents {
             if let Some(lines) = tracked.shown_lines.take() {
                 self.pipeline.set_visible_lines(*document, lines);
@@ -298,6 +366,56 @@ impl EditorSyntax {
             lines: self.pipeline.tokens(document)?,
             styles: self.pipeline.style_table()?,
         })
+    }
+
+    pub(crate) fn peek_tokens(
+        &mut self,
+        store: &EditorStore,
+        document: DocumentId,
+    ) -> Option<Arc<PeekTokens>> {
+        self.peek_tokens
+            .retain(|document, _| store.documents().snapshot(*document).is_ok());
+        self.catch_up(store, document);
+        if !self.documents.contains_key(&document) {
+            let snapshot = store.documents().snapshot(document).ok()?;
+            if !self
+                .pipeline
+                .accepts_language(&snapshot.metadata.language_id)
+            {
+                self.peek_tokens.remove(&document);
+                return None;
+            }
+            self.documents.insert(
+                document,
+                TrackedDocument {
+                    revision: snapshot.revision,
+                    language_id: snapshot.metadata.language_id.clone(),
+                    shown_lines: None,
+                },
+            );
+            self.pipeline.open(snapshot);
+        }
+        let revision = self.documents.get(&document)?.revision;
+        let language_id = &self.documents.get(&document)?.language_id;
+        let lines = self.pipeline.tokens(document)?;
+        let styles = self.pipeline.style_table()?;
+        if let Some(cached) = self.peek_tokens.get(&document).filter(|cached| {
+            cached.revision == revision
+                && cached.language_id == *language_id
+                && cached.lines.generation() == lines.generation()
+                && cached.styles == *styles
+        }) {
+            return Some(cached.clone());
+        }
+        let tokens = Arc::new(PeekTokens {
+            document,
+            revision,
+            language_id: language_id.clone(),
+            lines: lines.clone(),
+            styles: styles.clone(),
+        });
+        self.peek_tokens.insert(document, tokens.clone());
+        Some(tokens)
     }
 
     fn line_kinds(&self, document: &DocumentSnapshot, line: usize) -> Option<Vec<Token>> {

@@ -219,6 +219,8 @@ fn show_problems(
                         } else {
                             None
                         },
+                        #[cfg(feature = "native-host")]
+                        locations: None,
                     },
                 )
                 .unwrap();
@@ -1281,6 +1283,8 @@ fn show_brackets_frame(
                         fold_controls: None,
                         #[cfg(feature = "native-host")]
                         problems: None,
+                        #[cfg(feature = "native-host")]
+                        locations: None,
                     },
                 )
                 .unwrap();
@@ -1574,6 +1578,8 @@ fn 괄호_일치_위젯_포커스는_본문_강조를_유지하면서_외부_입
                             fold_controls: None,
                             #[cfg(feature = "native-host")]
                             problems: None,
+                            #[cfg(feature = "native-host")]
+                            locations: None,
                         },
                     )
                     .unwrap();
@@ -3185,6 +3191,8 @@ fn 문제_외부_입력창의_기본키와_문자는_보존하고_닫기클릭_�
                             syntax_folds: None,
                             fold_controls: None,
                             problems: Some(&mut provider),
+                            #[cfg(feature = "native-host")]
+                            locations: None,
                         },
                     )
                     .unwrap();

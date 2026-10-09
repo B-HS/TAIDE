@@ -199,6 +199,8 @@ impl Fixture {
                             fold_controls: Some(&mut paint),
                             #[cfg(feature = "native-host")]
                             problems: None,
+                            #[cfg(feature = "native-host")]
+                            locations: None,
                         },
                     )
                     .unwrap();

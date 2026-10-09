@@ -140,6 +140,8 @@ pub struct EditorDisplayOptions {
     pub overview_colors: Option<crate::editor_overview::OverviewColors>,
     #[cfg(feature = "native-host")]
     pub problem_colors: Option<crate::editor_problems::Colors>,
+    #[cfg(feature = "native-host")]
+    pub location_colors: Option<crate::editor_locations::Colors>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -181,6 +183,8 @@ pub struct EditorRequest<'a, Keymap, Route, Tokens> {
     pub fold_controls: Option<&'a mut FoldControlPainter<'a>>,
     #[cfg(feature = "native-host")]
     pub problems: Option<&'a mut dyn crate::editor_problems::Provider>,
+    #[cfg(feature = "native-host")]
+    pub locations: Option<&'a mut dyn crate::editor_locations::Provider>,
     #[cfg(feature = "native-host")]
     pub syntax_folds: Option<Arc<taide_native_editor::syntax_folding::SyntaxFolds>>,
 }
@@ -271,6 +275,10 @@ struct InputState {
     sticky: crate::editor_sticky_scroll::StickyState,
     #[cfg(feature = "native-host")]
     problems: crate::editor_problems::State,
+    #[cfg(feature = "native-host")]
+    locations: crate::editor_locations::State,
+    #[cfg(feature = "native-host")]
+    definition_link: crate::editor_definition_link::State,
     #[cfg(feature = "native-host")]
     caret: crate::editor_caret::CaretState,
     #[cfg(feature = "native-host")]
@@ -1034,6 +1042,8 @@ impl NativeEditor {
                 #[cfg(feature = "native-host")]
                 problems: None,
                 #[cfg(feature = "native-host")]
+                locations: None,
+                #[cfg(feature = "native-host")]
                 syntax_folds: None,
             },
         )
@@ -1051,6 +1061,22 @@ impl NativeEditor {
             impl FnOnce(&EditorStore) -> Option<EditorTokens<'tokens>>,
         >,
     ) -> Result<EditorOutput, EditorError> {
+        self.show_request_with_editor_keymap(ui, store, view, request, |_, _, _, _, _| false)
+    }
+
+    pub fn show_request_with_editor_keymap<'tokens>(
+        &self,
+        ui: &mut Ui,
+        store: &mut EditorStore,
+        view: ViewId,
+        request: EditorRequest<
+            '_,
+            impl FnMut(&Ui, &Event, bool) -> bool,
+            impl FnOnce(&Response) -> Option<KeyboardInputRoute>,
+            impl FnOnce(&EditorStore) -> Option<EditorTokens<'tokens>>,
+        >,
+        mut editor_keymap: impl FnMut(&Ui, &mut EditorStore, ViewId, &Event, bool) -> bool,
+    ) -> Result<EditorOutput, EditorError> {
         let EditorRequest {
             request_focus,
             mut keymap,
@@ -1063,6 +1089,8 @@ impl NativeEditor {
             mut fold_controls,
             #[cfg(feature = "native-host")]
             mut problems,
+            #[cfg(feature = "native-host")]
+            mut locations,
             #[cfg(feature = "native-host")]
             syntax_folds,
         } = request;
@@ -1138,10 +1166,40 @@ impl NativeEditor {
             .begin(previous.id, vec2(current.scroll.x, current.scroll.y));
         let mut output = InputOutput::default();
         #[cfg(feature = "native-host")]
+        let initial_location = locations
+            .as_deref_mut()
+            .and_then(|provider| provider.current(store, view))
+            .filter(|_| presentation.options.location_colors.is_some());
+        #[cfg(feature = "native-host")]
+        let location_input = input_state.locations.input(
+            ui,
+            store,
+            view,
+            id,
+            rect,
+            presentation.options.word_wrap,
+            initial_location.as_ref(),
+            &mut locations,
+        )?;
+        #[cfg(feature = "native-host")]
+        let link_pointer = input_state.definition_link.input(
+            ui,
+            store,
+            view,
+            rect,
+            presentation.options.word_wrap,
+            initial_location
+                .as_ref()
+                .map(|widget| widget.token.as_str()),
+            &mut locations,
+        )?;
+        #[cfg(feature = "native-host")]
         let initial_problem = problems
             .as_deref_mut()
             .and_then(|provider| provider.current(store, view))
-            .filter(|_| presentation.options.problem_colors.is_some());
+            .filter(|_| {
+                presentation.options.problem_colors.is_some() && initial_location.is_none()
+            });
         #[cfg(feature = "native-host")]
         let problem_ids = input_state.problems.focus_ids();
         #[cfg(feature = "native-host")]
@@ -1195,12 +1253,24 @@ impl NativeEditor {
                     .filter(|rendered| rendered.scroll_top == current.scroll.y),
                 stable_scroll_top: None,
                 #[cfg(feature = "native-host")]
-                problem_zone: initial_problem.as_ref().map(|widget| {
-                    (
-                        widget.position,
-                        widget.height(appearance.line_height, rect.height()),
-                    )
-                }),
+                problem_zone: initial_location
+                    .as_ref()
+                    .map(|widget| {
+                        (
+                            widget.position,
+                            input_state
+                                .locations
+                                .height(appearance.line_height, rect.height()),
+                        )
+                    })
+                    .or_else(|| {
+                        initial_problem.as_ref().map(|widget| {
+                            (
+                                widget.position,
+                                widget.height(appearance.line_height, rect.height()),
+                            )
+                        })
+                    }),
             },
         };
         #[cfg(feature = "native-host")]
@@ -1269,7 +1339,15 @@ impl NativeEditor {
             });
         #[cfg(not(feature = "native-host"))]
         let problem_owned = false;
-        if (response.has_focus() || has_owned_input || sticky_owned || problem_owned)
+        #[cfg(feature = "native-host")]
+        let location_owned = !location_input.consumed.is_empty();
+        #[cfg(not(feature = "native-host"))]
+        let location_owned = false;
+        if (response.has_focus()
+            || has_owned_input
+            || sticky_owned
+            || problem_owned
+            || location_owned)
             && ui.is_enabled()
         {
             ui.memory_mut(|memory| {
@@ -1289,14 +1367,22 @@ impl NativeEditor {
             let mut raw_next = 0;
             let events = ui.input_mut(|input| std::mem::take(&mut input.events));
             let mut remaining = Vec::new();
-            for (index, event) in events.into_iter().enumerate() {
-                let (owned, lost) = ownership.get(index).copied().unwrap_or_default();
+            for (_index, event) in events.into_iter().enumerate() {
+                #[cfg(feature = "native-host")]
+                let raw_index = egui::Context::raw_event_index(&raw_events, &event, &mut raw_next);
+                #[cfg(feature = "native-host")]
+                if location_input.consumed.contains(&raw_index) {
+                    continue;
+                }
+                #[cfg(feature = "native-host")]
+                let route_index = raw_index;
+                #[cfg(not(feature = "native-host"))]
+                let route_index = _index;
+                let (owned, lost) = ownership.get(route_index).copied().unwrap_or_default();
                 if lost {
                     input_state.ime_revision = None;
                     store.set_composition(view, None)?;
                 }
-                #[cfg(feature = "native-host")]
-                let raw_index = egui::Context::raw_event_index(&raw_events, &event, &mut raw_next);
                 #[cfg(feature = "native-host")]
                 {
                     let request = ui.ctx().keyboard_focus_request_at(raw_index);
@@ -1381,7 +1467,7 @@ impl NativeEditor {
                         route.as_ref().is_some_and(|route| {
                             route
                                 .0
-                                .get(index)
+                                .get(route_index)
                                 .is_some_and(|(owned, _)| *owned == Some(true))
                         })
                     })
@@ -1399,7 +1485,7 @@ impl NativeEditor {
                         route.as_ref().is_some_and(|route| {
                             route
                                 .0
-                                .get(index)
+                                .get(route_index)
                                 .is_some_and(|(owned, _)| *owned == Some(true))
                         })
                     })
@@ -1415,7 +1501,11 @@ impl NativeEditor {
                 #[cfg(not(feature = "native-host"))]
                 let fallback_focus = response.has_focus();
                 #[cfg(feature = "native-host")]
-                let owns_body = problem_released || owned.unwrap_or(fallback_focus);
+                let owns_body = location_input
+                    .release_at
+                    .is_some_and(|index| raw_index > index)
+                    || problem_released
+                    || owned.unwrap_or(fallback_focus);
                 #[cfg(not(feature = "native-host"))]
                 let owns_body = owned.unwrap_or(fallback_focus);
                 if !owns_body && sticky_owner.is_none() && problem_owner.is_none() {
@@ -1428,7 +1518,9 @@ impl NativeEditor {
                     .is_some_and(|view| view.composition.is_some());
                 #[cfg(feature = "native-host")]
                 if let Some(index) = problem_owner.filter(|_| !problem_released) {
-                    if keymap(ui, &event, composing) {
+                    if editor_keymap(ui, store, view, &event, composing)
+                        || keymap(ui, &event, composing)
+                    {
                         continue;
                     }
                     let command = (!composing)
@@ -1484,7 +1576,9 @@ impl NativeEditor {
                         )?;
                         continue;
                     }
-                    if keymap(ui, &event, composing) {
+                    if editor_keymap(ui, store, view, &event, composing)
+                        || keymap(ui, &event, composing)
+                    {
                         continue;
                     }
                     if execute_problem_shortcut(&mut problems, store, view, &event, composing)? {
@@ -1499,7 +1593,9 @@ impl NativeEditor {
                     remaining.push(event);
                     continue;
                 }
-                if keymap(ui, &event, composing) {
+                if editor_keymap(ui, store, view, &event, composing)
+                    || keymap(ui, &event, composing)
+                {
                     #[cfg(feature = "native-host")]
                     {
                         last_editor_event = Some(raw_index);
@@ -1626,22 +1722,42 @@ impl NativeEditor {
             .clone();
         let mut projection = input_context.projection;
         #[cfg(feature = "native-host")]
+        let location_widget = locations
+            .as_deref_mut()
+            .and_then(|provider| provider.current(store, view))
+            .filter(|_| presentation.options.location_colors.is_some());
+        #[cfg(feature = "native-host")]
         let problem_widget = problems
             .as_deref_mut()
             .and_then(|provider| provider.current(store, view))
             .filter(|widget| {
                 widget.coordinate.problem.document == document.id
                     && presentation.options.problem_colors.is_some()
+                    && location_widget.is_none()
             });
         #[cfg(feature = "native-host")]
         {
-            projection.problem_zone = problem_widget.as_ref().map(|widget| {
-                (
-                    widget.position,
-                    widget.height(appearance.line_height, rect.height()),
-                )
-            });
+            projection.problem_zone = location_widget
+                .as_ref()
+                .map(|widget| {
+                    (
+                        widget.position,
+                        input_state
+                            .locations
+                            .height(appearance.line_height, rect.height()),
+                    )
+                })
+                .or_else(|| {
+                    problem_widget.as_ref().map(|widget| {
+                        (
+                            widget.position,
+                            widget.height(appearance.line_height, rect.height()),
+                        )
+                    })
+                });
         }
+        #[cfg(feature = "native-host")]
+        let zone_position = projection.problem_zone;
         let (display, stable_scroll_top) =
             projection.map_with_stable_scroll_top(&document, &state.folds);
         let wrap_column = display.wrap_settings().map(|settings| settings.wrap_column);
@@ -1668,12 +1784,12 @@ impl NativeEditor {
         );
         let layout = VerticalLayout::new(appearance.line_height, display.row_count());
         #[cfg(feature = "native-host")]
-        let layout = problem_widget.as_ref().map_or_else(
+        let layout = zone_position.map_or_else(
             || layout.clone(),
-            |widget| {
-                let (row, height) =
-                    widget.zone(&document, display, appearance.line_height, rect.height());
-                layout.clone().with_zone(row, height)
+            |(position, height)| {
+                layout
+                    .clone()
+                    .with_zone(display.row_of_byte(&document, position), height)
             },
         );
         let content_height = layout.content_height();
@@ -1751,6 +1867,20 @@ impl NativeEditor {
             let top = layout.row_top(reveal_row);
             if requested_reveal
                 .as_ref()
+                .is_some_and(|reveal| reveal.near_top_if_outside)
+                && (top < state.scroll.y
+                    || layout.row_bottom(reveal_row) > state.scroll.y + rect.height())
+            {
+                const NEAR_TOP_MARGIN_LINES: f32 = 5.0;
+                const NEAR_TOP_VIEWPORT_RATIO: f32 = 0.2;
+                let gap = (NEAR_TOP_MARGIN_LINES * appearance.line_height)
+                    .max(rect.height() * NEAR_TOP_VIEWPORT_RATIO);
+                state.scroll.y = (top - gap)
+                    .max(layout.row_bottom(reveal_row) - rect.height())
+                    .clamp(0.0, scroll_max);
+            }
+            if requested_reveal
+                .as_ref()
                 .is_some_and(|reveal| reveal.center_if_outside)
                 && (top < state.scroll.y
                     || layout.row_bottom(reveal_row) > state.scroll.y + rect.height())
@@ -1805,7 +1935,20 @@ impl NativeEditor {
                 )
             });
         #[cfg(feature = "native-host")]
+        let location_hovered = location_widget.is_some()
+            && layout.zone().is_some_and(|zone| {
+                ui.input(|input| input.pointer.hover_pos())
+                    .is_some_and(|point| {
+                        Rect::from_min_max(
+                            pos2(rect.left(), rect.top() + zone.start - state.scroll.y),
+                            pos2(editor_right, rect.top() + zone.end - state.scroll.y),
+                        )
+                        .contains(point)
+                    })
+            });
+        #[cfg(feature = "native-host")]
         let (wheel, precise_wheel) = if ui.is_enabled()
+            && !location_hovered
             && (response.hovered()
                 || minimap_input
                     .as_ref()
@@ -2183,8 +2326,9 @@ impl NativeEditor {
             )
         });
         #[cfg(feature = "native-host")]
-        let is_problem_press =
-            problem_rect.is_some_and(|rect| press.origin.is_some_and(|point| rect.contains(point)));
+        let is_problem_press = link_pointer
+            || problem_rect
+                .is_some_and(|rect| press.origin.is_some_and(|point| rect.contains(point)));
         #[cfg(not(feature = "native-host"))]
         let is_problem_press = false;
         if is_fold_button_pressed {
@@ -2529,6 +2673,47 @@ impl NativeEditor {
             input_state.problems.clear();
         }
         #[cfg(feature = "native-host")]
+        if let Some(widget) = location_widget.as_ref()
+            && let Some(zone_rect) = problem_rect
+            && let Some(colors) = presentation.options.location_colors
+            && let Some(provider) = locations.as_deref_mut()
+        {
+            input_state.locations.paint(
+                ui,
+                store,
+                view,
+                provider,
+                crate::editor_locations::Frame {
+                    id,
+                    widget,
+                    rect: zone_rect,
+                    owner_rect: rect,
+                    anchor_x: rows
+                        .iter()
+                        .find(|row| {
+                            row.segment.bytes.start <= widget.position
+                                && widget.position <= row.segment.bytes.end
+                        })
+                        .map_or(text_rect.left(), |row| {
+                            row.caret_rect(widget.position).left()
+                        }),
+                    word_wrap: presentation.options.word_wrap,
+                    clip: Rect::from_min_max(
+                        pos2(
+                            rect.left(),
+                            rect.top() + sticky_layout.height(appearance.line_height),
+                        ),
+                        pos2(editor_right, rect.bottom()),
+                    ),
+                    line_height: appearance.line_height,
+                    font: &appearance.font,
+                    colors,
+                },
+            )?;
+        } else {
+            input_state.locations.clear();
+        }
+        #[cfg(feature = "native-host")]
         if let Some(markers) = diagnostic_markers.as_ref()
             && let Some(colors) = presentation.options.diagnostic_colors
         {
@@ -2768,19 +2953,41 @@ impl NativeEditor {
             .focus_ids()
             .into_iter()
             .chain(input_state.problems.focus_ids())
+            .chain(input_state.locations.focus_ids())
             .collect();
         store.set_display(view, projection.cached)?;
         input_state.rendered_viewport = Some(RenderedViewport {
             scroll_top: state.scroll.y,
             line_height: appearance.line_height,
             #[cfg(feature = "native-host")]
-            problem_zone: problem_widget.as_ref().map(|widget| {
-                (
-                    widget.position,
-                    widget.height(appearance.line_height, rect.height()),
-                )
-            }),
+            problem_zone: zone_position,
         });
+        let geometry = EditorGeometry {
+            rect,
+            content_rect: text_rect,
+            gutter_rect: Rect::from_min_max(rect.min, pos2(text_rect.left(), rect.bottom())),
+            line_height: appearance.line_height,
+            visible_rows: visible,
+            scroll: vec2(state.scroll.x, state.scroll.y),
+            #[cfg(feature = "native-host")]
+            minimap_rect,
+            rows: rows.into(),
+        };
+        #[cfg(feature = "native-host")]
+        input_state.definition_link.paint(
+            ui,
+            store,
+            view,
+            &geometry,
+            &response,
+            presentation.options.word_wrap,
+            location_widget.as_ref().map(|widget| widget.token.clone()),
+            &mut locations,
+            presentation
+                .options
+                .location_colors
+                .map_or(appearance.foreground, |colors| colors.link),
+        )?;
         ui.ctx().data_mut(|data| data.insert_temp(id, input_state));
         Ok(EditorOutput {
             response,
@@ -2792,17 +2999,7 @@ impl NativeEditor {
             focus_ids,
             #[cfg(feature = "native-host")]
             toggle_sticky_scroll,
-            geometry: EditorGeometry {
-                rect,
-                content_rect: text_rect,
-                gutter_rect: Rect::from_min_max(rect.min, pos2(text_rect.left(), rect.bottom())),
-                line_height: appearance.line_height,
-                visible_rows: visible,
-                scroll: vec2(state.scroll.x, state.scroll.y),
-                #[cfg(feature = "native-host")]
-                minimap_rect,
-                rows: rows.into(),
-            },
+            geometry,
         })
     }
 

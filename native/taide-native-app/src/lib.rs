@@ -37,6 +37,8 @@ mod editor_command_text;
 mod editor_folding;
 #[path = "editor-fonts.rs"]
 mod editor_fonts;
+#[path = "editor-locations.rs"]
+mod editor_locations;
 #[path = "editor-problems.rs"]
 mod editor_problems;
 pub mod editor_reveal;
@@ -80,6 +82,8 @@ mod motion_preference;
 #[path = "navigation-icons.rs"]
 mod navigation_icons;
 pub mod open_with;
+#[path = "peek-models.rs"]
+mod peek_models;
 pub mod persistence;
 pub mod presentation;
 #[path = "presentation-refresh.rs"]
@@ -187,6 +191,8 @@ mod status_chord;
 mod status_editor;
 #[path = "status-ide.rs"]
 mod status_ide;
+#[path = "symbol-location-host.rs"]
+mod symbol_location_host;
 #[path = "symbol-navigation.rs"]
 mod symbol_navigation;
 #[path = "symbol-outline.rs"]

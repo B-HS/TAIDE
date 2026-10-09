@@ -127,6 +127,8 @@ pub struct NativeApplication {
     lsp_diagnostics: crate::diagnostics::Store,
     editor_symbols: crate::editor_symbols::State,
     editor_folding: crate::editor_folding::State,
+    editor_locations: crate::editor_locations::State,
+    peek_models: crate::peek_models::Models,
     workspace_symbols: crate::workspace_symbols::State,
     lsp_status_appearance: crate::lsp::status::Appearance,
     status_editor_appearance: crate::status_editor::Appearance,
@@ -176,6 +178,7 @@ pub struct NativeApplication {
     editor_diagnostic_colors: taide_native_ui::editor_diagnostics::DiagnosticColors,
     editor_overview_colors: taide_native_ui::editor_overview::OverviewColors,
     editor_problem_colors: taide_native_ui::editor_problems::Colors,
+    editor_location_colors: taide_native_ui::editor_locations::Colors,
     editor_sticky_scroll: taide_native_ui::editor_sticky_scroll::StickySetting,
     editor_syntax: crate::editor_syntax::EditorSyntax,
     editor_keymap_targets: HashMap<(egui::ViewportId, egui::Id), (ViewId, u64)>,
@@ -424,6 +427,8 @@ impl NativeApplication {
             lsp_diagnostics: crate::diagnostics::Store::default(),
             editor_symbols: crate::editor_symbols::State::default(),
             editor_folding: crate::editor_folding::State::default(),
+            editor_locations: crate::editor_locations::State::default(),
+            peek_models: crate::peek_models::Models::default(),
             workspace_symbols: crate::workspace_symbols::State::default(),
             lsp_status_appearance: appearances.lsp_status,
             status_editor_appearance: appearances.status_editor,
@@ -476,6 +481,7 @@ impl NativeApplication {
             editor_diagnostic_colors: appearances.editor_diagnostics,
             editor_overview_colors: appearances.editor_overview,
             editor_problem_colors: appearances.editor_problems,
+            editor_location_colors: appearances.editor_locations,
             editor_sticky_scroll,
             editor_syntax,
             editor_keymap_targets: HashMap::new(),
@@ -578,6 +584,78 @@ impl NativeApplication {
         }
         while let Some(reply) = self.bridge.as_mut().and_then(HostBridge::poll) {
             match reply {
+                HostReply::PeekModels { request, files } => {
+                    if self.closing.is_none() && self.editor_locations.is_current(&request) {
+                        for file in files.into_iter().flatten() {
+                            let Ok((owner, _)) =
+                                taide_infra::root_guard::resolve_owning_project_or_cli_opened(
+                                    &self.services.state.projects.read(),
+                                    &self.services.state.cli_opened_paths.read(),
+                                    std::path::Path::new(&file.path),
+                                )
+                            else {
+                                continue;
+                            };
+                            if request.mode == taide_native_editor::symbol_locations::Mode::Hover
+                                && !request.describes(&self.store, true)
+                            {
+                                continue;
+                            }
+                            match self
+                                .peek_models
+                                .admit(&mut self.store, file, Instant::now())
+                            {
+                                Ok(Some(document)) => self.peek_models.associate(document, owner),
+                                Ok(None) => {}
+                                Err(error) => self.status = Some(editor_error(error).to_string()),
+                            }
+                        }
+                        context.request_repaint();
+                    }
+                }
+                HostReply::SymbolLocationOpened { request, result } => {
+                    if self.closing.is_none()
+                        && self.editor_locations.is_current_open(&request)
+                        && request.source.describes(&self.store, true)
+                    {
+                        self.editor_locations.cancel_open(request.source.source);
+                        match result {
+                            Ok(opened)
+                                if crate::editor_problems::reply_is_current(
+                                    &opened,
+                                    &self.services.state.layouts.read(),
+                                ) =>
+                            {
+                                self.controller.apply_layouts(HashMap::from([(
+                                    opened.project.clone(),
+                                    opened.layout.clone(),
+                                )]));
+                                self.reveals.queue(
+                                    &opened,
+                                    &self.services.state.layouts.read(),
+                                    Instant::now(),
+                                );
+                                self.editor_locations.queue_navigation(
+                                    &opened,
+                                    request.target.clone(),
+                                    Instant::now(),
+                                );
+                                if request.keep_peek {
+                                    self.editor_locations.rehome(
+                                        request.source.source,
+                                        &opened,
+                                        Instant::now(),
+                                    );
+                                } else if !request.side {
+                                    self.editor_locations.close(request.source.source);
+                                }
+                                context.request_repaint_after(crate::editor_reveal::REVEAL_TTL);
+                            }
+                            Ok(_) => {}
+                            Err(error) => self.report(&error),
+                        }
+                    }
+                }
                 HostReply::AppFileWritten { request, result } => {
                     if self.closing.is_none()
                         && let Some(result) =
@@ -675,6 +753,7 @@ impl NativeApplication {
                                             appearances.editor_diagnostics;
                                         self.editor_overview_colors = appearances.editor_overview;
                                         self.editor_problem_colors = appearances.editor_problems;
+                                        self.editor_location_colors = appearances.editor_locations;
                                         self.banner_appearance = appearances.banner;
                                         self.lsp_status_appearance = appearances.lsp_status;
                                         self.status_editor_appearance = appearances.status_editor;
@@ -1333,6 +1412,7 @@ impl NativeApplication {
                     let source_tab = self.loading_file_tabs.remove(&path);
                     match result.and_then(|prepared| prepared.commit_with_notice(&mut self.store)) {
                         Ok(committed) => {
+                            self.peek_models.adopt(committed.document);
                             self.missing_drafts.remove(&path);
                             if let Some(conflict) = committed.restored_conflict
                                 && let Some(tab) = source_tab
@@ -1705,7 +1785,9 @@ impl NativeApplication {
                 | HostCommand::OpenSettingsFolder(_)
         );
         if let HostCommand::SetDirty { tab, dirty } = command {
-            self.pending_dirty.insert(tab, dirty);
+            if self.has_layout_tab(&tab) {
+                self.pending_dirty.insert(tab, dirty);
+            }
             return true;
         }
         let mut tracked_save = None;
@@ -1916,6 +1998,10 @@ impl NativeApplication {
             .map(|(tab, dirty)| (tab.clone(), *dirty))
             .collect();
         for (tab, dirty) in pending {
+            if !self.has_layout_tab(&tab) {
+                self.pending_dirty.remove(&tab);
+                continue;
+            }
             let result = self
                 .bridge
                 .as_ref()
@@ -1933,6 +2019,13 @@ impl NativeApplication {
             self.pending_dirty.remove(&tab);
         }
         true
+    }
+
+    fn has_layout_tab(&self, tab: &TabId) -> bool {
+        self.services.state.layouts.read().values().any(|layout| {
+            taide_layout::service::all_roots(layout)
+                .any(|root| taide_layout::service::find_tab(root, tab).is_some())
+        })
     }
 
     fn close(&mut self, context: &egui::Context) {
@@ -2772,9 +2865,13 @@ impl NativeApplication {
                     .find(|draft| draft.id == document)
                     .map(|draft| draft.project.clone())
             })
+            .or_else(|| self.peek_models.project(document))
     }
 
     fn auto_save_delay(&self, document: DocumentId) -> Duration {
+        if self.peek_models.owns(document) {
+            return Duration::ZERO;
+        }
         if self.deleted_documents.contains(&document) {
             return Duration::ZERO;
         }
@@ -2998,6 +3095,103 @@ impl NativeApplication {
         self.editor_folding.retain(&fold_retained);
     }
 
+    fn consume_location_model(
+        &mut self,
+        request: crate::editor_locations::Request,
+        model: Arc<taide_native_editor::symbol_locations::Locations>,
+    ) {
+        use taide_native_editor::symbol_locations::{Kind, Mode};
+        if request.mode == Mode::Hover {
+            return;
+        }
+        if request.mode == Mode::Peek || model.targets().len() > 1 {
+            self.editor_locations.show(request.source);
+            return;
+        }
+        let Some(target) = model
+            .first()
+            .and_then(|index| model.targets().get(index))
+            .cloned()
+        else {
+            self.status = Some(format!("No {} found", request.kind.title().to_lowercase()));
+            self.editor_locations.close(request.source);
+            return;
+        };
+        let same = crate::editor_locations::file_path(&target.uri).is_some_and(|path| {
+            request.snapshot.key == taide_native_editor::document::DocumentKey::File(path)
+        });
+        if same
+            && target.selection.start <= request.position
+            && request.position <= target.selection.end
+            && matches!(
+                request.kind,
+                Kind::Definition | Kind::Declaration | Kind::TypeDefinition
+            )
+        {
+            if let Some(lsp) = self.lsp.as_ref() {
+                let providers =
+                    lsp.location_providers(&request.project, &request.snapshot, Kind::References);
+                if !providers.is_empty()
+                    && let Ok(next) = self.editor_locations.begin(
+                        request.project.clone(),
+                        &self.store,
+                        request.source,
+                        Kind::References,
+                        request.mode,
+                        providers,
+                        Some(request.position),
+                    )
+                {
+                    if let Err(error) = lsp.symbol_locations(next) {
+                        self.status = Some(error.to_string());
+                    }
+                    return;
+                }
+            }
+        }
+        if same && request.mode != Mode::Aside {
+            if let Err(error) = self.editor_locations.navigate(
+                &mut self.store,
+                request.source,
+                &target,
+                Instant::now(),
+            ) {
+                self.status = Some(editor_error(error).to_string());
+            }
+            self.editor_locations.close(request.source);
+            return;
+        }
+        let revision = self
+            .services
+            .state
+            .layouts
+            .read()
+            .get(&request.project)
+            .map(|layout| layout.revision);
+        if let Some(revision) = revision {
+            let viewport = request.viewport;
+            let side = request.mode == Mode::Aside;
+            if let Ok((source, token, cancelled)) = self
+                .editor_locations
+                .begin_open(&self.store, request.source)
+            {
+                self.submit(HostCommand::OpenSymbolLocation(
+                    crate::symbol_location_host::Request {
+                        source,
+                        token,
+                        cancelled,
+                        target,
+                        side,
+                        keep_peek: false,
+                        revision,
+                        scope: self.shell.scope.clone(),
+                        viewport,
+                    },
+                ));
+            }
+        }
+    }
+
     fn poll_lsp(&mut self) {
         if let Some(bindings) = self
             .lsp
@@ -3008,6 +3202,32 @@ impl NativeApplication {
         }
         while let Some(reply) = self.lsp.as_mut().and_then(crate::lsp::LspBridge::poll) {
             match reply {
+                crate::lsp::Reply::SymbolLocations { request, result } => {
+                    let providers = self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
+                        lsp.location_providers(&request.project, &request.snapshot, request.kind)
+                    });
+                    let active = self
+                        .services
+                        .state
+                        .layouts
+                        .read()
+                        .get(&request.project)
+                        .is_some_and(|layout| request.is_active(layout, &self.shell.scope));
+                    if active && self.closing.is_none() {
+                        match self
+                            .editor_locations
+                            .accept(&request, &self.store, providers, result)
+                        {
+                            Ok(Some(model)) => self.consume_location_model(request, model),
+                            Ok(None) => {}
+                            Err(error) => {
+                                self.status = Some(format!("native symbol locations: {error:?}"))
+                            }
+                        }
+                    } else {
+                        self.editor_locations.close_request(&request);
+                    }
+                }
                 crate::lsp::Reply::SyntaxFolding { request, result } => {
                     if let Ok(current) = self.store.documents().snapshot(request.snapshot.id) {
                         let providers = self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
@@ -3921,6 +4141,7 @@ impl NativeApplication {
                 self.editor_diagnostic_colors = appearances.editor_diagnostics;
                 self.editor_overview_colors = appearances.editor_overview;
                 self.editor_problem_colors = appearances.editor_problems;
+                self.editor_location_colors = appearances.editor_locations;
                 self.banner_appearance = appearances.banner;
                 self.lsp_status_appearance = appearances.lsp_status;
                 self.status_editor_appearance = appearances.status_editor;
@@ -4307,7 +4528,31 @@ impl eframe::App for NativeApplication {
         let command_context = crate::command_dispatch::context(
             &snapshot,
             &self.shell.scope,
-            crate::command_dispatch::active_editor_actions(&self.store, focused_view.as_ref()),
+            crate::command_dispatch::active_editor_actions(&self.store, focused_view.as_ref()).map(
+                |mut actions| {
+                    actions.retain(|action| {
+                        let Some(taide_native_editor::symbol_locations::Command::Request {
+                            kind,
+                            ..
+                        }) = taide_native_editor::symbol_locations::Command::from_action(action)
+                        else {
+                            return true;
+                        };
+                        focused_view
+                            .as_ref()
+                            .and_then(|key| self.store.views().find(key))
+                            .and_then(|view| self.store.views().get(view))
+                            .and_then(|view| self.store.documents().snapshot(view.document).ok())
+                            .zip(snapshot.focused_project())
+                            .is_some_and(|(document, project)| {
+                                self.lsp.as_ref().is_some_and(|lsp| {
+                                    !lsp.location_providers(project, &document, kind).is_empty()
+                                })
+                            })
+                    });
+                    actions
+                },
+            ),
         );
         self.terminal_views
             .set_command_context(command_context.clone());
@@ -4315,6 +4560,28 @@ impl eframe::App for NativeApplication {
         self.editor_find
             .retain(|view, _| self.store.views().get(*view).is_some());
         self.editor_problems.retain(&self.store);
+        let projects = snapshot
+            .projects
+            .iter()
+            .map(|project| project.id.clone())
+            .collect();
+        self.editor_locations
+            .reconcile(&self.store, &projects, |project, document, kind| {
+                self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
+                    lsp.location_providers(project, document, kind)
+                })
+            });
+        self.editor_locations
+            .retain_active(&snapshot.layouts, &self.shell.scope);
+        self.editor_locations.detach_retired(&mut self.store);
+        self.peek_models.sweep(
+            &mut self.store,
+            &self.editor_locations.preview_views(),
+            Instant::now(),
+        );
+        if let Some(delay) = self.peek_models.next_expiry(Instant::now()) {
+            context.request_repaint_after(delay);
+        }
         let mut fold_commands = std::mem::take(&mut self.fold_commands);
         let mut command_errors = Vec::new();
         let mut commands = Vec::new();
@@ -4365,21 +4632,22 @@ impl eframe::App for NativeApplication {
                 (*owner_viewport != viewport
                     || *previous == pass
                     || previous.checked_add(1) == Some(pass))
-                    && self.store.views().get(*view).is_some_and(|view| {
-                        snapshot
-                            .layouts
-                            .values()
-                            .flat_map(taide_layout::service::all_roots)
-                            .any(|root| {
-                                taide_native_ui::snapshot::active_tab(root, &view.key.pane)
-                                    .is_some_and(|tab| tab.id == view.key.tab)
-                            })
-                    })
+                    && (self.editor_locations.preview_owner(*view).is_some()
+                        || self.store.views().get(*view).is_some_and(|view| {
+                            snapshot
+                                .layouts
+                                .values()
+                                .flat_map(taide_layout::service::all_roots)
+                                .any(|root| {
+                                    taide_native_ui::snapshot::active_tab(root, &view.key.pane)
+                                        .is_some_and(|tab| tab.id == view.key.tab)
+                                })
+                        }))
             });
         if is_enabled
             && !self.keybindings.is_capturing()
             && context.input(|input| input.raw.focused)
-            && let Err(error) = self.terminal_views.capture_window_keymap(
+            && let Err(error) = self.terminal_views.capture_window_keymap_with_local(
                 &context,
                 self.services
                     .state
@@ -4392,6 +4660,11 @@ impl eframe::App for NativeApplication {
                 |id| {
                     let (view, _) = self.editor_keymap_targets.get(&(viewport, id))?;
                     Some(self.store.views().get(*view)?.composition.is_some())
+                },
+                |id, event| {
+                    self.editor_keymap_targets
+                        .get(&(viewport, id))
+                        .is_some_and(|(view, _)| self.editor_locations.local_key(*view, event))
                 },
             )
         {
@@ -4453,6 +4726,9 @@ impl eframe::App for NativeApplication {
             editor: &self.editor,
             editor_find: &mut self.editor_find,
             editor_problems: &mut self.editor_problems,
+            editor_locations: &mut self.editor_locations,
+            peek_models: &self.peek_models,
+            lsp: self.lsp.as_ref(),
             find_history: &mut self.find_history,
             find_appearance: &self.find_appearance,
             editor_display_colors: self.editor_display_colors,
@@ -4462,6 +4738,7 @@ impl eframe::App for NativeApplication {
             editor_diagnostic_colors: self.editor_diagnostic_colors,
             editor_overview_colors: self.editor_overview_colors,
             editor_problem_colors: self.editor_problem_colors,
+            editor_location_colors: self.editor_location_colors,
             editor_sticky_scroll: self.editor_sticky_scroll.synchronize(
                 self.services
                     .state
@@ -5263,6 +5540,9 @@ struct AppSurfaces<'a> {
     editor: &'a NativeEditor,
     editor_find: &'a mut HashMap<ViewId, taide_native_ui::editor_find::EditorFind>,
     editor_problems: &'a mut crate::editor_problems::State,
+    editor_locations: &'a mut crate::editor_locations::State,
+    peek_models: &'a crate::peek_models::Models,
+    lsp: Option<&'a crate::lsp::LspBridge>,
     find_history: &'a mut taide_native_ui::editor_find_widget::FindHistory,
     find_appearance: &'a taide_native_ui::editor_find_widget::FindAppearance,
     editor_display_colors: taide_native_ui::editor_display::EditorDisplayColors,
@@ -5272,6 +5552,7 @@ struct AppSurfaces<'a> {
     editor_diagnostic_colors: taide_native_ui::editor_diagnostics::DiagnosticColors,
     editor_overview_colors: taide_native_ui::editor_overview::OverviewColors,
     editor_problem_colors: taide_native_ui::editor_problems::Colors,
+    editor_location_colors: taide_native_ui::editor_locations::Colors,
     editor_sticky_scroll: bool,
     editor_syntax: &'a mut crate::editor_syntax::EditorSyntax,
     banner_appearance: &'a BannerAppearance,
@@ -6229,6 +6510,7 @@ impl AppSurfaces<'_> {
                 editor_presentation.options.diagnostic_colors = Some(self.editor_diagnostic_colors);
                 editor_presentation.options.overview_colors = Some(self.editor_overview_colors);
                 editor_presentation.options.problem_colors = Some(self.editor_problem_colors);
+                editor_presentation.options.location_colors = Some(self.editor_location_colors);
                 editor_presentation.options.sticky_scroll = self.editor_sticky_scroll;
                 editor_presentation.options.sticky_toggle_label = Some(presentation::message(self.locale, "settings.editorStickyScroll", &[]));
                 drop(settings);
@@ -6243,6 +6525,9 @@ impl AppSurfaces<'_> {
                         self.reveals
                             .consume(&tab.id, path, ui.ctx().viewport_id(), Instant::now())
                 {
+                    if let Some(target) = self.editor_locations.take_navigation(&tab.id, path, ui.ctx().viewport_id(), Instant::now()) {
+                        self.editor_locations.navigate(self.store, view, &target, Instant::now()).map_err(editor_error)?;
+                    } else {
                     let tokens = self.editor_syntax.tokens(self.store, document);
                     editor
                         .reveal_tokenized(
@@ -6255,7 +6540,11 @@ impl AppSurfaces<'_> {
                             tokens,
                         )
                         .map_err(editor_error)?;
+                    }
                     focus = true;
+                }
+                if let Some(path) = path && let Some(project) = editor_project {
+                    self.editor_locations.adopt_pending(self.store, view, project, path, ui.ctx().viewport_id(), Instant::now()).map_err(editor_error)?;
                 }
                 let mut next = 0;
                 let mut problem_provider = crate::editor_problems::Provider {
@@ -6273,6 +6562,31 @@ impl AppSurfaces<'_> {
                 let mut edit_errors = Vec::new();
                 let text_resources = crate::editor_command_text::resources()?;
                 let compare = |left: &str, right: &str| text_resources.compare(left, right);
+                let preview_document = self.editor_locations.prepare_preview(self.store, view).map_err(editor_error)?;
+                let preview_tokens = preview_document.and_then(|document| self.editor_syntax.peek_tokens(self.store, document));
+                let hover_tokens = self.editor_locations.hover_document(self.store, view).and_then(|document| self.editor_syntax.peek_tokens(self.store, document));
+                let preview_presentation = editor_presentation.clone();
+                let navigation_highlight = self.editor_locations.highlight(self.store, view, Instant::now(), self.editor_location_colors.highlight.to_array());
+                if let Some((_, delay)) = &navigation_highlight { ui.ctx().request_repaint_after(*delay); }
+                let mut location_commands = Vec::new();
+                let mut preview_focus_targets = Vec::new();
+                let mut preview_shown_lines = Vec::new();
+                let preview_overrides = self.services.state.settings.read().keymap_overrides.clone();
+                let mut location_provider = crate::editor_locations::Provider {
+                    state: &mut *self.editor_locations, models: self.peek_models, project: editor_project.cloned(), lsp: self.lsp,
+                    layout: editor_project.and_then(|project| self.layouts.get(project)), scope: self.scope,
+                    commands: &mut location_commands, viewport: ui.ctx().viewport_id(), editor: &editor,
+                    presentation: &preview_presentation, tokens: preview_tokens, hover_tokens, shown_lines: &mut preview_shown_lines, changed: &mut *self.changed_documents,
+                    overrides: preview_overrides.as_deref(), focus_targets: &mut preview_focus_targets,
+                    find_history: None, find_appearance: None,
+                };
+                if ui.is_enabled() {
+                    for (_, edit) in self.document_edits.extract_if(.., |(owner, edit)| owner == &tab.id && matches!(edit, DocumentEdit::Location(_))) {
+                        if let DocumentEdit::Location(command) = edit && let Err(error) = taide_native_ui::editor_locations::Provider::execute(&mut location_provider, self.store, view, command) {
+                            *self.status = Some(editor_error(error).to_string());
+                        }
+                    }
+                }
                 let syntax_lease =
                     crate::editor_syntax::SyntaxLease::new(&mut *self.editor_syntax, document);
                 let language = crate::editor_syntax::language_rules(&snapshot.metadata.language_id)
@@ -6341,7 +6655,7 @@ impl AppSurfaces<'_> {
                 let find_decorations = find.decorations(&self.store.views().get(view).ok_or_else(|| editor_error(taide_native_editor::document::EditorError::NotFound))?.selection,
                     self.find_appearance.highlight, self.find_appearance.current_match, self.find_appearance.scope);
                 let scroll_decorations = find.scroll_decorations(self.editor_overview_colors);
-                let find_layers = find_decorations.iter().chain(scroll_decorations.iter()).collect::<Vec<_>>();
+                let find_layers = find_decorations.iter().chain(scroll_decorations.iter()).chain(navigation_highlight.as_ref().map(|(layer, _)| layer)).collect::<Vec<_>>();
                 editor_presentation.options.diagnostics = self.diagnostics.display(self.store, &self.store.documents().snapshot(document).map_err(editor_error)?);
                 let fold_commands = if ui.is_enabled() {
                     crate::command_dispatch::take_fold_commands(&tab.id, self.fold_commands)
@@ -6370,6 +6684,8 @@ impl AppSurfaces<'_> {
                         fold_control_error.get_or_insert(error);
                     }
                 };
+                location_provider.find_history = Some(self.find_history);
+                location_provider.find_appearance = Some(self.find_appearance);
                 let output = editor
                     .show_request(
                         ui,
@@ -6425,14 +6741,17 @@ impl AppSurfaces<'_> {
                             syntax_folds: syntax_folds.clone(),
                             fold_controls: Some(&mut paint_fold_control),
                             problems: Some(&mut problem_provider),
+                            locations: Some(&mut location_provider),
                         },
                     )
                     .map_err(editor_error)?;
+                self.commands.append(&mut location_commands);
                 if let Some(error) = fold_control_error {
                     *self.status = Some(error.to_string());
                 }
                 self.editor_syntax
                     .show_lines(document, output.rendered_lines.clone());
+                for (document, lines) in preview_shown_lines { self.editor_syntax.show_lines(document, lines); }
                 if output.toggle_sticky_scroll {
                     intents.push(ShellIntent::ToggleEditorStickyScroll);
                 }
@@ -6441,7 +6760,7 @@ impl AppSurfaces<'_> {
                     for id in &output.focus_ids {
                         self.editor_keymap_targets.insert(
                             (ui.ctx().viewport_id(), *id),
-                            (view, ui.ctx().cumulative_frame_nr()),
+                            (preview_focus_targets.iter().find(|(target, _)| target == id).map_or(view, |(_, preview)| *preview), ui.ctx().cumulative_frame_nr()),
                         );
                     }
                     self.editor_keymap_targets.insert(

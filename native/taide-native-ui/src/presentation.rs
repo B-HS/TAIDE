@@ -426,6 +426,23 @@ pub fn editor_problem_colors(theme: &ResolvedTheme) -> AppResult<crate::editor_p
     })
 }
 
+#[cfg(feature = "native-host")]
+pub fn editor_location_colors(theme: &ResolvedTheme) -> AppResult<crate::editor_locations::Colors> {
+    Ok(crate::editor_locations::Colors {
+        border: color(theme, "app.accent")?,
+        background: color(theme, "editor.background")?,
+        heading_background: color(theme, "editor.widgetBackground")?,
+        heading: color(theme, "app.foreground")?,
+        detail: color(theme, "panel.sectionHeader")?,
+        tree_background: color(theme, "list.background")?,
+        selection_background: color(theme, "list.activeBackground")?,
+        selection_foreground: color(theme, "list.foreground")?,
+        highlight: color(theme, "editor.findMatchHighlight")?,
+        highlight_border: color(theme, "editor.findMatch")?,
+        link: color(theme, "terminal.linkForeground")?,
+    })
+}
+
 pub fn banner_appearance(theme: &ResolvedTheme) -> AppResult<BannerAppearance> {
     Ok(BannerAppearance {
         error: color(theme, "statusIndicator.error")?,

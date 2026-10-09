@@ -2,7 +2,6 @@ use egui::{
     Align2, Color32, Context, Event, FontFamily, FontId, Id, Key, PointerButton, Rect, Sense,
     Stroke, StrokeKind, TextFormat, Ui, UiBuilder, Vec2, pos2, vec2,
 };
-use taide_native_editor::display_map::DisplayMap;
 use taide_native_editor::document::{DocumentSnapshot, EditorError};
 use taide_native_editor::problem_navigation::{Command, Coordinate};
 use taide_native_editor::store::EditorStore;
@@ -54,19 +53,6 @@ impl Widget {
             .max(1);
         let maximum = MINIMUM_MAX_LINES.max(viewport_height / line_height * MAX_VIEWPORT_RATIO);
         ((DECORATION_LINES + lines) as f32).min(maximum) * line_height
-    }
-
-    pub(crate) fn zone(
-        &self,
-        document: &DocumentSnapshot,
-        display: &DisplayMap,
-        line_height: f32,
-        viewport_height: f32,
-    ) -> (usize, f32) {
-        (
-            display.row_of_byte(document, self.position.min(document.rope.len_bytes())),
-            self.height(line_height, viewport_height),
-        )
     }
 }
 

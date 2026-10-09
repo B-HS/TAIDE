@@ -50,6 +50,8 @@ mod idle;
 
 #[path = "lsp-document-symbols.rs"]
 mod document_symbols;
+#[path = "lsp-symbol-locations.rs"]
+mod symbol_locations;
 #[path = "lsp-syntax-folding.rs"]
 mod syntax_folding;
 
@@ -64,6 +66,9 @@ mod diagnostics_tests;
 #[path = "lsp-document-symbols-tests.rs"]
 mod document_symbol_tests;
 
+#[cfg(all(test, unix))]
+#[path = "lsp-symbol-locations-tests.rs"]
+mod symbol_location_tests;
 #[cfg(all(test, unix))]
 #[path = "lsp-syntax-folding-tests.rs"]
 mod syntax_folding_tests;
@@ -200,6 +205,7 @@ struct Session {
 }
 
 enum Command {
+    SymbolLocations(crate::editor_locations::Request),
     SyntaxFolding(crate::editor_folding::Request),
     DocumentSymbols(crate::editor_symbols::Request),
     WorkspaceSymbols(crate::workspace_symbols::Request),
@@ -251,6 +257,10 @@ enum Command {
 }
 
 pub enum Reply {
+    SymbolLocations {
+        request: crate::editor_locations::Request,
+        result: Result<crate::editor_locations::Response, Failure>,
+    },
     SyntaxFolding {
         request: crate::editor_folding::Request,
         result: Result<crate::editor_folding::Response, Failure>,
@@ -557,6 +567,45 @@ impl LspBridge {
         self.submit(Command::SyntaxFolding(request))
     }
 
+    pub(crate) fn symbol_locations(
+        &self,
+        request: crate::editor_locations::Request,
+    ) -> AppResult<()> {
+        self.submit(Command::SymbolLocations(request))
+    }
+
+    pub(crate) fn location_providers(
+        &self,
+        project: &ProjectId,
+        snapshot: &DocumentSnapshot,
+        kind: taide_native_editor::symbol_locations::Kind,
+    ) -> HashSet<crate::editor_symbols::ProviderIdentity> {
+        let DocumentKey::File(path) = &snapshot.key else {
+            return HashSet::new();
+        };
+        let Some(path) = path.to_str() else {
+            return HashSet::new();
+        };
+        if self.states.has_changed().is_err() {
+            return HashSet::new();
+        }
+        let uri = taide_lsp::service::workspace_folder_uri(path);
+        self.states
+            .borrow()
+            .iter()
+            .filter(|state| {
+                state.project == *project
+                    && state.open_documents.contains(&snapshot.id)
+                    && state.snapshot.supports_document(&uri, kind.method())
+            })
+            .map(|state| crate::editor_symbols::ProviderIdentity {
+                owner: state.owner,
+                generation: state.snapshot.generation,
+                capability_revision: state.snapshot.capability_revision,
+            })
+            .collect()
+    }
+
     pub(crate) fn workspace_symbols(
         &self,
         request: crate::workspace_symbols::Request,
@@ -710,7 +759,7 @@ fn initialize(plan: &Plan) -> Value {
         "capabilities":{
             "general":{"positionEncodings":["utf-16"]},
             "workspace":{"workspaceFolders":true,"configuration":true,"applyEdit":true,"workspaceEdit":{"documentChanges":true},"symbol":{"dynamicRegistration":false,"symbolKind":{"valueSet":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26]}}},
-            "textDocument":{"foldingRange":{"dynamicRegistration":false,"lineFoldingOnly":true,"rangeLimit":taide_native_editor::folding::MAX_FOLDING_REGIONS},"synchronization":{"dynamicRegistration":false,"didSave":true},"documentSymbol":{"hierarchicalDocumentSymbolSupport":true,"symbolKind":{"valueSet":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26]}},"formatting":{},"codeAction":{"codeActionLiteralSupport":{"codeActionKind":{"valueSet":["source.fixAll","source.organizeImports"]}},"resolveSupport":{"properties":["edit","command"]},"dataSupport":true}}
+            "textDocument":{"definition":{"linkSupport":true},"declaration":{"linkSupport":true},"typeDefinition":{"linkSupport":true},"implementation":{"linkSupport":true},"references":{},"foldingRange":{"dynamicRegistration":false,"lineFoldingOnly":true,"rangeLimit":taide_native_editor::folding::MAX_FOLDING_REGIONS},"synchronization":{"dynamicRegistration":false,"didSave":true},"documentSymbol":{"hierarchicalDocumentSymbolSupport":true,"symbolKind":{"valueSet":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26]}},"formatting":{},"codeAction":{"codeActionLiteralSupport":{"codeActionKind":{"valueSet":["source.fixAll","source.organizeImports"]}},"resolveSupport":{"properties":["edit","command"]},"dataSupport":true}}
         }
     });
     if let Some(initialization) = &plan.spec.initialization_options {
@@ -1503,6 +1552,50 @@ async fn run(
                     })
                 {
                     Some(Reply::WorkspaceSymbols {
+                        request: rejected,
+                        result: Err(Failure::TransportClosed),
+                    })
+                } else {
+                    None
+                }
+            }
+            Command::SymbolLocations(request) => {
+                if request.is_cancelled() {
+                    continue;
+                }
+                let selected = sessions
+                    .iter()
+                    .filter(|(key, session)| {
+                        key.project == request.project
+                            && session.documents.contains_key(&request.snapshot.id)
+                    })
+                    .map(|(key, session)| (key.clone(), session.clone()))
+                    .collect::<HashMap<_, _>>();
+                let sender = replies.clone();
+                let repaint = repaint.clone();
+                let mut cancelled = request.cancelled.clone();
+                let mut stopping = stopping.clone();
+                let rejected = request.clone();
+                if !services
+                    .tasks
+                    .spawn_transient("native-lsp-symbol-locations", async move {
+                        let result = tokio::select! {
+                            biased;
+                            _ = stopping.changed() => return,
+                            _ = cancelled.changed() => return,
+                            result = symbol_locations::request(&selected, &request) => result,
+                        };
+                        if !request.is_cancelled()
+                            && sender
+                                .send(Reply::SymbolLocations { request, result })
+                                .await
+                                .is_ok()
+                        {
+                            repaint();
+                        }
+                    })
+                {
+                    Some(Reply::SymbolLocations {
                         request: rejected,
                         result: Err(Failure::TransportClosed),
                     })

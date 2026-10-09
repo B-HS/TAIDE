@@ -247,6 +247,79 @@ fn 뷰가_붙은_번들_언어_문서만_추적해_토큰화한다() {
 }
 
 #[test]
+fn peek_토큰은_arc를_재사용하고_숨은_미리보기_편집_테마_언어와_폐기를_추적한다() {
+    let first_theme = theme("peek-first", "#6a9955");
+    let second_theme = theme("peek-second", "#222222");
+    let mut harness = Harness::new();
+    let mut store = store();
+    let shown = open(&mut store, "/synthetic/source.rs", "rust", RUST_SOURCE);
+    attach(&mut store, shown);
+    let hidden = open(&mut store, "/synthetic/peek.rs", "rust", RUST_SOURCE);
+    let now = Instant::now();
+    harness.settle(&store, &first_theme, now);
+    harness.syntax.peek_tokens(&store, hidden);
+    harness.settle(&store, &first_theme, now);
+    let before = harness.syntax.peek_tokens(&store, hidden).unwrap();
+    let repeated = harness.syntax.peek_tokens(&store, hidden).unwrap();
+    assert!(Arc::ptr_eq(&before, &repeated));
+    assert_eq!(
+        line_spans(before.frame().lines),
+        expected_spans(&first_theme, &store, hidden)
+    );
+    assert!(
+        before
+            .tokens(
+                &store.documents().snapshot(hidden).unwrap(),
+                RUST_COMMENT_LINE
+            )
+            .unwrap()
+            .iter()
+            .any(|token| token.kind == taide_native_editor::syntax::TokenKind::Comment)
+    );
+    apply(&mut store, hidden, 0..0, "// inserted\n");
+    let edited = harness.syntax.peek_tokens(&store, hidden).unwrap();
+    assert_eq!(edited.revision, revision(&store, hidden));
+    assert!(!Arc::ptr_eq(&before, &edited));
+    assert!(
+        before
+            .tokens(&store.documents().snapshot(hidden).unwrap(), 0)
+            .is_none()
+    );
+    harness.settle(&store, &first_theme, now);
+    let edited = harness.syntax.peek_tokens(&store, hidden).unwrap();
+    assert_eq!(
+        line_spans(edited.frame().lines),
+        expected_spans(&first_theme, &store, hidden)
+    );
+    harness.settle(&store, &second_theme, now + Duration::from_secs(1));
+    let recolored = harness.syntax.peek_tokens(&store, hidden).unwrap();
+    assert!(!Arc::ptr_eq(&edited, &recolored));
+    assert_eq!(*recolored.frame().styles, expected_table(&second_theme));
+    let path = "/synthetic/peek.json";
+    let snapshot = store.documents().snapshot(hidden).unwrap();
+    store
+        .retarget_file(
+            &snapshot,
+            PathBuf::from(path),
+            DocumentMetadata::from_opened(&file(path, "json", RUST_SOURCE)),
+        )
+        .unwrap();
+    let changed_language = store.documents().snapshot(hidden).unwrap();
+    assert!(recolored.tokens(&changed_language, 0).is_none());
+    let changed = harness.syntax.peek_tokens(&store, hidden).unwrap();
+    assert_eq!(changed.language_id, "json");
+    assert!(!Arc::ptr_eq(&recolored, &changed));
+    store
+        .discard_document(hidden, revision(&store, hidden))
+        .unwrap();
+    harness
+        .syntax
+        .tick(&store, &second_theme, now + Duration::from_secs(1));
+    assert!(!harness.syntax.peek_tokens.contains_key(&hidden));
+    assert!(harness.syntax.peek_tokens(&store, hidden).is_none());
+}
+
+#[test]
 fn 편집은_저널로_이어가고_저널이_끊긴_변경은_문서_전체를_다시_토큰화한다() {
     let theme = theme("dark", "#6a9955");
     let mut harness = Harness::new();

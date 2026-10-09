@@ -645,6 +645,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   SVG files in `native/taide-native-app/resources/icons` carry geometry from
   `lucide-react` 1.28.0 under the same adjacent ISC license.
 
+- `native/taide-native-editor/src/symbol-locations.rs`,
+  `native/taide-native-ui/src/editor-locations.rs`,
+  `native/taide-native-ui/src/editor-definition-link.rs` and
+  `native/taide-native-app/src/editor-locations.rs` adapt location ordering,
+  reference grouping, inline peek layout, navigation, focus and definition
+  link interactions from Monaco Editor 0.56.0 (MIT, Copyright (c) Microsoft
+  Corporation): `editor/contrib/gotoSymbol/browser/goToCommands.js`,
+  `link/goToDefinitionAtPosition.js`, `referencesModel.js`,
+  `peek/referencesController.js`, `peek/referencesWidget.js`,
+  `peek/referencesTree.js` and their associated styles. The same MIT text
+  is retained in `native/taide-native-editor/LICENSE-MONACO-SNIPPET` and
+  `native/taide-native-ui/LICENSE-MONACO-FIND`.
+
 - `src/find.rs` and `src/find-replacement.rs` adapt the search driving,
   word boundary, newline, empty match, replacement parsing and case
   preservation rules from Monaco Editor 0.56.0 (MIT, Copyright (c)

@@ -79,6 +79,22 @@ impl EditorGeometry {
             })
             .map(|row| row.byte_at(position))
     }
+
+    #[cfg(feature = "native-host")]
+    pub fn content_byte_at(&self, position: Pos2) -> Option<usize> {
+        if !self.content_rect.contains(position) {
+            return None;
+        }
+        self.shown_rows()
+            .find(|row| {
+                let band = self.row_band(row);
+                band.min <= position.y
+                    && position.y < band.max
+                    && row.caret_rect(row.segment.bytes.start).left() <= position.x
+                    && position.x < row.caret_rect(row.segment.bytes.end).left()
+            })
+            .map(|row| row.byte_at(position))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

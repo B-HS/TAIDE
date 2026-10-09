@@ -199,6 +199,19 @@ impl LspCoordinator {
     pub fn registration_count(&self) -> usize {
         self.registrations.count()
     }
+    pub fn supports_document(&self, method: &str, uri: &str) -> bool {
+        let Some(document) = self.documents.get(uri) else {
+            return false;
+        };
+        self.phase == Phase::Running
+            && (self
+                .capabilities
+                .as_ref()
+                .is_some_and(|capabilities| capabilities::supports(capabilities, method))
+                || self
+                    .registrations
+                    .supports(method, Some(&document.mirror), None, false))
+    }
     pub fn capability_revision(&self) -> u64 {
         self.registrations.revision()
     }

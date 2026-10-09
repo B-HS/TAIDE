@@ -243,6 +243,120 @@ fn editor_event(
     decisions
 }
 
+#[cfg(feature = "native-host")]
+#[test]
+fn 위치_이동_기본키는_os와_옆열기_chord와_재지정과_ime를_따른다() {
+    for os in [
+        OperatingSystem::Mac,
+        OperatingSystem::Windows,
+        OperatingSystem::Nix,
+    ] {
+        let context = egui::Context::default();
+        context.set_os(os);
+        let command = if os == OperatingSystem::Mac {
+            Modifiers::MAC_CMD | Modifiers::COMMAND
+        } else {
+            Modifiers::CTRL | Modifiers::COMMAND
+        };
+        for (key, modifiers, expected) in [
+            (
+                Key::F12,
+                Modifiers::NONE,
+                "monaco.editor.action.revealDefinition",
+            ),
+            (
+                Key::F12,
+                Modifiers::SHIFT,
+                "monaco.editor.action.goToReferences",
+            ),
+            (Key::F12, command, "monaco.editor.action.goToImplementation"),
+            (
+                Key::F12,
+                command | Modifiers::SHIFT,
+                "monaco.editor.action.peekImplementation",
+            ),
+            (
+                if os == OperatingSystem::Nix {
+                    Key::F10
+                } else {
+                    Key::F12
+                },
+                if os == OperatingSystem::Nix {
+                    command | Modifiers::SHIFT
+                } else {
+                    Modifiers::ALT
+                },
+                "monaco.editor.action.peekDefinition",
+            ),
+        ] {
+            let mut windows = Windows::default();
+            assert!(
+                editor_event(&mut windows, &context, key, modifiers, None, false)
+                    .contains(&Decision::Dispatch(expected.into()))
+            );
+            assert_eq!(
+                editor_event(
+                    &mut Windows::default(),
+                    &context,
+                    key,
+                    modifiers,
+                    None,
+                    true
+                )
+                .contains(&Decision::Dispatch(expected.into())),
+                modifiers.mac_cmd || modifiers.ctrl
+            );
+        }
+        let mut windows = Windows::default();
+        assert!(
+            editor_event(&mut windows, &context, Key::K, command, None, false)
+                .contains(&Decision::EnterChord)
+        );
+        assert!(
+            editor_event(
+                &mut windows,
+                &context,
+                Key::F12,
+                Modifiers::NONE,
+                None,
+                false
+            )
+            .contains(&Decision::ResolveChord(
+                "monaco.editor.action.revealDefinitionAside".into()
+            ))
+        );
+        let overrides =
+            r#"[{"actionId":"monaco.editor.action.revealDefinition","key":"r","mods":["mod"]}]"#;
+        let mut windows = Windows::default();
+        assert!(
+            editor_event(
+                &mut windows,
+                &context,
+                Key::R,
+                command,
+                Some(overrides),
+                false
+            )
+            .contains(&Decision::Dispatch(
+                "monaco.editor.action.revealDefinition".into()
+            ))
+        );
+        assert!(
+            !editor_event(
+                &mut windows,
+                &context,
+                Key::F12,
+                Modifiers::NONE,
+                Some(overrides),
+                false
+            )
+            .contains(&Decision::Dispatch(
+                "monaco.editor.action.revealDefinition".into()
+            ))
+        );
+    }
+}
+
 #[test]
 fn 편집기_기본_키는_실제_os의_줄_복사와_주석과_구두점_규칙을_사용한다() {
     for os in [

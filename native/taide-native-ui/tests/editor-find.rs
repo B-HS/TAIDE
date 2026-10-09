@@ -448,6 +448,8 @@ fn frame_with_shapes(
                         fold_controls: None,
                         #[cfg(feature = "native-host")]
                         problems: None,
+                        #[cfg(feature = "native-host")]
+                        locations: None,
                     },
                 )
                 .unwrap();

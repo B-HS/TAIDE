@@ -124,6 +124,7 @@ mod tests {
             progress_tokens: 0,
             registrations: 0,
             capability_revision: 0,
+            document_methods: Default::default(),
             pid: None,
             failure: None,
         }

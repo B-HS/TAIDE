@@ -611,6 +611,607 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
             .revision,
         snapshot.revision
     );
+    std::fs::write(
+        &executable,
+        format!("#!/bin/sh\nexec '{mock}' --native-locations\n"),
+    )
+    .unwrap();
+    runtime
+        .block_on(application.lsp.take().unwrap().disconnect())
+        .unwrap();
+    let repaint = context.clone();
+    application.lsp = Some(
+        crate::lsp::LspBridge::connect(
+            application.services.clone(),
+            fixture.directory.join("bin").into_os_string(),
+            Arc::new(move || repaint.request_repaint()),
+        )
+        .unwrap(),
+    );
+    application.reconcile_lsp();
+    paint(application, Vec::new());
+    wait_for(application, &context, "locations-ready", |application| {
+        !application
+            .lsp
+            .as_ref()
+            .unwrap()
+            .location_providers(
+                &project,
+                &application.store.documents().snapshot(document).unwrap(),
+                taide_native_editor::symbol_locations::Kind::Definition,
+            )
+            .is_empty()
+    });
+    application.document_edits.push((
+        tab.clone(),
+        DocumentEdit::Location(taide_native_editor::symbol_locations::Command::Request {
+            kind: taide_native_editor::symbol_locations::Kind::Definition,
+            mode: taide_native_editor::symbol_locations::Mode::Peek,
+        }),
+    ));
+    paint(application, Vec::new());
+    wait_for(
+        application,
+        &context,
+        "actual-peek-response",
+        |application| {
+            application
+                .editor_locations
+                .current(view)
+                .is_some_and(|session| {
+                    session.shown
+                        && session
+                            .model
+                            .as_ref()
+                            .is_some_and(|model| model.targets().len() == 1)
+                })
+        },
+    );
+    paint(application, Vec::new());
+    let preview = application
+        .editor_locations
+        .current(view)
+        .unwrap()
+        .preview
+        .unwrap();
+    assert_eq!(
+        application.store.views().get(preview).unwrap().document,
+        document
+    );
+    let preview_tab = application
+        .store
+        .views()
+        .get(preview)
+        .unwrap()
+        .key
+        .tab
+        .clone();
+    application.submit(HostCommand::SetDirty {
+        tab: preview_tab.clone(),
+        dirty: true,
+    });
+    assert!(!application.pending_dirty.contains_key(&preview_tab));
+    application.pending_dirty.insert(preview_tab.clone(), true);
+    assert!(application.flush_dirty());
+    assert!(!application.pending_dirty.contains_key(&preview_tab));
+    let current = application.store.views().get(view).unwrap().clone();
+    application
+        .store
+        .set_view_state(
+            view,
+            taide_native_editor::view::SelectionSet {
+                primary: 0,
+                selections: vec![taide_native_editor::view::Selection { anchor: 0, head: 0 }],
+            },
+            current.scroll,
+            current.folds,
+        )
+        .unwrap();
+    paint(
+        application,
+        vec![egui::Event::Key {
+            key: egui::Key::F12,
+            physical_key: Some(egui::Key::F12),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert_eq!(
+        application
+            .store
+            .views()
+            .get(view)
+            .unwrap()
+            .selection
+            .selections[0]
+            .head,
+        WORKSPACE_CARET
+    );
+    assert!(application.editor_locations.current(view).unwrap().shown);
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .revision,
+        snapshot.revision
+    );
+
+    application.document_edits.push((
+        tab.clone(),
+        DocumentEdit::Location(taide_native_editor::symbol_locations::Command::Request {
+            kind: taide_native_editor::symbol_locations::Kind::Definition,
+            mode: taide_native_editor::symbol_locations::Mode::Hover,
+        }),
+    ));
+    paint(application, Vec::new());
+    wait_for(
+        application,
+        &context,
+        "actual-keyboard-definition-hover",
+        |application| {
+            application
+                .editor_locations
+                .hover(view)
+                .is_some_and(|session| session.request.keyboard && session.model.is_some())
+        },
+    );
+    paint(application, Vec::new());
+    let hovered = paint(application, Vec::new());
+    assert!(hovered.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text.contains("method\n"))));
+    assert!(application.editor_locations.current(view).unwrap().shown);
+    paint(
+        application,
+        vec![egui::Event::Key {
+            key: egui::Key::ArrowRight,
+            physical_key: Some(egui::Key::ArrowRight),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert!(application.editor_locations.hover(view).is_none());
+
+    let peek_path = std::path::Path::new(&path)
+        .parent()
+        .unwrap()
+        .join("peek.rs");
+    std::fs::write(&peek_path, "class\n  \u{1f600}method\nend").unwrap();
+    let peek_path = peek_path.to_str().unwrap().to_owned();
+    let providers = application.lsp.as_ref().unwrap().location_providers(
+        &project,
+        &application.store.documents().snapshot(document).unwrap(),
+        taide_native_editor::symbol_locations::Kind::Definition,
+    );
+    let identity = *providers.iter().next().unwrap();
+    let request = application
+        .editor_locations
+        .begin(
+            project.clone(),
+            &application.store,
+            view,
+            taide_native_editor::symbol_locations::Kind::Definition,
+            taide_native_editor::symbol_locations::Mode::Peek,
+            providers.clone(),
+            None,
+        )
+        .unwrap();
+    let range = taide_native_editor::lsp::LspRange::new(
+        taide_native_editor::lsp::Position::new(1, 4),
+        taide_native_editor::lsp::Position::new(1, 10),
+    );
+    let target = taide_native_editor::symbol_locations::Target {
+        uri: taide_lsp::service::workspace_folder_uri(&peek_path)
+            .parse()
+            .unwrap(),
+        range,
+        selection: range,
+        origin: None,
+    };
+    let source_target = taide_native_editor::symbol_locations::Target {
+        uri: taide_lsp::service::workspace_folder_uri(&path)
+            .parse()
+            .unwrap(),
+        range,
+        selection: range,
+        origin: None,
+    };
+    application
+        .editor_locations
+        .accept(
+            &request,
+            &application.store,
+            providers,
+            Ok(crate::editor_locations::Response {
+                groups: vec![crate::editor_locations::Group {
+                    provider: identity,
+                    targets: vec![source_target, target],
+                }],
+            }),
+        )
+        .unwrap()
+        .unwrap();
+    application.editor_locations.show(view);
+    application.document_edits.push((
+        tab.clone(),
+        DocumentEdit::Location(taide_native_editor::symbol_locations::Command::Select {
+            index: 1,
+            focus_preview: false,
+        }),
+    ));
+    paint(application, Vec::new());
+    let key = taide_native_editor::document::DocumentKey::File(peek_path.clone().into());
+    wait_for(
+        application,
+        &context,
+        "actual-peek-file-read",
+        |application| application.store.documents().find(&key).is_some(),
+    );
+    paint(application, Vec::new());
+    let peek_document = application.store.documents().find(&key).unwrap();
+    assert!(application.peek_models.owns(peek_document));
+    assert!(!application.files.contains_key(&peek_path));
+    let preview = application
+        .editor_locations
+        .current(view)
+        .unwrap()
+        .preview
+        .unwrap();
+    let focus = application
+        .editor_keymap_targets
+        .iter()
+        .find_map(|((viewport, id), (owner, _))| {
+            (*viewport == egui::ViewportId::ROOT && *owner == preview).then_some(*id)
+        })
+        .unwrap();
+    context.memory_mut(|memory| memory.request_focus(focus));
+    paint(application, vec![egui::Event::Text("x".into())]);
+    assert!(
+        application
+            .store
+            .documents()
+            .snapshot(peek_document)
+            .unwrap()
+            .dirty
+    );
+    assert_eq!(
+        application.draft_project(peek_document),
+        Some(project.clone())
+    );
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .revision,
+        snapshot.revision
+    );
+    let command = egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND;
+    paint(
+        application,
+        vec![
+            egui::Event::ModifiersChanged(command),
+            egui::Event::Key {
+                key: egui::Key::F,
+                physical_key: Some(egui::Key::F),
+                pressed: true,
+                repeat: false,
+                modifiers: command,
+            },
+        ],
+    );
+    paint(application, Vec::new());
+    assert!(application.editor_locations.preview_find_visible(view));
+    assert!(!application.editor_find[&view].visible);
+    let replace = command | egui::Modifiers::ALT;
+    paint(
+        application,
+        vec![
+            egui::Event::ModifiersChanged(replace),
+            egui::Event::Key {
+                key: egui::Key::F,
+                physical_key: Some(egui::Key::F),
+                pressed: true,
+                repeat: false,
+                modifiers: replace,
+            },
+        ],
+    );
+    paint(application, Vec::new());
+    paint(
+        application,
+        vec![
+            egui::Event::ModifiersChanged(egui::Modifiers::NONE),
+            egui::Event::Text("xmapped".into()),
+        ],
+    );
+    paint(
+        application,
+        vec![
+            egui::Event::ModifiersChanged(command),
+            egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: Some(egui::Key::Enter),
+                pressed: true,
+                repeat: false,
+                modifiers: command,
+            },
+        ],
+    );
+    assert!(
+        application
+            .store
+            .documents()
+            .snapshot(peek_document)
+            .unwrap()
+            .rope
+            .to_string()
+            .contains("xmapped")
+    );
+    assert!(
+        !application
+            .store
+            .documents()
+            .snapshot(peek_document)
+            .unwrap()
+            .rope
+            .to_string()
+            .contains("xmethod")
+    );
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .revision,
+        snapshot.revision
+    );
+    paint(
+        application,
+        vec![
+            egui::Event::ModifiersChanged(egui::Modifiers::NONE),
+            egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: Some(egui::Key::Escape),
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+    assert!(!application.editor_locations.preview_find_visible(view));
+    assert!(application.editor_locations.current(view).unwrap().shown);
+    paint(
+        application,
+        vec![
+            egui::Event::ModifiersChanged(command),
+            egui::Event::Key {
+                key: egui::Key::S,
+                physical_key: Some(egui::Key::S),
+                pressed: true,
+                repeat: false,
+                modifiers: command,
+            },
+        ],
+    );
+    wait_for(
+        application,
+        &context,
+        "actual-preview-save",
+        |application| {
+            !application
+                .store
+                .documents()
+                .snapshot(peek_document)
+                .unwrap()
+                .dirty
+        },
+    );
+    assert!(
+        std::fs::read_to_string(&peek_path)
+            .unwrap()
+            .contains("xmapped")
+    );
+    paint(
+        application,
+        vec![
+            egui::Event::ModifiersChanged(egui::Modifiers::NONE),
+            egui::Event::Text("y".into()),
+        ],
+    );
+    let dirty_text = application
+        .store
+        .documents()
+        .snapshot(peek_document)
+        .unwrap()
+        .rope
+        .to_string();
+    assert!(
+        application
+            .store
+            .documents()
+            .snapshot(peek_document)
+            .unwrap()
+            .dirty
+    );
+    let target = application
+        .editor_locations
+        .widget(&application.store, view)
+        .unwrap()
+        .model
+        .targets()[1]
+        .clone();
+    let expected_caret = taide_native_editor::lsp::range_to_bytes(
+        &application
+            .store
+            .documents()
+            .snapshot(peek_document)
+            .unwrap(),
+        target.selection,
+    )
+    .unwrap()
+    .start;
+    application.document_edits.push((
+        tab.clone(),
+        DocumentEdit::Location(taide_native_editor::symbol_locations::Command::GotoSelected),
+    ));
+    paint(application, Vec::new());
+    runtime.block_on(async {
+        tokio::time::timeout(DEADLINE, async {
+            loop {
+                eframe::App::logic(application, &context, &mut eframe::Frame::_new_kittest());
+                paint(application, Vec::new());
+                if application.files.get(&peek_path).is_some_and(|file| {
+                    application.store.views().for_document(file.id).any(|view| {
+                        view.selection.selections[view.selection.primary].head == expected_caret
+                            && application
+                                .editor_locations
+                                .current(view.id)
+                                .is_some_and(|session| session.shown)
+                    })
+                }) {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+    });
+    assert_eq!(application.files[&peek_path].id, peek_document);
+    let active = application
+        .controller
+        .snapshot()
+        .focused_tab()
+        .unwrap()
+        .id
+        .clone();
+    let destination = application
+        .store
+        .views()
+        .for_document(peek_document)
+        .find(|view| view.key.tab == active)
+        .unwrap();
+    assert_eq!(destination.selection.selections[0].head, expected_caret);
+    let destination_view = destination.id;
+    assert!(application.editor_locations.current(view).is_none());
+    assert!(
+        application
+            .editor_locations
+            .current(destination_view)
+            .unwrap()
+            .shown
+    );
+    assert_eq!(
+        application
+            .editor_locations
+            .current(destination_view)
+            .unwrap()
+            .model
+            .as_ref()
+            .unwrap()
+            .targets()
+            .len(),
+        2
+    );
+    assert!(!application.peek_models.owns(peek_document));
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(peek_document)
+            .unwrap()
+            .rope
+            .to_string(),
+        dirty_text
+    );
+    assert!(
+        application
+            .store
+            .documents()
+            .snapshot(peek_document)
+            .unwrap()
+            .dirty
+    );
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .revision,
+        snapshot.revision
+    );
+
+    for (modifiers, expected_view) in [
+        (egui::Modifiers::NONE, view),
+        (egui::Modifiers::SHIFT, destination_view),
+    ] {
+        paint(
+            application,
+            vec![
+                egui::Event::ModifiersChanged(modifiers),
+                egui::Event::Key {
+                    key: egui::Key::F4,
+                    physical_key: Some(egui::Key::F4),
+                    pressed: true,
+                    repeat: false,
+                    modifiers,
+                },
+            ],
+        );
+        runtime.block_on(async {
+            tokio::time::timeout(DEADLINE, async {
+                loop {
+                    eframe::App::logic(application, &context, &mut eframe::Frame::_new_kittest());
+                    paint(application, Vec::new());
+                    if application
+                        .editor_locations
+                        .current(expected_view)
+                        .is_some_and(|session| session.shown)
+                    {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+        });
+        let session = application.editor_locations.current(expected_view).unwrap();
+        assert_eq!(session.model.as_ref().unwrap().targets().len(), 2);
+        assert_eq!(
+            session.request.source_key,
+            application.store.views().get(expected_view).unwrap().key
+        );
+        assert_eq!(
+            application.controller.snapshot().focused_tab().unwrap().id,
+            session.request.source_key.tab
+        );
+    }
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(peek_document)
+            .unwrap()
+            .rope
+            .to_string(),
+        dirty_text
+    );
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .revision,
+        snapshot.revision
+    );
     application.close(&context);
     wait_for(application, &context, "navigation-exit", |application| {
         application.is_exit_ready

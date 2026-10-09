@@ -159,6 +159,7 @@ pub(crate) struct Appearances {
     pub(crate) editor_diagnostics: taide_native_ui::editor_diagnostics::DiagnosticColors,
     pub(crate) editor_overview: taide_native_ui::editor_overview::OverviewColors,
     pub(crate) editor_problems: taide_native_ui::editor_problems::Colors,
+    pub(crate) editor_locations: taide_native_ui::editor_locations::Colors,
     pub(crate) find: taide_native_ui::editor_find_widget::FindAppearance,
     pub(crate) banner: taide_native_ui::conflict_banner::BannerAppearance,
     pub(crate) lsp_status: crate::lsp::status::Appearance,
@@ -218,6 +219,7 @@ impl Appearances {
             editor_diagnostics: taide_native_ui::presentation::editor_diagnostic_colors(theme)?,
             editor_overview: taide_native_ui::presentation::editor_overview_colors(theme)?,
             editor_problems: taide_native_ui::presentation::editor_problem_colors(theme)?,
+            editor_locations: taide_native_ui::presentation::editor_location_colors(theme)?,
             find: taide_native_ui::editor_find_widget::FindAppearance {
                 background: color(theme, "editor.widgetBackground")?,
                 border: color(theme, "editor.widgetBorder")?,

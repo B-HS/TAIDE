@@ -60,6 +60,8 @@ pub mod snippet_whitespace;
 #[path = "sticky-model.rs"]
 pub mod sticky_model;
 pub mod store;
+#[path = "symbol-locations.rs"]
+pub mod symbol_locations;
 pub mod syntax;
 #[path = "syntax-folding.rs"]
 pub mod syntax_folding;

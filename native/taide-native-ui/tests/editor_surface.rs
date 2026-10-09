@@ -4022,6 +4022,8 @@ fn show_decorated(
                         fold_controls: None,
                         #[cfg(feature = "native-host")]
                         problems: None,
+                        #[cfg(feature = "native-host")]
+                        locations: None,
                     },
                 )
                 .unwrap();
@@ -5484,6 +5486,8 @@ fn show_folding(
                         fold_controls: Some(&mut record),
                         #[cfg(feature = "native-host")]
                         problems: None,
+                        #[cfg(feature = "native-host")]
+                        locations: None,
                     },
                 )
                 .unwrap();

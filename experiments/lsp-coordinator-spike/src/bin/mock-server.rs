@@ -40,6 +40,8 @@ struct MockServer {
     held_symbol: Option<Value>,
     folding: Option<&'static str>,
     held_fold: Option<Value>,
+    locations: Option<&'static str>,
+    held_location: Option<Value>,
     workspace_symbols: Option<&'static str>,
     held_workspace_symbol: Option<Value>,
     workspace_folders: Vec<Value>,
@@ -238,7 +240,9 @@ impl MockServer {
             let params = message
                 .get("params")
                 .ok_or_else(|| invalid("initialize requires params"))?;
-            let has_valid_root = if self.should_format_documents || self.workspace_symbols.is_some()
+            let has_valid_root = if self.should_format_documents
+                || self.workspace_symbols.is_some()
+                || self.locations.is_some()
             {
                 params["rootUri"]
                     .as_str()
@@ -315,6 +319,27 @@ impl MockServer {
                     return Err(invalid("native folding requires line support"));
                 }
                 capabilities["foldingRangeProvider"] = json!(true);
+            }
+            if self.locations.is_some() {
+                for feature in [
+                    "definition",
+                    "declaration",
+                    "typeDefinition",
+                    "implementation",
+                ] {
+                    if params["capabilities"]["textDocument"][feature]["linkSupport"] != true {
+                        return Err(invalid("native locations require link support"));
+                    }
+                }
+                for provider in [
+                    "definitionProvider",
+                    "declarationProvider",
+                    "typeDefinitionProvider",
+                    "implementationProvider",
+                    "referencesProvider",
+                ] {
+                    capabilities[provider] = json!(true);
+                }
             }
             if self.workspace_symbols.is_some() {
                 if params["capabilities"]["workspace"]["symbol"]["symbolKind"]["valueSet"]
@@ -459,6 +484,25 @@ impl MockServer {
             let cancelled_id = message["params"]["id"]
                 .as_u64()
                 .ok_or_else(|| invalid("cancel must identify a numeric request"))?;
+            if self
+                .held_location
+                .as_ref()
+                .is_some_and(|held| held["id"] == cancelled_id)
+            {
+                let held = self
+                    .held_location
+                    .take()
+                    .ok_or_else(|| invalid("cancel requires held location"))?;
+                write_response(output, &held["id"], Value::Null)?;
+                write_document_diagnostic(
+                    output,
+                    held["uri"]
+                        .as_str()
+                        .ok_or_else(|| invalid("held location requires URI"))?,
+                    &held["version"],
+                    "synthetic location cancelled",
+                )?;
+            }
             if self
                 .held_symbol
                 .as_ref()
@@ -648,6 +692,86 @@ impl MockServer {
             .and_then(Value::as_str)
             .ok_or_else(|| invalid("document requires URI"))?;
         match method {
+            method
+                if self.locations.is_some()
+                    && matches!(
+                        method,
+                        "textDocument/definition"
+                            | "textDocument/declaration"
+                            | "textDocument/typeDefinition"
+                            | "textDocument/implementation"
+                            | "textDocument/references"
+                    ) =>
+            {
+                let current = self
+                    .documents
+                    .get(uri)
+                    .ok_or_else(|| invalid("locations require latest mirror"))?;
+                let id = id.ok_or_else(|| invalid("locations require ID"))?;
+                if self.locations == Some("wait")
+                    && current["text"]
+                        .as_str()
+                        .is_some_and(|text| text.starts_with("hold"))
+                {
+                    self.held_location =
+                        Some(json!({"id":id,"uri":uri,"version":current["version"]}));
+                    write_document_diagnostic(
+                        output,
+                        uri,
+                        &current["version"],
+                        "synthetic location held",
+                    )?;
+                    return Ok(None);
+                }
+                if self.locations == Some("crash")
+                    && current["text"]
+                        .as_str()
+                        .is_some_and(|text| text.starts_with("crash"))
+                {
+                    return Ok(Some(ExitCode::from(CRASH_EXIT_CODE)));
+                }
+                if self.locations == Some("error") {
+                    write_payload(
+                        output,
+                        &json!({"jsonrpc":"2.0","id":id,"error":{"code":-32603,"message":"synthetic locations error"}}),
+                    )?;
+                    return Ok(None);
+                }
+                let selection =
+                    json!({"start":{"line":1,"character":4},"end":{"line":1,"character":10}});
+                let declaration =
+                    json!({"start":{"line":0,"character":0},"end":{"line":0,"character":5}});
+                let result = match (self.locations, method) {
+                    (Some("null"), _) => Value::Null,
+                    (Some("empty"), _) => json!([]),
+                    (Some("bad"), _) => {
+                        json!([{"uri":uri,"range":{"start":{"line":-1,"character":0},"end":{"line":0,"character":1}}}])
+                    }
+                    (Some("alternate"), "textDocument/definition") => {
+                        json!({"uri":uri,"range":declaration})
+                    }
+                    (_, "textDocument/definition") => json!({"uri":uri,"range":selection}),
+                    (_, "textDocument/declaration") => json!([{"uri":uri,"range":declaration}]),
+                    (_, "textDocument/typeDefinition") => {
+                        json!([{"targetUri":uri,"targetRange":{"start":{"line":0,"character":0},"end":{"line":2,"character":3}},"targetSelectionRange":selection,"originSelectionRange":{"start":params["position"],"end":params["position"]}}])
+                    }
+                    (_, "textDocument/implementation") => {
+                        json!([{"uri":uri,"range":selection},{"uri":uri,"range":declaration},{"uri":uri,"range":selection}])
+                    }
+                    (_, "textDocument/references")
+                        if params["context"]["includeDeclaration"] == true =>
+                    {
+                        json!([{"uri":uri,"range":declaration},{"uri":uri,"range":selection}])
+                    }
+                    (_, "textDocument/references")
+                        if params["context"]["includeDeclaration"] == false =>
+                    {
+                        json!([{"uri":uri,"range":selection}])
+                    }
+                    _ => return Err(invalid("references require includeDeclaration")),
+                };
+                write_response(output, id, result)?;
+            }
             "textDocument/foldingRange" => {
                 let current = self
                     .documents
@@ -1012,6 +1136,28 @@ fn main() -> io::Result<ExitCode> {
             server.should_track_saves = true;
             server.should_format_documents = true;
             server.should_run_save_actions = true;
+        }
+        Some(
+            mode @ ("--native-locations"
+            | "--native-locations-empty"
+            | "--native-locations-null"
+            | "--native-locations-error"
+            | "--native-locations-bad"
+            | "--native-locations-wait"
+            | "--native-locations-crash"
+            | "--native-locations-alternate"),
+        ) => {
+            server.should_track_saves = true;
+            server.locations = Some(match mode {
+                "--native-locations-empty" => "empty",
+                "--native-locations-null" => "null",
+                "--native-locations-error" => "error",
+                "--native-locations-bad" => "bad",
+                "--native-locations-wait" => "wait",
+                "--native-locations-crash" => "crash",
+                "--native-locations-alternate" => "alternate",
+                _ => "ranges",
+            });
         }
         Some(
             mode @ ("--native-folding"

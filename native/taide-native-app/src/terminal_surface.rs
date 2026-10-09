@@ -2945,6 +2945,7 @@ impl Views {
         self.show_with_keymap(ui, request, |_| false)
     }
 
+    #[cfg(test)]
     pub(crate) fn capture_window_keymap(
         &mut self,
         context: &egui::Context,
@@ -2952,6 +2953,25 @@ impl Views {
         actions: &mut Vec<String>,
         has_focused_shell: bool,
         editor_composition: impl Fn(egui::Id) -> Option<bool>,
+    ) -> AppResult<()> {
+        self.capture_window_keymap_with_local(
+            context,
+            overrides,
+            actions,
+            has_focused_shell,
+            editor_composition,
+            |_, _| false,
+        )
+    }
+
+    pub(crate) fn capture_window_keymap_with_local(
+        &mut self,
+        context: &egui::Context,
+        overrides: Option<&str>,
+        actions: &mut Vec<String>,
+        has_focused_shell: bool,
+        editor_composition: impl Fn(egui::Id) -> Option<bool>,
+        local_event: impl Fn(egui::Id, &Event) -> bool,
     ) -> AppResult<()> {
         if !context.input(|input| input.focused) {
             return Ok(());
@@ -2965,6 +2985,10 @@ impl Views {
             let index = crate::keymap::event_index(context, &event, &mut next);
             if let Some(node) = context.keyboard_focus_request_at(index) {
                 focused = context.previous_keyboard_target(node);
+            }
+            if focused.is_some_and(|id| local_event(id, &event)) {
+                remaining.push(event);
+                continue;
             }
             let scope = focused.and_then(|id| {
                 self.keyboard_target_scope(context, id)

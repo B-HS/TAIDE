@@ -94,7 +94,11 @@ pub(crate) fn apply_document_edits(
 ) -> bool {
     let mut changed = false;
     for (_, edit) in pending.extract_if(.., |(owner, edit)| {
-        owner == tab && !matches!(edit, DocumentEdit::Find(_) | DocumentEdit::Problem(_))
+        owner == tab
+            && !matches!(
+                edit,
+                DocumentEdit::Find(_) | DocumentEdit::Problem(_) | DocumentEdit::Location(_)
+            )
     }) {
         let result = match edit {
             DocumentEdit::DeleteAllLeft => {
@@ -109,7 +113,9 @@ pub(crate) fn apply_document_edits(
                     store, view, command, context,
                 )
             }
-            DocumentEdit::Find(_) | DocumentEdit::Problem(_) => continue,
+            DocumentEdit::Find(_) | DocumentEdit::Problem(_) | DocumentEdit::Location(_) => {
+                continue;
+            }
         };
         match result {
             Ok(applied) => changed |= applied,

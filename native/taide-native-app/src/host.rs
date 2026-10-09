@@ -19,6 +19,11 @@ pub type ClipboardWriter = Arc<dyn Fn(&str) -> AppResult<()> + Send + Sync>;
 pub type ClipboardReader = Arc<dyn Fn() -> AppResult<String> + Send + Sync>;
 
 pub enum HostCommand {
+    OpenSymbolLocation(crate::symbol_location_host::Request),
+    ReadPeekModels {
+        request: crate::editor_locations::Request,
+        paths: Vec<std::path::PathBuf>,
+    },
     ReadAppFile(crate::app_file::ReadRequest),
     WriteAppFile(crate::app_file_write::WriteRequest),
     OpenAppFile {
@@ -199,6 +204,14 @@ pub enum HostCommand {
 }
 
 pub enum HostReply {
+    SymbolLocationOpened {
+        request: crate::symbol_location_host::Request,
+        result: AppResult<crate::terminal_tabs::OpenedFileLink>,
+    },
+    PeekModels {
+        request: crate::editor_locations::Request,
+        files: Vec<AppResult<taide_model::file::OpenedFile>>,
+    },
     WorkspaceSymbolOpened {
         result: AppResult<crate::terminal_tabs::OpenedFileLink>,
     },
@@ -599,6 +612,41 @@ async fn dispatch(
     let terminals = integrations.terminals.as_ref();
     let reconcile = &integrations.reconcile;
     match command {
+        HostCommand::OpenSymbolLocation(request) => {
+            let result = crate::symbol_location_host::open(services, &request).await;
+            Some(HostReply::SymbolLocationOpened { request, result })
+        }
+        HostCommand::ReadPeekModels { request, paths } => {
+            let files = futures_util::future::join_all(paths.into_iter().map(|path| {
+                let request = &request;
+                async move {
+                    if request.is_cancelled() {
+                        return Err(AppError::NotFound("native peek request expired".into()));
+                    }
+                    let path = path
+                        .to_str()
+                        .ok_or_else(|| {
+                            AppError::InvalidArgument("native peek path is invalid".into())
+                        })?
+                        .to_owned();
+                    let plugins = services.plugin.clone();
+                    let plugins_dir = services.state.paths.plugins_dir();
+                    taide_runtime::file_actions::file_open(
+                        &services.state,
+                        &services.tasks,
+                        path,
+                        move || {
+                            taide_plugin::service::language_overlays(
+                                &taide_plugin::service::ensure_loaded(&plugins, &plugins_dir),
+                            )
+                        },
+                    )
+                    .await
+                }
+            }))
+            .await;
+            Some(HostReply::PeekModels { request, files })
+        }
         HostCommand::WriteAppFile(request) => {
             let result = if request.owner().target == taide_model::app::AppFileTarget::Settings
                 && reconcile.is_none()

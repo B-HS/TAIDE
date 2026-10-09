@@ -1222,7 +1222,25 @@ impl EditorStore {
             .selection_reveal = Some(crate::view::SelectionReveal {
             bytes,
             center_if_outside,
+            near_top_if_outside: false,
         });
+        Ok(())
+    }
+
+    pub fn request_selection_reveal_near_top(
+        &mut self,
+        view: ViewId,
+        bytes: std::ops::Range<usize>,
+    ) -> Result<(), EditorError> {
+        self.request_selection_reveal(view, bytes, false)?;
+        if let Some(reveal) = self
+            .views
+            .views
+            .get_mut(&view)
+            .and_then(|view| view.selection_reveal.as_mut())
+        {
+            reveal.near_top_if_outside = true;
+        }
         Ok(())
     }
 

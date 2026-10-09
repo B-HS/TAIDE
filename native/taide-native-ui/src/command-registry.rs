@@ -14,6 +14,7 @@ const EDITOR_ACTION_PREFIX: &str = "monaco.";
 const MAC_PLATFORM: &str = "mac";
 pub const EDITOR_FIND_AVAILABLE: bool = cfg!(feature = "native-host");
 pub const EDITOR_SYNTAX_FOLDING_AVAILABLE: bool = cfg!(feature = "native-host");
+pub const EDITOR_LOCATIONS_AVAILABLE: bool = cfg!(feature = "native-host");
 const EDITOR_ACTIONS_WITHOUT_SUPPORT_GATE: [&str; 21] = [
     "editor.action.goToImplementation",
     "editor.action.goToLocation",
@@ -68,6 +69,8 @@ pub enum DocumentEdit {
     Find(crate::editor_find::FindCommand),
     #[cfg(feature = "native-host")]
     Problem(taide_native_editor::problem_navigation::Command),
+    #[cfg(feature = "native-host")]
+    Location(taide_native_editor::symbol_locations::Command),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -232,6 +235,14 @@ impl Enablement {
 
 fn enablement(id: &str) -> Enablement {
     #[cfg(feature = "native-host")]
+    if id
+        .strip_prefix(EDITOR_ACTION_PREFIX)
+        .and_then(taide_native_editor::symbol_locations::Command::from_action)
+        .is_some()
+    {
+        return Enablement::SupportedEditorAction;
+    }
+    #[cfg(feature = "native-host")]
     if id == "editor.find" {
         return Enablement::ActiveEditor;
     }
@@ -252,6 +263,13 @@ fn enablement(id: &str) -> Enablement {
 }
 
 fn execution(id: &str, keymap_id: Option<&str>) -> Execution {
+    #[cfg(feature = "native-host")]
+    if let Some(command) = id
+        .strip_prefix(EDITOR_ACTION_PREFIX)
+        .and_then(taide_native_editor::symbol_locations::Command::from_action)
+    {
+        return Execution::Native(Run::EditDocument(DocumentEdit::Location(command)));
+    }
     #[cfg(feature = "native-host")]
     if let Some(command) = if id == "editor.find" {
         Some(crate::editor_find::FindCommand::Open)
@@ -512,6 +530,10 @@ impl Registry {
                     }
                     #[cfg(feature = "native-host")]
                     Execution::Native(Run::EditDocument(DocumentEdit::Problem(_))) => {
+                        Some(action.to_owned())
+                    }
+                    #[cfg(feature = "native-host")]
+                    Execution::Native(Run::EditDocument(DocumentEdit::Location(_))) => {
                         Some(action.to_owned())
                     }
                     Execution::Native(Run::EditDocument(_)) if editor.is_read_only => None,
@@ -886,6 +908,8 @@ mod tests {
                 Execution::Native(Run::EditDocument(DocumentEdit::Find(_))) => None,
                 #[cfg(feature = "native-host")]
                 Execution::Native(Run::EditDocument(DocumentEdit::Problem(_))) => None,
+                #[cfg(feature = "native-host")]
+                Execution::Native(Run::EditDocument(DocumentEdit::Location(_))) => None,
                 Execution::Native(Run::EditDocument(
                     DocumentEdit::Line(_) | DocumentEdit::Cursor(_),
                 )) => None,
@@ -992,6 +1016,24 @@ mod tests {
                         EDITOR_FIND_AVAILABLE
                             && (!is_read_only || *action != "editor.action.startFindReplaceAction")
                     }),
+                )
+                .chain(
+                    [
+                        "editor.action.revealDefinition",
+                        "editor.action.revealDeclaration",
+                        "editor.action.goToTypeDefinition",
+                        "editor.action.goToImplementation",
+                        "editor.action.goToReferences",
+                        "editor.action.revealDefinitionAside",
+                        "editor.action.peekDefinition",
+                        "editor.action.peekDeclaration",
+                        "editor.action.peekTypeDefinition",
+                        "editor.action.peekImplementation",
+                        "editor.action.referenceSearch.trigger",
+                        "editor.action.showDefinitionPreviewHover",
+                    ]
+                    .into_iter()
+                    .filter(|_| EDITOR_LOCATIONS_AVAILABLE),
                 )
                 .map(str::to_owned)
                 .collect::<HashSet<_>>();
@@ -1230,7 +1272,14 @@ mod tests {
                 .filter(|command| command.editor_action_id().is_some()
                     && command.enablement == Enablement::Always)
                 .count(),
-            EDITOR_ACTIONS_WITHOUT_SUPPORT_GATE.len()
+            EDITOR_ACTIONS_WITHOUT_SUPPORT_GATE
+                .iter()
+                .filter(|action| {
+                    !EDITOR_LOCATIONS_AVAILABLE
+                        || taide_native_editor::symbol_locations::Command::from_action(action)
+                            .is_none()
+                })
+                .count()
         );
     }
 

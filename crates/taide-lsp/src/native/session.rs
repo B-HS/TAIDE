@@ -50,8 +50,19 @@ pub struct SessionSnapshot {
     pub progress_tokens: usize,
     pub registrations: usize,
     pub capability_revision: u64,
+    pub document_methods: Arc<BTreeMap<String, Vec<&'static str>>>,
     pub pid: Option<u32>,
     pub failure: Option<Failure>,
+}
+
+impl SessionSnapshot {
+    pub fn supports_document(&self, uri: &str, method: &str) -> bool {
+        self.phase == Phase::Running
+            && self
+                .document_methods
+                .get(uri)
+                .is_some_and(|methods| methods.contains(&method))
+    }
 }
 
 pub struct SessionNotice {
@@ -209,6 +220,7 @@ impl SessionClient {
             snapshot.server_pending = 0;
             snapshot.progress_tokens = 0;
             snapshot.registrations = 0;
+            snapshot.document_methods = Arc::default();
         }
         snapshot
     }
@@ -519,6 +531,7 @@ impl SessionRunner {
             progress_tokens: 0,
             registrations: 0,
             capability_revision: 0,
+            document_methods: Arc::default(),
             pid: None,
             failure: None,
         });
@@ -572,6 +585,34 @@ impl SessionRunner {
     }
 
     fn publish(&self) {
+        let document_methods = {
+            let previous = self.state.borrow();
+            if previous.phase == self.coordinator.phase()
+                && previous.generation == self.coordinator.generation()
+                && previous.capability_revision == self.coordinator.capability_revision()
+                && previous
+                    .document_methods
+                    .keys()
+                    .eq(self.coordinator.documents.keys())
+            {
+                previous.document_methods.clone()
+            } else {
+                Arc::new(
+                    self.coordinator
+                        .documents
+                        .keys()
+                        .map(|uri| {
+                            let methods = feature::METHODS
+                                .iter()
+                                .copied()
+                                .filter(|method| self.coordinator.supports_document(method, uri))
+                                .collect();
+                            (uri.clone(), methods)
+                        })
+                        .collect(),
+                )
+            }
+        };
         self.state.send_replace(SessionSnapshot {
             phase: if self.initialize_retry.is_some() {
                 Phase::Initializing
@@ -584,6 +625,7 @@ impl SessionRunner {
             progress_tokens: self.progress.len(),
             registrations: self.coordinator.registration_count(),
             capability_revision: self.coordinator.capability_revision(),
+            document_methods,
             pid: self.process.as_ref().and_then(|process| process.0.pid()),
             failure: if self.initialize_retry.is_some() {
                 None
@@ -1338,6 +1380,66 @@ mod tests {
     const TEST_BYTES: usize = 1024;
     const TEST_FRAMES: usize = 16;
     const TEST_TIMEOUT_MS: u64 = 500;
+
+    #[tokio::test]
+    async fn 문서별_기능_공급은_정적과_dynamic_selector_재등록_닫힘_채널종료를_확인한다() {
+        let initialize =
+            json!({"capabilities":{"textDocument":{"references":{"dynamicRegistration":true}}}});
+        let (client, mut runner) = prepare(initialize.clone());
+        let rust_uri = "file:///synthetic/rust.rs";
+        let text_uri = "file:///synthetic/text.txt";
+        for (uri, language_id) in [(rust_uri, "rust"), (text_uri, "plaintext")] {
+            runner
+                .coordinator
+                .open(DocumentMirror {
+                    uri: uri.into(),
+                    language_id: language_id.into(),
+                    revision: 0,
+                    version: 0,
+                    text: "synthetic".into(),
+                })
+                .unwrap();
+        }
+        let init = runner.coordinator.begin(0, initialize).unwrap();
+        runner.coordinator.receive(0, 1, json!({"jsonrpc":"2.0","id":init["id"],"result":{"capabilities":{"textDocumentSync":1,"definitionProvider":true}}})).unwrap();
+        runner.coordinator.finish_replay(0).unwrap();
+        runner.coordinator.register_capabilities(0, serde_json::from_value(json!({"registrations":[{"id":"references","method":"textDocument/references","registerOptions":{"documentSelector":[{"language":"rust","scheme":"file","pattern":"**/*.rs"}]}}]})).unwrap()).unwrap();
+        runner.publish();
+        let before = client.snapshot();
+        assert!(before.supports_document(rust_uri, "textDocument/definition"));
+        assert!(before.supports_document(text_uri, "textDocument/definition"));
+        assert!(before.supports_document(rust_uri, "textDocument/references"));
+        assert!(!before.supports_document(text_uri, "textDocument/references"));
+        assert!(!before.supports_document("file:///synthetic/closed.rs", "textDocument/definition"));
+        runner
+            .coordinator
+            .change(rust_uri, 0, 1, "new".into())
+            .unwrap();
+        runner.publish();
+        assert!(Arc::ptr_eq(
+            &before.document_methods,
+            &client.snapshot().document_methods
+        ));
+        runner.coordinator.unregister_capabilities(0, serde_json::from_value(json!({"unregisterations":[{"id":"references","method":"textDocument/references"}]})).unwrap()).unwrap();
+        runner.publish();
+        assert!(!client
+            .snapshot()
+            .supports_document(rust_uri, "textDocument/references"));
+        assert!(!Arc::ptr_eq(
+            &before.document_methods,
+            &client.snapshot().document_methods
+        ));
+        runner.coordinator.close(rust_uri).unwrap();
+        runner.publish();
+        assert!(!client
+            .snapshot()
+            .supports_document(rust_uri, "textDocument/definition"));
+        drop(runner);
+        assert!(!client
+            .snapshot()
+            .supports_document(text_uri, "textDocument/definition"));
+        assert!(client.snapshot().document_methods.is_empty());
+    }
 
     fn prepare(initialize: Value) -> (SessionClient, SessionRunner) {
         SessionRunner::prepare(

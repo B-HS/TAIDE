@@ -173,6 +173,7 @@ pub struct Composition {
 pub struct SelectionReveal {
     pub bytes: Range<usize>,
     pub center_if_outside: bool,
+    pub near_top_if_outside: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

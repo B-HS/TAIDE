@@ -1,0 +1,10 @@
+[
+    { "id": "monaco.editor.action.revealDefinition", "key": "F12", "mods": [] },
+    { "id": "monaco.editor.action.goToReferences", "key": "F12", "mods": ["shift"] },
+    { "id": "monaco.editor.action.goToImplementation", "key": "F12", "mods": ["mod"] },
+    { "id": "monaco.editor.action.peekImplementation", "key": "F12", "mods": ["mod", "shift"] },
+    { "id": "monaco.editor.action.peekDefinition", "platform": "mac", "key": "F12", "mods": ["alt"] },
+    { "id": "monaco.editor.action.peekDefinition", "platform": "win", "key": "F12", "mods": ["alt"] },
+    { "id": "monaco.editor.action.peekDefinition", "platform": "linux", "key": "F10", "mods": ["mod", "shift"] },
+    { "id": "monaco.editor.action.revealDefinitionAside", "key": "k", "mods": ["mod"], "chord": { "key": "F12", "mods": [] } }
+]
