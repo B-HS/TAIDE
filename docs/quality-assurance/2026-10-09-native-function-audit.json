@@ -1,6 +1,6 @@
 {
     "date": "2026-10-10",
-    "baseline": "112120eb",
+    "baseline": "38ce4725",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -184,7 +184,7 @@
             ],
             "tests": [],
             "reports": ["docs/quality-assurance/2026-10-09-native-completion-evidence.md"],
-            "limitation": "AppSurfaces::explorer는 파일 표면만 소비합니다. 공유/원격 검색 backend와 로컬 검색/outline 표면을 구분합니다."
+            "limitation": "AppSurfaces::explorer는 파일/아웃라인 표면을 소비합니다. 공유/원격 검색 backend와 아직 없는 로컬 검색/Git 표면을 구분합니다."
         },
         "panel-git": {
             "sources": [
@@ -525,17 +525,46 @@
                 "native/taide-native-app/src/lsp.rs",
                 "native/taide-native-app/src/application.rs",
                 "native/taide-native-ui/src/command-palette.rs",
-                "native/taide-native-ui/src/editor-sticky-scroll.rs"
+                "native/taide-native-ui/src/editor-sticky-scroll.rs",
+                "native/taide-native-app/src/symbol-outline.rs",
+                "native/taide-native-app/src/breadcrumbs.rs"
             ],
             "tests": [
                 "native/taide-native-editor/tests/document-symbols.rs",
                 "native/taide-native-app/src/editor-symbols-tests.rs",
                 "native/taide-native-app/src/lsp-document-symbols-tests.rs",
                 "native/taide-native-ui/src/command-palette-tests.rs",
-                "native/taide-native-ui/tests/editor-sticky-scroll.rs"
+                "native/taide-native-ui/tests/editor-sticky-scroll.rs",
+                "native/taide-native-app/src/application-startup-tests.rs"
             ],
-            "reports": ["docs/quality-assurance/2026-10-10-native-batch16-document-symbols.md"],
-            "limitation": "typed LSP·@ 현재 파일 심볼 목록과 outline 고정 줄 공급은 검증됐습니다. 별도 explorer outline/경로·심볼 breadcrumb 소비자, syntax folding/정의 이동·워크스페이스 #·실기/성능 게이트는 잔여입니다."
+            "reports": [
+                "docs/quality-assurance/2026-10-10-native-batch16-document-symbols.md",
+                "docs/quality-assurance/2026-10-10-native-batch17-outline-breadcrumbs.md"
+            ],
+            "limitation": "typed LSP·@ 현재 파일 목록/고정 줄·explorer outline/경로·심볼 breadcrumb 소비자를 검증했습니다. syntax folding/정의 이동·워크스페이스 #·실기/성능 게이트는 잔여입니다."
+        },
+        "editor-navigation": {
+            "sources": [
+                "native/taide-native-app/src/symbol-navigation.rs",
+                "native/taide-native-app/src/symbol-outline.rs",
+                "native/taide-native-app/src/symbol-sidebar.rs",
+                "native/taide-native-app/src/navigation-icons.rs",
+                "native/taide-native-app/src/breadcrumbs.rs",
+                "native/taide-native-app/src/breadcrumb-menu.rs",
+                "native/taide-native-app/src/breadcrumb-host.rs",
+                "native/taide-native-app/src/application.rs",
+                "native/taide-native-app/src/host.rs"
+            ],
+            "tests": [
+                "native/taide-native-app/src/symbol-navigation-tests.rs",
+                "native/taide-native-app/src/symbol-outline-tests.rs",
+                "native/taide-native-app/src/symbol-sidebar-tests.rs",
+                "native/taide-native-app/src/breadcrumbs-tests.rs",
+                "native/taide-native-app/src/breadcrumb-host-tests.rs",
+                "native/taide-native-app/src/application-startup-tests.rs"
+            ],
+            "reports": ["docs/quality-assurance/2026-10-10-native-batch17-outline-breadcrumbs.md"],
+            "limitation": "파일/아웃라인 진입·현재 문서 심볼 트리·경로/심볼 막대·형제 메뉴·preview/reveal·창/탭/세대 수명을 연결했습니다. 검색/Git의 나머지 두 뷰, 실제 OS 접근성/IME·pixel·대형 지연/출시 게이트는 잔여입니다."
         }
     },
     "rows": [
@@ -1184,9 +1213,9 @@
             "ts": "explorer-panel.tsx",
             "source": "docs/quality-assurance/2026-10-06-native-audit-shell.md:107",
             "domain": "shell",
-            "status": "missing",
-            "proof": "shell-base",
-            "note": "실제 창 복원/OS 메뉴·장애 격리·Zen fullscreen/안내·drop·최근/카드·프로젝트 메뉴/drag·4뷰·pane focus ring·탭 pin/menu/drag·미지원 탭·Emmet 소비자는 없습니다."
+            "status": "partial",
+            "proof": "editor-navigation",
+            "note": "실제 슬롯별 파일/아웃라인 전환·선택색·키/IME·접근성 상태를 연결했습니다. 검색/Git 소비자와 원본 전체 4뷰는 후속 범위입니다."
         },
         {
             "id": "shell-60",
@@ -2218,9 +2247,9 @@
             "ts": "`lsp/adapters/document-symbol.ts:77`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:125",
             "domain": "editor",
-            "status": "partial",
+            "status": "complete",
             "proof": "editor-symbols",
-            "note": "typed nested/flat documentSymbol·프로젝트/root mirror·400ms 갱신/취소·@ quick outline과 고정 줄에 연결됐습니다. 경로/심볼 breadcrumb 막대와 별도 outline 패널은 후속 소비 범위입니다."
+            "note": "typed nested/flat documentSymbol·프로젝트/root mirror·400ms 갱신/취소·@ quick outline/고정 줄에 이어 경로·심볼 breadcrumb와 별도 outline 패널까지 실제 현재 탭 소비·reveal을 연결하고 검증했습니다."
         },
         {
             "id": "editor-55",
@@ -2405,9 +2434,9 @@
             "ts": "`breadcrumbs-bar.tsx:62-194`, `breadcrumb-segment.tsx`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:152",
             "domain": "editor",
-            "status": "missing",
-            "proof": "editor-missing",
-            "note": "해당 사용자 동작의 실제 native 편집기/앱 소비 경로가 없습니다. 프로토콜·설정·backend만으로 완료 처리하지 않습니다."
+            "status": "complete",
+            "proof": "editor-navigation",
+            "note": "32px 상대 경로·caret 첫 포함 체인·형제 메뉴·단일 심볼/디렉터리 비활성·tree 준비·preview 1:1·현재 탭 reveal과 키/IME·수명/경계 guard를 연결했습니다."
         },
         {
             "id": "editor-72",
@@ -3450,9 +3479,9 @@
             "ts": "src/widgets/explorer/explorer-panel.tsx:26-31,175-200",
             "source": "docs/quality-assurance/2026-10-06-native-audit-explorer-search.md:37",
             "domain": "explorer-search",
-            "status": "missing",
-            "proof": "panel-search",
-            "note": "현재 앱 explorer는 files 표면만 연결합니다. 검색/Git/아웃라인과 관련 진입·데이터 공급 소비자는 없습니다."
+            "status": "partial",
+            "proof": "editor-navigation",
+            "note": "파일/아웃라인 2개 진입·선택 상태·키/마우스·Tab 접근성과 슬롯 수명을 연결했습니다. 검색/Git의 두 뷰와 전체 4개 tablist는 후속 범위입니다."
         },
         {
             "id": "explorer-search-2",
@@ -3868,9 +3897,9 @@
             "ts": "outline-panel.tsx, outline-symbol-row.tsx, outline-rows.ts, outline-panel-container.tsx:27-68",
             "source": "docs/quality-assurance/2026-10-06-native-audit-explorer-search.md:85",
             "domain": "explorer-search",
-            "status": "missing",
-            "proof": "panel-search",
-            "note": "현재 앱 explorer는 files 표면만 연결합니다. 검색/Git/아웃라인과 관련 진입·데이터 공급 소비자는 없습니다."
+            "status": "complete",
+            "proof": "editor-navigation",
+            "note": "20px 가상 심볼 트리·위치 ID/접기·종류/이름/detail·키/마우스 reveal·빈 상태 2종과 실제 슬롯/창 집중 파일·공유 400ms LSP 공급을 연결했습니다."
         },
         {
             "id": "explorer-search-40",
@@ -3879,9 +3908,9 @@
             "ts": "document-symbol-session-waiters.ts",
             "source": "docs/quality-assurance/2026-10-06-native-audit-explorer-search.md:86",
             "domain": "explorer-search",
-            "status": "partial",
+            "status": "complete",
             "proof": "editor-symbols",
-            "note": "실제 root/준비 세션의 typed documentSymbol과 최신 mirror·debounce/취소/세대 처리를 @/고정 줄 소비자에서 검증했습니다. explorer outline 패널의 호출/소비 진입은 다음 범위입니다."
+            "note": "실제 root/준비 세션의 typed documentSymbol·최신 mirror·debounce/취소/세대 공급을 explorer outline 현재 파일 소비 진입에 연결했습니다. 실제 child 공급과 실제 앱 표면 검사를 함께 확인했습니다."
         },
         {
             "id": "explorer-search-41",
@@ -7129,5 +7158,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "성공 실행은 배치 16 변경 editor 201·UI inspection 358·app 628, 합계 117대상·1187건 및 변경 없는 배치 13 syntax 159와 이전 영역의 실제 QA 근거를 재사용합니다. 앱 첫 전체 명령의 기존 응답 분기 컴파일 오류를 보완한 뒤 전체 실행이 통과했습니다. 보호 Trash 3건·ignored 5건·실기 부채를 통과로 세지 않습니다. 동결 browser host/Wasm·포맷·diff는 배치 16 QA에서 exit 0으로 확인했습니다."
+    "validation": "배치 17 변경 app 전체 67대상·648건 통과 뒤 긴 접두사 실패를 추가 재현·수정해 영향 메뉴 12건이 통과했습니다. 서로 다른 최종 app 성공 649건과 변경 없는 배치 16 editor 201·UI inspection 358의 50대상 결과를 재사용해 최신 성공은 1208건입니다. syntax는 배치 13 159건, SDK/이전 영역은 해당 QA 근거를 재사용합니다. 보호 Trash 3·ignored 5·실기 부채를 통과로 세지 않습니다. 동결 browser host/Wasm·app fmt/diff exit 0, 디스크 681GiB·63%는 배치 17 QA에 기록했습니다."
 }
