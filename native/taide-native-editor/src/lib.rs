@@ -15,6 +15,9 @@ pub mod display_layout;
 pub mod display_map;
 pub mod document;
 pub mod editing;
+pub mod find;
+#[path = "find-replacement.rs"]
+pub mod find_replacement;
 pub mod folding;
 pub mod indent;
 #[path = "language-configuration.rs"]

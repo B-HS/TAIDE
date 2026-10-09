@@ -2,6 +2,8 @@
 mod bundled_grammars;
 #[path = "document-tokens.rs"]
 mod document_tokens;
+#[path = "find-pattern.rs"]
+mod find_pattern;
 #[path = "grammar-registrations.rs"]
 mod grammar_registrations;
 #[path = "include-cycles.rs"]
@@ -41,6 +43,7 @@ pub use document_tokens::{
     DocumentTokens, MAX_TOKENIZED_DOCUMENT_LINES, MAX_TOKENIZED_DOCUMENT_UTF16_LENGTH,
     TokenizationPlan, is_too_large_for_tokenization,
 };
+pub use find_pattern::MonacoFindPatternCompiler;
 pub use js_regex::{JsRegex, JsRegexError, oniguruma_source};
 pub use language_configuration::{
     BracketPatternSources, LanguageConfigurationError, MonacoLanguage, Pattern, monaco_language,

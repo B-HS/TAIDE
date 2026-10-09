@@ -473,6 +473,16 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
+### regress 0.12.0 (native find)
+
+- Source: https://github.com/ridiculousfish/regress
+- License: MIT OR Apache-2.0 (MIT text: see `## Full MIT License Text` above;
+  Apache-2.0 text: https://www.apache.org/licenses/LICENSE-2.0)
+- Copyright (c) 2020 ridiculous_fish
+- Used only by `native/taide-native-syntax` for the Rust-native find widget.
+  The editor and UI crates do not depend on this engine, and it is not part
+  of the frozen browser Wasm client's dependency graph.
+
 ### Ported source in `native/taide-native-syntax`
 
 - `src/style-scopes.rs` ports the color and font style lookup of
@@ -532,6 +542,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### Ported source in `native/taide-native-editor`
 
+- `src/find.rs` and `src/find-replacement.rs` adapt the search driving,
+  word boundary, newline, empty match, replacement parsing and case
+  preservation rules from Monaco Editor 0.56.0 (MIT, Copyright (c)
+  Microsoft Corporation), revision
+  `f487add297079a02eb836810185b165e50cadabc`:
+  `editor/common/model/textModelSearch.js`,
+  `editor/contrib/find/browser/replacePattern.js` and
+  `base/common/search.js`. The license text is retained in
+  `native/taide-native-editor/LICENSE-MONACO-SNIPPET`.
 - `src/line-tokens.rs` ports the invalid line range queue
   (`RangePriorityQueueImpl`, `OffsetRange.addRange`) and the line token
   editing rules (`ContiguousTokensStore.acceptEdit`,
