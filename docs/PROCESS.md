@@ -1,8 +1,24 @@
 # PROCESS — TAIDE 작업 상태
 
-## 진행: 배치 20 — 정의·선언·타입/구현 이동과 참조·peek (2026-10-10)
+## 진행: 배치 21 — 일반 호버와 시그니처 도움말 (2026-10-10)
 
-현재 상태: batch19 구현 `8832ac61`과 완료 근거 `bb4eb96e`를 일반 푸시해 로컬/원격 차이 0/0을 확인했습니다. 기능 대응표는 완료 282/588(48.0%), 부분 92·미연결 113·미구현 101입니다. 서브에이전트·workflow 없이 main이 직접 수행하고 Cargo/fmt는 실제 앞 process 종료를 확인한 뒤 하나씩 실행합니다.
+현재 상태: 배치 20의 구현/완료 근거를 일반 푸시하고 로컬/원격 차이 0/0을 확인했습니다. 기능 대응표는 완료 284/588(48.3%), 부분 92·미연결 113·미구현 99입니다. 서브에이전트·workflow 없이 main이 직접 수행하고 Cargo/fmt는 실제 앞 process 종료를 확인한 뒤 하나씩 실행합니다.
+
+기준: 실제 TS hover/signature-help adapter·initialize·code-editor와 Monaco hover/parameterHints·Markdown renderer·키/원본 테마, 현재 native typed LSP/문서 mirror/owner/세대/취소·본문/peek 입력/좌표/토큰입니다. 일반 LSP 문서 호버와 자동/명시적 시그니처의 Markdown/코드·현재 인자·복수 서명·요청 수명을 원본 화면/상호작용에 연결합니다. 새 기능/디자인·원본 버그/내부 수치 강제 재현·동결 browser/OS 합성 입력·editor/UI regex 또는 구문 engine 의존성을 추가하지 않습니다.
+
+- [ ] a. 실제 기준·공식 API·공급 경계 — TS와 Monaco의 provider 우선순위/Markup/범위·지연/자동 trigger/retrigger/키/포커스·원본 theme, 설치된 typed LSP와 현재 native source/preview 경계를 대조해 QA에 기록합니다. Markdown은 기존 구현/표준/캐시와 필요성을 확인하고 의존성 결정은 실제 근거에 따릅니다.
+- [ ] b. 호버·시그니처 모델 — MarkedString/MarkupContent·복수 결과/서명·문자열/UTF-16 parameter label·문서/뷰/revision/언어/위치와 요청 교체/지연/취소·빈/오류를 검증합니다. 원본 Markdown/코드와 안전한 링크를 표시 모델로 연결하고 문서에 없는 동작을 추측하지 않습니다.
+- [ ] c. 실제 typed LSP 공급·수명 — 현재 프로젝트의 준비 provider와 정적/동적 지원, trigger/retrigger 정보를 소비하고 실제 child의 성공/없음/오류·편집/닫힘/프로젝트/재시작·늦은 응답을 확인합니다. 순수 peek의 mirror/공급을 실제 문서 소유 경계로 연결합니다.
+- [ ] d. 표시·명령·직렬 입력 — 포인터/키보드 호버·자동/명시 시그니처·현재 인자 강조·복수 서명 순환/닫기·위치/clip/스크롤·원본 테마/Markdown 코드와 본문/peek 포커스를 연결합니다. OS 합성 입력 대신 메모리 UI로 본문 입력 소유를 검증합니다.
+- [ ] e. 실제 앱 통합·의미 있는 회귀 — 본문/peek·dirty 모델·다중 뷰/창·읽기 전용/대형·편집/선택/언어/서버/테마 수명과 종료 task 회수를 실제 앱/파일 fixture에서 검증합니다. 별도 완성/rename/actions/semantic/inlay/code-lens와 실기 pixel/IME/접근성은 잔여 범위로 보존합니다.
+- [ ] f. 전체 게이트 — 변경 크레이트의 전체 대상을 --no-fail-fast로 직접 1회 실행하고 실패 영향만 재검사합니다. 동결 host/Wasm 컴파일·포맷/diff·manifest/lock/engine 경계와 디스크를 확인하고 보호 Trash/기존 ignored·실기 부채를 구분합니다.
+- [ ] g. 실제 기록·선별 Git·계속 진행 — 닫힌 요구사항만 QA/기능표/완료 근거/PROCESS에 반영하고 검증한 논리 단위를 선별 커밋·일반 푸시합니다. 다음 범위를 작성해 전체 전환을 계속합니다.
+
+진척: 배치 21 체크리스트 0/7(0%), 현재 기능 대응표 284/588(48.3%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. 다음 행동은 원본 호버·시그니처의 표시·입력·요청 수명을 확인하는 것입니다.
+
+## 완료: 배치 20 — 정의·선언·타입/구현 이동과 참조·peek (2026-10-10)
+
+현재 상태: 구현 `bf515fd6`과 완료 근거 `cd55aa4c`를 일반 푸시하고 로컬/원격 차이 0/0을 확인했습니다. 변경 4크레이트 전체 121대상과 실패 영향 재검사에서 서로 다른 1358건이 통과했습니다. 기능 대응표는 완료 284/588(48.3%), 부분 92·미연결 113·미구현 99입니다. main이 직접 수행했고 Cargo/fmt를 하나씩 실행했습니다.
 
 기준: 실제 TS location adapter·definition/declaration/type-definition/implementation/references·peek preload/position·Monaco goToCommands/definition link/references model/widget/tree·현재 native typed LSP/mirror/취소·문제/심볼 이동·뷰 zone·registry/keymap/본문 hit-test입니다. 단일/복수/없음·현재/옆 그룹 이동·참조/peek·Ctrl/Meta gesture와 파일/모델 인수 수명을 원본 화면/상호작용으로 연결합니다. 새 기능/디자인·원본 버그/내부 수치 강제 재현·engine/의존성·동결 browser/OS 합성 입력을 추가하지 않습니다.
 
@@ -12,9 +28,9 @@
 - [x] d. 표시·명령 소비 — 플랫폼 키 1건·최신 메모리 UI 12건·앱 상태/preview 명령 12건·peek 토큰 캐시 1건이 통과했습니다. 본문/preview 포커스 인계·키보드 정의 hover·기존 TextMate 코드와 숨은 미리보기 토큰, 참조 강조/reveal·1000개 가상 tree/휠·파일 그룹 키 탐색·닫기 뒤 본문 입력을 연결했습니다. preview 편집·찾기/치환·접기·저장은 대상 문서만 소비하며 기존 browser/IME/readonly/wrap/스크롤 gate를 유지합니다. 일반 hover/완성 등과 순수 preview의 별도 LSP 공급은 잔여 범위입니다.
 - [x] e. 실제 앱·파일 수명 통합 — 파일 host 4건·상태 12건과 최신 실제 앱 1건이 통과했습니다. 연속 이동 취소·레이아웃 이벤트 선행·프로젝트 종료 인계 회수·추적 이력 만료·임시 탭 dirty 차단을 실패 재현 후 수정했습니다. 실제 keyboard hover·preview 찾기/치환·파일 저장·같은 dirty 모델 인수·파일 간 순환·명시 peek 유지·정상 종료와 task 0을 확인했습니다. 실제 사용자 데이터/OS/Trash 보호를 유지합니다.
 - [x] f. 전체 게이트 — 변경 editor/UI/app/LSP SDK 전체 121대상을 --no-fail-fast로 직접 1회 실행했습니다. 최초 UI 1·app 초기화 대기 2실패는 해당 영향 검사로 해소했으며 현재 서로 다른 editor 212·UI 375·app 689·SDK 82, 총 1358건이 통과했습니다. 보호 Trash 3/기존 ignored 5·실기/standalone prototype 부채를 구분했고 frozen host/Wasm·4크레이트 fmt/diff exit 0, manifest/lock/engine 경계 유지·디스크 651GiB/65%를 확인했습니다. Cargo를 하나씩 실행했습니다.
-- [ ] g. 실제 기록·선별 Git·계속 진행 — 실제 닫힌 요구사항만 QA/기능표/근거/PROCESS에 반영하고 검증한 논리 단위를 선별 커밋·일반 푸시합니다. 다음 범위를 작성해 전체 전환을 계속합니다.
+- [x] g. 실제 기록·선별 Git·계속 진행 — 구현/검증을 `bf515fd6`, 실제 완료 행/근거를 `cd55aa4c`로 선별 커밋·일반 푸시하고 로컬/원격 차이 0/0을 확인했습니다. 위치 이동·참조/peek 2행만 완료로 반영해 284/588(48.3%)이며 상단 배치 21에서 일반 호버와 시그니처 도움말을 이어갑니다.
 
-진척: 배치 20 체크리스트 6/7(85.7%), 현재 기능 대응표 282/588(48.0%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. 다음 행동은 실제 완료 행과 검증 근거를 선별 커밋·일반 푸시하는 것입니다.
+진척: 배치 20 체크리스트 7/7(100%), 현재 기능 대응표 284/588(48.3%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. 일반 푸시·0/0을 확인했고 상단 배치 21로 전체 전환을 계속합니다.
 
 ## 완료: 배치 19 — 구문 접기 공급·수동/Import 접기 명령 (2026-10-10)
 

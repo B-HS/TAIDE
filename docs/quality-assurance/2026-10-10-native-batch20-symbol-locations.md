@@ -1,6 +1,6 @@
 # 배치 20 — 정의·선언·타입/구현 이동과 참조·peek
 
-현재 상태: batch20의 구현·실제 앱 수명 통합과 전체 게이트까지 체크리스트 6/7을 마쳤습니다. 변경 editor/UI/app/LSP SDK의 전체 121대상을 직접 1회 실행했고 최초 실패 3건은 영향 검사로 해소했습니다. 현재 서로 다른 성공은 editor 212·UI 375·app 689·SDK 82, 총 1358건입니다. frozen host/Wasm·4크레이트 포맷/diff exit 0, manifest/lock/engine 경계 유지·디스크 651GiB/65%입니다. 현재 기능 대응표는 완료 282/588(48.0%)이며 판정 갱신 전 수치입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. 서브에이전트·workflow 없이 main이 직접 수행하고 Cargo/fmt는 실제 앞 process 종료를 확인한 뒤 하나씩 실행합니다. 아래 진행 로그의 당시 미완료 상태는 최신 결과로 대체합니다.
+현재 상태: batch20의 구현·실제 앱 수명 통합과 전체 게이트까지 체크리스트 7/7을 마쳤습니다. 변경 editor/UI/app/LSP SDK의 전체 121대상을 직접 1회 실행했고 최초 실패 3건은 영향 검사로 해소했습니다. 현재 서로 다른 성공은 editor 212·UI 375·app 689·SDK 82, 총 1358건입니다. frozen host/Wasm·4크레이트 포맷/diff exit 0, manifest/lock/engine 경계 유지·디스크 651GiB/65%입니다. 구현 bf515fd6·완료 근거 cd55aa4c를 일반 푸시해 로컬/원격 차이 0/0을 확인했습니다. 현재 기능 대응표는 완료 284/588(48.3%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. 서브에이전트·workflow 없이 main이 직접 수행하고 Cargo/fmt는 실제 앞 process 종료를 확인한 뒤 하나씩 실행합니다. 아래 진행 로그의 당시 미완료 상태는 최신 결과로 대체합니다.
 
 ## 범위와 확인한 기준
 
@@ -18,7 +18,7 @@ TS `src/shared/lib/lsp/adapters/definition.ts`의 공용 location adapter와 dec
 - [x] d. native 명령/기본 키·Ctrl/Meta link gesture·단일/복수 이동·원본 peek 표시/입력 소비
 - [x] e. 실제 앱의 현재 pane/기존/새 탭·옆 그룹·peek target loading/인수·dirty/readonly/reveal 통합
 - [x] f. 변경 크레이트 전체 대상·동결 host/Wasm·포맷/diff·디스크/보호 확인
-- [ ] g. 실제 QA/기능표/완료 근거/PROCESS·선별 커밋·일반 푸시·다음 범위
+- [x] g. 실제 QA/기능표/완료 근거/PROCESS·선별 커밋·일반 푸시·다음 범위
 
 ## 확인한 동작 계약
 
