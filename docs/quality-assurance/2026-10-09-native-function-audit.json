@@ -1,6 +1,6 @@
 {
     "date": "2026-10-10",
-    "baseline": "913bcf5b",
+    "baseline": "112120eb",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -441,8 +441,11 @@
                 "native/taide-native-app/src/application.rs"
             ],
             "tests": ["native/taide-native-ui/src/command-palette-tests.rs"],
-            "reports": ["docs/quality-assurance/2026-10-06-native-batch2-command-palette.md"],
-            "limitation": "Symbol/WorkspaceSymbol은 빈 목록이며 command-score는 font picker에만 연결됩니다."
+            "reports": [
+                "docs/quality-assurance/2026-10-06-native-batch2-command-palette.md",
+                "docs/quality-assurance/2026-10-10-native-batch16-document-symbols.md"
+            ],
+            "limitation": "현재 파일 Symbol @는 batch16에서 연결했습니다. WorkspaceSymbol #는 빈 목록이며 command-score는 font picker에만 연결됩니다."
         },
         "commands-keymap": {
             "sources": [
@@ -513,6 +516,26 @@
                 "docs/quality-assurance/2026-10-09-native-batch15-diagnostics.md"
             ],
             "limitation": "실제 OS IME/접근성·대형 성능/soak·출시와 LSP 일반 hover/완성/SCM 등 다른 공급자는 별도 잔여입니다."
+        },
+        "editor-symbols": {
+            "sources": [
+                "native/taide-native-editor/src/document-symbols.rs",
+                "native/taide-native-app/src/editor-symbols.rs",
+                "native/taide-native-app/src/lsp-document-symbols.rs",
+                "native/taide-native-app/src/lsp.rs",
+                "native/taide-native-app/src/application.rs",
+                "native/taide-native-ui/src/command-palette.rs",
+                "native/taide-native-ui/src/editor-sticky-scroll.rs"
+            ],
+            "tests": [
+                "native/taide-native-editor/tests/document-symbols.rs",
+                "native/taide-native-app/src/editor-symbols-tests.rs",
+                "native/taide-native-app/src/lsp-document-symbols-tests.rs",
+                "native/taide-native-ui/src/command-palette-tests.rs",
+                "native/taide-native-ui/tests/editor-sticky-scroll.rs"
+            ],
+            "reports": ["docs/quality-assurance/2026-10-10-native-batch16-document-symbols.md"],
+            "limitation": "typed LSP·@ 현재 파일 심볼 목록과 outline 고정 줄 공급은 검증됐습니다. 별도 explorer outline/경로·심볼 breadcrumb 소비자, syntax folding/정의 이동·워크스페이스 #·실기/성능 게이트는 잔여입니다."
         }
     },
     "rows": [
@@ -778,7 +801,7 @@
             "domain": "shell",
             "status": "partial",
             "proof": "commands-palette",
-            "note": "파일/명령/줄 팔레트는 연결됐으나 TaskRunner·심볼 목록 소비자는 없습니다."
+            "note": "파일/명령/줄과 현재 문서 @ 심볼 팔레트는 연결됐으나 TaskRunner·워크스페이스 # 심볼 목록은 남아 있습니다."
         },
         {
             "id": "shell-25",
@@ -1778,8 +1801,8 @@
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:77",
             "domain": "editor",
             "status": "partial",
-            "proof": "editor-display",
-            "note": "접기 fallback 기반 고정 줄은 연결됐으나 LSP 심볼/구문 접기 공급과 정의 이동은 남아 있습니다."
+            "proof": "editor-symbols",
+            "note": "문서 심볼 outline 우선·최대 범위/선호 provider·selectionRange 헤더와 접기 fallback은 연결됐습니다. 구문 접기 공급과 Ctrl/Meta 정의 이동은 남아 있습니다."
         },
         {
             "id": "editor-17",
@@ -2195,9 +2218,9 @@
             "ts": "`lsp/adapters/document-symbol.ts:77`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:125",
             "domain": "editor",
-            "status": "missing",
-            "proof": "editor-missing",
-            "note": "해당 사용자 동작의 실제 native 편집기/앱 소비 경로가 없습니다. 프로토콜·설정·backend만으로 완료 처리하지 않습니다."
+            "status": "partial",
+            "proof": "editor-symbols",
+            "note": "typed nested/flat documentSymbol·프로젝트/root mirror·400ms 갱신/취소·@ quick outline과 고정 줄에 연결됐습니다. 경로/심볼 breadcrumb 막대와 별도 outline 패널은 후속 소비 범위입니다."
         },
         {
             "id": "editor-55",
@@ -3856,9 +3879,9 @@
             "ts": "document-symbol-session-waiters.ts",
             "source": "docs/quality-assurance/2026-10-06-native-audit-explorer-search.md:86",
             "domain": "explorer-search",
-            "status": "missing",
-            "proof": "panel-search",
-            "note": "현재 앱 explorer는 files 표면만 연결합니다. 검색/Git/아웃라인과 관련 진입·데이터 공급 소비자는 없습니다."
+            "status": "partial",
+            "proof": "editor-symbols",
+            "note": "실제 root/준비 세션의 typed documentSymbol과 최신 mirror·debounce/취소/세대 처리를 @/고정 줄 소비자에서 검증했습니다. explorer outline 패널의 호출/소비 진입은 다음 범위입니다."
         },
         {
             "id": "explorer-search-41",
@@ -6518,9 +6541,9 @@
             "ts": "symbol-group.tsx, use-document-symbol-loader.ts",
             "source": "docs/quality-assurance/2026-10-06-native-audit-commands-ui.md:82",
             "domain": "commands-ui",
-            "status": "unwired",
-            "proof": "commands-base",
-            "note": "레지스트리·공유 backend/계약 또는 모드 껍데기는 있으나 해당 실제 native 사용자 실행/목록 소비자는 없습니다."
+            "status": "complete",
+            "proof": "editor-symbols",
+            "note": "현재 파일의 typed nested/flat 심볼·preorder 조상 breadcrumb·NFC 이름 fuzzy·Braces/한 줄 목록·loading/empty·키/마우스 선택을 현재 탭 UTF-16 reveal에 연결했습니다. 편집/서버/owner/프로젝트/닫힘·readonly·공유 문서와 실제 child/메모리 UI 회귀가 통과했습니다."
         },
         {
             "id": "commands-ui-50",
@@ -7106,5 +7129,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "성공 실행은 배치 15 변경 editor 198·UI inspection 서로 다른 355·app 620, 합계 116대상·1173건 및 변경 없는 배치 13 syntax 159와 이전 영역의 실제 QA 근거를 재사용합니다. 전체 UI 뒤 추가 수정은 영향 대상 표시 44건을 재실행했습니다. 보호 Trash 3건·ignored 5건·실기 부채를 통과로 세지 않습니다. 동결 browser host/Wasm·포맷·diff는 배치 15 QA에서 exit 0으로 확인했습니다."
+    "validation": "성공 실행은 배치 16 변경 editor 201·UI inspection 358·app 628, 합계 117대상·1187건 및 변경 없는 배치 13 syntax 159와 이전 영역의 실제 QA 근거를 재사용합니다. 앱 첫 전체 명령의 기존 응답 분기 컴파일 오류를 보완한 뒤 전체 실행이 통과했습니다. 보호 Trash 3건·ignored 5건·실기 부채를 통과로 세지 않습니다. 동결 browser host/Wasm·포맷·diff는 배치 16 QA에서 exit 0으로 확인했습니다."
 }
