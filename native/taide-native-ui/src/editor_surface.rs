@@ -120,6 +120,8 @@ pub struct EditorDisplayOptions {
     pub bold_family: Option<FontFamily>,
     #[cfg(feature = "native-host")]
     pub colors: Option<crate::editor_display::EditorDisplayColors>,
+    #[cfg(feature = "native-host")]
+    pub bracket_colors: Option<crate::editor_brackets::EditorBracketColors>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -658,6 +660,8 @@ impl NativeEditor {
             tokens: tokens.filter(|tokens| tokens.describes(&document)),
             bold_family: registered_family(ui, presentation.options.bold_family.as_ref()),
             decorations: &[],
+            #[cfg(feature = "native-host")]
+            brackets: None,
         }
         .row(index, Pos2::ZERO);
         let gutter = Gutter::measure(
@@ -948,6 +952,24 @@ impl NativeEditor {
         )?;
         let document = store.documents().snapshot(current.document)?;
         let tokens = tokens(store).filter(|tokens| tokens.describes(&document));
+        #[cfg(feature = "native-host")]
+        let bracket_model = presentation
+            .options
+            .bracket_colors
+            .map(|_| {
+                store.bracket_model(
+                    document.id,
+                    language.map(|language| language.rules),
+                    indent.tab_size,
+                    tokens.map(
+                        |tokens| taide_native_editor::bracket_model::BracketTokenData {
+                            lines: tokens.lines,
+                            styles: tokens.styles,
+                        },
+                    ),
+                )
+            })
+            .transpose()?;
         let layers = tracked_layers(store, &document, decorations)?;
         let mut state = store
             .views()
@@ -1155,6 +1177,11 @@ impl NativeEditor {
             tokens,
             bold_family: registered_family(ui, presentation.options.bold_family.as_ref()),
             decorations: &decorations,
+            #[cfg(feature = "native-host")]
+            brackets: bracket_model
+                .as_deref()
+                .zip(presentation.options.bracket_colors.as_ref())
+                .filter(|_| presentation.options.bracket_pair_colorization),
         };
         let mut rows: Vec<Row> = visible
             .clone()
@@ -1508,7 +1535,7 @@ impl NativeEditor {
         };
         layers.background();
         #[cfg(feature = "native-host")]
-        if !presentation.options.rulers.is_empty() {
+        if !presentation.options.rulers.is_empty() || bracket_model.is_some() {
             for row in &rows {
                 layers.row_background(row, &carets);
             }
@@ -1520,6 +1547,21 @@ impl NativeEditor {
                 appearance,
                 &presentation.options,
             );
+            if let Some(model) = bracket_model.as_deref() {
+                crate::editor_brackets::paint_guides(
+                    &text_painter,
+                    crate::editor_brackets::GuideFrame {
+                        document: &document,
+                        display,
+                        rows: &rows,
+                        model,
+                        primary: primary.head,
+                        tab_size: indent.tab_size,
+                        appearance,
+                        options: &presentation.options,
+                    },
+                );
+            }
             for row in &rows {
                 crate::editor_display::whitespace(
                     &text_painter,

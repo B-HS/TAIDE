@@ -10,13 +10,20 @@ use taide_model::ids::{PaneId, TabId};
 use taide_model::settings::{
     EditorCursorBlinking, EditorCursorStyle, EditorRenderWhitespace, Settings,
 };
+use taide_native_editor::language_configuration::{
+    BracketPair, CharacterPairs, EnterAction, FoldMarker, IndentMetadata, Language, LanguageRules,
+    UntokenizedLines,
+};
+use taide_native_editor::line_tokens::{LineTokens, TokenStyle, TokenStyleTable};
 use taide_native_editor::store::{EditorLimits, EditorStore};
+use taide_native_editor::syntax::TokenKind;
 use taide_native_editor::view::{Selection, SelectionSet, ViewId, ViewKey};
+use taide_native_ui::editor_brackets::EditorBracketColors;
 use taide_native_ui::editor_display::EditorDisplayColors;
 use taide_native_ui::editor_geometry::EditorGeometry;
 use taide_native_ui::editor_surface::{
     CursorBlinking, CursorStyle, EditorAppearance, EditorDisplayOptions, EditorPresentation,
-    NativeEditor, RenderWhitespace,
+    EditorRequest, EditorTokens, NativeEditor, RenderWhitespace,
 };
 use taide_native_ui::presentation::editor_presentation;
 
@@ -245,6 +252,8 @@ fn 표시_설정은_기본값과_모든_선택지를_native_presentation에_공�
     assert_eq!(defaults.cursor_blinking, CursorBlinking::Blink);
     assert!(defaults.scroll_beyond_last_line);
     assert!(!defaults.smooth_scrolling && !defaults.smooth_caret);
+    assert!(defaults.bracket_pair_colorization);
+    assert!(!defaults.bracket_pair_guides);
     for (source, target) in [
         (EditorRenderWhitespace::None, RenderWhitespace::None),
         (EditorRenderWhitespace::Boundary, RenderWhitespace::Boundary),
@@ -1073,4 +1082,504 @@ fn 대형_문서를_스크롤해도_ruler는_현재_화면_높이를_계속_덮�
         line.top() <= shown.geometry.content_rect.top()
             && line.bottom() >= shown.geometry.content_rect.bottom()
     );
+}
+
+const BRACKET_PALETTE: [Color32; 3] = [
+    Color32::from_rgb(183, 37, 46),
+    Color32::from_rgb(24, 178, 77),
+    Color32::from_rgb(149, 45, 189),
+];
+const UNEXPECTED_BRACKET: Color32 = Color32::from_rgb(246, 94, 12);
+const INDENT_GUIDE: Color32 = Color32::from_rgb(44, 55, 66);
+const ACTIVE_INDENT_GUIDE: Color32 = Color32::from_rgb(77, 88, 99);
+const BRACKET_CHARACTERS: [char; 6] = ['{', '}', '[', ']', '(', ')'];
+const INACTIVE_GUIDE_OPACITY: f32 = 0.3;
+
+struct DisplayBracketRules {
+    pairs: CharacterPairs,
+}
+
+fn display_bracket_rules() -> DisplayBracketRules {
+    DisplayBracketRules {
+        pairs: CharacterPairs {
+            brackets: [("{", "}"), ("[", "]"), ("(", ")")]
+                .into_iter()
+                .map(|(open, close)| BracketPair {
+                    open: open.into(),
+                    close: close.into(),
+                })
+                .collect(),
+            ..Default::default()
+        },
+    }
+}
+
+impl LanguageRules for DisplayBracketRules {
+    fn pairs(&self) -> &CharacterPairs {
+        &self.pairs
+    }
+    fn enter_action(&self, _: &str, _: &str, _: &str) -> Option<EnterAction> {
+        None
+    }
+    fn indent_metadata(&self, _: &str) -> Option<IndentMetadata> {
+        None
+    }
+    fn without_brackets(&self, text: &str) -> String {
+        text.replace(BRACKET_CHARACTERS, "")
+    }
+    fn bracket_ranges(&self, text: &str) -> Vec<std::ops::Range<usize>> {
+        text.match_indices(BRACKET_CHARACTERS)
+            .map(|(start, value)| start..start + value.len())
+            .collect()
+    }
+    fn last_bracket(&self, text: &str) -> Option<std::ops::Range<usize>> {
+        self.bracket_ranges(text).into_iter().next_back()
+    }
+    fn is_off_side(&self) -> bool {
+        false
+    }
+    fn fold_marker(&self, _: &str) -> Option<FoldMarker> {
+        None
+    }
+    fn starts_marker_region(&self, _: &str) -> bool {
+        false
+    }
+}
+
+fn bracket_options() -> EditorPresentation {
+    let mut presentation = options();
+    presentation.options.bracket_pair_colorization = true;
+    presentation.options.bracket_pair_guides = true;
+    presentation.options.bracket_colors = Some(EditorBracketColors {
+        palette: BRACKET_PALETTE,
+        unexpected: UNEXPECTED_BRACKET,
+        indent: INDENT_GUIDE,
+        active_indent: ACTIVE_INDENT_GUIDE,
+    });
+    presentation
+}
+
+fn show_brackets(
+    context: &Context,
+    editor: &NativeEditor,
+    store: &mut EditorStore,
+    view: ViewId,
+    presentation: &EditorPresentation,
+    tokens: Option<EditorTokens<'_>>,
+) -> Shown {
+    let rules = display_bracket_rules();
+    let mut geometry = None;
+    let mut output = context.run_ui(
+        RawInput {
+            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), SCREEN)),
+            time: Some(0.0),
+            ..Default::default()
+        },
+        |ui| {
+            let shown = editor
+                .show_request(
+                    ui,
+                    store,
+                    view,
+                    EditorRequest {
+                        request_focus: false,
+                        keymap: |_: &egui::Ui, _: &Event, _| false,
+                        route: |_: &egui::Response| None,
+                        presentation,
+                        tokens: |_: &EditorStore| tokens,
+                        language: Some(Language {
+                            rules: &rules,
+                            syntax: &UntokenizedLines,
+                        }),
+                        decorations: &[],
+                        fold_commands: &[],
+                        fold_controls: None,
+                    },
+                )
+                .unwrap();
+            assert!(shown.errors.is_empty());
+            geometry = Some(shown.geometry);
+        },
+    );
+    output.textures_delta.clear();
+    Shown {
+        shapes: output.shapes,
+        geometry: geometry.unwrap(),
+    }
+}
+
+fn colored_brackets(shown: &Shown) -> Vec<(char, Color32)> {
+    shown
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            Shape::Text(text) => Some(text),
+            _ => None,
+        })
+        .flat_map(|text| {
+            text.galley
+                .job
+                .sections
+                .iter()
+                .flat_map(|section| {
+                    text.galley.job.text[section.byte_range.start.0..section.byte_range.end.0]
+                        .chars()
+                        .filter(|character| BRACKET_CHARACTERS.contains(character))
+                        .map(|character| (character, section.format.color))
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn filled_guides(shown: &Shown, color: Color32) -> Vec<(Rect, Rect)> {
+    shown
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            Shape::Rect(rect) if rect.fill == color => Some((rect.rect, shape.clip_rect)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn display_caret(byte: usize) -> Selection {
+    Selection {
+        anchor: byte,
+        head: byte,
+    }
+}
+
+#[test]
+fn 괄호_색상은_실제_글자에_중첩을_적용하고_문자열과_설정_테마_변경을_따른다() {
+    let text = "{[()]} \"([])\"";
+    let (context, editor, mut store, view) = fixture(text, false);
+    let mut presentation = bracket_options();
+    let default_style = TokenStyle {
+        foreground: [255; 4],
+        is_italic: false,
+        is_bold: false,
+        is_underlined: false,
+        is_struck_through: false,
+        kind: TokenKind::Other,
+    };
+    let styles = TokenStyleTable::new(
+        default_style,
+        vec![
+            default_style,
+            TokenStyle {
+                kind: TokenKind::String,
+                ..default_style
+            },
+        ],
+    );
+    let mut lines = LineTokens::new(1);
+    lines.set_line(0, vec![0, 0, 7, 1], false);
+    let tokens = Some(EditorTokens {
+        revision: 0,
+        lines: &lines,
+        styles: &styles,
+    });
+    let shown = show_brackets(&context, &editor, &mut store, view, &presentation, tokens);
+    let colors: Vec<_> = colored_brackets(&shown)
+        .into_iter()
+        .map(|(_, color)| color)
+        .collect();
+    assert_eq!(
+        colors,
+        [
+            BRACKET_PALETTE[0],
+            BRACKET_PALETTE[1],
+            BRACKET_PALETTE[2],
+            BRACKET_PALETTE[2],
+            BRACKET_PALETTE[1],
+            BRACKET_PALETTE[0],
+            Color32::WHITE,
+            Color32::WHITE,
+            Color32::WHITE,
+            Color32::WHITE
+        ]
+    );
+    presentation.options.bracket_pair_colorization = false;
+    let shown = show_brackets(&context, &editor, &mut store, view, &presentation, tokens);
+    assert!(
+        colored_brackets(&shown)
+            .iter()
+            .all(|(_, color)| *color == Color32::WHITE)
+    );
+    presentation.options.bracket_pair_colorization = true;
+    presentation
+        .options
+        .bracket_colors
+        .as_mut()
+        .unwrap()
+        .palette[0] = Color32::YELLOW;
+    let shown = show_brackets(&context, &editor, &mut store, view, &presentation, tokens);
+    assert_eq!(colored_brackets(&shown)[0].1, Color32::YELLOW);
+    assert_eq!(colored_brackets(&shown)[1].1, BRACKET_PALETTE[1]);
+}
+
+#[test]
+fn 괄호_안내선은_안쪽_활성_짝을_표시하고_들여쓰기와_중복되지_않는다() {
+    let text = "outer {\n    [\n        x\n    ]\n}";
+    let (context, editor, mut store, view) = fixture(text, false);
+    let presentation = bracket_options();
+    let primary = text.find('x').unwrap();
+    select(&mut store, view, vec![display_caret(primary)]);
+    let shown = show_brackets(&context, &editor, &mut store, view, &presentation, None);
+    let inner = filled_guides(&shown, BRACKET_PALETTE[1]);
+    assert_eq!(inner.len(), 1);
+    close(inner[0].0.width(), 1.0);
+    close(inner[0].0.height(), LINE_HEIGHT);
+    close(
+        inner[0].0.left(),
+        shown.geometry.content_rect.left() + font_width(&context, " ") * 4.0,
+    );
+    assert!(
+        filled_guides(
+            &shown,
+            BRACKET_PALETTE[0].gamma_multiply(INACTIVE_GUIDE_OPACITY)
+        )
+        .len()
+            >= 2
+    );
+    assert!(filled_guides(&shown, ACTIVE_INDENT_GUIDE).is_empty());
+    assert!(
+        filled_guides(&shown, INDENT_GUIDE)
+            .iter()
+            .all(|(rect, _)| (rect.left() - inner[0].0.left()).abs() >= EPSILON)
+    );
+    select(&mut store, view, vec![display_caret(0)]);
+    let outside = show_brackets(&context, &editor, &mut store, view, &presentation, None);
+    assert!(filled_guides(&outside, BRACKET_PALETTE[1]).is_empty());
+    assert!(
+        filled_guides(
+            &outside,
+            BRACKET_PALETTE[1].gamma_multiply(INACTIVE_GUIDE_OPACITY)
+        )
+        .len()
+            >= 1
+    );
+}
+
+#[test]
+fn 괄호_가로선은_실제_괄호_좌표와_닫는_줄의_내용에_맞고_텍스트_clip을_쓴다() {
+    let text = "call {\n  x\n   y }";
+    let (context, editor, mut store, view) = fixture(text, false);
+    let presentation = bracket_options();
+    select(
+        &mut store,
+        view,
+        vec![display_caret(text.find('x').unwrap())],
+    );
+    let shown = show_brackets(&context, &editor, &mut store, view, &presentation, None);
+    let horizontal: Vec<_> = filled_guides(&shown, BRACKET_PALETTE[0])
+        .into_iter()
+        .filter(|(rect, _)| rect.height() == 1.0)
+        .collect();
+    assert_eq!(horizontal.len(), 2);
+    let start = shown.geometry.content_rect.left() + font_width(&context, " ") * 2.0;
+    close(horizontal[0].0.left(), start);
+    close(
+        horizontal[0].0.right(),
+        shown
+            .geometry
+            .caret_rect(text.find('{').unwrap())
+            .unwrap()
+            .left(),
+    );
+    close(
+        horizontal[0].0.top(),
+        shown.geometry.rect.top() + LINE_HEIGHT - 1.0,
+    );
+    close(
+        horizontal[1].0.right(),
+        shown
+            .geometry
+            .caret_rect(text.find('}').unwrap())
+            .unwrap()
+            .left(),
+    );
+    close(
+        horizontal[1].0.top(),
+        shown.geometry.rect.top() + LINE_HEIGHT * 3.0 - 1.0,
+    );
+    assert!(
+        horizontal
+            .iter()
+            .all(|(_, clip)| *clip == shown.geometry.content_rect)
+    );
+    let vertical: Vec<_> = filled_guides(&shown, BRACKET_PALETTE[0])
+        .into_iter()
+        .filter(|(rect, _)| rect.width() == 1.0)
+        .collect();
+    assert_eq!(vertical.len(), 2);
+}
+
+#[test]
+fn 괄호_한줄_가로선은_wrap의_실제_표시줄을_따르고_접힌_짝은_그리지_않는다() {
+    let text = format!("({})", "x".repeat(100));
+    let (context, editor, mut store, view) = fixture(&text, false);
+    let mut presentation = bracket_options();
+    presentation.options.word_wrap = true;
+    select(&mut store, view, vec![display_caret(2)]);
+    let shown = show_brackets(&context, &editor, &mut store, view, &presentation, None);
+    let guides = filled_guides(&shown, BRACKET_PALETTE[0]);
+    assert!(guides.len() >= 2);
+    assert!(guides.iter().all(|(rect, clip)| rect.height() == 1.0
+        && rect.width() > 1.0
+        && *clip == shown.geometry.content_rect));
+    assert_eq!(
+        colored_brackets(&shown),
+        [('(', BRACKET_PALETTE[0]), (')', BRACKET_PALETTE[0])]
+    );
+
+    let (context, editor, mut store, view) = fixture("{\n    [\n        x\n    ]\n}", false);
+    let state = store.views().get(view).unwrap().clone();
+    let document = store.documents().snapshot(state.document).unwrap();
+    let folded = document.rope.line_to_byte(1)
+        ..taide_native_editor::editing::line_content_range(&document, 3).end;
+    store
+        .set_view_state(view, state.selection, state.scroll, vec![folded])
+        .unwrap();
+    let mut presentation = bracket_options();
+    presentation.options.folding = true;
+    let shown = show_brackets(&context, &editor, &mut store, view, &presentation, None);
+    assert_eq!(
+        colored_brackets(&shown),
+        [('{', BRACKET_PALETTE[0]), ('}', BRACKET_PALETTE[0])]
+    );
+    assert!(filled_guides(&shown, BRACKET_PALETTE[1]).is_empty());
+    assert!(
+        filled_guides(
+            &shown,
+            BRACKET_PALETTE[1].gamma_multiply(INACTIVE_GUIDE_OPACITY)
+        )
+        .is_empty()
+    );
+}
+
+#[test]
+fn 괄호_안내선을_꺼도_기본_들여쓰기와_활성_가이드는_남고_빈줄과_탭을_따른다() {
+    let text = "{\n\tx\n\n\ty\n}";
+    let (context, editor, mut store, view) = fixture(text, false);
+    let mut presentation = bracket_options();
+    presentation.options.bracket_pair_guides = false;
+    select(
+        &mut store,
+        view,
+        vec![display_caret(text.find('x').unwrap())],
+    );
+    let shown = show_brackets(&context, &editor, &mut store, view, &presentation, None);
+    let active = filled_guides(&shown, ACTIVE_INDENT_GUIDE);
+    assert_eq!(active.len(), 3);
+    assert!(active.iter().all(|(rect, _)| rect.width() == 1.0
+        && rect.height() == LINE_HEIGHT
+        && rect.left() == shown.geometry.content_rect.left()));
+    assert!(filled_guides(&shown, BRACKET_PALETTE[0]).is_empty());
+    presentation.options.bracket_colors = None;
+    let cleared = show_brackets(&context, &editor, &mut store, view, &presentation, None);
+    assert!(filled_guides(&cleared, ACTIVE_INDENT_GUIDE).is_empty());
+    assert!(filled_guides(&cleared, INDENT_GUIDE).is_empty());
+}
+
+#[test]
+fn 괄호_뷰_문서_편집은_불일치_색을_회수하고_다른_뷰도_같은_분석을_재사용한다() {
+    let (context, editor, mut store, view) = fixture("{)", false);
+    let presentation = bracket_options();
+    let invalid = show_brackets(&context, &editor, &mut store, view, &presentation, None);
+    assert_eq!(
+        colored_brackets(&invalid),
+        [('{', UNEXPECTED_BRACKET), (')', UNEXPECTED_BRACKET)]
+    );
+    let document = store.views().get(view).unwrap().document;
+    let snapshot = store.documents().snapshot(document).unwrap();
+    store
+        .apply(
+            document,
+            taide_native_editor::store::Transaction {
+                revision: snapshot.revision,
+                edits: vec![taide_native_editor::document::Edit {
+                    bytes: 1..2,
+                    text: "}".into(),
+                }],
+                group: taide_native_editor::document::UndoGroup(snapshot.revision),
+                origin: None,
+                selection_after: None,
+            },
+        )
+        .unwrap();
+    let corrected = show_brackets(&context, &editor, &mut store, view, &presentation, None);
+    assert_eq!(
+        colored_brackets(&corrected),
+        [('{', BRACKET_PALETTE[0]), ('}', BRACKET_PALETTE[0])]
+    );
+    let rules = display_bracket_rules();
+    let model = store
+        .bracket_model(document, Some(&rules), 4, None)
+        .unwrap();
+    assert_eq!(model.refresh_count(), 2);
+    let second = store
+        .attach_view(
+            ViewKey {
+                window: "display-test".into(),
+                pane: PaneId::new(),
+                tab: TabId::new(),
+            },
+            document,
+        )
+        .unwrap();
+    let shared = show_brackets(&context, &editor, &mut store, second, &presentation, None);
+    assert_eq!(
+        colored_brackets(&shared),
+        [('{', BRACKET_PALETTE[0]), ('}', BRACKET_PALETTE[0])]
+    );
+    let repeated = store
+        .bracket_model(document, Some(&rules), 4, None)
+        .unwrap();
+    assert_eq!(repeated.refresh_count(), model.refresh_count());
+    assert!(std::sync::Arc::ptr_eq(&model, &repeated));
+}
+
+#[test]
+fn 괄호_뷰_안내선은_탭_열과_양방향_스크롤_복원_좌표에_맞춰_화면만_그린다() {
+    const BODY_LINES: usize = 100;
+    const LINE_CHARS: usize = 100;
+    const SCROLL_LINE: f32 = 50.0;
+    const SCROLL_X: f32 = 40.0;
+    const SCROLL_OFFSET: f32 = 4.0;
+    const GUIDE_COLUMNS: f32 = 12.0;
+    let text = format!(
+        "\t\t\t{{\n{}\t\t\t}}",
+        format!("\t\t\t\tx{}\n", "x".repeat(LINE_CHARS)).repeat(BODY_LINES)
+    );
+    let (context, editor, mut store, view) = fixture(&text, false);
+    let presentation = bracket_options();
+    let mut state = store.views().get(view).unwrap().clone();
+    state.scroll.x = SCROLL_X;
+    state.scroll.y = LINE_HEIGHT * SCROLL_LINE + SCROLL_OFFSET;
+    store
+        .set_view_state(view, state.selection, state.scroll, state.folds)
+        .unwrap();
+    let shown = show_brackets(&context, &editor, &mut store, view, &presentation, None);
+    close(shown.geometry.scroll.x, SCROLL_X);
+    close(
+        shown.geometry.scroll.y,
+        LINE_HEIGHT * SCROLL_LINE + SCROLL_OFFSET,
+    );
+    let guides = filled_guides(
+        &shown,
+        BRACKET_PALETTE[0].gamma_multiply(INACTIVE_GUIDE_OPACITY),
+    );
+    assert!(!guides.is_empty());
+    let x = shown.geometry.content_rect.left() - shown.geometry.scroll.x
+        + font_width(&context, " ") * GUIDE_COLUMNS;
+    for (rect, clip) in guides {
+        close(rect.left(), x);
+        close(rect.width(), 1.0);
+        close(rect.height(), LINE_HEIGHT);
+        assert_eq!(clip, shown.geometry.content_rect);
+        assert!(rect.intersects(clip));
+    }
 }

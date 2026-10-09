@@ -265,6 +265,8 @@ pub fn editor_presentation(settings: &Settings) -> EditorPresentation {
                 smooth_caret: settings.editor_cursor_smooth_caret_animation,
                 scroll_beyond_last_line: settings.editor_scroll_beyond_last_line,
                 smooth_scrolling: settings.editor_smooth_scrolling,
+                bracket_pair_colorization: settings.editor_bracket_pair_colorization,
+                bracket_pair_guides: settings.editor_bracket_pair_guides,
                 ..Default::default()
             },
         };
@@ -296,6 +298,32 @@ pub fn editor_display_colors(
         },
         scrollbar: color(theme, "scrollbar.thumb")?,
         scrollbar_hover: color(theme, "scrollbar.thumbHover")?,
+    })
+}
+
+#[cfg(feature = "native-host")]
+pub fn editor_bracket_colors(
+    theme: &ResolvedTheme,
+) -> AppResult<crate::editor_brackets::EditorBracketColors> {
+    const DARK_PALETTE: [Color32; 3] = [
+        Color32::from_rgb(255, 215, 0),
+        Color32::from_rgb(218, 112, 214),
+        Color32::from_rgb(23, 159, 255),
+    ];
+    const LIGHT_PALETTE: [Color32; 3] = [
+        Color32::from_rgb(4, 49, 250),
+        Color32::from_rgb(49, 147, 49),
+        Color32::from_rgb(123, 56, 20),
+    ];
+    const UNEXPECTED_ALPHA: u8 = 204;
+    Ok(crate::editor_brackets::EditorBracketColors {
+        palette: match theme.theme_type {
+            ThemeType::Dark => DARK_PALETTE,
+            ThemeType::Light => LIGHT_PALETTE,
+        },
+        unexpected: Color32::from_rgba_unmultiplied(255, 18, 18, UNEXPECTED_ALPHA),
+        indent: color(theme, "editor.indentGuide")?,
+        active_indent: color(theme, "editor.whitespace")?,
     })
 }
 

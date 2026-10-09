@@ -1,9 +1,15 @@
 use std::ops::Range;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::change_journal::{ChangeSet, ChangeSpan};
 use crate::syntax::TokenKind;
 
 const SPAN_FIELDS: usize = 2;
+static NEXT_TOKEN_GENERATION: AtomicU64 = AtomicU64::new(1);
+
+fn token_generation() -> u64 {
+    NEXT_TOKEN_GENERATION.fetch_add(1, Ordering::Relaxed)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TokenStyle {
@@ -127,11 +133,20 @@ impl InvalidLines {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct LineTokens {
     lines: Vec<Vec<u32>>,
     invalid: InvalidLines,
+    generation: u64,
 }
+
+impl PartialEq for LineTokens {
+    fn eq(&self, other: &Self) -> bool {
+        self.lines == other.lines && self.invalid == other.invalid
+    }
+}
+
+impl Eq for LineTokens {}
 
 impl LineTokens {
     pub fn new(line_count: usize) -> Self {
@@ -140,6 +155,7 @@ impl LineTokens {
         Self {
             lines: vec![Vec::new(); line_count],
             invalid,
+            generation: token_generation(),
         }
     }
 
@@ -149,6 +165,10 @@ impl LineTokens {
 
     pub fn line_count(&self) -> usize {
         self.lines.len()
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     pub fn spans(&self, line: usize) -> &[u32] {
@@ -172,6 +192,7 @@ impl LineTokens {
     }
 
     pub fn invalidate(&mut self, lines: Range<usize>) {
+        self.generation = token_generation();
         self.invalid
             .add_range(lines.start..lines.end.min(self.lines.len()));
     }
@@ -181,6 +202,7 @@ impl LineTokens {
             return;
         };
         *stored = spans;
+        self.generation = token_generation();
         self.invalid.delete(line);
         if has_end_state_changed && line + 1 < self.lines.len() {
             self.invalid.add_range(line + 1..line + 2);
@@ -188,6 +210,7 @@ impl LineTokens {
     }
 
     pub fn apply(&mut self, changes: &ChangeSet) -> bool {
+        self.generation = token_generation();
         let is_applied = self.lines.len() == changes.line_count_before
             && changes.spans.iter().rev().all(|span| self.apply_span(span))
             && self.lines.len() == changes.line_count_after;

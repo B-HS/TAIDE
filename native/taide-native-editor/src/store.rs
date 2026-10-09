@@ -80,6 +80,7 @@ struct Document {
     can_merge: bool,
     requires_save: bool,
     syntax_tokens: Option<crate::syntax::SyntaxSnapshot>,
+    bracket_model: Option<Arc<crate::bracket_model::BracketModel>>,
     observed_disk: Option<DiskSnapshot>,
     journal: ChangeJournal,
 }
@@ -277,6 +278,31 @@ impl EditorStore {
             .get(&document)
             .ok_or(EditorError::NotFound)?;
         Ok(owner.journal.since(revision, owner.revision))
+    }
+
+    pub fn bracket_model(
+        &mut self,
+        document: DocumentId,
+        rules: Option<&dyn crate::language_configuration::LanguageRules>,
+        tab_size: u32,
+        tokens: Option<crate::bracket_model::BracketTokenData<'_>>,
+    ) -> Result<Arc<crate::bracket_model::BracketModel>, EditorError> {
+        let owner = self
+            .documents
+            .documents
+            .get_mut(&document)
+            .ok_or(EditorError::NotFound)?;
+        let snapshot = owner.snapshot();
+        let model = owner
+            .bracket_model
+            .get_or_insert_with(|| Arc::new(crate::bracket_model::BracketModel::default()));
+        if model.is_current(&snapshot, rules, tab_size, tokens) {
+            return Ok(model.clone());
+        }
+        let model = Arc::make_mut(model);
+        let changes = owner.journal.since(model.revision(), snapshot.revision);
+        model.refresh(&snapshot, rules, tab_size, tokens, changes);
+        Ok(owner.bracket_model.as_ref().unwrap().clone())
     }
 
     pub fn install_syntax(
@@ -1010,6 +1036,7 @@ impl EditorStore {
                 can_merge: false,
                 requires_save: false,
                 syntax_tokens: None,
+                bracket_model: None,
                 observed_disk,
                 journal: ChangeJournal::default(),
             },

@@ -101,6 +101,11 @@ pub(crate) struct RowLayout<'a> {
     pub(crate) tokens: Option<EditorTokens<'a>>,
     pub(crate) bold_family: Option<&'a FontFamily>,
     pub(crate) decorations: &'a [FrameDecoration],
+    #[cfg(feature = "native-host")]
+    pub(crate) brackets: Option<(
+        &'a taide_native_editor::bracket_model::BracketModel,
+        &'a crate::editor_brackets::EditorBracketColors,
+    )>,
 }
 
 impl RowLayout<'_> {
@@ -123,6 +128,30 @@ impl RowLayout<'_> {
                 styles: tokens.styles,
                 row_start_byte: segment.bytes.start.saturating_sub(line_start),
             });
+        }
+        #[cfg(feature = "native-host")]
+        if let Some((model, colors)) = self.brackets {
+            for bracket in model
+                .brackets_in(segment.bytes.clone())
+                .iter()
+                .filter(|bracket| bracket.colorized)
+            {
+                let start = bracket.bytes.start.max(segment.bytes.start);
+                let end = bracket.bytes.end.min(segment.bytes.end);
+                let chars = text.display_char(start - segment.bytes.start)
+                    ..text.display_char(end - segment.bytes.start);
+                text.decorate(
+                    chars,
+                    RowInlineStyle {
+                        foreground: Some(if bracket.invalid {
+                            colors.unexpected
+                        } else {
+                            colors.palette[bracket.level % colors.palette.len()]
+                        }),
+                        underline: None,
+                    },
+                );
+            }
         }
         for decoration in self.decorations {
             let DecorationKind::Inline(inline) = decoration.kind else {

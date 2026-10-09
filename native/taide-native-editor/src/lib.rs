@@ -2,6 +2,8 @@
 pub mod auto_closing;
 #[path = "auto-indent.rs"]
 mod auto_indent;
+#[path = "bracket-model.rs"]
+pub mod bracket_model;
 #[path = "bracket-navigation.rs"]
 pub mod bracket_navigation;
 #[path = "change-journal.rs"]

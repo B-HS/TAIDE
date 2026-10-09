@@ -180,6 +180,7 @@ pub struct BracketPatternSources {
 #[derive(Debug)]
 pub struct MonacoLanguage {
     pairs: CharacterPairs,
+    colorized_brackets: Option<Vec<BracketPair>>,
     word_pattern: Option<Pattern>,
     word: JsRegex,
     line_comment: Option<String>,
@@ -586,6 +587,16 @@ impl MonacoLanguage {
 
         Ok(Self {
             pairs,
+            colorized_brackets: configuration.colorized_bracket_pairs.as_ref().map(|pairs| {
+                pairs
+                    .iter()
+                    .filter(|(open, close)| !open.is_empty() && !close.is_empty())
+                    .map(|(open, close)| BracketPair {
+                        open: open.clone(),
+                        close: close.clone(),
+                    })
+                    .collect()
+            }),
             word_pattern: configuration.word_pattern.clone(),
             word,
             line_comment,
@@ -618,6 +629,10 @@ impl MonacoLanguage {
 impl LanguageRules for MonacoLanguage {
     fn pairs(&self) -> &CharacterPairs {
         &self.pairs
+    }
+
+    fn colorized_brackets(&self) -> Option<&[BracketPair]> {
+        self.colorized_brackets.as_deref()
     }
 
     fn word_range(&self, text: &str, byte: usize) -> Option<Range<usize>> {

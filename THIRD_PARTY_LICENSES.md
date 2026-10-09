@@ -514,6 +514,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   `editor/common/core/editorColorRegistry.js` and `base/common/scrollable.js`.
   The same MIT text is retained in `native/taide-native-ui/LICENSE-MONACO-FIND`.
 
+- `src/editor-brackets.rs` and the bracket display paths in
+  `src/editor-geometry.rs` adapt the bracket/indent guide display of Monaco
+  Editor 0.56.0 (MIT, Copyright (c) Microsoft Corporation):
+  `editor/browser/viewParts/indentGuides/indentGuides.js`,
+  `indentGuides.css`, `editor/common/viewModel/viewModelLines.js` and
+  `editor/common/core/editorColorRegistry.js`. The same MIT text is retained
+  in `native/taide-native-ui/LICENSE-MONACO-FIND`.
+
 ### Restored egui/eframe documentation assets
 
 - `native/taide-native-app/vendor/egui-input/assets/ferris.png` and
@@ -597,6 +605,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   editing rules (`ContiguousTokensStore.acceptEdit`,
   `ContiguousTokensEditing`) from Monaco Editor 0.56.0 (MIT, Copyright (c)
   Microsoft Corporation). The license text is kept next to the code as
+  `native/taide-native-editor/LICENSE-MONACO-SNIPPET`.
+- `src/bracket-model.rs` adapts bracket pairing, nesting and indentation
+  behavior from Monaco Editor 0.56.0 (MIT, Copyright (c) Microsoft
+  Corporation): `editor/common/model/bracketPairsTextModelPart/bracketPairsTree`,
+  `editor/common/model/guidesTextModelPart.js` and
+  `editor/common/languages/supports/languageBracketsConfiguration.js`.
+  `native/taide-native-syntax/tests/fixtures/bracket-display-reference.json`
+  records results obtained by directly executing these original model APIs.
+  The same MIT text is retained in
   `native/taide-native-editor/LICENSE-MONACO-SNIPPET`.
 - `src/folding.rs` ports the indentation based folding of Monaco Editor
   0.56.0 (MIT, Copyright (c) Microsoft Corporation), all from

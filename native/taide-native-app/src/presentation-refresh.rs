@@ -153,6 +153,7 @@ pub(crate) struct Appearances {
     pub(crate) shell: taide_native_ui::shell::ShellColors,
     pub(crate) editor: taide_native_ui::editor_surface::EditorAppearance,
     pub(crate) editor_display: taide_native_ui::editor_display::EditorDisplayColors,
+    pub(crate) editor_brackets: taide_native_ui::editor_brackets::EditorBracketColors,
     pub(crate) find: taide_native_ui::editor_find_widget::FindAppearance,
     pub(crate) banner: taide_native_ui::conflict_banner::BannerAppearance,
     pub(crate) lsp_status: crate::lsp::status::Appearance,
@@ -205,6 +206,7 @@ impl Appearances {
             shell: shell_colors(theme)?,
             editor,
             editor_display: taide_native_ui::presentation::editor_display_colors(theme)?,
+            editor_brackets: taide_native_ui::presentation::editor_bracket_colors(theme)?,
             find: taide_native_ui::editor_find_widget::FindAppearance {
                 background: color(theme, "editor.widgetBackground")?,
                 border: color(theme, "editor.widgetBorder")?,
@@ -514,6 +516,10 @@ mod tests {
             assert_eq!(
                 prepared.editor_display.scrollbar_hover,
                 crate::presentation::color(&theme, "scrollbar.thumbHover").unwrap()
+            );
+            assert_eq!(
+                prepared.editor_brackets,
+                taide_native_ui::presentation::editor_bracket_colors(&theme).unwrap()
             );
             assert_eq!(
                 prepared.terminal.font.family,

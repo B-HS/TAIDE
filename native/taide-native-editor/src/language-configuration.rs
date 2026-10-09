@@ -118,6 +118,10 @@ pub struct CommentTokens {
 pub trait LanguageRules {
     fn pairs(&self) -> &CharacterPairs;
 
+    fn colorized_brackets(&self) -> Option<&[BracketPair]> {
+        None
+    }
+
     fn word_range(&self, _text: &str, _byte: usize) -> Option<Range<usize>> {
         None
     }
