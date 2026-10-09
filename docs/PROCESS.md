@@ -1,6 +1,22 @@
 # PROCESS — TAIDE 작업 상태
 
-## 진행: 배치 19 — 구문 접기 공급·수동/Import 접기 명령 (2026-10-10)
+## 진행: 배치 20 — 정의·선언·타입/구현 이동과 참조·peek (2026-10-10)
+
+현재 상태: batch19 구현 `8832ac61`과 완료 근거 `bb4eb96e`를 일반 푸시해 로컬/원격 차이 0/0을 확인했습니다. 기능 대응표는 완료 282/588(48.0%), 부분 92·미연결 113·미구현 101입니다. 서브에이전트·workflow 없이 main이 직접 수행하고 Cargo/fmt는 실제 앞 process 종료를 확인한 뒤 하나씩 실행합니다.
+
+기준: 실제 TS location adapter·definition/declaration/type-definition/implementation/references·peek preload/position·Monaco goToCommands/definition link/references model/widget/tree·현재 native typed LSP/mirror/취소·문제/심볼 이동·뷰 zone·registry/keymap/본문 hit-test입니다. 단일/복수/없음·현재/옆 그룹 이동·참조/peek·Ctrl/Meta gesture와 파일/모델 인수 수명을 원본 화면/상호작용으로 연결합니다. 새 기능/디자인·원본 버그/내부 수치 강제 재현·engine/의존성·동결 browser/OS 합성 입력을 추가하지 않습니다.
+
+- [ ] a. 실제 기준·공식 API·공급 경계 — TS 5종 adapter/위치/파일 preload/openCodeEditor와 Monaco provider·명령/gate/키·정렬/그룹·peek/link UI, 설치된 공식 SDK와 기존 native 경계를 대조해 QA에 기록합니다.
+- [ ] b. 위치·peek 모델 — Location/LocationLink·origin/target/selection·UTF-16·정렬/중복/그룹과 현재 선택/문서/revision/owner/세대, 기존/새 peek 모델·파일 수/TTL/인수·dirty 상태를 의미 있는 검사로 검증합니다.
+- [ ] c. 실제 typed LSP 공급·수명 — 현재 프로젝트/문서/위치의 정의/선언/타입/구현/참조 요청, provider 병합/독립 오류·준비/미지원/빈·취소/편집/닫힘·다른 문서/프로젝트/재시작을 실제 child로 검증합니다.
+- [ ] d. 표시·명령 소비 — 원본 명령·기본 키·Ctrl/Meta link gesture와 단일/복수/없음·현재/옆 그룹/peek/순환, 원본 참조 tree/preview·키/마우스/focus/닫힘을 native-host 본문에 연결합니다. browser 분기·IME·readonly/wrap/접기/스크롤 gate를 보존합니다.
+- [ ] e. 실제 앱·파일 수명 통합 — 현재 창/pane/문서/탭·미저장 기존 본문·새 파일 loading·UTF-16 선택/reveal·옆 그룹·peek의 모델 인수/폐기와 늦은 선택·프로젝트 변경을 격리 앱/메모리 UI에서 검증합니다.
+- [ ] f. 전체 게이트 — 변경 크레이트 전체 대상을 --no-fail-fast로 직접 1회 실행하고 실패 영향만 재검사합니다. 보호 Trash 3/ignored·실기/standalone prototype 부채, frozen host/Wasm·포맷/diff·manifest/lock/engine 경계·디스크를 확인하며 Cargo를 하나씩 실행합니다.
+- [ ] g. 실제 기록·선별 Git·계속 진행 — 실제 닫힌 요구사항만 QA/기능표/근거/PROCESS에 반영하고 검증한 논리 단위를 선별 커밋·일반 푸시합니다. 다음 범위를 작성해 전체 전환을 계속합니다.
+
+진척: 배치 20 체크리스트 0/7(0%), 현재 기능 대응표 282/588(48.0%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. 다음 행동은 실제 정의/참조/peek의 공급·화면·파일 열기 계약을 읽는 것입니다.
+
+## 완료: 배치 19 — 구문 접기 공급·수동/Import 접기 명령 (2026-10-10)
 
 현재 상태: 구문·수동 접기와 실제 LSP/표면/앱 연결의 구현·native 전체 게이트를 마쳤습니다. editor 206·UI 362·app 663·LSP SDK 81건, 서로 다른 1312건이 통과했습니다. 최초 전체 실행의 실패 3건은 영향 대상 재검사로 해소했으며 prototype standalone의 lock/edition 포맷 부채는 QA에 보존했습니다. 기능 대응표는 완료 282/588(48.0%), 부분 92·미연결 113·미구현 101입니다. main이 직접 수행하며 Cargo/fmt는 실제 앞 process 종료를 확인한 뒤 하나씩 실행했습니다.
 
@@ -12,9 +28,9 @@
 - [x] d. 표시·명령 소비 — native-host 구문 범위/종류를 gutter·본문·19종 명령·원본 기본 키·수동/Import·view state에 연결했습니다. UI 전체 19대상·361통과/기대 순서 1실패 후 해당 1건 통과이며 현재 서로 다른 362건이 통과했습니다. 종류 없는 폴백·readonly·wrap/스크롤·기존 marker와 browser 분기를 보존했습니다.
 - [x] e. 실제 앱·고정 줄 통합 — 실제 LSP 응답의 Import 접기와 현재 pane/탭의 숨김 본문·UTF-16 reveal 펼치기를 실제 앱 검사에서 확인했습니다. 고정 줄 outline→구문→indent와 같은 revision의 Arc 교체·읽기 전용은 메모리 UI에서 통과했고 대형/접기 비활성 문서의 공급 state를 회수합니다. 실기 입력은 후속 게이트입니다.
 - [x] f. 전체 게이트 — 변경 editor/UI/app/LSP SDK의 전체 117대상을 --no-fail-fast로 직접 1회 실행하고 실패 영향만 재검사했습니다. 현재 서로 다른 1312통과·native 미해결 실패 0이며 보호 Trash 3/기존 ignored 5·실기 부채를 유지합니다. frozen host/Wasm·변경 native/SDK 포맷/diff exit 0, manifest/lock/engine 경계 유지·디스크 668GiB/64%입니다. standalone prototype 검사 시작의 lock 거절과 edition 포맷 차이는 전체 workspace/CI 잔여로 별도 기록했습니다.
-- [ ] g. 실제 기록·선별 Git·계속 진행 — 실제 닫힌 요구사항만 QA/기능표/근거/PROCESS에 갱신하고 검증한 논리 단위를 선별 커밋·일반 푸시합니다. 다음 필수 범위를 작성해 전체 전환을 계속합니다.
+- [x] g. 실제 기록·선별 Git·계속 진행 — 구현/검증 31파일을 `8832ac61`, 실제 완료 행/근거 갱신을 `bb4eb96e`로 선별 커밋·일반 푸시하고 로컬/원격 차이 0/0을 확인했습니다. 접기 1행을 완료로 반영해 282/588(48.0%)이며 상단 배치 20에서 정의/참조 이동·peek를 이어갑니다.
 
-진척: 배치 19 체크리스트 6/7(85.7%), 현재 기능 대응표 282/588(48.0%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. 다음 행동은 검증한 접기 변경을 선별 커밋하고 실제 요구사항 완료 근거를 갱신하는 것입니다.
+진척: 배치 19 체크리스트 7/7(100%), 현재 기능 대응표 282/588(48.0%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. 일반 푸시·0/0을 확인했고 상단 배치 20으로 전체 전환을 계속합니다.
 
 ## 완료: 배치 18 — 워크스페이스 심볼 검색·팔레트 이동 (2026-10-10)
 
