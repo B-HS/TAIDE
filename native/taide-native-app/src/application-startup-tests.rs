@@ -224,3 +224,216 @@ fn actual_app_constructor는_bundle_startup_settings_file_save와_정상_exit_ow
     assert!(ports.upgrade().is_none());
     assert!(hub.upgrade().is_none());
 }
+
+#[test]
+fn actual_app의_파일본문과_아웃라인은_같은_문서_심볼과_현재_pane_caret를_소비한다() {
+    const SCREEN_WIDTH: f32 = 1000.0;
+    const SCREEN_HEIGHT: f32 = 700.0;
+    const CARET: usize = 8;
+    let mut fixture = Fixture {
+        directory: std::env::temp_dir()
+            .join(format!("taide-native-navigation-app-{}", ProjectId::new())),
+        application: None,
+    };
+    let data = fixture.directory.join("data");
+    let root = fixture.directory.join("project");
+    let public = fixture.directory.join("bin/remote-public");
+    for directory in [&data, &root, &public] {
+        std::fs::create_dir_all(directory).unwrap();
+    }
+    std::fs::write(public.join("index.html"), INDEX).unwrap();
+    std::fs::write(public.join("app.wasm"), MODULE).unwrap();
+    let file = root.join("current.rs");
+    std::fs::write(&file, "class\n  method\nend").unwrap();
+    let path = file.canonicalize().unwrap().to_str().unwrap().to_owned();
+    let root = root.canonicalize().unwrap().to_str().unwrap().to_owned();
+    let state = AppState::new(AppPaths::new(data));
+    {
+        let mut settings = state.settings.write();
+        settings.remote_access_enabled = false;
+        settings.ide_integration_enabled = false;
+        settings.agent_hooks_enabled = false;
+    }
+    let project = ProjectId::new();
+    let pane = PaneId::new();
+    let tab = TabId::new();
+    let slot = ShellSlotId::new();
+    state.projects.write().insert(
+        project.clone(),
+        Project {
+            id: project.clone(),
+            root: root.clone(),
+            name: "synthetic navigation".into(),
+            capabilities: Vec::new(),
+            root_missing: false,
+            last_opened_at: 0.0,
+            display: Default::default(),
+        },
+    );
+    let mut layout = taide_layout::service::default_layout();
+    layout.root = taide_model::layout::PaneNode::Leaf {
+        id: pane.clone(),
+        tabs: vec![Tab {
+            id: tab.clone(),
+            kind: TabKind::File { path: path.clone() },
+            title: "current.rs".into(),
+            pinned: false,
+            preview: false,
+            dirty: false,
+            view_state: None,
+        }],
+        active: Some(tab.clone()),
+    };
+    layout.focused_pane = pane.clone();
+    state.layouts.write().insert(project.clone(), layout);
+    {
+        let mut session = state.session.write();
+        session.projects = vec![taide_model::project::ProjectRef {
+            id: project.clone(),
+            root,
+            name: "synthetic navigation".into(),
+            display: Default::default(),
+            root_missing: false,
+        }];
+        session.active_project = Some(project.clone());
+        session.focused_shell_slot = Some(slot.clone());
+        session.shell_slots = Some(taide_model::project::ShellSlotTree::Leaf {
+            slot_id: slot.clone(),
+            project_id: project.clone(),
+        });
+    }
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let tasks = TaskSupervisor::new(runtime.handle().clone());
+    let context = egui::Context::default();
+    fixture.application = Some(
+        NativeApplication::new(
+            &eframe::CreationContext::_new_kittest(context.clone()),
+            runtime,
+            state,
+            tasks,
+            fixture.directory.join("bin/taide"),
+            Vec::new(),
+        )
+        .unwrap(),
+    );
+    let application = fixture.application.as_mut().unwrap();
+    let paint = |application: &mut NativeApplication| {
+        let mut output = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(SCREEN_WIDTH, SCREEN_HEIGHT),
+                )),
+                ..Default::default()
+            },
+            |ui| eframe::App::ui(application, ui, &mut eframe::Frame::_new_kittest()),
+        );
+        output.textures_delta.clear();
+        output
+    };
+    paint(application);
+    wait_for(
+        application,
+        &context,
+        "navigation-document-read",
+        |application| application.files.contains_key(&path),
+    );
+    let document = application.files[&path].id;
+    let snapshot = application.store.documents().snapshot(document).unwrap();
+    let response = serde_json::from_value(serde_json::json!([{"name":"Outer","kind":5,"range":{"start":{"line":0,"character":0},"end":{"line":2,"character":3}},"selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"children":[{"name":"method","kind":6,"range":{"start":{"line":1,"character":2},"end":{"line":1,"character":8}},"selectionRange":{"start":{"line":1,"character":2},"end":{"line":1,"character":8}}}]}])).unwrap();
+    let model = Arc::new(
+        taide_native_editor::document_symbols::DocumentSymbols::new(
+            &snapshot,
+            &taide_lsp::service::workspace_folder_uri(&path)
+                .parse()
+                .unwrap(),
+            Some(response),
+        )
+        .unwrap(),
+    );
+    application.editor_symbols = crate::editor_symbols::State::default();
+    let request = application
+        .editor_symbols
+        .observe(&project, snapshot.clone(), HashSet::new(), Instant::now())
+        .unwrap();
+    assert!(
+        application
+            .editor_symbols
+            .accept(
+                &request,
+                &snapshot,
+                HashSet::new(),
+                Ok(crate::editor_symbols::Response {
+                    palette_provider: None,
+                    palette: model,
+                    groups: Vec::new(),
+                    error: None
+                })
+            )
+            .unwrap()
+    );
+    let view = application
+        .store
+        .attach_view(
+            ViewKey {
+                window: WINDOW_LABEL.into(),
+                pane,
+                tab,
+            },
+            document,
+        )
+        .unwrap();
+    application
+        .store
+        .set_view_state(
+            view,
+            taide_native_editor::view::SelectionSet {
+                primary: 0,
+                selections: vec![taide_native_editor::view::Selection {
+                    anchor: CARET,
+                    head: CARET,
+                }],
+            },
+            Default::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    application.symbol_sidebars.entry(&project, &slot).view = crate::symbol_sidebar::View::Outline;
+    let output = paint(application);
+    let labels = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) => Some(text.galley.job.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        labels.iter().filter(|text| **text == "Outer").count() >= 2,
+        "labels={labels:?}"
+    );
+    assert!(
+        labels.iter().filter(|text| **text == "method").count() >= 2,
+        "labels={labels:?}"
+    );
+    assert!(labels.iter().any(|text| *text == "current.rs"));
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .revision,
+        snapshot.revision
+    );
+    application.close(&context);
+    wait_for(application, &context, "navigation-exit", |application| {
+        application.is_exit_ready
+    });
+    assert_eq!(application.services.tasks.tracked_count(), 0);
+    eframe::App::on_exit(application);
+    drop(fixture.application.take());
+}

@@ -10,6 +10,12 @@ pub mod application;
 #[path = "application-ports.rs"]
 pub mod application_ports;
 pub mod bootstrap;
+#[path = "breadcrumb-host.rs"]
+mod breadcrumb_host;
+#[path = "breadcrumb-menu.rs"]
+mod breadcrumb_menu;
+#[path = "breadcrumbs.rs"]
+pub mod breadcrumbs;
 #[cfg(test)]
 #[path = "button-key-tests.rs"]
 mod button_key_tests;
@@ -69,6 +75,8 @@ pub mod missing_draft;
 mod modal;
 #[path = "motion-preference.rs"]
 mod motion_preference;
+#[path = "navigation-icons.rs"]
+mod navigation_icons;
 pub mod open_with;
 pub mod persistence;
 pub mod presentation;
@@ -177,6 +185,12 @@ mod status_chord;
 mod status_editor;
 #[path = "status-ide.rs"]
 mod status_ide;
+#[path = "symbol-navigation.rs"]
+mod symbol_navigation;
+#[path = "symbol-outline.rs"]
+mod symbol_outline;
+#[path = "symbol-sidebar.rs"]
+mod symbol_sidebar;
 mod system_fonts;
 #[path = "system-usage.rs"]
 mod system_usage;

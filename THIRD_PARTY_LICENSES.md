@@ -633,6 +633,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   Lucide Icons and Contributors); the ISC text is retained in the adjacent
   `resources/icons/LICENSE.txt`.
 
+- `native/taide-native-app/src/breadcrumb-menu.rs` adapts sibling-menu keyboard
+  navigation, focus restoration and typeahead from `@radix-ui/react-menu`
+  2.1.24 (MIT, Copyright (c) 2022 WorkOS). The MIT text is retained in
+  `native/taide-native-app/LICENSE-RADIX-MENU`. The seven additional symbol/tree
+  SVG files in `native/taide-native-app/resources/icons` carry geometry from
+  `lucide-react` 1.28.0 under the same adjacent ISC license.
+
 - `src/find.rs` and `src/find-replacement.rs` adapt the search driving,
   word boundary, newline, empty match, replacement parsing and case
   preservation rules from Monaco Editor 0.56.0 (MIT, Copyright (c)

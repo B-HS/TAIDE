@@ -171,6 +171,12 @@ pub enum HostCommand {
         viewport: eframe::egui::ViewportId,
     },
     OpenMarker(crate::editor_problems::Request),
+    OpenBreadcrumbFile {
+        source: crate::breadcrumbs::Source,
+        path: String,
+        viewport: eframe::egui::ViewportId,
+    },
+    RevealBreadcrumbTree(crate::breadcrumbs::Source),
     OpenDocument(String),
     Save {
         path: String,
@@ -192,6 +198,13 @@ pub enum HostCommand {
 }
 
 pub enum HostReply {
+    BreadcrumbOpened {
+        result: AppResult<crate::terminal_tabs::OpenedFileLink>,
+    },
+    BreadcrumbTree {
+        source: crate::breadcrumbs::Source,
+        result: AppResult<TreeRowPage>,
+    },
     AppFileWritten {
         request: crate::app_file_write::WriteRequest,
         result: AppResult<crate::app_file_write::PreparedWrite>,
@@ -1340,6 +1353,37 @@ async fn dispatch(
                 ))
             };
             Some(HostReply::MarkerOpened { request, result })
+        }
+        HostCommand::OpenBreadcrumbFile {
+            source,
+            path,
+            viewport,
+        } => {
+            let result = crate::breadcrumb_host::open(services, &source, path, viewport).await;
+            Some(HostReply::BreadcrumbOpened { result })
+        }
+        HostCommand::RevealBreadcrumbTree(source) => {
+            let active = services
+                .state
+                .layouts
+                .read()
+                .get(&source.project)
+                .is_some_and(|layout| source.is_active(layout));
+            let result = if active {
+                tree_actions::tree_reveal(
+                    &services.state,
+                    &services.tree,
+                    &services.tasks,
+                    source.project.clone(),
+                    source.path.clone(),
+                )
+                .await
+            } else {
+                Err(AppError::NotFound(
+                    "native breadcrumb source is closed or inactive".into(),
+                ))
+            };
+            Some(HostReply::BreadcrumbTree { source, result })
         }
         HostCommand::OpenFileTab {
             project,

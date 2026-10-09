@@ -140,6 +140,10 @@ pub struct NativeApplication {
     problems_appearance: crate::problems::Appearance,
     explorer_appearance: crate::explorer::Appearance,
     explorer_icons: crate::problems_icons::Icons,
+    navigation_appearance: crate::symbol_outline::Appearance,
+    navigation_icons: crate::navigation_icons::Icons,
+    symbol_sidebars: crate::symbol_sidebar::Views,
+    breadcrumbs: crate::breadcrumbs::Views,
     shell: NativeShell,
     zen_fullscreen_state: crate::zen::Fullscreen,
     keybindings: crate::keybinding_editor::Editor,
@@ -431,6 +435,10 @@ impl NativeApplication {
             problems_appearance: appearances.problems,
             explorer_appearance: appearances.explorer,
             explorer_icons: crate::problems_icons::Icons::new()?,
+            navigation_appearance: appearances.navigation,
+            navigation_icons: crate::navigation_icons::Icons::new()?,
+            symbol_sidebars: crate::symbol_sidebar::Views::default(),
+            breadcrumbs: crate::breadcrumbs::Views::default(),
             shell,
             zen_fullscreen_state,
             keybindings,
@@ -671,6 +679,7 @@ impl NativeApplication {
                                         self.status_chord_appearance = appearances.status_chord;
                                         self.problems_appearance = appearances.problems;
                                         self.explorer_appearance = appearances.explorer;
+                                        self.navigation_appearance = appearances.navigation;
                                         self.tooltip_appearance = appearances.tooltip;
                                         self.terminal_appearance = appearances.terminal;
                                         self.keybindings.set_appearance(appearances.keybindings);
@@ -725,6 +734,59 @@ impl NativeApplication {
                                     Instant::now(),
                                 );
                                 context.request_repaint_after(crate::editor_reveal::REVEAL_TTL);
+                            }
+                            Err(error) => self.report(&error),
+                        }
+                    }
+                }
+                HostReply::BreadcrumbOpened { result } => {
+                    if self.closing.is_none() && !self.services.state.is_shutting_down() {
+                        match result {
+                            Ok(opened)
+                                if crate::editor_problems::reply_is_current(
+                                    &opened,
+                                    &self.services.state.layouts.read(),
+                                ) =>
+                            {
+                                self.controller.apply_layouts(HashMap::from([(
+                                    opened.project.clone(),
+                                    opened.layout.clone(),
+                                )]));
+                                self.reveals.queue(
+                                    &opened,
+                                    &self.services.state.layouts.read(),
+                                    Instant::now(),
+                                );
+                                context.request_repaint_after(crate::editor_reveal::REVEAL_TTL);
+                            }
+                            Ok(_) => {}
+                            Err(error) => self.report(&error),
+                        }
+                    }
+                }
+                HostReply::BreadcrumbTree { source, result } => {
+                    let current = self.store.documents().snapshot(source.document).ok();
+                    let generation = self
+                        .editor_symbols
+                        .palette(Some(&source.project), current.as_ref())
+                        .generation;
+                    if self.closing.is_none()
+                        && !self.services.state.is_shutting_down()
+                        && self
+                            .services
+                            .state
+                            .layouts
+                            .read()
+                            .get(&source.project)
+                            .is_some_and(|layout| source.is_active(layout))
+                        && current
+                            .as_ref()
+                            .is_some_and(|current| source.describes(current, generation))
+                    {
+                        match result {
+                            Ok(page) => {
+                                self.trees.insert(source.project, page);
+                                context.request_repaint();
                             }
                             Err(error) => self.report(&error),
                         }
@@ -3755,6 +3817,7 @@ impl NativeApplication {
                 self.status_chord_appearance = appearances.status_chord;
                 self.problems_appearance = appearances.problems;
                 self.explorer_appearance = appearances.explorer;
+                self.navigation_appearance = appearances.navigation;
                 self.tooltip_appearance = appearances.tooltip;
                 self.terminal_appearance = appearances.terminal;
                 self.keybindings.set_appearance(appearances.keybindings);
@@ -3859,6 +3922,14 @@ impl NativeApplication {
             .reconcile(self.controller.snapshot().shell.tree.as_ref());
         self.problems
             .reconcile(self.controller.snapshot().shell.tree.as_ref());
+        self.symbol_sidebars
+            .reconcile(self.controller.snapshot().shell.tree.as_ref());
+        self.breadcrumbs.reconcile(
+            context,
+            &self.services.state.layouts.read(),
+            self.controller.snapshot().shell.tree.as_ref(),
+            &self.shell.scope,
+        );
         self.reconcile_lsp();
         if let Some(delay) = self.editor_symbols.next_refresh(Instant::now()) {
             context.request_repaint_after(delay);
@@ -4075,6 +4146,12 @@ impl eframe::App for NativeApplication {
             self.web_previews.invalidate_media();
         }
         let snapshot = self.controller.snapshot();
+        self.breadcrumbs.reconcile(
+            &context,
+            &snapshot.layouts,
+            snapshot.shell.tree.as_ref(),
+            &self.shell.scope,
+        );
         self.explorer_clipboards
             .reconcile(snapshot.shell.tree.as_ref());
         if self.closing.is_none() && !self.services.state.is_shutting_down() {
@@ -4216,6 +4293,10 @@ impl eframe::App for NativeApplication {
             problems_appearance: &self.problems_appearance,
             explorer_appearance: &self.explorer_appearance,
             explorer_icons: &mut self.explorer_icons,
+            navigation_appearance: &self.navigation_appearance,
+            navigation_icons: &mut self.navigation_icons,
+            symbol_sidebars: &mut self.symbol_sidebars,
+            breadcrumbs: &mut self.breadcrumbs,
             diagnostics: &self.lsp_diagnostics,
             editor_symbols: &self.editor_symbols,
             focused_slot: snapshot.shell.focused.as_ref(),
@@ -5021,6 +5102,10 @@ struct AppSurfaces<'a> {
     problems_appearance: &'a crate::problems::Appearance,
     explorer_appearance: &'a crate::explorer::Appearance,
     explorer_icons: &'a mut crate::problems_icons::Icons,
+    navigation_appearance: &'a crate::symbol_outline::Appearance,
+    navigation_icons: &'a mut crate::navigation_icons::Icons,
+    symbol_sidebars: &'a mut crate::symbol_sidebar::Views,
+    breadcrumbs: &'a mut crate::breadcrumbs::Views,
     diagnostics: &'a crate::diagnostics::Store,
     editor_symbols: &'a crate::editor_symbols::State,
     focused_slot: Option<&'a ShellSlotId>,
@@ -5173,6 +5258,77 @@ impl ShellSurfaces for AppSurfaces<'_> {
                 return;
             }
         };
+        let sidebar = self.symbol_sidebars.entry(project, slot);
+        match sidebar.switch(
+            ui,
+            egui::Id::new(("symbol-sidebar", project, slot)),
+            self.locale,
+            self.navigation_appearance,
+            self.navigation_icons,
+        ) {
+            Ok(buttons) => {
+                for (view, response) in buttons {
+                    self.tooltips.show(
+                        &response,
+                        &presentation::message(self.locale, view.label(), &[]),
+                        egui::RectAlign::BOTTOM,
+                        self.tooltip_appearance,
+                    );
+                }
+            }
+            Err(error) => *self.status = Some(error.to_string()),
+        }
+        if sidebar.view == crate::symbol_sidebar::View::Outline {
+            let active = self
+                .layouts
+                .get(project)
+                .and_then(|layout| crate::symbol_sidebar::window_tree(project, layout, self.scope))
+                .and_then(|(root, focused)| taide_native_ui::snapshot::active_tab(root, focused))
+                .and_then(|tab| match &tab.kind {
+                    TabKind::File { path } => Some((tab, path.as_str())),
+                    _ => None,
+                });
+            let document = active
+                .and_then(|(_, path)| self.files.get(path))
+                .and_then(|file| self.store.documents().snapshot(file.id).ok());
+            match sidebar.outline.show(
+                ui,
+                egui::Id::new(("symbol-outline", project, slot)),
+                crate::symbol_outline::Scope {
+                    path: active.map(|(_, path)| path),
+                    symbols: self
+                        .editor_symbols
+                        .palette(Some(project), document.as_ref()),
+                },
+                self.locale,
+                self.navigation_appearance,
+                self.navigation_icons,
+            ) {
+                Ok(output) => {
+                    if let (Some((generation, index)), Some((tab, path)), Some(document)) =
+                        (output.reveal, active, document.as_ref())
+                        && let Some(position) = self
+                            .editor_symbols
+                            .position(project, document, generation, index)
+                    {
+                        self.reveals.queue_position(
+                            crate::editor_reveal::Target {
+                                project,
+                                tab: &tab.id,
+                                path,
+                                viewport: ui.ctx().viewport_id(),
+                            },
+                            position,
+                            self.layouts,
+                            Instant::now(),
+                        );
+                        ui.ctx().request_repaint();
+                    }
+                }
+                Err(error) => *self.status = Some(error.to_string()),
+            }
+            return;
+        }
         let Some(page) = self.trees.get(project) else {
             if !self.tree_loading.contains(project) {
                 self.load_trees.push(project.clone());
@@ -5765,6 +5921,116 @@ impl ShellSurfaces for AppSurfaces<'_> {
 }
 
 impl AppSurfaces<'_> {
+    fn show_breadcrumbs(
+        &mut self,
+        ui: &mut Ui,
+        pane: &PaneId,
+        tab: &Tab,
+        view: ViewId,
+        snapshot: &taide_native_editor::document::DocumentSnapshot,
+        intents: &mut Vec<ShellIntent>,
+    ) -> AppResult<()> {
+        let owner = self
+            .layouts
+            .iter()
+            .find(|(_, layout)| {
+                taide_layout::service::all_roots(layout)
+                    .any(|root| taide_layout::service::find_leaf(root, pane).is_some())
+            })
+            .map(|(project, _)| project);
+        let project =
+            owner.and_then(|owner| self.projects.iter().find(|project| &project.id == owner));
+        let symbols = self.editor_symbols.palette(owner, Some(snapshot));
+        let source = match (&tab.kind, project) {
+            (TabKind::File { path }, Some(project)) => Some(crate::breadcrumbs::Source {
+                project: project.id.clone(),
+                pane: pane.clone(),
+                tab: tab.id.clone(),
+                path: path.clone(),
+                document: snapshot.id,
+                revision: snapshot.revision,
+                language: snapshot.metadata.language_id.clone(),
+                generation: symbols.generation,
+            }),
+            _ => None,
+        };
+        let caret = self
+            .store
+            .views()
+            .get(view)
+            .and_then(|state| state.selection.selections.get(state.selection.primary))
+            .map(|selection| selection.head);
+        let rows = owner
+            .and_then(|project| self.trees.get(project))
+            .map_or(&[][..], |page| page.rows.as_slice());
+        let mut empty = crate::breadcrumbs::Bar::default();
+        let bar = match &source {
+            Some(source) => self.breadcrumbs.entry(ui.ctx().viewport_id(), source),
+            None => &mut empty,
+        };
+        let output = bar.show(
+            ui,
+            egui::Id::new(("breadcrumbs", ui.ctx().viewport_id(), pane, &tab.id)),
+            crate::breadcrumbs::Scope {
+                source,
+                root: project.map_or("", |project| project.root.as_str()),
+                caret,
+                symbols,
+                rows,
+            },
+            self.locale,
+            self.navigation_appearance,
+            self.navigation_icons,
+        )?;
+        if output
+            .segments
+            .iter()
+            .chain(&output.entries)
+            .any(|response| response.has_focus())
+        {
+            *self.focused = Some((pane.clone(), tab.id.clone()));
+            if Some(pane) != self.target {
+                intents.push(ShellIntent::Mutate(ShellMutation::FocusPane(pane.clone())));
+            }
+        }
+        for action in output.actions {
+            match action {
+                crate::breadcrumbs::Action::RevealTree(source) => self
+                    .commands
+                    .push(HostCommand::RevealBreadcrumbTree(source)),
+                crate::breadcrumbs::Action::OpenFile { source, path } => {
+                    self.commands.push(HostCommand::OpenBreadcrumbFile {
+                        source,
+                        path,
+                        viewport: ui.ctx().viewport_id(),
+                    })
+                }
+                crate::breadcrumbs::Action::RevealSymbol { source, index } => {
+                    if let Some(position) = self.editor_symbols.position(
+                        &source.project,
+                        snapshot,
+                        source.generation,
+                        index,
+                    ) {
+                        self.reveals.queue_position(
+                            crate::editor_reveal::Target {
+                                project: &source.project,
+                                tab: &source.tab,
+                                path: &source.path,
+                                viewport: ui.ctx().viewport_id(),
+                            },
+                            position,
+                            self.layouts,
+                            Instant::now(),
+                        );
+                        ui.ctx().request_repaint();
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn show_document(
         &mut self,
         ui: &mut Ui,
@@ -5774,37 +6040,6 @@ impl AppSurfaces<'_> {
         path: Option<&str>,
         intents: &mut Vec<ShellIntent>,
     ) {
-        if path.is_some() {
-            let variant = if self.store.has_disk_conflict(document).unwrap_or(false) {
-                Some(BannerVariant::ChangedOnDisk)
-            } else {
-                self.restore_notices.get(&tab.id).copied()
-            };
-            if let Some(variant) = variant {
-                let output = taide_native_ui::conflict_banner::show(
-                    ui,
-                    self.locale,
-                    self.banner_appearance,
-                    variant,
-                );
-                if let Some(action) = output.action {
-                    self.banner_actions.push((tab.id.clone(), action));
-                }
-            }
-            if let Ok(snapshot) = self.store.documents().snapshot(document)
-                && snapshot.metadata.read_only
-            {
-                let key = if snapshot.metadata.lossy {
-                    "editor.readOnlyLossyEncoding"
-                } else {
-                    "editor.readOnlyLargeFile"
-                };
-                ui.colored_label(
-                    self.banner_appearance.warning,
-                    presentation::message(self.locale, key, &[]),
-                );
-            }
-        }
         let key = ViewKey {
             window: WINDOW_LABEL.into(),
             pane: pane.clone(),
@@ -5815,16 +6050,46 @@ impl AppSurfaces<'_> {
             .attach_view(key, document)
             .map_err(editor_error)
             .and_then(|view| {
-                let mut focus = Some(pane) == self.target
-                    && self
-                        .focused
-                        .as_ref()
-                        .is_none_or(|(old_pane, old_tab)| old_pane != pane || old_tab != &tab.id);
                 let snapshot = self
                     .store
                     .documents()
                     .snapshot(document)
                     .map_err(editor_error)?;
+                self.show_breadcrumbs(ui, pane, tab, view, &snapshot, intents)?;
+                let mut focus = Some(pane) == self.target
+                    && self
+                        .focused
+                        .as_ref()
+                        .is_none_or(|(old_pane, old_tab)| old_pane != pane || old_tab != &tab.id);
+                if path.is_some() {
+                    if snapshot.metadata.read_only {
+                        let key = if snapshot.metadata.lossy {
+                            "editor.readOnlyLossyEncoding"
+                        } else {
+                            "editor.readOnlyLargeFile"
+                        };
+                        ui.colored_label(
+                            self.banner_appearance.warning,
+                            presentation::message(self.locale, key, &[]),
+                        );
+                    }
+                    let variant = if self.store.has_disk_conflict(document).unwrap_or(false) {
+                        Some(BannerVariant::ChangedOnDisk)
+                    } else {
+                        self.restore_notices.get(&tab.id).copied()
+                    };
+                    if let Some(variant) = variant {
+                        let output = taide_native_ui::conflict_banner::show(
+                            ui,
+                            self.locale,
+                            self.banner_appearance,
+                            variant,
+                        );
+                        if let Some(action) = output.action {
+                            self.banner_actions.push((tab.id.clone(), action));
+                        }
+                    }
+                }
                 let settings = self.services.state.settings.read();
                 let indent = taide_native_editor::indent::resolve(
                     &snapshot.metadata.editor_config,
