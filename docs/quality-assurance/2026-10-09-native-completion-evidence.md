@@ -1,6 +1,6 @@
 # Rust-native 전체 완료 근거 점검
 
-기준: 2026-10-09, 브랜치 `to_rust_native`. 최초 읽기 전용 점검은 HEAD `d1d98d4d`에서 수행했고 이후 batch8~11의 실제 구현·검증 근거를 현재 표에 반영했습니다. 서브에이전트·workflow 없이 메인이 직접 수행합니다. 실제 화면/OS 입력은 미검증입니다.
+기준: 2026-10-09, 브랜치 `to_rust_native`. 최초 읽기 전용 점검은 HEAD `d1d98d4d`에서 수행했고 이후 batch8~12의 실제 구현·검증 근거를 현재 표에 반영했습니다. 서브에이전트·workflow 없이 메인이 직접 수행합니다. 실제 화면/OS 입력은 미검증입니다.
 
 ## 완료율을 판정할 기준
 
@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | 전체 기능 대응 | TS 기능별 native 구현·앱 도달 경로·동작 검증을 연결한 최신 전수 대응표 | 배치 1~7 이후 전수 재판정 없음. 현재 전체 기능 완료율 미산정 |
 | 화면 대응 | 테마·로케일·표시 상태별 실제 화면과 기존 TS 구성 대조 | 배치 4~7 QA의 실제 화면 확인 항목 미완료 |
-| 자동 검사 | 변경 크레이트 전체 대상 결과와 미해결 실패·보호 검사의 해소 근거 | batch11 전체 대상 editor 192·app 612 통과. UI 최초 309 통과·기대 목록 1 실패, 수정 후 해당 1건 통과로 서로 다른 310건의 성공 근거. syntax 158건은 변경이 없어 batch10 근거 재사용. XLML 기존 실패는 batch8에서 해소. Trash 보호 검사 3건 제외·미검증, ignored 성능 4건·실기 부채 유지. `2026-10-09-native-batch11-sticky-scroll.md` 참조 |
+| 자동 검사 | 변경 크레이트 전체 대상 결과와 미해결 실패·보호 검사의 해소 근거 | batch12 UI 기본 전체 312·inspection 추가 18로 서로 다른 330건, app 전체 612·SDK 단위 52/문서 167 통과. touch active 추가 실패를 수정하고 영향 1건 통과. editor 192·syntax 158건은 변경이 없어 batch11/10 근거 재사용. XLML 기존 실패는 batch8에서 해소. Trash 보호 검사 3건 제외·미검증, ignored 성능 4건·실기 부채 유지. `2026-10-09-native-batch12-minimap.md` 참조 |
 | 실기·성능·출시 | roadmap Phase 5~9의 IME·접근성·다중 창·대형 파일·soak·보안·패키징·beta·삭제 게이트 | 전체 통과 증거 없음. ignored 성능 검사와 실기 부채를 통과로 처리하지 않음 |
 
 테스트 개수나 배치 체크리스트 완료 비율을 전체 기능 대응률로 환산하지 않습니다. 잔여시간은 남은 기능과 게이트별 규모·실제 실행 시간 근거를 확보한 뒤 산정합니다.
@@ -22,11 +22,11 @@
 | 대상 | 실제 근거 | 판정 |
 | --- | --- | --- |
 | 찾기 명령 | batch8에서 `native/taide-native-ui/src/editor-find.rs`·`editor-find-widget.rs`, registry의 native-host Find 실행·지원 gate, app의 뷰별 상태/큐/키/강조 연결을 구현. 순수 코어 13건과 최종 UI 전체 271건 통과, 앱 전체·실패 선별 재검사와 동결 컴파일 확인 | 구현·자동 검증 연결됨. 실제 화면/OS 입력은 미검증. `2026-10-09-native-batch8-find.md` 참조 |
-| 표시 설정 공급 | batch9~11 `presentation::editor_presentation`이 native-host의 공백·rulers·캐럿·스크롤 7필드와 괄호 색상/안내선 2필드·고정 줄을 실제 설정으로 공급합니다. app의 presentation-refresh·application은 테마 공백/ruler/스크롤바·괄호/들여쓰기·고정 줄 색과 기존 bold/folding을 연결하고 갱신합니다. 고정 줄 명령·메뉴 토글은 원본의 세션 메모리 변경이고 실제 설정 변경에 동기화됩니다. browser 공급은 기존 word-wrap 경로 유지 | 설정→표시→앱 경로 자동 검증 연결. 실제 화면은 미검증 |
-| 표시 설정 소비 | 기존 14옵션 중 word wrap·folding·bold family와 신규 공백·rulers·캐럿 스타일/깜빡임/이동·아래 여백/부드러운 스크롤·괄호 색상/안내선·고정 줄을 소비합니다. `editor-display.rs`·`editor-caret.rs`·`editor-scroll.rs`·`editor-brackets.rs`·`editor-sticky-scroll.rs`와 surface 연결 및 별도 optional 색 공급입니다 | 기존 14옵션 중 13개의 소비 근거입니다. 기능 완료율이 아닙니다. batch9~11 표시 QA 참조 |
+| 표시 설정 공급 | batch9~12 `presentation::editor_presentation`이 native-host의 공백·rulers·캐럿·스크롤 7필드와 괄호 색상/안내선 2필드·고정 줄·미니맵을 실제 설정으로 공급합니다. app의 presentation-refresh·application은 테마 공백/ruler/스크롤바·괄호/들여쓰기·고정 줄·미니맵 색과 기존 bold/folding을 연결하고 갱신합니다. 고정 줄 명령·메뉴 토글은 원본의 세션 메모리 변경이고 실제 설정 변경에 동기화됩니다. 미니맵 토글은 원본 SettingsPatch 저장 경로와 queued fresh 값으로 연결합니다. browser 공급은 기존 word-wrap 경로 유지 | 설정→표시→앱 경로 자동 검증 연결. 실제 화면은 미검증 |
+| 표시 설정 소비 | 기존 14옵션 중 word wrap·folding·bold family와 신규 공백·rulers·캐럿 스타일/깜빡임/이동·아래 여백/부드러운 스크롤·괄호 색상/안내선·고정 줄·미니맵을 소비합니다. `editor-display.rs`·`editor-caret.rs`·`editor-scroll.rs`·`editor-brackets.rs`·`editor-sticky-scroll.rs`·`editor-minimap.rs`·`editor-minimap-layout.rs`와 surface 연결 및 별도 optional 색 공급입니다 | 기존 14옵션 중 14개의 소비 근거입니다. 전체 표시 기능 완료를 뜻하지 않습니다. 기능 완료율이 아닙니다. batch9~12 표시 QA 참조 |
 | LSP 사용자 상호작용 | `native/taide-native-app/src/lsp.rs`에서 직접 확인한 typed request는 저장 시 Formatting·ExecuteCommand·CodeActionRequest·CodeActionResolveRequest 경로 | 저장 기능 검증으로 완성·hover·signature·이동·peek 등 전체 LSP UI 완료를 입증할 수 없음 |
 
-아직 소비하지 않는 표시 필드는 `minimap`입니다. 기본 들여쓰기 안내선은 batch10에서 실제 표시 줄·wrap/접기·clip·스크롤에 연결했습니다. 고정 줄은 batch11에서 버전/언어를 확인하는 모델과 접기 fallback·표시/입력·세션 토글을 연결했습니다. 실제 LSP 심볼/구문 접기 provider와 Ctrl/Meta 정의 이동은 후속 LSP 범위입니다. 리거처·괄호 일치 테두리·진단/overview·주입/블록·LSP 표시 설정도 후속 구현에서 확인해야 합니다. batch11의 editor 192·UI 310·app 612 성공 근거와 UI 실패 재검사, 변경 없는 syntax 158 근거 재사용·보호 3 제외를 개별 QA에 기록합니다. batch9의 egui 단위 50·문서 167 통과·문서 1 ignored는 SDK가 변경되지 않아 재사용합니다. 브라우저 host/Wasm·포맷·동결 경계는 각 batch QA에 기록합니다.
+미니맵은 batch12에서 원본 prebaked 문자·표시 줄 layout·선택·테마·click/drag/touch/wheel·설정 저장을 연결했습니다. 실제 진단/검색/SCM 미니맵 장식은 후속 공급 범위입니다. 기본 들여쓰기 안내선은 batch10에서 실제 표시 줄·wrap/접기·clip·스크롤에 연결했습니다. 고정 줄은 batch11에서 버전/언어를 확인하는 모델과 접기 fallback·표시/입력·세션 토글을 연결했습니다. 실제 LSP 심볼/구문 접기 provider와 Ctrl/Meta 정의 이동은 후속 LSP 범위입니다. 리거처·괄호 일치 테두리·진단/overview·주입/블록·LSP 표시 설정도 후속 구현에서 확인해야 합니다. batch12의 UI 서로 다른 330·app 612·egui 단위 52/문서 167 성공 근거와 touch active 실패 재검사, 변경 없는 editor 192·syntax 158 근거 재사용·보호 3 제외·SDK 문서 1 ignored를 개별 QA에 기록합니다. 브라우저 host/Wasm·포맷·동결 경계는 각 batch QA에 기록합니다.
 
 배치 7의 문서 명령 34개·커서 명령 23개 연결은 `command-registry.rs`의 `line_command`·`cursor_command`, app `command-dispatch.rs`의 `apply_document_edits`와 해당 통합 QA에서 확인했습니다. 명령 카탈로그 전체나 LSP provider까지 완성됐다는 뜻으로 확대하지 않습니다.
 

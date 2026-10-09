@@ -221,6 +221,7 @@ pub struct ViewportState {
     button_spaces: IdMap<bool>,
     keyboard_focus_requests: Vec<Option<accesskit::NodeId>>,
     keyboard_focus_after_requests: Vec<Option<accesskit::NodeId>>,
+    pointer_focus_preserving_triggers: Vec<Option<Id>>,
 
     /// Has this viewport been updated this pass?
     pub used: bool,
@@ -425,16 +426,38 @@ impl ContextImpl {
         memory: &Memory,
         viewport: &ViewportState,
         event: &crate::Event,
-    ) -> Option<Id> {
-        let crate::Event::PointerButton {
-            pos, pressed: true, ..
-        } = event else {
-            return None;
+        current_owner: &mut Option<Id>,
+    ) -> (Option<Id>, Option<Id>) {
+        let (pos, pressed) = match event {
+            crate::Event::PointerButton { pos, pressed, .. } => (pos, *pressed),
+            crate::Event::Touch {
+                pos,
+                phase: crate::TouchPhase::Start,
+                ..
+            } if !viewport
+                .prev_pass
+                .pointer_preserves_keyboard_focus
+                .is_empty() =>
+            {
+                (pos, true)
+            }
+            _ => return (None, None),
         };
-        if !pos.is_finite() {
-            return None;
+        if !pressed
+            && viewport
+                .prev_pass
+                .pointer_preserves_keyboard_focus
+                .is_empty()
+        {
+            return (None, None);
         }
-        let mut layers: Vec<_> = viewport.prev_pass.widgets.layer_ids()
+        if !pos.is_finite() {
+            return (None, None);
+        }
+        let mut layers: Vec<_> = viewport
+            .prev_pass
+            .widgets
+            .layer_ids()
             .filter(|layer| memory.areas().is_interactable(*layer))
             .collect();
         layers.sort_by(|&a, &b| memory.areas().compare_order(a, b));
@@ -446,11 +469,45 @@ impl ContextImpl {
             0.0,
             &viewport.prev_pass.layer_input_regions,
         );
-        let target = hits.click.or(hits.drag)?;
-        (target.enabled && target.sense.is_focusable()
-            && memory.allows_interaction(target.layer_id)
-            && viewport.prev_pass.pointer_keyboard_focus.contains(&target.id))
-            .then_some(target.id)
+        let Some(target) = hits.click.or(hits.drag) else {
+            if pressed {
+                *current_owner = None;
+            }
+            return (None, None);
+        };
+        let enabled = target.enabled && memory.allows_interaction(target.layer_id);
+        if enabled
+            && viewport
+                .prev_pass
+                .pointer_preserves_keyboard_focus
+                .contains(&target.id)
+        {
+            return (
+                current_owner.filter(|id| {
+                    viewport.prev_pass.widgets.get(*id).is_some_and(|owner| {
+                        owner.enabled
+                            && owner.sense.is_focusable()
+                            && memory.allows_interaction(owner.layer_id)
+                    })
+                }),
+                Some(target.id),
+            );
+        }
+        if !pressed {
+            return (None, None);
+        }
+        *current_owner = (enabled && target.sense.is_focusable()).then_some(target.id);
+        (
+            (target.enabled
+                && target.sense.is_focusable()
+                && memory.allows_interaction(target.layer_id)
+                && viewport
+                    .prev_pass
+                    .pointer_keyboard_focus
+                    .contains(&target.id))
+            .then_some(target.id),
+            None,
+        )
     }
 
     fn keyboard_navigation_is_locked(&self, node: accesskit::NodeId, event: &crate::Event) -> bool {
@@ -528,9 +585,41 @@ impl ContextImpl {
         self.memory
             .begin_pass(&new_raw_input, &all_viewport_ids, button_focus);
 
-        let pointer_focus: Vec<_> = new_raw_input.events.iter()
-            .map(|event| Self::pointer_keyboard_focus_target(&self.memory, viewport, event))
+        let mut pointer_owner = self.memory.focused();
+        let pointer_focus: Vec<_> = new_raw_input
+            .events
+            .iter()
+            .map(|event| {
+                if let crate::Event::AccessKitActionRequest(request) = event
+                    && request.target_tree == accesskit::TreeId::ROOT
+                    && request.action == accesskit::Action::Focus
+                    && request.data.is_none()
+                {
+                    pointer_owner = viewport
+                        .prev_pass
+                        .widgets
+                        .layers()
+                        .flat_map(|(_, widgets)| widgets.iter())
+                        .find(|widget| widget.id.accesskit_id() == request.target_node)
+                        .map(|widget| widget.id);
+                }
+                if matches!(event, crate::Event::WindowFocused(false)) {
+                    pointer_owner = None;
+                }
+                Self::pointer_keyboard_focus_target(&self.memory, viewport, event, &mut pointer_owner)
+            })
             .collect();
+        if viewport
+            .prev_pass
+            .pointer_preserves_keyboard_focus
+            .is_empty()
+        {
+            viewport.pointer_focus_preserving_triggers.clear();
+        } else {
+            viewport.pointer_focus_preserving_triggers =
+                pointer_focus.iter().map(|focus| focus.1).collect();
+        }
+
         viewport.keyboard_focus_requests = new_raw_input.events.iter()
             .zip(&pointer_focus)
             .map(|(event, pointer)| {
@@ -541,7 +630,7 @@ impl ContextImpl {
                 {
                     return Some(request.target_node);
                 }
-                pointer.map(|id| id.accesskit_id())
+                pointer.0.map(|id| id.accesskit_id())
             })
             .collect();
         let menu_focus: Vec<_> = new_raw_input.events.iter().zip(&pointer_focus)
@@ -549,7 +638,8 @@ impl ContextImpl {
                 if !matches!(event, crate::Event::PointerButton {
                     button: crate::PointerButton::Secondary, pressed: true, ..
                 }) { return None; }
-                pointer.and_then(|id| viewport.prev_pass.context_menu_keyboard_focus.get(&id).copied())
+                if pointer.1.is_some() { return None; }
+                pointer.0.and_then(|id| viewport.prev_pass.context_menu_keyboard_focus.get(&id).copied())
             }).collect();
         viewport.keyboard_focus_after_requests = menu_focus.iter()
             .map(|id| id.map(|id| id.accesskit_id())).collect();
@@ -557,7 +647,7 @@ impl ContextImpl {
             .enumerate()
             .rev()
             .find_map(|(index, node)| menu_focus[index].map(Some)
-                .or_else(|| node.map(|_| pointer_focus[index])))
+                .or_else(|| node.map(|_| pointer_focus[index].0)))
             .flatten();
         if new_raw_input.focused && let Some(id) = final_pointer_focus {
             self.memory.request_pointer_focus(id);
@@ -3389,6 +3479,28 @@ impl Context {
         });
     }
 
+    #[doc = "Declares a pointer widget that preserves the current keyboard owner. The next pass validates its hit-test, enabled state, interaction layer and existing focusable owner; no keyboard focus is created when none exists."]
+    pub fn register_pointer_preserves_keyboard_focus(&self, id: Id) {
+        self.write(|ctx| {
+            ctx.viewport()
+                .this_pass
+                .pointer_preserves_keyboard_focus
+                .insert(id);
+        });
+    }
+
+    #[doc = "Returns the admitted focus-preserving pointer trigger at a raw event index. The previous pass's hit-test, enabled state and interaction layer are validated independently of whether a keyboard owner exists."]
+    pub fn pointer_focus_preserving_trigger_at(&self, index: usize) -> Option<Id> {
+        self.read(|ctx| {
+            ctx.viewports
+                .get(&ctx.viewport_id())?
+                .pointer_focus_preserving_triggers
+                .get(index)
+                .copied()
+                .flatten()
+        })
+    }
+
     #[doc = "Declares the keyboard owner opened after a secondary press on this pointer-focus trigger. The declaration lasts for this viewport pass and uses the next pass's validated trigger hit-test."]
     pub fn register_context_menu_keyboard_focus(&self, trigger: Id, owner: Id) {
         self.write(|ctx| {
@@ -4906,6 +5018,167 @@ fn warn_if_rect_changes_id(
 #[cfg(test)]
 mod test {
     use super::Context;
+
+    fn focus_scene(
+        ctx: &Context,
+        events: Vec<crate::Event>,
+        preserve: bool,
+        focus: Option<crate::Id>,
+    ) {
+        const AREA_WIDTH: f32 = 100.0;
+        const AREA_HEIGHT: f32 = 100.0;
+        const FOREIGN_LEFT: f32 = 200.0;
+        const SCREEN_WIDTH: f32 = 320.0;
+        let output = ctx.run_ui(
+            crate::RawInput {
+                screen_rect: Some(crate::Rect::from_min_size(
+                    crate::Pos2::ZERO,
+                    crate::vec2(SCREEN_WIDTH, AREA_HEIGHT),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                let owner = ui.interact(
+                    crate::Rect::from_min_size(
+                        crate::Pos2::ZERO,
+                        crate::vec2(AREA_WIDTH, AREA_HEIGHT),
+                    ),
+                    crate::Id::new("pointer-owner"),
+                    crate::Sense::click(),
+                );
+                let trigger = ui.interact(
+                    crate::Rect::from_min_size(
+                        crate::pos2(AREA_WIDTH, 0.0),
+                        crate::vec2(AREA_WIDTH, AREA_HEIGHT),
+                    ),
+                    crate::Id::new("pointer-neutral"),
+                    crate::Sense::CLICK | crate::Sense::DRAG,
+                );
+                let foreign = ui.interact(
+                    crate::Rect::from_min_size(
+                        crate::pos2(FOREIGN_LEFT, 0.0),
+                        crate::vec2(AREA_WIDTH, AREA_HEIGHT),
+                    ),
+                    crate::Id::new("pointer-foreign"),
+                    crate::Sense::click(),
+                );
+                ctx.register_pointer_keyboard_focus(owner.id);
+                ctx.register_pointer_keyboard_focus(foreign.id);
+                if preserve {
+                    ctx.register_pointer_preserves_keyboard_focus(trigger.id);
+                }
+                if let Some(focus) = focus {
+                    ctx.memory_mut(|memory| memory.request_focus(focus));
+                }
+            },
+        );
+        output.drop_without_applying_deltas();
+    }
+
+    fn pointer_click(position: crate::Pos2) -> Vec<crate::Event> {
+        [true, false]
+            .into_iter()
+            .map(|pressed| crate::Event::PointerButton {
+                pos: position,
+                button: crate::PointerButton::Primary,
+                pressed,
+                modifiers: crate::Modifiers::NONE,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn pointer_preservation_keeps_ordered_keyboard_ownership_without_focusable_trigger() {
+        const MAP_X: f32 = 150.0;
+        const FOREIGN_X: f32 = 250.0;
+        const POINTER_Y: f32 = 50.0;
+        let ctx = Context::default();
+        let owner = crate::Id::new("pointer-owner");
+        let foreign = crate::Id::new("pointer-foreign");
+        focus_scene(&ctx, Vec::new(), true, Some(owner));
+        let mut events = pointer_click(crate::pos2(MAP_X, POINTER_Y));
+        events.push(crate::Event::Text("a".into()));
+        focus_scene(&ctx, events, true, None);
+        assert_eq!(ctx.memory(|memory| memory.focused()), Some(owner));
+        assert_eq!(ctx.keyboard_focus_request_at(0), Some(owner.accesskit_id()));
+        assert_eq!(ctx.keyboard_focus_request_at(1), Some(owner.accesskit_id()));
+        assert_eq!(
+            ctx.pointer_focus_preserving_trigger_at(0),
+            Some(crate::Id::new("pointer-neutral"))
+        );
+        assert_eq!(
+            ctx.pointer_focus_preserving_trigger_at(1),
+            Some(crate::Id::new("pointer-neutral"))
+        );
+        let mut events = pointer_click(crate::pos2(FOREIGN_X, POINTER_Y));
+        events.extend(pointer_click(crate::pos2(MAP_X, POINTER_Y)));
+        events.push(crate::Event::Text("b".into()));
+        focus_scene(&ctx, events, true, None);
+        assert_eq!(ctx.memory(|memory| memory.focused()), Some(foreign));
+        assert_eq!(
+            ctx.keyboard_focus_request_at(2),
+            Some(foreign.accesskit_id())
+        );
+        assert_eq!(
+            ctx.keyboard_focus_request_at(3),
+            Some(foreign.accesskit_id())
+        );
+        assert_eq!(ctx.pointer_focus_preserving_trigger_at(0), None);
+        assert_eq!(
+            ctx.pointer_focus_preserving_trigger_at(2),
+            Some(crate::Id::new("pointer-neutral"))
+        );
+        assert_eq!(
+            ctx.keyboard_input_route(owner).unwrap().0.last().unwrap().0,
+            Some(false)
+        );
+        assert_eq!(
+            ctx.keyboard_input_route(foreign)
+                .unwrap()
+                .0
+                .last()
+                .unwrap()
+                .0,
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn pointer_preservation_is_opt_in_and_does_not_create_keyboard_focus() {
+        const MAP_X: f32 = 150.0;
+        const POINTER_Y: f32 = 50.0;
+        let ctx = Context::default();
+        focus_scene(
+            &ctx,
+            Vec::new(),
+            false,
+            Some(crate::Id::new("pointer-owner")),
+        );
+        focus_scene(
+            &ctx,
+            pointer_click(crate::pos2(MAP_X, POINTER_Y)),
+            false,
+            None,
+        );
+        assert_eq!(ctx.memory(|memory| memory.focused()), None);
+        assert_eq!(ctx.pointer_focus_preserving_trigger_at(0), None);
+        focus_scene(&ctx, Vec::new(), true, None);
+        focus_scene(
+            &ctx,
+            pointer_click(crate::pos2(MAP_X, POINTER_Y)),
+            true,
+            None,
+        );
+        assert_eq!(ctx.memory(|memory| memory.focused()), None);
+        assert_eq!(ctx.keyboard_focus_request_at(0), None);
+        assert_eq!(ctx.keyboard_focus_request_at(1), None);
+        assert_eq!(
+            ctx.pointer_focus_preserving_trigger_at(0),
+            Some(crate::Id::new("pointer-neutral"))
+        );
+        assert_eq!(ctx.pointer_focus_preserving_trigger_at(2), None);
+    }
 
     #[test]
     fn test_single_pass() {

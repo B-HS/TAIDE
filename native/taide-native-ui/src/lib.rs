@@ -41,6 +41,12 @@ pub mod editor_find_widget;
 pub mod editor_geometry;
 #[path = "editor-gutter.rs"]
 mod editor_gutter;
+#[cfg(feature = "native-host")]
+#[path = "editor-minimap.rs"]
+pub mod editor_minimap;
+#[cfg(feature = "native-host")]
+#[path = "editor-minimap-layout.rs"]
+pub mod editor_minimap_layout;
 #[path = "editor-overlay.rs"]
 pub mod editor_overlay;
 #[path = "editor-paint.rs"]

@@ -30,6 +30,8 @@ pub struct EditorGeometry {
     pub line_height: f32,
     pub visible_rows: Range<usize>,
     pub scroll: Vec2,
+    #[cfg(feature = "native-host")]
+    pub minimap_rect: Option<Rect>,
     pub(crate) rows: Arc<[Row]>,
 }
 

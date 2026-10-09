@@ -268,6 +268,7 @@ pub fn editor_presentation(settings: &Settings) -> EditorPresentation {
                 bracket_pair_colorization: settings.editor_bracket_pair_colorization,
                 bracket_pair_guides: settings.editor_bracket_pair_guides,
                 sticky_scroll: settings.editor_sticky_scroll_enabled,
+                minimap: settings.editor_minimap,
                 ..Default::default()
             },
         };
@@ -341,6 +342,20 @@ pub fn editor_sticky_colors(
             ThemeType::Dark => DARK_HOVER,
             ThemeType::Light => LIGHT_HOVER,
         },
+        shadow: color(theme, "app.shadow")?,
+    })
+}
+
+#[cfg(feature = "native-host")]
+pub fn editor_minimap_colors(
+    theme: &ResolvedTheme,
+) -> AppResult<crate::editor_minimap::EditorMinimapColors> {
+    Ok(crate::editor_minimap::EditorMinimapColors {
+        background: color(theme, "editor.background")?,
+        selection: color(theme, "editor.selection")?,
+        slider: color(theme, "scrollbar.thumb")?,
+        slider_hover: color(theme, "scrollbar.thumbHover")?,
+        slider_active: color(theme, "scrollbar.thumbHover")?,
         shadow: color(theme, "app.shadow")?,
     })
 }

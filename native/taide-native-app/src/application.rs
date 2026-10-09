@@ -164,6 +164,7 @@ pub struct NativeApplication {
     editor_display_colors: taide_native_ui::editor_display::EditorDisplayColors,
     editor_bracket_colors: taide_native_ui::editor_brackets::EditorBracketColors,
     editor_sticky_colors: taide_native_ui::editor_sticky_scroll::EditorStickyColors,
+    editor_minimap_colors: taide_native_ui::editor_minimap::EditorMinimapColors,
     editor_sticky_scroll: taide_native_ui::editor_sticky_scroll::StickySetting,
     editor_syntax: crate::editor_syntax::EditorSyntax,
     editor_keymap_targets: HashMap<(egui::ViewportId, egui::Id), (ViewId, u64)>,
@@ -452,6 +453,7 @@ impl NativeApplication {
             editor_display_colors: appearances.editor_display,
             editor_bracket_colors: appearances.editor_brackets,
             editor_sticky_colors: appearances.editor_sticky,
+            editor_minimap_colors: appearances.editor_minimap,
             editor_sticky_scroll,
             editor_syntax,
             editor_keymap_targets: HashMap::new(),
@@ -646,6 +648,7 @@ impl NativeApplication {
                                         self.editor_display_colors = appearances.editor_display;
                                         self.editor_bracket_colors = appearances.editor_brackets;
                                         self.editor_sticky_colors = appearances.editor_sticky;
+                                        self.editor_minimap_colors = appearances.editor_minimap;
                                         self.banner_appearance = appearances.banner;
                                         self.lsp_status_appearance = appearances.lsp_status;
                                         self.status_editor_appearance = appearances.status_editor;
@@ -1577,6 +1580,7 @@ impl NativeApplication {
             &command,
             HostCommand::SetKeymapOverrides(_)
                 | HostCommand::SetEditorFontSize(_)
+                | HostCommand::ToggleEditorMinimap
                 | HostCommand::UpdateSettings(_)
                 | HostCommand::OpenSettingsFolder(_)
         );
@@ -3630,6 +3634,7 @@ impl NativeApplication {
                 self.editor_display_colors = appearances.editor_display;
                 self.editor_bracket_colors = appearances.editor_brackets;
                 self.editor_sticky_colors = appearances.editor_sticky;
+                self.editor_minimap_colors = appearances.editor_minimap;
                 self.banner_appearance = appearances.banner;
                 self.lsp_status_appearance = appearances.lsp_status;
                 self.status_editor_appearance = appearances.status_editor;
@@ -4138,6 +4143,7 @@ impl eframe::App for NativeApplication {
             editor_display_colors: self.editor_display_colors,
             editor_bracket_colors: self.editor_bracket_colors,
             editor_sticky_colors: self.editor_sticky_colors,
+            editor_minimap_colors: self.editor_minimap_colors,
             editor_sticky_scroll: self.editor_sticky_scroll.synchronize(
                 self.services
                     .state
@@ -4534,6 +4540,9 @@ impl eframe::App for NativeApplication {
                                 .editor_sticky_scroll_enabled,
                         );
                         context.request_repaint();
+                    }
+                    ShellIntent::ToggleEditorMinimap => {
+                        self.submit(HostCommand::ToggleEditorMinimap);
                     }
                     ShellIntent::ChangeEditorFontSize { increase } => {
                         let current = self.services.state.settings.read().editor_font_size;
@@ -4934,6 +4943,7 @@ struct AppSurfaces<'a> {
     editor_display_colors: taide_native_ui::editor_display::EditorDisplayColors,
     editor_bracket_colors: taide_native_ui::editor_brackets::EditorBracketColors,
     editor_sticky_colors: taide_native_ui::editor_sticky_scroll::EditorStickyColors,
+    editor_minimap_colors: taide_native_ui::editor_minimap::EditorMinimapColors,
     editor_sticky_scroll: bool,
     editor_syntax: &'a mut crate::editor_syntax::EditorSyntax,
     banner_appearance: &'a BannerAppearance,
@@ -5702,6 +5712,7 @@ impl AppSurfaces<'_> {
                 editor_presentation.options.colors = Some(self.editor_display_colors);
                 editor_presentation.options.bracket_colors = Some(self.editor_bracket_colors);
                 editor_presentation.options.sticky_colors = Some(self.editor_sticky_colors);
+                editor_presentation.options.minimap_colors = Some(self.editor_minimap_colors);
                 editor_presentation.options.sticky_scroll = self.editor_sticky_scroll;
                 editor_presentation.options.sticky_toggle_label = Some(presentation::message(self.locale, "settings.editorStickyScroll", &[]));
                 drop(settings);

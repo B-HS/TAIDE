@@ -17,6 +17,7 @@ use tokio::sync::Notify;
 const DEADLINE: Duration = Duration::from_secs(5);
 const EDITOR_FONT: u32 = 17;
 const TERMINAL_FONT: u32 = 18;
+const QUEUED_MINIMAP_TOGGLES: usize = 2;
 
 #[test]
 fn native_settings_controls는_단일필드와_numeric저장값을_보존한다() {
@@ -226,6 +227,23 @@ fn native_settings_controls_host는_저장과_theme이벤트_오류원본을_보
         assert_eq!(state.settings.read().editor_font_size, EDITOR_FONT);
         assert_eq!(state.settings.read().terminal_font_size, TERMINAL_FONT);
         assert_eq!(state.settings.read().keymap_overrides.as_deref(), Some("[]"));
+        let before_minimap = state.settings.read().clone();
+        let before_count = reconciled.lock().unwrap().len();
+        for _ in 0..QUEUED_MINIMAP_TOGGLES {
+            bridge.submit(HostCommand::ToggleEditorMinimap).unwrap();
+        }
+        tokio::time::timeout(DEADLINE, async {
+            while reconciled.lock().unwrap().len() < before_count + QUEUED_MINIMAP_TOGGLES {
+                ready.notified().await;
+            }
+        }).await.unwrap();
+        assert!(bridge.poll().is_none());
+        assert_eq!(*state.settings.read(), before_minimap);
+        {
+            let toggles = reconciled.lock().unwrap();
+            assert_eq!(toggles[before_count].1.editor_minimap, !before_minimap.editor_minimap);
+            assert_eq!(toggles[before_count + 1].1.editor_minimap, before_minimap.editor_minimap);
+        }
         let settings_events = events.0.lock().unwrap().iter().filter(|event| matches!(event, AppEvent::SettingsChanged { .. })).count();
         assert_eq!(reconciled.lock().unwrap().len(), settings_events);
         let stored: Settings = serde_json::from_slice(&std::fs::read(state.paths.settings_file()).unwrap()).unwrap();

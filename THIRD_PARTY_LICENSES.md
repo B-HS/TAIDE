@@ -496,6 +496,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### Ported source in `native/taide-native-ui`
 
+- `src/editor-minimap-layout.rs`, `src/editor-minimap.rs` and their native
+  editor surface connections adapt layout, glyph blending, selection,
+  slider and pointer/touch interactions from Monaco Editor 0.56.0 (MIT,
+  Copyright (c) Microsoft Corporation):
+  `editor/common/config/editorOptions.js`,
+  `editor/browser/viewParts/minimap/minimap.js`, `minimap.css`,
+  `editor/browser/viewParts/minimap/minimapCharRenderer.js` and
+  `editor/browser/viewParts/minimap/minimapPreBaked.js`.
+  `resources/minimap/scale-1.bin` and `scale-2.bin` contain the original
+  prebaked glyph intensity data. `tests/fixtures/minimap-reference.txt`
+  records results from executing the original layout and glyph renderer;
+  `docs/utils/2026-10-09-native-minimap-reference.js` extracts these fixtures
+  and assets. The same MIT text is retained in
+  `native/taide-native-ui/LICENSE-MONACO-FIND`.
+
 - `src/editor-find.rs`, `src/editor-find-widget.rs` and
   `src/editor-find-keymap-defaults.json` adapt the controller, widget,
   history and keyboard behavior of Monaco Editor 0.56.0 (MIT, Copyright (c)

@@ -77,6 +77,8 @@ pub enum ShellIntent {
     },
     #[cfg(feature = "native-host")]
     ToggleEditorStickyScroll,
+    #[cfg(feature = "native-host")]
+    ToggleEditorMinimap,
     RequestCloseTab(TabId),
     RequestCloseTabs(Vec<TabId>),
     RequestSaveTab(TabId),

@@ -200,6 +200,7 @@ pub(crate) fn intent(run: Run, snapshot: &ShellSnapshot) -> Option<ShellIntent> 
         Run::ToggleEditorStickyScroll if has_document => {
             Some(ShellIntent::ToggleEditorStickyScroll)
         }
+        Run::ToggleEditorMinimap if has_document => Some(ShellIntent::ToggleEditorMinimap),
         Run::EditDocument(edit) if has_document => Some(ShellIntent::EditDocument {
             tab: tab.id.clone(),
             edit,

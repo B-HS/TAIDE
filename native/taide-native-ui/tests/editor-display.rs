@@ -255,6 +255,9 @@ fn 표시_설정은_기본값과_모든_선택지를_native_presentation에_공�
     assert!(defaults.bracket_pair_colorization);
     assert!(!defaults.bracket_pair_guides);
     assert!(defaults.sticky_scroll);
+    assert!(defaults.minimap);
+    settings.editor_minimap = false;
+    assert!(!editor_presentation(&settings).options.minimap);
     settings.editor_sticky_scroll_enabled = false;
     assert!(!editor_presentation(&settings).options.sticky_scroll);
     for (source, target) in [

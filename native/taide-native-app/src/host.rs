@@ -81,6 +81,7 @@ pub enum HostCommand {
     },
     SetEditorFontSize(u32),
     SetTerminalFontSize(u32),
+    ToggleEditorMinimap,
     UpdateSettings(crate::settings_controls::Change),
     SetKeymapOverrides(crate::keymap::catalog::Overrides),
     ReadHwpPreview(crate::preview_hwp::Request),
@@ -904,6 +905,18 @@ async fn dispatch(
                 reconcile,
                 taide_model::settings::SettingsPatch {
                     terminal_font_size: Some(size),
+                    ..Default::default()
+                },
+            )
+            .await
+        }
+        HostCommand::ToggleEditorMinimap => {
+            let enabled = !services.state.settings.read().editor_minimap;
+            update_control_settings(
+                services,
+                reconcile,
+                taide_model::settings::SettingsPatch {
+                    editor_minimap: Some(enabled),
                     ..Default::default()
                 },
             )

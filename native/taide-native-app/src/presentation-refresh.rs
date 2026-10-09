@@ -155,6 +155,7 @@ pub(crate) struct Appearances {
     pub(crate) editor_display: taide_native_ui::editor_display::EditorDisplayColors,
     pub(crate) editor_brackets: taide_native_ui::editor_brackets::EditorBracketColors,
     pub(crate) editor_sticky: taide_native_ui::editor_sticky_scroll::EditorStickyColors,
+    pub(crate) editor_minimap: taide_native_ui::editor_minimap::EditorMinimapColors,
     pub(crate) find: taide_native_ui::editor_find_widget::FindAppearance,
     pub(crate) banner: taide_native_ui::conflict_banner::BannerAppearance,
     pub(crate) lsp_status: crate::lsp::status::Appearance,
@@ -209,6 +210,7 @@ impl Appearances {
             editor_display: taide_native_ui::presentation::editor_display_colors(theme)?,
             editor_brackets: taide_native_ui::presentation::editor_bracket_colors(theme)?,
             editor_sticky: taide_native_ui::presentation::editor_sticky_colors(theme)?,
+            editor_minimap: taide_native_ui::presentation::editor_minimap_colors(theme)?,
             find: taide_native_ui::editor_find_widget::FindAppearance {
                 background: color(theme, "editor.widgetBackground")?,
                 border: color(theme, "editor.widgetBorder")?,
@@ -526,6 +528,10 @@ mod tests {
             assert_eq!(
                 prepared.editor_sticky,
                 taide_native_ui::presentation::editor_sticky_colors(&theme).unwrap()
+            );
+            assert_eq!(
+                prepared.editor_minimap,
+                taide_native_ui::presentation::editor_minimap_colors(&theme).unwrap()
             );
             assert_eq!(
                 prepared.terminal.font.family,

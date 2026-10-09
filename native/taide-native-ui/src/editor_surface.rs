@@ -128,6 +128,8 @@ pub struct EditorDisplayOptions {
     pub sticky_model: Option<Arc<taide_native_editor::sticky_model::StickyModel>>,
     #[cfg(feature = "native-host")]
     pub sticky_toggle_label: Option<String>,
+    #[cfg(feature = "native-host")]
+    pub minimap_colors: Option<crate::editor_minimap::EditorMinimapColors>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -227,6 +229,8 @@ struct FoldPress {
 
 #[derive(Default, Clone)]
 struct InputState {
+    #[cfg(feature = "native-host")]
+    minimap: crate::editor_minimap::MinimapState,
     #[cfg(feature = "native-host")]
     sticky: crate::editor_sticky_scroll::StickyState,
     #[cfg(feature = "native-host")]
@@ -919,18 +923,47 @@ impl NativeEditor {
         }
         let id = ui.make_persistent_id(("native-code-editor", view));
         let rect = ui.available_rect_before_wrap().intersect(ui.clip_rect());
-        let response = ui.interact(rect, id, Sense::click_and_drag());
-        ui.allocate_rect(rect, Sense::hover());
-        if ui.is_enabled() && (request_focus || response.clicked() || response.drag_started()) {
-            response.request_focus();
-        }
-        let cached = store.take_display(view)?;
         let current = store
             .views()
             .get(view)
             .ok_or(EditorError::NotFound)?
             .clone();
         let previous = store.documents().snapshot(current.document)?;
+        #[cfg(feature = "native-host")]
+        let minimap_dimensions = crate::editor_minimap::measure(
+            ui,
+            &previous,
+            appearance,
+            &presentation.options,
+            rect,
+            VERTICAL_SCROLLBAR_SIZE,
+        );
+        #[cfg(feature = "native-host")]
+        let minimap_width = minimap_dimensions.map_or(0.0, |dimensions| dimensions.width as f32);
+        #[cfg(not(feature = "native-host"))]
+        let minimap_width = 0.0;
+        let editor_right = if minimap_width > 0.0 {
+            (rect.right() - minimap_width - VERTICAL_SCROLLBAR_SIZE).max(rect.left())
+        } else {
+            rect.right()
+        };
+        #[cfg(feature = "native-host")]
+        let minimap_rect = minimap_dimensions.map(|_| {
+            Rect::from_min_max(
+                pos2(editor_right, rect.top()),
+                pos2(rect.right() - VERTICAL_SCROLLBAR_SIZE, rect.bottom()),
+            )
+        });
+        let response = ui.interact(
+            Rect::from_min_max(rect.min, pos2(editor_right, rect.bottom())),
+            id,
+            Sense::click_and_drag(),
+        );
+        ui.allocate_rect(rect, Sense::hover());
+        if ui.is_enabled() && (request_focus || response.clicked() || response.drag_started()) {
+            response.request_focus();
+        }
+        let cached = store.take_display(view)?;
         let mut input_state = ui
             .ctx()
             .data_mut(|data| data.get_temp::<InputState>(id).unwrap_or_default());
@@ -956,7 +989,7 @@ impl NativeEditor {
             projection: Projection {
                 painter: ui.painter().clone(),
                 appearance,
-                width: rect.width(),
+                width: (rect.width() - minimap_width).max(0.0),
                 wrap_tab_size: presentation.options.word_wrap.then_some(indent.tab_size),
                 has_folding: presentation.options.folding,
                 cached,
@@ -983,7 +1016,7 @@ impl NativeEditor {
             Rect::from_min_max(
                 rect.min,
                 pos2(
-                    (rect.right() - VERTICAL_SCROLLBAR_SIZE).max(rect.left()),
+                    (rect.right() - minimap_width - VERTICAL_SCROLLBAR_SIZE).max(rect.left()),
                     rect.bottom(),
                 ),
             ),
@@ -1002,6 +1035,8 @@ impl NativeEditor {
         let (ownership, (routed_focus, lost_after_events)) = route(&response).unwrap_or_default();
         let focused = routed_focus.unwrap_or_else(|| response.has_focus());
         let has_owned_input = ownership.iter().any(|(owned, _)| *owned == Some(true));
+        #[cfg(feature = "native-host")]
+        let mut last_editor_event = None;
         #[cfg(feature = "native-host")]
         let sticky_owned = sticky_start.is_some()
             || ui.memory(|memory| sticky_ids.iter().any(|id| memory.has_focus(*id)))
@@ -1040,9 +1075,9 @@ impl NativeEditor {
                     store.set_composition(view, None)?;
                 }
                 #[cfg(feature = "native-host")]
+                let raw_index = egui::Context::raw_event_index(&raw_events, &event, &mut raw_next);
+                #[cfg(feature = "native-host")]
                 {
-                    let raw_index =
-                        egui::Context::raw_event_index(&raw_events, &event, &mut raw_next);
                     let request = ui.ctx().keyboard_focus_request_at(raw_index);
                     let ours = request.is_some_and(|node| {
                         node == id.accesskit_id()
@@ -1066,6 +1101,7 @@ impl NativeEditor {
                         });
                     }
                     if let Some(action) = input_state.sticky.pointer(ui.ctx(), &event, raw_index) {
+                        last_editor_event = Some(raw_index);
                         sticky_released |= apply_sticky_action(
                             ui,
                             store,
@@ -1112,6 +1148,7 @@ impl NativeEditor {
                 if let Some(index) = sticky_owner.filter(|_| !sticky_released) {
                     let index = sticky_navigation.unwrap_or(index);
                     if let Some(action) = input_state.sticky.key(&event, index) {
+                        last_editor_event = Some(raw_index);
                         if let crate::editor_sticky_scroll::StickyAction::Focus(index) = action {
                             sticky_navigation = Some(index);
                         }
@@ -1136,6 +1173,10 @@ impl NativeEditor {
                     continue;
                 }
                 if keymap(ui, &event, composing) {
+                    #[cfg(feature = "native-host")]
+                    {
+                        last_editor_event = Some(raw_index);
+                    }
                     continue;
                 }
                 if let Some(language) = language {
@@ -1149,7 +1190,13 @@ impl NativeEditor {
                     &mut output,
                     &mut input_context,
                 ) {
-                    Ok(true) => input_state.auto_closed.follow(store, view)?,
+                    Ok(true) => {
+                        #[cfg(feature = "native-host")]
+                        {
+                            last_editor_event = Some(raw_index);
+                        }
+                        input_state.auto_closed.follow(store, view)?;
+                    }
                     Ok(false) => remaining.push(event),
                     Err(error) => output.errors.push(error),
                 }
@@ -1244,8 +1291,13 @@ impl NativeEditor {
             appearance,
             presentation.options.folding,
         );
-        let text_rect =
-            Rect::from_min_max(pos2(rect.left() + gutter.width(), rect.top()), rect.max);
+        let text_rect = Rect::from_min_max(
+            pos2(rect.left() + gutter.width(), rect.top()),
+            pos2(
+                editor_right.max(rect.left() + gutter.width()),
+                rect.bottom(),
+            ),
+        );
         let layout = VerticalLayout::new(appearance.line_height, display.row_count());
         let content_height = layout.content_height();
         #[cfg(feature = "native-host")]
@@ -1349,8 +1401,38 @@ impl NativeEditor {
                 .clamp(0.0, scroll_max);
         }
         #[cfg(feature = "native-host")]
+        let minimap_input = minimap_dimensions
+            .zip(minimap_rect)
+            .map(|(dimensions, map_rect)| {
+                let map_layout = input_state.minimap.layout(
+                    &document,
+                    dimensions,
+                    crate::editor_minimap_layout::MinimapViewport::new(
+                        display.row_count(),
+                        f64::from(rect.height()),
+                        f64::from(appearance.line_height),
+                        f64::from(state.scroll.y),
+                        f64::from(content_height),
+                        presentation.options.scroll_beyond_last_line,
+                    ),
+                );
+                input_state.minimap.interact(
+                    ui,
+                    id,
+                    map_rect,
+                    &map_layout,
+                    dimensions,
+                    rect.height(),
+                    appearance.line_height,
+                    display.row_count(),
+                )
+            });
+        #[cfg(feature = "native-host")]
         let (wheel, precise_wheel) = if ui.is_enabled()
             && (response.hovered()
+                || minimap_input
+                    .as_ref()
+                    .is_some_and(|input| input.response.hovered())
                 || input_state.sticky.focus_ids().iter().any(|id| {
                     ui.ctx()
                         .read_response(*id)
@@ -1367,13 +1449,21 @@ impl NativeEditor {
             Vec2::ZERO
         };
         #[cfg(feature = "native-host")]
-        let requested_scroll_y = if wheel.y != 0.0 {
-            Some(input_state.scroll.y.future(state.scroll.y) - wheel.y)
-        } else if moved || did_fold_reveal {
-            Some(state.scroll.y)
-        } else {
-            None
-        };
+        let requested_scroll_y = minimap_input
+            .as_ref()
+            .filter(|input| {
+                !((moved || did_fold_reveal || sticky_reveal.is_some())
+                    && last_editor_event
+                        .zip(input.event_index)
+                        .is_some_and(|(editor, map)| editor > map))
+            })
+            .and_then(|input| input.requested_scroll.map(|(scroll, _)| scroll))
+            .or_else(|| {
+                if wheel.y != 0.0 {
+                    return Some(input_state.scroll.y.future(state.scroll.y) - wheel.y);
+                }
+                (moved || did_fold_reveal).then_some(state.scroll.y)
+            });
         #[cfg(not(feature = "native-host"))]
         {
             state.scroll.y = (state.scroll.y - wheel.y).clamp(0.0, scroll_max);
@@ -1424,6 +1514,11 @@ impl NativeEditor {
                 !presentation.options.smooth_scrolling
                     || precise_wheel
                     || dragging
+                    || minimap_input.as_ref().is_some_and(|input| {
+                        input
+                            .requested_scroll
+                            .is_some_and(|(_, immediate)| immediate)
+                    })
                     || (external_scroll && reveal_from.is_none())
                     || stable_scroll_top.is_some(),
             );
@@ -1514,7 +1609,10 @@ impl NativeEditor {
                     (rect.bottom() - HORIZONTAL_SCROLLBAR_SIZE).max(rect.top()),
                 ),
                 pos2(
-                    (rect.right() - VERTICAL_SCROLLBAR_SIZE).max(text_rect.left()),
+                    text_rect
+                        .right()
+                        .min(rect.right() - VERTICAL_SCROLLBAR_SIZE)
+                        .max(text_rect.left()),
                     rect.bottom(),
                 ),
             ),
@@ -1649,7 +1747,7 @@ impl NativeEditor {
         let sticky_rect = Rect::from_min_max(
             rect.min,
             pos2(
-                (rect.right() - VERTICAL_SCROLLBAR_SIZE).max(rect.left()),
+                (rect.right() - minimap_width - VERTICAL_SCROLLBAR_SIZE).max(rect.left()),
                 rect.top() + sticky_layout.height(appearance.line_height),
             ),
         );
@@ -1989,6 +2087,46 @@ impl NativeEditor {
         } else {
             false
         };
+        #[cfg(feature = "native-host")]
+        let minimap_layout = if let Some(dimensions) = minimap_dimensions {
+            let minimap_layout = input_state.minimap.layout(
+                &document,
+                dimensions,
+                crate::editor_minimap_layout::MinimapViewport::new(
+                    display.row_count(),
+                    f64::from(rect.height()),
+                    f64::from(appearance.line_height),
+                    f64::from(state.scroll.y),
+                    f64::from(content_height),
+                    presentation.options.scroll_beyond_last_line,
+                ),
+            );
+            crate::editor_minimap::paint(
+                ui,
+                &mut input_state.minimap,
+                crate::editor_minimap::MinimapFrame {
+                    id,
+                    document: &document,
+                    display,
+                    dimensions,
+                    layout: &minimap_layout,
+                    rect: minimap_rect.unwrap(),
+                    appearance,
+                    colors: presentation.options.minimap_colors.unwrap(),
+                    tokens,
+                    tab_size: indent.tab_size,
+                    selection: &state.selection,
+                    hovered: minimap_input
+                        .as_ref()
+                        .is_some_and(|input| input.response.hovered()),
+                    horizontal_overflow: state.scroll.x + text_width < content_width,
+                },
+            );
+            Some(minimap_layout)
+        } else {
+            input_state.minimap.clear();
+            None
+        };
         let caret_rect = rows
             .iter()
             .find(|row| row.index == carets.primary_row)
@@ -2087,6 +2225,17 @@ impl NativeEditor {
                 first.segment.line..last.segment.line + 1
             });
         #[cfg(feature = "native-host")]
+        let rendered_lines = minimap_layout
+            .filter(|layout| !layout.rows.is_empty())
+            .map_or_else(
+                || rendered_lines.clone(),
+                |layout| {
+                    let first = display.segment(&document, layout.rows.start).line;
+                    let last = display.segment(&document, layout.rows.end - 1).line;
+                    rendered_lines.start.min(first)..rendered_lines.end.max(last + 1)
+                },
+            );
+        #[cfg(feature = "native-host")]
         let focus_ids = input_state.sticky.focus_ids();
         store.set_display(view, projection.cached)?;
         input_state.rendered_viewport = Some(RenderedViewport {
@@ -2111,6 +2260,8 @@ impl NativeEditor {
                 line_height: appearance.line_height,
                 visible_rows: visible,
                 scroll: vec2(state.scroll.x, state.scroll.y),
+                #[cfg(feature = "native-host")]
+                minimap_rect,
                 rows: rows.into(),
             },
         })

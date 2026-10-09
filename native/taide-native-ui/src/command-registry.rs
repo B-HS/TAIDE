@@ -97,6 +97,8 @@ pub enum Run {
     },
     #[cfg(feature = "native-host")]
     ToggleEditorStickyScroll,
+    #[cfg(feature = "native-host")]
+    ToggleEditorMinimap,
     EditDocument(DocumentEdit),
     FoldDocument(FoldCommand),
 }
@@ -259,6 +261,8 @@ fn execution(id: &str, keymap_id: Option<&str>) -> Execution {
     let run = match id {
         #[cfg(feature = "native-host")]
         "monaco.editor.action.toggleStickyScroll" => Some(Run::ToggleEditorStickyScroll),
+        #[cfg(feature = "native-host")]
+        "monaco.taide.toggleMinimap" => Some(Run::ToggleEditorMinimap),
         "settings.open" => Some(Run::OpenSettingsTab),
         "app.openSettingsFile" => Some(Run::OpenSettingsFile),
         "monaco.deleteAllLeft" => Some(Run::EditDocument(DocumentEdit::DeleteAllLeft)),
@@ -836,6 +840,8 @@ mod tests {
                 #[cfg(feature = "native-host")]
                 Execution::Native(Run::ToggleEditorStickyScroll) => None,
                 #[cfg(feature = "native-host")]
+                Execution::Native(Run::ToggleEditorMinimap) => None,
+                #[cfg(feature = "native-host")]
                 Execution::Native(Run::EditDocument(DocumentEdit::Find(_))) => None,
                 Execution::Native(Run::EditDocument(
                     DocumentEdit::Line(_) | DocumentEdit::Cursor(_),
@@ -913,7 +919,7 @@ mod tests {
                 }))
                 .chain(fold_actions.into_iter().filter(|_| has_folding))
                 .chain(
-                    ["editor.action.toggleStickyScroll"]
+                    ["editor.action.toggleStickyScroll", "taide.toggleMinimap"]
                         .into_iter()
                         .filter(|_| cfg!(feature = "native-host")),
                 )
@@ -945,6 +951,24 @@ mod tests {
                 "read only {is_read_only} folding {has_folding}"
             );
         }
+    }
+
+    #[test]
+    #[cfg(feature = "native-host")]
+    fn 미니맵_토글은_기존_명령으로_읽기_전용_editor에서도_실행되고_본문이_없으면_비활성이다() {
+        let registry = registry().unwrap();
+        let command = registry.command("monaco.taide.toggleMinimap").unwrap();
+        for is_read_only in [false, true] {
+            let context = CommandContext {
+                active_editor_actions: Some(registry.editor_action_ids(ActiveEditor {
+                    is_read_only,
+                    has_folding: false,
+                })),
+                ..Default::default()
+            };
+            assert_eq!(command.runnable(&context), Some(Run::ToggleEditorMinimap));
+        }
+        assert!(!command.is_runnable(&CommandContext::default()));
     }
 
     #[test]

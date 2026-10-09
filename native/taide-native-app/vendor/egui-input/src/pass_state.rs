@@ -211,6 +211,7 @@ pub struct PassState {
     pub(crate) dismissal_layers: IdSet,
     pub(crate) button_keys: IdMap<ButtonKeyState>,
     pub(crate) pointer_keyboard_focus: IdSet,
+    pub(crate) pointer_preserves_keyboard_focus: IdSet,
     pub(crate) context_menu_keyboard_focus: IdMap<Id>,
 
     /// Per-layer state.
@@ -265,6 +266,7 @@ impl Default for PassState {
             dismissal_layers: Default::default(),
             button_keys: Default::default(),
             pointer_keyboard_focus: Default::default(),
+            pointer_preserves_keyboard_focus: Default::default(),
             context_menu_keyboard_focus: Default::default(),
             layers: Default::default(),
             tooltips: Default::default(),
@@ -294,6 +296,7 @@ impl PassState {
             dismissal_layers,
             button_keys,
             pointer_keyboard_focus,
+            pointer_preserves_keyboard_focus,
             context_menu_keyboard_focus,
             tooltips,
             layers,
@@ -317,6 +320,7 @@ impl PassState {
         dismissal_layers.clear();
         button_keys.clear();
         pointer_keyboard_focus.clear();
+        pointer_preserves_keyboard_focus.clear();
         context_menu_keyboard_focus.clear();
         tooltips.clear();
         layers.clear();
