@@ -75,6 +75,29 @@ fn sheet(name: &str, body: &str) -> String {
 }
 
 #[test]
+fn xlml은_xml_선언없는_workbook을_html_표로_오분류하지_않는다() {
+    let body = sheet(
+        "Workbook",
+        "<Row><Cell><Data ss:Type=\"String\">classified</Data></Cell></Row>",
+    );
+    for source in [
+        workbook(&body),
+        format!(" \n<!-- <table><tr><td>comment</td></tr></table> -->\n{}", workbook(&body)),
+        "<ss:Workbook xmlns:ss=\"urn:schemas-microsoft-com:office:spreadsheet\"><ss:Worksheet ss:Name=\"Workbook\"><ss:Table><ss:Row><ss:Cell><ss:Data ss:Type=\"String\">classified</ss:Data></ss:Cell></ss:Row></ss:Table></ss:Worksheet></ss:Workbook>".to_owned(),
+    ] {
+        for bytes in [
+            source.as_bytes().to_vec(),
+            [vec![0xef, 0xbb, 0xbf], source.as_bytes().to_vec()].concat(),
+            [vec![0xff, 0xfe], source.encode_utf16().flat_map(u16::to_le_bytes).collect()].concat(),
+        ] {
+            let parsed = decode(&bytes).unwrap();
+            assert_eq!(parsed.sheets[0].name, "Workbook", "{source}");
+            assert_eq!(parsed.sheets[0].rows, [vec![Cell::Text("classified".into())]], "{source}");
+        }
+    }
+}
+
+#[test]
 fn xlml은_할당전_grid_합산_인덱스와_xml_보안_경계를_거절한다() {
     const MAX_ROWS: u32 = 1_048_576;
     const MAX_COLUMNS: u32 = 16_384;

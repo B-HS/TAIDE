@@ -1,6 +1,7 @@
 use std::sync::OnceLock;
 
 use chrono::{Local, TimeZone};
+use quick_xml::events::Event;
 use regex::Regex;
 use taide_model::error::AppResult;
 
@@ -97,6 +98,23 @@ fn patterns() -> AppResult<&'static Patterns> {
 }
 
 pub(crate) fn is_html(source: &str) -> AppResult<bool> {
+    let mut reader = quick_xml::Reader::from_str(source.trim_start_matches('\u{feff}'));
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(element) | Event::Empty(element)) => {
+                if element
+                    .local_name()
+                    .as_ref()
+                    .eq_ignore_ascii_case(b"Workbook")
+                {
+                    return Ok(false);
+                }
+                break;
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => (),
+        }
+    }
     let opening = source
         .trim_start_matches('\u{feff}')
         .chars()

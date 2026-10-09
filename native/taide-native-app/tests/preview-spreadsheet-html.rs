@@ -40,6 +40,22 @@ fn html은_원본_sheetjs의_복수표_타입_텍스트_병합_빈범위와_503�
 }
 
 #[test]
+fn html은_workbook_문구가_주석이나_셀에_있어도_형식을_유지한다() {
+    for source in [
+        "<!-- <Workbook/> --><table><tr><td>classified</td></tr></table>",
+        "<!DOCTYPE html><html><body><table><tr><td>classified</td></tr></table></body></html>",
+        "<table><tr><td><Workbook>classified</Workbook></td></tr></table>",
+    ] {
+        let parsed = decode(source.as_bytes()).unwrap();
+        assert_eq!(
+            parsed.sheets[0].rows,
+            [vec![Cell::Text("classified".into())]],
+            "{source}"
+        );
+    }
+}
+
+#[test]
 fn html은_내용분기_비실행_본문과_할당전_표_합산_병합_경계를_검사한다() {
     const ROWS: usize = 500;
     const LARGE_COLUMNS: u32 = 8192;
