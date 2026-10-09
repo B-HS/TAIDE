@@ -412,8 +412,9 @@ fn enclosing_opener_line(
     line: usize,
     column: usize,
     closer: &str,
-    rules: &dyn LanguageRules,
+    language: Language<'_>,
 ) -> Option<usize> {
+    let rules = language.rules;
     let pairs = rules.pairs();
     if !pairs.is_closing_bracket(closer)
         || document.rope.len_utf16_cu() > MAX_BRACKET_TREE_UTF16_LENGTH
@@ -423,9 +424,13 @@ fn enclosing_opener_line(
     let mut open: Vec<(String, usize)> = Vec::new();
     for current in 0..=line {
         let content = line_text(document, current);
+        let tokens = language.syntax.tokens(document, current)?;
         for range in rules.bracket_ranges(&content.text) {
             if current == line && range.end > column {
                 break;
+            }
+            if token_kind_at(&tokens, range.start) != TokenKind::Other {
+                continue;
             }
             let text = content.text[range].to_lowercase();
             if pairs.is_closing_bracket(&text) {
@@ -481,8 +486,7 @@ pub(crate) fn electric_reindent(
     let bracket_column = format!("{}{character}", content.text)
         .rfind(&bracket)
         .unwrap_or_default();
-    let opener_line =
-        enclosing_opener_line(document, line, bracket_column, &bracket, language.rules)?;
+    let opener_line = enclosing_opener_line(document, line, bracket_column, &bracket, language)?;
     if opener_line == line {
         return None;
     }

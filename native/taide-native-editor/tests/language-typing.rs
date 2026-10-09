@@ -3,12 +3,13 @@ use std::ops::Range;
 use taide_model::file::{EditorConfigOptions, FileSizeTier, OpenedFile};
 use taide_model::ids::{PaneId, TabId};
 use taide_native_editor::auto_closing::AutoClosedPairs;
+use taide_native_editor::document::DocumentSnapshot;
 use taide_native_editor::folding::{MAX_FOLDING_REGIONS, language_regions};
 use taide_native_editor::indent::IndentOptions;
 use taide_native_editor::language_configuration::{
     AutoClosingPair, BracketPair, CharacterPairs, EnterAction, FoldMarker, IndentAction,
-    IndentMetadata, Language, LanguageRules, UntokenizedLines, is_js_whitespace, token_kind_at,
-    without_brackets_outside_code,
+    IndentMetadata, Language, LanguageRules, LineSyntax, UntokenizedLines, is_js_whitespace,
+    token_kind_at, without_brackets_outside_code,
 };
 use taide_native_editor::language_typing::{Typing, insert_line_break, type_text};
 use taide_native_editor::store::{EditorLimits, EditorStore};
@@ -145,6 +146,46 @@ fn indentation_rules() -> ScriptedRules {
     }
 }
 
+struct ClassifiedLine {
+    kind: TokenKind,
+    bytes: Range<usize>,
+}
+
+impl LineSyntax for ClassifiedLine {
+    fn tokens(&self, document: &DocumentSnapshot, line: usize) -> Option<Vec<Token>> {
+        if line != 1 {
+            return UntokenizedLines.tokens(document, line);
+        }
+        Some(vec![
+            Token {
+                start_byte: 0,
+                kind: TokenKind::Other,
+            },
+            Token {
+                start_byte: self.bytes.start,
+                kind: self.kind,
+            },
+            Token {
+                start_byte: self.bytes.end,
+                kind: TokenKind::Other,
+            },
+        ])
+    }
+
+    fn kind_if_inserting(
+        &self,
+        document: &DocumentSnapshot,
+        line: usize,
+        byte_in_line: usize,
+        _: char,
+    ) -> TokenKind {
+        self.tokens(document, line)
+            .map_or(TokenKind::Other, |tokens| {
+                token_kind_at(&tokens, byte_in_line)
+            })
+    }
+}
+
 fn fixture(text: &str, caret: usize) -> (EditorStore, ViewId) {
     let mut store = EditorStore::new(EditorLimits {
         max_documents: DOCUMENT_LIMIT,
@@ -226,13 +267,20 @@ fn entered(rules: &ScriptedRules, indent: IndentOptions, text: &str, caret: usiz
 }
 
 fn typed(rules: &ScriptedRules, text: &str, caret: usize, input: &[&str]) -> String {
+    typed_with_syntax(rules, &UntokenizedLines, text, caret, input)
+}
+
+fn typed_with_syntax(
+    rules: &ScriptedRules,
+    syntax: &dyn LineSyntax,
+    text: &str,
+    caret: usize,
+    input: &[&str],
+) -> String {
     let (mut store, view) = fixture(text, caret);
     let mut auto_closed = AutoClosedPairs::default();
     let mut typing = Typing {
-        language: Some(Language {
-            rules,
-            syntax: &UntokenizedLines,
-        }),
+        language: Some(Language { rules, syntax }),
         indent: SPACES,
         auto_closed: &mut auto_closed,
     };
@@ -240,6 +288,56 @@ fn typed(rules: &ScriptedRules, text: &str, caret: usize, input: &[&str]) -> Str
         type_text(&mut store, view, character, &mut typing).unwrap();
     }
     marked(&store, view)
+}
+
+fn assert_ignored_brackets(kind: TokenKind, lines: &[&str]) {
+    let rules = rules_with_pairs(Vec::new());
+    for line in lines {
+        let text = format!("  {{\n{line}\n        ");
+        let syntax = ClassifiedLine {
+            kind,
+            bytes: line.len() - line.trim_start().len()..line.len(),
+        };
+        assert_eq!(
+            typed_with_syntax(&rules, &syntax, &text, text.len(), &["}"]),
+            format!("  {{\n{line}\n  }}|"),
+            "{kind:?}: {line:?}",
+        );
+    }
+}
+
+#[test]
+fn 닫는_괄호_내어쓰기는_이전_줄의_문자열_괄호를_무시한다() {
+    assert_ignored_brackets(TokenKind::String, &["      \"{\"", "      \"}\""]);
+}
+
+#[test]
+fn 닫는_괄호_내어쓰기는_이전_줄의_주석_괄호를_무시한다() {
+    assert_ignored_brackets(
+        TokenKind::Comment,
+        &["      // {", "      // }", "      /* { */", "      /* } */"],
+    );
+}
+
+#[test]
+fn 닫는_괄호_내어쓰기는_이전_줄의_정규식_괄호를_무시한다() {
+    assert_ignored_brackets(TokenKind::Regex, &["      /\\{/", "      /\\}/"]);
+}
+
+#[test]
+fn 닫는_괄호_내어쓰기는_other_토큰의_괄호를_센다() {
+    let rules = rules_with_pairs(Vec::new());
+    for (line, indent) in [("      {", "      "), ("      }", "        ")] {
+        let text = format!("  {{\n{line}\n        ");
+        let syntax = ClassifiedLine {
+            kind: TokenKind::Other,
+            bytes: line.len() - line.trim_start().len()..line.len(),
+        };
+        assert_eq!(
+            typed_with_syntax(&rules, &syntax, &text, text.len(), &["}"]),
+            format!("  {{\n{line}\n{indent}}}|"),
+        );
+    }
 }
 
 fn at_end(rules: &ScriptedRules, text: &str) -> String {

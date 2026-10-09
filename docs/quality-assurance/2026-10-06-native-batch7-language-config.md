@@ -13,7 +13,7 @@
 - 편집 옵션: `src/features/editor/code-editor.tsx:180-201, 283-301` 은 autoIndent, autoClosingBrackets, autoClosingQuotes, autoClosingComments, autoSurround, autoClosingDelete, autoClosingOvertype 를 지정하지 않습니다. Monaco 기본값은 `MONACO/editor/common/config/editorOptions.js:3063-3119` 에 있습니다: autoClosingBrackets languageDefined(3063), autoClosingComments languageDefined(3072), autoClosingDelete auto(3081), autoClosingOvertype auto(3089), autoClosingQuotes languageDefined(3097), autoIndent full(3106), autoSurround languageDefined(3119).
 - 추출 결과 요약: indentationRules 는 ruby·elixir 만(increase·decrease 두 패턴), onEnterRules 는 typescript·javascript(4), html(2), python(1), yaml(1), 접기 markers 는 rust·typescript·javascript·markdown·html·css·scss·python·java·dart·scala·c·cpp·kotlin, offSide 는 plaintext·yaml·python 입니다. Monaco 의 typescript 구성에는 indentationRules 가 없습니다. `autoCloseBefore`, `__electricCharacterSupport` 를 쓰는 구성은 없습니다.
 - wordPattern 은 typescript·javascript·json·html·css·scss·java·scala·kotlin 에 있습니다. native 의 단어 이동·더블클릭은 `wordSeparators` 만 씁니다(`ED/src/editing.rs` `WORD_SEPARATORS`). 이번 단계는 차이만 기록하고 자료는 `MonacoLanguage::word_pattern` 으로 보존했습니다.
-- TS 의 토큰은 Shiki provider 가 `TokenizationSupportAdapter` 를 거쳐 들어오므로 모든 토큰의 언어 id 가 모델 언어이고 balanced brackets 비트가 켜집니다(`MONACO/editor/standalone/browser/standaloneLanguages.js:174`). 그래서 `createScopedLineTokens` 범위는 항상 줄 전체이고, 괄호 쌍 트리는 문자열·주석 안의 괄호도 셉니다(`bracketPairsTree/tokenizer.js:142`). native 포팅도 임베드 언어 분기를 두지 않았습니다.
+- TS 의 토큰은 Shiki provider 가 `TokenizationSupportAdapter` 를 거쳐 들어오므로 모든 토큰의 언어 id 가 모델 언어이고 balanced brackets 비트가 켜집니다(`MONACO/editor/standalone/browser/standaloneLanguages.js:174`). `createScopedLineTokens` 범위는 줄 전체이지만, 괄호 쌍 트리는 balanced brackets 비트와 `StandardTokenType.Other` 조건을 함께 검사하므로 문자열·주석·정규식 토큰의 괄호를 제외합니다(`bracketPairsTree/tokenizer.js:141-145`). native 포팅도 임베드 언어 분기를 두지 않았습니다. 기존의 "문자열·주석 안의 괄호도 센다"는 설명은 잘못됐으며 2026-10-09 재개 시 바로잡았습니다.
 
 ## 2. 자료와 정규식 (C2)
 
@@ -158,3 +158,11 @@ cargo 는 모두 `--locked --offline --target-dir experiments/native-shell-spike
 9. 자동 닫기 추적의 검증 시점은 프레임 시작과 처리한 입력 이벤트 직후입니다. 포인터로 선택을 바꾼 뒤 같은 프레임 안에서 되돌아오는 경우는 다음 프레임에 검증합니다.
 10. json·css·scss·html·typescript 는 TS 에서 Monaco 언어 서비스가 접기 영역을 줍니다(`languages/features/*`). native 는 들여쓰기·표식 기반입니다(배치 6 에서 넘긴 차이).
 11. 실기 확인이 필요한 것(GUI 를 실행하지 않았습니다): 실제 토큰과 워커 지연에서의 따옴표 자동 닫기, 빠른 연속 입력, 한글 IME 중 괄호 입력, dead key 로 넣는 따옴표, undo 단위, 큰 파일에서 닫는 괄호 입력 지연, 표식 접기 명령.
+
+## 11. 리뷰 후속 — 닫는 괄호 내어쓰기 (2026-10-09)
+
+- 대상: `ED/src/auto-indent.rs`의 `enclosing_opener_line`과 `electric_reindent`, `ED/tests/language-typing.rs`.
+- 재현: 원래 코드에 문자열·주석·정규식의 여는 괄호를 두면 닫는 괄호를 바깥 코드 괄호의 2칸이 아니라 비코드 줄의 6칸에 맞췄습니다. `cargo test --manifest-path native/taide-native-editor/Cargo.toml --test language-typing 닫는_괄호_내어쓰기는 --locked --offline --target-dir experiments/native-shell-spike/target`는 1 통과·3 실패, exit 101이었습니다. Other 토큰 대조는 통과했습니다.
+- 수정: 여는 줄 탐색에 `Language`를 전달하고 각 줄의 토큰을 읽어 Other 토큰의 괄호만 쌓거나 닫습니다. 필요한 줄의 토큰을 제공받지 못하면 내어쓰기 계산을 중단합니다. 정규식·구문 엔진 의존성을 추가하지 않았습니다.
+- 근거: Monaco 0.56.0 `editor/common/model/bracketPairsTextModelPart/bracketPairsTree/tokenizer.js:141-145`의 Other 조건. 1절의 반대 설명도 함께 정정했습니다.
+- 검증: 같은 Cargo 옵션으로 `--test language-typing` 전체 14건 통과, exit 0입니다. 새 테스트는 String·Comment·Regex의 여는/닫는 괄호 제외와 Other 괄호 포함을 검증합니다. `cargo fmt --manifest-path native/taide-native-editor/Cargo.toml`도 exit 0입니다. 배치 전체 테스트와 실기 검증은 이 후속 검사에 포함하지 않았습니다.
