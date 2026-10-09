@@ -51,6 +51,9 @@ mod idle;
 #[path = "lsp-document-symbols.rs"]
 mod document_symbols;
 
+#[path = "lsp-workspace-symbols.rs"]
+mod workspace_symbols;
+
 #[cfg(all(test, unix))]
 #[path = "lsp-diagnostics-tests.rs"]
 mod diagnostics_tests;
@@ -58,6 +61,10 @@ mod diagnostics_tests;
 #[cfg(all(test, unix))]
 #[path = "lsp-document-symbols-tests.rs"]
 mod document_symbol_tests;
+
+#[cfg(all(test, unix))]
+#[path = "lsp-workspace-symbols-tests.rs"]
+mod workspace_symbol_tests;
 
 #[derive(Clone, Copy, Default)]
 pub struct SaveActionFlags {
@@ -177,6 +184,7 @@ struct Document {
 #[derive(Clone)]
 struct Session {
     client: SessionClient,
+    order: usize,
     owner: crate::diagnostics::Owner,
     name: String,
     roots: Vec<String>,
@@ -188,6 +196,7 @@ struct Session {
 
 enum Command {
     DocumentSymbols(crate::editor_symbols::Request),
+    WorkspaceSymbols(crate::workspace_symbols::Request),
     ExplorerPaste {
         project: ProjectId,
         request: crate::explorer_clipboard::Request,
@@ -236,6 +245,10 @@ enum Command {
 }
 
 pub enum Reply {
+    WorkspaceSymbols {
+        request: crate::workspace_symbols::Request,
+        result: Result<crate::workspace_symbols::Response, Failure>,
+    },
     DocumentSymbols {
         request: crate::editor_symbols::Request,
         result: Result<crate::editor_symbols::Response, Failure>,
@@ -530,6 +543,35 @@ impl LspBridge {
         self.submit(Command::DocumentSymbols(request))
     }
 
+    pub(crate) fn workspace_symbols(
+        &self,
+        request: crate::workspace_symbols::Request,
+    ) -> AppResult<()> {
+        self.submit(Command::WorkspaceSymbols(request))
+    }
+
+    pub(crate) fn workspace_providers(
+        &self,
+        project: &ProjectId,
+    ) -> HashSet<crate::editor_symbols::ProviderIdentity> {
+        if self.states.has_changed().is_err() {
+            return HashSet::new();
+        }
+        self.states
+            .borrow()
+            .iter()
+            .filter(|state| {
+                state.project == *project
+                    && !matches!(state.snapshot.phase, Phase::Stopping | Phase::Stopped)
+            })
+            .map(|state| crate::editor_symbols::ProviderIdentity {
+                owner: state.owner,
+                generation: state.snapshot.generation,
+                capability_revision: state.snapshot.capability_revision,
+            })
+            .collect()
+    }
+
     pub(crate) fn symbol_providers(
         &self,
         project: &ProjectId,
@@ -653,7 +695,7 @@ fn initialize(plan: &Plan) -> Value {
         "workspaceFolders":[{"uri":taide_lsp::service::workspace_folder_uri(root),"name":Path::new(root).file_name().and_then(|name| name.to_str()).unwrap_or(root)}],
         "capabilities":{
             "general":{"positionEncodings":["utf-16"]},
-            "workspace":{"workspaceFolders":true,"configuration":true,"applyEdit":true,"workspaceEdit":{"documentChanges":true}},
+            "workspace":{"workspaceFolders":true,"configuration":true,"applyEdit":true,"workspaceEdit":{"documentChanges":true},"symbol":{"dynamicRegistration":false,"symbolKind":{"valueSet":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26]}}},
             "textDocument":{"synchronization":{"dynamicRegistration":false,"didSave":true},"documentSymbol":{"hierarchicalDocumentSymbolSupport":true,"symbolKind":{"valueSet":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26]}},"formatting":{},"codeAction":{"codeActionLiteralSupport":{"codeActionKind":{"valueSet":["source.fixAll","source.organizeImports"]}},"resolveSupport":{"properties":["edit","command"]},"dataSupport":true}}
         }
     });
@@ -807,6 +849,15 @@ async fn sync_document(
     for plan in plans {
         let key = session_key(sessions, &plan);
         if !sessions.contains_key(&key) {
+            let order = sessions
+                .values()
+                .map(|session| session.order)
+                .max()
+                .map_or(Ok(0), |order| {
+                    order
+                        .checked_add(1)
+                        .ok_or_else(|| failure(Failure::Capacity))
+                })?;
             let params = initialize(&plan);
             let client = native_lsp_actions::spawn_session(
                 &services.tasks,
@@ -846,6 +897,7 @@ async fn sync_document(
                 key.clone(),
                 Session {
                     client,
+                    order,
                     owner: crate::diagnostics::Owner::new(),
                     name: plan.spec.name.clone(),
                     roots: vec![plan.key.root.clone()],
@@ -1406,6 +1458,43 @@ async fn run(
                 close_document(&mut sessions, document, Some(&retained), None).await;
                 publish_status(&sessions, &states, &repaint);
                 None
+            }
+            Command::WorkspaceSymbols(request) => {
+                if request.is_cancelled() {
+                    continue;
+                }
+                let selected = workspace_symbols::select(&sessions, &request.project);
+                let sender = replies.clone();
+                let repaint = repaint.clone();
+                let mut cancelled = request.cancelled.clone();
+                let mut stopping = stopping.clone();
+                let rejected = request.clone();
+                if !services
+                    .tasks
+                    .spawn_transient("native-lsp-workspace-symbols", async move {
+                        let result = tokio::select! {
+                            biased;
+                            _ = stopping.changed() => return,
+                            _ = cancelled.changed() => return,
+                            result = workspace_symbols::request(&selected, &request) => result,
+                        };
+                        if !request.is_cancelled()
+                            && sender
+                                .send(Reply::WorkspaceSymbols { request, result })
+                                .await
+                                .is_ok()
+                        {
+                            repaint();
+                        }
+                    })
+                {
+                    Some(Reply::WorkspaceSymbols {
+                        request: rejected,
+                        result: Err(Failure::TransportClosed),
+                    })
+                } else {
+                    None
+                }
             }
             Command::DocumentSymbols(request) => {
                 if request.is_cancelled() {

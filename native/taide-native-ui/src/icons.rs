@@ -36,6 +36,8 @@ pub enum Icon {
     Loader,
     #[cfg(feature = "native-host")]
     Braces,
+    #[cfg(feature = "native-host")]
+    Hash,
 }
 
 const ICONS: &[Icon] = &[
@@ -58,6 +60,8 @@ const ICONS: &[Icon] = &[
     Icon::Loader,
     #[cfg(feature = "native-host")]
     Icon::Braces,
+    #[cfg(feature = "native-host")]
+    Icon::Hash,
 ];
 
 impl Icon {
@@ -82,13 +86,15 @@ impl Icon {
             Self::Loader => 16,
             #[cfg(feature = "native-host")]
             Self::Braces => 17,
+            #[cfg(feature = "native-host")]
+            Self::Hash => 18,
         }
     }
 
     pub fn size(self) -> f32 {
         match self {
             #[cfg(feature = "native-host")]
-            Self::Braces => LIST_ITEM_ICON,
+            Self::Braces | Self::Hash => LIST_ITEM_ICON,
             Self::Reset | Self::Unbind | Self::Warning | Self::Loader => SMALL_ICON,
             Self::Search | Self::Terminal | Self::File | Self::CornerDownLeft => LIST_ITEM_ICON,
             Self::Keyboard
@@ -141,6 +147,8 @@ impl Icon {
             }
             #[cfg(feature = "native-host")]
             Self::Braces => include_bytes!("../../taide-native-app/resources/icons/braces.svg"),
+            #[cfg(feature = "native-host")]
+            Self::Hash => include_bytes!("../../taide-native-app/resources/icons/hash.svg"),
         }
     }
 }

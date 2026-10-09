@@ -566,6 +566,7 @@ mod tests {
                                     files: indexes.view(Some(&project), root),
                                     active_file: None,
                                     symbols: Default::default(),
+                                    workspace_symbols: Default::default(),
                                 },
                                 true,
                             )

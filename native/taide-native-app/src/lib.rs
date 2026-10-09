@@ -236,4 +236,8 @@ pub mod untitled;
 pub mod workspace_activity;
 pub mod workspace_delete;
 pub mod workspace_rename;
+#[path = "workspace-symbol-host.rs"]
+pub mod workspace_symbol_host;
+#[path = "workspace-symbols.rs"]
+pub mod workspace_symbols;
 mod zen;

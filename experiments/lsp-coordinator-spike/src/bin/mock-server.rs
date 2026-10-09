@@ -38,6 +38,8 @@ struct MockServer {
     should_track_workspace_roots: bool,
     document_symbols: Option<&'static str>,
     held_symbol: Option<Value>,
+    workspace_symbols: Option<&'static str>,
+    held_workspace_symbol: Option<Value>,
     workspace_folders: Vec<Value>,
     workspace_reply: Option<Value>,
     pending_action_command: Option<Value>,
@@ -234,7 +236,8 @@ impl MockServer {
             let params = message
                 .get("params")
                 .ok_or_else(|| invalid("initialize requires params"))?;
-            let has_valid_root = if self.should_format_documents {
+            let has_valid_root = if self.should_format_documents || self.workspace_symbols.is_some()
+            {
                 params["rootUri"]
                     .as_str()
                     .is_some_and(|root| root.starts_with("file:///"))
@@ -303,6 +306,15 @@ impl MockServer {
                     ));
                 }
                 capabilities["documentSymbolProvider"] = json!(true);
+            }
+            if self.workspace_symbols.is_some() {
+                if params["capabilities"]["workspace"]["symbol"]["symbolKind"]["valueSet"]
+                    .as_array()
+                    .is_none()
+                {
+                    return Err(invalid("native workspace symbols require kind support"));
+                }
+                capabilities["workspaceSymbolProvider"] = json!(true);
             }
             if self.should_track_workspace_roots {
                 capabilities["workspace"] =
@@ -465,6 +477,25 @@ impl MockServer {
                     )?;
                 }
             }
+            if self
+                .held_workspace_symbol
+                .as_ref()
+                .is_some_and(|held| held["id"] == cancelled_id)
+            {
+                let held = self
+                    .held_workspace_symbol
+                    .take()
+                    .ok_or_else(|| invalid("cancel requires held workspace symbols"))?;
+                write_response(output, &held["id"], Value::Null)?;
+                write_document_diagnostic(
+                    output,
+                    held["uri"]
+                        .as_str()
+                        .ok_or_else(|| invalid("workspace hold requires URI"))?,
+                    &held["version"],
+                    "synthetic workspace cancelled",
+                )?;
+            }
             return Ok(None);
         }
         if method == "synthetic/unregister" && self.has_dynamic_registration {
@@ -528,6 +559,54 @@ impl MockServer {
                 }
                 _ => return Err(invalid("code action command must follow its edit")),
             }
+            return Ok(None);
+        }
+        if method == "workspace/symbol" {
+            let id = id.ok_or_else(|| invalid("workspace symbols require ID"))?;
+            let query = message["params"]["query"]
+                .as_str()
+                .filter(|query| !query.is_empty())
+                .ok_or_else(|| invalid("workspace symbols require query"))?;
+            let mode = self
+                .workspace_symbols
+                .ok_or_else(|| invalid("workspace symbols are not advertised"))?;
+            if mode == "--native-workspace-symbols-crash" && query == "restart" {
+                return Ok(Some(ExitCode::FAILURE));
+            }
+            let (uri, current) = self
+                .documents
+                .first_key_value()
+                .ok_or_else(|| invalid("workspace symbols require a fixture mirror"))?;
+            if mode == "--native-workspace-symbols-wait" && query == "hold" {
+                self.held_workspace_symbol =
+                    Some(json!({"id":id,"uri":uri,"version":current["version"]}));
+                write_document_diagnostic(
+                    output,
+                    uri,
+                    &current["version"],
+                    "synthetic workspace held",
+                )?;
+                return Ok(None);
+            }
+            if mode == "--native-workspace-symbols-error" {
+                write_payload(
+                    output,
+                    &json!({"jsonrpc":"2.0","id":id,"error":{"code":-32001,"message":"synthetic workspace error"}}),
+                )?;
+                return Ok(None);
+            }
+            let range = json!({"start":{"line":1,"character":4},"end":{"line":1,"character":10}});
+            let mut result = json!([
+                {"name":format!("ServerOnly:{uri}"),"kind":12,"containerName":"Container","location":{"uri":uri,"range":range}},
+                {"name":format!("Workspace:{query}"),"kind":6,"location":{"uri":uri,"range":range}}
+            ]);
+            if mode == "--native-workspace-symbols-nested" {
+                result
+                    .as_array_mut()
+                    .ok_or_else(|| invalid("workspace response must be an array"))?
+                    .push(json!({"name":"Lazy","kind":12,"location":{"uri":uri},"data":{"id":1}}));
+            }
+            write_response(output, id, result)?;
             return Ok(None);
         }
         let params = message
@@ -875,6 +954,21 @@ fn main() -> io::Result<ExitCode> {
                 "--native-symbols-wait" => "--native-symbols-wait",
                 "--native-symbols-bad" => "--native-symbols-bad",
                 _ => "--native-symbols",
+            });
+        }
+        Some(
+            mode @ ("--native-workspace-symbols"
+            | "--native-workspace-symbols-nested"
+            | "--native-workspace-symbols-wait"
+            | "--native-workspace-symbols-crash"
+            | "--native-workspace-symbols-error"),
+        ) => {
+            server.workspace_symbols = Some(match mode {
+                "--native-workspace-symbols-nested" => "--native-workspace-symbols-nested",
+                "--native-workspace-symbols-wait" => "--native-workspace-symbols-wait",
+                "--native-workspace-symbols-crash" => "--native-workspace-symbols-crash",
+                "--native-workspace-symbols-error" => "--native-workspace-symbols-error",
+                _ => "--native-workspace-symbols",
             });
         }
         Some(

@@ -48,6 +48,9 @@ struct Scene {
     symbols: Vec<taide_native_editor::document_symbols::Symbol>,
     #[cfg(feature = "native-host")]
     symbols_pending: bool,
+    workspace_symbols: Vec<WorkspaceSymbol>,
+    workspace_query: Option<String>,
+    workspace_pending: bool,
 }
 
 impl Scene {
@@ -85,6 +88,9 @@ impl Scene {
             symbols: Vec::new(),
             #[cfg(feature = "native-host")]
             symbols_pending: false,
+            workspace_symbols: Vec::new(),
+            workspace_query: None,
+            workspace_pending: false,
         }
     }
 
@@ -153,6 +159,13 @@ impl Scene {
                                     entries: Some(&self.symbols),
                                     generation: self.revision,
                                     is_pending: self.symbols_pending,
+                                },
+                                #[cfg(feature = "native-host")]
+                                workspace_symbols: WorkspaceSymbolIndex {
+                                    entries: Some(&self.workspace_symbols),
+                                    query: self.workspace_query.as_deref(),
+                                    generation: self.revision,
+                                    is_pending: self.workspace_pending,
                                 },
                             },
                             self.enabled,
@@ -550,7 +563,7 @@ fn 줄_이동과_심볼_모드는_활성_파일과_프로젝트_유무에_따른
     scene.frame(Vec::new());
     let with_project = scene.inspection();
     assert!(with_project.rows.is_empty());
-    assert_eq!(with_project.empty_message.as_deref(), Some("No results"));
+    assert_eq!(with_project.empty_message.as_deref(), Some("Loading..."));
 }
 
 #[test]
@@ -708,6 +721,101 @@ fn 문서_심볼은_이름_fuzzy_한줄_breadcrumb_입력과_현재_세대_선�
     assert_eq!(
         scene.inspection().empty_message.as_deref(),
         Some("Open a file first")
+    );
+}
+
+#[test]
+fn workspace_심볼은_서버순서와_미일치_이름을_보존하고_loading과_현재_세대만_선택한다() {
+    let mut scene = Scene::new().with_project(&[]);
+    scene.open(PaletteEntry::WorkspaceSymbols);
+    assert_eq!(scene.palette.workspace_query(), Some(""));
+    assert_eq!(
+        scene.inspection().empty_message.as_deref(),
+        Some("No results")
+    );
+    scene.type_text("term ");
+    assert_eq!(scene.palette.workspace_query(), Some("term "));
+    assert_eq!(
+        scene.inspection().empty_message.as_deref(),
+        Some("Loading...")
+    );
+    scene.workspace_query = Some("term ".into());
+    scene.workspace_pending = true;
+    scene.workspace_symbols = ["ServerOnly", "myTerm", "Duplicate", "Duplicate"]
+        .into_iter()
+        .map(|name| WorkspaceSymbol {
+            name: name.into(),
+            kind: taide_native_editor::document_symbols::SymbolKind::FUNCTION,
+            container_name: "Container".into(),
+            path: ACTIVE_FILE.into(),
+            line: 2,
+            column: 5,
+        })
+        .collect();
+    scene.frame(Vec::new());
+    assert!(scene.labels().is_empty());
+    scene.workspace_pending = false;
+    scene.revision = 7;
+    scene.frame(Vec::new());
+    assert_eq!(
+        scene.labels(),
+        ["ServerOnly", "myTerm", "Duplicate", "Duplicate"]
+    );
+    assert!(
+        scene
+            .inspection()
+            .rows
+            .iter()
+            .all(|row| row.icon == Icon::Hash && row.rect.height() == SINGLE_LINE_ROW_HEIGHT)
+    );
+    assert_eq!(
+        scene.inspection().rows[0].detail.as_deref(),
+        Some("Container")
+    );
+    scene.press(Key::ArrowDown);
+    assert_eq!(
+        scene.press(Key::Enter).action,
+        Some(Action::OpenWorkspaceSymbol {
+            generation: 7,
+            index: 1
+        })
+    );
+    assert!(!scene.palette.is_open());
+    assert_eq!(scene.palette.workspace_query(), None);
+    scene.open(PaletteEntry::WorkspaceSymbols);
+    scene.type_text("term ");
+    let last = scene.inspection().rows[3].clone();
+    let clicked = scene.click(last.rect.center());
+    assert_eq!(
+        clicked.action,
+        Some(Action::OpenWorkspaceSymbol {
+            generation: 7,
+            index: 3
+        }),
+        "row before {:?}, rows after {:?}, list {:?}, open {}",
+        last.rect,
+        scene
+            .inspection()
+            .rows
+            .iter()
+            .map(|row| row.rect)
+            .collect::<Vec<_>>(),
+        scene.inspection().list,
+        scene.palette.is_open(),
+    );
+    scene.open(PaletteEntry::WorkspaceSymbols);
+    scene.type_text("changed");
+    assert!(scene.inspection().rows.is_empty());
+    assert_eq!(
+        scene.inspection().empty_message.as_deref(),
+        Some("Loading...")
+    );
+    assert_eq!(scene.press(Key::Enter).action, None);
+    scene.commands.active_project = None;
+    scene.frame(Vec::new());
+    assert_eq!(
+        scene.inspection().empty_message.as_deref(),
+        Some("Open a project first")
     );
 }
 

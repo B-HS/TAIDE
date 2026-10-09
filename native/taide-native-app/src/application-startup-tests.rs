@@ -226,10 +226,13 @@ fn actual_app_constructor는_bundle_startup_settings_file_save와_정상_exit_ow
 }
 
 #[test]
-fn actual_app의_파일본문과_아웃라인은_같은_문서_심볼과_현재_pane_caret를_소비한다() {
+fn actual_app의_아웃라인과_workspace_심볼은_현재_pane과_utf16_reveal을_소비한다() {
+    use std::os::unix::fs::PermissionsExt;
     const SCREEN_WIDTH: f32 = 1000.0;
     const SCREEN_HEIGHT: f32 = 700.0;
     const CARET: usize = 8;
+    const WORKSPACE_CARET: usize = 12;
+    const EXECUTABLE_MODE: u32 = 0o700;
     let mut fixture = Fixture {
         directory: std::env::temp_dir()
             .join(format!("taide-native-navigation-app-{}", ProjectId::new())),
@@ -244,7 +247,7 @@ fn actual_app의_파일본문과_아웃라인은_같은_문서_심볼과_현재_
     std::fs::write(public.join("index.html"), INDEX).unwrap();
     std::fs::write(public.join("app.wasm"), MODULE).unwrap();
     let file = root.join("current.rs");
-    std::fs::write(&file, "class\n  method\nend").unwrap();
+    std::fs::write(&file, "class\n  \u{1f600}method\nend").unwrap();
     let path = file.canonicalize().unwrap().to_str().unwrap().to_owned();
     let root = root.canonicalize().unwrap().to_str().unwrap().to_owned();
     let state = AppState::new(AppPaths::new(data));
@@ -320,13 +323,14 @@ fn actual_app의_파일본문과_아웃라인은_같은_문서_심볼과_현재_
         .unwrap(),
     );
     let application = fixture.application.as_mut().unwrap();
-    let paint = |application: &mut NativeApplication| {
+    let paint = |application: &mut NativeApplication, events| {
         let mut output = context.run_ui(
             egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(
                     egui::Pos2::ZERO,
                     egui::vec2(SCREEN_WIDTH, SCREEN_HEIGHT),
                 )),
+                events,
                 ..Default::default()
             },
             |ui| eframe::App::ui(application, ui, &mut eframe::Frame::_new_kittest()),
@@ -334,7 +338,7 @@ fn actual_app의_파일본문과_아웃라인은_같은_문서_심볼과_현재_
         output.textures_delta.clear();
         output
     };
-    paint(application);
+    paint(application, Vec::new());
     wait_for(
         application,
         &context,
@@ -402,7 +406,7 @@ fn actual_app의_파일본문과_아웃라인은_같은_문서_심볼과_현재_
         )
         .unwrap();
     application.symbol_sidebars.entry(&project, &slot).view = crate::symbol_sidebar::View::Outline;
-    let output = paint(application);
+    let output = paint(application, Vec::new());
     let labels = output
         .shapes
         .iter()
@@ -420,6 +424,112 @@ fn actual_app의_파일본문과_아웃라인은_같은_문서_심볼과_현재_
         "labels={labels:?}"
     );
     assert!(labels.iter().any(|text| *text == "current.rs"));
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .revision,
+        snapshot.revision
+    );
+    let mock = std::env::current_exe()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("examples/native-lsp-mock");
+    assert!(mock.is_file());
+    let mock = mock.to_str().unwrap().replace('\'', "'\\''");
+    let bin = fixture.directory.join("bin");
+    let executable = bin.join("rust-analyzer");
+    std::fs::write(
+        &executable,
+        format!("#!/bin/sh\nexec '{mock}' --native-workspace-symbols\n"),
+    )
+    .unwrap();
+    std::fs::set_permissions(
+        &executable,
+        std::fs::Permissions::from_mode(EXECUTABLE_MODE),
+    )
+    .unwrap();
+    let runtime = application.runtime.handle().clone();
+    runtime
+        .block_on(application.lsp.take().unwrap().disconnect())
+        .unwrap();
+    let repaint = context.clone();
+    application.lsp = Some(
+        crate::lsp::LspBridge::connect(
+            application.services.clone(),
+            bin.into_os_string(),
+            Arc::new(move || repaint.request_repaint()),
+        )
+        .unwrap(),
+    );
+    application.reconcile_lsp();
+    application.palette.open(
+        &context,
+        taide_native_ui::command_registry::PaletteEntry::WorkspaceSymbols,
+    );
+    paint(application, Vec::new());
+    paint(application, Vec::new());
+    paint(application, vec![egui::Event::Text("query".into())]);
+    assert_eq!(application.palette.workspace_query(), Some("query"));
+    runtime.block_on(async {
+        tokio::time::timeout(DEADLINE, async {
+            loop {
+                eframe::App::logic(application, &context, &mut eframe::Frame::_new_kittest());
+                paint(application, Vec::new());
+                let index = application.workspace_symbols.index(Some(&project));
+                if !index.is_pending && index.entries.is_some_and(|symbols| symbols.len() == 2) {
+                    assert_eq!(index.entries.unwrap()[1].name, "Workspace:query");
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+    });
+    let before_tabs =
+        crate::tabs::tabs_in(&application.controller.snapshot().layouts[&project].root)
+            .into_iter()
+            .map(|tab| tab.id.clone())
+            .collect::<Vec<_>>();
+    paint(
+        application,
+        vec![egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert!(!application.palette.is_open());
+    runtime.block_on(async {
+        tokio::time::timeout(DEADLINE, async {
+            loop {
+                eframe::App::logic(application, &context, &mut eframe::Frame::_new_kittest());
+                paint(application, Vec::new());
+                let selections = &application.store.views().get(view).unwrap().selection;
+                if selections.selections[selections.primary].head == WORKSPACE_CARET {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+    });
+    assert_eq!(
+        crate::tabs::tabs_in(&application.controller.snapshot().layouts[&project].root)
+            .into_iter()
+            .map(|tab| tab.id.clone())
+            .collect::<Vec<_>>(),
+        before_tabs
+    );
     assert_eq!(
         application
             .store

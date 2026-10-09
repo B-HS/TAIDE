@@ -6,15 +6,15 @@
 
 기준: 실제 TS workspace-symbol adapter·팔레트 그룹/검색 hook/선택, 기존 native typed LSP 세션/capability/취소·팔레트 # 모드·preview/reveal/root guard입니다. 프로젝트의 준비된 여러 세션을 조회하고 성공 결과를 원래 순서로 합쳐 현재 검색에만 표시합니다. 파일 URI/해결된 범위·이름/컨테이너·UTF-16 위치와 입력/서버/프로젝트/팔레트 수명을 확인합니다. 새 기능/디자인/의존성·OS 합성 입력은 추가하지 않고 원본 버그/내부 수치의 강제 재현·동결 browser 변경을 피합니다.
 
-- [ ] a. 실제 기준·공식 API — TS 검색/병합/강조/선택·빈/loading/프로젝트 없음, 로컬 lsp-types/SDK typed workspace request·ready/capability/drop 취소와 native 팔레트/앱 소비 경계를 읽고 batch18 QA에 고정합니다.
-- [ ] b. 모델·검색 수명 — file URI/해결된 위치/종류/컨테이너·순서와 UTF-16 좌표를 정규화하고 프로젝트/검색/세대·200ms trailing 준비/취소·빈/오류/서버 교체·닫힘의 현재 결과 gate를 구현·검증합니다.
-- [ ] c. 실제 LSP 공급 — 현재 프로젝트의 root별 준비 세션에 typed workspace/symbol을 독립 조회·병합하고 한 서버의 미지원/오류·늦은 응답·future drop/닫힘/재시작을 실제 child와 격리 host에서 검증합니다.
-- [ ] d. 팔레트 # 표면 — Hash 아이콘·이름/컨테이너·원본 순서·강조만의 로컬 fuzzy·빈/loading/프로젝트 안내·키/마우스/IME·current generation 선택을 native-host 분기로 연결합니다. browser 공급은 유지합니다.
-- [ ] e. 앱 preview/reveal 통합 — 실제 project/window/pane·preview/기존 탭·파일 경계·UTF-16 대상·편집/세션/검색/프로젝트 교체 후 stale 선택을 현재 앱/host 경로에서 검증합니다.
-- [ ] f. 전체 게이트 — 변경 크레이트 전체 대상 --no-fail-fast를 직접 1회 실행하고 실패 영향만 재검사합니다. Cargo 직렬·보호 Trash 3 제외/ignored·실기 부채·동결 host/Wasm·포맷/diff·디스크를 확인합니다.
+- [x] a. 실제 기준·공식 API — 실제 TS adapter/hook/그룹/선택·빈/loading/프로젝트 없음과 설치된 공식 lsp-types 0.97.0의 WorkspaceSymbolParams/Response/Location, SDK typed 계약·ready/capability/future drop 경계를 확인했습니다. 웹 문서 본문은 조회되지 않아 이를 읽었다고 보고하지 않으며 로컬 공식 API·실제 SDK 코드를 근거로 사용합니다.
+- [x] b. 모델·검색 수명 — file URI/해결된 위치/종류/컨테이너·서버 순서와 UTF-16 좌표·200ms trailing·JS 공백·입력/프로젝트/서버 교체·취소·늦은 응답/선택 거절을 구현해 관련 3건이 통과했습니다. 원본의 두 200ms timer를 단일 trailing으로 연결하며 실제 LSP/표면 연결은 c~e에서 검증합니다.
+- [x] c. 실제 LSP 공급 — 현재 프로젝트의 root별 준비 세션을 등록 순서로 독립 조회·병합합니다. 실제 child 4건에서 flat/nested·미지원/오류·여러 root의 순서/부분 오류/다른 프로젝트 격리·보류 요청 취소/다른 문서 동기화·서버 종료/재시작 후 mirror replay와 이전 검색 만료를 확인했습니다. 검증 서버의 native root 초기화 누락으로 발생한 TransportClosed를 stderr로 진단하고 fixture를 수정했습니다.
+- [x] d. 팔레트 # 표면 — native-host Hash·서버 순서/미일치 이름 보존·이름 강조·한 줄 컨테이너·빈/loading/프로젝트 안내·현재 세대 키/마우스 선택을 연결해 관련 22건이 통과했습니다. 비동기 결과가 이전 Area 높이에 갇힌 클릭 실패를 재현하고 원본 input+max list 한도에서 max rect를 갱신해 수정했습니다. browser 분기·기존 공통 IME/Tab/포커스 gate를 유지합니다.
+- [x] e. 앱 preview/reveal 통합 — host 3건과 실제 앱 1건이 통과했습니다. main/보조 창의 기존 고정 탭/preview·파일 경계·잠금 대기 중 revision/focus/프로젝트/창/슬롯 변경·늦은 host reply 거절을 확인했습니다. 실제 # 팔레트→child→host→기존 탭의 이모지 UTF-16 2:5/byte 12 커서 이동과 문서 불변을 확인하며 OS 합성 입력은 사용하지 않았습니다.
+- [x] f. 전체 게이트 — 변경 app 전체 67대상·659건과 UI inspection 전체 19대상·359건, 총 1018건이 통과했습니다. 앱 첫 전체 명령의 기존 저장 검사 exhaustive 분기 누락을 보완한 뒤 실제 전체 실행이 통과했습니다. 보호 Trash 3 제외/기존 ignored 5·실기 부채 유지, 동결 host/Wasm·app/UI fmt/diff exit 0, manifest/lock·동결/engine 경계 변경 0, 디스크 675GiB·64%입니다. 동결 컴파일에서 tool의 실행 중 반환 뒤 다음 Cargo를 시작한 직렬 규칙 이탈 1회와 실제 빌드 잠금 대기를 QA에 기록했습니다.
 - [ ] g. 실제 기록·선별 Git·계속 진행 — 닫힌 요구사항만 QA/기능표/근거/PROCESS에 갱신하고 검증한 논리 단위를 선별 커밋·일반 푸시합니다. 다음 필수 범위를 작성해 전체 전환을 계속합니다.
 
-진척: 배치 18 체크리스트 0/7이며 현재 기능 대응표 279/588(47.4%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. 다음 행동은 실제 workspace/symbol 응답과 현재 팔레트/세션 소비 경계를 확인하는 것입니다.
+진척: 배치 18 체크리스트 6/7(85.7%)이며 현재 기능 대응표 279/588(47.4%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. app/UI 전체 86대상·1018건·동결 host/Wasm·포맷/diff가 통과했습니다. 다음 행동은 완료 요구사항의 실제 근거를 기록해 선별 커밋·일반 푸시하는 것입니다.
 
 ## 완료: 배치 17 — 아웃라인 패널·경로/심볼 탐색 막대 (2026-10-10)
 

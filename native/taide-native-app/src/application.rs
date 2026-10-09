@@ -126,6 +126,7 @@ pub struct NativeApplication {
     resumed_save_epochs: HashMap<DocumentId, crate::persistence::DraftEpoch>,
     lsp_diagnostics: crate::diagnostics::Store,
     editor_symbols: crate::editor_symbols::State,
+    workspace_symbols: crate::workspace_symbols::State,
     lsp_status_appearance: crate::lsp::status::Appearance,
     status_editor_appearance: crate::status_editor::Appearance,
     status_ide_appearance: crate::status_ide::Appearance,
@@ -421,6 +422,7 @@ impl NativeApplication {
             resumed_save_epochs: HashMap::new(),
             lsp_diagnostics: crate::diagnostics::Store::default(),
             editor_symbols: crate::editor_symbols::State::default(),
+            workspace_symbols: crate::workspace_symbols::State::default(),
             lsp_status_appearance: appearances.lsp_status,
             status_editor_appearance: appearances.status_editor,
             status_ide_appearance: appearances.status_ide,
@@ -739,7 +741,8 @@ impl NativeApplication {
                         }
                     }
                 }
-                HostReply::BreadcrumbOpened { result } => {
+                HostReply::BreadcrumbOpened { result }
+                | HostReply::WorkspaceSymbolOpened { result } => {
                     if self.closing.is_none() && !self.services.state.is_shutting_down() {
                         match result {
                             Ok(opened)
@@ -2987,6 +2990,20 @@ impl NativeApplication {
         }
         while let Some(reply) = self.lsp.as_mut().and_then(crate::lsp::LspBridge::poll) {
             match reply {
+                crate::lsp::Reply::WorkspaceSymbols { request, result } => {
+                    let providers = self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
+                        lsp.workspace_providers(&request.project)
+                    });
+                    if self
+                        .services
+                        .state
+                        .projects
+                        .read()
+                        .contains_key(&request.project)
+                    {
+                        self.workspace_symbols.accept(&request, providers, result);
+                    }
+                }
                 crate::lsp::Reply::DocumentSymbols { request, result } => {
                     if let Ok(current) = self.store.documents().snapshot(request.snapshot.id) {
                         let providers = self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
@@ -3640,6 +3657,40 @@ impl NativeApplication {
         )
     }
 
+    fn observe_workspace_symbols(
+        &mut self,
+        context: &egui::Context,
+        project: Option<&ProjectId>,
+        enabled: bool,
+    ) {
+        let providers = project
+            .zip(self.lsp.as_ref())
+            .map_or_else(HashSet::new, |(project, lsp)| {
+                lsp.workspace_providers(project)
+            });
+        let query = self.palette.workspace_query().filter(|_| enabled);
+        let now = Instant::now();
+        if let Some(request) =
+            self.workspace_symbols
+                .observe(project, query, providers.clone(), now)
+        {
+            let sent = self
+                .lsp
+                .as_ref()
+                .is_some_and(|lsp| lsp.workspace_symbols(request.clone()).is_ok());
+            if !sent {
+                self.workspace_symbols.accept(
+                    &request,
+                    providers,
+                    Err(taide_lsp::native::Failure::TransportClosed),
+                );
+            }
+        }
+        if let Some(delay) = self.workspace_symbols.delay(now) {
+            context.request_repaint_after(delay);
+        }
+    }
+
     fn show_palette(
         &mut self,
         context: &egui::Context,
@@ -3650,6 +3701,7 @@ impl NativeApplication {
     ) {
         let now = Instant::now();
         let project = command_context.active_project.as_ref();
+        self.observe_workspace_symbols(context, project, enabled);
         if let Some(stale) = self
             .palette_files
             .observe(project, self.palette.observes_files(), now)
@@ -3692,6 +3744,7 @@ impl NativeApplication {
                 files: self.palette_files.view(project, root),
                 active_file: active_file.map(|(_, path)| path),
                 symbols,
+                workspace_symbols: self.workspace_symbols.index(project),
             },
             enabled,
         );
@@ -3721,6 +3774,37 @@ impl NativeApplication {
                     pane,
                     path,
                 });
+            }
+            Some(crate::command_palette::Action::OpenWorkspaceSymbol { generation, index }) => {
+                if let Some(project) = project
+                    && let Some(symbol) = self
+                        .workspace_symbols
+                        .selected(project, generation, index)
+                        .cloned()
+                    && let Some(layout) = snapshot.layouts.get(project)
+                    && let Some((_, focused)) =
+                        crate::symbol_sidebar::window_tree(project, layout, &self.shell.scope)
+                    && let Some(pane) = crate::workspace_symbol_host::destination(
+                        layout,
+                        project,
+                        &self.shell.scope,
+                        &symbol.path,
+                    )
+                {
+                    self.submit(HostCommand::OpenWorkspaceSymbol(
+                        crate::workspace_symbol_host::Request {
+                            project: project.clone(),
+                            pane,
+                            focused: focused.clone(),
+                            revision: layout.revision,
+                            scope: self.shell.scope.clone(),
+                            path: symbol.path,
+                            line: symbol.line,
+                            column: symbol.column,
+                            viewport: context.viewport_id(),
+                        },
+                    ));
+                }
             }
             Some(crate::command_palette::Action::RevealLine(target)) => {
                 if let Some(project) = project
@@ -3766,6 +3850,7 @@ impl NativeApplication {
             }
             None => (),
         }
+        self.observe_workspace_symbols(context, project, enabled);
     }
 
     fn toast_interaction_enabled(&self) -> bool {

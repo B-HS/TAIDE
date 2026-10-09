@@ -16,9 +16,9 @@ impl EventSink for Sink {
     fn publish(&self, _: AppEvent) {}
 }
 
-struct Fixture {
-    directory: PathBuf,
-    services: Arc<AppServices>,
+pub(super) struct Fixture {
+    pub(super) directory: PathBuf,
+    pub(super) services: Arc<AppServices>,
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
@@ -28,7 +28,7 @@ impl Drop for Fixture {
     }
 }
 
-fn fixture(mode: &str) -> (Fixture, ProjectId, EditorStore, DocumentId, OsString) {
+pub(super) fn fixture(mode: &str) -> (Fixture, ProjectId, EditorStore, DocumentId, OsString) {
     assert!(matches!(
         mode,
         "--native-symbols"
@@ -36,6 +36,11 @@ fn fixture(mode: &str) -> (Fixture, ProjectId, EditorStore, DocumentId, OsString
             | "--native-symbols-wait"
             | "--native-symbols-bad"
             | "--native-document"
+            | "--native-workspace-symbols"
+            | "--native-workspace-symbols-nested"
+            | "--native-workspace-symbols-wait"
+            | "--native-workspace-symbols-crash"
+            | "--native-workspace-symbols-error"
     ));
     let directory = std::env::temp_dir().join(format!("taide-native-symbols-{}", ProjectId::new()));
     let root = directory.join("root");
@@ -52,7 +57,16 @@ fn fixture(mode: &str) -> (Fixture, ProjectId, EditorStore, DocumentId, OsString
     assert!(mock.is_file());
     let escaped = mock.to_str().unwrap().replace('\'', "'\\''");
     let executable = bin.join("rust-analyzer");
-    std::fs::write(&executable, format!("#!/bin/sh\nexec '{escaped}' {mode}\n")).unwrap();
+    let stderr = directory
+        .join("stderr.log")
+        .to_str()
+        .unwrap()
+        .replace('\'', "'\\''");
+    std::fs::write(
+        &executable,
+        format!("#!/bin/sh\nexec '{escaped}' {mode} 2> '{stderr}'\n"),
+    )
+    .unwrap();
     std::fs::set_permissions(
         &executable,
         std::fs::Permissions::from_mode(EXECUTABLE_MODE),

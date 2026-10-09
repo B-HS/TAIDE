@@ -171,6 +171,7 @@ pub enum HostCommand {
         viewport: eframe::egui::ViewportId,
     },
     OpenMarker(crate::editor_problems::Request),
+    OpenWorkspaceSymbol(crate::workspace_symbol_host::Request),
     OpenBreadcrumbFile {
         source: crate::breadcrumbs::Source,
         path: String,
@@ -198,6 +199,9 @@ pub enum HostCommand {
 }
 
 pub enum HostReply {
+    WorkspaceSymbolOpened {
+        result: AppResult<crate::terminal_tabs::OpenedFileLink>,
+    },
     BreadcrumbOpened {
         result: AppResult<crate::terminal_tabs::OpenedFileLink>,
     },
@@ -1354,6 +1358,9 @@ async fn dispatch(
             };
             Some(HostReply::MarkerOpened { request, result })
         }
+        HostCommand::OpenWorkspaceSymbol(request) => Some(HostReply::WorkspaceSymbolOpened {
+            result: crate::workspace_symbol_host::open(services, request).await,
+        }),
         HostCommand::OpenBreadcrumbFile {
             source,
             path,

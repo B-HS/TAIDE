@@ -114,6 +114,31 @@ pub struct SymbolIndex<'a> {
     pub is_pending: bool,
 }
 
+#[cfg(feature = "native-host")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkspaceSymbol {
+    pub name: String,
+    pub kind: taide_native_editor::document_symbols::SymbolKind,
+    pub container_name: String,
+    pub path: String,
+    pub line: u32,
+    pub column: u32,
+}
+
+#[cfg(feature = "native-host")]
+#[derive(Clone, Copy, Default)]
+pub struct WorkspaceSymbolIndex<'a> {
+    pub entries: Option<&'a [WorkspaceSymbol]>,
+    pub query: Option<&'a str>,
+    pub generation: u64,
+    pub is_pending: bool,
+}
+
+#[cfg(feature = "native-host")]
+pub fn trim_workspace_query(query: &str) -> &str {
+    query.trim_matches(crate::keybinding_search::js_whitespace)
+}
+
 #[derive(Clone, Copy)]
 pub struct Scope<'a> {
     pub locale: &'a ResolvedLocale,
@@ -123,6 +148,8 @@ pub struct Scope<'a> {
     pub active_file: Option<&'a str>,
     #[cfg(feature = "native-host")]
     pub symbols: SymbolIndex<'a>,
+    #[cfg(feature = "native-host")]
+    pub workspace_symbols: WorkspaceSymbolIndex<'a>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -132,6 +159,11 @@ pub enum Action {
     RevealLine(LineTarget),
     #[cfg(feature = "native-host")]
     RevealSymbol {
+        generation: u64,
+        index: usize,
+    },
+    #[cfg(feature = "native-host")]
+    OpenWorkspaceSymbol {
         generation: u64,
         index: usize,
     },
@@ -316,6 +348,12 @@ impl Palette {
         self.is_open && parse(&self.query).mode == Mode::Symbol
     }
 
+    #[cfg(feature = "native-host")]
+    pub fn workspace_query(&self) -> Option<&str> {
+        let query = parse(&self.query);
+        (self.is_open && query.mode == Mode::WorkspaceSymbol).then_some(query.search_term)
+    }
+
     pub fn set_appearance(&mut self, appearance: Appearance) {
         self.appearance = appearance;
     }
@@ -478,6 +516,8 @@ impl Palette {
     ) -> AppResult<Interaction> {
         let width = dialog_width(ui.ctx().content_rect().width()) - BORDER_WIDTH * 2.0;
         ui.set_width(width.max(0.0));
+        #[cfg(feature = "native-host")]
+        ui.set_max_height(INPUT_ROW_HEIGHT + LIST_MAX_HEIGHT);
         ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
         egui::Frame::NONE
             .fill(self.appearance.surface)
@@ -668,11 +708,34 @@ impl Palette {
                 empty_message: without_active_file(),
             },
             Mode::WorkspaceSymbol => Listing {
+                #[cfg(feature = "native-host")]
+                group: group(
+                    "palette.workspaceSymbols",
+                    None,
+                    if !scope.workspace_symbols.is_pending
+                        && scope.workspace_symbols.query == Some(search_term.as_str())
+                    {
+                        workspace_symbol_items(&search_term, scope.workspace_symbols)
+                    } else {
+                        Vec::new()
+                    },
+                ),
+                #[cfg(not(feature = "native-host"))]
                 group: group("palette.workspaceSymbols", None, Vec::new()),
-                empty_message: text(if has_project {
-                    "palette.noResults"
-                } else {
+                empty_message: text(if !has_project {
                     "app.openProjectFirst"
+                } else {
+                    #[cfg(feature = "native-host")]
+                    if !trim_workspace_query(&search_term).is_empty()
+                        && (scope.workspace_symbols.is_pending
+                            || scope.workspace_symbols.query != Some(search_term.as_str()))
+                    {
+                        "common.loading"
+                    } else {
+                        "palette.noResults"
+                    }
+                    #[cfg(not(feature = "native-host"))]
+                    "palette.noResults"
                 }),
             },
         })
@@ -1025,7 +1088,10 @@ impl Palette {
 
     fn row(&self, ui: &mut Ui, item: &Item, is_selected: bool) -> RowLayout {
         #[cfg(feature = "native-host")]
-        let inline_detail = matches!(item.action, Action::RevealSymbol { .. });
+        let inline_detail = matches!(
+            item.action,
+            Action::RevealSymbol { .. } | Action::OpenWorkspaceSymbol { .. }
+        );
         #[cfg(not(feature = "native-host"))]
         let inline_detail = false;
         let opacity = if item.is_enabled {
@@ -1398,6 +1464,35 @@ fn take_navigation(context: &egui::Context) -> Vec<Navigation> {
         })
     });
     keys
+}
+
+#[cfg(feature = "native-host")]
+fn workspace_symbol_items(search_term: &str, symbols: WorkspaceSymbolIndex<'_>) -> Vec<Item> {
+    symbols
+        .entries
+        .unwrap_or_default()
+        .iter()
+        .enumerate()
+        .map(|(index, symbol)| Item {
+            key: format!("workspace-symbol/{}/{index}", symbols.generation),
+            action: Action::OpenWorkspaceSymbol {
+                generation: symbols.generation,
+                index,
+            },
+            icon: Icon::Hash,
+            label: symbol.name.clone(),
+            indices: crate::fuzzy_match::fuzzy_match(
+                trim_workspace_query(search_term),
+                &symbol.name,
+            )
+            .map_or_else(Vec::new, |matched| matched.indices),
+            detail: (!symbol.container_name.is_empty())
+                .then(|| (symbol.container_name.clone(), Vec::new())),
+            shortcut: None,
+            is_enabled: true,
+            is_truncated: true,
+        })
+        .collect()
 }
 
 #[cfg(all(test, feature = "native-host"))]

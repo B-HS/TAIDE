@@ -139,7 +139,7 @@ impl Views {
     }
 }
 
-fn contains_project(tree: &ShellSlotTree, project: &ProjectId) -> bool {
+pub(crate) fn contains_project(tree: &ShellSlotTree, project: &ProjectId) -> bool {
     match tree {
         ShellSlotTree::Leaf { project_id, .. } => project_id == project,
         ShellSlotTree::Split { children, .. } => children
