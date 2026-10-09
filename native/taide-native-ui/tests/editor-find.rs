@@ -95,6 +95,30 @@ fn text(store: &EditorStore, view: ViewId) -> String {
 }
 
 #[test]
+fn 본문_찾기_장식은_반투명_테마색을_그대로_보존한다() {
+    use taide_native_editor::decoration::{DecorationKind, InlineStyle};
+    let (store, view, mut find) = fixture("cat dog cat", false);
+    find.search = "cat".into();
+    find.visible = true;
+    find.refresh(&store, view, &RejectCompiler::default())
+        .unwrap();
+    let color = Color32::from_rgba_unmultiplied(209, 134, 22, 126);
+    let layers = find.decorations(
+        &store.views().get(view).unwrap().selection,
+        color,
+        color,
+        color,
+    );
+    assert_eq!(
+        layers[1].items()[0].kind,
+        DecorationKind::Inline(InlineStyle {
+            background: Some(color.to_srgba_unmultiplied()),
+            ..Default::default()
+        })
+    );
+}
+
+#[test]
 fn 찾기_scroll_표식은_반투명색과_편집_anchor_숨김_오류_수명을_보존한다() {
     use taide_native_editor::decoration::{DecorationKind, OverviewLane};
     let (mut store, view, mut find) = fixture("cat dog cat", false);
@@ -398,9 +422,9 @@ fn frame_with_shapes(
             };
             let layers = find.decorations(
                 &store.views().get(view).unwrap().selection,
-                Color32::YELLOW.to_array(),
-                Color32::YELLOW.to_array(),
-                Color32::TRANSPARENT.to_array(),
+                Color32::YELLOW,
+                Color32::YELLOW,
+                Color32::TRANSPARENT,
             );
             let layers = layers.iter().collect::<Vec<_>>();
             let output = editor

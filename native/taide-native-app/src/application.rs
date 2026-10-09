@@ -5889,7 +5889,7 @@ impl AppSurfaces<'_> {
                 editor_presentation.options.bracket_widget_focus = find_output.focused;
                 if find_output.reserved_height > 0.0 { ui.allocate_space(egui::vec2(ui.available_width(), find_output.reserved_height)); }
                 let find_decorations = find.decorations(&self.store.views().get(view).ok_or_else(|| editor_error(taide_native_editor::document::EditorError::NotFound))?.selection,
-                    self.find_appearance.highlight.to_array(), self.find_appearance.current_match.to_array(), self.find_appearance.scope.to_array());
+                    self.find_appearance.highlight, self.find_appearance.current_match, self.find_appearance.scope);
                 let scroll_decorations = find.scroll_decorations(self.editor_overview_colors);
                 let find_layers = find_decorations.iter().chain(scroll_decorations.iter()).collect::<Vec<_>>();
                 editor_presentation.options.diagnostics = self.diagnostics.display(self.store, &self.store.documents().snapshot(document).map_err(editor_error)?);

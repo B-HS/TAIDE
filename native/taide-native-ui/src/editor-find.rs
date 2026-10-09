@@ -1,6 +1,7 @@
 use std::fmt;
 use std::ops::Range;
 
+use egui::Color32;
 use taide_native_editor::decoration::{
     Decoration, DecorationKind, DecorationLayer, InlineStyle, Stickiness,
 };
@@ -606,10 +607,13 @@ impl EditorFind {
     pub fn decorations(
         &self,
         selection: &SelectionSet,
-        highlight: [u8; 4],
-        current: [u8; 4],
-        scope: [u8; 4],
+        highlight: Color32,
+        current: Color32,
+        scope: Color32,
     ) -> Vec<DecorationLayer> {
+        let highlight = highlight.to_srgba_unmultiplied();
+        let current = current.to_srgba_unmultiplied();
+        let scope = scope.to_srgba_unmultiplied();
         if !self.visible {
             return Vec::new();
         }
