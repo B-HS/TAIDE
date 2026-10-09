@@ -1,6 +1,6 @@
 {
     "date": "2026-10-10",
-    "baseline": "2870345d",
+    "baseline": "8832ac61",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -65,14 +65,33 @@
             "sources": [
                 "native/taide-native-editor/src/folding.rs",
                 "native/taide-native-ui/src/editor_surface.rs",
-                "native/taide-native-ui/src/command-registry.rs"
+                "native/taide-native-ui/src/command-registry.rs",
+                "native/taide-native-editor/src/syntax-folding.rs",
+                "native/taide-native-editor/src/store.rs",
+                "native/taide-native-editor/src/view.rs",
+                "crates/taide-lsp/src/native/feature.rs",
+                "native/taide-native-app/src/editor-folding.rs",
+                "native/taide-native-app/src/lsp-syntax-folding.rs",
+                "native/taide-native-app/src/lsp.rs",
+                "native/taide-native-app/src/application.rs",
+                "native/taide-native-app/src/command-dispatch.rs",
+                "native/taide-native-ui/src/keymap.rs",
+                "native/taide-native-ui/src/editor-fold-keymap-defaults.json"
             ],
-            "tests": ["native/taide-native-ui/tests/editor_surface.rs"],
+            "tests": [
+                "native/taide-native-ui/tests/editor_surface.rs",
+                "native/taide-native-editor/tests/folding.rs",
+                "native/taide-native-app/src/lsp-syntax-folding-tests.rs",
+                "native/taide-native-app/src/application-startup-tests.rs",
+                "native/taide-native-ui/tests/editor-sticky-scroll.rs",
+                "native/taide-native-ui/tests/keymap-platform.rs"
+            ],
             "reports": [
                 "docs/quality-assurance/2026-10-06-native-batch6-folding.md",
-                "docs/quality-assurance/2026-10-06-native-batch7-language-config.md"
+                "docs/quality-assurance/2026-10-06-native-batch7-language-config.md",
+                "docs/quality-assurance/2026-10-10-native-batch19-syntax-folding.md"
             ],
-            "limitation": ""
+            "limitation": "실제 provider 종류/빈/null/미지원/오류·취소/닫힘/재시작/프로젝트 격리와 native 명령/표면/앱 reveal을 검증했습니다. 원본 등록 도착 시점까지 같은 순서라고 판정하지 않으며 session 역순의 안정 우선순위를 사용합니다. 실제 OS/성능/출시·디스크 memento·prototype standalone lock/edition 정리는 별도입니다."
         },
         "editor-input": {
             "sources": [
@@ -542,7 +561,7 @@
                 "docs/quality-assurance/2026-10-10-native-batch16-document-symbols.md",
                 "docs/quality-assurance/2026-10-10-native-batch17-outline-breadcrumbs.md"
             ],
-            "limitation": "typed LSP·@ 현재 파일 목록/고정 줄·explorer outline/경로·심볼 breadcrumb 소비자를 검증했습니다. workspace #는 별도 workspace-symbols 근거에서 연결했으며 syntax folding/정의 이동·실기/성능 게이트는 잔여입니다."
+            "limitation": "typed LSP·@ 현재 파일 목록/고정 줄·explorer outline/경로·심볼 breadcrumb 소비자를 검증했습니다. workspace #와 syntax folding은 각각 workspace-symbols/editor-fold 근거에서 연결했으며 정의 이동·실기/성능 게이트는 잔여입니다."
         },
         "editor-navigation": {
             "sources": [
@@ -1854,7 +1873,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-symbols",
-            "note": "문서 심볼 outline 우선·최대 범위/선호 provider·selectionRange 헤더와 접기 fallback은 연결됐습니다. 구문 접기 공급과 Ctrl/Meta 정의 이동은 남아 있습니다."
+            "note": "문서 심볼 outline 우선·최대 범위/선호 provider·selectionRange 헤더와 LSP 구문 접기/indent fallback은 연결됐습니다. Ctrl/Meta 정의 이동은 남아 있습니다."
         },
         {
             "id": "editor-17",
@@ -1896,9 +1915,9 @@
             "ts": "`code-editor.tsx:271`, `monaco-actions.ts:747-826`, `lsp/adapters/folding-range.ts:30`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:81",
             "domain": "editor",
-            "status": "partial",
+            "status": "complete",
             "proof": "editor-fold",
-            "note": "들여쓰기/언어 marker·16종 접기 명령은 연결됐으나 LSP folding range·수동 범위·imports 접기는 남아 있습니다."
+            "note": "들여쓰기/언어 marker와 실제 typed LSP 구문 범위·종류, 원본 카탈로그 19종/기본 키·수동 생성/제거/Import 토글을 본문/gutter·고정 줄에 연결했습니다. 중첩/교차/우선순위·편집/undo/redo·다중 뷰/readonly·취소/닫힘/재시작/프로젝트 격리와 실제 앱 reveal 검사가 통과했습니다. 실제 OS/성능·전체 출시 게이트는 별도입니다."
         },
         {
             "id": "editor-21",
@@ -6529,7 +6548,7 @@
             "domain": "commands-ui",
             "status": "partial",
             "proof": "commands-keymap",
-            "note": "줄/커서/접기/찾기·기본 shell/터미널과 네 문제 이동 명령은 연결됐으나 나머지 LSP/리팩터 등 모든 원본 명령 실행은 아닙니다."
+            "note": "줄/커서/19종 접기(수동 생성/제거·Import 포함)/찾기·기본 shell/터미널과 네 문제 이동 명령은 연결됐으나 나머지 LSP/리팩터 등 모든 원본 명령 실행은 아닙니다."
         },
         {
             "id": "commands-ui-44",
@@ -7181,5 +7200,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "배치 18 변경 app 전체 67대상·659건과 UI inspection 전체 19대상·359건, 총 86대상·1018건이 통과했습니다. 변경 없는 batch16 editor 201건을 재사용해 최신 서로 다른 editor/UI/app 성공은 1219건입니다. syntax batch13 159·SDK batch12 단위 52/문서 167은 별도 근거이며 보호 Trash 3·기존 ignored 5·실기 부채는 성공으로 세지 않습니다. 첫 app 전체 명령의 기존 exhaustive 분기 컴파일 실패를 수정한 뒤 실제 전체 실행이 통과했습니다. 동결 host/Wasm·app/UI fmt/diff exit 0, 디스크 675GiB·64%와 동결 컴파일의 Cargo 직렬 규칙 이탈 1회는 batch18 QA에 기록했습니다."
+    "validation": "배치 19 변경 editor/UI/app/LSP SDK 전체 117대상을 직접 1회 실행했고 최초 실패 3건은 영향 대상 재검사로 해소했습니다. 최신 서로 다른 성공은 editor 206·UI 362·app 663·LSP SDK 81, 총 1312건입니다. 변경 없는 syntax batch13 159·egui SDK batch12 단위 52/문서 167은 별도 근거이며 보호 Trash 3·기존 ignored 5·실기 부채는 성공으로 세지 않습니다. frozen host/Wasm·변경 native/SDK fmt/diff exit 0, 디스크 668GiB·64%입니다. prototype standalone 실행은 lock 불일치로 거절됐고 edition별 fmt 차이가 남아 있습니다. 실제 결과와 Cargo 직렬 실행·보호/잔여 범위는 batch19 QA에 기록했습니다."
 }
