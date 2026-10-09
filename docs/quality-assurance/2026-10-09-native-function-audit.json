@@ -1,6 +1,6 @@
 {
-    "date": "2026-10-09",
-    "baseline": "80669ec3",
+    "date": "2026-10-10",
+    "baseline": "913bcf5b",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -483,6 +483,36 @@
                 "docs/quality-assurance/2026-10-09-native-batch13-bracket-matching.md"
             ],
             "limitation": "사용 중인 native 공용 표면은 있으나 원본 전체 variant/상태·소비자·pixel/AX 실기 검사는 별도입니다."
+        },
+        "editor-diagnostics": {
+            "sources": [
+                "native/taide-native-editor/src/diagnostics.rs",
+                "native/taide-native-editor/src/problem-navigation.rs",
+                "native/taide-native-editor/src/display-layout.rs",
+                "native/taide-native-ui/src/editor-diagnostics.rs",
+                "native/taide-native-ui/src/editor-problems.rs",
+                "native/taide-native-ui/src/editor-overview.rs",
+                "native/taide-native-ui/src/editor-brackets.rs",
+                "native/taide-native-app/src/diagnostics.rs",
+                "native/taide-native-app/src/editor-problems.rs",
+                "native/taide-native-app/src/host.rs",
+                "native/taide-native-app/src/application.rs"
+            ],
+            "tests": [
+                "native/taide-native-editor/tests/diagnostics.rs",
+                "native/taide-native-editor/tests/problem-navigation.rs",
+                "native/taide-native-editor/tests/display-layout.rs",
+                "native/taide-native-ui/tests/editor-display.rs",
+                "native/taide-native-ui/tests/editor-find.rs",
+                "native/taide-native-ui/tests/editor-minimap.rs",
+                "native/taide-native-app/src/diagnostics-tests.rs",
+                "native/taide-native-app/src/editor-problems-tests.rs"
+            ],
+            "reports": [
+                "docs/quality-assurance/2026-10-09-native-batch13-bracket-matching.md",
+                "docs/quality-assurance/2026-10-09-native-batch15-diagnostics.md"
+            ],
+            "limitation": "실제 OS IME/접근성·대형 성능/soak·출시와 LSP 일반 hover/완성/SCM 등 다른 공급자는 별도 잔여입니다."
         }
     },
     "rows": [
@@ -1714,9 +1744,9 @@
             "ts": "`monaco-actions.ts:343, 543`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:74",
             "domain": "editor",
-            "status": "partial",
-            "proof": "editor-display",
-            "note": "본문 괄호 강조·이동은 연결됐으나 near 괄호의 overview ruler 공급은 남아 있습니다."
+            "status": "complete",
+            "proof": "editor-diagnostics",
+            "note": "배치 13의 본문 강조/괄호 이동에 배치 15 near-only overview Center 공급을 연결했습니다. 실제 표시 줄·wrap/접기/view zone/DPR·테마/readonly 회귀와 전체 대상 검증이 통과했습니다."
         },
         {
             "id": "editor-14",
@@ -1738,7 +1768,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-display",
-            "note": "미니맵 표시·설정 토글은 연결됐으나 진단/검색/SCM 표시 공급은 남아 있습니다."
+            "note": "미니맵 표시·설정 토글과 진단/검색 장식·빈 줄 배경을 연결했습니다. SCM/추가 LSP 표시 공급은 해당 공급자 구현 범위로 남아 있습니다."
         },
         {
             "id": "editor-16",
@@ -2001,8 +2031,8 @@
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:110",
             "domain": "editor",
             "status": "complete",
-            "proof": "editor-base",
-            "note": "현재 앱의 문서/표면·명령·저장·LSP 경로와 배치 13 전체 대상 검증에 연결됩니다. 실제 OS 입력·성능·출시 검사는 별도 게이트입니다."
+            "proof": "editor-diagnostics",
+            "note": "기존 owner raw/problem panel·상태바를 유지하고 표시와 탐색 MarkerSet을 분리했습니다. version/문서/언어/owner 폐기·500개 표시 상한과 전체 탐색 목록·편집 anchor/캐시 회귀가 통과했습니다."
         },
         {
             "id": "editor-40",
@@ -2011,9 +2041,9 @@
             "ts": "`diagnostics.ts:97`, `monaco-actions.ts:349-368`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:111",
             "domain": "editor",
-            "status": "missing",
-            "proof": "editor-missing",
-            "note": "해당 사용자 동작의 실제 native 편집기/앱 소비 경로가 없습니다. 프로토콜·설정·backend만으로 완료 처리하지 않습니다."
+            "status": "complete",
+            "proof": "editor-diagnostics",
+            "note": "밑줄/Hint·선택 가능한 진단 hover·네 문제 이동 명령/F8 계열·메시지 view zone/파일 간 preview/reveal을 실제 앱에 연결했습니다. readonly·IME/입력 소유·늦은 요청/문서/owner/뷰/현재 layout·Unicode/접기/wrap/DPR 회귀와 전체 대상 검증이 통과했습니다. 원본 adapter 미공급 tags/relatedInformation/codeDescription은 추가하지 않습니다."
         },
         {
             "id": "editor-41",
@@ -6424,7 +6454,7 @@
             "domain": "commands-ui",
             "status": "partial",
             "proof": "commands-keymap",
-            "note": "줄/커서/접기/찾기·기본 shell/터미널 명령은 연결됐으나 모든 원본 명령 실행은 아닙니다."
+            "note": "줄/커서/접기/찾기·기본 shell/터미널과 네 문제 이동 명령은 연결됐으나 나머지 LSP/리팩터 등 모든 원본 명령 실행은 아닙니다."
         },
         {
             "id": "commands-ui-44",
@@ -7075,5 +7105,6 @@
             "proof": "commands-base",
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
-    ]
+    ],
+    "validation": "성공 실행은 배치 15 변경 editor 198·UI inspection 서로 다른 355·app 620, 합계 116대상·1173건 및 변경 없는 배치 13 syntax 159와 이전 영역의 실제 QA 근거를 재사용합니다. 전체 UI 뒤 추가 수정은 영향 대상 표시 44건을 재실행했습니다. 보호 Trash 3건·ignored 5건·실기 부채를 통과로 세지 않습니다. 동결 browser host/Wasm·포맷·diff는 배치 15 QA에서 exit 0으로 확인했습니다."
 }
