@@ -483,6 +483,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   The editor and UI crates do not depend on this engine, and it is not part
   of the frozen browser Wasm client's dependency graph.
 
+### Codicons (native find widget)
+
+- Source: https://github.com/microsoft/vscode-codicons
+- Creator: Microsoft Corporation and contributors
+- License: Creative Commons Attribution 4.0 International — full text:
+  https://creativecommons.org/licenses/by/4.0/legalcode
+- `native/taide-native-app/assets/codicons/codicon.ttf` is an unchanged copy
+  from Monaco Editor 0.56.0, used for the original find and replace icons.
+  Attribution, source, license and warranty information are retained in
+  `native/taide-native-app/assets/codicons/NOTICE.md`. No endorsement is implied.
+
+### Ported source in `native/taide-native-ui`
+
+- `src/editor-find.rs`, `src/editor-find-widget.rs` and
+  `src/editor-find-keymap-defaults.json` adapt the controller, widget,
+  history and keyboard behavior of Monaco Editor 0.56.0 (MIT, Copyright (c)
+  Microsoft Corporation), revision `f487add297079a02eb836810185b165e50cadabc`:
+  `editor/contrib/find/browser/findController.js`, `findModel.js`,
+  `findWidget.js`, `findOptionsWidget.js` and `findWidget.css`.
+  The license text is retained in `native/taide-native-ui/LICENSE-MONACO-FIND`.
+
 ### Ported source in `native/taide-native-syntax`
 
 - `src/style-scopes.rs` ports the color and font style lookup of

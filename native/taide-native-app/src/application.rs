@@ -158,6 +158,9 @@ pub struct NativeApplication {
     presentation_refresh: crate::presentation_refresh::Refresh,
     presentation_system_language: String,
     editor: NativeEditor,
+    editor_find: HashMap<ViewId, taide_native_ui::editor_find::EditorFind>,
+    find_history: taide_native_ui::editor_find_widget::FindHistory,
+    find_appearance: taide_native_ui::editor_find_widget::FindAppearance,
     editor_syntax: crate::editor_syntax::EditorSyntax,
     editor_keymap_targets: HashMap<(egui::ViewportId, egui::Id), (ViewId, u64)>,
     banner_appearance: BannerAppearance,
@@ -436,6 +439,9 @@ impl NativeApplication {
             ),
             presentation_system_language: system_language,
             editor,
+            editor_find: HashMap::new(),
+            find_history: Default::default(),
+            find_appearance: appearances.find,
             editor_syntax,
             editor_keymap_targets: HashMap::new(),
             banner_appearance,
@@ -625,6 +631,7 @@ impl NativeApplication {
                                         presentation::apply_visuals(context, &appearances.visuals);
                                         self.shell.colors = appearances.shell;
                                         self.editor.appearance = appearances.editor;
+                                        self.find_appearance = appearances.find;
                                         self.banner_appearance = appearances.banner;
                                         self.lsp_status_appearance = appearances.lsp_status;
                                         self.status_editor_appearance = appearances.status_editor;
@@ -3605,6 +3612,7 @@ impl NativeApplication {
                 presentation::apply_visuals(context, &appearances.visuals);
                 self.shell.colors = appearances.shell;
                 self.editor.appearance = appearances.editor;
+                self.find_appearance = appearances.find;
                 self.banner_appearance = appearances.banner;
                 self.lsp_status_appearance = appearances.lsp_status;
                 self.status_editor_appearance = appearances.status_editor;
@@ -3975,6 +3983,8 @@ impl eframe::App for NativeApplication {
         self.terminal_views
             .set_command_context(command_context.clone());
         let mut document_edits = std::mem::take(&mut self.document_edits);
+        self.editor_find
+            .retain(|view, _| self.store.views().get(*view).is_some());
         let mut fold_commands = std::mem::take(&mut self.fold_commands);
         let mut command_errors = Vec::new();
         let mut commands = Vec::new();
@@ -4105,6 +4115,9 @@ impl eframe::App for NativeApplication {
             locale: &self.locale,
             store: &mut self.store,
             editor: &self.editor,
+            editor_find: &mut self.editor_find,
+            find_history: &mut self.find_history,
+            find_appearance: &self.find_appearance,
             editor_syntax: &mut self.editor_syntax,
             banner_appearance: &self.banner_appearance,
             restore_notices: &self.restore_notices,
@@ -4878,6 +4891,9 @@ struct AppSurfaces<'a> {
     locale: &'a ResolvedLocale,
     store: &'a mut EditorStore,
     editor: &'a NativeEditor,
+    editor_find: &'a mut HashMap<ViewId, taide_native_ui::editor_find::EditorFind>,
+    find_history: &'a mut taide_native_ui::editor_find_widget::FindHistory,
+    find_appearance: &'a taide_native_ui::editor_find_widget::FindAppearance,
     editor_syntax: &'a mut crate::editor_syntax::EditorSyntax,
     banner_appearance: &'a BannerAppearance,
     restore_notices: &'a HashMap<TabId, BannerVariant>,
@@ -5699,6 +5715,44 @@ impl AppSurfaces<'_> {
                     );
                 self.command_errors
                     .extend(edit_errors.into_iter().map(editor_error));
+                let find = self.editor_find.entry(view).or_default();
+                let compiler = taide_native_syntax::MonacoFindPatternCompiler;
+                let rules = language.map(|language| language.rules).or_else(|| crate::editor_syntax::language_rules("plaintext"));
+                let mut find_edited = false;
+                if ui.is_enabled() {
+                    for (_, edit) in self.document_edits.extract_if(.., |(owner, edit)| owner == &tab.id && matches!(edit, DocumentEdit::Find(_))) {
+                        if let DocumentEdit::Find(command) = edit {
+                            match find.execute(command, self.store, view, &compiler, rules) {
+                                Ok(changed) => find_edited |= changed,
+                                Err(error) => *self.status = Some(error.to_string()),
+                            }
+                        }
+                    }
+                }
+                let before_find = self.store.documents().snapshot(document).map_err(editor_error)?.revision;
+                let mut find_keymap_index = 0;
+                let find_output = taide_native_ui::editor_find_widget::show(ui, find, self.find_history, self.store, view, &compiler, rules, self.find_appearance, |ui, event, composing| {
+                    let index = crate::keymap::event_index(ui.ctx(), event, &mut find_keymap_index);
+                    match self.terminal_views.route_find_keymap(
+                        crate::keymap::Route {
+                            context: ui.ctx(), event, index,
+                            scope: crate::keymap::Context { terminal: false, editor: true },
+                            composing,
+                            overrides: self.services.state.settings.read().keymap_overrides.as_deref(),
+                        }, self.keymap_actions, self.target.is_some(),
+                    ) {
+                        Ok(handled) => handled,
+                        Err(error) => { *self.status = Some(error.to_string()); true },
+                    }
+                })
+                    .map_err(|error| AppError::Internal(error.to_string()))?;
+                find_edited |= before_find != self.store.documents().snapshot(document).map_err(editor_error)?.revision;
+                focus |= find_output.request_editor_focus;
+                if find_output.focused { *self.focused = Some((pane.clone(), tab.id.clone())); }
+                if find_output.reserved_height > 0.0 { ui.allocate_space(egui::vec2(ui.available_width(), find_output.reserved_height)); }
+                let find_decorations = find.decorations(&self.store.views().get(view).ok_or_else(|| editor_error(taide_native_editor::document::EditorError::NotFound))?.selection,
+                    self.find_appearance.highlight.to_array(), self.find_appearance.current_match.to_array(), self.find_appearance.scope.to_array());
+                let find_layers = find_decorations.iter().collect::<Vec<_>>();
                 let fold_commands = if ui.is_enabled() {
                     crate::command_dispatch::take_fold_commands(&tab.id, self.fold_commands)
                 } else {
@@ -5709,6 +5763,9 @@ impl AppSurfaces<'_> {
                 let services = self.services;
                 let status = &mut *self.status;
                 let has_focused_shell = self.target.is_some();
+                let find_visible = find.visible;
+                let find_read_only = snapshot.metadata.read_only;
+                let document_edits = &mut *self.document_edits;
                 let chevrons = &mut *self.explorer_icons;
                 let mut fold_control_error = None;
                 let mut paint_fold_control = |ui: &Ui, control: FoldControl| {
@@ -5752,7 +5809,15 @@ impl AppSurfaces<'_> {
                                     keymap_actions,
                                     has_focused_shell,
                                 ) {
-                                    Ok(handled) => handled,
+                                    Ok(true) => true,
+                                    Ok(false) => {
+                                        if !composing && let Some(command) = taide_native_ui::editor_find_widget::editor_shortcut(event, ui.ctx().os().is_mac(), find_visible) && (!command.requires_write() || !find_read_only) {
+                                            document_edits.push((tab.id.clone(), DocumentEdit::Find(command)));
+                                            ui.ctx().request_repaint();
+                                            return true;
+                                        }
+                                        false
+                                    },
                                     Err(error) => {
                                         *status = Some(error.to_string());
                                         true
@@ -5765,7 +5830,7 @@ impl AppSurfaces<'_> {
                             presentation: &editor_presentation,
                             tokens: tokens_supplier(|store| syntax_lease.frame_tokens(store)),
                             language,
-                            decorations: &[],
+                            decorations: &find_layers,
                             fold_commands: &fold_commands,
                             fold_controls: Some(&mut paint_fold_control),
                         },
@@ -5797,7 +5862,7 @@ impl AppSurfaces<'_> {
                 if output.response.clicked() {
                     intents.push(ShellIntent::Mutate(ShellMutation::FocusPane(pane.clone())));
                 }
-                if output.changed || edited {
+                if output.changed || edited || find_edited {
                     if matches!(tab.kind, TabKind::AppFile { .. }) {
                         self.app_file_views.changed(document);
                     }

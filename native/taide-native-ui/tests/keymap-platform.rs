@@ -1,6 +1,79 @@
 use egui::{Event, Key, Modifiers, RawInput, os::OperatingSystem};
 use taide_native_ui::keymap::{Context, Decision, Route, Windows};
 
+#[cfg(feature = "native-host")]
+#[test]
+fn 찾기_기본_키와_재지정은_호스트_플랫폼과_활성_editor_경로를_따른다() {
+    for (os, key, modifiers, expected) in [
+        (
+            OperatingSystem::Mac,
+            Key::F3,
+            Modifiers::NONE,
+            "monaco.editor.action.nextMatchFindAction",
+        ),
+        (
+            OperatingSystem::Mac,
+            Key::G,
+            Modifiers::MAC_CMD | Modifiers::COMMAND | Modifiers::SHIFT,
+            "monaco.editor.action.previousMatchFindAction",
+        ),
+        (
+            OperatingSystem::Mac,
+            Key::F,
+            Modifiers::MAC_CMD | Modifiers::COMMAND | Modifiers::ALT,
+            "monaco.editor.action.startFindReplaceAction",
+        ),
+        (
+            OperatingSystem::Windows,
+            Key::H,
+            Modifiers::CTRL | Modifiers::COMMAND,
+            "monaco.editor.action.startFindReplaceAction",
+        ),
+        (
+            OperatingSystem::Windows,
+            Key::F3,
+            Modifiers::CTRL | Modifiers::COMMAND,
+            "monaco.editor.action.nextSelectionMatchFindAction",
+        ),
+    ] {
+        let context = egui::Context::default();
+        context.set_os(os);
+        let mut windows = Windows::default();
+        let decisions = editor_event(&mut windows, &context, key, modifiers, None, false);
+        assert!(
+            decisions.contains(&Decision::Dispatch(expected.into())),
+            "{decisions:?}"
+        );
+    }
+    let context = egui::Context::default();
+    context.set_os(OperatingSystem::Mac);
+    let mut windows = Windows::default();
+    let overrides =
+        r#"[{"actionId":"monaco.editor.action.nextMatchFindAction","key":"r","mods":["mod"]}]"#;
+    let decisions = editor_event(
+        &mut windows,
+        &context,
+        Key::R,
+        Modifiers::MAC_CMD | Modifiers::COMMAND,
+        Some(overrides),
+        false,
+    );
+    assert!(decisions.contains(&Decision::Dispatch(
+        "monaco.editor.action.nextMatchFindAction".into()
+    )));
+    let decisions = editor_event(
+        &mut windows,
+        &context,
+        Key::F3,
+        Modifiers::NONE,
+        Some(overrides),
+        false,
+    );
+    assert!(!decisions.contains(&Decision::Dispatch(
+        "monaco.editor.action.nextMatchFindAction".into()
+    )));
+}
+
 #[test]
 fn 공용_route는_컴파일_target이_아닌_실제_host의_command_modifier를_사용한다() {
     for (os, modifiers, opposite) in [

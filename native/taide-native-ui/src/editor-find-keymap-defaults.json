@@ -1,0 +1,13 @@
+[
+    { "id": "monaco.actions.find", "key": "f", "mods": ["mod"] },
+    { "id": "monaco.actions.findWithSelection", "platform": "mac", "key": "e", "mods": ["mod"] },
+    { "id": "monaco.editor.action.nextMatchFindAction", "key": "F3", "mods": [] },
+    { "id": "monaco.editor.action.previousMatchFindAction", "key": "F3", "mods": ["shift"] },
+    { "id": "monaco.editor.action.nextMatchFindAction", "platform": "mac", "key": "g", "mods": ["mod"] },
+    { "id": "monaco.editor.action.previousMatchFindAction", "platform": "mac", "key": "g", "mods": ["mod", "shift"] },
+    { "id": "monaco.editor.action.nextSelectionMatchFindAction", "key": "F3", "mods": ["mod"] },
+    { "id": "monaco.editor.action.previousSelectionMatchFindAction", "key": "F3", "mods": ["mod", "shift"] },
+    { "id": "monaco.editor.action.startFindReplaceAction", "platform": "mac", "key": "f", "mods": ["mod", "alt"] },
+    { "id": "monaco.editor.action.startFindReplaceAction", "platform": "win", "key": "h", "mods": ["mod"] },
+    { "id": "monaco.editor.action.startFindReplaceAction", "platform": "linux", "key": "h", "mods": ["mod"] }
+]

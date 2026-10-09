@@ -380,7 +380,7 @@ pub(crate) fn indentation(columns: usize, indent: IndentOptions) -> String {
     )
 }
 
-pub(crate) fn normalize_line_breaks(text: &str, line_break: &str) -> String {
+pub fn normalize_line_breaks(text: &str, line_break: &str) -> String {
     let mut normalized = String::with_capacity(text.len());
     let mut characters = text.chars().peekable();
     while let Some(character) = characters.next() {

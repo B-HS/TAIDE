@@ -3137,6 +3137,29 @@ impl Views {
         self.command_context = context;
     }
 
+    pub(crate) fn route_find_keymap(
+        &mut self,
+        request: crate::keymap::Route<'_>,
+        actions: &mut Vec<String>,
+        has_focused_shell: bool,
+    ) -> AppResult<bool> {
+        self.keymaps.route(request, |decision| {
+            if let KeymapDecision::Dispatch(id) | KeymapDecision::ResolveChord(id) = decision
+                && let Some(action) = id.strip_prefix("monaco.")
+                && taide_native_ui::editor_find::FindCommand::from_action(action).is_none()
+            {
+                return false;
+            }
+            application_keymap_decision(
+                decision,
+                actions,
+                has_focused_shell,
+                true,
+                &self.command_context,
+            )
+        })
+    }
+
     pub(crate) fn has_keyboard_focus(&self, context: &egui::Context) -> bool {
         let id = context.memory(|memory| memory.focused());
         self.views.iter().any(|((viewport, _, _), view)| {
@@ -4980,6 +5003,75 @@ mod input_tests;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn find_keymap은_사용자_재지정과_해제를_보존하고_문서_커서_키는_입력창에_남긴다() {
+        let context = egui::Context::default();
+        context.set_os(egui::os::OperatingSystem::Mac);
+        let mut routes = Views::default();
+        routes.set_command_context(CommandContext {
+            active_editor_actions: Some(HashSet::from([
+                "actions.find".into(),
+                "editor.action.nextMatchFindAction".into(),
+                "cursorRight".into(),
+            ])),
+            ..Default::default()
+        });
+        let overrides = serde_json::json!([
+            {"actionId": "monaco.editor.action.nextMatchFindAction", "key": "r", "mods": ["mod"]}
+        ])
+        .to_string();
+        let command = egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND;
+        let mut actions = Vec::new();
+        for (key, modifiers, expected) in [
+            (egui::Key::R, command, true),
+            (egui::Key::F3, egui::Modifiers::NONE, false),
+            (egui::Key::ArrowRight, egui::Modifiers::NONE, false),
+            (egui::Key::F, command, true),
+        ] {
+            let event = Event::Key {
+                key,
+                physical_key: Some(key),
+                pressed: true,
+                repeat: false,
+                modifiers,
+            };
+            let mut output = context.run_ui(
+                egui::RawInput {
+                    events: vec![event.clone()],
+                    ..Default::default()
+                },
+                |_| {
+                    assert_eq!(
+                        routes
+                            .route_find_keymap(
+                                crate::keymap::Route {
+                                    context: &context,
+                                    event: &event,
+                                    index: 0,
+                                    scope: KeymapContext {
+                                        terminal: false,
+                                        editor: true,
+                                    },
+                                    composing: false,
+                                    overrides: Some(&overrides),
+                                },
+                                &mut actions,
+                                false,
+                            )
+                            .unwrap(),
+                        expected,
+                        "{key:?}"
+                    );
+                },
+            );
+            output.textures_delta.clear();
+        }
+        assert_eq!(
+            actions,
+            ["monaco.editor.action.nextMatchFindAction", "find"]
+        );
+    }
+
     #[test]
     fn window_capture는_secondary_press_뒤_메뉴_owner와_후행_ax를_보존한다() {
         for late_ax in [false, true] {

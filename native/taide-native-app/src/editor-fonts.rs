@@ -532,9 +532,13 @@ mod tests {
             paddings(&definitions, &chain(&definitions, &bold_family()), &font),
             BOLD_FACES
         );
+        let icon_family = FontFamily::Name(taide_native_ui::editor_find_widget::ICON_FAMILY.into());
+        let icons = &definitions.families[&icon_family];
+        assert_eq!(icons.len(), 1);
+        assert_eq!(icons[0], taide_native_ui::editor_find_widget::ICON_FAMILY);
         assert_eq!(
             definitions.font_data.len(),
-            defaults.font_data.len() + STACK.len()
+            defaults.font_data.len() + STACK.len() + icons.len()
         );
         render(definitions);
         let font = variable(&font);
@@ -556,9 +560,12 @@ mod tests {
         assert_ne!(terminal, regular);
         assert!(weights(&definitions, &terminal[0]).is_empty());
         assert_eq!(weights(&definitions, &regular[0]), [NORMAL_WEIGHT]);
+        let icons = &definitions.families[&icon_family];
+        assert_eq!(icons.len(), 1);
+        assert_eq!(icons[0], taide_native_ui::editor_find_widget::ICON_FAMILY);
         assert_eq!(
             definitions.font_data.len(),
-            defaults.font_data.len() + terminal.len() + VARIABLE_INSTANCES
+            defaults.font_data.len() + terminal.len() + VARIABLE_INSTANCES + icons.len()
         );
         render(definitions);
     }

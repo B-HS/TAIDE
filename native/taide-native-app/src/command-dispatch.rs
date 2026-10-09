@@ -51,6 +51,9 @@ fn command_run(id: &str, context: &CommandContext) -> Option<Run> {
 }
 
 pub(crate) fn accepts(id: &str, has_focused_shell: bool, context: &CommandContext) -> bool {
+    if id == "find" {
+        return command_run("editor.find", context).is_some();
+    }
     if crate::shell_keymap::supports(id) {
         return has_focused_shell || crate::shell_keymap::runs_without_focused_project(id);
     }
@@ -62,6 +65,9 @@ pub(crate) fn intent(
     context: &CommandContext,
     snapshot: &ShellSnapshot,
 ) -> Option<ShellIntent> {
+    if id == "find" {
+        return crate::shell_keymap::intent(command_run("editor.find", context)?, snapshot);
+    }
     if crate::shell_keymap::supports(id) {
         return crate::shell_keymap::action(id, snapshot);
     }
@@ -87,7 +93,9 @@ pub(crate) fn apply_document_edits(
     errors: &mut Vec<EditorError>,
 ) -> bool {
     let mut changed = false;
-    for (_, edit) in pending.extract_if(.., |(owner, _)| owner == tab) {
+    for (_, edit) in pending.extract_if(.., |(owner, edit)| {
+        owner == tab && !matches!(edit, DocumentEdit::Find(_))
+    }) {
         let result = match edit {
             DocumentEdit::DeleteAllLeft => {
                 run_line_command(store, view, LineCommand::DeleteAllLeft, context)
@@ -101,6 +109,7 @@ pub(crate) fn apply_document_edits(
                     store, view, command, context,
                 )
             }
+            DocumentEdit::Find(_) => continue,
         };
         match result {
             Ok(applied) => changed |= applied,
@@ -718,7 +727,6 @@ mod tests {
         }
         for action in [
             "editor.action.triggerSuggest",
-            "editor.action.startFindReplaceAction",
             "editor.action.formatDocument",
         ] {
             assert!(!actions.contains(action), "{action}");
@@ -796,6 +804,10 @@ mod tests {
         let mut pending = vec![
             (tab.clone(), DocumentEdit::OutdentLines),
             (other.clone(), DocumentEdit::DeleteAllLeft),
+            (
+                tab.clone(),
+                DocumentEdit::Find(taide_native_ui::editor_find::FindCommand::Open),
+            ),
         ];
         let mut errors = Vec::new();
         assert!(apply_document_edits(
@@ -807,7 +819,16 @@ mod tests {
             &mut errors
         ));
         assert_eq!(text(&store), "alpha beta");
-        assert_eq!(pending, [(other, DocumentEdit::DeleteAllLeft)]);
+        assert_eq!(
+            pending,
+            [
+                (other, DocumentEdit::DeleteAllLeft),
+                (
+                    tab.clone(),
+                    DocumentEdit::Find(taide_native_ui::editor_find::FindCommand::Open),
+                ),
+            ]
+        );
         assert!(!apply_document_edits(
             &mut store,
             view,
@@ -827,7 +848,7 @@ mod tests {
             &mut errors
         ));
         assert_eq!(text(&store), "");
-        assert_eq!(pending.len(), 1);
+        assert_eq!(pending.len(), 2);
         assert!(errors.is_empty());
         assert!(store.undo(document).unwrap());
         assert_eq!(text(&store), "alpha beta");

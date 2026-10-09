@@ -8,6 +8,7 @@ use taide_model::error::{AppError, AppResult};
 pub(crate) use taide_native_ui::font_families::medium;
 use taide_native_ui::font_families::{MEDIUM_FAMILY, SEMIBOLD_FAMILY};
 const MEDIUM_WEIGHT: u16 = 500;
+const CODICON_FONT: &[u8] = include_bytes!("../assets/codicons/codicon.ttf");
 const UI_FONT_STACK: [&str; 5] = [
     "Segoe UI",
     "Roboto",
@@ -26,6 +27,22 @@ pub(crate) fn prepare(
     remaining: &mut usize,
 ) -> Vec<String> {
     let mut warnings = Vec::new();
+    if let Some(next) = remaining.checked_sub(CODICON_FONT.len()) {
+        *remaining = next;
+        let name = taide_native_ui::editor_find_widget::ICON_FAMILY;
+        definitions
+            .font_data
+            .insert(name.into(), Arc::new(FontData::from_static(CODICON_FONT)));
+        definitions
+            .families
+            .insert(FontFamily::Name(name.into()), vec![name.into()]);
+    } else {
+        definitions.families.insert(
+            FontFamily::Name(taide_native_ui::editor_find_widget::ICON_FAMILY.into()),
+            definitions.families[&FontFamily::Proportional].clone(),
+        );
+        warnings.push("native find icons exceed their font byte budget".into());
+    }
     let fallback = definitions.families[&FontFamily::Proportional].clone();
     for (weight, family) in [
         (Weight::NORMAL, FontFamily::Proportional),
@@ -242,7 +259,7 @@ mod tests {
             Some(semibold_id)
         );
         let mut definitions = defaults.clone();
-        let mut budget = builtin.font.len() * 3;
+        let mut budget = builtin.font.len() * 3 + CODICON_FONT.len();
         prepare(&database, &mut definitions, &mut budget);
         assert_eq!(budget, 0);
         assert!(definitions.families[&FontFamily::Proportional][0].starts_with("taide-ui/400/"));
@@ -268,6 +285,17 @@ mod tests {
             defaults.families[&FontFamily::Proportional]
         );
         assert_eq!(refused.font_data, defaults.font_data);
+        let icon_family = FontFamily::Name(taide_native_ui::editor_find_widget::ICON_FAMILY.into());
+        assert_eq!(
+            refused.families[&icon_family],
+            defaults.families[&FontFamily::Proportional]
+        );
+        let context = egui::Context::default();
+        context.set_fonts(refused.clone());
+        let mut output = context.run_ui(Default::default(), |ui| {
+            ui.label(egui::RichText::new('\u{eab1}').family(icon_family.clone()));
+        });
+        output.textures_delta.clear();
         assert_eq!(
             refused.families[&FontFamily::Name(MEDIUM_FAMILY.into())],
             defaults.families[&FontFamily::Proportional]

@@ -22,6 +22,12 @@ pub mod controller;
 pub mod css_motion;
 #[cfg(feature = "native-host")]
 pub mod document_admission;
+#[cfg(feature = "native-host")]
+#[path = "editor-find.rs"]
+pub mod editor_find;
+#[cfg(feature = "native-host")]
+#[path = "editor-find-widget.rs"]
+pub mod editor_find_widget;
 #[path = "editor-geometry.rs"]
 pub mod editor_geometry;
 #[path = "editor-gutter.rs"]

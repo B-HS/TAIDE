@@ -12,16 +12,16 @@
 | --- | --- | --- |
 | 전체 기능 대응 | TS 기능별 native 구현·앱 도달 경로·동작 검증을 연결한 최신 전수 대응표 | 배치 1~7 이후 전수 재판정 없음. 현재 전체 기능 완료율 미산정 |
 | 화면 대응 | 테마·로케일·표시 상태별 실제 화면과 기존 TS 구성 대조 | 배치 4~7 QA의 실제 화면 확인 항목 미완료 |
-| 자동 검사 | 변경 크레이트 전체 대상 결과와 미해결 실패·보호 검사의 해소 근거 | batch7 통합 QA에서 app XLML 1건 실패·Trash 보호 검사 3건 미완료. 이후 batch8에서 XLML 실패를 수정해 관련 XLML 4건·HTML 3건 통과, app 전체 게이트는 후속 실행 대기 |
+| 자동 검사 | 변경 크레이트 전체 대상 결과와 미해결 실패·보호 검사의 해소 근거 | batch8 전체 대상 editor 188·syntax 152·UI 271 통과. app 전체와 실패한 글꼴 기대값 선별 재검사 뒤 서로 다른 612건 통과, XLML 기존 실패 해소. Trash 보호 검사 3건 제외·미검증, ignored 성능 4건·실기 부채 유지. `2026-10-09-native-batch8-integration.md` 참조 |
 | 실기·성능·출시 | roadmap Phase 5~9의 IME·접근성·다중 창·대형 파일·soak·보안·패키징·beta·삭제 게이트 | 전체 통과 증거 없음. ignored 성능 검사와 실기 부채를 통과로 처리하지 않음 |
 
 테스트 개수나 배치 체크리스트 완료 비율을 전체 기능 대응률로 환산하지 않습니다. 잔여시간은 남은 기능과 게이트별 규모·실제 실행 시간 근거를 확보한 뒤 산정합니다.
 
-## 현재 코드에서 확인한 미완료 경로
+## 현재 코드의 기능 연결과 잔여 경로
 
 | 대상 | 실제 근거 | 판정 |
 | --- | --- | --- |
-| 찾기 명령 | `native/taide-native-ui/src/command-registry.rs:223`의 `editor.find`는 `Enablement::Never`. app의 `command-dispatch.rs:721` 검사는 `editor.action.startFindReplaceAction`을 실행 가능 집합에서 제외 | 기존 리터럴 일치 선택 기능만으로 찾기/바꾸기 위젯 완료를 입증할 수 없음 |
+| 찾기 명령 | batch8에서 `native/taide-native-ui/src/editor-find.rs`·`editor-find-widget.rs`, registry의 native-host Find 실행·지원 gate, app의 뷰별 상태/큐/키/강조 연결을 구현. 순수 코어 13건과 최종 UI 전체 271건 통과, 앱 전체·실패 선별 재검사와 동결 컴파일 확인 | 구현·자동 검증 연결됨. 실제 화면/OS 입력은 미검증. `2026-10-09-native-batch8-find.md` 참조 |
 | 표시 설정 공급 | `native/taide-native-ui/src/presentation.rs:236`은 `word_wrap`만 설정하고 나머지는 기본값. `native/taide-native-app/src/presentation-refresh.rs:174`는 bold 글꼴을 추가, `application.rs:5646`은 folding을 추가 | 설정 화면의 필드 존재를 편집기 표시 기능 완료로 판정하지 않음 |
 | 표시 설정 소비 | `native/taide-native-ui/src/editor_surface.rs:106`의 14필드 중 표면에서 소비하는 것은 word wrap·folding·bold family. 전체 UI 소스에서 아래 11필드의 렌더 소비 경로 없음 | 3/14는 이 구조체의 소비 경로 수이며 기능 완료율이 아님 |
 | LSP 사용자 상호작용 | `native/taide-native-app/src/lsp.rs`에서 직접 확인한 typed request는 저장 시 Formatting·ExecuteCommand·CodeActionRequest·CodeActionResolveRequest 경로 | 저장 기능 검증으로 완성·hover·signature·이동·peek 등 전체 LSP UI 완료를 입증할 수 없음 |
@@ -42,7 +42,7 @@
 4. 실패 테스트의 `workbook` 헬퍼는 XML 선언 없이 `<Workbook ...><Worksheet ...><Table>...`를 생성합니다. 이 입력은 HTML로 분류돼 XLML의 `scan`·`attributes`를 거치지 않습니다.
 5. `preview_spreadsheet_xlml.rs:132`의 인덱스 파서는 이미 `checked_sub(1)`로 0을 거절합니다. `scan`의 Start와 Empty 모두 `State::start`에서 속성을 읽으므로 빈 Cell만의 속성 누락으로 추정해 수정해서는 안 됩니다.
 
-이 원인 대조 이후 batch8에서 실제 Workbook 루트를 확인하는 분류로 수정했습니다. 수정 전 두 실패를 재현하고 수정 후 XLML 4건·HTML 3건 모두 통과했습니다. 상세는 `../bug/2026-10-09-native-xlml-workbook-classification.md`입니다. app 전체 게이트는 통합 단계에 남아 있습니다.
+이 원인 대조 이후 batch8에서 실제 Workbook 루트를 확인하는 분류로 수정했습니다. 수정 전 두 실패를 재현하고 수정 후 XLML 4건·HTML 3건 모두 통과했습니다. 이후 batch8 앱 전체 대상에서도 XLML 4건이 통과했습니다. 상세는 `../bug/2026-10-09-native-xlml-workbook-classification.md`와 `2026-10-09-native-batch8-integration.md`입니다.
 
 ## 점검 상태
 

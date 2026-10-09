@@ -21,6 +21,8 @@ const SQUIGGLE_TROUGH_OFFSET: f32 = 1.75;
 const SQUIGGLE_CREST_OFFSET: f32 = 4.75;
 const SQUIGGLE_STROKE: f32 = 1.0;
 const SELECTION_ANCHOR_WIDTH: f32 = 2.0;
+#[cfg(feature = "native-host")]
+const EMPTY_DECORATION_WIDTH: f32 = 2.0;
 const SELECTION_ANCHOR_COLOR: Color32 = Color32::from_rgb(0, 122, 204);
 
 pub(crate) fn color32([red, green, blue, alpha]: [u8; 4]) -> Color32 {
@@ -222,7 +224,18 @@ impl Layers<'_> {
             if overlay.background.is_none() && overlay.squiggle.is_none() {
                 continue;
             }
-            let Some(extent) = row.extent(&decoration.bytes) else {
+            let extent = row.extent(&decoration.bytes);
+            #[cfg(feature = "native-host")]
+            let extent = extent.or_else(|| {
+                (decoration.bytes.is_empty()
+                    && (row.segment.bytes.contains(&decoration.bytes.start)
+                        || decoration.bytes.start == row.segment.bytes.end && !row.wraps))
+                    .then(|| {
+                        let x = row.caret_rect(decoration.bytes.start).left();
+                        Rangef::new(x, x + EMPTY_DECORATION_WIDTH)
+                    })
+            });
+            let Some(extent) = extent else {
                 continue;
             };
             let group = groups.iter_mut().find(|(z_order, grouped, _)| {

@@ -12,6 +12,7 @@ use taide_native_editor::line_commands::{LineCommand, TextCase};
 const CATALOG: &str = include_str!("keybinding-commands.json");
 const EDITOR_ACTION_PREFIX: &str = "monaco.";
 const MAC_PLATFORM: &str = "mac";
+pub const EDITOR_FIND_AVAILABLE: bool = cfg!(feature = "native-host");
 const EDITOR_ACTIONS_WITHOUT_SUPPORT_GATE: [&str; 21] = [
     "editor.action.goToImplementation",
     "editor.action.goToLocation",
@@ -62,6 +63,8 @@ pub enum DocumentEdit {
     OutdentLines,
     Line(LineCommand),
     Cursor(CursorCommand),
+    #[cfg(feature = "native-host")]
+    Find(crate::editor_find::FindCommand),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -219,6 +222,10 @@ impl Enablement {
 }
 
 fn enablement(id: &str) -> Enablement {
+    #[cfg(feature = "native-host")]
+    if id == "editor.find" {
+        return Enablement::ActiveEditor;
+    }
     match id {
         "tab.close" | "editor.find" => Enablement::Never,
         "terminal.copyImeDebug" | "app.showPerfSnapshot" => Enablement::WebviewDiagnostics,
@@ -236,6 +243,15 @@ fn enablement(id: &str) -> Enablement {
 }
 
 fn execution(id: &str, keymap_id: Option<&str>) -> Execution {
+    #[cfg(feature = "native-host")]
+    if let Some(command) = if id == "editor.find" {
+        Some(crate::editor_find::FindCommand::Open)
+    } else {
+        id.strip_prefix(EDITOR_ACTION_PREFIX)
+            .and_then(crate::editor_find::FindCommand::from_action)
+    } {
+        return Execution::Native(Run::EditDocument(DocumentEdit::Find(command)));
+    }
     let run = match id {
         "settings.open" => Some(Run::OpenSettingsTab),
         "app.openSettingsFile" => Some(Run::OpenSettingsFile),
@@ -353,6 +369,12 @@ fn fold_command(action: &str) -> Option<FoldCommand> {
 }
 
 pub fn keymap_run(keymap_id: &str) -> Option<Run> {
+    #[cfg(feature = "native-host")]
+    if keymap_id == "find" {
+        return Some(Run::EditDocument(DocumentEdit::Find(
+            crate::editor_find::FindCommand::Open,
+        )));
+    }
     let focus_direction = |direction| Run::FocusGroup(GroupTarget::Direction(direction));
     let focus_position = |position| Run::FocusGroup(GroupTarget::Position(position));
     Some(match keymap_id {
@@ -445,6 +467,12 @@ impl Registry {
             .filter_map(|command| {
                 let action = command.editor_action_id()?;
                 match command.execution {
+                    #[cfg(feature = "native-host")]
+                    Execution::Native(Run::EditDocument(DocumentEdit::Find(command)))
+                        if !editor.is_read_only || !command.requires_write() =>
+                    {
+                        Some(action.to_owned())
+                    }
                     Execution::Native(Run::EditDocument(DocumentEdit::Cursor(command)))
                         if !editor.is_read_only
                             || !matches!(
@@ -509,7 +537,7 @@ mod tests {
         "editor.action.moveCarretRightAction",
     ];
     const KEYMAP_COUNT: usize = 41;
-    const NATIVE_KEYMAP_COUNT: usize = 34;
+    const NATIVE_KEYMAP_COUNT: usize = 34 + EDITOR_FIND_AVAILABLE as usize;
     const FOLD_COMMANDS: [(&str, FoldCommand); 16] = [
         ("monaco.editor.fold", FoldCommand::Fold),
         ("monaco.editor.foldAll", FoldCommand::FoldAll),
@@ -776,6 +804,8 @@ mod tests {
             .commands()
             .iter()
             .filter_map(|command| match command.execution {
+                #[cfg(feature = "native-host")]
+                Execution::Native(Run::EditDocument(DocumentEdit::Find(_))) => None,
                 Execution::Native(Run::EditDocument(
                     DocumentEdit::Line(_) | DocumentEdit::Cursor(_),
                 )) => None,
@@ -817,6 +847,9 @@ mod tests {
             "focus-group-10",
             "settings.open",
         ] {
+            if pending == "find" && EDITOR_FIND_AVAILABLE {
+                continue;
+            }
             assert_eq!(keymap_run(pending), None, "{pending}");
         }
         for command in registry.commands() {
@@ -848,6 +881,23 @@ mod tests {
                         )
                 }))
                 .chain(fold_actions.into_iter().filter(|_| has_folding))
+                .chain(
+                    [
+                        "actions.find",
+                        "actions.findWithSelection",
+                        "editor.actions.findWithArgs",
+                        "editor.action.nextMatchFindAction",
+                        "editor.action.previousMatchFindAction",
+                        "editor.action.nextSelectionMatchFindAction",
+                        "editor.action.previousSelectionMatchFindAction",
+                        "editor.action.startFindReplaceAction",
+                    ]
+                    .into_iter()
+                    .filter(|action| {
+                        EDITOR_FIND_AVAILABLE
+                            && (!is_read_only || *action != "editor.action.startFindReplaceAction")
+                    }),
+                )
                 .map(str::to_owned)
                 .collect::<HashSet<_>>();
             assert_eq!(
@@ -935,7 +985,6 @@ mod tests {
 
         for (id, enablement) in [
             ("tab.close", Enablement::Never),
-            ("editor.find", Enablement::Never),
             ("terminal.copyImeDebug", Enablement::WebviewDiagnostics),
             ("app.showPerfSnapshot", Enablement::WebviewDiagnostics),
         ] {
@@ -946,6 +995,18 @@ mod tests {
                     .all(|context| !command(id).is_runnable(context))
             );
         }
+        let find = command("editor.find");
+        assert_eq!(
+            find.enablement,
+            if EDITOR_FIND_AVAILABLE {
+                Enablement::ActiveEditor
+            } else {
+                Enablement::Never
+            }
+        );
+        assert!(!find.is_runnable(&main));
+        assert_eq!(find.is_runnable(&writable), EDITOR_FIND_AVAILABLE);
+        assert_eq!(find.is_runnable(&read_only), EDITOR_FIND_AVAILABLE);
         assert_eq!(
             command("tab.close").execution,
             Execution::Native(Run::CloseTab)
