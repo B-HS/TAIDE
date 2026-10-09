@@ -122,6 +122,12 @@ pub struct EditorDisplayOptions {
     pub colors: Option<crate::editor_display::EditorDisplayColors>,
     #[cfg(feature = "native-host")]
     pub bracket_colors: Option<crate::editor_brackets::EditorBracketColors>,
+    #[cfg(feature = "native-host")]
+    pub sticky_colors: Option<crate::editor_sticky_scroll::EditorStickyColors>,
+    #[cfg(feature = "native-host")]
+    pub sticky_model: Option<Arc<taide_native_editor::sticky_model::StickyModel>>,
+    #[cfg(feature = "native-host")]
+    pub sticky_toggle_label: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -222,6 +228,8 @@ struct FoldPress {
 #[derive(Default, Clone)]
 struct InputState {
     #[cfg(feature = "native-host")]
+    sticky: crate::editor_sticky_scroll::StickyState,
+    #[cfg(feature = "native-host")]
     caret: crate::editor_caret::CaretState,
     #[cfg(feature = "native-host")]
     scroll: crate::editor_scroll::ScrollState,
@@ -279,6 +287,80 @@ impl InputState {
         });
         Ok(regions)
     }
+}
+
+#[cfg(feature = "native-host")]
+fn apply_sticky_action(
+    ui: &Ui,
+    store: &mut EditorStore,
+    view: ViewId,
+    input: &mut InputState,
+    action: crate::editor_sticky_scroll::StickyAction,
+    tab_size: u32,
+    rules: Option<&dyn LanguageRules>,
+) -> Result<bool, EditorError> {
+    use crate::editor_sticky_scroll::StickyAction;
+    let current = store.views().get(view).ok_or(EditorError::NotFound)?;
+    let document = store.documents().snapshot(current.document)?;
+    let Some(action) = input.sticky.track_action(store, &document, action)? else {
+        ui.ctx().request_repaint();
+        return Ok(false);
+    };
+    match action {
+        StickyAction::Focus(_) => {}
+        StickyAction::Exit => {
+            return Ok(true);
+        }
+        StickyAction::Jump { byte, center } => {
+            let current = store
+                .views()
+                .get(view)
+                .ok_or(EditorError::NotFound)?
+                .clone();
+            store.set_composition(view, None)?;
+            input.ime_revision = None;
+            store.break_undo_group(current.document)?;
+            store.set_view_state(
+                view,
+                SelectionSet {
+                    selections: vec![Selection {
+                        anchor: byte,
+                        head: byte,
+                    }],
+                    primary: 0,
+                },
+                current.scroll,
+                current.folds,
+            )?;
+            store.request_selection_reveal(view, byte..byte, center)?;
+            ui.ctx().request_repaint();
+            return Ok(true);
+        }
+        StickyAction::Fold { line, end, index } => {
+            let regions = input.fold_regions(store, view, tab_size, rules)?;
+            let current = store.views().get(view).ok_or(EditorError::NotFound)?;
+            let document = store.documents().snapshot(current.document)?;
+            let collapsed =
+                FoldingModel::new(&regions, &document, &current.folds).header(line) == Some(true);
+            if click_fold(
+                store,
+                view,
+                &regions,
+                FoldClick {
+                    line,
+                    is_on_control: true,
+                    toggle: FoldToggle::Region,
+                },
+            )? {
+                input
+                    .sticky
+                    .reveal_fold(if collapsed { line } else { end }, index);
+                ui.ctx().request_repaint();
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
 }
 
 #[derive(Clone, Copy)]
@@ -418,6 +500,10 @@ pub struct EditorOutput {
     pub rendered_lines: std::ops::Range<usize>,
     pub errors: Vec<EditorError>,
     pub geometry: EditorGeometry,
+    #[cfg(feature = "native-host")]
+    pub focus_ids: Vec<Id>,
+    #[cfg(feature = "native-host")]
+    pub toggle_sticky_scroll: bool,
 }
 
 #[derive(Default)]
@@ -821,7 +907,7 @@ impl NativeEditor {
             language,
             decorations,
             fold_commands,
-            fold_controls,
+            mut fold_controls,
         } = request;
         let appearance = &self.appearance;
         if !appearance.line_height.is_finite()
@@ -880,10 +966,56 @@ impl NativeEditor {
                 stable_scroll_top: None,
             },
         };
+        #[cfg(feature = "native-host")]
+        let sticky_ids = input_state.sticky.focus_ids();
+        #[cfg(feature = "native-host")]
+        let sticky_routes = sticky_ids
+            .iter()
+            .map(|id| ui.ctx().keyboard_input_route(*id))
+            .collect::<Vec<_>>();
+        #[cfg(feature = "native-host")]
+        let sticky_start = sticky_ids
+            .iter()
+            .position(|id| Some(*id) == ui.ctx().keyboard_focus_before_events());
+        #[cfg(feature = "native-host")]
+        let sticky_valid = input_state.sticky.prepare(
+            &previous,
+            Rect::from_min_max(
+                rect.min,
+                pos2(
+                    (rect.right() - VERTICAL_SCROLLBAR_SIZE).max(rect.left()),
+                    rect.bottom(),
+                ),
+            ),
+            vec2(current.scroll.x, current.scroll.y),
+            appearance,
+            &presentation.options,
+            indent.tab_size,
+            &current.folds,
+        );
+        #[cfg(feature = "native-host")]
+        let mut sticky_released = !sticky_valid && sticky_start.is_some();
+        #[cfg(feature = "native-host")]
+        let mut sticky_navigation = None;
+        #[cfg(feature = "native-host")]
+        let mut sticky_detached = false;
         let (ownership, (routed_focus, lost_after_events)) = route(&response).unwrap_or_default();
         let focused = routed_focus.unwrap_or_else(|| response.has_focus());
         let has_owned_input = ownership.iter().any(|(owned, _)| *owned == Some(true));
-        if (response.has_focus() || has_owned_input) && ui.is_enabled() {
+        #[cfg(feature = "native-host")]
+        let sticky_owned = sticky_start.is_some()
+            || ui.memory(|memory| sticky_ids.iter().any(|id| memory.has_focus(*id)))
+            || sticky_routes
+                .iter()
+                .flatten()
+                .any(|route| route.0.iter().any(|(owned, _)| *owned == Some(true)));
+        #[cfg(feature = "native-host")]
+        if !sticky_valid && sticky_owned {
+            sticky_released = true;
+        }
+        #[cfg(not(feature = "native-host"))]
+        let sticky_owned = false;
+        if (response.has_focus() || has_owned_input || sticky_owned) && ui.is_enabled() {
             ui.memory_mut(|memory| {
                 memory.set_focus_lock_filter(
                     id,
@@ -895,6 +1027,10 @@ impl NativeEditor {
                     },
                 )
             });
+            #[cfg(feature = "native-host")]
+            let raw_events = ui.input(|input| input.raw.events.clone());
+            #[cfg(feature = "native-host")]
+            let mut raw_next = 0;
             let events = ui.input_mut(|input| std::mem::take(&mut input.events));
             let mut remaining = Vec::new();
             for (index, event) in events.into_iter().enumerate() {
@@ -903,7 +1039,68 @@ impl NativeEditor {
                     input_state.ime_revision = None;
                     store.set_composition(view, None)?;
                 }
-                if !owned.unwrap_or_else(|| response.has_focus()) {
+                #[cfg(feature = "native-host")]
+                {
+                    let raw_index =
+                        egui::Context::raw_event_index(&raw_events, &event, &mut raw_next);
+                    let request = ui.ctx().keyboard_focus_request_at(raw_index);
+                    let ours = request.is_some_and(|node| {
+                        node == id.accesskit_id()
+                            || sticky_ids.iter().any(|id| node == id.accesskit_id())
+                    });
+                    if !sticky_ids.is_empty() && ours {
+                        sticky_detached = false;
+                    } else if !sticky_ids.is_empty()
+                        && (request.is_some()
+                            || matches!(&event, Event::PointerButton { pos, pressed: true, .. } if !rect.contains(*pos))
+                            || matches!(&event, Event::WindowFocused(false)))
+                    {
+                        sticky_released = false;
+                        sticky_navigation = None;
+                        sticky_detached = true;
+                        ui.memory_mut(|memory| {
+                            memory.surrender_focus(id);
+                            for id in &sticky_ids {
+                                memory.surrender_focus(*id);
+                            }
+                        });
+                    }
+                    if let Some(action) = input_state.sticky.pointer(ui.ctx(), &event, raw_index) {
+                        sticky_released |= apply_sticky_action(
+                            ui,
+                            store,
+                            view,
+                            &mut input_state,
+                            action,
+                            indent.tab_size,
+                            language.map(|language| language.rules),
+                        )?;
+                        continue;
+                    }
+                }
+                #[cfg(feature = "native-host")]
+                let sticky_owner = sticky_routes
+                    .iter()
+                    .position(|route| {
+                        route.as_ref().is_some_and(|route| {
+                            route
+                                .0
+                                .get(index)
+                                .is_some_and(|(owned, _)| *owned == Some(true))
+                        })
+                    })
+                    .or_else(|| {
+                        (owned.is_none() && sticky_routes.iter().all(Option::is_none))
+                            .then_some(sticky_start)
+                            .flatten()
+                    });
+                #[cfg(not(feature = "native-host"))]
+                let sticky_owner: Option<usize> = None;
+                #[cfg(feature = "native-host")]
+                let fallback_focus = !sticky_detached && response.has_focus();
+                #[cfg(not(feature = "native-host"))]
+                let fallback_focus = response.has_focus();
+                if !owned.unwrap_or(fallback_focus) && sticky_owner.is_none() {
                     remaining.push(event);
                     continue;
                 }
@@ -911,6 +1108,33 @@ impl NativeEditor {
                     .views()
                     .get(view)
                     .is_some_and(|view| view.composition.is_some());
+                #[cfg(feature = "native-host")]
+                if let Some(index) = sticky_owner.filter(|_| !sticky_released) {
+                    let index = sticky_navigation.unwrap_or(index);
+                    if let Some(action) = input_state.sticky.key(&event, index) {
+                        if let crate::editor_sticky_scroll::StickyAction::Focus(index) = action {
+                            sticky_navigation = Some(index);
+                        }
+                        sticky_released |= apply_sticky_action(
+                            ui,
+                            store,
+                            view,
+                            &mut input_state,
+                            action,
+                            indent.tab_size,
+                            language.map(|language| language.rules),
+                        )?;
+                        continue;
+                    }
+                    if keymap(ui, &event, composing) {
+                        continue;
+                    }
+                    if matches!(event, Event::Text(_) | Event::Paste(_) | Event::Ime(_)) {
+                        continue;
+                    }
+                    remaining.push(event);
+                    continue;
+                }
                 if keymap(ui, &event, composing) {
                     continue;
                 }
@@ -932,6 +1156,16 @@ impl NativeEditor {
             }
             ui.input_mut(|input| input.events = remaining);
         }
+        #[cfg(feature = "native-host")]
+        let focused = if sticky_released {
+            response.request_focus();
+            true
+        } else {
+            if !sticky_detached && let Some(index) = sticky_navigation {
+                input_state.sticky.focus(ui, index);
+            }
+            focused
+        };
         if lost_after_events || !focused || !ui.is_enabled() {
             input_state.ime_revision = None;
             store.set_composition(view, None)?;
@@ -953,6 +1187,22 @@ impl NativeEditor {
         let document = store.documents().snapshot(current.document)?;
         let tokens = tokens(store).filter(|tokens| tokens.describes(&document));
         #[cfg(feature = "native-host")]
+        let sticky_model = if presentation.options.sticky_scroll
+            && presentation.options.sticky_colors.is_some()
+            && crate::editor_sticky_scroll::is_available(&document)
+        {
+            Some(input_state.sticky.model(
+                &document,
+                indent.tab_size,
+                language.map(|language| language.rules),
+                has_folding.then_some(&fold_regions),
+                presentation.options.sticky_model.as_ref(),
+            ))
+        } else {
+            input_state.sticky.clear();
+            None
+        };
+        #[cfg(feature = "native-host")]
         let bracket_model = presentation
             .options
             .bracket_colors
@@ -970,7 +1220,7 @@ impl NativeEditor {
                 )
             })
             .transpose()?;
-        let layers = tracked_layers(store, &document, decorations)?;
+        let tracked = tracked_layers(store, &document, decorations)?;
         let mut state = store
             .views()
             .get(view)
@@ -1034,7 +1284,9 @@ impl NativeEditor {
         let scroll_max = (content_height - rect.height()).max(0.0);
         state.scroll.y = stable_scroll_top.unwrap_or(state.scroll.y).min(scroll_max);
         #[cfg(feature = "native-host")]
-        let did_fold_reveal = fold_reveal.is_some();
+        let sticky_reveal = input_state.sticky.take_fold_reveal();
+        #[cfg(feature = "native-host")]
+        let did_fold_reveal = fold_reveal.is_some() || sticky_reveal.is_some();
         if let Some(reveal) = fold_reveal {
             let primary = state.selection.selections[state.selection.primary];
             let row = display.row_of_byte(
@@ -1086,7 +1338,24 @@ impl NativeEditor {
             }
         }
         #[cfg(feature = "native-host")]
-        let (wheel, precise_wheel) = if response.hovered() && ui.is_enabled() {
+        if let Some((line, index)) = sticky_reveal {
+            let row = display.row_of_byte(
+                &document,
+                document
+                    .rope
+                    .line_to_byte(line.min(document.rope.len_lines() - 1)),
+            );
+            state.scroll.y = (layout.row_top(row) - index as f32 * appearance.line_height + 1.0)
+                .clamp(0.0, scroll_max);
+        }
+        #[cfg(feature = "native-host")]
+        let (wheel, precise_wheel) = if ui.is_enabled()
+            && (response.hovered()
+                || input_state.sticky.focus_ids().iter().any(|id| {
+                    ui.ctx()
+                        .read_response(*id)
+                        .is_some_and(|response| response.hovered())
+                })) {
             input_state.scroll.wheel(ui)
         } else {
             (Vec2::ZERO, false)
@@ -1166,7 +1435,7 @@ impl NativeEditor {
             display.segment(&document, visible.start).line
                 ..display.segment(&document, visible.end - 1).line + 1
         };
-        let decorations = frame_decorations(&document, &layers, visible_lines);
+        let decorations = frame_decorations(&document, &tracked, visible_lines);
         let row_layout = RowLayout {
             painter: &painter,
             document: &document,
@@ -1349,6 +1618,47 @@ impl NativeEditor {
             state.scroll.clone(),
             state.folds.clone(),
         )?;
+        #[cfg(feature = "native-host")]
+        let sticky_layout = sticky_model
+            .as_ref()
+            .map_or_else(Default::default, |model| {
+                let visible = layout.visible_rows(state.scroll.y, rect.height(), 0);
+                let lines = if visible.is_empty() {
+                    0..0
+                } else {
+                    display.segment(&document, visible.start).line
+                        ..display.segment(&document, visible.end - 1).line + 1
+                };
+                model.layout(
+                    &taide_native_editor::sticky_model::StickyViewport {
+                        visible_lines: lines,
+                        scroll_top: state.scroll.y,
+                        height: rect.height(),
+                        line_height: appearance.line_height,
+                    },
+                    &hidden_lines(&document.rope, &state.folds),
+                    |line| {
+                        layout.row_top(
+                            display.row_of_byte(&document, document.rope.line_to_byte(line)),
+                        )
+                    },
+                    |line| layout.row_top(display.rows_of_line(line).end),
+                )
+            });
+        #[cfg(feature = "native-host")]
+        let sticky_rect = Rect::from_min_max(
+            rect.min,
+            pos2(
+                (rect.right() - VERTICAL_SCROLLBAR_SIZE).max(rect.left()),
+                rect.top() + sticky_layout.height(appearance.line_height),
+            ),
+        );
+        #[cfg(feature = "native-host")]
+        let is_sticky_press = press
+            .origin
+            .is_some_and(|origin| sticky_rect.contains(origin) && sticky_rect.height() > 0.0);
+        #[cfg(not(feature = "native-host"))]
+        let is_sticky_press = false;
         let fold_placeholder_width = painter
             .layout_no_wrap(
                 FOLD_PLACEHOLDER.into(),
@@ -1360,6 +1670,10 @@ impl NativeEditor {
             + FOLD_PLACEHOLDER_MARGIN_EM * appearance.font.size;
         let fold_target = |position: Pos2| {
             if !has_folding || !rect.contains(position) {
+                return None;
+            }
+            #[cfg(feature = "native-host")]
+            if sticky_rect.height() > 0.0 && sticky_rect.contains(position) {
                 return None;
             }
             let row = rows.iter().find(|row| {
@@ -1397,6 +1711,7 @@ impl NativeEditor {
             input_state.fold_press = None;
         }
         if !scrolling
+            && !is_sticky_press
             && !fold_press.is_some_and(|press| press.is_on_control)
             && (press.down || response.clicked() || response.drag_started() || response.dragged())
             && let Some(pointer) = response.interact_pointer_pos()
@@ -1614,7 +1929,7 @@ impl NativeEditor {
             )?;
         }
         let time = ui.input(|input| input.time);
-        if has_folding && let Some(paint) = fold_controls {
+        if has_folding && let Some(paint) = fold_controls.as_deref_mut() {
             let gutter_rect = Rect::from_min_max(rect.min, pos2(text_rect.left(), rect.bottom()));
             let is_gutter_hovered = ui.is_enabled()
                 && response
@@ -1649,6 +1964,31 @@ impl NativeEditor {
             }
             ui.set_clip_rect(clip);
         }
+        #[cfg(feature = "native-host")]
+        let toggle_sticky_scroll = if let Some(colors) = presentation.options.sticky_colors {
+            crate::editor_sticky_scroll::paint(
+                ui,
+                &mut input_state.sticky,
+                crate::editor_sticky_scroll::StickyFrame {
+                    id,
+                    layout: &sticky_layout,
+                    rows: &row_layout,
+                    rect: Rect::from_min_max(rect.min, pos2(sticky_rect.right(), rect.bottom())),
+                    text_rect,
+                    scroll: vec2(state.scroll.x, state.scroll.y),
+                    gutter,
+                    colors,
+                    layers: &tracked,
+                    regions: &fold_regions,
+                    folds: &state.folds,
+                    selection: &state.selection,
+                    options: &presentation.options,
+                },
+                &mut fold_controls,
+            )
+        } else {
+            false
+        };
         let caret_rect = rows
             .iter()
             .find(|row| row.index == carets.primary_row)
@@ -1746,6 +2086,8 @@ impl NativeEditor {
             .map_or(visible.clone(), |(first, last)| {
                 first.segment.line..last.segment.line + 1
             });
+        #[cfg(feature = "native-host")]
+        let focus_ids = input_state.sticky.focus_ids();
         store.set_display(view, projection.cached)?;
         input_state.rendered_viewport = Some(RenderedViewport {
             scroll_top: state.scroll.y,
@@ -1758,6 +2100,10 @@ impl NativeEditor {
             changed: document.revision != previous.revision,
             rendered_lines,
             errors: output.errors,
+            #[cfg(feature = "native-host")]
+            focus_ids,
+            #[cfg(feature = "native-host")]
+            toggle_sticky_scroll,
             geometry: EditorGeometry {
                 rect,
                 content_rect: text_rect,

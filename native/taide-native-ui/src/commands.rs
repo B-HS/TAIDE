@@ -55,20 +55,39 @@ pub enum ShellMutation {
 pub enum ShellIntent {
     Mutate(ShellMutation),
     OpenFolder,
-    OpenFile { project: ProjectId, pane: PaneId },
-    NewUntitled { project: ProjectId, pane: PaneId },
-    NewTerminal { project: ProjectId, pane: PaneId },
+    OpenFile {
+        project: ProjectId,
+        pane: PaneId,
+    },
+    NewUntitled {
+        project: ProjectId,
+        pane: PaneId,
+    },
+    NewTerminal {
+        project: ProjectId,
+        pane: PaneId,
+    },
     OpenSettings,
     OpenSettingsFile,
     OpenKeybindings,
     OpenPalette(PaletteEntry),
     ShowOpenProjectNotice,
-    ChangeEditorFontSize { increase: bool },
+    ChangeEditorFontSize {
+        increase: bool,
+    },
+    #[cfg(feature = "native-host")]
+    ToggleEditorStickyScroll,
     RequestCloseTab(TabId),
     RequestCloseTabs(Vec<TabId>),
     RequestSaveTab(TabId),
-    EditDocument { tab: TabId, edit: DocumentEdit },
-    FoldDocument { tab: TabId, command: FoldCommand },
+    EditDocument {
+        tab: TabId,
+        edit: DocumentEdit,
+    },
+    FoldDocument {
+        tab: TabId,
+        command: FoldCommand,
+    },
 }
 
 #[cfg(feature = "native-host")]

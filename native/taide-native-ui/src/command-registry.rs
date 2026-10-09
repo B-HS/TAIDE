@@ -92,7 +92,11 @@ pub enum Run {
     FocusGroup(GroupTarget),
     MoveTabToGroup(Direction),
     CloseAllTabs,
-    ChangeEditorFontSize { increase: bool },
+    ChangeEditorFontSize {
+        increase: bool,
+    },
+    #[cfg(feature = "native-host")]
+    ToggleEditorStickyScroll,
     EditDocument(DocumentEdit),
     FoldDocument(FoldCommand),
 }
@@ -253,6 +257,8 @@ fn execution(id: &str, keymap_id: Option<&str>) -> Execution {
         return Execution::Native(Run::EditDocument(DocumentEdit::Find(command)));
     }
     let run = match id {
+        #[cfg(feature = "native-host")]
+        "monaco.editor.action.toggleStickyScroll" => Some(Run::ToggleEditorStickyScroll),
         "settings.open" => Some(Run::OpenSettingsTab),
         "app.openSettingsFile" => Some(Run::OpenSettingsFile),
         "monaco.deleteAllLeft" => Some(Run::EditDocument(DocumentEdit::DeleteAllLeft)),
@@ -511,6 +517,29 @@ mod tests {
         include_str!("../../taide-native-app/tests/fixtures/keybinding-catalog.json");
     const KEYMAP_DEFAULTS: &str = include_str!("keymap-defaults.json");
     const COMMAND_COUNT: usize = 212;
+
+    #[cfg(feature = "native-host")]
+    #[test]
+    fn 고정_줄_토글은_기존_원본_명령만_연결하고_읽기전용에서도_활성화한다() {
+        let registry = registry().unwrap();
+        let command = registry
+            .command("monaco.editor.action.toggleStickyScroll")
+            .unwrap();
+        assert_eq!(
+            command.runnable(&CommandContext::default()),
+            Some(Run::ToggleEditorStickyScroll)
+        );
+        let actions = registry.editor_action_ids(ActiveEditor {
+            is_read_only: true,
+            has_folding: false,
+        });
+        assert!(actions.contains("editor.action.toggleStickyScroll"));
+        assert!(
+            registry
+                .command("monaco.editor.action.focusStickyScroll")
+                .is_none()
+        );
+    }
     const CURSOR_ACTIONS: [&str; 23] = [
         "editor.action.insertCursorAbove",
         "editor.action.insertCursorBelow",
@@ -805,6 +834,8 @@ mod tests {
             .iter()
             .filter_map(|command| match command.execution {
                 #[cfg(feature = "native-host")]
+                Execution::Native(Run::ToggleEditorStickyScroll) => None,
+                #[cfg(feature = "native-host")]
                 Execution::Native(Run::EditDocument(DocumentEdit::Find(_))) => None,
                 Execution::Native(Run::EditDocument(
                     DocumentEdit::Line(_) | DocumentEdit::Cursor(_),
@@ -881,6 +912,11 @@ mod tests {
                         )
                 }))
                 .chain(fold_actions.into_iter().filter(|_| has_folding))
+                .chain(
+                    ["editor.action.toggleStickyScroll"]
+                        .into_iter()
+                        .filter(|_| cfg!(feature = "native-host")),
+                )
                 .chain(
                     [
                         "actions.find",

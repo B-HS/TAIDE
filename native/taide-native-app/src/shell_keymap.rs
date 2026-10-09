@@ -197,6 +197,9 @@ pub(crate) fn intent(run: Run, snapshot: &ShellSnapshot) -> Option<ShellIntent> 
     );
     match run {
         Run::SaveActiveTab if has_document => Some(ShellIntent::RequestSaveTab(tab.id.clone())),
+        Run::ToggleEditorStickyScroll if has_document => {
+            Some(ShellIntent::ToggleEditorStickyScroll)
+        }
         Run::EditDocument(edit) if has_document => Some(ShellIntent::EditDocument {
             tab: tab.id.clone(),
             edit,

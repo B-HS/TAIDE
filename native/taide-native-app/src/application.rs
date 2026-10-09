@@ -163,6 +163,8 @@ pub struct NativeApplication {
     find_appearance: taide_native_ui::editor_find_widget::FindAppearance,
     editor_display_colors: taide_native_ui::editor_display::EditorDisplayColors,
     editor_bracket_colors: taide_native_ui::editor_brackets::EditorBracketColors,
+    editor_sticky_colors: taide_native_ui::editor_sticky_scroll::EditorStickyColors,
+    editor_sticky_scroll: taide_native_ui::editor_sticky_scroll::StickySetting,
     editor_syntax: crate::editor_syntax::EditorSyntax,
     editor_keymap_targets: HashMap<(egui::ViewportId, egui::Id), (ViewId, u64)>,
     banner_appearance: BannerAppearance,
@@ -354,6 +356,9 @@ impl NativeApplication {
         ));
         host.submit(HostCommand::RestoreWatchers)?;
         let bridge = Some(host);
+        let editor_sticky_scroll = taide_native_ui::editor_sticky_scroll::StickySetting::new(
+            services.state.settings.read().editor_sticky_scroll_enabled,
+        );
         let mut store = EditorStore::new(EditorLimits {
             max_documents: MAX_DOCUMENTS,
             max_views: MAX_VIEWS,
@@ -446,6 +451,8 @@ impl NativeApplication {
             find_appearance: appearances.find,
             editor_display_colors: appearances.editor_display,
             editor_bracket_colors: appearances.editor_brackets,
+            editor_sticky_colors: appearances.editor_sticky,
+            editor_sticky_scroll,
             editor_syntax,
             editor_keymap_targets: HashMap::new(),
             banner_appearance,
@@ -638,6 +645,7 @@ impl NativeApplication {
                                         self.find_appearance = appearances.find;
                                         self.editor_display_colors = appearances.editor_display;
                                         self.editor_bracket_colors = appearances.editor_brackets;
+                                        self.editor_sticky_colors = appearances.editor_sticky;
                                         self.banner_appearance = appearances.banner;
                                         self.lsp_status_appearance = appearances.lsp_status;
                                         self.status_editor_appearance = appearances.status_editor;
@@ -3621,6 +3629,7 @@ impl NativeApplication {
                 self.find_appearance = appearances.find;
                 self.editor_display_colors = appearances.editor_display;
                 self.editor_bracket_colors = appearances.editor_brackets;
+                self.editor_sticky_colors = appearances.editor_sticky;
                 self.banner_appearance = appearances.banner;
                 self.lsp_status_appearance = appearances.lsp_status;
                 self.status_editor_appearance = appearances.status_editor;
@@ -4128,6 +4137,14 @@ impl eframe::App for NativeApplication {
             find_appearance: &self.find_appearance,
             editor_display_colors: self.editor_display_colors,
             editor_bracket_colors: self.editor_bracket_colors,
+            editor_sticky_colors: self.editor_sticky_colors,
+            editor_sticky_scroll: self.editor_sticky_scroll.synchronize(
+                self.services
+                    .state
+                    .settings
+                    .read()
+                    .editor_sticky_scroll_enabled,
+            ),
             editor_syntax: &mut self.editor_syntax,
             banner_appearance: &self.banner_appearance,
             restore_notices: &self.restore_notices,
@@ -4508,6 +4525,16 @@ impl eframe::App for NativeApplication {
                         self.submit(HostCommand::NewUntitled { project, pane });
                     }
                     ShellIntent::ShowOpenProjectNotice => self.notify_open_project_first(),
+                    ShellIntent::ToggleEditorStickyScroll => {
+                        self.editor_sticky_scroll.toggle(
+                            self.services
+                                .state
+                                .settings
+                                .read()
+                                .editor_sticky_scroll_enabled,
+                        );
+                        context.request_repaint();
+                    }
                     ShellIntent::ChangeEditorFontSize { increase } => {
                         let current = self.services.state.settings.read().editor_font_size;
                         self.submit(HostCommand::SetEditorFontSize(
@@ -4906,6 +4933,8 @@ struct AppSurfaces<'a> {
     find_appearance: &'a taide_native_ui::editor_find_widget::FindAppearance,
     editor_display_colors: taide_native_ui::editor_display::EditorDisplayColors,
     editor_bracket_colors: taide_native_ui::editor_brackets::EditorBracketColors,
+    editor_sticky_colors: taide_native_ui::editor_sticky_scroll::EditorStickyColors,
+    editor_sticky_scroll: bool,
     editor_syntax: &'a mut crate::editor_syntax::EditorSyntax,
     banner_appearance: &'a BannerAppearance,
     restore_notices: &'a HashMap<TabId, BannerVariant>,
@@ -5672,6 +5701,9 @@ impl AppSurfaces<'_> {
                     crate::presentation_refresh::editor_presentation(&settings);
                 editor_presentation.options.colors = Some(self.editor_display_colors);
                 editor_presentation.options.bracket_colors = Some(self.editor_bracket_colors);
+                editor_presentation.options.sticky_colors = Some(self.editor_sticky_colors);
+                editor_presentation.options.sticky_scroll = self.editor_sticky_scroll;
+                editor_presentation.options.sticky_toggle_label = Some(presentation::message(self.locale, "settings.editorStickyScroll", &[]));
                 drop(settings);
                 editor_presentation.options.folding =
                     taide_native_ui::presentation::editor_folding(snapshot.metadata.tier);
@@ -5857,14 +5889,23 @@ impl AppSurfaces<'_> {
                 }
                 self.editor_syntax
                     .show_lines(document, output.rendered_lines.clone());
+                if output.toggle_sticky_scroll {
+                    intents.push(ShellIntent::ToggleEditorStickyScroll);
+                }
                 self.keymap_documents.insert(tab.id.clone(), document);
                 if output.response.enabled() {
+                    for id in &output.focus_ids {
+                        self.editor_keymap_targets.insert(
+                            (ui.ctx().viewport_id(), *id),
+                            (view, ui.ctx().cumulative_frame_nr()),
+                        );
+                    }
                     self.editor_keymap_targets.insert(
                         (ui.ctx().viewport_id(), output.response.id),
                         (view, ui.ctx().cumulative_frame_nr()),
                     );
                 }
-                if output.response.has_focus() {
+                if output.response.has_focus() || ui.memory(|memory| output.focus_ids.iter().any(|id| memory.has_focus(*id))) {
                     *self.keymap_editor_scope = Some(
                         self.store
                             .views()

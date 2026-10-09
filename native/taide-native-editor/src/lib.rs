@@ -52,6 +52,8 @@ pub mod snippet_tracking;
 pub mod snippet_variables;
 #[path = "snippet-whitespace.rs"]
 pub mod snippet_whitespace;
+#[path = "sticky-model.rs"]
+pub mod sticky_model;
 pub mod store;
 pub mod syntax;
 pub mod view;

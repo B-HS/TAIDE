@@ -91,6 +91,7 @@ pub(crate) struct Row {
     pub(crate) galley: Arc<Galley>,
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct RowLayout<'a> {
     pub(crate) painter: &'a Painter,
     pub(crate) document: &'a DocumentSnapshot,

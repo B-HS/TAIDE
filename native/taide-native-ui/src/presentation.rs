@@ -267,6 +267,7 @@ pub fn editor_presentation(settings: &Settings) -> EditorPresentation {
                 smooth_scrolling: settings.editor_smooth_scrolling,
                 bracket_pair_colorization: settings.editor_bracket_pair_colorization,
                 bracket_pair_guides: settings.editor_bracket_pair_guides,
+                sticky_scroll: settings.editor_sticky_scroll_enabled,
                 ..Default::default()
             },
         };
@@ -324,6 +325,23 @@ pub fn editor_bracket_colors(
         unexpected: Color32::from_rgba_unmultiplied(255, 18, 18, UNEXPECTED_ALPHA),
         indent: color(theme, "editor.indentGuide")?,
         active_indent: color(theme, "editor.whitespace")?,
+    })
+}
+
+#[cfg(feature = "native-host")]
+pub fn editor_sticky_colors(
+    theme: &ResolvedTheme,
+) -> AppResult<crate::editor_sticky_scroll::EditorStickyColors> {
+    const DARK_HOVER: Color32 = Color32::from_rgb(42, 45, 46);
+    const LIGHT_HOVER: Color32 = Color32::from_rgb(240, 240, 240);
+    Ok(crate::editor_sticky_scroll::EditorStickyColors {
+        background: color(theme, "editor.widgetBackground")?,
+        border: color(theme, "editor.widgetBorder")?,
+        hover: match theme.theme_type {
+            ThemeType::Dark => DARK_HOVER,
+            ThemeType::Light => LIGHT_HOVER,
+        },
+        shadow: color(theme, "app.shadow")?,
     })
 }
 

@@ -591,6 +591,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### Ported source in `native/taide-native-editor`
 
+- `src/sticky-model.rs`, `native/taide-native-ui/src/editor-sticky-scroll.rs`
+  and their editor surface connections adapt nested scope selection,
+  push-off layout, hidden range filtering, rendering and interactions from
+  Monaco Editor 0.56.0 (MIT, Copyright (c) Microsoft Corporation):
+  `editor/contrib/stickyScroll/browser/stickyScrollProvider.js`,
+  `stickyScrollModelProvider.js`, `stickyScrollController.js`,
+  `stickyScrollWidget.js`, `stickyScrollActions.js` and `stickyScroll.css`.
+  `native/taide-native-editor/tests/fixtures/sticky-scroll-reference.txt`
+  records 357 results obtained by executing the original provider/controller
+  methods with synthetic document and viewport data. The MIT text is retained
+  in `native/taide-native-editor/LICENSE-MONACO-SNIPPET` and
+  `native/taide-native-ui/LICENSE-MONACO-FIND`.
+
 - `src/find.rs` and `src/find-replacement.rs` adapt the search driving,
   word boundary, newline, empty match, replacement parsing and case
   preservation rules from Monaco Editor 0.56.0 (MIT, Copyright (c)

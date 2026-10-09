@@ -52,6 +52,9 @@ pub mod editor_row_text;
 #[cfg(feature = "native-host")]
 #[path = "editor-scroll.rs"]
 mod editor_scroll;
+#[cfg(feature = "native-host")]
+#[path = "editor-sticky-scroll.rs"]
+pub mod editor_sticky_scroll;
 pub mod editor_surface;
 #[path = "font-families.rs"]
 pub mod font_families;
