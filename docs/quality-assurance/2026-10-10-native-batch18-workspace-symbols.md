@@ -1,6 +1,6 @@
 # 배치 18 — 워크스페이스 심볼 검색·팔레트 이동
 
-현재 상태: 모델·팔레트·실제 child/host/앱 연결과 변경 app/UI 전체 86대상·1018건이 통과했습니다. 실제 기록·선별 커밋·일반 푸시를 진행합니다. 체크리스트 6/7(85.7%), 기능 대응표 279/588(47.4%)입니다. 전체 출시 전환율/잔여 시간은 미산정이며 main이 직접 수행합니다. Cargo 직렬 규칙 이탈 1회는 아래 실제 로그와 함께 기록합니다.
+현재 상태: 구현 `2870345d`와 완료 근거 `a99fb507`를 일반 푸시해 0/0을 확인했습니다. 모델·팔레트·실제 child/host/앱 연결과 변경 app/UI 전체 86대상·1018건이 통과했고 체크리스트 7/7입니다. 기능 대응표는 완료 281/588(47.8%), 부분 93·미연결 113·미구현 101입니다. 전체 출시 전환율/잔여 시간은 미산정이며 main이 직접 수행합니다. Cargo 직렬 규칙 이탈 1회는 아래 실제 로그와 함께 기록하며 batch19 구문 접기 공급·수동/Import 명령으로 계속합니다.
 
 ## 범위와 기준
 
@@ -16,7 +16,7 @@ native는 기존 typed SDK와 앱 전용 세션/취소·팔레트 native-host �
 - [x] d. # 팔레트 이름/컨테이너/Hash·강조/안내·키/마우스/IME 선택
 - [x] e. 실제 앱/host preview·기존 탭·UTF-16 reveal·경계/늦은 선택 통합
 - [x] f. 위험 회귀·변경 크레이트 전체 대상·동결/포맷/diff·디스크
-- [ ] g. 실제 QA/기능표/PROCESS·선별 커밋·일반 푸시·다음 범위
+- [x] g. 실제 QA/기능표/PROCESS·선별 커밋·일반 푸시·다음 범위
 
 ## 검증 상태
 
@@ -58,3 +58,9 @@ cargo fmt --manifest-path native/taide-native-ui/Cargo.toml --check
 동결 host 11.86초·Wasm canvas 21.83초도 exit 0입니다(`/private/tmp/taide-batch18-browser-host.log`, `taide-batch18-browser-wasm.log`). host의 tool 반환이 실행 중 session인 상태에서 다음 Wasm/fmt 명령을 시작해 Cargo 직렬 규칙을 1회 위반했습니다. Wasm 로그의 `Blocking waiting for file lock on build directory`를 확인했고 두 session의 최종 exit 0을 회수했습니다. 검사의 통과와 실행 규칙 준수 여부를 구분하며 이후 명령은 이전 process의 종료를 확인한 뒤 시작합니다.
 
 app/UI fmt와 소유 변경 whitespace 검사 exit 0, remote-web·editor·syntax source/manifest/lock 및 app/UI manifest/lock diff 0입니다. 엔진/의존성은 추가하지 않았습니다. 디스크는 675GiB 여유·64% 사용이며 빌드 산출물을 정리하지 않았습니다. 실제 OS/IME/접근성·pixel/대형/soak/출시 전체 게이트와 theme의 잘못된 7자리 HEX 결정은 미완료로 보존합니다.
+
+## 실제 완료 근거와 Git
+
+구현/검사/QA/상단 PROCESS 21파일을 `2870345d`로 선별 커밋했습니다. `commands-ui-50`(# workspace 검색/취소/목록·선택)과 `commands-ui-60`(해당 팔레트 진입)의 실제 소비자/검사를 연결해 두 행을 완료로 반영했습니다. 599행 원본/ID·36근거 묶음·224경로와 표의 일치 검사가 통과했고 완료 281/588(47.8%), 부분 93·미연결 113·미구현 101입니다. TaskRunner와 검색/Git·완성/hover/정의/구문 접기·실기/출시를 함께 완료로 세지 않습니다. 이미 연결된 파일/아웃라인과 모순된 일부 잔여 설명도 상태를 변경하지 않고 바로잡았습니다.
+
+기능표/완료 근거 3파일을 `a99fb507`로 커밋해 두 커밋을 일반 푸시했고 로컬/원격 0/0을 확인했습니다. 기존 HANDOFF/architecture/합의/PROCESS 하단 11추가·1삭제와 불관련 새 문서를 스테이징하지 않았습니다. 사용자 단독 author·한국어 Conventional Commits·AI 트레일러 없음·선별 staging·일반 push를 유지했습니다. 상단 PROCESS와 batch19 QA에서 구문 접기 공급·수동/Import 명령의 다음 범위를 고정해 전체 목표를 계속합니다.
