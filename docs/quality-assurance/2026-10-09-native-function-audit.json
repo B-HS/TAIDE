@@ -1,6 +1,6 @@
 {
     "date": "2026-10-10",
-    "baseline": "38ce4725",
+    "baseline": "2870345d",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -443,9 +443,10 @@
             "tests": ["native/taide-native-ui/src/command-palette-tests.rs"],
             "reports": [
                 "docs/quality-assurance/2026-10-06-native-batch2-command-palette.md",
-                "docs/quality-assurance/2026-10-10-native-batch16-document-symbols.md"
+                "docs/quality-assurance/2026-10-10-native-batch16-document-symbols.md",
+                "docs/quality-assurance/2026-10-10-native-batch18-workspace-symbols.md"
             ],
-            "limitation": "현재 파일 Symbol @는 batch16에서 연결했습니다. WorkspaceSymbol #는 빈 목록이며 command-score는 font picker에만 연결됩니다."
+            "limitation": "현재 파일 Symbol @와 WorkspaceSymbol # 소비를 연결했습니다. command-score는 font picker에만 연결되며 실제 OS/출시 게이트는 미완료입니다."
         },
         "commands-keymap": {
             "sources": [
@@ -541,7 +542,7 @@
                 "docs/quality-assurance/2026-10-10-native-batch16-document-symbols.md",
                 "docs/quality-assurance/2026-10-10-native-batch17-outline-breadcrumbs.md"
             ],
-            "limitation": "typed LSP·@ 현재 파일 목록/고정 줄·explorer outline/경로·심볼 breadcrumb 소비자를 검증했습니다. syntax folding/정의 이동·워크스페이스 #·실기/성능 게이트는 잔여입니다."
+            "limitation": "typed LSP·@ 현재 파일 목록/고정 줄·explorer outline/경로·심볼 breadcrumb 소비자를 검증했습니다. workspace #는 별도 workspace-symbols 근거에서 연결했으며 syntax folding/정의 이동·실기/성능 게이트는 잔여입니다."
         },
         "editor-navigation": {
             "sources": [
@@ -565,6 +566,28 @@
             ],
             "reports": ["docs/quality-assurance/2026-10-10-native-batch17-outline-breadcrumbs.md"],
             "limitation": "파일/아웃라인 진입·현재 문서 심볼 트리·경로/심볼 막대·형제 메뉴·preview/reveal·창/탭/세대 수명을 연결했습니다. 검색/Git의 나머지 두 뷰, 실제 OS 접근성/IME·pixel·대형 지연/출시 게이트는 잔여입니다."
+        },
+        "workspace-symbols": {
+            "sources": [
+                "native/taide-native-app/src/workspace-symbols.rs",
+                "native/taide-native-app/src/lsp-workspace-symbols.rs",
+                "native/taide-native-app/src/workspace-symbol-host.rs",
+                "native/taide-native-app/src/lsp.rs",
+                "native/taide-native-app/src/application.rs",
+                "native/taide-native-ui/src/command-palette.rs",
+                "native/taide-native-ui/src/command-registry.rs"
+            ],
+            "tests": [
+                "native/taide-native-app/src/workspace-symbols-tests.rs",
+                "native/taide-native-app/src/lsp-workspace-symbols-tests.rs",
+                "native/taide-native-app/src/workspace-symbol-host-tests.rs",
+                "native/taide-native-app/src/application-startup-tests.rs",
+                "native/taide-native-app/tests/lsp.rs",
+                "native/taide-native-ui/src/command-palette-tests.rs",
+                "native/taide-native-ui/tests/keymap-platform.rs"
+            ],
+            "reports": ["docs/quality-assurance/2026-10-10-native-batch18-workspace-symbols.md"],
+            "limitation": "단일 200ms trailing·typed 여러 세션·결과 순서/부분 오류·세대/취소·Hash/컨테이너/강조·키/마우스·preview/기존 탭/UTF-16 reveal을 검증했습니다. 실제 OS 화면/IME/접근성·대형/출시는 미검증입니다."
         }
     },
     "rows": [
@@ -830,7 +853,7 @@
             "domain": "shell",
             "status": "partial",
             "proof": "commands-palette",
-            "note": "파일/명령/줄과 현재 문서 @ 심볼 팔레트는 연결됐으나 TaskRunner·워크스페이스 # 심볼 목록은 남아 있습니다."
+            "note": "파일/명령/줄과 현재 문서 @·워크스페이스 # 심볼 팔레트는 연결됐으나 TaskRunner 대화상자는 남아 있습니다."
         },
         {
             "id": "shell-25",
@@ -3547,7 +3570,7 @@
             "domain": "explorer-search",
             "status": "missing",
             "proof": "panel-search",
-            "note": "현재 앱 explorer는 files 표면만 연결합니다. 검색/Git/아웃라인과 관련 진입·데이터 공급 소비자는 없습니다."
+            "note": "현재 앱 explorer에는 파일/아웃라인이 연결돼 있습니다. 이 요구사항의 사용자 표면·데이터 공급 소비자는 아직 없습니다."
         },
         {
             "id": "explorer-search-8",
@@ -3690,7 +3713,7 @@
             "domain": "explorer-search",
             "status": "missing",
             "proof": "panel-search",
-            "note": "현재 앱 explorer는 files 표면만 연결합니다. 검색/Git/아웃라인과 관련 진입·데이터 공급 소비자는 없습니다."
+            "note": "현재 앱 explorer에는 파일/아웃라인이 연결돼 있습니다. 이 요구사항의 사용자 표면·데이터 공급 소비자는 아직 없습니다."
         },
         {
             "id": "explorer-search-21",
@@ -3701,7 +3724,7 @@
             "domain": "explorer-search",
             "status": "missing",
             "proof": "panel-search",
-            "note": "현재 앱 explorer는 files 표면만 연결합니다. 검색/Git/아웃라인과 관련 진입·데이터 공급 소비자는 없습니다."
+            "note": "현재 앱 explorer에는 파일/아웃라인이 연결돼 있습니다. 이 요구사항의 사용자 표면·데이터 공급 소비자는 아직 없습니다."
         },
         {
             "id": "explorer-search-22",
@@ -3712,7 +3735,7 @@
             "domain": "explorer-search",
             "status": "missing",
             "proof": "panel-search",
-            "note": "현재 앱 explorer는 files 표면만 연결합니다. 검색/Git/아웃라인과 관련 진입·데이터 공급 소비자는 없습니다."
+            "note": "현재 앱 explorer에는 파일/아웃라인이 연결돼 있습니다. 이 요구사항의 사용자 표면·데이터 공급 소비자는 아직 없습니다."
         },
         {
             "id": "explorer-search-23",
@@ -3723,7 +3746,7 @@
             "domain": "explorer-search",
             "status": "missing",
             "proof": "panel-search",
-            "note": "현재 앱 explorer는 files 표면만 연결합니다. 검색/Git/아웃라인과 관련 진입·데이터 공급 소비자는 없습니다."
+            "note": "현재 앱 explorer에는 파일/아웃라인이 연결돼 있습니다. 이 요구사항의 사용자 표면·데이터 공급 소비자는 아직 없습니다."
         },
         {
             "id": "explorer-search-24",
@@ -3811,7 +3834,7 @@
             "domain": "explorer-search",
             "status": "missing",
             "proof": "panel-search",
-            "note": "현재 앱 explorer는 files 표면만 연결합니다. 검색/Git/아웃라인과 관련 진입·데이터 공급 소비자는 없습니다."
+            "note": "현재 앱 explorer에는 파일/아웃라인이 연결돼 있습니다. 이 요구사항의 사용자 표면·데이터 공급 소비자는 아직 없습니다."
         },
         {
             "id": "explorer-search-32",
@@ -3822,7 +3845,7 @@
             "domain": "explorer-search",
             "status": "missing",
             "proof": "panel-search",
-            "note": "현재 앱 explorer는 files 표면만 연결합니다. 검색/Git/아웃라인과 관련 진입·데이터 공급 소비자는 없습니다."
+            "note": "현재 앱 explorer에는 파일/아웃라인이 연결돼 있습니다. 이 요구사항의 사용자 표면·데이터 공급 소비자는 아직 없습니다."
         },
         {
             "id": "explorer-search-33",
@@ -3833,7 +3856,7 @@
             "domain": "explorer-search",
             "status": "missing",
             "proof": "panel-search",
-            "note": "현재 앱 explorer는 files 표면만 연결합니다. 검색/Git/아웃라인과 관련 진입·데이터 공급 소비자는 없습니다."
+            "note": "현재 앱 explorer에는 파일/아웃라인이 연결돼 있습니다. 이 요구사항의 사용자 표면·데이터 공급 소비자는 아직 없습니다."
         },
         {
             "id": "explorer-search-34",
@@ -3844,7 +3867,7 @@
             "domain": "explorer-search",
             "status": "missing",
             "proof": "panel-search",
-            "note": "현재 앱 explorer는 files 표면만 연결합니다. 검색/Git/아웃라인과 관련 진입·데이터 공급 소비자는 없습니다."
+            "note": "현재 앱 explorer에는 파일/아웃라인이 연결돼 있습니다. 이 요구사항의 사용자 표면·데이터 공급 소비자는 아직 없습니다."
         },
         {
             "id": "explorer-search-35",
@@ -3855,7 +3878,7 @@
             "domain": "explorer-search",
             "status": "missing",
             "proof": "panel-search",
-            "note": "현재 앱 explorer는 files 표면만 연결합니다. 검색/Git/아웃라인과 관련 진입·데이터 공급 소비자는 없습니다."
+            "note": "현재 앱 explorer에는 파일/아웃라인이 연결돼 있습니다. 이 요구사항의 사용자 표면·데이터 공급 소비자는 아직 없습니다."
         },
         {
             "id": "explorer-search-36",
@@ -3866,7 +3889,7 @@
             "domain": "explorer-search",
             "status": "missing",
             "proof": "panel-search",
-            "note": "현재 앱 explorer는 files 표면만 연결합니다. 검색/Git/아웃라인과 관련 진입·데이터 공급 소비자는 없습니다."
+            "note": "현재 앱 explorer에는 파일/아웃라인이 연결돼 있습니다. 이 요구사항의 사용자 표면·데이터 공급 소비자는 아직 없습니다."
         },
         {
             "id": "explorer-search-37",
@@ -3877,7 +3900,7 @@
             "domain": "explorer-search",
             "status": "missing",
             "proof": "panel-search",
-            "note": "현재 앱 explorer는 files 표면만 연결합니다. 검색/Git/아웃라인과 관련 진입·데이터 공급 소비자는 없습니다."
+            "note": "현재 앱 explorer에는 파일/아웃라인이 연결돼 있습니다. 이 요구사항의 사용자 표면·데이터 공급 소비자는 아직 없습니다."
         },
         {
             "id": "explorer-search-38",
@@ -6581,9 +6604,9 @@
             "ts": "workspace-symbol-group.tsx, use-workspace-symbol-search.ts",
             "source": "docs/quality-assurance/2026-10-06-native-audit-commands-ui.md:83",
             "domain": "commands-ui",
-            "status": "unwired",
-            "proof": "commands-base",
-            "note": "레지스트리·공유 backend/계약 또는 모드 껍데기는 있으나 해당 실제 native 사용자 실행/목록 소비자는 없습니다."
+            "status": "complete",
+            "proof": "workspace-symbols",
+            "note": "단일 200ms trailing·typed 여러 프로젝트 root의 준비 세션/등록 순서/부분 오류·검색/세대/취소 수명을 # Hash/이름/컨테이너/강조·loading/빈 상태·키/마우스 선택과 현재 창 preview/기존 탭 UTF-16 reveal에 연결했습니다. 실제 child/host/앱과 app/UI 전체 대상 검사가 통과했습니다."
         },
         {
             "id": "commands-ui-51",
@@ -6691,9 +6714,9 @@
             "ts": "command-palette.tsx:235-241",
             "source": "docs/quality-assurance/2026-10-06-native-audit-commands-ui.md:98",
             "domain": "commands-ui",
-            "status": "partial",
-            "proof": "commands-palette",
-            "note": "quick-open/command-palette 진입은 연결됐으나 workspace symbol 목록/요청은 없습니다."
+            "status": "complete",
+            "proof": "workspace-symbols",
+            "note": "기존 quick-open/명령 팔레트 진입에 workspace # 목록·검색/취소·현재 프로젝트/창 범위와 실제 파일/위치 이동을 연결했습니다. 등록/키맵/공통 표면과 실제 child/host/앱·전체 대상 검사가 통과했습니다."
         },
         {
             "id": "commands-ui-61",
@@ -7158,5 +7181,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "배치 17 변경 app 전체 67대상·648건 통과 뒤 긴 접두사 실패를 추가 재현·수정해 영향 메뉴 12건이 통과했습니다. 서로 다른 최종 app 성공 649건과 변경 없는 배치 16 editor 201·UI inspection 358의 50대상 결과를 재사용해 최신 성공은 1208건입니다. syntax는 배치 13 159건, SDK/이전 영역은 해당 QA 근거를 재사용합니다. 보호 Trash 3·ignored 5·실기 부채를 통과로 세지 않습니다. 동결 browser host/Wasm·app fmt/diff exit 0, 디스크 681GiB·63%는 배치 17 QA에 기록했습니다."
+    "validation": "배치 18 변경 app 전체 67대상·659건과 UI inspection 전체 19대상·359건, 총 86대상·1018건이 통과했습니다. 변경 없는 batch16 editor 201건을 재사용해 최신 서로 다른 editor/UI/app 성공은 1219건입니다. syntax batch13 159·SDK batch12 단위 52/문서 167은 별도 근거이며 보호 Trash 3·기존 ignored 5·실기 부채는 성공으로 세지 않습니다. 첫 app 전체 명령의 기존 exhaustive 분기 컴파일 실패를 수정한 뒤 실제 전체 실행이 통과했습니다. 동결 host/Wasm·app/UI fmt/diff exit 0, 디스크 675GiB·64%와 동결 컴파일의 Cargo 직렬 규칙 이탈 1회는 batch18 QA에 기록했습니다."
 }
