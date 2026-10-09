@@ -123,6 +123,8 @@ pub struct EditorDisplayOptions {
     #[cfg(feature = "native-host")]
     pub bracket_colors: Option<crate::editor_brackets::EditorBracketColors>,
     #[cfg(feature = "native-host")]
+    pub bracket_widget_focus: bool,
+    #[cfg(feature = "native-host")]
     pub sticky_colors: Option<crate::editor_sticky_scroll::EditorStickyColors>,
     #[cfg(feature = "native-host")]
     pub sticky_model: Option<Arc<taide_native_editor::sticky_model::StickyModel>>,
@@ -1923,6 +1925,20 @@ impl NativeEditor {
             decorations: &decorations,
         };
         let primary = state.selection.selections[state.selection.primary];
+        #[cfg(feature = "native-host")]
+        let bracket_matches = bracket_model.as_deref().map_or_else(Vec::new, |model| {
+            let focused = ui.is_enabled()
+                && (response.has_focus()
+                    || presentation.options.bracket_widget_focus
+                    || ui.memory(|memory| {
+                        input_state
+                            .sticky
+                            .focus_ids()
+                            .iter()
+                            .any(|id| memory.has_focus(*id))
+                    }));
+            crate::editor_brackets::matching_brackets(model, &state.selection, focused)
+        });
         let head_rows: Vec<usize> = (0..state.selection.selections.len())
             .map(|selection| head_row(&state, selection))
             .collect();
@@ -1974,6 +1990,15 @@ impl NativeEditor {
                         options: &presentation.options,
                     },
                 );
+                if let Some(colors) = presentation.options.bracket_colors.as_ref() {
+                    crate::editor_brackets::paint_matching(
+                        &text_painter,
+                        &rows,
+                        &bracket_matches,
+                        colors,
+                        appearance.line_height,
+                    );
+                }
             }
             for row in &rows {
                 crate::editor_display::whitespace(

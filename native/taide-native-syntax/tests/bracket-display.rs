@@ -255,6 +255,13 @@ fn 문자열_주석_정규식_토큰과_아직_정확하지_않은_줄의_괄호
         1
     );
     assert!(!model.brackets().last().unwrap().invalid);
+    let matched = model.matching_brackets(0).unwrap();
+    assert_eq!(matched.open, 0..1);
+    assert_eq!(matched.close, 1..2);
+    assert!(matched.is_near);
+    for byte in [4, 5, 11, 12, 15, 16, 19] {
+        assert!(model.matching_brackets(byte).is_none(), "byte {byte}");
+    }
     lines.set_line(3, vec![0, 0], false);
     lines.set_line(4, Vec::new(), false);
     let model = store

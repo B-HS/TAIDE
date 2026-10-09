@@ -318,6 +318,7 @@ pub fn editor_bracket_colors(
         Color32::from_rgb(123, 56, 20),
     ];
     const UNEXPECTED_ALPHA: u8 = 204;
+    const MATCH_BACKGROUND: [u8; 4] = [0, 100, 0, 26];
     Ok(crate::editor_brackets::EditorBracketColors {
         palette: match theme.theme_type {
             ThemeType::Dark => DARK_PALETTE,
@@ -326,6 +327,13 @@ pub fn editor_bracket_colors(
         unexpected: Color32::from_rgba_unmultiplied(255, 18, 18, UNEXPECTED_ALPHA),
         indent: color(theme, "editor.indentGuide")?,
         active_indent: color(theme, "editor.whitespace")?,
+        match_background: Color32::from_rgba_unmultiplied(
+            MATCH_BACKGROUND[0],
+            MATCH_BACKGROUND[1],
+            MATCH_BACKGROUND[2],
+            MATCH_BACKGROUND[3],
+        ),
+        match_border: color(theme, "editor.bracketMatch")?,
     })
 }
 

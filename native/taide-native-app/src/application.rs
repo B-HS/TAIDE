@@ -5808,6 +5808,7 @@ impl AppSurfaces<'_> {
                 find_edited |= before_find != self.store.documents().snapshot(document).map_err(editor_error)?.revision;
                 focus |= find_output.request_editor_focus;
                 if find_output.focused { *self.focused = Some((pane.clone(), tab.id.clone())); }
+                editor_presentation.options.bracket_widget_focus = find_output.focused;
                 if find_output.reserved_height > 0.0 { ui.allocate_space(egui::vec2(ui.available_width(), find_output.reserved_height)); }
                 let find_decorations = find.decorations(&self.store.views().get(view).ok_or_else(|| editor_error(taide_native_editor::document::EditorError::NotFound))?.selection,
                     self.find_appearance.highlight.to_array(), self.find_appearance.current_match.to_array(), self.find_appearance.scope.to_array());

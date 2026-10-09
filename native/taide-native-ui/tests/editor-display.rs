@@ -39,6 +39,14 @@ const WHEEL: Vec2 = vec2(0.0, -80.0);
 const EPSILON: f32 = 0.001;
 
 fn fixture(text: &str, read_only: bool) -> (Context, NativeEditor, EditorStore, ViewId) {
+    admitted_fixture(text, FileSizeTier::Normal, read_only)
+}
+
+fn admitted_fixture(
+    text: &str,
+    tier: FileSizeTier,
+    read_only: bool,
+) -> (Context, NativeEditor, EditorStore, ViewId) {
     let mut store = EditorStore::new(EditorLimits {
         max_documents: 1,
         max_views: 2,
@@ -55,7 +63,7 @@ fn fixture(text: &str, read_only: bool) -> (Context, NativeEditor, EditorStore, 
                 language_id: "plaintext".into(),
                 byte_size: text.len().try_into().unwrap(),
                 line_count: text.lines().count().try_into().unwrap(),
-                tier: FileSizeTier::Normal,
+                tier,
                 read_only,
                 encoding_lossy: false,
                 modified_ms: 1.0,
@@ -1100,6 +1108,9 @@ const INDENT_GUIDE: Color32 = Color32::from_rgb(44, 55, 66);
 const ACTIVE_INDENT_GUIDE: Color32 = Color32::from_rgb(77, 88, 99);
 const BRACKET_CHARACTERS: [char; 6] = ['{', '}', '[', ']', '(', ')'];
 const INACTIVE_GUIDE_OPACITY: f32 = 0.3;
+const MATCH_BORDER: Color32 = Color32::from_rgb(91, 182, 73);
+const MATCH_BACKGROUND: [u8; 4] = [0, 100, 0, 26];
+const MATCH_SELECTION_LIMIT: usize = 100;
 
 struct DisplayBracketRules {
     pairs: CharacterPairs,
@@ -1161,6 +1172,8 @@ fn bracket_options() -> EditorPresentation {
         unexpected: UNEXPECTED_BRACKET,
         indent: INDENT_GUIDE,
         active_indent: ACTIVE_INDENT_GUIDE,
+        match_background: Color32::TRANSPARENT,
+        match_border: Color32::TRANSPARENT,
     });
     presentation
 }
@@ -1173,22 +1186,45 @@ fn show_brackets(
     presentation: &EditorPresentation,
     tokens: Option<EditorTokens<'_>>,
 ) -> Shown {
+    let mut frame = Frame::at(0.0);
+    frame.focus = false;
+    show_brackets_frame(context, editor, store, view, presentation, tokens, frame)
+}
+
+fn show_brackets_frame(
+    context: &Context,
+    editor: &NativeEditor,
+    store: &mut EditorStore,
+    view: ViewId,
+    presentation: &EditorPresentation,
+    tokens: Option<EditorTokens<'_>>,
+    frame: Frame,
+) -> Shown {
     let rules = display_bracket_rules();
     let mut geometry = None;
     let mut output = context.run_ui(
         RawInput {
             screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), SCREEN)),
-            time: Some(0.0),
+            time: Some(frame.time),
+            events: frame.events,
             ..Default::default()
         },
         |ui| {
+            if frame.wheel != Vec2::ZERO {
+                ui.input_mut(|input| input.smooth_scroll_delta = frame.wheel);
+            }
+            if let Some((line, column)) = frame.reveal {
+                editor
+                    .reveal_presented(ui, store, view, line, column, presentation)
+                    .unwrap();
+            }
             let shown = editor
                 .show_request(
                     ui,
                     store,
                     view,
                     EditorRequest {
-                        request_focus: false,
+                        request_focus: frame.focus,
                         keymap: |_: &egui::Ui, _: &Event, _| false,
                         route: |_: &egui::Response| None,
                         presentation,
@@ -1255,6 +1291,540 @@ fn display_caret(byte: usize) -> Selection {
         anchor: byte,
         head: byte,
     }
+}
+
+fn matching_options() -> EditorPresentation {
+    let mut presentation = bracket_options();
+    presentation.options.bracket_pair_guides = false;
+    let colors = presentation.options.bracket_colors.as_mut().unwrap();
+    colors.match_background = Color32::from_rgba_unmultiplied(
+        MATCH_BACKGROUND[0],
+        MATCH_BACKGROUND[1],
+        MATCH_BACKGROUND[2],
+        MATCH_BACKGROUND[3],
+    );
+    colors.match_border = MATCH_BORDER;
+    presentation
+}
+
+fn matched_rects(shown: &Shown, border: Color32) -> Vec<Rect> {
+    shown
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            Shape::Rect(rect) if rect.stroke.color == border => {
+                close(rect.stroke.width, 1.0);
+                assert_eq!(rect.stroke_kind, egui::StrokeKind::Inside);
+                Some(rect.rect)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn assert_matched_ranges(shown: &Shown, ranges: &[std::ops::Range<usize>]) {
+    let expected = ranges
+        .iter()
+        .flat_map(|range| shown.geometry.range_rects(range.clone()))
+        .collect::<Vec<_>>();
+    let actual = matched_rects(shown, MATCH_BORDER);
+    assert_eq!(actual.len(), expected.len(), "{actual:?} != {expected:?}");
+    for (actual, expected) in actual.into_iter().zip(expected) {
+        close(actual.left(), expected.left());
+        close(actual.right(), expected.right());
+        close(actual.top(), expected.top());
+        close(actual.bottom(), expected.bottom());
+    }
+}
+
+#[test]
+fn 괄호_일치_강조는_near_경계와_enclosing의_실제_글자_좌표를_따르고_색상을_보존한다() {
+    let (context, editor, mut store, view) = fixture("{[a]}", false);
+    let presentation = matching_options();
+    for (byte, ranges) in [
+        (0, [0..1, 4..5]),
+        (1, [1..2, 3..4]),
+        (2, [1..2, 3..4]),
+        (3, [1..2, 3..4]),
+        (4, [0..1, 4..5]),
+        (5, [0..1, 4..5]),
+    ] {
+        select(&mut store, view, vec![display_caret(byte)]);
+        let shown = show_brackets_frame(
+            &context,
+            &editor,
+            &mut store,
+            view,
+            &presentation,
+            None,
+            Frame::at(0.0),
+        );
+        assert_matched_ranges(&shown, &ranges);
+        assert_eq!(
+            colored_brackets(&shown),
+            [
+                ('{', BRACKET_PALETTE[0]),
+                ('[', BRACKET_PALETTE[1]),
+                (']', BRACKET_PALETTE[1]),
+                ('}', BRACKET_PALETTE[0])
+            ]
+        );
+        assert!(
+            shown
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    Shape::Rect(rect) if rect.stroke.color == MATCH_BORDER =>
+                        Some((rect, shape.clip_rect)),
+                    _ => None,
+                })
+                .all(|(rect, clip)| rect.fill
+                    == presentation
+                        .options
+                        .bracket_colors
+                        .unwrap()
+                        .match_background
+                    && clip == shown.geometry.content_rect)
+        );
+    }
+    let text = "{ [ a ] }";
+    let (context, editor, mut store, view) = fixture(text, false);
+    select(
+        &mut store,
+        view,
+        vec![display_caret(text.find('a').unwrap())],
+    );
+    let shown = show_brackets_frame(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        None,
+        Frame::at(0.0),
+    );
+    assert_matched_ranges(&shown, &[2..3, 6..7]);
+}
+
+#[test]
+fn 괄호_일치_강조는_빈_다중_선택만_합치고_개수_상한과_실제_포커스를_따른다() {
+    let text = "(a) [b]";
+    let (context, editor, mut store, view) = fixture(text, false);
+    let presentation = matching_options();
+    select(
+        &mut store,
+        view,
+        vec![
+            display_caret(0),
+            display_caret(1),
+            Selection { anchor: 4, head: 7 },
+        ],
+    );
+    let shown = show_brackets_frame(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        None,
+        Frame::at(0.0),
+    );
+    assert_matched_ranges(&shown, &[0..1, 2..3]);
+    let owner = context.memory(|memory| memory.focused()).unwrap();
+    context.memory_mut(|memory| memory.surrender_focus(owner));
+    let unfocused = show_brackets(&context, &editor, &mut store, view, &presentation, None);
+    assert!(matched_rects(&unfocused, MATCH_BORDER).is_empty());
+    select(&mut store, view, vec![Selection { anchor: 0, head: 3 }]);
+    let selected = show_brackets_frame(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        None,
+        Frame::at(0.0),
+    );
+    assert!(matched_rects(&selected, MATCH_BORDER).is_empty());
+
+    let text = "() ".repeat(MATCH_SELECTION_LIMIT + 1);
+    let (context, editor, mut store, view) = fixture(&text, false);
+    select(
+        &mut store,
+        view,
+        (0..MATCH_SELECTION_LIMIT)
+            .map(|index| display_caret(index * "() ".len()))
+            .collect(),
+    );
+    let admitted = show_brackets_frame(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        None,
+        Frame::at(0.0),
+    );
+    assert!(!matched_rects(&admitted, MATCH_BORDER).is_empty());
+    select(
+        &mut store,
+        view,
+        (0..MATCH_SELECTION_LIMIT + 1)
+            .map(|index| display_caret(index * "() ".len()))
+            .collect(),
+    );
+    let limited = show_brackets_frame(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        None,
+        Frame::at(0.0),
+    );
+    assert!(matched_rects(&limited, MATCH_BORDER).is_empty());
+}
+
+#[test]
+fn 괄호_일치_위젯_포커스는_본문_강조를_유지하면서_외부_입력의_문자를_보존한다() {
+    let (context, editor, mut store, view) = fixture("(a)", false);
+    let rules = display_bracket_rules();
+    let mut presentation = matching_options();
+    let mut query = "a".to_owned();
+    let input_id = egui::Id::new("matching-find-input");
+    for related in [true, false] {
+        let mut matched = None;
+        let mut output = context.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, SCREEN)),
+                events: vec![Event::Text("Z".into())],
+                ..Default::default()
+            },
+            |ui| {
+                ui.memory_mut(|memory| memory.request_focus(input_id));
+                egui::TextEdit::singleline(&mut query).id(input_id).show(ui);
+                presentation.options.bracket_widget_focus =
+                    related && ui.memory(|memory| memory.has_focus(input_id));
+                let shown = editor
+                    .show_request(
+                        ui,
+                        &mut store,
+                        view,
+                        EditorRequest {
+                            request_focus: false,
+                            keymap: |_: &egui::Ui, _: &Event, _| false,
+                            route: |response: &egui::Response| {
+                                response.ctx.keyboard_input_route(response.id)
+                            },
+                            presentation: &presentation,
+                            tokens: |_: &EditorStore| None,
+                            language: Some(Language {
+                                rules: &rules,
+                                syntax: &UntokenizedLines,
+                            }),
+                            decorations: &[],
+                            fold_commands: &[],
+                            fold_controls: None,
+                        },
+                    )
+                    .unwrap();
+                assert!(shown.errors.is_empty());
+                matched = Some(shown.geometry);
+                assert!(ui.memory(|memory| memory.has_focus(input_id)));
+            },
+        );
+        output.textures_delta.clear();
+        let shown = Shown {
+            shapes: output.shapes,
+            geometry: matched.unwrap(),
+        };
+        assert_eq!(
+            matched_rects(&shown, MATCH_BORDER).len(),
+            if related { 2 } else { 0 }
+        );
+        let document = store.views().get(view).unwrap().document;
+        assert_eq!(
+            store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .rope
+                .to_string(),
+            "(a)"
+        );
+    }
+    assert_eq!(query.matches('Z').count(), 2);
+}
+
+#[test]
+fn 괄호_일치_강조는_wrap_접기_탭_유니코드와_양방향_스크롤_clip을_따른다() {
+    let text = format!("\t한({})", "x".repeat(100));
+    let (context, editor, mut store, view) = fixture(&text, false);
+    let mut presentation = matching_options();
+    presentation.options.word_wrap = true;
+    select(
+        &mut store,
+        view,
+        vec![display_caret(text.find('(').unwrap())],
+    );
+    let shown = show_brackets_frame(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        None,
+        Frame::at(0.0),
+    );
+    assert_matched_ranges(&shown, &[4..5, text.len() - 1..text.len()]);
+    assert!(
+        matched_rects(&shown, MATCH_BORDER)[1].top() > matched_rects(&shown, MATCH_BORDER)[0].top()
+    );
+
+    let text = "{\n    [\n        x\n    ]\n}\nlast";
+    let (context, editor, mut store, view) = fixture(text, false);
+    presentation.options.word_wrap = false;
+    presentation.options.folding = true;
+    select(&mut store, view, vec![display_caret(0)]);
+    let state = store.views().get(view).unwrap().clone();
+    let snapshot = store.documents().snapshot(state.document).unwrap();
+    let fold = snapshot.rope.line_to_byte(1)
+        ..taide_native_editor::editing::line_content_range(&snapshot, 3).end;
+    store
+        .set_view_state(view, state.selection, state.scroll, vec![fold])
+        .unwrap();
+    let shown = show_brackets_frame(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        None,
+        Frame::at(0.0),
+    );
+    assert_matched_ranges(
+        &shown,
+        &[0..1, text.find('}').unwrap()..text.find('}').unwrap() + 1],
+    );
+    assert_eq!(
+        matched_rects(&shown, MATCH_BORDER)[1].top(),
+        shown.geometry.rect.top() + LINE_HEIGHT
+    );
+
+    let text = format!(
+        "prefix ({})\n{}\nlast",
+        "x".repeat(100),
+        "tail\n".repeat(10)
+    );
+    let (context, editor, mut store, view) = fixture(&text, false);
+    select(
+        &mut store,
+        view,
+        vec![display_caret(text.find('(').unwrap())],
+    );
+    let mut state = store.views().get(view).unwrap().clone();
+    state.scroll.x = 40.0;
+    state.scroll.y = 4.0;
+    store
+        .set_view_state(view, state.selection, state.scroll, state.folds)
+        .unwrap();
+    presentation.options.folding = false;
+    let shown = show_brackets_frame(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        None,
+        Frame::at(0.0),
+    );
+    assert_matched_ranges(&shown, &[7..8, 108..109]);
+    close(shown.geometry.scroll.x, 40.0);
+    close(shown.geometry.scroll.y, 4.0);
+    assert!(shown.shapes.iter().filter(|shape| matches!(&shape.shape, Shape::Rect(rect) if rect.stroke.color == MATCH_BORDER)).all(|shape| shape.clip_rect == shown.geometry.content_rect));
+}
+
+#[test]
+fn 괄호_일치_강조는_dpr_테마_옵션과_읽기전용_대형_설정을_따른다() {
+    for tier in [
+        FileSizeTier::Normal,
+        FileSizeTier::Large,
+        FileSizeTier::ReadOnly,
+    ] {
+        let (context, editor, mut store, view) = admitted_fixture("(한)", tier, true);
+        let mut presentation = matching_options();
+        presentation.options.bracket_pair_colorization = false;
+        for scale in [1.0, 1.25, 2.0, 3.0] {
+            context.set_pixels_per_point(scale);
+            let shown = show_brackets_frame(
+                &context,
+                &editor,
+                &mut store,
+                view,
+                &presentation,
+                None,
+                Frame::at(0.0),
+            );
+            assert_matched_ranges(&shown, &[0..1, 4..5]);
+            assert_eq!(
+                colored_brackets(&shown),
+                [('(', Color32::WHITE), (')', Color32::WHITE)]
+            );
+        }
+        presentation
+            .options
+            .bracket_colors
+            .as_mut()
+            .unwrap()
+            .match_border = Color32::RED;
+        let themed = show_brackets(&context, &editor, &mut store, view, &presentation, None);
+        assert!(matched_rects(&themed, MATCH_BORDER).is_empty());
+        assert_eq!(matched_rects(&themed, Color32::RED).len(), 2);
+        presentation.options.bracket_colors = None;
+        let cleared = show_brackets(&context, &editor, &mut store, view, &presentation, None);
+        assert!(matched_rects(&cleared, Color32::RED).is_empty());
+    }
+}
+
+#[test]
+fn 괄호_일치_강조는_문자_편집과_문서_뷰_수명에서_이전_짝을_회수한다() {
+    let (context, editor, mut store, view) = fixture("(한)", false);
+    let presentation = matching_options();
+    let shown = show_brackets_frame(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        None,
+        Frame::at(0.0),
+    );
+    assert_matched_ranges(&shown, &[0..1, 4..5]);
+    select(&mut store, view, vec![Selection { anchor: 4, head: 5 }]);
+    let mut frame = Frame::at(0.1);
+    frame.events = vec![Event::Text("]".into())];
+    let invalid = show_brackets_frame(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        None,
+        frame,
+    );
+    assert!(matched_rects(&invalid, MATCH_BORDER).is_empty());
+    let document = store.views().get(view).unwrap().document;
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        "(한]"
+    );
+    select(&mut store, view, vec![Selection { anchor: 4, head: 5 }]);
+    let mut frame = Frame::at(0.2);
+    frame.events = vec![Event::Text(")".into())];
+    let restored = show_brackets_frame(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        None,
+        frame,
+    );
+    assert_matched_ranges(&restored, &[0..1, 4..5]);
+    let second = store
+        .attach_view(
+            ViewKey {
+                window: "display-test".into(),
+                pane: PaneId::new(),
+                tab: TabId::new(),
+            },
+            document,
+        )
+        .unwrap();
+    let shared = show_brackets_frame(
+        &context,
+        &editor,
+        &mut store,
+        second,
+        &presentation,
+        None,
+        Frame::at(0.3),
+    );
+    assert_matched_ranges(&shared, &[0..1, 4..5]);
+    store.detach_view(view).unwrap();
+    let current = show_brackets_frame(
+        &context,
+        &editor,
+        &mut store,
+        second,
+        &presentation,
+        None,
+        Frame::at(0.4),
+    );
+    assert_matched_ranges(&current, &[0..1, 4..5]);
+}
+
+#[test]
+fn 괄호_일치_강조는_고정줄_포커스에서_본문만_표시한다() {
+    let text = "{\n  a\n  b\n  c\n  d\n  e\n}\ntail\nlast";
+    let (context, editor, mut store, view) = fixture(text, false);
+    let mut presentation = matching_options();
+    presentation.options.sticky_scroll = true;
+    presentation.options.sticky_colors =
+        Some(taide_native_ui::editor_sticky_scroll::EditorStickyColors {
+            background: Color32::BLACK,
+            border: Color32::GRAY,
+            hover: Color32::DARK_GRAY,
+            shadow: Color32::TRANSPARENT,
+        });
+    let mut state = store.views().get(view).unwrap().clone();
+    let snapshot = store.documents().snapshot(state.document).unwrap();
+    presentation.options.sticky_model = Some(std::sync::Arc::new(
+        taide_native_editor::sticky_model::StickyModel::new(
+            &snapshot,
+            &[taide_native_editor::sticky_model::StickyScope {
+                start_line: 0,
+                end_line: 6,
+            }],
+        ),
+    ));
+    state.scroll.y = LINE_HEIGHT * 2.0;
+    state.selection = SelectionSet {
+        primary: 0,
+        selections: vec![display_caret(text.find('c').unwrap())],
+    };
+    store
+        .set_view_state(view, state.selection, state.scroll, state.folds)
+        .unwrap();
+    let shown = show_brackets_frame(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        None,
+        Frame::at(0.0),
+    );
+    assert_matched_ranges(
+        &shown,
+        &[0..1, text.find('}').unwrap()..text.find('}').unwrap() + 1],
+    );
+    let owner = context.memory(|memory| memory.focused()).unwrap();
+    context.memory_mut(|memory| memory.request_focus(owner.with(("sticky-line", 0usize))));
+    let sticky = show_brackets(&context, &editor, &mut store, view, &presentation, None);
+    assert_matched_ranges(
+        &sticky,
+        &[0..1, text.find('}').unwrap()..text.find('}').unwrap() + 1],
+    );
+    assert!(
+        matched_rects(&sticky, MATCH_BORDER)
+            .iter()
+            .all(|rect| rect.top() >= sticky.geometry.rect.top() + LINE_HEIGHT)
+    );
 }
 
 #[test]

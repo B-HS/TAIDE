@@ -534,7 +534,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   Editor 0.56.0 (MIT, Copyright (c) Microsoft Corporation):
   `editor/browser/viewParts/indentGuides/indentGuides.js`,
   `indentGuides.css`, `editor/common/viewModel/viewModelLines.js` and
-  `editor/common/core/editorColorRegistry.js`. The same MIT text is retained
+  `editor/common/core/editorColorRegistry.js`. Bracket matching adapts
+  `editor/contrib/bracketMatching/browser/bracketMatching.js` and
+  `bracketMatching.css`; widget focus and sticky inline decoration boundaries
+  follow `editor/common/viewModel/inlineDecorations.js` and
+  `editor/contrib/stickyScroll/browser/stickyScrollWidget.js`.
+  The same MIT text is retained
   in `native/taide-native-ui/LICENSE-MONACO-FIND`.
 
 ### Restored egui/eframe documentation assets
@@ -641,6 +646,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   `editor/common/languages/supports/languageBracketsConfiguration.js`.
   `native/taide-native-syntax/tests/fixtures/bracket-display-reference.json`
   records results obtained by directly executing these original model APIs.
+  `tests/fixtures/bracket-matching-reference.json` in that same syntax crate
+  records near/enclosing results from `BracketPairsTextModelPart` in
+  `editor/common/model/bracketPairsTextModelPart/bracketPairsImpl.js`, executed
+  by `docs/utils/2026-10-09-native-bracket-matching-reference.js`.
   The same MIT text is retained in
   `native/taide-native-editor/LICENSE-MONACO-SNIPPET`.
 - `src/folding.rs` ports the indentation based folding of Monaco Editor

@@ -1,13 +1,15 @@
-use egui::{Color32, Painter, Rect, pos2, vec2};
-use taide_native_editor::bracket_model::{BracketModel, BracketPairInfo};
+use egui::{Color32, Painter, Rect, Stroke, StrokeKind, pos2, vec2};
+use taide_native_editor::bracket_model::{BracketMatch, BracketModel, BracketPairInfo};
 use taide_native_editor::display_map::DisplayMap;
 use taide_native_editor::document::DocumentSnapshot;
+use taide_native_editor::view::SelectionSet;
 
 use crate::editor_geometry::Row;
 use crate::editor_surface::{EditorAppearance, EditorDisplayOptions};
 
 const GUIDE_WIDTH: f32 = 1.0;
 const INACTIVE_GUIDE_OPACITY: f32 = 0.3;
+const MAX_MATCH_SELECTIONS: usize = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EditorBracketColors {
@@ -15,6 +17,56 @@ pub struct EditorBracketColors {
     pub unexpected: Color32,
     pub indent: Color32,
     pub active_indent: Color32,
+    pub match_background: Color32,
+    pub match_border: Color32,
+}
+
+pub(crate) fn matching_brackets(
+    model: &BracketModel,
+    selections: &SelectionSet,
+    focused: bool,
+) -> Vec<BracketMatch> {
+    if !focused || selections.selections.len() > MAX_MATCH_SELECTIONS {
+        return Vec::new();
+    }
+    let mut matches = selections
+        .selections
+        .iter()
+        .filter(|selection| selection.anchor == selection.head)
+        .filter_map(|selection| model.matching_brackets(selection.head))
+        .collect::<Vec<_>>();
+    matches.sort_by_key(|matched| (matched.open.start, matched.close.end, !matched.is_near));
+    matches.dedup_by(|current, previous| {
+        current.open == previous.open && current.close == previous.close
+    });
+    matches
+}
+
+pub(crate) fn paint_matching(
+    painter: &Painter,
+    rows: &[Row],
+    matches: &[BracketMatch],
+    colors: &EditorBracketColors,
+    line_height: f32,
+) {
+    for matched in matches {
+        for bytes in [&matched.open, &matched.close] {
+            for row in rows {
+                if let Some(extent) = row.extent(bytes) {
+                    painter.rect(
+                        Rect::from_min_max(
+                            pos2(extent.min, row.origin.y),
+                            pos2(extent.max, row.origin.y + line_height),
+                        ),
+                        0.0,
+                        colors.match_background,
+                        Stroke::new(GUIDE_WIDTH, colors.match_border),
+                        StrokeKind::Inside,
+                    );
+                }
+            }
+        }
+    }
 }
 
 pub(crate) struct GuideFrame<'a> {

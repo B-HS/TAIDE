@@ -47,6 +47,13 @@ pub struct BracketPairInfo {
     close_text: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BracketMatch {
+    pub open: Range<usize>,
+    pub close: Range<usize>,
+    pub is_near: bool,
+}
+
 impl BracketPairInfo {
     pub fn strictly_contains(&self, byte: usize) -> bool {
         self.open.start < byte && byte < self.end
@@ -166,6 +173,36 @@ impl BracketModel {
             .into_iter()
             .rev()
             .find(|pair| pair.strictly_contains(byte))
+    }
+
+    pub fn matching_brackets(&self, byte: usize) -> Option<BracketMatch> {
+        let candidates = self.pairs_in(byte..byte);
+        let near = candidates
+            .iter()
+            .filter_map(|pair| {
+                let close = pair.close.as_ref()?;
+                let range = if pair.open.start <= byte && byte <= pair.open.end {
+                    &pair.open
+                } else if close.start <= byte && byte <= close.end {
+                    close
+                } else {
+                    return None;
+                };
+                Some((*pair, (range.start, range.end)))
+            })
+            .max_by_key(|(_, range)| *range)
+            .map(|(pair, _)| pair);
+        let pair = near.or_else(|| {
+            candidates
+                .into_iter()
+                .rev()
+                .find(|pair| pair.close.is_some() && pair.strictly_contains(byte))
+        })?;
+        Some(BracketMatch {
+            open: pair.open.clone(),
+            close: pair.close.clone()?,
+            is_near: near.is_some(),
+        })
     }
 
     pub fn active_indent(&self, line: usize, visible: Range<usize>) -> ActiveIndentGuide {

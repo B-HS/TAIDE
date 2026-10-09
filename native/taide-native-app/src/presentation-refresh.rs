@@ -526,6 +526,14 @@ mod tests {
                 taide_native_ui::presentation::editor_bracket_colors(&theme).unwrap()
             );
             assert_eq!(
+                prepared.editor_brackets.match_border,
+                crate::presentation::color(&theme, "editor.bracketMatch").unwrap()
+            );
+            assert_eq!(
+                prepared.editor_brackets.match_background,
+                eframe::egui::Color32::from_rgba_unmultiplied(0, 100, 0, 26)
+            );
+            assert_eq!(
                 prepared.editor_sticky,
                 taide_native_ui::presentation::editor_sticky_colors(&theme).unwrap()
             );
