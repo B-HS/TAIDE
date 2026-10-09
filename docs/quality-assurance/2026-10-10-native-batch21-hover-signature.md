@@ -1,6 +1,6 @@
 # 배치 21 — 일반 호버와 시그니처 도움말
 
-현재 상태: 구현·실제 앱 통합과 전체 게이트를 마쳤습니다. 체크리스트 6/7이며 현재 기능 대응표는 284/588(48.3%)입니다. 변경 전체 121대상과 실패 영향 재검사에서 서로 다른 editor 219·UI 390·app 719·SDK 84, 총 1412건이 통과했습니다. frozen host/Wasm·4크레이트 fmt/diff exit 0, 디스크 623GiB/66%입니다. 완료 행 기록과 선별 Git을 이어갑니다. 전체 출시 전환율/잔여 시간은 미산정입니다. main이 직접 수행하고 Cargo/fmt는 하나씩 실행합니다.
+현재 상태: 체크리스트 7/7을 마쳤고 구현 24044a94·완료 근거 4c4244fd를 일반 푸시해 로컬/원격 차이 0/0을 확인했습니다. 호버/시그니처 2행을 완료로 반영한 현재 기능 대응표는 286/588(48.6%)입니다. 변경 전체 121대상과 실패 영향 재검사에서 서로 다른 editor 219·UI 390·app 719·SDK 84, 총 1412건이 통과했습니다. frozen host/Wasm·4크레이트 fmt/diff exit 0, 디스크 623GiB/66%입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. main이 직접 수행하고 Cargo/fmt는 하나씩 실행했습니다. 아래 진행 당시 미완료 표기는 최신 결과로 대체하며 배치 22 자동완성/사용자 스니펫으로 계속 진행합니다.
 
 ## 체크리스트
 
@@ -10,7 +10,7 @@
 - [x] d. 원본 호버/서명 표시·명령/직렬 입력·본문/peek 포커스 소비
 - [x] e. 실제 앱·문서/뷰/서버 수명·dirty/readonly·종료 통합, 실기/대형 성능 부채 구분
 - [x] f. 변경 전체 대상·동결 host/Wasm·포맷/diff·디스크/보호 확인
-- [ ] g. 실제 QA/기능표/완료 근거/PROCESS·선별 커밋·일반 푸시·다음 범위
+- [x] g. 실제 QA/기능표/완료 근거/PROCESS·선별 커밋·일반 푸시·다음 범위
 
 ## 범위와 보호 경계
 
@@ -116,3 +116,7 @@ app의 세 실패는 workspace/document symbol과 folding의 기존 실제 child
 동결 host `check --tests`는 `/private/tmp/taide-batch21-web-host.log` exit 0·6.46초, Wasm `check --features canvas --target wasm32-unknown-unknown`는 `web-wasm.log` exit 0·2.66초입니다. 공통 locked/offline/target-dir를 유지했습니다. source/features/manifest/lock/graph 변경은 없고 editor/UI manifest/lock도 변하지 않았습니다. app만 pulldown-cmark/unicase 두 패키지를 추가하고 기존 base64의 dev→일반 이동을 유지합니다. ferriki-textmate =0.12.0/ferroni =1.8.1과 앱 전용 syntax engine 경계를 보존했습니다.
 
 editor/UI/app/SDK의 `cargo fmt -- --check`는 `/private/tmp/taide-batch21-*-fmt-check.log`에서 모두 exit 0입니다. 마지막 UI 기대값 배열의 포맷 check 실패는 해당 배열 줄바꿈만 수정한 뒤 확인했고 의미 변경 없는 포맷 때문에 통과한 검사를 반복하지 않았습니다. scoped diff check와 QA/별칭/키 JSON Prettier check exit 0이며 `df -h .`의 디스크 여유는 623GiB·사용 66%입니다. 보호 번들/실제 앱 데이터/OS/clipboard/Keychain/Trash를 변경하지 않았습니다.
+
+## 완료 기록과 Git
+
+구현/검사/고지/QA/상단 PROCESS의 57파일을 `24044a94`, 실제 완료 2행과 대응표/완료 근거의 3파일을 `4c4244fd`로 선별 커밋·일반 푸시했습니다. 최종 메시지는 한국어 Conventional Commits이며 AI 트레일러가 없습니다. 기존 HANDOFF·합의·아키텍처·하단 PROCESS와 이전 세션의 미추적 문서는 제외해 보존했습니다. 기능표 도구가 원본 599행/ID·38근거 묶음/265경로와 완료 286/588(48.6%)를 검증했고 로컬/원격 차이 0/0을 확인했습니다. 다음 자동완성·사용자 스니펫의 실제 앱 소비를 배치 22에서 이어갑니다.
