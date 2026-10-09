@@ -1107,6 +1107,405 @@ fn 실제_editor_surface는_입력_선택_ime_commit과_stale_거절을_연결�
 }
 
 #[test]
+fn 다중_커서의_ime_확정은_모든_선택을_교체하고_escape는_주커서만_남긴다() {
+    let (mut store, view) = fixture("ab\ncd", false);
+    let current = store.views().get(view).unwrap().clone();
+    store
+        .set_view_state(
+            view,
+            SelectionSet {
+                primary: 0,
+                selections: vec![
+                    Selection { anchor: 0, head: 1 },
+                    Selection { anchor: 3, head: 4 },
+                ],
+            },
+            current.scroll,
+            current.folds,
+        )
+        .unwrap();
+    let context = Context::default();
+    frame(&context, &mut store, view, Vec::new(), true);
+    frame(
+        &context,
+        &mut store,
+        view,
+        vec![Event::Ime(ImeEvent::Preedit {
+            text: "한글".into(),
+            active_range_chars: None,
+        })],
+        false,
+    );
+    frame(
+        &context,
+        &mut store,
+        view,
+        vec![Event::Ime(ImeEvent::Commit("한글".into()))],
+        false,
+    );
+    assert_eq!(text(&store, view), "한글b\n한글d");
+    assert_eq!(
+        store.views().get(view).unwrap().selection.selections.len(),
+        2
+    );
+    frame(
+        &context,
+        &mut store,
+        view,
+        vec![key(Key::Escape, false)],
+        false,
+    );
+    assert_eq!(
+        store.views().get(view).unwrap().selection.selections.len(),
+        1
+    );
+}
+
+#[test]
+fn 선택_앵커는_원본의_색과_폭으로_표시된다() {
+    use taide_native_editor::cursor_commands::{CursorCommand, run_cursor_command};
+    use taide_native_editor::line_commands::LineCommandContext;
+    let (mut store, view) = fixture("abc", false);
+    run_cursor_command(
+        &mut store,
+        view,
+        CursorCommand::SetAnchor,
+        LineCommandContext {
+            indent: IndentOptions {
+                tab_size: TAB_SIZE,
+                insert_spaces: true,
+            },
+            language: None,
+            syntax: &UntokenizedLines,
+            compare: None,
+            transforms: None,
+            word_rules: None,
+        },
+    )
+    .unwrap();
+    let shown = show_wrapped(
+        &Context::default(),
+        &editor(),
+        &mut store,
+        view,
+        SCREEN,
+        Vec::new(),
+    );
+    let anchors = filled(&shown.shapes, Color32::from_rgb(0, 122, 204));
+    assert_eq!(anchors.len(), 1);
+    assert_eq!(anchors[0].width(), 2.0);
+    assert_eq!(anchors[0].height(), LINE_HEIGHT);
+}
+
+#[test]
+fn 프레임_밖에서_추가한_아래_커서도_원본처럼_스크롤로_드러낸다() {
+    use taide_native_editor::cursor_commands::{CursorCommand, run_cursor_command};
+    use taide_native_editor::line_commands::LineCommandContext;
+    const CURSOR_LINE: usize = 19;
+    let source = "a\n".repeat(SHORT_ROWS);
+    let (mut store, view) = fixture(&source, false);
+    let context = Context::default();
+    show_wrapped(&context, &editor(), &mut store, view, SCREEN, Vec::new());
+    place_caret(&mut store, view, CURSOR_LINE * "a\n".len());
+    run_cursor_command(
+        &mut store,
+        view,
+        CursorCommand::AddBelow,
+        LineCommandContext {
+            indent: IndentOptions {
+                tab_size: TAB_SIZE,
+                insert_spaces: true,
+            },
+            language: None,
+            syntax: &UntokenizedLines,
+            compare: None,
+            transforms: None,
+            word_rules: None,
+        },
+    )
+    .unwrap();
+    let shown = show_wrapped(&context, &editor(), &mut store, view, SCREEN, Vec::new());
+    assert!(shown.visible_rows.contains(&(CURSOR_LINE + 1)));
+}
+
+#[test]
+fn 다중_커서의_preedit는_각_캐럿에_그려지고_붙여넣기와_삭제도_같은_선택을_사용한다() {
+    let (mut store, view) = fixture("a\nb", false);
+    let current = store.views().get(view).unwrap().clone();
+    store
+        .set_view_state(
+            view,
+            SelectionSet {
+                primary: 0,
+                selections: vec![
+                    Selection { anchor: 1, head: 1 },
+                    Selection { anchor: 3, head: 3 },
+                ],
+            },
+            current.scroll,
+            current.folds,
+        )
+        .unwrap();
+    let context = Context::default();
+    let shown = show_wrapped(
+        &context,
+        &editor(),
+        &mut store,
+        view,
+        SCREEN,
+        vec![Event::Ime(ImeEvent::Preedit {
+            text: "한".into(),
+            active_range_chars: None,
+        })],
+    );
+    assert_eq!(
+        shown
+            .shapes
+            .iter()
+            .filter(
+                |shape| matches!(&shape.shape, Shape::Text(text) if text.galley.job.text == "한")
+            )
+            .count(),
+        2
+    );
+    frame(
+        &context,
+        &mut store,
+        view,
+        vec![
+            Event::Ime(ImeEvent::Preedit {
+                text: String::new(),
+                active_range_chars: None,
+            }),
+            Event::Paste("X\nY".into()),
+        ],
+        false,
+    );
+    assert_eq!(text(&store, view), "aX\nbY");
+    frame(
+        &context,
+        &mut store,
+        view,
+        vec![key(Key::Backspace, false)],
+        false,
+    );
+    assert_eq!(text(&store, view), "a\nb");
+    assert_eq!(
+        store.views().get(view).unwrap().selection.selections.len(),
+        2
+    );
+}
+
+const POINTER_CLICK_STEP: f64 = 0.05;
+const POINTER_RELEASE_STEP: f64 = 0.01;
+
+fn pointer_frame(
+    context: &Context,
+    store: &mut EditorStore,
+    view: ViewId,
+    time: f64,
+    modifiers: Modifiers,
+    events: Vec<Event>,
+) -> EditorGeometry {
+    let mut geometry = None;
+    let mut output = context.run_ui(
+        RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(SCREEN[0], SCREEN[1]))),
+            time: Some(time),
+            events: std::iter::once(Event::ModifiersChanged(modifiers))
+                .chain(events)
+                .collect(),
+            ..Default::default()
+        },
+        |ui| {
+            let shown = editor().show(ui, store, view, true).unwrap();
+            assert!(shown.errors.is_empty());
+            geometry = Some(shown.geometry);
+        },
+    );
+    output.textures_delta.clear();
+    geometry.unwrap()
+}
+
+fn pointer_click(
+    context: &Context,
+    store: &mut EditorStore,
+    view: ViewId,
+    time: f64,
+    position: Pos2,
+    modifiers: Modifiers,
+) {
+    pointer_frame(
+        context,
+        store,
+        view,
+        time,
+        modifiers,
+        vec![
+            Event::PointerMoved(position),
+            Event::PointerButton {
+                pos: position,
+                button: PointerButton::Primary,
+                pressed: true,
+                modifiers,
+            },
+        ],
+    );
+    pointer_frame(
+        context,
+        store,
+        view,
+        time + POINTER_RELEASE_STEP,
+        modifiers,
+        vec![Event::PointerButton {
+            pos: position,
+            button: PointerButton::Primary,
+            pressed: false,
+            modifiers,
+        }],
+    );
+}
+
+fn pointer_ranges(store: &EditorStore, view: ViewId) -> Vec<(usize, usize)> {
+    store
+        .views()
+        .get(view)
+        .unwrap()
+        .selection
+        .selections
+        .iter()
+        .map(|s| (s.anchor, s.head))
+        .collect()
+}
+
+#[test]
+fn 포인터_더블_트리플_클릭과_단어_단위_드래그는_선택_단위를_유지한다() {
+    let (mut store, view) = fixture("foo bar baz\nother", false);
+    let context = Context::default();
+    let shown = pointer_frame(&context, &mut store, view, 0.0, Modifiers::NONE, vec![]);
+    let from = shown.caret_rect(1).unwrap().center();
+    let to = shown.caret_rect(6).unwrap().center();
+    pointer_click(
+        &context,
+        &mut store,
+        view,
+        POINTER_CLICK_STEP,
+        from,
+        Modifiers::NONE,
+    );
+    pointer_frame(
+        &context,
+        &mut store,
+        view,
+        POINTER_CLICK_STEP * 2.0,
+        Modifiers::NONE,
+        vec![press(from, true)],
+    );
+    assert_eq!(pointer_ranges(&store, view), [(0, 3)]);
+    pointer_frame(
+        &context,
+        &mut store,
+        view,
+        POINTER_CLICK_STEP * 2.0 + POINTER_RELEASE_STEP,
+        Modifiers::NONE,
+        vec![Event::PointerMoved(to)],
+    );
+    assert_eq!(pointer_ranges(&store, view), [(0, 7)]);
+    pointer_frame(
+        &context,
+        &mut store,
+        view,
+        POINTER_CLICK_STEP * 2.0 + POINTER_RELEASE_STEP * 2.0,
+        Modifiers::NONE,
+        vec![press(to, false)],
+    );
+    pointer_click(&context, &mut store, view, 1.0, from, Modifiers::NONE);
+    pointer_click(
+        &context,
+        &mut store,
+        view,
+        1.0 + POINTER_CLICK_STEP,
+        from,
+        Modifiers::NONE,
+    );
+    pointer_click(
+        &context,
+        &mut store,
+        view,
+        1.0 + POINTER_CLICK_STEP * 2.0,
+        from,
+        Modifiers::NONE,
+    );
+    assert_eq!(pointer_ranges(&store, view), [(0, 12)]);
+}
+
+#[test]
+fn 포인터_alt_클릭은_커서를_추가하고_같은_선택을_클릭하면_제거한다() {
+    let (mut store, view) = fixture("abcd\nefgh", false);
+    let context = Context::default();
+    let shown = pointer_frame(&context, &mut store, view, 0.0, Modifiers::NONE, vec![]);
+    let position = shown.caret_rect(6).unwrap().center();
+    let modifiers = Modifiers {
+        alt: true,
+        ..Modifiers::NONE
+    };
+    pointer_click(&context, &mut store, view, 1.0, position, modifiers);
+    assert_eq!(pointer_ranges(&store, view), [(0, 0), (6, 6)]);
+    pointer_click(&context, &mut store, view, 2.0, position, modifiers);
+    assert_eq!(pointer_ranges(&store, view), [(0, 0)]);
+}
+
+#[test]
+fn 포인터_shift_alt_드래그는_주선택_시작부터_각_표시줄의_컬럼을_선택한다() {
+    let (mut store, view) = fixture("abcd\nefgh\nijkl", false);
+    let context = Context::default();
+    let shown = pointer_frame(&context, &mut store, view, 0.0, Modifiers::NONE, vec![]);
+    let from = shown.caret_rect(1).unwrap().center();
+    let to = shown.caret_rect(13).unwrap().center();
+    pointer_click(&context, &mut store, view, 1.0, from, Modifiers::NONE);
+    let modifiers = Modifiers {
+        alt: true,
+        shift: true,
+        ..Modifiers::NONE
+    };
+    pointer_frame(
+        &context,
+        &mut store,
+        view,
+        2.0,
+        modifiers,
+        vec![Event::PointerButton {
+            pos: from,
+            button: PointerButton::Primary,
+            pressed: true,
+            modifiers,
+        }],
+    );
+    pointer_frame(
+        &context,
+        &mut store,
+        view,
+        2.0 + POINTER_CLICK_STEP,
+        modifiers,
+        vec![Event::PointerMoved(to)],
+    );
+    assert_eq!(pointer_ranges(&store, view), [(1, 3), (6, 8), (11, 13)]);
+    pointer_frame(
+        &context,
+        &mut store,
+        view,
+        2.0 + POINTER_CLICK_STEP + POINTER_RELEASE_STEP,
+        modifiers,
+        vec![Event::PointerButton {
+            pos: to,
+            button: PointerButton::Primary,
+            pressed: false,
+            modifiers,
+        }],
+    );
+}
+
+#[test]
 fn 큰_document의_화면은_보이는_줄만_렌더하고_readonly_입력을_거절한다() {
     let text = "let x = 1;\n".repeat(ROWS);
     let (mut store, view) = fixture(&text, true);
@@ -1315,7 +1714,7 @@ fn 포인터_드래그로_만든_여러_줄_선택은_줄별_선택_영역을_�
     let (mut store, view) = fixture(PLAIN_DOCUMENT, false);
     let context = Context::default();
     draw(&context, &mut store, view, Vec::new());
-    for events in [
+    for (index, events) in [
         vec![
             Event::PointerMoved(SELECTION_PRESS),
             press(SELECTION_PRESS, true),
@@ -1323,8 +1722,18 @@ fn 포인터_드래그로_만든_여러_줄_선택은_줄별_선택_영역을_�
         vec![press(SELECTION_PRESS, false)],
         vec![press(SELECTION_PRESS, true)],
         vec![Event::PointerMoved(SELECTION_RELEASE)],
-    ] {
-        draw(&context, &mut store, view, events);
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        pointer_frame(
+            &context,
+            &mut store,
+            view,
+            index as f64 + 1.0,
+            Modifiers::NONE,
+            events,
+        );
     }
     assert_frame(
         &snapshot(
@@ -1828,6 +2237,18 @@ fn show_wrapped(
     screen: [f32; 2],
     events: Vec<Event>,
 ) -> Wrapped {
+    show_wrapped_at(context, surface, store, view, screen, events, None)
+}
+
+fn show_wrapped_at(
+    context: &Context,
+    surface: &NativeEditor,
+    store: &mut EditorStore,
+    view: ViewId,
+    screen: [f32; 2],
+    events: Vec<Event>,
+    time: Option<f64>,
+) -> Wrapped {
     let mut shown = None;
     let mut output = context.run_ui(
         RawInput {
@@ -1836,6 +2257,7 @@ fn show_wrapped(
                 vec2(screen[0], screen[1]),
             )),
             events,
+            time,
             ..Default::default()
         },
         |ui| {
@@ -2107,13 +2529,24 @@ fn wrap_클릭과_드래그는_표시_줄의_열을_고르고_줄_끝_너머의_
     }
     let from = pos2(left + drag_from + WRAP_CLICK_PAST_BOUNDARY, row_middle(0));
     let to = pos2(left + drag_to + WRAP_CLICK_PAST_BOUNDARY, row_middle(2));
-    for events in [
+    for (index, events) in [
         vec![Event::PointerMoved(from), press(from, true)],
         vec![press(from, false)],
         vec![press(from, true)],
         vec![Event::PointerMoved(to)],
-    ] {
-        show_wrapped(&context, &surface, &mut store, view, SCREEN, events);
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        show_wrapped_at(
+            &context,
+            &surface,
+            &mut store,
+            view,
+            SCREEN,
+            events,
+            Some(index as f64 + 1.0),
+        );
     }
     let shown = show_wrapped(
         &context,
@@ -5283,15 +5716,13 @@ fn gutter의_접기_컨트롤_클릭은_캐럿을_옮기지_않고_그_줄의_�
     );
     fold_click(&context, &mut store, view, outside, plain);
     assert!(folds(&store, view).is_empty());
-    let header_start = fold_line_start(INNER_HEADER);
-    assert_eq!(selection(&store, view), (header_start, header_start));
+    assert_eq!(selection(&store, view), (0, 0));
     fold_click(&context, &mut store, view, control(0), shifted);
     assert_eq!(only_fold(&store, view), inner);
-    assert_eq!(selection(&store, view), (header_start, header_start));
+    assert_eq!(selection(&store, view), (0, 0));
     let folded = fold_click(&context, &mut store, view, control(0), shifted);
     assert_eq!(folds(&store, view), [outer.clone(), inner.clone()]);
-    let outer_end = fold_line_end(0);
-    assert_eq!(selection(&store, view), (outer_end, outer_end));
+    assert_eq!(selection(&store, view), (0, 0));
     assert_eq!(gutter_numbers(&folded), ["1", "6", "7"]);
     fold_click(
         &context,
@@ -5309,7 +5740,7 @@ fn gutter의_접기_컨트롤_클릭은_캐럿을_옮기지_않고_그_줄의_�
         (PointerButton::Middle, Modifiers::NONE),
     );
     assert!(folds(&store, view).is_empty());
-    assert_eq!(selection(&store, view), (outer_end, outer_end));
+    assert_eq!(selection(&store, view), (0, 0));
 }
 
 #[test]
@@ -6176,6 +6607,54 @@ fn 조합이_끝난_한_글자도_짝을_닫고_언어_구성이_없으면_그�
         .concat(),
     );
     assert_eq!(text(&plain, plain_view), "x = \"{\n");
+}
+
+#[test]
+fn 다중_커서의_자동_닫기와_한글자_조합과_enter는_언어_규칙을_함께_적용한다() {
+    let rules = brace_rules();
+    for events in [
+        vec![Event::Text("{".into())],
+        vec![
+            Event::Ime(ImeEvent::Preedit {
+                text: "{".into(),
+                active_range_chars: None,
+            }),
+            Event::Ime(ImeEvent::Commit("{".into())),
+        ],
+    ] {
+        let (mut store, view) = fixture("a\nb", false);
+        let current = store.views().get(view).unwrap().clone();
+        store
+            .set_view_state(
+                view,
+                SelectionSet {
+                    primary: 0,
+                    selections: vec![
+                        Selection { anchor: 1, head: 1 },
+                        Selection { anchor: 3, head: 3 },
+                    ],
+                },
+                current.scroll,
+                current.folds,
+            )
+            .unwrap();
+        let context = Context::default();
+        type_in_language(&context, &mut store, view, &rules, Vec::new());
+        type_in_language(&context, &mut store, view, &rules, events);
+        assert_eq!(text(&store, view), "a{}\nb{}");
+        type_in_language(
+            &context,
+            &mut store,
+            view,
+            &rules,
+            vec![key(Key::Enter, false)],
+        );
+        assert_eq!(text(&store, view), "a{\n    \n}\nb{\n    \n}");
+        assert_eq!(
+            store.views().get(view).unwrap().selection.selections.len(),
+            2
+        );
+    }
 }
 
 #[test]

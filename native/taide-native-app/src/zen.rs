@@ -303,7 +303,13 @@ mod tests {
                 view,
                 SelectionSet {
                     primary: 1,
-                    selections: vec![Selection { anchor: 0, head: 0 }, primary],
+                    selections: vec![
+                        Selection {
+                            anchor: SELECTED_BYTES + 1,
+                            head: SELECTED_BYTES + 1,
+                        },
+                        primary,
+                    ],
                 },
                 current.scroll,
                 current.folds,

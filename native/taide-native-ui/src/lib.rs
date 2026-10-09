@@ -30,6 +30,8 @@ mod editor_gutter;
 pub mod editor_overlay;
 #[path = "editor-paint.rs"]
 mod editor_paint;
+#[path = "editor-pointer.rs"]
+mod editor_pointer;
 #[path = "editor-row-text.rs"]
 pub mod editor_row_text;
 pub mod editor_surface;

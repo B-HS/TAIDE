@@ -60,3 +60,237 @@ fn 공용_route는_컴파일_target이_아닌_실제_host의_command_modifier를
         }
     }
 }
+
+fn editor_event(
+    windows: &mut Windows,
+    context: &egui::Context,
+    key: Key,
+    modifiers: Modifiers,
+    overrides: Option<&str>,
+    composing: bool,
+) -> Vec<Decision> {
+    let event = Event::Key {
+        key,
+        physical_key: Some(key),
+        pressed: true,
+        repeat: false,
+        modifiers,
+    };
+    let mut decisions = Vec::new();
+    let mut output = context.run_ui(
+        RawInput {
+            events: vec![event.clone()],
+            ..Default::default()
+        },
+        |ui| {
+            windows
+                .route(
+                    Route {
+                        context: ui.ctx(),
+                        event: &event,
+                        index: 0,
+                        scope: Context {
+                            editor: true,
+                            terminal: false,
+                        },
+                        composing,
+                        overrides,
+                    },
+                    |decision| {
+                        if matches!(
+                            decision,
+                            Decision::Dispatch(_)
+                                | Decision::ResolveChord(_)
+                                | Decision::EnterChord
+                                | Decision::NoMatch
+                        ) {
+                            decisions.push(decision.clone());
+                            return true;
+                        }
+                        false
+                    },
+                )
+                .unwrap();
+        },
+    );
+    output.textures_delta.clear();
+    decisions
+}
+
+#[test]
+fn 편집기_기본_키는_실제_os의_줄_복사와_주석과_구두점_규칙을_사용한다() {
+    for os in [
+        OperatingSystem::Mac,
+        OperatingSystem::Windows,
+        OperatingSystem::Nix,
+    ] {
+        let context = egui::Context::default();
+        context.set_os(os);
+        let mut windows = Windows::default();
+        let command = if os == OperatingSystem::Mac {
+            Modifiers::MAC_CMD | Modifiers::COMMAND
+        } else {
+            Modifiers::CTRL | Modifiers::COMMAND
+        };
+        let copy = if os == OperatingSystem::Nix {
+            command | Modifiers::SHIFT | Modifiers::ALT
+        } else {
+            Modifiers::SHIFT | Modifiers::ALT
+        };
+        assert_eq!(
+            editor_event(&mut windows, &context, Key::ArrowUp, copy, None, false),
+            [Decision::Dispatch(
+                "monaco.editor.action.copyLinesUpAction".into()
+            )]
+        );
+        let comment = if os == OperatingSystem::Nix {
+            command | Modifiers::SHIFT
+        } else {
+            Modifiers::ALT | Modifiers::SHIFT
+        };
+        assert_eq!(
+            editor_event(&mut windows, &context, Key::A, comment, None, false),
+            [Decision::Dispatch(
+                "monaco.editor.action.blockComment".into()
+            )]
+        );
+        assert_eq!(
+            editor_event(
+                &mut windows,
+                &context,
+                Key::OpenBracket,
+                command,
+                None,
+                false
+            ),
+            [Decision::Dispatch(
+                "monaco.editor.action.outdentLines".into()
+            )]
+        );
+    }
+}
+
+#[test]
+fn 주석_chord와_재지정과_해제는_편집기_경로에서_처리한다() {
+    let context = egui::Context::default();
+    context.set_os(OperatingSystem::Mac);
+    let mut windows = Windows::default();
+    let command = Modifiers::MAC_CMD | Modifiers::COMMAND;
+    assert_eq!(
+        editor_event(&mut windows, &context, Key::K, command, None, false),
+        [Decision::EnterChord]
+    );
+    assert_eq!(
+        editor_event(&mut windows, &context, Key::C, command, None, false),
+        [Decision::ResolveChord(
+            "monaco.editor.action.addCommentLine".into()
+        )]
+    );
+    let rebound = r#"[{"actionId":"monaco.editor.action.commentLine","key":"j","mods":["mod"],"chord":{"key":"r","mods":["mod"]}},{"actionId":"monaco.editor.action.copyLinesUpAction","key":"","mods":[]}]"#;
+    assert!(
+        editor_event(
+            &mut windows,
+            &context,
+            Key::Slash,
+            command,
+            Some(rebound),
+            false
+        )
+        .is_empty()
+    );
+    assert!(
+        editor_event(
+            &mut windows,
+            &context,
+            Key::ArrowUp,
+            Modifiers::SHIFT | Modifiers::ALT,
+            Some(rebound),
+            false
+        )
+        .is_empty()
+    );
+    assert_eq!(
+        editor_event(
+            &mut windows,
+            &context,
+            Key::J,
+            command,
+            Some(rebound),
+            false
+        ),
+        [Decision::EnterChord]
+    );
+    assert_eq!(
+        editor_event(
+            &mut windows,
+            &context,
+            Key::R,
+            command,
+            Some(rebound),
+            false
+        ),
+        [Decision::ResolveChord(
+            "monaco.editor.action.commentLine".into()
+        )]
+    );
+    assert!(
+        editor_event(
+            &mut windows,
+            &context,
+            Key::A,
+            Modifiers::SHIFT | Modifiers::ALT,
+            None,
+            true
+        )
+        .is_empty()
+    );
+}
+
+#[test]
+fn 커서_추가와_선택_키는_원본_플랫폼_분기와_chord를_사용한다() {
+    for os in [
+        OperatingSystem::Mac,
+        OperatingSystem::Windows,
+        OperatingSystem::Nix,
+    ] {
+        let context = egui::Context::default();
+        context.set_os(os);
+        let mut windows = Windows::default();
+        let command = if os == OperatingSystem::Mac {
+            Modifiers::MAC_CMD | Modifiers::COMMAND
+        } else {
+            Modifiers::CTRL | Modifiers::COMMAND
+        };
+        let add = if os == OperatingSystem::Nix {
+            Modifiers::SHIFT | Modifiers::ALT
+        } else {
+            command | Modifiers::ALT
+        };
+        assert_eq!(
+            editor_event(&mut windows, &context, Key::ArrowDown, add, None, false),
+            [Decision::Dispatch(
+                "monaco.editor.action.insertCursorBelow".into()
+            )]
+        );
+        assert_eq!(
+            editor_event(&mut windows, &context, Key::D, command, None, false),
+            [Decision::Dispatch(
+                "monaco.editor.action.addSelectionToNextFindMatch".into()
+            )]
+        );
+        assert_eq!(
+            editor_event(&mut windows, &context, Key::U, command, None, false),
+            [Decision::Dispatch("monaco.cursorUndo".into())]
+        );
+        assert_eq!(
+            editor_event(&mut windows, &context, Key::K, command, None, false),
+            [Decision::EnterChord]
+        );
+        assert_eq!(
+            editor_event(&mut windows, &context, Key::B, command, None, false),
+            [Decision::ResolveChord(
+                "monaco.editor.action.setSelectionAnchor".into()
+            )]
+        );
+    }
+}

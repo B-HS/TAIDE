@@ -25,6 +25,8 @@ pub mod command_registry;
 mod css_motion;
 pub mod delete_dialog;
 pub mod diagnostics;
+#[path = "editor-command-text.rs"]
+mod editor_command_text;
 #[path = "editor-fonts.rs"]
 mod editor_fonts;
 pub mod editor_reveal;

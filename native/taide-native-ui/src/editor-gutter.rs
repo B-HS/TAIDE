@@ -99,6 +99,10 @@ impl Gutter {
         self.line_numbers_width + self.decorations_width
     }
 
+    pub(crate) fn is_line_number(&self, left: f32, x: f32) -> bool {
+        left <= x && x < left + self.line_numbers_width
+    }
+
     pub(crate) fn fold_click_zone(&self, left: f32) -> Rangef {
         Rangef::new(
             left + self.line_numbers_width + FOLD_CONTROL_MARGIN + FOLD_CONTROL_CLICK_INSET,

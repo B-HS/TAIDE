@@ -1,0 +1,67 @@
+{
+    "date": "2026-10-09",
+    "manifest": "native/taide-native-app/Cargo.toml",
+    "options": ["--no-fail-fast", "--locked", "--offline", "--target-dir", "experiments/native-shell-spike/target"],
+    "lib": {
+        "target": "--lib",
+        "filters": [
+            "command_dispatch::tests::활성_editor_액션은_연결된_view가_있는_탭에서만_native_실행가능_집합을_돌려준다",
+            "agent_hooks::tests::native_agent_hooks는_실제_loopback_인증_상태_이벤트와_stop_재시작을_보존한다",
+            "application::exit_tests::실제_app_exit는_서버_세션_pending_lockfile과_감독_소유권을_종료한다",
+            "agent_hooks::tests::native_agent_hooks_toggle은_합성_home의_설치된_hook만_갱신하고_실제_서버를_끈다",
+            "ide_server::tests::native_ide_server는_connected_이벤트의_동기_notify를_구독후_발행한다",
+            "ide_server::tests::native_ide_server는_disabled_shutdown_등록거절과_lockfile_실패를_실제_시작으로_오인하지않는다",
+            "ide_server::tests::native_ide_server는_실제_인증_mcp_rpc_notify와_pending_종료_lockfile을_보존한다",
+            "remote_ai::tests::실제_loopback_models_생성3경로는_prompt_default_wire와_응답을_보존한다",
+            "remote_ai::tests::실제_pending_http의_remote_owner_취소_drop_shutdown은_요청_identity를_회수한다",
+            "remote_ai::tests::실제_provider의_empty_응답_truncation과_localized_http_오류를_보존한다",
+            "remote_assets::prepare_tests::production_startup과_settings는_자산_준비_실패시_listen하지_않고_성공후에만_시작한다",
+            "remote_http::tests::native_remote_http는_미완성_header_body의_연결도_stop에서_감독하여_회수한다",
+            "remote_http::tests::native_remote_http는_실제_host_origin_단일링크_cookie_파일과_서버수명을_보존한다",
+            "remote_http::tests::native_remote_http는_실제_password_nonce_검증_failclosed와_독립_lockout을_보존한다",
+            "remote_ws::tests::permit_대기_요청은_폐기_뒤_실행하며_옛_connection은_새_count를_변경하지_않는다",
+            "remote_ws::tests::실제_7일_시계_경과는_http_401과_ws_4001을_보낸다",
+            "remote_ws::tests::실제_ws_인증과_json_raw_channel_event_왕복_후_정리된다",
+            "remote_ws::tests::실제_활성_ws의_감독자_직접_종료는_upgrade_owner까지_회수한다",
+            "application::startup_tests::actual_app_constructor는_bundle_startup_settings_file_save와_정상_exit_owner를_연결한다",
+            "zen::tests::zen_keymap은_window상태_남은_escape와_optin_fullscreen전환을_보존한다"
+        ],
+        "testOptions": ["--exact"],
+        "result": {
+            "passed": 20,
+            "failed": 0,
+            "exitCode": 0
+        }
+    },
+    "integration": {
+        "targets": [
+            "preview-macos",
+            "preview-web-http",
+            "preview-web-http-lifetime",
+            "preview-web-lazy-host",
+            "preview-web-media",
+            "preview-web-served",
+            "projects"
+        ],
+        "filters": [
+            "실제_host는_avif와_icc_srgb_alpha_orientation_및_손상을_검사한다",
+            "web_http는_실제_status_header_range_ticket_owner와_server_종료를_검사한다",
+            "web_http_lifetime은_진행중_ticket_owner_취소와_root_shutdown을_회수한다",
+            "web_lazy_hostは_待機中_listener無し_取消queue_実際helper_cacheと_終了を検査する",
+            "media_host는_helper_없이_문서와_range_theme_cache_인가와_회수를_연결한다",
+            "web_servedは_実際の_host_helper_base_document_assetと_失効を接続する",
+            "실제_os_watcher는_파일과_git_변경을_전달하고_종료까지_join한다"
+        ],
+        "testOptions": ["--exact"],
+        "result": {
+            "passed": 7,
+            "failed": 0,
+            "exitCode": 0
+        }
+    },
+    "excludedProtectedTests": [
+        "remote_files::tests::실제_파일14명령과_raw는_plugin_overlay_저장_복사_이동_삭제_mirror를_보존한다",
+        "실제_탐색기_삭제는_확정한_dirty를_회수하고_선택프로젝트만_닫으며_공유초안을_보존한다",
+        "실제_workspace_delete는_dirty_mirror_root를_거절하고_모든_프로젝트_tab과_document를_회수한다"
+    ]
+}

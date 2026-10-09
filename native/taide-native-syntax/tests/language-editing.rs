@@ -1,8 +1,15 @@
+use serde::Deserialize;
 use std::ops::Range;
 
 use taide_model::file::{EditorConfigOptions, FileSizeTier, OpenedFile};
 use taide_model::ids::{PaneId, TabId};
 use taide_native_editor::auto_closing::AutoClosedPairs;
+use taide_native_editor::bracket_navigation::{
+    bracket_pairs, enclosing_brackets, matching_brackets,
+};
+use taide_native_editor::cursor_commands::{
+    CursorCommand, cursor_selection, literal_match_ranges, selection_ranges,
+};
 use taide_native_editor::document::DocumentSnapshot;
 use taide_native_editor::editing::line_content_range;
 use taide_native_editor::folding::{
@@ -16,10 +23,13 @@ use taide_native_editor::language_configuration::{
 use taide_native_editor::language_typing::{
     Typing, commit_composition, delete_backward, insert_line_break, type_text,
 };
+use taide_native_editor::line_commands::{
+    LineCommand, LineCommandContext, TextCase, run_line_command,
+};
 use taide_native_editor::store::{EditorLimits, EditorStore};
 use taide_native_editor::syntax::{Token, TokenKind};
 use taide_native_editor::view::{Selection, SelectionSet, ViewId, ViewKey};
-use taide_native_syntax::monaco_language;
+use taide_native_syntax::{MonacoTextTransforms, monaco_language};
 
 const DOCUMENT_LIMIT: usize = 2;
 const VIEW_LIMIT: usize = 4;
@@ -38,6 +48,171 @@ const STRING_DELIMITER: char = '"';
 const LINE_COMMENT: &str = "//";
 const BLOCK_COMMENT_START: &str = "/*";
 const BLOCK_COMMENT_END: &str = "*/";
+
+#[derive(Deserialize)]
+struct CursorOracle {
+    language: String,
+    text: String,
+    byte: usize,
+    matched: Option<Vec<(usize, usize)>>,
+    enclosing: Option<Vec<(usize, usize)>>,
+    jump: usize,
+    select: Vec<(usize, usize)>,
+    ranges: Vec<(usize, usize)>,
+}
+
+#[derive(Deserialize)]
+struct MatchOracle {
+    text: String,
+    needle: String,
+    match_case: bool,
+    ranges: Vec<(usize, usize)>,
+}
+
+#[derive(Deserialize)]
+struct TransposeOracle {
+    text: String,
+    byte: usize,
+    expected: String,
+    head: usize,
+}
+
+#[test]
+fn 원본_monaco_transpose는_잘못된_utf16을_대체문자로_저장한다() {
+    let cases: Vec<TransposeOracle> =
+        serde_json::from_str(include_str!("fixtures/transpose-reference.json")).unwrap();
+    let mut differences = Vec::new();
+    for case in cases {
+        let mut editor = Editor::new("javascript", &case.text);
+        editor.select(&[(case.byte, case.byte)]);
+        editor.command(LineCommand::Transpose);
+        if editor.text() != case.expected || editor.selections() != vec![(case.head, case.head)] {
+            differences.push((
+                case.text,
+                case.byte,
+                case.expected,
+                case.head,
+                editor.text(),
+                editor.selections(),
+            ));
+        }
+    }
+    assert!(differences.is_empty(), "{differences:#?}");
+}
+
+#[test]
+fn 원본_monaco_괄호_파서와_스마트_선택_범위가_일치한다() {
+    let cases: Vec<CursorOracle> =
+        serde_json::from_str(include_str!("fixtures/cursor-ranges-reference.json")).unwrap();
+    let mut differences = Vec::new();
+    for case in cases {
+        let mut editor = Editor::new(&case.language, &case.text);
+        editor.syntax = &UntokenizedLines;
+        let document = editor
+            .store
+            .documents()
+            .snapshot(editor.store.views().get(editor.view).unwrap().document)
+            .unwrap();
+        let language = Language {
+            rules: editor.rules,
+            syntax: editor.syntax,
+        };
+        let context = LineCommandContext {
+            indent: SPACES,
+            language: Some(language),
+            syntax: editor.syntax,
+            compare: None,
+            transforms: None,
+            word_rules: Some(editor.rules),
+        };
+        let selection = SelectionSet {
+            primary: 0,
+            selections: vec![Selection {
+                anchor: case.byte,
+                head: case.byte,
+            }],
+        };
+        let jump = cursor_selection(&document, &selection, CursorCommand::JumpToBracket, context)
+            .selections[0]
+            .head;
+        let select: Vec<_> = cursor_selection(
+            &document,
+            &selection,
+            CursorCommand::SelectToBracket,
+            context,
+        )
+        .selections
+        .into_iter()
+        .map(|s| (s.anchor, s.head))
+        .collect();
+        let pairs = bracket_pairs(&document, language);
+        let actual = |pair: Option<&taide_native_editor::bracket_navigation::MatchedBrackets>| {
+            pair.map(|pair| {
+                vec![
+                    (pair.open.start, pair.open.end),
+                    (pair.close.start, pair.close.end),
+                ]
+            })
+        };
+        let ranges = selection_ranges(
+            &document,
+            Selection {
+                anchor: case.byte,
+                head: case.byte,
+            },
+            LineCommandContext {
+                indent: SPACES,
+                language: Some(language),
+                syntax: editor.syntax,
+                compare: None,
+                transforms: None,
+                word_rules: Some(editor.rules),
+            },
+        );
+        let mut ranges: Vec<_> = ranges
+            .into_iter()
+            .skip(1)
+            .map(|range| (range.start, range.end))
+            .collect();
+        ranges.dedup();
+        if actual(matching_brackets(&pairs, case.byte)) != case.matched
+            || actual(enclosing_brackets(&pairs, case.byte)) != case.enclosing
+            || ranges != case.ranges
+            || jump != case.jump
+            || select != case.select
+        {
+            differences.push(format!("{} {:?} byte {} matched {:?}/{:?} enclosing {:?}/{:?} ranges {:?}/{:?} jump {:?}/{:?} select {:?}/{:?}", case.language, case.text, case.byte, actual(matching_brackets(&pairs, case.byte)), case.matched, actual(enclosing_brackets(&pairs, case.byte)), case.enclosing, ranges, case.ranges, jump, case.jump, select, case.select));
+        }
+    }
+    assert!(
+        differences.is_empty(),
+        "{} differences: {:?}",
+        differences.len(),
+        &differences[..differences.len().min(8)]
+    );
+}
+
+#[test]
+fn 원본_monaco_문자열_일치는_줄바꿈과_unicode_대소문자를_보존한다() {
+    let cases: Vec<MatchOracle> =
+        serde_json::from_str(include_str!("fixtures/cursor-matches-reference.json")).unwrap();
+    for case in cases {
+        let editor = Editor::new("plaintext", &case.text);
+        let document = editor
+            .store
+            .documents()
+            .snapshot(editor.store.views().get(editor.view).unwrap().document)
+            .unwrap();
+        let actual: Vec<_> = literal_match_ranges(&document, &case.needle, case.match_case, false)
+            .map(|range| (range.start, range.end))
+            .collect();
+        assert_eq!(
+            actual, case.ranges,
+            "{} {:?} case {}",
+            case.text, case.needle, case.match_case
+        );
+    }
+}
 
 struct CLikeSyntax;
 
@@ -124,6 +299,26 @@ struct Editor {
 }
 
 impl Editor {
+    fn command(&mut self, command: LineCommand) -> bool {
+        let transforms = MonacoTextTransforms::new().unwrap();
+        run_line_command(
+            &mut self.store,
+            self.view,
+            command,
+            LineCommandContext {
+                indent: self.indent,
+                language: Some(Language {
+                    rules: self.rules,
+                    syntax: self.syntax,
+                }),
+                syntax: self.syntax,
+                compare: Some(&str::cmp),
+                transforms: Some(&transforms),
+                word_rules: Some(self.rules),
+            },
+        )
+        .unwrap()
+    }
     fn new(language_id: &str, text: &str) -> Self {
         let mut store = EditorStore::new(EditorLimits {
             max_documents: DOCUMENT_LIMIT,
@@ -286,6 +481,195 @@ impl Editor {
 
 fn typescript(text: &str) -> Editor {
     Editor::new("typescript", text)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LineOracle {
+    language_id: String,
+    command: String,
+    down: bool,
+    text: String,
+    first: usize,
+    count: usize,
+    expected: String,
+}
+
+#[test]
+fn 줄_명령은_실제_monaco_명령의_언어별_결과와_일치한다() {
+    let oracle: Vec<LineOracle> =
+        serde_json::from_str(include_str!("fixtures/line-commands-reference.json")).unwrap();
+    let mut differences = Vec::new();
+    for row in oracle {
+        let mut editor = Editor::new(&row.language_id, &row.text);
+        editor.syntax = &UntokenizedLines;
+        let document = editor.snapshot();
+        let start = line_content_range(&document, row.first).start;
+        let end = line_content_range(&document, row.first + row.count - 1).end;
+        editor.select(&[(start, end)]);
+        let command = match (row.command.as_str(), row.down) {
+            ("move", false) => LineCommand::MoveLinesUp,
+            ("move", true) => LineCommand::MoveLinesDown,
+            ("shift", false) => LineCommand::IndentLines,
+            ("shift", true) => LineCommand::OutdentLines,
+            ("comment", _) => LineCommand::ToggleLineComment,
+            ("addComment", _) => LineCommand::AddLineComment,
+            ("removeComment", _) => LineCommand::RemoveLineComment,
+            ("blockComment", _) => LineCommand::ToggleBlockComment,
+            ("copy", false) => LineCommand::CopyLinesUp,
+            ("copy", true) => LineCommand::CopyLinesDown,
+            _ => unreachable!(),
+        };
+        editor.command(command);
+        if editor.text() != row.expected {
+            differences.push(format!(
+                "{} {command:?} {}+{} {:?}: expected {:?}, actual {:?}",
+                row.language_id,
+                row.first,
+                row.count,
+                row.text,
+                row.expected,
+                editor.text()
+            ));
+        }
+    }
+    assert!(
+        differences.is_empty(),
+        "{} differences\n{}",
+        differences.len(),
+        differences
+            .iter()
+            .take(20)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WordOracle {
+    language_id: String,
+    text: String,
+    offset: usize,
+    range: Option<(usize, usize)>,
+}
+
+fn utf16_byte(text: &str, target: usize) -> usize {
+    let mut units = 0;
+    for (byte, character) in text.char_indices() {
+        if units >= target {
+            return byte;
+        }
+        units += character.len_utf16();
+    }
+    text.len()
+}
+
+#[test]
+fn 구성된_단어_범위는_monaco의_단어_정의와_긴_줄_창에_일치한다() {
+    let oracle: Vec<WordOracle> =
+        serde_json::from_str(include_str!("fixtures/word-ranges-reference.json")).unwrap();
+    let mut differences = Vec::new();
+    for row in oracle {
+        let rules = monaco_language(&row.language_id).unwrap().unwrap();
+        let offset = utf16_byte(&row.text, row.offset);
+        let expected = row
+            .range
+            .map(|(start, end)| utf16_byte(&row.text, start)..utf16_byte(&row.text, end));
+        let actual = rules.word_range(&row.text, offset);
+        if actual != expected {
+            differences.push(format!(
+                "{} {} {:?}: expected {expected:?}, actual {actual:?}",
+                row.language_id, row.offset, row.text
+            ));
+        }
+    }
+    assert!(
+        differences.is_empty(),
+        "{} differences\n{}",
+        differences.len(),
+        differences
+            .iter()
+            .take(20)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
+#[test]
+fn 주석_명령은_공통_들여쓰기에_맞추고_빈_줄과_역방향_선택을_처리한다() {
+    let mut editor = typescript("    a\n        b\n\n");
+    editor.select(&[(15, 0)]);
+    assert!(editor.command(LineCommand::ToggleLineComment));
+    assert_eq!(editor.text(), "    // a\n    //     b\n\n");
+    assert!(editor.command(LineCommand::ToggleLineComment));
+    assert_eq!(editor.text(), "    a\n        b\n\n");
+    let mut blank = typescript("    \n").caret_at(2);
+    assert!(blank.command(LineCommand::ToggleLineComment));
+    assert_eq!(blank.text(), "    // \n");
+    let mut force = typescript("// a").caret_at(4);
+    assert!(force.command(LineCommand::AddLineComment));
+    assert_eq!(force.text(), "// // a");
+    assert!(force.command(LineCommand::RemoveLineComment));
+    assert_eq!(force.text(), "// a");
+}
+
+#[test]
+fn 블록_주석은_선택을_앞방향으로_놓고_빈_커서는_가운데에_놓는다() {
+    let mut editor = typescript("abcd");
+    editor.select(&[(3, 1)]);
+    assert!(editor.command(LineCommand::ToggleBlockComment));
+    assert_eq!(editor.text(), "a/* bc */d");
+    assert_eq!(editor.selections(), [(4, 6)]);
+    assert!(editor.command(LineCommand::ToggleBlockComment));
+    assert_eq!(editor.text(), "abcd");
+    assert_eq!(editor.selections(), [(1, 3)]);
+    let mut empty = typescript("");
+    assert!(empty.command(LineCommand::ToggleBlockComment));
+    assert_eq!(empty.marked(), "/* | */");
+    assert!(empty.command(LineCommand::ToggleBlockComment));
+    assert_eq!(empty.marked(), "|");
+}
+
+#[test]
+fn 줄_주석이_없는_언어는_블록_주석으로_전환하고_구성이_없으면_무변경이다() {
+    let mut css = Editor::new("css", "    color: red;").caret_at(8);
+    assert!(css.command(LineCommand::ToggleLineComment));
+    assert_eq!(css.text(), "    /* color: red; */");
+    assert!(css.command(LineCommand::ToggleLineComment));
+    assert_eq!(css.text(), "    color: red;");
+    let mut plain = Editor::new("plaintext", "text");
+    assert!(!plain.command(LineCommand::ToggleLineComment));
+    assert_eq!(plain.text(), "text");
+}
+
+#[test]
+fn 대소문자_명령은_구성된_단어와_여러_선택을_사용하고_undo로_복구한다() {
+    let mut editor = typescript("fooBar next_word").caret_at(3);
+    assert!(editor.command(LineCommand::Transform(TextCase::Snake)));
+    assert_eq!(editor.text(), "foo_bar next_word");
+    assert_eq!(editor.undoes().text(), "fooBar next_word");
+    editor.select(&[(0, 6), (7, 16)]);
+    assert!(editor.command(LineCommand::Transform(TextCase::Upper)));
+    assert_eq!(editor.text(), "FOOBAR NEXT_WORD");
+    assert_eq!(editor.selections(), [(0, 6), (7, 16)]);
+    let mut unicode = typescript("İx").caret_at(2);
+    assert!(unicode.command(LineCommand::Transform(TextCase::Lower)));
+    assert_eq!(unicode.text(), "i\u{0307}x");
+    assert_eq!(unicode.selections(), [(1, 1)]);
+}
+
+#[test]
+fn 괄호_제거는_코드의_가장_가까운_짝을_지우고_문자열과_주석을_제외한다() {
+    let mut editor = typescript("({text})").caret_at(3);
+    assert!(editor.command(LineCommand::RemoveBrackets));
+    assert_eq!(editor.marked(), "(t|ext)");
+    let mut quoted = typescript("(\"}\" /* ) */ text)").caret_at(14);
+    assert!(quoted.command(LineCommand::RemoveBrackets));
+    assert_eq!(quoted.text(), "\"}\" /* ) */ text");
+    assert_eq!(quoted.undoes().text(), "(\"}\" /* ) */ text)");
 }
 
 #[test]

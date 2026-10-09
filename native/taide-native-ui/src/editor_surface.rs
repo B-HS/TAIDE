@@ -15,7 +15,7 @@ use taide_native_editor::display_map::DisplayMap;
 use taide_native_editor::document::{DocumentId, DocumentSnapshot, EditorError};
 use taide_native_editor::editing::{
     ClipboardText, Motion, clipboard_text, compose_text, cut, delete_forward, delete_to_line_start,
-    delete_word, move_selection_displayed, outdent, paste, reveal_position, select_all, tab,
+    delete_word, move_selection_displayed, paste, reveal_position, select_all, tab_with_language,
 };
 use taide_native_editor::folding::{
     FoldClick, FoldCommand, FoldRegion, FoldToggle, FoldingModel, MAX_FOLDING_REGIONS, click_fold,
@@ -39,6 +39,7 @@ use crate::editor_geometry::{
 };
 use crate::editor_gutter::{FoldControlFade, Gutter};
 use crate::editor_paint::{Carets, Layers, frame_decorations};
+use crate::editor_pointer::{PointerInput, PointerSelection};
 
 const ROW_OVERSCAN: usize = 1;
 const CENTER_DIVISOR: f32 = 2.0;
@@ -228,6 +229,7 @@ struct InputState {
     clicked_fold_line: Option<usize>,
     fold_control_fade: FoldControlFade,
     auto_closed: AutoClosedPairs,
+    pointer_selection: PointerSelection,
 }
 
 impl InputState {
@@ -958,15 +960,33 @@ impl NativeEditor {
                     .clamp(0.0, scroll_max);
             }
         }
-        let moved = document.revision != previous.revision || state.selection != current.selection;
+        let requested_reveal = store.take_selection_reveal(view)?;
+        let moved = document.revision != previous.revision
+            || state.selection != current.selection
+            || requested_reveal.is_some();
         let head = state.selection.selections[state.selection.primary].head;
         let caret_row = head_row(&state, state.selection.primary);
+        let reveal_byte = requested_reveal.as_ref().map_or(head, |reveal| {
+            reveal.bytes.end.min(document.rope.len_bytes())
+        });
+        let reveal_row = requested_reveal
+            .as_ref()
+            .map_or(caret_row, |_| display.row_of_byte(&document, reveal_byte));
         if moved {
-            let top = layout.row_top(caret_row);
+            let top = layout.row_top(reveal_row);
+            if requested_reveal
+                .as_ref()
+                .is_some_and(|reveal| reveal.center_if_outside)
+                && (top < state.scroll.y
+                    || layout.row_bottom(reveal_row) > state.scroll.y + rect.height())
+            {
+                state.scroll.y = (layout.row_center(reveal_row) - rect.height() / CENTER_DIVISOR)
+                    .clamp(0.0, scroll_max);
+            }
             if top < state.scroll.y {
                 state.scroll.y = top;
             }
-            let bottom = layout.row_bottom(caret_row);
+            let bottom = layout.row_bottom(reveal_row);
             if bottom > state.scroll.y + rect.height() {
                 state.scroll.y = (bottom - rect.height()).max(0.0);
             }
@@ -1068,10 +1088,10 @@ impl NativeEditor {
         };
         let scroll_x_max = (content_width - text_width).max(0.0);
         state.scroll.x -= wheel.x;
-        if moved && let Some(row) = rows.iter().find(|row| row.index == caret_row) {
+        if moved && let Some(row) = rows.iter().find(|row| row.index == reveal_row) {
             state.scroll.x = scroll_x_revealing(
                 state.scroll.x,
-                row.caret(head.min(row.segment.bytes.end)),
+                row.caret(reveal_byte.min(row.segment.bytes.end)),
                 text_width,
             );
         }
@@ -1156,42 +1176,80 @@ impl NativeEditor {
         }
         if !scrolling
             && !fold_press.is_some_and(|press| press.is_on_control)
-            && (response.clicked() || response.drag_started() || response.dragged())
+            && (press.down || response.clicked() || response.drag_started() || response.dragged())
             && let Some(pointer) = response.interact_pointer_pos()
+            && press.origin.is_none_or(|origin| {
+                origin.x >= text_rect.left() || gutter.is_line_number(rect.left(), origin.x)
+            })
             && !rows.is_empty()
         {
             let target = layout
                 .row_at(pointer.y - rect.top() + state.scroll.y)
-                .clamp(rows[0].index, rows[rows.len() - 1].index);
-            if let Some(row) = rows.iter().find(|row| row.index == target) {
+                .min(display.row_count() - 1);
+            let row_at = |index| {
+                row_layout.row(
+                    index,
+                    pos2(
+                        text_rect.left() - state.scroll.x,
+                        rect.top() + layout.row_top(index) - state.scroll.y,
+                    ),
+                )
+            };
+            let row = row_at(target);
+            {
                 let head = row.byte_at(pointer);
-                let extending = response.dragged() || ui.input(|input| input.modifiers.shift);
-                let anchor = if extending {
-                    state.selection.selections[state.selection.primary].anchor
-                } else {
-                    head
+                let (pressed, modifiers, time) = ui.input(|input| {
+                    (
+                        input.pointer.button_pressed(PointerButton::Primary),
+                        input.modifiers,
+                        input.time,
+                    )
+                });
+                let options = ui.ctx().options(|options| options.input_options);
+                let input = PointerInput {
+                    pressed,
+                    down: press.down,
+                    head,
+                    row: target,
+                    position: pointer,
+                    modifiers,
+                    time,
+                    max_click_dist: options.max_click_dist,
+                    max_double_click_delay: options.max_double_click_delay,
+                    gutter: gutter.is_line_number(rect.left(), pointer.x),
                 };
-                state.selection = SelectionSet {
-                    primary: 0,
-                    selections: vec![Selection { anchor, head }],
-                };
-                state.wrap_affinities =
-                    (display.row_of_byte(&document, head) != row.index).then(|| WrapAffinities {
-                        revision: document.revision,
-                        heads_at_row_end: vec![true],
-                    });
-                state.composition = None;
-                input_state.ime_revision = None;
-                store.set_composition(view, None)?;
-                ui.memory_mut(|memory| memory.interrupt_ime());
-                store.break_undo_group(document.id)?;
-                store.set_view_state(
-                    view,
-                    state.selection.clone(),
-                    state.scroll.clone(),
-                    state.folds.clone(),
-                )?;
-                store.set_wrap_affinities(view, state.wrap_affinities.clone())?;
+                if let Some(selection) = input_state.pointer_selection.update(
+                    &document,
+                    &state.selection,
+                    input,
+                    row_at,
+                    |byte| display.row_of_byte(&document, byte),
+                    language,
+                ) {
+                    state.selection = selection;
+                    state.wrap_affinities = (display.row_of_byte(&document, head) != row.index)
+                        .then(|| WrapAffinities {
+                            revision: document.revision,
+                            heads_at_row_end: state
+                                .selection
+                                .selections
+                                .iter()
+                                .map(|selection| selection.head == head)
+                                .collect(),
+                        });
+                    state.composition = None;
+                    input_state.ime_revision = None;
+                    store.set_composition(view, None)?;
+                    ui.memory_mut(|memory| memory.interrupt_ime());
+                    store.break_undo_group(document.id)?;
+                    store.set_view_state(
+                        view,
+                        state.selection.clone(),
+                        state.scroll.clone(),
+                        state.folds.clone(),
+                    )?;
+                    store.set_wrap_affinities(view, state.wrap_affinities.clone())?;
+                }
             }
         }
         if is_fold_button_released
@@ -1285,13 +1343,27 @@ impl NativeEditor {
             .iter()
             .find(|row| row.index == carets.primary_row)
             .map(|row| row.caret_rect(primary.head.min(row.segment.bytes.end)));
+        if let Some(anchor) = store.selection_anchor(view)
+            && let Some(row) = rows
+                .iter()
+                .find(|row| row.index == display.row_of_byte(&document, anchor))
+        {
+            layers.selection_anchor(row, anchor);
+        }
         if focused
             && ui.is_enabled()
             && !document.metadata.read_only
             && let Some(cursor_rect) = caret_rect
         {
             if let Some(composition) = &state.composition {
-                layers.composition(cursor_rect, &composition.preedit);
+                for (index, selection) in state.selection.selections.iter().enumerate() {
+                    if let Some(row) = rows.iter().find(|row| row.index == head_rows[index]) {
+                        layers.composition(
+                            row.caret_rect(selection.head.min(row.segment.bytes.end)),
+                            &composition.preedit,
+                        );
+                    }
+                }
             }
             let transform = ui
                 .ctx()
@@ -1526,10 +1598,25 @@ impl NativeEditor {
                         insert_line_break(store, view, &mut typing)?;
                     }
                     KeyAction::Tab => {
-                        tab(store, view, context.indent)?;
+                        tab_with_language(store, view, context.indent, context.language)?;
                     }
                     KeyAction::Outdent => {
-                        outdent(store, view, context.indent)?;
+                        taide_native_editor::line_commands::run_line_command(
+                            store,
+                            view,
+                            taide_native_editor::line_commands::LineCommand::OutdentLines,
+                            taide_native_editor::line_commands::LineCommandContext {
+                                indent: context.indent,
+                                language: context.language,
+                                syntax: context.language.map_or(
+                                    &taide_native_editor::language_configuration::UntokenizedLines,
+                                    |language| language.syntax,
+                                ),
+                                compare: None,
+                                transforms: None,
+                                word_rules: None,
+                            },
+                        )?;
                     }
                     KeyAction::Escape => {
                         let primary = current.selection.selections[current.selection.primary];

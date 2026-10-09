@@ -9,6 +9,7 @@ use serde_json::Value;
 use taide_model::error::{AppError, AppResult};
 
 const DEFAULTS: &str = include_str!("keymap-defaults.json");
+const EDITOR_DEFAULTS: &str = include_str!("editor-keymap-defaults.json");
 #[path = "keybinding-catalog.rs"]
 pub mod catalog;
 const CHORD_TIMEOUT: Duration = Duration::from_secs(5);
@@ -147,6 +148,12 @@ struct CommandBinding {
     is_mac_only: bool,
 }
 
+#[derive(Clone)]
+struct EditorBinding {
+    entry: Entry,
+    platform: Option<String>,
+}
+
 impl CommandBinding {
     fn matches(&self, event: &KeyEvent<'_>, is_mac: bool) -> bool {
         self.second.is_none() && (is_mac || !self.is_mac_only) && self.first.matches(event, is_mac)
@@ -185,6 +192,8 @@ pub struct Keymap {
     editor_pending: Option<EditorPending>,
     commands: &'static command_registry::Registry,
     command_bindings: Vec<CommandBinding>,
+    editor_base: Vec<EditorBinding>,
+    editor_bindings: Vec<EditorBinding>,
 }
 
 struct Window {
@@ -301,7 +310,7 @@ impl Windows {
                     let decision = window.map.decide_editor_egui(
                         event,
                         composing,
-                        context.os().is_mac(),
+                        context.os(),
                         Instant::now(),
                     );
                     note_chord(window, context, &decision, Instant::now());
@@ -429,6 +438,35 @@ impl Keymap {
                     .ok_or_else(|| AppError::Internal("native keymap entry is invalid".into()))
             })
             .collect::<AppResult<Vec<_>>>()?;
+        let editor_parsed: Value = serde_json::from_str(EDITOR_DEFAULTS)
+            .map_err(|_| AppError::Internal("native editor keymap is invalid".into()))?;
+        let editor_base = editor_parsed
+            .as_array()
+            .ok_or_else(|| AppError::Internal("native editor keymap is not an array".into()))?
+            .iter()
+            .map(|value| {
+                Ok(EditorBinding {
+                    entry: Entry {
+                        id: value
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .ok_or_else(|| {
+                                AppError::Internal("native editor keymap id is invalid".into())
+                            })?
+                            .into(),
+                        first: Stage::parse(value).ok_or_else(|| {
+                            AppError::Internal("native editor keymap stage is invalid".into())
+                        })?,
+                        second: value.get("chord").and_then(Stage::parse),
+                        when: Some("editorTextFocus".into()),
+                    },
+                    platform: value
+                        .get("platform")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
+                })
+            })
+            .collect::<AppResult<Vec<_>>>()?;
         Ok(Self {
             entries: base.clone(),
             base,
@@ -439,6 +477,8 @@ impl Keymap {
             editor_pending: None,
             commands: command_registry::registry()?,
             command_bindings: Vec::new(),
+            editor_bindings: editor_base.clone(),
+            editor_base,
         })
     }
 
@@ -450,6 +490,7 @@ impl Keymap {
         self.entries = self.base.clone();
         self.editor_prefixes.clear();
         self.command_bindings.clear();
+        self.editor_bindings = self.editor_base.clone();
         let Some(Value::Array(overrides)) = json.and_then(|json| serde_json::from_str(json).ok())
         else {
             return;
@@ -468,6 +509,24 @@ impl Keymap {
             entry.apply_override(value);
         }
         for value in &overrides {
+            if let Some(id) = value
+                .get("actionId")
+                .and_then(Value::as_str)
+                .filter(|id| id.starts_with("monaco."))
+                && let Some(first) = Stage::parse(value)
+            {
+                self.editor_bindings
+                    .retain(|binding| binding.entry.id != id);
+                self.editor_bindings.push(EditorBinding {
+                    entry: Entry {
+                        id: id.into(),
+                        first,
+                        second: value.get("chord").and_then(Stage::parse),
+                        when: Some("editorTextFocus".into()),
+                    },
+                    platform: None,
+                });
+            }
             if value
                 .get("actionId")
                 .and_then(Value::as_str)
@@ -625,11 +684,16 @@ impl Keymap {
         &mut self,
         event: &egui::Event,
         composing: bool,
-        is_mac: bool,
+        os: egui::os::OperatingSystem,
         now: Instant,
     ) -> Decision {
         self.adapt_egui(event, composing, |map, event| {
-            map.decide_editor(event, is_mac, now)
+            map.decide_editor_for_platform(
+                event,
+                os.is_mac(),
+                os == egui::os::OperatingSystem::Nix,
+                now,
+            )
         })
     }
 
@@ -667,7 +731,17 @@ impl Keymap {
         )
     }
 
-    fn decide_editor(&mut self, event: &KeyEvent<'_>, is_mac: bool, now: Instant) -> Decision {
+    pub fn decide_editor(&mut self, event: &KeyEvent<'_>, is_mac: bool, now: Instant) -> Decision {
+        self.decide_editor_for_platform(event, is_mac, cfg!(target_os = "linux") && !is_mac, now)
+    }
+
+    fn decide_editor_for_platform(
+        &mut self,
+        event: &KeyEvent<'_>,
+        is_mac: bool,
+        is_linux: bool,
+        now: Instant,
+    ) -> Decision {
         if self
             .editor_pending
             .as_ref()
@@ -680,13 +754,41 @@ impl Keymap {
         {
             return Decision::Ignore;
         }
-        let supported = |entry: &Entry| {
+        let supported_group = |entry: &Entry| {
             EDITOR_GROUPS.contains(&entry.id.as_str())
                 && entry
                     .second
                     .as_ref()
                     .is_some_and(|second| editor_key(&entry.first.key) && editor_key(&second.key))
         };
+        let platform = if is_mac {
+            "mac"
+        } else if is_linux {
+            "linux"
+        } else {
+            "win"
+        };
+        let editor_entries = self
+            .editor_bindings
+            .iter()
+            .filter(|binding| {
+                binding
+                    .platform
+                    .as_deref()
+                    .is_none_or(|target| target == platform)
+            })
+            .filter(|binding| {
+                self.commands
+                    .command(&binding.entry.id)
+                    .is_some_and(|command| {
+                        command.is_registered(is_mac)
+                            && matches!(command.execution, command_registry::Execution::Native(_))
+                    })
+            })
+            .map(|binding| &binding.entry);
+        let entries = editor_entries
+            .chain(self.entries.iter().filter(|entry| supported_group(entry)))
+            .collect::<Vec<_>>();
         let matches = |stage: &Stage| {
             let mut event = KeyEvent {
                 key: event.key,
@@ -701,11 +803,10 @@ impl Keymap {
             stage.matches(&event, true)
         };
         if let Some(pending) = self.editor_pending.take() {
-            return self
-                .entries
+            return entries
                 .iter()
                 .rev()
-                .filter(|entry| supported(entry))
+                .copied()
                 .find(|entry| {
                     canonical(&entry.first.key) == canonical(&pending.prefix.key)
                         && entry.first.command == pending.prefix.command
@@ -717,12 +818,10 @@ impl Keymap {
                 .map(|entry| Decision::ResolveChord(entry.id.clone()))
                 .unwrap_or(Decision::NoMatch);
         }
-        if let Some(entry) = self
-            .entries
-            .iter()
-            .rev()
-            .find(|entry| supported(entry) && matches(&entry.first))
-        {
+        if let Some(entry) = entries.iter().rev().find(|entry| matches(&entry.first)) {
+            if entry.second.is_none() {
+                return Decision::Dispatch(entry.id.clone());
+            }
             self.editor_pending = Some(EditorPending {
                 prefix: entry.first.clone(),
                 started: now,

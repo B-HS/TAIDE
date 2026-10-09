@@ -118,6 +118,10 @@ pub struct CommentTokens {
 pub trait LanguageRules {
     fn pairs(&self) -> &CharacterPairs;
 
+    fn word_range(&self, _text: &str, _byte: usize) -> Option<Range<usize>> {
+        None
+    }
+
     fn comments(&self) -> Option<&CommentTokens> {
         None
     }
@@ -148,6 +152,10 @@ pub trait LineSyntax {
     fn follow_edits(&self, _store: &EditorStore) {}
 
     fn tokens(&self, document: &DocumentSnapshot, line: usize) -> Option<Vec<Token>>;
+
+    fn accurate_tokens(&self, document: &DocumentSnapshot, line: usize) -> Option<Vec<Token>> {
+        self.tokens(document, line)
+    }
 
     fn kind_if_inserting(
         &self,

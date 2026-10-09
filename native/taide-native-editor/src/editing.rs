@@ -111,6 +111,7 @@ pub(crate) const SEPARATE_STEP: Step = Step {
 #[derive(Clone, Copy)]
 pub(crate) enum Mark {
     AfterEdit(usize),
+    InEdit { edit: usize, bytes: usize },
     BeforeEditEnd { edit: usize, bytes: usize },
     Tracked { offset: usize, sticks: bool },
     Anchored { offset: usize, line_start: usize },
@@ -200,6 +201,9 @@ impl Plan {
             }
             let resolve = |mark: Mark| match mark {
                 Mark::AfterEdit(index) => insertion_ends[index],
+                Mark::InEdit { edit, bytes } => {
+                    insertion_ends[edit] - self.edits[edit].text.len() + bytes
+                }
                 Mark::BeforeEditEnd { edit, bytes } => insertion_ends[edit] - bytes,
                 Mark::Tracked { offset, sticks } => tracked_offset(&ordered, offset, sticks),
                 Mark::Anchored { offset, line_start } => tracked_offset(&ordered, offset, false)
@@ -339,7 +343,7 @@ pub(crate) fn visible_column(text: &str, tab_size: usize) -> usize {
         })
 }
 
-fn offset_at_visible_column(text: &str, visible: usize, tab_size: usize) -> usize {
+pub(crate) fn offset_at_visible_column(text: &str, visible: usize, tab_size: usize) -> usize {
     if visible == 0 {
         return 0;
     }
@@ -376,7 +380,7 @@ pub(crate) fn indentation(columns: usize, indent: IndentOptions) -> String {
     )
 }
 
-fn normalize_line_breaks(text: &str, line_break: &str) -> String {
+pub(crate) fn normalize_line_breaks(text: &str, line_break: &str) -> String {
     let mut normalized = String::with_capacity(text.len());
     let mut characters = text.chars().peekable();
     while let Some(character) = characters.next() {
@@ -493,6 +497,32 @@ fn is_lone_separator_before_word(word: &Word) -> bool {
         && word.next_class == CharacterClass::Regular
 }
 
+pub fn mouse_word_range(document: &DocumentSnapshot, byte: usize, extending: bool) -> Range<usize> {
+    let line = line_characters(document, document.rope.byte_to_line(byte));
+    let cursor = line.index_of(byte);
+    let previous = previous_word(&line.characters, cursor);
+    let next = next_word(&line.characters, cursor);
+    let candidate = if extending {
+        [previous, next]
+            .into_iter()
+            .flatten()
+            .find(|word| word.kind == WordKind::Regular && word.start < cursor && cursor < word.end)
+    } else {
+        [previous, next].into_iter().flatten().find(|word| {
+            word.start <= cursor
+                && (cursor < word.end || word.kind == WordKind::Regular && cursor == word.end)
+        })
+    };
+    if let Some(word) = candidate {
+        return line.byte_of(word.start)..line.byte_of(word.end);
+    }
+    if extending {
+        return byte..byte;
+    }
+    line.byte_of(previous.map_or(0, |word| word.end))
+        ..line.byte_of(next.map_or(line.characters.len(), |word| word.start))
+}
+
 fn word_left_target(document: &DocumentSnapshot, head: usize, has_multiple_cursors: bool) -> usize {
     let mut line = document.rope.byte_to_line(head);
     let mut content = line_characters(document, line);
@@ -579,7 +609,7 @@ fn word_delete_right_range(document: &DocumentSnapshot, head: usize) -> Range<us
     }
 }
 
-fn word_delete_inside_range(document: &DocumentSnapshot, head: usize) -> Range<usize> {
+pub(crate) fn word_delete_inside_range(document: &DocumentSnapshot, head: usize) -> Range<usize> {
     let line = document.rope.byte_to_line(head);
     let content = line_characters(document, line);
     let length = content.characters.len();
@@ -1170,7 +1200,7 @@ pub fn replacement_transaction(
     ))
 }
 
-fn ranges_transaction(
+pub(crate) fn ranges_transaction(
     document: &DocumentSnapshot,
     view: ViewId,
     primary: usize,
@@ -1257,25 +1287,38 @@ pub fn compose_text(
         return Ok(false);
     }
     let (current, document) = view_document(store, view)?;
-    let head = bytes.start + text.len();
-    let transaction = Transaction {
-        revision: document.revision,
-        group: UndoGroup(document.revision),
-        origin: Some(view),
-        edits: vec![Edit {
-            bytes,
-            text: text.into(),
-        }],
-        selection_after: Some(SelectionSet {
-            primary: 0,
-            selections: vec![Selection { anchor: head, head }],
-        }),
-    };
+    if bytes.start > bytes.end {
+        return Err(EditorError::InvalidBoundary);
+    }
+    let first = byte_to_char(&document.rope, bytes.start)?;
+    let last = byte_to_char(&document.rope, bytes.end)?;
+    let primary = ordered(&current.selection.selections[current.selection.primary]);
+    let delta_start = first as isize - document.rope.byte_to_char(primary.start) as isize;
+    let delta_end = last as isize - document.rope.byte_to_char(primary.end) as isize;
+    let mut plan = Plan::new(&current.selection);
+    for (index, selection) in current.selection.selections.iter().enumerate() {
+        let selected = ordered(selection);
+        let start = document
+            .rope
+            .byte_to_char(selected.start)
+            .saturating_add_signed(delta_start)
+            .min(document.rope.len_chars());
+        let end = document
+            .rope
+            .byte_to_char(selected.end)
+            .saturating_add_signed(delta_end)
+            .min(document.rope.len_chars());
+        plan.replace(
+            index,
+            document.rope.char_to_byte(start.min(end))..document.rope.char_to_byte(start.max(end)),
+            text.into(),
+        );
+    }
     let previous = previous_operation(&current, &document);
     apply_step(
         store,
         view,
-        Some(transaction),
+        plan.transaction(&document, view),
         typing_step(previous, EditOperation::TypingOther),
     )
 }
@@ -1422,13 +1465,25 @@ pub fn insert_line_break(
     )
 }
 
-fn shift_lines(
+pub(crate) fn shift_lines(
     plan: &mut Plan,
     document: &DocumentSnapshot,
     index: usize,
     selection: &Selection,
     indent: IndentOptions,
     outdents: bool,
+) {
+    shift_language_lines(plan, document, index, selection, indent, outdents, None);
+}
+
+pub(crate) fn shift_language_lines(
+    plan: &mut Plan,
+    document: &DocumentSnapshot,
+    index: usize,
+    selection: &Selection,
+    indent: IndentOptions,
+    outdents: bool,
+    language: Option<crate::language_configuration::Language<'_>>,
 ) {
     let size = tab_width(indent);
     let range = ordered(selection);
@@ -1450,9 +1505,33 @@ fn shift_lines(
         sticks: start_sticks,
     };
     let mut caret_edit = None;
+    let mut previous_extra_spaces = 0;
     for line in start_line..=end_line {
         let content = line_text(document, line);
-        let existing = leading_whitespace(&content.text);
+        let mut existing = leading_whitespace(&content.text);
+        let mut extra_spaces = 0;
+        if line > 0
+            && visible_column(existing, size) % size != 0
+            && let Some(language) = language
+            && language.syntax.tokens(document, line - 1).is_some()
+        {
+            extra_spaces = crate::auto_indent::extra_indent_spaces(
+                document,
+                language,
+                line - 1,
+                previous_extra_spaces,
+                size,
+            )
+            .unwrap_or(0);
+            let trailing_spaces = existing
+                .chars()
+                .rev()
+                .take_while(|character| *character == ' ')
+                .count()
+                .min(extra_spaces);
+            existing = &existing[..existing.len() - trailing_spaces];
+        }
+        previous_extra_spaces = extra_spaces;
         if outdents && existing.is_empty() {
             continue;
         }
@@ -1510,6 +1589,15 @@ pub fn tab(
     view: ViewId,
     indent: IndentOptions,
 ) -> Result<bool, EditorError> {
+    tab_with_language(store, view, indent, None)
+}
+
+pub fn tab_with_language(
+    store: &mut EditorStore,
+    view: ViewId,
+    indent: IndentOptions,
+    language: Option<crate::language_configuration::Language<'_>>,
+) -> Result<bool, EditorError> {
     let (current, document) = view_document(store, view)?;
     let mut plan = Plan::new(&current.selection);
     for (index, selection) in current.selection.selections.iter().enumerate() {
@@ -1534,7 +1622,9 @@ pub fn tab(
             );
             continue;
         }
-        shift_lines(&mut plan, &document, index, selection, indent, false);
+        shift_language_lines(
+            &mut plan, &document, index, selection, indent, false, language,
+        );
     }
     let transaction = plan.transaction(&document, view);
     apply_step(store, view, transaction, SEPARATE_STEP)

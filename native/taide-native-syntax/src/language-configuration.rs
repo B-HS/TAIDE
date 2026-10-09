@@ -181,6 +181,7 @@ pub struct BracketPatternSources {
 pub struct MonacoLanguage {
     pairs: CharacterPairs,
     word_pattern: Option<Pattern>,
+    word: JsRegex,
     line_comment: Option<String>,
     comments: CommentTokens,
     enter_rules: Vec<EnterRule>,
@@ -575,13 +576,18 @@ impl MonacoLanguage {
                 })
             })
             .transpose()?;
-        if let Some(word_pattern) = &configuration.word_pattern {
-            compiler.pattern(word_pattern)?;
-        }
+        let word = match &configuration.word_pattern {
+            Some(pattern) => compiler.pattern(pattern)?,
+            None => compiler.regex(
+                r#"(-?\d*\.\d\w*)|([^`~!@#$%^&*()\-=+\[{}\]\\|;:'\",.<>/?\s]+)"#,
+                "g",
+            )?,
+        };
 
         Ok(Self {
             pairs,
             word_pattern: configuration.word_pattern.clone(),
+            word,
             line_comment,
             comments: comment_tokens,
             enter_rules,
@@ -612,6 +618,32 @@ impl MonacoLanguage {
 impl LanguageRules for MonacoLanguage {
     fn pairs(&self) -> &CharacterPairs {
         &self.pairs
+    }
+
+    fn word_range(&self, text: &str, byte: usize) -> Option<Range<usize>> {
+        const MAX_WORD_UTF16_LENGTH: usize = 1000;
+        const WORD_RADIUS: usize = MAX_WORD_UTF16_LENGTH / 2;
+        let utf16 = text[..byte].encode_utf16().count();
+        let window = if text.encode_utf16().count() > MAX_WORD_UTF16_LENGTH {
+            let byte_at = |target| {
+                let mut units = 0;
+                for (byte, character) in text.char_indices() {
+                    if units >= target {
+                        return byte;
+                    }
+                    units += character.len_utf16();
+                }
+                text.len()
+            };
+            byte_at((utf16 + 1).saturating_sub(WORD_RADIUS))..byte_at(utf16 + 1 + WORD_RADIUS)
+        } else {
+            0..text.len()
+        };
+        self.word
+            .ranges(&text[window.clone()])
+            .into_iter()
+            .map(|range| range.start + window.start..range.end + window.start)
+            .find(|range| range.start <= byte && byte <= range.end)
     }
 
     fn comments(&self) -> Option<&CommentTokens> {

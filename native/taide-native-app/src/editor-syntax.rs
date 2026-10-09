@@ -129,6 +129,19 @@ impl LineSyntax for SyntaxLease<'_> {
             .flatten()
     }
 
+    fn accurate_tokens(&self, document: &DocumentSnapshot, line: usize) -> Option<Vec<Token>> {
+        self.read(|syntax| {
+            if let Some(tokens) = syntax.pipeline.tokens(document.id)
+                && tokens.line_count() > 0
+                && !tokens.has_accurate_tokens(line)
+            {
+                return None;
+            }
+            syntax.line_kinds(document, line)
+        })
+        .flatten()
+    }
+
     fn kind_if_inserting(
         &self,
         document: &DocumentSnapshot,

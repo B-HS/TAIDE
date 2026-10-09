@@ -5,7 +5,9 @@ use serde_json::Value;
 use taide_model::error::{AppError, AppResult};
 use taide_model::ids::{ProjectId, ShellSlotId};
 use taide_model::locale::ResolvedLocale;
+use taide_native_editor::cursor_commands::CursorCommand;
 pub use taide_native_editor::folding::FoldCommand;
+use taide_native_editor::line_commands::{LineCommand, TextCase};
 
 const CATALOG: &str = include_str!("keybinding-commands.json");
 const EDITOR_ACTION_PREFIX: &str = "monaco.";
@@ -58,6 +60,8 @@ pub enum TabCycle {
 pub enum DocumentEdit {
     DeleteAllLeft,
     OutdentLines,
+    Line(LineCommand),
+    Cursor(CursorCommand),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -242,9 +246,88 @@ fn execution(id: &str, keymap_id: Option<&str>) -> Execution {
             .strip_prefix(EDITOR_ACTION_PREFIX)
             .and_then(fold_command)
             .map(Run::FoldDocument)
+            .or_else(|| {
+                id.strip_prefix(EDITOR_ACTION_PREFIX)
+                    .and_then(line_command)
+                    .map(|command| Run::EditDocument(DocumentEdit::Line(command)))
+            })
+            .or_else(|| {
+                id.strip_prefix(EDITOR_ACTION_PREFIX)
+                    .and_then(cursor_command)
+                    .map(|command| Run::EditDocument(DocumentEdit::Cursor(command)))
+            })
             .or_else(|| keymap_id.and_then(keymap_run)),
     };
     run.map_or(Execution::Unavailable, Execution::Native)
+}
+
+pub fn line_command(action: &str) -> Option<LineCommand> {
+    Some(match action {
+        "editor.action.moveLinesUpAction" => LineCommand::MoveLinesUp,
+        "editor.action.moveLinesDownAction" => LineCommand::MoveLinesDown,
+        "editor.action.copyLinesUpAction" => LineCommand::CopyLinesUp,
+        "editor.action.copyLinesDownAction" => LineCommand::CopyLinesDown,
+        "editor.action.duplicateSelection" => LineCommand::DuplicateSelection,
+        "editor.action.deleteLines" => LineCommand::DeleteLines,
+        "editor.action.insertLineBefore" => LineCommand::InsertLineBefore,
+        "editor.action.insertLineAfter" => LineCommand::InsertLineAfter,
+        "editor.action.joinLines" => LineCommand::JoinLines,
+        "deleteAllLeft" => LineCommand::DeleteAllLeft,
+        "deleteAllRight" => LineCommand::DeleteAllRight,
+        "deleteInsideWord" => LineCommand::DeleteInsideWord,
+        "editor.action.indentLines" => LineCommand::IndentLines,
+        "editor.action.outdentLines" => LineCommand::OutdentLines,
+        "editor.action.trimTrailingWhitespace" => LineCommand::TrimTrailingWhitespace,
+        "editor.action.insertFinalNewLine" => LineCommand::InsertFinalNewLine,
+        "editor.action.sortLinesAscending" => LineCommand::SortLinesAscending,
+        "editor.action.sortLinesDescending" => LineCommand::SortLinesDescending,
+        "editor.action.removeDuplicateLines" => LineCommand::RemoveDuplicateLines,
+        "editor.action.reverseLines" => LineCommand::ReverseLines,
+        "editor.action.transformToUppercase" => LineCommand::Transform(TextCase::Upper),
+        "editor.action.transformToLowercase" => LineCommand::Transform(TextCase::Lower),
+        "editor.action.transformToTitlecase" => LineCommand::Transform(TextCase::Title),
+        "editor.action.transformToSnakecase" => LineCommand::Transform(TextCase::Snake),
+        "editor.action.transformToCamelcase" => LineCommand::Transform(TextCase::Camel),
+        "editor.action.transformToPascalcase" => LineCommand::Transform(TextCase::Pascal),
+        "editor.action.transformToKebabcase" => LineCommand::Transform(TextCase::Kebab),
+        "editor.action.commentLine" => LineCommand::ToggleLineComment,
+        "editor.action.addCommentLine" => LineCommand::AddLineComment,
+        "editor.action.removeCommentLine" => LineCommand::RemoveLineComment,
+        "editor.action.blockComment" => LineCommand::ToggleBlockComment,
+        "editor.action.removeBrackets" => LineCommand::RemoveBrackets,
+        "editor.action.transpose" => LineCommand::Transpose,
+        "editor.action.transposeLetters" => LineCommand::TransposeLetters,
+        _ => return None,
+    })
+}
+
+pub fn cursor_command(action: &str) -> Option<CursorCommand> {
+    Some(match action {
+        "editor.action.insertCursorAbove" => CursorCommand::AddAbove,
+        "editor.action.insertCursorBelow" => CursorCommand::AddBelow,
+        "editor.action.insertCursorAtEndOfEachLineSelected" => CursorCommand::LineEnds,
+        "editor.action.addCursorsToTop" => CursorCommand::ToTop,
+        "editor.action.addCursorsToBottom" => CursorCommand::ToBottom,
+        "editor.action.focusNextCursor" => CursorCommand::FocusNext,
+        "editor.action.focusPreviousCursor" => CursorCommand::FocusPrevious,
+        "editor.action.addSelectionToNextFindMatch" => CursorCommand::AddNextMatch,
+        "editor.action.addSelectionToPreviousFindMatch" => CursorCommand::AddPreviousMatch,
+        "editor.action.moveSelectionToNextFindMatch" => CursorCommand::MoveNextMatch,
+        "editor.action.moveSelectionToPreviousFindMatch" => CursorCommand::MovePreviousMatch,
+        "editor.action.selectHighlights" => CursorCommand::SelectMatches,
+        "editor.action.changeAll" => CursorCommand::ChangeAll,
+        "expandLineSelection" => CursorCommand::ExpandLine,
+        "editor.action.smartSelect.expand" => CursorCommand::Expand,
+        "editor.action.smartSelect.shrink" => CursorCommand::Shrink,
+        "editor.action.jumpToBracket" => CursorCommand::JumpToBracket,
+        "editor.action.selectToBracket" => CursorCommand::SelectToBracket,
+        "cursorUndo" => CursorCommand::Undo,
+        "cursorRedo" => CursorCommand::Redo,
+        "editor.action.setSelectionAnchor" => CursorCommand::SetAnchor,
+        "editor.action.moveCarretLeftAction" => CursorCommand::MoveCaretLeft,
+        "editor.action.moveCarretRightAction" => CursorCommand::MoveCaretRight,
+        _ => return None,
+    })
 }
 
 fn fold_command(action: &str) -> Option<FoldCommand> {
@@ -362,6 +445,17 @@ impl Registry {
             .filter_map(|command| {
                 let action = command.editor_action_id()?;
                 match command.execution {
+                    Execution::Native(Run::EditDocument(DocumentEdit::Cursor(command)))
+                        if !editor.is_read_only
+                            || !matches!(
+                                command,
+                                CursorCommand::ChangeAll
+                                    | CursorCommand::MoveCaretLeft
+                                    | CursorCommand::MoveCaretRight
+                            ) =>
+                    {
+                        Some(action.to_owned())
+                    }
                     Execution::Native(Run::EditDocument(_)) if editor.is_read_only => None,
                     Execution::Native(Run::FoldDocument(_)) if !editor.has_folding => None,
                     Execution::Native(_) => Some(action.to_owned()),
@@ -389,6 +483,31 @@ mod tests {
         include_str!("../../taide-native-app/tests/fixtures/keybinding-catalog.json");
     const KEYMAP_DEFAULTS: &str = include_str!("keymap-defaults.json");
     const COMMAND_COUNT: usize = 212;
+    const CURSOR_ACTIONS: [&str; 23] = [
+        "editor.action.insertCursorAbove",
+        "editor.action.insertCursorBelow",
+        "editor.action.insertCursorAtEndOfEachLineSelected",
+        "editor.action.addCursorsToTop",
+        "editor.action.addCursorsToBottom",
+        "editor.action.focusNextCursor",
+        "editor.action.focusPreviousCursor",
+        "editor.action.addSelectionToNextFindMatch",
+        "editor.action.addSelectionToPreviousFindMatch",
+        "editor.action.moveSelectionToNextFindMatch",
+        "editor.action.moveSelectionToPreviousFindMatch",
+        "editor.action.selectHighlights",
+        "editor.action.changeAll",
+        "expandLineSelection",
+        "editor.action.smartSelect.expand",
+        "editor.action.smartSelect.shrink",
+        "editor.action.jumpToBracket",
+        "editor.action.selectToBracket",
+        "cursorUndo",
+        "cursorRedo",
+        "editor.action.setSelectionAnchor",
+        "editor.action.moveCarretLeftAction",
+        "editor.action.moveCarretRightAction",
+    ];
     const KEYMAP_COUNT: usize = 41;
     const NATIVE_KEYMAP_COUNT: usize = 34;
     const FOLD_COMMANDS: [(&str, FoldCommand); 16] = [
@@ -438,7 +557,42 @@ mod tests {
         "monaco.editor.removeManualFoldingRanges",
         "monaco.editor.toggleImportFold",
     ];
-    const DOCUMENT_ACTIONS: [&str; 2] = ["deleteAllLeft", "editor.action.outdentLines"];
+    const DOCUMENT_ACTIONS: [&str; 34] = [
+        "deleteAllLeft",
+        "deleteAllRight",
+        "deleteInsideWord",
+        "editor.action.moveLinesUpAction",
+        "editor.action.moveLinesDownAction",
+        "editor.action.copyLinesUpAction",
+        "editor.action.copyLinesDownAction",
+        "editor.action.duplicateSelection",
+        "editor.action.deleteLines",
+        "editor.action.insertLineBefore",
+        "editor.action.insertLineAfter",
+        "editor.action.joinLines",
+        "editor.action.indentLines",
+        "editor.action.outdentLines",
+        "editor.action.trimTrailingWhitespace",
+        "editor.action.insertFinalNewLine",
+        "editor.action.sortLinesAscending",
+        "editor.action.sortLinesDescending",
+        "editor.action.removeDuplicateLines",
+        "editor.action.reverseLines",
+        "editor.action.transformToUppercase",
+        "editor.action.transformToLowercase",
+        "editor.action.transformToTitlecase",
+        "editor.action.transformToSnakecase",
+        "editor.action.transformToCamelcase",
+        "editor.action.transformToPascalcase",
+        "editor.action.transformToKebabcase",
+        "editor.action.commentLine",
+        "editor.action.addCommentLine",
+        "editor.action.removeCommentLine",
+        "editor.action.blockComment",
+        "editor.action.removeBrackets",
+        "editor.action.transpose",
+        "editor.action.transposeLetters",
+    ];
     const SAVE_ACTION: &str = "taide.saveFile";
     const FOLDING_CATEGORY: &str = "keymap.category.editorFolding";
     const NATIVE_COMMANDS: [(&str, Run); 35] = [
@@ -622,6 +776,9 @@ mod tests {
             .commands()
             .iter()
             .filter_map(|command| match command.execution {
+                Execution::Native(Run::EditDocument(
+                    DocumentEdit::Line(_) | DocumentEdit::Cursor(_),
+                )) => None,
                 Execution::Native(run) => Some((command.id.as_str(), run)),
                 Execution::Unavailable => None,
             })
@@ -681,6 +838,15 @@ mod tests {
             let expected = [SAVE_ACTION]
                 .into_iter()
                 .chain(DOCUMENT_ACTIONS.into_iter().filter(|_| !is_read_only))
+                .chain(CURSOR_ACTIONS.into_iter().filter(|action| {
+                    !is_read_only
+                        || !matches!(
+                            *action,
+                            "editor.action.changeAll"
+                                | "editor.action.moveCarretLeftAction"
+                                | "editor.action.moveCarretRightAction"
+                        )
+                }))
                 .chain(fold_actions.into_iter().filter(|_| has_folding))
                 .map(str::to_owned)
                 .collect::<HashSet<_>>();
@@ -826,11 +992,6 @@ mod tests {
                 Enablement::Always,
                 [true; 5],
             ),
-            (
-                "monaco.editor.action.commentLine",
-                Enablement::SupportedEditorAction,
-                [false; 5],
-            ),
         ] {
             let command = command(id);
             assert_eq!(command.enablement, enablement, "{id}");
@@ -846,7 +1007,11 @@ mod tests {
             );
         }
 
-        for edit in ["monaco.deleteAllLeft", "monaco.editor.action.outdentLines"] {
+        for edit in [
+            "monaco.deleteAllLeft",
+            "monaco.editor.action.outdentLines",
+            "monaco.editor.action.commentLine",
+        ] {
             assert_eq!(command(edit).enablement, Enablement::SupportedEditorAction);
             assert!(command(edit).is_runnable(&writable));
             for context in [&main, &auxiliary, &project, &read_only] {

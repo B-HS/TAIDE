@@ -1,0 +1,314 @@
+[
+  {
+    "input": "",
+    "outputs": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ]
+  },
+  {
+    "input": "helloWorld",
+    "outputs": [
+      "HELLOWORLD",
+      "helloworld",
+      "Helloworld",
+      "hello_world",
+      "helloWorld",
+      "HelloWorld",
+      "hello-world"
+    ]
+  },
+  {
+    "input": "HTTPServer",
+    "outputs": [
+      "HTTPSERVER",
+      "httpserver",
+      "Httpserver",
+      "http_server",
+      "HTTPServer",
+      "HTTPServer",
+      "http-server"
+    ]
+  },
+  {
+    "input": "XMLHttpRequest",
+    "outputs": [
+      "XMLHTTPREQUEST",
+      "xmlhttprequest",
+      "Xmlhttprequest",
+      "xml_http_request",
+      "XMLHttpRequest",
+      "XMLHttpRequest",
+      "xml-http-request"
+    ]
+  },
+  {
+    "input": "a_b_c",
+    "outputs": [
+      "A_B_C",
+      "a_b_c",
+      "A_B_C",
+      "a_b_c",
+      "aBC",
+      "ABC",
+      "a-b_c"
+    ]
+  },
+  {
+    "input": "_hello-world_",
+    "outputs": [
+      "_HELLO-WORLD_",
+      "_hello-world_",
+      "_Hello-World_",
+      "_hello-world_",
+      "HelloWorld",
+      "HelloWorld",
+      "_hello-world_"
+    ]
+  },
+  {
+    "input": "  hello world  ",
+    "outputs": [
+      "  HELLO WORLD  ",
+      "  hello world  ",
+      "  Hello World  ",
+      "  hello world  ",
+      "HelloWorld",
+      "HelloWorld",
+      "  hello world  "
+    ]
+  },
+  {
+    "input": "HELLO_WORLD",
+    "outputs": [
+      "HELLO_WORLD",
+      "hello_world",
+      "Hello_World",
+      "hello_world",
+      "HELLOWORLD",
+      "HelloWorld",
+      "hello-world"
+    ]
+  },
+  {
+    "input": "foo.bar BAZ",
+    "outputs": [
+      "FOO.BAR BAZ",
+      "foo.bar baz",
+      "Foo.Bar Baz",
+      "foo.bar baz",
+      "foo.barBAZ",
+      "Foo.BarBaz",
+      "foo.bar baz"
+    ]
+  },
+  {
+    "input": "a\nb_c",
+    "outputs": [
+      "A\nB_C",
+      "a\nb_c",
+      "A\nB_C",
+      "a\nb_c",
+      "a\nbC",
+      "A\nbC",
+      "a\nb-c"
+    ]
+  },
+  {
+    "input": "a\r\nb-c",
+    "outputs": [
+      "A\r\nB-C",
+      "a\r\nb-c",
+      "A\r\nB-C",
+      "a\r\nb-c",
+      "a\r\nbC",
+      "A\r\nbC",
+      "a\r\nb-c"
+    ]
+  },
+  {
+    "input": "DON’T STOP, don't rock 'N' ROLL",
+    "outputs": [
+      "DON’T STOP, DON'T ROCK 'N' ROLL",
+      "don’t stop, don't rock 'n' roll",
+      "Don’T Stop, Don't Rock 'N' Roll",
+      "don’t stop, don't rock 'n' roll",
+      "DON’TSTOP,Don'tRock'N'ROLL",
+      "DON’TSTOP,Don'tRock'N'Roll",
+      "don’t stop, don't rock 'n' roll"
+    ]
+  },
+  {
+    "input": "a 'hello' d’artagnan",
+    "outputs": [
+      "A 'HELLO' D’ARTAGNAN",
+      "a 'hello' d’artagnan",
+      "A 'Hello' D’Artagnan",
+      "a 'hello' d’artagnan",
+      "a'hello'D’artagnan",
+      "A'hello'D’artagnan",
+      "a 'hello' d’artagnan"
+    ]
+  },
+  {
+    "input": "ß Straße İΣ ΟΣ",
+    "outputs": [
+      "SS STRASSE İΣ ΟΣ",
+      "ß straße i̇ς ος",
+      "SS Straße İΣ Ος",
+      "ß straße i̇ς ος",
+      "ßStraßeİΣΟΣ",
+      "SsStraßeİσΟσ",
+      "ß straße i̇ς ος"
+    ]
+  },
+  {
+    "input": "１２Three ĀĭÇafe",
+    "outputs": [
+      "１２THREE ĀĬÇAFE",
+      "１２three āĭçafe",
+      "１２three Āĭçafe",
+      "１２_three āĭ_çafe",
+      "１２ThreeĀĭÇafe",
+      "１２ThreeĀĭÇafe",
+      "１２-three āĭ-çafe"
+    ]
+  },
+  {
+    "input": "한글中文 fooBar",
+    "outputs": [
+      "한글中文 FOOBAR",
+      "한글中文 foobar",
+      "한글中文 Foobar",
+      "한글中文 foo_bar",
+      "한글中文FooBar",
+      "한글中文FooBar",
+      "한글中文 foo-bar"
+    ]
+  },
+  {
+    "input": "ǅABC",
+    "outputs": [
+      "ǄABC",
+      "ǆabc",
+      "Ǆabc",
+      "ǆabc",
+      "ǅABC",
+      "Ǆabc",
+      "ǆabc"
+    ]
+  },
+  {
+    "input": "𐐀𐐨_𐐨ABC",
+    "outputs": [
+      "𐐀𐐀_𐐀ABC",
+      "𐐨𐐨_𐐨abc",
+      "𐐀𐐨_𐐀abc",
+      "𐐨𐐨_𐐨_abc",
+      "𐐨𐐨𐐨ABC",
+      "𐐀𐐨𐐨ABC",
+      "𐐨𐐨-𐐨-abc"
+    ]
+  },
+  {
+    "input": "ͅalpha",
+    "outputs": [
+      "ΙALPHA",
+      "ͅalpha",
+      "ΙAlpha",
+      "ͅalpha",
+      "ͅalpha",
+      "Ιalpha",
+      "ͅalpha"
+    ]
+  },
+  {
+    "input": "99Bottles",
+    "outputs": [
+      "99BOTTLES",
+      "99bottles",
+      "99bottles",
+      "99_bottles",
+      "99Bottles",
+      "99Bottles",
+      "99-bottles"
+    ]
+  },
+  {
+    "input": "a b",
+    "outputs": [
+      "A B",
+      "a b",
+      "A B",
+      "a b",
+      "aB",
+      "A b",
+      "a b"
+    ]
+  },
+  {
+    "input": "A\nABC",
+    "outputs": [
+      "A\nABC",
+      "a\nabc",
+      "A\nAbc",
+      "a\nabc",
+      "a\nABC",
+      "A\nabc",
+      "a\nabc"
+    ]
+  },
+  {
+    "input": "a__b___c",
+    "outputs": [
+      "A__B___C",
+      "a__b___c",
+      "A__B___C",
+      "a__b___c",
+      "aBC",
+      "ABC",
+      "a-_b-__c"
+    ]
+  },
+  {
+    "input": "aa_bb_cc",
+    "outputs": [
+      "AA_BB_CC",
+      "aa_bb_cc",
+      "Aa_Bb_Cc",
+      "aa_bb_cc",
+      "aaBbCc",
+      "AaBbCc",
+      "aa-bb-cc"
+    ]
+  },
+  {
+    "input": "a_💡_b",
+    "outputs": [
+      "A_💡_B",
+      "a_💡_b",
+      "A_💡_B",
+      "a_💡_b",
+      "a💡B",
+      "A💡B",
+      "a-💡-b"
+    ]
+  },
+  {
+    "input": "x\tY",
+    "outputs": [
+      "X\tY",
+      "x\ty",
+      "X\tY",
+      "x\ty",
+      "xY",
+      "XY",
+      "x\ty"
+    ]
+  }
+]

@@ -1058,6 +1058,8 @@ impl EditorStore {
                 goal_columns: None,
                 wrap_affinities: None,
                 display: None,
+                cursor_memory: Default::default(),
+                selection_reveal: None,
             },
         );
         self.views.by_key.insert(key, id);
@@ -1080,6 +1082,8 @@ impl EditorStore {
             .get(&current.document)
             .ok_or(EditorError::NotFound)?;
         selection.validate(&document.rope)?;
+        let selection = selection.normalized();
+        let revision = document.revision;
         if !scroll.x.is_finite() || !scroll.y.is_finite() || scroll.x < 0.0 || scroll.y < 0.0 {
             return Err(EditorError::InvalidBoundary);
         }
@@ -1096,6 +1100,9 @@ impl EditorStore {
             .get_mut(&view)
             .ok_or(EditorError::NotFound)?;
         if current.selection != selection {
+            current
+                .cursor_memory
+                .selection_changed(revision, &current.selection, &current.scroll);
             current.goal_columns = None;
             current.wrap_affinities = None;
         }
@@ -1103,6 +1110,67 @@ impl EditorStore {
         current.scroll = scroll;
         current.folds = folds;
         Ok(())
+    }
+
+    pub(crate) fn cursor_memory_mut(
+        &mut self,
+        view: ViewId,
+    ) -> Result<&mut crate::cursor_commands::CursorMemory, EditorError> {
+        self.views
+            .views
+            .get_mut(&view)
+            .map(|view| &mut view.cursor_memory)
+            .ok_or(EditorError::NotFound)
+    }
+
+    pub fn selection_anchor(&self, view: ViewId) -> Option<usize> {
+        let view = self.views.get(view)?;
+        let document = self.documents.documents.get(&view.document)?;
+        let anchor = view.cursor_memory.anchor.as_ref()?;
+        let tracked =
+            anchor.tracking(document.journal.since(anchor.revision(), document.revision))?;
+        tracked.items().first().map(|item| item.bytes.start)
+    }
+
+    pub fn request_selection_reveal(
+        &mut self,
+        view: ViewId,
+        bytes: std::ops::Range<usize>,
+        center_if_outside: bool,
+    ) -> Result<(), EditorError> {
+        let current = self.views.get(view).ok_or(EditorError::NotFound)?;
+        let document = self
+            .documents
+            .documents
+            .get(&current.document)
+            .ok_or(EditorError::NotFound)?;
+        if bytes.start > bytes.end {
+            return Err(EditorError::InvalidBoundary);
+        }
+        byte_to_char(&document.rope, bytes.start)?;
+        byte_to_char(&document.rope, bytes.end)?;
+        self.views
+            .views
+            .get_mut(&view)
+            .ok_or(EditorError::NotFound)?
+            .selection_reveal = Some(crate::view::SelectionReveal {
+            bytes,
+            center_if_outside,
+        });
+        Ok(())
+    }
+
+    pub fn take_selection_reveal(
+        &mut self,
+        view: ViewId,
+    ) -> Result<Option<crate::view::SelectionReveal>, EditorError> {
+        Ok(self
+            .views
+            .views
+            .get_mut(&view)
+            .ok_or(EditorError::NotFound)?
+            .selection_reveal
+            .take())
     }
 
     pub fn set_edit_run(&mut self, view: ViewId, run: Option<EditRun>) -> Result<(), EditorError> {
@@ -1273,10 +1341,10 @@ impl EditorStore {
             .collect();
         let mut after_selections: HashMap<_, _> = before_selections
             .iter()
-            .map(|(view, selection)| (*view, selection.mapped(&edits)))
+            .map(|(view, selection)| (*view, selection.mapped(&edits).normalized()))
             .collect();
         if let (Some(origin), Some(selection)) = (transaction.origin, transaction.selection_after) {
-            after_selections.insert(origin, selection);
+            after_selections.insert(origin, selection.normalized());
         }
         let owner = self
             .documents
@@ -1333,6 +1401,8 @@ impl EditorStore {
                 (&before, &owner.rope),
                 &view.folds,
             );
+            view.cursor_memory
+                .content_changed(next_revision, owner.journal.since(revisions.0, revisions.1));
         }
         Ok(next_revision)
     }
@@ -1388,6 +1458,8 @@ impl EditorStore {
             view.composition = None;
             view.folds =
                 tracked_view_folds(&owner.journal, revisions, (&owner.rope, text), &view.folds);
+            view.cursor_memory
+                .content_changed(revision, owner.journal.since(revisions.0, revisions.1));
         }
         owner.rope = text.clone();
         owner.revision = revision;

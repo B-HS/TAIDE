@@ -39,6 +39,63 @@ impl Default for SelectionSet {
 }
 
 impl SelectionSet {
+    pub fn normalized(self) -> Self {
+        let mut entries: Vec<_> = self.selections.iter().copied().enumerate().collect();
+        let mut last = entries.len().saturating_sub(1);
+        let mut primary = self.primary;
+        loop {
+            let mut order: Vec<_> = (0..entries.len()).collect();
+            order.sort_by_key(|index| {
+                let s = entries[*index].1;
+                (s.anchor.min(s.head), s.anchor.max(s.head))
+            });
+            let collision = order.windows(2).find_map(|pair| {
+                let (a, b) = (entries[pair[0]].1, entries[pair[1]].1);
+                let end = a.anchor.max(a.head);
+                let start = b.anchor.min(b.head);
+                let touches = a.anchor == a.head || b.anchor == b.head;
+                (start < end || touches && start == end).then_some((pair[0], pair[1]))
+            });
+            let Some((a, b)) = collision else {
+                break;
+            };
+            let (winner, loser) = if entries[a].0 < entries[b].0 {
+                (a, b)
+            } else {
+                (b, a)
+            };
+            let (w, l) = (entries[winner], entries[loser]);
+            let start = w.1.anchor.min(w.1.head).min(l.1.anchor.min(l.1.head));
+            let end = w.1.anchor.max(w.1.head).max(l.1.anchor.max(l.1.head));
+            let direction = if l.0 == last { l.1 } else { w.1 };
+            entries[winner].1 = if direction.anchor <= direction.head {
+                Selection {
+                    anchor: start,
+                    head: end,
+                }
+            } else {
+                Selection {
+                    anchor: end,
+                    head: start,
+                }
+            };
+            if primary == l.0 {
+                primary = w.0;
+            }
+            if last == l.0 {
+                last = w.0;
+            }
+            entries.remove(loser);
+        }
+        Self {
+            primary: entries
+                .iter()
+                .position(|(index, _)| *index == primary)
+                .unwrap_or(0),
+            selections: entries.into_iter().map(|(_, s)| s).collect(),
+        }
+    }
+
     pub(crate) fn validate(&self, rope: &Rope) -> Result<(), EditorError> {
         if self.selections.is_empty() || self.primary >= self.selections.len() {
             return Err(EditorError::InvalidBoundary);
@@ -112,6 +169,12 @@ pub struct Composition {
     pub preedit: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct SelectionReveal {
+    pub bytes: Range<usize>,
+    pub center_if_outside: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditOperation {
     Other,
@@ -155,6 +218,8 @@ pub struct ViewState {
     pub goal_columns: Option<GoalColumns>,
     pub wrap_affinities: Option<WrapAffinities>,
     pub display: Option<Arc<DisplayMap>>,
+    pub(crate) cursor_memory: crate::cursor_commands::CursorMemory,
+    pub(crate) selection_reveal: Option<SelectionReveal>,
 }
 
 impl ViewState {

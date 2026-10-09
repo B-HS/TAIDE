@@ -204,7 +204,7 @@ fn 빈_선택_잘라내기는_줄_전체를_지우고_마지막_줄은_앞_개�
     select(&mut store, view, &[(2, 2), (4, 4)]);
     assert!(cut(&mut store, view).unwrap());
     assert_eq!(content(&store, view), "");
-    assert_eq!(selections(&store, view), [(0, 0), (0, 0)]);
+    assert_eq!(selections(&store, view), [(0, 0)]);
     assert!(!cut(&mut store, view).unwrap());
     assert_eq!(undo(&mut store, view), "alpha");
     assert_eq!(undo(&mut store, view), "alpha\ngamma");
@@ -213,7 +213,7 @@ fn 빈_선택_잘라내기는_줄_전체를_지우고_마지막_줄은_앞_개�
     select(&mut tail, tail_view, &[(4, 4), (2, 2)]);
     assert!(cut(&mut tail, tail_view).unwrap());
     assert_eq!(content(&tail, tail_view), "a\n");
-    assert_eq!(selections(&tail, tail_view), [(2, 2), (2, 2)]);
+    assert_eq!(selections(&tail, tail_view), [(2, 2)]);
     let (mut selected, selected_view) = fixture("abcdef");
     select(&mut selected, selected_view, &[(4, 1)]);
     assert!(cut(&mut selected, selected_view).unwrap());

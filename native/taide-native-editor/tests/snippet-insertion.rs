@@ -397,9 +397,37 @@ fn snippet삽입은_같은revision의_선택변경과_중복범위_owner회수�
             vec![prepared("x", 0..2), prepared("y", 1..3)],
             limits()
         ),
+        Err(EditorError::InvalidBoundary)
+    ));
+    assert_eq!(
+        store.views().get(view).unwrap().selection,
+        overlapping.normalized()
+    );
+    store
+        .set_view_state(
+            view,
+            SelectionSet {
+                primary: 0,
+                selections: vec![
+                    Selection { anchor: 0, head: 0 },
+                    Selection { anchor: 3, head: 3 },
+                ],
+            },
+            ScrollPosition::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    let current = store.views().get(view).unwrap().clone();
+    assert!(matches!(
+        insert(
+            &mut store,
+            &current,
+            0,
+            vec![prepared("x", 0..2), prepared("y", 1..3)],
+            limits()
+        ),
         Err(EditorError::Overlap)
     ));
-    assert_eq!(store.views().get(view).unwrap().selection, overlapping);
     assert_eq!(
         store
             .documents()

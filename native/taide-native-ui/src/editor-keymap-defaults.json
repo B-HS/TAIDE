@@ -1,0 +1,620 @@
+[
+    {
+        "id": "monaco.editor.action.copyLinesUpAction",
+        "platform": "mac",
+        "key": "ArrowUp",
+        "mods": ["shift", "alt"]
+    },
+    {
+        "id": "monaco.editor.action.copyLinesUpAction",
+        "platform": "win",
+        "key": "ArrowUp",
+        "mods": ["shift", "alt"]
+    },
+    {
+        "id": "monaco.editor.action.copyLinesUpAction",
+        "platform": "linux",
+        "key": "ArrowUp",
+        "mods": ["mod", "shift", "alt"]
+    },
+    {
+        "id": "monaco.editor.action.copyLinesDownAction",
+        "platform": "mac",
+        "key": "ArrowDown",
+        "mods": ["shift", "alt"]
+    },
+    {
+        "id": "monaco.editor.action.copyLinesDownAction",
+        "platform": "win",
+        "key": "ArrowDown",
+        "mods": ["shift", "alt"]
+    },
+    {
+        "id": "monaco.editor.action.copyLinesDownAction",
+        "platform": "linux",
+        "key": "ArrowDown",
+        "mods": ["mod", "shift", "alt"]
+    },
+    {
+        "id": "monaco.editor.action.moveLinesUpAction",
+        "platform": "mac",
+        "key": "ArrowUp",
+        "mods": ["alt"]
+    },
+    {
+        "id": "monaco.editor.action.moveLinesUpAction",
+        "platform": "win",
+        "key": "ArrowUp",
+        "mods": ["alt"]
+    },
+    {
+        "id": "monaco.editor.action.moveLinesUpAction",
+        "platform": "linux",
+        "key": "ArrowUp",
+        "mods": ["alt"]
+    },
+    {
+        "id": "monaco.editor.action.moveLinesDownAction",
+        "platform": "mac",
+        "key": "ArrowDown",
+        "mods": ["alt"]
+    },
+    {
+        "id": "monaco.editor.action.moveLinesDownAction",
+        "platform": "win",
+        "key": "ArrowDown",
+        "mods": ["alt"]
+    },
+    {
+        "id": "monaco.editor.action.moveLinesDownAction",
+        "platform": "linux",
+        "key": "ArrowDown",
+        "mods": ["alt"]
+    },
+    {
+        "id": "monaco.editor.action.trimTrailingWhitespace",
+        "platform": "mac",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "X",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.action.trimTrailingWhitespace",
+        "platform": "win",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "X",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.action.trimTrailingWhitespace",
+        "platform": "linux",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "X",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.action.deleteLines",
+        "platform": "mac",
+        "key": "K",
+        "mods": ["mod", "shift"]
+    },
+    {
+        "id": "monaco.editor.action.deleteLines",
+        "platform": "win",
+        "key": "K",
+        "mods": ["mod", "shift"]
+    },
+    {
+        "id": "monaco.editor.action.deleteLines",
+        "platform": "linux",
+        "key": "K",
+        "mods": ["mod", "shift"]
+    },
+    {
+        "id": "monaco.editor.action.indentLines",
+        "platform": "mac",
+        "key": "]",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.editor.action.indentLines",
+        "platform": "win",
+        "key": "]",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.editor.action.indentLines",
+        "platform": "linux",
+        "key": "]",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.editor.action.outdentLines",
+        "platform": "mac",
+        "key": "[",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.editor.action.outdentLines",
+        "platform": "win",
+        "key": "[",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.editor.action.outdentLines",
+        "platform": "linux",
+        "key": "[",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.editor.action.insertLineBefore",
+        "platform": "mac",
+        "key": "Enter",
+        "mods": ["mod", "shift"]
+    },
+    {
+        "id": "monaco.editor.action.insertLineBefore",
+        "platform": "win",
+        "key": "Enter",
+        "mods": ["mod", "shift"]
+    },
+    {
+        "id": "monaco.editor.action.insertLineBefore",
+        "platform": "linux",
+        "key": "Enter",
+        "mods": ["mod", "shift"]
+    },
+    {
+        "id": "monaco.editor.action.insertLineAfter",
+        "platform": "mac",
+        "key": "Enter",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.editor.action.insertLineAfter",
+        "platform": "win",
+        "key": "Enter",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.editor.action.insertLineAfter",
+        "platform": "linux",
+        "key": "Enter",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.deleteAllLeft",
+        "platform": "mac",
+        "key": "Backspace",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.deleteAllRight",
+        "platform": "mac",
+        "key": "K",
+        "mods": ["ctrl"]
+    },
+    {
+        "id": "monaco.deleteAllRight",
+        "platform": "mac",
+        "key": "Delete",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.editor.action.joinLines",
+        "platform": "mac",
+        "key": "J",
+        "mods": ["ctrl"]
+    },
+    {
+        "id": "monaco.editor.action.commentLine",
+        "platform": "mac",
+        "key": "/",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.editor.action.commentLine",
+        "platform": "win",
+        "key": "/",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.editor.action.commentLine",
+        "platform": "linux",
+        "key": "/",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.editor.action.addCommentLine",
+        "platform": "mac",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "C",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.action.addCommentLine",
+        "platform": "win",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "C",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.action.addCommentLine",
+        "platform": "linux",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "C",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.action.removeCommentLine",
+        "platform": "mac",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "U",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.action.removeCommentLine",
+        "platform": "win",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "U",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.action.removeCommentLine",
+        "platform": "linux",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "U",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.action.blockComment",
+        "platform": "mac",
+        "key": "A",
+        "mods": ["shift", "alt"]
+    },
+    {
+        "id": "monaco.editor.action.blockComment",
+        "platform": "win",
+        "key": "A",
+        "mods": ["shift", "alt"]
+    },
+    {
+        "id": "monaco.editor.action.blockComment",
+        "platform": "linux",
+        "key": "A",
+        "mods": ["mod", "shift"]
+    },
+    {
+        "id": "monaco.editor.action.transposeLetters",
+        "platform": "mac",
+        "key": "T",
+        "mods": ["ctrl"]
+    },
+    {
+        "id": "monaco.editor.action.jumpToBracket",
+        "platform": "mac",
+        "key": "\\",
+        "mods": ["mod", "shift"]
+    },
+    {
+        "id": "monaco.editor.action.jumpToBracket",
+        "platform": "win",
+        "key": "\\",
+        "mods": ["mod", "shift"]
+    },
+    {
+        "id": "monaco.editor.action.jumpToBracket",
+        "platform": "linux",
+        "key": "\\",
+        "mods": ["mod", "shift"]
+    },
+    {
+        "id": "monaco.editor.action.removeBrackets",
+        "platform": "mac",
+        "key": "Backspace",
+        "mods": ["mod", "alt"]
+    },
+    {
+        "id": "monaco.editor.action.removeBrackets",
+        "platform": "win",
+        "key": "Backspace",
+        "mods": ["mod", "alt"]
+    },
+    {
+        "id": "monaco.editor.action.removeBrackets",
+        "platform": "linux",
+        "key": "Backspace",
+        "mods": ["mod", "alt"]
+    },
+    {
+        "id": "monaco.editor.action.insertCursorAbove",
+        "platform": "mac",
+        "key": "ArrowUp",
+        "mods": ["mod", "alt"]
+    },
+    {
+        "id": "monaco.editor.action.insertCursorAbove",
+        "platform": "win",
+        "key": "ArrowUp",
+        "mods": ["mod", "alt"]
+    },
+    {
+        "id": "monaco.editor.action.insertCursorAbove",
+        "platform": "linux",
+        "key": "ArrowUp",
+        "mods": ["shift", "alt"]
+    },
+    {
+        "id": "monaco.editor.action.insertCursorAbove",
+        "platform": "linux",
+        "key": "ArrowUp",
+        "mods": ["mod", "shift"]
+    },
+    {
+        "id": "monaco.editor.action.insertCursorBelow",
+        "platform": "mac",
+        "key": "ArrowDown",
+        "mods": ["mod", "alt"]
+    },
+    {
+        "id": "monaco.editor.action.insertCursorBelow",
+        "platform": "win",
+        "key": "ArrowDown",
+        "mods": ["mod", "alt"]
+    },
+    {
+        "id": "monaco.editor.action.insertCursorBelow",
+        "platform": "linux",
+        "key": "ArrowDown",
+        "mods": ["shift", "alt"]
+    },
+    {
+        "id": "monaco.editor.action.insertCursorBelow",
+        "platform": "linux",
+        "key": "ArrowDown",
+        "mods": ["mod", "shift"]
+    },
+    {
+        "id": "monaco.editor.action.insertCursorAtEndOfEachLineSelected",
+        "platform": "mac",
+        "key": "I",
+        "mods": ["shift", "alt"]
+    },
+    {
+        "id": "monaco.editor.action.insertCursorAtEndOfEachLineSelected",
+        "platform": "win",
+        "key": "I",
+        "mods": ["shift", "alt"]
+    },
+    {
+        "id": "monaco.editor.action.insertCursorAtEndOfEachLineSelected",
+        "platform": "linux",
+        "key": "I",
+        "mods": ["shift", "alt"]
+    },
+    {
+        "id": "monaco.editor.action.addSelectionToNextFindMatch",
+        "platform": "mac",
+        "key": "D",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.editor.action.addSelectionToNextFindMatch",
+        "platform": "win",
+        "key": "D",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.editor.action.addSelectionToNextFindMatch",
+        "platform": "linux",
+        "key": "D",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.editor.action.moveSelectionToNextFindMatch",
+        "platform": "mac",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "D",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.action.moveSelectionToNextFindMatch",
+        "platform": "win",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "D",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.action.moveSelectionToNextFindMatch",
+        "platform": "linux",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "D",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.action.selectHighlights",
+        "platform": "mac",
+        "key": "L",
+        "mods": ["mod", "shift"]
+    },
+    {
+        "id": "monaco.editor.action.selectHighlights",
+        "platform": "win",
+        "key": "L",
+        "mods": ["mod", "shift"]
+    },
+    {
+        "id": "monaco.editor.action.selectHighlights",
+        "platform": "linux",
+        "key": "L",
+        "mods": ["mod", "shift"]
+    },
+    {
+        "id": "monaco.editor.action.changeAll",
+        "platform": "mac",
+        "key": "F2",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.editor.action.changeAll",
+        "platform": "win",
+        "key": "F2",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.editor.action.changeAll",
+        "platform": "linux",
+        "key": "F2",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.editor.action.smartSelect.expand",
+        "platform": "mac",
+        "key": "ArrowRight",
+        "mods": ["mod", "ctrl", "shift"]
+    },
+    {
+        "id": "monaco.editor.action.smartSelect.expand",
+        "platform": "mac",
+        "key": "ArrowRight",
+        "mods": ["ctrl", "shift"]
+    },
+    {
+        "id": "monaco.editor.action.smartSelect.expand",
+        "platform": "win",
+        "key": "ArrowRight",
+        "mods": ["shift", "alt"]
+    },
+    {
+        "id": "monaco.editor.action.smartSelect.expand",
+        "platform": "linux",
+        "key": "ArrowRight",
+        "mods": ["shift", "alt"]
+    },
+    {
+        "id": "monaco.editor.action.smartSelect.shrink",
+        "platform": "mac",
+        "key": "ArrowLeft",
+        "mods": ["mod", "ctrl", "shift"]
+    },
+    {
+        "id": "monaco.editor.action.smartSelect.shrink",
+        "platform": "mac",
+        "key": "ArrowLeft",
+        "mods": ["ctrl", "shift"]
+    },
+    {
+        "id": "monaco.editor.action.smartSelect.shrink",
+        "platform": "win",
+        "key": "ArrowLeft",
+        "mods": ["shift", "alt"]
+    },
+    {
+        "id": "monaco.editor.action.smartSelect.shrink",
+        "platform": "linux",
+        "key": "ArrowLeft",
+        "mods": ["shift", "alt"]
+    },
+    {
+        "id": "monaco.cursorUndo",
+        "platform": "mac",
+        "key": "U",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.cursorUndo",
+        "platform": "win",
+        "key": "U",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.cursorUndo",
+        "platform": "linux",
+        "key": "U",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.expandLineSelection",
+        "platform": "mac",
+        "key": "L",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.expandLineSelection",
+        "platform": "win",
+        "key": "L",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.expandLineSelection",
+        "platform": "linux",
+        "key": "L",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.editor.action.setSelectionAnchor",
+        "platform": "mac",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "B",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.action.setSelectionAnchor",
+        "platform": "win",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "B",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.action.setSelectionAnchor",
+        "platform": "linux",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "B",
+            "mods": ["mod"]
+        }
+    }
+]

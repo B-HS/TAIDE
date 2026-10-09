@@ -2,8 +2,7 @@ use std::collections::HashSet;
 
 use taide_model::ids::TabId;
 use taide_native_editor::document::EditorError;
-use taide_native_editor::editing::{delete_to_line_start, outdent};
-use taide_native_editor::indent::IndentOptions;
+use taide_native_editor::line_commands::{LineCommand, LineCommandContext, run_line_command};
 use taide_native_editor::store::EditorStore;
 use taide_native_editor::view::{ViewId, ViewKey};
 use taide_native_ui::commands::ShellIntent;
@@ -83,15 +82,25 @@ pub(crate) fn apply_document_edits(
     store: &mut EditorStore,
     view: ViewId,
     tab: &TabId,
-    indent: IndentOptions,
+    context: LineCommandContext<'_>,
     pending: &mut Vec<(TabId, DocumentEdit)>,
     errors: &mut Vec<EditorError>,
 ) -> bool {
     let mut changed = false;
     for (_, edit) in pending.extract_if(.., |(owner, _)| owner == tab) {
         let result = match edit {
-            DocumentEdit::DeleteAllLeft => delete_to_line_start(store, view),
-            DocumentEdit::OutdentLines => outdent(store, view, indent),
+            DocumentEdit::DeleteAllLeft => {
+                run_line_command(store, view, LineCommand::DeleteAllLeft, context)
+            }
+            DocumentEdit::OutdentLines => {
+                run_line_command(store, view, LineCommand::OutdentLines, context)
+            }
+            DocumentEdit::Line(command) => run_line_command(store, view, command, context),
+            DocumentEdit::Cursor(command) => {
+                taide_native_editor::cursor_commands::run_cursor_command(
+                    store, view, command, context,
+                )
+            }
         };
         match result {
             Ok(applied) => changed |= applied,
@@ -112,6 +121,8 @@ mod tests {
         project::ShellSlotTree,
     };
     use taide_native_editor::editing::{Motion, move_selection};
+    use taide_native_editor::indent::IndentOptions;
+    use taide_native_editor::language_configuration::UntokenizedLines;
     use taide_native_editor::store::EditorLimits;
     use taide_native_ui::commands::ShellMutation;
     use taide_runtime::AppState;
@@ -120,6 +131,213 @@ mod tests {
     const INDENT_WIDTH: u32 = 4;
     const UNDO_GROUPS: usize = 8;
     const AUXILIARY_SLOT: u32 = 1;
+
+    #[test]
+    fn 등록된_줄_명령은_앱_편집_큐에서_언어_규칙과_icu_비교를_적용한다() {
+        for (id, before, expected) in [
+            (
+                "monaco.editor.action.sortLinesAscending",
+                "file2\nfile10\nfile1",
+                "file1\nfile10\nfile2",
+            ),
+            (
+                "monaco.editor.action.sortLinesAscending",
+                "ä\na\nA\ná\nae",
+                "a\nA\ná\nä\nae",
+            ),
+            ("monaco.editor.action.commentLine", "fooBar", "// fooBar"),
+            (
+                "monaco.editor.action.transformToUppercase",
+                "fooBar",
+                "FOOBAR",
+            ),
+            (
+                "monaco.editor.action.copyLinesDownAction",
+                "fooBar",
+                "fooBar\nfooBar",
+            ),
+            (
+                "monaco.editor.action.transpose",
+                "\u{1f600}x",
+                "\u{fffd}\u{fffd}x",
+            ),
+        ] {
+            let mut store = EditorStore::new(EditorLimits {
+                max_documents: 1,
+                max_views: 1,
+                max_undo_groups: UNDO_GROUPS,
+                max_document_bytes: DOCUMENT_BYTES,
+            })
+            .unwrap();
+            let tab = TabId::new();
+            let document = store
+                .open_untitled(tab.clone(), before, "typescript".into())
+                .unwrap();
+            let view_key = ViewKey {
+                window: "main".into(),
+                pane: PaneId::new(),
+                tab: tab.clone(),
+            };
+            let view = store.attach_view(view_key.clone(), document).unwrap();
+            let actions = active_editor_actions(&store, Some(&view_key));
+            let context = CommandContext {
+                active_editor_actions: actions,
+                ..Default::default()
+            };
+            assert!(accepts(id, false, &context));
+            let Run::EditDocument(edit) = command_run(id, &context).unwrap() else {
+                panic!("{id}");
+            };
+            let mut pending = vec![(tab.clone(), edit)];
+            let mut errors = Vec::new();
+            let resources = crate::editor_command_text::resources().unwrap();
+            let compare = |left: &str, right: &str| resources.compare(left, right);
+            let language = crate::editor_syntax::language_rules("typescript").map(|rules| {
+                taide_native_editor::language_configuration::Language {
+                    rules,
+                    syntax: &UntokenizedLines,
+                }
+            });
+            assert!(
+                apply_document_edits(
+                    &mut store,
+                    view,
+                    &tab,
+                    LineCommandContext {
+                        indent: IndentOptions {
+                            tab_size: INDENT_WIDTH,
+                            insert_spaces: true
+                        },
+                        language,
+                        syntax: &UntokenizedLines,
+                        compare: Some(&compare),
+                        transforms: Some(&resources.transforms),
+                        word_rules: language.map(|language| language.rules),
+                    },
+                    &mut pending,
+                    &mut errors
+                ),
+                "{id}"
+            );
+            assert!(pending.is_empty());
+            assert!(errors.is_empty(), "{id}: {errors:?}");
+            assert_eq!(
+                store
+                    .documents()
+                    .snapshot(document)
+                    .unwrap()
+                    .rope
+                    .to_string(),
+                expected,
+                "{id}"
+            );
+            assert!(store.undo(document).unwrap());
+            assert_eq!(
+                store
+                    .documents()
+                    .snapshot(document)
+                    .unwrap()
+                    .rope
+                    .to_string(),
+                before
+            );
+        }
+    }
+    #[test]
+    fn 등록된_커서_명령은_앱_큐에서_선택만_바꾸고_다른_탭의_명령을_보존한다() {
+        for (id, expected) in [
+            (
+                "monaco.editor.action.insertCursorBelow",
+                vec![(0, 0), (4, 4)],
+            ),
+            (
+                "monaco.editor.action.addSelectionToNextFindMatch",
+                vec![(0, 3)],
+            ),
+            (
+                "monaco.editor.action.selectHighlights",
+                vec![(0, 3), (4, 7)],
+            ),
+            ("monaco.expandLineSelection", vec![(0, 4)]),
+        ] {
+            let mut store = EditorStore::new(EditorLimits {
+                max_documents: 1,
+                max_views: 1,
+                max_undo_groups: UNDO_GROUPS,
+                max_document_bytes: DOCUMENT_BYTES,
+            })
+            .unwrap();
+            let tab = TabId::new();
+            let document = store
+                .open_untitled(tab.clone(), "cat\ncat", "typescript".into())
+                .unwrap();
+            let view_key = ViewKey {
+                window: "main".into(),
+                pane: PaneId::new(),
+                tab: tab.clone(),
+            };
+            let view = store.attach_view(view_key.clone(), document).unwrap();
+            let context = CommandContext {
+                active_editor_actions: active_editor_actions(&store, Some(&view_key)),
+                ..Default::default()
+            };
+            assert!(accepts(id, false, &context));
+            let Run::EditDocument(edit) = command_run(id, &context).unwrap() else {
+                panic!("{id}");
+            };
+            let other = TabId::new();
+            let mut pending = vec![
+                (tab.clone(), edit),
+                (other.clone(), DocumentEdit::DeleteAllLeft),
+            ];
+            let mut errors = Vec::new();
+            let rules = crate::editor_syntax::language_rules("typescript").unwrap();
+            assert!(
+                !apply_document_edits(
+                    &mut store,
+                    view,
+                    &tab,
+                    LineCommandContext {
+                        indent: IndentOptions {
+                            tab_size: INDENT_WIDTH,
+                            insert_spaces: true
+                        },
+                        language: Some(taide_native_editor::language_configuration::Language {
+                            rules,
+                            syntax: &UntokenizedLines
+                        }),
+                        syntax: &UntokenizedLines,
+                        compare: None,
+                        transforms: None,
+                        word_rules: Some(rules),
+                    },
+                    &mut pending,
+                    &mut errors
+                ),
+                "{id}"
+            );
+            assert_eq!(pending.len(), 1);
+            assert_eq!(pending[0].0, other);
+            assert!(errors.is_empty(), "{id}: {errors:?}");
+            assert_eq!(
+                store
+                    .views()
+                    .get(view)
+                    .unwrap()
+                    .selection
+                    .selections
+                    .iter()
+                    .map(|selection| (selection.anchor, selection.head))
+                    .collect::<Vec<_>>(),
+                expected,
+                "{id}"
+            );
+            let snapshot = store.documents().snapshot(document).unwrap();
+            assert_eq!(snapshot.rope.to_string(), "cat\ncat");
+            assert_eq!(snapshot.revision, 0);
+        }
+    }
+
     const PALETTE_ENTRIES: [(&str, PaletteEntry); 3] = [
         ("quick-open", PaletteEntry::Files),
         ("command-palette", PaletteEntry::Commands),
@@ -482,20 +700,29 @@ mod tests {
             tab,
         };
         store.attach_view(key.clone(), document).unwrap();
-        assert_eq!(
-            active_editor_actions(&store, Some(&key)),
-            Some(
-                [
-                    "deleteAllLeft",
-                    "editor.action.outdentLines",
-                    "taide.saveFile"
-                ]
-                .into_iter()
-                .chain(FOLD_ACTIONS.map(|(action, _)| action))
-                .map(str::to_owned)
-                .collect()
-            )
-        );
+        let actions = active_editor_actions(&store, Some(&key)).unwrap();
+        for action in [
+            "deleteAllLeft",
+            "editor.action.outdentLines",
+            "taide.saveFile",
+            "editor.action.moveLinesUpAction",
+            "editor.action.transpose",
+            "editor.action.insertCursorBelow",
+            "cursorUndo",
+            "editor.action.smartSelect.expand",
+        ]
+        .into_iter()
+        .chain(FOLD_ACTIONS.map(|(action, _)| action))
+        {
+            assert!(actions.contains(action), "{action}");
+        }
+        for action in [
+            "editor.action.triggerSuggest",
+            "editor.action.startFindReplaceAction",
+            "editor.action.formatDocument",
+        ] {
+            assert!(!actions.contains(action), "{action}");
+        }
         let detached = ViewKey {
             tab: TabId::new(),
             ..key
@@ -556,6 +783,14 @@ mod tests {
         let indent = IndentOptions {
             tab_size: INDENT_WIDTH,
             insert_spaces: true,
+        };
+        let indent = LineCommandContext {
+            indent,
+            language: None,
+            syntax: &UntokenizedLines,
+            compare: None,
+            transforms: None,
+            word_rules: None,
         };
         let other = TabId::new();
         let mut pending = vec![

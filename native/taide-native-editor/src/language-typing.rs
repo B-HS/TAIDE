@@ -238,10 +238,8 @@ pub fn commit_composition(
         return editing::compose_text(store, view, replaced, text);
     };
     let (current, _) = view_document(store, view)?;
-    let replaces_only_selection = matches!(
-        current.selection.selections.as_slice(),
-        [selection] if ordered(selection) == replaced
-    );
+    let replaces_only_selection =
+        ordered(&current.selection.selections[current.selection.primary]) == replaced;
     if !replaces_only_selection {
         return editing::compose_text(store, view, replaced, text);
     }

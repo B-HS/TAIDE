@@ -5668,12 +5668,32 @@ impl AppSurfaces<'_> {
                 }
                 let mut next = 0;
                 let mut edit_errors = Vec::new();
+                let text_resources = crate::editor_command_text::resources()?;
+                let compare = |left: &str, right: &str| text_resources.compare(left, right);
+                let syntax_lease =
+                    crate::editor_syntax::SyntaxLease::new(&mut *self.editor_syntax, document);
+                let language = crate::editor_syntax::language_rules(&snapshot.metadata.language_id)
+                    .map(
+                        |rules| taide_native_editor::language_configuration::Language {
+                            rules,
+                            syntax: &syntax_lease,
+                        },
+                    );
                 let edited = ui.is_enabled()
                     && crate::command_dispatch::apply_document_edits(
                         self.store,
                         view,
                         &tab.id,
-                        editor.indent_options(&snapshot),
+                        taide_native_editor::line_commands::LineCommandContext {
+                            indent: editor.indent_options(&snapshot),
+                            language,
+                            syntax: &syntax_lease,
+                            compare: Some(&compare),
+                            transforms: Some(&text_resources.transforms),
+                            word_rules: language
+                                .map(|language| language.rules)
+                                .or_else(|| crate::editor_syntax::language_rules("plaintext")),
+                        },
                         self.document_edits,
                         &mut edit_errors,
                     );
@@ -5689,15 +5709,6 @@ impl AppSurfaces<'_> {
                 let services = self.services;
                 let status = &mut *self.status;
                 let has_focused_shell = self.target.is_some();
-                let syntax_lease =
-                    crate::editor_syntax::SyntaxLease::new(&mut *self.editor_syntax, document);
-                let language = crate::editor_syntax::language_rules(&snapshot.metadata.language_id)
-                    .map(
-                        |rules| taide_native_editor::language_configuration::Language {
-                            rules,
-                            syntax: &syntax_lease,
-                        },
-                    );
                 let chevrons = &mut *self.explorer_icons;
                 let mut fold_control_error = None;
                 let mut paint_fold_control = |ui: &Ui, control: FoldControl| {

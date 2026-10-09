@@ -20,6 +20,8 @@ mod plugin_grammars;
 mod requested_languages;
 #[path = "style-scopes.rs"]
 mod style_scopes;
+#[path = "text-transforms.rs"]
+mod text_transforms;
 #[path = "textmate-tokenizer.rs"]
 mod textmate_tokenizer;
 #[path = "theme-settings.rs"]
@@ -47,6 +49,7 @@ pub use language_configuration::{
 pub use leading_trailing_debounce::{LeadingTrailingDebounce, THEME_REAPPLY_DEBOUNCE};
 pub use plugin_grammars::PluginGrammar;
 pub use requested_languages::{CORE_LANGUAGE_IDS, RequestedLanguages, is_bundled_language};
+pub use text_transforms::MonacoTextTransforms;
 pub use textmate_tokenizer::{GrammarSet, LanguageGrammar, TextmateTokenizer, TokenizerLimits};
 pub use theme_settings::{ThemeSetting, ThemeStyle};
 pub use token_pipeline::TokenPipeline;

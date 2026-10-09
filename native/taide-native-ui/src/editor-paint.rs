@@ -20,6 +20,8 @@ const SQUIGGLE_HEIGHT: f32 = 3.0;
 const SQUIGGLE_TROUGH_OFFSET: f32 = 1.75;
 const SQUIGGLE_CREST_OFFSET: f32 = 4.75;
 const SQUIGGLE_STROKE: f32 = 1.0;
+const SELECTION_ANCHOR_WIDTH: f32 = 2.0;
+const SELECTION_ANCHOR_COLOR: Color32 = Color32::from_rgb(0, 122, 204);
 
 pub(crate) fn color32([red, green, blue, alpha]: [u8; 4]) -> Color32 {
     Color32::from_rgba_unmultiplied(red, green, blue, alpha)
@@ -316,6 +318,18 @@ impl Layers<'_> {
         self.text_painter.line_segment(
             [preedit_rect.left_bottom(), preedit_rect.right_bottom()],
             Stroke::new(CURSOR_STROKE, self.appearance.cursor),
+        );
+    }
+
+    pub(crate) fn selection_anchor(&self, row: &Row, byte: usize) {
+        let caret = row.caret_rect(byte);
+        self.text_painter.rect_filled(
+            Rect::from_min_size(
+                caret.min,
+                vec2(SELECTION_ANCHOR_WIDTH, self.appearance.line_height),
+            ),
+            0.0,
+            SELECTION_ANCHOR_COLOR,
         );
     }
 

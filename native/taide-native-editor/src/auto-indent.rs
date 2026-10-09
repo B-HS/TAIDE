@@ -30,6 +30,7 @@ struct EnterContext {
 struct Inherited {
     indentation: String,
     indents: bool,
+    line: Option<usize>,
 }
 
 struct Lines<'a> {
@@ -67,6 +68,7 @@ impl Lines<'_> {
         Inherited {
             indentation: leading_whitespace(&self.content(line)).into(),
             indents,
+            line: Some(line),
         }
     }
 }
@@ -172,6 +174,7 @@ fn inherited_indent(
     let unindented = || Inherited {
         indentation: String::new(),
         indents: false,
+        line: None,
     };
     if (0..line).rev().all(|prior| lines.content(prior).is_empty()) {
         return Some(unindented());
@@ -222,6 +225,110 @@ fn decreases(rules: &dyn LanguageRules, text: &str) -> bool {
     rules
         .indent_metadata(text)
         .is_some_and(|metadata| metadata.decreases)
+}
+
+pub(crate) fn good_indent(
+    document: &DocumentSnapshot,
+    language: Language<'_>,
+    line: usize,
+    indent: IndentOptions,
+) -> Option<String> {
+    language.rules.indent_metadata("")?;
+    let lines = Lines {
+        document,
+        language,
+        replaced: None,
+    };
+    let inherited = inherited_indent(&lines, line, true)?;
+    let current_decreases = lines.metadata(line).decreases;
+    if let Some(origin) = inherited.line
+        && (origin..line.saturating_sub(1))
+            .all(|between| lines.content(between).chars().all(is_js_whitespace))
+        && let Some(action) = language.rules.enter_action("", &lines.content(origin), "")
+    {
+        let mut indentation_text = leading_whitespace(&lines.content(origin)).to_string();
+        if let Some(remove) = action.remove_text {
+            indentation_text.truncate(indentation_text.len().saturating_sub(remove));
+        }
+        indentation_text = match action.indent_action {
+            IndentAction::Indent | IndentAction::IndentOutdent => {
+                shifted(&indentation_text, indent)
+            }
+            IndentAction::Outdent => unshifted(&indentation_text, indent),
+            IndentAction::None => indentation_text,
+        };
+        if current_decreases {
+            indentation_text = unshifted(&indentation_text, indent);
+        }
+        indentation_text.push_str(action.append_text.as_deref().unwrap_or_default());
+        return Some(leading_whitespace(&indentation_text).into());
+    }
+    Some(match (inherited.indents, current_decreases) {
+        (true, false) => shifted(&inherited.indentation, indent),
+        (false, true) => unshifted(&inherited.indentation, indent),
+        _ => inherited.indentation,
+    })
+}
+
+pub(crate) fn enter_prefix(
+    document: &DocumentSnapshot,
+    language: Language<'_>,
+    line: usize,
+    indent: IndentOptions,
+) -> Option<String> {
+    let before = processed_line(document, language, line);
+    let previous = line
+        .checked_sub(1)
+        .map(|line| processed_line(document, language, line))
+        .unwrap_or_default();
+    let action = language.rules.enter_action(&previous, &before, "")?;
+    let mut prefix = leading_whitespace(&line_text(document, line).text).to_string();
+    if let Some(remove) = action.remove_text {
+        prefix.truncate(prefix.len().saturating_sub(remove));
+    }
+    if action.indent_action == IndentAction::Outdent {
+        prefix = unshifted(&prefix, indent);
+    }
+    let append = action.append_text.as_deref().unwrap_or("");
+    match action.indent_action {
+        IndentAction::Indent if append.is_empty() => prefix.push_str(INDENT_UNIT),
+        IndentAction::Indent => {
+            prefix.push_str(INDENT_UNIT);
+            prefix.push_str(append);
+        }
+        IndentAction::IndentOutdent => {}
+        _ => prefix.push_str(append),
+    }
+    Some(prefix)
+}
+
+pub(crate) fn extra_indent_spaces(
+    document: &DocumentSnapshot,
+    language: Language<'_>,
+    line: usize,
+    previous: usize,
+    size: usize,
+) -> Option<usize> {
+    let before = processed_line(document, language, line);
+    let prior = line
+        .checked_sub(1)
+        .map(|line| processed_line(document, language, line))
+        .unwrap_or_default();
+    let action = language.rules.enter_action(&prior, &before, "")?;
+    let append = if action.indent_action == IndentAction::Indent {
+        "\t"
+    } else {
+        action.append_text.as_deref().unwrap_or_default()
+    };
+    let spaces = append
+        .chars()
+        .take_while(|character| *character == ' ')
+        .count();
+    Some(
+        (previous + spaces)
+            .min(size)
+            .saturating_sub(action.remove_text.unwrap_or(0)),
+    )
 }
 
 fn indent_for_enter(

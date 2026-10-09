@@ -2,8 +2,12 @@
 pub mod auto_closing;
 #[path = "auto-indent.rs"]
 mod auto_indent;
+#[path = "bracket-navigation.rs"]
+pub mod bracket_navigation;
 #[path = "change-journal.rs"]
 pub mod change_journal;
+#[path = "cursor-commands.rs"]
+pub mod cursor_commands;
 pub mod decoration;
 #[path = "display-layout.rs"]
 pub mod display_layout;
@@ -19,6 +23,8 @@ pub mod language_configuration;
 pub mod language_typing;
 #[path = "line-breaks.rs"]
 pub mod line_breaks;
+#[path = "line-commands.rs"]
+pub mod line_commands;
 #[path = "line-tokens.rs"]
 pub mod line_tokens;
 pub mod lsp;

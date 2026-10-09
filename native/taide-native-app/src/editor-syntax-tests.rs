@@ -598,6 +598,10 @@ fn 입력_경로에_빌려주는_줄_토큰은_표준_종류를_알리고_따라
             }])
         );
         assert_eq!(syntax.tokens(&plain_snapshot, 1), Some(Vec::new()));
+        assert_eq!(
+            syntax.accurate_tokens(&plain_snapshot, 0),
+            syntax.tokens(&plain_snapshot, 0)
+        );
     }
     let lease = SyntaxLease::new(&mut harness.syntax, document);
     let syntax: &dyn LineSyntax = &lease;
@@ -608,6 +612,10 @@ fn 입력_경로에_빌려주는_줄_토큰은_표준_종류를_알리고_따라
     assert_eq!(kinds(RUST_COMMENT_LINE).last(), Some(&TokenKind::Comment));
     assert!(kinds(RUST_STRING_LINE).contains(&TokenKind::String));
     assert_eq!(kinds(RUST_EMPTY_LINE), []);
+    assert_eq!(
+        syntax.accurate_tokens(&snapshot, RUST_STRING_LINE),
+        syntax.tokens(&snapshot, RUST_STRING_LINE)
+    );
     assert_eq!(
         syntax.kind_if_inserting(&snapshot, RUST_COMMENT_LINE, inside_comment, '0'),
         TokenKind::Comment
@@ -622,6 +630,7 @@ fn 입력_경로에_빌려주는_줄_토큰은_표준_종류를_알리고_따라
     assert_eq!(syntax.tokens(&edited, 0), None);
     syntax.follow_edits(&store);
     assert!(syntax.tokens(&edited, 0).is_some());
+    assert_eq!(syntax.accurate_tokens(&edited, 0), None);
     assert_eq!(
         lease.frame_tokens(&store).unwrap().revision,
         edited.revision
