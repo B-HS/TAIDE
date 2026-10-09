@@ -29,6 +29,8 @@ pub mod diagnostics;
 mod editor_command_text;
 #[path = "editor-fonts.rs"]
 mod editor_fonts;
+#[path = "editor-problems.rs"]
+mod editor_problems;
 pub mod editor_reveal;
 #[path = "editor-syntax.rs"]
 pub mod editor_syntax;

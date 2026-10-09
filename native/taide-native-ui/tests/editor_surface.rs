@@ -4018,6 +4018,8 @@ fn show_decorated(
                         decorations: layers,
                         fold_commands: &[],
                         fold_controls: None,
+                        #[cfg(feature = "native-host")]
+                        problems: None,
                     },
                 )
                 .unwrap();
@@ -5356,6 +5358,8 @@ fn show_folding(
                         decorations: frame.decorations,
                         fold_commands: frame.commands,
                         fold_controls: Some(&mut record),
+                        #[cfg(feature = "native-host")]
+                        problems: None,
                     },
                 )
                 .unwrap();

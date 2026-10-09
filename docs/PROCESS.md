@@ -6,15 +6,15 @@
 
 기준: 사용자 전체 목표·기능 대응표의 editor-13/15/40과 현재 TS LSP marker·Monaco markerDecorations/markerNavigation/hover/overview ruler·native 진단/문서/장식/표시 줄/앱 경계입니다. 원본 버그/내부 수치 강제 재현·새 기능/디자인·정규식/구문 엔진 의존성 추가는 하지 않습니다. frozen remote-web·manifest/lock·실제 앱 데이터/OS 입력/clipboard/Keychain/Trash 보호를 유지합니다.
 
-- [ ] a. 실제 기준/공급 경계 — TS 진단 등록·severity/tag/범위·hover/탐색·overview/minimap/테마·대형/읽기 전용·수명 규칙과 installed Monaco/egui API, native 진단 수신/버전/좌표/문서/장식 경계를 읽고 QA에 구현 범위를 고정합니다.
-- [ ] b. 진단 공급과 수명 — 현재 앱 수신 데이터를 문서/프로젝트/언어/버전·LSP 좌표 경계에서 검증하고 실제 문서/revision 기반 표시 공급에 연결합니다. 늦은 응답/편집/닫힘/언어 변경·다중 뷰·잘못된 범위·비활성/대형의 의미 있는 실패를 먼저 재현해 바로잡습니다.
-- [ ] c. 진단 표시·메시지 — 원본 severity/tag·테마와 실제 글자/표시 줄에 밑줄/불필요·deprecated 표시 및 진단 메시지 hover를 연결합니다. wrap/접기/탭/Unicode/clip·focus/IME·다중 커서·토큰/장식/readonly의 수명을 보존합니다.
-- [ ] d. 문제 이동·앱/명령 — 실제 원본 다음/이전 문제·파일 간 이동/드러내기와 해당 기본 키/카탈로그 지원 gate를 registry/직렬 앱 경로에 연결합니다. 빈 목록/경계/닫힘/편집·포커스/입력 소유·읽기 전용을 검증합니다.
-- [ ] e. overview/미니맵 공급 — 실제 overview ruler의 lane/색/좌표/clip·스크롤bar 관계와 진단·찾기·near 괄호 공급을 연결합니다. 원본에 있는 장식만 공급하며 미구현 SCM·LSP 공급자는 별도 잔여로 보존합니다.
-- [ ] f. 회귀·통합 게이트 — 위험을 직접 덮는 문서/좌표·메모리 egui·앱 fake LSP 검사를 수행하고 변경 크레이트 전체 대상 --no-fail-fast를 1회 직접 실행합니다. 실패 영향만 재검사하며 보호 Trash 3 제외·ignored/실기 부채를 유지합니다. 패키지/JS 포맷·브라우저 host/Wasm 동결 컴파일·diff·디스크를 확인합니다.
+- [x] a. 실제 기준/공급 경계 — TS 진단 등록·severity/tag/범위·hover/탐색·overview/minimap/테마·대형/읽기 전용·수명 규칙과 installed Monaco/egui API, native 진단 수신/버전/좌표/문서/장식 경계를 읽고 QA에 구현 범위를 고정합니다.
+- [x] b. 진단 공급과 수명 — 기존 Reply revision gate를 유지하고 owner raw와 표시 MarkerSet을 분리했습니다. 같은 raw의 새 revision 재발행 누락을 실패 재현 후 수정했으며 편집 anchor·언어/문서/owner 폐기·잘못된 범위 보존/표시 제외·캐시 재사용 회귀가 통과했습니다. 실제 Monaco 범위 684표본과 core 3건, 앱 공급 4건이 통과했습니다. 표시 clip/readonly·대형 tier는 c/e/f에서 검증합니다.
+- [x] c. 진단 표시·메시지 — 원본 adapter가 실제 공급하는 severity/range/message/source/code를 본문 밑줄·Hint 점·선택 가능한 hover와 테마에 연결했습니다. 원본 adapter 미공급 tags/relatedInformation/codeDescription은 임의 표시하지 않습니다. wrap/접기/탭/Unicode/clip·hover 수명·편집 anchor·다중 뷰·readonly 회귀가 통과했습니다.
+- [x] d. 문제 이동·앱/명령 — 다음/이전·현재 파일/파일 간 네 명령과 F8/Alt+F8 계열을 registry/앱 공급에 연결했습니다. 메시지 view zone·입력 순서·닫힘·Space 해제·외부 입력창·IME/readonly·UTF-16/편집 anchor·늦은 요청/owner 폐기·보조 창 입력원과 현재 layout gate를 검증했습니다. 닫기/F8 순서·외부 reveal 높이·닫힌 대상 응답 적용 실패를 재현 후 수정했습니다. 앱 5건·명령 등록 8건이 통과했습니다.
+- [x] e. overview/미니맵 공급 — 실제 Right/Center lane과 6px 최소 높이·같은 색 병합·wrap/접기/view zone/DPR·clip에 진단·찾기·near 괄호를 공급했습니다. 빈 줄 미니맵 배경과 반투명 찾기 색의 실패를 재현 후 수정했습니다. 표시 43건·찾기 15건·미니맵 17건이 통과했으며 SCM/나머지 LSP 공급자는 별도 잔여로 보존합니다.
+- [x] f. 회귀·통합 게이트 — 변경 editor/UI inspection/app 전체 116대상을 직접 --no-fail-fast로 실행했습니다. editor 198·UI 서로 다른 355·app 620, 합계 1173건과 실패 영향 재검사가 통과했습니다. 전체 UI 뒤 추가한 같은 범위 hover 중복은 실패 재현 후 표시 44건을 재검사했습니다. 보호 Trash 3 제외·editor ignored 1/변경 없는 syntax 3·SDK 문서 1/실기 부채 유지, Cargo 직렬·브라우저 host/Wasm·포맷·동결/diff exit 0, 디스크 695GiB·63%입니다.
 - [ ] g. 기록·기능표·선별 Git·계속 진행 — 실제 구현/검증이 닫힌 요구사항만 현재 JSON/표/완료 근거/QA와 체크리스트를 갱신합니다. 검증한 논리 단위를 선별 커밋·일반 푸시하고 다음 필수 구현 체크리스트로 전체 전환을 계속합니다.
 
-진척: 배치 15 체크리스트 0/7 완료(0%)이며 현재 기능 대응표 기준 272/588(46.3%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. 다음 행동은 TS marker 공급/Monaco 표시·탐색/테마와 native 진단·장식 경계를 대조하는 것입니다.
+진척: 배치 15 체크리스트 6/7 완료(85.7%)이며 현재 기능 대응표 기준 272/588(46.3%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. 전체 116대상·서로 다른 1173건과 실패 영향 재검사·브라우저 host/Wasm·포맷·동결/diff가 통과했습니다. 보호 3·ignored/실기 부채와 디스크 695GiB·63%를 보존하며 결과 기록/선별 Git과 다음 구현 체크리스트를 진행합니다.
 
 ## 완료: 배치 14 — 전체 기능 대응표 재감사 (2026-10-09)
 

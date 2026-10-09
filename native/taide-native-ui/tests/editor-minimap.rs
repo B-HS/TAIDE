@@ -43,6 +43,7 @@ struct Fixture {
     screen: Vec2,
     max_texture_side: Option<usize>,
     foreign: Option<String>,
+    decorations: Vec<taide_native_editor::decoration::DecorationLayer>,
 }
 
 impl Fixture {
@@ -108,6 +109,7 @@ impl Fixture {
             screen: SCREEN,
             max_texture_side: None,
             foreign: None,
+            decorations: Vec::new(),
             presentation: EditorPresentation {
                 options: EditorDisplayOptions {
                     minimap: true,
@@ -168,9 +170,11 @@ impl Fixture {
                                     })
                             },
                             language: None,
-                            decorations: &[],
+                            decorations: &self.decorations.iter().collect::<Vec<_>>(),
                             fold_commands: &[],
                             fold_controls: None,
+                            #[cfg(feature = "native-host")]
+                            problems: None,
                         },
                     )
                     .unwrap();
@@ -780,4 +784,89 @@ fn 접기와_줄바꿈은_실제_표시_줄과_함께_축소_이미지를_갱신
     assert!(folded.geometry.visible_rows.end < wrapped.geometry.visible_rows.end);
     assert_ne!(folded.images[0], wrapped.images[0]);
     assert!(fixture.show(0.4, Vec::new()).images.is_empty());
+}
+
+#[test]
+fn 빈줄_진단과_찾기는_미니맵_행_배경을_표시하고_hint와_readonly는_진단을_제외한다() {
+    use taide_native_editor::decoration::{
+        Decoration, DecorationKind, DecorationLayer, OverviewLane, Stickiness,
+    };
+    use taide_native_editor::diagnostics::{Marker, MarkerSet, Message, Severity};
+    const ERROR: Color32 = Color32::from_rgb(189, 17, 141);
+    const FIND: Color32 = Color32::from_rgb(17, 189, 141);
+    for (read_only, severity, expected) in [
+        (false, Severity::Error, 1),
+        (true, Severity::Error, 0),
+        (false, Severity::Hint, 0),
+    ] {
+        let mut fixture = Fixture::admitted("a\n\nend", FileSizeTier::Normal, read_only);
+        let document = fixture
+            .store
+            .documents()
+            .snapshot(fixture.store.views().get(fixture.view).unwrap().document)
+            .unwrap();
+        fixture.presentation.options.overview_colors =
+            Some(taide_native_ui::editor_overview::OverviewColors {
+                error: ERROR,
+                warning: Color32::YELLOW,
+                information: Color32::BLUE,
+                find: FIND,
+                minimap_find: FIND,
+                bracket: Color32::GRAY,
+                border: Color32::TRANSPARENT,
+            });
+        fixture.presentation.options.diagnostics = Some(Arc::new(
+            MarkerSet::new(
+                &document,
+                vec![Marker {
+                    bytes: 2..2,
+                    message: Arc::new(Message {
+                        severity,
+                        text: "empty line".into(),
+                        source: None,
+                        code: None,
+                    }),
+                }],
+            )
+            .unwrap(),
+        ));
+        fixture.decorations.push(DecorationLayer::new(
+            document.revision,
+            0,
+            vec![Decoration {
+                bytes: 0..1,
+                kind: DecorationKind::Overview {
+                    lane: OverviewLane::Center,
+                    color: FIND.to_srgba_unmultiplied(),
+                    minimap: Some(FIND.to_srgba_unmultiplied()),
+                },
+                stickiness: Stickiness::NeverGrowsWhenTypingAtEdges,
+            }],
+        ));
+        let shown = fixture.warm();
+        let minimap = shown.geometry.minimap_rect.unwrap();
+        let background_rects = |color: Color32| {
+            shown
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    egui::epaint::Shape::Rect(rect)
+                        if rect.fill == color.gamma_multiply(0.45)
+                            && shape.clip_rect == minimap =>
+                    {
+                        Some(rect.rect)
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let errors = background_rects(ERROR);
+        assert_eq!(errors.len(), expected);
+        if let Some(rect) = errors.first() {
+            assert!((rect.top() - minimap.top() - 2.0).abs() < EPSILON);
+            assert!((rect.left() - minimap.left() - MINIMAP_GUTTER as f32).abs() < EPSILON);
+            assert_eq!(rect.right(), minimap.right());
+        }
+        assert_eq!(background_rects(FIND).len(), 1);
+    }
 }

@@ -11,6 +11,7 @@ pub mod change_journal;
 #[path = "cursor-commands.rs"]
 pub mod cursor_commands;
 pub mod decoration;
+pub mod diagnostics;
 #[path = "display-layout.rs"]
 pub mod display_layout;
 #[path = "display-map.rs"]
@@ -33,6 +34,8 @@ pub mod line_commands;
 #[path = "line-tokens.rs"]
 pub mod line_tokens;
 pub mod lsp;
+#[path = "problem-navigation.rs"]
+pub mod problem_navigation;
 pub mod save_cleanup;
 #[path = "save-preparation.rs"]
 pub mod save_preparation;

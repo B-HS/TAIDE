@@ -30,10 +30,26 @@ pub enum LaneMark {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverviewLane {
+    Left,
+    Center,
+    Right,
+    Full,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DecorationKind {
     Inline(InlineStyle),
     LineBackground([u8; 4]),
-    Lane { mark: LaneMark, color: [u8; 4] },
+    Lane {
+        mark: LaneMark,
+        color: [u8; 4],
+    },
+    Overview {
+        lane: OverviewLane,
+        color: [u8; 4],
+        minimap: Option<[u8; 4]>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

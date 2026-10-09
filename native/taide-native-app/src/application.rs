@@ -159,12 +159,16 @@ pub struct NativeApplication {
     presentation_system_language: String,
     editor: NativeEditor,
     editor_find: HashMap<ViewId, taide_native_ui::editor_find::EditorFind>,
+    editor_problems: crate::editor_problems::State,
     find_history: taide_native_ui::editor_find_widget::FindHistory,
     find_appearance: taide_native_ui::editor_find_widget::FindAppearance,
     editor_display_colors: taide_native_ui::editor_display::EditorDisplayColors,
     editor_bracket_colors: taide_native_ui::editor_brackets::EditorBracketColors,
     editor_sticky_colors: taide_native_ui::editor_sticky_scroll::EditorStickyColors,
     editor_minimap_colors: taide_native_ui::editor_minimap::EditorMinimapColors,
+    editor_diagnostic_colors: taide_native_ui::editor_diagnostics::DiagnosticColors,
+    editor_overview_colors: taide_native_ui::editor_overview::OverviewColors,
+    editor_problem_colors: taide_native_ui::editor_problems::Colors,
     editor_sticky_scroll: taide_native_ui::editor_sticky_scroll::StickySetting,
     editor_syntax: crate::editor_syntax::EditorSyntax,
     editor_keymap_targets: HashMap<(egui::ViewportId, egui::Id), (ViewId, u64)>,
@@ -448,12 +452,16 @@ impl NativeApplication {
             presentation_system_language: system_language,
             editor,
             editor_find: HashMap::new(),
+            editor_problems: crate::editor_problems::State::default(),
             find_history: Default::default(),
             find_appearance: appearances.find,
             editor_display_colors: appearances.editor_display,
             editor_bracket_colors: appearances.editor_brackets,
             editor_sticky_colors: appearances.editor_sticky,
             editor_minimap_colors: appearances.editor_minimap,
+            editor_diagnostic_colors: appearances.editor_diagnostics,
+            editor_overview_colors: appearances.editor_overview,
+            editor_problem_colors: appearances.editor_problems,
             editor_sticky_scroll,
             editor_syntax,
             editor_keymap_targets: HashMap::new(),
@@ -649,6 +657,10 @@ impl NativeApplication {
                                         self.editor_bracket_colors = appearances.editor_brackets;
                                         self.editor_sticky_colors = appearances.editor_sticky;
                                         self.editor_minimap_colors = appearances.editor_minimap;
+                                        self.editor_diagnostic_colors =
+                                            appearances.editor_diagnostics;
+                                        self.editor_overview_colors = appearances.editor_overview;
+                                        self.editor_problem_colors = appearances.editor_problems;
                                         self.banner_appearance = appearances.banner;
                                         self.lsp_status_appearance = appearances.lsp_status;
                                         self.status_editor_appearance = appearances.status_editor;
@@ -713,6 +725,45 @@ impl NativeApplication {
                                 context.request_repaint_after(crate::editor_reveal::REVEAL_TTL);
                             }
                             Err(error) => self.report(&error),
+                        }
+                    }
+                }
+                HostReply::MarkerOpened { request, result } => {
+                    if self.closing.is_none()
+                        && !self.services.state.is_shutting_down()
+                        && self.editor_problems.accepts(&request, &self.store)
+                    {
+                        match result {
+                            Ok(opened)
+                                if crate::editor_problems::reply_is_current(
+                                    &opened,
+                                    &self.services.state.layouts.read(),
+                                ) =>
+                            {
+                                match self.editor_problems.opened(
+                                    &request,
+                                    &opened,
+                                    &mut self.store,
+                                    &self.lsp_diagnostics,
+                                ) {
+                                    Ok(true) => {
+                                        self.controller.apply_layouts(HashMap::from([(
+                                            opened.project,
+                                            opened.layout,
+                                        )]));
+                                        context.request_repaint();
+                                    }
+                                    Ok(false) => {}
+                                    Err(error) => {
+                                        self.status = Some(editor_error(error).to_string())
+                                    }
+                                }
+                            }
+                            Ok(_) => self.editor_problems.failed(&request),
+                            Err(error) => {
+                                self.editor_problems.failed(&request);
+                                self.report(&error);
+                            }
                         }
                     }
                 }
@@ -3635,6 +3686,9 @@ impl NativeApplication {
                 self.editor_bracket_colors = appearances.editor_brackets;
                 self.editor_sticky_colors = appearances.editor_sticky;
                 self.editor_minimap_colors = appearances.editor_minimap;
+                self.editor_diagnostic_colors = appearances.editor_diagnostics;
+                self.editor_overview_colors = appearances.editor_overview;
+                self.editor_problem_colors = appearances.editor_problems;
                 self.banner_appearance = appearances.banner;
                 self.lsp_status_appearance = appearances.lsp_status;
                 self.status_editor_appearance = appearances.status_editor;
@@ -4007,6 +4061,7 @@ impl eframe::App for NativeApplication {
         let mut document_edits = std::mem::take(&mut self.document_edits);
         self.editor_find
             .retain(|view, _| self.store.views().get(*view).is_some());
+        self.editor_problems.retain(&self.store);
         let mut fold_commands = std::mem::take(&mut self.fold_commands);
         let mut command_errors = Vec::new();
         let mut commands = Vec::new();
@@ -4138,12 +4193,16 @@ impl eframe::App for NativeApplication {
             store: &mut self.store,
             editor: &self.editor,
             editor_find: &mut self.editor_find,
+            editor_problems: &mut self.editor_problems,
             find_history: &mut self.find_history,
             find_appearance: &self.find_appearance,
             editor_display_colors: self.editor_display_colors,
             editor_bracket_colors: self.editor_bracket_colors,
             editor_sticky_colors: self.editor_sticky_colors,
             editor_minimap_colors: self.editor_minimap_colors,
+            editor_diagnostic_colors: self.editor_diagnostic_colors,
+            editor_overview_colors: self.editor_overview_colors,
+            editor_problem_colors: self.editor_problem_colors,
             editor_sticky_scroll: self.editor_sticky_scroll.synchronize(
                 self.services
                     .state
@@ -4938,12 +4997,16 @@ struct AppSurfaces<'a> {
     store: &'a mut EditorStore,
     editor: &'a NativeEditor,
     editor_find: &'a mut HashMap<ViewId, taide_native_ui::editor_find::EditorFind>,
+    editor_problems: &'a mut crate::editor_problems::State,
     find_history: &'a mut taide_native_ui::editor_find_widget::FindHistory,
     find_appearance: &'a taide_native_ui::editor_find_widget::FindAppearance,
     editor_display_colors: taide_native_ui::editor_display::EditorDisplayColors,
     editor_bracket_colors: taide_native_ui::editor_brackets::EditorBracketColors,
     editor_sticky_colors: taide_native_ui::editor_sticky_scroll::EditorStickyColors,
     editor_minimap_colors: taide_native_ui::editor_minimap::EditorMinimapColors,
+    editor_diagnostic_colors: taide_native_ui::editor_diagnostics::DiagnosticColors,
+    editor_overview_colors: taide_native_ui::editor_overview::OverviewColors,
+    editor_problem_colors: taide_native_ui::editor_problems::Colors,
     editor_sticky_scroll: bool,
     editor_syntax: &'a mut crate::editor_syntax::EditorSyntax,
     banner_appearance: &'a BannerAppearance,
@@ -5713,6 +5776,9 @@ impl AppSurfaces<'_> {
                 editor_presentation.options.bracket_colors = Some(self.editor_bracket_colors);
                 editor_presentation.options.sticky_colors = Some(self.editor_sticky_colors);
                 editor_presentation.options.minimap_colors = Some(self.editor_minimap_colors);
+                editor_presentation.options.diagnostic_colors = Some(self.editor_diagnostic_colors);
+                editor_presentation.options.overview_colors = Some(self.editor_overview_colors);
+                editor_presentation.options.problem_colors = Some(self.editor_problem_colors);
                 editor_presentation.options.sticky_scroll = self.editor_sticky_scroll;
                 editor_presentation.options.sticky_toggle_label = Some(presentation::message(self.locale, "settings.editorStickyScroll", &[]));
                 drop(settings);
@@ -5742,6 +5808,18 @@ impl AppSurfaces<'_> {
                     focus = true;
                 }
                 let mut next = 0;
+                let mut problem_provider = crate::editor_problems::Provider {
+                    state: &mut *self.editor_problems, diagnostics: self.diagnostics,
+                    project: self.layouts.iter().find(|(_, layout)| taide_layout::service::all_roots(layout).any(|root| taide_layout::service::find_leaf(root, pane).is_some())).map(|(project, _)| project.clone()),
+                    commands: &mut *self.commands, viewport: ui.ctx().viewport_id(),
+                };
+                if ui.is_enabled() {
+                    for (_, edit) in self.document_edits.extract_if(.., |(owner, edit)| owner == &tab.id && matches!(edit, DocumentEdit::Problem(_))) {
+                        if let DocumentEdit::Problem(command) = edit && let Err(error) = taide_native_ui::editor_problems::Provider::execute(&mut problem_provider, self.store, view, command) {
+                            *self.status = Some(editor_error(error).to_string());
+                        }
+                    }
+                }
                 let mut edit_errors = Vec::new();
                 let text_resources = crate::editor_command_text::resources()?;
                 let compare = |left: &str, right: &str| text_resources.compare(left, right);
@@ -5812,7 +5890,9 @@ impl AppSurfaces<'_> {
                 if find_output.reserved_height > 0.0 { ui.allocate_space(egui::vec2(ui.available_width(), find_output.reserved_height)); }
                 let find_decorations = find.decorations(&self.store.views().get(view).ok_or_else(|| editor_error(taide_native_editor::document::EditorError::NotFound))?.selection,
                     self.find_appearance.highlight.to_array(), self.find_appearance.current_match.to_array(), self.find_appearance.scope.to_array());
-                let find_layers = find_decorations.iter().collect::<Vec<_>>();
+                let scroll_decorations = find.scroll_decorations(self.editor_overview_colors);
+                let find_layers = find_decorations.iter().chain(scroll_decorations.iter()).collect::<Vec<_>>();
+                editor_presentation.options.diagnostics = self.diagnostics.display(self.store, &self.store.documents().snapshot(document).map_err(editor_error)?);
                 let fold_commands = if ui.is_enabled() {
                     crate::command_dispatch::take_fold_commands(&tab.id, self.fold_commands)
                 } else {
@@ -5893,6 +5973,7 @@ impl AppSurfaces<'_> {
                             decorations: &find_layers,
                             fold_commands: &fold_commands,
                             fold_controls: Some(&mut paint_fold_control),
+                            problems: Some(&mut problem_provider),
                         },
                     )
                     .map_err(editor_error)?;

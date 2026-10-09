@@ -132,6 +132,14 @@ pub struct EditorDisplayOptions {
     pub sticky_toggle_label: Option<String>,
     #[cfg(feature = "native-host")]
     pub minimap_colors: Option<crate::editor_minimap::EditorMinimapColors>,
+    #[cfg(feature = "native-host")]
+    pub diagnostic_colors: Option<crate::editor_diagnostics::DiagnosticColors>,
+    #[cfg(feature = "native-host")]
+    pub diagnostics: Option<Arc<taide_native_editor::diagnostics::MarkerSet>>,
+    #[cfg(feature = "native-host")]
+    pub overview_colors: Option<crate::editor_overview::OverviewColors>,
+    #[cfg(feature = "native-host")]
+    pub problem_colors: Option<crate::editor_problems::Colors>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -171,6 +179,26 @@ pub struct EditorRequest<'a, Keymap, Route, Tokens> {
     pub decorations: &'a [&'a DecorationLayer],
     pub fold_commands: &'a [FoldCommand],
     pub fold_controls: Option<&'a mut FoldControlPainter<'a>>,
+    #[cfg(feature = "native-host")]
+    pub problems: Option<&'a mut dyn crate::editor_problems::Provider>,
+}
+
+#[cfg(feature = "native-host")]
+fn execute_problem_shortcut(
+    problems: &mut Option<&mut dyn crate::editor_problems::Provider>,
+    store: &mut EditorStore,
+    view: ViewId,
+    event: &Event,
+    composing: bool,
+) -> Result<bool, EditorError> {
+    let Some(provider) = problems.as_deref_mut() else {
+        return Ok(false);
+    };
+    let visible = provider.current(store, view).is_some();
+    let Some(command) = crate::editor_problems::shortcut(event, composing, visible) else {
+        return Ok(false);
+    };
+    provider.execute(store, view, command)
 }
 
 fn tracked_layers<'a>(
@@ -212,6 +240,8 @@ struct ScrollbarDrag {
 struct RenderedViewport {
     scroll_top: f32,
     line_height: f32,
+    #[cfg(feature = "native-host")]
+    problem_zone: Option<(usize, f32)>,
 }
 
 #[derive(Clone)]
@@ -235,6 +265,8 @@ struct InputState {
     minimap: crate::editor_minimap::MinimapState,
     #[cfg(feature = "native-host")]
     sticky: crate::editor_sticky_scroll::StickyState,
+    #[cfg(feature = "native-host")]
+    problems: crate::editor_problems::State,
     #[cfg(feature = "native-host")]
     caret: crate::editor_caret::CaretState,
     #[cfg(feature = "native-host")]
@@ -418,6 +450,8 @@ struct Projection<'a> {
     cached: Option<Arc<DisplayMap>>,
     rendered_viewport: Option<RenderedViewport>,
     stable_scroll_top: Option<f32>,
+    #[cfg(feature = "native-host")]
+    problem_zone: Option<(usize, f32)>,
 }
 
 impl Projection<'_> {
@@ -430,6 +464,12 @@ impl Projection<'_> {
         document: &DocumentSnapshot,
         folds: &[Range<usize>],
     ) -> (&DisplayMap, Option<f32>) {
+        #[cfg(feature = "native-host")]
+        let zone_changed = self
+            .rendered_viewport
+            .is_some_and(|rendered| rendered.problem_zone != self.problem_zone);
+        #[cfg(not(feature = "native-host"))]
+        let zone_changed = false;
         let wrap = self.wrap_tab_size.map(|tab_size| {
             let gutter = Gutter::measure(
                 &self.painter,
@@ -455,7 +495,9 @@ impl Projection<'_> {
             .as_ref()
             .filter(|stale| {
                 stale.revision() == document.revision
-                    && (stale.wrap_settings() != wrap.as_ref() || stale.hidden_lines() != hidden)
+                    && (stale.wrap_settings() != wrap.as_ref()
+                        || stale.hidden_lines() != hidden
+                        || zone_changed)
             })
             .zip(
                 self.rendered_viewport
@@ -463,6 +505,16 @@ impl Projection<'_> {
             )
             .map(|(stale, rendered)| {
                 let layout = VerticalLayout::new(rendered.line_height, stale.row_count());
+                #[cfg(feature = "native-host")]
+                let layout = rendered.problem_zone.map_or_else(
+                    || layout.clone(),
+                    |(position, height)| {
+                        layout.clone().with_zone(
+                            stale.row_of_byte(document, position.min(document.rope.len_bytes())),
+                            height,
+                        )
+                    },
+                );
                 let row = layout.row_at(rendered.scroll_top);
                 (
                     stale.segment(document, row).bytes.start,
@@ -483,6 +535,16 @@ impl Projection<'_> {
                 .is_none()
         {
             let layout = VerticalLayout::new(self.appearance.line_height, map.row_count());
+            #[cfg(feature = "native-host")]
+            let layout = self.problem_zone.map_or_else(
+                || layout.clone(),
+                |(position, height)| {
+                    layout.clone().with_zone(
+                        map.row_of_byte(document, position.min(document.rope.len_bytes())),
+                        height,
+                    )
+                },
+            );
             self.stable_scroll_top = Some(layout.row_top(map.row_of_byte(document, byte)) + delta);
         }
         (map, self.stable_scroll_top)
@@ -729,6 +791,17 @@ impl NativeEditor {
             .clone();
         let document = store.documents().snapshot(current.document)?;
         let tab_size = self.indent_options(&document).tab_size;
+        #[cfg(feature = "native-host")]
+        let problem_zone = ui
+            .ctx()
+            .data(|data| {
+                data.get_temp::<InputState>(ui.make_persistent_id(("native-code-editor", view)))
+            })
+            .and_then(|input| {
+                input
+                    .problems
+                    .zone(store, &document, appearance.line_height, rect.height())
+            });
         let mut projection = Projection {
             painter: ui.painter().clone(),
             appearance,
@@ -738,9 +811,20 @@ impl NativeEditor {
             cached,
             rendered_viewport: None,
             stable_scroll_top: None,
+            #[cfg(feature = "native-host")]
+            problem_zone,
         };
         let display = projection.map(&document, &current.folds);
         let layout = VerticalLayout::new(appearance.line_height, display.row_count());
+        #[cfg(feature = "native-host")]
+        let layout = problem_zone.map_or_else(
+            || layout.clone(),
+            |(position, height)| {
+                layout
+                    .clone()
+                    .with_zone(display.row_of_byte(&document, position), height)
+            },
+        );
         let index = display.row_of_byte(&document, byte);
         let row = RowLayout {
             painter: ui.painter(),
@@ -888,6 +972,8 @@ impl NativeEditor {
                 decorations: &[],
                 fold_commands: &[],
                 fold_controls: None,
+                #[cfg(feature = "native-host")]
+                problems: None,
             },
         )
     }
@@ -914,6 +1000,8 @@ impl NativeEditor {
             decorations,
             fold_commands,
             mut fold_controls,
+            #[cfg(feature = "native-host")]
+            mut problems,
         } = request;
         let appearance = &self.appearance;
         if !appearance.line_height.is_finite()
@@ -944,7 +1032,11 @@ impl NativeEditor {
         let minimap_width = minimap_dimensions.map_or(0.0, |dimensions| dimensions.width as f32);
         #[cfg(not(feature = "native-host"))]
         let minimap_width = 0.0;
-        let editor_right = if minimap_width > 0.0 {
+        #[cfg(feature = "native-host")]
+        let has_overview = presentation.options.overview_colors.is_some();
+        #[cfg(not(feature = "native-host"))]
+        let has_overview = false;
+        let editor_right = if minimap_width > 0.0 || has_overview {
             (rect.right() - minimap_width - VERTICAL_SCROLLBAR_SIZE).max(rect.left())
         } else {
             rect.right()
@@ -970,10 +1062,46 @@ impl NativeEditor {
             .ctx()
             .data_mut(|data| data.get_temp::<InputState>(id).unwrap_or_default());
         #[cfg(feature = "native-host")]
+        if !ui.is_enabled() {
+            input_state.problems.detach();
+        }
+        #[cfg(feature = "native-host")]
         let external_scroll = input_state
             .scroll
             .begin(previous.id, vec2(current.scroll.x, current.scroll.y));
         let mut output = InputOutput::default();
+        #[cfg(feature = "native-host")]
+        let initial_problem = problems
+            .as_deref_mut()
+            .and_then(|provider| provider.current(store, view))
+            .filter(|_| presentation.options.problem_colors.is_some());
+        #[cfg(feature = "native-host")]
+        let problem_ids = input_state.problems.focus_ids();
+        #[cfg(feature = "native-host")]
+        let problem_routes = problem_ids
+            .iter()
+            .map(|id| ui.ctx().keyboard_input_route(*id))
+            .collect::<Vec<_>>();
+        #[cfg(feature = "native-host")]
+        let problem_start = problem_ids
+            .iter()
+            .position(|id| Some(*id) == ui.ctx().keyboard_focus_before_events());
+        #[cfg(feature = "native-host")]
+        let initial_scene = initial_problem
+            .as_ref()
+            .map(|widget| crate::editor_problems::Scene {
+                document: previous.clone(),
+                widget: widget.clone(),
+                rect,
+                scroll: vec2(current.scroll.x, current.scroll.y),
+                line_height: appearance.line_height,
+                word_wrap: presentation.options.word_wrap,
+                folds: current.folds.clone(),
+            });
+        #[cfg(feature = "native-host")]
+        let problem_valid = input_state.problems.prepare(initial_scene.as_ref());
+        #[cfg(feature = "native-host")]
+        let mut problem_released = !problem_valid && problem_start.is_some();
         let os = ui.ctx().os();
         let indent = self.indent_options(&previous);
         input_state.auto_closed.follow(store, view)?;
@@ -999,6 +1127,13 @@ impl NativeEditor {
                     .rendered_viewport
                     .filter(|rendered| rendered.scroll_top == current.scroll.y),
                 stable_scroll_top: None,
+                #[cfg(feature = "native-host")]
+                problem_zone: initial_problem.as_ref().map(|widget| {
+                    (
+                        widget.position,
+                        widget.height(appearance.line_height, rect.height()),
+                    )
+                }),
             },
         };
         #[cfg(feature = "native-host")]
@@ -1052,7 +1187,24 @@ impl NativeEditor {
         }
         #[cfg(not(feature = "native-host"))]
         let sticky_owned = false;
-        if (response.has_focus() || has_owned_input || sticky_owned) && ui.is_enabled() {
+        #[cfg(feature = "native-host")]
+        let event_count = ui.input(|input| input.raw.events.len());
+        #[cfg(feature = "native-host")]
+        let problem_owned = problem_start.is_some()
+            || problem_routes
+                .iter()
+                .flatten()
+                .any(|route| route.0.iter().any(|(owned, _)| *owned == Some(true)))
+            || (0..event_count).any(|index| {
+                ui.ctx()
+                    .pointer_focus_preserving_trigger_at(index)
+                    .is_some_and(|id| problem_ids.contains(&id))
+            });
+        #[cfg(not(feature = "native-host"))]
+        let problem_owned = false;
+        if (response.has_focus() || has_owned_input || sticky_owned || problem_owned)
+            && ui.is_enabled()
+        {
             ui.memory_mut(|memory| {
                 memory.set_focus_lock_filter(
                     id,
@@ -1084,7 +1236,19 @@ impl NativeEditor {
                     let ours = request.is_some_and(|node| {
                         node == id.accesskit_id()
                             || sticky_ids.iter().any(|id| node == id.accesskit_id())
-                    });
+                            || problem_ids.iter().any(|id| node == id.accesskit_id())
+                    }) || ui
+                        .ctx()
+                        .pointer_focus_preserving_trigger_at(raw_index)
+                        .is_some_and(|id| problem_ids.contains(&id));
+                    if !ours
+                        && (request.is_some()
+                            || matches!(&event, Event::PointerButton { pos, pressed: true, .. } if !rect.contains(*pos))
+                            || matches!(&event, Event::WindowFocused(false)))
+                    {
+                        problem_released = false;
+                        input_state.problems.detach();
+                    }
                     if !sticky_ids.is_empty() && ours {
                         sticky_detached = false;
                     } else if !sticky_ids.is_empty()
@@ -1115,7 +1279,52 @@ impl NativeEditor {
                         )?;
                         continue;
                     }
+                    if matches!(event, Event::PointerButton { .. }) {
+                        let document = store.documents().snapshot(
+                            store
+                                .views()
+                                .get(view)
+                                .ok_or(EditorError::NotFound)?
+                                .document,
+                        )?;
+                        if !input_state.problems.describes(&document)
+                            || problems
+                                .as_deref_mut()
+                                .and_then(|provider| provider.current(store, view))
+                                .is_none()
+                        {
+                            input_state.problems.clear();
+                        }
+                    }
+                    if let Some(command) = input_state.problems.pointer(ui.ctx(), &event, raw_index)
+                        && let Some(provider) = problems.as_deref_mut()
+                    {
+                        provider.execute(store, view, command)?;
+                        input_state.problems.clear();
+                        last_editor_event = Some(raw_index);
+                        problem_released = true;
+                        response.request_focus();
+                        continue;
+                    }
                 }
+                #[cfg(feature = "native-host")]
+                let problem_owner = problem_routes
+                    .iter()
+                    .position(|route| {
+                        route.as_ref().is_some_and(|route| {
+                            route
+                                .0
+                                .get(index)
+                                .is_some_and(|(owned, _)| *owned == Some(true))
+                        })
+                    })
+                    .or_else(|| {
+                        (owned.is_none() && problem_routes.iter().all(Option::is_none))
+                            .then_some(problem_start)
+                            .flatten()
+                    });
+                #[cfg(not(feature = "native-host"))]
+                let problem_owner: Option<usize> = None;
                 #[cfg(feature = "native-host")]
                 let sticky_owner = sticky_routes
                     .iter()
@@ -1135,10 +1344,14 @@ impl NativeEditor {
                 #[cfg(not(feature = "native-host"))]
                 let sticky_owner: Option<usize> = None;
                 #[cfg(feature = "native-host")]
-                let fallback_focus = !sticky_detached && response.has_focus();
+                let fallback_focus = problem_released || !sticky_detached && response.has_focus();
                 #[cfg(not(feature = "native-host"))]
                 let fallback_focus = response.has_focus();
-                if !owned.unwrap_or(fallback_focus) && sticky_owner.is_none() {
+                #[cfg(feature = "native-host")]
+                let owns_body = problem_released || owned.unwrap_or(fallback_focus);
+                #[cfg(not(feature = "native-host"))]
+                let owns_body = owned.unwrap_or(fallback_focus);
+                if !owns_body && sticky_owner.is_none() && problem_owner.is_none() {
                     remaining.push(event);
                     continue;
                 }
@@ -1146,6 +1359,45 @@ impl NativeEditor {
                     .views()
                     .get(view)
                     .is_some_and(|view| view.composition.is_some());
+                #[cfg(feature = "native-host")]
+                if let Some(index) = problem_owner.filter(|_| !problem_released) {
+                    if keymap(ui, &event, composing) {
+                        continue;
+                    }
+                    let command = (!composing)
+                        .then(|| input_state.problems.key(&event, problem_ids[index]))
+                        .flatten();
+                    if let Some(command) = command
+                        && let Some(provider) = problems.as_deref_mut()
+                    {
+                        provider.execute(store, view, command)?;
+                        input_state.problems.clear();
+                        last_editor_event = Some(raw_index);
+                        problem_released = true;
+                        response.request_focus();
+                        continue;
+                    }
+                    if execute_problem_shortcut(&mut problems, store, view, &event, composing)? {
+                        last_editor_event = Some(raw_index);
+                        problem_released = true;
+                        response.request_focus();
+                        continue;
+                    }
+                    if matches!(
+                        event,
+                        Event::Text(_)
+                            | Event::Paste(_)
+                            | Event::Ime(_)
+                            | Event::Key {
+                                key: Key::Space | Key::Enter,
+                                ..
+                            }
+                    ) {
+                        continue;
+                    }
+                    remaining.push(event);
+                    continue;
+                }
                 #[cfg(feature = "native-host")]
                 if let Some(index) = sticky_owner.filter(|_| !sticky_released) {
                     let index = sticky_navigation.unwrap_or(index);
@@ -1168,6 +1420,12 @@ impl NativeEditor {
                     if keymap(ui, &event, composing) {
                         continue;
                     }
+                    if execute_problem_shortcut(&mut problems, store, view, &event, composing)? {
+                        last_editor_event = Some(raw_index);
+                        sticky_released = true;
+                        response.request_focus();
+                        continue;
+                    }
                     if matches!(event, Event::Text(_) | Event::Paste(_) | Event::Ime(_)) {
                         continue;
                     }
@@ -1179,6 +1437,12 @@ impl NativeEditor {
                     {
                         last_editor_event = Some(raw_index);
                     }
+                    continue;
+                }
+                #[cfg(feature = "native-host")]
+                if execute_problem_shortcut(&mut problems, store, view, &event, composing)? {
+                    last_editor_event = Some(raw_index);
+                    response.request_focus();
                     continue;
                 }
                 if let Some(language) = language {
@@ -1206,7 +1470,7 @@ impl NativeEditor {
             ui.input_mut(|input| input.events = remaining);
         }
         #[cfg(feature = "native-host")]
-        let focused = if sticky_released {
+        let focused = if sticky_released || problem_released {
             response.request_focus();
             true
         } else {
@@ -1270,12 +1534,40 @@ impl NativeEditor {
             })
             .transpose()?;
         let tracked = tracked_layers(store, &document, decorations)?;
+        #[cfg(feature = "native-host")]
+        let diagnostic_markers = presentation
+            .options
+            .diagnostics
+            .as_ref()
+            .and_then(|markers| {
+                markers.tracked(
+                    &document,
+                    store.changes_since(document.id, markers.revision()).ok()?,
+                )
+            });
         let mut state = store
             .views()
             .get(view)
             .ok_or(EditorError::NotFound)?
             .clone();
         let mut projection = input_context.projection;
+        #[cfg(feature = "native-host")]
+        let problem_widget = problems
+            .as_deref_mut()
+            .and_then(|provider| provider.current(store, view))
+            .filter(|widget| {
+                widget.coordinate.problem.document == document.id
+                    && presentation.options.problem_colors.is_some()
+            });
+        #[cfg(feature = "native-host")]
+        {
+            projection.problem_zone = problem_widget.as_ref().map(|widget| {
+                (
+                    widget.position,
+                    widget.height(appearance.line_height, rect.height()),
+                )
+            });
+        }
         let (display, stable_scroll_top) =
             projection.map_with_stable_scroll_top(&document, &state.folds);
         let wrap_column = display.wrap_settings().map(|settings| settings.wrap_column);
@@ -1301,6 +1593,15 @@ impl NativeEditor {
             ),
         );
         let layout = VerticalLayout::new(appearance.line_height, display.row_count());
+        #[cfg(feature = "native-host")]
+        let layout = problem_widget.as_ref().map_or_else(
+            || layout.clone(),
+            |widget| {
+                let (row, height) =
+                    widget.zone(&document, display, appearance.line_height, rect.height());
+                layout.clone().with_zone(row, height)
+            },
+        );
         let content_height = layout.content_height();
         #[cfg(feature = "native-host")]
         let base_content_height = crate::editor_scroll::content_height(
@@ -1800,6 +2101,18 @@ impl NativeEditor {
                     pointer.button_released(PointerButton::Middle),
                 )
             });
+        #[cfg(feature = "native-host")]
+        let problem_rect = layout.zone().map(|zone| {
+            Rect::from_min_max(
+                pos2(rect.left(), rect.top() + zone.start - state.scroll.y),
+                pos2(editor_right, rect.top() + zone.end - state.scroll.y),
+            )
+        });
+        #[cfg(feature = "native-host")]
+        let is_problem_press =
+            problem_rect.is_some_and(|rect| press.origin.is_some_and(|point| rect.contains(point)));
+        #[cfg(not(feature = "native-host"))]
+        let is_problem_press = false;
         if is_fold_button_pressed {
             input_state.fold_press = press
                 .origin
@@ -1812,6 +2125,7 @@ impl NativeEditor {
         }
         if !scrolling
             && !is_sticky_press
+            && !is_problem_press
             && !fold_press.is_some_and(|press| press.is_on_control)
             && (press.down || response.clicked() || response.drag_started() || response.dragged())
             && let Some(pointer) = response.interact_pointer_pos()
@@ -2088,6 +2402,78 @@ impl NativeEditor {
             ui.set_clip_rect(clip);
         }
         #[cfg(feature = "native-host")]
+        if let Some(widget) = problem_widget.as_ref()
+            && let Some(problem_rect) = problem_rect
+            && let Some(colors) = presentation.options.problem_colors
+        {
+            let arrow_x = rows
+                .iter()
+                .find(|row| {
+                    row.segment.bytes.start <= widget.position
+                        && widget.position <= row.segment.bytes.end
+                })
+                .map_or(text_rect.left(), |row| {
+                    row.caret_rect(widget.position).left()
+                });
+            let output = crate::editor_problems::paint(
+                ui,
+                crate::editor_problems::Frame {
+                    id,
+                    widget,
+                    rect: problem_rect,
+                    clip: Rect::from_min_max(
+                        pos2(
+                            rect.left(),
+                            rect.top() + sticky_layout.height(appearance.line_height),
+                        ),
+                        pos2(editor_right, rect.bottom()),
+                    ),
+                    arrow_x,
+                    line_height: appearance.line_height,
+                    font: &appearance.font,
+                    colors,
+                },
+            );
+            input_state.problems.install(
+                crate::editor_problems::Scene {
+                    document: document.clone(),
+                    widget: widget.clone(),
+                    rect,
+                    scroll: vec2(state.scroll.x, state.scroll.y),
+                    line_height: appearance.line_height,
+                    word_wrap: presentation.options.word_wrap,
+                    folds: state.folds.clone(),
+                },
+                output,
+            );
+        } else {
+            input_state.problems.clear();
+        }
+        #[cfg(feature = "native-host")]
+        if let Some(markers) = diagnostic_markers.as_ref()
+            && let Some(colors) = presentation.options.diagnostic_colors
+        {
+            crate::editor_diagnostics::paint(
+                ui,
+                crate::editor_diagnostics::DiagnosticFrame {
+                    id,
+                    rows: &rows,
+                    markers: markers.markers(),
+                    rect: Rect::from_min_max(
+                        pos2(
+                            text_rect.left(),
+                            text_rect.top() + sticky_layout.height(appearance.line_height),
+                        ),
+                        text_rect.max,
+                    ),
+                    height: appearance.line_height,
+                    font: &appearance.font,
+                    colors,
+                    read_only: document.metadata.read_only,
+                },
+            );
+        }
+        #[cfg(feature = "native-host")]
         let toggle_sticky_scroll = if let Some(colors) = presentation.options.sticky_colors {
             crate::editor_sticky_scroll::paint(
                 ui,
@@ -2112,6 +2498,21 @@ impl NativeEditor {
         } else {
             false
         };
+        #[cfg(feature = "native-host")]
+        let scroll_marks = presentation
+            .options
+            .overview_colors
+            .map_or_else(Vec::new, |colors| {
+                crate::editor_overview::marks(
+                    &tracked,
+                    diagnostic_markers
+                        .as_ref()
+                        .map_or(&[], |markers| markers.markers()),
+                    &bracket_matches,
+                    colors,
+                    document.metadata.read_only,
+                )
+            });
         #[cfg(feature = "native-host")]
         let minimap_layout = if let Some(dimensions) = minimap_dimensions {
             let minimap_layout = input_state.minimap.layout(
@@ -2141,6 +2542,7 @@ impl NativeEditor {
                     tokens,
                     tab_size: indent.tab_size,
                     selection: &state.selection,
+                    marks: &scroll_marks,
                     hovered: minimap_input
                         .as_ref()
                         .is_some_and(|input| input.response.hovered()),
@@ -2191,6 +2593,27 @@ impl NativeEditor {
                     should_interrupt_composition: false,
                 });
             });
+        }
+        #[cfg(feature = "native-host")]
+        if let Some(colors) = presentation.options.overview_colors {
+            crate::editor_overview::paint(
+                &painter,
+                &document,
+                display,
+                Rect::from_min_max(
+                    pos2(
+                        (rect.right() - VERTICAL_SCROLLBAR_SIZE).max(rect.left()),
+                        rect.top(),
+                    ),
+                    rect.max,
+                ),
+                &layout,
+                content_height,
+                &scroll_marks,
+                &state.selection,
+                appearance.cursor,
+                colors,
+            );
         }
         if state.scroll != current.scroll {
             input_state.scrolled_at = Some(time);
@@ -2261,11 +2684,23 @@ impl NativeEditor {
                 },
             );
         #[cfg(feature = "native-host")]
-        let focus_ids = input_state.sticky.focus_ids();
+        let focus_ids = input_state
+            .sticky
+            .focus_ids()
+            .into_iter()
+            .chain(input_state.problems.focus_ids())
+            .collect();
         store.set_display(view, projection.cached)?;
         input_state.rendered_viewport = Some(RenderedViewport {
             scroll_top: state.scroll.y,
             line_height: appearance.line_height,
+            #[cfg(feature = "native-host")]
+            problem_zone: problem_widget.as_ref().map(|widget| {
+                (
+                    widget.position,
+                    widget.height(appearance.line_height, rect.height()),
+                )
+            }),
         });
         ui.ctx().data_mut(|data| data.insert_temp(id, input_state));
         Ok(EditorOutput {

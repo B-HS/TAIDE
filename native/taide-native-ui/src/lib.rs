@@ -29,6 +29,9 @@ pub mod editor_brackets;
 #[path = "editor-caret.rs"]
 mod editor_caret;
 #[cfg(feature = "native-host")]
+#[path = "editor-diagnostics.rs"]
+pub mod editor_diagnostics;
+#[cfg(feature = "native-host")]
 #[path = "editor-display.rs"]
 pub mod editor_display;
 #[cfg(feature = "native-host")]
@@ -49,10 +52,16 @@ pub mod editor_minimap;
 pub mod editor_minimap_layout;
 #[path = "editor-overlay.rs"]
 pub mod editor_overlay;
+#[cfg(feature = "native-host")]
+#[path = "editor-overview.rs"]
+pub mod editor_overview;
 #[path = "editor-paint.rs"]
 mod editor_paint;
 #[path = "editor-pointer.rs"]
 mod editor_pointer;
+#[cfg(feature = "native-host")]
+#[path = "editor-problems.rs"]
+pub mod editor_problems;
 #[path = "editor-row-text.rs"]
 pub mod editor_row_text;
 #[cfg(feature = "native-host")]

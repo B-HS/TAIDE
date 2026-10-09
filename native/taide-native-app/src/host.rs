@@ -170,6 +170,7 @@ pub enum HostCommand {
         column: u64,
         viewport: eframe::egui::ViewportId,
     },
+    OpenMarker(crate::editor_problems::Request),
     OpenDocument(String),
     Save {
         path: String,
@@ -196,6 +197,10 @@ pub enum HostReply {
         result: AppResult<crate::app_file_write::PreparedWrite>,
     },
     ProblemOpened {
+        result: AppResult<crate::terminal_tabs::OpenedFileLink>,
+    },
+    MarkerOpened {
+        request: crate::editor_problems::Request,
         result: AppResult<crate::terminal_tabs::OpenedFileLink>,
     },
     ProjectFiles {
@@ -1308,29 +1313,33 @@ async fn dispatch(
             column,
             viewport,
         } => {
-            let max_position = u64::from(u32::MAX) + 1;
-            if line == 0 || column == 0 || line > max_position || column > max_position {
-                return Some(HostReply::ProblemOpened {
-                    result: Err(AppError::InvalidArgument(
-                        "native problem position is outside the LSP coordinate range".into(),
-                    )),
-                });
-            }
-            let title = std::path::Path::new(&path)
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or(&path)
-                .to_owned();
-            let result = layout_actions::layout_open_tab(
-                services.events.as_ref(), &services.state, project.clone(), TabKind::File { path: path.clone() }, title, None, true,
-            ).await.and_then(|layout| {
-                let pane = layout.focused_pane.clone();
-                let leaf = taide_layout::service::find_leaf(&layout.root, &pane).ok_or_else(|| AppError::NotFound("native problem target pane is closed".into()))?;
-                let taide_model::layout::PaneNode::Leaf { tabs, active, .. } = leaf else { return Err(AppError::NotFound("native problem target pane is closed".into())); };
-                let tab = tabs.iter().find(|tab| Some(&tab.id) == active.as_ref() && matches!(&tab.kind, TabKind::File { path: candidate } if candidate == &path)).ok_or_else(|| AppError::NotFound("native problem target file is closed".into()))?.id.clone();
-                Ok(crate::terminal_tabs::OpenedFileLink { project, pane, tab, path, line: line as f64, column: column as f64, viewport, layout })
-            });
+            let result = open_problem(services, project, None, path, line, column, viewport).await;
             Some(HostReply::ProblemOpened { result })
+        }
+        HostCommand::OpenMarker(request) => {
+            let active = services
+                .state
+                .layouts
+                .read()
+                .get(&request.project)
+                .is_some_and(|layout| request.source_is_active(layout));
+            let result = if active {
+                open_problem(
+                    services,
+                    request.project.clone(),
+                    Some(request.source_key.pane.clone()),
+                    request.path.clone(),
+                    request.line,
+                    request.column,
+                    request.viewport,
+                )
+                .await
+            } else {
+                Err(AppError::NotFound(
+                    "native problem source editor is closed or inactive".into(),
+                ))
+            };
+            Some(HostReply::MarkerOpened { request, result })
         }
         HostCommand::OpenFileTab {
             project,
@@ -1473,6 +1482,55 @@ async fn dispatch(
             }
         }
     }
+}
+
+async fn open_problem(
+    services: &AppServices,
+    project: ProjectId,
+    pane: Option<PaneId>,
+    path: String,
+    line: u64,
+    column: u64,
+    viewport: eframe::egui::ViewportId,
+) -> AppResult<crate::terminal_tabs::OpenedFileLink> {
+    let max_position = u64::from(u32::MAX) + 1;
+    if line == 0 || column == 0 || line > max_position || column > max_position {
+        return Err(AppError::InvalidArgument(
+            "native problem position is outside the LSP coordinate range".into(),
+        ));
+    }
+    let title = std::path::Path::new(&path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(&path)
+        .to_owned();
+    let layout = layout_actions::layout_open_tab(
+        services.events.as_ref(),
+        &services.state,
+        project.clone(),
+        TabKind::File { path: path.clone() },
+        title,
+        pane.clone(),
+        true,
+    )
+    .await?;
+    let pane = pane.unwrap_or_else(|| layout.focused_pane.clone());
+    let tab = taide_layout::service::all_roots(&layout)
+        .find_map(|root| taide_native_ui::snapshot::active_tab(root, &pane))
+        .filter(|tab| matches!(&tab.kind, TabKind::File { path: candidate } if candidate == &path))
+        .ok_or_else(|| AppError::NotFound("native problem target file is closed".into()))?
+        .id
+        .clone();
+    Ok(crate::terminal_tabs::OpenedFileLink {
+        project,
+        pane,
+        tab,
+        path,
+        line: line as f64,
+        column: column as f64,
+        viewport,
+        layout,
+    })
 }
 
 async fn open_file_tab(

@@ -138,6 +138,7 @@ impl Frame {
 struct Shown {
     shapes: Vec<ClippedShape>,
     geometry: EditorGeometry,
+    focus_ids: Vec<egui::Id>,
 }
 
 fn show(
@@ -148,8 +149,30 @@ fn show(
     presentation: &EditorPresentation,
     frame: Frame,
 ) -> Shown {
+    show_problems(context, editor, store, view, presentation, frame, None)
+}
+
+fn show_problems(
+    context: &Context,
+    editor: &NativeEditor,
+    store: &mut EditorStore,
+    view: ViewId,
+    presentation: &EditorPresentation,
+    frame: Frame,
+    mut problems: Option<&mut ProblemProvider>,
+) -> Shown {
     let mut geometry = None;
-    let mut events = vec![Event::PointerMoved(pos2(100.0, 50.0))];
+    let mut focus_ids = Vec::new();
+    let mut events = if context.input(|input| input.pointer.hover_pos().is_none())
+        && !frame
+            .events
+            .iter()
+            .any(|event| matches!(event, Event::PointerMoved(_)))
+    {
+        vec![Event::PointerMoved(pos2(100.0, 50.0))]
+    } else {
+        Vec::new()
+    };
     events.extend(frame.events);
     let mut output = context.run_ui(
         RawInput {
@@ -173,17 +196,32 @@ fn show(
                     .unwrap();
             }
             let shown = editor
-                .show_presented(
+                .show_request(
                     ui,
                     store,
                     view,
-                    frame.focus,
-                    |_, _, _| false,
-                    |_| None,
-                    presentation,
+                    EditorRequest {
+                        request_focus: frame.focus,
+                        keymap: |_: &egui::Ui, _: &Event, _: bool| false,
+                        route: |response: &egui::Response| {
+                            response.ctx.keyboard_input_route(response.id)
+                        },
+                        presentation,
+                        tokens: |_: &EditorStore| None,
+                        language: None,
+                        decorations: &[],
+                        fold_commands: &[],
+                        fold_controls: None,
+                        problems: if let Some(provider) = problems.as_mut() {
+                            Some(&mut **provider)
+                        } else {
+                            None
+                        },
+                    },
                 )
                 .unwrap();
             assert!(shown.errors.is_empty());
+            focus_ids = shown.focus_ids;
             geometry = Some(shown.geometry);
         },
     );
@@ -191,6 +229,7 @@ fn show(
     Shown {
         shapes: output.shapes,
         geometry: geometry.unwrap(),
+        focus_ids,
     }
 }
 
@@ -1236,6 +1275,8 @@ fn show_brackets_frame(
                         decorations: &[],
                         fold_commands: &[],
                         fold_controls: None,
+                        #[cfg(feature = "native-host")]
+                        problems: None,
                     },
                 )
                 .unwrap();
@@ -1247,6 +1288,7 @@ fn show_brackets_frame(
     Shown {
         shapes: output.shapes,
         geometry: geometry.unwrap(),
+        focus_ids: Vec::new(),
     }
 }
 
@@ -1524,6 +1566,8 @@ fn 괄호_일치_위젯_포커스는_본문_강조를_유지하면서_외부_입
                             decorations: &[],
                             fold_commands: &[],
                             fold_controls: None,
+                            #[cfg(feature = "native-host")]
+                            problems: None,
                         },
                     )
                     .unwrap();
@@ -1536,6 +1580,7 @@ fn 괄호_일치_위젯_포커스는_본문_강조를_유지하면서_외부_입
         let shown = Shown {
             shapes: output.shapes,
             geometry: matched.unwrap(),
+            focus_ids: Vec::new(),
         };
         assert_eq!(
             matched_rects(&shown, MATCH_BORDER).len(),
@@ -2157,5 +2202,1145 @@ fn 괄호_뷰_안내선은_탭_열과_양방향_스크롤_복원_좌표에_맞�
         close(rect.height(), LINE_HEIGHT);
         assert_eq!(clip, shown.geometry.content_rect);
         assert!(rect.intersects(clip));
+    }
+}
+
+const DIAGNOSTIC_ERROR: Color32 = Color32::from_rgb(213, 19, 113);
+const DIAGNOSTIC_WARNING: Color32 = Color32::from_rgb(19, 213, 113);
+const DIAGNOSTIC_HINT: Color32 = Color32::from_rgb(113, 19, 213);
+
+fn diagnostic_options(
+    store: &EditorStore,
+    view: ViewId,
+    bytes: std::ops::Range<usize>,
+    severity: taide_native_editor::diagnostics::Severity,
+) -> EditorPresentation {
+    use std::sync::Arc;
+    use taide_native_editor::diagnostics::{Marker, MarkerSet, Message};
+    let snapshot = store
+        .documents()
+        .snapshot(store.views().get(view).unwrap().document)
+        .unwrap();
+    let mut presentation = options();
+    presentation.options.diagnostics = Some(Arc::new(
+        MarkerSet::new(
+            &snapshot,
+            vec![Marker {
+                bytes,
+                message: Arc::new(Message {
+                    severity,
+                    text: "synthetic diagnostic".into(),
+                    source: Some("synthetic server".into()),
+                    code: Some("42".into()),
+                }),
+            }],
+        )
+        .unwrap(),
+    ));
+    presentation.options.diagnostic_colors =
+        Some(taide_native_ui::editor_diagnostics::DiagnosticColors {
+            error: DIAGNOSTIC_ERROR,
+            warning: DIAGNOSTIC_WARNING,
+            information: Color32::GREEN,
+            hint: DIAGNOSTIC_HINT,
+            background: Color32::BLACK,
+            foreground: Color32::WHITE,
+            border: Color32::GRAY,
+        });
+    presentation
+}
+
+fn diagnostic_paths(shown: &Shown, color: Color32) -> Vec<Rect> {
+    shown
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            Shape::Path(path) if path.stroke.color == egui::epaint::ColorMode::Solid(color) => {
+                Some(shape.clip_rect)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn 같은_범위의_여러_진단_hover는_각_메시지를_한번씩_표시한다() {
+    use std::sync::Arc;
+    use taide_native_editor::diagnostics::{Marker, MarkerSet, Message, Severity};
+    let (context, editor, mut store, view) = fixture("abc def", false);
+    let mut presentation = diagnostic_options(&store, view, 0..7, Severity::Error);
+    let document = store
+        .documents()
+        .snapshot(store.views().get(view).unwrap().document)
+        .unwrap();
+    presentation.options.diagnostics = Some(Arc::new(
+        MarkerSet::new(
+            &document,
+            [
+                ("owner one", Severity::Error),
+                ("owner two", Severity::Warning),
+            ]
+            .into_iter()
+            .map(|(text, severity)| Marker {
+                bytes: 0..7,
+                message: Arc::new(Message {
+                    severity,
+                    text: text.into(),
+                    source: None,
+                    code: None,
+                }),
+            })
+            .collect(),
+        )
+        .unwrap(),
+    ));
+    let shown = show(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        Frame::at(0.0),
+    );
+    let pointer = shown.geometry.range_rects(0..7)[0].center();
+    let mut frame = Frame::at(0.1);
+    frame.events.push(Event::PointerMoved(pointer));
+    show(&context, &editor, &mut store, view, &presentation, frame);
+    show(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        Frame::at(0.7),
+    );
+    let shown = show(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        Frame::at(1.0),
+    );
+    let text = text_shapes(&shown);
+    assert_eq!(
+        text.iter()
+            .filter(|text| text.as_str() == "owner one")
+            .count(),
+        1,
+        "{text:?}"
+    );
+    assert_eq!(
+        text.iter()
+            .filter(|text| text.as_str() == "owner two")
+            .count(),
+        1,
+        "{text:?}"
+    );
+}
+
+#[test]
+fn 진단_밑줄은_실제_탭_unicode_글자와_편집_anchor_clip을_따른다() {
+    use taide_native_editor::diagnostics::Severity;
+    let (context, editor, mut store, view) = fixture("a\t\u{1f600}한 bad\nnext", false);
+    let presentation = diagnostic_options(&store, view, 2..9, Severity::Error);
+    let before = show(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        Frame::at(0.0),
+    );
+    let rectangles = before.geometry.range_rects(2..9);
+    let paths = diagnostic_paths(&before, DIAGNOSTIC_ERROR);
+    assert_eq!(paths.len(), 1);
+    close(paths[0].left(), rectangles[0].left());
+    close(paths[0].right(), rectangles[0].right());
+    assert!(before.geometry.content_rect.contains_rect(paths[0]));
+    select(&mut store, view, vec![display_caret(0)]);
+    let mut frame = Frame::at(0.1);
+    frame.events.push(Event::Text("X".into()));
+    let after = show(&context, &editor, &mut store, view, &presentation, frame);
+    let range = after.geometry.range_rects(3..10);
+    let paths = diagnostic_paths(&after, DIAGNOSTIC_ERROR);
+    assert_eq!(paths.len(), 1);
+    close(paths[0].left(), range[0].left());
+    close(paths[0].right(), range[0].right());
+    assert_eq!(
+        store.views().get(view).unwrap().selection.selections[0],
+        display_caret(1)
+    );
+}
+
+#[test]
+fn 진단_힌트는_점으로_표시하고_빈_오류는_한글자_폭이며_읽기전용은_밑줄을_숨긴다() {
+    use taide_native_editor::diagnostics::Severity;
+    let (context, editor, mut store, view) = fixture("abc\n", false);
+    let hint = diagnostic_options(&store, view, 0..2, Severity::Hint);
+    let shown = show(&context, &editor, &mut store, view, &hint, Frame::at(0.0));
+    assert!(diagnostic_paths(&shown, DIAGNOSTIC_HINT).is_empty());
+    assert_eq!(shown.shapes.iter().filter(|shape| matches!(&shape.shape, Shape::Circle(circle) if circle.fill == DIAGNOSTIC_HINT)).count(), 3);
+    let empty = diagnostic_options(&store, view, 4..4, Severity::Error);
+    let shown = show(&context, &editor, &mut store, view, &empty, Frame::at(0.1));
+    let paths = diagnostic_paths(&shown, DIAGNOSTIC_ERROR);
+    assert_eq!(paths.len(), 1);
+    close(paths[0].width(), font_width(&context, "n"));
+    let (context, editor, mut store, view) = fixture("abc", true);
+    let readonly = diagnostic_options(&store, view, 0..2, Severity::Warning);
+    let shown = show(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &readonly,
+        Frame::at(0.0),
+    );
+    assert!(diagnostic_paths(&shown, DIAGNOSTIC_WARNING).is_empty());
+}
+
+#[test]
+fn 진단_밑줄은_wrap_접기_다중뷰_테마변경과_잘못된_문서공급을_따른다() {
+    use taide_native_editor::diagnostics::Severity;
+    let text = "abcdefghij ".repeat(8) + "\nhidden\nend";
+    let (context, editor, mut store, view) = fixture(&text, false);
+    let mut presentation = diagnostic_options(&store, view, 0..88, Severity::Warning);
+    presentation.options.word_wrap = true;
+    let shown = show(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        Frame::at(0.0),
+    );
+    assert_eq!(
+        diagnostic_paths(&shown, DIAGNOSTIC_WARNING).len(),
+        shown.geometry.range_rects(0..88).len()
+    );
+    assert!(diagnostic_paths(&shown, DIAGNOSTIC_WARNING).len() > 1);
+    presentation
+        .options
+        .diagnostic_colors
+        .as_mut()
+        .unwrap()
+        .warning = DIAGNOSTIC_ERROR;
+    let shown = show(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        Frame::at(0.1),
+    );
+    assert!(diagnostic_paths(&shown, DIAGNOSTIC_WARNING).is_empty());
+    assert!(!diagnostic_paths(&shown, DIAGNOSTIC_ERROR).is_empty());
+    let other = store
+        .attach_view(
+            ViewKey {
+                window: "another-display".into(),
+                pane: PaneId::new(),
+                tab: TabId::new(),
+            },
+            store.views().get(view).unwrap().document,
+        )
+        .unwrap();
+    let shown = show(
+        &context,
+        &editor,
+        &mut store,
+        other,
+        &presentation,
+        Frame::at(0.2),
+    );
+    assert!(!diagnostic_paths(&shown, DIAGNOSTIC_ERROR).is_empty());
+    let (context, editor, mut different, view) = fixture("different", false);
+    let mut foreign = different
+        .documents()
+        .snapshot(different.views().get(view).unwrap().document)
+        .unwrap();
+    foreign.key = taide_native_editor::document::DocumentKey::File("/synthetic/foreign.txt".into());
+    presentation.options.diagnostics = Some(std::sync::Arc::new(
+        taide_native_editor::diagnostics::MarkerSet::new(
+            &foreign,
+            vec![taide_native_editor::diagnostics::Marker {
+                bytes: 0..2,
+                message: presentation.options.diagnostics.as_ref().unwrap().markers()[0]
+                    .message
+                    .clone(),
+            }],
+        )
+        .unwrap(),
+    ));
+    let shown = show(
+        &context,
+        &editor,
+        &mut different,
+        view,
+        &presentation,
+        Frame::at(0.3),
+    );
+    assert!(diagnostic_paths(&shown, DIAGNOSTIC_ERROR).is_empty());
+}
+
+fn text_shapes(shown: &Shown) -> Vec<String> {
+    shown
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            Shape::Text(text) => Some(text.galley.job.text.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn 진단_hover는_메시지와_source_code를_표시하고_본문_선택을_바꾸지_않는다() {
+    use taide_native_editor::diagnostics::Severity;
+    let (context, editor, mut store, view) = fixture("message target", false);
+    let presentation = diagnostic_options(&store, view, 0..7, Severity::Error);
+    let shown = show(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        Frame::at(0.0),
+    );
+    let pointer = shown.geometry.range_rects(0..7)[0].center();
+    let mut popup_point = None;
+    for time in [0.1, 0.7, 1.0] {
+        let mut frame = Frame::at(time);
+        if time == 0.1 {
+            frame.events.push(Event::PointerMoved(pointer));
+        }
+        let shown = show(&context, &editor, &mut store, view, &presentation, frame);
+        if time == 1.0 {
+            let text = text_shapes(&shown).join("\n");
+            assert!(text.contains("synthetic diagnostic"), "{text}");
+            assert!(text.contains("synthetic server(42)"), "{text}");
+            popup_point = shown.shapes.iter().find_map(|shape| match &shape.shape {
+                Shape::Text(text) if text.galley.job.text == "synthetic diagnostic" => {
+                    Some(text.pos + text.galley.rect.center().to_vec2())
+                }
+                _ => None,
+            });
+        }
+    }
+    assert_eq!(
+        store.views().get(view).unwrap().selection.selections[0],
+        display_caret(0)
+    );
+    let mut frame = Frame::at(1.1);
+    frame.events.push(Event::PointerMoved(popup_point.unwrap()));
+    let shown = show(&context, &editor, &mut store, view, &presentation, frame);
+    assert!(
+        text_shapes(&shown)
+            .iter()
+            .any(|text| text.contains("synthetic diagnostic"))
+    );
+    assert_eq!(
+        store.views().get(view).unwrap().selection.selections[0],
+        display_caret(0)
+    );
+    let mut frame = Frame::at(1.2);
+    frame.events.push(Event::PointerGone);
+    let shown = show(&context, &editor, &mut store, view, &presentation, frame);
+    assert!(
+        !text_shapes(&shown)
+            .iter()
+            .any(|text| text.contains("synthetic diagnostic"))
+    );
+}
+
+const OVERVIEW_ERROR: Color32 = Color32::from_rgb(177, 15, 107);
+const OVERVIEW_FIND: Color32 = Color32::from_rgb(107, 177, 15);
+const OVERVIEW_BRACKET: Color32 = Color32::from_rgb(15, 107, 177);
+
+fn overview_colors() -> taide_native_ui::editor_overview::OverviewColors {
+    taide_native_ui::editor_overview::OverviewColors {
+        error: OVERVIEW_ERROR,
+        warning: DIAGNOSTIC_WARNING,
+        information: Color32::GREEN,
+        find: OVERVIEW_FIND,
+        minimap_find: OVERVIEW_FIND,
+        bracket: OVERVIEW_BRACKET,
+        border: Color32::GRAY,
+    }
+}
+
+#[test]
+fn 진단_overview는_오른쪽_lane_실제_표시줄과_최소높이_읽기전용을_따른다() {
+    use taide_native_editor::diagnostics::Severity;
+    let text = "line\n".repeat(100);
+    let (context, editor, mut store, view) = fixture(&text, false);
+    let mut presentation = diagnostic_options(&store, view, 250..254, Severity::Error);
+    presentation.options.overview_colors = Some(overview_colors());
+    let shown = show(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        Frame::at(0.0),
+    );
+    let marks = filled_guides(&shown, OVERVIEW_ERROR);
+    assert_eq!(marks.len(), 1);
+    let (mark, clip) = marks[0];
+    assert_eq!(clip.right(), shown.geometry.rect.right());
+    close(mark.right(), clip.right());
+    close(mark.height(), 6.0);
+    let expected_center = shown.geometry.rect.top() + shown.geometry.rect.height() * 50.5 / 101.0;
+    close(mark.center().y, expected_center);
+    let (context, editor, mut store, view) = fixture(&text, true);
+    let mut presentation = diagnostic_options(&store, view, 250..254, Severity::Error);
+    presentation.options.overview_colors = Some(overview_colors());
+    let shown = show(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        Frame::at(0.0),
+    );
+    assert!(filled_guides(&shown, OVERVIEW_ERROR).is_empty());
+}
+
+#[test]
+fn near_괄호만_overview_가운데_lane에_표시하고_enclosing은_제외한다() {
+    let (context, editor, mut store, view) = fixture("(abc)\nend", false);
+    let mut presentation = matching_options();
+    presentation.options.overview_colors = Some(overview_colors());
+    let shown = show_brackets_frame(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        None,
+        Frame::at(0.0),
+    );
+    assert_eq!(filled_guides(&shown, OVERVIEW_BRACKET).len(), 1);
+    select(&mut store, view, vec![display_caret(2)]);
+    let shown = show_brackets_frame(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        None,
+        Frame::at(0.1),
+    );
+    assert!(filled_guides(&shown, OVERVIEW_BRACKET).is_empty());
+    assert_eq!(matched_rects(&shown, MATCH_BORDER).len(), 2);
+}
+
+struct ProblemProvider {
+    markers: taide_native_editor::diagnostics::MarkerSet,
+    navigation: taide_native_editor::problem_navigation::Navigation,
+    shown: Option<taide_native_editor::problem_navigation::Coordinate>,
+    calls: Vec<(
+        taide_native_editor::problem_navigation::Command,
+        usize,
+        String,
+    )>,
+}
+
+impl ProblemProvider {
+    fn new(store: &EditorStore, view: ViewId) -> Self {
+        use taide_native_editor::diagnostics::{Marker, MarkerSet, Message, Severity};
+        let document = store
+            .documents()
+            .snapshot(store.views().get(view).unwrap().document)
+            .unwrap();
+        Self {
+            markers: MarkerSet::new(
+                &document,
+                vec![Marker {
+                    bytes: 4..7,
+                    message: std::sync::Arc::new(Message {
+                        severity: Severity::Error,
+                        text: "synthetic problem".into(),
+                        source: Some("server".into()),
+                        code: Some("42".into()),
+                    }),
+                }],
+            )
+            .unwrap(),
+            navigation: Default::default(),
+            shown: None,
+            calls: Vec::new(),
+        }
+    }
+}
+
+impl taide_native_ui::editor_problems::Provider for ProblemProvider {
+    fn current(
+        &mut self,
+        store: &EditorStore,
+        view: ViewId,
+    ) -> Option<taide_native_ui::editor_problems::Widget> {
+        let current = store.views().get(view)?;
+        let document = store.documents().snapshot(current.document).ok()?;
+        let markers = self.markers.tracked(
+            &document,
+            store
+                .changes_since(document.id, self.markers.revision())
+                .ok()?,
+        )?;
+        let mut coordinate = self.shown.clone()?;
+        coordinate.problem.marker = markers.markers()[0].clone();
+        let head = current.selection.selections[current.selection.primary].head;
+        let bytes = &coordinate.problem.marker.bytes;
+        let position = if bytes.start <= head && head <= bytes.end {
+            head
+        } else {
+            bytes.start
+        };
+        Some(taide_native_ui::editor_problems::Widget {
+            coordinate,
+            position,
+            title: "display.txt".into(),
+        })
+    }
+
+    fn execute(
+        &mut self,
+        store: &mut EditorStore,
+        view: ViewId,
+        command: taide_native_editor::problem_navigation::Command,
+    ) -> Result<bool, taide_native_editor::document::EditorError> {
+        use taide_native_editor::problem_navigation::{Command, Problem};
+        let current = store.views().get(view).unwrap().clone();
+        let document = store.documents().snapshot(current.document)?;
+        let head = current.selection.selections[current.selection.primary].head;
+        self.calls.push((command, head, document.rope.to_string()));
+        if command == Command::Close {
+            self.shown = None;
+            self.navigation.reset();
+            return Ok(true);
+        }
+        let markers = self
+            .markers
+            .tracked(
+                &document,
+                store.changes_since(document.id, self.markers.revision())?,
+            )
+            .unwrap();
+        let resource = "file:///synthetic/display.txt";
+        self.navigation.update(
+            markers
+                .markers()
+                .iter()
+                .map(|marker| Problem {
+                    resource: resource.into(),
+                    document: document.id,
+                    marker: marker.clone(),
+                    initial_range: marker.bytes.clone(),
+                })
+                .collect(),
+        );
+        self.navigation.follow_cursor(document.id, head);
+        let coordinate = self
+            .navigation
+            .navigate(resource, head, command.forward())
+            .unwrap();
+        let position = coordinate.problem.marker.bytes.start;
+        store.set_view_state(
+            view,
+            SelectionSet {
+                primary: 0,
+                selections: vec![display_caret(position)],
+            },
+            current.scroll,
+            current.folds,
+        )?;
+        store.request_selection_reveal(view, position..position, true)?;
+        self.shown = Some(coordinate);
+        Ok(true)
+    }
+}
+
+fn problem_options() -> EditorPresentation {
+    let mut presentation = options();
+    presentation.options.problem_colors = Some(taide_native_ui::editor_problems::Colors {
+        diagnostics: taide_native_ui::editor_diagnostics::DiagnosticColors {
+            error: DIAGNOSTIC_ERROR,
+            warning: DIAGNOSTIC_WARNING,
+            information: Color32::GREEN,
+            hint: DIAGNOSTIC_HINT,
+            background: Color32::BLACK,
+            foreground: Color32::WHITE,
+            border: Color32::GRAY,
+        },
+        background: Color32::BLACK,
+        heading: Color32::WHITE,
+        detail: Color32::GRAY,
+        hover: Color32::DARK_GRAY,
+        focus: Color32::BLUE,
+    });
+    presentation
+}
+
+fn problem_key(alt: bool, shift: bool) -> Event {
+    Event::Key {
+        key: egui::Key::F8,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: Modifiers {
+            alt,
+            shift,
+            ..Modifiers::NONE
+        },
+    }
+}
+
+#[test]
+fn 문제_기본키는_본문_문자와_순서대로_실행하고_메시지_zone은_다음_줄을_아래로_옮긴다() {
+    use taide_native_editor::problem_navigation::Command;
+    let (context, editor, mut store, view) = fixture("abc def\nnext", false);
+    let presentation = problem_options();
+    let mut provider = ProblemProvider::new(&store, view);
+    let before = show_problems(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        Frame::at(0.0),
+        Some(&mut provider),
+    );
+    let mut frame = Frame::at(0.1);
+    frame.events = vec![
+        Event::Text("X".into()),
+        problem_key(false, false),
+        Event::Text("Y".into()),
+    ];
+    let shown = show_problems(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        frame,
+        Some(&mut provider),
+    );
+    assert_eq!(
+        provider.calls[0],
+        (Command::NextInFiles, 1, "Xabc def\nnext".into())
+    );
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(store.views().get(view).unwrap().document)
+            .unwrap()
+            .rope
+            .to_string(),
+        "Xabc Ydef\nnext"
+    );
+    assert!(
+        text_shapes(&shown)
+            .join("\n")
+            .contains("synthetic problemserver(42)")
+    );
+    assert!(text_shapes(&shown).join("\n").contains("1 of 1 problem"));
+    close(
+        shown.geometry.caret_rect(10).unwrap().top() - before.geometry.caret_rect(8).unwrap().top(),
+        80.0,
+    );
+    assert_eq!(
+        shown
+            .geometry
+            .byte_at(pos2(50.0, shown.geometry.rect.top() + 50.0)),
+        None
+    );
+}
+
+#[test]
+fn 문제_close_클릭_뒤_f8은_다시_메시지를_열고_늦은_클릭_처리로_닫히지_않는다() {
+    use taide_native_editor::problem_navigation::Command;
+    let (context, editor, mut store, view) = fixture("abc def\nnext", false);
+    let presentation = problem_options();
+    let mut provider = ProblemProvider::new(&store, view);
+    show_problems(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        Frame::at(0.0),
+        Some(&mut provider),
+    );
+    let mut frame = Frame::at(0.1);
+    frame.events.push(problem_key(true, false));
+    let shown = show_problems(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        frame,
+        Some(&mut provider),
+    );
+    let close_button = shown
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            Shape::Text(text) if text.galley.job.text == "\u{ea76}" => {
+                Some(text.pos + text.galley.rect.center().to_vec2())
+            }
+            _ => None,
+        })
+        .unwrap();
+    let mut frame = Frame::at(0.2);
+    frame.events.push(Event::PointerMoved(close_button));
+    for pressed in [true, false] {
+        frame.events.push(Event::PointerButton {
+            pos: close_button,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+    }
+    frame.events.push(problem_key(false, false));
+    show_problems(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        frame,
+        Some(&mut provider),
+    );
+    assert_eq!(
+        provider.calls.iter().map(|call| call.0).collect::<Vec<_>>(),
+        vec![Command::Next, Command::Close, Command::NextInFiles]
+    );
+    assert!(provider.shown.is_some());
+}
+
+#[test]
+fn 문제_버튼_space는_해제에_실행하고_뒤의_본문_문자를_보존한다() {
+    use taide_native_editor::problem_navigation::Command;
+    let (context, editor, mut store, view) = fixture("abc def\nnext", false);
+    let presentation = problem_options();
+    let mut provider = ProblemProvider::new(&store, view);
+    show_problems(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        Frame::at(0.0),
+        Some(&mut provider),
+    );
+    let mut frame = Frame::at(0.1);
+    frame.events.push(problem_key(true, false));
+    let shown = show_problems(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        frame,
+        Some(&mut provider),
+    );
+    let close = *shown.focus_ids.last().unwrap();
+    context.memory_mut(|memory| memory.request_focus(close));
+    let mut frame = Frame::at(0.2);
+    frame.focus = false;
+    frame.events = vec![
+        Event::Key {
+            key: egui::Key::Space,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        },
+        Event::Text(" ".into()),
+    ];
+    show_problems(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        frame,
+        Some(&mut provider),
+    );
+    assert_eq!(provider.calls.len(), 1);
+    assert!(provider.shown.is_some());
+    let mut frame = Frame::at(0.3);
+    frame.focus = false;
+    frame.events = vec![
+        Event::Key {
+            key: egui::Key::Space,
+            physical_key: None,
+            pressed: false,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        },
+        Event::Text("X".into()),
+    ];
+    show_problems(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        frame,
+        Some(&mut provider),
+    );
+    assert_eq!(provider.calls[1].0, Command::Close);
+    assert!(provider.shown.is_none());
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(store.views().get(view).unwrap().document)
+            .unwrap()
+            .rope
+            .to_string(),
+        "abc Xdef\nnext"
+    );
+}
+
+#[test]
+fn 문제_기본키는_조합중에_보류하고_commit_뒤_실행하며_읽기전용에서도_이동한다() {
+    use taide_native_editor::problem_navigation::Command;
+    let (context, editor, mut store, view) = fixture("abc def\nnext", false);
+    let presentation = problem_options();
+    let mut provider = ProblemProvider::new(&store, view);
+    show_problems(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        Frame::at(0.0),
+        Some(&mut provider),
+    );
+    let mut frame = Frame::at(0.1);
+    frame.events = vec![
+        Event::Ime(ImeEvent::Preedit {
+            text: "한".into(),
+            active_range_chars: None,
+        }),
+        problem_key(false, false),
+    ];
+    show_problems(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        frame,
+        Some(&mut provider),
+    );
+    assert!(provider.calls.is_empty());
+    assert!(store.views().get(view).unwrap().composition.is_some());
+    let mut frame = Frame::at(0.2);
+    frame.events = vec![
+        Event::Ime(ImeEvent::Commit("한".into())),
+        problem_key(false, true),
+    ];
+    show_problems(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        frame,
+        Some(&mut provider),
+    );
+    assert_eq!(
+        provider.calls[0],
+        (Command::PreviousInFiles, 3, "한abc def\nnext".into())
+    );
+    let (context, editor, mut store, view) = fixture("abc def\nnext", true);
+    let mut provider = ProblemProvider::new(&store, view);
+    show_problems(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        Frame::at(0.0),
+        Some(&mut provider),
+    );
+    let mut frame = Frame::at(0.1);
+    frame.events.push(problem_key(true, true));
+    show_problems(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        frame,
+        Some(&mut provider),
+    );
+    assert_eq!(provider.calls[0].0, Command::Previous);
+    assert_eq!(
+        store.views().get(view).unwrap().selection.selections[0],
+        display_caret(4)
+    );
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(store.views().get(view).unwrap().document)
+            .unwrap()
+            .revision,
+        0
+    );
+}
+
+#[test]
+fn 문제_위젯이_열린_편집기의_외부_드러내기는_예약한_높이를_포함한다() {
+    let text = "abc def\n".to_owned() + &"next\n".repeat(30);
+    let (context, editor, mut store, view) = fixture(&text, false);
+    let presentation = problem_options();
+    let mut provider = ProblemProvider::new(&store, view);
+    show_problems(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        Frame::at(0.0),
+        Some(&mut provider),
+    );
+    let mut frame = Frame::at(0.1);
+    frame.events.push(problem_key(true, false));
+    show_problems(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        frame,
+        Some(&mut provider),
+    );
+    let mut frame = Frame::at(0.2);
+    frame.reveal = Some((10.0, 1.0));
+    let shown = show_problems(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        frame,
+        Some(&mut provider),
+    );
+    let byte = store.views().get(view).unwrap().selection.selections[0].head;
+    close(
+        shown.geometry.caret_rect(byte).unwrap().center().y,
+        shown.geometry.rect.center().y,
+    );
+}
+
+#[test]
+fn 문제_외부_입력창의_기본키와_문자는_보존하고_닫기클릭_뒤_본문_소유권만_전환한다() {
+    use taide_native_editor::problem_navigation::Command;
+    use taide_native_ui::editor_problems::Provider;
+    let (context, editor, mut store, view) = fixture("abc def\nnext", false);
+    let presentation = problem_options();
+    let mut provider = ProblemProvider::new(&store, view);
+    let input_id = egui::Id::new("problem-other-input");
+    let mut query = String::new();
+    let mut render = |time: f64, events: Vec<Event>, open: bool, focus: bool| {
+        if open {
+            provider.execute(&mut store, view, Command::Next).unwrap();
+        }
+        let mut output = context.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, SCREEN)),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                let shown = editor
+                    .show_request(
+                        ui,
+                        &mut store,
+                        view,
+                        EditorRequest {
+                            request_focus: false,
+                            keymap: |_: &egui::Ui, _: &Event, _: bool| false,
+                            route: |response: &egui::Response| {
+                                response.ctx.keyboard_input_route(response.id)
+                            },
+                            presentation: &presentation,
+                            tokens: |_: &EditorStore| None,
+                            language: None,
+                            decorations: &[],
+                            fold_commands: &[],
+                            fold_controls: None,
+                            problems: Some(&mut provider),
+                        },
+                    )
+                    .unwrap();
+                assert!(shown.errors.is_empty());
+                if focus {
+                    ui.memory_mut(|memory| memory.request_focus(input_id));
+                }
+                ui.put(
+                    Rect::from_min_size(pos2(10.0, 90.0), vec2(100.0, 22.0)),
+                    egui::TextEdit::singleline(&mut query).id(input_id),
+                );
+            },
+        );
+        output.textures_delta.clear();
+        output.shapes
+    };
+    render(0.0, Vec::new(), false, true);
+    render(
+        0.1,
+        vec![Event::Text("Z".into()), problem_key(false, false)],
+        false,
+        false,
+    );
+    let shapes = render(0.2, Vec::new(), true, false);
+    let close_button = shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            Shape::Text(text) if text.galley.job.text == "\u{ea76}" => {
+                Some(text.pos + text.galley.rect.center().to_vec2())
+            }
+            _ => None,
+        })
+        .unwrap();
+    let mut events = vec![Event::PointerMoved(close_button)];
+    for pressed in [true, false] {
+        events.push(Event::PointerButton {
+            pos: close_button,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+    }
+    events.push(Event::Text("X".into()));
+    render(0.3, events, false, false);
+    drop(render);
+    assert_eq!(query, "Z");
+    assert_eq!(
+        provider.calls.iter().map(|call| call.0).collect::<Vec<_>>(),
+        vec![Command::Next, Command::Close]
+    );
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(store.views().get(view).unwrap().document)
+            .unwrap()
+            .rope
+            .to_string(),
+        "abc Xdef\nnext"
+    );
+}
+
+#[test]
+fn 진단_밑줄은_접힌_본문에서_숨기고_펼친_뒤_원래_위치에_표시한다() {
+    use taide_native_editor::diagnostics::Severity;
+    let (context, editor, mut store, view) = fixture("header\n  hidden\nend", false);
+    let mut presentation = diagnostic_options(&store, view, 9..15, Severity::Error);
+    presentation.options.folding = true;
+    let before = store.views().get(view).unwrap().clone();
+    store
+        .set_view_state(view, before.selection, before.scroll, vec![7..15])
+        .unwrap();
+    let shown = show(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        Frame::at(0.0),
+    );
+    assert!(diagnostic_paths(&shown, DIAGNOSTIC_ERROR).is_empty());
+    let before = store.views().get(view).unwrap().clone();
+    store
+        .set_view_state(view, before.selection, before.scroll, Vec::new())
+        .unwrap();
+    let shown = show(
+        &context,
+        &editor,
+        &mut store,
+        view,
+        &presentation,
+        Frame::at(0.1),
+    );
+    assert_eq!(diagnostic_paths(&shown, DIAGNOSTIC_ERROR).len(), 1);
+    close(
+        diagnostic_paths(&shown, DIAGNOSTIC_ERROR)[0].left(),
+        shown.geometry.range_rects(9..15)[0].left(),
+    );
+}
+
+#[test]
+fn overview는_wrap_접기_문제_zone과_dpr을_같은_표시좌표에_투영한다() {
+    use taide_native_editor::diagnostics::Severity;
+    let text = "abcdefghij ".repeat(8) + "\n  hidden\nend\n" + &"line\n".repeat(100);
+    for ratio in [1.0, 1.5, 2.0] {
+        let (context, editor, mut store, view) = fixture(&text, false);
+        context.set_pixels_per_point(ratio);
+        let mut presentation = diagnostic_options(&store, view, 98..101, Severity::Error);
+        presentation.options.word_wrap = true;
+        presentation.options.folding = true;
+        presentation.options.overview_colors = Some(overview_colors());
+        presentation.options.problem_colors = problem_options().options.problem_colors;
+        let mut provider = ProblemProvider::new(&store, view);
+        show_problems(
+            &context,
+            &editor,
+            &mut store,
+            view,
+            &presentation,
+            Frame::at(0.0),
+            Some(&mut provider),
+        );
+        let mut frame = Frame::at(0.1);
+        frame.events.push(problem_key(true, false));
+        let before = show_problems(
+            &context,
+            &editor,
+            &mut store,
+            view,
+            &presentation,
+            frame,
+            Some(&mut provider),
+        );
+        let marker = filled_guides(&before, OVERVIEW_ERROR)[0].0;
+        close(marker.height(), 6.0);
+        close(marker.width() * ratio, ((14.0 * ratio - 1.0) / 3.0).floor());
+        let snapshot = store
+            .documents()
+            .snapshot(store.views().get(view).unwrap().document)
+            .unwrap();
+        let display = store.take_display(view).unwrap().unwrap();
+        let row = display.row_of_byte(&snapshot, 98);
+        let total = display.row_count();
+        store.set_display(view, Some(display)).unwrap();
+        let zone_height = 80.0;
+        let top = row as f32 * LINE_HEIGHT + zone_height;
+        close(
+            marker.center().y,
+            before.geometry.rect.top()
+                + before.geometry.rect.height() * (top + LINE_HEIGHT / 2.0)
+                    / (total as f32 * LINE_HEIGHT + zone_height),
+        );
+        let current = store.views().get(view).unwrap().clone();
+        store
+            .set_view_state(view, current.selection, current.scroll, vec![89..97])
+            .unwrap();
+        let folded = show_problems(
+            &context,
+            &editor,
+            &mut store,
+            view,
+            &presentation,
+            Frame::at(0.2),
+            Some(&mut provider),
+        );
+        assert!(filled_guides(&folded, OVERVIEW_ERROR)[0].0.center().y < marker.center().y);
     }
 }

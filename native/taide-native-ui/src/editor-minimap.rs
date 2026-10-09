@@ -303,6 +303,7 @@ pub(crate) struct MinimapFrame<'a> {
     pub(crate) tokens: Option<EditorTokens<'a>>,
     pub(crate) tab_size: u32,
     pub(crate) selection: &'a SelectionSet,
+    pub(crate) marks: &'a [crate::editor_overview::ScrollMark],
     pub(crate) hovered: bool,
     pub(crate) horizontal_overflow: bool,
 }
@@ -380,7 +381,35 @@ pub(crate) fn paint(ui: &Ui, state: &mut MinimapState, frame: MinimapFrame<'_>) 
             Color32::WHITE.gamma_multiply(CANVAS_OPACITY),
         );
     }
+    let mut highlighted = vec![false; frame.layout.rows.len()];
+    for selection in &frame.selection.selections {
+        if selection.anchor != selection.head {
+            paint_background(
+                &painter,
+                &frame,
+                &mut highlighted,
+                selection.anchor.min(selection.head)..selection.anchor.max(selection.head),
+                frame.colors.selection,
+            );
+        }
+    }
+    for mark in frame.marks.iter().rev() {
+        if let Some(color) = mark.minimap {
+            paint_background(
+                &painter,
+                &frame,
+                &mut highlighted,
+                mark.bytes.clone(),
+                color,
+            );
+        }
+    }
     paint_selections(&painter, &frame);
+    for mark in frame.marks {
+        if let Some(color) = mark.minimap {
+            paint_range(&painter, &frame, mark.bytes.clone(), color);
+        }
+    }
     if frame.horizontal_overflow {
         let mut mesh = egui::Mesh::default();
         let x1 = frame.rect.left() - SHADOW_WIDTH;
@@ -530,71 +559,100 @@ fn relative_luminance(rgb: [u8; 3]) -> f64 {
 }
 
 fn paint_selections(painter: &egui::Painter, frame: &MinimapFrame<'_>) {
-    let line_height = frame.dimensions.line_height() as f32;
-    let pixel_ratio = frame.dimensions.pixel_ratio as f32;
     for selection in &frame.selection.selections {
-        if selection.anchor == selection.head {
+        if selection.anchor != selection.head {
+            paint_range(
+                painter,
+                frame,
+                selection.anchor.min(selection.head)..selection.anchor.max(selection.head),
+                frame.colors.selection,
+            );
+        }
+    }
+}
+
+fn paint_background(
+    painter: &egui::Painter,
+    frame: &MinimapFrame<'_>,
+    highlighted: &mut [bool],
+    bytes: std::ops::Range<usize>,
+    color: Color32,
+) {
+    if color == Color32::TRANSPARENT {
+        return;
+    }
+    let first = frame.display.row_of_byte(frame.document, bytes.start);
+    let last = frame.display.row_of_byte(frame.document, bytes.end);
+    let line_height = frame.dimensions.line_height() as f32;
+    for row in first.max(frame.layout.rows.start)..(last + 1).min(frame.layout.rows.end) {
+        let index = row - frame.layout.rows.start;
+        if highlighted[index] {
             continue;
         }
-        let bytes = selection.anchor.min(selection.head)..selection.anchor.max(selection.head);
-        let first = frame.display.row_of_byte(frame.document, bytes.start);
-        let last = frame.display.row_of_byte(frame.document, bytes.end);
-        for row in first.max(frame.layout.rows.start)..(last + 1).min(frame.layout.rows.end) {
-            let segment = frame.display.segment(frame.document, row);
-            let x_at = |byte: usize| {
-                let mut column = segment.indent_columns as usize;
-                let mut x = MINIMAP_GUTTER_WIDTH + column * frame.dimensions.scale;
-                for character in frame
-                    .document
-                    .rope
-                    .byte_slice(
-                        segment.bytes.start..byte.clamp(segment.bytes.start, segment.bytes.end),
-                    )
-                    .chars()
-                {
-                    if character == '\t' {
-                        let width = frame.tab_size.max(1) as usize
-                            - column % frame.tab_size.max(1) as usize;
-                        column += width;
-                        x += width * frame.dimensions.scale;
-                        continue;
-                    }
-                    column += character.len_utf16();
-                    x += frame.dimensions.scale
-                        * if is_full_width_character(character) {
-                            2
-                        } else {
-                            character.len_utf16()
-                        };
+        highlighted[index] = true;
+        let y = frame.rect.top() + index as f32 * line_height;
+        painter.rect_filled(
+            Rect::from_min_max(
+                pos2(
+                    frame.rect.left()
+                        + MINIMAP_GUTTER_WIDTH as f32 / frame.dimensions.pixel_ratio as f32,
+                    y,
+                ),
+                pos2(frame.rect.right(), y + line_height),
+            ),
+            0.0,
+            color.gamma_multiply(HALF_OPACITY * CANVAS_OPACITY),
+        );
+    }
+}
+
+fn paint_range(
+    painter: &egui::Painter,
+    frame: &MinimapFrame<'_>,
+    bytes: std::ops::Range<usize>,
+    color: Color32,
+) {
+    let line_height = frame.dimensions.line_height() as f32;
+    let pixel_ratio = frame.dimensions.pixel_ratio as f32;
+    let first = frame.display.row_of_byte(frame.document, bytes.start);
+    let last = frame.display.row_of_byte(frame.document, bytes.end);
+    for row in first.max(frame.layout.rows.start)..(last + 1).min(frame.layout.rows.end) {
+        let segment = frame.display.segment(frame.document, row);
+        let x_at = |byte: usize| {
+            let mut column = segment.indent_columns as usize;
+            let mut x = MINIMAP_GUTTER_WIDTH + column * frame.dimensions.scale;
+            for character in frame
+                .document
+                .rope
+                .byte_slice(segment.bytes.start..byte.clamp(segment.bytes.start, segment.bytes.end))
+                .chars()
+            {
+                if character == '\t' {
+                    let width =
+                        frame.tab_size.max(1) as usize - column % frame.tab_size.max(1) as usize;
+                    column += width;
+                    x += width * frame.dimensions.scale;
+                    continue;
                 }
-                x.min(frame.dimensions.image_width) as f32 / pixel_ratio
-            };
-            let y = frame.rect.top() + (row - frame.layout.rows.start) as f32 * line_height;
-            if row < last {
-                painter.rect_filled(
-                    Rect::from_min_max(
-                        pos2(
-                            frame.rect.left() + MINIMAP_GUTTER_WIDTH as f32 / pixel_ratio,
-                            y,
-                        ),
-                        pos2(frame.rect.right(), y + line_height),
-                    ),
-                    0.0,
-                    frame
-                        .colors
-                        .selection
-                        .gamma_multiply(HALF_OPACITY * CANVAS_OPACITY),
-                );
+                column += character.len_utf16();
+                x += frame.dimensions.scale
+                    * if is_full_width_character(character) {
+                        2
+                    } else {
+                        character.len_utf16()
+                    };
             }
-            let x1 = frame.rect.left() + x_at(bytes.start);
-            let x2 = frame.rect.left() + x_at(bytes.end);
-            if x2 > x1 {
-                painter.rect_filled(
-                    Rect::from_min_max(pos2(x1, y), pos2(x2, y + line_height)),
-                    0.0,
-                    frame.colors.selection.gamma_multiply(CANVAS_OPACITY),
-                );
-            }
+            x.min(frame.dimensions.image_width) as f32 / pixel_ratio
+        };
+        let y = frame.rect.top() + (row - frame.layout.rows.start) as f32 * line_height;
+        let x1 = frame.rect.left() + x_at(bytes.start);
+        let x2 = frame.rect.left() + x_at(bytes.end);
+        if x2 > x1 {
+            painter.rect_filled(
+                Rect::from_min_max(pos2(x1, y), pos2(x2, y + line_height)),
+                0.0,
+                color.gamma_multiply(CANVAS_OPACITY),
+            );
         }
     }
 }

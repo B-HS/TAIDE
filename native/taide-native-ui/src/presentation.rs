@@ -368,6 +368,64 @@ pub fn editor_minimap_colors(
     })
 }
 
+#[cfg(feature = "native-host")]
+pub fn editor_diagnostic_colors(
+    theme: &ResolvedTheme,
+) -> AppResult<crate::editor_diagnostics::DiagnosticColors> {
+    const DARK_HINT: [u8; 4] = [238, 238, 238, 179];
+    const LIGHT_HINT: Color32 = Color32::from_rgb(108, 108, 108);
+    Ok(crate::editor_diagnostics::DiagnosticColors {
+        error: color(theme, "statusIndicator.error")?,
+        warning: color(theme, "statusIndicator.warning")?,
+        information: color(theme, "statusIndicator.info")?,
+        hint: match theme.theme_type {
+            ThemeType::Dark => Color32::from_rgba_unmultiplied(
+                DARK_HINT[0],
+                DARK_HINT[1],
+                DARK_HINT[2],
+                DARK_HINT[3],
+            ),
+            ThemeType::Light => LIGHT_HINT,
+        },
+        background: color(theme, "editor.hoverBackground")?,
+        foreground: color(theme, "editor.foreground")?,
+        border: color(theme, "editor.widgetBorder")?,
+    })
+}
+
+#[cfg(feature = "native-host")]
+pub fn editor_overview_colors(
+    theme: &ResolvedTheme,
+) -> AppResult<crate::editor_overview::OverviewColors> {
+    const ERROR_RGBA: [u8; 4] = [255, 18, 18, 179];
+    const FIND_RGBA: [u8; 4] = [209, 134, 22, 126];
+    const BORDER_RGBA: [u8; 4] = [127, 127, 127, 77];
+    let rgba = |channels: [u8; 4]| {
+        Color32::from_rgba_unmultiplied(channels[0], channels[1], channels[2], channels[3])
+    };
+    Ok(crate::editor_overview::OverviewColors {
+        error: rgba(ERROR_RGBA),
+        warning: color(theme, "statusIndicator.warning")?,
+        information: color(theme, "statusIndicator.info")?,
+        find: rgba(FIND_RGBA),
+        minimap_find: color(theme, "editor.findMatchHighlight")?,
+        bracket: Color32::from_gray(160),
+        border: rgba(BORDER_RGBA),
+    })
+}
+
+#[cfg(feature = "native-host")]
+pub fn editor_problem_colors(theme: &ResolvedTheme) -> AppResult<crate::editor_problems::Colors> {
+    Ok(crate::editor_problems::Colors {
+        diagnostics: editor_diagnostic_colors(theme)?,
+        background: color(theme, "editor.widgetBackground")?,
+        heading: color(theme, "app.foreground")?,
+        detail: color(theme, "panel.sectionHeader")?,
+        hover: color(theme, "list.hoverBackground")?,
+        focus: color(theme, "app.focusBorder")?,
+    })
+}
+
 pub fn banner_appearance(theme: &ResolvedTheme) -> AppResult<BannerAppearance> {
     Ok(BannerAppearance {
         error: color(theme, "statusIndicator.error")?,

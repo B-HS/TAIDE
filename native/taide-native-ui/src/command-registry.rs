@@ -65,6 +65,8 @@ pub enum DocumentEdit {
     Cursor(CursorCommand),
     #[cfg(feature = "native-host")]
     Find(crate::editor_find::FindCommand),
+    #[cfg(feature = "native-host")]
+    Problem(taide_native_editor::problem_navigation::Command),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -257,6 +259,13 @@ fn execution(id: &str, keymap_id: Option<&str>) -> Execution {
             .and_then(crate::editor_find::FindCommand::from_action)
     } {
         return Execution::Native(Run::EditDocument(DocumentEdit::Find(command)));
+    }
+    #[cfg(feature = "native-host")]
+    if let Some(command) = id
+        .strip_prefix(EDITOR_ACTION_PREFIX)
+        .and_then(taide_native_editor::problem_navigation::Command::from_action)
+    {
+        return Execution::Native(Run::EditDocument(DocumentEdit::Problem(command)));
     }
     let run = match id {
         #[cfg(feature = "native-host")]
@@ -492,6 +501,10 @@ impl Registry {
                                     | CursorCommand::MoveCaretRight
                             ) =>
                     {
+                        Some(action.to_owned())
+                    }
+                    #[cfg(feature = "native-host")]
+                    Execution::Native(Run::EditDocument(DocumentEdit::Problem(_))) => {
                         Some(action.to_owned())
                     }
                     Execution::Native(Run::EditDocument(_)) if editor.is_read_only => None,
@@ -843,6 +856,8 @@ mod tests {
                 Execution::Native(Run::ToggleEditorMinimap) => None,
                 #[cfg(feature = "native-host")]
                 Execution::Native(Run::EditDocument(DocumentEdit::Find(_))) => None,
+                #[cfg(feature = "native-host")]
+                Execution::Native(Run::EditDocument(DocumentEdit::Problem(_))) => None,
                 Execution::Native(Run::EditDocument(
                     DocumentEdit::Line(_) | DocumentEdit::Cursor(_),
                 )) => None,
@@ -925,6 +940,16 @@ mod tests {
                 )
                 .chain(
                     [
+                        "editor.action.marker.next",
+                        "editor.action.marker.prev",
+                        "editor.action.marker.nextInFiles",
+                        "editor.action.marker.prevInFiles",
+                    ]
+                    .into_iter()
+                    .filter(|_| cfg!(feature = "native-host")),
+                )
+                .chain(
+                    [
                         "actions.find",
                         "actions.findWithSelection",
                         "editor.actions.findWithArgs",
@@ -969,6 +994,35 @@ mod tests {
             assert_eq!(command.runnable(&context), Some(Run::ToggleEditorMinimap));
         }
         assert!(!command.is_runnable(&CommandContext::default()));
+    }
+
+    #[test]
+    #[cfg(feature = "native-host")]
+    fn 문제_이동_네_명령은_읽기전용_본문에서_허용하고_본문이_없으면_비활성이다() {
+        use taide_native_editor::problem_navigation::Command;
+        let registry = registry().unwrap();
+        for (action, operation) in [
+            ("editor.action.marker.next", Command::Next),
+            ("editor.action.marker.prev", Command::Previous),
+            ("editor.action.marker.nextInFiles", Command::NextInFiles),
+            ("editor.action.marker.prevInFiles", Command::PreviousInFiles),
+        ] {
+            let command = registry.command(&format!("monaco.{action}")).unwrap();
+            for is_read_only in [false, true] {
+                let context = CommandContext {
+                    active_editor_actions: Some(registry.editor_action_ids(ActiveEditor {
+                        is_read_only,
+                        has_folding: false,
+                    })),
+                    ..Default::default()
+                };
+                assert_eq!(
+                    command.runnable(&context),
+                    Some(Run::EditDocument(DocumentEdit::Problem(operation)))
+                );
+            }
+            assert!(!command.is_runnable(&CommandContext::default()));
+        }
     }
 
     #[test]

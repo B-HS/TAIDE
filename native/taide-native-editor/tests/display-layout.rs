@@ -77,3 +77,38 @@ fn 보이는_줄_범위는_첫_줄에서_화면_줄_수와_overscan만큼_이어
         0..1
     );
 }
+
+#[test]
+fn 메시지_zone은_줄_뒤_공간과_전체높이를_확보하고_아래_줄의_좌표와_보이는_범위를_옮긴다() {
+    const ZONE_HEIGHT: f32 = 80.0;
+    let layout = VerticalLayout::new(LINE_HEIGHT, 5).with_zone(1, ZONE_HEIGHT);
+    assert_eq!(layout.zone(), Some(40.0..120.0));
+    assert_eq!(layout.row_top(1), 20.0);
+    assert_eq!(layout.row_top(2), 120.0);
+    assert_eq!(layout.row_center(2), 130.0);
+    assert_eq!(layout.content_height(), 180.0);
+    for (y, row) in [(39.0, 1), (40.0, 1), (119.0, 1), (120.0, 2), (179.0, 4)] {
+        assert_eq!(layout.row_at(y), row);
+    }
+    assert_eq!(layout.visible_rows(45.0, 20.0, 0), 1..2);
+    assert_eq!(layout.visible_rows(120.0, 20.0, 0), 2..4);
+    assert_eq!(layout.visible_rows(180.0, 20.0, 0), 5..5);
+    assert!(
+        VerticalLayout::new(LINE_HEIGHT, 0)
+            .with_zone(0, ZONE_HEIGHT)
+            .zone()
+            .is_none()
+    );
+    assert!(
+        VerticalLayout::new(LINE_HEIGHT, 5)
+            .with_zone(5, ZONE_HEIGHT)
+            .zone()
+            .is_none()
+    );
+    assert!(
+        VerticalLayout::new(LINE_HEIGHT, 5)
+            .with_zone(1, f32::NAN)
+            .zone()
+            .is_none()
+    );
+}

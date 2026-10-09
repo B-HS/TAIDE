@@ -282,28 +282,8 @@ impl Layers<'_> {
                 .rect_filled(Rect::from_x_y_ranges(extent, band), 0.0, color32(color));
         }
         if let Some(color) = overlay.squiggle {
-            self.squiggle(extent, band.max, color32(color));
+            squiggle(self.text_painter, extent, band.max, color32(color));
         }
-    }
-
-    fn squiggle(&self, extent: Rangef, bottom: f32, color: Color32) {
-        let top = bottom - SQUIGGLE_HEIGHT;
-        let periods = (extent.span() / SQUIGGLE_PERIOD).ceil() as usize + 1;
-        let points = once(pos2(
-            extent.min + SQUIGGLE_CREST_OFFSET - SQUIGGLE_PERIOD,
-            top,
-        ))
-        .chain((0..periods).flat_map(|period| {
-            let start = extent.min + period as f32 * SQUIGGLE_PERIOD;
-            [
-                pos2(start + SQUIGGLE_TROUGH_OFFSET, bottom),
-                pos2(start + SQUIGGLE_CREST_OFFSET, top),
-            ]
-        }))
-        .collect();
-        self.text_painter
-            .with_clip_rect(Rect::from_x_y_ranges(extent, Rangef::new(top, bottom)))
-            .add(Shape::line(points, Stroke::new(SQUIGGLE_STROKE, color)));
     }
 
     fn caret(&self, row: &Row, head: usize) {
@@ -366,4 +346,24 @@ impl Layers<'_> {
             self.appearance.muted.gamma_multiply(strength * opacity),
         );
     }
+}
+
+pub(crate) fn squiggle(painter: &Painter, extent: Rangef, bottom: f32, color: Color32) {
+    let top = bottom - SQUIGGLE_HEIGHT;
+    let periods = (extent.span() / SQUIGGLE_PERIOD).ceil() as usize + 1;
+    let points = once(pos2(
+        extent.min + SQUIGGLE_CREST_OFFSET - SQUIGGLE_PERIOD,
+        top,
+    ))
+    .chain((0..periods).flat_map(|period| {
+        let start = extent.min + period as f32 * SQUIGGLE_PERIOD;
+        [
+            pos2(start + SQUIGGLE_TROUGH_OFFSET, bottom),
+            pos2(start + SQUIGGLE_CREST_OFFSET, top),
+        ]
+    }))
+    .collect();
+    painter
+        .with_clip_rect(Rect::from_x_y_ranges(extent, Rangef::new(top, bottom)))
+        .add(Shape::line(points, Stroke::new(SQUIGGLE_STROKE, color)));
 }

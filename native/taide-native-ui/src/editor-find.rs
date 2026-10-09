@@ -667,6 +667,32 @@ impl EditorFind {
             DecorationLayer::new(revision, CURRENT_MATCH_LAYER, current),
         ]
     }
+
+    pub fn scroll_decorations(
+        &self,
+        colors: crate::editor_overview::OverviewColors,
+    ) -> Option<DecorationLayer> {
+        if !self.visible || self.error.is_some() {
+            return None;
+        }
+        Some(DecorationLayer::new(
+            self.revision?,
+            MATCH_LAYER,
+            self.results
+                .matches
+                .iter()
+                .map(|found| Decoration {
+                    bytes: found.range.clone(),
+                    kind: DecorationKind::Overview {
+                        lane: taide_native_editor::decoration::OverviewLane::Center,
+                        color: colors.find.to_srgba_unmultiplied(),
+                        minimap: Some(colors.minimap_find.to_srgba_unmultiplied()),
+                    },
+                    stickiness: Stickiness::NeverGrowsWhenTypingAtEdges,
+                })
+                .collect(),
+        ))
+    }
 }
 
 fn select_match(

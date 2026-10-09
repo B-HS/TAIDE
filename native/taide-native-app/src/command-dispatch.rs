@@ -94,7 +94,7 @@ pub(crate) fn apply_document_edits(
 ) -> bool {
     let mut changed = false;
     for (_, edit) in pending.extract_if(.., |(owner, edit)| {
-        owner == tab && !matches!(edit, DocumentEdit::Find(_))
+        owner == tab && !matches!(edit, DocumentEdit::Find(_) | DocumentEdit::Problem(_))
     }) {
         let result = match edit {
             DocumentEdit::DeleteAllLeft => {
@@ -109,7 +109,7 @@ pub(crate) fn apply_document_edits(
                     store, view, command, context,
                 )
             }
-            DocumentEdit::Find(_) => continue,
+            DocumentEdit::Find(_) | DocumentEdit::Problem(_) => continue,
         };
         match result {
             Ok(applied) => changed |= applied,
@@ -808,6 +808,12 @@ mod tests {
                 tab.clone(),
                 DocumentEdit::Find(taide_native_ui::editor_find::FindCommand::Open),
             ),
+            (
+                tab.clone(),
+                DocumentEdit::Problem(
+                    taide_native_editor::problem_navigation::Command::NextInFiles,
+                ),
+            ),
         ];
         let mut errors = Vec::new();
         assert!(apply_document_edits(
@@ -826,6 +832,12 @@ mod tests {
                 (
                     tab.clone(),
                     DocumentEdit::Find(taide_native_ui::editor_find::FindCommand::Open),
+                ),
+                (
+                    tab.clone(),
+                    DocumentEdit::Problem(
+                        taide_native_editor::problem_navigation::Command::NextInFiles
+                    )
                 ),
             ]
         );
@@ -848,7 +860,7 @@ mod tests {
             &mut errors
         ));
         assert_eq!(text(&store), "");
-        assert_eq!(pending.len(), 2);
+        assert_eq!(pending.len(), 3);
         assert!(errors.is_empty());
         assert!(store.undo(document).unwrap());
         assert_eq!(text(&store), "alpha beta");

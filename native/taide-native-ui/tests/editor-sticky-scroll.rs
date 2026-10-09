@@ -193,6 +193,8 @@ impl Fixture {
                             decorations: &layers,
                             fold_commands: &[],
                             fold_controls: Some(&mut paint),
+                            #[cfg(feature = "native-host")]
+                            problems: None,
                         },
                     )
                     .unwrap();

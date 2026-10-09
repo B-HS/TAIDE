@@ -94,6 +94,52 @@ fn text(store: &EditorStore, view: ViewId) -> String {
         .to_string()
 }
 
+#[test]
+fn 찾기_scroll_표식은_반투명색과_편집_anchor_숨김_오류_수명을_보존한다() {
+    use taide_native_editor::decoration::{DecorationKind, OverviewLane};
+    let (mut store, view, mut find) = fixture("cat dog cat", false);
+    find.search = "cat".into();
+    find.visible = true;
+    find.refresh(&store, view, &RejectCompiler::default())
+        .unwrap();
+    let color = Color32::from_rgba_unmultiplied(209, 134, 22, 126);
+    let minimap = Color32::from_rgba_unmultiplied(100, 200, 150, 90);
+    let colors = taide_native_ui::editor_overview::OverviewColors {
+        error: Color32::RED,
+        warning: Color32::YELLOW,
+        information: Color32::BLUE,
+        find: color,
+        minimap_find: minimap,
+        bracket: Color32::GRAY,
+        border: Color32::BLACK,
+    };
+    let layer = find.scroll_decorations(colors).unwrap();
+    assert_eq!(layer.items().len(), 2);
+    assert_eq!(
+        layer.items()[0].kind,
+        DecorationKind::Overview {
+            lane: OverviewLane::Center,
+            color: color.to_srgba_unmultiplied(),
+            minimap: Some(minimap.to_srgba_unmultiplied())
+        }
+    );
+    type_text(&mut store, view, "X").unwrap();
+    let document = store.views().get(view).unwrap().document;
+    assert_eq!(
+        layer
+            .tracking(store.changes_since(document, layer.revision()).unwrap())
+            .unwrap()
+            .items()[0]
+            .bytes,
+        1..4
+    );
+    find.visible = false;
+    assert!(find.scroll_decorations(colors).is_none());
+    find.visible = true;
+    find.error = Some("invalid pattern".into());
+    assert!(find.scroll_decorations(colors).is_none());
+}
+
 fn select(store: &mut EditorStore, view: ViewId, anchor: usize, head: usize) {
     let current = store.views().get(view).unwrap().clone();
     store
@@ -374,6 +420,8 @@ fn frame_with_shapes(
                         decorations: &layers,
                         fold_commands: &[],
                         fold_controls: None,
+                        #[cfg(feature = "native-host")]
+                        problems: None,
                     },
                 )
                 .unwrap();
