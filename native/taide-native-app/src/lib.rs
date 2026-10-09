@@ -32,6 +32,8 @@ mod editor_fonts;
 #[path = "editor-problems.rs"]
 mod editor_problems;
 pub mod editor_reveal;
+#[path = "editor-symbols.rs"]
+mod editor_symbols;
 #[path = "editor-syntax.rs"]
 pub mod editor_syntax;
 #[path = "event-relay.rs"]

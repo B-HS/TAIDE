@@ -173,6 +173,7 @@ mod tests {
                 name: "synthetic server".into(),
                 owner: crate::diagnostics::Owner::new(),
                 documents: Default::default(),
+                open_documents: Default::default(),
             })
             .collect();
         let (states, receiver) = tokio::sync::watch::channel(sessions);
@@ -228,6 +229,7 @@ mod tests {
                     name: "synthetic publisher".into(),
                     owner,
                     documents: std::collections::HashSet::from([document]),
+                    open_documents: std::collections::HashSet::from([document]),
                 })
                 .collect()
         };

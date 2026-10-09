@@ -6,15 +6,15 @@
 
 기준: 사용자 전체 목표·현재 기능표와 TS documentSymbol adapter·문서 심볼 session waiters·팔레트 symbol mode/flatten/breadcrumb/fuzzy·Monaco outline 기반 sticky와 현재 native LSP/문서/팔레트/고정 줄 경계입니다. 새 기능/디자인·원본 버그 강제 재현·임의 의존성 추가는 하지 않으며 frozen remote-web·실제 앱 데이터/OS 입력/clipboard/Keychain/Trash 보호를 유지합니다.
 
-- [ ] a. 실제 기준과 공급 계약 — documentSymbol capability·hierarchical/flat 결과·종류/태그/좌표·프로젝트/root/언어/session 대기·취소/닫힘/재시도, @ 목록·breadcrumb/필터/선택/reveal, sticky outline 우선순위를 실제 TS/Monaco/native 코드로 대조하고 QA에 고정합니다. 표시 공급 통합 전에 관찰한 기존 찾기 본문 RGBA 경계도 실패 재현 여부를 확인합니다.
-- [ ] b. 심볼 모델·좌표·수명 — 실제 원본 정규화/평탄화와 트리/selectionRange·UTF-16·문서/revision/owner/언어·잘못된 응답/편집/폐기 경계를 구현하고 의미 있는 실패로 검증합니다. 구문/정규식 엔진은 editor/UI에 추가하지 않습니다.
-- [ ] c. 앱 LSP 공급 — 기존 typed SessionClient/문서 mirror·capability·프로젝트/root/server 경계에서 심볼 요청과 취소/대기/회신을 연결합니다. UI 프레임과 기존 저장/서버 요청 actor를 막지 않으며 늦은 응답/서버 재시작·닫힘/미지원/빈 결과를 구분합니다.
-- [ ] d. 팔레트 @ 상호작용 — 실제 목록의 아이콘·계층 breadcrumb·필터·loading/empty/error·키/마우스 선택과 현재 파일 탭 reveal/focus를 연결합니다. 프로젝트/활성 탭 교체·읽기 전용·다중 뷰·입력 소유·늦은 응답을 검증합니다.
-- [ ] e. 고정 줄 provider — 실제 문서 심볼의 범위를 기존 outline 우선/folding fallback에 공급하고 문서/revision/언어/provider 교체·wrap/접기/스크롤·다중 뷰의 수명을 보존합니다. 공급되지 않은 LSP 종류나 새 이동/디자인을 추측하지 않습니다.
-- [ ] f. 위험 회귀·통합 게이트 — 핵심/메모리 UI/fake LSP와 변경 크레이트 전체 대상 --no-fail-fast를 직접 1회 실행하고 실패 영향만 재검사합니다. 보호 Trash 3 제외·ignored/실기 부채, Cargo 직렬·동결 host/Wasm 컴파일·포맷/diff·디스크를 확인합니다.
+- [x] a. 실제 기준과 공급 계약 — TS adapter/root별 준비 세션·preorder/이름 fuzzy/breadcrumb/Braces·현재 탭 reveal와 Monaco outline 우선/folding fallback·selectionRange 시작 줄을 QA에 고정했습니다. 기존 본문 찾기 반투명색의 어두워짐을 실패 재현한 뒤 Color32 전달/장식 경계 변환으로 수정해 찾기 16건이 통과했습니다.
+- [x] b. 심볼 모델·좌표·수명 — nested/flat 정규화·preorder/조상 경로·종류/태그·UTF-16 선택과 outline 범위를 engine 없는 코어에 구현했습니다. 잘못된 범위/반쪽 surrogate·외부 URI·편집/언어/문서 만료를 포함한 3건이 통과했습니다. 앱 owner/세대·프로젝트 수명은 c의 8건에서 확인했습니다.
+- [x] c. 앱 LSP 공급 — typed DocumentSymbol·mirror/root/준비·future drop 취소·400ms 편집 debounce·capability/서버 세대·늦은 응답·미지원/빈/오류를 연결했습니다. 같은 파일의 프로젝트 간 취소 실패를 재현해 캐시와 LSP mirror를 프로젝트+문서 키로 고쳤습니다. 실제 child 3건과 상태 5건이 통과했으며 응답 보류 중 다른 문서 동기화·실제 취소·두 프로젝트 owner/선별 닫힘을 확인했습니다.
+- [x] d. 팔레트 @ 상호작용 — Braces·한 줄 조상 경로·NFC 이름 fuzzy·loading/empty와 키/마우스 선택을 실제 현재 탭 reveal/focus에 연결했습니다. stale 세대/버전/프로젝트를 거절하고 readonly/공유 문서를 보존합니다. 팔레트 기존 28건과 새 1건, 앱의 위치/수명 회귀가 통과했습니다. 검사에서 기존 메시지와 다르게 적은 기대값은 수정했습니다.
+- [x] e. 고정 줄 provider — selectionRange 시작 줄의 실제 outline을 앱/표면에 공급했습니다. 여러 provider는 처음에 최대 범위를 고르고 이후 선호 owner를 유지하며 빈 outline은 기존 접기로 대체합니다. 공급/편집 만료를 포함한 고정 줄 16건과 앱 provider 선택 검사가 통과했으며 wrap/접기/스크롤/입력의 기존 경계를 유지합니다.
+- [x] f. 위험 회귀·통합 게이트 — 변경 editor/UI inspection/app 전체 117대상·201/358/628건, 총 1187건이 통과했습니다. 앱 첫 전체 명령의 기존 테스트 응답 분기 컴파일 오류를 보완한 뒤 전체 실행이 통과했습니다. 보호 Trash 3 제외·ignored 5/실기 부채 유지, Cargo 직렬·동결 host/Wasm·포맷/diff exit 0, 디스크 689GiB·63%입니다.
 - [ ] g. 기록·기능표·선별 Git·계속 진행 — 실제 앱 경로/검증이 닫힌 요구사항만 QA/현재 JSON·표·완료 근거·체크리스트에 반영합니다. 검증된 논리 단위를 선별 커밋·일반 푸시하고 다음 필수 범위로 전체 전환을 계속합니다.
 
-진척: 배치 16 체크리스트 0/7 완료(0%)이며 현재 기능 대응표 274/588(46.6%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. 다음 행동은 TS 문서 심볼 정규화·session 대기와 팔레트/고정 줄 소비 경계를 실제 파일에서 확인하는 것입니다.
+진척: 배치 16 체크리스트 6/7 완료(85.7%)이며 현재 기능 대응표 274/588(46.6%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. 다음 행동은 검증된 찾기 색 수정과 심볼 구현을 각각 선별 커밋하고 실제 완료 기능표를 갱신하는 것입니다.
 
 ## 완료: 배치 15 — 편집기 진단 표시·문제 이동·overview ruler (2026-10-09)
 

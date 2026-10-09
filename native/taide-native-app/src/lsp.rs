@@ -48,9 +48,16 @@ mod raw_diagnostics;
 #[path = "lsp-idle.rs"]
 mod idle;
 
+#[path = "lsp-document-symbols.rs"]
+mod document_symbols;
+
 #[cfg(all(test, unix))]
 #[path = "lsp-diagnostics-tests.rs"]
 mod diagnostics_tests;
+
+#[cfg(all(test, unix))]
+#[path = "lsp-document-symbols-tests.rs"]
+mod document_symbol_tests;
 
 #[derive(Clone, Copy, Default)]
 pub struct SaveActionFlags {
@@ -180,6 +187,7 @@ struct Session {
 }
 
 enum Command {
+    DocumentSymbols(crate::editor_symbols::Request),
     ExplorerPaste {
         project: ProjectId,
         request: crate::explorer_clipboard::Request,
@@ -198,6 +206,7 @@ enum Command {
         snapshot: DocumentSnapshot,
     },
     Close(DocumentId),
+    CloseBinding(ProjectId, DocumentId),
     DisposeModels(Vec<String>),
     Models {
         changed: Vec<DocumentSnapshot>,
@@ -227,6 +236,10 @@ enum Command {
 }
 
 pub enum Reply {
+    DocumentSymbols {
+        request: crate::editor_symbols::Request,
+        result: Result<crate::editor_symbols::Response, Failure>,
+    },
     ExplorerMovePrepare(crate::explorer_source_missing::Prepare),
     ExplorerMoved(crate::explorer_source_missing::Changed),
     ExplorerPasted(crate::explorer_clipboard::Reply),
@@ -273,7 +286,7 @@ pub struct LspBridge {
     replies: mpsc::Receiver<Reply>,
     stop: watch::Sender<bool>,
     worker: Option<JoinHandle<()>>,
-    synced: HashMap<DocumentId, (ProjectId, u64, String, FileSizeTier)>,
+    synced: HashMap<(ProjectId, DocumentId), (u64, String, FileSizeTier)>,
     models: HashMap<DocumentId, (DocumentKey, u64)>,
     projects: Option<HashSet<ProjectId>>,
     states: watch::Receiver<Vec<RegistryState>>,
@@ -285,6 +298,7 @@ struct RegistryState {
     snapshot: SessionSnapshot,
     owner: crate::diagnostics::Owner,
     documents: HashSet<DocumentId>,
+    open_documents: HashSet<DocumentId>,
 }
 
 struct Publishers {
@@ -335,17 +349,16 @@ impl LspBridge {
 
     pub fn sync(&mut self, project: ProjectId, snapshot: DocumentSnapshot) -> AppResult<()> {
         let identity = (
-            project.clone(),
             snapshot.revision,
             snapshot.metadata.language_id.clone(),
             snapshot.metadata.tier,
         );
-        if self.synced.get(&snapshot.id) == Some(&identity) {
+        let key = (project.clone(), snapshot.id);
+        if self.synced.get(&key) == Some(&identity) {
             return Ok(());
         }
-        let document = snapshot.id;
         self.submit(Command::Sync { project, snapshot })?;
-        self.synced.insert(document, identity);
+        self.synced.insert(key, identity);
         Ok(())
     }
 
@@ -406,12 +419,29 @@ impl LspBridge {
         let closed = self
             .synced
             .keys()
-            .filter(|document| !documents.contains(document))
-            .copied()
-            .collect::<Vec<_>>();
+            .filter(|(_, document)| !documents.contains(document))
+            .map(|(_, document)| *document)
+            .collect::<HashSet<_>>();
         for document in closed {
             self.submit(Command::Close(document))?;
-            self.synced.remove(&document);
+            self.synced.retain(|(_, id), _| *id != document);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn retain_bindings(
+        &mut self,
+        bindings: &HashSet<(ProjectId, DocumentId)>,
+    ) -> AppResult<()> {
+        let closed = self
+            .synced
+            .keys()
+            .filter(|key| !bindings.contains(*key))
+            .cloned()
+            .collect::<Vec<_>>();
+        for (project, document) in closed {
+            self.submit(Command::CloseBinding(project.clone(), document))?;
+            self.synced.remove(&(project, document));
         }
         Ok(())
     }
@@ -474,7 +504,7 @@ impl LspBridge {
             removed: removed.clone(),
         })?;
         self.models = identities;
-        self.synced.retain(|id, _| !removed.contains(id));
+        self.synced.retain(|(_, id), _| !removed.contains(id));
         Ok(())
     }
 
@@ -485,12 +515,43 @@ impl LspBridge {
         self.submit(Command::RetainProjects(projects.clone()))?;
         self.projects = Some(projects.clone());
         self.synced
-            .retain(|_, (project, _, _, _)| projects.contains(project));
+            .retain(|(project, _), _| projects.contains(project));
         Ok(())
     }
 
     pub fn saved(&self, document: DocumentId) -> AppResult<()> {
         self.submit(Command::Saved(document))
+    }
+
+    pub(crate) fn document_symbols(
+        &self,
+        request: crate::editor_symbols::Request,
+    ) -> AppResult<()> {
+        self.submit(Command::DocumentSymbols(request))
+    }
+
+    pub(crate) fn symbol_providers(
+        &self,
+        project: &ProjectId,
+        document: DocumentId,
+    ) -> HashSet<crate::editor_symbols::ProviderIdentity> {
+        if self.states.has_changed().is_err() {
+            return HashSet::new();
+        }
+        self.states
+            .borrow()
+            .iter()
+            .filter(|state| {
+                state.project == *project
+                    && state.open_documents.contains(&document)
+                    && state.snapshot.phase == Phase::Running
+            })
+            .map(|state| crate::editor_symbols::ProviderIdentity {
+                owner: state.owner,
+                generation: state.snapshot.generation,
+                capability_revision: state.snapshot.capability_revision,
+            })
+            .collect()
     }
 
     pub fn format(
@@ -593,7 +654,7 @@ fn initialize(plan: &Plan) -> Value {
         "capabilities":{
             "general":{"positionEncodings":["utf-16"]},
             "workspace":{"workspaceFolders":true,"configuration":true,"applyEdit":true,"workspaceEdit":{"documentChanges":true}},
-            "textDocument":{"synchronization":{"dynamicRegistration":false,"didSave":true},"formatting":{},"codeAction":{"codeActionLiteralSupport":{"codeActionKind":{"valueSet":["source.fixAll","source.organizeImports"]}},"resolveSupport":{"properties":["edit","command"]},"dataSupport":true}}
+            "textDocument":{"synchronization":{"dynamicRegistration":false,"didSave":true},"documentSymbol":{"hierarchicalDocumentSymbolSupport":true,"symbolKind":{"valueSet":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26]}},"formatting":{},"codeAction":{"codeActionLiteralSupport":{"codeActionKind":{"valueSet":["source.fixAll","source.organizeImports"]}},"resolveSupport":{"properties":["edit","command"]},"dataSupport":true}}
         }
     });
     if let Some(initialization) = &plan.spec.initialization_options {
@@ -723,11 +784,17 @@ async fn sync_document(
     snapshot: DocumentSnapshot,
     path_var: OsString,
 ) -> AppResult<Vec<SessionSnapshot>> {
-    let plans = plans(services, project, &snapshot, path_var).await?;
-    let keys = plans
+    let plans = plans(services, project.clone(), &snapshot, path_var).await?;
+    let mut keys = plans
         .iter()
         .map(|plan| session_key(sessions, plan))
         .collect::<HashSet<_>>();
+    keys.extend(
+        sessions
+            .keys()
+            .filter(|key| key.project != project)
+            .cloned(),
+    );
     close_document(sessions, snapshot.id, Some(&keys), None).await;
     let DocumentKey::File(path) = &snapshot.key else {
         return Ok(Vec::new());
@@ -1330,6 +1397,60 @@ async fn run(
             break;
         };
         let reply = match command {
+            Command::CloseBinding(project, document) => {
+                let retained = sessions
+                    .keys()
+                    .filter(|key| key.project != project)
+                    .cloned()
+                    .collect::<HashSet<_>>();
+                close_document(&mut sessions, document, Some(&retained), None).await;
+                publish_status(&sessions, &states, &repaint);
+                None
+            }
+            Command::DocumentSymbols(request) => {
+                if request.is_cancelled() {
+                    continue;
+                }
+                let selected = sessions
+                    .iter()
+                    .filter(|(key, session)| {
+                        key.project == request.project
+                            && session.documents.contains_key(&request.snapshot.id)
+                    })
+                    .map(|(key, session)| (key.clone(), session.clone()))
+                    .collect::<HashMap<_, _>>();
+                let sender = replies.clone();
+                let repaint = repaint.clone();
+                let mut cancelled = request.cancelled.clone();
+                let mut stopping = stopping.clone();
+                let rejected = request.clone();
+                if !services
+                    .tasks
+                    .spawn_transient("native-lsp-document-symbols", async move {
+                        let result = tokio::select! {
+                            biased;
+                            _ = stopping.changed() => return,
+                            _ = cancelled.changed() => return,
+                            result = document_symbols::request(&selected, &request) => result,
+                        };
+                        if !request.is_cancelled()
+                            && sender
+                                .send(Reply::DocumentSymbols { request, result })
+                                .await
+                                .is_ok()
+                        {
+                            repaint();
+                        }
+                    })
+                {
+                    Some(Reply::DocumentSymbols {
+                        request: rejected,
+                        result: Err(Failure::TransportClosed),
+                    })
+                } else {
+                    None
+                }
+            }
             Command::StateChanged { key, source, state } => {
                 publish_status(&sessions, &states, &repaint);
                 if state.failure == Some(Failure::ReinitializeExhausted)
@@ -1805,6 +1926,7 @@ fn publish_status(
                     .copied()
                     .chain(session.documents.keys().copied())
                     .collect(),
+                open_documents: session.documents.keys().copied().collect(),
             })
             .collect(),
     );

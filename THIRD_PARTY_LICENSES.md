@@ -624,6 +624,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   in `native/taide-native-editor/LICENSE-MONACO-SNIPPET` and
   `native/taide-native-ui/LICENSE-MONACO-FIND`.
 
+- `src/document-symbols.rs` and `native/taide-native-app/src/editor-symbols.rs`
+  adapt the outline selection-range headers, provider preference and coverage
+  selection from the same Monaco sticky scroll model provider. The `@` palette
+  normalization, preorder breadcrumbs and interaction contract follow TAIDE's
+  existing TypeScript implementation. `native/taide-native-app/resources/icons/braces.svg`
+  carries the Braces geometry from `lucide-react` 1.28.0 (ISC, Copyright (c)
+  Lucide Icons and Contributors); the ISC text is retained in the adjacent
+  `resources/icons/LICENSE.txt`.
+
 - `src/find.rs` and `src/find-replacement.rs` adapt the search driving,
   word boundary, newline, empty match, replacement parsing and case
   preservation rules from Monaco Editor 0.56.0 (MIT, Copyright (c)

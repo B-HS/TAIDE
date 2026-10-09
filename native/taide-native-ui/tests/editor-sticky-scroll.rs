@@ -524,6 +524,31 @@ fn 접기_설정과_독립된_fallback과_옵션_종료는_이전_고정_포커�
 }
 
 #[test]
+fn 실제_문서_심볼은_선택_시작줄을_고정하고_빈응답과_편집은_접기_fallback을_사용한다() {
+    use taide_native_editor::document_symbols::DocumentSymbols;
+    let mut fixture = Fixture::new(&document(), &[]);
+    let id = fixture.store.views().get(fixture.view).unwrap().document;
+    let snapshot = fixture.store.documents().snapshot(id).unwrap();
+    let uri = "file:///synthetic/sticky.txt".parse().unwrap();
+    let response = serde_json::from_value(serde_json::json!([{"name":"scope", "kind":5, "range":{"start":{"line":0,"character":0},"end":{"line":25,"character":9}}, "selectionRange":{"start":{"line":2,"character":4},"end":{"line":2,"character":9}}}])).unwrap();
+    let symbols = DocumentSymbols::new(&snapshot, &uri, Some(response)).unwrap();
+    fixture.presentation.options.sticky_model = symbols.sticky_model().cloned();
+    let shown = fixture.show(0.0, vec![], Modifiers::NONE);
+    assert_eq!(sticky_text(&shown), ["    body2"]);
+    let empty = DocumentSymbols::new(&snapshot, &uri, None).unwrap();
+    fixture.presentation.options.sticky_model = empty.sticky_model().cloned();
+    let fallback = fixture.show(0.1, vec![], Modifiers::NONE);
+    assert_eq!(sticky_text(&fallback), ["outer"]);
+    fixture.presentation.options.sticky_model = symbols.sticky_model().cloned();
+    let view = fixture.store.views().get(fixture.view).unwrap().clone();
+    taide_native_editor::editing::type_text(&mut fixture.store, view.id, "X").unwrap();
+    let current = fixture.store.documents().snapshot(id).unwrap();
+    assert!(!symbols.describes(&current));
+    let invalidated = fixture.show(0.2, vec![], Modifiers::NONE);
+    assert_eq!(sticky_text(&invalidated), ["outer"]);
+}
+
+#[test]
 fn 대형_문서는_고정_줄을_끄고_정상_읽기전용은_문자_변경없이_탐색한다() {
     let scopes = [StickyScope {
         start_line: 0,

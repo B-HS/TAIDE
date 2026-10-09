@@ -106,6 +106,14 @@ pub struct FileIndex<'a> {
     pub is_refreshing: bool,
 }
 
+#[cfg(feature = "native-host")]
+#[derive(Clone, Copy, Default)]
+pub struct SymbolIndex<'a> {
+    pub entries: Option<&'a [taide_native_editor::document_symbols::Symbol]>,
+    pub generation: u64,
+    pub is_pending: bool,
+}
+
 #[derive(Clone, Copy)]
 pub struct Scope<'a> {
     pub locale: &'a ResolvedLocale,
@@ -113,6 +121,8 @@ pub struct Scope<'a> {
     pub keymap_overrides: Option<&'a str>,
     pub files: FileIndex<'a>,
     pub active_file: Option<&'a str>,
+    #[cfg(feature = "native-host")]
+    pub symbols: SymbolIndex<'a>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -120,6 +130,11 @@ pub enum Action {
     RunCommand(String),
     OpenFile(String),
     RevealLine(LineTarget),
+    #[cfg(feature = "native-host")]
+    RevealSymbol {
+        generation: u64,
+        index: usize,
+    },
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -294,6 +309,11 @@ impl Palette {
 
     pub fn observes_files(&self) -> bool {
         self.is_open && parse(&self.query).mode == Mode::Files
+    }
+
+    #[cfg(feature = "native-host")]
+    pub fn observes_symbols(&self) -> bool {
+        self.is_open && parse(&self.query).mode == Mode::Symbol
     }
 
     pub fn set_appearance(&mut self, appearance: Appearance) {
@@ -606,7 +626,25 @@ impl Palette {
                 ),
             },
             Mode::Symbol => Listing {
+                #[cfg(feature = "native-host")]
+                group: group(
+                    "palette.symbols",
+                    None,
+                    if scope.active_file.is_some() {
+                        self.symbol_items(&search_term, scope.symbols)
+                    } else {
+                        Vec::new()
+                    },
+                ),
+                #[cfg(not(feature = "native-host"))]
                 group: group("palette.symbols", None, Vec::new()),
+                #[cfg(feature = "native-host")]
+                empty_message: if scope.active_file.is_some() && scope.symbols.is_pending {
+                    text("common.loading")
+                } else {
+                    without_active_file()
+                },
+                #[cfg(not(feature = "native-host"))]
                 empty_message: without_active_file(),
             },
             Mode::Line => Listing {
@@ -691,6 +729,39 @@ impl Palette {
                 is_truncated: false,
             })
             .collect())
+    }
+
+    #[cfg(feature = "native-host")]
+    fn symbol_items(&mut self, search_term: &str, symbols: SymbolIndex<'_>) -> Vec<Item> {
+        let entries = symbols.entries.unwrap_or_default();
+        let indexed = entries.iter().enumerate().collect::<Vec<_>>();
+        self.matcher
+            .filter(
+                search_term,
+                &indexed,
+                |(_, symbol)| Cow::Borrowed(&symbol.name),
+                None,
+            )
+            .into_iter()
+            .map(|ranked| {
+                let (index, symbol) = *ranked.item;
+                Item {
+                    key: format!("symbol/{}/{index}", symbols.generation),
+                    action: Action::RevealSymbol {
+                        generation: symbols.generation,
+                        index,
+                    },
+                    icon: Icon::Braces,
+                    label: ranked.label,
+                    indices: ranked.matched.indices,
+                    detail: (!symbol.container_label.is_empty())
+                        .then(|| (symbol.container_label.clone(), Vec::new())),
+                    shortcut: None,
+                    is_enabled: true,
+                    is_truncated: true,
+                }
+            })
+            .collect()
     }
 
     fn file_items(&mut self, search_term: &str, files: &FileIndex<'_>) -> Vec<Item> {
@@ -953,6 +1024,10 @@ impl Palette {
     }
 
     fn row(&self, ui: &mut Ui, item: &Item, is_selected: bool) -> RowLayout {
+        #[cfg(feature = "native-host")]
+        let inline_detail = matches!(item.action, Action::RevealSymbol { .. });
+        #[cfg(not(feature = "native-host"))]
+        let inline_detail = false;
         let opacity = if item.is_enabled {
             1.0
         } else {
@@ -986,7 +1061,7 @@ impl Palette {
             self.appearance.foreground
         }
         .gamma_multiply(opacity);
-        let label = highlighted(
+        let mut label = highlighted(
             ui,
             &item.label,
             &item.indices,
@@ -999,7 +1074,7 @@ impl Palette {
             label_width,
             item.is_truncated,
         );
-        let detail = item.detail.as_ref().map(|(detail, indices)| {
+        let mut detail = item.detail.as_ref().map(|(detail, indices)| {
             highlighted(
                 ui,
                 detail,
@@ -1014,7 +1089,46 @@ impl Palette {
                 true,
             )
         });
-        let text_height = label.size().y + detail.as_ref().map_or(0.0, |detail| detail.size().y);
+        if inline_detail
+            && let (Some(caption), Some((text, indices))) = (detail.as_ref(), item.detail.as_ref())
+        {
+            let natural = label.size().x + caption.size().x;
+            if natural + ITEM_GAP > text_width && natural > 0.0 {
+                let available = (text_width - ITEM_GAP).max(0.0);
+                let label_width = available * label.size().x / natural;
+                label = highlighted(
+                    ui,
+                    &item.label,
+                    &item.indices,
+                    &Typography {
+                        size: BODY_FONT,
+                        line_height: BODY_LINE_HEIGHT,
+                        color: label_color,
+                        highlight,
+                    },
+                    label_width,
+                    true,
+                );
+                detail = Some(highlighted(
+                    ui,
+                    text,
+                    indices,
+                    &Typography {
+                        size: DETAIL_FONT,
+                        line_height: DETAIL_LINE_HEIGHT,
+                        color: muted,
+                        highlight,
+                    },
+                    available - label_width,
+                    true,
+                ));
+            }
+        }
+        let text_height = if inline_detail {
+            BODY_LINE_HEIGHT
+        } else {
+            label.size().y + detail.as_ref().map_or(0.0, |detail| detail.size().y)
+        };
         let (rect, response) = ui.allocate_exact_size(
             egui::vec2(
                 width,
@@ -1052,11 +1166,21 @@ impl Palette {
             image.paint_at(ui, icon);
         }
         let detail_top = content.top() + label.size().y;
+        let detail_left = if inline_detail {
+            label_left + label.size().x + ITEM_GAP
+        } else {
+            label_left
+        };
+        let detail_top = if inline_detail {
+            content.center().y - DETAIL_LINE_HEIGHT / 2.0
+        } else {
+            detail_top
+        };
         ui.painter()
             .galley(egui::pos2(label_left, content.top()), label, label_color);
         if let Some(detail) = detail {
             ui.painter()
-                .galley(egui::pos2(label_left, detail_top), detail, muted);
+                .galley(egui::pos2(detail_left, detail_top), detail, muted);
         }
         if let Some(shortcut) = shortcut {
             ui.painter().galley(

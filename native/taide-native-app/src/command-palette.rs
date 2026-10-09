@@ -565,6 +565,7 @@ mod tests {
                                     keymap_overrides: None,
                                     files: indexes.view(Some(&project), root),
                                     active_file: None,
+                                    symbols: Default::default(),
                                 },
                                 true,
                             )

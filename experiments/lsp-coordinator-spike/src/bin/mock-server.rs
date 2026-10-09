@@ -36,6 +36,8 @@ struct MockServer {
     should_publish_raw_diagnostics: bool,
     should_publish_inactive_diagnostics: bool,
     should_track_workspace_roots: bool,
+    document_symbols: Option<&'static str>,
+    held_symbol: Option<Value>,
     workspace_folders: Vec<Value>,
     workspace_reply: Option<Value>,
     pending_action_command: Option<Value>,
@@ -292,6 +294,16 @@ impl MockServer {
             if self.should_format_documents {
                 capabilities["documentFormattingProvider"] = json!(true);
             }
+            if self.document_symbols.is_some() {
+                if params["capabilities"]["textDocument"]["documentSymbol"]["hierarchicalDocumentSymbolSupport"]
+                    != true
+                {
+                    return Err(invalid(
+                        "native document symbols require hierarchical support",
+                    ));
+                }
+                capabilities["documentSymbolProvider"] = json!(true);
+            }
             if self.should_track_workspace_roots {
                 capabilities["workspace"] =
                     json!({"workspaceFolders":{"supported":true,"changeNotifications":true}});
@@ -426,6 +438,25 @@ impl MockServer {
             let cancelled_id = message["params"]["id"]
                 .as_u64()
                 .ok_or_else(|| invalid("cancel must identify a numeric request"))?;
+            if self
+                .held_symbol
+                .as_ref()
+                .is_some_and(|held| held["id"] == cancelled_id)
+            {
+                let held = self
+                    .held_symbol
+                    .take()
+                    .ok_or_else(|| invalid("cancel requires held symbols"))?;
+                write_response(output, &held["id"], Value::Null)?;
+                write_document_diagnostic(
+                    output,
+                    held["uri"]
+                        .as_str()
+                        .ok_or_else(|| invalid("held symbols require uri"))?,
+                    &held["version"],
+                    "synthetic symbol cancelled",
+                )?;
+            }
             if let Some(held) = self.held_progress.remove(&cancelled_id) {
                 for field in ["workDoneToken", "partialResultToken"] {
                     write_payload(
@@ -510,6 +541,43 @@ impl MockServer {
             .and_then(Value::as_str)
             .ok_or_else(|| invalid("document requires URI"))?;
         match method {
+            "textDocument/documentSymbol" => {
+                let current = self
+                    .documents
+                    .get(uri)
+                    .ok_or_else(|| invalid("document symbols require latest mirror"))?;
+                let id = id.ok_or_else(|| invalid("document symbols require ID"))?;
+                let mode = self
+                    .document_symbols
+                    .ok_or_else(|| invalid("document symbols are not advertised"))?;
+                if mode == "--native-symbols-wait" && self.held_symbol.is_none() {
+                    self.held_symbol =
+                        Some(json!({"id":id,"uri":uri,"version":current["version"]}));
+                    write_document_diagnostic(
+                        output,
+                        uri,
+                        &current["version"],
+                        "synthetic symbol held",
+                    )?;
+                    return Ok(None);
+                }
+                let range =
+                    json!({"start":{"line":0,"character":0},"end":{"line":2,"character":3}});
+                let selection =
+                    json!({"start":{"line":1,"character":4},"end":{"line":1,"character":10}});
+                let result = match mode {
+                    "--native-symbols-flat" => {
+                        json!([{"name":format!("flat:{}", current["version"]),"kind":12,"location":{"uri":uri,"range":selection},"containerName":"ignored"}])
+                    }
+                    "--native-symbols-bad" => {
+                        json!([{"name":42,"kind":5,"range":range,"selectionRange":selection}])
+                    }
+                    _ => {
+                        json!([{"name":format!("Class:{}", current["version"]),"detail":current["text"],"kind":5,"range":range,"selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"children":[{"name":"method","kind":6,"range":selection,"selectionRange":selection}]}])
+                    }
+                };
+                write_response(output, id, result)?;
+            }
             "textDocument/didOpen" => {
                 if id.is_some()
                     || self.documents.contains_key(uri)
@@ -793,6 +861,21 @@ fn main() -> io::Result<ExitCode> {
             server.should_track_saves = true;
             server.should_format_documents = true;
             server.should_run_save_actions = true;
+        }
+        Some(
+            mode @ ("--native-symbols"
+            | "--native-symbols-flat"
+            | "--native-symbols-wait"
+            | "--native-symbols-bad"),
+        ) => {
+            server.should_track_saves = true;
+            server.should_format_documents = true;
+            server.document_symbols = Some(match mode {
+                "--native-symbols-flat" => "--native-symbols-flat",
+                "--native-symbols-wait" => "--native-symbols-wait",
+                "--native-symbols-bad" => "--native-symbols-bad",
+                _ => "--native-symbols",
+            });
         }
         Some(
             mode @ ("--native-raw-diagnostics"

@@ -44,6 +44,10 @@ struct Scene {
     should_focus_previous: bool,
     background_clicks: usize,
     unconsumed_keys: Vec<Key>,
+    #[cfg(feature = "native-host")]
+    symbols: Vec<taide_native_editor::document_symbols::Symbol>,
+    #[cfg(feature = "native-host")]
+    symbols_pending: bool,
 }
 
 impl Scene {
@@ -77,6 +81,10 @@ impl Scene {
             should_focus_previous: false,
             background_clicks: 0,
             unconsumed_keys: Vec::new(),
+            #[cfg(feature = "native-host")]
+            symbols: Vec::new(),
+            #[cfg(feature = "native-host")]
+            symbols_pending: false,
         }
     }
 
@@ -140,6 +148,12 @@ impl Scene {
                                     is_refreshing: self.is_refreshing,
                                 },
                                 active_file: self.active_file.as_deref(),
+                                #[cfg(feature = "native-host")]
+                                symbols: SymbolIndex {
+                                    entries: Some(&self.symbols),
+                                    generation: self.revision,
+                                    is_pending: self.symbols_pending,
+                                },
                             },
                             self.enabled,
                         )
@@ -618,6 +632,82 @@ fn 탐색_키는_활성_항목_사이만_이동하고_양_끝에서_멈춘다() 
     assert!(
         scene.inspection().has_input_focus,
         "Tab 은 입력 포커스를 옮기지 않는다"
+    );
+}
+
+#[cfg(feature = "native-host")]
+#[test]
+fn 문서_심볼은_이름_fuzzy_한줄_breadcrumb_입력과_현재_세대_선택을_보존한다() {
+    use taide_native_editor::document_symbols::{Symbol, SymbolKind};
+    let mut scene = Scene::new().with_project(&[]);
+    scene.active_file = Some(ACTIVE_FILE.into());
+    scene.symbols_pending = true;
+    scene.open(PaletteEntry::Files);
+    scene.type_text("@");
+    assert!(scene.palette.observes_symbols());
+    assert_eq!(
+        scene.inspection().empty_message.as_deref(),
+        Some("Loading...")
+    );
+    scene.symbols_pending = false;
+    scene.symbols = ["Class", "method", "me\u{301}thod"]
+        .into_iter()
+        .enumerate()
+        .map(|(index, name)| Symbol {
+            name: name.into(),
+            detail: "signature is not displayed".into(),
+            kind: SymbolKind::FUNCTION,
+            tags: Vec::new(),
+            parent: (index > 0).then_some(0),
+            container_label: if index == 0 {
+                String::new()
+            } else {
+                "Class > nested".into()
+            },
+            bytes: index..index + 1,
+            selection: index..index + 1,
+        })
+        .collect();
+    scene.frame(Vec::new());
+    assert_eq!(scene.labels(), ["Class", "method", "méthod"]);
+    for row in scene.inspection().rows {
+        assert_eq!(row.icon, Icon::Braces);
+        assert_eq!(row.rect.height(), SINGLE_LINE_ROW_HEIGHT);
+    }
+    assert_eq!(
+        scene.inspection().rows[1].detail.as_deref(),
+        Some("Class > nested")
+    );
+    scene.type_text("mth");
+    assert_eq!(scene.labels(), ["method", "méthod"]);
+    scene.press(Key::ArrowDown);
+    let generation = scene.revision;
+    assert_eq!(
+        scene.press(Key::Enter).action,
+        Some(Action::RevealSymbol {
+            generation,
+            index: 2
+        })
+    );
+    assert!(!scene.palette.is_open());
+    scene.open(PaletteEntry::Files);
+    scene.type_text("@");
+    let row = scene.inspection().rows[0].clone();
+    assert_eq!(
+        scene.click(row.rect.center()).action,
+        Some(Action::RevealSymbol {
+            generation,
+            index: 0
+        })
+    );
+    scene.open(PaletteEntry::Files);
+    scene.type_text("@");
+    scene.active_file = None;
+    scene.frame(Vec::new());
+    assert!(scene.inspection().rows.is_empty());
+    assert_eq!(
+        scene.inspection().empty_message.as_deref(),
+        Some("Open a file first")
     );
 }
 
