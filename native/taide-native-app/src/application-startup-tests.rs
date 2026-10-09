@@ -226,7 +226,7 @@ fn actual_app_constructor는_bundle_startup_settings_file_save와_정상_exit_ow
 }
 
 #[test]
-fn actual_app의_아웃라인과_workspace_심볼은_현재_pane과_utf16_reveal을_소비한다() {
+fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane과_reveal을_소비한다() {
     use std::os::unix::fs::PermissionsExt;
     const SCREEN_WIDTH: f32 = 1000.0;
     const SCREEN_HEIGHT: f32 = 700.0;
@@ -385,7 +385,7 @@ fn actual_app의_아웃라인과_workspace_심볼은_현재_pane과_utf16_reveal
             ViewKey {
                 window: WINDOW_LABEL.into(),
                 pane,
-                tab,
+                tab: tab.clone(),
             },
             document,
         )
@@ -446,7 +446,7 @@ fn actual_app의_아웃라인과_workspace_심볼은_현재_pane과_utf16_reveal
     let executable = bin.join("rust-analyzer");
     std::fs::write(
         &executable,
-        format!("#!/bin/sh\nexec '{mock}' --native-workspace-symbols\n"),
+        format!("#!/bin/sh\nexec '{mock}' --native-workspace-symbols-folding\n"),
     )
     .unwrap();
     std::fs::set_permissions(
@@ -529,6 +529,78 @@ fn actual_app의_아웃라인과_workspace_심볼은_현재_pane과_utf16_reveal
             .map(|tab| tab.id.clone())
             .collect::<Vec<_>>(),
         before_tabs
+    );
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .revision,
+        snapshot.revision
+    );
+    runtime.block_on(async {
+        tokio::time::timeout(DEADLINE, async {
+            loop {
+                eframe::App::logic(application, &context, &mut eframe::Frame::_new_kittest());
+                paint(application, Vec::new());
+                if application
+                    .editor_folding
+                    .model(&project, &snapshot)
+                    .is_some()
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+    });
+    let syntax = application
+        .editor_folding
+        .model(&project, &snapshot)
+        .unwrap();
+    assert_eq!(syntax.regions()[0].end_line, 2);
+    assert_eq!(syntax.kind(0), Some("imports"));
+    application
+        .fold_commands
+        .push((tab.clone(), FoldCommand::ToggleImports));
+    let folded = paint(application, Vec::new());
+    assert_eq!(
+        application.store.views().get(view).unwrap().folds,
+        vec![snapshot.rope.line_to_byte(1)..snapshot.rope.len_bytes()]
+    );
+    assert!(!folded.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text.contains("\u{1f600}method"))));
+    application
+        .store
+        .request_selection_reveal(view, WORKSPACE_CARET..WORKSPACE_CARET, false)
+        .unwrap();
+    let current = application.store.views().get(view).unwrap().clone();
+    application
+        .store
+        .set_view_state(
+            view,
+            taide_native_editor::view::SelectionSet {
+                primary: 0,
+                selections: vec![taide_native_editor::view::Selection {
+                    anchor: WORKSPACE_CARET,
+                    head: WORKSPACE_CARET,
+                }],
+            },
+            current.scroll,
+            current.folds,
+        )
+        .unwrap();
+    paint(application, Vec::new());
+    assert!(
+        application
+            .store
+            .views()
+            .get(view)
+            .unwrap()
+            .folds
+            .is_empty()
     );
     assert_eq!(
         application

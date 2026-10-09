@@ -61,4 +61,6 @@ pub mod snippet_whitespace;
 pub mod sticky_model;
 pub mod store;
 pub mod syntax;
+#[path = "syntax-folding.rs"]
+pub mod syntax_folding;
 pub mod view;

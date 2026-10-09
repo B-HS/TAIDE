@@ -102,6 +102,24 @@ fn tracked_view_folds(
     })
 }
 
+fn validate_fold_range(rope: &Rope, fold: &std::ops::Range<usize>) -> Result<(), EditorError> {
+    if fold.start > fold.end {
+        return Err(EditorError::InvalidBoundary);
+    }
+    byte_to_char(rope, fold.start)?;
+    byte_to_char(rope, fold.end)?;
+    if fold.is_empty() {
+        let line = rope.byte_to_line(fold.start);
+        if line == 0
+            || rope.line_to_byte(line) != fold.start
+            || crate::editing::rope_line_content_range(rope, line).end != fold.start
+        {
+            return Err(EditorError::InvalidBoundary);
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DocumentVersion<'a> {
     pub id: DocumentId,
@@ -429,6 +447,7 @@ impl EditorStore {
             view.selection = view.selection.clamped(&rope);
             view.composition = None;
             view.folds.clear();
+            view.manual_folds.clear();
         }
         let owner = self
             .documents
@@ -565,6 +584,7 @@ impl EditorStore {
                 view.selection = view.selection.clamped(&canonical);
                 view.composition = None;
                 view.folds.clear();
+                view.manual_folds.clear();
             }
         }
         let owner = self
@@ -683,6 +703,7 @@ impl EditorStore {
             view.selection = view.selection.clamped(&source.rope);
             view.composition = None;
             view.folds.clear();
+            view.manual_folds.clear();
         }
         for view in removed {
             views.remove(&view);
@@ -778,6 +799,7 @@ impl EditorStore {
         {
             if Some(view.document) == displaced {
                 view.folds.clear();
+                view.manual_folds.clear();
             }
             view.document = requested.id;
             view.selection = view.selection.clamped(&rope);
@@ -824,6 +846,7 @@ impl EditorStore {
             view.selection = view.selection.clamped(&rope);
             view.composition = None;
             view.folds.clear();
+            view.manual_folds.clear();
         }
         let owner = self
             .documents
@@ -962,6 +985,7 @@ impl EditorStore {
                 view.selection = view.selection.clamped(&disk.rope);
                 view.composition = None;
                 view.folds.clear();
+                view.manual_folds.clear();
             }
         }
         let owner = self
@@ -1080,6 +1104,7 @@ impl EditorStore {
                 selection: SelectionSet::default(),
                 scroll: ScrollPosition::default(),
                 folds: Vec::new(),
+                manual_folds: Vec::new(),
                 composition: None,
                 edit_run: None,
                 goal_columns: None,
@@ -1115,11 +1140,7 @@ impl EditorStore {
             return Err(EditorError::InvalidBoundary);
         }
         for fold in &folds {
-            if fold.start >= fold.end {
-                return Err(EditorError::InvalidBoundary);
-            }
-            byte_to_char(&document.rope, fold.start)?;
-            byte_to_char(&document.rope, fold.end)?;
+            validate_fold_range(&document.rope, fold)?;
         }
         let current = self
             .views
@@ -1136,6 +1157,24 @@ impl EditorStore {
         current.selection = selection;
         current.scroll = scroll;
         current.folds = folds;
+        Ok(())
+    }
+
+    pub fn set_manual_folds(
+        &mut self,
+        view: ViewId,
+        folds: Vec<std::ops::Range<usize>>,
+    ) -> Result<(), EditorError> {
+        let current = self.views.get(view).ok_or(EditorError::NotFound)?;
+        let document = self.documents.snapshot(current.document)?;
+        for fold in &folds {
+            validate_fold_range(&document.rope, fold)?;
+        }
+        self.views
+            .views
+            .get_mut(&view)
+            .ok_or(EditorError::NotFound)?
+            .manual_folds = folds;
         Ok(())
     }
 
@@ -1428,6 +1467,12 @@ impl EditorStore {
                 (&before, &owner.rope),
                 &view.folds,
             );
+            view.manual_folds = tracked_view_folds(
+                &owner.journal,
+                revisions,
+                (&before, &owner.rope),
+                &view.manual_folds,
+            );
             view.cursor_memory
                 .content_changed(next_revision, owner.journal.since(revisions.0, revisions.1));
         }
@@ -1485,6 +1530,12 @@ impl EditorStore {
             view.composition = None;
             view.folds =
                 tracked_view_folds(&owner.journal, revisions, (&owner.rope, text), &view.folds);
+            view.manual_folds = tracked_view_folds(
+                &owner.journal,
+                revisions,
+                (&owner.rope, text),
+                &view.manual_folds,
+            );
             view.cursor_memory
                 .content_changed(revision, owner.journal.since(revisions.0, revisions.1));
         }

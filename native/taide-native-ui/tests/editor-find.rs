@@ -443,6 +443,8 @@ fn frame_with_shapes(
                         language: None,
                         decorations: &layers,
                         fold_commands: &[],
+                        #[cfg(feature = "native-host")]
+                        syntax_folds: None,
                         fold_controls: None,
                         #[cfg(feature = "native-host")]
                         problems: None,

@@ -41,6 +41,12 @@ pub(super) fn fixture(mode: &str) -> (Fixture, ProjectId, EditorStore, DocumentI
             | "--native-workspace-symbols-wait"
             | "--native-workspace-symbols-crash"
             | "--native-workspace-symbols-error"
+            | "--native-folding"
+            | "--native-folding-empty"
+            | "--native-folding-null"
+            | "--native-folding-error"
+            | "--native-folding-wait"
+            | "--native-folding-crash"
     ));
     let directory = std::env::temp_dir().join(format!("taide-native-symbols-{}", ProjectId::new()));
     let root = directory.join("root");

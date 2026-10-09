@@ -181,6 +181,8 @@ pub struct EditorRequest<'a, Keymap, Route, Tokens> {
     pub fold_controls: Option<&'a mut FoldControlPainter<'a>>,
     #[cfg(feature = "native-host")]
     pub problems: Option<&'a mut dyn crate::editor_problems::Provider>,
+    #[cfg(feature = "native-host")]
+    pub syntax_folds: Option<Arc<taide_native_editor::syntax_folding::SyntaxFolds>>,
 }
 
 #[cfg(feature = "native-host")]
@@ -251,6 +253,8 @@ struct FoldRegionCache {
     tab_size: u32,
     language_id: Option<String>,
     regions: Arc<[FoldRegion]>,
+    #[cfg(feature = "native-host")]
+    syntax: Option<Arc<taide_native_editor::syntax_folding::SyntaxFolds>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -279,6 +283,8 @@ struct InputState {
     scrolled_at: Option<f64>,
     rendered_viewport: Option<RenderedViewport>,
     fold_regions: Option<FoldRegionCache>,
+    #[cfg(feature = "native-host")]
+    syntax_folds: Option<Arc<taide_native_editor::syntax_folding::SyntaxFolds>>,
     fold_press: Option<FoldPress>,
     clicked_fold_line: Option<usize>,
     fold_control_fade: FoldControlFade,
@@ -302,6 +308,14 @@ impl InputState {
         let document = store.documents().snapshot(owner)?;
         let language_id = rules.map(|_| document.metadata.language_id.as_str());
         let cached = self.fold_regions.as_ref().filter(|cache| {
+            #[cfg(feature = "native-host")]
+            if !match (&cache.syntax, &self.syntax_folds) {
+                (Some(previous), Some(current)) => Arc::ptr_eq(previous, current),
+                (None, None) => true,
+                _ => false,
+            } {
+                return false;
+            }
             cache.document == document.id
                 && cache.revision == document.revision
                 && cache.tab_size == tab_size
@@ -310,11 +324,23 @@ impl InputState {
         if let Some(cache) = cached {
             return Ok(Arc::clone(&cache.regions));
         }
-        let regions: Arc<[FoldRegion]> = match rules {
-            Some(rules) => language_regions(&document.rope, tab_size, MAX_FOLDING_REGIONS, rules),
-            None => indent_regions(&document.rope, tab_size, MAX_FOLDING_REGIONS),
-        }
-        .into();
+        let fallback = || -> Arc<[FoldRegion]> {
+            match rules {
+                Some(rules) => {
+                    language_regions(&document.rope, tab_size, MAX_FOLDING_REGIONS, rules)
+                }
+                None => indent_regions(&document.rope, tab_size, MAX_FOLDING_REGIONS),
+            }
+            .into()
+        };
+        #[cfg(feature = "native-host")]
+        let regions = self
+            .syntax_folds
+            .as_ref()
+            .filter(|syntax| syntax.describes(&document))
+            .map_or_else(fallback, |syntax| Arc::clone(syntax.regions()));
+        #[cfg(not(feature = "native-host"))]
+        let regions = fallback();
         reconcile_folds(store, view, &regions)?;
         self.fold_regions = Some(FoldRegionCache {
             document: document.id,
@@ -322,6 +348,8 @@ impl InputState {
             tab_size,
             language_id: language_id.map(str::to_owned),
             regions: Arc::clone(&regions),
+            #[cfg(feature = "native-host")]
+            syntax: self.syntax_folds.clone(),
         });
         Ok(regions)
     }
@@ -378,8 +406,14 @@ fn apply_sticky_action(
             let regions = input.fold_regions(store, view, tab_size, rules)?;
             let current = store.views().get(view).ok_or(EditorError::NotFound)?;
             let document = store.documents().snapshot(current.document)?;
-            let collapsed =
-                FoldingModel::new(&regions, &document, &current.folds).header(line) == Some(true);
+            let collapsed = FoldingModel::with_manual(
+                &regions,
+                &document,
+                &current.folds,
+                &current.manual_folds,
+            )
+            .header(line)
+                == Some(true);
             if click_fold(
                 store,
                 view,
@@ -432,6 +466,31 @@ fn maintain_folds(
         reveal = Some(FoldReveal::Head);
     }
     for command in commands {
+        #[cfg(feature = "native-host")]
+        if let Some(syntax) = state.syntax_folds.as_ref().filter(|syntax| {
+            store
+                .views()
+                .get(view)
+                .and_then(|view| store.documents().snapshot(view.document).ok())
+                .is_some_and(|document| syntax.describes(&document))
+        }) {
+            if !syntax.has_kinds()
+                && matches!(
+                    command,
+                    FoldCommand::FoldAllBlockComments
+                        | FoldCommand::FoldAllMarkerRegions
+                        | FoldCommand::UnfoldAllMarkerRegions
+                )
+                && let Some(rules) = rules
+            {
+                run_language_fold_command(store, view, &regions, *command, rules)?;
+                reveal = Some(FoldReveal::SelectionStart);
+                continue;
+            }
+            taide_native_editor::folding::run_syntax_fold_command(store, view, syntax, *command)?;
+            reveal = Some(FoldReveal::SelectionStart);
+            continue;
+        }
         match rules {
             Some(rules) => run_language_fold_command(store, view, &regions, *command, rules)?,
             None => run_fold_command(store, view, &regions, *command)?,
@@ -974,6 +1033,8 @@ impl NativeEditor {
                 fold_controls: None,
                 #[cfg(feature = "native-host")]
                 problems: None,
+                #[cfg(feature = "native-host")]
+                syntax_folds: None,
             },
         )
     }
@@ -1002,6 +1063,8 @@ impl NativeEditor {
             mut fold_controls,
             #[cfg(feature = "native-host")]
             mut problems,
+            #[cfg(feature = "native-host")]
+            syntax_folds,
         } = request;
         let appearance = &self.appearance;
         if !appearance.line_height.is_finite()
@@ -1061,6 +1124,10 @@ impl NativeEditor {
         let mut input_state = ui
             .ctx()
             .data_mut(|data| data.get_temp::<InputState>(id).unwrap_or_default());
+        #[cfg(feature = "native-host")]
+        {
+            input_state.syntax_folds = syntax_folds.filter(|syntax| syntax.describes(&previous));
+        }
         #[cfg(feature = "native-host")]
         if !ui.is_enabled() {
             input_state.problems.detach();
@@ -1504,13 +1571,20 @@ impl NativeEditor {
             && presentation.options.sticky_colors.is_some()
             && crate::editor_sticky_scroll::is_available(&document)
         {
-            Some(input_state.sticky.model(
-                &document,
-                indent.tab_size,
-                language.map(|language| language.rules),
-                has_folding.then_some(&fold_regions),
-                presentation.options.sticky_model.as_ref(),
-            ))
+            Some(
+                input_state.sticky.model(
+                    &document,
+                    indent.tab_size,
+                    language.map(|language| language.rules),
+                    input_state
+                        .syntax_folds
+                        .as_ref()
+                        .filter(|syntax| syntax.describes(&document))
+                        .map(|syntax| syntax.regions())
+                        .or_else(|| has_folding.then_some(&fold_regions)),
+                    presentation.options.sticky_model.as_ref(),
+                ),
+            )
         } else {
             input_state.sticky.clear();
             None
@@ -2378,7 +2452,12 @@ impl NativeEditor {
             if is_fading {
                 ui.ctx().request_repaint();
             }
-            let model = FoldingModel::new(&fold_regions, &document, &state.folds);
+            let model = FoldingModel::with_manual(
+                &fold_regions,
+                &document,
+                &state.folds,
+                &state.manual_folds,
+            );
             let color = ui.visuals().weak_text_color();
             let clip = ui.clip_rect();
             ui.set_clip_rect(gutter_rect.intersect(clip));

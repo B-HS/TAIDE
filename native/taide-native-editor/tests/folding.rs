@@ -76,6 +76,296 @@ const UP: Motion = Motion::Vertical {
     tab_size: TAB_SIZE,
 };
 
+#[test]
+fn 구문_접기는_provider_우선과_중첩_종류_한도_및_문서_버전을_보존한다() {
+    use taide_native_editor::syntax_folding::{SyntaxFoldRange, SyntaxFolds};
+    let (mut store, view, document) = fixture(NESTED);
+    let range = |start_line, end_line, kind: &str| SyntaxFoldRange {
+        region: FoldRegion {
+            start_line,
+            end_line,
+        },
+        kind: Some(kind.into()),
+    };
+    let current = snapshot(&store, document);
+    let syntax = SyntaxFolds::new(
+        &current,
+        vec![
+            vec![
+                range(5, 7, "imports"),
+                range(0, 8, "region"),
+                range(1, 4, "custom"),
+                range(3, 6, "comment"),
+                range(8, 8, "invalid"),
+                range(8, 99, "invalid"),
+            ],
+            vec![range(0, 7, "comment"), range(6, 7, "comment")],
+        ],
+    );
+    assert_eq!(
+        syntax.regions().as_ref(),
+        &[
+            FoldRegion {
+                start_line: 0,
+                end_line: 8
+            },
+            FoldRegion {
+                start_line: 1,
+                end_line: 4
+            },
+            FoldRegion {
+                start_line: 5,
+                end_line: 7
+            },
+            FoldRegion {
+                start_line: 6,
+                end_line: 7
+            },
+        ]
+    );
+    assert_eq!(syntax.kind(0), Some("region"));
+    assert_eq!(syntax.kind(1), Some("custom"));
+    assert!(syntax.describes(&current));
+    replace(&mut store, document, 0..0, "prefix\n");
+    assert!(!syntax.describes(&snapshot(&store, document)));
+    assert!(
+        !taide_native_editor::folding::run_syntax_fold_command(
+            &mut store,
+            view,
+            &syntax,
+            FoldCommand::FoldAll
+        )
+        .unwrap()
+    );
+    let text = (0..LARGE_BLOCKS * LARGE_BLOCK_LINES)
+        .map(|_| "line\n")
+        .collect::<String>();
+    let (store, _, document) = large_fixture(&text);
+    let current = snapshot(&store, document);
+    let providers = (0..2)
+        .map(|offset| {
+            (0..MAX_FOLDING_REGIONS)
+                .map(|index| {
+                    range(
+                        (offset * MAX_FOLDING_REGIONS + index) * 2,
+                        (offset * MAX_FOLDING_REGIONS + index) * 2 + 1,
+                        "region",
+                    )
+                })
+                .collect()
+        })
+        .collect();
+    assert_eq!(
+        SyntaxFolds::new(&current, providers).regions().len(),
+        MAX_FOLDING_REGIONS
+    );
+}
+
+#[test]
+fn 구문_종류별_접기는_imports를_개별_반전하고_수동_범위를_보존한다() {
+    use taide_native_editor::folding::run_syntax_fold_command;
+    use taide_native_editor::syntax_folding::{SyntaxFoldRange, SyntaxFolds};
+    let (mut store, view, document) = fixture(NESTED);
+    let current = snapshot(&store, document);
+    let syntax = SyntaxFolds::new(
+        &current,
+        vec![vec![
+            SyntaxFoldRange {
+                region: FIRST,
+                kind: Some("imports".into()),
+            },
+            SyntaxFoldRange {
+                region: SECOND,
+                kind: Some("imports".into()),
+            },
+            SyntaxFoldRange {
+                region: OUTER,
+                kind: Some("comment".into()),
+            },
+        ]],
+    );
+    hide(&mut store, view, &[(FIRST.start_line + 1, FIRST.end_line)]);
+    run_syntax_fold_command(&mut store, view, &syntax, FoldCommand::ToggleImports).unwrap();
+    assert_eq!(
+        hidden(&store, view),
+        vec![(SECOND.start_line + 1, SECOND.end_line + 1)]
+    );
+    run_syntax_fold_command(&mut store, view, &syntax, FoldCommand::FoldAllBlockComments).unwrap();
+    assert!(
+        FoldingModel::new(
+            syntax.regions(),
+            &current,
+            &store.views().get(view).unwrap().folds
+        )
+        .header(OUTER.start_line)
+        .unwrap()
+    );
+    run_syntax_fold_command(&mut store, view, &syntax, FoldCommand::UnfoldAll).unwrap();
+    place(
+        &mut store,
+        view,
+        line_start(&current, 1),
+        line_start(&current, 5),
+    );
+    run_fold_command(
+        &mut store,
+        view,
+        syntax.regions(),
+        FoldCommand::CreateFromSelection,
+    )
+    .unwrap();
+    run_syntax_fold_command(&mut store, view, &syntax, FoldCommand::ToggleImports).unwrap();
+    assert_eq!(
+        store.views().get(view).unwrap().manual_folds,
+        vec![fold(&current, 2..=4)]
+    );
+    assert!(
+        store
+            .views()
+            .get(view)
+            .unwrap()
+            .folds
+            .contains(&fold(&current, 2..=4))
+    );
+}
+
+#[test]
+fn 수동_범위는_끝열1을_제외하고_펼친뒤_편집과_다중뷰를_따른다() {
+    let (mut store, view, document) = fixture(NESTED);
+    let current = snapshot(&store, document);
+    let other = store
+        .attach_view(
+            ViewKey {
+                window: "other".into(),
+                pane: PaneId::new(),
+                tab: TabId::new(),
+            },
+            document,
+        )
+        .unwrap();
+    place(
+        &mut store,
+        view,
+        line_start(&current, 1),
+        line_start(&current, 5),
+    );
+    run_fold_command(&mut store, view, &[], FoldCommand::CreateFromSelection).unwrap();
+    assert_eq!(
+        store.views().get(view).unwrap().manual_folds,
+        vec![fold(&current, 2..=4)]
+    );
+    assert!(store.views().get(other).unwrap().manual_folds.is_empty());
+    assert_eq!(
+        caret(&store, view),
+        (line_start(&current, 1), line_start(&current, 1))
+    );
+    run_fold_command(&mut store, view, &[], FoldCommand::UnfoldAll).unwrap();
+    assert!(store.views().get(view).unwrap().folds.is_empty());
+    replace(&mut store, document, 0..0, "prefix\n");
+    let edited = snapshot(&store, document);
+    let state = store.views().get(view).unwrap();
+    assert_eq!(state.manual_folds, vec![fold(&edited, 3..=5)]);
+    assert_eq!(
+        FoldingModel::with_manual(&[], &edited, &state.folds, &state.manual_folds).header(2),
+        Some(false)
+    );
+    assert!(store.undo(document).unwrap());
+    assert_eq!(
+        store.views().get(view).unwrap().manual_folds,
+        vec![fold(&current, 2..=4)]
+    );
+    assert!(store.redo(document).unwrap());
+    assert_eq!(
+        store.views().get(view).unwrap().manual_folds,
+        vec![fold(&edited, 3..=5)]
+    );
+    place_line(&mut store, view, 2);
+    run_fold_command(&mut store, view, &[], FoldCommand::Fold).unwrap();
+    assert_eq!(hidden(&store, view), vec![(3, 6)]);
+    run_fold_command(&mut store, view, &[], FoldCommand::RemoveManualRanges).unwrap();
+    assert!(store.views().get(view).unwrap().manual_folds.is_empty());
+    assert!(store.views().get(view).unwrap().folds.is_empty());
+}
+
+#[test]
+fn 수동_범위는_기존_교차_접기보다_우선하고_모든_선택의_시작을_보존한다() {
+    let (mut store, view, document) = fixture(NESTED);
+    let current = snapshot(&store, document);
+    let provider = FoldRegion {
+        start_line: 0,
+        end_line: 3,
+    };
+    hide(&mut store, view, &[(1, 3)]);
+    let state = store.views().get(view).unwrap().clone();
+    store
+        .set_view_state(
+            view,
+            SelectionSet {
+                primary: 1,
+                selections: vec![
+                    Selection {
+                        anchor: line_start(&current, 2),
+                        head: line_end(&current, 5),
+                    },
+                    Selection {
+                        anchor: line_start(&current, 6),
+                        head: line_end(&current, 8),
+                    },
+                ],
+            },
+            state.scroll,
+            state.folds,
+        )
+        .unwrap();
+    run_fold_command(
+        &mut store,
+        view,
+        &[provider],
+        FoldCommand::CreateFromSelection,
+    )
+    .unwrap();
+    let state = store.views().get(view).unwrap();
+    let model = FoldingModel::with_manual(&[provider], &current, &state.folds, &state.manual_folds);
+    assert_eq!(
+        model.regions(),
+        &[
+            FoldRegion {
+                start_line: 2,
+                end_line: 5
+            },
+            FoldRegion {
+                start_line: 6,
+                end_line: 8
+            },
+        ]
+    );
+    assert_eq!(state.selection.primary, 1);
+    assert_eq!(
+        state
+            .selection
+            .selections
+            .iter()
+            .map(|selection| selection.head)
+            .collect::<Vec<_>>(),
+        vec![line_start(&current, 2), line_start(&current, 6)]
+    );
+}
+
+#[test]
+fn 수동_범위는_빈_본문_한_줄도_접는다() {
+    let (mut store, view, document) = fixture("header\n\ntail");
+    let current = snapshot(&store, document);
+    place(&mut store, view, 0, line_start(&current, 2));
+    run_fold_command(&mut store, view, &[], FoldCommand::CreateFromSelection).unwrap();
+    assert_eq!(hidden(&store, view), vec![(1, 2)]);
+    assert_eq!(store.views().get(view).unwrap().manual_folds.len(), 1);
+    replace(&mut store, document, 0..0, "prefix\n");
+    assert_eq!(hidden(&store, view), vec![(2, 3)]);
+    run_fold_command(&mut store, view, &[], FoldCommand::UnfoldAll).unwrap();
+    assert_eq!(store.views().get(view).unwrap().manual_folds.len(), 1);
+    assert!(store.views().get(view).unwrap().folds.is_empty());
+}
+
 fn regions(text: &str, tab_size: u32, limit: usize) -> Vec<(usize, usize)> {
     indent_regions(&Rope::from_str(text), tab_size, limit)
         .into_iter()

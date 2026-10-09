@@ -401,7 +401,7 @@ mod tests {
         "toggle-zen-mode",
     ];
 
-    const FOLD_ACTIONS: [(&str, FoldCommand); 16] = [
+    const FOLD_ACTIONS: [(&str, FoldCommand); 19] = [
         ("editor.fold", FoldCommand::Fold),
         ("editor.unfold", FoldCommand::Unfold),
         ("editor.toggleFold", FoldCommand::ToggleFold),
@@ -430,11 +430,15 @@ mod tests {
             "editor.unfoldAllMarkerRegions",
             FoldCommand::UnfoldAllMarkerRegions,
         ),
-    ];
-    const UNSUPPORTED_FOLD_COMMANDS: [&str; 3] = [
-        "monaco.editor.createFoldingRangeFromSelection",
-        "monaco.editor.removeManualFoldingRanges",
-        "monaco.editor.toggleImportFold",
+        (
+            "editor.createFoldingRangeFromSelection",
+            FoldCommand::CreateFromSelection,
+        ),
+        (
+            "editor.removeManualFoldingRanges",
+            FoldCommand::RemoveManualRanges,
+        ),
+        ("editor.toggleImportFold", FoldCommand::ToggleImports),
     ];
 
     fn editor_actions(is_read_only: bool, has_folding: bool) -> CommandContext {
@@ -506,12 +510,6 @@ mod tests {
             assert!(
                 !accepts(&fold, true, &editor_actions(false, false)),
                 "{fold}"
-            );
-        }
-        for unsupported in UNSUPPORTED_FOLD_COMMANDS {
-            assert!(
-                !accepts(unsupported, true, &editor_context(false)),
-                "{unsupported}"
             );
         }
         assert!(!accepts(

@@ -496,6 +496,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### Ported source in `native/taide-native-ui`
 
+- `src/editor-fold-keymap-defaults.json` adapts the original folding keyboard
+  bindings from Monaco Editor 0.56.0 (MIT, Copyright (c) Microsoft Corporation),
+  `editor/contrib/folding/browser/folding.js`. The same MIT text is retained in
+  `native/taide-native-ui/LICENSE-MONACO-FIND`.
+
 - `src/editor-minimap-layout.rs`, `src/editor-minimap.rs` and their native
   editor surface connections adapt layout, glyph blending, selection,
   slider and pointer/touch interactions from Monaco Editor 0.56.0 (MIT,
@@ -691,6 +696,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   and `UnfoldAllRegionsAction` of `folding.js` are ported in the same file.
   The license text is the same
   `native/taide-native-editor/LICENSE-MONACO-SNIPPET`.
+- `src/syntax-folding.rs` adapts provider ordering, range sanitization and
+  depth-based range limiting from `syntaxRangeProvider.js` in the same Monaco
+  folding directory. The manual range creation/removal and imports toggle in
+  `src/folding.rs` adapt the corresponding actions and controller in
+  `folding.js`. The same MIT copyright and license above apply.
 - `src/auto-indent.rs`, `src/auto-closing.rs`, `src/language-typing.rs` and
   `src/language-configuration.rs` port the typing rules of Monaco Editor
   0.56.0 (MIT, Copyright (c) Microsoft Corporation), all from `editor/common`:

@@ -213,6 +213,7 @@ pub struct ViewState {
     pub selection: SelectionSet,
     pub scroll: ScrollPosition,
     pub folds: Vec<Range<usize>>,
+    pub manual_folds: Vec<Range<usize>>,
     pub composition: Option<Composition>,
     pub edit_run: Option<EditRun>,
     pub goal_columns: Option<GoalColumns>,

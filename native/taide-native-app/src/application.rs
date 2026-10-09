@@ -126,6 +126,7 @@ pub struct NativeApplication {
     resumed_save_epochs: HashMap<DocumentId, crate::persistence::DraftEpoch>,
     lsp_diagnostics: crate::diagnostics::Store,
     editor_symbols: crate::editor_symbols::State,
+    editor_folding: crate::editor_folding::State,
     workspace_symbols: crate::workspace_symbols::State,
     lsp_status_appearance: crate::lsp::status::Appearance,
     status_editor_appearance: crate::status_editor::Appearance,
@@ -422,6 +423,7 @@ impl NativeApplication {
             resumed_save_epochs: HashMap::new(),
             lsp_diagnostics: crate::diagnostics::Store::default(),
             editor_symbols: crate::editor_symbols::State::default(),
+            editor_folding: crate::editor_folding::State::default(),
             workspace_symbols: crate::workspace_symbols::State::default(),
             lsp_status_appearance: appearances.lsp_status,
             status_editor_appearance: appearances.status_editor,
@@ -2926,6 +2928,7 @@ impl NativeApplication {
         );
         let Some(lsp) = self.lsp.as_mut() else {
             self.editor_symbols.retain(&HashSet::new());
+            self.editor_folding.retain(&HashSet::new());
             return;
         };
         if let Err(error) = lsp.reconcile_models(&mut self.store) {
@@ -2944,6 +2947,7 @@ impl NativeApplication {
             return;
         }
         let mut retained = HashSet::new();
+        let mut fold_retained = HashSet::new();
         for (project, path) in crate::lsp::visible_files(&shell, &self.shell.scope) {
             if self.loading.contains(path)
                 || self.failed.contains_key(path)
@@ -2964,7 +2968,7 @@ impl NativeApplication {
                 }
                 if let Some(request) = self.editor_symbols.observe(
                     project,
-                    snapshot,
+                    snapshot.clone(),
                     lsp.symbol_providers(project, file.id),
                     Instant::now(),
                 ) && let Err(error) = lsp.document_symbols(request.clone())
@@ -2972,12 +2976,26 @@ impl NativeApplication {
                     self.editor_symbols.failed(&request);
                     self.status = Some(error.to_string());
                 }
+                if taide_native_ui::presentation::editor_folding(snapshot.metadata.tier) {
+                    fold_retained.insert((project.clone(), file.id));
+                    if let Some(request) = self.editor_folding.observe(
+                        project,
+                        snapshot,
+                        lsp.symbol_providers(project, file.id),
+                        Instant::now(),
+                    ) && let Err(error) = lsp.syntax_folding(request.clone())
+                    {
+                        self.editor_folding.failed(&request);
+                        self.status = Some(error.to_string());
+                    }
+                }
             }
         }
         if let Err(error) = lsp.retain_bindings(&retained) {
             self.status = Some(error.to_string());
         }
         self.editor_symbols.retain(&retained);
+        self.editor_folding.retain(&fold_retained);
     }
 
     fn poll_lsp(&mut self) {
@@ -2990,6 +3008,15 @@ impl NativeApplication {
         }
         while let Some(reply) = self.lsp.as_mut().and_then(crate::lsp::LspBridge::poll) {
             match reply {
+                crate::lsp::Reply::SyntaxFolding { request, result } => {
+                    if let Ok(current) = self.store.documents().snapshot(request.snapshot.id) {
+                        let providers = self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
+                            lsp.symbol_providers(&request.project, current.id)
+                        });
+                        self.editor_folding
+                            .accept(&request, &current, providers, result);
+                    }
+                }
                 crate::lsp::Reply::WorkspaceSymbols { request, result } => {
                     let providers = self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
                         lsp.workspace_providers(&request.project)
@@ -4019,6 +4046,9 @@ impl NativeApplication {
         if let Some(delay) = self.editor_symbols.next_refresh(Instant::now()) {
             context.request_repaint_after(delay);
         }
+        if let Some(delay) = self.editor_folding.next_refresh(Instant::now()) {
+            context.request_repaint_after(delay);
+        }
         self.poll_lsp();
         self.terminal_views.chord_status(context, Instant::now());
         let (show_usage, hide_in_zen) = {
@@ -4384,6 +4414,7 @@ impl eframe::App for NativeApplication {
             breadcrumbs: &mut self.breadcrumbs,
             diagnostics: &self.lsp_diagnostics,
             editor_symbols: &self.editor_symbols,
+            editor_folding: &self.editor_folding,
             focused_slot: snapshot.shell.focused.as_ref(),
             chord_status: self.terminal_views.chord_status(&context, Instant::now()),
             status_chord_appearance: &self.status_chord_appearance,
@@ -5193,6 +5224,7 @@ struct AppSurfaces<'a> {
     breadcrumbs: &'a mut crate::breadcrumbs::Views,
     diagnostics: &'a crate::diagnostics::Store,
     editor_symbols: &'a crate::editor_symbols::State,
+    editor_folding: &'a crate::editor_folding::State,
     focused_slot: Option<&'a ShellSlotId>,
     chord_status: crate::keymap::ChordStatus,
     status_chord_appearance: &'a crate::status_chord::Appearance,
@@ -6188,9 +6220,11 @@ impl AppSurfaces<'_> {
                 editor_presentation.options.colors = Some(self.editor_display_colors);
                 editor_presentation.options.bracket_colors = Some(self.editor_bracket_colors);
                 editor_presentation.options.sticky_colors = Some(self.editor_sticky_colors);
-                editor_presentation.options.sticky_model = self.layouts.iter().find_map(|(project, layout)| {
+                let editor_project = self.layouts.iter().find_map(|(project, layout)| {
                     taide_layout::service::all_roots(layout).any(|root| taide_layout::service::find_leaf(root, pane).is_some()).then_some(project)
-                }).and_then(|project| self.editor_symbols.sticky(project, &snapshot));
+                });
+                let syntax_folds = editor_project.and_then(|project| self.editor_folding.model(project, &snapshot));
+                editor_presentation.options.sticky_model = editor_project.and_then(|project| self.editor_symbols.sticky(project, &snapshot));
                 editor_presentation.options.minimap_colors = Some(self.editor_minimap_colors);
                 editor_presentation.options.diagnostic_colors = Some(self.editor_diagnostic_colors);
                 editor_presentation.options.overview_colors = Some(self.editor_overview_colors);
@@ -6388,6 +6422,7 @@ impl AppSurfaces<'_> {
                             language,
                             decorations: &find_layers,
                             fold_commands: &fold_commands,
+                            syntax_folds: syntax_folds.clone(),
                             fold_controls: Some(&mut paint_fold_control),
                             problems: Some(&mut problem_provider),
                         },

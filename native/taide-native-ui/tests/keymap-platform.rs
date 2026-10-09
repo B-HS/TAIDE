@@ -3,6 +3,59 @@ use taide_native_ui::keymap::{Context, Decision, Route, Windows};
 
 #[cfg(feature = "native-host")]
 #[test]
+fn 수동과_전체_접기_기본_chord는_플랫폼과_재지정과_ime를_따른다() {
+    for os in [
+        OperatingSystem::Mac,
+        OperatingSystem::Windows,
+        OperatingSystem::Nix,
+    ] {
+        let context = egui::Context::default();
+        context.set_os(os);
+        let modifiers = if os == OperatingSystem::Mac {
+            Modifiers::MAC_CMD | Modifiers::COMMAND
+        } else {
+            Modifiers::CTRL | Modifiers::COMMAND
+        };
+        for (key, expected) in [
+            (Key::Comma, "monaco.editor.createFoldingRangeFromSelection"),
+            (Key::Period, "monaco.editor.removeManualFoldingRanges"),
+            (Key::Num0, "monaco.editor.foldAll"),
+        ] {
+            let mut windows = Windows::default();
+            editor_event(&mut windows, &context, Key::K, modifiers, None, false);
+            let decisions = editor_event(&mut windows, &context, key, modifiers, None, false);
+            assert!(
+                decisions.contains(&Decision::ResolveChord(expected.into())),
+                "{decisions:?}"
+            );
+        }
+        let mut windows = Windows::default();
+        editor_event(&mut windows, &context, Key::K, Modifiers::NONE, None, true);
+        assert!(
+            !editor_event(&mut windows, &context, Key::Comma, modifiers, None, false).contains(
+                &Decision::ResolveChord("monaco.editor.createFoldingRangeFromSelection".into())
+            )
+        );
+        let mut windows = Windows::default();
+        let overrides = r#"[{"actionId":"monaco.editor.createFoldingRangeFromSelection","key":"r","mods":["mod"]}]"#;
+        assert!(
+            editor_event(
+                &mut windows,
+                &context,
+                Key::R,
+                modifiers,
+                Some(overrides),
+                false
+            )
+            .contains(&Decision::Dispatch(
+                "monaco.editor.createFoldingRangeFromSelection".into()
+            ))
+        );
+    }
+}
+
+#[cfg(feature = "native-host")]
+#[test]
 fn 찾기_기본_키와_재지정은_호스트_플랫폼과_활성_editor_경로를_따른다() {
     for (os, key, modifiers, expected) in [
         (

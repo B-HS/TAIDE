@@ -13,6 +13,7 @@ const CATALOG: &str = include_str!("keybinding-commands.json");
 const EDITOR_ACTION_PREFIX: &str = "monaco.";
 const MAC_PLATFORM: &str = "mac";
 pub const EDITOR_FIND_AVAILABLE: bool = cfg!(feature = "native-host");
+pub const EDITOR_SYNTAX_FOLDING_AVAILABLE: bool = cfg!(feature = "native-host");
 const EDITOR_ACTIONS_WITHOUT_SUPPORT_GATE: [&str; 21] = [
     "editor.action.goToImplementation",
     "editor.action.goToLocation",
@@ -383,6 +384,12 @@ fn fold_command(action: &str) -> Option<FoldCommand> {
         "editor.foldAllBlockComments" => FoldCommand::FoldAllBlockComments,
         "editor.foldAllMarkerRegions" => FoldCommand::FoldAllMarkerRegions,
         "editor.unfoldAllMarkerRegions" => FoldCommand::UnfoldAllMarkerRegions,
+        #[cfg(feature = "native-host")]
+        "editor.createFoldingRangeFromSelection" => FoldCommand::CreateFromSelection,
+        #[cfg(feature = "native-host")]
+        "editor.removeManualFoldingRanges" => FoldCommand::RemoveManualRanges,
+        #[cfg(feature = "native-host")]
+        "editor.toggleImportFold" => FoldCommand::ToggleImports,
         _ => return None,
     })
 }
@@ -584,7 +591,17 @@ mod tests {
     ];
     const KEYMAP_COUNT: usize = 41;
     const NATIVE_KEYMAP_COUNT: usize = 34 + EDITOR_FIND_AVAILABLE as usize;
-    const FOLD_COMMANDS: [(&str, FoldCommand); 16] = [
+    const FOLD_COMMAND_COUNT: usize = if cfg!(feature = "native-host") {
+        19
+    } else {
+        16
+    };
+    const FOLD_COMMANDS: [(&str, FoldCommand); FOLD_COMMAND_COUNT] = [
+        #[cfg(feature = "native-host")]
+        (
+            "monaco.editor.createFoldingRangeFromSelection",
+            FoldCommand::CreateFromSelection,
+        ),
         ("monaco.editor.fold", FoldCommand::Fold),
         ("monaco.editor.foldAll", FoldCommand::FoldAll),
         (
@@ -606,11 +623,18 @@ mod tests {
             "monaco.editor.gotoPreviousFold",
             FoldCommand::GotoPreviousFold,
         ),
+        #[cfg(feature = "native-host")]
+        (
+            "monaco.editor.removeManualFoldingRanges",
+            FoldCommand::RemoveManualRanges,
+        ),
         ("monaco.editor.toggleFold", FoldCommand::ToggleFold),
         (
             "monaco.editor.toggleFoldRecursively",
             FoldCommand::ToggleFoldRecursively,
         ),
+        #[cfg(feature = "native-host")]
+        ("monaco.editor.toggleImportFold", FoldCommand::ToggleImports),
         ("monaco.editor.unfold", FoldCommand::Unfold),
         ("monaco.editor.unfoldAll", FoldCommand::UnfoldAll),
         (
@@ -626,9 +650,13 @@ mod tests {
             FoldCommand::UnfoldRecursively,
         ),
     ];
-    const UNSUPPORTED_FOLD_COMMANDS: [&str; 3] = [
+    const UNSUPPORTED_FOLD_COMMAND_COUNT: usize = if cfg!(feature = "native-host") { 0 } else { 3 };
+    const UNSUPPORTED_FOLD_COMMANDS: [&str; UNSUPPORTED_FOLD_COMMAND_COUNT] = [
+        #[cfg(not(feature = "native-host"))]
         "monaco.editor.createFoldingRangeFromSelection",
+        #[cfg(not(feature = "native-host"))]
         "monaco.editor.removeManualFoldingRanges",
+        #[cfg(not(feature = "native-host"))]
         "monaco.editor.toggleImportFold",
     ];
     const DOCUMENT_ACTIONS: [&str; 34] = [
@@ -1026,8 +1054,7 @@ mod tests {
     }
 
     #[test]
-    fn 접기_명령은_접기가_켜진_활성_editor에서만_실행되고_수동_범위나_provider가_필요한_명령은_실행경로가_없다()
-     {
+    fn 접기_명령은_접기가_켜진_활성_editor에서만_실행되고_수동과_import는_native에서만_지원한다() {
         let registry = registry().unwrap();
         let foldable = CommandContext {
             active_editor_actions: Some(registry.editor_action_ids(ActiveEditor {

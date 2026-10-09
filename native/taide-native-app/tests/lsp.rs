@@ -335,7 +335,9 @@ fn 실제_저장은_fix_all_resolve_edit_command_server_apply_edit_imports_forma
                     }
                     Reply::Synced { .. } | Reply::Diagnostics { .. } => {}
                     Reply::Failed { error, .. } => panic!("save participant failure: {error}"),
-                    Reply::DocumentSymbols { .. } | Reply::WorkspaceSymbols { .. } => {
+                    Reply::SyntaxFolding { .. }
+                    | Reply::DocumentSymbols { .. }
+                    | Reply::WorkspaceSymbols { .. } => {
                         panic!("unexpected symbol request")
                     }
                     Reply::DeletePrepare(_)

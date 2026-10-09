@@ -1,0 +1,155 @@
+[
+    {
+        "id": "monaco.editor.fold",
+        "platform": "mac",
+        "key": "[",
+        "mods": ["mod", "alt"]
+    },
+    {
+        "id": "monaco.editor.unfold",
+        "platform": "mac",
+        "key": "]",
+        "mods": ["mod", "alt"]
+    },
+    {
+        "id": "monaco.editor.fold",
+        "platform": "win",
+        "key": "[",
+        "mods": ["mod", "shift"]
+    },
+    {
+        "id": "monaco.editor.unfold",
+        "platform": "win",
+        "key": "]",
+        "mods": ["mod", "shift"]
+    },
+    {
+        "id": "monaco.editor.fold",
+        "platform": "linux",
+        "key": "[",
+        "mods": ["mod", "shift"]
+    },
+    {
+        "id": "monaco.editor.unfold",
+        "platform": "linux",
+        "key": "]",
+        "mods": ["mod", "shift"]
+    },
+    {
+        "id": "monaco.editor.toggleFold",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "L",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.foldRecursively",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "[",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.unfoldRecursively",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "]",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.toggleFoldRecursively",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "L",
+            "mods": ["mod", "shift"]
+        }
+    },
+    {
+        "id": "monaco.editor.foldAllBlockComments",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "/",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.foldAllMarkerRegions",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "8",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.unfoldAllMarkerRegions",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "9",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.foldAllExcept",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "-",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.unfoldAllExcept",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "=",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.foldAll",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "0",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.unfoldAll",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": "J",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.createFoldingRangeFromSelection",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": ",",
+            "mods": ["mod"]
+        }
+    },
+    {
+        "id": "monaco.editor.removeManualFoldingRanges",
+        "key": "K",
+        "mods": ["mod"],
+        "chord": {
+            "key": ".",
+            "mods": ["mod"]
+        }
+    }
+]

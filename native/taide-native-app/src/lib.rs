@@ -33,6 +33,8 @@ pub mod delete_dialog;
 pub mod diagnostics;
 #[path = "editor-command-text.rs"]
 mod editor_command_text;
+#[path = "editor-folding.rs"]
+mod editor_folding;
 #[path = "editor-fonts.rs"]
 mod editor_fonts;
 #[path = "editor-problems.rs"]

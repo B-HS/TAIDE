@@ -2,19 +2,19 @@
 
 ## 진행: 배치 19 — 구문 접기 공급·수동/Import 접기 명령 (2026-10-10)
 
-현재 상태: workspace # 구현 `2870345d`와 완료 근거 `a99fb507`를 일반 푸시해 로컬/원격 차이 0/0을 확인했습니다. 기능 대응표는 완료 281/588(47.8%), 부분 93·미연결 113·미구현 101입니다. 서브에이전트·workflow 없이 main이 직접 구현을 직렬 수행하며 Cargo/fmt는 앞 process 종료를 확인한 뒤 한 번에 하나만 실행합니다.
+현재 상태: 구문·수동 접기와 실제 LSP/표면/앱 연결의 구현·native 전체 게이트를 마쳤습니다. editor 206·UI 362·app 663·LSP SDK 81건, 서로 다른 1312건이 통과했습니다. 최초 전체 실행의 실패 3건은 영향 대상 재검사로 해소했으며 prototype standalone의 lock/edition 포맷 부채는 QA에 보존했습니다. 기능 대응표는 완료 281/588(47.8%), 부분 93·미연결 113·미구현 101입니다. main이 직접 수행하며 Cargo/fmt는 실제 앞 process 종료를 확인한 뒤 하나씩 실행했습니다.
 
 기준: 실제 TS folding-range adapter/initialize·code-editor와 Monaco syntaxRangeProvider/foldingModel/foldingRanges/수동·Import 명령/고정 줄 우선순위, 현재 native 들여쓰기·언어 marker/접기 모델·tracked 상태·명령·표시·앱 typed LSP 공급입니다. LSP 구문 범위와 comment/imports/region 종류를 실제 native 명령·gutter/접힌 본문/표시 투영에 연결하고 기존 폴백·수동 범위·편집 후 상태·다중 뷰/readonly를 보존합니다. engine/의존성·새 기능/디자인·원본 버그/내부 수치의 강제 재현·동결 browser/OS 합성 입력은 추가하지 않습니다.
 
-- [ ] a. 실제 기준·공식 API·공급 경계 — TS adapter/initialize·Monaco 다중 provider 우선순위/정렬/종류·수동/Import 키/선택·고정 줄과 설치된 공식 lsp-types/SDK foldingRange 계약·현재 native folding/view/표시 cache·명령 gate를 대조해 QA에 기록합니다.
-- [ ] b. 구문·수동 접기 모델 — 해결된 줄 범위/종류·중첩/교차/동일 시작·대형 한도·순서와 사용자 범위/선택 끝 열·편집 후 범위/커서·같은 문서의 여러 뷰·readonly를 실패 재현과 의미 있는 모델 검사로 검증합니다.
-- [ ] c. 실제 typed LSP 공급·수명 — 프로젝트/문서/revision/언어/owner/세대/capability와 준비/미지원/빈/오류·취소·편집/닫힘/재시작·다른 문서 동기화를 실제 child에서 검증하고 엔진 없이 앱에 공급합니다.
-- [ ] d. 표시·명령 소비 — native-host 구문 범위를 gutter/접기·키/마우스/명령·wrap/스크롤·수동/Import·view state에 연결합니다. provider 종류가 없는 폴백과 기존 언어 marker/comment 동작을 보존하고 browser 분기를 유지합니다.
-- [ ] e. 실제 앱·고정 줄 통합 — 실제 LSP 응답을 본문 접기와 outline 우선/구문/indent 고정 줄 폴백에 공급합니다. 현재 pane/문서·편집/테마/언어·접힌 범위 reveal·다중 뷰·readonly/대형 gate를 메모리 UI/격리 앱에서 검증합니다.
-- [ ] f. 전체 게이트 — 변경 크레이트 전체 대상을 --no-fail-fast로 직접 1회 실행하고 실패 영향만 재검사합니다. 보호 Trash 3/ignored·실기 부채, 동결 host/Wasm·포맷/diff·manifest/lock·엔진 경계와 디스크를 확인하며 모든 Cargo 종료를 회수한 뒤 다음 명령을 시작합니다.
+- [x] a. 실제 기준·공식 API·공급 경계 — TS adapter/initialize·Monaco 다중 provider 우선순위/정렬/종류·수동/Import 키/선택·고정 줄과 설치된 공식 lsp-types/SDK foldingRange 계약·현재 native folding/view/표시 cache·명령 gate를 대조해 QA에 기록합니다.
+- [x] b. 구문·수동 접기 모델 — 줄 범위/종류·중첩/교차/동일 시작·한도·provider 우선순위와 수동 범위/선택 끝 열·편집/undo/redo·다중 뷰·readonly를 구현했습니다. 빈 줄 접기를 실패 재현 후 허용하고, 기존 본문 삭제 회귀의 실패를 수정해 접기 대상 21건이 통과했습니다.
+- [x] c. 실제 typed LSP 공급·수명 — 프로젝트/문서/revision/언어/owner/세대/capability를 확인하는 typed 공급을 연결했습니다. 최신 실제 child 4건에서 사용자 종류·준비/미지원/빈/null/오류·편집/닫힘 취소·보류 중 다른 문서 응답·재시작 mirror·동일 문서의 다른 프로젝트 격리가 통과했습니다.
+- [x] d. 표시·명령 소비 — native-host 구문 범위/종류를 gutter·본문·19종 명령·원본 기본 키·수동/Import·view state에 연결했습니다. UI 전체 19대상·361통과/기대 순서 1실패 후 해당 1건 통과이며 현재 서로 다른 362건이 통과했습니다. 종류 없는 폴백·readonly·wrap/스크롤·기존 marker와 browser 분기를 보존했습니다.
+- [x] e. 실제 앱·고정 줄 통합 — 실제 LSP 응답의 Import 접기와 현재 pane/탭의 숨김 본문·UTF-16 reveal 펼치기를 실제 앱 검사에서 확인했습니다. 고정 줄 outline→구문→indent와 같은 revision의 Arc 교체·읽기 전용은 메모리 UI에서 통과했고 대형/접기 비활성 문서의 공급 state를 회수합니다. 실기 입력은 후속 게이트입니다.
+- [x] f. 전체 게이트 — 변경 editor/UI/app/LSP SDK의 전체 117대상을 --no-fail-fast로 직접 1회 실행하고 실패 영향만 재검사했습니다. 현재 서로 다른 1312통과·native 미해결 실패 0이며 보호 Trash 3/기존 ignored 5·실기 부채를 유지합니다. frozen host/Wasm·변경 native/SDK 포맷/diff exit 0, manifest/lock/engine 경계 유지·디스크 668GiB/64%입니다. standalone prototype 검사 시작의 lock 거절과 edition 포맷 차이는 전체 workspace/CI 잔여로 별도 기록했습니다.
 - [ ] g. 실제 기록·선별 Git·계속 진행 — 실제 닫힌 요구사항만 QA/기능표/근거/PROCESS에 갱신하고 검증한 논리 단위를 선별 커밋·일반 푸시합니다. 다음 필수 범위를 작성해 전체 전환을 계속합니다.
 
-진척: 배치 19 체크리스트 0/7(0%), 현재 기능 대응표 281/588(47.8%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. 다음 행동은 실제 접기 공급·명령·뷰 상태의 계약을 대조하는 것입니다.
+진척: 배치 19 체크리스트 6/7(85.7%), 현재 기능 대응표 281/588(47.8%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. 다음 행동은 검증한 접기 변경을 선별 커밋하고 실제 요구사항 완료 근거를 갱신하는 것입니다.
 
 ## 완료: 배치 18 — 워크스페이스 심볼 검색·팔레트 이동 (2026-10-10)
 

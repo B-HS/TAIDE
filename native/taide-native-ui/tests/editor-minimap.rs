@@ -172,6 +172,8 @@ impl Fixture {
                             language: None,
                             decorations: &self.decorations.iter().collect::<Vec<_>>(),
                             fold_commands: &[],
+                            #[cfg(feature = "native-host")]
+                            syntax_folds: None,
                             fold_controls: None,
                             #[cfg(feature = "native-host")]
                             problems: None,

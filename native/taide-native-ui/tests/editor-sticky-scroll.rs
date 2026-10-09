@@ -46,6 +46,7 @@ struct Fixture {
     foreign: Option<String>,
     tokens: Option<(u64, LineTokens, TokenStyleTable)>,
     layers: Vec<DecorationLayer>,
+    syntax_folds: Option<Arc<taide_native_editor::syntax_folding::SyntaxFolds>>,
 }
 
 impl Fixture {
@@ -126,6 +127,7 @@ impl Fixture {
             foreign: None,
             tokens: None,
             layers: Vec::new(),
+            syntax_folds: None,
             presentation: EditorPresentation {
                 options: EditorDisplayOptions {
                     sticky_scroll: true,
@@ -192,6 +194,8 @@ impl Fixture {
                             language: None,
                             decorations: &layers,
                             fold_commands: &[],
+                            #[cfg(feature = "native-host")]
+                            syntax_folds: self.syntax_folds.clone(),
                             fold_controls: Some(&mut paint),
                             #[cfg(feature = "native-host")]
                             problems: None,
@@ -546,6 +550,46 @@ fn 실제_문서_심볼은_선택_시작줄을_고정하고_빈응답과_편집�
     assert!(!symbols.describes(&current));
     let invalidated = fixture.show(0.2, vec![], Modifiers::NONE);
     assert_eq!(sticky_text(&invalidated), ["outer"]);
+}
+
+#[test]
+fn 고정_줄은_아웃라인_구문_들여쓰기_순서와_공급_cache_교체를_따른다() {
+    use taide_native_editor::folding::FoldRegion;
+    use taide_native_editor::syntax_folding::{SyntaxFoldRange, SyntaxFolds};
+    let mut fixture = Fixture::new(&document(), &[]);
+    let id = fixture.store.views().get(fixture.view).unwrap().document;
+    let snapshot = fixture.store.documents().snapshot(id).unwrap();
+    let syntax = Arc::new(SyntaxFolds::new(
+        &snapshot,
+        vec![vec![SyntaxFoldRange {
+            region: FoldRegion {
+                start_line: 2,
+                end_line: 25,
+            },
+            kind: None,
+        }]],
+    ));
+    fixture.presentation.options.sticky_model = None;
+    fixture.syntax_folds = Some(syntax);
+    let supplied = fixture.show(0.0, vec![], Modifiers::NONE);
+    assert_eq!(sticky_text(&supplied), ["    body2"]);
+    fixture.presentation.options.sticky_model = Some(Arc::new(StickyModel::new(
+        &snapshot,
+        &[StickyScope {
+            start_line: 1,
+            end_line: 26,
+        }],
+    )));
+    let outline = fixture.show(0.1, vec![], Modifiers::NONE);
+    assert_eq!(sticky_text(&outline), ["    body1"]);
+    fixture.presentation.options.sticky_model = None;
+    fixture.syntax_folds = Some(Arc::new(SyntaxFolds::new(&snapshot, vec![vec![]])));
+    assert!(sticky_text(&fixture.show(0.2, vec![], Modifiers::NONE)).is_empty());
+    fixture.syntax_folds = None;
+    assert_eq!(
+        sticky_text(&fixture.show(0.3, vec![], Modifiers::NONE)),
+        ["outer"]
+    );
 }
 
 #[test]

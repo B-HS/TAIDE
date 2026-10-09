@@ -14,7 +14,7 @@ use crate::store::EditorStore;
 use crate::view::{Selection, SelectionSet, ViewId, ViewState};
 
 pub const MAX_FOLDING_REGIONS: usize = 5000;
-const MAX_FOLDABLE_LINE: usize = 0xFF_FFFF;
+pub(crate) const MAX_FOLDABLE_LINE: usize = 0xFF_FFFF;
 const COUNTED_INDENT_LIMIT: usize = 1000;
 const TRACKED_RANGE_Z_ORDER: u8 = 0;
 const SINGLE_LEVEL: usize = 1;
@@ -50,6 +50,9 @@ pub enum FoldCommand {
     FoldAllBlockComments,
     FoldAllMarkerRegions,
     UnfoldAllMarkerRegions,
+    CreateFromSelection,
+    RemoveManualRanges,
+    ToggleImports,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -247,6 +250,60 @@ fn selected_lines(rope: &Rope, selection: &SelectionSet) -> Vec<usize> {
         .collect()
 }
 
+fn manual_regions(
+    computed: &[FoldRegion],
+    rope: &Rope,
+    manual: &[Range<usize>],
+) -> Vec<FoldRegion> {
+    if manual.is_empty() {
+        return computed.to_vec();
+    }
+    let manual = folded_regions(rope, manual);
+    let mut combined = computed
+        .iter()
+        .copied()
+        .filter(|region| {
+            !manual.iter().any(|user| {
+                region.start_line == user.start_line
+                    || (region.start_line < user.start_line
+                        && user.start_line <= region.end_line
+                        && region.end_line < user.end_line)
+                    || (user.start_line < region.start_line
+                        && region.start_line <= user.end_line
+                        && user.end_line < region.end_line)
+            })
+        })
+        .chain(manual.iter().copied())
+        .collect::<Vec<_>>();
+    combined.sort_by_key(|region| region.start_line);
+    combined
+}
+
+fn previous_regions(
+    rope: &Rope,
+    folds: &[Range<usize>],
+    manual: &[Range<usize>],
+) -> Vec<FoldRegion> {
+    let manual = folded_regions(rope, manual);
+    folded_regions(rope, folds)
+        .into_iter()
+        .filter(|region| {
+            !manual.iter().any(|user| {
+                (region.start_line < user.start_line
+                    && user.start_line <= region.end_line
+                    && region.end_line < user.end_line)
+                    || (user.start_line < region.start_line
+                        && region.start_line <= user.end_line
+                        && user.end_line < region.end_line)
+            })
+        })
+        .collect()
+}
+
+fn region_bytes(rope: &Rope, region: FoldRegion) -> Range<usize> {
+    rope.line_to_byte(region.start_line + 1)..rope_line_content_range(rope, region.end_line).end
+}
+
 pub fn hidden_lines(rope: &Rope, folds: &[Range<usize>]) -> Vec<Range<usize>> {
     let length = rope.len_bytes();
     merged_line_ranges(
@@ -270,9 +327,19 @@ impl FoldingModel {
         document: &DocumentSnapshot,
         folds: &[Range<usize>],
     ) -> Self {
+        Self::with_manual(regions, document, folds, &[])
+    }
+
+    pub fn with_manual(
+        regions: &[FoldRegion],
+        document: &DocumentSnapshot,
+        folds: &[Range<usize>],
+        manual: &[Range<usize>],
+    ) -> Self {
+        let regions = manual_regions(regions, &document.rope, manual);
         Self::merged(
-            regions,
-            &folded_regions(&document.rope, folds),
+            &regions,
+            &previous_regions(&document.rope, folds, manual),
             document.rope.len_lines(),
             None,
         )
@@ -284,9 +351,20 @@ impl FoldingModel {
         folds: &[Range<usize>],
         selection: &SelectionSet,
     ) -> Self {
+        Self::following_edit_with_manual(regions, document, folds, &[], selection)
+    }
+
+    pub fn following_edit_with_manual(
+        regions: &[FoldRegion],
+        document: &DocumentSnapshot,
+        folds: &[Range<usize>],
+        manual: &[Range<usize>],
+        selection: &SelectionSet,
+    ) -> Self {
+        let regions = manual_regions(regions, &document.rope, manual);
         Self::merged(
-            regions,
-            &folded_regions(&document.rope, folds),
+            &regions,
+            &previous_regions(&document.rope, folds, manual),
             document.rope.len_lines(),
             Some(&selected_lines(&document.rope, selection)),
         )
@@ -393,7 +471,7 @@ impl FoldingModel {
                 rope.line_to_byte(region.start_line + 1)
                     ..rope_line_content_range(rope, region.end_line).end
             })
-            .filter(|fold| fold.start < fold.end)
+            .filter(|fold| fold.start <= fold.end)
             .collect()
     }
 
@@ -593,7 +671,10 @@ impl FoldingModel {
             FoldCommand::GotoNextFold => return self.next_fold_line(first?),
             FoldCommand::FoldAllBlockComments
             | FoldCommand::FoldAllMarkerRegions
-            | FoldCommand::UnfoldAllMarkerRegions => false,
+            | FoldCommand::UnfoldAllMarkerRegions
+            | FoldCommand::CreateFromSelection
+            | FoldCommand::RemoveManualRanges
+            | FoldCommand::ToggleImports => false,
         };
         None
     }
@@ -658,30 +739,38 @@ pub(crate) fn tracked_folds(
     changes: &ChangeSet,
     folds: &[Range<usize>],
 ) -> Vec<Range<usize>> {
-    let marks = folds
+    let mut marks = folds
         .iter()
         .filter_map(|fold| {
             let header = before.byte_to_line(fold.start).checked_sub(1)?;
-            Some(Decoration {
-                bytes: rope_line_content_range(before, header).end..fold.end,
-                kind: DecorationKind::Inline(InlineStyle::default()),
-                stickiness: Stickiness::AlwaysGrowsWhenTypingAtEdges,
-            })
+            Some((
+                Decoration {
+                    bytes: rope_line_content_range(before, header).end..fold.end,
+                    kind: DecorationKind::Inline(InlineStyle::default()),
+                    stickiness: Stickiness::AlwaysGrowsWhenTypingAtEdges,
+                },
+                fold.is_empty(),
+            ))
         })
-        .collect();
+        .collect::<Vec<_>>();
+    marks.sort_by_key(|(mark, _)| mark.bytes.start);
+    let (marks, was_empty): (Vec<_>, Vec<_>) = marks.into_iter().unzip();
     let mut tracked = DecorationLayer::new(changes.revision_before, TRACKED_RANGE_Z_ORDER, marks);
     tracked.apply(changes);
     let length = after.len_bytes();
     let mut folds: Vec<Range<usize>> = tracked
         .items()
         .iter()
-        .filter_map(|mark| {
+        .zip(was_empty)
+        .filter_map(|(mark, was_empty)| {
             let header = after.byte_to_line(mark.bytes.start.min(length));
             let last = after.byte_to_line(mark.bytes.end.min(length));
-            (last > header)
-                .then(|| after.line_to_byte(header + 1)..rope_line_content_range(after, last).end)
+            if last <= header {
+                return None;
+            }
+            let fold = after.line_to_byte(header + 1)..rope_line_content_range(after, last).end;
+            (fold.start < fold.end || was_empty).then_some(fold)
         })
-        .filter(|fold| fold.start < fold.end)
         .collect();
     folds.sort_by_key(|fold| (fold.start, fold.end));
     folds.dedup();
@@ -767,9 +856,14 @@ pub fn reconcile_folds(
         return Ok(false);
     }
     let (current, document) = view_document(store, view)?;
-    let folds =
-        FoldingModel::following_edit(regions, &document, &current.folds, &current.selection)
-            .folds(&document.rope);
+    let folds = FoldingModel::following_edit_with_manual(
+        regions,
+        &document,
+        &current.folds,
+        &current.manual_folds,
+        &current.selection,
+    )
+    .folds(&document.rope);
     let selection = current.selection.clone();
     store_folds(store, current, &document, folds, selection)
 }
@@ -808,9 +902,16 @@ pub fn run_fold_command(
     regions: &[FoldRegion],
     command: FoldCommand,
 ) -> Result<bool, EditorError> {
+    if command == FoldCommand::CreateFromSelection {
+        return create_manual_ranges(store, view, regions);
+    }
+    if command == FoldCommand::RemoveManualRanges {
+        return remove_manual_ranges(store, view, regions);
+    }
     let (current, document) = view_document(store, view)?;
     let rope = &document.rope;
-    let mut model = FoldingModel::new(regions, &document, &current.folds);
+    let mut model =
+        FoldingModel::with_manual(regions, &document, &current.folds, &current.manual_folds);
     let selection = match model.run(command, &selected_lines(rope, &current.selection)) {
         Some(line) => {
             let start = rope.line_to_byte(line);
@@ -828,6 +929,163 @@ pub fn run_fold_command(
     store_folds(store, current, &document, folds, selection)
 }
 
+fn create_manual_ranges(
+    store: &mut EditorStore,
+    view: ViewId,
+    regions: &[FoldRegion],
+) -> Result<bool, EditorError> {
+    let (current, document) = view_document(store, view)?;
+    let rope = &document.rope;
+    let mut additions = Vec::new();
+    let mut selection = current.selection.clone();
+    for selected in &mut selection.selections {
+        let start = selected.anchor.min(selected.head);
+        let end = selected.anchor.max(selected.head);
+        let start_line = rope.byte_to_line(start);
+        let mut end_line = rope.byte_to_line(end);
+        if end == rope.line_to_byte(end_line) {
+            end_line = end_line.saturating_sub(1);
+        }
+        if end_line <= start_line {
+            continue;
+        }
+        let region = FoldRegion {
+            start_line,
+            end_line,
+        };
+        additions.push(region);
+        let byte = rope.line_to_byte(start_line);
+        *selected = Selection {
+            anchor: byte,
+            head: byte,
+        };
+    }
+    if additions.is_empty() {
+        return Ok(false);
+    }
+    additions.sort_by_key(|region| region.start_line);
+    let mut manual = folded_regions(rope, &current.manual_folds);
+    manual.retain(|previous| {
+        !additions.iter().any(|new| {
+            previous.start_line == new.start_line
+                || (previous.start_line <= new.end_line
+                    && new.start_line <= previous.end_line
+                    && !previous.is_contained_by(new)
+                    && !new.is_contained_by(previous))
+        })
+    });
+    manual.extend(additions.iter().copied());
+    manual.sort_by_key(|region| region.start_line);
+    let manual = FoldingModel::merged(&manual, &[], rope.len_lines(), None)
+        .regions()
+        .iter()
+        .map(|region| region_bytes(rope, *region))
+        .collect::<Vec<_>>();
+    let mut collapsed = current.folds.clone();
+    collapsed.extend(additions.iter().map(|region| region_bytes(rope, *region)));
+    let model = FoldingModel::with_manual(regions, &document, &collapsed, &manual);
+    store.set_manual_folds(view, manual)?;
+    store_folds(store, current, &document, model.folds(rope), selection)?;
+    Ok(true)
+}
+
+fn remove_manual_ranges(
+    store: &mut EditorStore,
+    view: ViewId,
+    regions: &[FoldRegion],
+) -> Result<bool, EditorError> {
+    let (current, document) = view_document(store, view)?;
+    let rope = &document.rope;
+    let selections = current
+        .selection
+        .selections
+        .iter()
+        .map(|selection| {
+            rope.byte_to_line(selection.anchor.min(selection.head))
+                ..=rope.byte_to_line(selection.anchor.max(selection.head))
+        })
+        .collect::<Vec<_>>();
+    let intersects = |region: FoldRegion| {
+        selections
+            .iter()
+            .any(|lines| *lines.start() <= region.end_line && region.start_line <= *lines.end())
+    };
+    let manual = folded_regions(rope, &current.manual_folds);
+    let removed = manual
+        .iter()
+        .copied()
+        .filter(|region| intersects(*region))
+        .collect::<Vec<_>>();
+    let retained = manual
+        .iter()
+        .copied()
+        .filter(|region| !intersects(*region))
+        .map(|region| region_bytes(rope, region))
+        .collect::<Vec<_>>();
+    let folds = folded_regions(rope, &current.folds)
+        .into_iter()
+        .filter(|region| {
+            !removed
+                .iter()
+                .any(|user| user.start_line == region.start_line)
+                && (regions.contains(region) || !intersects(*region))
+        })
+        .map(|region| region_bytes(rope, region))
+        .collect::<Vec<_>>();
+    let changed = retained != current.manual_folds || folds != current.folds;
+    store.set_manual_folds(view, retained)?;
+    let selection = current.selection.clone();
+    store_folds(store, current, &document, folds, selection)?;
+    Ok(changed)
+}
+
+pub fn run_syntax_fold_command(
+    store: &mut EditorStore,
+    view: ViewId,
+    syntax: &crate::syntax_folding::SyntaxFolds,
+    command: FoldCommand,
+) -> Result<bool, EditorError> {
+    let (current, document) = view_document(store, view)?;
+    if !syntax.describes(&document) {
+        return Ok(false);
+    }
+    let kind = match command {
+        FoldCommand::FoldAllBlockComments => "comment",
+        FoldCommand::FoldAllMarkerRegions | FoldCommand::UnfoldAllMarkerRegions => "region",
+        FoldCommand::ToggleImports => "imports",
+        _ => return run_fold_command(store, view, syntax.regions(), command),
+    };
+    let mut model = FoldingModel::with_manual(
+        syntax.regions(),
+        &document,
+        &current.folds,
+        &current.manual_folds,
+    );
+    let manual = folded_regions(&document.rope, &current.manual_folds);
+    for index in 0..model.regions.len() {
+        let region = model.regions[index];
+        if syntax.kind(region.start_line) == Some(kind)
+            && !manual
+                .iter()
+                .any(|user| user.start_line == region.start_line)
+        {
+            model.collapsed[index] = match command {
+                FoldCommand::ToggleImports => !model.collapsed[index],
+                FoldCommand::UnfoldAllMarkerRegions => false,
+                _ => true,
+            };
+        }
+    }
+    let selection = current.selection.clone();
+    store_folds(
+        store,
+        current,
+        &document,
+        model.folds(&document.rope),
+        selection,
+    )
+}
+
 pub fn run_language_fold_command(
     store: &mut EditorStore,
     view: ViewId,
@@ -841,7 +1099,8 @@ pub fn run_language_fold_command(
         _ => return run_fold_command(store, view, regions, command),
     };
     let (current, document) = view_document(store, view)?;
-    let mut model = FoldingModel::new(regions, &document, &current.folds);
+    let mut model =
+        FoldingModel::with_manual(regions, &document, &current.folds, &current.manual_folds);
     model.set_collapsed_where(collapse, |line| {
         let header = line_text(&document, line).text;
         if command != FoldCommand::FoldAllBlockComments {
@@ -869,7 +1128,8 @@ pub fn click_fold(
     click: FoldClick,
 ) -> Result<bool, EditorError> {
     let (current, document) = view_document(store, view)?;
-    let mut model = FoldingModel::new(regions, &document, &current.folds);
+    let mut model =
+        FoldingModel::with_manual(regions, &document, &current.folds, &current.manual_folds);
     if !model.click(click) {
         return Ok(false);
     }

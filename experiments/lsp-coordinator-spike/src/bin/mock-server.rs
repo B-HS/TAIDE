@@ -38,6 +38,8 @@ struct MockServer {
     should_track_workspace_roots: bool,
     document_symbols: Option<&'static str>,
     held_symbol: Option<Value>,
+    folding: Option<&'static str>,
+    held_fold: Option<Value>,
     workspace_symbols: Option<&'static str>,
     held_workspace_symbol: Option<Value>,
     workspace_folders: Vec<Value>,
@@ -307,6 +309,13 @@ impl MockServer {
                 }
                 capabilities["documentSymbolProvider"] = json!(true);
             }
+            if self.folding.is_some() {
+                if params["capabilities"]["textDocument"]["foldingRange"]["lineFoldingOnly"] != true
+                {
+                    return Err(invalid("native folding requires line support"));
+                }
+                capabilities["foldingRangeProvider"] = json!(true);
+            }
             if self.workspace_symbols.is_some() {
                 if params["capabilities"]["workspace"]["symbol"]["symbolKind"]["valueSet"]
                     .as_array()
@@ -478,6 +487,25 @@ impl MockServer {
                 }
             }
             if self
+                .held_fold
+                .as_ref()
+                .is_some_and(|held| held["id"] == cancelled_id)
+            {
+                let held = self
+                    .held_fold
+                    .take()
+                    .ok_or_else(|| invalid("cancel requires held folding"))?;
+                write_response(output, &held["id"], Value::Null)?;
+                write_document_diagnostic(
+                    output,
+                    held["uri"]
+                        .as_str()
+                        .ok_or_else(|| invalid("folding hold requires URI"))?,
+                    &held["version"],
+                    "synthetic folding cancelled",
+                )?;
+            }
+            if self
                 .held_workspace_symbol
                 .as_ref()
                 .is_some_and(|held| held["id"] == cancelled_id)
@@ -620,6 +648,50 @@ impl MockServer {
             .and_then(Value::as_str)
             .ok_or_else(|| invalid("document requires URI"))?;
         match method {
+            "textDocument/foldingRange" => {
+                let current = self
+                    .documents
+                    .get(uri)
+                    .ok_or_else(|| invalid("folding requires open mirror"))?;
+                let id = id.ok_or_else(|| invalid("folding requires ID"))?;
+                if self.folding == Some("wait")
+                    && current["text"]
+                        .as_str()
+                        .is_some_and(|text| text.starts_with("hold"))
+                {
+                    self.held_fold = Some(json!({"id":id,"uri":uri,"version":current["version"]}));
+                    write_document_diagnostic(
+                        output,
+                        uri,
+                        &current["version"],
+                        "synthetic folding held",
+                    )?;
+                    return Ok(None);
+                }
+                if self.folding == Some("crash")
+                    && current["text"]
+                        .as_str()
+                        .is_some_and(|text| text.starts_with("crash"))
+                {
+                    return Ok(Some(ExitCode::from(CRASH_EXIT_CODE)));
+                }
+                if self.folding == Some("error") {
+                    write_payload(
+                        output,
+                        &json!({"jsonrpc":"2.0","id":id,"error":{"code":-32603,"message":"synthetic folding error"}}),
+                    )?;
+                    return Ok(None);
+                }
+                let result = match self.folding {
+                    Some("empty") => json!([]),
+                    Some("null") => Value::Null,
+                    _ => json!([
+                        {"startLine":0,"endLine":2,"kind":"imports"},
+                        {"startLine":1,"endLine":2,"kind":"custom","startCharacter":0,"endCharacter":0}
+                    ]),
+                };
+                write_response(output, id, result)?;
+            }
             "textDocument/documentSymbol" => {
                 let current = self
                     .documents
@@ -942,6 +1014,25 @@ fn main() -> io::Result<ExitCode> {
             server.should_run_save_actions = true;
         }
         Some(
+            mode @ ("--native-folding"
+            | "--native-folding-empty"
+            | "--native-folding-null"
+            | "--native-folding-error"
+            | "--native-folding-wait"
+            | "--native-folding-crash"),
+        ) => {
+            server.should_track_saves = true;
+            server.should_format_documents = true;
+            server.folding = Some(match mode {
+                "--native-folding-empty" => "empty",
+                "--native-folding-null" => "null",
+                "--native-folding-error" => "error",
+                "--native-folding-wait" => "wait",
+                "--native-folding-crash" => "crash",
+                _ => "ranges",
+            });
+        }
+        Some(
             mode @ ("--native-symbols"
             | "--native-symbols-flat"
             | "--native-symbols-wait"
@@ -958,11 +1049,15 @@ fn main() -> io::Result<ExitCode> {
         }
         Some(
             mode @ ("--native-workspace-symbols"
+            | "--native-workspace-symbols-folding"
             | "--native-workspace-symbols-nested"
             | "--native-workspace-symbols-wait"
             | "--native-workspace-symbols-crash"
             | "--native-workspace-symbols-error"),
         ) => {
+            if mode == "--native-workspace-symbols-folding" {
+                server.folding = Some("ranges");
+            }
             server.workspace_symbols = Some(match mode {
                 "--native-workspace-symbols-nested" => "--native-workspace-symbols-nested",
                 "--native-workspace-symbols-wait" => "--native-workspace-symbols-wait",

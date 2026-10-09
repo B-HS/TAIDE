@@ -9,8 +9,49 @@ const MAX_SCHEMA_DEPTH: usize = 128;
 const SEMANTIC_TOKEN_FIELDS: usize = 5;
 const MAX_UINT: u64 = i32::MAX as u64;
 
+#[cfg(test)]
+mod folding_range_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn folding_range는_표준과_사용자_종류를_줄_검증과_함께_보존한다() {
+        let ranges = json!([
+            {"startLine":0,"endLine":3,"kind":"imports"},
+            {"startLine":4,"endLine":7,"startCharacter":2,"endCharacter":9,"kind":"custom","collapsedText":"title"},
+            {"startLine":8,"endLine":9}
+        ]);
+        let reply = TypedReply::<request::FoldingRangeRequest>::decode(ranges.clone());
+        assert!(reply.is_ok());
+        let reply = reply.unwrap();
+        assert_eq!(serde_json::to_value(reply.value).unwrap(), ranges);
+        assert!(TypedReply::<request::FoldingRangeRequest>::decode(Value::Null).is_ok());
+        for invalid in [
+            json!([{"startLine":5,"endLine":2,"kind":"custom"}]),
+            json!([{"startLine":0,"endLine":-1}]),
+            json!([{"startLine":0,"endLine":1,"kind":3}]),
+        ] {
+            assert!(TypedReply::<request::FoldingRangeRequest>::decode(invalid).is_err());
+        }
+    }
+}
+
 pub trait FeatureRequest: Request {
     type Reply: serde::de::DeserializeOwned + Serialize + Send + Sync + 'static;
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FoldingRangeReply {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(flatten)]
+    range: lsp_types::FoldingRange,
+}
+
+impl FoldingRangeReply {
+    pub fn range(&self) -> &lsp_types::FoldingRange {
+        &self.range
+    }
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -116,7 +157,7 @@ feature_contracts! {
     "textDocument/documentHighlight" => request::DocumentHighlightRequest,
     "textDocument/selectionRange" => request::SelectionRangeRequest,
     "textDocument/codeAction" => request::CodeActionRequest,
-    "textDocument/foldingRange" => request::FoldingRangeRequest,
+    "textDocument/foldingRange" => request::FoldingRangeRequest => Option<Vec<FoldingRangeReply>>,
     "textDocument/implementation" => request::GotoImplementation,
     "textDocument/typeDefinition" => request::GotoTypeDefinition,
     "textDocument/declaration" => request::GotoDeclaration,

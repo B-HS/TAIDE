@@ -4017,6 +4017,8 @@ fn show_decorated(
                         language: None,
                         decorations: layers,
                         fold_commands: &[],
+                        #[cfg(feature = "native-host")]
+                        syntax_folds: None,
                         fold_controls: None,
                         #[cfg(feature = "native-host")]
                         problems: None,
@@ -5287,6 +5289,122 @@ fn folding_presentation(word_wrap: bool) -> EditorPresentation {
     }
 }
 
+#[cfg(feature = "native-host")]
+#[test]
+fn 구문_접기_공급은_같은_revision의_cache를_바꾸고_읽기전용_본문과_gutter에_반영된다() {
+    use std::sync::Arc;
+    use taide_native_editor::folding::FoldRegion;
+    use taide_native_editor::syntax_folding::{SyntaxFoldRange, SyntaxFolds};
+    let source = "head\nbody\ninner\ninnerbody\nend\ntail";
+    let (mut store, view) = fixture(source, true);
+    let context = Context::default();
+    let presentation = folding_presentation(true);
+    let id = store.views().get(view).unwrap().document;
+    let snapshot = store.documents().snapshot(id).unwrap();
+    let syntax = Arc::new(SyntaxFolds::new(
+        &snapshot,
+        vec![vec![SyntaxFoldRange {
+            region: FoldRegion {
+                start_line: 0,
+                end_line: 4,
+            },
+            kind: Some("imports".into()),
+        }]],
+    ));
+    let before = show_folding(&context, &mut store, view, FoldFrame::idle(&presentation));
+    assert_eq!(gutter_numbers(&before), ["1", "2", "3", "4", "5", "6"]);
+    let folded = show_folding(
+        &context,
+        &mut store,
+        view,
+        FoldFrame {
+            syntax: Some(syntax.clone()),
+            commands: &[FoldCommand::ToggleImports],
+            ..FoldFrame::idle(&presentation)
+        },
+    );
+    assert_eq!(gutter_numbers(&folded), ["1", "6"]);
+    assert_eq!(folded.controls.len(), 1);
+    assert!(!body_rows(&folded.shown).contains(&"body".into()));
+    assert_eq!(text(&store, view), source);
+    assert_eq!(
+        store.documents().snapshot(id).unwrap().revision,
+        snapshot.revision
+    );
+    let unfolded = show_folding(
+        &context,
+        &mut store,
+        view,
+        FoldFrame {
+            syntax: Some(syntax.clone()),
+            commands: &[FoldCommand::ToggleImports],
+            ..FoldFrame::idle(&presentation)
+        },
+    );
+    assert_eq!(gutter_numbers(&unfolded), ["1", "2", "3", "4", "5", "6"]);
+    let empty = Arc::new(SyntaxFolds::new(&snapshot, vec![vec![]]));
+    let replaced = show_folding(
+        &context,
+        &mut store,
+        view,
+        FoldFrame {
+            syntax: Some(empty),
+            commands: &[FoldCommand::FoldAll],
+            ..FoldFrame::idle(&presentation)
+        },
+    );
+    assert!(folds(&store, view).is_empty());
+    assert_eq!(gutter_numbers(&replaced), ["1", "2", "3", "4", "5", "6"]);
+    let state = store.views().get(view).unwrap().clone();
+    store
+        .set_view_state(
+            view,
+            SelectionSet {
+                primary: 0,
+                selections: vec![Selection {
+                    anchor: 0,
+                    head: snapshot.rope.line_to_byte(5),
+                }],
+            },
+            state.scroll,
+            state.folds,
+        )
+        .unwrap();
+    let manual = show_folding(
+        &context,
+        &mut store,
+        view,
+        FoldFrame {
+            commands: &[FoldCommand::CreateFromSelection],
+            ..FoldFrame::idle(&presentation)
+        },
+    );
+    assert_eq!(gutter_numbers(&manual), ["1", "6"]);
+    assert_eq!(manual.controls.len(), 1);
+    assert_eq!(store.views().get(view).unwrap().manual_folds.len(), 1);
+    show_folding(
+        &context,
+        &mut store,
+        view,
+        FoldFrame {
+            commands: &[FoldCommand::UnfoldAll],
+            ..FoldFrame::idle(&presentation)
+        },
+    );
+    assert_eq!(store.views().get(view).unwrap().manual_folds.len(), 1);
+    let removed = show_folding(
+        &context,
+        &mut store,
+        view,
+        FoldFrame {
+            commands: &[FoldCommand::RemoveManualRanges],
+            ..FoldFrame::idle(&presentation)
+        },
+    );
+    assert!(store.views().get(view).unwrap().manual_folds.is_empty());
+    assert_eq!(gutter_numbers(&removed), ["1", "2", "3", "4", "5", "6"]);
+}
+
 struct FoldFrame<'a> {
     presentation: &'a EditorPresentation,
     commands: &'a [FoldCommand],
@@ -5296,6 +5414,8 @@ struct FoldFrame<'a> {
     tokens: Option<EditorTokens<'a>>,
     language: Option<Language<'a>>,
     decorations: &'a [&'a DecorationLayer],
+    #[cfg(feature = "native-host")]
+    syntax: Option<std::sync::Arc<taide_native_editor::syntax_folding::SyntaxFolds>>,
 }
 
 impl<'a> FoldFrame<'a> {
@@ -5309,6 +5429,8 @@ impl<'a> FoldFrame<'a> {
             tokens: None,
             language: None,
             decorations: &[],
+            #[cfg(feature = "native-host")]
+            syntax: None,
         }
     }
 }
@@ -5357,6 +5479,8 @@ fn show_folding(
                         language: frame.language,
                         decorations: frame.decorations,
                         fold_commands: frame.commands,
+                        #[cfg(feature = "native-host")]
+                        syntax_folds: frame.syntax.clone(),
                         fold_controls: Some(&mut record),
                         #[cfg(feature = "native-host")]
                         problems: None,

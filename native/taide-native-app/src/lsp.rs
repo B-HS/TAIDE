@@ -50,6 +50,8 @@ mod idle;
 
 #[path = "lsp-document-symbols.rs"]
 mod document_symbols;
+#[path = "lsp-syntax-folding.rs"]
+mod syntax_folding;
 
 #[path = "lsp-workspace-symbols.rs"]
 mod workspace_symbols;
@@ -62,6 +64,9 @@ mod diagnostics_tests;
 #[path = "lsp-document-symbols-tests.rs"]
 mod document_symbol_tests;
 
+#[cfg(all(test, unix))]
+#[path = "lsp-syntax-folding-tests.rs"]
+mod syntax_folding_tests;
 #[cfg(all(test, unix))]
 #[path = "lsp-workspace-symbols-tests.rs"]
 mod workspace_symbol_tests;
@@ -195,6 +200,7 @@ struct Session {
 }
 
 enum Command {
+    SyntaxFolding(crate::editor_folding::Request),
     DocumentSymbols(crate::editor_symbols::Request),
     WorkspaceSymbols(crate::workspace_symbols::Request),
     ExplorerPaste {
@@ -245,6 +251,10 @@ enum Command {
 }
 
 pub enum Reply {
+    SyntaxFolding {
+        request: crate::editor_folding::Request,
+        result: Result<crate::editor_folding::Response, Failure>,
+    },
     WorkspaceSymbols {
         request: crate::workspace_symbols::Request,
         result: Result<crate::workspace_symbols::Response, Failure>,
@@ -543,6 +553,10 @@ impl LspBridge {
         self.submit(Command::DocumentSymbols(request))
     }
 
+    pub(crate) fn syntax_folding(&self, request: crate::editor_folding::Request) -> AppResult<()> {
+        self.submit(Command::SyntaxFolding(request))
+    }
+
     pub(crate) fn workspace_symbols(
         &self,
         request: crate::workspace_symbols::Request,
@@ -696,7 +710,7 @@ fn initialize(plan: &Plan) -> Value {
         "capabilities":{
             "general":{"positionEncodings":["utf-16"]},
             "workspace":{"workspaceFolders":true,"configuration":true,"applyEdit":true,"workspaceEdit":{"documentChanges":true},"symbol":{"dynamicRegistration":false,"symbolKind":{"valueSet":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26]}}},
-            "textDocument":{"synchronization":{"dynamicRegistration":false,"didSave":true},"documentSymbol":{"hierarchicalDocumentSymbolSupport":true,"symbolKind":{"valueSet":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26]}},"formatting":{},"codeAction":{"codeActionLiteralSupport":{"codeActionKind":{"valueSet":["source.fixAll","source.organizeImports"]}},"resolveSupport":{"properties":["edit","command"]},"dataSupport":true}}
+            "textDocument":{"foldingRange":{"dynamicRegistration":false,"lineFoldingOnly":true,"rangeLimit":taide_native_editor::folding::MAX_FOLDING_REGIONS},"synchronization":{"dynamicRegistration":false,"didSave":true},"documentSymbol":{"hierarchicalDocumentSymbolSupport":true,"symbolKind":{"valueSet":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26]}},"formatting":{},"codeAction":{"codeActionLiteralSupport":{"codeActionKind":{"valueSet":["source.fixAll","source.organizeImports"]}},"resolveSupport":{"properties":["edit","command"]},"dataSupport":true}}
         }
     });
     if let Some(initialization) = &plan.spec.initialization_options {
@@ -1489,6 +1503,50 @@ async fn run(
                     })
                 {
                     Some(Reply::WorkspaceSymbols {
+                        request: rejected,
+                        result: Err(Failure::TransportClosed),
+                    })
+                } else {
+                    None
+                }
+            }
+            Command::SyntaxFolding(request) => {
+                if request.is_cancelled() {
+                    continue;
+                }
+                let selected = sessions
+                    .iter()
+                    .filter(|(key, session)| {
+                        key.project == request.project
+                            && session.documents.contains_key(&request.snapshot.id)
+                    })
+                    .map(|(key, session)| (key.clone(), session.clone()))
+                    .collect::<HashMap<_, _>>();
+                let sender = replies.clone();
+                let repaint = repaint.clone();
+                let mut cancelled = request.cancelled.clone();
+                let mut stopping = stopping.clone();
+                let rejected = request.clone();
+                if !services
+                    .tasks
+                    .spawn_transient("native-lsp-syntax-folding", async move {
+                        let result = tokio::select! {
+                            biased;
+                            _ = stopping.changed() => return,
+                            _ = cancelled.changed() => return,
+                            result = syntax_folding::request(&selected, &request) => result,
+                        };
+                        if !request.is_cancelled()
+                            && sender
+                                .send(Reply::SyntaxFolding { request, result })
+                                .await
+                                .is_ok()
+                        {
+                            repaint();
+                        }
+                    })
+                {
+                    Some(Reply::SyntaxFolding {
                         request: rejected,
                         result: Err(Failure::TransportClosed),
                     })
