@@ -98,6 +98,11 @@ impl Layers<'_> {
     }
 
     pub(crate) fn row(&self, row: &Row, carets: &Carets<'_>) {
+        self.row_background(row, carets);
+        self.row_content(row, carets);
+    }
+
+    pub(crate) fn row_background(&self, row: &Row, carets: &Carets<'_>) {
         if row.segment.line == carets.primary_line {
             self.current_line(row);
         }
@@ -109,6 +114,9 @@ impl Layers<'_> {
         }
         self.line_backgrounds(row);
         self.range_overlays(row);
+    }
+
+    pub(crate) fn row_content(&self, row: &Row, carets: &Carets<'_>) {
         for (selection, head_row) in carets.selections.selections.iter().zip(carets.head_rows) {
             if carets.focused && selection.anchor == selection.head && *head_row == row.index {
                 self.caret(row, selection.head);

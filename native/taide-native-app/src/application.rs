@@ -161,6 +161,7 @@ pub struct NativeApplication {
     editor_find: HashMap<ViewId, taide_native_ui::editor_find::EditorFind>,
     find_history: taide_native_ui::editor_find_widget::FindHistory,
     find_appearance: taide_native_ui::editor_find_widget::FindAppearance,
+    editor_display_colors: taide_native_ui::editor_display::EditorDisplayColors,
     editor_syntax: crate::editor_syntax::EditorSyntax,
     editor_keymap_targets: HashMap<(egui::ViewportId, egui::Id), (ViewId, u64)>,
     banner_appearance: BannerAppearance,
@@ -442,6 +443,7 @@ impl NativeApplication {
             editor_find: HashMap::new(),
             find_history: Default::default(),
             find_appearance: appearances.find,
+            editor_display_colors: appearances.editor_display,
             editor_syntax,
             editor_keymap_targets: HashMap::new(),
             banner_appearance,
@@ -632,6 +634,7 @@ impl NativeApplication {
                                         self.shell.colors = appearances.shell;
                                         self.editor.appearance = appearances.editor;
                                         self.find_appearance = appearances.find;
+                                        self.editor_display_colors = appearances.editor_display;
                                         self.banner_appearance = appearances.banner;
                                         self.lsp_status_appearance = appearances.lsp_status;
                                         self.status_editor_appearance = appearances.status_editor;
@@ -3613,6 +3616,7 @@ impl NativeApplication {
                 self.shell.colors = appearances.shell;
                 self.editor.appearance = appearances.editor;
                 self.find_appearance = appearances.find;
+                self.editor_display_colors = appearances.editor_display;
                 self.banner_appearance = appearances.banner;
                 self.lsp_status_appearance = appearances.lsp_status;
                 self.status_editor_appearance = appearances.status_editor;
@@ -4118,6 +4122,7 @@ impl eframe::App for NativeApplication {
             editor_find: &mut self.editor_find,
             find_history: &mut self.find_history,
             find_appearance: &self.find_appearance,
+            editor_display_colors: self.editor_display_colors,
             editor_syntax: &mut self.editor_syntax,
             banner_appearance: &self.banner_appearance,
             restore_notices: &self.restore_notices,
@@ -4894,6 +4899,7 @@ struct AppSurfaces<'a> {
     editor_find: &'a mut HashMap<ViewId, taide_native_ui::editor_find::EditorFind>,
     find_history: &'a mut taide_native_ui::editor_find_widget::FindHistory,
     find_appearance: &'a taide_native_ui::editor_find_widget::FindAppearance,
+    editor_display_colors: taide_native_ui::editor_display::EditorDisplayColors,
     editor_syntax: &'a mut crate::editor_syntax::EditorSyntax,
     banner_appearance: &'a BannerAppearance,
     restore_notices: &'a HashMap<TabId, BannerVariant>,
@@ -5658,6 +5664,7 @@ impl AppSurfaces<'_> {
                 );
                 let mut editor_presentation =
                     crate::presentation_refresh::editor_presentation(&settings);
+                editor_presentation.options.colors = Some(self.editor_display_colors);
                 drop(settings);
                 editor_presentation.options.folding =
                     taide_native_ui::presentation::editor_folding(snapshot.metadata.tier);

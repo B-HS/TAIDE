@@ -118,6 +118,8 @@ pub struct EditorDisplayOptions {
     pub bracket_pair_colorization: bool,
     pub bracket_pair_guides: bool,
     pub bold_family: Option<FontFamily>,
+    #[cfg(feature = "native-host")]
+    pub colors: Option<crate::editor_display::EditorDisplayColors>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -217,6 +219,10 @@ struct FoldPress {
 
 #[derive(Default, Clone)]
 struct InputState {
+    #[cfg(feature = "native-host")]
+    caret: crate::editor_caret::CaretState,
+    #[cfg(feature = "native-host")]
+    scroll: crate::editor_scroll::ScrollState,
     ime_revision: Option<u64>,
     widest_line: f32,
     widest_document: Option<DocumentId>,
@@ -661,10 +667,28 @@ impl NativeEditor {
             presentation.options.folding,
         );
         let text_width = (rect.width() - gutter.width()).max(0.0);
-        let mut scroll = current.scroll;
+        let mut scroll = current.scroll.clone();
         scroll.x = scroll_x_revealing(scroll.x, row.caret(byte), text_width).max(0.0);
-        let maximum = (layout.content_height() - rect.height()).max(0.0);
+        #[cfg(feature = "native-host")]
+        let height = crate::editor_scroll::content_height(
+            layout.content_height(),
+            rect.height(),
+            appearance.line_height,
+            presentation.options.scroll_beyond_last_line,
+        );
+        #[cfg(not(feature = "native-host"))]
+        let height = layout.content_height();
+        let maximum = (height - rect.height()).max(0.0);
         scroll.y = (layout.row_center(index) - rect.height() / CENTER_DIVISOR).clamp(0.0, maximum);
+        #[cfg(feature = "native-host")]
+        if presentation.options.smooth_scrolling {
+            let id = ui.make_persistent_id(("native-code-editor", view));
+            ui.ctx().data_mut(|data| {
+                let mut input = data.get_temp::<InputState>(id).unwrap_or_default();
+                input.scroll.reveal_from = Some(vec2(current.scroll.x, current.scroll.y));
+                data.insert_temp(id, input);
+            });
+        }
         store.set_display(view, projection.cached)?;
         store.set_view_state(view, current.selection, scroll, current.folds)?;
         Ok(())
@@ -820,6 +844,10 @@ impl NativeEditor {
         let mut input_state = ui
             .ctx()
             .data_mut(|data| data.get_temp::<InputState>(id).unwrap_or_default());
+        #[cfg(feature = "native-host")]
+        let external_scroll = input_state
+            .scroll
+            .begin(previous.id, vec2(current.scroll.x, current.scroll.y));
         let mut output = InputOutput::default();
         let os = ui.ctx().os();
         let indent = self.indent_options(&previous);
@@ -937,10 +965,54 @@ impl NativeEditor {
                 state.head_at_row_end(selection, document.revision),
             )
         };
+        let painter = ui.painter().with_clip_rect(rect);
+        let gutter = Gutter::measure(
+            &painter,
+            document.rope.len_lines(),
+            appearance,
+            presentation.options.folding,
+        );
+        let text_rect =
+            Rect::from_min_max(pos2(rect.left() + gutter.width(), rect.top()), rect.max);
         let layout = VerticalLayout::new(appearance.line_height, display.row_count());
         let content_height = layout.content_height();
+        #[cfg(feature = "native-host")]
+        let base_content_height = crate::editor_scroll::content_height(
+            content_height,
+            rect.height(),
+            appearance.line_height,
+            presentation.options.scroll_beyond_last_line,
+        );
+        #[cfg(feature = "native-host")]
+        let content_height = {
+            let width = if wrap_column.is_none() {
+                input_state.widest_line
+                    + painter
+                        .layout_no_wrap(
+                            " ".repeat(SCROLL_BEYOND_LAST_COLUMN),
+                            appearance.font.clone(),
+                            appearance.foreground,
+                        )
+                        .size()
+                        .x
+                    + VERTICAL_SCROLLBAR_SIZE
+            } else {
+                input_state.widest_line
+            };
+            base_content_height
+                + if presentation.options.colors.is_some()
+                    && !presentation.options.scroll_beyond_last_line
+                    && width > text_rect.width()
+                {
+                    HORIZONTAL_SCROLLBAR_SIZE
+                } else {
+                    0.0
+                }
+        };
         let scroll_max = (content_height - rect.height()).max(0.0);
         state.scroll.y = stable_scroll_top.unwrap_or(state.scroll.y).min(scroll_max);
+        #[cfg(feature = "native-host")]
+        let did_fold_reveal = fold_reveal.is_some();
         if let Some(reveal) = fold_reveal {
             let primary = state.selection.selections[state.selection.primary];
             let row = display.row_of_byte(
@@ -991,12 +1063,30 @@ impl NativeEditor {
                 state.scroll.y = (bottom - rect.height()).max(0.0);
             }
         }
+        #[cfg(feature = "native-host")]
+        let (wheel, precise_wheel) = if response.hovered() && ui.is_enabled() {
+            input_state.scroll.wheel(ui)
+        } else {
+            (Vec2::ZERO, false)
+        };
+        #[cfg(not(feature = "native-host"))]
         let wheel = if response.hovered() && ui.is_enabled() {
             ui.input_mut(|input| std::mem::take(&mut input.smooth_scroll_delta))
         } else {
             Vec2::ZERO
         };
-        state.scroll.y = (state.scroll.y - wheel.y).clamp(0.0, scroll_max);
+        #[cfg(feature = "native-host")]
+        let requested_scroll_y = if wheel.y != 0.0 {
+            Some(input_state.scroll.y.future(state.scroll.y) - wheel.y)
+        } else if moved || did_fold_reveal {
+            Some(state.scroll.y)
+        } else {
+            None
+        };
+        #[cfg(not(feature = "native-host"))]
+        {
+            state.scroll.y = (state.scroll.y - wheel.y).clamp(0.0, scroll_max);
+        }
         let press = PointerPress {
             down: ui.is_enabled()
                 && response.is_pointer_button_down_on()
@@ -1017,18 +1107,36 @@ impl NativeEditor {
             rect.height(),
             content_height,
         );
+        #[cfg(feature = "native-host")]
+        let mut vertical = vertical;
         if let Some(scrollbar) = &vertical {
             state.scroll.y = scrollbar.drag(&mut input_state, &press, state.scroll.y);
         }
-        let painter = ui.painter().with_clip_rect(rect);
-        let gutter = Gutter::measure(
-            &painter,
-            document.rope.len_lines(),
-            appearance,
-            presentation.options.folding,
-        );
-        let text_rect =
-            Rect::from_min_max(pos2(rect.left() + gutter.width(), rect.top()), rect.max);
+        #[cfg(feature = "native-host")]
+        {
+            let dragging = input_state.scrollbar_drag.is_some();
+            let reveal_from = input_state.scroll.reveal_from;
+            let target = if dragging || reveal_from.is_some() {
+                Some(state.scroll.y)
+            } else {
+                requested_scroll_y.or_else(|| {
+                    (external_scroll || stable_scroll_top.is_some()).then_some(state.scroll.y)
+                })
+            };
+            let from = reveal_from.map_or(current.scroll.y, |scroll| scroll.y);
+            state.scroll.y = input_state.scroll.y.sample(
+                ui,
+                from,
+                target,
+                scroll_max,
+                rect.height(),
+                !presentation.options.smooth_scrolling
+                    || precise_wheel
+                    || dragging
+                    || (external_scroll && reveal_from.is_none())
+                    || stable_scroll_top.is_some(),
+            );
+        }
         let visible = layout.visible_rows(state.scroll.y, rect.height(), ROW_OVERSCAN);
         let visible_lines = if visible.is_empty() {
             0..0
@@ -1087,7 +1195,13 @@ impl NativeEditor {
             input_state.widest_line + beyond_last_column + VERTICAL_SCROLLBAR_SIZE
         };
         let scroll_x_max = (content_width - text_width).max(0.0);
-        state.scroll.x -= wheel.x;
+        #[cfg(feature = "native-host")]
+        let wheel_target_x =
+            (wheel.x != 0.0).then(|| input_state.scroll.x.future(state.scroll.x) - wheel.x);
+        #[cfg(not(feature = "native-host"))]
+        {
+            state.scroll.x -= wheel.x;
+        }
         if moved && let Some(row) = rows.iter().find(|row| row.index == reveal_row) {
             state.scroll.x = scroll_x_revealing(
                 state.scroll.x,
@@ -1113,6 +1227,87 @@ impl NativeEditor {
         );
         if let Some(scrollbar) = &horizontal {
             state.scroll.x = scrollbar.drag(&mut input_state, &press, state.scroll.x);
+        }
+        #[cfg(feature = "native-host")]
+        let content_height = {
+            let adjusted = base_content_height
+                + if presentation.options.colors.is_some()
+                    && !presentation.options.scroll_beyond_last_line
+                    && horizontal.is_some()
+                {
+                    HORIZONTAL_SCROLLBAR_SIZE
+                } else {
+                    0.0
+                };
+            if adjusted != content_height {
+                let previous_y = state.scroll.y;
+                vertical = Scrollbar::new(
+                    ScrollAxis::Vertical,
+                    Rect::from_min_max(
+                        pos2(
+                            (rect.right() - VERTICAL_SCROLLBAR_SIZE).max(rect.left()),
+                            rect.top(),
+                        ),
+                        rect.max,
+                    ),
+                    rect.height(),
+                    adjusted,
+                );
+                if let Some(scrollbar) = &vertical {
+                    state.scroll.y = scrollbar.drag(&mut input_state, &press, state.scroll.y);
+                }
+                let dragging = input_state.scrollbar_drag.is_some();
+                let reveal_from = input_state.scroll.reveal_from;
+                let target = if dragging || reveal_from.is_some() {
+                    Some(state.scroll.y)
+                } else {
+                    requested_scroll_y
+                };
+                state.scroll.y = input_state.scroll.y.sample(
+                    ui,
+                    reveal_from.map_or(current.scroll.y, |scroll| scroll.y),
+                    target,
+                    (adjusted - rect.height()).max(0.0),
+                    rect.height(),
+                    !presentation.options.smooth_scrolling
+                        || precise_wheel
+                        || dragging
+                        || (external_scroll && reveal_from.is_none())
+                        || stable_scroll_top.is_some(),
+                );
+                for row in &mut rows {
+                    row.origin.y += previous_y - state.scroll.y;
+                }
+            }
+            adjusted
+        };
+        #[cfg(feature = "native-host")]
+        {
+            let dragging = input_state.scrollbar_drag.is_some();
+            let reveal_from = input_state.scroll.reveal_from.take();
+            let target = if dragging || moved || reveal_from.is_some() {
+                Some(state.scroll.x)
+            } else {
+                wheel_target_x.or_else(|| {
+                    (external_scroll || stable_scroll_top.is_some()).then_some(state.scroll.x)
+                })
+            };
+            let from = reveal_from.map_or(current.scroll.x, |scroll| scroll.x);
+            state.scroll.x = input_state.scroll.x.sample(
+                ui,
+                from,
+                target,
+                scroll_x_max,
+                text_width,
+                !presentation.options.smooth_scrolling
+                    || precise_wheel
+                    || dragging
+                    || (external_scroll && reveal_from.is_none())
+                    || stable_scroll_top.is_some(),
+            );
+            input_state
+                .scroll
+                .rendered(vec2(state.scroll.x, state.scroll.y));
         }
         let scrolling = was_scrolling || input_state.scrollbar_drag.is_some();
         if !press.down {
@@ -1297,11 +1492,84 @@ impl NativeEditor {
             head_rows: &head_rows,
             primary_row,
             primary_line: display.segment(&document, primary_row).line,
-            focused,
+            focused: focused && {
+                #[cfg(feature = "native-host")]
+                {
+                    presentation.options.cursor_style == CursorStyle::LineThin
+                        && presentation.options.cursor_blinking == CursorBlinking::Solid
+                        && !presentation.options.smooth_caret
+                        && presentation.options.colors.is_none()
+                }
+                #[cfg(not(feature = "native-host"))]
+                {
+                    true
+                }
+            },
         };
         layers.background();
+        #[cfg(feature = "native-host")]
+        if !presentation.options.rulers.is_empty() {
+            for row in &rows {
+                layers.row_background(row, &carets);
+            }
+            crate::editor_display::rulers(
+                &text_painter,
+                text_rect,
+                vec2(state.scroll.x, state.scroll.y),
+                content_height.max(rect.height()),
+                appearance,
+                &presentation.options,
+            );
+            for row in &rows {
+                crate::editor_display::whitespace(
+                    &text_painter,
+                    row,
+                    &document,
+                    &state.selection,
+                    appearance,
+                    &presentation.options,
+                );
+                layers.row_content(row, &carets);
+            }
+        } else {
+            for row in &rows {
+                layers.row(row, &carets);
+                crate::editor_display::whitespace(
+                    &text_painter,
+                    row,
+                    &document,
+                    &state.selection,
+                    appearance,
+                    &presentation.options,
+                );
+            }
+        }
+        #[cfg(not(feature = "native-host"))]
         for row in &rows {
             layers.row(row, &carets);
+        }
+        #[cfg(feature = "native-host")]
+        if presentation.options.cursor_style != CursorStyle::LineThin
+            || presentation.options.cursor_blinking != CursorBlinking::Solid
+            || presentation.options.smooth_caret
+            || presentation.options.colors.is_some()
+        {
+            input_state.caret.paint(
+                ui,
+                &text_painter,
+                crate::editor_caret::CaretFrame {
+                    document: &document,
+                    selections: &state.selection,
+                    head_rows: &head_rows,
+                    rows: &rows,
+                    appearance,
+                    options: &presentation.options,
+                    scroll: vec2(state.scroll.x, state.scroll.y),
+                    origin: text_rect.min,
+                    focused: focused && ui.is_enabled(),
+                    composing: state.composition.is_some(),
+                },
+            )?;
         }
         let time = ui.input(|input| input.time);
         if has_folding && let Some(paint) = fold_controls {
@@ -1411,6 +1679,22 @@ impl NativeEditor {
                 let slider = scrollbar.slider_rect(scroll);
                 let engaged = dragged_axis == Some(scrollbar.axis)
                     || pointer.is_some_and(|pointer| slider.contains(pointer));
+                #[cfg(feature = "native-host")]
+                if let Some(colors) = presentation.options.colors {
+                    painter.rect_filled(
+                        slider,
+                        0.0,
+                        if engaged {
+                            colors.scrollbar_hover
+                        } else {
+                            colors.scrollbar
+                        }
+                        .gamma_multiply(opacity),
+                    );
+                } else {
+                    layers.scrollbar(slider, engaged, opacity);
+                }
+                #[cfg(not(feature = "native-host"))]
                 layers.scrollbar(slider, engaged, opacity);
             }
         }

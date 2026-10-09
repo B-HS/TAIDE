@@ -504,6 +504,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   `findWidget.js`, `findOptionsWidget.js` and `findWidget.css`.
   The license text is retained in `native/taide-native-ui/LICENSE-MONACO-FIND`.
 
+- `src/editor-display.rs`, `src/editor-caret.rs`, `src/editor-scroll.rs` and
+  the native display paths in `src/editor_surface.rs` adapt Monaco Editor
+  0.56.0 (MIT, Copyright (c) Microsoft Corporation):
+  `editor/browser/viewParts/whitespace/whitespace.js`,
+  `editor/browser/viewParts/rulers/rulers.js`,
+  `editor/browser/viewParts/viewCursors/viewCursor.js`, `viewCursors.js`,
+  `viewCursors.css`, `editor/common/viewLayout/viewLayout.js`,
+  `editor/common/core/editorColorRegistry.js` and `base/common/scrollable.js`.
+  The same MIT text is retained in `native/taide-native-ui/LICENSE-MONACO-FIND`.
+
+### Restored egui/eframe documentation assets
+
+- `native/taide-native-app/vendor/egui-input/assets/ferris.png` and
+  `native/taide-native-app/vendor/eframe/data/icon.png` are unchanged
+  documentation fixtures from egui/eframe 0.36.2, upstream commit
+  `49682f8baa058bf49e011035cfbd6e825f88a5ef` in
+  [emilk/egui](https://github.com/emilk/egui). The selected MIT license is
+  retained in each vendor directory. The adjacent README files record the
+  exact source paths, byte sizes and verified Git blob hashes.
+
 ### Ported source in `native/taide-native-syntax`
 
 - `src/style-scopes.rs` ports the color and font style lookup of

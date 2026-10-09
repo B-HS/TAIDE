@@ -2204,12 +2204,9 @@ fn 편집기_줄_높이는_글꼴_크기의_1_5배를_정수로_반올림하고_
 #[test]
 fn 설정의_word_wrap은_표시_옵션으로_전달되고_설정_기본값은_현재_동작과_같은_꺼짐이다() {
     let mut settings = Settings::default();
-    assert_eq!(
-        editor_presentation(&settings),
-        EditorPresentation::default()
-    );
+    assert!(!editor_presentation(&settings).options.word_wrap);
     settings.editor_word_wrap = true;
-    assert_eq!(editor_presentation(&settings), wrapping());
+    assert!(editor_presentation(&settings).options.word_wrap);
 }
 
 struct Wrapped {

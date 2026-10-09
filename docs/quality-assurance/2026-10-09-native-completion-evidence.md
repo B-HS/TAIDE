@@ -1,6 +1,6 @@
 # Rust-native 전체 완료 근거 점검
 
-기준: 2026-10-09, HEAD `d1d98d4d`, 브랜치 `to_rust_native`. 서브에이전트·workflow 없이 메인이 현재 코드와 기존 실행 로그를 읽었습니다. 이번 점검에서는 코드 수정·의존성 반입·빌드·테스트·화면 조작을 실행하지 않았습니다.
+기준: 2026-10-09, 브랜치 `to_rust_native`. 최초 읽기 전용 점검은 HEAD `d1d98d4d`에서 수행했고 이후 batch8·9의 실제 구현·검증 근거를 현재 표에 반영했습니다. 서브에이전트·workflow 없이 메인이 직접 수행합니다. 실제 화면/OS 입력은 미검증입니다.
 
 ## 완료율을 판정할 기준
 
@@ -22,11 +22,11 @@
 | 대상 | 실제 근거 | 판정 |
 | --- | --- | --- |
 | 찾기 명령 | batch8에서 `native/taide-native-ui/src/editor-find.rs`·`editor-find-widget.rs`, registry의 native-host Find 실행·지원 gate, app의 뷰별 상태/큐/키/강조 연결을 구현. 순수 코어 13건과 최종 UI 전체 271건 통과, 앱 전체·실패 선별 재검사와 동결 컴파일 확인 | 구현·자동 검증 연결됨. 실제 화면/OS 입력은 미검증. `2026-10-09-native-batch8-find.md` 참조 |
-| 표시 설정 공급 | `native/taide-native-ui/src/presentation.rs:236`은 `word_wrap`만 설정하고 나머지는 기본값. `native/taide-native-app/src/presentation-refresh.rs:174`는 bold 글꼴을 추가, `application.rs:5646`은 folding을 추가 | 설정 화면의 필드 존재를 편집기 표시 기능 완료로 판정하지 않음 |
-| 표시 설정 소비 | `native/taide-native-ui/src/editor_surface.rs:106`의 14필드 중 표면에서 소비하는 것은 word wrap·folding·bold family. 전체 UI 소스에서 아래 11필드의 렌더 소비 경로 없음 | 3/14는 이 구조체의 소비 경로 수이며 기능 완료율이 아님 |
+| 표시 설정 공급 | batch9 `presentation::editor_presentation`이 native-host의 공백·rulers·캐럿·스크롤 7필드를 실제 설정으로 공급합니다. app의 presentation-refresh·application은 테마 공백/ruler/스크롤바 색과 기존 bold/folding을 연결하고 갱신합니다. browser 공급은 기존 word-wrap 경로 유지 | 설정→표시→앱 경로 자동 검증 연결. 실제 화면은 미검증 |
+| 표시 설정 소비 | 기존 14옵션 중 word wrap·folding·bold family와 신규 공백·rulers·캐럿 스타일/깜빡임/이동·아래 여백/부드러운 스크롤을 소비합니다. `editor-display.rs`·`editor-caret.rs`·`editor-scroll.rs`와 surface 연결 및 별도 optional 색 공급입니다 | 기존 14옵션 중 10개의 소비 근거입니다. 기능 완료율이 아닙니다. `2026-10-09-native-batch9-display.md` 참조 |
 | LSP 사용자 상호작용 | `native/taide-native-app/src/lsp.rs`에서 직접 확인한 typed request는 저장 시 Formatting·ExecuteCommand·CodeActionRequest·CodeActionResolveRequest 경로 | 저장 기능 검증으로 완성·hover·signature·이동·peek 등 전체 LSP UI 완료를 입증할 수 없음 |
 
-아직 소비하지 않는 표시 필드는 `render_whitespace`, `rulers`, `cursor_style`, `cursor_blinking`, `smooth_caret`, `scroll_beyond_last_line`, `smooth_scrolling`, `sticky_scroll`, `minimap`, `bracket_pair_colorization`, `bracket_pair_guides`입니다. 리거처 설정은 이 구조체와 별도로 후속 표시 구현에서 확인해야 합니다.
+아직 소비하지 않는 표시 필드는 `sticky_scroll`, `minimap`, `bracket_pair_colorization`, `bracket_pair_guides`입니다. 리거처·들여쓰기 가이드·진단/overview·주입/블록 설정은 후속 표시 구현에서 확인해야 합니다. batch9 최종 자동 근거는 UI 전체 286 통과 후 대형 ruler 신규 회귀 1 통과, app 전체 612 통과·보호 3 제외, egui 단위 50·문서 167 통과·문서 1 ignored, browser host/Wasm·최종 컴파일·포맷·동결 diff 확인입니다.
 
 배치 7의 문서 명령 34개·커서 명령 23개 연결은 `command-registry.rs`의 `line_command`·`cursor_command`, app `command-dispatch.rs`의 `apply_document_edits`와 해당 통합 QA에서 확인했습니다. 명령 카탈로그 전체나 LSP provider까지 완성됐다는 뜻으로 확대하지 않습니다.
 

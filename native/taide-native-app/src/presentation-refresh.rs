@@ -152,6 +152,7 @@ pub(crate) struct Appearances {
     pub(crate) visuals: eframe::egui::Visuals,
     pub(crate) shell: taide_native_ui::shell::ShellColors,
     pub(crate) editor: taide_native_ui::editor_surface::EditorAppearance,
+    pub(crate) editor_display: taide_native_ui::editor_display::EditorDisplayColors,
     pub(crate) find: taide_native_ui::editor_find_widget::FindAppearance,
     pub(crate) banner: taide_native_ui::conflict_banner::BannerAppearance,
     pub(crate) lsp_status: crate::lsp::status::Appearance,
@@ -203,6 +204,7 @@ impl Appearances {
             visuals: visuals(theme)?,
             shell: shell_colors(theme)?,
             editor,
+            editor_display: taide_native_ui::presentation::editor_display_colors(theme)?,
             find: taide_native_ui::editor_find_widget::FindAppearance {
                 background: color(theme, "editor.widgetBackground")?,
                 border: color(theme, "editor.widgetBorder")?,
@@ -501,6 +503,18 @@ mod tests {
             );
             assert_eq!(prepared.editor.font.size, settings.editor_font_size as f32);
             assert_eq!(prepared.editor.font.family, crate::editor_fonts::family());
+            assert_eq!(
+                prepared.editor_display.whitespace,
+                crate::presentation::color(&theme, "editor.whitespace").unwrap()
+            );
+            assert_eq!(
+                prepared.editor_display.scrollbar,
+                crate::presentation::color(&theme, "scrollbar.thumb").unwrap()
+            );
+            assert_eq!(
+                prepared.editor_display.scrollbar_hover,
+                crate::presentation::color(&theme, "scrollbar.thumbHover").unwrap()
+            );
             assert_eq!(
                 prepared.terminal.font.family,
                 crate::terminal_fonts::family()

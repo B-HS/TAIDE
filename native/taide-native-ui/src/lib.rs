@@ -23,6 +23,12 @@ pub mod css_motion;
 #[cfg(feature = "native-host")]
 pub mod document_admission;
 #[cfg(feature = "native-host")]
+#[path = "editor-caret.rs"]
+mod editor_caret;
+#[cfg(feature = "native-host")]
+#[path = "editor-display.rs"]
+pub mod editor_display;
+#[cfg(feature = "native-host")]
 #[path = "editor-find.rs"]
 pub mod editor_find;
 #[cfg(feature = "native-host")]
@@ -40,6 +46,9 @@ mod editor_paint;
 mod editor_pointer;
 #[path = "editor-row-text.rs"]
 pub mod editor_row_text;
+#[cfg(feature = "native-host")]
+#[path = "editor-scroll.rs"]
+mod editor_scroll;
 pub mod editor_surface;
 #[path = "font-families.rs"]
 pub mod font_families;

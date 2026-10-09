@@ -639,6 +639,41 @@ impl InputState {
         self.wheel.is_scrolling()
     }
 
+    pub fn take_scroll_delta_immediate(&mut self) -> Vec2 {
+        if self.wheel.modifiers.matches_any(self.options.zoom_modifier) {
+            return Vec2::ZERO;
+        }
+        let mut delta = std::mem::take(&mut self.smooth_scroll_delta)
+            + std::mem::take(&mut self.wheel.unprocessed_wheel_delta);
+        for event in &mut self.raw.events {
+            if let Event::MouseWheel {
+                unit,
+                delta: start_delta,
+                phase: crate::TouchPhase::Start,
+                modifiers,
+            } = event
+            {
+                let mut start = match unit {
+                    crate::MouseWheelUnit::Point => *start_delta,
+                    crate::MouseWheelUnit::Line => *start_delta * self.options.line_scroll_speed,
+                    crate::MouseWheelUnit::Page => *start_delta * self.viewport_rect.height(),
+                };
+                let horizontal = modifiers.matches_any(self.options.horizontal_scroll_modifier);
+                let vertical = modifiers.matches_any(self.options.vertical_scroll_modifier);
+                if horizontal && !vertical {
+                    start = vec2(start.x + start.y, 0.0);
+                }
+                if vertical && !horizontal {
+                    start = vec2(0.0, start.x + start.y);
+                }
+                delta += start;
+                *start_delta = Vec2::ZERO;
+            }
+        }
+        self.wheel.smooth_wheel_delta = Vec2::ZERO;
+        delta
+    }
+
     /// How long has it been (in seconds) since the last scroll event?
     #[inline(always)]
     pub fn time_since_last_scroll(&self) -> f32 {

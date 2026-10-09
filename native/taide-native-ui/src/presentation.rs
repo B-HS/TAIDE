@@ -234,6 +234,42 @@ pub fn editor_appearance(
 }
 
 pub fn editor_presentation(settings: &Settings) -> EditorPresentation {
+    #[cfg(feature = "native-host")]
+    {
+        use crate::editor_surface::{CursorBlinking, CursorStyle, RenderWhitespace};
+        use taide_model::settings::{
+            EditorCursorBlinking, EditorCursorStyle, EditorRenderWhitespace,
+        };
+        return EditorPresentation {
+            options: EditorDisplayOptions {
+                word_wrap: settings.editor_word_wrap,
+                render_whitespace: match settings.editor_render_whitespace {
+                    EditorRenderWhitespace::None => RenderWhitespace::None,
+                    EditorRenderWhitespace::Boundary => RenderWhitespace::Boundary,
+                    EditorRenderWhitespace::Selection => RenderWhitespace::Selection,
+                    EditorRenderWhitespace::All => RenderWhitespace::All,
+                },
+                rulers: settings.editor_rulers.clone(),
+                cursor_style: match settings.editor_cursor_style {
+                    EditorCursorStyle::Line => CursorStyle::Line,
+                    EditorCursorStyle::Block => CursorStyle::Block,
+                    EditorCursorStyle::Underline => CursorStyle::Underline,
+                },
+                cursor_blinking: match settings.editor_cursor_blinking {
+                    EditorCursorBlinking::Blink => CursorBlinking::Blink,
+                    EditorCursorBlinking::Smooth => CursorBlinking::Smooth,
+                    EditorCursorBlinking::Phase => CursorBlinking::Phase,
+                    EditorCursorBlinking::Expand => CursorBlinking::Expand,
+                    EditorCursorBlinking::Solid => CursorBlinking::Solid,
+                },
+                smooth_caret: settings.editor_cursor_smooth_caret_animation,
+                scroll_beyond_last_line: settings.editor_scroll_beyond_last_line,
+                smooth_scrolling: settings.editor_smooth_scrolling,
+                ..Default::default()
+            },
+        };
+    }
+    #[cfg(not(feature = "native-host"))]
     EditorPresentation {
         options: EditorDisplayOptions {
             word_wrap: settings.editor_word_wrap,
@@ -244,6 +280,23 @@ pub fn editor_presentation(settings: &Settings) -> EditorPresentation {
 
 pub fn editor_folding(tier: FileSizeTier) -> bool {
     !matches!(tier, FileSizeTier::Large | FileSizeTier::ReadOnly)
+}
+
+#[cfg(feature = "native-host")]
+pub fn editor_display_colors(
+    theme: &ResolvedTheme,
+) -> AppResult<crate::editor_display::EditorDisplayColors> {
+    const DARK_RULER: Color32 = Color32::from_rgb(90, 90, 90);
+    const LIGHT_RULER: Color32 = Color32::from_rgb(211, 211, 211);
+    Ok(crate::editor_display::EditorDisplayColors {
+        whitespace: color(theme, "editor.whitespace")?,
+        ruler: match theme.theme_type {
+            ThemeType::Dark => DARK_RULER,
+            ThemeType::Light => LIGHT_RULER,
+        },
+        scrollbar: color(theme, "scrollbar.thumb")?,
+        scrollbar_hover: color(theme, "scrollbar.thumbHover")?,
+    })
 }
 
 pub fn banner_appearance(theme: &ResolvedTheme) -> AppResult<BannerAppearance> {
