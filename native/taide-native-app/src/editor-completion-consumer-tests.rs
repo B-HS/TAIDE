@@ -657,6 +657,56 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn native_completion_consumer의_마우스_상세버튼은_실제문서만_열고_스니펫을_수락하지_않는다() {
+    let mut fixture = Fixture::new("con", 3, snippets());
+    assert!(!fixture.frame(Vec::new(), &[Command::Trigger]));
+    let row = fixture.geometry.rows[0].1.center();
+    assert!(!fixture.frame(vec![Event::PointerMoved(row)], &[]));
+    let button = fixture.geometry.details_toggle.expect("Read More button");
+    assert!(!fixture.frame(
+        vec![
+            Event::PointerMoved(button.center()),
+            Event::PointerButton {
+                pos: button.center(),
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            }
+        ],
+        &[]
+    ));
+    assert!(!fixture.frame(
+        vec![Event::PointerButton {
+            pos: button.center(),
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+        &[]
+    ));
+    assert!(!fixture.frame(Vec::new(), &[]));
+    assert!(fixture.geometry.details.is_some());
+    assert!(fixture.geometry.details_toggle.is_none());
+    assert!(fixture.geometry.list.is_some());
+    assert!(
+        fixture
+            .painted
+            .iter()
+            .any(|text| text.contains("실제 후보 문서"))
+    );
+    assert!(
+        fixture
+            .state
+            .model(&fixture.store, fixture.view)
+            .unwrap()
+            .is_some()
+    );
+    assert!(fixture.state.snippet_sessions.is_empty());
+    assert_eq!(fixture.text(fixture.document), "con");
+    assert!(fixture.context.memory(|memory| memory.focused()).is_some());
+}
+
+#[test]
 fn native_completion_consumer는_파일tier에_따라_실제목록과_삽입을_제어하고_readonly를_보존한다() {
     for tier in [
         FileSizeTier::Normal,

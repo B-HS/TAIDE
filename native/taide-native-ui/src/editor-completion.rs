@@ -34,6 +34,8 @@ const MIN_ROW_HEIGHT: f32 = 8.0;
 const MAX_ROW_HEIGHT: f32 = 1000.0;
 const BORDER: f32 = 1.0;
 const ICON_SIZE: f32 = 16.0;
+const MORE_ICON_SIZE: f32 = 14.0;
+const MORE_RIGHT_OFFSET: f32 = 10.0;
 const ICON_WIDTH: f32 = 22.0;
 const SWATCH_CONTENT_EM: f32 = 0.7;
 const SWATCH_BORDER_EM: f32 = 0.1;
@@ -196,6 +198,7 @@ pub struct Geometry {
     pub list: Option<Rect>,
     pub details: Option<Rect>,
     pub details_close: Option<Rect>,
+    pub details_toggle: Option<Rect>,
     pub rows: Vec<(usize, Rect)>,
     pub selected: Option<usize>,
     pub resize_handles: Vec<Rect>,
@@ -1238,6 +1241,10 @@ impl State {
         );
         let list_id = body.with("completion-list");
         let mut clicked = None;
+        let mut open_details = false;
+        let can_expand = self.selected.is_some_and(|candidate| {
+            Self::details_content(store, view, provider, &widget, candidate).is_some()
+        });
         let output = egui::Area::new(list_id)
             .fixed_pos(position)
             .order(egui::Order::Tooltip)
@@ -1358,6 +1365,20 @@ impl State {
                                             icon_color,
                                         );
                                     }
+                                    let more_visible = selected
+                                        && !self.details_open
+                                        && can_expand
+                                        && ui.input(|input| {
+                                            input
+                                                .pointer
+                                                .hover_pos()
+                                                .is_some_and(|position| rect.contains(position))
+                                        });
+                                    let more_space = if more_visible {
+                                        row_height + MORE_RIGHT_OFFSET
+                                    } else {
+                                        0.0
+                                    };
                                     let foreground = if selected {
                                         colors.selected_foreground
                                     } else {
@@ -1377,8 +1398,11 @@ impl State {
                                         highlight,
                                         candidate.is_deprecated(),
                                     );
-                                    job.wrap.max_width =
-                                        (rect.width() - ICON_WIDTH - ROW_PADDING * 2.0).max(0.0);
+                                    job.wrap.max_width = (rect.width()
+                                        - ICON_WIDTH
+                                        - ROW_PADDING * 2.0
+                                        - more_space)
+                                        .max(0.0);
                                     job.wrap.max_rows = 1;
                                     let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
                                     let label_width = galley.size().x;
@@ -1402,6 +1426,7 @@ impl State {
                                             - ICON_WIDTH
                                             - label_width
                                             - ROW_PADDING * 2.0
+                                            - more_space
                                             - appearance.font.size * DETAIL_MARGIN_EM;
                                         if space > ICON_WIDTH {
                                             let mut job = egui::text::LayoutJob::simple_singleline(
@@ -1418,7 +1443,10 @@ impl State {
                                                 ui.fonts_mut(|fonts| fonts.layout_job(job));
                                             ui.painter().galley(
                                                 pos2(
-                                                    rect.right() - ROW_PADDING - galley.size().x,
+                                                    rect.right()
+                                                        - ROW_PADDING
+                                                        - more_space
+                                                        - galley.size().x,
                                                     rect.center().y - galley.size().y / 2.0,
                                                 ),
                                                 galley,
@@ -1426,7 +1454,44 @@ impl State {
                                             );
                                         }
                                     }
-                                    if response.clicked() {
+                                    let mut more_clicked = false;
+                                    if more_visible {
+                                        let more_rect = Rect::from_center_size(
+                                            pos2(
+                                                rect.right() - MORE_RIGHT_OFFSET - row_height / 2.0,
+                                                rect.center().y,
+                                            ),
+                                            Vec2::splat(row_height),
+                                        );
+                                        let more = ui.interact(
+                                            more_rect,
+                                            list_id.with(("read-more", ranked[row])),
+                                            egui::Sense::click(),
+                                        );
+                                        ui.ctx().register_pointer_preserves_keyboard_focus(more.id);
+                                        more_clicked = more.clicked()
+                                            || (response.clicked()
+                                                && ui.input(|input| {
+                                                    input.pointer.interact_pos().is_some_and(
+                                                        |position| more_rect.contains(position),
+                                                    )
+                                                }));
+                                        more.on_hover_cursor(egui::CursorIcon::PointingHand)
+                                            .on_hover_text("Read More");
+                                        ui.painter().text(
+                                            more_rect.center(),
+                                            egui::Align2::CENTER_CENTER,
+                                            "\u{eab6}",
+                                            egui::FontId::new(
+                                                MORE_ICON_SIZE,
+                                                crate::font_families::codicons(ui),
+                                            ),
+                                            foreground,
+                                        );
+                                        self.geometry.details_toggle = Some(more_rect);
+                                        open_details |= more_clicked;
+                                    }
+                                    if response.clicked() && !more_clicked {
                                         self.index = row;
                                         self.selected = Some(ranked[row]);
                                         clicked = Some(ranked[row]);
@@ -1462,6 +1527,9 @@ impl State {
         self.geometry.item_height = row_height;
         self.geometry.viewport_height = (height - BORDER * 2.0).max(row_height);
         let mut ids = vec![list_id];
+        if open_details {
+            self.set_details_open(ui, true);
+        }
         if let Some(candidate) = clicked {
             if provider.accept(store, view, &widget.token, candidate, false)? {
                 self.close(ui, body, provider, view);

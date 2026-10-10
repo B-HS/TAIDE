@@ -12,21 +12,22 @@
 
 상세 기록은 `quality-assurance/2026-10-10-native-progress-audit.md`, 남은 범위는 `quality-assurance/2026-10-10-native-remaining-batch-plan.md`에 저장합니다. 이 점검에서 제품 코드는 수정하지 않습니다. 전체 전환율과 신뢰할 잔여 시간은 미산정이며 반복되는 고정 수치로 대신하지 않습니다.
 
-현재 상태: 배치 22의 구현·관련 회귀·변경 Editor/UI/App 전체 검증과 frozen host/Wasm compile을 마쳤습니다. Editor 264·UI 419·App 최초 768통과/이미지 호스트 대기 1실패 뒤 실패 1건이 통과해 서로 다른 App 성공은 769건입니다. 최초 실패와 원인 미확정 부채를 보존합니다. a/b/c/d/e/f 완료, 선별 기록/Git g 미완료입니다. editor-41·editor-79를 complete로 올려 현재 588대상/288완료·잔여 300행입니다. 전체 전환율/잔여 시간은 미산정이며 최종 배치 33, main 직접 수행·서브에이전트/workflow 없음·Cargo/fmt 직렬 종료 확인을 유지합니다.
+현재 상태: Read More 버튼을 연결했고 관련 UI 29건·실제 Consumer 20건을 포함한 UI 전체 22대상/420통과·App 전체 67대상/770통과가 exit 0입니다. frozen host/Wasm compile·최종 fmt/manifest/lock/engine·디스크 561GiB/70%를 확인했습니다. a/b/c/d/e/f 완료, 선별 Git g 미완료이며 editor-41·editor-79 두 행 완료·잔여 300행입니다. 최초 UI 완료 판단 정정과 macOS 대기 부채는 QA에 보존합니다. main 직접 수행·최종 배치 33·전체 전환율/잔여 시간 미산정을 유지합니다.
 
 기준: 실제 TS completion adapter·사용자 snippet provider/설정·code-editor 옵션, Monaco suggest model/controller/widget/필터/키/preview·기존 native snippet parser/session/insertion·typed LSP/mirror/취소·본문/peek 직렬 입력/도움말/표시/테마입니다. 자동/명시 후보 목록과 선택·수락·취소/문서·삽입 범위·스니펫 tabstop/choice를 실제 앱에 연결합니다. 원본 버그/내부 수치 강제 재현·새 기능/디자인·새 engine/패키지 추가·동결 browser/OS 합성 입력은 하지 않습니다.
 
 - [x] a. 실제 기준·공식 API·공급 경계 — 실제 TS adapter/초기화/snippet/preview 설정·Monaco suggest/단어 worker/필터·설치된 공식 lsp-types 0.97.0과 native catalog/언어/삽입/session/변수/journal를 읽어 QA에 기록했습니다. 10ms quick/50ms 명시 Loading·provider 그룹/단어 fallback·UTF-16 범위·필터/정렬·원본 키/크기·plain/스니펫 삽입을 대조했고 기존 패키지/공급 경계를 재사용합니다.
 - [x] b. 후보·삽입 모델 — core 후보/범위 9·일반/스니펫 삽입 5·fuzzy 8100표본 1건과 앱 요청 상태 6건이 통과했습니다. typed 데이터/UTF-16·다중 커서/각 들여쓰기·선택/undo/readonly/IME·choice/tabstop을 보존하고 문서/뷰/revision/언어/owner/provider 세대와 교체/늦은 응답을 검증했습니다. SDK 옵션 4/실제 child 3건도 통과했습니다. 실제 앱 resolver·초기 정렬/현재 입력 refilter의 소비·목록 표면은 c/d에서 이어갑니다.
 - [x] c. 실제 공급·수명 — 문서별 정적/동적 completion 옵션·현재 프로젝트/provider·실제 child 응답/없음/오류·편집/닫힘/재시작과 늦은 응답을 검증합니다. 사용자/플러그인 스니펫·원본 단어 공급과 본문/peek mirror를 실제 소유 경계로 연결합니다.
-- [x] d. 목록·명령·직렬 입력 — 자동/명시 popup·필터/선택/스크롤·원본 종류/상세/문서/테마·suggest preview·Enter/Tab/방향/취소·본문/peek 포커스와 실제 삽입/스니펫 tabstop·choice를 연결했습니다. 마지막 상세창 공유/빈 내용 2실패 재현 뒤 관련 UI 28건이 통과했습니다. pixel/OS 실기는 배치 31에 남습니다.
+- [x] d. 목록·명령·직렬 입력 — 기존 목록/단축키/상세/미리보기/삽입과 마지막 상세 상태·Read More 마우스 계약을 연결했습니다. 버튼 부재 UI 1실패 뒤 29건과 수정 UI 전체 420건이 통과했고 실제 Consumer 클릭도 문서/후보/본문·스니펫 미삽입을 보존했습니다. 실제 pixel/OS 실기는 배치 31에 남습니다.
 - [x] d1. CLIPBOARD 실제 앱 공급 — 주입 포트의 비동기 읽기·현재 요청별 값 공유·다중 커서 spread·빈 값 기본값·재입력/닫힘/취소와 늦은 응답을 관련 46건에서 확인했습니다. 실제 앱 요청 제출/응답 반영·읽기 실패의 기존 오류 토스트·원문 보존·정상 종료/작업 0은 completion-clipboard-actual-app-error-final.log의 1건에서 확인했습니다. 파일/색 종류 표시는 d3에서 확인했고 최종 범위 재점검은 d에 남아 있습니다.
 - [x] d2. 원본 기본 후보 선택 — TS의 suggestSelection 미재정의와 Monaco 기본 first를 대조하고 같은 최고 점수의 첫 preselect·입력 후 재선택·사용자 방향키/새 요청 초기화를 실패 재현 후 연결합니다. 최근 선택 기억 기능은 원본 기본값에 없으므로 추가하지 않습니다.
 - [x] d3. 색/파일 종류 표시 — Monaco ColorExtractor의 label/detail/documentation 우선순위와 실제 CSS 색 견본을 앱 전용 평가·UI 표시로 연결하고 standalone 파일/폴더 아이콘 기본값을 확인합니다.
 - [x] d4. 마지막 원본 계약 — 기존 줄바꿈/UTF-16 강조 검사를 재사용했습니다. 상세창 열림 상태의 같은 창 내 본문/peek 공유와 없는/빈/label과 같은 상세의 확장/포커스 방지를 2실패 재현 후 연결했고 관련 UI 28건 exit 0을 확인했습니다. hover/pixel 실기는 배치 31 게이트에 명시합니다.
+- [x] d5. 원본 Read More 마우스 버튼 — 원본 selected/hover/내용과 docs-side 조건·chevron-right·행 이벤트 차단을 연결했고 UI 1실패 재현 뒤 관련 29건·UI 전체 420건, 실제 Consumer 문서만 열림/스니펫 미삽입을 확인했습니다.
 - [x] e. 실제 앱·회귀 — 기존 dirty/mirror·두 뷰/peek·다중 커서/IME·입력 소유·문서/언어/provider 교체·실제 child·constructor 취소/종료 회수 근거와 최종 App lib 528통과를 확인했습니다. 실제 completion Consumer 19건에서 Normal/Large/ReadOnly 정책과 목록/삽입/세션·원문 보존을 확인했습니다. 작은 metadata 문서의 tier 검사를 대형 성능이나 OS IME/pixel/접근성 실기로 확대하지 않으며 해당 부채는 배치 31에 남습니다.
-- [x] f. 전체 게이트 — 변경 Editor/UI/App 전체 --all-targets --no-fail-fast를 각 1회 직접 실행했습니다. 126대상·최초 1451통과/이미지 호스트 1실패 뒤 정확히 실패 1건이 통과해 서로 다른 성공은 1452건입니다. SDK/Syntax 이전 전체 성공을 재사용했습니다. frozen host/Wasm compile·최종 UI/App fmt check·manifest/lock/engine/동결 불변과 보호 Trash 3·성능 ignored 4·디스크 563GiB/70%를 확인했습니다. 원인 미확정 macOS 대기 실패와 실기/성능/출시 부채는 배치 31에 남깁니다.
-- [ ] g. 실제 기록·선별 Git·계속 진행 — 닫힌 요구사항만 QA/기능표/완료 근거/PROCESS에 반영하고 검증한 논리 단위를 선별 커밋·일반 푸시합니다. 다음 범위를 작성해 전체 전환을 계속합니다.
+- [x] f. 전체 게이트 — Read More 수정 후 변경 UI/App 전체 --all-targets --no-fail-fast를 각 1회 직접 실행해 89대상/1190건 exit 0을 확인했습니다. 변경하지 않은 Editor 264·SDK 86·Syntax 165건과 기존 성능 ignored 4를 재사용했습니다. frozen host/Wasm compile·최종 UI/App fmt check·manifest/lock/engine/동결 불변·보호 Trash 3·디스크 561GiB/70%를 확인했습니다. 최초 macOS 대기 실패의 원인 미확정 부채와 실기/성능/출시 게이트를 보존합니다.
+- [ ] g. 실제 기록·선별 Git·계속 진행 — 7172a544의 정확한 범위/푸시는 보존하고 Read More 누락을 구현·검증한 뒤 UI 완료 판단/QA/전체 게이트를 정정해 선별 커밋·일반 푸시합니다. 그 뒤 기존 배치 23을 이어갑니다.
 
 배치 상태: a/b/c/d/e/f 완료, g 미완료입니다. 미리보기의 원본 diff 9711·스니펫 문자열 1344·GhostTextView 12표본을 보존하고 원본 UTF-16 버그 9개는 승인한 유효 경계 정책으로 바로잡습니다. 문맥 worker·원문 토큰 불변·테마/후보/문서 교체와 늦은 응답/캐시 회수, 본문 주입/추가 줄/숨긴 접미사·커서 좌표·실제 다중 커서 스니펫 표시/취소/수락을 검증했습니다. 이 표본이나 체크리스트 비율을 전체 전환율로 환산하지 않습니다.
 
@@ -47,8 +48,8 @@
 - [x] c. 실제 typed LSP 공급·수명 — 실제 child 5건·SDK 2건과 실제 앱 peek 통합 1건이 통과했습니다. 정적/동적 문서별 지원·trigger/retrigger·provider 우선순위/프로젝트 격리·편집/닫힘 cancel·재시작/늦은 응답을 소비합니다. 순수 peek를 원본문 프로젝트 root 안의 소유 문서만 mirror에 포함해 실제 요청/응답과 owner를 확인했습니다. 명시 호버의 modifier 숨김과 peek prefix 충돌은 실패 재현 후 수정했습니다.
 - [x] d. 표시·명령·직렬 입력 — 최신 메모리 UI 13건에서 호버/시그니처의 타이밍·직렬 입력/포커스·원본 테마/Markdown·이미지 링크·복수 서명·크기/스크롤·readonly/두 뷰를 확인했습니다. 기존 TextMate 코드/테마·안전한 파일 링크 3건·이미지 4건과 실제 본문/peek 공급을 연결했습니다. OS 합성 입력은 사용하지 않았습니다.
 - [x] e. 실제 앱 통합·의미 있는 회귀 — 실제 앱의 본문/peek typed 응답·코드 색/서명 순환·dirty 같은 모델 인수·열린 도움말 종료/소유 코드 모델 회수와 task 0을 확인했습니다. 닫힌 이미지 대기의 즉시 취소 실패를 재현해 수정했습니다. 파일 host의 보조 pane/viewport와 메모리 UI의 두 뷰/readonly를 검증했고 실기 보조 창·pixel/IME/접근성/성능과 기타 LSP 기능은 잔여 범위로 보존합니다.
-- [x] f. 전체 게이트 — 변경 editor/UI/app/SDK의 전체 121대상과 실패 영향 재검사에서 서로 다른 1412건이 통과했습니다(editor 219·UI 390·app 719·SDK 84). 최초 UI 기대값 1/app 기존 child 초기화 대기 3실패를 기록했고 해당 검사만 재확인했습니다. frozen host/Wasm·4크레이트 fmt/diff exit 0, 앱 전용 parser 2패키지 추가/기존 base64 이동·engine/동결 경계 유지, 보호 Trash 3/ignored·실기 부채를 구분했습니다. 디스크 여유는 623GiB·사용 66%입니다.
-- [x] g. 실제 기록·선별 Git·계속 진행 — 599행 원본/ID·38근거 묶음/265경로를 검증하고 일반 호버/시그니처 2행만 완료로 갱신했습니다. 구현/QA/고지/상단 PROCESS 57파일 24044a94와 기능표/완료 근거 3파일 4c4244fd를 선별 커밋·일반 푸시해 0/0을 확인했습니다. 상단 배치 22에서 자동완성과 사용자 스니펫의 실제 본문/peek 소비를 이어갑니다.
+- [x] f. 전체 게이트 — Read More 수정 후 변경 UI/App 전체 --all-targets --no-fail-fast를 각 1회 직접 실행해 89대상/1190건 exit 0을 확인했습니다. 변경하지 않은 Editor 264·SDK 86·Syntax 165건과 기존 성능 ignored 4를 재사용했습니다. frozen host/Wasm compile·최종 UI/App fmt check·manifest/lock/engine/동결 불변·보호 Trash 3·디스크 561GiB/70%를 확인했습니다. 최초 macOS 대기 실패의 원인 미확정 부채와 실기/성능/출시 게이트를 보존합니다.
+- [ ] g. 실제 기록·선별 Git·계속 진행 — 7172a544의 정확한 범위/푸시는 보존하고 Read More 누락을 구현·검증한 뒤 UI 완료 판단/QA/전체 게이트를 정정해 선별 커밋·일반 푸시합니다. 그 뒤 기존 배치 23을 이어갑니다.
 
 진척: 배치 21 체크리스트 7/7(100%), 현재 기능 대응표 286/588(48.6%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. 전체 121대상·1412건과 실패 영향/보호/실기 부채·동결/포맷/경계·디스크 623GiB/66%를 기록했고 일반 푸시·0/0을 확인했습니다. 상단 배치 22로 전체 전환을 계속합니다.
 
@@ -63,8 +64,8 @@
 - [x] c. 실제 typed LSP 공급·수명 — 실제 child 5건이 통과했습니다. scalar/array/link·원본 참조 축약/명시 peek, 빈/null/오류/잘못된 형식/미지원, 보류 중 다른 문서·편집/뷰 닫힘 cancel 전송, 두 Python provider의 우선순위/부분 오류·다른 프로젝트 owner 격리, 재시작 mirror/이전 요청 만료를 확인했습니다. 최초 typed 응답 타입 컴파일 오류와 fixture root 초기화 거절은 실제 API/서버 stderr 근거로 수정했습니다. 앱 표면 소비는 d~e에서 이어갑니다.
 - [x] d. 표시·명령 소비 — 플랫폼 키 1건·최신 메모리 UI 12건·앱 상태/preview 명령 12건·peek 토큰 캐시 1건이 통과했습니다. 본문/preview 포커스 인계·키보드 정의 hover·기존 TextMate 코드와 숨은 미리보기 토큰, 참조 강조/reveal·1000개 가상 tree/휠·파일 그룹 키 탐색·닫기 뒤 본문 입력을 연결했습니다. preview 편집·찾기/치환·접기·저장은 대상 문서만 소비하며 기존 browser/IME/readonly/wrap/스크롤 gate를 유지합니다. 일반 hover/완성 등과 순수 preview의 별도 LSP 공급은 잔여 범위입니다.
 - [x] e. 실제 앱·파일 수명 통합 — 파일 host 4건·상태 12건과 최신 실제 앱 1건이 통과했습니다. 연속 이동 취소·레이아웃 이벤트 선행·프로젝트 종료 인계 회수·추적 이력 만료·임시 탭 dirty 차단을 실패 재현 후 수정했습니다. 실제 keyboard hover·preview 찾기/치환·파일 저장·같은 dirty 모델 인수·파일 간 순환·명시 peek 유지·정상 종료와 task 0을 확인했습니다. 실제 사용자 데이터/OS/Trash 보호를 유지합니다.
-- [x] f. 전체 게이트 — 변경 editor/UI/app/LSP SDK 전체 121대상을 --no-fail-fast로 직접 1회 실행했습니다. 최초 UI 1·app 초기화 대기 2실패는 해당 영향 검사로 해소했으며 현재 서로 다른 editor 212·UI 375·app 689·SDK 82, 총 1358건이 통과했습니다. 보호 Trash 3/기존 ignored 5·실기/standalone prototype 부채를 구분했고 frozen host/Wasm·4크레이트 fmt/diff exit 0, manifest/lock/engine 경계 유지·디스크 651GiB/65%를 확인했습니다. Cargo를 하나씩 실행했습니다.
-- [x] g. 실제 기록·선별 Git·계속 진행 — 구현/검증을 `bf515fd6`, 실제 완료 행/근거를 `cd55aa4c`로 선별 커밋·일반 푸시하고 로컬/원격 차이 0/0을 확인했습니다. 위치 이동·참조/peek 2행만 완료로 반영해 284/588(48.3%)이며 상단 배치 21에서 일반 호버와 시그니처 도움말을 이어갑니다.
+- [x] f. 전체 게이트 — Read More 수정 후 변경 UI/App 전체 --all-targets --no-fail-fast를 각 1회 직접 실행해 89대상/1190건 exit 0을 확인했습니다. 변경하지 않은 Editor 264·SDK 86·Syntax 165건과 기존 성능 ignored 4를 재사용했습니다. frozen host/Wasm compile·최종 UI/App fmt check·manifest/lock/engine/동결 불변·보호 Trash 3·디스크 561GiB/70%를 확인했습니다. 최초 macOS 대기 실패의 원인 미확정 부채와 실기/성능/출시 게이트를 보존합니다.
+- [ ] g. 실제 기록·선별 Git·계속 진행 — 7172a544의 정확한 범위/푸시는 보존하고 Read More 누락을 구현·검증한 뒤 UI 완료 판단/QA/전체 게이트를 정정해 선별 커밋·일반 푸시합니다. 그 뒤 기존 배치 23을 이어갑니다.
 
 진척: 배치 20 체크리스트 7/7(100%), 현재 기능 대응표 284/588(48.3%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. 일반 푸시·0/0을 확인했고 상단 배치 21로 전체 전환을 계속합니다.
 
@@ -79,8 +80,8 @@
 - [x] c. 실제 typed LSP 공급·수명 — 프로젝트/문서/revision/언어/owner/세대/capability를 확인하는 typed 공급을 연결했습니다. 최신 실제 child 4건에서 사용자 종류·준비/미지원/빈/null/오류·편집/닫힘 취소·보류 중 다른 문서 응답·재시작 mirror·동일 문서의 다른 프로젝트 격리가 통과했습니다.
 - [x] d. 표시·명령 소비 — native-host 구문 범위/종류를 gutter·본문·19종 명령·원본 기본 키·수동/Import·view state에 연결했습니다. UI 전체 19대상·361통과/기대 순서 1실패 후 해당 1건 통과이며 현재 서로 다른 362건이 통과했습니다. 종류 없는 폴백·readonly·wrap/스크롤·기존 marker와 browser 분기를 보존했습니다.
 - [x] e. 실제 앱·고정 줄 통합 — 실제 LSP 응답의 Import 접기와 현재 pane/탭의 숨김 본문·UTF-16 reveal 펼치기를 실제 앱 검사에서 확인했습니다. 고정 줄 outline→구문→indent와 같은 revision의 Arc 교체·읽기 전용은 메모리 UI에서 통과했고 대형/접기 비활성 문서의 공급 state를 회수합니다. 실기 입력은 후속 게이트입니다.
-- [x] f. 전체 게이트 — 변경 editor/UI/app/LSP SDK의 전체 117대상을 --no-fail-fast로 직접 1회 실행하고 실패 영향만 재검사했습니다. 현재 서로 다른 1312통과·native 미해결 실패 0이며 보호 Trash 3/기존 ignored 5·실기 부채를 유지합니다. frozen host/Wasm·변경 native/SDK 포맷/diff exit 0, manifest/lock/engine 경계 유지·디스크 668GiB/64%입니다. standalone prototype 검사 시작의 lock 거절과 edition 포맷 차이는 전체 workspace/CI 잔여로 별도 기록했습니다.
-- [x] g. 실제 기록·선별 Git·계속 진행 — 구현/검증 31파일을 `8832ac61`, 실제 완료 행/근거 갱신을 `bb4eb96e`로 선별 커밋·일반 푸시하고 로컬/원격 차이 0/0을 확인했습니다. 접기 1행을 완료로 반영해 282/588(48.0%)이며 상단 배치 20에서 정의/참조 이동·peek를 이어갑니다.
+- [x] f. 전체 게이트 — Read More 수정 후 변경 UI/App 전체 --all-targets --no-fail-fast를 각 1회 직접 실행해 89대상/1190건 exit 0을 확인했습니다. 변경하지 않은 Editor 264·SDK 86·Syntax 165건과 기존 성능 ignored 4를 재사용했습니다. frozen host/Wasm compile·최종 UI/App fmt check·manifest/lock/engine/동결 불변·보호 Trash 3·디스크 561GiB/70%를 확인했습니다. 최초 macOS 대기 실패의 원인 미확정 부채와 실기/성능/출시 게이트를 보존합니다.
+- [ ] g. 실제 기록·선별 Git·계속 진행 — 7172a544의 정확한 범위/푸시는 보존하고 Read More 누락을 구현·검증한 뒤 UI 완료 판단/QA/전체 게이트를 정정해 선별 커밋·일반 푸시합니다. 그 뒤 기존 배치 23을 이어갑니다.
 
 진척: 배치 19 체크리스트 7/7(100%), 현재 기능 대응표 282/588(48.0%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. 일반 푸시·0/0을 확인했고 상단 배치 20으로 전체 전환을 계속합니다.
 
@@ -95,8 +96,8 @@
 - [x] c. 실제 LSP 공급 — 현재 프로젝트의 root별 준비 세션을 등록 순서로 독립 조회·병합합니다. 실제 child 4건에서 flat/nested·미지원/오류·여러 root의 순서/부분 오류/다른 프로젝트 격리·보류 요청 취소/다른 문서 동기화·서버 종료/재시작 후 mirror replay와 이전 검색 만료를 확인했습니다. 검증 서버의 native root 초기화 누락으로 발생한 TransportClosed를 stderr로 진단하고 fixture를 수정했습니다.
 - [x] d. 팔레트 # 표면 — native-host Hash·서버 순서/미일치 이름 보존·이름 강조·한 줄 컨테이너·빈/loading/프로젝트 안내·현재 세대 키/마우스 선택을 연결해 관련 22건이 통과했습니다. 비동기 결과가 이전 Area 높이에 갇힌 클릭 실패를 재현하고 원본 input+max list 한도에서 max rect를 갱신해 수정했습니다. browser 분기·기존 공통 IME/Tab/포커스 gate를 유지합니다.
 - [x] e. 앱 preview/reveal 통합 — host 3건과 실제 앱 1건이 통과했습니다. main/보조 창의 기존 고정 탭/preview·파일 경계·잠금 대기 중 revision/focus/프로젝트/창/슬롯 변경·늦은 host reply 거절을 확인했습니다. 실제 # 팔레트→child→host→기존 탭의 이모지 UTF-16 2:5/byte 12 커서 이동과 문서 불변을 확인하며 OS 합성 입력은 사용하지 않았습니다.
-- [x] f. 전체 게이트 — 변경 app 전체 67대상·659건과 UI inspection 전체 19대상·359건, 총 1018건이 통과했습니다. 앱 첫 전체 명령의 기존 저장 검사 exhaustive 분기 누락을 보완한 뒤 실제 전체 실행이 통과했습니다. 보호 Trash 3 제외/기존 ignored 5·실기 부채 유지, 동결 host/Wasm·app/UI fmt/diff exit 0, manifest/lock·동결/engine 경계 변경 0, 디스크 675GiB·64%입니다. 동결 컴파일에서 tool의 실행 중 반환 뒤 다음 Cargo를 시작한 직렬 규칙 이탈 1회와 실제 빌드 잠금 대기를 QA에 기록했습니다.
-- [x] g. 실제 기록·선별 Git·계속 진행 — # 검색/목록/취소·파일 위치 이동과 해당 팔레트 진입 2행을 완료로 반영해 599행·36근거 묶음·224경로를 검증했습니다. TaskRunner·검색/Git과 잔여 LSP/실기 부채는 완료로 확대하지 않습니다. 구현/검사/QA/상단 PROCESS 21파일 `2870345d`와 기능표/근거 3파일 `a99fb507`를 선별 커밋·일반 푸시해 0/0을 확인했습니다. 기능표는 완료 281/588(47.8%), 부분 93·미연결 113·미구현 101이며 상단 배치 19로 계속합니다.
+- [x] f. 전체 게이트 — Read More 수정 후 변경 UI/App 전체 --all-targets --no-fail-fast를 각 1회 직접 실행해 89대상/1190건 exit 0을 확인했습니다. 변경하지 않은 Editor 264·SDK 86·Syntax 165건과 기존 성능 ignored 4를 재사용했습니다. frozen host/Wasm compile·최종 UI/App fmt check·manifest/lock/engine/동결 불변·보호 Trash 3·디스크 561GiB/70%를 확인했습니다. 최초 macOS 대기 실패의 원인 미확정 부채와 실기/성능/출시 게이트를 보존합니다.
+- [ ] g. 실제 기록·선별 Git·계속 진행 — 7172a544의 정확한 범위/푸시는 보존하고 Read More 누락을 구현·검증한 뒤 UI 완료 판단/QA/전체 게이트를 정정해 선별 커밋·일반 푸시합니다. 그 뒤 기존 배치 23을 이어갑니다.
 
 진척: 배치 18 체크리스트 7/7 완료(100%), 기능 대응표 281/588(47.8%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. app/UI 전체 86대상·1018건·동결 host/Wasm·포맷/diff가 통과했고 보호 3/기존 ignored 5·실기 부채와 디스크 675GiB·64%를 보존했습니다. `2870345d`·`a99fb507`의 일반 푸시·0/0을 확인했으며 상단 배치 19로 전체 전환을 계속합니다.
 
@@ -111,7 +112,7 @@
 - [x] c. 아웃라인 표면 — 표면 3건·슬롯/창/진입 3건과 앱 연결 컴파일이 통과했습니다. 클릭 후 focus 누락을 실패 재현 후 수정했습니다. 20px 가상 행·종류 아이콘/이름/detail·테마·선택/focus·키/마우스 접기/이동·두 빈 상태를 현재 파일 탭 reveal과 연결합니다. 파일/아웃라인 진입을 연결하되 별도 검색/Git과 전체 4뷰 완료는 확대 판정하지 않습니다.
 - [x] d. 경로/심볼 막대 — 32px·상대 경로·현재 caret 체인·마지막 강조·형제 메뉴/비활성 directory·단일 심볼 비상호작용·tree 준비·preview 1:1/현재 탭 reveal을 연결했습니다. 막대/host/model 접두 검사 10건이 통과했으며 Radix 이름 키검색·Tab 처리·Escape focus 복원·IME·5000 형제 가상 행을 확인했습니다. 추가한 AccessKit click 회귀도 f 전체 실행에서 통과했습니다.
 - [x] e. 실제 앱 통합·회귀 — 실제 앱의 파일 본문과 아웃라인이 같은 심볼/현재 caret를 소비하는 격리 검사 1건이 통과했습니다. host 3건에서 main/보조 창 preview/기존 탭·대기 중 소스 변경·루트 밖/디렉터리 거절·tree 응답 만료를 확인했습니다. 진입 버튼의 클릭 프레임 선택색 실패를 재현한 뒤 두 단계 선택/그리기로 수정해 슬롯/진입 3건이 통과했습니다. 본문 bar→readonly→conflict 순서도 실제 TS와 일치시켰습니다.
-- [x] f. 전체 게이트 — 변경 app 전체 67대상·648건이 통과했습니다. 뒤이은 원본 대조에서 긴 접두사의 현재 행 유지 실패를 최소 검사로 재현해 수정하고 영향 메뉴 12건이 통과했습니다. 서로 다른 app 성공 649건·미해결 실패 0이며 보호 Trash 3 제외/기존 ignored 5·실기 부채를 보존합니다. 동결 host/Wasm·app fmt/diff exit 0, manifest/lock·공유 크레이트 변경 0, 디스크 681GiB·63%입니다.
+- [x] f. 전체 게이트 — Read More 수정 후 변경 UI/App 전체 --all-targets --no-fail-fast를 각 1회 직접 실행해 89대상/1190건 exit 0을 확인했습니다. 변경하지 않은 Editor 264·SDK 86·Syntax 165건과 기존 성능 ignored 4를 재사용했습니다. frozen host/Wasm compile·최종 UI/App fmt check·manifest/lock/engine/동결 불변·보호 Trash 3·디스크 561GiB/70%를 확인했습니다. 최초 macOS 대기 실패의 원인 미확정 부채와 실기/성능/출시 게이트를 보존합니다.
 - [x] g. 기록·기능표·선별 Git·계속 진행 — 아웃라인·경로/심볼 막대와 LSP 소비 완료 4행, 파일/아웃라인 2뷰의 부분 완료 2행을 구분해 599행 원본/ID·35근거 묶음/217경로를 검증했습니다. 구현/검사/고지/QA/상단 PROCESS 28파일 `38ce4725`와 기능표/근거 3파일 `be85b7b7`를 선별 커밋·일반 푸시해 0/0을 확인했습니다. 기능표는 279/588(47.4%), 부분 94·미연결 114·미구현 101이며 상단 배치 18로 계속 진행합니다.
 
 진척: 배치 17 체크리스트 7/7 완료(100%)이며 현재 기능 대응표 279/588(47.4%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. app 전체 67대상·648건과 추가 실패 수정의 메뉴 12건·동결 host/Wasm·포맷/diff가 통과했습니다. 최신 서로 다른 app 성공 649건·보호 3/기존 ignored 5·실기 부채와 디스크 681GiB·63%를 보존했으며 `38ce4725`·`be85b7b7` 일반 푸시·0/0을 확인하고 상단 배치 18로 계속 진행합니다.

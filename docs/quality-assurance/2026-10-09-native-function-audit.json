@@ -1,6 +1,6 @@
 {
     "date": "2026-10-10",
-    "baseline": "bd36c635",
+    "baseline": "7172a544",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -707,7 +707,7 @@
                 "docs/quality-assurance/2026-10-10-native-completion-model.md",
                 "docs/quality-assurance/2026-10-10-native-progress-audit.md"
             ],
-            "limitation": "본문/peek 후보·상세·미리보기·기본 선택/모델 교체·색 추출 272표본·직렬 입력/스니펫 추적·다중 커서/choice/중첩 tabstop·CLIPBOARD와 상세창 공유/빈 내용·실제 파일 tier 소비를 연결하고 배치 22 관련/전체/실패 영향 검사를 확인했습니다. App 최초 macOS 이미지 호스트 대기 1실패는 정확히 1건 재검사해 통과했으며 원인 미확정 부채는 배치 31에 남습니다. 실제 pixel/OS IME/접근성·대형 성능/soak·별도 LSP/AI·출시/삭제 게이트는 이 두 행의 완료와 구분합니다."
+            "limitation": "본문/peek 공급·목록/단축키/상세·미리보기·기본 선택/모델 교체·색 추출 272표본·다중 커서/choice/중첩/변수/CLIPBOARD·상세 공유/빈 내용·파일 tier와 원본 Read More 마우스 버튼을 실제 UI/Consumer 및 전체 검사에서 확인했습니다. 최초 macOS 대기 실패/영향 재검사와 완료 판단 정정을 QA에 보존하며 실제 pixel/OS IME/접근성·대형 성능/soak·별도 LSP/AI·출시 게이트는 배치 31~33에 남습니다."
         }
     },
     "rows": [
@@ -2249,7 +2249,7 @@
             "domain": "editor",
             "status": "complete",
             "proof": "editor-completion",
-            "note": "실제 본문/peek 후보·상세·필터/선택/수락·문서/미리보기·크기·직렬 입력·기본 선택/모델 교체·색 견본과 상세창 공유/빈 내용 처리, 파일 tier 소비를 연결했습니다. 배치 22 관련 회귀와 변경 크레이트 전체/실패 영향 검사를 확인했습니다. 픽셀/OS 실기는 배치 31의 별도 게이트입니다."
+            "note": "실제 본문/peek 목록·단축키·상세/미리보기·필터/선택/수락·크기·기본 선택/모델 교체·색 견본과 상세 공유/빈 내용·원본 Read More 마우스 버튼을 연결했습니다. 버튼 부재 실패 뒤 UI/실제 Consumer·수정 영향 전체 검사가 통과했습니다. 실제 pixel/OS 실기는 배치 31에 남습니다."
         },
         {
             "id": "editor-42",
@@ -7301,5 +7301,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "배치 21의 이전 전체/실패 영향 1412건 근거는 batch21 QA에 보존합니다. 최신 배치 22는 변경 Editor/UI/App의 --all-targets --no-fail-fast 전체 대상을 각 1회 직접 실행했습니다. Editor 37대상/264통과/ignored 1·UI 22대상/419통과는 exit 0입니다. App 67대상/768통과/preview-macos 대기 1실패는 exit 101이며 실패 1건만 정확히 재검사해 exit 0/1통과를 확인했습니다. App 서로 다른 성공은 769건, 현재 변경 크레이트 서로 다른 성공은 1452건입니다. 변경하지 않은 SDK 2대상/86통과·Syntax 13대상/165통과/ignored 3의 이전 성공을 재사용합니다. 전체 실행의 최초 실패와 재검사는 구분하고 타임아웃 원인을 확정하지 않았으며 배치 31 부채로 보존합니다. 보호 Trash 3·기존 성능 ignored 4와 실제 pixel/OS IME/접근성/대형 성능/soak/출시 게이트를 성공으로 세지 않습니다. frozen host/Wasm compile·UI/App fmt check·manifest/lock/engine/보호 경계와 선별 diff를 확인했습니다. 디스크 563GiB·사용 70%입니다. baseline은 이번 최종 diff의 직전 커밋이며 감사는 해당 작업 트리를 포함합니다. editor-41·editor-79 두 행만 complete로 갱신했고 전체 588행을 다시 실행한 것으로 확대하지 않습니다. 최신 완료 288·부분 92·미연결 112·미구현 96, 잔여 300행과 배치 31~33 전체 게이트가 남습니다. 전체 전환율/잔여 시간은 미산정입니다."
+    "validation": "배치 22 최종 Read More 수정 후 UI 22대상/420통과·App 67대상/770통과의 --all-targets --no-fail-fast 전체를 각 1회 직접 실행해 exit 0을 확인했습니다. 관련 UI 29건과 실제 Consumer 20건은 그 전체 성공에 포함되므로 중복 합산하지 않습니다. 변경하지 않은 Editor 37대상/264통과/성능 1ignored·SDK 2대상/86통과·Syntax 13대상/165통과/성능 3ignored의 이전 성공을 재사용합니다. Editor/UI/App 서로 다른 성공은 1454건이며 SDK/Syntax를 포함한 1705건은 전체 기능률이 아닙니다. 7172a544 이전/버튼 추가 전 전체와 최초 macOS preview 5초 대기 1실패/정확한 영향 1통과는 QA에 보존하고 원인 미확정 부채를 배치 31에 남깁니다. 최신 전체에서 같은 macOS 검사도 통과했지만 원인 해결로 단정하지 않습니다. 원본 마우스 버튼 누락으로 editor-41 완료를 한 차례 정정한 뒤 실제 연결/검증 근거로 다시 complete로 올렸습니다. 보호 Trash 3·성능 ignored 4와 실제 pixel/OS IME/접근성/대형 성능/soak/출시/전환/삭제 게이트를 성공으로 세지 않습니다. frozen host/Wasm compile·최종 UI/App fmt check·manifest/lock/engine/동결 불변과 디스크 561GiB/70%를 확인했습니다. baseline은 이번 수정의 직전 커밋 7172a544이며 현재 작업 트리를 포함합니다. 기능표 588대상·288완료·92부분·112미연결·96미구현·잔여 300행, 최종 배치 33이며 전체 전환율/잔여 시간은 미산정입니다."
 }

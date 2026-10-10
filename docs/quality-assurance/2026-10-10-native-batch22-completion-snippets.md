@@ -329,3 +329,13 @@ App lib 528건과 completion Consumer 19건은 최초 전체 실행에서 통과
 macOS 이미지 호스트 대기 실패의 원인은 확정하지 않았습니다. notify_one 사용을 확인했으므로 알림 손실이라고 추측해 고치거나 제한 시간을 늘리지 않았습니다. 배치 31에서 cold/warm·동시 실행 자원 부하와 readiness/디코더 구간을 구분해 재현하고 통합 검사 신뢰성을 확인할 부채입니다. 실제 pixel/OS IME/접근성·대형 성능/soak/출시·전환/제거 게이트도 남습니다.
 
 UI/App 최종 fmt --check는 각각 exit 0이며 변경하지 않은 Editor의 603e6025 fmt 성공을 재사용했습니다. frozen source/manifest/lock과 모든 dependency/engine 변경은 없고 Cargo handle은 모두 종료됐습니다. 디스크 563GiB·사용 70%이며 청소하지 않았습니다. editor-41·editor-79 두 행을 complete로 올려 기능표는 588대상·288완료·92부분·112미연결·96미구현, 잔여 300행입니다. 전체 전환율/잔여 시간은 미산정입니다. 최종 배치 번호 33을 유지하고 선별 Git 종료 뒤 배치 23을 계속합니다.
+
+최종 상세창/파일 tier 회귀와 기록 9경로를 7172a544 fix(native): 자동완성 상세 상태 공유와 회귀 검증으로 선별 커밋·일반 푸시했습니다. whitelist 추가/누락 0·PROCESS 하단 보존·staged diff exit 0, 사용자 단독 author/AI 트레일러 없음·원격 차이 0/0을 확인했습니다. 초기 일반 실행은 Git index.lock 권한 때문에 스테이징되지 않았고, 승인된 Git 쓰기 실행에서 정확한 9경로를 스테이징·검사한 뒤 커밋했습니다. 배치 22 체크리스트를 닫고 기존 배치 23을 이어갑니다.
+
+최종 마우스 계약을 실제 suggestWidgetRenderer.js:175와 suggest.css:283에서 대조해 selected/hover의 Read More 버튼이 native에 없는 것을 확인했습니다. 단축키로 상세가 열린다는 검사 성공으로 이 마우스 계약까지 완료라고 판단한 것은 잘못입니다. editor-41을 partial로 정정했고 d/f/g를 다시 열었습니다. 7172a544의 상세 상태/파일 tier 변경과 기존 검증은 보존하며 버튼을 같은 배치 22 안에서 구현·검증합니다.
+
+Read More 기준은 suggestWidgetRenderer의 canExpandCompletionItem·chevron-right·mousedown/click의 행 이벤트 차단과 suggest.css의 focused/string-label/hover 및 docs-side 숨김입니다. 원본 아이콘은 codiconsLibrary의 U+EAB6, 글자 14px·오른쪽 10px·행 높이 크기입니다. Native는 selected/hover·상세 내용·닫힌 상세 조건에서만 같은 버튼을 보이고 별도 클릭으로 열림 상태를 갱신하며 행 수락을 차단합니다. inline detail/label은 버튼 자리를 비우고 본문 포커스를 보존합니다.
+
+completion-read-more-red.log는 버튼 부재로 실행 1건 실패, exit 101입니다. completion-read-more-ui-final.log는 UI 29건 통과, exit 0이며 숨김/선택하지 않은 행/내용 없음·클릭 후 후보/원문/본문 포커스·docs-side 숨김을 포함합니다. 실제 App Consumer의 스니펫 문서 버튼 클릭과 최신 변경 영향 전체 게이트는 종료 뒤 기록합니다. 이전 7172a544의 전체 성공은 버튼 추가 전 스냅샷이며 새 동작의 통과로 재사용하지 않습니다.
+
+Read More 최종 로그 접두사는 /private/tmp/taide-batch22-completion-read-more-입니다. ui-all.log는 22대상/420통과, app-all.log는 67대상/770통과/보호 Trash 3제외로 각각 exit 0입니다. UI 관련 29건·실제 Consumer 20건과 마우스 문서/스니펫 미삽입은 이 전체에 포함됩니다. 새 코드 변경과 확인된 원본 누락 때문에 변경 UI/App 전체를 해당 스냅샷에서 각 1회 실행했고 같은 스냅샷의 성공 전체는 반복하지 않았습니다. 변경하지 않은 Editor 264·SDK 86·Syntax 165건을 재사용하며 합산 서로 다른 성공은 1705건입니다. frozen-host.log/frozen-wasm.log compile과 최종 UI/App fmt check는 exit 0, manifest/lock/engine/동결 불변·디스크 561GiB/70%입니다. 최초 macOS 대기 실패는 최신 전체에서는 통과했지만 원인 해결로 주장하지 않습니다. 원본 UI 검사 범위 누락과 완료 판단 정정도 보존합니다. editor-41을 실제 연결/검증 근거로 다시 complete로 올려 288완료·잔여 300행이며 선별 Git 뒤 기존 배치 23을 이어갑니다.

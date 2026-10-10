@@ -1553,3 +1553,55 @@ fn completion_상세열림은_없는내용과_빈내용과_같은label을_확장
         assert_eq!(fixture.text(), "fo");
     }
 }
+
+#[test]
+fn completion_마우스_상세버튼은_선택한_행에서만_보이고_후보수락_없이_본문포커스를_보존한다() {
+    let mut fixture = Fixture::new();
+    fixture.open();
+    assert!(fixture.geometry.details_toggle.is_none());
+    let selected = fixture.geometry.rows[0].1.center();
+    fixture.frame(0.3, vec![Event::PointerMoved(selected)], &[]);
+    let button = fixture.geometry.details_toggle.expect("Read More button");
+    let other = fixture.geometry.rows[1].1.center();
+    fixture.frame(0.4, vec![Event::PointerMoved(other)], &[]);
+    assert!(fixture.geometry.details_toggle.is_none());
+    fixture.frame(0.5, vec![Event::PointerMoved(button.center())], &[]);
+    assert!(fixture.geometry.details_toggle.is_some());
+    fixture.frame(
+        0.6,
+        vec![Event::PointerButton {
+            pos: button.center(),
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Modifiers::NONE,
+        }],
+        &[],
+    );
+    fixture.frame(
+        0.7,
+        vec![Event::PointerButton {
+            pos: button.center(),
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Modifiers::NONE,
+        }],
+        &[],
+    );
+    fixture.frame(0.8, Vec::new(), &[]);
+    assert!(fixture.geometry.details.is_some());
+    assert!(fixture.geometry.details_toggle.is_none());
+    assert!(fixture.geometry.list.is_some());
+    assert_eq!(fixture.geometry.selected, Some(0));
+    assert!(fixture.completion.accepted.is_empty());
+    assert_eq!(
+        fixture.context.memory(|memory| memory.focused()),
+        fixture.body
+    );
+    assert_eq!(fixture.text(), "fo");
+    fixture.frame(0.9, Vec::new(), &[Command::ToggleDetails]);
+    fixture.completion.has_documentation = false;
+    fixture.completion.detail = None;
+    fixture.completion.build(&fixture.store, fixture.view);
+    fixture.frame(1.0, vec![Event::PointerMoved(selected)], &[]);
+    assert!(fixture.geometry.details_toggle.is_none());
+}
