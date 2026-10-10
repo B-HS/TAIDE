@@ -1,0 +1,1519 @@
+{
+    "date": "2026-10-10",
+    "baseline": "0a7d5521",
+    "sourceSnapshot": "docs/quality-assurance/2026-10-09-native-function-audit.json",
+    "finalBatch": 33,
+    "scope": "302 unfinished requirement rows; integration, cutover/beta and retirement gates are separate batches 31–33",
+    "assignments": [
+        {
+            "id": "shell-3",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-4",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-5",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-6",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-7",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-8",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-9",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-12",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-15",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-19",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-20",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-21",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-22",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-24",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-25",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-27",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-28",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-33",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-34",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-35",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-36",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-37",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-38",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-39",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-40",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-41",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-45",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-46",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-47",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-48",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-49",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-52",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-53",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-54",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-59",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-61",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-73",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-75",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-77",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-78",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-79",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-81",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-82",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-86",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-89",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-90",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-91",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-92",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-93",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-94",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-96",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "shell-98",
+            "domain": "shell",
+            "batch": 24
+        },
+        {
+            "id": "editor-4",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-7",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-15",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-16",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-19",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-30",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-32",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-33",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-34",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-41",
+            "domain": "editor",
+            "batch": 22
+        },
+        {
+            "id": "editor-46",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-47",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-49",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-50",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-51",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-52",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-53",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-56",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-57",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-58",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-59",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-64",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-67",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-72",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-73",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-74",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-75",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-76",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-77",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-78",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-79",
+            "domain": "editor",
+            "batch": 22
+        },
+        {
+            "id": "editor-80",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-81",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-82",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "editor-83",
+            "domain": "editor",
+            "batch": 23
+        },
+        {
+            "id": "terminal-agent-6",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-11",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-19",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-26",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-27",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-32",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-38",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-45",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-47",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-48",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-49",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-51",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-52",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-53",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-55",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-56",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-57",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-59",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-60",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-61",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-62",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-63",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-64",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-67",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-68",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-70",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-71",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-72",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-73",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-76",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-77",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "terminal-agent-78",
+            "domain": "terminal-agent",
+            "batch": 27
+        },
+        {
+            "id": "explorer-search-1",
+            "domain": "explorer-search",
+            "batch": 25
+        },
+        {
+            "id": "explorer-search-7",
+            "domain": "explorer-search",
+            "batch": 25
+        },
+        {
+            "id": "explorer-search-8",
+            "domain": "explorer-search",
+            "batch": 25
+        },
+        {
+            "id": "explorer-search-16",
+            "domain": "explorer-search",
+            "batch": 25
+        },
+        {
+            "id": "explorer-search-18",
+            "domain": "explorer-search",
+            "batch": 25
+        },
+        {
+            "id": "explorer-search-20",
+            "domain": "explorer-search",
+            "batch": 25
+        },
+        {
+            "id": "explorer-search-21",
+            "domain": "explorer-search",
+            "batch": 25
+        },
+        {
+            "id": "explorer-search-22",
+            "domain": "explorer-search",
+            "batch": 25
+        },
+        {
+            "id": "explorer-search-23",
+            "domain": "explorer-search",
+            "batch": 25
+        },
+        {
+            "id": "explorer-search-25",
+            "domain": "explorer-search",
+            "batch": 25
+        },
+        {
+            "id": "explorer-search-26",
+            "domain": "explorer-search",
+            "batch": 25
+        },
+        {
+            "id": "explorer-search-27",
+            "domain": "explorer-search",
+            "batch": 25
+        },
+        {
+            "id": "explorer-search-29",
+            "domain": "explorer-search",
+            "batch": 25
+        },
+        {
+            "id": "explorer-search-30",
+            "domain": "explorer-search",
+            "batch": 25
+        },
+        {
+            "id": "explorer-search-31",
+            "domain": "explorer-search",
+            "batch": 25
+        },
+        {
+            "id": "explorer-search-32",
+            "domain": "explorer-search",
+            "batch": 25
+        },
+        {
+            "id": "explorer-search-33",
+            "domain": "explorer-search",
+            "batch": 25
+        },
+        {
+            "id": "explorer-search-34",
+            "domain": "explorer-search",
+            "batch": 25
+        },
+        {
+            "id": "explorer-search-35",
+            "domain": "explorer-search",
+            "batch": 25
+        },
+        {
+            "id": "explorer-search-36",
+            "domain": "explorer-search",
+            "batch": 25
+        },
+        {
+            "id": "explorer-search-37",
+            "domain": "explorer-search",
+            "batch": 25
+        },
+        {
+            "id": "explorer-search-38",
+            "domain": "explorer-search",
+            "batch": 25
+        },
+        {
+            "id": "explorer-search-44",
+            "domain": "explorer-search",
+            "batch": 25
+        },
+        {
+            "id": "preview-3",
+            "domain": "preview",
+            "batch": 30
+        },
+        {
+            "id": "preview-5",
+            "domain": "preview",
+            "batch": 30
+        },
+        {
+            "id": "preview-6",
+            "domain": "preview",
+            "batch": 30
+        },
+        {
+            "id": "preview-14",
+            "domain": "preview",
+            "batch": 30
+        },
+        {
+            "id": "preview-15",
+            "domain": "preview",
+            "batch": 30
+        },
+        {
+            "id": "preview-38",
+            "domain": "preview",
+            "batch": 30
+        },
+        {
+            "id": "git-1",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-2",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-3",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-4",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-5",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-6",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-7",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-8",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-9",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-10",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-11",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-12",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-13",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-14",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-15",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-16",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-17",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-18",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-19",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-20",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-21",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-22",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-23",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-24",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-25",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-26",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-27",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-28",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-29",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-30",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-31",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-32",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-33",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-34",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-35",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-36",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-37",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-38",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-39",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-40",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-41",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-42",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-43",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-44",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-45",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-46",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-47",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-48",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-49",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-50",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-51",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-52",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-53",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-54",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-55",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-56",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-57",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-58",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-59",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-60",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-61",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-62",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-63",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "git-64",
+            "domain": "git",
+            "batch": 26
+        },
+        {
+            "id": "settings-3",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-5",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-16",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-17",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-18",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-21",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-22",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-23",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-24",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-28",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-30",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-32",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-33",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-34",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-35",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-36",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-37",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-38",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-39",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-40",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-41",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-42",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-43",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-44",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-45",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-46",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-47",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-48",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-49",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-50",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-51",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-52",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-53",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-54",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-67",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-78",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-80",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-82",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "settings-83",
+            "domain": "settings",
+            "batch": 28
+        },
+        {
+            "id": "commands-ui-1",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-11",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-12",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-13",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-14",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-15",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-20",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-21",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-22",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-23",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-30",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-31",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-32",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-33",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-34",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-35",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-36",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-37",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-38",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-39",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-40",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-41",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-43",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-52",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-54",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-59",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-61",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-62",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-67",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-68",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-69",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-70",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-71",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-72",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-73",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-74",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-75",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-76",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-77",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-79",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-82",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-83",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-84",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-85",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-86",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-87",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-90",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-91",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-96",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-98",
+            "domain": "commands-ui",
+            "batch": 29
+        },
+        {
+            "id": "commands-ui-101",
+            "domain": "commands-ui",
+            "batch": 29
+        }
+    ]
+}
