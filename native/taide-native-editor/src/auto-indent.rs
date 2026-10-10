@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::document::DocumentSnapshot;
+use crate::document::{DocumentSnapshot, Edit, EditorError};
 use crate::editing::{
     LineText, indentation, leading_whitespace, line_text, next_tab_stop, previous_tab_stop,
     tab_width, visible_column,
@@ -129,6 +129,141 @@ fn processed_line(document: &DocumentSnapshot, language: Language<'_>, line: usi
         &tokens,
         0..content.text.len(),
     )
+}
+
+struct ReindentLine {
+    content: LineText,
+    processed: String,
+    is_string: bool,
+}
+
+fn reindent_line(document: &DocumentSnapshot, language: Language<'_>, line: usize) -> ReindentLine {
+    let content = line_text(document, line);
+    let tokens = language
+        .syntax
+        .accurate_tokens(document, line)
+        .unwrap_or_else(|| code_tokens(&content.text));
+    let is_string = token_kind_at(&tokens, 0) == TokenKind::String;
+    let processed = without_brackets_outside_code(
+        language.rules,
+        &content.text,
+        &tokens,
+        0..content.text.len(),
+    );
+    ReindentLine {
+        content,
+        processed,
+        is_string,
+    }
+}
+
+pub(crate) fn reindent_edits(
+    document: &DocumentSnapshot,
+    language: Language<'_>,
+    indent: IndentOptions,
+    lines: Range<usize>,
+    byte_limit: usize,
+) -> Result<Vec<Edit>, EditorError> {
+    if language.rules.indent_metadata("").is_none() {
+        return Ok(Vec::new());
+    }
+    let end = lines.end.min(document.rope.len_lines());
+    let start = (lines.start..end).find(|line| {
+        !language
+            .rules
+            .indent_metadata(&reindent_line(document, language, *line).processed)
+            .unwrap_or_default()
+            .is_unindented
+    });
+    let Some(start) = start.filter(|start| *start + 1 < end) else {
+        return Ok(Vec::new());
+    };
+    let encoded_indent = |columns| {
+        let size = tab_width(indent);
+        let bytes = if indent.insert_spaces {
+            columns
+        } else {
+            columns / size + columns % size
+        };
+        if bytes > byte_limit {
+            return Err(EditorError::Capacity);
+        }
+        Ok(indentation(columns, indent))
+    };
+    let shift = |text: &str| {
+        let size = tab_width(indent);
+        encoded_indent(next_tab_stop(visible_column(text, size), size))
+    };
+    let first_line = reindent_line(document, language, start);
+    let mut global = leading_whitespace(&first_line.content.text).to_owned();
+    let mut ideal = global.clone();
+    let first = language
+        .rules
+        .indent_metadata(&first_line.processed)
+        .unwrap_or_default();
+    if first.increases {
+        global = shift(&global)?;
+        ideal = global.clone();
+    } else if first.indents_next_line {
+        ideal = shift(&ideal)?;
+    }
+    let mut edits = Vec::new();
+    let mut projected = document.rope.len_bytes();
+    for line in start + 1..end {
+        let ReindentLine {
+            content,
+            processed,
+            is_string,
+        } = reindent_line(document, language, line);
+        if is_string {
+            continue;
+        }
+        let metadata = language
+            .rules
+            .indent_metadata(&format!(
+                "{ideal}{}",
+                &processed[leading_whitespace(&processed).len()..]
+            ))
+            .unwrap_or_default();
+        if metadata.decreases {
+            ideal = unshifted(&ideal, indent);
+            global = unshifted(&global, indent);
+        }
+        let old = leading_whitespace(&content.text);
+        if old != ideal {
+            let replacement = encoded_indent(visible_column(&ideal, tab_width(indent)))?;
+            projected = projected
+                .checked_sub(old.len())
+                .and_then(|bytes| bytes.checked_add(replacement.len()))
+                .ok_or(EditorError::Capacity)?;
+            if projected > byte_limit {
+                return Err(EditorError::Capacity);
+            }
+            if old != replacement {
+                edits.push(Edit {
+                    bytes: content.start..content.start + old.len(),
+                    text: replacement,
+                });
+            }
+        }
+        if language
+            .rules
+            .indent_metadata(&processed)
+            .unwrap_or_default()
+            .is_unindented
+        {
+            continue;
+        }
+        if metadata.increases {
+            global = shift(&global)?;
+            ideal = global.clone();
+        } else if metadata.indents_next_line {
+            ideal = shift(&ideal)?;
+        } else {
+            ideal = global.clone();
+        }
+    }
+    Ok(edits)
 }
 
 fn enter_context(

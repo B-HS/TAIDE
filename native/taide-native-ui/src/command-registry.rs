@@ -926,6 +926,22 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "native-host")]
+    #[test]
+    fn 재들여쓰기_명령은_연결된_편집기에만_노출되고_readonly에서는_거절된다() {
+        let registry = registry().unwrap();
+        let writable = editor_context(&registry, false);
+        let readonly = editor_context(&registry, true);
+        for id in [
+            "monaco.editor.action.reindentlines",
+            "monaco.editor.action.reindentselectedlines",
+        ] {
+            let command = registry.command(id).unwrap();
+            assert!(command.runnable(&writable).is_some(), "{id}");
+            assert!(command.runnable(&readonly).is_none(), "{id}");
+        }
+    }
+
     fn editor_context(registry: &Registry, is_read_only: bool) -> CommandContext {
         CommandContext {
             active_editor_actions: Some(registry.editor_action_ids(ActiveEditor {
@@ -1184,6 +1200,8 @@ mod tests {
                         "editor.action.indentationToSpaces",
                         "editor.action.indentationToTabs",
                         "editor.action.detectIndentation",
+                        "editor.action.reindentlines",
+                        "editor.action.reindentselectedlines",
                     ]
                     .into_iter()
                     .filter(|action| {

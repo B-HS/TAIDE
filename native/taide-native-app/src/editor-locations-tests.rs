@@ -395,7 +395,9 @@ fn 실제_preview의_직렬_본문_명령과_저장은_대상_문서와_포커�
     const SCREEN_HEIGHT: f32 = 480.0;
     let (mut store, source_document, view) = fixture();
     let path = "/synthetic/target.rs";
-    let target_document = store.open_file(path.into(), file(path)).unwrap();
+    let mut target_file = file(path);
+    target_file.language_id = "ruby".into();
+    let target_document = store.open_file(path.into(), target_file).unwrap();
     let project = ProjectId::new();
     let identity = provider(1);
     let providers = HashSet::from([identity]);
@@ -455,7 +457,7 @@ fn 실제_preview의_직렬_본문_명령과_저장은_대상_문서와_포커�
     let mut shown_lines = Vec::new();
     let context = Context::default();
     context.set_os(eframe::egui::os::OperatingSystem::Mac);
-    let overrides = r#"[{"actionId":"monaco.editor.action.transformToUppercase","key":"u","mods":["mod"]},{"actionId":"monaco.editor.foldAll","key":"j","mods":["mod"]},{"actionId":"monaco.editor.action.indentationToTabs","key":"f9","mods":["mod"]},{"actionId":"monaco.editor.action.detectIndentation","key":"f10","mods":["mod"]}]"#;
+    let overrides = r#"[{"actionId":"monaco.editor.action.transformToUppercase","key":"u","mods":["mod"]},{"actionId":"monaco.editor.foldAll","key":"j","mods":["mod"]},{"actionId":"monaco.editor.action.indentationToTabs","key":"f9","mods":["mod"]},{"actionId":"monaco.editor.action.detectIndentation","key":"f10","mods":["mod"]},{"actionId":"monaco.editor.action.reindentlines","key":"f11","mods":["mod"]},{"actionId":"monaco.editor.action.reindentselectedlines","key":"f12","mods":["mod"]}]"#;
     let mut frame = |events,
                      state: &mut State,
                      store: &mut EditorStore,
@@ -599,6 +601,47 @@ fn 실제_preview의_직렬_본문_명령과_저장은_대상_문서와_포커�
             .indent_options
             .unwrap()
             .insert_spaces
+    );
+    let configuration = crate::presentation_refresh::indent_configuration(
+        &taide_model::settings::Settings::default(),
+    );
+    store
+        .override_indentation(
+            target_document,
+            configuration,
+            taide_native_editor::indent::IndentOptions {
+                tab_size: configuration.defaults.tab_size,
+                insert_spaces: true,
+            },
+        )
+        .unwrap();
+    for command in [eframe::egui::Key::F11, eframe::egui::Key::F12] {
+        frame(
+            vec![key(command)],
+            &mut state,
+            &mut store,
+            &mut commands,
+            &mut changed,
+            &mut targets,
+        );
+        assert_eq!(
+            store
+                .documents()
+                .snapshot(target_document)
+                .unwrap()
+                .rope
+                .to_string(),
+            "class\n    \u{1f600}method\nend"
+        );
+        assert!(store.undo(target_document).unwrap());
+    }
+    frame(
+        vec![key(eframe::egui::Key::F10)],
+        &mut state,
+        &mut store,
+        &mut commands,
+        &mut changed,
+        &mut targets,
     );
     let before_uppercase = store
         .documents()

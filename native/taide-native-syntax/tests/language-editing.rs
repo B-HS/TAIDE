@@ -16,7 +16,9 @@ use taide_native_editor::folding::{
     FoldCommand, FoldRegion, MAX_FOLDING_REGIONS, indent_regions, language_regions,
     run_language_fold_command,
 };
-use taide_native_editor::indent::IndentOptions;
+use taide_native_editor::indent::{
+    Command as IndentCommand, IndentConfiguration, IndentOptions, run_command_with_language,
+};
 use taide_native_editor::language_configuration::{
     Language, LanguageRules, LineSyntax, UntokenizedLines, token_kind_at,
 };
@@ -48,6 +50,90 @@ const STRING_DELIMITER: char = '"';
 const LINE_COMMENT: &str = "//";
 const BLOCK_COMMENT_START: &str = "/*";
 const BLOCK_COMMENT_END: &str = "*/";
+
+#[derive(Deserialize)]
+struct ReindentOracle {
+    language: String,
+    text: String,
+    token_types: Vec<u32>,
+    selected: bool,
+    selections: Vec<(usize, usize)>,
+    tab_size: u32,
+    insert_spaces: bool,
+    expected: String,
+}
+
+struct ReindentSyntax(Vec<u32>);
+
+impl LineSyntax for ReindentSyntax {
+    fn tokens(&self, _: &DocumentSnapshot, line: usize) -> Option<Vec<Token>> {
+        Some(vec![Token {
+            start_byte: 0,
+            kind: match self.0[line] {
+                1 => TokenKind::Comment,
+                2 => TokenKind::String,
+                3 => TokenKind::Regex,
+                _ => TokenKind::Other,
+            },
+        }])
+    }
+
+    fn kind_if_inserting(
+        &self,
+        document: &DocumentSnapshot,
+        line: usize,
+        byte: usize,
+        _: char,
+    ) -> TokenKind {
+        token_kind_at(&self.tokens(document, line).unwrap(), byte)
+    }
+}
+
+#[test]
+fn 재들여쓰기는_설치_monaco의_언어_규칙과_전체_선택_토큰_사례를_따른다() {
+    let cases: Vec<ReindentOracle> =
+        serde_json::from_str(include_str!("fixtures/reindent-reference.json")).unwrap();
+    let mut differences = Vec::new();
+    for case in cases {
+        let mut editor = Editor::new(&case.language, &case.text);
+        editor.select(&case.selections);
+        let syntax = ReindentSyntax(case.token_types);
+        let configuration = IndentConfiguration {
+            defaults: IndentOptions {
+                tab_size: case.tab_size,
+                insert_spaces: case.insert_spaces,
+            },
+            detect_indentation: false,
+        };
+        let command = if case.selected {
+            IndentCommand::ReindentSelectedLines
+        } else {
+            IndentCommand::ReindentLines
+        };
+        let result = run_command_with_language(
+            &mut editor.store,
+            editor.view,
+            command,
+            configuration,
+            Some(Language {
+                rules: editor.rules,
+                syntax: &syntax,
+            }),
+        );
+        if result.is_err() || editor.text() != case.expected {
+            differences.push((
+                case.language,
+                case.text,
+                case.selected,
+                case.selections,
+                case.expected,
+                editor.text(),
+                result,
+            ));
+        }
+    }
+    assert!(differences.is_empty(), "{differences:#?}");
+}
 
 #[derive(Deserialize)]
 struct CursorOracle {

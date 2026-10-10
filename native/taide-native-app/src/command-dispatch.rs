@@ -114,8 +114,13 @@ pub(crate) fn apply_document_edits(
     }) {
         let result = match edit {
             DocumentEdit::Indentation(command) => {
-                let result =
-                    taide_native_editor::indent::run_command(store, view, command, indentation);
+                let result = taide_native_editor::indent::run_command_with_language(
+                    store,
+                    view,
+                    command,
+                    indentation,
+                    context.language,
+                );
                 if result.is_ok() {
                     context.syntax.follow_edits(store);
                     if let Some(document) = store.views().get(view).map(|view| view.document)
@@ -174,6 +179,7 @@ mod tests {
     use taide_native_editor::indent::IndentOptions;
     use taide_native_editor::language_configuration::UntokenizedLines;
     use taide_native_editor::store::EditorLimits;
+    use taide_native_editor::view::{Selection, SelectionSet};
     use taide_native_ui::commands::ShellMutation;
     use taide_runtime::AppState;
 
@@ -189,6 +195,95 @@ mod tests {
                 insert_spaces: true,
             },
             detect_indentation: false,
+        }
+    }
+
+    #[test]
+    fn 재들여쓰기_요청은_앱의_현재_언어_규칙과_선택을_소비한다() {
+        use taide_native_editor::indent::Command;
+        use taide_native_editor::language_configuration::Language;
+        let source = "if value\nwork\nend";
+        for command in [Command::ReindentLines, Command::ReindentSelectedLines] {
+            let mut store = EditorStore::new(EditorLimits {
+                max_documents: 1,
+                max_views: 1,
+                max_undo_groups: UNDO_GROUPS,
+                max_document_bytes: DOCUMENT_BYTES,
+            })
+            .unwrap();
+            let tab = TabId::new();
+            let document = store
+                .open_untitled(tab.clone(), source, "ruby".into())
+                .unwrap();
+            let view = store
+                .attach_view(
+                    ViewKey {
+                        window: "synthetic".into(),
+                        pane: PaneId::new(),
+                        tab: tab.clone(),
+                    },
+                    document,
+                )
+                .unwrap();
+            let current = store.views().get(view).unwrap().clone();
+            store
+                .set_view_state(
+                    view,
+                    SelectionSet {
+                        primary: 0,
+                        selections: vec![Selection {
+                            anchor: source.len(),
+                            head: source.find("work").unwrap(),
+                        }],
+                    },
+                    current.scroll,
+                    current.folds,
+                )
+                .unwrap();
+            let rules = crate::editor_syntax::language_rules("ruby").unwrap();
+            let mut pending = vec![(tab.clone(), DocumentEdit::Indentation(command))];
+            let mut errors = Vec::new();
+            assert!(apply_document_edits(
+                &mut store,
+                view,
+                &tab,
+                LineCommandContext {
+                    indent: indentation_configuration().defaults,
+                    language: Some(Language {
+                        rules,
+                        syntax: &UntokenizedLines
+                    }),
+                    syntax: &UntokenizedLines,
+                    compare: None,
+                    transforms: None,
+                    word_rules: Some(rules),
+                },
+                indentation_configuration(),
+                &mut pending,
+                &mut errors
+            ));
+            assert!(pending.is_empty());
+            assert!(errors.is_empty());
+            assert_eq!(
+                store
+                    .documents()
+                    .snapshot(document)
+                    .unwrap()
+                    .rope
+                    .to_string(),
+                "if value\n    work\nend"
+            );
+            assert!(store.undo(document).unwrap());
+            assert_eq!(
+                store
+                    .documents()
+                    .snapshot(document)
+                    .unwrap()
+                    .rope
+                    .to_string(),
+                source
+            );
+            assert!(!store.undo(document).unwrap());
         }
     }
 

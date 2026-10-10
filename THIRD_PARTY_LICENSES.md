@@ -767,6 +767,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   folding directory. The manual range creation/removal and imports toggle in
   `src/folding.rs` adapt the corresponding actions and controller in
   `folding.js`. The same MIT copyright and license above apply.
+- `src/indent.rs` adapts document indentation detection and conversion from
+  Monaco Editor 0.56.0 (MIT, Copyright (c) Microsoft Corporation):
+  `editor/common/model/indentationGuesser.js` and
+  `editor/contrib/indentation/browser/indentation.js`. Its reindent commands
+  use the language rule and token processing in `src/auto-indent.rs`,
+  adapted from `getReindentEditOperations` in
+  `editor/contrib/indentation/common/indentation.js`. The license text is
+  `native/taide-native-editor/LICENSE-MONACO-SNIPPET`.
+
 - `src/auto-indent.rs`, `src/auto-closing.rs`, `src/language-typing.rs` and
   `src/language-configuration.rs` port the typing rules of Monaco Editor
   0.56.0 (MIT, Copyright (c) Microsoft Corporation), all from `editor/common`:

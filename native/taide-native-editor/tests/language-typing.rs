@@ -151,6 +151,28 @@ struct ClassifiedLine {
     bytes: Range<usize>,
 }
 
+struct AccurateLine(ClassifiedLine);
+
+impl LineSyntax for AccurateLine {
+    fn tokens(&self, document: &DocumentSnapshot, line: usize) -> Option<Vec<Token>> {
+        UntokenizedLines.tokens(document, line)
+    }
+
+    fn accurate_tokens(&self, document: &DocumentSnapshot, line: usize) -> Option<Vec<Token>> {
+        self.0.tokens(document, line)
+    }
+
+    fn kind_if_inserting(
+        &self,
+        document: &DocumentSnapshot,
+        line: usize,
+        byte: usize,
+        character: char,
+    ) -> TokenKind {
+        self.0.kind_if_inserting(document, line, byte, character)
+    }
+}
+
 impl LineSyntax for ClassifiedLine {
     fn tokens(&self, document: &DocumentSnapshot, line: usize) -> Option<Vec<Token>> {
         if line != 1 {
@@ -249,6 +271,344 @@ fn marked(store: &EditorStore, view: ViewId) -> String {
         .to_string();
     text.insert(current.selection.selections[0].head, '|');
     text
+}
+
+#[test]
+fn 재들여쓰기는_다중_선택과_mirror를_추적하고_한_번의_undo로_복원한다() {
+    use taide_native_editor::indent::{Command, IndentConfiguration, run_command_with_language};
+    let source = "if {\nbody\n}\n끝";
+    let expected = "if {\n    body\n}\n끝";
+    let (mut store, view) = fixture(source, source.len());
+    let document = store.views().get(view).unwrap().document;
+    let selected = SelectionSet {
+        primary: 1,
+        selections: vec![
+            Selection {
+                anchor: source.find("body").unwrap(),
+                head: source.find("body").unwrap(),
+            },
+            Selection {
+                anchor: source.len(),
+                head: source.find('}').unwrap(),
+            },
+        ],
+    };
+    let current = store.views().get(view).unwrap().clone();
+    store
+        .set_view_state(view, selected.clone(), current.scroll, current.folds)
+        .unwrap();
+    let mirror = store
+        .attach_view(
+            ViewKey {
+                window: "mirror".into(),
+                pane: PaneId::new(),
+                tab: TabId::new(),
+            },
+            document,
+        )
+        .unwrap();
+    let mirrored = SelectionSet {
+        primary: 0,
+        selections: vec![Selection {
+            anchor: source.len(),
+            head: source.len(),
+        }],
+    };
+    let current = store.views().get(mirror).unwrap().clone();
+    store
+        .set_view_state(mirror, mirrored.clone(), current.scroll, current.folds)
+        .unwrap();
+    let rules = indentation_rules();
+    let configuration = IndentConfiguration {
+        defaults: SPACES,
+        detect_indentation: false,
+    };
+    let language = Some(Language {
+        rules: &rules,
+        syntax: &UntokenizedLines,
+    });
+    assert!(
+        run_command_with_language(
+            &mut store,
+            view,
+            Command::ReindentLines,
+            configuration,
+            language
+        )
+        .unwrap()
+    );
+    let snapshot = store.documents().snapshot(document).unwrap();
+    assert_eq!(snapshot.rope.to_string(), expected);
+    assert_eq!(snapshot.indent_options, Some(SPACES));
+    let converted = store.views().get(view).unwrap().selection.clone();
+    assert_eq!(converted.primary, selected.primary);
+    assert_eq!(converted.selections.len(), selected.selections.len());
+    assert_eq!(converted.selections[0].head, expected.find("body").unwrap());
+    assert_eq!(converted.selections[1].anchor, expected.len());
+    assert_eq!(
+        store.views().get(mirror).unwrap().selection.selections[0].head,
+        expected.len()
+    );
+    assert!(
+        !run_command_with_language(
+            &mut store,
+            view,
+            Command::ReindentLines,
+            configuration,
+            language
+        )
+        .unwrap()
+    );
+    assert_eq!(
+        store.documents().snapshot(document).unwrap().revision,
+        snapshot.revision
+    );
+    assert!(store.undo(document).unwrap());
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        source
+    );
+    assert_eq!(store.views().get(view).unwrap().selection, selected);
+    assert_eq!(store.views().get(mirror).unwrap().selection, mirrored);
+    assert!(!store.undo(document).unwrap());
+    assert!(store.redo(document).unwrap());
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        expected
+    );
+    assert_eq!(store.views().get(view).unwrap().selection, converted);
+}
+
+#[test]
+fn 재들여쓰기의_readonly와_용량_거절은_내용과_선택과_문서_옵션을_보존한다() {
+    use taide_native_editor::document::EditorError;
+    use taide_native_editor::indent::{Command, IndentConfiguration, run_command_with_language};
+    let source = "if {\nbody\n}";
+    for readonly in [false, true] {
+        let (mut store, view) = fixture(source, source.len());
+        let document = store.views().get(view).unwrap().document;
+        let configuration = IndentConfiguration {
+            defaults: IndentOptions {
+                tab_size: u32::MAX,
+                insert_spaces: true,
+            },
+            detect_indentation: false,
+        };
+        store
+            .configure_indentation(document, configuration)
+            .unwrap();
+        if readonly {
+            store
+                .observe_file(
+                    document,
+                    std::path::Path::new("/synthetic/language-typing.txt"),
+                    OpenedFile {
+                        path: "/synthetic/language-typing.txt".into(),
+                        content: source.into(),
+                        language_id: "plaintext".into(),
+                        byte_size: source.len().try_into().unwrap(),
+                        line_count: source.lines().count().try_into().unwrap(),
+                        tier: FileSizeTier::Normal,
+                        read_only: true,
+                        encoding_lossy: false,
+                        modified_ms: 1.0,
+                        editor_config: EditorConfigOptions::default(),
+                    },
+                )
+                .unwrap();
+        }
+        let before = store.documents().snapshot(document).unwrap();
+        let selected = store.views().get(view).unwrap().selection.clone();
+        let rules = indentation_rules();
+        for command in [Command::ReindentLines, Command::ReindentSelectedLines] {
+            if command == Command::ReindentSelectedLines {
+                let current = store.views().get(view).unwrap().clone();
+                store
+                    .set_view_state(
+                        view,
+                        SelectionSet {
+                            primary: 0,
+                            selections: vec![Selection {
+                                anchor: 0,
+                                head: source.len(),
+                            }],
+                        },
+                        current.scroll,
+                        current.folds,
+                    )
+                    .unwrap();
+            }
+            let expected = if readonly {
+                EditorError::ReadOnly
+            } else {
+                EditorError::Capacity
+            };
+            let requested = store.views().get(view).unwrap().selection.clone();
+            assert_eq!(
+                run_command_with_language(
+                    &mut store,
+                    view,
+                    command,
+                    configuration,
+                    Some(Language {
+                        rules: &rules,
+                        syntax: &UntokenizedLines
+                    })
+                ),
+                Err(expected)
+            );
+            let after = store.documents().snapshot(document).unwrap();
+            assert_eq!(after.rope, before.rope);
+            assert_eq!(after.revision, before.revision);
+            assert_eq!(after.dirty, before.dirty);
+            assert_eq!(after.indent_options, before.indent_options);
+            assert_eq!(store.views().get(view).unwrap().selection, requested);
+        }
+        let current = store.views().get(view).unwrap().clone();
+        store
+            .set_view_state(view, selected.clone(), current.scroll, current.folds)
+            .unwrap();
+        if !readonly {
+            assert!(!store.undo(document).unwrap());
+        }
+        assert_eq!(store.views().get(view).unwrap().selection, selected);
+    }
+}
+
+#[test]
+fn 재들여쓰기는_정확한_토큰의_문자열_줄과_주석_정규식_안의_괄호를_보존한다() {
+    use taide_native_editor::indent::{Command, IndentConfiguration, run_command_with_language};
+    let source = "if {\n value {\nbody\n}";
+    let rules = indentation_rules();
+    for kind in [TokenKind::String, TokenKind::Comment, TokenKind::Regex] {
+        let (mut store, view) = fixture(source, source.len());
+        let syntax = AccurateLine(ClassifiedLine {
+            kind,
+            bytes: 0.." value {".len(),
+        });
+        assert!(
+            run_command_with_language(
+                &mut store,
+                view,
+                Command::ReindentLines,
+                IndentConfiguration {
+                    defaults: SPACES,
+                    detect_indentation: false
+                },
+                Some(Language {
+                    rules: &rules,
+                    syntax: &syntax
+                }),
+            )
+            .unwrap()
+        );
+        let document = store.views().get(view).unwrap().document;
+        let expected = if kind == TokenKind::String {
+            "if {\n value {\n    body\n}"
+        } else {
+            "if {\n    value {\n    body\n}"
+        };
+        assert_eq!(
+            store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .rope
+                .to_string(),
+            expected,
+            "{kind:?}"
+        );
+    }
+}
+
+#[test]
+fn 재들여쓰기는_무시하는_줄과_다음_줄의_임시_들여쓰기를_구분한다() {
+    use taide_native_editor::indent::{Command, IndentConfiguration, run_command_with_language};
+    let rules = indentation_rules();
+    for (source, expected) in [
+        (
+            "#header\nif {\n#inside\nbody\n}\nend",
+            "#header\nif {\n    #inside\n    body\n}\nend",
+        ),
+        ("if (x)\nbody\nend", "if (x)\n    body\nend"),
+        (
+            "if (x)\nif (y)\nbody\nend",
+            "if (x)\n    if (y)\n        body\nend",
+        ),
+        ("#first\n#second", "#first\n#second"),
+    ] {
+        let (mut store, view) = fixture(source, source.len());
+        let changed = run_command_with_language(
+            &mut store,
+            view,
+            Command::ReindentLines,
+            IndentConfiguration {
+                defaults: SPACES,
+                detect_indentation: false,
+            },
+            Some(Language {
+                rules: &rules,
+                syntax: &UntokenizedLines,
+            }),
+        )
+        .unwrap();
+        let document = store.views().get(view).unwrap().document;
+        assert_eq!(changed, source != expected);
+        assert_eq!(
+            store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .rope
+                .to_string(),
+            expected
+        );
+    }
+}
+
+#[test]
+fn 재들여쓰기_용량은_표시_폭이_아닌_저장할_탭의_바이트로_검사한다() {
+    use taide_native_editor::indent::{Command, IndentConfiguration, run_command_with_language};
+    let source = "if {\nbody\n}";
+    let (mut store, view) = fixture(source, source.len());
+    let rules = indentation_rules();
+    let result = run_command_with_language(
+        &mut store,
+        view,
+        Command::ReindentLines,
+        IndentConfiguration {
+            defaults: IndentOptions {
+                tab_size: u32::MAX,
+                insert_spaces: false,
+            },
+            detect_indentation: false,
+        },
+        Some(Language {
+            rules: &rules,
+            syntax: &UntokenizedLines,
+        }),
+    );
+    assert_eq!(result, Ok(true));
+    let document = store.views().get(view).unwrap().document;
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        "if {\n\tbody\n}"
+    );
 }
 
 fn entered(rules: &ScriptedRules, indent: IndentOptions, text: &str, caret: usize) -> String {

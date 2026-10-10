@@ -253,3 +253,27 @@ Core의 기존 Plan/선택 추적·분리된 편집 단계를 사용합니다. �
 `frozen-host.log`는 host inspection 전체 테스트 대상 컴파일 exit 0·14.26초이고 `frozen-wasm.log`는 canvas/inspection Wasm 라이브러리 컴파일 exit 0·5.23초입니다. 테스트 실행이나 기존 Wasm 테스트 시간 타입 오류의 해결을 뜻하지 않습니다. Core/UI/App fmt check 세 개와 소유 경로의 diff check가 직렬로 통과했습니다. 감사 도구는 599행/297근거 경로·288완료/93부분/112미연결/95미구현/제외 10/동결 1을 확인했고 QA/JSON/표 포맷도 통과했습니다. native 의존성/manifest/lock/frozen 변경은 0, 디스크는 532GiB/71%이며 보호 범위와 빌드 정리는 건드리지 않았습니다.
 
 사용자의 진척/반복/끝점 질문에 현재 파일을 재집계해 대상 588·잔여 300, 배정 누락/중복 0·완료된 배정 editor-41/79와 최종 배치 33을 확인했습니다. 48.6%는 이전 요구사항 행의 산술 비율이었고 전체 전환율로 반복 제시한 것은 잘못입니다. 현재 행 비율도 전체 전환율/ETA로 쓰지 않습니다. 실제 프로세스 이름 조회에는 TAIDE Cargo/rustc/rustfmt/test/Bun 조사가 없었으며 최신 커밋 5825d52c·801b80c9·9ab20583의 diff는 서로 다른 제품 변경입니다. 마지막 UI 83건도 종료 결과를 확보했습니다. 현재 실행의 무한 반복 증거는 없지만 전체 세션이나 모든 제품 코드의 종료성을 증명한 결과는 아닙니다. 작은 수정/검증을 지나치게 쪼갠 운영 문제와 이번 fixture의 두 번째 버전 기대값을 놓친 재시도도 구분해 기록합니다. 배치 번호를 추가하지 않고 현재 범위의 기능을 닫으며 같은 상태의 성공 검사는 재사용합니다.
+
+## 전체/선택 재들여쓰기 명령
+
+기준은 `29dc6d0c` 이후입니다. 설치 Monaco 0.56.0의 `editor/contrib/indentation/common/indentation.js`와 browser action, `ProcessedIndentRulesSupport`를 대조했습니다. `editor.action.reindentlines`와 `editor.action.reindentselectedlines`를 기존 native-host의 typed 편집 큐에 연결했습니다. 전체 명령은 첫 줄의 기존 들여쓰기를 기준으로 사용하고 선택 명령은 직전 줄을 기준에 포함하되 끝점이 다음 줄의 첫 열이면 그 줄을 제외합니다. 언어 규칙이 없으면 no-op입니다. 새 엔진/의존성은 추가하지 않았습니다.
+
+Core는 정확한 토큰을 받아 String으로 시작하는 줄을 보존하고 String/Comment/Regex 안의 설정된 괄호를 들여쓰기 평가에서 제외합니다. 처음 무시하는 줄을 건너뛰며 중간 무시하는 줄의 상태 상속, 임시 다음 줄 들여쓰기와 전역 들여쓰기를 구분합니다. 선행 ASCII 공백/탭만 바꾸며 CRLF/Unicode/본문을 보존합니다. 기존 Plan의 중복 편집 제거·모든 선택/mirror 추적·독립 undo를 사용하고 readonly/최종 저장 용량을 검사합니다. 탭은 표시 폭이 아닌 실제 저장 바이트로 용량을 평가하며 큰 공백 할당 전에도 상한을 확인합니다.
+
+앱 명령 큐는 현재 언어를 Core에 전달합니다. 실제 미리보기 Consumer 검사에서는 Ruby 문서의 whole/selected 명령을 재지정 키로 실행하고 본문 내용·undo·후속 detect/save/접기/포커스를 확인했습니다. 별도 실제 앱 생성자의 cold cache를 검증한 검사는 아니며 OS 합성 입력이나 실제 사용자 데이터를 쓰지 않았습니다.
+
+원본 생성 도구는 `docs/utils/2026-10-10-monaco-reindent-oracle.js`, 비교 입력은 `native/taide-native-syntax/tests/fixtures/reindent-reference.json`입니다. 설치 Monaco의 실제 함수를 사용해 23언어 × 12텍스트 × 2스타일 × 5선택, 총 2760사례를 생성했습니다. 원본 basic language 설정에 indentationRules가 없는 언어의 no-op이 포함되며 실제 텍스트가 변한 것은 Ruby/Elixir 81사례입니다. 주입한 줄 토큰의 비교이며 실제 TextMate 엔진/모든 내장 언어 서비스의 검증으로 확대하지 않습니다. 첫 생성은 출력 뒤 Bun 타이머가 남아 session 55830을 종료했고 exit 130입니다. 기존 oracle 패턴처럼 출력 뒤 종료하도록 수정한 `oracle-final.log`는 exit 0입니다.
+
+실행 로그 접두사는 `/private/tmp/taide-batch23-reindent-`입니다.
+
+- `registry-repro.log`: 새 두 명령이 실행 불가능한 제품 실패 0통과/1실패·exit 101입니다. 연결 뒤 `registry.log`는 UI registry 12건 통과·exit 0·0.03초입니다.
+- `core.log`: 다중 선택 fixture가 서로 겹쳐 기존 정규화로 primary 0이 된 것을 primary 1로 기대해 실패했습니다. 겹치지 않는 역방향 선택으로 수정한 `core-selection-repro.log`는 1건 통과·exit 0이며 제품 선택 추적 실패로 보고하지 않습니다. `accurate-repro.log`는 정확한 토큰 대신 빠른 Untokenized 토큰을 사용해 문자열 줄과 괄호 들여쓰기를 바꾸는 실제 제품 실패 0통과/1실패·exit 101입니다.
+- `core-accurate-final.log`: 정확한 토큰 처리 후 language-typing 17건 통과·exit 0·0.00초입니다. 추가한 무시/임시 들여쓰기 4사례의 검사 `next-ignore.log`는 1건 통과·exit 0입니다. `tab-capacity-repro.log`는 표시 폭이 큰 탭을 저장 용량 초과로 거절하는 실제 제품 실패이며 저장 바이트로 수정한 `tab-capacity-fixed.log`는 1건 통과·exit 0·0.00초/빌드 1.54초입니다. 같은 상태에서 통과한 앞선 검사와 중복 합산하지 않으며 Core의 서로 다른 성공은 19건입니다.
+- `oracle.log`는 fixture 어댑터의 필수 trait 메서드 누락과 Regex 타입 이름 오류로 컴파일에 실패했습니다. 수정 뒤 최신 `oracle-final-check.log`는 Syntax 1건에서 2760비교를 모두 통과·exit 0·0.15초입니다. `dispatch.log`의 Selection/SelectionSet import 누락은 컴파일 실패이며 수정한 `dispatch-fixed.log`는 App 큐 9건 통과·exit 0·2.45초입니다. `peek.log`는 App 미리보기 12건 통과·exit 0·0.96초입니다.
+- `frozen-host-final.log`는 inspection host 테스트 대상 컴파일 성공·9.57초이고 `frozen-wasm-final.log`는 canvas/inspection Wasm lib 컴파일 성공·2.01초입니다. 마지막 직렬 실행에서 Editor fmt check가 끝났고 앞선 UI/Syntax/App fmt check의 성공은 해당 코드가 그대로라 재사용합니다. 컴파일 성공을 테스트 실행이나 기존 frozen Wasm 테스트의 시간 타입 오류 해결로 보고하지 않습니다.
+
+최종 코드 검토에서 기존 탭 기준줄을 공백으로 정규화하는 경로도 할당 전에 저장 바이트 상한을 확인하도록 같은 인코딩 함수를 사용했습니다. 메모리 할당 실패를 직접 재현한 검사로 보고하지 않습니다. 이 변경 뒤 `capacity-preallocation.log`의 관련 재들여쓰기 5건은 통과·exit 0·0.00초/빌드 3.96초입니다. 변경 없는 language-typing 14건과 Syntax/UI/App 성공을 재사용하며 중복 합산하지 않습니다. 최신 `frozen-host-preallocation.log`·`frozen-wasm-preallocation.log`는 각각 컴파일 성공·9.89초/2.42초이고 `fmt-editor-preallocation.log`도 exit 0입니다. 이 마지막 직렬 session 88768의 종료 결과를 확인했습니다.
+
+이번 단위의 서로 다른 직접 성공은 Core 19·Syntax 1·UI 12·App 21, 총 53건입니다. 2760비교 사례를 테스트 수에 더하지 않습니다. native manifest/lock/동결 경로 변경은 0이며 디스크는 530GiB·72%입니다. 마지막 프로세스 조회에 남은 Cargo 58182는 `development/R-BMS`의 `cargo test --workspace`였고 TAIDE 작업이 아니었습니다. 현재 TAIDE Cargo/rustc/rustfmt/Bun 조사 프로세스는 없으며 재실행 없이 끝난 로그를 회수했습니다. 이 관찰을 전체 세션의 종료성 증명으로 확대하지 않습니다.
+
+실제 앱의 아직 준비되지 않거나 부분 준비된 구문 캐시 처리, tabSize/indentSize 분리·수동 폭/방식 QuickPick·실제 LSP 포맷 요청 값, 나머지 배치 23과 전체 실기/성능/출시 게이트는 미완료입니다. `SyntaxLease::accurate_tokens`는 준비된 캐시만 읽고 Monaco의 `doesLineStartWithString`도 cheap-tokenization 조건을 사용하므로 이 경로는 실제 상태로 대조해야 합니다. editor-30은 partial이며 요구사항 행 판정 288완료/588대상·300미완료를 전체 전환율/잔여 시간으로 환산하지 않습니다. 최종 배치 계획은 33을 유지합니다.

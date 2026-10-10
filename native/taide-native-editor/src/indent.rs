@@ -1,5 +1,6 @@
 use crate::document::EditorError;
-use crate::editing::{Plan, SEPARATE_STEP, apply_step, view_document};
+use crate::editing::{Plan, SEPARATE_STEP, apply_step, ordered, view_document};
+use crate::language_configuration::Language;
 use crate::store::EditorStore;
 use crate::view::{SelectionSet, ViewId};
 use ropey::{Rope, RopeSlice};
@@ -30,6 +31,8 @@ pub enum Command {
     ToSpaces,
     ToTabs,
     Detect,
+    ReindentLines,
+    ReindentSelectedLines,
 }
 
 impl Command {
@@ -38,6 +41,8 @@ impl Command {
             "editor.action.indentationToSpaces" => Some(Self::ToSpaces),
             "editor.action.indentationToTabs" => Some(Self::ToTabs),
             "editor.action.detectIndentation" => Some(Self::Detect),
+            "editor.action.reindentlines" => Some(Self::ReindentLines),
+            "editor.action.reindentselectedlines" => Some(Self::ReindentSelectedLines),
             _ => None,
         }
     }
@@ -53,11 +58,81 @@ pub fn run_command(
     command: Command,
     configuration: IndentConfiguration,
 ) -> Result<bool, EditorError> {
+    run_command_with_language(store, view, command, configuration, None)
+}
+
+pub fn run_command_with_language(
+    store: &mut EditorStore,
+    view: ViewId,
+    command: Command,
+    configuration: IndentConfiguration,
+    language: Option<Language<'_>>,
+) -> Result<bool, EditorError> {
     let (current, document) = view_document(store, view)?;
     if command.requires_write() && document.metadata.read_only {
         return Err(EditorError::ReadOnly);
     }
     let options = store.configure_indentation(document.id, configuration)?;
+    if matches!(
+        command,
+        Command::ReindentLines | Command::ReindentSelectedLines
+    ) {
+        let Some(language) = language else {
+            return Ok(false);
+        };
+        language.syntax.follow_edits(store);
+        let ranges = if command == Command::ReindentLines {
+            vec![0..document.rope.len_lines()]
+        } else {
+            current
+                .selection
+                .selections
+                .iter()
+                .map(|selection| {
+                    let bytes = ordered(selection);
+                    let first = document.rope.byte_to_line(bytes.start);
+                    let mut last = document.rope.byte_to_line(bytes.end);
+                    if first < last && document.rope.line_to_byte(last) == bytes.end {
+                        last -= 1;
+                    }
+                    first.saturating_sub(1)..last + 1
+                })
+                .collect()
+        };
+        let mut plan = Plan::new(&current.selection);
+        for range in ranges {
+            for edit in crate::auto_indent::reindent_edits(
+                &document,
+                language,
+                options,
+                range,
+                store.document_byte_limit(),
+            )? {
+                plan.edit(edit.bytes, edit.text);
+            }
+        }
+        if !plan.has_edits() {
+            return Ok(false);
+        }
+        store.set_composition(view, None)?;
+        let changed = apply_step(
+            store,
+            view,
+            plan.transaction(&document, view),
+            SEPARATE_STEP,
+        )?;
+        language.syntax.follow_edits(store);
+        if changed {
+            let selected = &store
+                .views()
+                .get(view)
+                .ok_or(EditorError::NotFound)?
+                .selection;
+            let head = selected.selections[selected.primary].head;
+            store.request_selection_reveal(view, head..head, false)?;
+        }
+        return Ok(changed);
+    }
     if command == Command::Detect {
         return store.override_indentation(
             document.id,
