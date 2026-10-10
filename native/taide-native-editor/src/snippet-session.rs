@@ -404,6 +404,9 @@ impl Session {
             if view.composition.is_some() {
                 return Err(EditorError::Refused);
             }
+            let indent = document
+                .model_indentation(state.indent)
+                .formatting_options();
             let mut edits = Vec::new();
             let mut bytes = 0usize;
             for snippet in &state.snippets {
@@ -426,13 +429,13 @@ impl Session {
                         value: &current,
                         cursor_index: context.cursor_index,
                         line_leading_whitespace: &context.line_leading_whitespace,
-                        indent: state.indent,
+                        indent,
                         line_ending: document.metadata.line_ending,
                     })?;
                     let text = normalize_transform(
                         &text,
                         &context.line_leading_whitespace,
-                        state.indent,
+                        indent,
                         document.metadata.line_ending,
                         self.limits.max_bytes,
                     )?;

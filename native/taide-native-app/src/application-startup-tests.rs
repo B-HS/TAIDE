@@ -58,6 +58,225 @@ fn wait_for(
 }
 
 #[test]
+fn actual_app의_저장_포맷은_표시_폭과_독립된_현재_편집_폭과_방식을_서버에_전달한다() {
+    use std::os::unix::fs::PermissionsExt;
+    use taide_native_editor::indent::{IndentOptions, IndentationChange};
+    const EDIT_SIZE: u32 = 4;
+    const CHANGED_SIZE: u32 = 2;
+    const DISPLAY_SIZE: u32 = 8;
+    const EXECUTABLE_MODE: u32 = 0o700;
+    let mut fixture = Fixture {
+        directory: std::env::temp_dir().join(format!(
+            "taide-native-format-options-app-{}",
+            ProjectId::new()
+        )),
+        application: None,
+    };
+    let data = fixture.directory.join("data");
+    let root = fixture.directory.join("project");
+    let bin = fixture.directory.join("bin");
+    for directory in [&data, &root, &bin] {
+        std::fs::create_dir_all(directory).unwrap();
+    }
+    let file = root.join("current.rs");
+    std::fs::write(&file, "input").unwrap();
+    let path = file.canonicalize().unwrap().to_str().unwrap().to_owned();
+    let root = root.canonicalize().unwrap().to_str().unwrap().to_owned();
+    let state = AppState::new(AppPaths::new(data));
+    {
+        let mut settings = state.settings.write();
+        settings.remote_access_enabled = false;
+        settings.ide_integration_enabled = false;
+        settings.agent_hooks_enabled = false;
+        settings.format_on_save = true;
+        settings.editor_tab_size = EDIT_SIZE;
+        settings.editor_insert_spaces = true;
+        settings.editor_detect_indentation = false;
+    }
+    let project = ProjectId::new();
+    let pane = PaneId::new();
+    let tab = TabId::new();
+    let slot = ShellSlotId::new();
+    state.projects.write().insert(
+        project.clone(),
+        Project {
+            id: project.clone(),
+            root: root.clone(),
+            name: "synthetic formatting".into(),
+            capabilities: Vec::new(),
+            root_missing: false,
+            last_opened_at: 0.0,
+            display: Default::default(),
+        },
+    );
+    let mut layout = taide_layout::service::default_layout();
+    layout.root = taide_model::layout::PaneNode::Leaf {
+        id: pane.clone(),
+        tabs: vec![Tab {
+            id: tab.clone(),
+            kind: TabKind::File { path: path.clone() },
+            title: "current.rs".into(),
+            pinned: false,
+            preview: false,
+            dirty: false,
+            view_state: None,
+        }],
+        active: Some(tab.clone()),
+    };
+    layout.focused_pane = pane;
+    state.layouts.write().insert(project.clone(), layout);
+    {
+        let mut session = state.session.write();
+        session.projects = vec![taide_model::project::ProjectRef {
+            id: project.clone(),
+            root,
+            name: "synthetic formatting".into(),
+            display: Default::default(),
+            root_missing: false,
+        }];
+        session.active_project = Some(project.clone());
+        session.focused_shell_slot = Some(slot.clone());
+        session.shell_slots = Some(taide_model::project::ShellSlotTree::Leaf {
+            slot_id: slot,
+            project_id: project,
+        });
+    }
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let tasks = TaskSupervisor::new(runtime.handle().clone());
+    let context = egui::Context::default();
+    fixture.application = Some(
+        NativeApplication::new(
+            &eframe::CreationContext::_new_kittest(context.clone()),
+            runtime,
+            state,
+            tasks,
+            bin.join("taide"),
+            Vec::new(),
+        )
+        .unwrap(),
+    );
+    let application = fixture.application.as_mut().unwrap();
+    let mut output = context.run_ui(egui::RawInput::default(), |ui| {
+        eframe::App::ui(application, ui, &mut eframe::Frame::_new_kittest())
+    });
+    output.textures_delta.clear();
+    wait_for(
+        application,
+        &context,
+        "format-document-read",
+        |application| application.files.contains_key(&path),
+    );
+    let document = application.files[&path].id;
+    let mock = std::env::current_exe()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("examples/native-lsp-mock");
+    assert!(mock.is_file());
+    let mock = mock.to_str().unwrap().replace('\'', "'\\''");
+    let executable = bin.join("rust-analyzer");
+    std::fs::write(
+        &executable,
+        format!("#!/bin/sh\nexec '{mock}' --native-format-options\n"),
+    )
+    .unwrap();
+    std::fs::set_permissions(
+        &executable,
+        std::fs::Permissions::from_mode(EXECUTABLE_MODE),
+    )
+    .unwrap();
+    let runtime = application.runtime.handle().clone();
+    runtime
+        .block_on(application.lsp.take().unwrap().disconnect())
+        .unwrap();
+    let repaint = context.clone();
+    application.lsp = Some(
+        crate::lsp::LspBridge::connect(
+            application.services.clone(),
+            bin.into_os_string(),
+            Arc::new(move || repaint.request_repaint()),
+        )
+        .unwrap(),
+    );
+    let configuration = crate::presentation_refresh::indent_configuration(
+        &application.services.state.settings.read(),
+    );
+    for (size, spaces) in [(EDIT_SIZE, true), (CHANGED_SIZE, false)] {
+        let change = if spaces {
+            IndentationChange::UseSpaces(size)
+        } else {
+            IndentationChange::UseTabs(size)
+        };
+        application
+            .store
+            .set_indentation(document, configuration, change)
+            .unwrap();
+        application
+            .store
+            .set_indentation(
+                document,
+                configuration,
+                IndentationChange::DisplaySize(DISPLAY_SIZE),
+            )
+            .unwrap();
+        let before = application.store.documents().snapshot(document).unwrap();
+        let input = format!("{}!", before.rope);
+        application
+            .store
+            .apply(
+                document,
+                Transaction {
+                    revision: before.revision,
+                    edits: vec![Edit {
+                        bytes: before.rope.len_bytes()..before.rope.len_bytes(),
+                        text: "!".into(),
+                    }],
+                    group: UndoGroup(0),
+                    origin: None,
+                    selection_after: None,
+                },
+            )
+            .unwrap();
+        application.request_tab_save(tab.clone(), Some(document), &eframe::Frame::_new_kittest());
+        wait_for(
+            application,
+            &context,
+            "format-document-save",
+            |application| {
+                !application
+                    .store
+                    .documents()
+                    .snapshot(document)
+                    .unwrap()
+                    .dirty
+            },
+        );
+        let saved = application.store.documents().snapshot(document).unwrap();
+        assert_eq!(
+            saved.rope.to_string(),
+            format!("formatted:{size}:{spaces}:{input}")
+        );
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            saved.rope.to_string()
+        );
+        let options = saved.model_indentation(IndentOptions {
+            tab_size: EDIT_SIZE,
+            insert_spaces: true,
+        });
+        assert_eq!(
+            (options.tab_size, options.indent_size, options.insert_spaces),
+            (DISPLAY_SIZE, size, spaces)
+        );
+    }
+}
+
+#[test]
 fn actual_app_constructor는_bundle_startup_settings_file_save와_정상_exit_owner를_연결한다() {
     let mut fixture = Fixture {
         directory: std::env::temp_dir()

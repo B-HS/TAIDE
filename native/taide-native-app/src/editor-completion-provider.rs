@@ -415,7 +415,9 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
         else {
             return Vec::new();
         };
-        let indent = self.editor.indent_options(&document);
+        let indent = document
+            .model_indentation(self.editor.indent_options(&document))
+            .formatting_options();
         if let Some(preview) = &entry.preview
             && preview.candidate == candidate
             && preview.selection == source.selection
@@ -676,7 +678,9 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
         let document = store.documents().snapshot(origin.snapshot.id)?;
         let options = PreparationOptions {
             alternate,
-            indent: self.editor.indent_options(&document),
+            indent: document
+                .model_indentation(self.editor.indent_options(&document))
+                .formatting_options(),
             limits: ParseLimits {
                 max_bytes: taide_model::file::REFUSED_FILE_BYTES as usize,
                 max_nesting: SNIPPET_NESTING_LIMIT,

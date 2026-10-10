@@ -1896,6 +1896,7 @@ impl NativeApplication {
                         return false;
                     }
                 };
+                let indent = current.model_indentation(indent).formatting_options();
                 let options = taide_lsp::native::protocol::lsp_types::FormattingOptions {
                     tab_size: indent.tab_size,
                     insert_spaces: indent.insert_spaces,

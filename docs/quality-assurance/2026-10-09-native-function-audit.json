@@ -1,6 +1,6 @@
 {
     "date": "2026-10-11",
-    "baseline": "c85d1ebe",
+    "baseline": "3589990b",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -792,7 +792,9 @@
                 "native/taide-native-editor/src/line-commands.rs",
                 "native/taide-native-app/src/editor-indentation.rs",
                 "native/taide-native-ui/src/command-palette.rs",
-                "native/taide-native-app/src/shell_keymap.rs"
+                "native/taide-native-app/src/shell_keymap.rs",
+                "native/taide-native-editor/src/snippet-session.rs",
+                "native/taide-native-app/src/editor-completion-provider.rs"
             ],
             "tests": [
                 "native/taide-native-editor/tests/language-typing.rs",
@@ -808,14 +810,16 @@
                 "native/taide-native-syntax/tests/token-pipeline.rs",
                 "native/taide-native-syntax/tests/token-pipeline/worker.rs",
                 "native/taide-native-app/src/editor-indentation.rs",
-                "native/taide-native-ui/src/command-palette-tests.rs"
+                "native/taide-native-ui/src/command-palette-tests.rs",
+                "native/taide-native-editor/tests/snippet-insertion.rs",
+                "native/taide-native-app/src/editor-completion-consumer-tests.rs"
             ],
             "reports": [
                 "docs/quality-assurance/2026-10-06-native-batch7-language-config.md",
                 "docs/quality-assurance/2026-10-10-native-batch23-editor.md",
                 "docs/utils/2026-10-10-monaco-reindent-oracle.js"
             ],
-            "limitation": "수동 선택창의 1~8·현재/기본/일치·상한·필터/키/마우스·IME/취소/포커스와 기존 세 명령의 native/재지정/readonly를 연결했습니다. 실제 본문·순수 peek·readonly 옵션 변경, 캡처 문서의 mirror/폐기/동일 키 교체·현재 설정을 확인했습니다. UI 전체 435·App 최종 서로 다른 803·locale 20의 1258건 통과·보호 Trash 3제외이며 App 최초 전체 1실패는 preview 준비 API 수정 후 해당 1건만 재검사했습니다. 실제 LSP 포맷/스니펫 독립 폭·내장 언어 서비스·동기 준비 대형 성능과 batch/실기/출시 게이트는 미완료입니다."
+            "limitation": "자동 감지·변환·indent/outdent·reindent·실제 구문 준비·두 폭/수동 선택·EditorConfig/전역 변경에 현재 저장 포맷/스니펫 소비를 연결했습니다. 본문/peek 미리보기 재평가·수락/undo·owner와 실제 앱 저장→child→파일의 현재 편집 폭/방식을 검증했습니다. 최신 Core 37대상/286통과/성능 1ignored·App 전체 67대상/780통과/26실패 후 실패 26건만 재검사해 최종 서로 다른 806통과·보호 Trash 3제외입니다. 최초 exit 101과 이미지/watcher 원인 미확정, 독립 실험 lock/fmt 검사 부채는 배치 31에 보존합니다. 변경하지 않은 UI 435·locale 20의 이전 전체 성공은 재사용합니다. 큰 tier·formatOnType/Paste·내장 언어 서비스는 별도 ID이며 전체 실기/성능/출시 통과를 뜻하지 않습니다."
         }
     },
     "rows": [
@@ -2234,9 +2238,9 @@
             "ts": "`code-editor.tsx:286-288, 405-409`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:96",
             "domain": "editor",
-            "status": "partial",
+            "status": "complete",
             "proof": "editor-indentation",
-            "note": "자동 감지·변환·reindent·실제 구문 준비·표시/편집 폭 분리에 이어 수동 1~8 선택창/세 명령과 실제 본문·peek·readonly·포커스/IME·문서 수명을 연결했습니다. UI/App/locale 서로 다른 1258건 통과·보호 3제외이며 실제 LSP 포맷/스니펫 독립 폭·내장 서비스/대형 성능·batch/실기/출시 게이트는 남아 partial입니다."
+            "note": "원본 tabSize·insertSpaces·EditorConfig와 감지/변환/indent/outdent, 전체/선택 reindent·수동 1~8 선택·현재 저장 포맷/스니펫 소비를 실제 본문/peek에 연결했습니다. 최신 Core 286·App 최종 서로 다른 806의 1092건 통과·보호 3/성능 ignored 1이며 최초 App 전체 26실패는 해당 검사만 재검사했습니다. 이미지/watcher 원인 미확정·독립 실험 lock/fmt와 전체 실기/성능/출시는 별도 부채입니다. 내장 서비스(editor-57)·formatOnType/Paste(editor-32)·큰 tier(editor-19)를 완료로 올리지 않습니다."
         },
         {
             "id": "editor-31",
@@ -7409,5 +7413,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "배치 22 최종 Read More 수정 후 UI 22대상/420통과·App 67대상/770통과의 --all-targets --no-fail-fast 전체를 각 1회 직접 실행해 exit 0을 확인했습니다. 관련 UI 29건과 실제 Consumer 20건은 그 전체 성공에 포함되므로 중복 합산하지 않습니다. 변경하지 않은 Editor 37대상/264통과/성능 1ignored·SDK 2대상/86통과·Syntax 13대상/165통과/성능 3ignored의 이전 성공을 재사용합니다. Editor/UI/App 서로 다른 성공은 1454건이며 SDK/Syntax를 포함한 1705건은 전체 기능률이 아닙니다. 7172a544 이전/버튼 추가 전 전체와 최초 macOS preview 5초 대기 1실패/정확한 영향 1통과는 QA에 보존하고 원인 미확정 부채를 배치 31에 남깁니다. 최신 전체에서 같은 macOS 검사도 통과했지만 원인 해결로 단정하지 않습니다. 원본 마우스 버튼 누락으로 editor-41 완료를 한 차례 정정한 뒤 실제 연결/검증 근거로 다시 complete로 올렸습니다. 보호 Trash 3·성능 ignored 4와 실제 pixel/OS IME/접근성/대형 성능/soak/출시/전환/삭제 게이트를 성공으로 세지 않습니다. frozen host/Wasm compile·최종 UI/App fmt check·manifest/lock/engine/동결 불변과 디스크 561GiB/70%를 확인했습니다. baseline 3f9a2c18은 Read More를 포함한 최종 제품/검증 커밋이며 일반 푸시·0/0을 확인했습니다. 기능표 588대상·288완료·92부분·112미연결·96미구현·잔여 300행, 최종 배치 33이며 전체 전환율/잔여 시간은 미산정입니다.\n이후 배치 23 작업 트리는 editor-51 공급/표시의 관련 상태 8·실제 child 2·실제 앱 본문 1건을 검증했습니다. 이전 전체 App 성공은 배치 22의 역사적 근거이며 이번 변경의 전체 게이트가 아닙니다. 기능표는 완료 288·부분 93·미연결 112·미구현 95·잔여 300행이고 전체 전환율/잔여 시간은 미산정입니다.\n배치 23 후속 하이라이트 이동/trigger/재사용은 상태 14·실제 앱 본문 1·UI 등록/플랫폼 20의 35건에서 통과했습니다. App 전체 테스트 대상 컴파일은 highlights-navigation-check-final.log에서 exit 0이며 변경 없는 child 2건의 성공은 재사용합니다. 전체 실행 게이트와 실제 peek/readonly/tier/추가 공급자 및 출시 게이트는 미완료이고 editor-51은 partial을 유지합니다.\n배치 23 재들여쓰기 단위는 Core 19·Syntax 1·UI 12·App 21의 서로 다른 53건이 통과했습니다. Monaco 2760비교는 Syntax 검사 1건에 포함되며 별도 성공 수가 아닙니다. frozen host 테스트 대상/Wasm lib 컴파일·변경 네 크레이트 fmt check를 확인했으나 batch 전체 실행은 아직이며 editor-30 partial을 유지합니다. baseline 29dc6d0c 이후 작업 트리의 근거이며 QA에 실패와 구문 캐시/수동 설정/포맷/전체 게이트의 잔여를 보존합니다.\n배치 23 재들여쓰기의 미준비 구문 준비 보완은 Core 19·Syntax 25·App 40의 서로 다른 84건에서 통과했습니다. 마지막 selected/readonly 보완의 2건과 0건 필터·기존 oracle 2760사례를 중복 합산하지 않습니다. 실제 TextMate 워커의 cold/partial·초기 peek·오래된 revision·언어 교체·정상 종료를 확인했고 frozen host/Wasm 컴파일·Core/Syntax/App fmt도 통과했습니다. baseline ec8504ad 이후 작업 트리의 근거이며 batch 23 전체/실기/성능/출시와 수동 설정/독립 두 폭/실제 포맷/내장 서비스 게이트는 미완료입니다. 동일 세대의 다른 설정에서 UnknownLanguage 실패를 재현한 뒤 설정/플러그인 문법 전체 비교를 적용했고 새 워커 1건과 영향 App 2건이 통과했습니다. 새 1건만 누적하며 세대 충돌/범위 거절/기존 표시 엔진 보존·종료 검증을 QA에 기록했습니다."
+    "validation": "배치 22 최종 Read More 수정 후 UI 22대상/420통과·App 67대상/770통과의 --all-targets --no-fail-fast 전체를 각 1회 직접 실행해 exit 0을 확인했습니다. 관련 UI 29건과 실제 Consumer 20건은 그 전체 성공에 포함되므로 중복 합산하지 않습니다. 변경하지 않은 Editor 37대상/264통과/성능 1ignored·SDK 2대상/86통과·Syntax 13대상/165통과/성능 3ignored의 이전 성공을 재사용합니다. Editor/UI/App 서로 다른 성공은 1454건이며 SDK/Syntax를 포함한 1705건은 전체 기능률이 아닙니다. 7172a544 이전/버튼 추가 전 전체와 최초 macOS preview 5초 대기 1실패/정확한 영향 1통과는 QA에 보존하고 원인 미확정 부채를 배치 31에 남깁니다. 최신 전체에서 같은 macOS 검사도 통과했지만 원인 해결로 단정하지 않습니다. 원본 마우스 버튼 누락으로 editor-41 완료를 한 차례 정정한 뒤 실제 연결/검증 근거로 다시 complete로 올렸습니다. 보호 Trash 3·성능 ignored 4와 실제 pixel/OS IME/접근성/대형 성능/soak/출시/전환/삭제 게이트를 성공으로 세지 않습니다. frozen host/Wasm compile·최종 UI/App fmt check·manifest/lock/engine/동결 불변과 디스크 561GiB/70%를 확인했습니다. baseline 3f9a2c18은 Read More를 포함한 최종 제품/검증 커밋이며 일반 푸시·0/0을 확인했습니다. 기능표 588대상·288완료·92부분·112미연결·96미구현·잔여 300행, 최종 배치 33이며 전체 전환율/잔여 시간은 미산정입니다.\n이후 배치 23 작업 트리는 editor-51 공급/표시의 관련 상태 8·실제 child 2·실제 앱 본문 1건을 검증했습니다. 이전 전체 App 성공은 배치 22의 역사적 근거이며 이번 변경의 전체 게이트가 아닙니다. 기능표는 완료 288·부분 93·미연결 112·미구현 95·잔여 300행이고 전체 전환율/잔여 시간은 미산정입니다.\n배치 23 후속 하이라이트 이동/trigger/재사용은 상태 14·실제 앱 본문 1·UI 등록/플랫폼 20의 35건에서 통과했습니다. App 전체 테스트 대상 컴파일은 highlights-navigation-check-final.log에서 exit 0이며 변경 없는 child 2건의 성공은 재사용합니다. 전체 실행 게이트와 실제 peek/readonly/tier/추가 공급자 및 출시 게이트는 미완료이고 editor-51은 partial을 유지합니다.\n배치 23 재들여쓰기 단위는 Core 19·Syntax 1·UI 12·App 21의 서로 다른 53건이 통과했습니다. Monaco 2760비교는 Syntax 검사 1건에 포함되며 별도 성공 수가 아닙니다. frozen host 테스트 대상/Wasm lib 컴파일·변경 네 크레이트 fmt check를 확인했으나 batch 전체 실행은 아직이며 editor-30 partial을 유지합니다. baseline 29dc6d0c 이후 작업 트리의 근거이며 QA에 실패와 구문 캐시/수동 설정/포맷/전체 게이트의 잔여를 보존합니다.\n배치 23 재들여쓰기의 미준비 구문 준비 보완은 Core 19·Syntax 25·App 40의 서로 다른 84건에서 통과했습니다. 마지막 selected/readonly 보완의 2건과 0건 필터·기존 oracle 2760사례를 중복 합산하지 않습니다. 실제 TextMate 워커의 cold/partial·초기 peek·오래된 revision·언어 교체·정상 종료를 확인했고 frozen host/Wasm 컴파일·Core/Syntax/App fmt도 통과했습니다. baseline ec8504ad 이후 작업 트리의 근거이며 batch 23 전체/실기/성능/출시와 수동 설정/독립 두 폭/실제 포맷/내장 서비스 게이트는 미완료입니다. 동일 세대의 다른 설정에서 UnknownLanguage 실패를 재현한 뒤 설정/플러그인 문법 전체 비교를 적용했고 새 워커 1건과 영향 App 2건이 통과했습니다. 새 1건만 누적하며 세대 충돌/범위 거절/기존 표시 엔진 보존·종료 검증을 QA에 기록했습니다.\n배치 23 현재 포맷/스니펫 편집 폭 보완은 Core 전체 37대상/286통과/성능 1ignored·App 전체 67대상/780통과/26실패 후 실패 26건만 권한이 허용된 환경에서 재검사해 최종 서로 다른 806통과입니다. 최신 Core/App 1092건이며 보호 Trash 3·최초 exit 101·이미지/watcher 원인 미확정과 독립 실험 lock/fmt 검사 부채를 보존합니다. 동결 host/Wasm 컴파일·Core/App fmt·소유 diff와 frozen/manifest/lock 변경 0, 525GiB/72%를 확인했습니다. editor-30 기능 묶음만 complete로 닫고 별도 editor-32/57/19와 배치 23 전체/실기/성능/출시는 미완료입니다. baseline 3589990b 이후 작업 트리이며 전체 전환율/잔여 시간은 미산정입니다."
 }

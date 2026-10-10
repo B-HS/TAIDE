@@ -370,3 +370,32 @@ locale-all.log는 --package taide-locale --all-targets --no-fail-fast·test-thre
 frozen-host.log의 --tests/inspection은 9.30초, frozen-wasm.log의 --lib/wasm32-unknown-unknown/canvas,inspection은 1.86초로 각각 exit 0입니다. UI/App/locale fmt check·소유 diff check exit 0, frozen/manifest/lock 변경 0입니다. 소유 Cargo/fmt는 각각 앞 세션의 실제 종료 뒤에만 실행했으며 최초 전체 중에도 Rust/포함 리소스를 수정하지 않았습니다. 디스크는 529GiB/72%이고 보호 앱/실제 데이터/OS 설정/클립보드/Keychain/Trash를 건드리지 않았으며 빌드 정리를 하지 않았습니다.
 
 b2d의 문서 모델/수동 선택창 단위를 닫고 editor-30은 실제 포맷/스니펫 독립 폭·내장 서비스/큰 tier 성능·배치 전체/실기/출시 게이트가 남아 partial을 유지합니다. 최신 요구사항 집계는 588대상/288완료/300미완료, 현재 배치 23/최종 33이며 전체 전환율과 잔여 시간은 미산정입니다.
+
+## 포맷과 스니펫의 현재 편집 폭 (2026-10-11)
+
+기준은 3589990b 이후입니다. 설치 Monaco textModel.js:452의 getFormattingOptions는 indentSize를 tabSize로 전달하고 :491의 normalizeIndentation도 indentSize를 사용합니다. snippetSession.js:338 이후의 최초 삽입과 :96의 활성 placeholder 변환은 현재 모델의 normalizeIndentation을 소비합니다. 변환 결과의 첫 줄은 그대로 두고 두 번째 줄부터 현재 편집 폭으로 정규화합니다. TS LSP formatting 어댑터는 이 옵션을 그대로 서버에 전달합니다.
+
+Core ModelIndentOptions::formatting_options는 문서의 편집 폭/방식을 기존 IndentOptions로 유도합니다. App의 실제 스니펫 미리보기·수락과 저장 포맷 DTO가 이를 사용하며, Core 활성 스니펫 변환은 최초 수락 시 보관한 값 대신 현재 문서 옵션을 읽습니다. 미설정 기존 fixture는 세션의 기존 fallback을 유지합니다. 미리보기 캐시도 현재 편집 폭/방식 변경으로 무효화하며 표시 폭·문서/revision/dirty·소유/readonly·오래된 요청의 기존 경계를 보존합니다.
+
+로그 접두사는 /private/tmp/taide-batch23-format-indent-입니다.
+
+- core-repro.log는 1실패·exit 101입니다. 수락 후 편집 폭을 4에서 2로 바꿔도 변환 요청에 4가 전달되었습니다. 최초 테스트의 단일 첫 줄 정규화 기대는 원본 계약에 맞춰 첫 줄 보존/둘째 줄 정규화로 수정했습니다.
+- consumer-repro.log는 테스트에서 다른 하위 모듈의 private Preview.ghosts를 읽어 E0616으로 컴파일에 실패했습니다. 제품 필드의 가시성을 넓히지 않고 실제 egui에 그린 문자열을 확인하도록 테스트를 수정했습니다.
+- mock-build.log는 기존 실제 child에 FormattingOptions echo 모드만 추가한 빌드의 exit 0입니다. app-repro.log는 세 검사 모두 제품 실패·exit 101입니다. 편집 폭 4/표시 폭 8에서 저장 결과는 formatted:8:true:input!, 미리보기는 공백 8개 뒤 body, 수락도 console 다음 줄에 공백 8개를 만들었습니다.
+- core-all.log는 --all-targets --no-fail-fast를 직접 1회 실행해 37대상/286통과/0실패/기존 성능 1ignored·exit 0입니다. 새 활성 세션 검사에서 현재 편집 폭 2·둘째 줄 정규화와 표시 폭 8 보존을 확인했습니다. 최초 실패/중간 결과를 중복 합산하지 않습니다.
+
+신규 App 검사는 실제 NativeApplication의 request_tab_save에서 LspBridge/실제 child/파일 저장까지 전달되는 4/공백과 변경 후 2/탭을 확인합니다. 실제 Consumer는 본문·별도 owner가 있는 peek의 미리보기 재평가, 수락·undo·원래 owner 보존을 확인합니다. 외부 언어 서비스의 새 기능·엔진·의존성이나 원본 버그를 추가하지 않았습니다.
+
+### 전체 실행과 최종 판정
+
+app-all.log는 --all-targets --no-fail-fast·inspection·test-threads=1·보호 Trash 3제외로 직접 1회 실행했습니다. 67대상/780통과/26실패/0ignored·exit 101이며 새 저장/미리보기/수락 3건은 모두 통과했습니다. 기존 로컬 서버/preview listener의 Operation not permitted·PermissionDenied와 그 시작 실패의 후속 단언, macOS ImageIO의 decoded pixels materialize 실패 1건, 실제 임시 OS watcher의 fs=0/git=0 대기 실패 1건을 관찰했습니다. macOS 이미지와 watcher의 원인을 포트 권한 오류로 단정하지 않습니다.
+
+소유 전체 세션의 종료 뒤 이미 컴파일한 8개 테스트 실행 파일에서 실패 이름 26개만 --exact·test-threads=1로 권한이 허용된 환경에서 실행했습니다. app-permission-retry.log와 retry-run.log에서 26통과/0실패·exit 0을 확인했습니다. 성공 780건은 반복하지 않았으며 제품 코드를 변경하지 않았습니다. 최종 서로 다른 App 성공은 806건이고 최초 전체의 exit 101은 그대로 기록합니다. 이미지·watcher의 재검사 성공은 원인 해결의 증명이 아니며 배치 31의 실행 환경/soak 부채로 남깁니다. Core 286·App 806의 최신 서로 다른 성공은 1092건입니다. 변경하지 않은 UI 435·locale 20의 이전 전체 성공을 재사용하며 이 숫자를 원자 기능 수나 전체 전환율로 쓰지 않습니다.
+
+공유 mock은 App example 빌드와 실제 child를 사용하는 App 전체에서 검증했습니다. 추가로 시도한 독립 experiments/lsp-coordinator-spike의 --locked --offline 전체 실행은 기존 Cargo.lock 불일치로 컴파일 전 exit 101입니다. 잠금 파일을 바꾸거나 --locked를 제거하지 않았으며 실행하지 않은 테스트를 통과로 보고하지 않습니다. Core/App fmt check는 exit 0입니다. 독립 실험의 fmt check는 기존 2021/2024 공유 mock 스타일 차이와 수정하지 않은 native-session.rs 형식 차이로 exit 1이며 해당 파일을 재포맷하지 않습니다. 두 독립 실험 검사 부채도 배치 31에 보존합니다.
+
+frozen-host.log의 host --tests/inspection은 10.09초, frozen-wasm.log의 --lib/wasm32-unknown-unknown/canvas,inspection은 3.26초이며 각각 exit 0입니다. 소유 제품 diff check exit 0, frozen/manifest/lock 변경 0, 디스크 여유 525GiB/72%입니다. Cargo/fmt는 이전 소유 세션이 실제 종료한 뒤 직렬 실행했으며 보호 앱/실제 데이터/OS 설정/클립보드/Keychain/Trash와 빌드 산출물을 변경·정리하지 않았습니다.
+
+editor-30의 원본 요구사항은 tabSize·insertSpaces·EditorConfig와 감지/변환/indent/outdent입니다. 기존 전체/선택 재들여쓰기·수동 선택창·문서 설정/수명·실제 본문/peek 검증에 현재 포맷/스니펫 소비를 더해 기능 판정을 complete로 갱신합니다. formatOnType/formatOnPaste(editor-32), 내장 언어 서비스(editor-57), 큰 tier(editor-19), 전체 실기/성능/출시는 별도 요구사항/게이트로 계속 미완료입니다. 배치 23 전체를 완료로 올리지 않습니다. 최신 요구사항은 588대상/289완료/299미완료이며 배치 23/최종 33 계획과 전체 전환율·잔여 시간 미산정을 유지합니다.
+
+기능표 생성의 최초 실행은 experiments/ 경로를 직접 source 근거에 넣어 기존 경로 검증에서 Invalid evidence path로 실패했습니다. 검증기를 넓히지 않고 공유 mock 근거는 이 QA의 실제 빌드/child 결과로 보존하며 native Consumer/세션/실제 앱 테스트 경로로 연결했습니다. 같은 감사 도구의 다음 실행은 599행/309근거 경로·정합성 exit 0입니다.

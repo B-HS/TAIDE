@@ -27,6 +27,8 @@ const SESSION_INDENT_WIDTH: usize = BYTE_LIMIT * 3 / 4;
 const SESSION_CHOICE_WIDTH: usize = BYTE_LIMIT / 2;
 const SESSION_CURSOR_CHOICE_COUNT: usize = MARKER_LIMIT / 2 + 1;
 const FOLLOW_TAB_SIZE: u32 = 4;
+const CHANGED_INDENT_SIZE: u32 = 2;
+const DISPLAY_TAB_SIZE: u32 = 8;
 const NESTED_MARKER_CAPACITY: usize = 3;
 const NESTED_DEPTH: usize = 20;
 const REPLACED_PARENT_MARKERS: usize = 4;
@@ -277,6 +279,109 @@ fn fixture(text: &str, read_only: bool) -> (EditorStore, DocumentId, ViewId) {
         )
         .unwrap();
     (store, document, view)
+}
+
+#[test]
+fn snippet_변환은_수락_후_바뀐_편집_폭을_쓰고_표시_폭을_보존한다() {
+    use taide_native_editor::indent::{IndentConfiguration, IndentationChange};
+    let (mut store, document, view) = fixture("", false);
+    let configuration = IndentConfiguration {
+        defaults: IndentOptions {
+            tab_size: FOLLOW_TAB_SIZE,
+            insert_spaces: true,
+        },
+        detect_indentation: false,
+    };
+    store
+        .set_indentation(
+            document,
+            configuration,
+            IndentationChange::UseSpaces(FOLLOW_TAB_SIZE),
+        )
+        .unwrap();
+    store
+        .set_indentation(
+            document,
+            configuration,
+            IndentationChange::DisplaySize(DISPLAY_TAB_SIZE),
+        )
+        .unwrap();
+    let markers = parse_complete(
+        "${1:word}${1/(.*)/$1/}$0",
+        limits(),
+        FinalTabstopOptions {
+            insert: true,
+            enforce: false,
+        },
+        |source, _| {
+            Some(RegexMetadata {
+                source: source.to_owned(),
+                ignore_case: false,
+                global: false,
+            })
+        },
+    )
+    .unwrap();
+    let snippet = PreparedSnippet {
+        replace: 0..0,
+        expansion: expand(
+            &markers,
+            limits(),
+            |_| Ok(None),
+            |_, value| Ok(value.to_owned()),
+        )
+        .unwrap(),
+    };
+    let owner = store.views().get(view).unwrap().clone();
+    let insertion = insert(&mut store, &owner, 0, vec![snippet], limits()).unwrap();
+    let mut session = Session::new(&store, insertion, configuration.defaults, limits()).unwrap();
+    store
+        .set_indentation(
+            document,
+            configuration,
+            IndentationChange::UseSpaces(CHANGED_INDENT_SIZE),
+        )
+        .unwrap();
+    store
+        .set_indentation(
+            document,
+            configuration,
+            IndentationChange::DisplaySize(DISPLAY_TAB_SIZE),
+        )
+        .unwrap();
+    let mut seen = Vec::new();
+    session
+        .step(&mut store, true, |request| {
+            seen.push(request.indent);
+            Ok("value\n\tindented".into())
+        })
+        .unwrap();
+    assert_eq!(
+        seen,
+        [IndentOptions {
+            tab_size: CHANGED_INDENT_SIZE,
+            insert_spaces: true
+        }]
+    );
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        "wordvalue\n  indented"
+    );
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .indent_options
+            .unwrap()
+            .tab_size,
+        DISPLAY_TAB_SIZE
+    );
 }
 
 fn prepared(template: &str, replace: Range<usize>) -> PreparedSnippet {

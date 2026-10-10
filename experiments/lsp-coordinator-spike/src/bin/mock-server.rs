@@ -32,6 +32,7 @@ struct MockServer {
     should_send_client_progress: bool,
     should_track_saves: bool,
     should_format_documents: bool,
+    should_echo_format_options: bool,
     should_run_save_actions: bool,
     should_publish_raw_diagnostics: bool,
     should_publish_inactive_diagnostics: bool,
@@ -1243,12 +1244,23 @@ impl MockServer {
                     .trim_end_matches('\r')
                     .encode_utf16()
                     .count();
+                let formatted = if self.should_echo_format_options {
+                    let tab_size = params["options"]["tabSize"]
+                        .as_u64()
+                        .ok_or_else(|| invalid("format requires tabSize"))?;
+                    let insert_spaces = params["options"]["insertSpaces"]
+                        .as_bool()
+                        .ok_or_else(|| invalid("format requires insertSpaces"))?;
+                    format!("formatted:{tab_size}:{insert_spaces}:{text}")
+                } else {
+                    format!("formatted:{text}")
+                };
                 write_response(
                     output,
                     id.ok_or_else(|| invalid("format requires ID"))?,
                     json!([{
                         "range":{"start":{"line":0,"character":0},"end":{"line":line,"character":character}},
-                        "newText":format!("formatted:{text}")
+                        "newText":formatted
                     }]),
                 )?;
             }
@@ -1439,6 +1451,11 @@ fn main() -> io::Result<ExitCode> {
         Some("--native-document") => {
             server.should_track_saves = true;
             server.should_format_documents = true;
+        }
+        Some("--native-format-options") => {
+            server.should_track_saves = true;
+            server.should_format_documents = true;
+            server.should_echo_format_options = true;
         }
         Some("--native-actions") => {
             server.should_track_saves = true;

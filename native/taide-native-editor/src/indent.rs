@@ -27,6 +27,15 @@ pub struct ModelIndentOptions {
     pub insert_spaces: bool,
 }
 
+impl ModelIndentOptions {
+    pub fn formatting_options(self) -> IndentOptions {
+        IndentOptions {
+            tab_size: self.indent_size.max(1),
+            insert_spaces: self.insert_spaces,
+        }
+    }
+}
+
 impl From<IndentOptions> for ModelIndentOptions {
     fn from(options: IndentOptions) -> Self {
         Self {

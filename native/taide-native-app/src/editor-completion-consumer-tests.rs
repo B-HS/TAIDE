@@ -32,6 +32,156 @@ const SCREEN: egui::Vec2 = egui::vec2(800.0, 600.0);
 const FRAME_STEP: f64 = 0.1;
 const CLIPBOARD_DEADLINE: Duration = Duration::from_secs(5);
 const POPUP_READY_FRAMES: usize = 4;
+const MODEL_INDENT_SIZE: u32 = 4;
+const MODEL_DISPLAY_SIZE: u32 = 8;
+const CHANGED_INDENT_SIZE: u32 = 2;
+const SNIPPET_PREFIX_BYTES: usize = 3;
+
+fn indentation_fixture(embedded: bool) -> Fixture {
+    use taide_native_editor::indent::{IndentConfiguration, IndentOptions, IndentationChange};
+    let mut files = snippets().to_vec();
+    files[0].snippets.get_mut("Mirrored").unwrap().body =
+        SnippetStringOrList::Single("console\n\t${1:body}$0".into());
+    let mut fixture = Fixture::new("con", SNIPPET_PREFIX_BYTES, Arc::from(files));
+    if embedded {
+        let document = fixture
+            .store
+            .open_untitled(TabId::new(), "owner", "rust".into())
+            .unwrap();
+        fixture.owner = fixture
+            .store
+            .attach_view(
+                ViewKey {
+                    window: "synthetic".into(),
+                    pane: PaneId::new(),
+                    tab: TabId::new(),
+                },
+                document,
+            )
+            .unwrap();
+    }
+    let configuration = IndentConfiguration {
+        defaults: IndentOptions {
+            tab_size: MODEL_INDENT_SIZE,
+            insert_spaces: true,
+        },
+        detect_indentation: false,
+    };
+    fixture
+        .store
+        .set_indentation(
+            fixture.document,
+            configuration,
+            IndentationChange::UseSpaces(MODEL_INDENT_SIZE),
+        )
+        .unwrap();
+    fixture
+        .store
+        .set_indentation(
+            fixture.document,
+            configuration,
+            IndentationChange::DisplaySize(MODEL_DISPLAY_SIZE),
+        )
+        .unwrap();
+    fixture
+}
+
+#[test]
+fn 실제_snippet_미리보기는_표시_폭과_독립된_편집_폭과_옵션_변경을_소비한다() {
+    use taide_native_editor::indent::{IndentConfiguration, IndentOptions, IndentationChange};
+    for embedded in [false, true] {
+        let mut fixture = indentation_fixture(embedded);
+        fixture.presentation.options.suggest_preview = true;
+        let before = fixture
+            .store
+            .documents()
+            .snapshot(fixture.document)
+            .unwrap();
+        fixture.frame(Vec::new(), &[Command::Trigger]);
+        assert!(fixture.state.entries[&fixture.view].preview.is_some());
+        assert!(
+            fixture.painted.iter().any(|text| text == "    body"),
+            "embedded={embedded}; painted={:?}",
+            fixture.painted
+        );
+        let configuration = IndentConfiguration {
+            defaults: IndentOptions {
+                tab_size: MODEL_INDENT_SIZE,
+                insert_spaces: true,
+            },
+            detect_indentation: false,
+        };
+        fixture
+            .store
+            .set_indentation(
+                fixture.document,
+                configuration,
+                IndentationChange::UseSpaces(CHANGED_INDENT_SIZE),
+            )
+            .unwrap();
+        fixture
+            .store
+            .set_indentation(
+                fixture.document,
+                configuration,
+                IndentationChange::DisplaySize(MODEL_DISPLAY_SIZE),
+            )
+            .unwrap();
+        fixture.frame(Vec::new(), &[]);
+        assert!(fixture.state.entries[&fixture.view].preview.is_some());
+        assert!(
+            fixture.painted.iter().any(|text| text == "  body"),
+            "embedded={embedded}; painted={:?}",
+            fixture.painted
+        );
+        let after = fixture
+            .store
+            .documents()
+            .snapshot(fixture.document)
+            .unwrap();
+        assert_eq!(
+            (after.rope, after.revision, after.dirty),
+            (before.rope, before.revision, before.dirty)
+        );
+    }
+}
+
+#[test]
+fn 실제_snippet_수락은_본문과_peek에서_편집_폭을_쓰고_undo와_소유_문서를_보존한다() {
+    for embedded in [false, true] {
+        let mut fixture = indentation_fixture(embedded);
+        let owner = fixture.store.views().get(fixture.owner).unwrap().document;
+        let owner_before = fixture.store.documents().snapshot(owner).unwrap();
+        fixture.frame(Vec::new(), &[Command::Trigger]);
+        assert!(fixture.frame(vec![key(Key::Enter, Modifiers::NONE)], &[]));
+        assert_eq!(
+            fixture.text(fixture.document),
+            "console\n    body",
+            "embedded={embedded}"
+        );
+        assert!(fixture.state.snippet_sessions.contains_key(&fixture.view));
+        if embedded {
+            let owner_after = fixture.store.documents().snapshot(owner).unwrap();
+            assert_eq!(
+                (owner_after.rope, owner_after.revision, owner_after.dirty),
+                (owner_before.rope, owner_before.revision, owner_before.dirty)
+            );
+        }
+        assert!(fixture.store.undo(fixture.document).unwrap());
+        assert_eq!(fixture.text(fixture.document), "con");
+        assert_eq!(
+            fixture
+                .store
+                .documents()
+                .snapshot(fixture.document)
+                .unwrap()
+                .indent_options
+                .unwrap()
+                .tab_size,
+            MODEL_DISPLAY_SIZE
+        );
+    }
+}
 
 #[test]
 fn 실제_completion_provider는_색_견본을_표시하고_후보_교체와_닫힘에서_캐시를_회수한다() {

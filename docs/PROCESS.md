@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: 배치 23의 수동 들여쓰기 선택창과 세 명령을 기존 팔레트/재지정 키에 연결했습니다. 원본 1~8·현재/기본·readonly·필터·선택/취소·IME/포커스, 실제 본문/peek의 원래 문서 적용·격리·수명·현재 설정을 확인했습니다. UI 전체 22대상/435건·App 전체 67대상의 1실패 수정/해당 1건 재검사 후 서로 다른 803건·locale 전체 20건, 총 1258건 통과·미해결 실패 0·보호 Trash 3제외입니다. 동결 host/Wasm 컴파일과 UI/App/locale fmt·소유 diff 및 frozen/manifest/lock 변경 0, 디스크 529GiB/72%입니다. Core 변경 없는 전체 285건/성능 1ignored 근거는 재사용하며 실제 LSP 포맷/스니펫 독립 폭·내장 언어 서비스와 배치/실기/성능/출시 게이트는 미완료로 editor-30 partial을 유지합니다. 588대상·288완료·300미완료·배치 23/최종 33이며 전체 전환율/잔여 시간은 미산정입니다. main 직접 수행·서브에이전트/workflow 없음·소유 Cargo/fmt 직렬을 유지하며 검증한 변경을 선별 커밋·일반 푸시합니다.
+현재 상태: 표시 폭과 독립된 편집 폭을 실제 저장 LSP 요청·스니펫 미리보기/수락·현재 활성 변환에 연결했습니다. Core 전체 37대상/286통과/기존 성능 1ignored·App 전체 67대상/780통과/26실패 후 실패 26건만 권한이 허용된 환경에서 재검사해 모두 통과했습니다. 최종 서로 다른 App 806건·보호 Trash 3제외, Core/App 1092건이며 최초 전체 exit 101과 이미지/OS watcher 원인 미확정 부채는 QA에 보존합니다. 동결 host/Wasm 컴파일·Core/App fmt·소유 diff와 frozen/manifest/lock 변경 0·525GiB/72%를 확인했습니다. 공유 mock의 독립 실험 전체는 기존 lock 불일치로 실행 불가, 실험 fmt의 기존 스타일 차이는 배치 31 부채입니다. 원본 editor-30 기능 묶음은 complete로 닫으며 내장 서비스(editor-57)·formatOnType/Paste(editor-32)·큰 tier/실기/성능/출시는 별도 미완료입니다. 588대상·289완료·299미완료·배치 23/최종 33, 전체 전환율/잔여 시간은 미산정입니다. main 직접 수행·서브에이전트/workflow 없음·소유 Cargo/fmt 직렬과 검증한 변경의 선별 커밋·일반 푸시를 유지합니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 
@@ -18,7 +18,7 @@
 - [x] a3e. 기본 텍스트 공급자 — 기존 FindQuery의 언어별 단어·whole word·대소문자/기본 구분자·999 상한·20Mi UTF-16/30만 줄 게이트와 1초 검색 상한을 적용했습니다. 프로젝트 없는 Consumer는 Option으로 나타내며 가짜 ID를 만들지 않습니다. 유효한 빈/null은 대체하지 않고 전체 오류/미지원/연결 없음은 Text 표시로 이어집니다. 상태/child 24건과 실제 앱 1건에서 peek/mirror/readonly·입력·취소·LSP 복원을 확인했습니다. 실제 서버 세대/동적 capability 변경·대형 성능·배치 전체 게이트는 별도 미완료입니다.
 - [ ] b. 표시·입력·tier — editor-4/7/15/16/19/30의 리거처·semantic token·minimap·sticky scroll·대형 tier·들여쓰기 설정을 원본 앱 동작으로 연결합니다.
 - [x] b1. 고정 줄 정의 이동 — 고정 줄의 실제 문자 위치와 hover 밑줄·플랫폼 보조키/옆 열기를 기존 정의 공급자에 연결했습니다. 2번째 바이트 대신 본문의 29번째 바이트 요청을 먼저 재현했고 최신 위치 15·고정 줄 17·실제 앱 1건이 통과했습니다. snapshot 좌표·여백 차단·드래그/스크롤 무효화·기존 본문/접기 동작과 정상 읽기 전용 탐색을 확인했습니다. batch 전체/실기 게이트는 별도이며 기존 성공을 중복 합산하지 않습니다.
-- [ ] b2. 들여쓰기 설정 — editor-30의 detectIndentation·탭/공백 변환·reindent와 수동 설정/EditorConfig/전역 변경 관계를 원본 모델 옵션·명령에서 확인하고 기존 편집 트랜잭션에 연결합니다. 원본과 현재 코드로 필요한 구현을 먼저 좁히고 관련 검사로 검증합니다.
+- [x] b2. 들여쓰기 설정 — editor-30의 자동 감지·탭/공백 변환·indent/outdent·전체/선택 reindent·두 폭/수동 선택·EditorConfig/전역 변경 관계를 실제 본문/peek와 저장/스니펫 소비에 연결했습니다. 원본 요구사항의 기능 묶음을 complete로 닫으며 별도 editor-32/57/19와 실기/성능/출시는 c/b/f에 유지합니다.
 - [x] b2a. 자동 감지와 문서 옵션 — 실제 앱의 2칸 문서를 4칸으로 처리하는 실패를 재현한 뒤 설치 Monaco 100사례의 감지 규칙을 Rope에 적용했습니다. 문서별 값을 본문/peek/저장 포맷에 연결하며 최초 1만 줄·빈 줄/정렬·Unicode·EditorConfig/언어·전역 설정 변경/텍스트 편집/undo·mirror/readonly를 Editor 9·UI 8·App 13의 30건에서 확인했습니다. readonly fixture 가정/Provider 초기화·Rope API 컴파일 실패는 QA에 보존합니다. 포맷의 실제 LSP 값·변환/reindent/수동 명령·전체 배치/실기/성능은 b2/f에 남깁니다.
 - [x] b2b. 변환·명시 감지 명령 — 원본 indentationToSpaces/indentationToTabs/detectIndentation을 readonly 게이팅·기존 팔레트/재지정 키·본문/peek에 연결했습니다. 선행 공백만 변환하며 같은 프레임/다음 큐의 최신 옵션·주 선택/undo·용량/readonly 거절·EditorConfig 명시 override를 관련 Core 13·UI 94·App 21의 128건에서 확인했습니다. 미리보기의 이전 revision 기대값 두 곳을 놓친 재검사 실패는 QA에 보존하며 수동 폭/방식 QuickPick·reindent·실제 포맷 요청 값과 전체 게이트는 b2/f에 남깁니다.
 - [x] b2c. 전체/선택 재들여쓰기 — 설치 Monaco indentation의 첫 줄 기준·선택 끝의 첫 열 제외·언어 규칙/토큰·문자열 줄 보존을 기존 core/앱 명령 경계에 연결합니다. 원본 비교와 다중 선택/undo·readonly/용량 거절, 본문/peek의 실제 소비를 확인하고 관련 검사만 실행합니다. 독립 두 폭 모델/수동 선택창은 b2d에서 닫았고 실제 포맷 요청 값은 b2에 유지합니다.
@@ -27,7 +27,8 @@
 - [x] b2d. 수동 폭/방식 — 기존 IndentOptions와 동결 browser-editor의 두 생성 계약을 보존하고 native 문서의 tabSize/indentSize 및 원본의 자동 연결/명시 폭 상태를 분리합니다. Tab/Enter/삭제/줄 명령/reindent·표시/wrap·mirror/readonly/옵션/undo·설정/EditorConfig 변경을 원본과 비교한 뒤 기존 팔레트에 1~8·현재/기본 표시·필터·선택/취소·소스 수명과 원본 세 명령을 연결합니다. 관련 검사와 변경 위험에 맞는 Core 전체·UI/App 회귀, 동결 컴파일·기록·선별 Git을 수행하며 실제 포맷과 내장 서비스/전체 게이트는 별도 유지합니다.
 - [x] b2d1. 문서 모델과 편집 소비 — legacy 두 필드와 frozen 생성 계약을 유지하며 tabSize/indentSize·자동/숫자 상태를 분리했습니다. 표시 8/편집 4의 Tab 오입력과 EditorConfig의 미지정 축 초기화를 실제 실패로 재현해 수정했습니다. 공백/탭·혼합 접두부·Backspace/Enter·줄 이동/삽입/shift·reindent·감지/변환·옵션/undo·readonly/mirror·EditorConfig/전역 변경과 실제 본문 입력/그리기를 최종 Core 전체 285·UI 84·App 큐 9 및 영향 없는 Syntax 38·App 구문 2의 성공 재사용, 총 418건으로 확인했습니다. Core 기존 성능 1건은 ignored이며 수동 선택창/세 명령·본문/peek 통합·실제 포맷/스니펫과 배치 전체 게이트는 b2d/b2/f에 남깁니다.
 - [x] b2d2. 수동 선택창과 세 명령 — 기존 팔레트의 1~8·현재/기본/일치·필터/키/마우스·IME/취소/포커스를 재사용하고 native 등록/재지정/readonly에 연결했습니다. 실제 본문과 순수 peek 입력 대상의 ID/키 캡처·텍스트/revision/dirty 보존·격리·mirror/교체/현재 설정을 UI 전체 435·App 최종 서로 다른 803·locale 20, 총 1258건에서 확인했습니다. 기존 preview 준비 코드의 표시/편집 폭 기대 실패 1건은 새 옵션 API로 수정 후 해당 검사만 통과했으며 이전 성공은 재사용했습니다. 보호 Trash 3제외·동결 host/Wasm/fmt·소유 diff/manifest/lock/frozen 변경 0·529GiB/72%를 보존하며 실제 포맷/스니펫·내장 서비스와 전체 배치/실기/출시는 미완료입니다.
-- [ ] b2e. 실제 서비스의 들여쓰기 값 — 설치 Monaco의 포맷/스니펫 옵션 생성과 현재 typed LSP/완성/저장 경로를 대조해 tabSize/indentSize/방식의 실제 소비를 확인합니다. 표시 8/편집 4·설정 변경·본문/peek·readonly에서 필요한 실패를 재현한 뒤 기존 포트로 연결하고 관련 검사/성공 재사용·기록·선별 Git을 수행합니다. 원본 버그나 내부 수치를 강제로 복제하지 않습니다.
+- [x] b2e. 실제 서비스의 들여쓰기 값 — 설치 Monaco의 getFormattingOptions/normalizeIndentation과 현재 typed 저장/완성 경로를 대조하고 표시 8/편집 4의 실제 실패를 먼저 재현했습니다. 현재 문서 편집 폭/방식을 실제 DTO·미리보기·수락·활성 변환에 연결했습니다. 새로운 언어 서비스나 원본 버그를 만들지 않았으며 별도 미구현 공급자는 c에 유지합니다.
+- [x] b2e1. 포맷/스니펫의 실제 폭 — Core 전체 286·App 최종 서로 다른 806, 총 1092건에서 본문/peek 미리보기·수락/undo·owner와 변경 후 편집 폭/방식·실제 앱 저장→child→파일을 확인했습니다. App 최초 전체 780통과/26실패는 성공을 반복하지 않고 실패 26건만 재검사해 통과했으며 보호 3·성능 ignored 1·이미지/watcher 원인 미확정 부채를 유지합니다. frozen host/Wasm·Core/App fmt·소유 diff/graph·디스크·QA를 확인했습니다. 독립 실험 lock/fmt 검사 부채는 배치 31에 남기며 선별 Git으로 이 단위를 저장합니다.
 - [ ] c. 명령·LSP·언어 서비스 — editor-32/33/34/46/47/49/50/51/52/53/56/57/58의 format on type/paste·메뉴/키·rename/code action/format/inlay/highlight/selection/lens/relay·내장 언어 서비스·파일 간 opener를 실제 공급/취소/소유/편집 트랜잭션에 연결합니다.
 - [x] c1. 하이라이트 공급·표시 — 설치 SDK typed API와 기존 LspBridge worker·App 상태/본문·peek 장식을 연결했습니다. 오래된 응답/편집/뷰 회수/공급자 변경·재요청 억제·종류/테마·mirror와 실제 child의 UTF-16/빈/null/오류/미지원/취소·실제 앱 본문 그리기가 관련 11건에서 통과했습니다. 초기 컴파일 오류·sRGB 색 공간 오류·테스트 서버 초기화 모드 누락을 해결한 근거를 QA에 보존했습니다. 후속 이동·실행 검증은 a2에 기록하며 실제 peek 시작·추가 경계와 전체 게이트 전에는 complete로 올리지 않습니다.
 - [ ] d. 문서·뷰·연계 — editor-59/64/67/72/73/74/75/76/81/82/83의 로딩/오류·삭제 draft·뷰 상태 복원·Markdown 분할·Git gutter/conflict/blame/diff·SearchEditor·터미널 실행·IDE 선택 동기화를 기존 서비스에 연결합니다.
@@ -35,7 +36,7 @@
 - [ ] f. 실제 앱·전체 게이트 — 닫을 기능의 실제 앱/child/mirror·readonly/tier/다중 커서/IME·정상 종료/회귀를 확인하고 변경 크레이트 전체 대상을 --no-fail-fast로 직접 1회 실행합니다. 성공 결과는 재사용하고 실패 영향만 재검사합니다. frozen host/Wasm compile·fmt/diff·manifest/lock/engine/보호 경계·디스크와 배치 31 실기/성능/신뢰성 부채를 구분합니다.
 - [ ] g. 완료 근거·선별 Git — 실제 닫힌 ID만 QA/기능표/PROCESS에 반영하고 논리 단위 선별 커밋·일반 푸시합니다. 배치 24를 기존 계획 안에서 이어가며 배치 번호를 세부 수정마다 늘리지 않습니다.
 
-다음 행동: b2에서 실제 LSP 포맷 요청과 스니펫의 tabSize/indentSize·방식 소비를 원본/현재 코드와 비교하고, 표시 8/편집 4 및 readonly/본문/peek의 필요한 실패를 재현해 연결합니다. 내장 언어 서비스·나머지 배치 23 요구사항을 같은 배치 안에서 이어가며 변경 없는 성공 검사는 반복하지 않습니다.
+다음 행동: c에서 editor-32/34/49의 formatOnType·formatOnPaste·명령 포맷과 실제 공급자/취소/트랜잭션의 원본 경계를 좁히고 필요한 실패를 먼저 재현합니다. 배치 23의 남은 사용자 기능과 내장 언어 서비스를 같은 배치 안에서 이어가며 변경 없는 성공 검사는 반복하지 않습니다.
 
 ## 완료: 배치 22 — 자동완성과 사용자 스니펫 소비 (2026-10-10)
 
