@@ -39,3 +39,9 @@ snippet-default-input-first.log의 기본 입력 검사는 exit 101·1통과/1�
 후속 검사에서 인접 mirror의 두 번째 시작이 첫 번째 편집까지 늘어나는 실패를 관찰했습니다. snippet-default-input-boundary-diagnostic.log의 실제 범위는 0..6과 0..12였습니다. 같은 active 그룹이어도 편집을 포함하는 placeholder만 경계를 늘리고, 인접한 다음 placeholder 시작은 앞 placeholder 끝에서의 삽입을 따라 이동하도록 고쳤습니다. 내부 range mapper를 기본 입력과 기존 Session.replace/step이 함께 소비합니다.
 
 snippet-default-input-after-adjacent.log에서 --test change-journal의 13건은 모두 통과했습니다. 함께 실행한 스니펫 경계 검사 때문에 전체 명령은 exit 101이었으며 성공 종료로 확대하지 않습니다. 이후 실패 범위를 수정한 snippet-default-input-after-range-ownership.log의 --test snippet-insertion --test completion-insertion는 exit 0·7+5통과·0실패입니다. 모두 cargo test --manifest-path native/taide-native-editor/Cargo.toml --locked --offline --target-dir experiments/native-shell-spike/target로 직접 실행했습니다. 신규 검사는 journal UTF-16 동시 편집/undo 1건, 기본 입력의 여러 revision/Unicode mirror/tabstop과 활성 영역 밖 취소 2건입니다. 실제 앱 세션/choice/nested 수락과 화면 연결은 후속 범위입니다.
+
+## 실제 선택지 소비의 공개 코어 경계
+
+ActiveChoice가 첫 커서 대신 원래 주 커서의 placeholder/index·선택지를 반환하도록 수정하고 select_active로 현재 활성 그룹의 전체 mirror 범위를 문서 변경 없이 다시 선택합니다. 문자 입력 후 축소된 커서 상태에서도 선택지 수락이 전체 placeholder를 대체할 수 있습니다. 앱은 선택지 삽입의 용량 거절 시 이전 선택/스크롤/접기를 복원하며 세션을 유지합니다. nested 삽입의 합성은 아직 남은 범위입니다.
+
+snippet-choice-core-api.log의 cargo test --manifest-path native/taide-native-editor/Cargo.toml --locked --offline --target-dir experiments/native-shell-spike/target --test snippet-insertion --test completion-insertion -- --test-threads=4는 exit 0·8+5통과입니다. 새 코어 1건은 두 원래 커서와 네 mirror/두 줄/이모지 입력 뒤 주 커서의 선택지 범위, select_active의 revision 불변/전체 mirror 선택과 다음 tabstop의 primary를 확인합니다. 앱 completion-choice-primary-capacity.log의 실제 Provider 메모리 입력 7건은 exit 0이며 선택지 UI·typed 필터/수락·다중 커서 primary·용량 거절을 확인합니다. 앱 전체 구현 근거는 배치 22 QA에 기록합니다. core fmt exit 0이며 이 결과를 배치 전체 게이트로 확대하지 않습니다.

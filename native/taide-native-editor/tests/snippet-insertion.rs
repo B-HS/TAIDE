@@ -25,6 +25,85 @@ const SESSION_CURSOR_CHOICE_COUNT: usize = MARKER_LIMIT / 2 + 1;
 const FOLLOW_TAB_SIZE: u32 = 4;
 
 #[test]
+fn snippet_choice_api는_primary커서와_부분입력후_전체mirror선택을_보존한다() {
+    let (mut store, document, view) = fixture("\n", false);
+    store
+        .set_view_state(
+            view,
+            SelectionSet {
+                primary: 1,
+                selections: vec![
+                    Selection { anchor: 0, head: 0 },
+                    Selection { anchor: 1, head: 1 },
+                ],
+            },
+            ScrollPosition::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    let owner = store.views().get(view).unwrap().clone();
+    let template = "${1|red,green|} $1${2:tail}$0";
+    let insertion = insert(
+        &mut store,
+        &owner,
+        0,
+        vec![prepared(template, 0..0), prepared(template, 1..1)],
+        limits(),
+    )
+    .unwrap();
+    let mut session = taide_native_editor::snippet_session::Session::new(
+        &store,
+        insertion,
+        taide_native_editor::indent::IndentOptions {
+            tab_size: FOLLOW_TAB_SIZE,
+            insert_spaces: true,
+        },
+        limits(),
+    )
+    .unwrap();
+    let snapshot = store.documents().snapshot(document).unwrap();
+    let choice = session.active_choice(&store).unwrap().unwrap();
+    assert_eq!(snapshot.rope.byte_to_line(choice.bytes.start), 1);
+    assert_eq!(snapshot.rope.byte_slice(choice.bytes).to_string(), "red");
+    assert_eq!(choice.options, ["red", "green"]);
+    taide_native_editor::editing::type_text(&mut store, view, "😀").unwrap();
+    assert!(session.synchronize(&store));
+    let before = store.documents().snapshot(document).unwrap();
+    session.select_active(&mut store).unwrap();
+    assert_eq!(
+        store.documents().snapshot(document).unwrap().revision,
+        before.revision
+    );
+    let selection = &store.views().get(view).unwrap().selection;
+    assert_eq!(selection.primary, 2);
+    assert_eq!(selection.selections.len(), 4);
+    for selection in &selection.selections {
+        assert_eq!(
+            before
+                .rope
+                .byte_slice(selection.anchor..selection.head)
+                .to_string(),
+            "😀"
+        );
+    }
+    session.replace(&mut store, "green", None).unwrap();
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        "green greentail\ngreen greentail"
+    );
+    session
+        .step(&mut store, true, |_| Err(EditorError::Refused))
+        .unwrap();
+    assert!(session.active_choice(&store).unwrap().is_none());
+    assert_eq!(store.views().get(view).unwrap().selection.primary, 1);
+}
+
+#[test]
 fn snippet_follow는_기본입력의_여러_revision과_unicode_mirror뒤_다음tabstop을_보존한다() {
     let (mut store, document, view) = fixture("", false);
     let owner = store.views().get(view).unwrap().clone();

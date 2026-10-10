@@ -61,6 +61,7 @@ pub struct Session {
 }
 
 pub struct ActiveChoice<'a> {
+    pub index: Index,
     pub bytes: Range<usize>,
     pub options: &'a [String],
 }
@@ -335,7 +336,11 @@ impl Session {
         if !state.contains_selection(&document, &view.selection)? {
             return Err(EditorError::InvalidIdentity);
         }
-        let Some(snippet) = state.snippets.first() else {
+        let Some(snippet) = state
+            .snippets
+            .iter()
+            .find(|snippet| snippet.cursor_index == state.primary_cursor)
+        else {
             return Ok(None);
         };
         let Some(group) = snippet.groups.get(snippet.active_group) else {
@@ -349,6 +354,7 @@ impl Session {
             return Ok(None);
         };
         Ok(Some(ActiveChoice {
+            index: placeholder.index,
             bytes: byte_range(&document, &placeholder.units)?,
             options,
         }))
@@ -406,6 +412,18 @@ impl Session {
             store.break_undo_group(document.id)?;
         }
         Ok(true)
+    }
+
+    pub fn select_active(&mut self, store: &mut EditorStore) -> Result<(), EditorError> {
+        let document = self.validate(store)?;
+        let state = self.state.as_ref().ok_or(EditorError::Refused)?;
+        let current = store.views().get(state.view).ok_or(EditorError::NotFound)?;
+        store.set_view_state(
+            state.view,
+            state.selection(&document)?,
+            current.scroll.clone(),
+            current.folds.clone(),
+        )
     }
 
     pub fn step(
