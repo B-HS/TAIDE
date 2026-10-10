@@ -303,3 +303,29 @@ suggestWidgetRenderer.js ColorExtractor의 label/detail/documentation 우선순�
 frozen host는 completion-colors-frozen-host.log exit 0, Wasm은 completion-colors-frozen-wasm.log exit 0/기존 경고 6개입니다. 이 두 검사는 frozen 소스/manifest/lock을 바꾸지 않았으며 마지막 견본 stroke 수정 전 스냅샷입니다. App/Editor/UI의 fmt와 선별 diff·원본 oracle/기능표 정합성은 최종 기록에서 실제 종료를 확인합니다. 디스크 568GiB·사용 70%이며 청소하지 않았습니다. d2/d3 완료, d의 최종 원본 계약 점검·e/f/g/두 partial 행을 유지합니다.
 
 기본 후보 선택/모델 교체와 색 견본 소비를 603e6025 feat(native): 자동완성 기본 선택과 색 견본 연결로 선별 커밋했습니다. 명시한 16경로의 추가/누락 0·PROCESS 하단 보존·staged diff check exit 0을 확인했습니다. Editor/UI/App fmt check 3개, 원본 oracle --check와 기능표 599행/286근거 경로 정합성은 실제 exit 0입니다. 새 의존성/lock/동결 source 변경은 없고 실제 Cargo 실행은 종료됐습니다. 사용자 단독 author와 AI 트레일러 없음도 확인했습니다. d/e/f/g와 두 partial 기능의 완료 게이트를 유지합니다.
+
+## 배치 22 최종 동작과 전체 게이트
+
+Monaco suggestWidget의 expandSuggestionDocs는 standalone 창의 공용 in-memory storage 값을 씁니다. 기존 native는 편집기별 State에만 보존하므로 같은 창의 본문/peek에서 열림 상태가 공유되지 않았습니다. canExpandCompletionItem은 documentation 또는 label과 다른 비어 있지 않은 detail을 요구하지만 native는 빈 상세에서도 열림 상태를 켰습니다. completion-details-contract-red.log의 실행 2건이 모두 실패했습니다.
+
+현재 UI는 Context의 viewport별 임시 bool을 본문/peek가 함께 쓰고 닫기 버튼과 명령 모두 같은 값을 갱신합니다. 상세 확장·포커스·본문 렌더는 같은 내용 검사로 빈 값/label과 같은 값을 제외합니다. completion-details-contract-final.log는 실제 UI 28건 통과, exit 0입니다. 두 뷰의 공유/닫힘, 새 Context 격리, 빈 내용에서 포커스/원문 보존을 확인했습니다. 줄바꿈 표시는 기존에 구현·검증된 상태라 수정하지 않았습니다.
+
+e의 기존 실제 앱 공급·dirty/mirror·두 뷰/peek·프로젝트/provider·IME·다중 커서/중첩/choice·취소/종료 회수 근거는 위 실제 child/consumer/constructor 검사입니다. readonly는 기존 Core 삽입 거절 검사와 App/Provider/UI 경계를 대조했습니다. 일반/Large/ReadOnly 파일 metadata를 실제 Consumer에 공급해 목록과 수락·세션/원문 보존을 확인하는 회귀를 추가했습니다. 이 검사는 작은 문서로 tier 정책을 확인하며 대형 문서의 실행 성능을 측정하지 않습니다. 새 앱 회귀와 최신 전체 검증 결과는 종료 뒤 기록합니다.
+
+최종 변경 Editor/UI/App 전체 대상을 --all-targets --no-fail-fast로 각 1회 직접 실행합니다. SDK/Syntax는 변경하지 않은 동일 스냅샷의 전체 성공을 재사용합니다. 보호 Trash 3건·기존 ignored 성능 검사와 실제 OS IME/접근성/pixel·대형 성능/soak/출시 게이트를 분리합니다. 원본 sash의 hover delay와 실제 픽셀·폰트의 최종 비교는 배치 31의 실기 범위이며 전체 전환 완료로 간주하지 않습니다.
+
+최종 실행 로그 접두사는 /private/tmp/taide-batch22-completion-final-입니다.
+
+| 로그                              | 실제 종료 결과                                                                                             |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| core-all.log                      | --all-targets --no-fail-fast, 37대상·264통과·기존 성능 1ignored, exit 0                                    |
+| ui-all.log                        | --all-targets --no-fail-fast·native-host,inspection, 22대상·419통과, exit 0                                |
+| app-all.log                       | --all-targets --no-fail-fast·test-threads=4, 67대상·768통과·preview-macos 1실패·보호 Trash 3제외, exit 101 |
+| preview-macos-recheck.log         | 정확히 실패한 실제_host는_avif와_icc_srgb_alpha_orientation_및_손상을_검사한다 1건·통과, exit 0; 4.60초    |
+| frozen-host.log / frozen-wasm.log | inspection host --tests·canvas Wasm compile만 실행, 각각 exit 0; 23.27초·20.02초                           |
+
+App lib 528건과 completion Consumer 19건은 최초 전체 실행에서 통과했고 tier 정책 1검사가 포함됩니다. 최초 실패는 preview-macos.rs:209의 5초 reply 대기 Elapsed입니다. 실패한 1건만 같은 코드·5초 제한을 유지하고 --exact --test-threads=1로 재검사했습니다. 재검사 통과를 최초 전체 명령의 exit 0으로 기록하지 않습니다. App의 서로 다른 최종 성공은 769건, 이번 변경 Editor/UI/App은 126대상·1452건입니다. 동일 성공 전체 명령은 반복하지 않았습니다. 변경하지 않은 SDK 2대상/86건·Syntax 13대상/165건/성능 3ignored의 이전 성공을 재사용하며, 합산 서로 다른 성공 1703건은 전체 기능률을 뜻하지 않습니다. --all-targets의 예제/실행 파일 test harness와 이전 기본 test의 doc harness를 구분하며 0건 harness를 기능 검증으로 세지 않습니다.
+
+macOS 이미지 호스트 대기 실패의 원인은 확정하지 않았습니다. notify_one 사용을 확인했으므로 알림 손실이라고 추측해 고치거나 제한 시간을 늘리지 않았습니다. 배치 31에서 cold/warm·동시 실행 자원 부하와 readiness/디코더 구간을 구분해 재현하고 통합 검사 신뢰성을 확인할 부채입니다. 실제 pixel/OS IME/접근성·대형 성능/soak/출시·전환/제거 게이트도 남습니다.
+
+UI/App 최종 fmt --check는 각각 exit 0이며 변경하지 않은 Editor의 603e6025 fmt 성공을 재사용했습니다. frozen source/manifest/lock과 모든 dependency/engine 변경은 없고 Cargo handle은 모두 종료됐습니다. 디스크 563GiB·사용 70%이며 청소하지 않았습니다. editor-41·editor-79 두 행을 complete로 올려 기능표는 588대상·288완료·92부분·112미연결·96미구현, 잔여 300행입니다. 전체 전환율/잔여 시간은 미산정입니다. 최종 배치 번호 33을 유지하고 선별 Git 종료 뒤 배치 23을 계속합니다.

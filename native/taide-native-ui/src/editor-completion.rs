@@ -379,6 +379,10 @@ fn size_key(ui: &Ui, embedded: bool) -> Id {
     ))
 }
 
+fn details_key(ui: &Ui) -> Id {
+    Id::new(("native-editor-suggest-details", ui.ctx().viewport_id()))
+}
+
 #[derive(Default, Clone)]
 pub(crate) struct State {
     token: Option<String>,
@@ -820,6 +824,11 @@ impl State {
         commands: &[Command],
     ) -> Result<(), EditorError> {
         self.release_at = None;
+        let details = details_key(ui);
+        self.details_open = ui
+            .ctx()
+            .data(|data| data.get_temp::<bool>(details))
+            .unwrap_or(false);
         if let Some(focus) = self.resize_focus
             && ui.input(|input| input.focused && input.pointer.any_released())
             && ui.memory(|memory| memory.focused().is_none())
@@ -884,6 +893,36 @@ impl State {
         Ok(())
     }
 
+    fn set_details_open(&mut self, ui: &Ui, open: bool) {
+        self.details_open = open;
+        self.details_position = None;
+        let key = details_key(ui);
+        ui.ctx().data_mut(|data| data.insert_temp(key, open));
+    }
+
+    fn details_content(
+        store: &EditorStore,
+        view: ViewId,
+        provider: &mut dyn Provider,
+        widget: &Widget,
+        candidate: usize,
+    ) -> Option<(Option<String>, Option<Arc<RichDocument>>)> {
+        let detail = provider
+            .detail(store, view, &widget.token, candidate)
+            .filter(|detail| {
+                !detail.is_empty()
+                    && widget.model.as_ref().is_none_or(|model| {
+                        model.borrow().candidate(candidate).is_none_or(|candidate| {
+                            candidate.item.label.as_str() != detail.as_str()
+                        })
+                    })
+            });
+        let document = provider
+            .documentation(store, view, &widget.token, candidate)
+            .filter(|document| !document.blocks.is_empty());
+        (detail.is_some() || document.is_some()).then_some((detail, document))
+    }
+
     pub(crate) fn command(
         &mut self,
         ui: &Ui,
@@ -910,21 +949,29 @@ impl State {
         let ranked = self.ranked(&widget);
         match command {
             Command::Trigger | Command::ToggleDetails => {
-                if self.selected.is_some() {
-                    self.details_open = !self.details_open;
-                    self.details_position = None;
+                if self.selected.is_some_and(|candidate| {
+                    self.details_open
+                        || Self::details_content(store, view, provider, &widget, candidate)
+                            .is_some()
+                }) {
+                    self.set_details_open(ui, !self.details_open);
                     if !self.details_open && self.details_focused {
                         self.details_focused = false;
+                        self.details_focus_requested = false;
                         ui.memory_mut(|memory| memory.request_focus_with_filter(body, FILTER));
                     }
                 }
             }
             Command::ToggleDetailsFocus => {
-                self.details_open = true;
-                self.details_focused = !self.details_focused;
-                self.details_focus_requested = self.details_focused;
-                if !self.details_focused {
-                    ui.memory_mut(|memory| memory.request_focus_with_filter(body, FILTER));
+                if self.selected.is_some_and(|candidate| {
+                    Self::details_content(store, view, provider, &widget, candidate).is_some()
+                }) {
+                    self.set_details_open(ui, true);
+                    self.details_focused = !self.details_focused;
+                    self.details_focus_requested = self.details_focused;
+                    if !self.details_focused {
+                        ui.memory_mut(|memory| memory.request_focus_with_filter(body, FILTER));
+                    }
                 }
             }
             Command::Hide => self.close(ui, body, provider, view),
@@ -1424,11 +1471,8 @@ impl State {
         }
         if self.details_open
             && let Some(candidate) = self.selected
-            && let Some((detail, document)) = {
-                let detail = provider.detail(store, view, &widget.token, candidate);
-                let document = provider.documentation(store, view, &widget.token, candidate);
-                (detail.is_some() || document.is_some()).then_some((detail, document))
-            }
+            && let Some((detail, document)) =
+                Self::details_content(store, view, provider, &widget, candidate)
         {
             let id = body.with("completion-details");
             let list = output.response.rect;
@@ -1538,7 +1582,7 @@ impl State {
                 });
             self.geometry.details = Some(output.response.rect);
             if close_details {
-                self.details_open = false;
+                self.set_details_open(ui, false);
                 self.details_focused = false;
                 self.details_focus_requested = false;
                 self.details_resizing = None;

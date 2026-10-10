@@ -30,6 +30,7 @@ const LINE_HEIGHT: f32 = 20.0;
 const BYTE_LIMIT: usize = 4096;
 const NESTING_LIMIT: usize = 32;
 const MARKER_LIMIT: usize = 128;
+const VIEW_CAPACITY: usize = 2;
 const TAB_SIZE: u32 = 4;
 const LARGE_LIST: usize = 5000;
 const PREVIEW_OPACITY: f32 = 0.7;
@@ -68,6 +69,7 @@ struct Completions {
     preview_tokens: Option<Arc<taide_native_editor::line_tokens::PreviewTokens>>,
     embedded: bool,
     has_documentation: bool,
+    detail: Option<String>,
 }
 
 impl Default for Completions {
@@ -88,6 +90,7 @@ impl Default for Completions {
             preview_tokens: None,
             embedded: false,
             has_documentation: true,
+            detail: Some("function\r\ndetail".into()),
         }
     }
 }
@@ -109,7 +112,7 @@ impl Completions {
                     position,
                     range,
                     serde_json::from_value(
-                        json!({ "label": label, "insertText": self.preview_text.as_ref().unwrap_or(label), "kind": if self.swatch.is_some() { 16 } else { 3 }, "detail": "function\r\ndetail", "preselect": self.preselected.contains(label), "tags": if self.deprecated { Some(vec![1]) } else { None } }),
+                        json!({ "label": label, "insertText": self.preview_text.as_ref().unwrap_or(label), "kind": if self.swatch.is_some() { 16 } else { 3 }, "detail": self.detail, "preselect": self.preselected.contains(label), "tags": if self.deprecated { Some(vec![1]) } else { None } }),
                     )
                     .unwrap(),
                 )
@@ -297,7 +300,9 @@ impl Provider for Completions {
         }))
     }
     fn detail(&self, _: &EditorStore, _: ViewId, _: &str, _: usize) -> Option<String> {
-        Some("function\ndetail".into())
+        self.detail
+            .as_ref()
+            .map(|detail| detail.replace("\r\n", "\n"))
     }
 }
 
@@ -334,7 +339,7 @@ impl Fixture {
         context.set_fonts(fonts);
         let mut store = EditorStore::new(EditorLimits {
             max_documents: 1,
-            max_views: 1,
+            max_views: VIEW_CAPACITY,
             max_undo_groups: 4,
             max_document_bytes: BYTE_LIMIT,
         })
@@ -1468,4 +1473,83 @@ fn completion_label_escapes_crlf_and_preserves_unicode_highlight_and_deprecation
             .iter()
             .all(|section| section.format.strikethrough.width > 0.0)
     );
+}
+
+#[test]
+fn completion_상세열림은_같은창의_본문과_peek에_공유되고_다른창에는_전파되지_않는다() {
+    let mut fixture = Fixture::new();
+    fixture.open();
+    let first = fixture.view;
+    fixture.frame(0.3, Vec::new(), &[Command::ToggleDetails]);
+    assert!(fixture.geometry.details.is_some());
+    fixture.frame(0.4, Vec::new(), &[Command::Hide]);
+    let second = fixture
+        .store
+        .attach_view(
+            ViewKey {
+                window: "completion".into(),
+                pane: PaneId::new(),
+                tab: TabId::new(),
+            },
+            fixture.document,
+        )
+        .unwrap();
+    fixture
+        .store
+        .set_view_state(
+            second,
+            SelectionSet {
+                primary: 0,
+                selections: vec![Selection { anchor: 2, head: 2 }],
+            },
+            ScrollPosition::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    fixture.view = second;
+    fixture.body = None;
+    fixture.completion.embedded = true;
+    fixture.frame(0.5, Vec::new(), &[]);
+    fixture.frame(0.6, vec![key(Key::Space, Modifiers::CTRL)], &[]);
+    fixture.frame(0.7, Vec::new(), &[]);
+    assert!(fixture.geometry.details.is_some());
+    fixture.frame(0.8, Vec::new(), &[Command::ToggleDetails]);
+    assert!(fixture.geometry.details.is_none());
+    fixture.frame(0.9, Vec::new(), &[Command::Hide]);
+    fixture.view = first;
+    fixture.body = None;
+    fixture.completion.embedded = false;
+    fixture.frame(1.0, Vec::new(), &[]);
+    fixture.frame(1.1, vec![key(Key::Space, Modifiers::CTRL)], &[]);
+    fixture.frame(1.2, Vec::new(), &[]);
+    assert!(fixture.geometry.details.is_none());
+    let mut other_window = Fixture::new();
+    other_window.open();
+    assert!(other_window.geometry.details.is_none());
+    assert_eq!(fixture.text(), "fo");
+}
+
+#[test]
+fn completion_상세열림은_없는내용과_빈내용과_같은label을_확장하거나_포커스하지_않는다() {
+    for detail in [None, Some(""), Some("foo")] {
+        let mut fixture = Fixture::new();
+        fixture.completion.labels = vec!["foo".into()];
+        fixture.completion.detail = detail.map(String::from);
+        fixture.completion.has_documentation = false;
+        fixture.open();
+        fixture.frame(0.3, Vec::new(), &[Command::ToggleDetails]);
+        assert!(fixture.geometry.details.is_none());
+        fixture.frame(0.4, Vec::new(), &[Command::ToggleDetailsFocus]);
+        assert!(fixture.geometry.details.is_none());
+        assert_eq!(
+            fixture.context.memory(|memory| memory.focused()),
+            fixture.body
+        );
+        fixture.completion.has_documentation = true;
+        fixture.frame(0.5, Vec::new(), &[]);
+        assert!(fixture.geometry.details.is_none());
+        fixture.frame(0.6, Vec::new(), &[Command::ToggleDetails]);
+        assert!(fixture.geometry.details.is_some());
+        assert_eq!(fixture.text(), "fo");
+    }
 }

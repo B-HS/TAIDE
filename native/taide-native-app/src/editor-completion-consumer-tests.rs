@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use eframe::egui::{self, Color32, Event, FontId, Key, Modifiers, RawInput, Rect};
 use taide_model::app_event::AppEvent;
+use taide_model::file::{EditorConfigOptions, FileSizeTier, OpenedFile};
 use taide_model::ids::{PaneId, ProjectId, TabId};
 use taide_model::paths::AppPaths;
 use taide_model::snippet::{SnippetEntry, SnippetFile, SnippetStringOrList};
@@ -652,6 +653,76 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         self.state.clear();
         std::fs::remove_dir_all(&self.directory).unwrap();
+    }
+}
+
+#[test]
+fn native_completion_consumer는_파일tier에_따라_실제목록과_삽입을_제어하고_readonly를_보존한다() {
+    for tier in [
+        FileSizeTier::Normal,
+        FileSizeTier::Large,
+        FileSizeTier::ReadOnly,
+    ] {
+        let mut fixture = Fixture::new("con", 3, snippets());
+        let path = PathBuf::from("/synthetic/completion-tier.rs");
+        let read_only = tier == FileSizeTier::ReadOnly;
+        let document = fixture
+            .store
+            .open_file(
+                path.clone(),
+                OpenedFile {
+                    path: path.to_string_lossy().into_owned(),
+                    content: "con".into(),
+                    encoding_lossy: false,
+                    language_id: "rust".into(),
+                    tier,
+                    byte_size: 3,
+                    line_count: 1,
+                    modified_ms: 0.0,
+                    read_only,
+                    editor_config: EditorConfigOptions::default(),
+                },
+            )
+            .unwrap();
+        let view = fixture
+            .store
+            .attach_view(
+                ViewKey {
+                    window: "synthetic".into(),
+                    pane: PaneId::new(),
+                    tab: TabId::new(),
+                },
+                document,
+            )
+            .unwrap();
+        fixture
+            .store
+            .set_view_state(
+                view,
+                SelectionSet {
+                    primary: 0,
+                    selections: vec![Selection { anchor: 3, head: 3 }],
+                },
+                ScrollPosition::default(),
+                Vec::new(),
+            )
+            .unwrap();
+        fixture.document = document;
+        fixture.view = view;
+        fixture.owner = view;
+        assert!(!fixture.frame(Vec::new(), &[Command::Trigger]));
+        assert_eq!(fixture.geometry.list.is_none(), read_only);
+        assert_eq!(
+            fixture.state.model(&fixture.store, view).unwrap().is_none(),
+            read_only
+        );
+        let changed = fixture.frame(Vec::new(), &[Command::Accept { alternate: false }]);
+        assert_eq!(changed, !read_only);
+        assert_eq!(fixture.text(document) == "con", read_only);
+        assert_eq!(
+            fixture.state.snippet_sessions.contains_key(&view),
+            !read_only
+        );
     }
 }
 
