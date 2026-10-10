@@ -8,6 +8,11 @@ pub mod bracket_model;
 pub mod bracket_navigation;
 #[path = "change-journal.rs"]
 pub mod change_journal;
+pub mod completion;
+#[path = "completion-filter.rs"]
+pub mod completion_filter;
+#[path = "completion-model.rs"]
+pub mod completion_model;
 #[path = "cursor-commands.rs"]
 pub mod cursor_commands;
 pub mod decoration;
