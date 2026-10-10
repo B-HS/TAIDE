@@ -301,3 +301,5 @@ suggestWidgetRenderer.js ColorExtractor의 label/detail/documentation 우선순�
 추가 대조에서 검정 테두리를 검정 채움으로 그려 반투명 색이 목록 배경 대신 검정 위에 합성되는 문제를 발견했습니다. completion-colors-alpha-red.log의 1실패로 재현했고 테두리 내부를 투명하게 두는 inside stroke로 바꿨습니다. completion-colors-alpha-verified.log의 UI 1건과 completion-colors-app-alpha-final.log의 실제 Provider 반투명 공급/캐시 교체/닫힘 1건이 각각 exit 0입니다. 잘못된 이름 필터를 사용한 completion-colors-alpha-final.log는 0건 실행이므로 통과 근거에서 제외했습니다. 새 문제/코드 변경이 있는 영향 검사만 실행했고 변경하지 않은 성공을 반복하지 않았습니다.
 
 frozen host는 completion-colors-frozen-host.log exit 0, Wasm은 completion-colors-frozen-wasm.log exit 0/기존 경고 6개입니다. 이 두 검사는 frozen 소스/manifest/lock을 바꾸지 않았으며 마지막 견본 stroke 수정 전 스냅샷입니다. App/Editor/UI의 fmt와 선별 diff·원본 oracle/기능표 정합성은 최종 기록에서 실제 종료를 확인합니다. 디스크 568GiB·사용 70%이며 청소하지 않았습니다. d2/d3 완료, d의 최종 원본 계약 점검·e/f/g/두 partial 행을 유지합니다.
+
+기본 후보 선택/모델 교체와 색 견본 소비를 603e6025 feat(native): 자동완성 기본 선택과 색 견본 연결로 선별 커밋했습니다. 명시한 16경로의 추가/누락 0·PROCESS 하단 보존·staged diff check exit 0을 확인했습니다. Editor/UI/App fmt check 3개, 원본 oracle --check와 기능표 599행/286근거 경로 정합성은 실제 exit 0입니다. 새 의존성/lock/동결 source 변경은 없고 실제 Cargo 실행은 종료됐습니다. 사용자 단독 author와 AI 트레일러 없음도 확인했습니다. d/e/f/g와 두 partial 기능의 완료 게이트를 유지합니다.
