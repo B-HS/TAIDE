@@ -1,5 +1,6 @@
 use lsp_types::CompletionItemKind;
 
+use crate::change_journal::ChangesSince;
 use crate::completion::Candidate;
 use crate::completion_filter::{Score, ScoreOptions, Scorer};
 use crate::document::{DocumentSnapshot, EditorError, byte_to_char};
@@ -136,6 +137,35 @@ impl Model {
 
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
+    }
+
+    pub fn rebase(
+        &mut self,
+        document: &DocumentSnapshot,
+        byte: usize,
+        changes: ChangesSince<'_>,
+    ) -> Result<(), EditorError> {
+        let ChangesSince::Tracked(changes) = changes else {
+            return Err(EditorError::StaleRevision);
+        };
+        let ranges = self
+            .items
+            .iter()
+            .map(|item| {
+                item.candidate.rebased_ranges(
+                    document,
+                    byte,
+                    ChangesSince::Tracked(changes.clone()),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        for (item, (insert, replace)) in self.items.iter_mut().zip(ranges) {
+            item.candidate.revision = document.revision;
+            item.candidate.requested_byte = byte;
+            item.candidate.insert = insert;
+            item.candidate.replace = replace;
+        }
+        Ok(())
     }
 
     pub fn filter(&mut self, leading: &str, delta: isize) -> &[Ranked] {

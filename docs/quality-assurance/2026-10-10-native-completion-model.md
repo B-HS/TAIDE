@@ -22,6 +22,12 @@ Candidate는 typed CompletionItem의 opaque data·문서/범위/종류/설명을
 
 로그 경로는 /private/tmp/taide-batch22- 접두사입니다. editor fmt와 소유된 diff check는 exit 0입니다. 원본 추출 도구는 docs/utils의 completion-filter-oracle.js·completion-model-oracle.js, 표본은 editor/tests/fixtures의 completion-filter-reference.tsv·completion-model-reference.tsv입니다.
 
-전체 대상 실행·실제 Body/peek 후보 요청·편집 후 캐시 갱신/불완전 provider 재요청·preview·snippet session/nested 삽입과 최종 기능 완료 판정은 배치 22 QA와 PROCESS의 c–g에 남아 있습니다.
+전체 대상 실행·실제 Body/peek 후보 요청과 갱신 소비·preview·snippet session/nested 삽입과 최종 기능 완료 판정은 배치 22 QA와 PROCESS의 c–g에 남아 있습니다.
+
+## 편집 후 후보 범위 갱신
+
+Candidate.rebased와 Model.rebase는 기존 변경 journal과 장식 범위 추적을 소비합니다. 같은 transaction의 여러 편집은 이전 문서 좌표의 역순으로 적용하고 Unicode 경계·단일 줄·현재 커서 포함·문서/revision·읽기 전용을 다시 검사합니다. 모델은 모든 후보의 범위를 먼저 검사한 뒤 함께 갱신하므로 후속 후보가 실패해도 일부만 갱신하지 않습니다. 원본 요청의 필터 길이와 초기 정렬은 유지하고 현재 입력 delta로 다시 필터링합니다.
+
+cargo test --manifest-path native/taide-native-editor/Cargo.toml --locked --offline --target-dir experiments/native-shell-spike/target --test completion-model completion_rebase는 /private/tmp/taide-batch22-completion-rebase-tests.log에서 exit 0·2통과입니다. 한글/이모지 앞쪽 편집과 동시 입력·삭제, insert/replace의 접미사 범위, 줄 경계를 넘는 후보의 원자적 거절과 유실 journal을 검사했습니다. 앱 completion_cache-first.log의 실제 입력 후 목록 소멸 1실패를 먼저 재현했으며 앱 캐시의 안정된 표시 token·불완전 provider 재요청·늦은 응답 거절은 배치 22 QA에 별도 기록합니다. editor fmt exit 0이며 전체 대상 게이트는 아직 실행하지 않았습니다.
 
 선별 스테이징의 diff check가 TSV의 빈 마지막 강조 목록 필드 때문에 trailing whitespace를 보고했습니다. 빈 목록을 명시적인 none 필드로 직렬화하도록 원본 추출 도구와 검사 decoder를 함께 바꿔 8100표본을 재생성했고 전체 필터 검사 1건이 다시 통과했습니다. 검사기를 끄거나 의미 있는 구분자를 임의로 trim하지 않았습니다.

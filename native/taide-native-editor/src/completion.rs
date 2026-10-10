@@ -3,6 +3,8 @@ use std::ops::Range;
 pub use lsp_types::CompletionItemKind;
 use lsp_types::{CompletionItem, CompletionResponse, CompletionTextEdit};
 
+use crate::change_journal::ChangesSince;
+use crate::decoration::{Decoration, DecorationKind, DecorationLayer, InlineStyle, Stickiness};
 use crate::document::{DocumentId, DocumentSnapshot, EditorError, byte_to_char};
 use crate::documentation::Content;
 use crate::editing::line_content_range;
@@ -164,6 +166,82 @@ impl Candidate {
 
     pub fn documentation(&self) -> Option<Content> {
         self.item.documentation.clone().map(Content::from)
+    }
+
+    pub fn rebased(
+        &self,
+        document: &DocumentSnapshot,
+        byte: usize,
+        changes: ChangesSince<'_>,
+    ) -> Result<Self, EditorError> {
+        let (insert, replace) = self.rebased_ranges(document, byte, changes)?;
+        let mut candidate = self.clone();
+        candidate.revision = document.revision;
+        candidate.requested_byte = byte;
+        candidate.insert = insert;
+        candidate.replace = replace;
+        Ok(candidate)
+    }
+
+    pub(crate) fn rebased_ranges(
+        &self,
+        document: &DocumentSnapshot,
+        byte: usize,
+        changes: ChangesSince<'_>,
+    ) -> Result<(Range<usize>, Range<usize>), EditorError> {
+        if self.document != document.id {
+            return Err(EditorError::InvalidIdentity);
+        }
+        if document.metadata.read_only {
+            return Err(EditorError::ReadOnly);
+        }
+        byte_to_char(&document.rope, byte)?;
+        if self.insert.start != self.replace.start
+            || self.insert.start > self.insert.end
+            || self.insert.end > self.replace.end
+        {
+            return Err(EditorError::InvalidBoundary);
+        }
+        let ChangesSince::Tracked(changes) = changes else {
+            return Err(EditorError::StaleRevision);
+        };
+        let mut layer = DecorationLayer::new(
+            self.revision,
+            0,
+            [self.insert.clone(), self.replace.clone()]
+                .into_iter()
+                .map(|bytes| Decoration {
+                    bytes,
+                    kind: DecorationKind::Inline(InlineStyle::default()),
+                    stickiness: Stickiness::AlwaysGrowsWhenTypingAtEdges,
+                })
+                .collect(),
+        );
+        for change in changes {
+            if !layer.apply(change) {
+                return Err(EditorError::StaleRevision);
+            }
+        }
+        if layer.revision() != document.revision {
+            return Err(EditorError::StaleRevision);
+        }
+        let mut insert = layer.items()[0].bytes.clone();
+        let mut replace = layer.items()[1].bytes.clone();
+        insert.end = insert.end.max(byte);
+        replace.end = replace.end.max(insert.end);
+        let line = line_content_range(document, document.rope.byte_to_line(byte));
+        for range in [&insert, &replace] {
+            byte_to_char(&document.rope, range.start)?;
+            byte_to_char(&document.rope, range.end)?;
+            if range.start < line.start
+                || range.end > line.end
+                || range.start > byte
+                || range.end < byte
+            {
+                return Err(EditorError::InvalidBoundary);
+            }
+        }
+        Ok((insert, replace))
     }
 
     pub fn prepare(

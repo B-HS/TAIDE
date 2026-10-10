@@ -1,16 +1,165 @@
-use lsp_types::{CompletionItem, CompletionItemKind};
+use lsp_types::{CompletionItem, CompletionItemKind, CompletionTextEdit, InsertReplaceEdit};
 use taide_model::ids::TabId;
+use taide_native_editor::change_journal::ChangesSince;
 use taide_native_editor::completion::Candidate;
 use taide_native_editor::completion_filter::Score;
 use taide_native_editor::completion_model::{Model, Ranked};
-use taide_native_editor::document::{DocumentSnapshot, EditorError};
+use taide_native_editor::document::{DocumentSnapshot, Edit, EditorError, UndoGroup};
 use taide_native_editor::lsp::{LspRange, Position};
-use taide_native_editor::store::{EditorLimits, EditorStore};
+use taide_native_editor::store::{EditorLimits, EditorStore, Transaction};
 
 const BYTE_LIMIT: usize = 4096;
 const HEX_PAIR_SIZE: usize = 2;
 const HEX_RADIX: u32 = 16;
 const FIELD_COUNT: usize = 6;
+
+fn rebase_store(text: &str) -> (EditorStore, taide_native_editor::document::DocumentId) {
+    let mut store = EditorStore::new(EditorLimits {
+        max_documents: 1,
+        max_views: 1,
+        max_undo_groups: 1,
+        max_document_bytes: BYTE_LIMIT,
+    })
+    .unwrap();
+    let document = store
+        .open_untitled(TabId::new(), text, "rust".into())
+        .unwrap();
+    (store, document)
+}
+
+fn rebase_candidate(document: &DocumentSnapshot, label: &str, start: u32) -> Candidate {
+    let position = Position::new(0, 6);
+    Candidate::new(
+        document,
+        position,
+        LspRange::new(Position::new(0, start), position),
+        CompletionItem {
+            label: label.into(),
+            text_edit: Some(CompletionTextEdit::InsertAndReplace(InsertReplaceEdit {
+                new_text: label.into(),
+                insert: LspRange::new(Position::new(0, start), position),
+                replace: LspRange::new(Position::new(0, start), Position::new(0, 10)),
+            })),
+            ..Default::default()
+        },
+    )
+    .unwrap()
+}
+
+#[test]
+fn completion_rebase는_동시편집_unicode와_입력삭제의_삽입범위를_보존한다() {
+    let (mut store, id) = rebase_store("한😀conTail");
+    let original = store.documents().snapshot(id).unwrap();
+    let mut model = Model::new(&original, vec![rebase_candidate(&original, "console", 3)]).unwrap();
+    assert_eq!(model.filter("한😀con", 0).len(), 1);
+    store
+        .apply(
+            id,
+            Transaction {
+                revision: original.revision,
+                edits: vec![
+                    Edit {
+                        bytes: 0..3,
+                        text: "가나".into(),
+                    },
+                    Edit {
+                        bytes: 10..10,
+                        text: "s".into(),
+                    },
+                ],
+                group: UndoGroup(0),
+                origin: None,
+                selection_after: None,
+            },
+        )
+        .unwrap();
+    let current = store.documents().snapshot(id).unwrap();
+    assert_eq!(current.rope.to_string(), "가나😀consTail");
+    model
+        .rebase(
+            &current,
+            14,
+            store.changes_since(id, original.revision).unwrap(),
+        )
+        .unwrap();
+    let item = model.candidate(0).unwrap();
+    assert_eq!(item.insert, 10..14);
+    assert_eq!(item.replace, 10..18);
+    assert_eq!(item.requested_byte, 14);
+    assert_eq!(item.revision, current.revision);
+    assert_eq!(model.filter("가나😀cons", 1).len(), 1);
+    store
+        .apply(
+            id,
+            Transaction {
+                revision: current.revision,
+                edits: vec![Edit {
+                    bytes: 13..14,
+                    text: String::new(),
+                }],
+                group: UndoGroup(0),
+                origin: None,
+                selection_after: None,
+            },
+        )
+        .unwrap();
+    let next = store.documents().snapshot(id).unwrap();
+    model
+        .rebase(
+            &next,
+            13,
+            store.changes_since(id, current.revision).unwrap(),
+        )
+        .unwrap();
+    assert_eq!(model.candidate(0).unwrap().insert, 10..13);
+    assert_eq!(model.candidate(0).unwrap().replace, 10..17);
+    assert_eq!(model.filter("가나😀con", 0).len(), 1);
+}
+
+#[test]
+fn completion_rebase는_줄경계_불일치와_유실journal에서_후보를_부분갱신하지_않는다() {
+    let (mut store, id) = rebase_store("한😀conTail");
+    let original = store.documents().snapshot(id).unwrap();
+    let items = vec![
+        rebase_candidate(&original, "a", 3),
+        rebase_candidate(&original, "b", 0),
+    ];
+    let mut model = Model::new(&original, items.clone()).unwrap();
+    store
+        .apply(
+            id,
+            Transaction {
+                revision: original.revision,
+                edits: vec![Edit {
+                    bytes: 3..3,
+                    text: "\n".into(),
+                }],
+                group: UndoGroup(0),
+                origin: None,
+                selection_after: None,
+            },
+        )
+        .unwrap();
+    let current = store.documents().snapshot(id).unwrap();
+    assert!(matches!(
+        model.rebase(
+            &current,
+            11,
+            store.changes_since(id, original.revision).unwrap()
+        ),
+        Err(EditorError::InvalidBoundary)
+    ));
+    for (index, item) in items.iter().enumerate() {
+        assert_eq!(model.candidate(index), Some(item));
+    }
+    assert!(matches!(
+        model.rebase(&current, 11, ChangesSince::Lagged),
+        Err(EditorError::StaleRevision)
+    ));
+    for (index, item) in items.iter().enumerate() {
+        assert_eq!(model.candidate(index), Some(item));
+    }
+}
 
 fn snapshot(text: &str) -> DocumentSnapshot {
     let mut store = EditorStore::new(EditorLimits {
