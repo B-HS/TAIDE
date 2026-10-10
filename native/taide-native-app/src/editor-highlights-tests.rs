@@ -1,4 +1,5 @@
 use super::*;
+use taide_model::file::{EditorConfigOptions, FileSizeTier, OpenedFile};
 use taide_model::ids::{PaneId, TabId};
 use taide_native_editor::store::EditorLimits;
 use taide_native_editor::view::Selection;
@@ -7,6 +8,44 @@ const BYTE_LIMIT: usize = 4096;
 const VIEW_LIMIT: usize = 4;
 const COLOR_TOLERANCE: u8 = 2;
 const SELECTION_ALPHA: u8 = 153;
+const FILE_CONTENT: &str = "foo = foo\nfoo";
+const FILE_PATH: &str = "/synthetic/highlights-readonly.txt";
+
+fn opened_file(tier: FileSizeTier, read_only: bool) -> OpenedFile {
+    OpenedFile {
+        path: FILE_PATH.into(),
+        content: FILE_CONTENT.into(),
+        language_id: "plaintext".into(),
+        byte_size: FILE_CONTENT.len().try_into().unwrap(),
+        line_count: FILE_CONTENT.lines().count().try_into().unwrap(),
+        tier,
+        read_only,
+        encoding_lossy: false,
+        modified_ms: 0.0,
+        editor_config: EditorConfigOptions::default(),
+    }
+}
+
+fn file_fixture(
+    tier: FileSizeTier,
+    read_only: bool,
+) -> (EditorStore, ViewId, ProviderIdentity, ProjectId) {
+    let (mut store, _, provider, project) = fixture();
+    let document = store
+        .open_file(FILE_PATH.into(), opened_file(tier, read_only))
+        .unwrap();
+    let view = store
+        .attach_view(
+            ViewKey {
+                window: "synthetic".into(),
+                pane: PaneId::new(),
+                tab: TabId::new(),
+            },
+            document,
+        )
+        .unwrap();
+    (store, view, provider, project)
+}
 
 fn fixture() -> (EditorStore, ViewId, ProviderIdentity, ProjectId) {
     let mut store = EditorStore::new(EditorLimits {
@@ -234,37 +273,8 @@ fn navigation_boundary_기호로_시작하는_범위로_이동해도_표시를_�
 
 #[test]
 fn navigation_boundary_readonly_메타데이터의_문서는_내용을_바꾸지_않고_이동한다() {
-    use taide_model::file::{EditorConfigOptions, FileSizeTier, OpenedFile};
-    const CONTENT: &str = "foo = foo\nfoo";
-    const PATH: &str = "/synthetic/highlights-readonly.txt";
-    let (mut store, _, provider, project) = fixture();
-    let document = store
-        .open_file(
-            PATH.into(),
-            OpenedFile {
-                path: PATH.into(),
-                content: CONTENT.into(),
-                language_id: "plaintext".into(),
-                byte_size: CONTENT.len().try_into().unwrap(),
-                line_count: CONTENT.lines().count().try_into().unwrap(),
-                tier: FileSizeTier::ReadOnly,
-                read_only: true,
-                encoding_lossy: false,
-                modified_ms: 0.0,
-                editor_config: EditorConfigOptions::default(),
-            },
-        )
-        .unwrap();
-    let view = store
-        .attach_view(
-            ViewKey {
-                window: "synthetic".into(),
-                pane: PaneId::new(),
-                tab: TabId::new(),
-            },
-            document,
-        )
-        .unwrap();
+    let (mut store, view, provider, project) = file_fixture(FileSizeTier::Normal, true);
+    let document = store.views().get(view).unwrap().document;
     let before = store.documents().snapshot(document).unwrap();
     assert!(before.metadata.read_only);
     let mut state = State::default();
@@ -286,7 +296,7 @@ fn navigation_boundary_readonly_메타데이터의_문서는_내용을_바꾸지
     );
     let after = store.documents().snapshot(document).unwrap();
     assert_eq!(after.revision, before.revision);
-    assert_eq!(after.rope.to_string(), CONTENT);
+    assert_eq!(after.rope.to_string(), FILE_CONTENT);
     assert!(after.metadata.read_only);
 }
 
@@ -617,6 +627,79 @@ fn 공급자와_활성_소유_변경은_대기와_완료_표시를_취소한다(
     ));
     state.reconcile(&store, |_| false, |_, _| HashSet::from([changed]));
     assert!(new.is_cancelled());
+}
+
+#[test]
+fn highlight_tier_동일_revision의_크기_등급_변경은_대기와_표시를_만료한다() {
+    for tier in [FileSizeTier::Large, FileSizeTier::ReadOnly] {
+        for completed in [false, true] {
+            let (mut store, view, provider, project) = file_fixture(FileSizeTier::Normal, false);
+            let mut state = State::default();
+            let old = request(&mut state, &store, view, provider, &project);
+            if completed {
+                assert!(state.accept(
+                    &store,
+                    &old,
+                    HashSet::from([provider]),
+                    Ok(response(provider))
+                ));
+                assert!(state.has_highlights(&store, egui::ViewportId::ROOT, view));
+            }
+            store
+                .observe_file(
+                    old.snapshot.id,
+                    std::path::Path::new(FILE_PATH),
+                    opened_file(tier, tier == FileSizeTier::ReadOnly),
+                )
+                .unwrap();
+            let snapshot = store.documents().snapshot(old.snapshot.id).unwrap();
+            assert_eq!(snapshot.revision, old.snapshot.revision);
+            assert_eq!(snapshot.metadata.tier, tier);
+            assert!(!old.describes(&store), "{tier:?}, completed={completed}");
+            assert!(
+                state
+                    .display(&store, egui::ViewportId::ROOT, view, colors())
+                    .is_none()
+            );
+            state.reconcile(&store, |_| true, |_, _| HashSet::from([provider]));
+            assert!(old.is_cancelled());
+            assert!(!state.accept(
+                &store,
+                &old,
+                HashSet::from([provider]),
+                Ok(response(provider))
+            ));
+            assert!(
+                state
+                    .observe(
+                        &store,
+                        context(&project, view),
+                        HashSet::new(),
+                        Instant::now() + REQUEST_DEBOUNCE
+                    )
+                    .unwrap()
+                    .is_none()
+            );
+            store
+                .observe_file(
+                    old.snapshot.id,
+                    std::path::Path::new(FILE_PATH),
+                    opened_file(FileSizeTier::Normal, true),
+                )
+                .unwrap();
+            let restored = request(&mut state, &store, view, provider, &project);
+            assert_ne!(restored.token, old.token);
+            assert!(!restored.is_cancelled());
+            assert!(
+                store
+                    .documents()
+                    .snapshot(old.snapshot.id)
+                    .unwrap()
+                    .metadata
+                    .read_only
+            );
+        }
+    }
 }
 
 #[test]

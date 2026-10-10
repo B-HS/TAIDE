@@ -250,6 +250,7 @@ impl Request {
                                 && snapshot.revision == self.snapshot.revision
                                 && snapshot.metadata.language_id
                                     == self.snapshot.metadata.language_id
+                                && snapshot.metadata.tier == self.snapshot.metadata.tier
                         })
             })
     }

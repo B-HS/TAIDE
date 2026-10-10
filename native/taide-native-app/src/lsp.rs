@@ -624,6 +624,9 @@ impl LspBridge {
         project: &ProjectId,
         snapshot: &DocumentSnapshot,
     ) -> HashSet<crate::editor_symbols::ProviderIdentity> {
+        if snapshot.metadata.tier != FileSizeTier::Normal {
+            return HashSet::new();
+        }
         self.feature_providers(project, snapshot, "textDocument/documentHighlight")
     }
 

@@ -128,3 +128,21 @@ highlights-peek-readonly-close-chord-diagnostic.log의 ChordStatus.pending 필�
 진척 점검에서 감사 JSON을 직접 재집계한 결과는 599행 중 complete 288·partial 93·unwired 112·missing 95·제외 10·동결 1입니다. 유효 588행의 미완료는 300행이며 행별 작업량 차이 때문에 전체 완성률·신뢰할 잔여 시간을 산정하지 않습니다. 현재 배치 23·최종 계획 33을 유지합니다. 프로세스 이름 필터에서 실행 중인 Cargo/rustfmt/rustc/Bun/앱 검사는 없었고 최근 커밋은 다른 변경이었습니다. 이는 현재 실행 점검이며 이전 불필요한 재시도나 장기 대기 기록을 없애거나 전체 세션의 종료성을 증명하지 않습니다.
 
 `local-escape-chord-app-check-final.log`는 App inspection 전체 테스트 대상 컴파일 exit 0·31.96초입니다. `local-escape-chord-fmt-final.log`의 App fmt check와 `local-escape-chord-audit-final.log`의 감사 재생성도 exit 0입니다. UI/Editor/SDK/Syntax·frozen host/Wasm의 변경 없는 성공은 재사용하며 배치 전체 `--no-fail-fast` 실행으로 확대하지 않습니다. 이번 frozen source·manifest/lock 변경은 0이고 디스크 여유는 542GiB·사용률 71%입니다. 빌드 정리나 보호 범위 변경은 없습니다.
+
+## 크기 등급 변경과 LSP 공급 경계
+
+기준은 `7dd5703d` 이후 수정입니다. 원본 `use-lsp-session.ts:33`의 Normal 등급 연결과 파일 권한/인코딩 때문에 발생한 read_only 플래그를 구분했습니다. TS 설정과 `code-editor.tsx`에는 occurrencesHighlight/occurrencesHighlightDelay의 사용자 설정 연결이 없으며 설치 Monaco의 기본값은 singleFile/0ms입니다. 기존 native의 50ms 관찰과 명시 trigger의 250ms 지연은 별도 동작입니다.
+
+`EditorStore::observe_file`은 내용이 같으면 revision을 유지하면서 메타데이터를 갱신합니다. 기존 하이라이트 Request는 크기 등급을 비교하지 않아 대기·완료 표시를 유효하게 판단했고, `LspBridge::highlight_providers`는 이전 child의 열린 문서만 보고 제한 등급에도 공급자를 반환했습니다. 이 창을 실제 child가 연결된 상태에서 재현했습니다. Request의 문서 식별에 tier를 포함하고 LSP 공급 경계에서 Normal 이외 등급을 즉시 제외했습니다. 원본 기본 텍스트 공급자의 등급 정책까지 이 LSP 차단으로 대체하지 않습니다.
+
+- `highlight-tier-state-repro.log`: 존재하지 않는 Colors::defaults를 사용한 검사 준비 컴파일 오류입니다. 기존 colors() 헬퍼로 수정했습니다.
+- `highlight-tier-state-child-repro.log`: 기존 readonly 검사의 파일 fixture를 공통화하면서 남긴 CONTENT 상수 참조의 컴파일 오류입니다. FILE_CONTENT로 수정했습니다. 두 컴파일 실패는 제품 재현/성공으로 세지 않습니다.
+- `highlight-tier-repro-final.log`: 실제 실행 0통과·2실패·exit 101·3.99초입니다. 상태 검사에서 Large 등급 변경 뒤 이전 요청이 계속 문서를 설명하는 실패, 실제 child 검사에서 이전 서버가 연결된 채 Large 등급에도 공급자를 반환하는 실패를 각각 확인했습니다.
+- `highlight-tier-state-child-final.log`: 상태 16·실제 child 4건, 총 20건 통과·exit 0·5.36초입니다. 새 상태 검사는 Large/ReadOnly 각각 대기·완료 상태를 확인하며 동일 revision, 즉시 표시 만료, reconcile 취소, 오래된 응답 거절과 Normal 복원을 포함합니다. 실제 child 검사는 두 등급 모두 서버의 비동기 문서 회수 전에 즉시 공급자 차단, 실제 mirror 닫기·재열기, 오래된 응답 거절, Normal/read_only 파일의 실제 새 하이라이트와 정상 종료/작업 0을 확인합니다.
+- 기존 readonly 이동 fixture는 크기 기준 ReadOnly 등급의 가짜 공급자로 실행하던 조건을 Normal/read_only로 바로잡았습니다. 원본의 실제 LSP 연결 가능 조건에서 내용을 바꾸지 않는 이동을 검증하며 이전 실제 앱의 Normal/read_only 검증과 일치합니다.
+
+크기 등급은 작은 임시 문서의 메타데이터로 주입해 비동기 회수 경계와 내용이 같은 메타데이터 갱신을 분리했습니다. 실제 20MB/30만 줄 문서의 성능·화면/OS 게이트를 실행했다고 확대하지 않습니다. App 외 크레이트와 mock 소스는 바꾸지 않았으며 이번 Cargo/fmt는 앞 프로세스의 종료를 확인하고 직렬 실행했습니다.
+
+추가 원본 대조에서 `textualHighlightProvider.js`의 기본 단어 공급자가 누락된 것을 확인했습니다. 설치 Monaco는 LSP 제공자가 없어도 해당 언어의 단어를 얻어 대소문자 구분·기본 구분자에 따른 whole word 검색으로 Text 종류를 표시합니다. LSP의 유효한 빈/null(원본 adapter가 []로 변환) 결과는 대체 검색을 하지 않고, 모든 공급자의 실패/미지원은 기본 텍스트 공급자로 이어져야 합니다. 기본 검색의 999 결과 상한과 `wordHighlighter.js:670`의 20Mi UTF-16 단위/30만 줄 초과 게이트도 원본 근거이며 원본의 고정 모델 수명 버그는 강제 재현하지 않습니다. 현재 native는 공급자가 비면 닫고 있어 이 경로가 미구현입니다. 별도 구현/앱 연결·오래된 응답/취소 검증과 실제 공급자 교체, 배치 전체/실기 게이트가 남아 editor-51은 partial입니다.
+
+`highlight-tier-app-check-final.log`의 App inspection 전체 테스트 대상 컴파일은 exit 0·27.52초입니다. `highlight-tier-fmt-final.log`의 App fmt check와 `highlight-tier-audit-final.log`의 감사 재생성도 exit 0입니다. 감사는 599행/293근거 경로·유효 588행·완료 288·미완료 300이며 기능 전체 완성률로 환산하지 않습니다. App 외 크레이트/이전 Escape 및 실제 앱 성공의 근거를 재사용하되 이번의 20건과 중복 합산하거나 배치 전체 테스트 실행으로 확대하지 않습니다. 이번 frozen source·전체 manifest/lock 변경은 0이고 디스크는 540GiB·71%입니다. 보호 범위나 빌드 정리는 건드리지 않았습니다.

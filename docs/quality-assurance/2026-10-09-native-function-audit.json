@@ -1,6 +1,6 @@
 {
     "date": "2026-10-10",
-    "baseline": "6f1ae6ba",
+    "baseline": "7dd5703d",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -735,7 +735,7 @@
                 "native/taide-native-app/src/terminal_surface.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-10-native-batch23-editor.md"],
-            "limitation": "상태 15·child 3건의 변경 없는 성공을 재사용하며 이번 Escape 수정의 서로 다른 8건이 통과했습니다. 강제 초기화 없는 실제 앱에서 peek CtrlK 대기→찾기 Escape 취소→readonly ShiftF7·입력 거절·종료 회수를 검증했습니다. 큰 tier/공급자 변화/원본 설정·배치 전체/실기 게이트 전에는 complete로 올리지 않습니다."
+            "limitation": "크기 등급 수정 뒤 상태 16·실제 child 4건이 통과했습니다. Large/ReadOnly의 회수 전 LSP 차단과 동일 revision의 요청/표시 만료, Normal/read_only 복원·오래된 응답 거절·정상 종료를 검증했습니다. 기본 텍스트 공급자와 실제 공급자 교체, 배치 전체/실기 게이트는 미완료이며 실제 대형 문서 성능 검증으로 확대하지 않습니다."
         }
     },
     "rows": [
@@ -2387,7 +2387,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-highlights",
-            "note": "배치 23의 공급·표시·본문/peek 이동·trigger·취소와 다중 공급자/프로젝트 소유를 연결했습니다. 로컬 Escape의 전역 대기 회수 실패를 재현·수정하고 강제 초기화 없는 실제 peek→readonly ShiftF7 흐름을 포함한 8건이 통과했습니다. 큰 tier/공급자 변화/원본 설정·배치 전체 게이트가 남아 partial입니다."
+            "note": "배치 23에서 LSP 공급·표시·본문/peek 이동·trigger·취소와 Escape 연계를 연결했습니다. 동일 revision의 크기 등급 변경과 회수 전 남은 공급자 차단을 실패로 재현·수정했고 상태/실제 child 20건이 통과했습니다. 원본 기본 텍스트 공급자 누락을 확인했으며 해당 구현·실제 공급자 교체·배치 전체 게이트가 남아 partial입니다."
         },
         {
             "id": "editor-52",

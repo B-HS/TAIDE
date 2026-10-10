@@ -11,6 +11,172 @@ const CARET_BYTE: usize = 13;
 const READY_DEADLINE: Duration = Duration::from_secs(5);
 
 #[tokio::test]
+async fn highlight_tier_실제_child의_남은_공급자는_크기_등급_차단과_정상_복원을_우회하지_못한다() {
+    tokio::time::timeout(DEADLINE, async {
+        let (fixture, project, mut store, id, bin) =
+            document_symbol_tests::fixture("--native-highlights");
+        let original = store.documents().snapshot(id).unwrap();
+        let DocumentKey::File(path) = &original.key else {
+            panic!("file fixture");
+        };
+        let normal_file = taide_file::service::open_file(path, &[], false).unwrap();
+        let view = store
+            .attach_view(
+                ViewKey {
+                    window: "synthetic".into(),
+                    pane: PaneId::new(),
+                    tab: TabId::new(),
+                },
+                id,
+            )
+            .unwrap();
+        store
+            .set_view_state(
+                view,
+                SelectionSet {
+                    primary: 0,
+                    selections: vec![Selection {
+                        anchor: CARET_BYTE,
+                        head: CARET_BYTE,
+                    }],
+                },
+                Default::default(),
+                Vec::new(),
+            )
+            .unwrap();
+        let signal = Arc::new(Notify::new());
+        let repaint = signal.clone();
+        let mut bridge = LspBridge::connect(
+            fixture.services.clone(),
+            bin,
+            Arc::new(move || repaint.notify_one()),
+        )
+        .unwrap();
+        bridge.sync(project.clone(), original.clone()).unwrap();
+        running(&mut bridge, &signal, &fixture, 1).await;
+        let context = || Context {
+            project: project.clone(),
+            source: view,
+            owner: view,
+            viewport: eframe::egui::ViewportId::ROOT,
+        };
+        let mut state = State::default();
+        for tier in [FileSizeTier::Large, FileSizeTier::ReadOnly] {
+            let snapshot = store.documents().snapshot(id).unwrap();
+            let providers = bridge.highlight_providers(&project, &snapshot);
+            assert!(!providers.is_empty());
+            let now = Instant::now();
+            assert!(
+                state
+                    .observe(&store, context(), providers.clone(), now)
+                    .unwrap()
+                    .is_none()
+            );
+            let old = state
+                .observe(&store, context(), providers.clone(), now + DEBOUNCE)
+                .unwrap()
+                .unwrap();
+            bridge.highlights(old.clone()).unwrap();
+            loop {
+                if let Reply::Highlights { request, result } = next(&mut bridge, &signal).await {
+                    assert!(state.accept(&store, &request, providers.clone(), result));
+                    break;
+                }
+            }
+            assert!(state.has_highlights(&store, eframe::egui::ViewportId::ROOT, view));
+            let mut restricted_file = normal_file.clone();
+            restricted_file.tier = tier;
+            restricted_file.read_only = tier == FileSizeTier::ReadOnly;
+            store.observe_file(id, path, restricted_file).unwrap();
+            let restricted = store.documents().snapshot(id).unwrap();
+            assert_eq!(restricted.revision, snapshot.revision);
+            assert!(
+                bridge.highlight_providers(&project, &restricted).is_empty(),
+                "{tier:?}: old child is still connected"
+            );
+            state.reconcile(
+                &store,
+                |_| true,
+                |project, snapshot| bridge.highlight_providers(project, snapshot),
+            );
+            assert!(old.is_cancelled());
+            assert!(!state.has_highlights(&store, eframe::egui::ViewportId::ROOT, view));
+            assert!(!state.accept(
+                &store,
+                &old,
+                HashSet::new(),
+                Ok(crate::editor_highlights::Response {
+                    provider: None,
+                    highlights: Vec::new()
+                })
+            ));
+            bridge.sync(project.clone(), restricted).unwrap();
+            loop {
+                while bridge.poll().is_some() {}
+                if bridge
+                    .states
+                    .borrow()
+                    .iter()
+                    .all(|entry| !entry.open_documents.contains(&id))
+                {
+                    break;
+                }
+                signal.notified().await;
+            }
+            let mut restored_file = normal_file.clone();
+            restored_file.read_only = true;
+            store.observe_file(id, path, restored_file).unwrap();
+            let restored = store.documents().snapshot(id).unwrap();
+            assert_eq!(restored.metadata.tier, FileSizeTier::Normal);
+            assert!(restored.metadata.read_only);
+            bridge.sync(project.clone(), restored.clone()).unwrap();
+            loop {
+                while bridge.poll().is_some() {}
+                if !bridge.highlight_providers(&project, &restored).is_empty() {
+                    break;
+                }
+                signal.notified().await;
+            }
+            assert!(!state.accept(
+                &store,
+                &old,
+                bridge.highlight_providers(&project, &restored),
+                Ok(crate::editor_highlights::Response {
+                    provider: None,
+                    highlights: Vec::new()
+                })
+            ));
+        }
+        let snapshot = store.documents().snapshot(id).unwrap();
+        let providers = bridge.highlight_providers(&project, &snapshot);
+        let now = Instant::now();
+        assert!(
+            state
+                .observe(&store, context(), providers.clone(), now)
+                .unwrap()
+                .is_none()
+        );
+        let restored = state
+            .observe(&store, context(), providers.clone(), now + DEBOUNCE)
+            .unwrap()
+            .unwrap();
+        bridge.highlights(restored).unwrap();
+        loop {
+            if let Reply::Highlights { request, result } = next(&mut bridge, &signal).await {
+                assert!(state.accept(&store, &request, providers.clone(), result));
+                break;
+            }
+        }
+        assert!(state.has_highlights(&store, eframe::egui::ViewportId::ROOT, view));
+        bridge.disconnect().await.unwrap();
+        fixture.services.tasks.shutdown().await;
+        assert_eq!(fixture.services.tasks.tracked_count(), 0);
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
 async fn multihighlight_실제_공급자_우선순위_빈_null_오류_대체와_프로젝트_소유를_보존한다() {
     use std::os::unix::fs::PermissionsExt;
     const EXECUTABLE_MODE: u32 = 0o700;
