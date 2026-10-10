@@ -63,7 +63,7 @@ fn type_character(
                     &ordered(selection),
                     character,
                     language,
-                    typing.indent,
+                    document.model_indentation(typing.indent),
                 )
             })
             .collect()
@@ -140,7 +140,7 @@ fn type_character(
                 selection.head,
                 character,
                 language,
-                typing.indent,
+                document.model_indentation(typing.indent),
             ),
             _ => None,
         })
@@ -186,7 +186,13 @@ fn break_line(
     let line_ending = document.metadata.line_ending.as_str();
     let mut plan = Plan::new(&current.selection);
     for (index, selection) in current.selection.selections.iter().enumerate() {
-        let edit = line_break(&document, ordered(selection), language, indent, line_ending);
+        let edit = line_break(
+            &document,
+            ordered(selection),
+            language,
+            document.model_indentation(indent),
+            line_ending,
+        );
         let Some(applied) = plan.edit(edit.bytes, edit.text) else {
             continue;
         };

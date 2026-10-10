@@ -274,6 +274,130 @@ fn marked(store: &EditorStore, view: ViewId) -> String {
 }
 
 #[test]
+fn 재들여쓰기는_표시_폭으로_탭을_측정하고_명시한_공백_편집_폭으로_증가시킨다() {
+    use taide_native_editor::indent::{
+        Command, IndentConfiguration, IndentationChange, run_command_with_language,
+    };
+    const DISPLAY_SIZE: u32 = 8;
+    let source = "\tif {\nbody\n}";
+    for (change, expected) in [
+        (
+            IndentationChange::UseSpaces(TAB_SIZE),
+            "\tif {\n            body\n        }",
+        ),
+        (
+            IndentationChange::UseTabs(TAB_SIZE),
+            "\tif {\n\t\tbody\n\t}",
+        ),
+    ] {
+        let (mut store, view) = fixture(source, source.len());
+        let document = store.views().get(view).unwrap().document;
+        let configuration = IndentConfiguration {
+            defaults: SPACES,
+            detect_indentation: false,
+        };
+        store
+            .set_indentation(document, configuration, change)
+            .unwrap();
+        store
+            .set_indentation(
+                document,
+                configuration,
+                IndentationChange::DisplaySize(DISPLAY_SIZE),
+            )
+            .unwrap();
+        let rules = indentation_rules();
+        assert!(
+            run_command_with_language(
+                &mut store,
+                view,
+                Command::ReindentLines,
+                configuration,
+                Some(Language {
+                    rules: &rules,
+                    syntax: &UntokenizedLines
+                })
+            )
+            .unwrap()
+        );
+        assert_eq!(
+            store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .rope
+                .to_string(),
+            expected
+        );
+        assert!(store.undo(document).unwrap());
+        assert_eq!(
+            store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .model_indentation(SPACES)
+                .indent_size,
+            TAB_SIZE
+        );
+    }
+}
+
+#[test]
+fn 언어_줄바꿈도_탭_표시_폭과_명시한_편집_폭을_구분한다() {
+    use taide_native_editor::indent::{IndentConfiguration, IndentationChange};
+    const DISPLAY_SIZE: u32 = 8;
+    let source = "\tif {";
+    for (change, expected) in [
+        (
+            IndentationChange::UseSpaces(TAB_SIZE),
+            "\tif {\n            ",
+        ),
+        (IndentationChange::UseTabs(TAB_SIZE), "\tif {\n\t\t"),
+    ] {
+        let (mut store, view) = fixture(source, source.len());
+        let document = store.views().get(view).unwrap().document;
+        let configuration = IndentConfiguration {
+            defaults: SPACES,
+            detect_indentation: false,
+        };
+        store
+            .set_indentation(document, configuration, change)
+            .unwrap();
+        store
+            .set_indentation(
+                document,
+                configuration,
+                IndentationChange::DisplaySize(DISPLAY_SIZE),
+            )
+            .unwrap();
+        let rules = indentation_rules();
+        let mut auto_closed = AutoClosedPairs::default();
+        let mut typing = Typing {
+            language: Some(Language {
+                rules: &rules,
+                syntax: &UntokenizedLines,
+            }),
+            indent: SPACES,
+            auto_closed: &mut auto_closed,
+        };
+        assert!(insert_line_break(&mut store, view, &mut typing).unwrap());
+        assert_eq!(
+            store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .rope
+                .to_string(),
+            expected
+        );
+        assert_eq!(
+            store.views().get(view).unwrap().selection.selections[0].head,
+            expected.len()
+        );
+    }
+}
+
+#[test]
 fn 재들여쓰기는_다중_선택과_mirror를_추적하고_한_번의_undo로_복원한다() {
     use taide_native_editor::indent::{Command, IndentConfiguration, run_command_with_language};
     let source = "if {\nbody\n}\n끝";

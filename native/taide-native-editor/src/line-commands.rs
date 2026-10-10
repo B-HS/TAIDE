@@ -863,7 +863,12 @@ fn enter_move_delta(
             .chars()
             .all(is_js_whitespace)
     })?;
-    let prefix = auto_indent::enter_prefix(document, language, above, indent)?;
+    let prefix = auto_indent::enter_prefix(
+        document,
+        language,
+        above,
+        document.model_indentation(indent),
+    )?;
     let moving_text = line_text(document, moving).text;
     if !moving_text
         .trim_start_matches(is_js_whitespace)
@@ -871,14 +876,15 @@ fn enter_move_delta(
     {
         return None;
     }
-    let size = tab_width(indent);
+    let options = document.model_indentation(indent);
+    let size = tab_width(options);
     let mut desired = visible_column(leading_whitespace(&prefix), size);
     if language
         .rules
         .indent_metadata(&moving_text)
         .is_some_and(|metadata| metadata.decreases)
     {
-        desired = crate::editing::previous_tab_stop(desired, size);
+        desired = crate::editing::previous_tab_stop(desired, crate::editing::indent_step(options));
     }
     Some(desired as isize - visible_column(leading_whitespace(&moving_text), size) as isize)
 }
@@ -952,13 +958,18 @@ fn moved_lines(
                 )
                 .map(|delta| old.saturating_add_signed(delta))
                 .or_else(|| {
-                    auto_indent::good_indent(&snapshot, virtual_language, first, context.indent)
-                        .map(|prefix| visible_column(&prefix, size))
+                    auto_indent::good_indent(
+                        &snapshot,
+                        virtual_language,
+                        first,
+                        snapshot.model_indentation(context.indent),
+                    )
+                    .map(|prefix| visible_column(&prefix, size))
                 });
                 if let Some(desired) = desired {
                     contents[0] = format!(
                         "{}{}",
-                        indentation(desired, context.indent),
+                        indentation(desired, document.model_indentation(context.indent)),
                         contents[0].trim_start_matches(is_js_whitespace)
                     );
                 }
@@ -977,7 +988,7 @@ fn moved_lines(
                         &snapshot,
                         virtual_language,
                         first + block_first,
-                        context.indent,
+                        snapshot.model_indentation(context.indent),
                     )
                     .map(|prefix| visible_column(&prefix, size) as isize - old as isize)
                 });
@@ -987,7 +998,7 @@ fn moved_lines(
                     let desired = visible_column(existing, size).saturating_add_signed(delta);
                     *content = format!(
                         "{}{}",
-                        indentation(desired, context.indent),
+                        indentation(desired, document.model_indentation(context.indent)),
                         &content[existing.len()..]
                     );
                 }
@@ -1180,11 +1191,19 @@ fn inserted_lines(
         let content = line_text(document, above);
         let location = content.start + content.text.len();
         let entered = language.map(|language| {
-            auto_indent::line_break(document, location..location, language, indent, eol)
+            auto_indent::line_break(
+                document,
+                location..location,
+                language,
+                document.model_indentation(indent),
+                eol,
+            )
         });
         let (bytes, text, caret_before_end) = match entered {
             Some(entered) => (entered.bytes, entered.text, entered.caret_before_end),
             None => {
+                let indent =
+                    crate::editing::normalization_options(document.model_indentation(indent));
                 let columns = visible_column(leading_whitespace(&content.text), tab_width(indent));
                 (
                     location..location,

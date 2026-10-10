@@ -723,6 +723,94 @@ fn scrollbar는_가로_scroll을_가장_긴_표시_줄로_제한하고_track_클
 
 #[test]
 #[cfg(feature = "native-host")]
+fn 수동_편집_폭과_탭_표시_폭은_실제_본문_입력과_그리기에서_분리된다() {
+    use taide_native_editor::indent::IndentationChange;
+    let source = "\tx";
+    for read_only in [false, true] {
+        let (mut store, view) = fixture(source, read_only);
+        let document = store.views().get(view).unwrap().document;
+        let configuration = IndentConfiguration {
+            defaults: IndentOptions {
+                tab_size: TAB_SIZE,
+                insert_spaces: true,
+            },
+            detect_indentation: false,
+        };
+        store
+            .set_indentation(
+                document,
+                configuration,
+                IndentationChange::UseSpaces(TAB_SIZE),
+            )
+            .unwrap();
+        store
+            .set_indentation(
+                document,
+                configuration,
+                IndentationChange::DisplaySize(WIDE_TAB_SIZE),
+            )
+            .unwrap();
+        let current = store.views().get(view).unwrap().clone();
+        store
+            .set_view_state(
+                view,
+                SelectionSet {
+                    primary: 0,
+                    selections: vec![Selection { anchor: 1, head: 1 }],
+                },
+                current.scroll,
+                current.folds,
+            )
+            .unwrap();
+        let context = Context::default();
+        let before = store.documents().snapshot(document).unwrap();
+        let mut output = context.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    pos2(0.0, 0.0),
+                    vec2(SCREEN[0], SCREEN[1]),
+                )),
+                events: vec![key(Key::Tab, false)],
+                ..Default::default()
+            },
+            |ui| {
+                let shown = editor().show(ui, &mut store, view, true).unwrap();
+                assert_eq!(shown.changed, !read_only);
+                if read_only {
+                    assert_eq!(shown.errors, vec![EditorError::ReadOnly]);
+                } else {
+                    assert!(shown.errors.is_empty());
+                }
+            },
+        );
+        output.textures_delta.clear();
+        let after = store.documents().snapshot(document).unwrap();
+        let inserted = if read_only { 0 } else { TAB_SIZE };
+        assert_eq!(
+            after.rope.to_string(),
+            format!("\t{}x", " ".repeat(inserted as usize))
+        );
+        let rendered = format!("{}x", " ".repeat((WIDE_TAB_SIZE + inserted) as usize));
+        assert!(output.shapes.iter().any(
+            |shape| matches!(&shape.shape, Shape::Text(text) if text.galley.job.text == rendered)
+        ));
+        assert_eq!(
+            after.model_indentation(configuration.defaults).indent_size,
+            TAB_SIZE
+        );
+        assert_eq!(
+            after.model_indentation(configuration.defaults).tab_size,
+            WIDE_TAB_SIZE
+        );
+        if read_only {
+            assert_eq!(after.revision, before.revision);
+            assert_eq!(after.dirty, before.dirty);
+        }
+    }
+}
+
+#[test]
+#[cfg(feature = "native-host")]
 fn 명령의_옵션_변경은_같은_프레임의_다음_tab에_즉시_적용된다() {
     for (command, source, expected) in [
         (

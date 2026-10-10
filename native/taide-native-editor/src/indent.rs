@@ -1,4 +1,4 @@
-use crate::document::EditorError;
+use crate::document::{DocumentSnapshot, EditorError};
 use crate::editing::{Plan, SEPARATE_STEP, apply_step, ordered, view_document};
 use crate::language_configuration::Language;
 use crate::store::EditorStore;
@@ -18,6 +18,41 @@ const FOUR_SPACE_SCORE_FACTOR: usize = 2;
 pub struct IndentOptions {
     pub tab_size: u32,
     pub insert_spaces: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ModelIndentOptions {
+    pub tab_size: u32,
+    pub indent_size: u32,
+    pub insert_spaces: bool,
+}
+
+impl From<IndentOptions> for ModelIndentOptions {
+    fn from(options: IndentOptions) -> Self {
+        Self {
+            tab_size: options.tab_size.max(1),
+            indent_size: options.tab_size.max(1),
+            insert_spaces: options.insert_spaces,
+        }
+    }
+}
+
+impl DocumentSnapshot {
+    pub fn model_indentation(&self, fallback: IndentOptions) -> ModelIndentOptions {
+        let options = self.indent_options.unwrap_or(fallback);
+        ModelIndentOptions {
+            tab_size: options.tab_size.max(1),
+            indent_size: self.indent_size.unwrap_or(options.tab_size).max(1),
+            insert_spaces: options.insert_spaces,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IndentationChange {
+    UseSpaces(u32),
+    UseTabs(u32),
+    DisplaySize(u32),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,6 +108,7 @@ pub fn run_command_with_language(
         return Err(EditorError::ReadOnly);
     }
     let options = store.configure_indentation(document.id, configuration)?;
+    let document = store.documents().snapshot(document.id)?;
     if matches!(
         command,
         Command::ReindentLines | Command::ReindentSelectedLines
@@ -114,7 +150,7 @@ pub fn run_command_with_language(
             for edit in crate::auto_indent::reindent_edits(
                 &document,
                 language,
-                options,
+                document.model_indentation(options),
                 range,
                 store.document_byte_limit(),
             )? {
@@ -144,11 +180,13 @@ pub fn run_command_with_language(
         return Ok(changed);
     }
     if command == Command::Detect {
-        return store.override_indentation(
-            document.id,
-            configuration,
-            guess(&document.rope, configuration.defaults),
-        );
+        let guessed = guess(&document.rope, configuration.defaults);
+        let change = if guessed.insert_spaces {
+            IndentationChange::UseSpaces(guessed.tab_size)
+        } else {
+            IndentationChange::UseTabs(guessed.tab_size)
+        };
+        return store.set_indentation(document.id, configuration, change);
     }
     let insert_spaces = command == Command::ToSpaces;
     let width = options.tab_size as usize;

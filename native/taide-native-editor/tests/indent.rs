@@ -1,9 +1,11 @@
 use taide_model::file::{EditorConfigIndentStyle, EditorConfigOptions, FileSizeTier, OpenedFile};
 use taide_model::ids::{PaneId, TabId};
-use taide_native_editor::document::{Edit, UndoGroup};
-use taide_native_editor::editing::{delete_backward, insert_line_break, outdent, tab};
+use taide_native_editor::document::{Edit, EditorError, UndoGroup};
+use taide_native_editor::editing::{
+    delete_backward, indent_lines, insert_line_break, outdent, tab,
+};
 use taide_native_editor::indent::{
-    Command, IndentConfiguration, IndentOptions, guess, resolve, run_command,
+    Command, IndentConfiguration, IndentOptions, IndentationChange, guess, resolve, run_command,
 };
 use taide_native_editor::store::{EditorLimits, EditorStore, Transaction};
 use taide_native_editor::view::{Selection, SelectionSet, ViewId, ViewKey};
@@ -12,7 +14,7 @@ const BASE_SIZE: u32 = 4;
 const SPACE_SIZE: u32 = 2;
 const TAB_WIDTH: u32 = 8;
 const DOCUMENT_LIMIT: usize = 1;
-const VIEW_LIMIT: usize = 1;
+const VIEW_LIMIT: usize = 2;
 const HISTORY_LIMIT: usize = 8;
 const BYTE_LIMIT: usize = 1024;
 const SPACES: IndentOptions = IndentOptions {
@@ -87,6 +89,396 @@ fn fixture(text: &str, range: (usize, usize)) -> (EditorStore, ViewId) {
         )
         .unwrap();
     (store, view)
+}
+
+#[test]
+fn 표시_폭을_바꿔도_명시한_공백_편집_폭은_유지한다() {
+    let (mut store, view) = fixture("", (0, 0));
+    let document = store.views().get(view).unwrap().document;
+    let configuration = IndentConfiguration {
+        defaults: SPACES,
+        detect_indentation: false,
+    };
+    assert!(
+        store
+            .set_indentation(
+                document,
+                configuration,
+                IndentationChange::UseSpaces(BASE_SIZE)
+            )
+            .unwrap()
+    );
+    assert!(
+        store
+            .set_indentation(
+                document,
+                configuration,
+                IndentationChange::DisplaySize(TAB_WIDTH)
+            )
+            .unwrap()
+    );
+    let before = store.documents().snapshot(document).unwrap();
+    assert_eq!(before.model_indentation(SPACES).indent_size, BASE_SIZE);
+    assert_eq!(before.model_indentation(SPACES).tab_size, TAB_WIDTH);
+    assert!(tab(&mut store, view, before.indent_options.unwrap()).unwrap());
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        " ".repeat(BASE_SIZE as usize)
+    );
+}
+
+#[test]
+fn 기본_폭은_표시_폭을_따르고_명시_감지는_감지한_편집_폭을_고정한다() {
+    let source = "root\n  child\n    nested\nend";
+    let (mut store, view) = fixture(source, (0, 0));
+    let document = store.views().get(view).unwrap().document;
+    let configuration = IndentConfiguration {
+        defaults: SPACES,
+        detect_indentation: true,
+    };
+    assert_eq!(
+        store
+            .configure_indentation(document, configuration)
+            .unwrap()
+            .tab_size,
+        SPACE_SIZE
+    );
+    assert!(
+        store
+            .set_indentation(
+                document,
+                configuration,
+                IndentationChange::DisplaySize(TAB_WIDTH)
+            )
+            .unwrap()
+    );
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .model_indentation(SPACES)
+            .indent_size,
+        TAB_WIDTH
+    );
+    assert!(run_command(&mut store, view, Command::Detect, configuration).unwrap());
+    assert!(
+        store
+            .set_indentation(
+                document,
+                configuration,
+                IndentationChange::DisplaySize(TAB_WIDTH)
+            )
+            .unwrap()
+    );
+    let options = store
+        .documents()
+        .snapshot(document)
+        .unwrap()
+        .model_indentation(SPACES);
+    assert_eq!(options.tab_size, TAB_WIDTH);
+    assert_eq!(options.indent_size, SPACE_SIZE);
+    assert!(run_command(&mut store, view, Command::ToTabs, configuration).unwrap());
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .model_indentation(SPACES)
+            .indent_size,
+        SPACE_SIZE
+    );
+}
+
+#[test]
+fn 서로_다른_두_폭의_편집은_설치된_monaco_공백과_탭_사례를_따른다() {
+    type Operation = fn(&mut EditorStore, ViewId, IndentOptions) -> Result<bool, EditorError>;
+    let cases: &[(Operation, &str, usize, bool, &str)] = &[
+        (tab, "\tx", 1, true, "\t    x"),
+        (tab, "\tx", 1, false, "\t\tx"),
+        (indent_lines, "\tx", 1, true, "            x"),
+        (indent_lines, "\tx", 1, false, "\t\tx"),
+        (outdent, "\tx", 1, true, "    x"),
+        (outdent, "\tx", 1, false, "x"),
+        (outdent, "\t    x", 5, true, "        x"),
+        (outdent, "\t    x", 5, false, "\tx"),
+        (delete_backward, "\t    x", 5, true, "\tx"),
+        (delete_backward, "\t    x", 5, false, "\tx"),
+        (
+            delete_backward,
+            "        x",
+            TAB_WIDTH as usize,
+            true,
+            "    x",
+        ),
+        (insert_line_break, "\t    x", 6, true, "\t    x\n        "),
+        (insert_line_break, "\t    x", 6, false, "\t    x\n\t\t"),
+    ];
+    for (operation, source, caret, spaces, expected) in cases {
+        let (mut store, view) = fixture(source, (*caret, *caret));
+        let document = store.views().get(view).unwrap().document;
+        let configuration = IndentConfiguration {
+            defaults: SPACES,
+            detect_indentation: false,
+        };
+        let change = if *spaces {
+            IndentationChange::UseSpaces(BASE_SIZE)
+        } else {
+            IndentationChange::UseTabs(BASE_SIZE)
+        };
+        assert!(
+            store
+                .set_indentation(document, configuration, change)
+                .unwrap()
+        );
+        assert!(
+            store
+                .set_indentation(
+                    document,
+                    configuration,
+                    IndentationChange::DisplaySize(TAB_WIDTH)
+                )
+                .unwrap()
+        );
+        let options = store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .indent_options
+            .unwrap();
+        assert!(
+            operation(&mut store, view, options).unwrap(),
+            "{source:?} {spaces}"
+        );
+        assert_eq!(
+            store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .rope
+                .to_string(),
+            *expected,
+            "{source:?} {spaces}"
+        );
+        assert!(store.undo(document).unwrap());
+        let restored = store.documents().snapshot(document).unwrap();
+        assert_eq!(restored.rope.to_string(), *source);
+        assert_eq!(restored.model_indentation(SPACES).indent_size, BASE_SIZE);
+        assert_eq!(restored.model_indentation(SPACES).tab_size, TAB_WIDTH);
+    }
+}
+
+#[test]
+fn 수동_옵션은_readonly와_mirror에서_공유되고_내용과_revision과_undo를_변경하지_않는다() {
+    let source = "root";
+    let (mut store, view) = fixture(source, (0, 0));
+    let document = store.views().get(view).unwrap().document;
+    let mirror = store
+        .attach_view(
+            ViewKey {
+                window: "mirror".into(),
+                pane: PaneId::new(),
+                tab: TabId::new(),
+            },
+            document,
+        )
+        .unwrap();
+    let mut file = opened(source, EditorConfigOptions::default());
+    file.read_only = true;
+    store
+        .observe_file(
+            document,
+            std::path::Path::new("/synthetic/indent.txt"),
+            file,
+        )
+        .unwrap();
+    let before = store.documents().snapshot(document).unwrap();
+    let configuration = IndentConfiguration {
+        defaults: SPACES,
+        detect_indentation: false,
+    };
+    assert!(
+        store
+            .set_indentation(
+                document,
+                configuration,
+                IndentationChange::UseTabs(BASE_SIZE)
+            )
+            .unwrap()
+    );
+    assert!(
+        store
+            .set_indentation(
+                document,
+                configuration,
+                IndentationChange::DisplaySize(TAB_WIDTH)
+            )
+            .unwrap()
+    );
+    assert!(
+        !store
+            .set_indentation(
+                document,
+                configuration,
+                IndentationChange::DisplaySize(TAB_WIDTH)
+            )
+            .unwrap()
+    );
+    let after = store
+        .documents()
+        .snapshot(store.views().get(mirror).unwrap().document)
+        .unwrap();
+    assert_eq!(after.rope, before.rope);
+    assert_eq!(after.revision, before.revision);
+    assert_eq!(after.dirty, before.dirty);
+    assert_eq!(after.model_indentation(SPACES).indent_size, BASE_SIZE);
+    assert_eq!(after.model_indentation(SPACES).tab_size, TAB_WIDTH);
+    assert!(!after.model_indentation(SPACES).insert_spaces);
+    assert_eq!(tab(&mut store, mirror, TABS), Err(EditorError::ReadOnly));
+}
+
+#[test]
+fn editorconfig는_명시한_편집_폭을_보존하고_전역_재감지는_감지한_숫자_폭으로_재설정한다() {
+    let source = "root\n  child\n    nested\nend";
+    let (mut store, view) = fixture(source, (0, 0));
+    let document = store.views().get(view).unwrap().document;
+    let configuration = IndentConfiguration {
+        defaults: SPACES,
+        detect_indentation: false,
+    };
+    store
+        .set_indentation(
+            document,
+            configuration,
+            IndentationChange::UseSpaces(BASE_SIZE),
+        )
+        .unwrap();
+    let config = EditorConfigOptions {
+        indent_style: Some(EditorConfigIndentStyle::Tab),
+        tab_width: Some(TAB_WIDTH),
+        ..Default::default()
+    };
+    store
+        .observe_file(
+            document,
+            std::path::Path::new("/synthetic/indent.txt"),
+            opened(source, config),
+        )
+        .unwrap();
+    assert_eq!(
+        store.documents().snapshot(document).unwrap().indent_size,
+        None
+    );
+    store
+        .configure_indentation(document, configuration)
+        .unwrap();
+    let options = store
+        .documents()
+        .snapshot(document)
+        .unwrap()
+        .model_indentation(SPACES);
+    assert_eq!(options.tab_size, TAB_WIDTH);
+    assert_eq!(options.indent_size, BASE_SIZE);
+    assert!(!options.insert_spaces);
+    store
+        .configure_indentation(
+            document,
+            IndentConfiguration {
+                detect_indentation: true,
+                ..configuration
+            },
+        )
+        .unwrap();
+    let detected = store
+        .documents()
+        .snapshot(document)
+        .unwrap()
+        .model_indentation(SPACES);
+    assert_eq!(detected.tab_size, TAB_WIDTH);
+    assert_eq!(detected.indent_size, SPACE_SIZE);
+    let reset = IndentConfiguration {
+        defaults: IndentOptions {
+            tab_size: SPACE_SIZE,
+            ..SPACES
+        },
+        detect_indentation: false,
+    };
+    store.configure_indentation(document, reset).unwrap();
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .model_indentation(SPACES)
+            .indent_size,
+        TAB_WIDTH
+    );
+}
+
+#[test]
+fn editorconfig의_미지정_축은_수동으로_설정한_기존_문서_옵션을_유지한다() {
+    let source = "root";
+    let (mut store, view) = fixture(source, (0, 0));
+    let document = store.views().get(view).unwrap().document;
+    let configuration = IndentConfiguration {
+        defaults: SPACES,
+        detect_indentation: false,
+    };
+    store
+        .set_indentation(
+            document,
+            configuration,
+            IndentationChange::UseSpaces(BASE_SIZE),
+        )
+        .unwrap();
+    store
+        .set_indentation(
+            document,
+            configuration,
+            IndentationChange::DisplaySize(TAB_WIDTH),
+        )
+        .unwrap();
+    for (config, width) in [
+        (
+            EditorConfigOptions {
+                indent_style: Some(EditorConfigIndentStyle::Tab),
+                ..Default::default()
+            },
+            TAB_WIDTH,
+        ),
+        (
+            EditorConfigOptions {
+                indent_size: Some(SPACE_SIZE),
+                ..Default::default()
+            },
+            SPACE_SIZE,
+        ),
+        (EditorConfigOptions::default(), SPACE_SIZE),
+    ] {
+        store
+            .observe_file(
+                document,
+                std::path::Path::new("/synthetic/indent.txt"),
+                opened(source, config),
+            )
+            .unwrap();
+        store
+            .configure_indentation(document, configuration)
+            .unwrap();
+        let options = store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .model_indentation(SPACES);
+        assert_eq!(options.tab_size, width);
+        assert_eq!(options.indent_size, BASE_SIZE);
+        assert!(!options.insert_spaces);
+    }
 }
 
 #[test]

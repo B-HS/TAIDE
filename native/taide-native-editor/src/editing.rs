@@ -5,7 +5,7 @@ use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete, UnicodeSegmentati
 
 use crate::display_map::{DisplayMap, RowSegment};
 use crate::document::{DocumentSnapshot, Edit, EditorError, LineEnding, UndoGroup, byte_to_char};
-use crate::indent::IndentOptions;
+use crate::indent::{IndentOptions, ModelIndentOptions};
 use crate::store::{EditorStore, Transaction};
 use crate::view::{
     EditOperation, EditRun, GoalColumns, Selection, SelectionSet, ViewId, ViewState, WrapAffinities,
@@ -312,8 +312,23 @@ fn spans_lines(document: &DocumentSnapshot, range: &Range<usize>) -> bool {
     document.rope.byte_to_line(range.start) != document.rope.byte_to_line(range.end)
 }
 
-pub(crate) fn tab_width(indent: IndentOptions) -> usize {
+pub(crate) fn tab_width(indent: impl Into<ModelIndentOptions>) -> usize {
+    let indent = indent.into();
     (indent.tab_size as usize).max(1)
+}
+
+pub(crate) fn indent_step(indent: ModelIndentOptions) -> usize {
+    if indent.insert_spaces {
+        return indent.indent_size.max(1) as usize;
+    }
+    tab_width(indent)
+}
+
+pub(crate) fn normalization_options(indent: ModelIndentOptions) -> ModelIndentOptions {
+    ModelIndentOptions {
+        tab_size: indent.indent_size,
+        ..indent
+    }
 }
 
 pub(crate) fn next_tab_stop(column: usize, size: usize) -> usize {
@@ -368,7 +383,8 @@ pub(crate) fn offset_at_visible_column(text: &str, visible: usize, tab_size: usi
     text.len()
 }
 
-pub(crate) fn indentation(columns: usize, indent: IndentOptions) -> String {
+pub(crate) fn indentation(columns: usize, indent: impl Into<ModelIndentOptions>) -> String {
+    let indent = indent.into();
     if indent.insert_spaces {
         return " ".repeat(columns);
     }
@@ -1362,16 +1378,20 @@ pub fn delete_backward(
     view: ViewId,
     indent: IndentOptions,
 ) -> Result<bool, EditorError> {
-    let size = tab_width(indent);
     delete_ranges(
         store,
         view,
         EditOperation::DeletingLeft,
         |document, selection| {
+            let indent = document.model_indentation(indent);
+            let size = tab_width(indent);
             let content = line_text(document, document.rope.byte_to_line(selection.head));
             let column = (selection.head - content.start).min(content.text.len());
             if column > 0 && column <= leading_whitespace(&content.text).len() {
-                let stop = previous_tab_stop(visible_column(&content.text[..column], size), size);
+                let stop = previous_tab_stop(
+                    visible_column(&content.text[..column], size),
+                    indent.indent_size as usize,
+                );
                 let target = offset_at_visible_column(&content.text, stop, size).min(column);
                 return Ok(content.start + target..selection.head);
             }
@@ -1438,6 +1458,7 @@ pub fn insert_line_break(
     indent: IndentOptions,
 ) -> Result<bool, EditorError> {
     let (current, document) = view_document(store, view)?;
+    let indent = normalization_options(document.model_indentation(indent));
     let line_break = document.metadata.line_ending.as_str();
     let mut plan = Plan::new(&current.selection);
     for (index, selection) in current.selection.selections.iter().enumerate() {
@@ -1485,7 +1506,9 @@ pub(crate) fn shift_language_lines(
     outdents: bool,
     language: Option<crate::language_configuration::Language<'_>>,
 ) {
+    let indent = document.model_indentation(indent);
     let size = tab_width(indent);
+    let step = indent_step(indent);
     let range = ordered(selection);
     let start_line = document.rope.byte_to_line(range.start);
     let mut end_line = document.rope.byte_to_line(range.end);
@@ -1511,7 +1534,7 @@ pub(crate) fn shift_language_lines(
         let mut existing = leading_whitespace(&content.text);
         let mut extra_spaces = 0;
         if line > 0
-            && visible_column(existing, size) % size != 0
+            && visible_column(existing, size) % indent.indent_size as usize != 0
             && let Some(language) = language
             && language.syntax.tokens(document, line - 1).is_some()
         {
@@ -1520,7 +1543,7 @@ pub(crate) fn shift_language_lines(
                 language,
                 line - 1,
                 previous_extra_spaces,
-                size,
+                indent.indent_size as usize,
             )
             .unwrap_or(0);
             let trailing_spaces = existing
@@ -1540,9 +1563,9 @@ pub(crate) fn shift_language_lines(
         }
         let columns = visible_column(existing, size);
         let stop = if outdents {
-            previous_tab_stop(columns, size)
+            previous_tab_stop(columns, step)
         } else {
-            next_tab_stop(columns, size)
+            next_tab_stop(columns, step)
         };
         let desired = indentation(stop, indent);
         if desired == existing {
@@ -1576,12 +1599,12 @@ pub(crate) fn shift_language_lines(
     };
 }
 
-fn jump_to_next_indent(prefix: &str, indent: IndentOptions) -> String {
+fn jump_to_next_indent(prefix: &str, indent: ModelIndentOptions) -> String {
     if !indent.insert_spaces {
         return "\t".into();
     }
-    let size = tab_width(indent);
-    " ".repeat(size - visible_column(prefix, size) % size)
+    let step = indent_step(indent);
+    " ".repeat(step - visible_column(prefix, tab_width(indent)) % step)
 }
 
 pub fn tab(
@@ -1599,6 +1622,7 @@ pub fn tab_with_language(
     language: Option<crate::language_configuration::Language<'_>>,
 ) -> Result<bool, EditorError> {
     let (current, document) = view_document(store, view)?;
+    let options = document.model_indentation(indent);
     let mut plan = Plan::new(&current.selection);
     for (index, selection) in current.selection.selections.iter().enumerate() {
         let range = ordered(selection);
@@ -1607,7 +1631,7 @@ pub fn tab_with_language(
         let line_end = content.start + content.text.len();
         let column = (range.start - content.start).min(content.text.len());
         if range.is_empty() {
-            let unit = indentation(tab_width(indent), indent);
+            let unit = indentation(options.indent_size as usize, normalization_options(options));
             if content.text.chars().all(char::is_whitespace) && !content.text.starts_with(&unit) {
                 plan.replace(index, content.start..line_end, unit);
                 continue;
@@ -1618,7 +1642,7 @@ pub fn tab_with_language(
             plan.replace(
                 index,
                 range,
-                jump_to_next_indent(&content.text[..column], indent),
+                jump_to_next_indent(&content.text[..column], options),
             );
             continue;
         }

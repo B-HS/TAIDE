@@ -2,10 +2,10 @@ use std::ops::Range;
 
 use crate::document::{DocumentSnapshot, Edit, EditorError};
 use crate::editing::{
-    LineText, indentation, leading_whitespace, line_text, next_tab_stop, previous_tab_stop,
-    tab_width, visible_column,
+    LineText, indent_step, indentation, leading_whitespace, line_text, next_tab_stop,
+    normalization_options, previous_tab_stop, tab_width, visible_column,
 };
-use crate::indent::IndentOptions;
+use crate::indent::ModelIndentOptions;
 use crate::language_configuration::{
     IndentAction, IndentMetadata, Language, LanguageRules, is_js_whitespace, token_kind_at,
     without_brackets_outside_code,
@@ -73,7 +73,8 @@ impl Lines<'_> {
     }
 }
 
-fn normalized(text: &str, indent: IndentOptions) -> String {
+fn normalized(text: &str, indent: ModelIndentOptions) -> String {
+    let indent = normalization_options(indent);
     let whitespace = leading_whitespace(text);
     format!(
         "{}{}",
@@ -82,18 +83,18 @@ fn normalized(text: &str, indent: IndentOptions) -> String {
     )
 }
 
-fn shifted(indent_text: &str, indent: IndentOptions) -> String {
+fn shifted(indent_text: &str, indent: ModelIndentOptions) -> String {
     let size = tab_width(indent);
     indentation(
-        next_tab_stop(visible_column(indent_text, size), size),
+        next_tab_stop(visible_column(indent_text, size), indent_step(indent)),
         indent,
     )
 }
 
-fn unshifted(indent_text: &str, indent: IndentOptions) -> String {
+fn unshifted(indent_text: &str, indent: ModelIndentOptions) -> String {
     let size = tab_width(indent);
     indentation(
-        previous_tab_stop(visible_column(indent_text, size), size),
+        previous_tab_stop(visible_column(indent_text, size), indent_step(indent)),
         indent,
     )
 }
@@ -160,7 +161,7 @@ fn reindent_line(document: &DocumentSnapshot, language: Language<'_>, line: usiz
 pub(crate) fn reindent_edits(
     document: &DocumentSnapshot,
     language: Language<'_>,
-    indent: IndentOptions,
+    indent: ModelIndentOptions,
     lines: Range<usize>,
     byte_limit: usize,
 ) -> Result<Vec<Edit>, EditorError> {
@@ -178,9 +179,9 @@ pub(crate) fn reindent_edits(
     let Some(start) = start.filter(|start| *start + 1 < end) else {
         return Ok(Vec::new());
     };
-    let encoded_indent = |columns| {
-        let size = tab_width(indent);
-        let bytes = if indent.insert_spaces {
+    let encoded_indent = |columns, options: ModelIndentOptions| {
+        let size = tab_width(options);
+        let bytes = if options.insert_spaces {
             columns
         } else {
             columns / size + columns % size
@@ -188,11 +189,14 @@ pub(crate) fn reindent_edits(
         if bytes > byte_limit {
             return Err(EditorError::Capacity);
         }
-        Ok(indentation(columns, indent))
+        Ok(indentation(columns, options))
     };
     let shift = |text: &str| {
         let size = tab_width(indent);
-        encoded_indent(next_tab_stop(visible_column(text, size), size))
+        encoded_indent(
+            next_tab_stop(visible_column(text, size), indent_step(indent)),
+            indent,
+        )
     };
     let first_line = reindent_line(document, language, start);
     let mut global = leading_whitespace(&first_line.content.text).to_owned();
@@ -231,7 +235,8 @@ pub(crate) fn reindent_edits(
         }
         let old = leading_whitespace(&content.text);
         if old != ideal {
-            let replacement = encoded_indent(visible_column(&ideal, tab_width(indent)))?;
+            let options = normalization_options(indent);
+            let replacement = encoded_indent(visible_column(&ideal, tab_width(options)), options)?;
             projected = projected
                 .checked_sub(old.len())
                 .and_then(|bytes| bytes.checked_add(replacement.len()))
@@ -366,7 +371,7 @@ pub(crate) fn good_indent(
     document: &DocumentSnapshot,
     language: Language<'_>,
     line: usize,
-    indent: IndentOptions,
+    indent: ModelIndentOptions,
 ) -> Option<String> {
     language.rules.indent_metadata("")?;
     let lines = Lines {
@@ -409,7 +414,7 @@ pub(crate) fn enter_prefix(
     document: &DocumentSnapshot,
     language: Language<'_>,
     line: usize,
-    indent: IndentOptions,
+    indent: ModelIndentOptions,
 ) -> Option<String> {
     let before = processed_line(document, language, line);
     let previous = line
@@ -471,7 +476,7 @@ fn indent_for_enter(
     start_line: usize,
     language: Language<'_>,
     context: &EnterContext,
-    indent: IndentOptions,
+    indent: ModelIndentOptions,
 ) -> Option<String> {
     language.rules.indent_metadata("")?;
     let lines = Lines {
@@ -496,7 +501,7 @@ pub(crate) fn line_break(
     document: &DocumentSnapshot,
     range: Range<usize>,
     language: Language<'_>,
-    indent: IndentOptions,
+    indent: ModelIndentOptions,
     line_ending: &str,
 ) -> LineBreak {
     let start_line = document.rope.byte_to_line(range.start);
@@ -574,7 +579,7 @@ pub(crate) fn line_break(
         let end_stops = if indent.insert_spaces {
             end_columns
         } else {
-            end_columns.div_ceil(size)
+            end_columns.div_ceil(indent.indent_size as usize)
         };
         indentation.len().saturating_sub(end_stops)
     } else {
@@ -592,7 +597,7 @@ pub(crate) fn typed_reindent(
     range: &Range<usize>,
     character: char,
     language: Language<'_>,
-    indent: IndentOptions,
+    indent: ModelIndentOptions,
 ) -> Option<(Range<usize>, String)> {
     let rules = language.rules;
     rules.indent_metadata("")?;
@@ -698,7 +703,7 @@ pub(crate) fn electric_reindent(
     head: usize,
     character: char,
     language: Language<'_>,
-    indent: IndentOptions,
+    indent: ModelIndentOptions,
 ) -> Option<(Range<usize>, String)> {
     let pairs = language.rules.pairs();
     let is_electric = pairs

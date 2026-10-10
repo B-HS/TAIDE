@@ -73,6 +73,7 @@ struct DocumentIndentation {
     editor_config: EditorConfigOptions,
     language_id: String,
     options: IndentOptions,
+    explicit_indent_size: Option<u32>,
 }
 
 impl DocumentIndentation {
@@ -158,6 +159,15 @@ impl Document {
                 .as_ref()
                 .filter(|indentation| indentation.describes(&self.metadata))
                 .map(|indentation| indentation.options),
+            indent_size: self
+                .indentation
+                .as_ref()
+                .filter(|indentation| indentation.describes(&self.metadata))
+                .map(|indentation| {
+                    indentation
+                        .explicit_indent_size
+                        .unwrap_or(indentation.options.tab_size)
+                }),
             dirty: self.requires_save || self.rope != self.baseline,
         }
     }
@@ -294,13 +304,33 @@ impl EditorStore {
         } else {
             configuration.defaults
         };
-        let mut options = crate::indent::resolve(&owner.metadata.editor_config, defaults);
+        let current = owner
+            .indentation
+            .as_ref()
+            .filter(|indentation| {
+                indentation.configuration == configuration
+                    && indentation.language_id == owner.metadata.language_id
+            })
+            .map_or(defaults, |indentation| indentation.options);
+        let mut options = crate::indent::resolve(&owner.metadata.editor_config, current);
         options.tab_size = options.tab_size.max(1);
+        let explicit_indent_size = owner.indentation.as_ref().and_then(|indentation| {
+            if indentation.language_id != owner.metadata.language_id {
+                return None;
+            }
+            if indentation.configuration == configuration {
+                return indentation.explicit_indent_size;
+            }
+            configuration
+                .detect_indentation
+                .then_some(defaults.tab_size)
+        });
         owner.indentation = Some(DocumentIndentation {
             configuration,
             editor_config: owner.metadata.editor_config,
             language_id: owner.metadata.language_id.clone(),
             options,
+            explicit_indent_size,
         });
         Ok(options)
     }
@@ -322,6 +352,35 @@ impl EditorStore {
         let changed = indentation.options != options;
         indentation.options = options;
         Ok(changed)
+    }
+
+    pub fn set_indentation(
+        &mut self,
+        document: DocumentId,
+        configuration: IndentConfiguration,
+        change: crate::indent::IndentationChange,
+    ) -> Result<bool, EditorError> {
+        self.configure_indentation(document, configuration)?;
+        let indentation = self
+            .documents
+            .documents
+            .get_mut(&document)
+            .and_then(|owner| owner.indentation.as_mut())
+            .ok_or(EditorError::NotFound)?;
+        let before = (indentation.options, indentation.explicit_indent_size);
+        match change {
+            crate::indent::IndentationChange::DisplaySize(size) => {
+                indentation.options.tab_size = size.max(1)
+            }
+            crate::indent::IndentationChange::UseSpaces(size)
+            | crate::indent::IndentationChange::UseTabs(size) => {
+                indentation.options.tab_size = size.max(1);
+                indentation.explicit_indent_size = Some(size.max(1));
+                indentation.options.insert_spaces =
+                    matches!(change, crate::indent::IndentationChange::UseSpaces(_));
+            }
+        }
+        Ok(before != (indentation.options, indentation.explicit_indent_size))
     }
 
     pub fn track_document_disposals(&mut self) {

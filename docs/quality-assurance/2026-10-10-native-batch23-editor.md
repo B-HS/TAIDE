@@ -301,3 +301,41 @@ Core의 LineSyntax에 준비 경계를 추가하고 재들여쓰기의 전체/�
 서로 다른 성공은 Core 19·Syntax 25·App 40, 총 84건입니다. 새 두 검사의 이전/최종 실행, oracle의 비교 사례, 이전 재들여쓰기 단위의 성공을 중복 합산하지 않습니다. Cargo/fmt는 한 번에 하나만 실행했습니다. native manifest/lock/frozen 경로 변경은 0이며 디스크는 528GiB·72%입니다. 보호 앱·실제 데이터·OS 설정·클립보드/Keychain/Trash를 건드리지 않았습니다.
 
 구문 준비 경계의 확인을 닫지만 tabSize/indentSize 분리·수동 폭/방식 QuickPick·실제 포맷 요청 값·내장 언어 서비스와 나머지 batch 23의 전체 게이트는 남아 editor-30은 partial입니다. 큰 문서/깊은 선택에서의 동기 준비 시간·프레임 성능과 줄 예산 초과 동작의 실제 성능 재현은 배치 31 게이트에 남깁니다. 원본 강제 토큰화와 단위 구문 검사를 전체 언어 서비스/성능/출시 완료로 대신하지 않습니다. 현재 288완료/588대상·미완료 300행, 배치 23/최종 33이며 전체 전환율/잔여 시간은 미산정입니다.
+
+## editor-30 두 폭의 문서 모델과 편집 소비 (ad9750e8 이후)
+
+기존 IndentOptions의 두 필드와 동결 browser-editor의 두 생성 계약을 유지했습니다. DocumentSnapshot의 선택적 indent_size와 ModelIndentOptions가 탭 표시 폭·편집 폭·공백 방식을 분리하며 문서 소유 상태에서 자동 연결과 명시한 숫자 폭을 구분합니다. 새 엔진·의존성·lockfile은 추가하지 않았습니다. 이번 단위는 Core 모델/입력과 실제 UI 소비이며 수동 선택창과 세 명령의 앱 연결은 아직 완료하지 않았습니다.
+
+원본 근거는 설치 Monaco의 common/model.js TextModelResolvedOptions, common/model/textModel.js updateOptions/detectIndentation, common/services/modelService.js _setModelOptionsForModel, common/cursor/cursorCommon.js, cursorDeleteOperations.js, cursorTypeEditOperations.js, common/commands/shiftCommand.js, common/core/misc/indentation.js, contrib/indentation/common/indentation.js입니다. TS의 src/features/editor/code-editor.tsx와 src/shared/lib/editorconfig.ts는 지정한 tabSize/insertSpaces 축만 model.updateOptions에 보냅니다.
+
+- 초기 기본 편집 폭은 tabSize와 함께 바뀝니다. UseSpaces/UseTabs와 명시 Detect는 숫자 편집 폭을 저장하고 이후 DisplaySize가 그 숫자를 바꾸지 않습니다. 탭/공백 변환은 방식만 바꾸며 숫자 폭을 보존합니다.
+- 표시·커서 열 측정은 tabSize를 사용하고, 공백 Tab/shift는 indentSize, 탭 shift는 표시 tabSize를 사용합니다. Backspace의 이전 들여쓰기 정지와 Enter/reindent의 정규화는 원본의 별도 규칙을 사용합니다. 줄 이동/삽입과 언어 입력도 최신 문서 모델을 소비합니다.
+- 설정 변경의 재감지에서는 감지한 숫자 폭을 저장한 뒤 EditorConfig의 지정 축을 반영합니다. 같은 설정에서 EditorConfig만 바뀌면 미지정 축과 기존 숫자 편집 폭을 보존합니다. 옵션 변경은 readonly에서도 허용되며 텍스트·revision·dirty·undo에 넣지 않고 동일 문서 mirror가 공유합니다.
+- 실제 egui 본문 검사에서는 tabSize=8·indentSize=4로 Tab을 입력하여 공백 네 개를 삽입하고 탭 문자 자체는 여덟 칸으로 그리는 것을 확인했습니다. 읽기 전용에서는 옵션/표시를 유지하고 입력을 거절합니다. OS 합성 입력을 사용하지 않았습니다.
+
+실패와 수정 근거:
+
+- /private/tmp/taide-batch23-model-indent-repro.log: 실제 1건 실패·exit 101입니다. 명시한 편집 폭 4와 표시 폭 8에서 Tab의 관찰값이 공백 8개, 기대값이 공백 4개였습니다. 문서 모델의 편집 폭을 입력에 전달하도록 수정했습니다. 최초 잘못된 필터로 실행된 0건은 성공 검사에서 제외했습니다.
+- /private/tmp/taide-batch23-model-indent-first.log: snapshot이 Result인데 Option의 ok_or를 적용한 E0599 컴파일 실패입니다. 공개 Result 계약에 맞춰 ?로 수정했습니다.
+- /private/tmp/taide-batch23-model-indent-editorconfig-repro.log: 실제 1건 실패·exit 101입니다. 방식만 지정한 EditorConfig 변경이 기존 표시 폭 8을 기본 4로 되돌렸습니다. 같은 설정/언어의 현재 문서 옵션을 미지정 축의 기준으로 사용하도록 수정했습니다.
+- /private/tmp/taide-batch23-model-indent-monaco.json: 원본 ShiftCommand와 normalizeIndentation을 직접 실행한 10개 접두부/방식 조합입니다. render 8·indent 4에서 탭·혼합/부분/전체 공백의 shift/unshift/정규화 결과를 확인했습니다. 읽기 전용 Bun 조사는 출력 후 명시 종료·exit 0입니다. 비교 사례를 Rust 테스트 개수로 합산하지 않습니다.
+
+Core의 서로 다른 두 폭 입력 13사례, 자동 연결/명시 감지·변환·readonly/mirror·옵션/undo·EditorConfig/전역 변경과 언어 Enter/reindent를 검사했습니다. 최종 전체 대상/소비 회귀와 동결 컴파일의 결과는 이 절의 후속 검증 기록에 합칩니다. 최초/최종 실행과 중복된 부분 검사를 반복 합산하지 않습니다.
+
+수동 폭 선택창의 1~8·현재/기본·필터/선택/취소·소스 수명, 본문/peek의 세 명령 통합, 실제 LSP 포맷 값과 스니펫의 독립 폭 소비 및 내장 언어 서비스, 큰 문서 성능/배치 전체/실기/출시 게이트는 미완료입니다. editor-30과 b2d를 partial/미완료로 유지하며 이번 Core 모델 검사를 전체 기능 완료로 대신하지 않습니다.
+
+최종 검증 기록 (2026-10-11):
+
+| 범위         | 실행과 결과                                                                                                                                                                        |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Core 전체    | --all-targets --no-fail-fast 직접 실행, 37대상·285통과/0실패/1ignored, editor-final-all.log                                                                                        |
+| 실제 UI 본문 | --features native-host,inspection --test editor_surface -- --test-threads=4, 84통과/0실패, ui-final.log                                                                            |
+| 앱 큐/구문   | --features inspection --lib command_dispatch::tests -- --test-threads=1의 최종 9통과; --lib 재들여쓰기는_의 영향 없는 2통과 재사용, dispatch-final.log/app-reindent.log            |
+| 구문 소비    | --test language-editing의 38통과 재사용; 마지막 EditorConfig 미지정 축 수정은 고정 옵션/원본 비교 입력에 영향을 주지 않음, syntax.log                                              |
+| 동결/형식    | host --tests --features inspection·Wasm --lib --target wasm32-unknown-unknown --features canvas,inspection와 Core/UI fmt check exit 0, frozen-host-final.log/frozen-wasm-final.log |
+
+모든 Cargo 검사는 --locked --offline --target-dir experiments/native-shell-spike/target을 사용했습니다. 로그 공통 접두부는 /private/tmp/taide-batch23-model-indent-입니다. 최종 묶음 session 58179 exit 0과 앞선 session 43392 exit 0을 확인했으며 소유 Cargo/fmt를 직렬 실행했습니다. 서로 다른 성공은 Core 285·UI 84·Syntax 38·App 11, 총 418건이며 이전 Core 284/부분 14·18/동일 UI·앱 큐의 성공을 중복 합산하지 않습니다. 기존 Core tests/display-layout.rs의 수십만 줄 wrap 성능 측정 1건은 ignored로 실제 실행하지 않았고 배치 31에 남깁니다. 새 Core 검사 8건과 UI 1건을 포함하며 비교 조합 수를 테스트 개수로 합산하지 않습니다.
+
+검사 뒤 Core 수정은 없으며 마지막 수정은 EditorConfig의 미지정 축 보존입니다. 그 영향의 Core 전체·UI·App 큐와 동결 컴파일만 다시 실행했고 구문/앱 토큰 준비의 변경 없는 성공은 재사용했습니다. native manifest/lock/frozen 경로 diff는 0, 디스크 531GiB·72%입니다. 배치 23의 전체 변경 크레이트 게이트·실기/성능/출시는 아직 미완료입니다. 행 상태는 288완료/588대상·300미완료, 배치 23/최종 33을 유지하며 전체 전환율과 ETA는 미산정입니다.
+
+문서 형식 검사는 저장소의 docs ignore 때문에 초기 명령이 파일을 검사하지 않은 결과를 제외했습니다. 대상 세 파일만 --ignore-path /dev/null --config prettier.config.js로 명시 포함했고 실제 파일별 포맷 출력과 최종 check exit 0을 확인했습니다. 전체 문서의 재포맷은 적용하지 않았습니다.
