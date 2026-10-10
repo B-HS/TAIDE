@@ -1,6 +1,6 @@
 # 배치 23 — 편집기의 나머지 기능
 
-기준: HEAD `2ea355ed`와 배치 23 변경, 배정 33행. 메인이 직접 수행하며 서브에이전트/workflow를 사용하지 않습니다. 전체 전환율·잔여 시간은 미산정이며 완료 288·미완료 300행을 유지합니다. editor-51은 공급/표시 연결과 아래 검증 근거에 따라 partial로 갱신하며 complete로 올리지 않습니다.
+기준: 공급·표시 커밋 `3f3df987`와 배치 23 이동/명령 변경, 배정 33행. 메인이 직접 수행하며 서브에이전트/workflow를 사용하지 않습니다. 전체 전환율·잔여 시간은 미산정이며 완료 288·미완료 300행을 유지합니다. editor-51은 공급/표시·본문 이동/실행 연결과 아래 검증 근거에 따라 partial을 유지하며 complete로 올리지 않습니다.
 
 ## editor-51 문서 하이라이트 원본과 현재 경계
 
@@ -21,7 +21,7 @@
 - `native/taide-native-editor/src/decoration.rs`의 Inline/Overview·revision·stickiness와 기존 위치/구문/문서 도움말의 취소·문서/뷰 소유 검증
 - `native/taide-native-ui/src/presentation.rs`와 `crates/taide-model/src/theme.rs`의 현재 테마 경계
 
-설치 SDK의 `lsp-types 0.97.0/src/document_highlight.rs`와 egui/ecolor 원문을 추가로 읽어 typed 파라미터·응답과 색 API를 확인했습니다. 원본 F7/Shift+F7 진입은 설치 wordHighlighter에서 확인했지만 연결은 남아 있습니다. docs.rs의 두 타입 페이지 조회는 도구 접근 오류였으므로 공식 API 검증 성공으로 세지 않습니다. 코드 소유 범위는 App 요청/상태/본문·peek 소비와 관련 검사로 한정하며 Editor/UI에 정규식·구문 엔진 의존성을 추가하지 않았습니다.
+설치 SDK의 `lsp-types 0.97.0/src/document_highlight.rs`와 egui/ecolor 원문을 추가로 읽어 typed 파라미터·응답과 색 API를 확인했습니다. 최초 공급·표시 커밋에서는 원본 F7/Shift+F7 연결이 남아 있었으며 후속 연결은 다음 절에 기록합니다. docs.rs의 두 타입 페이지 조회는 도구 접근 오류였으므로 공식 API 검증 성공으로 세지 않습니다. Editor/UI에 정규식·구문 엔진 의존성을 추가하지 않았습니다.
 
 ## 구현·검증 대기
 
@@ -48,9 +48,26 @@
 
 최종 활성 프로젝트/종료 소유 조건을 포함한 `highlights-actual-app-final.log`의 동일 실제 앱 검사도 1건 통과·exit 0이며 중복 합산하지 않습니다. `cargo check --tests`에서 기존 통합 검사의 공개 Reply 열거형 처리가 새 Highlights 변형을 빠뜨린 것을 확인해 기존의 예상 밖 심볼 요청 실패 분기에 명시적으로 포함했습니다. 해당 검사를 무시하도록 바꾸지 않았습니다. `highlights-final-check-fixed.log`의 App 전체 테스트 대상 컴파일과 최종 App fmt check는 exit 0입니다. 새 snake_case 경고는 제거했으며 기존 vendor 경고와 linker unwind 경고는 변경하지 않았습니다. 디스크 여유는 555GiB/70%입니다.
 
-위 로그의 공통 경로는 `/private/tmp/taide-batch23-`입니다. 서로 다른 관련 성공은 상태 8·child 2·실제 앱 1의 11건이며 원본 스크립트 출력·최초 실패 로그도 보존했습니다. 전체 App/배치 실행 게이트, frozen compile, 실제 화면/OS IME/접근성/대형 성능/soak/출시 게이트는 이번 부분 구현에서 실행하지 않았습니다. F7/Shift+F7/명시 trigger·같은 하이라이트 안의 커서 이동 시 원본 재사용 경계·peek 시작·readonly/tier/추가 공급자 변화의 앱 검증과 배치 전체 체크리스트는 대기입니다.
+최초 공급·표시 로그의 공통 경로는 `/private/tmp/taide-batch23-`입니다. 해당 시점의 서로 다른 관련 성공은 상태 8·child 2·실제 앱 1의 11건이며 원본 스크립트 출력·최초 실패 로그도 보존했습니다. 전체 App/배치 실행 게이트, 실제 화면/OS IME/접근성/대형 성능/soak/출시 게이트는 부분 구현에서 실행하지 않았습니다.
+
+## 하이라이트 이동·실행 명령과 재사용
+
+설치 wordHighlighter의 `moveNext`/`moveBack`, `_run`의 저장된 범위 재사용, 명령 등록과 `restoreViewState`/`restore(250)`을 읽었습니다. F7/Shift+F7은 표시된 하이라이트가 있을 때만 실행하며 trigger의 기본 키는 없습니다. 시작 위치로 정렬한 범위를 순환하고 목적지 시작으로 단일 커서를 옮겨 화면 밖이면 중앙으로 드러냅니다. 중복 범위는 이동 대상에서 합치며 범위 밖에서는 다음=첫 범위·이전=마지막 범위를 사용해 원본의 음수 인덱스 특이 동작을 강제 재현하지 않습니다.
+
+UI 명령 레지스트리의 typed HighlightCommand·native-host 기본 키·readonly 가용성을 연결했습니다. App의 실제 명령 가용성은 표시 상태를 확인합니다. 본문·peek 명령 소비와 마지막 소스 뷰의 소유를 연결했고 명시 trigger는 빈 결과를 다시 요청하며 250ms 표시 지연을 적용합니다. 완료된 표시 안의 선택 변경만 재사용하며 요청 중의 선택·문서 revision/언어·공급자·뷰 회수 검증은 유지합니다.
+
+- `highlights-reuse-repro.log`와 `highlights-reuse-repro-actual.log`는 잘못된 필터로 검사 0건입니다. 통과로 세지 않습니다. 수정한 `highlights-reuse-repro-module.log`에서 기존 8건 통과·새 커서 이동 회귀 1건 실패를 확인한 뒤 수정했습니다.
+- `highlights-navigation-state.log`에서 테스트가 비공개 reveal 필드를 직접 읽은 컴파일 오류를 확인했습니다. 기존 공개 `take_selection_reveal`로 바꿨으며 프로덕션 필드의 가시성을 넓히지 않았습니다. `highlights-navigation-state-final.log`는 상태 12건 통과·exit 0입니다.
+- `highlights-navigation-app.log`는 실제 constructor/child/worker/poll/그리기 흐름 1건 통과입니다. F7·Shift+F7 왕복/순환과 커스텀 F8 trigger·문서 revision 유지가 포함됩니다. 자동 요청만으로 trigger 검사도 통과할 수 없도록 실제 지연 마감 관찰을 추가한 `highlights-navigation-app-final.log`도 1건 통과·exit 0이며 중복 합산하지 않습니다.
+- `highlights-navigation-registry.log`는 readonly 포함 명령 등록 10건, `highlights-navigation-keymap.log`는 Mac/Windows/Linux·재지정·IME를 포함한 플랫폼 키맵 10건 통과·exit 0입니다. 키 입력은 내부 egui RawInput이며 OS 합성 입력을 사용하지 않았습니다.
+- `highlights-navigation-boundary-repro.log`에서 readonly 메타데이터의 이동·내용/버전 보존 1건이 통과했고, 기호로 시작하는 표시로 이동한 뒤 자동 관찰이 표시를 지우는 회귀 1건을 재현했습니다. 원본 `_ignorePositionChangeEvent` 처리에 맞춰 이미 이동한 선택과 문서/소유/공급자가 그대로이면 비단어 시작도 유지합니다. 일반 사용자 선택 변경의 단어 조건은 유지하며 `highlights-navigation-state-boundary-final.log`는 전체 관련 상태 14건 통과·exit 0입니다.
+- `highlights-navigation-check.log`의 App 전체 테스트 대상 컴파일과 App/UI fmt check는 exit 0입니다. 앞서 성공한 child 2건과 UI 등록/플랫폼 20건은 해당 공급·UI 코드가 바뀌지 않아 재사용합니다. frozen host 컴파일은 `highlights-navigation-frozen-host.log`에서 exit 0입니다. 배치 전체 --no-fail-fast 실행, 실제 peek 시작·readonly/tier·추가 공급자·실기/출시 게이트와 나머지 배치 23 요구사항은 미완료입니다.
 
 ## 진척·반복 점검
+
+기호 시작 회귀 수정 뒤 `highlights-navigation-app-boundary-final.log`도 실제 앱 1건 통과·exit 0이며 이전 실제 앱 성공과 중복 합산하지 않습니다. 최종 `highlights-navigation-check-final.log`는 App 전체 테스트 대상 컴파일 exit 0입니다. 현재 관련 직접 실행의 서로 다른 성공은 상태 14·실제 앱 1·UI 등록 10·플랫폼 10의 35건이며 실행되지 않은 전체 기능/출시 게이트로 확대하지 않습니다.
+
+최종 App fmt check와 변경 없는 UI fmt check는 exit 0입니다. frozen host/Wasm 컴파일은 `highlights-navigation-frozen-host.log`/`highlights-navigation-frozen-wasm.log`에서 각각 exit 0이며 source·manifest·lockfile·의존 그래프를 수정하지 않았습니다. 기존 vendor와 frozen 경고는 요청 범위 밖으로 유지합니다. 디스크 여유는 552GiB/70%이며 보호 앱과 실제 데이터/OS/클립보드/Keychain/Trash를 건드리지 않고 정리 명령도 실행하지 않았습니다.
 
 최초 진척 점검은 실제 감사 JSON 599행을 다시 집계했습니다. 제외 10·동결 1을 뺀 588행 중 complete 288·partial 92·unwired 112·missing 96으로 미완료 300행이었습니다. 공급/표시 검증 뒤 editor-51을 partial로 갱신한 현재 분류는 complete 288·partial 93·unwired 112·missing 95로 미완료 300행을 유지합니다. 모든 미완료 ID의 배치 배정 누락 0·중복 0·배치 23 미완료 33행·최종 배치 33을 직접 확인했습니다. 최초 계획의 302행은 배치 22 완료 전 배정 스냅샷입니다.
 

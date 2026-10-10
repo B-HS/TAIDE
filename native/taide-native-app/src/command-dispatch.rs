@@ -102,6 +102,7 @@ pub(crate) fn apply_document_edits(
                     | DocumentEdit::Location(_)
                     | DocumentEdit::Documentation(_)
                     | DocumentEdit::Completion(_)
+                    | DocumentEdit::Highlight(_)
             )
     }) {
         let result = match edit {
@@ -124,6 +125,9 @@ pub(crate) fn apply_document_edits(
                 continue;
             }
             DocumentEdit::Completion(_) => {
+                continue;
+            }
+            DocumentEdit::Highlight(_) => {
                 continue;
             }
         };

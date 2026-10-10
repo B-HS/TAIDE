@@ -412,6 +412,7 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
     const SCREEN_HEIGHT: f32 = 700.0;
     const CARET: usize = 8;
     const WORKSPACE_CARET: usize = 12;
+    const END_HIGHLIGHT: usize = 19;
     const EXECUTABLE_MODE: u32 = 0o700;
     let mut fixture = Fixture {
         directory: std::env::temp_dir()
@@ -822,6 +823,124 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
         }),
         "actual application must paint the LSP highlight background"
     );
+    for (shift, expected) in [
+        (false, WORKSPACE_CARET),
+        (false, END_HIGHLIGHT),
+        (false, 0),
+        (true, END_HIGHLIGHT),
+        (true, WORKSPACE_CARET),
+        (true, 0),
+    ] {
+        let modifiers = if shift {
+            egui::Modifiers::SHIFT
+        } else {
+            egui::Modifiers::NONE
+        };
+        paint(
+            application,
+            vec![
+                egui::Event::ModifiersChanged(modifiers),
+                egui::Event::Key {
+                    key: egui::Key::F7,
+                    physical_key: Some(egui::Key::F7),
+                    pressed: true,
+                    repeat: false,
+                    modifiers,
+                },
+                egui::Event::Key {
+                    key: egui::Key::F7,
+                    physical_key: Some(egui::Key::F7),
+                    pressed: false,
+                    repeat: false,
+                    modifiers,
+                },
+            ],
+        );
+        paint(application, Vec::new());
+        assert_eq!(
+            application
+                .store
+                .views()
+                .get(view)
+                .unwrap()
+                .selection
+                .selections[0]
+                .head,
+            expected,
+            "actual F7 shift={shift}"
+        );
+        assert!(application.editor_highlights.has_highlights(
+            &application.store,
+            egui::ViewportId::ROOT,
+            view
+        ));
+    }
+    let overrides_before = application
+        .services
+        .state
+        .settings
+        .read()
+        .keymap_overrides
+        .clone();
+    application.services.state.settings.write().keymap_overrides = Some(
+        r#"[{"actionId":"monaco.editor.action.wordHighlight.trigger","key":"F8","mods":[]}]"#
+            .into(),
+    );
+    application.editor_highlights.close(egui::ViewportId::ROOT);
+    paint(
+        application,
+        vec![
+            egui::Event::ModifiersChanged(egui::Modifiers::NONE),
+            egui::Event::Key {
+                key: egui::Key::F8,
+                physical_key: Some(egui::Key::F8),
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+            egui::Event::Key {
+                key: egui::Key::F8,
+                physical_key: Some(egui::Key::F8),
+                pressed: false,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+    paint(application, Vec::new());
+    assert!(!application.editor_highlights.has_highlights(
+        &application.store,
+        egui::ViewportId::ROOT,
+        view
+    ));
+    let trigger_deadline = application
+        .editor_highlights
+        .rendering_deadline(egui::ViewportId::ROOT)
+        .unwrap();
+    assert!(
+        trigger_deadline > Instant::now(),
+        "actual F8 must dispatch the delayed explicit trigger"
+    );
+    runtime.block_on(async {
+        tokio::time::timeout(DEADLINE, async {
+            loop {
+                eframe::App::logic(application, &context, &mut eframe::Frame::_new_kittest());
+                paint(application, Vec::new());
+                if application.editor_highlights.has_highlights(
+                    &application.store,
+                    egui::ViewportId::ROOT,
+                    view,
+                ) {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+    });
+    application.services.state.settings.write().keymap_overrides = overrides_before;
+    assert!(Instant::now() >= trigger_deadline);
     assert_eq!(
         application
             .store

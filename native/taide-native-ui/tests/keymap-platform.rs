@@ -3,6 +3,61 @@ use taide_native_ui::keymap::{Context, Decision, Route, Windows};
 
 #[cfg(feature = "native-host")]
 #[test]
+fn 하이라이트_f7과_shift_f7은_os와_재지정과_ime를_따른다() {
+    for os in [
+        OperatingSystem::Mac,
+        OperatingSystem::Windows,
+        OperatingSystem::Nix,
+    ] {
+        let context = egui::Context::default();
+        context.set_os(os);
+        let mut windows = Windows::default();
+        for (modifiers, expected) in [
+            (Modifiers::NONE, "monaco.editor.action.wordHighlight.next"),
+            (Modifiers::SHIFT, "monaco.editor.action.wordHighlight.prev"),
+        ] {
+            assert!(
+                editor_event(&mut windows, &context, Key::F7, modifiers, None, false)
+                    .contains(&Decision::Dispatch(expected.into()))
+            );
+            assert!(
+                !editor_event(&mut windows, &context, Key::F7, modifiers, None, true)
+                    .contains(&Decision::Dispatch(expected.into()))
+            );
+        }
+        let overrides =
+            r#"[{"actionId":"monaco.editor.action.wordHighlight.next","key":"F8","mods":[]}]"#;
+        assert!(
+            editor_event(
+                &mut windows,
+                &context,
+                Key::F8,
+                Modifiers::NONE,
+                Some(overrides),
+                false
+            )
+            .contains(&Decision::Dispatch(
+                "monaco.editor.action.wordHighlight.next".into()
+            ))
+        );
+        assert!(
+            !editor_event(
+                &mut windows,
+                &context,
+                Key::F7,
+                Modifiers::NONE,
+                Some(overrides),
+                false
+            )
+            .contains(&Decision::Dispatch(
+                "monaco.editor.action.wordHighlight.next".into()
+            ))
+        );
+    }
+}
+
+#[cfg(feature = "native-host")]
+#[test]
 fn 문서_호버와_시그니처_기본키는_os와_재지정을_따른다() {
     for os in [
         OperatingSystem::Mac,

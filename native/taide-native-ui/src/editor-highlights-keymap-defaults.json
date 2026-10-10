@@ -1,0 +1,4 @@
+[
+    { "id": "monaco.editor.action.wordHighlight.next", "key": "F7", "mods": [] },
+    { "id": "monaco.editor.action.wordHighlight.prev", "key": "F7", "mods": ["shift"] }
+]

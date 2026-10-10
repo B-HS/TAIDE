@@ -120,6 +120,316 @@ fn colors() -> Colors {
 }
 
 #[test]
+fn 완료된_하이라이트_안의_커서_이동은_표시와_요청을_재사용한다() {
+    let (mut store, view, provider, project) = fixture();
+    let mut state = State::default();
+    let initial = request(&mut state, &store, view, provider, &project);
+    assert!(state.accept(
+        &store,
+        &initial,
+        HashSet::from([provider]),
+        Ok(response(provider))
+    ));
+    for caret in [1, 7, 12] {
+        select(&mut store, view, caret, caret);
+        state.reconcile(&store, |_| true, |_, _| HashSet::from([provider]));
+        assert!(
+            state
+                .display(&store, egui::ViewportId::ROOT, view, colors())
+                .is_some()
+        );
+        assert!(
+            state
+                .observe(
+                    &store,
+                    context(&project, view),
+                    HashSet::from([provider]),
+                    Instant::now() + REQUEST_DEBOUNCE,
+                )
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            state.entries[&egui::ViewportId::ROOT].request.token,
+            initial.token
+        );
+        assert!(!initial.is_cancelled());
+    }
+}
+
+#[test]
+fn navigation_boundary_기호로_시작하는_범위로_이동해도_표시를_유지한다() {
+    let (mut store, view, provider, project) = fixture();
+    let mut state = State::default();
+    let initial = request(&mut state, &store, view, provider, &project);
+    let mut result = response(provider);
+    result.highlights.push(lsp_types::DocumentHighlight {
+        range: LspRange::new(Position::new(0, 4), Position::new(0, 5)),
+        kind: None,
+    });
+    assert!(state.accept(&store, &initial, HashSet::from([provider]), Ok(result)));
+    assert!(
+        state
+            .navigate(&mut store, context(&project, view), HighlightCommand::Next)
+            .unwrap()
+    );
+    assert_eq!(
+        store.views().get(view).unwrap().selection.selections[0].head,
+        4
+    );
+    assert!(
+        state
+            .observe(
+                &store,
+                context(&project, view),
+                HashSet::from([provider]),
+                Instant::now()
+            )
+            .unwrap()
+            .is_none()
+    );
+    assert!(state.has_highlights(&store, egui::ViewportId::ROOT, view));
+    assert_eq!(
+        state.entries[&egui::ViewportId::ROOT].request.token,
+        initial.token
+    );
+}
+
+#[test]
+fn navigation_boundary_readonly_메타데이터의_문서는_내용을_바꾸지_않고_이동한다() {
+    use taide_model::file::{EditorConfigOptions, FileSizeTier, OpenedFile};
+    const CONTENT: &str = "foo = foo\nfoo";
+    const PATH: &str = "/synthetic/highlights-readonly.txt";
+    let (mut store, _, provider, project) = fixture();
+    let document = store
+        .open_file(
+            PATH.into(),
+            OpenedFile {
+                path: PATH.into(),
+                content: CONTENT.into(),
+                language_id: "plaintext".into(),
+                byte_size: CONTENT.len().try_into().unwrap(),
+                line_count: CONTENT.lines().count().try_into().unwrap(),
+                tier: FileSizeTier::ReadOnly,
+                read_only: true,
+                encoding_lossy: false,
+                modified_ms: 0.0,
+                editor_config: EditorConfigOptions::default(),
+            },
+        )
+        .unwrap();
+    let view = store
+        .attach_view(
+            ViewKey {
+                window: "synthetic".into(),
+                pane: PaneId::new(),
+                tab: TabId::new(),
+            },
+            document,
+        )
+        .unwrap();
+    let before = store.documents().snapshot(document).unwrap();
+    assert!(before.metadata.read_only);
+    let mut state = State::default();
+    let initial = request(&mut state, &store, view, provider, &project);
+    assert!(state.accept(
+        &store,
+        &initial,
+        HashSet::from([provider]),
+        Ok(response(provider))
+    ));
+    assert!(
+        state
+            .navigate(&mut store, context(&project, view), HighlightCommand::Next)
+            .unwrap()
+    );
+    assert_eq!(
+        store.views().get(view).unwrap().selection.selections[0].head,
+        6
+    );
+    let after = store.documents().snapshot(document).unwrap();
+    assert_eq!(after.revision, before.revision);
+    assert_eq!(after.rope.to_string(), CONTENT);
+    assert!(after.metadata.read_only);
+}
+
+#[test]
+fn 하이라이트_이동은_정렬_중복_순환과_단일_커서_중앙_reveal을_보존한다() {
+    let (mut store, view, provider, project) = fixture();
+    let mut state = State::default();
+    let initial = request(&mut state, &store, view, provider, &project);
+    let mut result = response(provider);
+    result.highlights.reverse();
+    result.highlights.push(result.highlights[0].clone());
+    assert!(state.accept(&store, &initial, HashSet::from([provider]), Ok(result)));
+    let revision = initial.snapshot.revision;
+    for (command, caret, bytes) in [
+        (HighlightCommand::Next, 6, 6..9),
+        (HighlightCommand::Next, 10, 10..13),
+        (HighlightCommand::Next, 0, 0..3),
+        (HighlightCommand::Previous, 10, 10..13),
+        (HighlightCommand::Previous, 6, 6..9),
+        (HighlightCommand::Previous, 0, 0..3),
+    ] {
+        assert!(
+            state
+                .navigate(&mut store, context(&project, view), command)
+                .unwrap()
+        );
+        let current = store.views().get(view).unwrap().clone();
+        assert_eq!(
+            current.selection,
+            SelectionSet {
+                primary: 0,
+                selections: vec![Selection {
+                    anchor: caret,
+                    head: caret
+                }]
+            }
+        );
+        let reveal = store.take_selection_reveal(view).unwrap().unwrap();
+        assert_eq!(reveal.bytes, bytes);
+        assert!(reveal.center_if_outside);
+        assert_eq!(
+            store
+                .documents()
+                .snapshot(current.document)
+                .unwrap()
+                .revision,
+            revision
+        );
+        assert_eq!(
+            state.entries[&egui::ViewportId::ROOT].request.token,
+            initial.token
+        );
+    }
+}
+
+#[test]
+fn mirror_하이라이트_이동은_대상_뷰만_옮기고_포커스_소유자를_유지한다() {
+    let (mut store, view, provider, project) = fixture();
+    let document = store.views().get(view).unwrap().document;
+    let mirror = store
+        .attach_view(
+            ViewKey {
+                window: "synthetic".into(),
+                pane: PaneId::new(),
+                tab: TabId::new(),
+            },
+            document,
+        )
+        .unwrap();
+    let mut state = State::default();
+    let initial = request(&mut state, &store, view, provider, &project);
+    assert!(state.accept(
+        &store,
+        &initial,
+        HashSet::from([provider]),
+        Ok(response(provider))
+    ));
+    assert!(
+        state
+            .navigate(
+                &mut store,
+                Context {
+                    source: mirror,
+                    ..context(&project, view)
+                },
+                HighlightCommand::Next
+            )
+            .unwrap()
+    );
+    assert_eq!(
+        store.views().get(view).unwrap().selection,
+        SelectionSet::default()
+    );
+    assert_eq!(
+        store.views().get(mirror).unwrap().selection.selections[0].head,
+        6
+    );
+    state
+        .observe(
+            &store,
+            Context {
+                source: mirror,
+                ..context(&project, view)
+            },
+            HashSet::from([provider]),
+            Instant::now(),
+        )
+        .unwrap();
+    assert_eq!(
+        state.source_for_owner(&store, egui::ViewportId::ROOT, view),
+        mirror
+    );
+    assert!(
+        state
+            .display(&store, egui::ViewportId::ROOT, view, colors())
+            .is_some()
+    );
+    assert_eq!(state.entries[&egui::ViewportId::ROOT].request.owner, view);
+}
+
+#[test]
+fn 명시적_trigger는_빈_결과를_다시_요청하고_250ms_표시_지연과_캐시를_보존한다() {
+    let (store, view, provider, project) = fixture();
+    let mut state = State::default();
+    let initial = request(&mut state, &store, view, provider, &project);
+    assert!(state.accept(
+        &store,
+        &initial,
+        HashSet::from([provider]),
+        Ok(Response {
+            provider: Some(provider),
+            highlights: Vec::new()
+        })
+    ));
+    let now = Instant::now();
+    let triggered = state
+        .trigger(
+            &store,
+            context(&project, view),
+            HashSet::from([provider]),
+            now,
+        )
+        .unwrap()
+        .unwrap();
+    assert_ne!(triggered.token, initial.token);
+    assert!(initial.is_cancelled());
+    assert_eq!(
+        state.entries[&egui::ViewportId::ROOT].render_after,
+        now + TRIGGER_DELAY
+    );
+    assert!(state.accept(
+        &store,
+        &triggered,
+        HashSet::from([provider]),
+        Ok(response(provider))
+    ));
+    assert!(
+        state
+            .display(&store, egui::ViewportId::ROOT, view, colors())
+            .is_none()
+    );
+    assert!(!state.has_highlights(&store, egui::ViewportId::ROOT, view));
+    assert!(
+        state
+            .trigger(
+                &store,
+                context(&project, view),
+                HashSet::from([provider]),
+                now
+            )
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        state.entries[&egui::ViewportId::ROOT].request.token,
+        triggered.token
+    );
+}
+
+#[test]
 fn 주_선택의_단어_조건과_50ms_debounce_및_동일_요청의_단일_제출을_보존한다() {
     let (mut store, view, provider, project) = fixture();
     let mut state = State::default();

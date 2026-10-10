@@ -1729,6 +1729,7 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
                 });
         let find = &mut session.find;
         let completion_consumer = self.completion.clone();
+        let highlight_consumer = self.highlights.clone();
         let mut completion_host_commands = Vec::new();
         let mut completion_provider =
             self.completion
@@ -1853,6 +1854,25 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
                             let crate::command_registry::Run::EditDocument(edit) = run else {
                                 return false;
                             };
+                            if let crate::command_registry::DocumentEdit::Highlight(command) = edit
+                            {
+                                let Some(consumer) = &highlight_consumer else {
+                                    return false;
+                                };
+                                return match consumer.execute(
+                                    store,
+                                    self.project.as_ref(),
+                                    view,
+                                    preview,
+                                    command,
+                                ) {
+                                    Ok(handled) => handled,
+                                    Err(error) => {
+                                        errors.push(error);
+                                        true
+                                    }
+                                };
+                            }
                             if let crate::command_registry::DocumentEdit::Documentation(command) =
                                 edit
                             {

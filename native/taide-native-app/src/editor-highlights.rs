@@ -17,12 +17,14 @@ use taide_native_editor::document::{DocumentSnapshot, EditorError};
 use taide_native_editor::lsp::{LspRange, Position, byte_to_position, range_to_bytes};
 use taide_native_editor::store::EditorStore;
 use taide_native_editor::view::{SelectionSet, ViewId, ViewKey};
+use taide_native_ui::command_registry::HighlightCommand;
 use tokio::sync::watch;
 use uuid::Uuid;
 
 use crate::editor_symbols::ProviderIdentity;
 
 const REQUEST_DEBOUNCE: Duration = Duration::from_millis(50);
+const TRIGGER_DELAY: Duration = Duration::from_millis(250);
 const BORDER_WIDTH: f32 = 1.0;
 const READ_DARK: Color32 = Color32::from_rgba_unmultiplied_const(0x57, 0x57, 0x57, 0xb8);
 const READ_LIGHT: Color32 = Color32::from_rgba_unmultiplied_const(0x57, 0x57, 0x57, 0x40);
@@ -224,6 +226,14 @@ impl Request {
     }
 
     pub(crate) fn describes(&self, store: &EditorStore) -> bool {
+        self.describes_document(store)
+            && store
+                .views()
+                .get(self.source)
+                .is_some_and(|source| source.selection == self.selection)
+    }
+
+    fn describes_document(&self, store: &EditorStore) -> bool {
         !self.is_cancelled()
             && store.views().get(self.owner).is_some_and(|owner| {
                 owner.key == self.owner_key && owner.document == self.owner_document
@@ -231,7 +241,6 @@ impl Request {
             && store.views().get(self.source).is_some_and(|source| {
                 source.key == self.source_key
                     && source.document == self.snapshot.id
-                    && source.selection == self.selection
                     && source.composition.is_none()
                     && store
                         .documents()
@@ -273,12 +282,47 @@ struct Entry {
     cancel: watch::Sender<bool>,
     due: Instant,
     submitted: bool,
+    render_after: Instant,
     highlights: Vec<Highlight>,
+}
+
+fn has_word_selection(snapshot: &DocumentSnapshot, selection: &SelectionSet) -> bool {
+    let selected = selection.selections[selection.primary];
+    let selected_bytes = selected.anchor.min(selected.head)..selected.anchor.max(selected.head);
+    let rules = crate::editor_syntax::language_rules(&snapshot.metadata.language_id)
+        .or_else(|| crate::editor_syntax::language_rules("plaintext"));
+    taide_native_editor::cursor_commands::word_range(snapshot, selected.head, rules)
+        .is_some_and(|word| word.start <= selected_bytes.start && selected_bytes.end <= word.end)
+}
+
+impl Entry {
+    fn refresh_selection(&mut self, store: &EditorStore) -> bool {
+        if self.request.describes(store) {
+            return true;
+        }
+        if !self.request.describes_document(store) {
+            return false;
+        }
+        let Some(source) = store.views().get(self.request.source) else {
+            return false;
+        };
+        let selected = source.selection.selections[source.selection.primary];
+        if !has_word_selection(&self.request.snapshot, &source.selection)
+            || !self.highlights.iter().any(|highlight| {
+                highlight.bytes.start <= selected.head && selected.head <= highlight.bytes.end
+            })
+        {
+            return false;
+        }
+        self.request.selection = source.selection.clone();
+        true
+    }
 }
 
 #[derive(Default)]
 pub(crate) struct State {
     entries: HashMap<egui::ViewportId, Entry>,
+    sources: HashMap<egui::ViewportId, (ViewKey, ViewKey)>,
 }
 
 pub(crate) struct Display {
@@ -323,23 +367,26 @@ impl State {
             .get(context.owner)
             .ok_or(EditorError::NotFound)?;
         let snapshot = store.documents().snapshot(source.document)?;
+        self.sources
+            .insert(context.viewport, (owner.key.clone(), source.key.clone()));
         let selected = source.selection.selections[source.selection.primary];
-        let selected_bytes = selected.anchor.min(selected.head)..selected.anchor.max(selected.head);
-        let rules = crate::editor_syntax::language_rules(&snapshot.metadata.language_id)
-            .or_else(|| crate::editor_syntax::language_rules("plaintext"));
-        let word =
-            taide_native_editor::cursor_commands::word_range(&snapshot, selected.head, rules);
+        let has_unchanged_highlights = self.entries.get(&context.viewport).is_some_and(|entry| {
+            entry.request.describes(store)
+                && entry.request.project == context.project
+                && entry.request.owner == context.owner
+                && entry.request.source == context.source
+                && entry.providers == providers
+                && !entry.highlights.is_empty()
+        });
         if providers.is_empty()
             || source.composition.is_some()
-            || !word.is_some_and(|word| {
-                word.start <= selected_bytes.start && selected_bytes.end <= word.end
-            })
+            || (!has_word_selection(&snapshot, &source.selection) && !has_unchanged_highlights)
         {
             self.close(context.viewport);
             return Ok(None);
         }
-        let changed = self.entries.get(&context.viewport).is_none_or(|entry| {
-            !entry.request.describes(store)
+        let changed = self.entries.get_mut(&context.viewport).is_none_or(|entry| {
+            !entry.refresh_selection(store)
                 || entry.request.project != context.project
                 || entry.request.source != context.source
                 || entry.request.owner != context.owner
@@ -369,6 +416,7 @@ impl State {
                     cancel,
                     due: now + REQUEST_DEBOUNCE,
                     submitted: false,
+                    render_after: now,
                     highlights: Vec::new(),
                 },
             );
@@ -382,6 +430,135 @@ impl State {
         }
         entry.submitted = true;
         Ok(Some(entry.request.clone()))
+    }
+
+    fn trigger(
+        &mut self,
+        store: &EditorStore,
+        context: Context,
+        providers: HashSet<ProviderIdentity>,
+        now: Instant,
+    ) -> Result<Option<Request>, EditorError> {
+        if self
+            .entries
+            .get_mut(&context.viewport)
+            .is_some_and(|entry| {
+                entry.refresh_selection(store)
+                    && entry.request.project == context.project
+                    && entry.request.owner == context.owner
+                    && entry.request.source == context.source
+                    && entry.providers == providers
+                    && !entry.highlights.is_empty()
+            })
+        {
+            return Ok(None);
+        }
+        let viewport = context.viewport;
+        self.close(viewport);
+        self.observe(store, context, providers, now)?;
+        let Some(entry) = self.entries.get_mut(&viewport) else {
+            return Ok(None);
+        };
+        entry.submitted = true;
+        entry.due = now;
+        entry.render_after = now + TRIGGER_DELAY;
+        Ok(Some(entry.request.clone()))
+    }
+
+    pub(crate) fn source_for_owner(
+        &self,
+        store: &EditorStore,
+        viewport: egui::ViewportId,
+        owner: ViewId,
+    ) -> ViewId {
+        let Some(target) = store.views().get(owner) else {
+            return owner;
+        };
+        self.sources
+            .get(&viewport)
+            .filter(|(key, _)| key == &target.key)
+            .and_then(|(_, source)| store.views().find(source))
+            .unwrap_or(owner)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn rendering_deadline(&self, viewport: egui::ViewportId) -> Option<Instant> {
+        self.entries.get(&viewport).map(|entry| entry.render_after)
+    }
+
+    pub(crate) fn has_highlights(
+        &self,
+        store: &EditorStore,
+        viewport: egui::ViewportId,
+        view: ViewId,
+    ) -> bool {
+        self.entries.get(&viewport).is_some_and(|entry| {
+            entry.request.describes(store)
+                && !entry.highlights.is_empty()
+                && Instant::now() >= entry.render_after
+                && store.views().get(view).is_some_and(|target| {
+                    target.document == entry.request.snapshot.id && target.composition.is_none()
+                })
+        })
+    }
+
+    fn navigate(
+        &mut self,
+        store: &mut EditorStore,
+        context: Context,
+        command: HighlightCommand,
+    ) -> Result<bool, EditorError> {
+        if !self.has_highlights(store, context.viewport, context.source) {
+            return Ok(false);
+        }
+        let Some(entry) = self.entries.get_mut(&context.viewport).filter(|entry| {
+            entry.request.owner == context.owner && entry.request.project == context.project
+        }) else {
+            return Ok(false);
+        };
+        let source = store
+            .views()
+            .get(context.source)
+            .ok_or(EditorError::NotFound)?
+            .clone();
+        let caret = source.selection.selections[source.selection.primary].head;
+        let mut ranges = entry
+            .highlights
+            .iter()
+            .map(|highlight| highlight.bytes.clone())
+            .collect::<Vec<_>>();
+        ranges.sort_by_key(|bytes| (bytes.start, bytes.end));
+        ranges.dedup();
+        let index = ranges
+            .iter()
+            .position(|bytes| bytes.start <= caret && caret <= bytes.end);
+        let target = match command {
+            HighlightCommand::Next => index.map_or(0, |index| (index + 1) % ranges.len()),
+            HighlightCommand::Previous => index.map_or(ranges.len() - 1, |index| {
+                (index + ranges.len() - 1) % ranges.len()
+            }),
+            HighlightCommand::Trigger => return Ok(false),
+        };
+        let bytes = ranges[target].clone();
+        let selection = SelectionSet {
+            primary: 0,
+            selections: vec![taide_native_editor::view::Selection {
+                anchor: bytes.start,
+                head: bytes.start,
+            }],
+        };
+        store.set_view_state(
+            context.source,
+            selection.clone(),
+            source.scroll,
+            source.folds,
+        )?;
+        store.request_selection_reveal(context.source, bytes.clone(), true)?;
+        entry.request.source = context.source;
+        entry.request.source_key = source.key;
+        entry.request.selection = selection;
+        entry.request.position = byte_to_position(&entry.request.snapshot, bytes.start)?;
+        Ok(true)
     }
 
     pub(crate) fn accept(
@@ -463,7 +640,7 @@ impl State {
         providers: impl Fn(&ProjectId, &DocumentSnapshot) -> HashSet<ProviderIdentity>,
     ) {
         self.entries.retain(|_, entry| {
-            let keep = entry.request.describes(store)
+            let keep = entry.refresh_selection(store)
                 && active(&entry.request)
                 && entry.providers == providers(&entry.request.project, &entry.request.snapshot);
             if !keep {
@@ -482,7 +659,10 @@ impl State {
     ) -> Option<Display> {
         let entry = self.entries.get(&viewport)?;
         let target = store.views().get(view)?;
-        if !entry.request.describes(store) || target.document != entry.request.snapshot.id {
+        if !entry.request.describes(store)
+            || target.document != entry.request.snapshot.id
+            || Instant::now() < entry.render_after
+        {
             return None;
         }
         let mut borders = Vec::new();
@@ -531,6 +711,63 @@ pub(crate) struct Consumer<'a, 'state> {
 }
 
 impl Consumer<'_, '_> {
+    fn providers(
+        &self,
+        store: &EditorStore,
+        project: &ProjectId,
+        source: ViewId,
+    ) -> HashSet<ProviderIdentity> {
+        store
+            .views()
+            .get(source)
+            .and_then(|view| store.documents().snapshot(view.document).ok())
+            .map_or_else(HashSet::new, |snapshot| {
+                self.lsp.map_or_else(HashSet::new, |lsp| {
+                    lsp.highlight_providers(project, &snapshot)
+                })
+            })
+    }
+
+    pub(crate) fn execute(
+        &self,
+        store: &mut EditorStore,
+        project: Option<&ProjectId>,
+        owner: ViewId,
+        source: ViewId,
+        command: HighlightCommand,
+    ) -> Result<bool, EditorError> {
+        let Some(project) = project else {
+            return Ok(false);
+        };
+        let context = Context {
+            project: project.clone(),
+            owner,
+            source,
+            viewport: self.context.viewport_id(),
+        };
+        if command != HighlightCommand::Trigger {
+            let changed = self.state.borrow_mut().navigate(store, context, command)?;
+            if changed {
+                self.context.request_repaint();
+            }
+            return Ok(changed);
+        }
+        let request = self.state.borrow_mut().trigger(
+            store,
+            context,
+            self.providers(store, project, source),
+            Instant::now(),
+        )?;
+        if let Some(request) = request
+            && self.lsp.is_none_or(|lsp| lsp.highlights(request).is_err())
+        {
+            self.state.borrow_mut().close(self.context.viewport_id());
+            return Ok(false);
+        }
+        self.context.request_repaint_after(TRIGGER_DELAY);
+        Ok(true)
+    }
+
     pub(crate) fn observe(
         &self,
         store: &EditorStore,
@@ -542,15 +779,7 @@ impl Consumer<'_, '_> {
             self.state.borrow_mut().close(self.context.viewport_id());
             return;
         };
-        let providers = store
-            .views()
-            .get(source)
-            .and_then(|view| store.documents().snapshot(view.document).ok())
-            .map_or_else(HashSet::new, |snapshot| {
-                self.lsp.map_or_else(HashSet::new, |lsp| {
-                    lsp.highlight_providers(project, &snapshot)
-                })
-            });
+        let providers = self.providers(store, project, source);
         let now = Instant::now();
         let before = self
             .state
@@ -592,6 +821,13 @@ impl Consumer<'_, '_> {
         {
             self.context
                 .request_repaint_after(entry.due.saturating_duration_since(now));
+        }
+        if let Some(entry) = state.entries.get(&self.context.viewport_id())
+            && !entry.highlights.is_empty()
+            && now < entry.render_after
+        {
+            self.context
+                .request_repaint_after(entry.render_after.saturating_duration_since(now));
         }
     }
 

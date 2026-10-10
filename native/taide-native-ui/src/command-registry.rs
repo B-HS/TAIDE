@@ -16,6 +16,7 @@ pub const EDITOR_FIND_AVAILABLE: bool = cfg!(feature = "native-host");
 pub const EDITOR_SYNTAX_FOLDING_AVAILABLE: bool = cfg!(feature = "native-host");
 pub const EDITOR_LOCATIONS_AVAILABLE: bool = cfg!(feature = "native-host");
 pub const EDITOR_DOCUMENTATION_AVAILABLE: bool = cfg!(feature = "native-host");
+pub const EDITOR_HIGHLIGHTS_AVAILABLE: bool = cfg!(feature = "native-host");
 const EDITOR_ACTIONS_WITHOUT_SUPPORT_GATE: [&str; 21] = [
     "editor.action.goToImplementation",
     "editor.action.goToLocation",
@@ -61,6 +62,24 @@ pub enum TabCycle {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HighlightCommand {
+    Next,
+    Previous,
+    Trigger,
+}
+
+impl HighlightCommand {
+    pub fn from_action(action: &str) -> Option<Self> {
+        match action {
+            "editor.action.wordHighlight.next" => Some(Self::Next),
+            "editor.action.wordHighlight.prev" => Some(Self::Previous),
+            "editor.action.wordHighlight.trigger" => Some(Self::Trigger),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DocumentEdit {
     DeleteAllLeft,
     OutdentLines,
@@ -76,6 +95,8 @@ pub enum DocumentEdit {
     Documentation(taide_native_editor::documentation::Command),
     #[cfg(feature = "native-host")]
     Completion(taide_native_editor::completion::Command),
+    #[cfg(feature = "native-host")]
+    Highlight(HighlightCommand),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -268,6 +289,13 @@ fn enablement(id: &str) -> Enablement {
 }
 
 fn execution(id: &str, keymap_id: Option<&str>) -> Execution {
+    #[cfg(feature = "native-host")]
+    if let Some(command) = id
+        .strip_prefix(EDITOR_ACTION_PREFIX)
+        .and_then(HighlightCommand::from_action)
+    {
+        return Execution::Native(Run::EditDocument(DocumentEdit::Highlight(command)));
+    }
     #[cfg(feature = "native-host")]
     if let Some(command) = id
         .strip_prefix(EDITOR_ACTION_PREFIX)
@@ -564,6 +592,10 @@ impl Registry {
                     }
                     #[cfg(feature = "native-host")]
                     Execution::Native(Run::EditDocument(DocumentEdit::Documentation(_))) => {
+                        Some(action.to_owned())
+                    }
+                    #[cfg(feature = "native-host")]
+                    Execution::Native(Run::EditDocument(DocumentEdit::Highlight(_))) => {
                         Some(action.to_owned())
                     }
                     #[cfg(feature = "native-host")]
@@ -948,6 +980,8 @@ mod tests {
                 Execution::Native(Run::EditDocument(DocumentEdit::Documentation(_))) => None,
                 #[cfg(feature = "native-host")]
                 Execution::Native(Run::EditDocument(DocumentEdit::Completion(_))) => None,
+                #[cfg(feature = "native-host")]
+                Execution::Native(Run::EditDocument(DocumentEdit::Highlight(_))) => None,
                 Execution::Native(Run::EditDocument(
                     DocumentEdit::Line(_) | DocumentEdit::Cursor(_),
                 )) => None,
@@ -1082,6 +1116,15 @@ mod tests {
                     .filter(|_| EDITOR_DOCUMENTATION_AVAILABLE),
                 )
                 .chain(
+                    [
+                        "editor.action.wordHighlight.next",
+                        "editor.action.wordHighlight.prev",
+                        "editor.action.wordHighlight.trigger",
+                    ]
+                    .into_iter()
+                    .filter(|_| EDITOR_HIGHLIGHTS_AVAILABLE),
+                )
+                .chain(
                     ["editor.action.triggerSuggest"]
                         .into_iter()
                         .filter(|_| cfg!(feature = "native-host") && !is_read_only),
@@ -1101,6 +1144,39 @@ mod tests {
                 expected,
                 "read only {is_read_only} folding {has_folding}"
             );
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "native-host")]
+    fn 하이라이트_명령은_읽기전용_editor에서도_실행되고_본문이_없으면_비활성이다() {
+        let registry = registry().unwrap();
+        for (action, operation) in [
+            ("editor.action.wordHighlight.next", HighlightCommand::Next),
+            (
+                "editor.action.wordHighlight.prev",
+                HighlightCommand::Previous,
+            ),
+            (
+                "editor.action.wordHighlight.trigger",
+                HighlightCommand::Trigger,
+            ),
+        ] {
+            let command = registry.command(&format!("monaco.{action}")).unwrap();
+            for is_read_only in [false, true] {
+                let context = CommandContext {
+                    active_editor_actions: Some(registry.editor_action_ids(ActiveEditor {
+                        is_read_only,
+                        has_folding: false,
+                    })),
+                    ..Default::default()
+                };
+                assert_eq!(
+                    command.runnable(&context),
+                    Some(Run::EditDocument(DocumentEdit::Highlight(operation)))
+                );
+            }
+            assert!(!command.is_runnable(&CommandContext::default()));
         }
     }
 

@@ -4749,6 +4749,28 @@ impl eframe::App for NativeApplication {
             crate::command_dispatch::active_editor_actions(&self.store, focused_view.as_ref()).map(
                 |mut actions| {
                     actions.retain(|action| {
+                        if let Some(command) =
+                            crate::command_registry::HighlightCommand::from_action(action)
+                        {
+                            if command == crate::command_registry::HighlightCommand::Trigger {
+                                return true;
+                            }
+                            return focused_view
+                                .as_ref()
+                                .and_then(|key| self.store.views().find(key))
+                                .is_some_and(|owner| {
+                                    let source = self.editor_highlights.source_for_owner(
+                                        &self.store,
+                                        context.viewport_id(),
+                                        owner,
+                                    );
+                                    self.editor_highlights.has_highlights(
+                                        &self.store,
+                                        context.viewport_id(),
+                                        source,
+                                    )
+                                });
+                        }
                         if taide_native_editor::documentation::Command::from_action(action)
                             == Some(taide_native_editor::documentation::Command::Signature(
                                 taide_native_editor::documentation::SignatureCommand::Trigger,
@@ -6906,6 +6928,16 @@ impl AppSurfaces<'_> {
                     context: ui.ctx().clone(),
                     colors: self.editor_highlight_colors,
                 };
+                if ui.is_enabled() {
+                    let highlight_commands = self.document_edits.extract_if(.., |(owner, edit)| owner == &tab.id && matches!(edit, DocumentEdit::Highlight(_)))
+                        .filter_map(|(_, edit)| if let DocumentEdit::Highlight(command) = edit { Some(command) } else { None }).collect::<Vec<_>>();
+                    for command in highlight_commands {
+                        let source = highlight_consumer.state.borrow().source_for_owner(self.store, ui.ctx().viewport_id(), view);
+                        if let Err(error) = highlight_consumer.execute(self.store, editor_project, view, source, command) {
+                            *self.status = Some(editor_error(error).to_string());
+                        }
+                    }
+                }
                 let completion_consumer = crate::editor_completion::Consumer {
                     state: std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_completion)),
                     services: self.services,
