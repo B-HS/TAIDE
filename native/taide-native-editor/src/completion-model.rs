@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use lsp_types::CompletionItemKind;
 
 use crate::change_journal::ChangesSince;
@@ -7,6 +9,7 @@ use crate::document::{DocumentSnapshot, EditorError, byte_to_char};
 
 const GRACEFUL_SOURCE_LIMIT: usize = 2000;
 const DEFAULT_SCORE: i32 = -100;
+static NEXT_IDENTITY: AtomicU64 = AtomicU64::new(1);
 const MONACO_KIND_ORDER: [CompletionItemKind; 25] = [
     CompletionItemKind::METHOD,
     CompletionItemKind::FUNCTION,
@@ -50,6 +53,7 @@ struct Item {
 }
 
 pub struct Model {
+    identity: u64,
     items: Vec<Item>,
     ranked: Vec<Ranked>,
     scorer: Scorer,
@@ -119,12 +123,21 @@ impl Model {
                 .then(left.kind.cmp(&right.kind))
         });
         Ok(Self {
+            identity: NEXT_IDENTITY
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+                    next.checked_add(1)
+                })
+                .expect("completion model identity space exhausted"),
             items,
             ranked: Vec::new(),
             scorer: Scorer::default(),
             leading: None,
             delta: 0,
         })
+    }
+
+    pub fn identity(&self) -> u64 {
+        self.identity
     }
 
     pub fn candidate(&self, index: usize) -> Option<&Candidate> {

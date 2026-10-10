@@ -35,6 +35,9 @@ const MAX_ROW_HEIGHT: f32 = 1000.0;
 const BORDER: f32 = 1.0;
 const ICON_SIZE: f32 = 16.0;
 const ICON_WIDTH: f32 = 22.0;
+const SWATCH_CONTENT_EM: f32 = 0.7;
+const SWATCH_BORDER_EM: f32 = 0.1;
+const SWATCH_OFFSET_EM: f32 = 0.3;
 const ROW_PADDING: f32 = 4.0;
 const DETAILS_PADDING: i8 = 5;
 const CORNER_RADIUS: u8 = 6;
@@ -175,6 +178,15 @@ pub trait Provider: editor_markup::Provider {
         None
     }
     fn icon_color(&self, _ui: &Ui, _kind: CompletionItemKind) -> Option<Color32> {
+        None
+    }
+    fn swatch(
+        &mut self,
+        _store: &EditorStore,
+        _view: ViewId,
+        _token: &str,
+        _candidate: usize,
+    ) -> Option<Color32> {
         None
     }
 }
@@ -371,6 +383,8 @@ fn size_key(ui: &Ui, embedded: bool) -> Id {
 pub(crate) struct State {
     token: Option<String>,
     selected: Option<usize>,
+    filtered: Option<(String, isize)>,
+    filtered_model: Option<u64>,
     index: usize,
     quick_due: Option<f64>,
     loading_since: Option<f64>,
@@ -731,6 +745,8 @@ impl State {
         self.loading_since = None;
         self.token = None;
         self.selected = None;
+        self.filtered = None;
+        self.filtered_model = None;
         self.geometry = Geometry::default();
         if self.details_focused {
             ui.memory_mut(|memory| memory.request_focus_with_filter(body, FILTER));
@@ -745,21 +761,51 @@ impl State {
             self.token = Some(widget.token.clone());
             self.index = 0;
             self.selected = None;
+            self.filtered = None;
+            self.filtered_model = None;
             self.scroll = 0.0;
             self.reveal = true;
         }
-        let ranked = widget.model.as_ref().map_or_else(Vec::new, |model| {
-            model
-                .borrow_mut()
-                .filter(&widget.leading, widget.delta)
-                .iter()
-                .map(|ranked| ranked.candidate)
-                .collect::<Vec<_>>()
-        });
-        self.index = self
-            .selected
-            .and_then(|candidate| ranked.iter().position(|index| *index == candidate))
-            .unwrap_or(self.index.min(ranked.len().saturating_sub(1)));
+        let (ranked, preferred) = widget.model.as_ref().map_or_else(
+            || (Vec::new(), 0),
+            |model| {
+                let mut model = model.borrow_mut();
+                let items = model.filter(&widget.leading, widget.delta);
+                let eligible = items.first().map_or(0, |first| {
+                    items
+                        .iter()
+                        .take_while(|item| item.score.value == first.score.value)
+                        .count()
+                });
+                let ranked = items.iter().map(|item| item.candidate).collect::<Vec<_>>();
+                let preferred = ranked[..eligible]
+                    .iter()
+                    .position(|candidate| {
+                        model
+                            .candidate(*candidate)
+                            .is_some_and(|candidate| candidate.item.preselect == Some(true))
+                    })
+                    .unwrap_or(0);
+                (ranked, preferred)
+            },
+        );
+        let model_identity = widget.model.as_ref().map(|model| model.borrow().identity());
+        let changed_model = self.filtered_model != model_identity;
+        let refiltered = self
+            .filtered
+            .as_ref()
+            .is_none_or(|(leading, delta)| leading != &widget.leading || *delta != widget.delta);
+        if changed_model || refiltered || self.selected.is_none() {
+            self.index = preferred;
+            self.filtered = Some((widget.leading.clone(), widget.delta));
+            self.filtered_model = model_identity;
+            self.reveal = true;
+        } else {
+            self.index = self
+                .selected
+                .and_then(|candidate| ranked.iter().position(|index| *index == candidate))
+                .unwrap_or(self.index.min(ranked.len().saturating_sub(1)));
+        }
         self.selected = ranked.get(self.index).copied();
         ranked
     }
@@ -1180,8 +1226,11 @@ impl State {
                             return;
                         }
                         let model = widget.model.as_ref().unwrap();
-                        let mut model = model.borrow_mut();
-                        let scores = model.filter(&widget.leading, widget.delta).to_vec();
+                        let scores = model
+                            .borrow_mut()
+                            .filter(&widget.leading, widget.delta)
+                            .to_vec();
+                        let model = model.borrow();
                         let viewport_height = (height - BORDER * 2.0).max(row_height);
                         if self.reveal {
                             let top = self.index as f32 * row_height;
@@ -1225,17 +1274,43 @@ impl State {
                                     } else {
                                         provider.icon_color(ui, kind).unwrap_or(colors.foreground)
                                     };
-                                    ui.painter().text(
-                                        rect.left_center()
-                                            + vec2(ROW_PADDING + ICON_WIDTH / 2.0, 0.0),
-                                        egui::Align2::CENTER_CENTER,
-                                        glyph(kind),
-                                        egui::FontId::new(
-                                            ICON_SIZE,
-                                            crate::font_families::codicons(ui),
-                                        ),
-                                        icon_color,
-                                    );
+                                    let swatch = if kind == CompletionItemKind::COLOR {
+                                        provider.swatch(store, view, &widget.token, ranked[row])
+                                    } else {
+                                        None
+                                    };
+                                    if let Some(color) = swatch {
+                                        let border = appearance.font.size * SWATCH_BORDER_EM;
+                                        let size = appearance.font.size * SWATCH_CONTENT_EM;
+                                        let outer = Rect::from_min_size(
+                                            pos2(
+                                                rect.left()
+                                                    + ROW_PADDING
+                                                    + appearance.font.size * SWATCH_OFFSET_EM,
+                                                rect.center().y - size / 2.0 - border,
+                                            ),
+                                            Vec2::splat(size + border * 2.0),
+                                        );
+                                        ui.painter().rect_filled(outer.shrink(border), 0.0, color);
+                                        ui.painter().rect_stroke(
+                                            outer,
+                                            0.0,
+                                            egui::Stroke::new(border, Color32::BLACK),
+                                            egui::StrokeKind::Inside,
+                                        );
+                                    } else {
+                                        ui.painter().text(
+                                            rect.left_center()
+                                                + vec2(ROW_PADDING + ICON_WIDTH / 2.0, 0.0),
+                                            egui::Align2::CENTER_CENTER,
+                                            glyph(kind),
+                                            egui::FontId::new(
+                                                ICON_SIZE,
+                                                crate::font_families::codicons(ui),
+                                            ),
+                                            icon_color,
+                                        );
+                                    }
                                     let foreground = if selected {
                                         colors.selected_foreground
                                     } else {

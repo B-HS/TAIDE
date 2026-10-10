@@ -30,6 +30,95 @@ const LINE_HEIGHT: f32 = 20.0;
 const SCREEN: egui::Vec2 = egui::vec2(800.0, 600.0);
 const FRAME_STEP: f64 = 0.1;
 const CLIPBOARD_DEADLINE: Duration = Duration::from_secs(5);
+const POPUP_READY_FRAMES: usize = 4;
+
+#[test]
+fn 실제_completion_provider는_색_견본을_표시하고_후보_교체와_닫힘에서_캐시를_회수한다() {
+    use taide_lsp::native::protocol::lsp_types::{CompletionItem, CompletionItemKind};
+    use taide_native_editor::completion::{Candidate, Candidates};
+
+    let mut fixture = Fixture::new("con", 3, Arc::from([]));
+    let identity = super::ProviderIdentity {
+        owner: crate::diagnostics::Owner::new(),
+        generation: 1,
+        capability_revision: 0,
+    };
+    let providers = std::collections::HashSet::from([identity]);
+    let request = fixture
+        .state
+        .begin(
+            &fixture.store,
+            super::Context {
+                project: fixture.project.clone(),
+                source: fixture.view,
+                owner: fixture.owner,
+                word: 0..3,
+                viewport: egui::ViewportId::ROOT,
+                automatic: false,
+            },
+            providers.clone(),
+        )
+        .unwrap();
+    let reply = |color: &str| {
+        let item = CompletionItem {
+            label: "contrast".into(),
+            detail: Some(color.into()),
+            kind: Some(CompletionItemKind::COLOR),
+            ..Default::default()
+        };
+        super::Response {
+            groups: vec![super::Group {
+                provider: identity,
+                ordinal: 0,
+                candidates: Candidates {
+                    items: vec![
+                        Candidate::new(&request.snapshot, request.position, request.word, item)
+                            .unwrap(),
+                    ],
+                    is_incomplete: false,
+                },
+            }],
+        }
+    };
+    fixture
+        .state
+        .accept(
+            &fixture.store,
+            &request,
+            providers.clone(),
+            Ok(reply("rgba(51,102,153,.5)")),
+        )
+        .unwrap();
+    for _ in 0..POPUP_READY_FRAMES {
+        fixture.frame(Vec::new(), &[]);
+    }
+    let first = Color32::from_rgba_unmultiplied(0x33, 0x66, 0x99, 128);
+    assert!(fixture.rectangles.iter().any(|shape| shape.fill == first));
+    assert_eq!(
+        fixture.state.entries[&fixture.view]
+            .colors
+            .values()
+            .filter(|color| **color == Some(first))
+            .count(),
+        1
+    );
+    fixture
+        .state
+        .accept(&fixture.store, &request, providers, Ok(reply("#ff0000")))
+        .unwrap();
+    assert!(fixture.state.entries[&fixture.view].colors.is_empty());
+    fixture.frame(Vec::new(), &[]);
+    assert!(
+        fixture
+            .rectangles
+            .iter()
+            .any(|shape| shape.fill == Color32::RED)
+    );
+    assert!(!fixture.rectangles.iter().any(|shape| shape.fill == first));
+    assert_eq!(fixture.text(fixture.document), "con");
+    fixture.frame(Vec::new(), &[Command::Hide]);
+    assert!(!fixture.state.entries.contains_key(&fixture.view));
+}
 
 #[test]
 fn native_completion_clipboard는_값이_준비되기_전_수락가능한_목록을_노출하지_않는다() {
@@ -264,6 +353,7 @@ struct Fixture {
     overrides: Option<String>,
     actions: Vec<String>,
     painted: Vec<String>,
+    rectangles: Vec<egui::epaint::RectShape>,
     geometry: taide_native_ui::editor_completion::Geometry,
 }
 
@@ -419,6 +509,7 @@ impl Fixture {
             overrides: None,
             actions: Vec::new(),
             painted: Vec::new(),
+            rectangles: Vec::new(),
             geometry: Default::default(),
         }
     }
@@ -527,6 +618,14 @@ impl Fixture {
                 self.focus = false;
             },
         );
+        self.rectangles = drawing
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Rect(rectangle) => Some(rectangle.clone()),
+                _ => None,
+            })
+            .collect();
         self.painted = drawing
             .shapes
             .iter()

@@ -40,6 +40,9 @@ const MINIMUM_SUGGEST_ROWS: f32 = 4.3;
 const SMALL_RESIZE_DISTANCE: f32 = 6.0;
 const DETAILS_RESIZE_DISTANCE: f32 = 50.0;
 const HORIZONTAL_SCREEN_MARGIN: f32 = 14.0;
+const SWATCH_CONTENT_EM: f32 = 0.7;
+const SWATCH_BORDER_EM: f32 = 0.1;
+const GEOMETRY_EPSILON: f32 = 0.01;
 
 fn limits() -> ParseLimits {
     ParseLimits {
@@ -52,6 +55,8 @@ fn limits() -> ParseLimits {
 struct Completions {
     widget: Option<Widget>,
     labels: Vec<String>,
+    preselected: Vec<String>,
+    swatch: Option<Color32>,
     requests: Vec<Trigger>,
     accepted: Vec<(String, String, bool)>,
     pending: bool,
@@ -70,6 +75,8 @@ impl Default for Completions {
         Self {
             widget: None,
             labels: vec!["foo".into(), "format".into(), "forEach".into()],
+            preselected: Vec::new(),
+            swatch: None,
             requests: Vec::new(),
             accepted: Vec::new(),
             pending: false,
@@ -102,7 +109,7 @@ impl Completions {
                     position,
                     range,
                     serde_json::from_value(
-                        json!({ "label": label, "insertText": self.preview_text.as_ref().unwrap_or(label), "kind": 3, "detail": "function\r\ndetail", "tags": if self.deprecated { Some(vec![1]) } else { None } }),
+                        json!({ "label": label, "insertText": self.preview_text.as_ref().unwrap_or(label), "kind": if self.swatch.is_some() { 16 } else { 3 }, "detail": "function\r\ndetail", "preselect": self.preselected.contains(label), "tags": if self.deprecated { Some(vec![1]) } else { None } }),
                     )
                     .unwrap(),
                 )
@@ -129,6 +136,9 @@ impl editor_markup::Provider for Completions {
 }
 
 impl Provider for Completions {
+    fn swatch(&mut self, _: &EditorStore, _: ViewId, _: &str, _: usize) -> Option<Color32> {
+        self.swatch
+    }
     fn is_embedded(&self, _: ViewId) -> bool {
         self.embedded
     }
@@ -205,7 +215,18 @@ impl Provider for Completions {
         view: ViewId,
         _: &Event,
     ) -> Result<(), EditorError> {
-        if self.widget.is_some() {
+        let should_rebuild = self.widget.as_ref().is_some_and(|widget| {
+            let source = store.views().get(view).unwrap();
+            let document = store.documents().snapshot(source.document).unwrap();
+            source.selection.selections[source.selection.primary].head != widget.byte
+                || widget.model.as_ref().is_some_and(|model| {
+                    model
+                        .borrow()
+                        .candidate(0)
+                        .is_some_and(|candidate| candidate.revision != document.revision)
+                })
+        });
+        if should_rebuild {
             self.build(store, view);
         }
         Ok(())
@@ -294,6 +315,7 @@ struct Fixture {
     other: String,
     other_id: Option<Id>,
     jobs: Vec<Arc<egui::text::LayoutJob>>,
+    rectangles: Vec<egui::epaint::RectShape>,
     preview: bool,
     editor_geometry: Option<taide_native_ui::editor_geometry::EditorGeometry>,
     preview_colors: taide_native_ui::editor_completion::PreviewColors,
@@ -369,6 +391,7 @@ impl Fixture {
             other: String::new(),
             other_id: None,
             jobs: Vec::new(),
+            rectangles: Vec::new(),
             preview: false,
             preview_colors: taide_native_ui::editor_completion::PreviewColors::for_dark_mode(true),
             editor_geometry: None,
@@ -383,6 +406,12 @@ impl Fixture {
             .unwrap()
             .rope
             .to_string()
+    }
+
+    fn selected_label(&self) -> Option<String> {
+        let widget = self.completion.widget.as_ref()?;
+        let model = widget.model.as_ref()?.borrow();
+        Some(model.candidate(self.geometry.selected?)?.item.label.clone())
     }
 
     fn frame(&mut self, time: f64, events: Vec<Event>, commands: &[Command]) -> bool {
@@ -416,6 +445,14 @@ impl Fixture {
             ui.add_space(self.top_padding);
             rendered = Some(self.editor.show_request(ui, &mut self.store, self.view, EditorRequest { request_focus: self.body.is_none(), keymap: |_: &Ui, event: &Event, _: bool| matches!(event, Event::Key { key, pressed: true, .. } if Some(*key) == self.intercepted), route: |response: &egui::Response| response.ctx.keyboard_input_route(response.id), presentation: &presentation, tokens: |_: &EditorStore| None, language: None, decorations: &[], fold_commands: &[], fold_controls: None, problems: None, locations: None, documentation: None, documentation_commands: &[], completion: Some(&mut self.completion), completion_commands: commands, syntax_folds: None }).unwrap());
         });
+        self.rectangles = output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Rect(rectangle) => Some(rectangle.clone()),
+                _ => None,
+            })
+            .collect();
         self.jobs = output
             .shapes
             .iter()
@@ -481,6 +518,87 @@ impl Fixture {
         );
         self.frame(time + FRAME_STEP * 3.0, Vec::new(), &[]);
     }
+}
+
+#[test]
+fn 색_후보는_원본_크기의_검정_테두리와_반투명_견본으로_일반_아이콘을_대체한다() {
+    let mut fixture = Fixture::new();
+    let color = Color32::from_rgba_unmultiplied(255, 0, 0, 128);
+    fixture.completion.swatch = Some(color);
+    fixture.open();
+    fixture.frame(0.3, Vec::new(), &[]);
+    let content = fixture
+        .rectangles
+        .iter()
+        .find(|shape| shape.fill == color)
+        .expect("visible color swatch after popup animation");
+    assert!((content.rect.width() - FONT_SIZE * SWATCH_CONTENT_EM).abs() < GEOMETRY_EPSILON);
+    assert!((content.rect.height() - FONT_SIZE * SWATCH_CONTENT_EM).abs() < GEOMETRY_EPSILON);
+    let outer = content.rect.expand(FONT_SIZE * SWATCH_BORDER_EM);
+    assert!(fixture.rectangles.iter().any(|shape| {
+        shape.fill == Color32::TRANSPARENT
+            && shape.stroke.color == Color32::BLACK
+            && (shape.stroke.width - FONT_SIZE * SWATCH_BORDER_EM).abs() < GEOMETRY_EPSILON
+            && shape.rect.min.distance(outer.min) < GEOMETRY_EPSILON
+            && shape.rect.max.distance(outer.max) < GEOMETRY_EPSILON
+    }));
+    assert!(!fixture.painted.iter().any(|text| text == "\u{eb5c}"));
+    assert_eq!(fixture.selected_label().as_deref(), Some("foo"));
+    fixture.completion.swatch = None;
+    fixture.frame(0.4, Vec::new(), &[]);
+    assert!(!fixture.rectangles.iter().any(|shape| shape.fill == color));
+    assert!(fixture.painted.iter().any(|text| text == "\u{eb5c}"));
+    assert_eq!(fixture.selected_label().as_deref(), Some("foo"));
+}
+
+#[test]
+fn 동일_요청의_모델_교체는_이전_인덱스의_다른_후보를_유지하지_않고_우선_후보를_재선택한다() {
+    let mut fixture = Fixture::new();
+    fixture.open();
+    fixture.frame(0.3, Vec::new(), &[Command::Next]);
+    fixture.completion.labels = vec!["foAlpha".into(), "foBeta".into(), "foGamma".into()];
+    fixture.completion.preselected = vec!["foGamma".into()];
+    fixture.completion.build(&fixture.store, fixture.view);
+    fixture.frame(0.4, Vec::new(), &[]);
+    assert_eq!(fixture.selected_label().as_deref(), Some("foGamma"));
+}
+
+#[test]
+fn suggest_최고_점수의_첫_preselect만_선택하고_더_낮은_점수는_우선하지_않는다() {
+    let mut fixture = Fixture::new();
+    fixture.completion.preselected = vec!["format".into()];
+    fixture.open();
+    assert_eq!(fixture.selected_label().as_deref(), Some("format"));
+    fixture.frame(0.3, vec![key(Key::Enter, Modifiers::NONE)], &[]);
+    assert_eq!(fixture.text(), "format");
+
+    let mut fixture = Fixture::new();
+    fixture.completion.labels = vec!["fo".into(), "foo".into()];
+    fixture.completion.preselected = vec!["foo".into()];
+    fixture.open();
+    assert_eq!(fixture.selected_label().as_deref(), Some("fo"));
+}
+
+#[test]
+fn suggest_재입력은_first로_재선택하고_방향키와_새_요청의_선택을_구분한다() {
+    let mut fixture = Fixture::new();
+    fixture.completion.preselected = vec!["format".into(), "forEach".into()];
+    fixture.open();
+    assert_eq!(fixture.selected_label().as_deref(), Some("forEach"));
+    fixture.frame(0.3, vec![key(Key::ArrowDown, Modifiers::NONE)], &[]);
+    assert_eq!(fixture.selected_label().as_deref(), Some("format"));
+    fixture.frame(0.4, Vec::new(), &[]);
+    assert_eq!(fixture.selected_label().as_deref(), Some("format"));
+    fixture.frame(0.5, vec![key(Key::Escape, Modifiers::NONE)], &[]);
+    fixture.completion.preselected.clear();
+    fixture.frame(0.6, vec![key(Key::Space, Modifiers::CTRL)], &[]);
+    fixture.frame(0.7, Vec::new(), &[]);
+    assert_eq!(fixture.selected_label().as_deref(), Some("foo"));
+    fixture.frame(0.8, Vec::new(), &[Command::Next, Command::Next]);
+    assert_eq!(fixture.selected_label().as_deref(), Some("format"));
+    fixture.frame(0.9, vec![Event::Text("r".into())], &[]);
+    fixture.frame(1.0, Vec::new(), &[]);
+    assert_eq!(fixture.selected_label().as_deref(), Some("forEach"));
 }
 
 #[test]

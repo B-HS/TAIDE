@@ -663,7 +663,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   provider adapt suggestion list/details layout, keyboard selection,
   resizing and clipboard-dependent snippet preparation from Monaco Editor
   0.56.0 `editor/contrib/suggest/browser/suggestWidget.js`,
-  `suggestWidgetDetails.js`, `suggestModel.js`, `suggestController.js`,
+  `suggestWidgetDetails.js`, `suggestWidgetRenderer.js`, `suggestMemory.js`,
+  `suggestModel.js`, `suggestController.js`, `media/suggest.css`,
   `base/browser/ui/list/listWidget.js` and `base/browser/ui/resizable/resizable.js`
   (MIT, Copyright (c) Microsoft Corporation). The MIT text is retained in
   `native/taide-native-editor/LICENSE-MONACO-SNIPPET`.

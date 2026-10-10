@@ -23,7 +23,7 @@ use taide_native_ui::editor_surface::NativeEditor;
 use taide_runtime::AppServices;
 use uuid::Uuid;
 
-use super::{Context, PreparationContext, Request, SnippetClock, State, supply};
+use super::{Context, PreparationContext, Request, SnippetClock, State, colors, supply};
 
 const SNIPPET_NESTING_LIMIT: usize = 128;
 const SNIPPET_MARKER_LIMIT: usize = 65_536;
@@ -835,6 +835,28 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
             }
             _ => ui.visuals().text_color(),
         })
+    }
+
+    fn swatch(
+        &mut self,
+        store: &EditorStore,
+        view: ViewId,
+        token: &str,
+        candidate: usize,
+    ) -> Option<Color32> {
+        let token = Uuid::parse_str(token).ok()?;
+        let mut state = self.consumer.state.borrow_mut();
+        state.request(store, view)?;
+        let entry = state.entries.get_mut(&view)?;
+        if entry.widget_token != token {
+            return None;
+        }
+        if let Some(color) = entry.colors.get(&candidate) {
+            return *color;
+        }
+        let color = colors::color(&entry.model.as_ref()?.borrow().candidate(candidate)?.item);
+        entry.colors.insert(candidate, color);
+        color
     }
 
     fn snippet_event(

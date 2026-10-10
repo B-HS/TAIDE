@@ -271,3 +271,33 @@ completion-resize-final.log는 후보 창 19건·exit 0입니다. completion-det
 현재 공개 HostCommand/HostReply 변경의 외부 테스트 타입 계약은 completion-clipboard-all-check.log에서 cargo check --tests --manifest-path native/taide-native-app/Cargo.toml --locked --offline --target-dir experiments/native-shell-spike/target을 직접 실행해 exit 0으로 확인했습니다. 이 컴파일 검사를 전체 테스트 실행이나 배치 완료로 보고하지 않습니다. 원본 목록/상세/크기/클립보드 흐름의 MIT 고지를 함께 보존했습니다.
 
 목록/상세/미리보기/크기·스니펫·CLIPBOARD 소비와 회귀·원본 표본·고지·QA/기능표/활성 PROCESS를 41e2af5c feat(native): 자동완성 목록과 스니펫 소비 연결로 선별 커밋했습니다. 직접 허용한 경로 79개를 rename 미검출 방식으로 비교해 추가/누락 0·PROCESS 하단 보존·staged/최종 diff check exit 0을 확인했습니다. Git의 rename 집계는 78파일이며 최종 사용자 단독 author와 AI 트레일러 없음도 확인했습니다. 두 요구사항 행은 partial, d/e/f/g는 미완료를 유지하며 최종 배치 33 계획을 이어갑니다.
+
+## 기본 선택·모델 교체·색 견본 소비
+
+TS code-editor.tsx는 suggestSelection을 재정의하지 않으며 Monaco editorOptions.js의 기본은 first, suggestMemory.js의 NoMemory는 최고 점수 묶음 안의 첫 preselect를 선택합니다. 최근 선택 기억을 새로 추가하지 않습니다. TS 수동 LSP 어댑터는 preselect를 전달하지 않으므로 그 경로의 원본 후보에는 기본 first가 적용됩니다. 공통 후보 모델에 우선 플래그가 있는 경우만 Monaco 규칙을 적용합니다. suggestController.js와 suggestWidget.js는 새 후보/재입력의 비동결 목록을 다시 선택합니다.
+
+UI에서 preselect 미반영 2건과 모델 교체 뒤 이전 인덱스의 다른 후보가 선택되는 1건을 각각 먼저 실패 재현했습니다. 입력 조건과 모델 identity가 바뀔 때만 기본 선택을 다시 계산하고 같은 목록에서 방향키 선택은 보존합니다. 모델 identity는 기존 std AtomicU64로 부여하며 Wasm 원자 타입 지원을 실제 rustc cfg에서 확인했습니다. egui 임시 상태가 Send/Sync를 요구해 Rc Weak를 저장한 최초 시도는 E0277로 컴파일 실패했고 정수 identity로 수정했습니다. 메모리 시험 공급자가 모든 방향키에도 새 모델을 생성하던 부정확한 조건은 실제 앱의 모델 재사용처럼 문서/revision/커서 변경 때만 갱신합니다.
+
+suggestWidgetRenderer.js ColorExtractor의 label/detail/documentation 우선순위·strict i/relaxed flags·첫 일치의 시작/끝 조건을 앱의 기존 AppSyntax JsRegex로 평가합니다. RGB/백분율/HSL/alpha는 [CSS Color의 정의](https://www.w3.org/TR/css-color-4/#hsl-to-rgb)와 실제 브라우저의 legacy CSS 해석을 기준으로 변환합니다. 정규식/CSS 엔진 의존성은 추가하지 않았습니다. CSS가 거절하는 혼합 단위·퍼센트 hue·잘못된 문자열에는 일반 아이콘을 표시합니다. 후보별 색 캐시는 모델 응답 교체 때 초기화하고 요청 닫힘과 함께 회수합니다.
+
+원본 추출기와 임시 프로필의 headless Chrome 154.0.8037.98에서 272표본을 확보했습니다. 표본에는 HEX/RGB/HSL·백분율/alpha/범위 clamp·대소문자/경계/문서·원본 label/detail 우선순위·파일/폴더가 포함됩니다. completion-colors-reference.json에 원본 파일과 SHA-256·실제 CSS 문자열을 보존하고 oracle --check는 브라우저를 재실행하지 않고 원본/입력/추출 결과의 불변을 확인합니다. standaloneThemeService.js는 hasFileIcons/hasFolderIcons false이며 기존 일반 codicon을 유지합니다. UI 견본은 suggest.css의 0.7em 본체·0.1em 검정 테두리·0.3em 왼쪽 여백을 적용하고 alpha는 기존 목록 배경 위에서 합성합니다. 체크무늬 등 원본에 없는 디자인을 추가하지 않습니다.
+
+실행 로그 접두사는 /private/tmp/taide-batch22-입니다.
+
+| 로그                                     | 실제 결과                                                                     |
+| ---------------------------------------- | ----------------------------------------------------------------------------- |
+| completion-selection-red.log             | UI 3통과/선택 2실패, exit 101                                                 |
+| completion-selection-final.log           | UI 24통과, exit 0                                                             |
+| completion-colors-ui-red.log             | 견본 미표시 1실패, exit 101                                                   |
+| completion-model-replacement-red.log     | 다른 후보로 바뀌는 1실패, exit 101                                            |
+| completion-colors-selection-ui-final.log | 선택·모델 교체·견본·기존 목록/상세/크기 UI 26통과, exit 0                     |
+| completion-colors-app-final.log          | App 관련 48통과/새 색 소비 1실패, exit 101; 272표본과 잘못된 CSS 2검사는 통과 |
+| completion-colors-consumer-final.log     | 실제 Provider 색 견본/캐시 교체/원문 보존/닫힘을 포함한 소비 18통과, exit 0   |
+
+실제 앱에서 새 swatch callback이 UI 목록의 가변 RefCell 대여와 충돌한 실패를 먼저 관찰했습니다. 점수 복사 직후 가변 대여를 끝내고 후보 표시는 읽기 전용 대여로 바꿨습니다. 이 마지막 수정 뒤 영향받는 App 소비 18건만 재검사했으며 앞의 다른 성공 48건을 재사용합니다. 서로 다른 App 관련 성공은 49건입니다. UI 26건은 이 마지막 대여 수정 직전 스냅샷이며 현재 전체 테스트 통과로 확대하지 않습니다. 새 Module/공개 API의 host 컴파일은 App lib 검사에서 확인했습니다.
+
+현재 d2/d3를 완료 근거로 갱신하며 d의 최종 원본 계약 점검·e/f/g와 두 기능 행은 미완료입니다. 이전 전체 1690건은 최신 제품 전체 성공을 뜻하지 않습니다. 변경 후 전체 게이트는 남은 배치 구현을 마친 뒤 직접 한 번 실행합니다. Cargo/fmt는 실제 앞 handle 종료를 확인한 뒤 직렬로 실행했습니다. 실제 앱 데이터/OS 설정/클립보드·Keychain·Trash·합성 화면 입력을 사용하지 않았습니다.
+
+추가 대조에서 검정 테두리를 검정 채움으로 그려 반투명 색이 목록 배경 대신 검정 위에 합성되는 문제를 발견했습니다. completion-colors-alpha-red.log의 1실패로 재현했고 테두리 내부를 투명하게 두는 inside stroke로 바꿨습니다. completion-colors-alpha-verified.log의 UI 1건과 completion-colors-app-alpha-final.log의 실제 Provider 반투명 공급/캐시 교체/닫힘 1건이 각각 exit 0입니다. 잘못된 이름 필터를 사용한 completion-colors-alpha-final.log는 0건 실행이므로 통과 근거에서 제외했습니다. 새 문제/코드 변경이 있는 영향 검사만 실행했고 변경하지 않은 성공을 반복하지 않았습니다.
+
+frozen host는 completion-colors-frozen-host.log exit 0, Wasm은 completion-colors-frozen-wasm.log exit 0/기존 경고 6개입니다. 이 두 검사는 frozen 소스/manifest/lock을 바꾸지 않았으며 마지막 견본 stroke 수정 전 스냅샷입니다. App/Editor/UI의 fmt와 선별 diff·원본 oracle/기능표 정합성은 최종 기록에서 실제 종료를 확인합니다. 디스크 568GiB·사용 70%이며 청소하지 않았습니다. d2/d3 완료, d의 최종 원본 계약 점검·e/f/g/두 partial 행을 유지합니다.

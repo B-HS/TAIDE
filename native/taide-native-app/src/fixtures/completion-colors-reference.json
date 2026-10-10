@@ -1,0 +1,2498 @@
+{
+    "source": "node_modules/monaco-editor/esm/vs/editor/contrib/suggest/browser/suggestWidgetRenderer.js",
+    "sha256": "73fce4f1008b9bb056762e467cc659494d21ecb3aa0b168dea7db1f2ba5a829c",
+    "browser": "154.0.8037.98",
+    "cases": [
+        {
+            "completion": {
+                "label": "#abc",
+                "kind": 19
+            },
+            "extracted": "#abc",
+            "css": "rgb(170, 187, 204)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "#abc",
+                "kind": 19
+            },
+            "extracted": "#abc",
+            "css": "rgb(170, 187, 204)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "#abc color",
+                "kind": 19
+            },
+            "extracted": "#abc",
+            "css": "rgb(170, 187, 204)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color #abc",
+                "kind": 19
+            },
+            "extracted": "#abc",
+            "css": "rgb(170, 187, 204)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color #abc"
+                },
+                "kind": 19
+            },
+            "extracted": "#abc",
+            "css": "rgb(170, 187, 204)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color #abc middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "#ABCDEF",
+                "kind": 19
+            },
+            "extracted": "#ABCDEF",
+            "css": "rgb(171, 205, 239)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "#ABCDEF",
+                "kind": 19
+            },
+            "extracted": "#ABCDEF",
+            "css": "rgb(171, 205, 239)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "#ABCDEF color",
+                "kind": 19
+            },
+            "extracted": "#ABCDEF",
+            "css": "rgb(171, 205, 239)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color #ABCDEF",
+                "kind": 19
+            },
+            "extracted": "#ABCDEF",
+            "css": "rgb(171, 205, 239)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color #ABCDEF"
+                },
+                "kind": 19
+            },
+            "extracted": "#ABCDEF",
+            "css": "rgb(171, 205, 239)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color #ABCDEF middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "#aBcDeF",
+                "kind": 19
+            },
+            "extracted": "#aBcDeF",
+            "css": "rgb(171, 205, 239)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "#aBcDeF",
+                "kind": 19
+            },
+            "extracted": "#aBcDeF",
+            "css": "rgb(171, 205, 239)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "#aBcDeF color",
+                "kind": 19
+            },
+            "extracted": "#aBcDeF",
+            "css": "rgb(171, 205, 239)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color #aBcDeF",
+                "kind": 19
+            },
+            "extracted": "#aBcDeF",
+            "css": "rgb(171, 205, 239)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color #aBcDeF"
+                },
+                "kind": 19
+            },
+            "extracted": "#aBcDeF",
+            "css": "rgb(171, 205, 239)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color #aBcDeF middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "#fff",
+                "kind": 19
+            },
+            "extracted": "#fff",
+            "css": "rgb(255, 255, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "#fff",
+                "kind": 19
+            },
+            "extracted": "#fff",
+            "css": "rgb(255, 255, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "#fff color",
+                "kind": 19
+            },
+            "extracted": "#fff",
+            "css": "rgb(255, 255, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color #fff",
+                "kind": 19
+            },
+            "extracted": "#fff",
+            "css": "rgb(255, 255, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color #fff"
+                },
+                "kind": 19
+            },
+            "extracted": "#fff",
+            "css": "rgb(255, 255, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color #fff middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "#000",
+                "kind": 19
+            },
+            "extracted": "#000",
+            "css": "rgb(0, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "#000",
+                "kind": 19
+            },
+            "extracted": "#000",
+            "css": "rgb(0, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "#000 color",
+                "kind": 19
+            },
+            "extracted": "#000",
+            "css": "rgb(0, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color #000",
+                "kind": 19
+            },
+            "extracted": "#000",
+            "css": "rgb(0, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color #000"
+                },
+                "kind": 19
+            },
+            "extracted": "#000",
+            "css": "rgb(0, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color #000 middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "#123456",
+                "kind": 19
+            },
+            "extracted": "#123456",
+            "css": "rgb(18, 52, 86)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "#123456",
+                "kind": 19
+            },
+            "extracted": "#123456",
+            "css": "rgb(18, 52, 86)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "#123456 color",
+                "kind": 19
+            },
+            "extracted": "#123456",
+            "css": "rgb(18, 52, 86)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color #123456",
+                "kind": 19
+            },
+            "extracted": "#123456",
+            "css": "rgb(18, 52, 86)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color #123456"
+                },
+                "kind": 19
+            },
+            "extracted": "#123456",
+            "css": "rgb(18, 52, 86)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color #123456 middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "rgb(0, 0, 0)",
+                "kind": 19
+            },
+            "extracted": "rgb(0, 0, 0)",
+            "css": "rgb(0, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "rgb(0, 0, 0)",
+                "kind": 19
+            },
+            "extracted": "rgb(0, 0, 0)",
+            "css": "rgb(0, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "rgb(0, 0, 0) color",
+                "kind": 19
+            },
+            "extracted": "rgb(0, 0, 0)",
+            "css": "rgb(0, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgb(0, 0, 0)",
+                "kind": 19
+            },
+            "extracted": "rgb(0, 0, 0)",
+            "css": "rgb(0, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color rgb(0, 0, 0)"
+                },
+                "kind": 19
+            },
+            "extracted": "rgb(0, 0, 0)",
+            "css": "rgb(0, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgb(0, 0, 0) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "rgb(255,128,1)",
+                "kind": 19
+            },
+            "extracted": "rgb(255,128,1)",
+            "css": "rgb(255, 128, 1)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "rgb(255,128,1)",
+                "kind": 19
+            },
+            "extracted": "rgb(255,128,1)",
+            "css": "rgb(255, 128, 1)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "rgb(255,128,1) color",
+                "kind": 19
+            },
+            "extracted": "rgb(255,128,1)",
+            "css": "rgb(255, 128, 1)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgb(255,128,1)",
+                "kind": 19
+            },
+            "extracted": "rgb(255,128,1)",
+            "css": "rgb(255, 128, 1)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color rgb(255,128,1)"
+                },
+                "kind": 19
+            },
+            "extracted": "rgb(255,128,1)",
+            "css": "rgb(255, 128, 1)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgb(255,128,1) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "rgb(100%, 50%, 0%)",
+                "kind": 19
+            },
+            "extracted": "rgb(100%, 50%, 0%)",
+            "css": "rgb(255, 128, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "rgb(100%, 50%, 0%)",
+                "kind": 19
+            },
+            "extracted": "rgb(100%, 50%, 0%)",
+            "css": "rgb(255, 128, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "rgb(100%, 50%, 0%) color",
+                "kind": 19
+            },
+            "extracted": "rgb(100%, 50%, 0%)",
+            "css": "rgb(255, 128, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgb(100%, 50%, 0%)",
+                "kind": 19
+            },
+            "extracted": "rgb(100%, 50%, 0%)",
+            "css": "rgb(255, 128, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color rgb(100%, 50%, 0%)"
+                },
+                "kind": 19
+            },
+            "extracted": "rgb(100%, 50%, 0%)",
+            "css": "rgb(255, 128, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgb(100%, 50%, 0%) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "rgb(999, 256, 257)",
+                "kind": 19
+            },
+            "extracted": "rgb(999, 256, 257)",
+            "css": "rgb(255, 255, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "rgb(999, 256, 257)",
+                "kind": 19
+            },
+            "extracted": "rgb(999, 256, 257)",
+            "css": "rgb(255, 255, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "rgb(999, 256, 257) color",
+                "kind": 19
+            },
+            "extracted": "rgb(999, 256, 257)",
+            "css": "rgb(255, 255, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgb(999, 256, 257)",
+                "kind": 19
+            },
+            "extracted": "rgb(999, 256, 257)",
+            "css": "rgb(255, 255, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color rgb(999, 256, 257)"
+                },
+                "kind": 19
+            },
+            "extracted": "rgb(999, 256, 257)",
+            "css": "rgb(255, 255, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgb(999, 256, 257) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "RGB(1, 2, 3)",
+                "kind": 19
+            },
+            "extracted": "RGB(1, 2, 3)",
+            "css": "rgb(1, 2, 3)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "RGB(1, 2, 3)",
+                "kind": 19
+            },
+            "extracted": "RGB(1, 2, 3)",
+            "css": "rgb(1, 2, 3)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "RGB(1, 2, 3) color",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color RGB(1, 2, 3)",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color RGB(1, 2, 3)"
+                },
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color RGB(1, 2, 3) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "rgba(255, 0, 0, .5)",
+                "kind": 19
+            },
+            "extracted": "rgba(255, 0, 0, .5)",
+            "css": "rgba(255, 0, 0, 0.5)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "rgba(255, 0, 0, .5)",
+                "kind": 19
+            },
+            "extracted": "rgba(255, 0, 0, .5)",
+            "css": "rgba(255, 0, 0, 0.5)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "rgba(255, 0, 0, .5) color",
+                "kind": 19
+            },
+            "extracted": "rgba(255, 0, 0, .5)",
+            "css": "rgba(255, 0, 0, 0.5)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgba(255, 0, 0, .5)",
+                "kind": 19
+            },
+            "extracted": "rgba(255, 0, 0, .5)",
+            "css": "rgba(255, 0, 0, 0.5)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color rgba(255, 0, 0, .5)"
+                },
+                "kind": 19
+            },
+            "extracted": "rgba(255, 0, 0, .5)",
+            "css": "rgba(255, 0, 0, 0.5)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgba(255, 0, 0, .5) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "rgba(255,0,0,0.0)",
+                "kind": 19
+            },
+            "extracted": "rgba(255,0,0,0.0)",
+            "css": "rgba(255, 0, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "rgba(255,0,0,0.0)",
+                "kind": 19
+            },
+            "extracted": "rgba(255,0,0,0.0)",
+            "css": "rgba(255, 0, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "rgba(255,0,0,0.0) color",
+                "kind": 19
+            },
+            "extracted": "rgba(255,0,0,0.0)",
+            "css": "rgba(255, 0, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgba(255,0,0,0.0)",
+                "kind": 19
+            },
+            "extracted": "rgba(255,0,0,0.0)",
+            "css": "rgba(255, 0, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color rgba(255,0,0,0.0)"
+                },
+                "kind": 19
+            },
+            "extracted": "rgba(255,0,0,0.0)",
+            "css": "rgba(255, 0, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgba(255,0,0,0.0) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "rgba(0,0,255,1)",
+                "kind": 19
+            },
+            "extracted": "rgba(0,0,255,1)",
+            "css": "rgb(0, 0, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "rgba(0,0,255,1)",
+                "kind": 19
+            },
+            "extracted": "rgba(0,0,255,1)",
+            "css": "rgb(0, 0, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "rgba(0,0,255,1) color",
+                "kind": 19
+            },
+            "extracted": "rgba(0,0,255,1)",
+            "css": "rgb(0, 0, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgba(0,0,255,1)",
+                "kind": 19
+            },
+            "extracted": "rgba(0,0,255,1)",
+            "css": "rgb(0, 0, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color rgba(0,0,255,1)"
+                },
+                "kind": 19
+            },
+            "extracted": "rgba(0,0,255,1)",
+            "css": "rgb(0, 0, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgba(0,0,255,1) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "rgba(20%,40%,60%,0.3)",
+                "kind": 19
+            },
+            "extracted": "rgba(20%,40%,60%,0.3)",
+            "css": "rgba(51, 102, 153, 0.3)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "rgba(20%,40%,60%,0.3)",
+                "kind": 19
+            },
+            "extracted": "rgba(20%,40%,60%,0.3)",
+            "css": "rgba(51, 102, 153, 0.3)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "rgba(20%,40%,60%,0.3) color",
+                "kind": 19
+            },
+            "extracted": "rgba(20%,40%,60%,0.3)",
+            "css": "rgba(51, 102, 153, 0.3)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgba(20%,40%,60%,0.3)",
+                "kind": 19
+            },
+            "extracted": "rgba(20%,40%,60%,0.3)",
+            "css": "rgba(51, 102, 153, 0.3)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color rgba(20%,40%,60%,0.3)"
+                },
+                "kind": 19
+            },
+            "extracted": "rgba(20%,40%,60%,0.3)",
+            "css": "rgba(51, 102, 153, 0.3)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgba(20%,40%,60%,0.3) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "rgba(255,0,128,0.01)",
+                "kind": 19
+            },
+            "extracted": "rgba(255,0,128,0.01)",
+            "css": "rgba(255, 0, 128, 0.01)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "rgba(255,0,128,0.01)",
+                "kind": 19
+            },
+            "extracted": "rgba(255,0,128,0.01)",
+            "css": "rgba(255, 0, 128, 0.01)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "rgba(255,0,128,0.01) color",
+                "kind": 19
+            },
+            "extracted": "rgba(255,0,128,0.01)",
+            "css": "rgba(255, 0, 128, 0.01)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgba(255,0,128,0.01)",
+                "kind": 19
+            },
+            "extracted": "rgba(255,0,128,0.01)",
+            "css": "rgba(255, 0, 128, 0.01)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color rgba(255,0,128,0.01)"
+                },
+                "kind": 19
+            },
+            "extracted": "rgba(255,0,128,0.01)",
+            "css": "rgba(255, 0, 128, 0.01)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgba(255,0,128,0.01) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "rgba(255,0,128,0.99)",
+                "kind": 19
+            },
+            "extracted": "rgba(255,0,128,0.99)",
+            "css": "rgba(255, 0, 128, 0.99)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "rgba(255,0,128,0.99)",
+                "kind": 19
+            },
+            "extracted": "rgba(255,0,128,0.99)",
+            "css": "rgba(255, 0, 128, 0.99)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "rgba(255,0,128,0.99) color",
+                "kind": 19
+            },
+            "extracted": "rgba(255,0,128,0.99)",
+            "css": "rgba(255, 0, 128, 0.99)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgba(255,0,128,0.99)",
+                "kind": 19
+            },
+            "extracted": "rgba(255,0,128,0.99)",
+            "css": "rgba(255, 0, 128, 0.99)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color rgba(255,0,128,0.99)"
+                },
+                "kind": 19
+            },
+            "extracted": "rgba(255,0,128,0.99)",
+            "css": "rgba(255, 0, 128, 0.99)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgba(255,0,128,0.99) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "hsl(0, 100%, 50%)",
+                "kind": 19
+            },
+            "extracted": "hsl(0, 100%, 50%)",
+            "css": "rgb(255, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "hsl(0, 100%, 50%)",
+                "kind": 19
+            },
+            "extracted": "hsl(0, 100%, 50%)",
+            "css": "rgb(255, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "hsl(0, 100%, 50%) color",
+                "kind": 19
+            },
+            "extracted": "hsl(0, 100%, 50%)",
+            "css": "rgb(255, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(0, 100%, 50%)",
+                "kind": 19
+            },
+            "extracted": "hsl(0, 100%, 50%)",
+            "css": "rgb(255, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color hsl(0, 100%, 50%)"
+                },
+                "kind": 19
+            },
+            "extracted": "hsl(0, 100%, 50%)",
+            "css": "rgb(255, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(0, 100%, 50%) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "hsl(120,100%,50%)",
+                "kind": 19
+            },
+            "extracted": "hsl(120,100%,50%)",
+            "css": "rgb(0, 255, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "hsl(120,100%,50%)",
+                "kind": 19
+            },
+            "extracted": "hsl(120,100%,50%)",
+            "css": "rgb(0, 255, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "hsl(120,100%,50%) color",
+                "kind": 19
+            },
+            "extracted": "hsl(120,100%,50%)",
+            "css": "rgb(0, 255, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(120,100%,50%)",
+                "kind": 19
+            },
+            "extracted": "hsl(120,100%,50%)",
+            "css": "rgb(0, 255, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color hsl(120,100%,50%)"
+                },
+                "kind": 19
+            },
+            "extracted": "hsl(120,100%,50%)",
+            "css": "rgb(0, 255, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(120,100%,50%) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "hsl(240,100%,50%)",
+                "kind": 19
+            },
+            "extracted": "hsl(240,100%,50%)",
+            "css": "rgb(0, 0, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "hsl(240,100%,50%)",
+                "kind": 19
+            },
+            "extracted": "hsl(240,100%,50%)",
+            "css": "rgb(0, 0, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "hsl(240,100%,50%) color",
+                "kind": 19
+            },
+            "extracted": "hsl(240,100%,50%)",
+            "css": "rgb(0, 0, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(240,100%,50%)",
+                "kind": 19
+            },
+            "extracted": "hsl(240,100%,50%)",
+            "css": "rgb(0, 0, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color hsl(240,100%,50%)"
+                },
+                "kind": 19
+            },
+            "extracted": "hsl(240,100%,50%)",
+            "css": "rgb(0, 0, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(240,100%,50%) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "hsl(360,100%,50%)",
+                "kind": 19
+            },
+            "extracted": "hsl(360,100%,50%)",
+            "css": "rgb(255, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "hsl(360,100%,50%)",
+                "kind": 19
+            },
+            "extracted": "hsl(360,100%,50%)",
+            "css": "rgb(255, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "hsl(360,100%,50%) color",
+                "kind": 19
+            },
+            "extracted": "hsl(360,100%,50%)",
+            "css": "rgb(255, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(360,100%,50%)",
+                "kind": 19
+            },
+            "extracted": "hsl(360,100%,50%)",
+            "css": "rgb(255, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color hsl(360,100%,50%)"
+                },
+                "kind": 19
+            },
+            "extracted": "hsl(360,100%,50%)",
+            "css": "rgb(255, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(360,100%,50%) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "hsl(999,100%,50%)",
+                "kind": 19
+            },
+            "extracted": "hsl(999,100%,50%)",
+            "css": "rgb(166, 0, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "hsl(999,100%,50%)",
+                "kind": 19
+            },
+            "extracted": "hsl(999,100%,50%)",
+            "css": "rgb(166, 0, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "hsl(999,100%,50%) color",
+                "kind": 19
+            },
+            "extracted": "hsl(999,100%,50%)",
+            "css": "rgb(166, 0, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(999,100%,50%)",
+                "kind": 19
+            },
+            "extracted": "hsl(999,100%,50%)",
+            "css": "rgb(166, 0, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color hsl(999,100%,50%)"
+                },
+                "kind": 19
+            },
+            "extracted": "hsl(999,100%,50%)",
+            "css": "rgb(166, 0, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(999,100%,50%) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "hsl(30, 50%, 25%)",
+                "kind": 19
+            },
+            "extracted": "hsl(30, 50%, 25%)",
+            "css": "rgb(96, 64, 32)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "hsl(30, 50%, 25%)",
+                "kind": 19
+            },
+            "extracted": "hsl(30, 50%, 25%)",
+            "css": "rgb(96, 64, 32)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "hsl(30, 50%, 25%) color",
+                "kind": 19
+            },
+            "extracted": "hsl(30, 50%, 25%)",
+            "css": "rgb(96, 64, 32)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(30, 50%, 25%)",
+                "kind": 19
+            },
+            "extracted": "hsl(30, 50%, 25%)",
+            "css": "rgb(96, 64, 32)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color hsl(30, 50%, 25%)"
+                },
+                "kind": 19
+            },
+            "extracted": "hsl(30, 50%, 25%)",
+            "css": "rgb(96, 64, 32)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(30, 50%, 25%) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "hsla(270,100%,50%,0.25)",
+                "kind": 19
+            },
+            "extracted": "hsla(270,100%,50%,0.25)",
+            "css": "rgba(128, 0, 255, 0.25)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "hsla(270,100%,50%,0.25)",
+                "kind": 19
+            },
+            "extracted": "hsla(270,100%,50%,0.25)",
+            "css": "rgba(128, 0, 255, 0.25)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "hsla(270,100%,50%,0.25) color",
+                "kind": 19
+            },
+            "extracted": "hsla(270,100%,50%,0.25)",
+            "css": "rgba(128, 0, 255, 0.25)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsla(270,100%,50%,0.25)",
+                "kind": 19
+            },
+            "extracted": "hsla(270,100%,50%,0.25)",
+            "css": "rgba(128, 0, 255, 0.25)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color hsla(270,100%,50%,0.25)"
+                },
+                "kind": 19
+            },
+            "extracted": "hsla(270,100%,50%,0.25)",
+            "css": "rgba(128, 0, 255, 0.25)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsla(270,100%,50%,0.25) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "HSLA(0,100%,50%,.5)",
+                "kind": 19
+            },
+            "extracted": "HSLA(0,100%,50%,.5)",
+            "css": "rgba(255, 0, 0, 0.5)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "HSLA(0,100%,50%,.5)",
+                "kind": 19
+            },
+            "extracted": "HSLA(0,100%,50%,.5)",
+            "css": "rgba(255, 0, 0, 0.5)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "HSLA(0,100%,50%,.5) color",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color HSLA(0,100%,50%,.5)",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color HSLA(0,100%,50%,.5)"
+                },
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color HSLA(0,100%,50%,.5) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "hsl(1,0%,0%)",
+                "kind": 19
+            },
+            "extracted": "hsl(1,0%,0%)",
+            "css": "rgb(0, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "hsl(1,0%,0%)",
+                "kind": 19
+            },
+            "extracted": "hsl(1,0%,0%)",
+            "css": "rgb(0, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "hsl(1,0%,0%) color",
+                "kind": 19
+            },
+            "extracted": "hsl(1,0%,0%)",
+            "css": "rgb(0, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(1,0%,0%)",
+                "kind": 19
+            },
+            "extracted": "hsl(1,0%,0%)",
+            "css": "rgb(0, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color hsl(1,0%,0%)"
+                },
+                "kind": 19
+            },
+            "extracted": "hsl(1,0%,0%)",
+            "css": "rgb(0, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(1,0%,0%) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "hsl(30,999%,999%)",
+                "kind": 19
+            },
+            "extracted": "hsl(30,999%,999%)",
+            "css": "rgb(255, 255, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "hsl(30,999%,999%)",
+                "kind": 19
+            },
+            "extracted": "hsl(30,999%,999%)",
+            "css": "rgb(255, 255, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "hsl(30,999%,999%) color",
+                "kind": 19
+            },
+            "extracted": "hsl(30,999%,999%)",
+            "css": "rgb(255, 255, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(30,999%,999%)",
+                "kind": 19
+            },
+            "extracted": "hsl(30,999%,999%)",
+            "css": "rgb(255, 255, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color hsl(30,999%,999%)"
+                },
+                "kind": 19
+            },
+            "extracted": "hsl(30,999%,999%)",
+            "css": "rgb(255, 255, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(30,999%,999%) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "hsl(15,999%,50%)",
+                "kind": 19
+            },
+            "extracted": "hsl(15,999%,50%)",
+            "css": "rgb(255, 64, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "hsl(15,999%,50%)",
+                "kind": 19
+            },
+            "extracted": "hsl(15,999%,50%)",
+            "css": "rgb(255, 64, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "hsl(15,999%,50%) color",
+                "kind": 19
+            },
+            "extracted": "hsl(15,999%,50%)",
+            "css": "rgb(255, 64, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(15,999%,50%)",
+                "kind": 19
+            },
+            "extracted": "hsl(15,999%,50%)",
+            "css": "rgb(255, 64, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color hsl(15,999%,50%)"
+                },
+                "kind": 19
+            },
+            "extracted": "hsl(15,999%,50%)",
+            "css": "rgb(255, 64, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(15,999%,50%) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "hsl(15,999%,25%)",
+                "kind": 19
+            },
+            "extracted": "hsl(15,999%,25%)",
+            "css": "rgb(128, 32, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "hsl(15,999%,25%)",
+                "kind": 19
+            },
+            "extracted": "hsl(15,999%,25%)",
+            "css": "rgb(128, 32, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "hsl(15,999%,25%) color",
+                "kind": 19
+            },
+            "extracted": "hsl(15,999%,25%)",
+            "css": "rgb(128, 32, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(15,999%,25%)",
+                "kind": 19
+            },
+            "extracted": "hsl(15,999%,25%)",
+            "css": "rgb(128, 32, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color hsl(15,999%,25%)"
+                },
+                "kind": 19
+            },
+            "extracted": "hsl(15,999%,25%)",
+            "css": "rgb(128, 32, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(15,999%,25%) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "hsl(15,50%,999%)",
+                "kind": 19
+            },
+            "extracted": "hsl(15,50%,999%)",
+            "css": "rgb(255, 255, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "hsl(15,50%,999%)",
+                "kind": 19
+            },
+            "extracted": "hsl(15,50%,999%)",
+            "css": "rgb(255, 255, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "hsl(15,50%,999%) color",
+                "kind": 19
+            },
+            "extracted": "hsl(15,50%,999%)",
+            "css": "rgb(255, 255, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(15,50%,999%)",
+                "kind": 19
+            },
+            "extracted": "hsl(15,50%,999%)",
+            "css": "rgb(255, 255, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color hsl(15,50%,999%)"
+                },
+                "kind": 19
+            },
+            "extracted": "hsl(15,50%,999%)",
+            "css": "rgb(255, 255, 255)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(15,50%,999%) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "hsl(0%,100%,50%)",
+                "kind": 19
+            },
+            "extracted": "hsl(0%,100%,50%)",
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "hsl(0%,100%,50%)",
+                "kind": 19
+            },
+            "extracted": "hsl(0%,100%,50%)",
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "hsl(0%,100%,50%) color",
+                "kind": 19
+            },
+            "extracted": "hsl(0%,100%,50%)",
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(0%,100%,50%)",
+                "kind": 19
+            },
+            "extracted": "hsl(0%,100%,50%)",
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color hsl(0%,100%,50%)"
+                },
+                "kind": 19
+            },
+            "extracted": "hsl(0%,100%,50%)",
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(0%,100%,50%) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "hsl(0,100,50)",
+                "kind": 19
+            },
+            "extracted": "hsl(0,100,50)",
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "hsl(0,100,50)",
+                "kind": 19
+            },
+            "extracted": "hsl(0,100,50)",
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "hsl(0,100,50) color",
+                "kind": 19
+            },
+            "extracted": "hsl(0,100,50)",
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(0,100,50)",
+                "kind": 19
+            },
+            "extracted": "hsl(0,100,50)",
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color hsl(0,100,50)"
+                },
+                "kind": 19
+            },
+            "extracted": "hsl(0,100,50)",
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color hsl(0,100,50) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "rgb(1,2%,3)",
+                "kind": 19
+            },
+            "extracted": "rgb(1,2%,3)",
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "rgb(1,2%,3)",
+                "kind": 19
+            },
+            "extracted": "rgb(1,2%,3)",
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "rgb(1,2%,3) color",
+                "kind": 19
+            },
+            "extracted": "rgb(1,2%,3)",
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgb(1,2%,3)",
+                "kind": 19
+            },
+            "extracted": "rgb(1,2%,3)",
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color rgb(1,2%,3)"
+                },
+                "kind": 19
+            },
+            "extracted": "rgb(1,2%,3)",
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgb(1,2%,3) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "#abcd",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "#abcd",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "#abcd color",
+                "kind": 19
+            },
+            "extracted": "#abc",
+            "css": "rgb(170, 187, 204)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color #abcd",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color #abcd"
+                },
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color #abcd middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "#abcdefgh",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "#abcdefgh",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "#abcdefgh color",
+                "kind": 19
+            },
+            "extracted": "#abcdef",
+            "css": "rgb(171, 205, 239)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color #abcdefgh",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color #abcdefgh"
+                },
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color #abcdefgh middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "#11223344",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "#11223344",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "#11223344 color",
+                "kind": 19
+            },
+            "extracted": "#112233",
+            "css": "rgb(17, 34, 51)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color #11223344",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color #11223344"
+                },
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color #11223344 middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "red",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "red",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "red color",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color red",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color red"
+                },
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color red middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "rgb(1 2 3)",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "rgb(1 2 3)",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "rgb(1 2 3) color",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgb(1 2 3)",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color rgb(1 2 3)"
+                },
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgb(1 2 3) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "rgba(1,2,3,0)",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "rgba(1,2,3,0)",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "rgba(1,2,3,0) color",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgba(1,2,3,0)",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color rgba(1,2,3,0)"
+                },
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgba(1,2,3,0) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "rgb(-1,0,0)",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "rgb(-1,0,0)",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "rgb(-1,0,0) color",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgb(-1,0,0)",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color rgb(-1,0,0)"
+                },
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgb(-1,0,0) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "rgb(1.5,2,3)",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "rgb(1.5,2,3)",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "rgb(1.5,2,3) color",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgb(1.5,2,3)",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color rgb(1.5,2,3)"
+                },
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color rgb(1.5,2,3) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "#abc\n",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "#abc\n",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "#abc\n color",
+                "kind": 19
+            },
+            "extracted": "#abc",
+            "css": "rgb(170, 187, 204)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color #abc\n",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color #abc\n"
+                },
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color #abc\n middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "#abc ",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "#abc ",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "#abc  color",
+                "kind": 19
+            },
+            "extracted": "#abc",
+            "css": "rgb(170, 187, 204)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color #abc ",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color #abc "
+                },
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color #abc  middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": " rgb(1,2,3)",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": " rgb(1,2,3)",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": " rgb(1,2,3) color",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color  rgb(1,2,3)",
+                "kind": 19
+            },
+            "extracted": "rgb(1,2,3)",
+            "css": "rgb(1, 2, 3)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": {
+                    "value": "color  rgb(1,2,3)"
+                },
+                "kind": 19
+            },
+            "extracted": "rgb(1,2,3)",
+            "css": "rgb(1, 2, 3)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "color  rgb(1,2,3) middle",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "#f00",
+                "detail": "#0f0",
+                "documentation": "#00f",
+                "kind": 19
+            },
+            "extracted": "#f00",
+            "css": "rgb(255, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "detail": "#0f0",
+                "documentation": "#00f",
+                "kind": 19
+            },
+            "extracted": "#0f0",
+            "css": "rgb(0, 255, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "middle #f00 then #0f0",
+                "kind": 19
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "#f00 then #0f0",
+                "kind": 19
+            },
+            "extracted": "#f00",
+            "css": "rgb(255, 0, 0)"
+        },
+        {
+            "completion": {
+                "label": "shade",
+                "documentation": "이름 #0f0",
+                "kind": 19
+            },
+            "extracted": "#0f0",
+            "css": "rgb(0, 255, 0)"
+        },
+        {
+            "completion": {
+                "label": "#fff",
+                "kind": 0
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "#fff",
+                "kind": 20
+            },
+            "extracted": null,
+            "css": null
+        },
+        {
+            "completion": {
+                "label": "#fff",
+                "kind": 23
+            },
+            "extracted": null,
+            "css": null
+        }
+    ]
+}

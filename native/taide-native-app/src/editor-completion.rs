@@ -18,6 +18,8 @@ use crate::editor_symbols::ProviderIdentity;
 
 #[path = "editor-completion-cache.rs"]
 mod cache;
+#[path = "editor-completion-colors.rs"]
+mod colors;
 #[path = "editor-completion-insertion.rs"]
 mod insertion;
 #[path = "editor-completion-provider.rs"]
@@ -131,6 +133,7 @@ struct Entry {
     delta: isize,
     queued: bool,
     documents: HashMap<usize, std::sync::Arc<taide_native_editor::documentation::RichDocument>>,
+    colors: HashMap<usize, Option<eframe::egui::Color32>>,
     choice: Option<taide_native_editor::snippet_syntax::Index>,
     preview: Option<provider::Preview>,
 }
@@ -242,6 +245,7 @@ impl State {
                 delta: 0,
                 queued: false,
                 documents: HashMap::new(),
+                colors: HashMap::new(),
                 choice: None,
                 preview: None,
             },
@@ -278,6 +282,7 @@ impl State {
             .retain(|_, group| !request.query_providers.contains(&group.provider));
         entry.model = None;
         entry.documents.clear();
+        entry.colors.clear();
         let byte = taide_native_editor::lsp::position_to_byte(&request.snapshot, request.position)
             .map_err(|_| Failure::Cancelled)?;
         for group in entry.groups.values_mut() {
