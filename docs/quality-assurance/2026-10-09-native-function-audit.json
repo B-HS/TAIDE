@@ -1,6 +1,6 @@
 {
     "date": "2026-10-11",
-    "baseline": "19230aca",
+    "baseline": "34bcf4a5",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -829,17 +829,25 @@
                 "native/taide-native-app/src/application.rs",
                 "native/taide-native-app/src/lsp.rs",
                 "native/taide-native-ui/src/command-registry.rs",
-                "native/taide-native-ui/src/editor-formatting-keymap-defaults.json"
+                "native/taide-native-ui/src/editor-formatting-keymap-defaults.json",
+                "native/taide-native-editor/src/view.rs",
+                "native/taide-native-editor/src/store.rs",
+                "native/taide-native-editor/src/lsp.rs",
+                "native/taide-native-ui/src/editor_surface.rs",
+                "native/taide-native-ui/src/editor-scroll.rs"
             ],
             "tests": [
                 "native/taide-native-editor/tests/formatting.rs",
                 "native/taide-native-app/src/editor-formatting-tests.rs",
                 "native/taide-native-app/src/lsp-editor-formatting-tests.rs",
                 "native/taide-native-app/src/application-startup-tests.rs",
-                "native/taide-native-ui/tests/keymap-platform.rs"
+                "native/taide-native-ui/tests/keymap-platform.rs",
+                "native/taide-native-ui/tests/editor_surface.rs",
+                "native/taide-native-editor/tests/fixtures/formatting-markers-reference.txt",
+                "docs/utils/2026-10-11-monaco-formatting-markers-oracle.js"
             ],
             "reports": ["docs/quality-assurance/2026-10-10-native-batch23-editor.md"],
-            "limitation": "내장 언어 서비스의 포맷 fallback(editor-57), raw 전체 교체 마커/줄 변화의 상대 scroll 대조(c2s), 입력/붙여넣기(editor-32)와 전체 실기/성능/출시는 별도 미완료입니다."
+            "limitation": "내장 언어 서비스의 포맷 fallback(editor-57), 입력/붙여넣기(editor-32)와 전체 실기/성능/출시는 미완료입니다. raw 전체 교체의 UTF-16 선택/undo와 native 일반/wrap/접기의 상대 커서 세로 위치는 검증했습니다. 원본 계측 조사는 브라우저 픽셀 검사와 구분합니다. App 전체의 프로젝트 open 5초 초과·Cargo exact 실패와 직접 실행 두 성공/OS FSEvents 등록 RPC 대기를 보존하며 근본 원인 해결로 보고하지 않습니다. 배치 31 신뢰성 게이트에 남깁니다."
         }
     },
     "rows": [
@@ -2469,7 +2477,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-formatting",
-            "note": "저장·외부 LSP의 수동 문서/선택 포맷과 범위 공급자 대체·기본 키/팔레트·본문/peek·현재 옵션/취소·최소 편집/undo를 연결하고 실제 앱/child에서 확인했습니다. 내장 언어 서비스의 포맷 fallback(editor-57)과 raw 전체 교체 마커/상대 scroll 대조는 남아 partial을 유지합니다."
+            "note": "저장·외부 문서/선택 포맷과 범위 공급자 대체·키/팔레트·본문/peek·현재 옵션/취소·최소 편집을 연결했습니다. 실제 앱/child와 raw 전체 교체의 UTF-16 다중 선택/mirror/undo, native 일반/wrap/접기의 상대 커서 세로 위치를 검증했습니다. 내장 언어 서비스의 포맷 fallback(editor-57)이 남아 partial이며 전체 실기/성능/출시는 별도입니다."
         },
         {
             "id": "editor-50",

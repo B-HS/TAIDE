@@ -138,6 +138,37 @@ impl SelectionSet {
                 .collect(),
         }
     }
+
+    pub(crate) fn mapped_full_replace(&self, before: &Rope, after: &Rope) -> Self {
+        let offset = |byte| {
+            let units = before.char_to_utf16_cu(before.byte_to_char(byte));
+            let units = if units == before.len_utf16_cu() {
+                after.len_utf16_cu()
+            } else {
+                units.min(after.len_utf16_cu())
+            };
+            let mut character = after.utf16_cu_to_char(units);
+            if character > 0
+                && character < after.len_chars()
+                && after.char(character) == '\n'
+                && after.char(character - 1) == '\r'
+            {
+                character -= 1;
+            }
+            after.char_to_byte(character)
+        };
+        Self {
+            primary: self.primary,
+            selections: self
+                .selections
+                .iter()
+                .map(|selection| Selection {
+                    anchor: offset(selection.anchor),
+                    head: offset(selection.head),
+                })
+                .collect(),
+        }
+    }
 }
 
 fn map_offset(offset: usize, edits: &[Edit]) -> usize {
@@ -160,6 +191,17 @@ fn map_offset(offset: usize, edits: &[Edit]) -> usize {
 pub struct ScrollPosition {
     pub x: f32,
     pub y: f32,
+}
+
+#[derive(Debug, Clone)]
+pub struct FormattingScroll {
+    pub document: DocumentId,
+    pub key: ViewKey,
+    pub revision: u64,
+    pub head: usize,
+    pub previous_revision: u64,
+    pub previous_head: usize,
+    pub previous_scroll: ScrollPosition,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -222,6 +264,7 @@ pub struct ViewState {
     pub display: Option<Arc<DisplayMap>>,
     pub(crate) cursor_memory: crate::cursor_commands::CursorMemory,
     pub(crate) selection_reveal: Option<SelectionReveal>,
+    pub(crate) formatting_scroll: Option<FormattingScroll>,
 }
 
 impl ViewState {

@@ -61,6 +61,16 @@ pub fn apply_text_edits(
     view: Option<ViewId>,
     edits: Vec<TextEdit>,
 ) -> Result<bool, EditorError> {
+    apply_text_edits_with(store, requested, view, edits, false)
+}
+
+pub(crate) fn apply_text_edits_with(
+    store: &mut EditorStore,
+    requested: &DocumentSnapshot,
+    view: Option<ViewId>,
+    edits: Vec<TextEdit>,
+    formatting: bool,
+) -> Result<bool, EditorError> {
     let current = store.documents().snapshot(requested.id)?;
     if current.key != requested.key {
         return Err(EditorError::InvalidIdentity);
@@ -84,16 +94,18 @@ pub fn apply_text_edits(
         return Ok(false);
     }
     store.break_undo_group(current.id)?;
-    let revision = store.apply(
-        current.id,
-        Transaction {
-            revision: current.revision,
-            edits,
-            group: UndoGroup(current.revision),
-            origin: view,
-            selection_after: None,
-        },
-    )?;
+    let transaction = Transaction {
+        revision: current.revision,
+        edits,
+        group: UndoGroup(current.revision),
+        origin: view,
+        selection_after: None,
+    };
+    let revision = if formatting {
+        store.apply_formatting(current.id, transaction)?
+    } else {
+        store.apply(current.id, transaction)?
+    };
     store.break_undo_group(current.id)?;
     Ok(revision != current.revision)
 }

@@ -1250,6 +1250,7 @@ impl EditorStore {
                 display: None,
                 cursor_memory: Default::default(),
                 selection_reveal: None,
+                formatting_scroll: None,
             },
         );
         self.views.by_key.insert(key, id);
@@ -1395,6 +1396,56 @@ impl EditorStore {
             .take())
     }
 
+    pub(crate) fn request_formatting_scroll(
+        &mut self,
+        previous: &DocumentSnapshot,
+        source: ViewState,
+    ) -> Result<(), EditorError> {
+        let current = self
+            .views
+            .views
+            .get_mut(&source.id)
+            .ok_or(EditorError::NotFound)?;
+        let document = self
+            .documents
+            .documents
+            .get(&current.document)
+            .ok_or(EditorError::NotFound)?;
+        current.formatting_scroll = Some(crate::view::FormattingScroll {
+            document: current.document,
+            key: current.key.clone(),
+            revision: document.revision,
+            head: current.selection.selections[current.selection.primary].head,
+            previous_revision: previous.revision,
+            previous_head: source.selection.selections[source.selection.primary].head,
+            previous_scroll: source.scroll,
+        });
+        Ok(())
+    }
+
+    pub fn take_formatting_scroll(
+        &mut self,
+        view: ViewId,
+    ) -> Result<Option<crate::view::FormattingScroll>, EditorError> {
+        let current = self
+            .views
+            .views
+            .get_mut(&view)
+            .ok_or(EditorError::NotFound)?;
+        let document = self
+            .documents
+            .documents
+            .get(&current.document)
+            .ok_or(EditorError::NotFound)?;
+        Ok(current.formatting_scroll.take().filter(|request| {
+            request.document == current.document
+                && request.key == current.key
+                && request.revision == document.revision
+                && request.head == current.selection.selections[current.selection.primary].head
+                && request.previous_scroll == current.scroll
+        }))
+    }
+
     pub fn set_edit_run(&mut self, view: ViewId, run: Option<EditRun>) -> Result<(), EditorError> {
         self.views
             .views
@@ -1502,7 +1553,7 @@ impl EditorStore {
         document: DocumentId,
         transaction: Transaction,
     ) -> Result<u64, EditorError> {
-        self.apply_transaction(document, transaction, true)
+        self.apply_transaction(document, transaction, true, false)
     }
 
     pub fn apply_separate(
@@ -1510,7 +1561,15 @@ impl EditorStore {
         document: DocumentId,
         transaction: Transaction,
     ) -> Result<u64, EditorError> {
-        self.apply_transaction(document, transaction, false)
+        self.apply_transaction(document, transaction, false, false)
+    }
+
+    pub(crate) fn apply_formatting(
+        &mut self,
+        document: DocumentId,
+        transaction: Transaction,
+    ) -> Result<u64, EditorError> {
+        self.apply_transaction(document, transaction, true, true)
     }
 
     fn apply_transaction(
@@ -1518,6 +1577,7 @@ impl EditorStore {
         document: DocumentId,
         transaction: Transaction,
         allow_merge: bool,
+        preserve_full_replace: bool,
     ) -> Result<u64, EditorError> {
         let owner = self
             .documents
@@ -1563,7 +1623,17 @@ impl EditorStore {
             .collect();
         let mut after_selections: HashMap<_, _> = before_selections
             .iter()
-            .map(|(view, selection)| (*view, selection.mapped(&edits).normalized()))
+            .map(|(view, selection)| {
+                let selection = if preserve_full_replace
+                    && edits.len() == 1
+                    && edits[0].bytes == (0..owner.rope.len_bytes())
+                {
+                    selection.mapped_full_replace(&owner.rope, &after)
+                } else {
+                    selection.mapped(&edits)
+                };
+                (*view, selection.normalized())
+            })
             .collect();
         if let (Some(origin), Some(selection)) = (transaction.origin, transaction.selection_after) {
             after_selections.insert(origin, selection.normalized());

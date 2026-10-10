@@ -115,6 +115,149 @@ const INDENTED_WORDS: usize = 40;
 const FULL_WIDTH_COLUMNS: f64 = 2.0;
 const STABLE_LINE: usize = 12;
 const STABLE_DELTA: f32 = 7.0;
+const FORMATTING_CURSOR_LINE: usize = 14;
+const FORMATTING_CURSOR_TOP: f32 = 60.0;
+const FORMATTING_FOLD_LINES: std::ops::Range<usize> = 4..8;
+
+#[cfg(feature = "native-host")]
+#[test]
+fn 포맷의_줄_추가는_일반_wrap_접기와_최상단의_커서_세로_위치를_보존한다() {
+    for (word_wrap, folding) in [(false, false), (true, false), (true, true)] {
+        for should_scroll in [false, true] {
+            let text = wrapped_lines();
+            let (mut store, view) = fixture(&text, false);
+            let document = store.views().get(view).unwrap().document;
+            let before = store.documents().snapshot(document).unwrap();
+            let head = before.rope.line_to_byte(FORMATTING_CURSOR_LINE);
+            let folds = if folding {
+                vec![
+                    before.rope.line_to_byte(FORMATTING_FOLD_LINES.start)
+                        ..before.rope.line_to_byte(FORMATTING_FOLD_LINES.end),
+                ]
+            } else {
+                Vec::new()
+            };
+            store
+                .set_view_state(
+                    view,
+                    SelectionSet {
+                        primary: 0,
+                        selections: vec![Selection { anchor: head, head }],
+                    },
+                    Default::default(),
+                    folds,
+                )
+                .unwrap();
+            let context = Context::default();
+            let paint = |store: &mut EditorStore| {
+                let mut output = context.run_ui(
+                    RawInput {
+                        screen_rect: Some(Rect::from_min_size(
+                            pos2(0.0, 0.0),
+                            vec2(SCREEN[0], SCREEN[1]),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        let output = editor()
+                            .show_presented(
+                                ui,
+                                store,
+                                view,
+                                true,
+                                |_, _, _| false,
+                                |_| None,
+                                &EditorPresentation {
+                                    options: EditorDisplayOptions {
+                                        word_wrap,
+                                        folding,
+                                        ..Default::default()
+                                    },
+                                },
+                            )
+                            .unwrap();
+                        assert!(output.errors.is_empty());
+                    },
+                );
+                assert!(!output.shapes.is_empty());
+                output.textures_delta.clear();
+            };
+            paint(&mut store);
+            let before_top = store
+                .views()
+                .get(view)
+                .unwrap()
+                .display
+                .as_ref()
+                .unwrap()
+                .row_of_byte(&before, head) as f32
+                * LINE_HEIGHT;
+            let original_scroll = if should_scroll {
+                before_top - FORMATTING_CURSOR_TOP
+            } else {
+                0.0
+            };
+            scroll_to(&mut store, view, original_scroll);
+            paint(&mut store);
+            let prefix = format!("{}\n", "p".repeat(WRAPPED_LINE));
+            let edits = vec![taide_native_editor::lsp::TextEdit::new(
+                taide_native_editor::lsp::LspRange::default(),
+                prefix,
+            )];
+            assert!(
+                taide_native_editor::formatting::apply_edits(
+                    &mut store,
+                    &before,
+                    Some(view),
+                    edits
+                )
+                .unwrap()
+            );
+            paint(&mut store);
+            let after = store.documents().snapshot(document).unwrap();
+            let current = store.views().get(view).unwrap();
+            let new_head = current.selection.selections[current.selection.primary].head;
+            let new_top = current
+                .display
+                .as_ref()
+                .unwrap()
+                .row_of_byte(&after, new_head) as f32
+                * LINE_HEIGHT;
+            if should_scroll {
+                assert!(
+                    (new_top - current.scroll.y - FORMATTING_CURSOR_TOP).abs() < WIDTH_TOLERANCE,
+                    "wrap={word_wrap}, folding={folding}, top={new_top}, scroll={:?}",
+                    current.scroll
+                );
+            } else {
+                assert_eq!(current.scroll.y, 0.0);
+            }
+            let deletion = taide_native_editor::lsp::TextEdit::new(
+                taide_native_editor::lsp::LspRange::new(
+                    Default::default(),
+                    taide_native_editor::lsp::Position::new(1, 0),
+                ),
+                String::new(),
+            );
+            assert!(
+                taide_native_editor::formatting::apply_edits(
+                    &mut store,
+                    &after,
+                    Some(view),
+                    vec![deletion]
+                )
+                .unwrap()
+            );
+            paint(&mut store);
+            let current = store.views().get(view).unwrap();
+            assert_eq!(
+                current.selection.selections[current.selection.primary].head,
+                head
+            );
+            assert!((current.scroll.y - original_scroll).abs() < WIDTH_TOLERANCE);
+        }
+    }
+}
 const TOKEN_DEFAULT: [u8; 4] = [200, 200, 200, 255];
 const TOKEN_KEYWORD: [u8; 4] = [86, 156, 214, 255];
 const TOKEN_STRING: [u8; 4] = [206, 145, 120, 255];

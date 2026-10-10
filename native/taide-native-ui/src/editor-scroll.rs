@@ -65,6 +65,10 @@ pub(crate) struct Axis {
 }
 
 impl Axis {
+    pub(crate) fn is_animating(&self) -> bool {
+        self.animation.is_some()
+    }
+
     pub(crate) fn future(&self, current: f32) -> f32 {
         self.animation
             .as_ref()

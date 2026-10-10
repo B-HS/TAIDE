@@ -4062,15 +4062,12 @@ impl NativeApplication {
                     match result {
                         Ok(Some(edits)) => {
                             let view = self.save_view(document);
-                            match taide_native_editor::formatting::minimal_edits(&snapshot, edits)
-                                .and_then(|edits| {
-                                    taide_native_editor::lsp::apply_text_edits(
-                                        &mut self.store,
-                                        &snapshot,
-                                        view,
-                                        edits,
-                                    )
-                                }) {
+                            match taide_native_editor::formatting::apply_edits(
+                                &mut self.store,
+                                &snapshot,
+                                view,
+                                edits,
+                            ) {
                                 Ok(true) => {
                                     if let Ok(current) = self.store.documents().snapshot(document) {
                                         let mirror = self.draft_project(document).is_some();

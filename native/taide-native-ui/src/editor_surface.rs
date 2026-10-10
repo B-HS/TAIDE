@@ -262,6 +262,14 @@ struct RenderedViewport {
     scroll_top: f32,
     line_height: f32,
     #[cfg(feature = "native-host")]
+    revision: u64,
+    #[cfg(feature = "native-host")]
+    head: usize,
+    #[cfg(feature = "native-host")]
+    cursor_top: f32,
+    #[cfg(feature = "native-host")]
+    content_height: f32,
+    #[cfg(feature = "native-host")]
     problem_zone: Option<(usize, f32)>,
 }
 
@@ -1258,6 +1266,10 @@ impl NativeEditor {
             .ctx()
             .data_mut(|data| data.get_temp::<InputState>(id).unwrap_or_default());
         #[cfg(feature = "native-host")]
+        let formatting_scroll = store
+            .take_formatting_scroll(view)?
+            .filter(|_| !input_state.scroll.y.is_animating());
+        #[cfg(feature = "native-host")]
         {
             input_state.syntax_folds = syntax_folds.filter(|syntax| syntax.describes(&previous));
         }
@@ -2075,7 +2087,34 @@ impl NativeEditor {
                 }
         };
         let scroll_max = (content_height - rect.height()).max(0.0);
-        state.scroll.y = stable_scroll_top.unwrap_or(state.scroll.y).min(scroll_max);
+        #[cfg(feature = "native-host")]
+        let formatting_scroll_top = formatting_scroll
+            .as_ref()
+            .filter(|request| {
+                request.revision == document.revision
+                    && request.head == state.selection.selections[state.selection.primary].head
+                    && request.previous_scroll.y > 0.0
+            })
+            .zip(input_state.rendered_viewport.filter(|rendered| {
+                formatting_scroll.as_ref().is_some_and(|request| {
+                    rendered.revision == request.previous_revision
+                        && rendered.head == request.previous_head
+                        && rendered.scroll_top == request.previous_scroll.y
+                        && (rendered.content_height != content_height
+                            || rendered.scroll_top != state.scroll.y)
+                })
+            }))
+            .map(|(_, rendered)| {
+                (state.scroll.y + layout.row_top(head_row(&state, state.selection.primary))
+                    - rendered.cursor_top)
+                    .clamp(0.0, scroll_max)
+            });
+        #[cfg(not(feature = "native-host"))]
+        let formatting_scroll_top = None;
+        state.scroll.y = formatting_scroll_top
+            .or(stable_scroll_top)
+            .unwrap_or(state.scroll.y)
+            .min(scroll_max);
         #[cfg(feature = "native-host")]
         let sticky_reveal = input_state.sticky.take_fold_reveal();
         #[cfg(feature = "native-host")]
@@ -2111,7 +2150,7 @@ impl NativeEditor {
         let reveal_row = requested_reveal
             .as_ref()
             .map_or(caret_row, |_| display.row_of_byte(&document, reveal_byte));
-        if moved {
+        if moved && formatting_scroll_top.is_none() {
             let top = layout.row_top(reveal_row);
             if requested_reveal
                 .as_ref()
@@ -2271,7 +2310,10 @@ impl NativeEditor {
                 Some(state.scroll.y)
             } else {
                 requested_scroll_y.or_else(|| {
-                    (external_scroll || stable_scroll_top.is_some()).then_some(state.scroll.y)
+                    (external_scroll
+                        || stable_scroll_top.is_some()
+                        || formatting_scroll_top.is_some())
+                    .then_some(state.scroll.y)
                 })
             };
             let from = reveal_from.map_or(current.scroll.y, |scroll| scroll.y);
@@ -2290,7 +2332,8 @@ impl NativeEditor {
                             .is_some_and(|(_, immediate)| immediate)
                     })
                     || (external_scroll && reveal_from.is_none())
-                    || stable_scroll_top.is_some(),
+                    || stable_scroll_top.is_some()
+                    || formatting_scroll_top.is_some(),
             );
         }
         let visible = layout.visible_rows(state.scroll.y, rect.height(), ROW_OVERSCAN);
@@ -3283,6 +3326,14 @@ impl NativeEditor {
         input_state.rendered_viewport = Some(RenderedViewport {
             scroll_top: state.scroll.y,
             line_height: appearance.line_height,
+            #[cfg(feature = "native-host")]
+            revision: document.revision,
+            #[cfg(feature = "native-host")]
+            head: state.selection.selections[state.selection.primary].head,
+            #[cfg(feature = "native-host")]
+            cursor_top: layout.row_top(caret_row),
+            #[cfg(feature = "native-host")]
+            content_height,
             #[cfg(feature = "native-host")]
             problem_zone: zone_position,
         });

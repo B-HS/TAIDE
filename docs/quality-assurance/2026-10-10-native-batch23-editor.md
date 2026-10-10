@@ -426,3 +426,41 @@ editor-49는 수동 외부 포맷 소비가 추가됐지만 내장 언어 서비
 이 두 대조를 닫기 전에는 PROCESS c2 전체를 완료로 올리지 않습니다. 현재 일반 요청/명령·실제 소비의 검증한 c2a 단위만 저장합니다. 기존 독립 실험 lock/fmt·이미지/OS watcher 원인 미확정·큰 tier/성능/실기/출시 부채는 유지합니다. 요구사항은 588대상/289완료/299미완료, 현재 배치 23/최종 33이며 전체 전환율·잔여 시간은 미산정입니다.
 
 frozen-host.log의 host --tests/inspection은 17.00초, frozen-wasm.log의 Wasm --lib/canvas,inspection은 6.07초이며 각각 exit 0입니다. Core/UI/App fmt check exit 0, frozen/manifest/lock 변경 0, 디스크 여유 518GiB/72%를 확인했습니다. 소유 Cargo/fmt는 이전 세션의 실제 종료 뒤에만 직렬로 실행했으며 실행 중 Rust/포함 리소스를 수정하지 않았습니다. 보호 앱/실제 데이터/OS 설정/클립보드/Keychain/Trash를 건드리거나 빌드 산출물을 정리하지 않았습니다. 독립 실험 lock/fmt 실패는 입력이 같은 기존 결과를 재사용합니다.
+
+## 포맷 후 선택과 상대 커서 세로 위치 (2026-10-11)
+
+기준은 34bcf4a5입니다. 설치 Monaco formattingEdit.js의 전체 범위 replace와 부분 범위 replaceMove, oneCursor.js의 tracked selection, intervalTree.js의 nodeAcceptEdit와 stableEditorScroll.js의 상대 위치 복원을 직접 읽었습니다. docs/utils/2026-10-11-monaco-formatting-markers-oracle.js는 실제 FormattingEdit.execute와 IntervalNode를 실행해 동일 길이/축소/확장/Unicode 접두부의 네 결과를 TXT fixture에 저장합니다. 이를 native 다중 선택·mirror·undo/redo와 비교합니다. 이 조사는 계측한 editor 객체와 scroll 0을 사용하므로 브라우저 위젯/픽셀이나 상대 scroll의 브라우저 실기를 검사한 결과가 아닙니다.
+
+Core는 최소 편집이 raw 전체 범위 교체로 대체될 때에만 기존 절대 UTF-16 선택 위치를 보존하고 원래 EOF는 새 EOF로 옮깁니다. 새 문서의 Unicode scalar와 CRLF 중간 경계를 보정합니다. 다른 편집/LSP의 기존 선택 매핑은 유지합니다. 공통 formatting::apply_edits를 외부 수동 요청과 앱 저장 참여자에 연결하며 identity/revision/readonly/유효 범위·원자성·undo 경계를 보존합니다.
+
+포맷 전후 revision/주 커서/scroll을 담은 요청은 한 번 소비하고 사용자의 커서/scroll/편집/undo 변화로 만료합니다. native-host UI는 마지막으로 실제 그린 caret의 display row와 wrap/접기/view zone을 포함한 row top을 사용해 상대 세로 위치를 복원합니다. 최상단 scroll 0과 진행 중 smooth scroll은 원본 계약에 따라 복원하지 않습니다. 일반·wrap·wrap+접기 각각 최상단/스크롤·줄 추가/삭제를 실제 NativeEditor/egui 좌표로 검사했으며 OS 합성 입력을 사용하지 않았습니다.
+
+로그 접두사는 /private/tmp/taide-batch23-format-scroll-입니다.
+
+- marker-repro.log는 테스트의 serde/serde_json 사용으로 컴파일 전 실패입니다. Core에 의존성을 추가하지 않고 TXT fixture로 변경했습니다. marker-repro-final.log는 실제 1실패로 모든 선택이 새 EOF로 모이는 문제를 재현했습니다.
+- ui-repro.log는 검사 fixture의 TexturesDelta 미회수 실패입니다. 이를 고친 ui-repro-final.log는 실제 커서 Y가 60에서 80으로 이동한 제품 실패입니다. 기존 단순 reveal을 포맷 전용 상대 복원으로 바꿨습니다.
+- crlf-repro.log의 untitled 모델은 LF 메타데이터 때문에 실제 CRLF를 검증하지 않았습니다. OpenedFile payload로 바꾼 crlf-file-repro.log는 실제 중간 커서 77/유효 기대 76의 1실패입니다. 중간 경계 보정 후 core-final.log의 관련 포맷 8건이 통과했습니다. 파일 payload는 가상 경로를 사용하며 실제 파일을 읽거나 쓰지 않습니다.
+
+### 최종 직접 검사
+
+모든 Cargo 검사는 --locked --offline --target-dir experiments/native-shell-spike/target이며 전체 검사는 --all-targets --no-fail-fast로 직접 1회 실행했습니다.
+
+| 범위           | 결과                                                                                                                                                                                                                                                                                                                               |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Core 전체/영향 | core-all.log: 38대상/293통과/0실패/기존 성능 1ignored·exit 0. 실제 CRLF 수정 뒤 core-final.log: 포맷 8통과·exit 0. 중복을 제외한 서로 다른 성공은 294건이며 전체 294건을 다시 실행한 결과가 아닙니다.                                                                                                                              |
+| UI 전체        | ui-all.log: native-host,inspection·test-threads=4·22대상/438통과/0실패/0ignored·exit 0.                                                                                                                                                                                                                                            |
+| App 전체       | app-all.log: inspection·test-threads=1·67대상/811통과/1실패/0ignored·exit 101. 실제 본문/peek/저장과 formatter child는 통과했고 보호 Trash 3건을 제외했습니다. 실패는 프로젝트 열기 5초 상한입니다.                                                                                                                                |
+| App 영향       | app-hook-retry.log: Cargo의 동일 exact 검사 0통과/1실패·5.46초·exit 101. 같은 빌드 실행 파일을 직접 실행한 app-hook-probe.log는 저장소 cwd에서 1통과/3.81초, app-hook-stack-probe.log는 앱 크레이트 cwd·스택 수집을 포함해 1통과/3.23초, 각각 exit 0입니다. 최초/Cargo 단독 실패를 없애거나 전체 App exit 0으로 보고하지 않습니다. |
+| 동결/형식/경계 | frozen-host.log의 --tests/inspection 13.00초·frozen-wasm.log의 --lib/wasm32-unknown-unknown/canvas,inspection 3.66초는 각각 exit 0입니다. Core/UI/App fmt check exit 0·frozen/manifest/lock 변경 0, 디스크 512GiB/73%입니다.                                                                                                       |
+
+서로 다른 검사 성공은 Core 294·UI 438·App 812입니다. 두 직접 probe의 동일 성공이나 중간/원본 비교 사례는 중복 합산하지 않습니다. App 전체와 Cargo 단독 실패의 재현 조건을 유지하며 이 집계를 모든 환경에서 전체 검사가 통과했다는 뜻으로 사용하지 않습니다. 기존 Core 성능 ignored 1건과 보호 Trash 3건은 실행하지 않았습니다. 소유 Cargo/fmt는 직렬이며 이전 실행이 실제 종료한 뒤에만 Rust/포함 리소스를 수정했습니다.
+
+### 프로젝트 열기 지연의 관찰과 남은 게이트
+
+실패 지점은 projects-tests.rs의 projects.open을 감싼 5초 timeout이며 이후 hook release 대기 지점이 아닙니다. fixture의 hook은 mutation guard를 해제한 뒤 release를 기다립니다. project_open도 attach 앞에서 guard를 해제하고, project build는 기존 blocking worker의 파일 감시 준비를 기다립니다.
+
+성공한 3.23초 검사 중 /private/tmp/taide-batch23-format-scroll-project-open.sample의 673표본에서 build_files→watcher.rs:304의 start_watch→notify FsEventWatcher.run→runloop 준비 수신 대기를 확인했습니다. 다른 FSEvents 스레드는 FSEventStreamStart→register_with_server→f2d_register_rpc→mach_msg2_trap에 있었습니다. 해당 표본은 OS 등록 RPC 대기를 보여주며 CPU 반복이나 hook guard 상호 대기를 관찰한 결과가 아닙니다. 두 5초 실패 시점의 스택과 지연 변동의 근본 원인은 확인하지 않았습니다. 직접 검사의 성공을 원인 해결로 확대하지 않습니다.
+
+시간 상한 확대·검사 생략·OS 설정 변경·프로세스 재시작으로 우회하지 않았습니다. 같은 가정의 반복 검사는 종료하고 실제 감시 등록/실행 환경·soak 신뢰성 위험을 기존 이미지/watcher와 독립 실험 lock/fmt 부채와 함께 배치 31에 유지합니다. 보호 앱/실제 데이터/클립보드/Keychain/Trash를 건드리지 않았으며 빌드 정리를 하지 않았습니다.
+
+외부 포맷 공통 경로 c2와 선택/상대 위치 c2s를 닫습니다. editor-49는 내장 공급자(editor-57)가 남아 partial이고 editor-32의 입력/붙여넣기는 missing, 배치 23 전체와 실기/성능/출시는 미완료입니다. 요구사항 588대상/289완료/299미완료·배치 23/최종 33을 유지하며 전체 전환율·잔여 시간은 미산정입니다.

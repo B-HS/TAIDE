@@ -4,7 +4,7 @@ use taide_lsp::native::Failure;
 use taide_lsp::native::protocol::lsp_types;
 use taide_model::ids::ProjectId;
 use taide_native_editor::document::{DocumentSnapshot, EditorError};
-use taide_native_editor::formatting::{Command, minimal_edits, selection_ranges};
+use taide_native_editor::formatting::{Command, selection_ranges};
 use taide_native_editor::indent::IndentOptions;
 use taide_native_editor::store::EditorStore;
 use taide_native_editor::view::{ViewId, ViewKey};
@@ -194,23 +194,13 @@ impl State {
                 return Ok(false);
             }
         };
-        let edits = minimal_edits(&request.snapshot, response.edits);
         self.entries.remove(&request.source);
-        let changed = taide_native_editor::lsp::apply_text_edits(
+        taide_native_editor::formatting::apply_edits(
             store,
             &request.snapshot,
             Some(request.source),
-            edits?,
-        )?;
-        if changed {
-            let source = store
-                .views()
-                .get(request.source)
-                .ok_or(EditorError::NotFound)?;
-            let head = source.selection.selections[source.selection.primary].head;
-            store.request_selection_reveal(request.source, head..head, false)?;
-        }
-        Ok(changed)
+            response.edits,
+        )
     }
 
     pub(crate) fn reject(&mut self, request: &Request) {

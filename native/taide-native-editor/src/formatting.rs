@@ -1,10 +1,27 @@
 use crate::document::{DocumentSnapshot, EditorError};
 use crate::editing::{line_content_range, ordered};
 use crate::lsp::{LspRange, TextEdit, byte_to_position, range_to_bytes};
+use crate::store::EditorStore;
 use crate::view::SelectionSet;
+use crate::view::ViewId;
 
 const DIFF_UNIT_LIMIT: usize = 100_000;
 const DIFF_WORK_LIMIT: usize = 1_000_000;
+
+pub fn apply_edits(
+    store: &mut EditorStore,
+    requested: &DocumentSnapshot,
+    view: Option<ViewId>,
+    edits: Vec<TextEdit>,
+) -> Result<bool, EditorError> {
+    let source = view.and_then(|view| store.views().get(view)).cloned();
+    let edits = minimal_edits(requested, edits)?;
+    let changed = crate::lsp::apply_text_edits_with(store, requested, view, edits, true)?;
+    if changed && let Some(source) = source {
+        store.request_formatting_scroll(requested, source)?;
+    }
+    Ok(changed)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
