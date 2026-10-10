@@ -78,7 +78,7 @@ fn fixture() -> (EditorStore, ViewId, ProviderIdentity, ProjectId) {
 
 fn context(project: &ProjectId, view: ViewId) -> Context {
     Context {
-        project: project.clone(),
+        project: Some(project.clone()),
         source: view,
         owner: view,
         viewport: egui::ViewportId::ROOT,
@@ -703,25 +703,82 @@ fn highlight_tier_동일_revision의_크기_등급_변경은_대기와_표시를
 }
 
 #[test]
-fn 빈_결과와_오류는_표시를_비우며_매_프레임_재요청하지_않는다() {
+fn native_textual_서버와_프로젝트가_없는_편집기도_단어_표시와_이동을_소비한다() {
+    for has_project in [true, false] {
+        let (mut store, view, _, project) = fixture();
+        let mut state = State::default();
+        let context = egui::Context::default();
+        let consumer = Consumer {
+            state: Rc::new(RefCell::new(&mut state)),
+            lsp: None,
+            context: context.clone(),
+            colors: colors(),
+        };
+        let project = has_project.then_some(&project);
+        consumer.observe(&store, project, view, view);
+        let pending = consumer
+            .state
+            .borrow()
+            .current_request(egui::ViewportId::ROOT);
+        assert!(pending.is_some(), "has_project={has_project}");
+        consumer
+            .state
+            .borrow_mut()
+            .entries
+            .get_mut(&egui::ViewportId::ROOT)
+            .unwrap()
+            .due = Instant::now();
+        consumer.observe(&store, project, view, view);
+        assert!(
+            consumer
+                .state
+                .borrow()
+                .has_highlights(&store, egui::ViewportId::ROOT, view)
+        );
+        assert_eq!(
+            consumer.state.borrow().entries[&egui::ViewportId::ROOT]
+                .highlights
+                .len(),
+            3
+        );
+        assert!(
+            consumer.state.borrow().entries[&egui::ViewportId::ROOT]
+                .highlights
+                .iter()
+                .all(|highlight| highlight.kind == 0)
+        );
+        assert!(
+            consumer
+                .execute(&mut store, project, view, view, HighlightCommand::Next)
+                .unwrap()
+        );
+        assert_eq!(
+            store.views().get(view).unwrap().selection.selections[0].head,
+            6
+        );
+        assert!(consumer.display(&store, view).is_some());
+    }
+}
+
+#[test]
+fn 빈_결과는_대체하지_않고_오류는_텍스트를_표시하며_매_프레임_재요청하지_않는다() {
     let (store, view, provider, project) = fixture();
-    for result in [
-        Ok(Response {
-            provider: Some(provider),
-            highlights: Vec::new(),
-        }),
-        Err(Failure::TimedOut),
+    for (result, expected) in [
+        (
+            Ok(Response {
+                provider: Some(provider),
+                highlights: Vec::new(),
+            }),
+            0,
+        ),
+        (Err(Failure::TimedOut), 3),
     ] {
         let mut state = State::default();
         let request = request(&mut state, &store, view, provider, &project);
         assert!(state.accept(&store, &request, HashSet::from([provider]), result));
-        assert!(
-            state
-                .display(&store, egui::ViewportId::ROOT, view, colors())
-                .unwrap()
-                .layer
-                .items()
-                .is_empty()
+        assert_eq!(
+            state.entries[&egui::ViewportId::ROOT].highlights.len(),
+            expected
         );
         assert!(
             state
@@ -735,6 +792,207 @@ fn 빈_결과와_오류는_표시를_비우며_매_프레임_재요청하지_않
                 .is_none()
         );
     }
+}
+
+#[test]
+fn native_textual_대소문자_whole_word와_utf16_범위_및_결과_상한을_보존한다() {
+    const LIMIT_INPUT_COUNT: usize = MAX_TEXTUAL_HIGHLIGHTS + 1;
+    for (content, tier, expected) in [
+        (
+            "\u{1f600} foo Foo foobar foo-bar\nfoo".to_string(),
+            FileSizeTier::Large,
+            3,
+        ),
+        (
+            "foo ".repeat(LIMIT_INPUT_COUNT),
+            FileSizeTier::ReadOnly,
+            MAX_TEXTUAL_HIGHLIGHTS,
+        ),
+    ] {
+        let (mut store, view, _, project) = file_fixture(FileSizeTier::Normal, true);
+        let document = store.views().get(view).unwrap().document;
+        let caret = content.find("foo").unwrap();
+        let mut file = opened_file(tier, true);
+        file.byte_size = content.len().try_into().unwrap();
+        file.line_count = content.lines().count().try_into().unwrap();
+        file.content = content;
+        store
+            .refresh_clean_file(document, std::path::Path::new(FILE_PATH), file)
+            .unwrap();
+        select(&mut store, view, caret, caret);
+        let mut state = State::default();
+        let now = Instant::now();
+        assert!(
+            state
+                .observe(&store, context(&project, view), HashSet::new(), now)
+                .unwrap()
+                .is_none()
+        );
+        let request = state
+            .observe(
+                &store,
+                context(&project, view),
+                HashSet::new(),
+                now + REQUEST_DEBOUNCE,
+            )
+            .unwrap()
+            .unwrap();
+        let result = textual(&request).unwrap();
+        assert_eq!(result.highlights.len(), expected);
+        assert!(
+            result
+                .highlights
+                .iter()
+                .all(|highlight| highlight.kind == Some(lsp_types::DocumentHighlightKind::TEXT))
+        );
+        if tier == FileSizeTier::Large {
+            assert_eq!(
+                result
+                    .highlights
+                    .iter()
+                    .map(|highlight| highlight.range)
+                    .collect::<Vec<_>>(),
+                vec![
+                    lsp_types::Range::new(
+                        lsp_types::Position::new(0, 3),
+                        lsp_types::Position::new(0, 6)
+                    ),
+                    lsp_types::Range::new(
+                        lsp_types::Position::new(0, 18),
+                        lsp_types::Position::new(0, 21)
+                    ),
+                    lsp_types::Range::new(
+                        lsp_types::Position::new(1, 0),
+                        lsp_types::Position::new(1, 3)
+                    ),
+                ]
+            );
+        }
+        assert!(state.accept(&store, &request, HashSet::new(), Ok(result)));
+        assert_eq!(
+            state.entries[&egui::ViewportId::ROOT].highlights.len(),
+            expected
+        );
+        state.clear();
+        assert!(request.is_cancelled());
+        assert!(matches!(textual(&request), Err(Failure::Cancelled)));
+    }
+}
+
+#[test]
+fn native_textual_모델_게이트는_utf16_길이와_줄_수를_판단한다() {
+    let (store, view, _, _) = fixture();
+    let mut snapshot = store
+        .documents()
+        .snapshot(store.views().get(view).unwrap().document)
+        .unwrap();
+    snapshot.rope.remove(..);
+    snapshot
+        .rope
+        .insert(0, &"\u{1f600}".repeat(MAX_HIGHLIGHT_UTF16_LENGTH / 2));
+    assert_eq!(snapshot.rope.len_utf16_cu(), MAX_HIGHLIGHT_UTF16_LENGTH);
+    assert!(is_highlight_model(&snapshot));
+    snapshot.rope.insert(snapshot.rope.len_chars(), "a");
+    assert!(!is_highlight_model(&snapshot));
+    snapshot.rope.remove(..);
+    snapshot
+        .rope
+        .insert(0, &"\n".repeat(MAX_HIGHLIGHT_LINES - 1));
+    assert_eq!(snapshot.rope.len_lines(), MAX_HIGHLIGHT_LINES);
+    assert!(is_highlight_model(&snapshot));
+    snapshot.rope.insert(snapshot.rope.len_chars(), "\n");
+    assert!(!is_highlight_model(&snapshot));
+}
+
+#[test]
+fn native_textual_peek와_mirror는_원본_문서와_선택을_분리하고_닫기를_회수한다() {
+    let (mut store, owner, _, project) = fixture();
+    let document = store
+        .open_untitled(TabId::new(), "foo foo", "plaintext".into())
+        .unwrap();
+    let source = store
+        .attach_view(
+            ViewKey {
+                window: "peek".into(),
+                pane: PaneId::new(),
+                tab: TabId::new(),
+            },
+            document,
+        )
+        .unwrap();
+    let mirror = store
+        .attach_view(
+            ViewKey {
+                window: "mirror".into(),
+                pane: PaneId::new(),
+                tab: TabId::new(),
+            },
+            document,
+        )
+        .unwrap();
+    let owner_before = store.views().get(owner).unwrap().selection.clone();
+    let mut state = State::default();
+    let consumer = Consumer {
+        state: Rc::new(RefCell::new(&mut state)),
+        lsp: None,
+        context: egui::Context::default(),
+        colors: colors(),
+    };
+    consumer.observe(&store, Some(&project), owner, source);
+    consumer
+        .state
+        .borrow_mut()
+        .entries
+        .get_mut(&egui::ViewportId::ROOT)
+        .unwrap()
+        .due = Instant::now();
+    consumer.observe(&store, Some(&project), owner, source);
+    let request = consumer
+        .state
+        .borrow()
+        .current_request(egui::ViewportId::ROOT)
+        .unwrap();
+    assert_eq!(request.owner, owner);
+    assert_eq!(request.source, source);
+    assert!(consumer.display(&store, owner).is_none());
+    assert_eq!(
+        consumer.display(&store, source).unwrap().layer.items(),
+        consumer.display(&store, mirror).unwrap().layer.items()
+    );
+    assert_eq!(
+        consumer
+            .state
+            .borrow()
+            .source_for_owner(&store, egui::ViewportId::ROOT, owner),
+        source
+    );
+    assert!(
+        consumer
+            .execute(
+                &mut store,
+                Some(&project),
+                owner,
+                source,
+                HighlightCommand::Next
+            )
+            .unwrap()
+    );
+    assert_eq!(
+        store.views().get(source).unwrap().selection.selections[0].head,
+        4
+    );
+    assert_eq!(
+        store.views().get(mirror).unwrap().selection,
+        SelectionSet::default()
+    );
+    assert_eq!(store.views().get(owner).unwrap().selection, owner_before);
+    store.detach_view(source).unwrap();
+    consumer
+        .state
+        .borrow_mut()
+        .reconcile(&store, |_| true, |_, _| HashSet::new());
+    assert!(request.is_cancelled());
+    assert!(consumer.display(&store, mirror).is_none());
 }
 
 #[test]

@@ -14,6 +14,7 @@ use taide_native_editor::decoration::{
     Decoration, DecorationKind, DecorationLayer, InlineStyle, OverviewLane, Stickiness,
 };
 use taide_native_editor::document::{DocumentSnapshot, EditorError};
+use taide_native_editor::find::{FindOptions, FindQuery};
 use taide_native_editor::lsp::{LspRange, Position, byte_to_position, range_to_bytes};
 use taide_native_editor::store::EditorStore;
 use taide_native_editor::view::{SelectionSet, ViewId, ViewKey};
@@ -34,6 +35,10 @@ const OVERVIEW_READ: Color32 = Color32::from_rgba_unmultiplied_const(0xa0, 0xa0,
 const OVERVIEW_WRITE: Color32 = Color32::from_rgba_unmultiplied_const(0xc0, 0xa0, 0xc0, 0xcc);
 const HIGHLIGHT_KIND_COUNT: usize = 3;
 const WRITE_KIND: usize = 2;
+const MAX_TEXTUAL_HIGHLIGHTS: usize = 999;
+const MAX_HIGHLIGHT_UTF16_LENGTH: usize = 20 * 1024 * 1024;
+const MAX_HIGHLIGHT_LINES: usize = 300_000;
+const TEXTUAL_SEARCH_TIMEOUT: Duration = Duration::from_secs(1);
 const SELECTION_DARK: Color32 = Color32::from_rgb(0x26, 0x4f, 0x78);
 const SELECTION_LIGHT: Color32 = Color32::from_rgb(0xad, 0xd6, 0xff);
 const BACKGROUND_DARK: Color32 = Color32::from_rgb(0x1e, 0x1e, 0x1e);
@@ -198,7 +203,7 @@ impl Colors {
 }
 
 pub(crate) struct Context {
-    pub project: ProjectId,
+    pub project: Option<ProjectId>,
     pub source: ViewId,
     pub owner: ViewId,
     pub viewport: egui::ViewportId,
@@ -206,7 +211,7 @@ pub(crate) struct Context {
 
 #[derive(Clone)]
 pub struct Request {
-    pub(crate) project: ProjectId,
+    pub(crate) project: Option<ProjectId>,
     pub(crate) snapshot: DocumentSnapshot,
     pub(crate) source: ViewId,
     pub(crate) source_key: ViewKey,
@@ -251,6 +256,7 @@ impl Request {
                                 && snapshot.metadata.language_id
                                     == self.snapshot.metadata.language_id
                                 && snapshot.metadata.tier == self.snapshot.metadata.tier
+                                && is_highlight_model(&snapshot)
                         })
             })
     }
@@ -260,7 +266,10 @@ impl Request {
         layout: &taide_model::layout::ProjectLayout,
         scope: &taide_native_ui::shell::WindowScope,
     ) -> bool {
-        crate::symbol_sidebar::window_tree(&self.project, layout, scope).is_some_and(|(root, _)| {
+        let Some(project) = self.project.as_ref() else {
+            return false;
+        };
+        crate::symbol_sidebar::window_tree(project, layout, scope).is_some_and(|(root, _)| {
             taide_native_ui::snapshot::active_tab(root, &self.owner_key.pane)
                 .is_some_and(|tab| tab.id == self.owner_key.tab)
         })
@@ -270,6 +279,76 @@ impl Request {
 pub struct Response {
     pub(crate) provider: Option<ProviderIdentity>,
     pub(crate) highlights: Vec<lsp_types::DocumentHighlight>,
+}
+
+fn is_highlight_model(snapshot: &DocumentSnapshot) -> bool {
+    snapshot.rope.len_utf16_cu() <= MAX_HIGHLIGHT_UTF16_LENGTH
+        && snapshot.rope.len_lines() <= MAX_HIGHLIGHT_LINES
+}
+
+fn textual(request: &Request) -> Result<Response, Failure> {
+    if request.is_cancelled() {
+        return Err(Failure::Cancelled);
+    }
+    let snapshot = &request.snapshot;
+    let selected = request.selection.selections[request.selection.primary];
+    let rules = crate::editor_syntax::language_rules(&snapshot.metadata.language_id)
+        .or_else(|| crate::editor_syntax::language_rules("plaintext"));
+    let Some(word) =
+        taide_native_editor::cursor_commands::word_range(snapshot, selected.head, rules)
+            .filter(|_| is_highlight_model(snapshot))
+    else {
+        return Ok(Response {
+            provider: None,
+            highlights: Vec::new(),
+        });
+    };
+    let word = snapshot.rope.byte_slice(word).to_string();
+    let query = FindQuery::new(
+        &word,
+        FindOptions {
+            match_case: true,
+            whole_word: true,
+            ..Default::default()
+        },
+        &taide_native_syntax::MonacoFindPatternCompiler,
+    )
+    .map_err(|_| Failure::MalformedRequest)?;
+    let matches = query
+        .find_matches(
+            &snapshot.rope,
+            &[],
+            MAX_TEXTUAL_HIGHLIGHTS,
+            Some(TEXTUAL_SEARCH_TIMEOUT),
+        )
+        .map_err(|_| Failure::MalformedRequest)?;
+    if request.is_cancelled() {
+        return Err(Failure::Cancelled);
+    }
+    if matches.timed_out {
+        return Err(Failure::TimedOut);
+    }
+    let highlights = matches
+        .matches
+        .into_iter()
+        .map(|found| {
+            let start = byte_to_position(snapshot, found.range.start)
+                .map_err(|_| Failure::MalformedRequest)?;
+            let end = byte_to_position(snapshot, found.range.end)
+                .map_err(|_| Failure::MalformedRequest)?;
+            Ok(lsp_types::DocumentHighlight {
+                range: lsp_types::Range::new(
+                    lsp_types::Position::new(start.line, start.character),
+                    lsp_types::Position::new(end.line, end.character),
+                ),
+                kind: Some(lsp_types::DocumentHighlightKind::TEXT),
+            })
+        })
+        .collect::<Result<Vec<_>, Failure>>()?;
+    Ok(Response {
+        provider: None,
+        highlights,
+    })
 }
 
 struct Highlight {
@@ -379,7 +458,7 @@ impl State {
                 && entry.providers == providers
                 && !entry.highlights.is_empty()
         });
-        if providers.is_empty()
+        if !is_highlight_model(&snapshot)
             || source.composition.is_some()
             || (!has_word_selection(&snapshot, &source.selection) && !has_unchanged_highlights)
         {
@@ -583,6 +662,12 @@ impl State {
         }) else {
             return false;
         };
+        let result = match result {
+            Ok(response) if response.provider.is_none() => textual(request),
+            Err(Failure::Cancelled) => Err(Failure::Cancelled),
+            Err(_) => textual(request),
+            result => result,
+        };
         entry.highlights.clear();
         if let Ok(response) = result
             && response
@@ -657,7 +742,14 @@ impl State {
         self.entries.retain(|_, entry| {
             let keep = entry.refresh_selection(store)
                 && active(&entry.request)
-                && entry.providers == providers(&entry.request.project, &entry.request.snapshot);
+                && entry.providers
+                    == entry
+                        .request
+                        .project
+                        .as_ref()
+                        .map_or_else(HashSet::new, |project| {
+                            providers(project, &entry.request.snapshot)
+                        });
             if !keep {
                 entry.cancel.send_replace(true);
             }
@@ -726,6 +818,29 @@ pub(crate) struct Consumer<'a, 'state> {
 }
 
 impl Consumer<'_, '_> {
+    fn submit(
+        &self,
+        store: &EditorStore,
+        request: Request,
+        providers: HashSet<ProviderIdentity>,
+    ) -> bool {
+        if !providers.is_empty()
+            && let Some(lsp) = self.lsp
+            && lsp.highlights(request.clone()).is_ok()
+        {
+            return true;
+        }
+        self.state.borrow_mut().accept(
+            store,
+            &request,
+            providers,
+            Ok(Response {
+                provider: None,
+                highlights: Vec::new(),
+            }),
+        )
+    }
+
     fn providers(
         &self,
         store: &EditorStore,
@@ -751,11 +866,8 @@ impl Consumer<'_, '_> {
         source: ViewId,
         command: HighlightCommand,
     ) -> Result<bool, EditorError> {
-        let Some(project) = project else {
-            return Ok(false);
-        };
         let context = Context {
-            project: project.clone(),
+            project: project.cloned(),
             owner,
             source,
             viewport: self.context.viewport_id(),
@@ -767,14 +879,15 @@ impl Consumer<'_, '_> {
             }
             return Ok(changed);
         }
-        let request = self.state.borrow_mut().trigger(
-            store,
-            context,
-            self.providers(store, project, source),
-            Instant::now(),
-        )?;
+        let providers = project.map_or_else(HashSet::new, |project| {
+            self.providers(store, project, source)
+        });
+        let request =
+            self.state
+                .borrow_mut()
+                .trigger(store, context, providers.clone(), Instant::now())?;
         if let Some(request) = request
-            && self.lsp.is_none_or(|lsp| lsp.highlights(request).is_err())
+            && !self.submit(store, request, providers)
         {
             self.state.borrow_mut().close(self.context.viewport_id());
             return Ok(false);
@@ -790,11 +903,9 @@ impl Consumer<'_, '_> {
         owner: ViewId,
         source: ViewId,
     ) {
-        let Some(project) = project else {
-            self.state.borrow_mut().close(self.context.viewport_id());
-            return;
-        };
-        let providers = self.providers(store, project, source);
+        let providers = project.map_or_else(HashSet::new, |project| {
+            self.providers(store, project, source)
+        });
         let now = Instant::now();
         let before = self
             .state
@@ -805,17 +916,17 @@ impl Consumer<'_, '_> {
         let request = self.state.borrow_mut().observe(
             store,
             Context {
-                project: project.clone(),
+                project: project.cloned(),
                 owner,
                 source,
                 viewport: self.context.viewport_id(),
             },
-            providers,
+            providers.clone(),
             now,
         );
         match request {
             Ok(Some(request)) => {
-                if self.lsp.is_none_or(|lsp| lsp.highlights(request).is_err()) {
+                if !self.submit(store, request, providers) {
                     self.state.borrow_mut().close(self.context.viewport_id());
                 }
             }

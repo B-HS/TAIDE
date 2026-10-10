@@ -1,6 +1,6 @@
 {
     "date": "2026-10-10",
-    "baseline": "7dd5703d",
+    "baseline": "f394f33d",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -724,7 +724,9 @@
                 "crates/taide-lsp/src/native/feature.rs",
                 "native/taide-native-editor/src/decoration.rs",
                 "native/taide-native-ui/src/editor_surface.rs",
-                "native/taide-native-app/src/terminal_surface.rs"
+                "native/taide-native-app/src/terminal_surface.rs",
+                "native/taide-native-editor/src/find.rs",
+                "native/taide-native-syntax/src/find-pattern.rs"
             ],
             "tests": [
                 "native/taide-native-app/src/editor-highlights-tests.rs",
@@ -735,7 +737,7 @@
                 "native/taide-native-app/src/terminal_surface.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-10-native-batch23-editor.md"],
-            "limitation": "크기 등급 수정 뒤 상태 16·실제 child 4건이 통과했습니다. Large/ReadOnly의 회수 전 LSP 차단과 동일 revision의 요청/표시 만료, Normal/read_only 복원·오래된 응답 거절·정상 종료를 검증했습니다. 기본 텍스트 공급자와 실제 공급자 교체, 배치 전체/실기 게이트는 미완료이며 실제 대형 문서 성능 검증으로 확대하지 않습니다."
+            "limitation": "기본 공급자 추가 뒤 상태 20·실제 child 4·실제 앱 1건, 총 25건이 통과했습니다. 기본 단어/whole word/대소문자·UTF-16/999 상한/모델 게이트·취소, peek/mirror/readonly·실제 앱의 None→LSP 복원을 확인했습니다. 실제 서버 재시작/세대·동적 capability 변경과 배치 전체/대형 성능/실기 게이트는 미완료입니다."
         }
     },
     "rows": [
@@ -2387,7 +2389,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-highlights",
-            "note": "배치 23에서 LSP 공급·표시·본문/peek 이동·trigger·취소와 Escape 연계를 연결했습니다. 동일 revision의 크기 등급 변경과 회수 전 남은 공급자 차단을 실패로 재현·수정했고 상태/실제 child 20건이 통과했습니다. 원본 기본 텍스트 공급자 누락을 확인했으며 해당 구현·실제 공급자 교체·배치 전체 게이트가 남아 partial입니다."
+            "note": "LSP에 더해 원본 기본 텍스트 공급자를 기존 FindQuery와 표시/이동/취소 경계에 연결했습니다. 서버/프로젝트 없는 소비·Unicode/상한/모델 게이트·peek/mirror/readonly와 실제 앱의 기본↔LSP 전환을 포함한 25건이 통과했습니다. 실제 서버 재시작/세대·동적 capability 변경과 배치 전체/실기 게이트가 남아 partial입니다."
         },
         {
             "id": "editor-52",

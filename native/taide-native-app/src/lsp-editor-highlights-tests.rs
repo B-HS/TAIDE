@@ -55,7 +55,7 @@ async fn highlight_tier_실제_child의_남은_공급자는_크기_등급_차단
         bridge.sync(project.clone(), original.clone()).unwrap();
         running(&mut bridge, &signal, &fixture, 1).await;
         let context = || Context {
-            project: project.clone(),
+            project: Some(project.clone()),
             source: view,
             owner: view,
             viewport: eframe::egui::ViewportId::ROOT,
@@ -281,7 +281,7 @@ async fn multihighlight_실제_공급자_우선순위_빈_null_오류_대체와_
                 .owner;
             let mut state = State::default();
             let context = || Context {
-                project: project.clone(),
+                project: Some(project.clone()),
                 owner: view,
                 source: view,
                 viewport: eframe::egui::ViewportId::ROOT,
@@ -421,7 +421,7 @@ async fn 실제_child와_문서_mirror의_utf16_하이라이트는_정상_빈_nu
                 .unwrap();
             let providers = bridge.highlight_providers(&project, &snapshot);
             let context = || Context {
-                project: project.clone(),
+                project: Some(project.clone()),
                 source: view,
                 owner: view,
                 viewport: eframe::egui::ViewportId::ROOT,
@@ -436,12 +436,20 @@ async fn 실제_child와_문서_mirror의_utf16_하이라이트는_정상_빈_nu
             );
             if mode == "--native-highlights-unsupported" {
                 assert!(providers.is_empty());
-                assert!(
-                    state
-                        .observe(&store, context(), providers, now + DEBOUNCE)
-                        .unwrap()
-                        .is_none()
-                );
+                let request = state
+                    .observe(&store, context(), providers.clone(), now + DEBOUNCE)
+                    .unwrap()
+                    .unwrap();
+                assert!(state.accept(
+                    &store,
+                    &request,
+                    providers,
+                    Ok(crate::editor_highlights::Response {
+                        provider: None,
+                        highlights: Vec::new()
+                    })
+                ));
+                assert!(state.has_highlights(&store, eframe::egui::ViewportId::ROOT, view));
             } else {
                 assert!(!providers.is_empty());
                 let request = state
@@ -479,6 +487,13 @@ async fn 실제_child와_문서_mirror의_utf16_하이라이트는_정상_빈_nu
                             assert!(result.highlights.is_empty());
                         }
                         assert!(state.accept(&store, &returned, providers.clone(), Ok(result)));
+                        assert_eq!(
+                            state.has_highlights(&store, eframe::egui::ViewportId::ROOT, view),
+                            !matches!(
+                                mode,
+                                "--native-highlights-empty" | "--native-highlights-null"
+                            )
+                        );
                         break;
                     }
                 }
@@ -526,7 +541,7 @@ async fn 실제_child의_대기_요청은_뷰_회수로_취소되고_정상_종�
             .unwrap();
         let providers = bridge.highlight_providers(&project, &snapshot);
         let context = || Context {
-            project: project.clone(),
+            project: Some(project.clone()),
             source: view,
             owner: view,
             viewport: eframe::egui::ViewportId::ROOT,

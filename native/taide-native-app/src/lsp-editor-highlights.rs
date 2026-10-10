@@ -14,7 +14,7 @@ pub(super) async fn request(
     let mut candidates = sessions
         .iter()
         .filter_map(|(key, session)| {
-            if key.project != request.project {
+            if Some(&key.project) != request.project.as_ref() {
                 return None;
             }
             let document = session.documents.get(&request.snapshot.id)?;

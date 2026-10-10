@@ -3349,16 +3349,21 @@ impl NativeApplication {
         while let Some(reply) = self.lsp.as_mut().and_then(crate::lsp::LspBridge::poll) {
             match reply {
                 crate::lsp::Reply::Highlights { request, result } => {
-                    let providers = self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
-                        lsp.highlight_providers(&request.project, &request.snapshot)
+                    let providers = request
+                        .project
+                        .as_ref()
+                        .zip(self.lsp.as_ref())
+                        .map_or_else(HashSet::new, |(project, lsp)| {
+                            lsp.highlight_providers(project, &request.snapshot)
+                        });
+                    let active = request.project.as_ref().is_some_and(|project| {
+                        self.services
+                            .state
+                            .layouts
+                            .read()
+                            .get(project)
+                            .is_some_and(|layout| request.is_active(layout, &self.shell.scope))
                     });
-                    let active = self
-                        .services
-                        .state
-                        .layouts
-                        .read()
-                        .get(&request.project)
-                        .is_some_and(|layout| request.is_active(layout, &self.shell.scope));
                     if active && self.closing.is_none() {
                         self.editor_highlights
                             .accept(&self.store, &request, providers, result);
@@ -4843,11 +4848,13 @@ impl eframe::App for NativeApplication {
             &self.store,
             |request| {
                 self.closing.is_none()
-                    && projects.contains(&request.project)
-                    && snapshot
-                        .layouts
-                        .get(&request.project)
-                        .is_some_and(|layout| request.is_active(layout, &self.shell.scope))
+                    && request.project.as_ref().is_none_or(|project| {
+                        projects.contains(project)
+                            && snapshot
+                                .layouts
+                                .get(project)
+                                .is_some_and(|layout| request.is_active(layout, &self.shell.scope))
+                    })
             },
             |project, document| {
                 self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {

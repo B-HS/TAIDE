@@ -1756,7 +1756,7 @@ async fn run(
                 let selected = sessions
                     .iter()
                     .filter(|(key, session)| {
-                        key.project == request.project
+                        Some(&key.project) == request.project.as_ref()
                             && session.documents.contains_key(&request.snapshot.id)
                     })
                     .map(|(key, session)| (key.clone(), session.clone()))

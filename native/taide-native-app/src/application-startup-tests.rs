@@ -1651,6 +1651,81 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
             peek_highlight_before.folds,
         )
         .unwrap();
+    let suspended_peek_lsp = application.lsp.take().unwrap();
+    wait_for(
+        application,
+        &context,
+        "peek-textual-without-lsp",
+        |application| {
+            paint(application, Vec::new());
+            application
+                .editor_highlights
+                .current_request(egui::ViewportId::ROOT)
+                .is_some_and(|request| request.source == preview)
+                && application
+                    .editor_highlights
+                    .display(
+                        &application.store,
+                        egui::ViewportId::ROOT,
+                        preview,
+                        application.editor_highlight_colors,
+                    )
+                    .is_some_and(|display| display.layer.items().len() == 2)
+        },
+    );
+    let textual_peek_request = application
+        .editor_highlights
+        .current_request(egui::ViewportId::ROOT)
+        .unwrap();
+    assert_eq!(textual_peek_request.owner, view);
+    assert_eq!(textual_peek_request.snapshot.id, peek_document);
+    assert!(!application.editor_highlights.has_highlights(
+        &application.store,
+        egui::ViewportId::ROOT,
+        view
+    ));
+    let textual_peek_paint = paint(application, Vec::new());
+    assert!(
+        textual_peek_paint
+            .shapes
+            .iter()
+            .any(|shape| match &shape.shape {
+                egui::Shape::Rect(rect) => backgrounds.contains(&rect.fill),
+                egui::Shape::Text(text) => text
+                    .galley
+                    .job
+                    .sections
+                    .iter()
+                    .any(|section| backgrounds.contains(&section.format.background)),
+                _ => false,
+            }),
+        "actual peek paints textual highlights without LSP"
+    );
+    application.lsp = Some(suspended_peek_lsp);
+    wait_for(
+        application,
+        &context,
+        "peek-lsp-after-textual",
+        |application| {
+            paint(application, Vec::new());
+            application
+                .editor_highlights
+                .current_request(egui::ViewportId::ROOT)
+                .is_some_and(|request| {
+                    request.source == preview && request.token != textual_peek_request.token
+                })
+                && application
+                    .editor_highlights
+                    .display(
+                        &application.store,
+                        egui::ViewportId::ROOT,
+                        preview,
+                        application.editor_highlight_colors,
+                    )
+                    .is_some_and(|display| display.layer.items().len() == 6)
+        },
+    );
+    assert!(textual_peek_request.is_cancelled());
     let peek_edit_highlight_request = application
         .editor_highlights
         .current_request(egui::ViewportId::ROOT)
@@ -2355,6 +2430,63 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
         .key
         .tab
         .clone();
+    let suspended_lsp = application.lsp.take().unwrap();
+    wait_for(
+        application,
+        &context,
+        "readonly-textual-without-lsp",
+        |application| {
+            paint(application, Vec::new());
+            application.editor_highlights.has_highlights(
+                &application.store,
+                egui::ViewportId::ROOT,
+                destination_view,
+            )
+        },
+    );
+    let textual_request = application
+        .editor_highlights
+        .current_request(egui::ViewportId::ROOT)
+        .unwrap();
+    assert_eq!(textual_request.source, destination_view);
+    assert_eq!(
+        textual_request.snapshot.metadata.tier,
+        taide_model::file::FileSizeTier::Normal
+    );
+    assert!(textual_request.snapshot.metadata.read_only);
+    let textual_display = application
+        .editor_highlights
+        .display(
+            &application.store,
+            egui::ViewportId::ROOT,
+            destination_view,
+            application.editor_highlight_colors,
+        )
+        .unwrap();
+    assert_eq!(textual_display.layer.items().len(), 2);
+    assert!(
+        textual_display
+            .layer
+            .items()
+            .iter()
+            .all(|item| item.bytes == (0..5))
+    );
+    let textual_paint = paint(application, Vec::new());
+    assert!(
+        textual_paint.shapes.iter().any(|shape| match &shape.shape {
+            egui::Shape::Rect(rect) => backgrounds.contains(&rect.fill),
+            egui::Shape::Text(text) => text
+                .galley
+                .job
+                .sections
+                .iter()
+                .any(|section| backgrounds.contains(&section.format.background)),
+            _ => false,
+        }),
+        "actual readonly editor paints textual highlights without LSP"
+    );
+    assert!(!textual_request.is_cancelled());
+    application.lsp = Some(suspended_lsp);
     wait_for(
         application,
         &context,
@@ -2377,6 +2509,7 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
                 )
         },
     );
+    assert!(textual_request.is_cancelled());
     let closing_highlights = application
         .editor_highlights
         .current_request(egui::ViewportId::ROOT)

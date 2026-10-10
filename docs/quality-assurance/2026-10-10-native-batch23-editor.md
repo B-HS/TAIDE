@@ -146,3 +146,21 @@ highlights-peek-readonly-close-chord-diagnostic.log의 ChordStatus.pending 필�
 추가 원본 대조에서 `textualHighlightProvider.js`의 기본 단어 공급자가 누락된 것을 확인했습니다. 설치 Monaco는 LSP 제공자가 없어도 해당 언어의 단어를 얻어 대소문자 구분·기본 구분자에 따른 whole word 검색으로 Text 종류를 표시합니다. LSP의 유효한 빈/null(원본 adapter가 []로 변환) 결과는 대체 검색을 하지 않고, 모든 공급자의 실패/미지원은 기본 텍스트 공급자로 이어져야 합니다. 기본 검색의 999 결과 상한과 `wordHighlighter.js:670`의 20Mi UTF-16 단위/30만 줄 초과 게이트도 원본 근거이며 원본의 고정 모델 수명 버그는 강제 재현하지 않습니다. 현재 native는 공급자가 비면 닫고 있어 이 경로가 미구현입니다. 별도 구현/앱 연결·오래된 응답/취소 검증과 실제 공급자 교체, 배치 전체/실기 게이트가 남아 editor-51은 partial입니다.
 
 `highlight-tier-app-check-final.log`의 App inspection 전체 테스트 대상 컴파일은 exit 0·27.52초입니다. `highlight-tier-fmt-final.log`의 App fmt check와 `highlight-tier-audit-final.log`의 감사 재생성도 exit 0입니다. 감사는 599행/293근거 경로·유효 588행·완료 288·미완료 300이며 기능 전체 완성률로 환산하지 않습니다. App 외 크레이트/이전 Escape 및 실제 앱 성공의 근거를 재사용하되 이번의 20건과 중복 합산하거나 배치 전체 테스트 실행으로 확대하지 않습니다. 이번 frozen source·전체 manifest/lock 변경은 0이고 디스크는 540GiB·71%입니다. 보호 범위나 빌드 정리는 건드리지 않았습니다.
+
+## 기본 텍스트 공급자와 실제 앱 소비
+
+기준은 `f394f33d` 이후 수정입니다. 기존 FindQuery의 대소문자 구분·whole-word 리터럴 검색을 재사용하며 앱의 공개 MonacoFindPatternCompiler 경계만 참조합니다. 새 의존성이나 Editor/UI 구문·정규식 의존성을 추가하지 않았습니다. 언어별 기존 word_range로 찾을 단어를 얻고 기본 구분자·999 결과 상한·20Mi UTF-16 단위/30만 줄 초과 차단을 적용합니다. 원본처럼 리터럴 검색은 동기 소비하며 1초 검색 상한과 검색 전후 취소를 확인합니다. 실제 대형 문서 성능/프레임 게이트까지 통과했다고 확대하지 않습니다.
+
+LSP 공급자가 없거나 연결이 없으면 50ms 관찰 뒤 기본 Text 종류를 동일한 Entry/DecorationLayer/이동·mirror·취소 경계에서 소비합니다. 프로젝트가 없는 Consumer를 가짜 ProjectId로 표현하지 않고 Context/Request의 프로젝트를 Option으로 나타냅니다. LSP 요청은 실제 프로젝트에만 연결합니다. 유효한 provider의 빈/null 결과는 보존하고 모든 공급자의 실패·미지원/제출 실패는 기본 검색으로 대체합니다. IME·선택/문서/등급·소유·공급자 변경과 종료의 기존 만료 조건은 유지합니다.
+
+- `textual-consumer-repro.log`: 서버가 없는 Consumer에서 요청조차 남지 않는 실패 0통과·1실패·exit 101·0.03초입니다.
+- `textual-state-child-final.log`: 앱 전용 구문 크레이트의 비공개 모듈을 경유한 참조의 컴파일 오류입니다. 실제 공개 root export로 수정했습니다.
+- `textual-state-child-api-final.log`: 앱에 직접 없는 ropey 경로를 검사에서 참조한 컴파일 오류입니다. 저장된 Rope의 기존 메서드를 사용했고 의존성을 추가하지 않았습니다. 두 컴파일 실패를 제품 성공/재현으로 합산하지 않습니다.
+- `textual-state-child-verified.log`: peek/mirror 추가 전 상태/child 23건 통과·exit 0·5.90초입니다. 서버/프로젝트 없는 소비와 이동, 대소문자·whole word·emoji 뒤 UTF-16 범위·999 상한·취소, UTF-16 길이/줄 수의 경계값과 유효한 빈/null 대비 오류/미지원 대체를 확인했습니다.
+- `textual-peek-mirror-state-child-final.log`: 최신 상태 20·실제 child 4건, 총 24건 통과·exit 0·6.17초입니다. 기본 공급자의 별도 peek 문서/owner 분리, 같은 문서 mirror 표시 공유·각 선택의 독립성·이동·뷰 닫기 취소를 추가했습니다.
+
+`textual-actual-app-final.log`는 Root 기본 공급자 추가 시 실제 앱 1건 통과·exit 0·5.69초입니다. `textual-peek-readonly-actual-app-final.log`는 최신 실제 앱 1건 통과·exit 0·6.22초입니다. 앱의 주입된 LSP 경계를 임시로 보관해 None으로 둔 상태에서 실제 peek 및 Normal/read_only 본문의 기본 단어 표시·DecorationLayer와 그려진 shape를 확인합니다. 동일한 bridge를 복원하면 기본 요청 watch가 취소되고 실제 서버의 종류별 결과로 전환됩니다. 기존 peek 이동/trigger/입력·닫기, Escape 연계, readonly 명령·입력 거절·정상 종료 회수도 포함합니다. 이는 실제 OS 합성 입력이나 사용자 앱/데이터 변경이 아닌 내부 egui RawInput·소유 임시 데이터 검증입니다.
+
+최신 직접 성공은 서로 다른 25건입니다. 이전 23건/앱 성공과 중복 합산하지 않습니다. None→연결 복원의 실제 소비 전환과 서버의 실제 재시작/세대·동적 capability 변경 검증을 구분합니다. 후자 및 배치 전체/실기 게이트가 남아 editor-51은 partial입니다. 이번 Cargo/fmt는 앞 프로세스 종료 뒤 직렬로 실행했습니다.
+
+`textual-app-check-final.log`의 App inspection 전체 테스트 대상 컴파일은 exit 0·27.35초이며 `textual-fmt-final.log`의 App fmt check도 exit 0입니다. `textual-audit-final.log`는 599행/295근거 경로·유효 588행·완료 288·미완료 300으로 재생성했습니다. 원본 찾기/앱 전용 compiler의 실제 재사용 경로를 근거에 추가했습니다. frozen source·전체 manifest/lock 변경은 0이며 App 밖 변경 없는 성공은 재사용합니다. 배치 전체 `--no-fail-fast` 실행은 아직 아닙니다. 디스크는 539GiB·71%이고 보호 범위 변경이나 빌드 정리를 하지 않았습니다.
