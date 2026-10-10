@@ -41,6 +41,7 @@ struct MockServer {
     folding: Option<&'static str>,
     held_fold: Option<Value>,
     highlights: Option<&'static str>,
+    has_registered_highlight_revision: bool,
     locations: Option<&'static str>,
     held_location: Option<Value>,
     documentation: Option<&'static str>,
@@ -169,7 +170,9 @@ impl MockServer {
             return Ok(None);
         }
         if message.get("method").is_none()
-            && (self.should_send_client_requests || self.has_dynamic_registration)
+            && (self.should_send_client_requests
+                || self.has_dynamic_registration
+                || self.highlights == Some("dynamic"))
         {
             if message.get("id").is_none()
                 || message.get("result").is_some() == message.get("error").is_some()
@@ -1019,6 +1022,13 @@ impl MockServer {
                 let mode = self
                     .highlights
                     .ok_or_else(|| invalid("highlights are not advertised"))?;
+                if mode == "crash"
+                    && current["text"]
+                        .as_str()
+                        .is_some_and(|text| text.starts_with("crash "))
+                {
+                    return Ok(Some(ExitCode::from(CRASH_EXIT_CODE)));
+                }
                 if mode == "wait" {
                     write_document_diagnostic(
                         output,
@@ -1052,6 +1062,13 @@ impl MockServer {
                     ]),
                 };
                 write_response(output, id, result)?;
+                if mode == "dynamic" && !self.has_registered_highlight_revision {
+                    self.has_registered_highlight_revision = true;
+                    write_payload(
+                        output,
+                        &json!({"jsonrpc":"2.0","id":"highlights-register","method":"client/registerCapability","params":{"registrations":[{"id":"dynamic-highlights-revision","method":"textDocument/completion","registerOptions":{"documentSelector":[{"language":"rust","scheme":"file","pattern":"**/*.rs"}]}}]}}),
+                    )?;
+                }
             }
             "textDocument/documentSymbol" => {
                 let current = self
@@ -1158,6 +1175,12 @@ impl MockServer {
                     .ok_or_else(|| invalid("full change requires text"))?;
                 current["version"] = json!(version);
                 current["text"] = json!(text);
+                if self.highlights == Some("dynamic") && text.starts_with("enable ") {
+                    write_payload(
+                        output,
+                        &json!({"jsonrpc":"2.0","id":"highlights-unregister","method":"client/unregisterCapability","params":{"unregisterations":[{"id":"dynamic-highlights-revision","method":"textDocument/completion"}]}}),
+                    )?;
+                }
                 if self.should_publish_inactive_diagnostics {
                     write_document_diagnostic(
                         output,
@@ -1395,7 +1418,9 @@ fn main() -> io::Result<ExitCode> {
             | "--native-highlights-error"
             | "--native-highlights-bad"
             | "--native-highlights-wait"
-            | "--native-highlights-unsupported"),
+            | "--native-highlights-unsupported"
+            | "--native-highlights-crash"
+            | "--native-highlights-dynamic"),
         ) => {
             server.should_track_saves = true;
             server.highlights = Some(match mode {
@@ -1406,6 +1431,8 @@ fn main() -> io::Result<ExitCode> {
                 "--native-highlights-bad" => "bad",
                 "--native-highlights-wait" => "wait",
                 "--native-highlights-unsupported" => "unsupported",
+                "--native-highlights-crash" => "crash",
+                "--native-highlights-dynamic" => "dynamic",
                 _ => "normal",
             });
         }

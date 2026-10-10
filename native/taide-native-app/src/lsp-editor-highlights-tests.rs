@@ -2,6 +2,8 @@ use super::*;
 use crate::editor_highlights::{Context, State};
 use std::time::Instant;
 use taide_model::ids::{PaneId, TabId};
+use taide_native_editor::document::{Edit, UndoGroup};
+use taide_native_editor::store::Transaction;
 use taide_native_editor::view::{Selection, SelectionSet, ViewKey};
 use tokio::sync::Notify;
 
@@ -9,6 +11,226 @@ const DEADLINE: Duration = Duration::from_secs(10);
 const DEBOUNCE: Duration = Duration::from_millis(50);
 const CARET_BYTE: usize = 13;
 const READY_DEADLINE: Duration = Duration::from_secs(5);
+const LIFECYCLE_HIGHLIGHTS: usize = 3;
+
+#[tokio::test]
+async fn highlight_lifecycle_실제_child의_재시작과_동적_등록_변경은_이전_요청을_만료하고_복구한다()
+{
+    for (mode, prefix) in [
+        ("--native-highlights-crash", "crash "),
+        ("--native-highlights-dynamic", ""),
+    ] {
+        let mut phase = "initialize";
+        tokio::time::timeout(DEADLINE, async {
+            let (fixture, project, mut store, id, bin) = document_symbol_tests::fixture(mode);
+            let view = store
+                .attach_view(
+                    ViewKey {
+                        window: "synthetic".into(),
+                        pane: PaneId::new(),
+                        tab: TabId::new(),
+                    },
+                    id,
+                )
+                .unwrap();
+            if !prefix.is_empty() {
+                store
+                    .apply(
+                        id,
+                        Transaction {
+                            revision: 0,
+                            edits: vec![Edit {
+                                bytes: 0..0,
+                                text: prefix.into(),
+                            }],
+                            group: UndoGroup(0),
+                            origin: Some(view),
+                            selection_after: None,
+                        },
+                    )
+                    .unwrap();
+            }
+            let caret = CARET_BYTE + prefix.len();
+            store
+                .set_view_state(
+                    view,
+                    SelectionSet {
+                        primary: 0,
+                        selections: vec![Selection {
+                            anchor: caret,
+                            head: caret,
+                        }],
+                    },
+                    Default::default(),
+                    Vec::new(),
+                )
+                .unwrap();
+            let snapshot = store.documents().snapshot(id).unwrap();
+            let signal = Arc::new(Notify::new());
+            let repaint = signal.clone();
+            let mut bridge = LspBridge::connect(
+                fixture.services.clone(),
+                bin,
+                Arc::new(move || repaint.notify_one()),
+            )
+            .unwrap();
+            bridge.sync(project.clone(), snapshot.clone()).unwrap();
+            running(&mut bridge, &signal, &fixture, 1).await;
+            phase = "initial providers";
+            let before = loop {
+                while let Some(reply) = bridge.poll() {
+                    if let Reply::Failed { error, .. } = reply {
+                        panic!("{mode}: {error}");
+                    }
+                }
+                let providers = bridge.highlight_providers(&project, &snapshot);
+                if !providers.is_empty() {
+                    break providers;
+                }
+                signal.notified().await;
+            };
+            let context = || Context {
+                project: Some(project.clone()),
+                source: view,
+                owner: view,
+                viewport: eframe::egui::ViewportId::ROOT,
+            };
+            let mut state = State::default();
+            let now = Instant::now();
+            state
+                .observe(&store, context(), before.clone(), now)
+                .unwrap();
+            let old = state
+                .observe(&store, context(), before.clone(), now + DEBOUNCE)
+                .unwrap()
+                .unwrap();
+            bridge.highlights(old.clone()).unwrap();
+            phase = "provider transition";
+            let is_restart = !prefix.is_empty();
+            let mut stale_result = None;
+            let changed = loop {
+                while let Some(reply) = bridge.poll() {
+                    match reply {
+                        Reply::Failed { error, .. } => panic!("{mode}: {error}"),
+                        Reply::Highlights { request, result } if request.token == old.token => {
+                            stale_result = Some(result);
+                        }
+                        _ => {}
+                    }
+                }
+                let current = bridge.highlight_providers(&project, &snapshot);
+                if !current.is_empty()
+                    && current != before
+                    && (is_restart || stale_result.is_some())
+                {
+                    break current;
+                }
+                signal.notified().await;
+            };
+            assert_eq!(
+                store.documents().snapshot(id).unwrap().revision,
+                snapshot.revision
+            );
+            state.reconcile(
+                &store,
+                |_| true,
+                |project, snapshot| bridge.highlight_providers(project, snapshot),
+            );
+            assert!(old.is_cancelled(), "{mode}");
+            assert!(!state.has_highlights(&store, eframe::egui::ViewportId::ROOT, view));
+            if let Some(result) = stale_result {
+                assert!(
+                    !state.accept(&store, &old, changed.clone(), result),
+                    "{mode}"
+                );
+            }
+            let replacement = if is_restart { "fresh " } else { "enable " };
+            store
+                .apply(
+                    id,
+                    Transaction {
+                        revision: snapshot.revision,
+                        edits: vec![Edit {
+                            bytes: 0..prefix.len(),
+                            text: replacement.into(),
+                        }],
+                        group: UndoGroup(snapshot.revision),
+                        origin: Some(view),
+                        selection_after: None,
+                    },
+                )
+                .unwrap();
+            let snapshot = store.documents().snapshot(id).unwrap();
+            bridge.sync(project.clone(), snapshot.clone()).unwrap();
+            phase = "fresh mirror";
+            loop {
+                if let Reply::Synced {
+                    document, revision, ..
+                } = next(&mut bridge, &signal).await
+                    && document == id
+                    && revision == snapshot.revision
+                {
+                    break;
+                }
+            }
+            phase = "restored providers";
+            let current = loop {
+                while bridge.poll().is_some() {}
+                let providers = bridge.highlight_providers(&project, &snapshot);
+                if !providers.is_empty() && (is_restart || providers != changed) {
+                    break providers;
+                }
+                signal.notified().await;
+            };
+            assert!(
+                current.iter().all(|provider| before.iter().any(|old| {
+                    old.owner == provider.owner
+                        && if is_restart {
+                            old.generation < provider.generation
+                        } else {
+                            old.generation == provider.generation
+                                && old.capability_revision < provider.capability_revision
+                        }
+                })),
+                "{mode}"
+            );
+            let now = Instant::now();
+            state
+                .observe(&store, context(), current.clone(), now)
+                .unwrap();
+            let request = state
+                .observe(&store, context(), current.clone(), now + DEBOUNCE)
+                .unwrap()
+                .unwrap();
+            assert_ne!(old.token, request.token);
+            bridge.highlights(request.clone()).unwrap();
+            phase = "fresh response";
+            loop {
+                if let Reply::Highlights {
+                    request: returned,
+                    result,
+                } = next(&mut bridge, &signal).await
+                {
+                    if returned.token != request.token {
+                        assert!(!state.accept(&store, &returned, current.clone(), result));
+                        continue;
+                    }
+                    let response = result.unwrap();
+                    assert!(current.contains(&response.provider.unwrap()));
+                    assert_eq!(response.highlights.len(), LIFECYCLE_HIGHLIGHTS);
+                    assert!(state.accept(&store, &returned, current.clone(), Ok(response)));
+                    assert!(state.has_highlights(&store, eframe::egui::ViewportId::ROOT, view));
+                    break;
+                }
+            }
+            bridge.disconnect().await.unwrap();
+            fixture.services.tasks.shutdown().await;
+            assert_eq!(fixture.services.tasks.tracked_count(), 0);
+        })
+        .await
+        .unwrap_or_else(|error| panic!("{mode}: {phase}: {error}"));
+    }
+}
 
 #[tokio::test]
 async fn highlight_tier_실제_child의_남은_공급자는_크기_등급_차단과_정상_복원을_우회하지_못한다() {

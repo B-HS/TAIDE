@@ -164,3 +164,20 @@ LSP 공급자가 없거나 연결이 없으면 50ms 관찰 뒤 기본 Text 종�
 최신 직접 성공은 서로 다른 25건입니다. 이전 23건/앱 성공과 중복 합산하지 않습니다. None→연결 복원의 실제 소비 전환과 서버의 실제 재시작/세대·동적 capability 변경 검증을 구분합니다. 후자 및 배치 전체/실기 게이트가 남아 editor-51은 partial입니다. 이번 Cargo/fmt는 앞 프로세스 종료 뒤 직렬로 실행했습니다.
 
 `textual-app-check-final.log`의 App inspection 전체 테스트 대상 컴파일은 exit 0·27.35초이며 `textual-fmt-final.log`의 App fmt check도 exit 0입니다. `textual-audit-final.log`는 599행/295근거 경로·유효 588행·완료 288·미완료 300으로 재생성했습니다. 원본 찾기/앱 전용 compiler의 실제 재사용 경로를 근거에 추가했습니다. frozen source·전체 manifest/lock 변경은 0이며 App 밖 변경 없는 성공은 재사용합니다. 배치 전체 `--no-fail-fast` 실행은 아직 아닙니다. 디스크는 539GiB·71%이고 보호 범위 변경이나 빌드 정리를 하지 않았습니다.
+
+## 실제 서버 재시작과 동적 capability 수명
+
+기준은 `9ab20583` 이후이며 제품 코드 변경 없이 기존 검증용 mock과 App 검사만 확장했습니다. `--native-highlights-crash`의 소유 child는 crash 접두사의 요청에서 기존 종료 코드를 반환하고 공용 SDK가 재시작합니다. 문서 revision을 바꾸기 전에 공급자 세대 변경만으로 이전 요청의 취소와 표시 회수를 확인하고, 새 mirror 동기화 뒤 실제 새 세대의 3종 결과만 적용합니다.
+
+`--native-highlights-dynamic`은 현재 앱이 광고하는 completion 동적 등록·해제를 이용해 하이라이트 공급자의 공용 capability revision을 변경합니다. 같은 문서 revision에서 이전 실제 응답의 소비를 거절하고, 등록 해제 후 새 capability revision의 실제 하이라이트와 정상 종료 task 0을 확인합니다. documentHighlight의 동적 등록 지원은 추가하지 않았습니다. 원본 TS의 register/unregister handler는 null로 답하고 앱 초기화도 해당 지원을 광고하지 않습니다. 현재 SDK의 `registration.rs`는 광고하지 않은 등록을 거절합니다. 이를 무시하거나 원본의 무처리를 강제로 재현하지 않았습니다.
+
+실행 로그 접두사는 `/private/tmp/taide-batch23-highlight-lifecycle-`입니다.
+
+- `mock-build.log`: 독립 prototype의 기존 lock 불일치로 `--locked` 빌드가 즉시 exit 101입니다. lock을 갱신하지 않고 App manifest의 기존 `native-lsp-mock` example을 사용했습니다. `app-mock-build.log`는 exit 0·18.53초, 최종 `corrected-mock-build.log`는 exit 0·1.89초입니다.
+- `selected.log`와 `phase.log`: 광고하지 않은 documentHighlight 동적 등록을 가정한 fixture로 0통과/1실패·exit 101입니다. 첫 실행은 11.29초, 단계 진단을 추가한 실행은 initial providers 대기·10.87초로 원인을 좁혔습니다. 제품 동작 실패로 합산하거나 제한 시간을 늘려 숨기지 않았습니다.
+- `corrected-selected.log`: `cargo test --lib highlight_lifecycle --manifest-path native/taide-native-app/Cargo.toml --locked --offline --features inspection --target-dir experiments/native-shell-spike/target -- --test-threads=1` 직접 실행은 1통과/0실패·exit 0·1.65초입니다. 하나의 검사 안에서 실제 재시작과 동적 등록·해제 두 사례를 각각 검증했습니다. 빌드는 12.39초입니다.
+- `fmt-check.log`와 `mock-fmt-check.log`: App fmt와 소유 mock의 edition 2024 format check는 각각 exit 0입니다. 기존 App 상태/child/실제 앱의 서로 다른 25건은 제품 경로와 기존 fixture 모드의 동작이 같아 재사용하며 새 성공에 중복 합산하지 않습니다. 전체 App 테스트 대상을 다시 실행한 것은 아닙니다.
+
+진척 점검에서 실제 JSON은 599행·완료 288/부분 93/미연결 112/미구현 95/제외 10/동결 1이며 대상 588·미완료 300입니다. 현재 미완료 ID의 배정 누락·중복은 0이며 최종 계획은 33입니다. 최근 8커밋 중 제품 변경은 서로 다른 6건이고 문서 변경은 2건입니다. 조회 중 짧게 보인 Cargo/rustc PID는 재조회 시 소멸했지만 소유 작업을 확인하지 못했으므로 이번 작업의 실행이나 전체 세션의 종료성을 증명한 결과로 확대하지 않습니다. 장시간 조사 프로세스·불필요한 재시도 이력은 기존 진척 감사에 보존합니다.
+
+원본 설정 최종 대조·나머지 배치 23 요구사항·배치 전체/실기 게이트는 남아 partial을 유지합니다. Cargo/fmt는 확인한 session 종료 뒤 직렬로 실행했습니다. frozen source·전체 manifest/lock 변경은 0이고 디스크는 537GiB·71%입니다. 보호 범위나 빌드 정리는 건드리지 않았습니다.

@@ -1,6 +1,6 @@
 {
     "date": "2026-10-10",
-    "baseline": "f394f33d",
+    "baseline": "9ab20583",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -2389,7 +2389,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-highlights",
-            "note": "LSP에 더해 원본 기본 텍스트 공급자를 기존 FindQuery와 표시/이동/취소 경계에 연결했습니다. 서버/프로젝트 없는 소비·Unicode/상한/모델 게이트·peek/mirror/readonly와 실제 앱의 기본↔LSP 전환을 포함한 25건이 통과했습니다. 실제 서버 재시작/세대·동적 capability 변경과 배치 전체/실기 게이트가 남아 partial입니다."
+            "note": "기본 텍스트/LSP 표시·이동·peek/mirror/readonly/tier의 기존 25건에 더해 실제 서버 재시작과 지원 기능의 동적 등록·해제를 새 검사 1건의 두 사례에서 확인했습니다. 문서 revision이 같은 이전 요청 취소·실제 응답 거절과 새 세대/capability revision의 mirror 응답·정상 종료가 통과했습니다. 원본 설정 최종 대조·배치 전체/실기 게이트가 남아 partial입니다."
         },
         {
             "id": "editor-52",

@@ -39,6 +39,8 @@ pub(super) fn fixture(mode: &str) -> (Fixture, ProjectId, EditorStore, DocumentI
             | "--native-highlights-bad"
             | "--native-highlights-wait"
             | "--native-highlights-unsupported"
+            | "--native-highlights-crash"
+            | "--native-highlights-dynamic"
             | "--native-completion"
             | "--native-completion-array"
             | "--native-completion-empty"
