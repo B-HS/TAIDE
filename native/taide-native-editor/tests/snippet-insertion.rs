@@ -22,6 +22,130 @@ const MATCHING_UNDO_GROUP: u64 = 1;
 const SESSION_INDENT_WIDTH: usize = BYTE_LIMIT * 3 / 4;
 const SESSION_CHOICE_WIDTH: usize = BYTE_LIMIT / 2;
 const SESSION_CURSOR_CHOICE_COUNT: usize = MARKER_LIMIT / 2 + 1;
+const FOLLOW_TAB_SIZE: u32 = 4;
+
+#[test]
+fn snippet_follow는_기본입력의_여러_revision과_unicode_mirror뒤_다음tabstop을_보존한다() {
+    let (mut store, document, view) = fixture("", false);
+    let owner = store.views().get(view).unwrap().clone();
+    let insertion = insert(
+        &mut store,
+        &owner,
+        0,
+        vec![prepared("${1:한}$1 ${2:next}$0", 0..0)],
+        limits(),
+    )
+    .unwrap();
+    let mut session = taide_native_editor::snippet_session::Session::new(
+        &store,
+        insertion,
+        taide_native_editor::indent::IndentOptions {
+            tab_size: FOLLOW_TAB_SIZE,
+            insert_spaces: true,
+        },
+        limits(),
+    )
+    .unwrap();
+    for text in ["😀", "a", "b"] {
+        taide_native_editor::editing::type_text(&mut store, view, text).unwrap();
+    }
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        "😀ab😀ab next"
+    );
+    assert!(session.synchronize(&store));
+    let decorations = session.decorations(&store).unwrap();
+    assert!(
+        decorations
+            .iter()
+            .any(|item| item.is_active && item.bytes == (0..6))
+    );
+    assert!(
+        decorations
+            .iter()
+            .any(|item| item.is_active && item.bytes == (6..12)),
+        "{decorations:?}"
+    );
+    assert!(
+        session
+            .step(&mut store, true, |_| Err(EditorError::Refused))
+            .unwrap()
+    );
+    assert_eq!(
+        store.views().get(view).unwrap().selection.selections,
+        [Selection {
+            anchor: 13,
+            head: 17
+        }]
+    );
+}
+
+#[test]
+fn snippet_follow는_활성placeholder_밖의_편집을_취소하고_문서변경을_되돌리지_않는다() {
+    let (mut store, document, view) = fixture("prefix ", false);
+    store
+        .set_view_state(
+            view,
+            SelectionSet {
+                primary: 0,
+                selections: vec![Selection { anchor: 7, head: 7 }],
+            },
+            ScrollPosition::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    let owner = store.views().get(view).unwrap().clone();
+    let insertion = insert(
+        &mut store,
+        &owner,
+        0,
+        vec![prepared("${1:name}$0", 7..7)],
+        limits(),
+    )
+    .unwrap();
+    let mut session = taide_native_editor::snippet_session::Session::new(
+        &store,
+        insertion,
+        taide_native_editor::indent::IndentOptions {
+            tab_size: FOLLOW_TAB_SIZE,
+            insert_spaces: true,
+        },
+        limits(),
+    )
+    .unwrap();
+    let revision = store.documents().snapshot(document).unwrap().revision;
+    store
+        .apply(
+            document,
+            Transaction {
+                revision,
+                edits: vec![Edit {
+                    bytes: 0..0,
+                    text: "!".into(),
+                }],
+                group: UndoGroup(0),
+                origin: None,
+                selection_after: None,
+            },
+        )
+        .unwrap();
+    assert!(!session.synchronize(&store));
+    assert!(!session.is_active());
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        "!prefix name"
+    );
+}
 
 fn limits() -> ParseLimits {
     ParseLimits {

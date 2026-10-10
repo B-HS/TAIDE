@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 use std::ops::Range;
 
+use crate::change_journal::ChangesSince;
 use crate::document::{
     DocumentId, DocumentSnapshot, Edit, EditorError, LineEnding, UndoGroup, byte_to_char,
 };
@@ -237,6 +238,49 @@ impl Session {
     }
 
     pub fn synchronize(&mut self, store: &EditorStore) -> bool {
+        let followed = (|| {
+            let state = self.state.as_ref().ok_or(EditorError::Refused)?;
+            let document = store.documents().snapshot(state.document)?;
+            if document.revision == state.revision {
+                return Ok(());
+            }
+            let ChangesSince::Tracked(changes) =
+                store.changes_since(state.document, state.revision)?
+            else {
+                return Err(EditorError::StaleRevision);
+            };
+            let mut next = state.clone();
+            for change in changes {
+                if next.revision != change.revision_before {
+                    return Err(EditorError::StaleRevision);
+                }
+                for span in change.spans.iter().rev() {
+                    let changed = span.start_utf16..span.old_end_utf16;
+                    let inside = next.snippets.iter().any(|snippet| {
+                        snippet.groups[snippet.active_group].iter().any(|index| {
+                            let placeholder = &snippet.placeholders[*index];
+                            placeholder.index != Index::FINAL
+                                && placeholder.units.start <= changed.start
+                                && placeholder.units.end >= changed.end
+                        })
+                    });
+                    if !inside {
+                        return Err(EditorError::InvalidBoundary);
+                    }
+                    next.map_units(changed, span.new_end_utf16 - span.start_utf16)?;
+                }
+                next.revision = change.revision_after;
+            }
+            if next.revision != document.revision {
+                return Err(EditorError::StaleRevision);
+            }
+            self.state = Some(next);
+            Ok::<(), EditorError>(())
+        })();
+        if followed.is_err() {
+            self.cancel();
+            return false;
+        }
         self.validate(store).is_ok()
     }
 
@@ -582,22 +626,39 @@ impl State {
                 .rope
                 .char_to_utf16_cu(byte_to_char(&document.rope, edit.bytes.end)?);
             let inserted = edit.text.encode_utf16().count();
-            for snippet in &mut self.snippets {
-                let mut active = BTreeSet::new();
-                for index in &snippet.groups[snippet.active_group] {
-                    active.insert(*index);
-                    active.extend(snippet.placeholders[*index].enclosing.iter().copied());
-                }
-                for (index, placeholder) in snippet.placeholders.iter_mut().enumerate() {
-                    let grow = placeholder.index != Index::FINAL && active.contains(&index);
-                    placeholder.units = map_utf16_range(
-                        placeholder.units.clone(),
-                        start..end,
-                        inserted,
-                        grow,
-                        false,
-                    )?;
-                }
+            self.map_units(start..end, inserted)?;
+        }
+        Ok(())
+    }
+
+    fn map_units(&mut self, changed: Range<usize>, inserted: usize) -> Result<(), EditorError> {
+        for snippet in &mut self.snippets {
+            let mut active = BTreeSet::new();
+            for index in &snippet.groups[snippet.active_group] {
+                active.insert(*index);
+                active.extend(snippet.placeholders[*index].enclosing.iter().copied());
+            }
+            let ending = snippet.groups[snippet.active_group].iter().any(|index| {
+                let placeholder = &snippet.placeholders[*index];
+                !placeholder.units.is_empty() && placeholder.units.end == changed.start
+            });
+            for (index, placeholder) in snippet.placeholders.iter_mut().enumerate() {
+                let adjoining = changed.is_empty()
+                    && ending
+                    && !placeholder.units.is_empty()
+                    && placeholder.units.start == changed.start;
+                let grow = placeholder.index != Index::FINAL
+                    && active.contains(&index)
+                    && placeholder.units.start <= changed.start
+                    && placeholder.units.end >= changed.end
+                    && !adjoining;
+                placeholder.units = map_utf16_range(
+                    placeholder.units.clone(),
+                    changed.clone(),
+                    inserted,
+                    grow,
+                    false,
+                )?;
             }
         }
         Ok(())

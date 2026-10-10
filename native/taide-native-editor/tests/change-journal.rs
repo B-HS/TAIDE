@@ -32,6 +32,27 @@ fn 문서_버전_목록은_복제_없이_id와_revision과_언어를_돌려준�
 }
 
 #[test]
+fn journal_utf16은_동시편집과_undo의_이전문서_좌표를_보존한다() {
+    let mut store = store();
+    let document = open(&mut store, "한😀tail");
+    apply(&mut store, document, vec![(0..3, "😀a"), (7..11, "한")], 0);
+    let sets = tracked(&store, document, 0);
+    let units = sets[0]
+        .spans
+        .iter()
+        .map(|span| (span.start_utf16, span.old_end_utf16, span.new_end_utf16))
+        .collect::<Vec<_>>();
+    assert_eq!(units, [(0, 1, 3), (3, 7, 4)]);
+    assert!(store.undo(document).unwrap());
+    let undo = tracked(&store, document, 1);
+    let span = &undo[0].spans[0];
+    assert_eq!(
+        (span.start_utf16, span.old_end_utf16, span.new_end_utf16),
+        (0, 6, 7)
+    );
+}
+
+#[test]
 fn 편집_뒤_저널_span은_실제_변경_범위와_줄_위치를_덮는다() {
     let mut store = store();
     let document = open(&mut store, "ab\ncd\nef");

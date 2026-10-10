@@ -31,3 +31,11 @@ Candidate.rebased와 Model.rebase는 기존 변경 journal과 장식 범위 추�
 cargo test --manifest-path native/taide-native-editor/Cargo.toml --locked --offline --target-dir experiments/native-shell-spike/target --test completion-model completion_rebase는 /private/tmp/taide-batch22-completion-rebase-tests.log에서 exit 0·2통과입니다. 한글/이모지 앞쪽 편집과 동시 입력·삭제, insert/replace의 접미사 범위, 줄 경계를 넘는 후보의 원자적 거절과 유실 journal을 검사했습니다. 앱 completion_cache-first.log의 실제 입력 후 목록 소멸 1실패를 먼저 재현했으며 앱 캐시의 안정된 표시 token·불완전 provider 재요청·늦은 응답 거절은 배치 22 QA에 별도 기록합니다. editor fmt exit 0이며 전체 대상 게이트는 아직 실행하지 않았습니다.
 
 선별 스테이징의 diff check가 TSV의 빈 마지막 강조 목록 필드 때문에 trailing whitespace를 보고했습니다. 빈 목록을 명시적인 none 필드로 직렬화하도록 원본 추출 도구와 검사 decoder를 함께 바꿔 8100표본을 재생성했고 전체 필터 검사 1건이 다시 통과했습니다. 검사기를 끄거나 의미 있는 구분자를 임의로 trim하지 않았습니다.
+
+## 기본 입력의 스니펫 추적
+
+snippet-default-input-first.log의 기본 입력 검사는 exit 101·1통과/1실패였으며 여러 revision의 한글/이모지 mirror 입력 뒤 세션이 만료됐습니다. journal span에 기존 바이트 좌표와 함께 이전 문서 기준 UTF-16 시작/기존 끝/삽입 끝을 기록하고 Session.synchronize가 활성 placeholder 안의 편집만 직렬 추적하도록 수정했습니다. 활성 범위 밖·유실 journal·문서/뷰/revision/선택/읽기 전용 경계는 세션을 취소하며 실제 문서 변경을 되돌리지 않습니다.
+
+후속 검사에서 인접 mirror의 두 번째 시작이 첫 번째 편집까지 늘어나는 실패를 관찰했습니다. snippet-default-input-boundary-diagnostic.log의 실제 범위는 0..6과 0..12였습니다. 같은 active 그룹이어도 편집을 포함하는 placeholder만 경계를 늘리고, 인접한 다음 placeholder 시작은 앞 placeholder 끝에서의 삽입을 따라 이동하도록 고쳤습니다. 내부 range mapper를 기본 입력과 기존 Session.replace/step이 함께 소비합니다.
+
+snippet-default-input-after-adjacent.log에서 --test change-journal의 13건은 모두 통과했습니다. 함께 실행한 스니펫 경계 검사 때문에 전체 명령은 exit 101이었으며 성공 종료로 확대하지 않습니다. 이후 실패 범위를 수정한 snippet-default-input-after-range-ownership.log의 --test snippet-insertion --test completion-insertion는 exit 0·7+5통과·0실패입니다. 모두 cargo test --manifest-path native/taide-native-editor/Cargo.toml --locked --offline --target-dir experiments/native-shell-spike/target로 직접 실행했습니다. 신규 검사는 journal UTF-16 동시 편집/undo 1건, 기본 입력의 여러 revision/Unicode mirror/tabstop과 활성 영역 밖 취소 2건입니다. 실제 앱 세션/choice/nested 수락과 화면 연결은 후속 범위입니다.
