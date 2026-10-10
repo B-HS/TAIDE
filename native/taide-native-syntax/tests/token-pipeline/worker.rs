@@ -127,6 +127,74 @@ fn worker_작업은_다른_스레드로_넘길_수_있다() {
 }
 
 #[test]
+fn 준비_요청은_같은_세대의_다른_설정을_구분하고_표시_작업의_엔진을_보존한다() {
+    use taide_native_editor::syntax::TokenKind;
+    let theme = token_theme(&dark_theme());
+    let limits = TokenizerLimits::default();
+    let (client, worker) = spawn_worker();
+    client
+        .send(configuration(FIRST_GENERATION, &["json"], &theme, limits))
+        .unwrap();
+    assert!(configured(&client, &worker).1.is_ok());
+    let preparer = client.token_preparer(
+        WorkerConfiguration {
+            generation: FIRST_GENERATION,
+            language_ids: vec!["rust".into()],
+            theme: theme.clone(),
+            limits,
+        },
+        Vec::new(),
+    );
+    let mut store = store();
+    let rust = open(&mut store, "/synthetic/prepare.rs", "rust", RUST_LINE);
+    let snapshot = snapshot(&store, rust);
+    let prepared = preparer
+        .prepare(&snapshot, 0..snapshot.rope.len_lines())
+        .unwrap();
+    assert!(
+        prepared.lines[0]
+            .iter()
+            .any(|token| token.kind == TokenKind::String)
+    );
+    assert!(
+        preparer
+            .prepare(&snapshot, 0..snapshot.rope.len_lines() + 1)
+            .is_err()
+    );
+    let json = open(
+        &mut store,
+        "/synthetic/preserved.json",
+        "json",
+        "{\"value\":\"text\"}",
+    );
+    let current = crate::support::snapshot(&store, json);
+    let mut tokens = DocumentTokens::new(current.rope.len_lines());
+    client
+        .send(WorkerRequest::Tokenize(Box::new(job(
+            1,
+            FIRST_GENERATION,
+            current,
+            &mut tokens,
+        ))))
+        .unwrap();
+    let response = batch(&client, &worker);
+    assert!(
+        response.lines[0]
+            .kinds
+            .iter()
+            .any(|token| token.kind == TokenKind::String)
+    );
+    assert!(response.is_finished);
+    drop(client);
+    worker.finished.recv_timeout(TIMEOUT).unwrap();
+    assert!(
+        preparer
+            .prepare(&snapshot, 0..snapshot.rope.len_lines())
+            .is_err()
+    );
+}
+
+#[test]
 fn 설정에_성공하면_스타일_표를_돌려주고_실패한_설정은_이전_엔진을_남긴다() {
     let theme = token_theme(&dark_theme());
     let limits = TokenizerLimits::default();

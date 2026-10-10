@@ -80,6 +80,9 @@ pub fn run_command_with_language(
         let Some(language) = language else {
             return Ok(false);
         };
+        if language.rules.indent_metadata("").is_none() {
+            return Ok(false);
+        }
         language.syntax.follow_edits(store);
         let ranges = if command == Command::ReindentLines {
             vec![0..document.rope.len_lines()]
@@ -98,6 +101,13 @@ pub fn run_command_with_language(
                     first.saturating_sub(1)..last + 1
                 })
                 .collect()
+        };
+        let required = ranges.iter().map(|range| range.start).min().unwrap_or(0)
+            ..ranges.iter().map(|range| range.end).max().unwrap_or(0);
+        let prepared = language.syntax.prepare_tokens(&document, required)?;
+        let language = Language {
+            rules: language.rules,
+            syntax: prepared.as_ref().map_or(language.syntax, |tokens| tokens),
         };
         let mut plan = Plan::new(&current.selection);
         for range in ranges {

@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: 배치 23 editor-30의 전체/선택 재들여쓰기를 기존 편집 큐·본문/peek·팔레트/재지정 키에 연결했습니다. 문자열/주석/정규식 토큰과 탭 저장 용량의 실패를 재현해 수정했고 Core 19·Syntax 1·UI 12·App 21, 서로 다른 관련 53건이 통과했습니다. 원본 비교 2760사례는 Syntax 검사 1건에 포함되며 별도 테스트 수로 더하지 않습니다. 구문 토큰이 아직 준비되지 않은 실제 앱 경로·수동 폭/방식 QuickPick·탭 표시 폭/들여쓰기 폭 분리·실제 LSP 포맷 요청 값과 전체 게이트가 남아 editor-30은 partial입니다. frozen host 테스트 대상·Wasm canvas/inspection lib 컴파일과 변경 네 크레이트 fmt check를 확인했습니다. 588대상·288완료·300미완료·배치 23/최종 계획 33이며 전체 전환율/잔여 시간은 미산정입니다. main 직접 수행·서브에이전트/workflow 없음·Cargo/fmt 직렬·frozen/manifest/lock 변경 0·디스크 530GiB/72%입니다. 종료된 성공 검사는 재사용하고 검증된 변경 단위를 선별 커밋·일반 푸시합니다.
+현재 상태: 배치 23의 재들여쓰기에서 실제 미준비 구문이 문자열을 바꾸는 실패를 재현하고 본문/peek의 필요한 토큰을 기존 워커로 준비하도록 수정했습니다. Core 19·Syntax 25·App 40의 서로 다른 84건이 통과했으며 초기 필터의 0건 실행은 제외했습니다. selected·부분 캐시·첫 peek·readonly·언어 변경·워커 종료와 기존 구문/명령 소비 회귀를 확인했습니다. 동결 host/Wasm 컴파일·Core/Syntax/App fmt와 frozen/manifest/lock 변경 0·디스크 528GiB/72%입니다. 수동 폭/방식 QuickPick·tabSize/indentSize 분리·실제 LSP 포맷 값·내장 언어 서비스와 전체 게이트는 남아 editor-30 partial을 유지합니다. 588대상·288완료·300미완료·배치 23/최종 33이며 전체 전환율/잔여 시간은 미산정입니다. main 직접 수행·서브에이전트/workflow 없음·Cargo/fmt 직렬을 유지하며 검증한 변경을 선별 커밋·일반 푸시합니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 
@@ -23,6 +23,7 @@
 - [x] b2b. 변환·명시 감지 명령 — 원본 indentationToSpaces/indentationToTabs/detectIndentation을 readonly 게이팅·기존 팔레트/재지정 키·본문/peek에 연결했습니다. 선행 공백만 변환하며 같은 프레임/다음 큐의 최신 옵션·주 선택/undo·용량/readonly 거절·EditorConfig 명시 override를 관련 Core 13·UI 94·App 21의 128건에서 확인했습니다. 미리보기의 이전 revision 기대값 두 곳을 놓친 재검사 실패는 QA에 보존하며 수동 폭/방식 QuickPick·reindent·실제 포맷 요청 값과 전체 게이트는 b2/f에 남깁니다.
 - [ ] b2c. 전체/선택 재들여쓰기 — 설치 Monaco indentation의 첫 줄 기준·선택 끝의 첫 열 제외·언어 규칙/토큰·문자열 줄 보존을 기존 core/앱 명령 경계에 연결합니다. 원본 비교와 다중 선택/undo·readonly/용량 거절, 본문/peek의 실제 소비를 확인하고 관련 검사만 실행합니다. 수동 설정에서 탭 표시 폭과 들여쓰기 폭을 분리하는 모델 보완·QuickPick과 실제 포맷 요청 값은 b2에 유지합니다.
 - [x] b2c1. Core·명령 큐·본문/peek 연결 — 전체/선택 범위와 첫 기준 줄·무시/임시 들여쓰기·정확한 String/Comment/Regex 토큰·다중 선택/mirror/undo·readonly/용량 거절을 확인했습니다. 원본 23언어·2760사례는 규칙이 없는 언어의 no-op을 포함하며 실제 텍스트 변화는 Ruby/Elixir 81사례입니다. Core 19·Syntax 1·UI 12·App 21의 53건과 동결 host/Wasm 컴파일·네 크레이트 fmt가 통과했습니다. 실제 앱의 구문 토큰 미준비/부분 준비와 독립 tabSize/indentSize는 b2c/b2에 남기며 전체 기능이나 배치 완료로 올리지 않습니다.
+- [x] b2c2. 실제 구문 준비 — 실제 TextMate 워커의 준비 완료/미준비/undo 뒤 부분 캐시·오래된 peek·스타일 없는 최초 peek를 비교했습니다. 문자열 손상을 실패 재현한 뒤 기존 워커/동일 엔진의 동기 준비 경계를 연결했고 selected·readonly·언어 교체·보관한 Weak 포트의 정상 종료를 포함한 관련 Core 19·Syntax 25·App 40의 84건이 통과했습니다. 동결 컴파일·세 크레이트 fmt와 의존 경계를 확인했으며 내장 언어 서비스/독립 두 폭/수동 설정/실제 포맷/대형 성능·전체 게이트는 b2/c/f에 유지합니다.
 - [ ] c. 명령·LSP·언어 서비스 — editor-32/33/34/46/47/49/50/51/52/53/56/57/58의 format on type/paste·메뉴/키·rename/code action/format/inlay/highlight/selection/lens/relay·내장 언어 서비스·파일 간 opener를 실제 공급/취소/소유/편집 트랜잭션에 연결합니다.
 - [x] c1. 하이라이트 공급·표시 — 설치 SDK typed API와 기존 LspBridge worker·App 상태/본문·peek 장식을 연결했습니다. 오래된 응답/편집/뷰 회수/공급자 변경·재요청 억제·종류/테마·mirror와 실제 child의 UTF-16/빈/null/오류/미지원/취소·실제 앱 본문 그리기가 관련 11건에서 통과했습니다. 초기 컴파일 오류·sRGB 색 공간 오류·테스트 서버 초기화 모드 누락을 해결한 근거를 QA에 보존했습니다. 후속 이동·실행 검증은 a2에 기록하며 실제 peek 시작·추가 경계와 전체 게이트 전에는 complete로 올리지 않습니다.
 - [ ] d. 문서·뷰·연계 — editor-59/64/67/72/73/74/75/76/81/82/83의 로딩/오류·삭제 draft·뷰 상태 복원·Markdown 분할·Git gutter/conflict/blame/diff·SearchEditor·터미널 실행·IDE 선택 동기화를 기존 서비스에 연결합니다.
@@ -30,7 +31,7 @@
 - [ ] f. 실제 앱·전체 게이트 — 닫을 기능의 실제 앱/child/mirror·readonly/tier/다중 커서/IME·정상 종료/회귀를 확인하고 변경 크레이트 전체 대상을 --no-fail-fast로 직접 1회 실행합니다. 성공 결과는 재사용하고 실패 영향만 재검사합니다. frozen host/Wasm compile·fmt/diff·manifest/lock/engine/보호 경계·디스크와 배치 31 실기/성능/신뢰성 부채를 구분합니다.
 - [ ] g. 완료 근거·선별 Git — 실제 닫힌 ID만 QA/기능표/PROCESS에 반영하고 논리 단위 선별 커밋·일반 푸시합니다. 배치 24를 기존 계획 안에서 이어가며 배치 번호를 세부 수정마다 늘리지 않습니다.
 
-다음 행동: b2c의 실제 앱 구문 토큰 미준비/부분 준비 경로를 설치 Monaco의 토큰 처리와 대조해 필요한 실패를 먼저 재현합니다. 이어서 b2의 수동 폭/방식 QuickPick·tabSize/indentSize 모델 분리와 실제 포맷 요청 값을 연결합니다. 닫힌 a3/b1/b2a/b2b/b2c1 검사는 같은 상태에서 반복하지 않으며 배치 23의 나머지 요구사항과 전체 게이트를 계속합니다.
+다음 행동: b2의 수동 들여쓰기 폭/방식과 tabSize/indentSize 분리를 원본 QuickPick·모델 옵션 및 기존 native 팔레트/문서/입력 경계로 연결합니다. 실제 포맷 요청 값과 내장 언어 서비스·나머지 배치 23 요구사항을 이어갑니다. 닫힌 a3/b1/b2a/b2b/b2c1/b2c2 검사는 같은 상태에서 반복하지 않습니다.
 
 ## 완료: 배치 22 — 자동완성과 사용자 스니펫 소비 (2026-10-10)
 

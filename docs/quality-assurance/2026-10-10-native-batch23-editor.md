@@ -277,3 +277,27 @@ Core는 정확한 토큰을 받아 String으로 시작하는 줄을 보존하고
 이번 단위의 서로 다른 직접 성공은 Core 19·Syntax 1·UI 12·App 21, 총 53건입니다. 2760비교 사례를 테스트 수에 더하지 않습니다. native manifest/lock/동결 경로 변경은 0이며 디스크는 530GiB·72%입니다. 마지막 프로세스 조회에 남은 Cargo 58182는 `development/R-BMS`의 `cargo test --workspace`였고 TAIDE 작업이 아니었습니다. 현재 TAIDE Cargo/rustc/rustfmt/Bun 조사 프로세스는 없으며 재실행 없이 끝난 로그를 회수했습니다. 이 관찰을 전체 세션의 종료성 증명으로 확대하지 않습니다.
 
 실제 앱의 아직 준비되지 않거나 부분 준비된 구문 캐시 처리, tabSize/indentSize 분리·수동 폭/방식 QuickPick·실제 LSP 포맷 요청 값, 나머지 배치 23과 전체 실기/성능/출시 게이트는 미완료입니다. `SyntaxLease::accurate_tokens`는 준비된 캐시만 읽고 Monaco의 `doesLineStartWithString`도 cheap-tokenization 조건을 사용하므로 이 경로는 실제 상태로 대조해야 합니다. editor-30은 partial이며 요구사항 행 판정 288완료/588대상·300미완료를 전체 전환율/잔여 시간으로 환산하지 않습니다. 최종 배치 계획은 33을 유지합니다.
+
+## 재들여쓰기의 미준비/부분 준비 구문
+
+기준은 `ec8504ad` 이후입니다. 설치 Monaco의 `indentationLineProcessor.js:149`는 규칙 평가 전에 해당 줄의 `forceTokenization`을 호출합니다. `doesLineStartWithString`의 cheap 조건만 확인하고 준비된 캐시를 읽는 것으로는 이 계약을 만족하지 않습니다. 실제 앱의 TextMate 워커를 쓰는 준비된 Ruby heredoc과 미준비 문서를 비교해 문자열 내부에 공백을 삽입하는 제품 실패를 재현했습니다.
+
+Core의 LineSyntax에 준비 경계를 추가하고 재들여쓰기의 전체/선택 범위에 필요한 토큰을 한 번 준비합니다. 기본 구현은 기존의 토큰 공급자를 그대로 사용하며 Core/UI에 엔진 의존성을 추가하지 않았습니다. 앱의 SyntaxLease와 PeekTokens는 필요한 캐시가 정확하면 재사용하고, 아니면 현재 설정·문서 스냅샷·줄 범위를 기존 구문 워커에 전달합니다. 워커는 필요한 범위의 앞선 문법 상태부터 같은 ferriki/ferroni 엔진으로 평가하고 TokenKind만 돌려줍니다. 현재 엔진의 설정 전체와 플러그인 문법이 같으면 재사용하고 다르면 요청의 설정/문법으로 별도 엔진을 준비하여 진행 중인 표시 작업의 상태나 세대를 덮어쓰지 않습니다. peek의 준비 포트 캐시도 동일한 설정 전체를 비교합니다.
+
+원본처럼 명령이 토큰 준비를 기다리는 동기 경계입니다. 이미 정확한 토큰은 다시 평가하지 않으며 문서의 토큰화 크기 예외를 보존합니다. 워커 종료/구문 평가 실패는 편집 전에 Refused로 거절하고 readonly는 준비 요청 전 ReadOnly로 거절합니다. 보관한 peek가 같은 문서의 이전 revision이면 현재 스냅샷을 준비하고 문서/언어가 달라졌으면 StaleRevision으로 거절합니다. 준비 포트는 요청 송신자의 Weak만 보관해 peek 캐시가 워커 종료를 막지 않습니다.
+
+최초 peek는 토큰/스타일이 모두 준비되기 전에도 명령 준비 포트를 갖습니다. 스타일이 아직 없으면 표시용 frame은 None이며 기존 기본 텍스트 표시를 사용합니다. 도움말 코드와 위치/hover 소비자는 이 선택적 frame을 사용하도록 맞췄습니다. 표시용 캐시를 정확한 문자열 토큰처럼 취급하는 우회는 하지 않았습니다.
+
+실행 로그 접두사는 `/private/tmp/taide-batch23-reindent-preparation-`입니다.
+
+- `repro.log`: App 실제 구문 워커 검사 0통과/1실패·exit 101·0.30초입니다. 준비된 문자열의 `if {`와 `TEXT`는 보존되지만 미준비 본문에서는 각각 공백 네 개가 붙었습니다.
+- `compile.log`: 선택적 frame으로 API를 바꾼 뒤 도움말 코드의 남은 소비자 네 곳에서 E0609로 컴파일에 실패했습니다. 도움말 코드의 map을 and_then으로 맞춘 뒤 `fixed.log`의 새 두 검사는 통과·exit 0·0.55초입니다. 이후 확장한 selected/readonly 사례를 포함한 최종 성공과 중복 합산하지 않습니다.
+- `app-syntax.log`: App 구문 관련 19건 통과·exit 0·1.32초입니다. 새 두 검사는 준비 완료 대비 미준비 본문/peek, undo 뒤 부분 캐시와 오래된 peek 스냅샷, 스타일 없는 최초 peek의 준비와 보관한 Weak 포트의 정상 종료를 확인합니다. 기존 문법/테마/플러그인·문서/표시/도움말 소비 회귀도 포함합니다. 최종 readonly/선택 범위 보완 뒤 `readonly-final.log`의 영향 두 검사는 통과·exit 0·0.80초/빌드 14.26초입니다. selected는 시작 범위 전의 heredoc 상태와 끝 첫 열 제외를 보존하며 no-op에서 문서/선택/undo를 바꾸지 않습니다. 워커 종료 후 Refused, readonly의 ReadOnly와 원문/옵션/선택 보존, 언어 교체 후 StaleRevision도 확인했습니다.
+- `pipeline.log`: Syntax의 워커·문서/플러그인/표시 우선순위·편집/취소/수렴 관련 23건 통과·exit 0·2.99초입니다. `core.log`는 Core language-typing 19건 통과·exit 0·0.00초입니다. `oracle-compile.log`는 필터가 실제 테스트 이름과 달라 0건 실행이므로 검사 성공으로 세지 않습니다. 올바른 필터의 `oracle.log`는 Syntax 1건/기존 2760비교 통과·exit 0·0.14초입니다.
+- `dispatch.log`와 `peek.log`는 App 큐 9·실제 preview Consumer 12건, 총 21건 통과·exit 0·0.78초/0.81초입니다. `frozen-host.log`는 host inspection 테스트 대상 컴파일 성공·9.36초이며 `frozen-wasm.log`는 canvas/inspection Wasm lib 컴파일 성공·3.10초입니다. Core/Syntax/App fmt check와 마지막 App 변경 뒤 fmt check도 직렬 session 종료/exit 0을 확인했습니다. frozen 테스트 실행이나 기존 Wasm 테스트 시간 타입 오류 해결로 확대하지 않습니다.
+
+최종 설정 전환 검사는 `native/taide-native-syntax/tests/token-pipeline/worker.rs`에 있습니다. `configuration-repro.log`는 세대 번호가 같지만 요청 언어 구성이 다른 경우 기존 JSON 엔진을 재사용해 Rust가 UnknownLanguage인 실제 실패 0통과/1실패·exit 101입니다. 세대 번호 대신 설정 전체/플러그인 문법을 비교한 `configuration-fixed.log`는 1건 통과·exit 0·0.01초입니다. 요청의 Rust 문자열 평가, 잘못된 범위 거절, 기존 JSON 표시 작업의 문자열 평가 보존, 포트 보관 중 종료와 종료 후 거절을 확인했습니다. `configuration-app-final.log`의 영향 두 앱 검사는 통과·exit 0·0.82초이며 Source/Core/기존 워커의 변경 없는 성공은 재사용합니다. 마지막 Syntax/App fmt와 session 91737의 exit 0도 확인했습니다. Core/UI/frozen 입력은 마지막 동결 검사 뒤 변경하지 않아 컴파일 성공을 재사용합니다.
+
+서로 다른 성공은 Core 19·Syntax 25·App 40, 총 84건입니다. 새 두 검사의 이전/최종 실행, oracle의 비교 사례, 이전 재들여쓰기 단위의 성공을 중복 합산하지 않습니다. Cargo/fmt는 한 번에 하나만 실행했습니다. native manifest/lock/frozen 경로 변경은 0이며 디스크는 528GiB·72%입니다. 보호 앱·실제 데이터·OS 설정·클립보드/Keychain/Trash를 건드리지 않았습니다.
+
+구문 준비 경계의 확인을 닫지만 tabSize/indentSize 분리·수동 폭/방식 QuickPick·실제 포맷 요청 값·내장 언어 서비스와 나머지 batch 23의 전체 게이트는 남아 editor-30은 partial입니다. 큰 문서/깊은 선택에서의 동기 준비 시간·프레임 성능과 줄 예산 초과 동작의 실제 성능 재현은 배치 31 게이트에 남깁니다. 원본 강제 토큰화와 단위 구문 검사를 전체 언어 서비스/성능/출시 완료로 대신하지 않습니다. 현재 288완료/588대상·미완료 300행, 배치 23/최종 33이며 전체 전환율/잔여 시간은 미산정입니다.

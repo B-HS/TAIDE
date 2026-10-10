@@ -12,7 +12,8 @@ use crate::requested_languages::{RequestedLanguages, is_bundled_language};
 use crate::textmate_tokenizer::TokenizerLimits;
 use crate::token_theme::TokenTheme;
 use crate::token_worker::{
-    PreviewJob, TokenizationJob, WorkerClient, WorkerConfiguration, WorkerRequest, WorkerResponse,
+    PreviewJob, TokenPreparer, TokenizationJob, WorkerClient, WorkerConfiguration, WorkerRequest,
+    WorkerResponse,
 };
 use crate::tokenizer::SyntaxError;
 
@@ -120,6 +121,26 @@ impl TokenPipeline {
         self.documents
             .get(&document)
             .map(|document| document.store.tokens())
+    }
+
+    pub fn token_preparer(&self) -> Option<TokenPreparer> {
+        let generation = if self.is_configuration_stale {
+            self.last_generation.checked_add(1)?
+        } else {
+            self.pending
+                .as_ref()
+                .map(|pending| pending.generation)
+                .or_else(|| self.active.as_ref().map(|active| active.generation))?
+        };
+        Some(self.client.as_ref()?.token_preparer(
+            WorkerConfiguration {
+                generation,
+                language_ids: self.languages.ids().to_vec(),
+                theme: self.theme.clone()?,
+                limits: self.limits,
+            },
+            self.plugin_grammars.clone(),
+        ))
     }
 
     pub fn contains(&self, document: DocumentId) -> bool {

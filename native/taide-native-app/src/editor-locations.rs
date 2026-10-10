@@ -1298,7 +1298,7 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
                                 && tokens.revision == document.revision
                                 && tokens.language_id == document.metadata.language_id
                         })
-                        .map(|tokens| tokens.frame());
+                        .and_then(|tokens| tokens.frame());
                     for (offset, line) in lines.iter().enumerate() {
                         let indent = if indent <= line.len() && line.is_char_boundary(indent) {
                             indent
@@ -1769,7 +1769,7 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
                     response.ctx.keyboard_input_route(response.id)
                 },
                 presentation: &presentation,
-                tokens: |_: &EditorStore| tokens.map(|tokens| tokens.frame()),
+                tokens: |_: &EditorStore| tokens.and_then(|tokens| tokens.frame()),
                 language,
                 decorations: &decorations,
                 fold_commands: &fold_commands,

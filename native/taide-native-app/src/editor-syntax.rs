@@ -9,17 +9,17 @@ use taide_model::error::{AppError, AppResult};
 use taide_model::plugin::LoadedPlugin;
 use taide_model::theme::ResolvedTheme;
 use taide_native_editor::change_journal::ChangesSince;
-use taide_native_editor::document::{DocumentId, DocumentSnapshot};
+use taide_native_editor::document::{DocumentId, DocumentSnapshot, EditorError};
 use taide_native_editor::editing::line_content_range;
 use taide_native_editor::language_configuration::{
-    LanguageRules, LineSyntax, UntokenizedLines, token_kind_at,
+    LanguageRules, LineSyntax, PreparedTokens, UntokenizedLines, token_kind_at,
 };
 use taide_native_editor::save_cleanup::CleanupFlags;
 use taide_native_editor::store::{DocumentVersion, EditorStore};
 use taide_native_editor::syntax::{SyntaxSnapshot, Token, TokenKind};
 use taide_native_syntax::{
     LeadingTrailingDebounce, PluginGrammar, SPAN_FIELDS, THEME_REAPPLY_DEBOUNCE, TokenPipeline,
-    TokenTheme, WorkerClient, monaco_language, token_worker,
+    TokenPreparer, TokenTheme, WorkerClient, monaco_language, token_worker,
 };
 use taide_native_ui::editor_surface::EditorTokens;
 use taide_plugin::service::PluginStore;
@@ -50,20 +50,38 @@ pub(crate) struct PeekTokens {
     pub(crate) revision: u64,
     pub(crate) language_id: String,
     lines: taide_native_editor::line_tokens::LineTokens,
-    styles: taide_native_editor::line_tokens::TokenStyleTable,
+    styles: Option<taide_native_editor::line_tokens::TokenStyleTable>,
+    preparer: Option<TokenPreparer>,
 }
 
 impl PeekTokens {
-    pub(crate) fn frame(&self) -> EditorTokens<'_> {
-        EditorTokens {
+    pub(crate) fn frame(&self) -> Option<EditorTokens<'_>> {
+        Some(EditorTokens {
             revision: self.revision,
             lines: &self.lines,
-            styles: &self.styles,
-        }
+            styles: self.styles.as_ref()?,
+        })
     }
 }
 
 impl LineSyntax for PeekTokens {
+    fn prepare_tokens(
+        &self,
+        document: &DocumentSnapshot,
+        lines: Range<usize>,
+    ) -> Result<Option<PreparedTokens>, EditorError> {
+        if document.id != self.document || document.metadata.language_id != self.language_id {
+            return Err(EditorError::StaleRevision);
+        }
+        prepare_tokens(
+            document,
+            lines,
+            &self.lines,
+            document.revision == self.revision,
+            self.preparer.as_ref(),
+        )
+    }
+
     fn tokens(&self, document: &DocumentSnapshot, line: usize) -> Option<Vec<Token>> {
         if document.id != self.document
             || document.revision != self.revision
@@ -79,7 +97,7 @@ impl LineSyntax for PeekTokens {
         }
         let mut kinds: Vec<Token> = Vec::new();
         for [start_byte, style_id] in self.lines.spans(line).as_chunks::<SPAN_FIELDS>().0 {
-            let kind = self.styles.style(*style_id).kind;
+            let kind = self.styles.as_ref()?.style(*style_id).kind;
             if kinds.last().is_none_or(|previous| previous.kind != kind) {
                 kinds.push(Token {
                     start_byte: *start_byte as usize,
@@ -107,6 +125,30 @@ impl LineSyntax for PeekTokens {
                 token_kind_at(&tokens, byte_in_line)
             })
     }
+}
+
+fn prepare_tokens(
+    document: &DocumentSnapshot,
+    lines: Range<usize>,
+    tokens: &taide_native_editor::line_tokens::LineTokens,
+    is_current: bool,
+    preparer: Option<&TokenPreparer>,
+) -> Result<Option<PreparedTokens>, EditorError> {
+    if taide_native_syntax::is_too_large_for_tokenization(
+        document.rope.len_utf16_cu(),
+        document.rope.len_lines(),
+    ) || (is_current && lines.clone().all(|line| tokens.has_accurate_tokens(line)))
+    {
+        return Ok(None);
+    }
+    preparer
+        .ok_or(EditorError::Refused)?
+        .prepare(document, lines)
+        .map(Some)
+        .map_err(|error| {
+            log::warn!("native editor token preparation failed: {error:?}");
+            EditorError::Refused
+        })
 }
 
 async fn plugin_grammars(state: &AppState, store: &PluginStore) -> AppResult<PluginGrammarRead> {
@@ -184,6 +226,27 @@ impl<'a> SyntaxLease<'a> {
 }
 
 impl LineSyntax for SyntaxLease<'_> {
+    fn prepare_tokens(
+        &self,
+        document: &DocumentSnapshot,
+        lines: Range<usize>,
+    ) -> Result<Option<PreparedTokens>, EditorError> {
+        self.read(|syntax| {
+            syntax.pipeline.poll();
+            let Some(tokens) = syntax.pipeline.tokens(document.id) else {
+                return Ok(None);
+            };
+            prepare_tokens(
+                document,
+                lines,
+                tokens,
+                true,
+                syntax.pipeline.token_preparer().as_ref(),
+            )
+        })
+        .ok_or(EditorError::Refused)?
+    }
+
     fn follow_edits(&self, store: &EditorStore) {
         self.read(|syntax| syntax.catch_up(store, self.document));
     }
@@ -398,12 +461,15 @@ impl EditorSyntax {
         let revision = self.documents.get(&document)?.revision;
         let language_id = &self.documents.get(&document)?.language_id;
         let lines = self.pipeline.tokens(document)?;
-        let styles = self.pipeline.style_table()?;
+        let styles = self.pipeline.style_table().cloned();
+        let preparer = self.pipeline.token_preparer();
         if let Some(cached) = self.peek_tokens.get(&document).filter(|cached| {
             cached.revision == revision
                 && cached.language_id == *language_id
                 && cached.lines.generation() == lines.generation()
-                && cached.styles == *styles
+                && cached.styles == styles
+                && cached.preparer.as_ref().map(TokenPreparer::configuration)
+                    == preparer.as_ref().map(TokenPreparer::configuration)
         }) {
             return Some(cached.clone());
         }
@@ -412,7 +478,8 @@ impl EditorSyntax {
             revision,
             language_id: language_id.clone(),
             lines: lines.clone(),
-            styles: styles.clone(),
+            styles,
+            preparer,
         });
         self.peek_tokens.insert(document, tokens.clone());
         Some(tokens)

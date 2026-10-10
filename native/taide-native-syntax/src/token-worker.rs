@@ -1,11 +1,12 @@
 use std::collections::VecDeque;
 use std::ops::Range;
-use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use taide_native_editor::document::{DocumentId, DocumentSnapshot};
 use taide_native_editor::editing::line_content_range;
+use taide_native_editor::language_configuration::PreparedTokens;
 use taide_native_editor::line_tokens::TokenStyleTable;
 use taide_native_editor::syntax::{Token, TokenKind};
 
@@ -21,7 +22,7 @@ const MAX_SLICE_LINES: usize = 1024;
 
 pub type Wake = Arc<dyn Fn() + Send + Sync>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkerConfiguration {
     pub generation: u64,
     pub language_ids: Vec<String>,
@@ -46,11 +47,57 @@ pub struct PreviewJob {
     pub lines: Vec<String>,
 }
 
+pub struct Preparation {
+    pub configuration: WorkerConfiguration,
+    pub grammars: Vec<PluginGrammar>,
+    pub snapshot: DocumentSnapshot,
+    pub lines: Range<usize>,
+    pub answer: Sender<Result<PreparedTokens, SyntaxError>>,
+}
+
+#[derive(Clone)]
+pub struct TokenPreparer {
+    requests: Weak<Sender<WorkerRequest>>,
+    configuration: WorkerConfiguration,
+    grammars: Vec<PluginGrammar>,
+}
+
+impl TokenPreparer {
+    pub fn configuration(&self) -> (&WorkerConfiguration, &[PluginGrammar]) {
+        (&self.configuration, &self.grammars)
+    }
+
+    pub fn prepare(
+        &self,
+        snapshot: &DocumentSnapshot,
+        lines: Range<usize>,
+    ) -> Result<PreparedTokens, SyntaxError> {
+        let requests = self
+            .requests
+            .upgrade()
+            .ok_or_else(|| SyntaxError::Tokenization("Token worker is stopped".into()))?;
+        let (answer, response) = mpsc::channel();
+        requests
+            .send(WorkerRequest::Prepare(Box::new(Preparation {
+                configuration: self.configuration.clone(),
+                grammars: self.grammars.clone(),
+                snapshot: snapshot.clone(),
+                lines,
+                answer,
+            })))
+            .map_err(|_| SyntaxError::Tokenization("Token worker is stopped".into()))?;
+        response.recv().map_err(|_| {
+            SyntaxError::Tokenization("Token worker stopped during preparation".into())
+        })?
+    }
+}
+
 pub enum WorkerRequest {
     SetPluginGrammars(Vec<PluginGrammar>),
     Configure(Box<WorkerConfiguration>),
     Tokenize(Box<TokenizationJob>),
     Preview(Box<PreviewJob>),
+    Prepare(Box<Preparation>),
     Cancel {
         document: DocumentId,
     },
@@ -83,11 +130,22 @@ pub enum WorkerResponse {
 pub struct WorkerStopped;
 
 pub struct WorkerClient {
-    requests: Sender<WorkerRequest>,
+    requests: Arc<Sender<WorkerRequest>>,
     responses: Receiver<WorkerResponse>,
 }
 
 impl WorkerClient {
+    pub fn token_preparer(
+        &self,
+        configuration: WorkerConfiguration,
+        grammars: Vec<PluginGrammar>,
+    ) -> TokenPreparer {
+        TokenPreparer {
+            requests: Arc::downgrade(&self.requests),
+            configuration,
+            grammars,
+        }
+    }
     pub fn send(&self, request: WorkerRequest) -> Result<(), WorkerStopped> {
         self.requests.send(request).map_err(|_| WorkerStopped)
     }
@@ -112,7 +170,7 @@ pub fn token_worker(wake: Wake) -> (WorkerClient, WorkerTask) {
     let (response_sender, response_receiver) = mpsc::channel();
     (
         WorkerClient {
-            requests: request_sender,
+            requests: Arc::new(request_sender),
             responses: response_receiver,
         },
         WorkerTask {
@@ -166,10 +224,55 @@ impl WorkerTask {
 
 struct Engine {
     generation: u64,
+    configuration: WorkerConfiguration,
+    grammars: Vec<PluginGrammar>,
     tokenizer: TextmateTokenizer,
 }
 
 impl Engine {
+    fn prepare(
+        &mut self,
+        request: &Preparation,
+        text: &mut String,
+    ) -> Result<PreparedTokens, SyntaxError> {
+        if request.lines.start > request.lines.end
+            || request.lines.end > request.snapshot.rope.len_lines()
+        {
+            return Err(SyntaxError::Tokenization(
+                "Invalid token preparation range".into(),
+            ));
+        }
+        let mut state = None;
+        let mut lines = Vec::new();
+        for line in 0..request.lines.end {
+            text.clear();
+            text.extend(
+                request
+                    .snapshot
+                    .rope
+                    .byte_slice(line_content_range(&request.snapshot, line))
+                    .chunks(),
+            );
+            let tokens = self.tokenizer.try_tokenize_line(
+                &request.snapshot.metadata.language_id,
+                text,
+                state.as_ref(),
+            )?;
+            if tokens.is_stopped_early {
+                return Err(SyntaxError::Tokenization(
+                    "Token preparation exceeded the line budget".into(),
+                ));
+            }
+            state = Some(tokens.end_state);
+            if line >= request.lines.start {
+                lines.push(tokens.kinds);
+            }
+        }
+        Ok(PreparedTokens {
+            first_line: request.lines.start,
+            lines,
+        })
+    }
     fn new(
         configuration: &WorkerConfiguration,
         plugin_grammars: &[PluginGrammar],
@@ -192,6 +295,8 @@ impl Engine {
         Ok((
             Self {
                 generation: configuration.generation,
+                configuration: configuration.clone(),
+                grammars: plugin_grammars.to_vec(),
                 tokenizer,
             },
             style_table,
@@ -252,6 +357,18 @@ struct WorkerState {
 impl WorkerState {
     fn accept(&mut self, request: WorkerRequest) -> Option<WorkerResponse> {
         match request {
+            WorkerRequest::Prepare(request) => {
+                let result = match self.engine.as_mut().filter(|engine| {
+                    engine.configuration == request.configuration
+                        && engine.grammars == request.grammars
+                }) {
+                    Some(engine) => engine.prepare(&request, &mut self.line_text),
+                    None => Engine::new(&request.configuration, &request.grammars)
+                        .and_then(|(mut engine, _)| engine.prepare(&request, &mut self.line_text)),
+                };
+                drop(request.answer.send(result));
+                None
+            }
             WorkerRequest::SetPluginGrammars(plugin_grammars) => {
                 self.plugin_grammars = plugin_grammars;
                 None

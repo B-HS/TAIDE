@@ -122,7 +122,7 @@ impl Cache {
         appearance: &EditorAppearance,
     ) -> Option<LayoutJob> {
         let snippet = self.snippets.get(&self.key(language, text, fallback))?;
-        let tokens = snippet.tokens.as_ref().map(|tokens| tokens.frame());
+        let tokens = snippet.tokens.as_ref().and_then(|tokens| tokens.frame());
         let mut job = LayoutJob::default();
         for line_index in 0..snippet.snapshot.rope.len_lines() {
             if line_index > 0 {

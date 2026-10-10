@@ -37,6 +37,7 @@ const COMMENT_FOREGROUND_KEY: &str = "comment";
 const RUST_COMMENT_LINE: usize = 1;
 const RUST_STRING_LINE: usize = 2;
 const RUST_EMPTY_LINE: usize = 4;
+const REINDENT_WIDTH: u32 = 4;
 
 struct Harness {
     syntax: EditorSyntax,
@@ -162,6 +163,301 @@ fn store() -> EditorStore {
         max_document_bytes: DOCUMENT_BYTE_LIMIT,
     })
     .unwrap()
+}
+
+#[test]
+fn 재들여쓰기는_본문과_peek의_미준비_구문에서도_준비된_문자열_내용을_보존한다() {
+    use taide_native_editor::indent::{
+        Command, IndentConfiguration, IndentOptions, run_command_with_language,
+    };
+    use taide_native_editor::language_configuration::Language;
+
+    const SOURCE: &str = "if value\ntext = <<~TEXT\nif {\nTEXT\nwork\nend";
+    let configuration = IndentConfiguration {
+        defaults: IndentOptions {
+            tab_size: REINDENT_WIDTH,
+            insert_spaces: true,
+        },
+        detect_indentation: false,
+    };
+    let theme = theme("first", "#6a9955");
+    let now = Instant::now();
+    let mut harness = Harness::new();
+    let mut store = store();
+    let warm = open(&mut store, "/synthetic/warm.rb", "ruby", SOURCE);
+    let warm_view = attach(&mut store, warm);
+    harness.settle(&store, &theme, now);
+    let rules = language_rules("ruby").unwrap();
+    let lease = SyntaxLease::new(&mut harness.syntax, warm);
+    assert!(
+        run_command_with_language(
+            &mut store,
+            warm_view,
+            Command::ReindentLines,
+            configuration,
+            Some(Language {
+                rules,
+                syntax: &lease
+            })
+        )
+        .unwrap()
+    );
+    drop(lease);
+    let expected = store.documents().snapshot(warm).unwrap().rope.to_string();
+    assert!(expected.contains("\nif {\nTEXT\n"), "{expected}");
+    for peek in [false, true] {
+        let path = if peek {
+            "/synthetic/peek.rb"
+        } else {
+            "/synthetic/cold.rb"
+        };
+        let document = open(&mut store, path, "ruby", SOURCE);
+        let view = attach(&mut store, document);
+        harness.syntax.follow_documents(&store);
+        assert_eq!(
+            harness
+                .syntax
+                .pipeline
+                .tokens(document)
+                .unwrap()
+                .first_invalid_line(),
+            Some(0)
+        );
+        let changed = if peek {
+            let tokens = harness.syntax.peek_tokens(&store, document).unwrap();
+            run_command_with_language(
+                &mut store,
+                view,
+                Command::ReindentLines,
+                configuration,
+                Some(Language {
+                    rules,
+                    syntax: tokens.as_ref(),
+                }),
+            )
+        } else {
+            let lease = SyntaxLease::new(&mut harness.syntax, document);
+            run_command_with_language(
+                &mut store,
+                view,
+                Command::ReindentLines,
+                configuration,
+                Some(Language {
+                    rules,
+                    syntax: &lease,
+                }),
+            )
+        };
+        assert_eq!(changed, Ok(true));
+        assert_eq!(
+            store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .rope
+                .to_string(),
+            expected,
+            "peek={peek}"
+        );
+        harness.settle(&store, &theme, now);
+        let retained = harness.syntax.peek_tokens(&store, document).unwrap();
+        assert!(store.undo(document).unwrap());
+        harness.syntax.catch_up(&store, document);
+        assert!(
+            harness
+                .syntax
+                .pipeline
+                .tokens(document)
+                .unwrap()
+                .first_invalid_line()
+                .is_some()
+        );
+        let changed = if peek {
+            run_command_with_language(
+                &mut store,
+                view,
+                Command::ReindentLines,
+                configuration,
+                Some(Language {
+                    rules,
+                    syntax: retained.as_ref(),
+                }),
+            )
+        } else {
+            let lease = SyntaxLease::new(&mut harness.syntax, document);
+            run_command_with_language(
+                &mut store,
+                view,
+                Command::ReindentLines,
+                configuration,
+                Some(Language {
+                    rules,
+                    syntax: &lease,
+                }),
+            )
+        };
+        assert_eq!(changed, Ok(true));
+        assert_eq!(
+            store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .rope
+                .to_string(),
+            expected,
+            "partial peek={peek}"
+        );
+    }
+    harness.syntax.disconnect();
+    harness.finished.recv_timeout(TIMEOUT).unwrap();
+}
+
+#[test]
+fn 재들여쓰기는_최초_peek의_구문을_준비하고_보관한_port가_워커_종료를_막지_않는다() {
+    use taide_native_editor::document::EditorError;
+    use taide_native_editor::indent::{
+        Command, IndentConfiguration, IndentOptions, run_command_with_language,
+    };
+    use taide_native_editor::language_configuration::Language;
+
+    const SOURCE: &str = "if value\ntext = <<~TEXT\nif {\nTEXT\nwork\nend";
+    const EXPECTED: &str = "if value\n    text = <<~TEXT\nif {\nTEXT\n    work\nend";
+    let mut harness = Harness::new();
+    let mut store = store();
+    let document = open(&mut store, "/synthetic/first.rb", "ruby", SOURCE);
+    let view = attach(&mut store, document);
+    harness
+        .syntax
+        .follow_theme(&theme("first", "#6a9955"), Instant::now());
+    harness.syntax.follow_documents(&store);
+    let tokens = harness.syntax.peek_tokens(&store, document).unwrap();
+    assert!(tokens.frame().is_none());
+    assert!(
+        run_command_with_language(
+            &mut store,
+            view,
+            Command::ReindentLines,
+            IndentConfiguration {
+                defaults: IndentOptions {
+                    tab_size: REINDENT_WIDTH,
+                    insert_spaces: true
+                },
+                detect_indentation: false,
+            },
+            Some(Language {
+                rules: language_rules("ruby").unwrap(),
+                syntax: tokens.as_ref()
+            })
+        )
+        .unwrap()
+    );
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        EXPECTED
+    );
+    assert!(store.undo(document).unwrap());
+    let current = store.views().get(view).unwrap().clone();
+    let selection = taide_native_editor::view::SelectionSet {
+        primary: 0,
+        selections: vec![taide_native_editor::view::Selection {
+            anchor: SOURCE.find("if {").unwrap(),
+            head: SOURCE.find("work").unwrap(),
+        }],
+    };
+    store
+        .set_view_state(view, selection.clone(), current.scroll, current.folds)
+        .unwrap();
+    assert!(
+        !run_command_with_language(
+            &mut store,
+            view,
+            Command::ReindentSelectedLines,
+            IndentConfiguration {
+                defaults: IndentOptions {
+                    tab_size: REINDENT_WIDTH,
+                    insert_spaces: true
+                },
+                detect_indentation: false,
+            },
+            Some(Language {
+                rules: language_rules("ruby").unwrap(),
+                syntax: tokens.as_ref()
+            })
+        )
+        .unwrap()
+    );
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        SOURCE
+    );
+    assert_eq!(store.views().get(view).unwrap().selection, selection);
+    assert!(!store.undo(document).unwrap());
+    harness.syntax.disconnect();
+    harness.finished.recv_timeout(TIMEOUT).unwrap();
+    let snapshot = store.documents().snapshot(document).unwrap();
+    assert!(matches!(
+        tokens.prepare_tokens(&snapshot, 0..snapshot.rope.len_lines()),
+        Err(EditorError::Refused)
+    ));
+    let mut readonly = file("/synthetic/first.rb", "ruby", SOURCE);
+    readonly.read_only = true;
+    store
+        .observe_file(
+            document,
+            std::path::Path::new("/synthetic/first.rb"),
+            readonly,
+        )
+        .unwrap();
+    let before = store.documents().snapshot(document).unwrap();
+    let selected = store.views().get(view).unwrap().selection.clone();
+    assert_eq!(
+        run_command_with_language(
+            &mut store,
+            view,
+            Command::ReindentLines,
+            IndentConfiguration {
+                defaults: IndentOptions {
+                    tab_size: REINDENT_WIDTH,
+                    insert_spaces: true
+                },
+                detect_indentation: false,
+            },
+            Some(Language {
+                rules: language_rules("ruby").unwrap(),
+                syntax: tokens.as_ref()
+            })
+        ),
+        Err(EditorError::ReadOnly)
+    );
+    let after = store.documents().snapshot(document).unwrap();
+    assert_eq!(after.rope, before.rope);
+    assert_eq!(after.revision, before.revision);
+    assert_eq!(after.indent_options, before.indent_options);
+    assert_eq!(store.views().get(view).unwrap().selection, selected);
+    let mut target = file("/synthetic/first.txt", "plaintext", SOURCE);
+    target.editor_config = EditorConfigOptions::default();
+    store
+        .retarget_file(
+            &snapshot,
+            PathBuf::from("/synthetic/first.txt"),
+            DocumentMetadata::from_opened(&target),
+        )
+        .unwrap();
+    let changed_language = store.documents().snapshot(document).unwrap();
+    assert!(matches!(
+        tokens.prepare_tokens(&changed_language, 0..changed_language.rope.len_lines()),
+        Err(EditorError::StaleRevision)
+    ));
 }
 
 #[test]
@@ -420,7 +716,7 @@ fn peek_토큰은_arc를_재사용하고_숨은_미리보기_편집_테마_언�
     let repeated = harness.syntax.peek_tokens(&store, hidden).unwrap();
     assert!(Arc::ptr_eq(&before, &repeated));
     assert_eq!(
-        line_spans(before.frame().lines),
+        line_spans(before.frame().unwrap().lines),
         expected_spans(&first_theme, &store, hidden)
     );
     assert!(
@@ -445,13 +741,16 @@ fn peek_토큰은_arc를_재사용하고_숨은_미리보기_편집_테마_언�
     harness.settle(&store, &first_theme, now);
     let edited = harness.syntax.peek_tokens(&store, hidden).unwrap();
     assert_eq!(
-        line_spans(edited.frame().lines),
+        line_spans(edited.frame().unwrap().lines),
         expected_spans(&first_theme, &store, hidden)
     );
     harness.settle(&store, &second_theme, now + Duration::from_secs(1));
     let recolored = harness.syntax.peek_tokens(&store, hidden).unwrap();
     assert!(!Arc::ptr_eq(&edited, &recolored));
-    assert_eq!(*recolored.frame().styles, expected_table(&second_theme));
+    assert_eq!(
+        *recolored.frame().unwrap().styles,
+        expected_table(&second_theme)
+    );
     let path = "/synthetic/peek.json";
     let snapshot = store.documents().snapshot(hidden).unwrap();
     store

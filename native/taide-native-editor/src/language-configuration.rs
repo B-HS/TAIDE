@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::document::DocumentSnapshot;
+use crate::document::{DocumentSnapshot, EditorError};
 use crate::store::EditorStore;
 use crate::syntax::{Token, TokenKind};
 
@@ -155,6 +155,14 @@ pub trait LanguageRules {
 pub trait LineSyntax {
     fn follow_edits(&self, _store: &EditorStore) {}
 
+    fn prepare_tokens(
+        &self,
+        _document: &DocumentSnapshot,
+        _lines: Range<usize>,
+    ) -> Result<Option<PreparedTokens>, EditorError> {
+        Ok(None)
+    }
+
     fn tokens(&self, document: &DocumentSnapshot, line: usize) -> Option<Vec<Token>>;
 
     fn accurate_tokens(&self, document: &DocumentSnapshot, line: usize) -> Option<Vec<Token>> {
@@ -168,6 +176,28 @@ pub trait LineSyntax {
         byte_in_line: usize,
         character: char,
     ) -> TokenKind;
+}
+
+pub struct PreparedTokens {
+    pub first_line: usize,
+    pub lines: Vec<Vec<Token>>,
+}
+
+impl LineSyntax for PreparedTokens {
+    fn tokens(&self, _: &DocumentSnapshot, line: usize) -> Option<Vec<Token>> {
+        self.lines.get(line.checked_sub(self.first_line)?).cloned()
+    }
+
+    fn kind_if_inserting(
+        &self,
+        document: &DocumentSnapshot,
+        line: usize,
+        byte: usize,
+        _: char,
+    ) -> TokenKind {
+        self.tokens(document, line)
+            .map_or(TokenKind::Other, |tokens| token_kind_at(&tokens, byte))
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]

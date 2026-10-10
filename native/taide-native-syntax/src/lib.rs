@@ -61,8 +61,8 @@ pub use theme_settings::{ThemeSetting, ThemeStyle};
 pub use token_pipeline::TokenPipeline;
 pub use token_theme::{TokenTheme, TokenThemeError};
 pub use token_worker::{
-    PreviewJob, TokenizationJob, Wake, WorkerClient, WorkerConfiguration, WorkerRequest,
-    WorkerResponse, WorkerStopped, WorkerTask, token_worker,
+    Preparation, PreviewJob, TokenPreparer, TokenizationJob, Wake, WorkerClient,
+    WorkerConfiguration, WorkerRequest, WorkerResponse, WorkerStopped, WorkerTask, token_worker,
 };
 pub use tokenizer::{
     FONT_STYLE_BOLD, FONT_STYLE_ITALIC, FONT_STYLE_STRIKETHROUGH, FONT_STYLE_UNDERLINE,
