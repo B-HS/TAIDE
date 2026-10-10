@@ -159,6 +159,7 @@ pub struct NativeApplication {
     palette_file_changes: Arc<crate::command_palette::FileIndexChanges>,
     palette_commands: Vec<String>,
     indentation_request: Option<crate::editor_indentation::Request>,
+    editor_formatting: crate::editor_formatting::State,
     settings_views: crate::settings_view::Views,
     app_file_views: crate::app_file_views::Views,
     settings_appearance: crate::settings_view::Appearance,
@@ -466,6 +467,7 @@ impl NativeApplication {
             palette_file_changes,
             palette_commands: Vec::new(),
             indentation_request: None,
+            editor_formatting: Default::default(),
             settings_views,
             app_file_views: crate::app_file_views::Views::default(),
             settings_appearance: appearances.settings,
@@ -3071,8 +3073,114 @@ impl NativeApplication {
             })
     }
 
+    fn focused_editor_source(
+        &self,
+        context: &egui::Context,
+        tab: &TabId,
+        fallback: Option<DocumentId>,
+    ) -> Option<(ViewId, ViewId)> {
+        let focused = self
+            .palette
+            .source_focus()
+            .filter(|_| self.palette.is_open())
+            .or_else(|| context.memory(|memory| memory.focused()));
+        focused
+            .and_then(|id| self.editor_keymap_targets.get(&(context.viewport_id(), id)))
+            .and_then(|(source, _)| {
+                let owner = self
+                    .editor_locations
+                    .preview_owner(*source)
+                    .unwrap_or(*source);
+                let owner_view = self.store.views().get(owner)?;
+                (owner_view.key.tab == *tab && self.store.views().get(*source).is_some())
+                    .then_some((*source, owner))
+            })
+            .or_else(|| {
+                fallback.and_then(|document| {
+                    self.store
+                        .views()
+                        .for_document(document)
+                        .find(|view| view.key.tab == *tab)
+                        .map(|view| (view.id, view.id))
+                })
+            })
+    }
+
+    fn request_editor_formatting(
+        &mut self,
+        context: &egui::Context,
+        tab: &TabId,
+        fallback: Option<DocumentId>,
+        command: taide_native_editor::formatting::Command,
+        source: Option<(ViewId, ViewId)>,
+    ) {
+        let Some((source, owner)) =
+            source.or_else(|| self.focused_editor_source(context, tab, fallback))
+        else {
+            return;
+        };
+        if !self
+            .store
+            .views()
+            .get(owner)
+            .is_some_and(|owner| owner.key.tab == *tab)
+        {
+            return;
+        }
+        let snapshot = self.controller.snapshot();
+        let Some(project) = snapshot.layouts.iter().find_map(|(project, layout)| {
+            crate::tabs::tabs_in(&layout.root)
+                .iter()
+                .any(|candidate| candidate.id == *tab)
+                .then_some(project.clone())
+        }) else {
+            return;
+        };
+        let Some(document) = self.store.views().get(source).map(|source| source.document) else {
+            return;
+        };
+        let configuration =
+            crate::presentation_refresh::indent_configuration(&self.services.state.settings.read());
+        let Ok(fallback) = self.store.configure_indentation(document, configuration) else {
+            return;
+        };
+        self.reconcile_lsp();
+        let providers = self
+            .store
+            .documents()
+            .snapshot(document)
+            .ok()
+            .and_then(|snapshot| {
+                self.lsp
+                    .as_ref()
+                    .map(|lsp| lsp.formatting_providers(&project, &snapshot, command))
+            })
+            .unwrap_or_default();
+        match self.editor_formatting.begin(
+            &self.store,
+            project,
+            source,
+            owner,
+            command,
+            fallback,
+            providers,
+        ) {
+            Ok(Some(request)) => {
+                if let Some(lsp) = &self.lsp
+                    && let Err(error) = lsp.format_editor(request.clone())
+                {
+                    self.editor_formatting.reject(&request);
+                    self.status = Some(error.to_string());
+                }
+            }
+            Ok(None) | Err(taide_native_editor::document::EditorError::ReadOnly) => (),
+            Err(error) => log::warn!("native formatter request refused: {error:?}"),
+        }
+    }
+
     fn reconcile_lsp(&mut self) {
         if self.closing.is_some() || self.services.state.is_shutting_down() {
+            self.editor_formatting.clear();
             return;
         }
         self.lsp_diagnostics.retain_documents(
@@ -3083,10 +3191,14 @@ impl NativeApplication {
                 .collect(),
         );
         let Some(lsp) = self.lsp.as_mut() else {
+            self.editor_formatting.clear();
             self.editor_symbols.retain(&HashSet::new());
             self.editor_folding.retain(&HashSet::new());
             return;
         };
+        self.editor_formatting.reconcile(&self.store, |request| {
+            lsp.formatting_providers(&request.project, &request.snapshot, request.command)
+        });
         if let Err(error) = lsp.reconcile_models(&mut self.store) {
             self.status = Some(error.to_string());
             return;
@@ -3902,6 +4014,46 @@ impl NativeApplication {
                             .publish(owner, &snapshot, diagnostics.diagnostics);
                     }
                 }
+                crate::lsp::Reply::EditorFormatted { request, result } => {
+                    let providers = self
+                        .lsp
+                        .as_ref()
+                        .map(|lsp| {
+                            lsp.formatting_providers(
+                                &request.project,
+                                &request.snapshot,
+                                request.command,
+                            )
+                        })
+                        .unwrap_or_default();
+                    match self.editor_formatting.accept(
+                        &mut self.store,
+                        &request,
+                        providers,
+                        result,
+                    ) {
+                        Ok(true) => {
+                            if let Ok(current) =
+                                self.store.documents().snapshot(request.snapshot.id)
+                            {
+                                let mirror = self.draft_project(current.id).is_some();
+                                self.persistence.changed(
+                                    current.id,
+                                    current.revision,
+                                    Instant::now(),
+                                    mirror,
+                                    Duration::ZERO,
+                                );
+                                for view in self.store.views().for_document(current.id) {
+                                    self.pending_dirty.insert(view.key.tab.clone(), true);
+                                }
+                            }
+                            self.reconcile_lsp();
+                        }
+                        Ok(false) => (),
+                        Err(error) => log::warn!("native formatter edit failed: {error:?}"),
+                    }
+                }
                 crate::lsp::Reply::Formatted { snapshot, result } => {
                     let document = snapshot.id;
                     let Some(pending) = self.pending_format_saves.remove(&document) else {
@@ -3910,12 +4062,15 @@ impl NativeApplication {
                     match result {
                         Ok(Some(edits)) => {
                             let view = self.save_view(document);
-                            match taide_native_editor::lsp::apply_text_edits(
-                                &mut self.store,
-                                &snapshot,
-                                view,
-                                edits,
-                            ) {
+                            match taide_native_editor::formatting::minimal_edits(&snapshot, edits)
+                                .and_then(|edits| {
+                                    taide_native_editor::lsp::apply_text_edits(
+                                        &mut self.store,
+                                        &snapshot,
+                                        view,
+                                        edits,
+                                    )
+                                }) {
                                 Ok(true) => {
                                     if let Ok(current) = self.store.documents().snapshot(document) {
                                         let mirror = self.draft_project(document).is_some();
@@ -4205,6 +4360,13 @@ impl NativeApplication {
         }
         self.palette
             .set_reduced_motion(self.motion_preference.current().unwrap_or(false));
+        let formatting_source = active_file.and_then(|(tab, _)| {
+            self.focused_editor_source(
+                context,
+                &tab.id,
+                active_document.as_ref().map(|document| document.id),
+            )
+        });
         let output = self.palette.show(
             context,
             crate::command_palette::Scope {
@@ -4238,6 +4400,20 @@ impl NativeApplication {
                 }
             }
             Some(crate::command_palette::Action::RunCommand(id)) => {
+                if let Some(command) = taide_native_editor::formatting::Command::from_action(
+                    id.strip_prefix("monaco.").unwrap_or(&id),
+                ) && let Some((tab, _)) = active_file
+                {
+                    self.request_editor_formatting(
+                        context,
+                        &tab.id,
+                        active_document.as_ref().map(|document| document.id),
+                        command,
+                        formatting_source,
+                    );
+                    context.request_repaint();
+                    return;
+                }
                 self.palette_commands.push(id);
                 context.request_repaint();
             }
@@ -4771,7 +4947,54 @@ impl eframe::App for NativeApplication {
             &self.shell.scope,
             crate::command_dispatch::active_editor_actions(&self.store, focused_view.as_ref()).map(
                 |mut actions| {
+                    let writable_source = focused_view
+                        .as_ref()
+                        .and_then(|key| {
+                            let fallback = self
+                                .store
+                                .views()
+                                .find(key)
+                                .and_then(|view| self.store.views().get(view))
+                                .map(|view| view.document);
+                            self.focused_editor_source(&context, &key.tab, fallback)
+                        })
+                        .and_then(|(source, _)| self.store.views().get(source))
+                        .and_then(|source| self.store.documents().snapshot(source.document).ok())
+                        .is_some_and(|document| !document.metadata.read_only);
+                    if writable_source {
+                        actions.extend([
+                            "editor.action.formatDocument".to_owned(),
+                            "editor.action.formatSelection".to_owned(),
+                        ]);
+                    }
                     actions.retain(|action| {
+                        if let Some(command) =
+                            taide_native_editor::formatting::Command::from_action(action)
+                        {
+                            return focused_view
+                                .as_ref()
+                                .and_then(|key| {
+                                    let fallback = self
+                                        .store
+                                        .views()
+                                        .find(key)
+                                        .and_then(|view| self.store.views().get(view))
+                                        .map(|view| view.document);
+                                    self.focused_editor_source(&context, &key.tab, fallback)
+                                })
+                                .and_then(|(source, _)| self.store.views().get(source))
+                                .and_then(|source| {
+                                    self.store.documents().snapshot(source.document).ok()
+                                })
+                                .filter(|document| !document.metadata.read_only)
+                                .zip(snapshot.focused_project())
+                                .is_some_and(|(document, project)| {
+                                    self.lsp.as_ref().is_some_and(|lsp| {
+                                        !lsp.formatting_providers(project, &document, command)
+                                            .is_empty()
+                                    })
+                                });
+                        }
                         if let Some(command) =
                             crate::command_registry::HighlightCommand::from_action(action)
                         {
@@ -4983,11 +5206,16 @@ impl eframe::App for NativeApplication {
             && self.pending_disk_choice.is_none();
         let viewport = context.viewport_id();
         let pass = context.cumulative_frame_nr();
+        let palette_focus = self
+            .palette
+            .source_focus()
+            .filter(|_| self.palette.is_open());
         self.editor_keymap_targets
-            .retain(|(owner_viewport, _), (view, previous)| {
+            .retain(|(owner_viewport, id), (view, previous)| {
                 (*owner_viewport != viewport
                     || *previous == pass
-                    || previous.checked_add(1) == Some(pass))
+                    || previous.checked_add(1) == Some(pass)
+                    || palette_focus == Some(*id))
                     && (self.editor_locations.preview_owner(*view).is_some()
                         || self.store.views().get(*view).is_some_and(|view| {
                             snapshot
@@ -5542,6 +5770,16 @@ impl eframe::App for NativeApplication {
                         self.submit(HostCommand::NewUntitled { project, pane });
                     }
                     ShellIntent::ShowOpenProjectNotice => self.notify_open_project_first(),
+                    ShellIntent::FormatEditor { tab, command } => {
+                        self.request_editor_formatting(
+                            &context,
+                            &tab,
+                            keymap_documents.get(&tab).copied(),
+                            command,
+                            None,
+                        );
+                        context.request_repaint();
+                    }
                     ShellIntent::ToggleEditorStickyScroll => {
                         self.editor_sticky_scroll.toggle(
                             self.services

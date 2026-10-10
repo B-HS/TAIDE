@@ -32,6 +32,10 @@ pub(super) fn fixture(mode: &str) -> (Fixture, ProjectId, EditorStore, DocumentI
     assert!(matches!(
         mode,
         "--native-symbols"
+            | "--native-format-options"
+            | "--native-format-range-only"
+            | "--native-format-range-overlap"
+            | "--native-format-wait"
             | "--native-highlights"
             | "--native-highlights-empty"
             | "--native-highlights-null"

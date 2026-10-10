@@ -1,6 +1,6 @@
 {
     "date": "2026-10-11",
-    "baseline": "3589990b",
+    "baseline": "19230aca",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -820,6 +820,26 @@
                 "docs/utils/2026-10-10-monaco-reindent-oracle.js"
             ],
             "limitation": "자동 감지·변환·indent/outdent·reindent·실제 구문 준비·두 폭/수동 선택·EditorConfig/전역 변경에 현재 저장 포맷/스니펫 소비를 연결했습니다. 본문/peek 미리보기 재평가·수락/undo·owner와 실제 앱 저장→child→파일의 현재 편집 폭/방식을 검증했습니다. 최신 Core 37대상/286통과/성능 1ignored·App 전체 67대상/780통과/26실패 후 실패 26건만 재검사해 최종 서로 다른 806통과·보호 Trash 3제외입니다. 최초 exit 101과 이미지/watcher 원인 미확정, 독립 실험 lock/fmt 검사 부채는 배치 31에 보존합니다. 변경하지 않은 UI 435·locale 20의 이전 전체 성공은 재사용합니다. 큰 tier·formatOnType/Paste·내장 언어 서비스는 별도 ID이며 전체 실기/성능/출시 통과를 뜻하지 않습니다."
+        },
+        "editor-formatting": {
+            "sources": [
+                "native/taide-native-editor/src/formatting.rs",
+                "native/taide-native-app/src/editor-formatting.rs",
+                "native/taide-native-app/src/lsp-editor-formatting.rs",
+                "native/taide-native-app/src/application.rs",
+                "native/taide-native-app/src/lsp.rs",
+                "native/taide-native-ui/src/command-registry.rs",
+                "native/taide-native-ui/src/editor-formatting-keymap-defaults.json"
+            ],
+            "tests": [
+                "native/taide-native-editor/tests/formatting.rs",
+                "native/taide-native-app/src/editor-formatting-tests.rs",
+                "native/taide-native-app/src/lsp-editor-formatting-tests.rs",
+                "native/taide-native-app/src/application-startup-tests.rs",
+                "native/taide-native-ui/tests/keymap-platform.rs"
+            ],
+            "reports": ["docs/quality-assurance/2026-10-10-native-batch23-editor.md"],
+            "limitation": "내장 언어 서비스의 포맷 fallback(editor-57), raw 전체 교체 마커/줄 변화의 상대 scroll 대조(c2s), 입력/붙여넣기(editor-32)와 전체 실기/성능/출시는 별도 미완료입니다."
         }
     },
     "rows": [
@@ -2448,8 +2468,8 @@
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:120",
             "domain": "editor",
             "status": "partial",
-            "proof": "editor-lsp",
-            "note": "저장 시 포맷은 연결됐으나 수동 문서/범위 포맷과 내장 언어 fallback은 남아 있습니다."
+            "proof": "editor-formatting",
+            "note": "저장·외부 LSP의 수동 문서/선택 포맷과 범위 공급자 대체·기본 키/팔레트·본문/peek·현재 옵션/취소·최소 편집/undo를 연결하고 실제 앱/child에서 확인했습니다. 내장 언어 서비스의 포맷 fallback(editor-57)과 raw 전체 교체 마커/상대 scroll 대조는 남아 partial을 유지합니다."
         },
         {
             "id": "editor-50",

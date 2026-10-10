@@ -33,6 +33,10 @@ struct MockServer {
     should_track_saves: bool,
     should_format_documents: bool,
     should_echo_format_options: bool,
+    should_format_ranges: bool,
+    should_expand_format_ranges: bool,
+    should_wait_formatting: bool,
+    held_formatting: BTreeMap<u64, Value>,
     should_run_save_actions: bool,
     should_publish_raw_diagnostics: bool,
     should_publish_inactive_diagnostics: bool,
@@ -63,6 +67,38 @@ struct MockServer {
 
 fn invalid(detail: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, detail)
+}
+
+fn position_byte(text: &str, position: &Value) -> io::Result<usize> {
+    let line = position["line"]
+        .as_u64()
+        .and_then(|line| usize::try_from(line).ok())
+        .ok_or_else(|| invalid("format requires a line"))?;
+    let character = position["character"]
+        .as_u64()
+        .and_then(|character| usize::try_from(character).ok())
+        .ok_or_else(|| invalid("format requires a character"))?;
+    let content = text
+        .split('\n')
+        .nth(line)
+        .ok_or_else(|| invalid("format line is outside the document"))?
+        .trim_end_matches('\r');
+    let start = text
+        .split_inclusive('\n')
+        .take(line)
+        .map(str::len)
+        .sum::<usize>();
+    let mut units = 0;
+    for (byte, value) in content.char_indices() {
+        if units == character {
+            return Ok(start + byte);
+        }
+        units += value.len_utf16();
+    }
+    if units == character {
+        return Ok(start + content.len());
+    }
+    Err(invalid("format character is not a UTF-16 boundary"))
 }
 
 fn read_message(reader: &mut impl BufRead) -> io::Result<Option<Value>> {
@@ -250,6 +286,7 @@ impl MockServer {
                 .get("params")
                 .ok_or_else(|| invalid("initialize requires params"))?;
             let has_valid_root = if self.should_format_documents
+                || self.should_format_ranges
                 || self.workspace_symbols.is_some()
                 || self.locations.is_some()
                 || self.documentation.is_some()
@@ -314,6 +351,9 @@ impl MockServer {
             }
             if self.should_format_documents {
                 capabilities["documentFormattingProvider"] = json!(true);
+            }
+            if self.should_format_ranges {
+                capabilities["documentRangeFormattingProvider"] = json!(true);
             }
             if self.document_symbols.is_some() {
                 if params["capabilities"]["textDocument"]["documentSymbol"]["hierarchicalDocumentSymbolSupport"]
@@ -529,6 +569,17 @@ impl MockServer {
             let cancelled_id = message["params"]["id"]
                 .as_u64()
                 .ok_or_else(|| invalid("cancel must identify a numeric request"))?;
+            if let Some(held) = self.held_formatting.remove(&cancelled_id) {
+                write_response(output, &held["id"], Value::Null)?;
+                write_document_diagnostic(
+                    output,
+                    held["uri"]
+                        .as_str()
+                        .ok_or_else(|| invalid("held format requires URI"))?,
+                    &held["version"],
+                    "synthetic format cancelled",
+                )?;
+            }
             if let Some(held) = self.held_documentation.remove(&cancelled_id) {
                 write_response(output, &held["id"], Value::Null)?;
                 write_document_diagnostic(
@@ -1236,6 +1287,20 @@ impl MockServer {
                 let text = current["text"]
                     .as_str()
                     .ok_or_else(|| invalid("format requires mirror text"))?;
+                if self.should_wait_formatting {
+                    let id = id
+                        .and_then(Value::as_u64)
+                        .ok_or_else(|| invalid("held format requires ID"))?;
+                    self.held_formatting
+                        .insert(id, json!({"id":id,"uri":uri,"version":current["version"]}));
+                    write_document_diagnostic(
+                        output,
+                        uri,
+                        &current["version"],
+                        "synthetic format held",
+                    )?;
+                    return Ok(None);
+                }
                 let mut lines = text.split('\n').collect::<Vec<_>>();
                 let line = lines.len() - 1;
                 let character = lines
@@ -1262,6 +1327,46 @@ impl MockServer {
                         "range":{"start":{"line":0,"character":0},"end":{"line":line,"character":character}},
                         "newText":formatted
                     }]),
+                )?;
+            }
+            "textDocument/rangeFormatting" => {
+                if !self.should_format_ranges {
+                    return Err(invalid("range formatter fixture is disabled"));
+                }
+                let current = self
+                    .documents
+                    .get(uri)
+                    .ok_or_else(|| invalid("range format requires an open mirror"))?;
+                let text = current["text"]
+                    .as_str()
+                    .ok_or_else(|| invalid("range format requires text"))?;
+                let mut range = params["range"].clone();
+                if self.should_expand_format_ranges {
+                    let lines = text.split('\n').collect::<Vec<_>>();
+                    let line = lines.len() - 1;
+                    let character = lines
+                        .last()
+                        .unwrap()
+                        .trim_end_matches('\r')
+                        .encode_utf16()
+                        .count();
+                    range = json!({"start":{"line":0,"character":0},"end":{"line":line,"character":character}});
+                }
+                let start = position_byte(text, &range["start"])?;
+                let end = position_byte(text, &range["end"])?;
+                let selected = text
+                    .get(start..end)
+                    .ok_or_else(|| invalid("range format requires an ordered range"))?;
+                let size = params["options"]["tabSize"]
+                    .as_u64()
+                    .ok_or_else(|| invalid("range format requires tabSize"))?;
+                let spaces = params["options"]["insertSpaces"]
+                    .as_bool()
+                    .ok_or_else(|| invalid("range format requires insertSpaces"))?;
+                write_response(
+                    output,
+                    id.ok_or_else(|| invalid("range format requires ID"))?,
+                    json!([{"range":range,"newText":format!("range:{size}:{spaces}:{selected}") }]),
                 )?;
             }
             "textDocument/codeAction" if self.should_run_save_actions => {
@@ -1456,6 +1561,19 @@ fn main() -> io::Result<ExitCode> {
             server.should_track_saves = true;
             server.should_format_documents = true;
             server.should_echo_format_options = true;
+            server.should_format_ranges = true;
+        }
+        Some(
+            mode @ ("--native-format-range-only"
+            | "--native-format-range-overlap"
+            | "--native-format-wait"),
+        ) => {
+            server.should_track_saves = true;
+            server.should_echo_format_options = true;
+            server.should_format_documents = mode == "--native-format-wait";
+            server.should_format_ranges = mode != "--native-format-wait";
+            server.should_expand_format_ranges = mode == "--native-format-range-overlap";
+            server.should_wait_formatting = mode == "--native-format-wait";
         }
         Some("--native-actions") => {
             server.should_track_saves = true;

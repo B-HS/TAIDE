@@ -36,6 +36,7 @@ pub mod find;
 #[path = "find-replacement.rs"]
 pub mod find_replacement;
 pub mod folding;
+pub mod formatting;
 pub mod indent;
 #[path = "language-configuration.rs"]
 pub mod language_configuration;

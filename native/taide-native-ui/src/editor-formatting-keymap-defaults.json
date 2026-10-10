@@ -1,0 +1,6 @@
+[
+    { "id": "monaco.editor.action.formatDocument", "platform": "mac", "key": "F", "mods": ["shift", "alt"] },
+    { "id": "monaco.editor.action.formatDocument", "platform": "win", "key": "F", "mods": ["shift", "alt"] },
+    { "id": "monaco.editor.action.formatDocument", "platform": "linux", "key": "I", "mods": ["mod", "shift"] },
+    { "id": "monaco.editor.action.formatSelection", "key": "K", "mods": ["mod"], "chord": { "key": "F", "mods": ["mod"] } }
+]

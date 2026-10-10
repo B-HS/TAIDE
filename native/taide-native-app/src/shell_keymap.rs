@@ -205,6 +205,10 @@ pub(crate) fn intent(run: Run, snapshot: &ShellSnapshot) -> Option<ShellIntent> 
             tab: tab.id.clone(),
             command,
         }),
+        Run::FormatEditor(command) if has_document => Some(ShellIntent::FormatEditor {
+            tab: tab.id.clone(),
+            command,
+        }),
         Run::EditDocument(edit) if has_document => Some(ShellIntent::EditDocument {
             tab: tab.id.clone(),
             edit,

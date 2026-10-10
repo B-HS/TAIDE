@@ -58,7 +58,7 @@ fn wait_for(
 }
 
 #[test]
-fn actual_app의_저장_포맷은_표시_폭과_독립된_현재_편집_폭과_방식을_서버에_전달한다() {
+fn actual_app의_문서_선택_peek와_저장_포맷은_현재_편집_폭과_소유를_보존한다() {
     use std::os::unix::fs::PermissionsExt;
     use taide_native_editor::indent::{IndentOptions, IndentationChange};
     const EDIT_SIZE: u32 = 4;
@@ -138,7 +138,7 @@ fn actual_app의_저장_포맷은_표시_폭과_독립된_현재_편집_폭과_�
         session.focused_shell_slot = Some(slot.clone());
         session.shell_slots = Some(taide_model::project::ShellSlotTree::Leaf {
             slot_id: slot,
-            project_id: project,
+            project_id: project.clone(),
         });
     }
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -274,6 +274,329 @@ fn actual_app의_저장_포맷은_표시_폭과_독립된_현재_편집_폭과_�
             (DISPLAY_SIZE, size, spaces)
         );
     }
+    let paint = |application: &mut NativeApplication, events| {
+        let mut output = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1000.0, 700.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| eframe::App::ui(application, ui, &mut eframe::Frame::_new_kittest()),
+        );
+        output.textures_delta.clear();
+    };
+    let key = |key, modifiers| egui::Event::Key {
+        key,
+        physical_key: Some(key),
+        pressed: true,
+        repeat: false,
+        modifiers,
+    };
+    paint(application, Vec::new());
+    let view = application
+        .store
+        .views()
+        .for_document(document)
+        .find(|view| view.key.tab == tab)
+        .unwrap()
+        .id;
+    let focus = application
+        .editor_keymap_targets
+        .iter()
+        .find_map(|((viewport, id), (target, _))| {
+            (*viewport == egui::ViewportId::ROOT && *target == view).then_some(*id)
+        })
+        .unwrap();
+    context.memory_mut(|memory| memory.request_focus(focus));
+    let saved = application.store.documents().snapshot(document).unwrap();
+    let disk = std::fs::read_to_string(&file).unwrap();
+    paint(
+        application,
+        vec![key(
+            egui::Key::F,
+            egui::Modifiers::SHIFT | egui::Modifiers::ALT,
+        )],
+    );
+    let expected = format!("formatted:2:false:{}", saved.rope);
+    wait_for(
+        application,
+        &context,
+        "actual-format-document-key",
+        |application| {
+            application
+                .store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .rope
+                .to_string()
+                == expected
+        },
+    );
+    assert!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .dirty
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), disk);
+    assert!(application.store.undo(document).unwrap());
+    let restored = application.store.documents().snapshot(document).unwrap();
+    assert_eq!(restored.rope, saved.rope);
+    assert!(restored.dirty);
+    let input = restored.rope.to_string().find("input").unwrap();
+    application
+        .store
+        .set_view_state(
+            view,
+            taide_native_editor::view::SelectionSet {
+                primary: 0,
+                selections: vec![taide_native_editor::view::Selection {
+                    anchor: input,
+                    head: input + "input".len(),
+                }],
+            },
+            Default::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    paint(application, Vec::new());
+    context.memory_mut(|memory| memory.request_focus(focus));
+    let command = egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND;
+    paint(application, vec![key(egui::Key::K, command)]);
+    paint(application, vec![key(egui::Key::F, command)]);
+    let expected = restored
+        .rope
+        .to_string()
+        .replacen("input", "range:2:false:input", 1);
+    wait_for(
+        application,
+        &context,
+        "actual-format-selection-chord",
+        |application| {
+            application
+                .store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .rope
+                .to_string()
+                == expected
+        },
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), disk);
+    assert!(application.store.undo(document).unwrap());
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope,
+        saved.rope
+    );
+
+    let peek_file = std::path::Path::new(&path)
+        .parent()
+        .unwrap()
+        .join("peek.rs");
+    let peek_text = "한\u{1f600}name";
+    std::fs::write(&peek_file, peek_text).unwrap();
+    let peek_path = peek_file.to_str().unwrap().to_owned();
+    let providers = application.lsp.as_ref().unwrap().formatting_providers(
+        &project,
+        &application.store.documents().snapshot(document).unwrap(),
+        taide_native_editor::formatting::Command::Document,
+    );
+    let identity = *providers.iter().next().unwrap();
+    let request = application
+        .editor_locations
+        .begin(
+            project.clone(),
+            &application.store,
+            view,
+            taide_native_editor::symbol_locations::Kind::Definition,
+            taide_native_editor::symbol_locations::Mode::Peek,
+            providers.clone(),
+            None,
+        )
+        .unwrap();
+    let range = taide_native_editor::lsp::LspRange::new(
+        taide_native_editor::lsp::Position::new(0, 3),
+        taide_native_editor::lsp::Position::new(0, 7),
+    );
+    application
+        .editor_locations
+        .accept(
+            &request,
+            &application.store,
+            providers,
+            Ok(crate::editor_locations::Response {
+                groups: vec![crate::editor_locations::Group {
+                    provider: identity,
+                    targets: vec![taide_native_editor::symbol_locations::Target {
+                        uri: taide_lsp::service::workspace_folder_uri(&peek_path)
+                            .parse()
+                            .unwrap(),
+                        range,
+                        selection: range,
+                        origin: None,
+                    }],
+                }],
+            }),
+        )
+        .unwrap()
+        .unwrap();
+    application.editor_locations.show(view);
+    paint(application, Vec::new());
+    let peek_key = taide_native_editor::document::DocumentKey::File(peek_path.clone().into());
+    wait_for(
+        application,
+        &context,
+        "actual-format-peek-load",
+        |application| application.store.documents().find(&peek_key).is_some(),
+    );
+    paint(application, Vec::new());
+    let peek_document = application.store.documents().find(&peek_key).unwrap();
+    let preview = application
+        .editor_locations
+        .current(view)
+        .unwrap()
+        .preview
+        .unwrap();
+    application
+        .store
+        .set_indentation(
+            peek_document,
+            configuration,
+            IndentationChange::UseSpaces(EDIT_SIZE),
+        )
+        .unwrap();
+    application
+        .store
+        .set_indentation(
+            peek_document,
+            configuration,
+            IndentationChange::DisplaySize(DISPLAY_SIZE),
+        )
+        .unwrap();
+    let mut readonly =
+        taide_file::service::open_file(std::path::Path::new(&path), &[], false).unwrap();
+    readonly.read_only = true;
+    application
+        .store
+        .observe_file(document, std::path::Path::new(&path), readonly)
+        .unwrap();
+    let owner_before = application.store.documents().snapshot(document).unwrap();
+    wait_for(
+        application,
+        &context,
+        "actual-format-peek-provider",
+        |application| {
+            !application
+                .lsp
+                .as_ref()
+                .unwrap()
+                .formatting_providers(
+                    &project,
+                    &application
+                        .store
+                        .documents()
+                        .snapshot(peek_document)
+                        .unwrap(),
+                    taide_native_editor::formatting::Command::Document,
+                )
+                .is_empty()
+        },
+    );
+    paint(application, Vec::new());
+    let peek_focus = application
+        .editor_keymap_targets
+        .iter()
+        .find_map(|((viewport, id), (target, _))| {
+            (*viewport == egui::ViewportId::ROOT && *target == preview).then_some(*id)
+        })
+        .unwrap();
+    context.memory_mut(|memory| memory.request_focus(peek_focus));
+    application.palette.open(
+        &context,
+        taide_native_ui::command_registry::PaletteEntry::Commands,
+    );
+    paint(application, Vec::new());
+    paint(application, Vec::new());
+    let label = crate::command_registry::registry()
+        .unwrap()
+        .command("monaco.editor.action.formatDocument")
+        .unwrap()
+        .label(&application.locale);
+    paint(application, vec![egui::Event::Text(label)]);
+    assert!(
+        application
+            .palette
+            .inspection()
+            .rows
+            .iter()
+            .any(|row| row.key == "monaco.editor.action.formatDocument"
+                && row.is_enabled
+                && row.is_selected),
+        "palette={:?}; source={:?}; focus={:?}; preview={:?}",
+        application.palette.inspection(),
+        application.focused_editor_source(&context, &tab, Some(document)),
+        application.palette.source_focus(),
+        preview
+    );
+    paint(
+        application,
+        vec![key(egui::Key::Enter, egui::Modifiers::NONE)],
+    );
+    wait_for(
+        application,
+        &context,
+        "actual-format-peek-palette",
+        |application| {
+            application
+                .store
+                .documents()
+                .snapshot(peek_document)
+                .unwrap()
+                .rope
+                .to_string()
+                == format!("formatted:4:true:{peek_text}")
+        },
+    );
+    let owner_after = application.store.documents().snapshot(document).unwrap();
+    assert_eq!(
+        (
+            owner_after.rope,
+            owner_after.revision,
+            owner_after.dirty,
+            owner_after.metadata.read_only
+        ),
+        (
+            owner_before.rope,
+            owner_before.revision,
+            owner_before.dirty,
+            true
+        )
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), disk);
+    assert_eq!(std::fs::read_to_string(&peek_file).unwrap(), peek_text);
+    assert!(application.store.undo(peek_document).unwrap());
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(peek_document)
+            .unwrap()
+            .rope
+            .to_string(),
+        peek_text
+    );
 }
 
 #[test]

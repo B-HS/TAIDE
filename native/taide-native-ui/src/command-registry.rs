@@ -17,6 +17,7 @@ pub const EDITOR_SYNTAX_FOLDING_AVAILABLE: bool = cfg!(feature = "native-host");
 pub const EDITOR_LOCATIONS_AVAILABLE: bool = cfg!(feature = "native-host");
 pub const EDITOR_DOCUMENTATION_AVAILABLE: bool = cfg!(feature = "native-host");
 pub const EDITOR_HIGHLIGHTS_AVAILABLE: bool = cfg!(feature = "native-host");
+pub const EDITOR_FORMATTING_AVAILABLE: bool = cfg!(feature = "native-host");
 const EDITOR_ACTIONS_WITHOUT_SUPPORT_GATE: [&str; 21] = [
     "editor.action.goToImplementation",
     "editor.action.goToLocation",
@@ -164,6 +165,8 @@ pub enum Run {
     ToggleEditorMinimap,
     #[cfg(feature = "native-host")]
     ChooseIndentation(IndentationCommand),
+    #[cfg(feature = "native-host")]
+    FormatEditor(taide_native_editor::formatting::Command),
     EditDocument(DocumentEdit),
     FoldDocument(FoldCommand),
 }
@@ -322,6 +325,13 @@ fn enablement(id: &str) -> Enablement {
 }
 
 fn execution(id: &str, keymap_id: Option<&str>) -> Execution {
+    #[cfg(feature = "native-host")]
+    if let Some(command) = id
+        .strip_prefix(EDITOR_ACTION_PREFIX)
+        .and_then(taide_native_editor::formatting::Command::from_action)
+    {
+        return Execution::Native(Run::FormatEditor(command));
+    }
     #[cfg(feature = "native-host")]
     if let Some(command) = id
         .strip_prefix(EDITOR_ACTION_PREFIX)
@@ -510,6 +520,13 @@ pub fn keymap_run(keymap_id: &str) -> Option<Run> {
     #[cfg(feature = "native-host")]
     if let Some(command) = keymap_id
         .strip_prefix(EDITOR_ACTION_PREFIX)
+        .and_then(taide_native_editor::formatting::Command::from_action)
+    {
+        return Some(Run::FormatEditor(command));
+    }
+    #[cfg(feature = "native-host")]
+    if let Some(command) = keymap_id
+        .strip_prefix(EDITOR_ACTION_PREFIX)
         .and_then(IndentationCommand::from_action)
     {
         return Some(Run::ChooseIndentation(command));
@@ -626,6 +643,8 @@ impl Registry {
             .filter_map(|command| {
                 let action = command.editor_action_id()?;
                 match command.execution {
+                    #[cfg(feature = "native-host")]
+                    Execution::Native(Run::FormatEditor(_)) if editor.is_read_only => None,
                     #[cfg(feature = "native-host")]
                     Execution::Native(Run::EditDocument(DocumentEdit::Indentation(command)))
                         if !editor.is_read_only || !command.requires_write() =>
@@ -1077,6 +1096,8 @@ mod tests {
                 #[cfg(feature = "native-host")]
                 Execution::Native(Run::ChooseIndentation(_)) => None,
                 #[cfg(feature = "native-host")]
+                Execution::Native(Run::FormatEditor(_)) => None,
+                #[cfg(feature = "native-host")]
                 Execution::Native(Run::EditDocument(DocumentEdit::Find(_))) => None,
                 #[cfg(feature = "native-host")]
                 Execution::Native(Run::EditDocument(DocumentEdit::Problem(_))) => None,
@@ -1238,6 +1259,14 @@ mod tests {
                         .filter(|_| cfg!(feature = "native-host") && !is_read_only),
                 )
                 .chain(
+                    [
+                        "editor.action.formatDocument",
+                        "editor.action.formatSelection",
+                    ]
+                    .into_iter()
+                    .filter(|_| EDITOR_FORMATTING_AVAILABLE && !is_read_only),
+                )
+                .chain(
                     ["editor.action.resetSuggestSize"]
                         .into_iter()
                         .filter(|_| cfg!(feature = "native-host")),
@@ -1275,6 +1304,30 @@ mod tests {
                 expected,
                 "read only {is_read_only} folding {has_folding}"
             );
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "native-host")]
+    fn native_문서와_선택_포맷은_기존_명령과_재지정_키에_연결된다() {
+        let registry = registry().unwrap();
+        for (action, expected) in [
+            (
+                "editor.action.formatDocument",
+                taide_native_editor::formatting::Command::Document,
+            ),
+            (
+                "editor.action.formatSelection",
+                taide_native_editor::formatting::Command::Selection,
+            ),
+        ] {
+            let id = format!("monaco.{action}");
+            let command = registry.command(&id).unwrap();
+            assert!(
+                matches!(command.execution, Execution::Native(Run::FormatEditor(actual)) if actual == expected),
+                "{id}"
+            );
+            assert_eq!(keymap_run(&id), Some(Run::FormatEditor(expected)), "{id}");
         }
     }
 

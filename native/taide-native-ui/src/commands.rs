@@ -76,6 +76,11 @@ pub enum ShellIntent {
         tab: TabId,
         command: crate::command_registry::IndentationCommand,
     },
+    #[cfg(feature = "native-host")]
+    FormatEditor {
+        tab: TabId,
+        command: taide_native_editor::formatting::Command,
+    },
     ShowOpenProjectNotice,
     ChangeEditorFontSize {
         increase: bool,

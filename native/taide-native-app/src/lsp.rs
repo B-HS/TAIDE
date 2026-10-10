@@ -54,6 +54,8 @@ mod document_symbols;
 mod editor_completion;
 #[path = "lsp-editor-documentation.rs"]
 mod editor_documentation;
+#[path = "lsp-editor-formatting.rs"]
+mod editor_formatting;
 #[path = "lsp-editor-highlights.rs"]
 mod editor_highlights;
 #[path = "lsp-symbol-locations.rs"]
@@ -77,6 +79,9 @@ mod editor_completion_tests;
 #[cfg(all(test, unix))]
 #[path = "lsp-editor-documentation-tests.rs"]
 mod editor_documentation_tests;
+#[cfg(all(test, unix))]
+#[path = "lsp-editor-formatting-tests.rs"]
+mod editor_formatting_tests;
 #[cfg(test)]
 #[path = "lsp-editor-highlights-tests.rs"]
 mod editor_highlights_tests;
@@ -220,6 +225,7 @@ struct Session {
 }
 
 enum Command {
+    EditorFormat(crate::editor_formatting::Request),
     Completion(crate::editor_completion::Request),
     Documentation(crate::editor_documentation::Request),
     Highlights(crate::editor_highlights::Request),
@@ -275,6 +281,10 @@ enum Command {
 }
 
 pub enum Reply {
+    EditorFormatted {
+        request: crate::editor_formatting::Request,
+        result: Result<crate::editor_formatting::Response, Failure>,
+    },
     Completion {
         request: crate::editor_completion::Request,
         result: Result<crate::editor_completion::Response, Failure>,
@@ -617,6 +627,27 @@ impl LspBridge {
 
     pub(crate) fn highlights(&self, request: crate::editor_highlights::Request) -> AppResult<()> {
         self.submit(Command::Highlights(request))
+    }
+
+    pub(crate) fn format_editor(
+        &self,
+        request: crate::editor_formatting::Request,
+    ) -> AppResult<()> {
+        self.submit(Command::EditorFormat(request))
+    }
+
+    pub(crate) fn formatting_providers(
+        &self,
+        project: &ProjectId,
+        snapshot: &DocumentSnapshot,
+        command: taide_native_editor::formatting::Command,
+    ) -> HashSet<crate::editor_symbols::ProviderIdentity> {
+        let mut providers =
+            self.feature_providers(project, snapshot, "textDocument/rangeFormatting");
+        if command == taide_native_editor::formatting::Command::Document {
+            providers.extend(self.feature_providers(project, snapshot, "textDocument/formatting"));
+        }
+        providers
     }
 
     pub(crate) fn highlight_providers(
@@ -1745,6 +1776,50 @@ async fn run(
                     }
                 }) {
                     Some(Reply::Documentation { request: rejected, result: Err(Failure::TransportClosed) })
+                } else {
+                    None
+                }
+            }
+            Command::EditorFormat(request) => {
+                if request.is_cancelled() {
+                    continue;
+                }
+                let selected = sessions
+                    .iter()
+                    .filter(|(key, session)| {
+                        key.project == request.project
+                            && session.documents.contains_key(&request.snapshot.id)
+                    })
+                    .map(|(key, session)| (key.clone(), session.clone()))
+                    .collect::<HashMap<_, _>>();
+                let sender = replies.clone();
+                let repaint = repaint.clone();
+                let mut cancelled = request.cancelled.clone();
+                let mut stopping = stopping.clone();
+                let rejected = request.clone();
+                if !services
+                    .tasks
+                    .spawn_transient("native-lsp-editor-format", async move {
+                        let result = tokio::select! {
+                            biased;
+                            _ = stopping.changed() => return,
+                            _ = cancelled.changed() => return,
+                            result = editor_formatting::request(&selected, &request) => result,
+                        };
+                        if !request.is_cancelled()
+                            && sender
+                                .send(Reply::EditorFormatted { request, result })
+                                .await
+                                .is_ok()
+                        {
+                            repaint();
+                        }
+                    })
+                {
+                    Some(Reply::EditorFormatted {
+                        request: rejected,
+                        result: Err(Failure::TransportClosed),
+                    })
                 } else {
                     None
                 }

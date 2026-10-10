@@ -3,6 +3,71 @@ use taide_native_ui::keymap::{Context, Decision, Route, Windows};
 
 #[cfg(feature = "native-host")]
 #[test]
+fn 문서와_선택_포맷의_기본키는_플랫폼_재지정_chord와_ime를_따른다() {
+    for os in [
+        OperatingSystem::Mac,
+        OperatingSystem::Windows,
+        OperatingSystem::Nix,
+    ] {
+        let context = egui::Context::default();
+        context.set_os(os);
+        let command = if os == OperatingSystem::Mac {
+            Modifiers::MAC_CMD | Modifiers::COMMAND
+        } else {
+            Modifiers::CTRL | Modifiers::COMMAND
+        };
+        let (key, modifiers) = if os == OperatingSystem::Nix {
+            (Key::I, command | Modifiers::SHIFT)
+        } else {
+            (Key::F, Modifiers::ALT | Modifiers::SHIFT)
+        };
+        let mut windows = Windows::default();
+        let expected = Decision::Dispatch("monaco.editor.action.formatDocument".into());
+        assert!(
+            editor_event(&mut windows, &context, key, modifiers, None, false).contains(&expected)
+        );
+        assert_eq!(
+            editor_event(&mut windows, &context, key, modifiers, None, true).contains(&expected),
+            os == OperatingSystem::Nix
+        );
+        let overrides =
+            r#"[{"actionId":"monaco.editor.action.formatDocument","key":"F9","mods":[]}]"#;
+        assert!(
+            editor_event(
+                &mut windows,
+                &context,
+                Key::F9,
+                Modifiers::NONE,
+                Some(overrides),
+                false
+            )
+            .contains(&expected)
+        );
+        assert!(
+            !editor_event(
+                &mut windows,
+                &context,
+                key,
+                modifiers,
+                Some(overrides),
+                false
+            )
+            .contains(&expected)
+        );
+        assert!(
+            editor_event(&mut windows, &context, Key::K, command, None, false)
+                .contains(&Decision::EnterChord)
+        );
+        assert!(
+            editor_event(&mut windows, &context, Key::F, command, None, false).contains(
+                &Decision::ResolveChord("monaco.editor.action.formatSelection".into())
+            )
+        );
+    }
+}
+
+#[cfg(feature = "native-host")]
+#[test]
 fn 하이라이트_f7과_shift_f7은_os와_재지정과_ime를_따른다() {
     for os in [
         OperatingSystem::Mac,

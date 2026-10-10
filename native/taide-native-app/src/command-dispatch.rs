@@ -976,14 +976,13 @@ mod tests {
             "editor.action.smartSelect.expand",
             "editor.action.triggerSuggest",
             "editor.action.resetSuggestSize",
+            "editor.action.formatDocument",
+            "editor.action.formatSelection",
         ]
         .into_iter()
         .chain(FOLD_ACTIONS.map(|(action, _)| action))
         {
             assert!(actions.contains(action), "{action}");
-        }
-        for action in ["editor.action.formatDocument"] {
-            assert!(!actions.contains(action), "{action}");
         }
         let detached = ViewKey {
             tab: TabId::new(),

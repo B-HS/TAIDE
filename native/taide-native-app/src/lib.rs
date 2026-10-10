@@ -45,6 +45,8 @@ mod editor_documentation_images;
 mod editor_folding;
 #[path = "editor-fonts.rs"]
 mod editor_fonts;
+#[path = "editor-formatting.rs"]
+mod editor_formatting;
 #[path = "editor-highlights.rs"]
 mod editor_highlights;
 #[path = "editor-indentation.rs"]

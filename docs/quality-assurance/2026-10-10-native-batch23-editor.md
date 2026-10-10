@@ -399,3 +399,30 @@ frozen-host.log의 host --tests/inspection은 10.09초, frozen-wasm.log의 --lib
 editor-30의 원본 요구사항은 tabSize·insertSpaces·EditorConfig와 감지/변환/indent/outdent입니다. 기존 전체/선택 재들여쓰기·수동 선택창·문서 설정/수명·실제 본문/peek 검증에 현재 포맷/스니펫 소비를 더해 기능 판정을 complete로 갱신합니다. formatOnType/formatOnPaste(editor-32), 내장 언어 서비스(editor-57), 큰 tier(editor-19), 전체 실기/성능/출시는 별도 요구사항/게이트로 계속 미완료입니다. 배치 23 전체를 완료로 올리지 않습니다. 최신 요구사항은 588대상/289완료/299미완료이며 배치 23/최종 33 계획과 전체 전환율·잔여 시간 미산정을 유지합니다.
 
 기능표 생성의 최초 실행은 experiments/ 경로를 직접 source 근거에 넣어 기존 경로 검증에서 Invalid evidence path로 실패했습니다. 검증기를 넓히지 않고 공유 mock 근거는 이 QA의 실제 빌드/child 결과로 보존하며 native Consumer/세션/실제 앱 테스트 경로로 연결했습니다. 같은 감사 도구의 다음 실행은 599행/309근거 경로·정합성 exit 0입니다.
+
+## 문서·선택 포맷의 외부 요청과 실제 소비 (2026-10-11)
+
+기준은 19230aca입니다. TS lsp/adapters/formatting.ts의 문서/범위 어댑터와 설치 Monaco의 formatActions.js·format.js·formattingEdit.js·editorWebWorker.js, 기존 typed Formatting/RangeFormatting과 App LspBridge/EditorStore를 대조했습니다. 문서는 문서 공급자를 우선하고 없을 때 범위 공급자에 전체 범위를 요청하며, 선택은 범위 공급자만 사용합니다. 빈 선택은 현재 줄 전체로, 접하거나 겹친 선택은 합친 범위로 바꿉니다. 서로 다른 요청의 응답 편집이 겹치면 두 요청 범위를 합쳐 재요청하며 그룹 수가 반드시 하나씩 줄어듭니다. 성공/null/취소/실패 경계와 현재 세대/capability revision·문서 key/revision/언어/tier·뷰/owner·주 커서·IME·현재 편집 폭/방식을 확인합니다.
+
+Core formatting.rs는 UTF-16 범위의 최소 편집을 계산하고 EOL을 모델 방식으로 정규화합니다. 동일 결과는 편집/dirty/undo를 만들지 않으며, 유효하지 않은 UTF-16과 겹친 편집은 원자적으로 거절합니다. Unicode scalar와 CRLF 경계를 보존하는 유한 차이 계산은 최대 100,000 UTF-16 단위·1,000,000 단계에서 raw 편집으로 대체합니다. 31개 문자열의 961쌍 재구성과 상한 대체는 각각 일반 검사 한 건으로 계산합니다. 원본의 내부 수치나 버그 재현을 목표로 삼지 않습니다.
+
+기존 두 명령에 Mac/Windows Shift+Alt+F·Linux Ctrl+Shift+I와 공통 Cmd/Ctrl+K, Cmd/Ctrl+F를 연결하고 재지정도 유지했습니다. Linux의 Ctrl 조합은 기존 keymap 규칙에 따라 IME 중에도 전달되지만 실제 요청은 조합 상태에서 시작하지 않습니다. 팔레트가 열리면 본문 입력이 비활성화되어 peek의 focus ID 기록이 두 프레임 뒤 사라지는 제품 실패를 재현했습니다. 해당 원래 ID를 팔레트가 열린 동안 유지하고 닫기 전에 포맷의 source/owner를 캡처해 실제 요청에 전달합니다. 읽기 전용 본문에서는 포맷을 제외하고, 읽기 전용 본문이 소유한 쓰기 가능한 peek에는 허용합니다. 본문 저장 포맷도 같은 최소 편집 계산을 사용하며 저장 참여자의 순서는 바꾸지 않습니다.
+
+로그 접두사는 /private/tmp/taide-batch23-editor-format-입니다.
+
+- registry-repro.log는 새 두 명령의 미지원 실패 1건·exit 101입니다. core.log는 4통과/1실패였으며 이름 끝에 삽입한 공백의 after affinity를 무시한 기대값을 실제 이름 안의 선택으로 정정했습니다. core-retry.log는 해당 1건 통과입니다.
+- state.log는 Root의 Context 참조 누락으로 컴파일에 실패했습니다. product.log는 테스트의 disconnect 반환값과 IndentOptions 기본값 API를 잘못 사용해 컴파일에 실패했습니다. product-retry.log는 상태 4통과/실제 앱 1실패/child 1실패입니다. TS use-editor-file-persistence.ts:254의 모든 편집에서 dirty를 유지하는 계약에 맞춰 undo 기대값을 정정했습니다. child.log의 초기화 대기는 테스트가 재도색만 오는 공급자 상태 변화를 다시 확인하지 않아 발생했습니다. 조건을 직접 다시 확인하도록 고친 child-final.log는 문서/선택·범위 대체·겹침 재요청과 실제 취소/늦은 응답 거절의 2건 통과·exit 0입니다.
+- app-final.log와 app-diagnostic.log는 peek 팔레트가 원래 대상을 잃어 읽기 전용 본문으로 판단한 실제 실패입니다. 수정한 app-pass.log는 실제 본문 기본 키·선택 chord·readonly owner의 peek 팔레트·현재 4/공백→2/탭과 표시 8·undo·문서/디스크 저장 분리까지 1건 통과·exit 0입니다. 정의 공급자의 탐색 자체는 새로 검증하지 않았으며 기존 peek 응답 모델을 fixture로 사용했습니다.
+- core-all.log는 전체 38대상/291통과/0실패/기존 성능 1ignored·exit 0입니다. ui-all.log는 전체 22대상/435통과/2실패·exit 101입니다. 기존 지원 목록과 IME 플랫폼 기대값을 정정한 ui-registry-retry.log는 13통과/1실패이며 readonly guard가 generic Native 분기로 빠지는 제품 누락을 추가로 확인했습니다. guard 수정 뒤 ui-registry-final.log와 ui-key-final.log의 해당 검사 1건씩이 통과해 최종 서로 다른 UI 437건입니다. 전체 성공 435건을 다시 실행하지 않았고 최초 exit 101을 보존합니다.
+- app-all.log는 기존 통합 검사의 새 Reply 분기 누락으로 컴파일 전 exit 101입니다. 분기를 보완한 app-all-final.log는 전체 67대상/811통과/1실패·exit 101이며 보호 Trash 3건을 제외했습니다. 실패는 command-dispatch가 새 포맷 명령을 아직 미지원으로 기대한 검사입니다. 기대값을 수정한 app-actions-retry.log의 해당 1건 통과로 최종 서로 다른 App 812건입니다. 앞선 부분/중간/원본 비교 사례를 중복 합산하지 않으며 Core/UI/App의 최신 서로 다른 성공은 1540건입니다.
+
+### 남은 판정과 검증 부채
+
+editor-49는 수동 외부 포맷 소비가 추가됐지만 내장 언어 서비스의 포맷 fallback(editor-57)이 남아 partial을 유지합니다. editor-32의 자동 입력/붙여넣기는 아직 연결하지 않았으며 missing입니다. 이번 일반 최소 편집·기본 선택/scroll/undo 성공만으로 다음 조건까지 검증했다고 확대하지 않습니다.
+
+- raw 전체 교체로 대체할 때 원본 replace/replaceMove의 마커 affinity는 별도 실제 Monaco 비교를 실행하지 않았습니다. 현재 상한 검사는 텍스트 재구성만 확인합니다. 전체 교체에서 선택 위치가 달라질 위험을 c2s에서 원본 편집과 native 표면으로 확인합니다.
+- 포맷이 커서 위의 줄 수를 바꿀 때 상대 세로 위치와 wrap/접기/scroll을 함께 보존하는지는 아직 실제 표면에서 비교하지 않았습니다. Core의 저장 scroll 보존과 nearest reveal을 해당 UI 계약의 완료로 간주하지 않으며 c2s에서 직접 확인합니다.
+
+이 두 대조를 닫기 전에는 PROCESS c2 전체를 완료로 올리지 않습니다. 현재 일반 요청/명령·실제 소비의 검증한 c2a 단위만 저장합니다. 기존 독립 실험 lock/fmt·이미지/OS watcher 원인 미확정·큰 tier/성능/실기/출시 부채는 유지합니다. 요구사항은 588대상/289완료/299미완료, 현재 배치 23/최종 33이며 전체 전환율·잔여 시간은 미산정입니다.
+
+frozen-host.log의 host --tests/inspection은 17.00초, frozen-wasm.log의 Wasm --lib/canvas,inspection은 6.07초이며 각각 exit 0입니다. Core/UI/App fmt check exit 0, frozen/manifest/lock 변경 0, 디스크 여유 518GiB/72%를 확인했습니다. 소유 Cargo/fmt는 이전 세션의 실제 종료 뒤에만 직렬로 실행했으며 실행 중 Rust/포함 리소스를 수정하지 않았습니다. 보호 앱/실제 데이터/OS 설정/클립보드/Keychain/Trash를 건드리거나 빌드 산출물을 정리하지 않았습니다. 독립 실험 lock/fmt 실패는 입력이 같은 기존 결과를 재사용합니다.
