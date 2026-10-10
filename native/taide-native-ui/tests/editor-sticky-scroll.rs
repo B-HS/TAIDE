@@ -200,6 +200,10 @@ impl Fixture {
                             documentation: None,
                             #[cfg(feature = "native-host")]
                             documentation_commands: &[],
+                            #[cfg(feature = "native-host")]
+                            completion: None,
+                            #[cfg(feature = "native-host")]
+                            completion_commands: &[],
                             fold_controls: Some(&mut paint),
                             #[cfg(feature = "native-host")]
                             problems: None,

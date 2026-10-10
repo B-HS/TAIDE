@@ -135,15 +135,11 @@ fn snippet_session은_여러cursor의_primary_조합_삭제와_겹친caret회수
         .unwrap();
     assert_eq!(
         store.views().get(view).unwrap().selection.selections.len(),
-        VIEW_LIMIT
+        VIEW_LIMIT * 2
     );
-    assert_eq!(
-        session.replace(&mut store, "", None),
-        Err(EditorError::Refused)
-    );
+    assert!(session.replace(&mut store, "", None).unwrap());
     assert!(!session.is_active());
     assert!(session.decorations(&store).unwrap().is_empty());
-    replace_selections(&mut store, view, "", None).unwrap();
     assert_eq!(
         store.views().get(view).unwrap().selection.selections.len(),
         VIEW_LIMIT
@@ -156,16 +152,6 @@ fn snippet_session은_여러cursor의_primary_조합_삭제와_겹친caret회수
             .rope
             .to_string(),
         "  -\n\t -\n"
-    );
-    assert!(store.undo(document).unwrap());
-    assert_eq!(
-        store
-            .documents()
-            .snapshot(document)
-            .unwrap()
-            .rope
-            .to_string(),
-        "  𐐀𐐀-\n\t 𐐀𐐀-\n"
     );
     assert!(store.undo(document).unwrap());
     assert_eq!(

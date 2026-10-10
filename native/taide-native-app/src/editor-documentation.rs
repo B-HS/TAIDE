@@ -834,30 +834,45 @@ impl taide_native_ui::editor_documentation::Provider for Provider<'_, '_> {
     }
 
     fn open_link(&mut self, ui: &eframe::egui::Ui, target: &str) -> bool {
-        let Ok(uri) = url::Url::parse(target) else {
-            return false;
-        };
-        match uri.scheme() {
-            "http" | "https" | "mailto" => {
-                ui.ctx()
-                    .open_url(eframe::egui::OpenUrl::new_tab(uri.as_str()));
-                true
-            }
-            "file" => {
-                let Some(project) = self.project.clone() else {
-                    return false;
-                };
-                let Some(request) =
-                    FileRequest::new(project, self.owner_key.clone(), &uri, self.viewport)
-                else {
-                    return false;
-                };
-                self.commands
-                    .push(crate::host::HostCommand::OpenDocumentationFile(request));
-                true
-            }
-            _ => false,
+        open_link(
+            ui,
+            target,
+            self.project.as_ref(),
+            &self.owner_key,
+            self.viewport,
+            self.commands,
+        )
+    }
+}
+
+pub(crate) fn open_link(
+    ui: &eframe::egui::Ui,
+    target: &str,
+    project: Option<&ProjectId>,
+    owner: &ViewKey,
+    viewport: eframe::egui::ViewportId,
+    commands: &mut Vec<crate::host::HostCommand>,
+) -> bool {
+    let Ok(uri) = url::Url::parse(target) else {
+        return false;
+    };
+    match uri.scheme() {
+        "http" | "https" | "mailto" => {
+            ui.ctx()
+                .open_url(eframe::egui::OpenUrl::new_tab(uri.as_str()));
+            true
         }
+        "file" => {
+            let Some(project) = project.cloned() else {
+                return false;
+            };
+            let Some(request) = FileRequest::new(project, owner.clone(), &uri, viewport) else {
+                return false;
+            };
+            commands.push(crate::host::HostCommand::OpenDocumentationFile(request));
+            true
+        }
+        _ => false,
     }
 }
 

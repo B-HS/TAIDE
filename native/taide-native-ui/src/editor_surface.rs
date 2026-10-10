@@ -40,6 +40,8 @@ use crate::editor_geometry::{
 use crate::editor_gutter::{FoldControlFade, Gutter};
 use crate::editor_paint::{Carets, Layers, frame_decorations};
 use crate::editor_pointer::{PointerInput, PointerSelection};
+#[cfg(feature = "native-host")]
+use crate::editor_row_text::{RowColumns, RowText, RowTokens};
 
 const ROW_OVERSCAN: usize = 1;
 const CENTER_DIVISOR: f32 = 2.0;
@@ -105,6 +107,7 @@ pub enum CursorBlinking {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct EditorDisplayOptions {
     pub word_wrap: bool,
+    pub suggest_preview: bool,
     pub render_whitespace: RenderWhitespace,
     pub rulers: Vec<u32>,
     pub cursor_style: CursorStyle,
@@ -144,6 +147,8 @@ pub struct EditorDisplayOptions {
     pub location_colors: Option<crate::editor_locations::Colors>,
     #[cfg(feature = "native-host")]
     pub documentation_colors: Option<crate::editor_documentation::Colors>,
+    #[cfg(feature = "native-host")]
+    pub completion_colors: Option<crate::editor_completion::Colors>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -191,6 +196,10 @@ pub struct EditorRequest<'a, Keymap, Route, Tokens> {
     pub documentation: Option<&'a mut dyn crate::editor_documentation::Provider>,
     #[cfg(feature = "native-host")]
     pub documentation_commands: &'a [taide_native_editor::documentation::Command],
+    #[cfg(feature = "native-host")]
+    pub completion: Option<&'a mut dyn crate::editor_completion::Provider>,
+    #[cfg(feature = "native-host")]
+    pub completion_commands: &'a [taide_native_editor::completion::Command],
     #[cfg(feature = "native-host")]
     pub syntax_folds: Option<Arc<taide_native_editor::syntax_folding::SyntaxFolds>>,
 }
@@ -287,6 +296,8 @@ struct InputState {
     definition_link: crate::editor_definition_link::State,
     #[cfg(feature = "native-host")]
     documentation: crate::editor_documentation::State,
+    #[cfg(feature = "native-host")]
+    completion: crate::editor_completion::State,
     #[cfg(feature = "native-host")]
     caret: crate::editor_caret::CaretState,
     #[cfg(feature = "native-host")]
@@ -527,18 +538,37 @@ struct Projection<'a> {
     stable_scroll_top: Option<f32>,
     #[cfg(feature = "native-host")]
     problem_zone: Option<(usize, f32)>,
+    preview_views: Vec<taide_native_editor::completion_preview_view::ViewData>,
+}
+
+fn preview_layout(line_height: f32, display: &DisplayMap) -> VerticalLayout {
+    VerticalLayout::new(line_height, display.row_count()).with_additional_zones(
+        display.preview_views().iter().map(|view| {
+            let rows = display.rows_of_line(view.line);
+            let after = if rows.is_empty() {
+                usize::MAX
+            } else {
+                rows.end - 1
+            };
+            (after, view.additional.len() as f32 * line_height)
+        }),
+    )
 }
 
 impl Projection<'_> {
-    fn map(&mut self, document: &DocumentSnapshot, folds: &[Range<usize>]) -> &DisplayMap {
-        self.map_with_stable_scroll_top(document, folds).0
+    fn map(
+        &mut self,
+        document: &DocumentSnapshot,
+        folds: &[Range<usize>],
+    ) -> Result<&DisplayMap, EditorError> {
+        Ok(self.map_with_stable_scroll_top(document, folds)?.0)
     }
 
     fn map_with_stable_scroll_top(
         &mut self,
         document: &DocumentSnapshot,
         folds: &[Range<usize>],
-    ) -> (&DisplayMap, Option<f32>) {
+    ) -> Result<(&DisplayMap, Option<f32>), EditorError> {
         #[cfg(feature = "native-host")]
         let zone_changed = self
             .rendered_viewport
@@ -572,6 +602,7 @@ impl Projection<'_> {
                 stale.revision() == document.revision
                     && (stale.wrap_settings() != wrap.as_ref()
                         || stale.hidden_lines() != hidden
+                        || stale.preview_views() != self.preview_views
                         || zone_changed)
             })
             .zip(
@@ -579,7 +610,7 @@ impl Projection<'_> {
                     .filter(|rendered| rendered.scroll_top > 0.0),
             )
             .map(|(stale, rendered)| {
-                let layout = VerticalLayout::new(rendered.line_height, stale.row_count());
+                let layout = preview_layout(rendered.line_height, stale);
                 #[cfg(feature = "native-host")]
                 let layout = rendered.problem_zone.map_or_else(
                     || layout.clone(),
@@ -604,12 +635,13 @@ impl Projection<'_> {
         );
         map.refresh(document);
         map.set_hidden_lines(&hidden);
+        map.set_preview_views(document, &self.preview_views)?;
         if let Some((byte, delta)) = viewport_start
             && map
                 .hidden_lines_at(document.rope.byte_to_line(byte))
                 .is_none()
         {
-            let layout = VerticalLayout::new(self.appearance.line_height, map.row_count());
+            let layout = preview_layout(self.appearance.line_height, map);
             #[cfg(feature = "native-host")]
             let layout = self.problem_zone.map_or_else(
                 || layout.clone(),
@@ -622,7 +654,7 @@ impl Projection<'_> {
             );
             self.stable_scroll_top = Some(layout.row_top(map.row_of_byte(document, byte)) + delta);
         }
-        (map, self.stable_scroll_top)
+        Ok((map, self.stable_scroll_top))
     }
 }
 
@@ -649,6 +681,8 @@ pub struct EditorOutput {
     pub toggle_sticky_scroll: bool,
     #[cfg(all(feature = "native-host", feature = "inspection"))]
     pub documentation_geometry: crate::editor_documentation::Geometry,
+    #[cfg(all(feature = "native-host", feature = "inspection"))]
+    pub completion_geometry: crate::editor_completion::Geometry,
 }
 
 #[derive(Default)]
@@ -885,14 +919,15 @@ impl NativeEditor {
             width: rect.width(),
             wrap_tab_size: presentation.options.word_wrap.then_some(tab_size),
             has_folding: presentation.options.folding,
+            preview_views: Vec::new(),
             cached,
             rendered_viewport: None,
             stable_scroll_top: None,
             #[cfg(feature = "native-host")]
             problem_zone,
         };
-        let display = projection.map(&document, &current.folds);
-        let layout = VerticalLayout::new(appearance.line_height, display.row_count());
+        let display = projection.map(&document, &current.folds)?;
+        let layout = preview_layout(appearance.line_height, display);
         #[cfg(feature = "native-host")]
         let layout = problem_zone.map_or_else(
             || layout.clone(),
@@ -911,6 +946,13 @@ impl NativeEditor {
             half_leading: half_leading(ui.painter(), appearance),
             tab_size,
             tokens: tokens.filter(|tokens| tokens.describes(&document)),
+            #[cfg(feature = "native-host")]
+            preview_styles: &[],
+            #[cfg(feature = "native-host")]
+            preview_colors: presentation.options.completion_colors.map_or_else(
+                || crate::editor_completion::PreviewColors::for_dark_mode(ui.visuals().dark_mode),
+                |colors| colors.preview,
+            ),
             bold_family: registered_family(ui, presentation.options.bold_family.as_ref()),
             decorations: &[],
             #[cfg(feature = "native-host")]
@@ -1059,6 +1101,10 @@ impl NativeEditor {
                 documentation: None,
                 #[cfg(feature = "native-host")]
                 documentation_commands: &[],
+                #[cfg(feature = "native-host")]
+                completion: None,
+                #[cfg(feature = "native-host")]
+                completion_commands: &[],
             },
         )
     }
@@ -1109,6 +1155,10 @@ impl NativeEditor {
             mut documentation,
             #[cfg(feature = "native-host")]
             documentation_commands,
+            #[cfg(feature = "native-host")]
+            mut completion,
+            #[cfg(feature = "native-host")]
+            completion_commands,
             #[cfg(feature = "native-host")]
             syntax_folds,
         } = request;
@@ -1164,6 +1214,19 @@ impl NativeEditor {
         );
         ui.allocate_rect(rect, Sense::hover());
         if ui.is_enabled() && (request_focus || response.clicked() || response.drag_started()) {
+            #[cfg(feature = "native-host")]
+            ui.memory_mut(|memory| {
+                memory.request_focus_with_filter(
+                    id,
+                    egui::EventFilter {
+                        tab: true,
+                        horizontal_arrows: true,
+                        vertical_arrows: true,
+                        escape: true,
+                    },
+                )
+            });
+            #[cfg(not(feature = "native-host"))]
             response.request_focus();
         }
         let cached = store.take_display(view)?;
@@ -1183,6 +1246,12 @@ impl NativeEditor {
             .scroll
             .begin(previous.id, vec2(current.scroll.x, current.scroll.y));
         let mut output = InputOutput::default();
+        #[cfg(feature = "native-host")]
+        if let Some(provider) = completion.as_deref_mut() {
+            input_state
+                .completion
+                .begin(ui, store, view, id, provider, completion_commands)?;
+        }
         #[cfg(feature = "native-host")]
         let documentation_input = if let Some(provider) = documentation.as_deref_mut() {
             input_state.documentation.input(
@@ -1278,6 +1347,10 @@ impl NativeEditor {
                 width: (rect.width() - minimap_width).max(0.0),
                 wrap_tab_size: presentation.options.word_wrap.then_some(indent.tab_size),
                 has_folding: presentation.options.folding,
+                preview_views: cached
+                    .as_ref()
+                    .filter(|map| map.revision() == previous.revision)
+                    .map_or_else(Vec::new, |map| map.preview_views().to_vec()),
                 cached,
                 rendered_viewport: input_state
                     .rendered_viewport
@@ -1374,6 +1447,11 @@ impl NativeEditor {
         let location_owned = !location_input.consumed.is_empty();
         #[cfg(feature = "native-host")]
         let documentation_owned = !documentation_input.consumed.is_empty();
+        #[cfg(feature = "native-host")]
+        let completion_owned =
+            (0..event_count).any(|index| input_state.completion.owns_event(ui, id, index));
+        #[cfg(not(feature = "native-host"))]
+        let completion_owned = false;
         #[cfg(not(feature = "native-host"))]
         let documentation_owned = false;
         #[cfg(not(feature = "native-host"))]
@@ -1383,7 +1461,8 @@ impl NativeEditor {
             || sticky_owned
             || problem_owned
             || location_owned
-            || documentation_owned)
+            || documentation_owned
+            || completion_owned)
             && ui.is_enabled()
         {
             ui.memory_mut(|memory| {
@@ -1546,6 +1625,7 @@ impl NativeEditor {
                         .release_at
                         .is_some_and(|index| raw_index > index)
                     || documentation_input.release_from_start
+                    || input_state.completion.owns_event(ui, id, raw_index)
                     || problem_released
                     || owned.unwrap_or(fallback_focus);
                 #[cfg(not(feature = "native-host"))]
@@ -1640,6 +1720,17 @@ impl NativeEditor {
                 {
                     #[cfg(feature = "native-host")]
                     {
+                        if let Some(provider) = completion.as_deref_mut() {
+                            if let Err(error) = input_state
+                                .completion
+                                .flush_commands(ui, store, view, id, provider)
+                            {
+                                output.errors.push(error);
+                            }
+                            if let Err(error) = provider.after_event(store, view, &event) {
+                                output.errors.push(error);
+                            }
+                        }
                         last_editor_event = Some(raw_index);
                     }
                     continue;
@@ -1649,6 +1740,43 @@ impl NativeEditor {
                     last_editor_event = Some(raw_index);
                     response.request_focus();
                     continue;
+                }
+                #[cfg(feature = "native-host")]
+                if let Some(provider) = completion.as_deref_mut() {
+                    match input_state
+                        .completion
+                        .event(ui, store, view, id, provider, &event, raw_index, composing)
+                    {
+                        Ok(true) => {
+                            if let Err(error) = provider.after_event(store, view, &event) {
+                                output.errors.push(error);
+                            }
+                            last_editor_event = Some(raw_index);
+                            continue;
+                        }
+                        Ok(false) => {}
+                        Err(error) => {
+                            output.errors.push(error);
+                            continue;
+                        }
+                    }
+                }
+                #[cfg(feature = "native-host")]
+                if let Some(provider) = documentation.as_deref_mut() {
+                    match input_state
+                        .documentation
+                        .event(ui, store, view, provider, &event)
+                    {
+                        Ok(true) => {
+                            last_editor_event = Some(raw_index);
+                            continue;
+                        }
+                        Ok(false) => {}
+                        Err(error) => {
+                            output.errors.push(error);
+                            continue;
+                        }
+                    }
                 }
                 if let Some(language) = language {
                     language.syntax.follow_edits(store);
@@ -1674,6 +1802,14 @@ impl NativeEditor {
                             last_editor_event = Some(raw_index);
                         }
                         input_state.auto_closed.follow(store, view)?;
+                        #[cfg(feature = "native-host")]
+                        if let Some(provider) = completion.as_deref_mut()
+                            && let Err(error) = input_state
+                                .completion
+                                .after_event(ui, store, view, provider, &event)
+                        {
+                            output.errors.push(error);
+                        }
                         #[cfg(feature = "native-host")]
                         if let Some(provider) = documentation.as_deref_mut() {
                             let changed = store.views().get(view).is_some_and(|view| {
@@ -1790,6 +1926,20 @@ impl NativeEditor {
             .clone();
         let mut projection = input_context.projection;
         #[cfg(feature = "native-host")]
+        let preview = {
+            let preview = if presentation.options.suggest_preview {
+                completion
+                    .as_deref_mut()
+                    .map_or_else(crate::editor_completion::Preview::default, |provider| {
+                        input_state.completion.preview(ui, store, view, provider)
+                    })
+            } else {
+                crate::editor_completion::Preview::default()
+            };
+            projection.preview_views = preview.views.clone();
+            preview
+        };
+        #[cfg(feature = "native-host")]
         let location_widget = locations
             .as_deref_mut()
             .and_then(|provider| provider.current(store, view))
@@ -1827,7 +1977,7 @@ impl NativeEditor {
         #[cfg(feature = "native-host")]
         let zone_position = projection.problem_zone;
         let (display, stable_scroll_top) =
-            projection.map_with_stable_scroll_top(&document, &state.folds);
+            projection.map_with_stable_scroll_top(&document, &state.folds)?;
         let wrap_column = display.wrap_settings().map(|settings| settings.wrap_column);
         let head_row = |state: &ViewState, selection: usize| {
             display.row_of_head(
@@ -1850,7 +2000,7 @@ impl NativeEditor {
                 rect.bottom(),
             ),
         );
-        let layout = VerticalLayout::new(appearance.line_height, display.row_count());
+        let layout = preview_layout(appearance.line_height, display);
         #[cfg(feature = "native-host")]
         let layout = zone_position.map_or_else(
             || layout.clone(),
@@ -2018,6 +2168,7 @@ impl NativeEditor {
         let (wheel, precise_wheel) = if ui.is_enabled()
             && !location_hovered
             && !input_state.documentation.contains_pointer(ui)
+            && !input_state.completion.contains_pointer(ui)
             && (response.hovered()
                 || minimap_input
                     .as_ref()
@@ -2128,6 +2279,13 @@ impl NativeEditor {
             half_leading: half_leading(&painter, appearance),
             tab_size: indent.tab_size,
             tokens,
+            #[cfg(feature = "native-host")]
+            preview_styles: &preview.styles,
+            #[cfg(feature = "native-host")]
+            preview_colors: presentation.options.completion_colors.map_or_else(
+                || crate::editor_completion::PreviewColors::for_dark_mode(ui.visuals().dark_mode),
+                |colors| colors.preview,
+            ),
             bold_family: registered_family(ui, presentation.options.bold_family.as_ref()),
             decorations: &decorations,
             #[cfg(feature = "native-host")]
@@ -2630,6 +2788,73 @@ impl NativeEditor {
             layers.row(row, &carets);
         }
         #[cfg(feature = "native-host")]
+        for (index, view) in display.preview_views().iter().enumerate() {
+            let Some(zone) = layout.additional_zone(index) else {
+                continue;
+            };
+            let source_start = document.rope.line_to_byte(view.line);
+            for (line_index, line) in view.additional.iter().enumerate() {
+                let y = rect.top() + zone.start + line_index as f32 * appearance.line_height
+                    - state.scroll.y;
+                if y + appearance.line_height <= rect.top() || y >= rect.bottom() {
+                    continue;
+                }
+                let mut text = RowText::additional(
+                    line,
+                    source_start,
+                    RowColumns {
+                        tab_size: indent.tab_size,
+                        start_column: 0.0,
+                        indent_columns: 0,
+                    },
+                    appearance.foreground,
+                );
+                if let Some(tokens) = tokens {
+                    text.highlight(RowTokens {
+                        spans: tokens.lines.spans(view.line),
+                        styles: tokens.styles,
+                        row_start_byte: 0,
+                    });
+                }
+                let preview_tokens = preview
+                    .styles
+                    .get(index)
+                    .filter(|style| !style.short)
+                    .and_then(|style| {
+                        style.tokens.as_deref().map(|tokens| RowTokens {
+                            spans: tokens.lines.spans(style.additional_start + line_index),
+                            styles: &tokens.styles,
+                            row_start_byte: 0,
+                        })
+                    });
+                let is_syntax_highlighted =
+                    !preview.styles.get(index).is_some_and(|style| style.short);
+                let foreground = if is_syntax_highlighted {
+                    appearance
+                        .foreground
+                        .gamma_multiply(crate::editor_geometry::PREVIEW_OPACITY)
+                } else {
+                    row_layout.preview_colors.foreground
+                };
+                text.style_injections(foreground, preview_tokens, is_syntax_highlighted);
+                text.injection_background = row_layout.preview_colors.background;
+                text.injection_border = row_layout.preview_colors.border;
+                text.injection_foreground = row_layout.preview_colors.foreground;
+                if preview.styles.get(index).is_some_and(|style| style.short) {
+                    text.injection_dotted.clone_from(&text.injected);
+                }
+                let galley = text_painter
+                    .layout_job(text.styled_layout_job(&appearance.font, row_layout.bold_family));
+                input_state.widest_line = input_state.widest_line.max(galley.size().x.ceil());
+                let origin = pos2(
+                    text_rect.left() - state.scroll.x,
+                    y + row_layout.half_leading,
+                );
+                text_painter.galley(origin, galley.clone(), appearance.foreground);
+                text.paint_injections(&text_painter, origin, &galley);
+            }
+        }
+        #[cfg(feature = "native-host")]
         if presentation.options.cursor_style != CursorStyle::LineThin
             || presentation.options.cursor_blinking != CursorBlinking::Solid
             || presentation.options.smooth_caret
@@ -3043,6 +3268,16 @@ impl NativeEditor {
             rows: rows.into(),
         };
         #[cfg(feature = "native-host")]
+        if let Some(provider) = completion.as_deref_mut()
+            && let Some(colors) = presentation.options.completion_colors
+        {
+            focus_ids.extend(
+                input_state
+                    .completion
+                    .paint(ui, store, view, id, &geometry, appearance, colors, provider)?,
+            );
+        }
+        #[cfg(feature = "native-host")]
         if let Some(provider) = documentation.as_deref_mut()
             && let Some(colors) = presentation.options.documentation_colors
         {
@@ -3079,11 +3314,13 @@ impl NativeEditor {
         )?;
         #[cfg(all(feature = "native-host", feature = "inspection"))]
         let documentation_geometry = input_state.documentation.geometry();
+        #[cfg(all(feature = "native-host", feature = "inspection"))]
+        let completion_geometry = input_state.completion.geometry();
         ui.ctx().data_mut(|data| data.insert_temp(id, input_state));
         Ok(EditorOutput {
             response,
             save_requested: false,
-            changed: document.revision != previous.revision,
+            changed: store.documents().snapshot(document.id)?.revision != previous.revision,
             rendered_lines,
             errors: output.errors,
             #[cfg(feature = "native-host")]
@@ -3092,6 +3329,8 @@ impl NativeEditor {
             toggle_sticky_scroll,
             #[cfg(all(feature = "native-host", feature = "inspection"))]
             documentation_geometry,
+            #[cfg(all(feature = "native-host", feature = "inspection"))]
+            completion_geometry,
             geometry,
         })
     }
@@ -3225,7 +3464,7 @@ impl NativeEditor {
                         view,
                         motion,
                         modifiers.shift,
-                        context.projection.map(&document, &current.folds),
+                        context.projection.map(&document, &current.folds)?,
                     )?,
                     KeyAction::SelectAll => select_all(store, view)?,
                     KeyAction::Undo => {

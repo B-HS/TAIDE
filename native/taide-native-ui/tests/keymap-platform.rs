@@ -246,6 +246,20 @@ fn editor_event(
     overrides: Option<&str>,
     composing: bool,
 ) -> Vec<Decision> {
+    editor_event_deferred(
+        windows, context, key, modifiers, overrides, composing, false,
+    )
+}
+
+fn editor_event_deferred(
+    windows: &mut Windows,
+    context: &egui::Context,
+    key: Key,
+    modifiers: Modifiers,
+    overrides: Option<&str>,
+    composing: bool,
+    defer_defaults: bool,
+) -> Vec<Decision> {
     let event = Event::Key {
         key,
         physical_key: Some(key),
@@ -261,7 +275,7 @@ fn editor_event(
         },
         |ui| {
             windows
-                .route(
+                .route_editor(
                     Route {
                         context: ui.ctx(),
                         event: &event,
@@ -273,6 +287,7 @@ fn editor_event(
                         composing,
                         overrides,
                     },
+                    defer_defaults,
                     |decision| {
                         if matches!(
                             decision,
@@ -292,6 +307,101 @@ fn editor_event(
     );
     output.textures_delta.clear();
     decisions
+}
+
+#[cfg(feature = "native-host")]
+#[test]
+fn completion_keymap은_기본키만_양보하고_명시재정의와_chord를_유지한다() {
+    for os in [
+        OperatingSystem::Mac,
+        OperatingSystem::Windows,
+        OperatingSystem::Nix,
+    ] {
+        let context = egui::Context::default();
+        context.set_os(os);
+        let mut windows = Windows::default();
+        let command = if os.is_mac() {
+            Modifiers::MAC_CMD | Modifiers::COMMAND
+        } else {
+            Modifiers::CTRL | Modifiers::COMMAND
+        };
+        assert!(
+            editor_event_deferred(
+                &mut windows,
+                &context,
+                Key::OpenBracket,
+                command,
+                None,
+                false,
+                true
+            )
+            .is_empty()
+        );
+        assert!(
+            editor_event(
+                &mut windows,
+                &context,
+                Key::OpenBracket,
+                command,
+                None,
+                false
+            )
+            .contains(&Decision::Dispatch(
+                "monaco.editor.action.outdentLines".into()
+            ))
+        );
+        let overrides = r#"[{"actionId":"monaco.editor.action.copyLinesDownAction","key":"Tab","mods":[]},{"actionId":"monaco.acceptSelectedSuggestion","key":"r","mods":["mod"],"chord":{"key":"s","mods":["mod"]}}]"#;
+        assert!(
+            editor_event_deferred(
+                &mut windows,
+                &context,
+                Key::Tab,
+                Modifiers::NONE,
+                Some(overrides),
+                false,
+                true
+            )
+            .contains(&Decision::Dispatch(
+                "monaco.editor.action.copyLinesDownAction".into()
+            ))
+        );
+        assert!(
+            editor_event_deferred(
+                &mut windows,
+                &context,
+                Key::R,
+                command,
+                Some(overrides),
+                false,
+                true
+            )
+            .contains(&Decision::EnterChord)
+        );
+        assert!(
+            editor_event_deferred(
+                &mut windows,
+                &context,
+                Key::S,
+                command,
+                Some(overrides),
+                false,
+                true
+            )
+            .contains(&Decision::ResolveChord(
+                "monaco.acceptSelectedSuggestion".into()
+            ))
+        );
+        assert!(
+            editor_event_deferred(&mut windows, &context, Key::K, command, None, false, false)
+                .contains(&Decision::EnterChord)
+        );
+        assert!(
+            editor_event_deferred(&mut windows, &context, Key::I, command, None, false, true)
+                .contains(&Decision::ResolveChord(
+                    "monaco.editor.action.showHover".into()
+                ))
+        );
+    }
 }
 
 #[cfg(feature = "native-host")]

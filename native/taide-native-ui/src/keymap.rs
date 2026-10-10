@@ -152,6 +152,7 @@ struct CommandBinding {
 struct EditorBinding {
     entry: Entry,
     platform: Option<String>,
+    overridden: bool,
 }
 
 impl CommandBinding {
@@ -200,7 +201,7 @@ struct Window {
     map: Keymap,
     frame: u64,
     decisions: HashMap<usize, Decision>,
-    editor_decisions: HashMap<usize, (Decision, bool)>,
+    editor_decisions: HashMap<(usize, bool), (Decision, bool)>,
     claimed_text: Option<(usize, egui::Key)>,
     no_match_until: Option<Instant>,
 }
@@ -234,6 +235,15 @@ impl Windows {
     pub fn route(
         &mut self,
         request: Route<'_>,
+        handler: impl FnMut(&Decision) -> bool,
+    ) -> AppResult<bool> {
+        self.route_editor(request, false, handler)
+    }
+
+    pub fn route_editor(
+        &mut self,
+        request: Route<'_>,
+        defer_defaults: bool,
         mut handler: impl FnMut(&Decision) -> bool,
     ) -> AppResult<bool> {
         use egui::Event;
@@ -304,23 +314,27 @@ impl Windows {
                     | Decision::Dispatch(_)
             )
         {
-            let (editor, previously_handled) = match window.editor_decisions.get(&index) {
-                Some(cached) if index != usize::MAX => cached.clone(),
-                _ => {
-                    let decision = window.map.decide_editor_egui(
-                        event,
-                        composing,
-                        context.os(),
-                        Instant::now(),
-                    );
-                    note_chord(window, context, &decision, Instant::now());
-                    (decision, false)
-                }
-            };
+            let (editor, previously_handled) =
+                match window.editor_decisions.get(&(index, defer_defaults)) {
+                    Some(cached) if index != usize::MAX => cached.clone(),
+                    _ => {
+                        let decision = window.map.decide_editor_egui(
+                            event,
+                            composing,
+                            context.os(),
+                            Instant::now(),
+                            defer_defaults,
+                        );
+                        note_chord(window, context, &decision, Instant::now());
+                        (decision, false)
+                    }
+                };
             handled = previously_handled
                 || (!matches!(editor, Decision::None | Decision::Ignore) && handler(&editor));
             if index != usize::MAX {
-                window.editor_decisions.insert(index, (editor, handled));
+                window
+                    .editor_decisions
+                    .insert((index, defer_defaults), (editor, handled));
             }
         }
         if handled
@@ -516,6 +530,7 @@ impl Keymap {
                         .get("platform")
                         .and_then(Value::as_str)
                         .map(str::to_owned),
+                    overridden: false,
                 })
             })
             .collect::<AppResult<Vec<_>>>()?;
@@ -577,6 +592,7 @@ impl Keymap {
                         when: Some("editorTextFocus".into()),
                     },
                     platform: None,
+                    overridden: true,
                 });
             }
             if value
@@ -738,6 +754,7 @@ impl Keymap {
         composing: bool,
         os: egui::os::OperatingSystem,
         now: Instant,
+        defer_defaults: bool,
     ) -> Decision {
         self.adapt_egui(event, composing, |map, event| {
             map.decide_editor_for_platform(
@@ -745,6 +762,7 @@ impl Keymap {
                 os.is_mac(),
                 os == egui::os::OperatingSystem::Nix,
                 now,
+                defer_defaults,
             )
         })
     }
@@ -784,7 +802,13 @@ impl Keymap {
     }
 
     pub fn decide_editor(&mut self, event: &KeyEvent<'_>, is_mac: bool, now: Instant) -> Decision {
-        self.decide_editor_for_platform(event, is_mac, cfg!(target_os = "linux") && !is_mac, now)
+        self.decide_editor_for_platform(
+            event,
+            is_mac,
+            cfg!(target_os = "linux") && !is_mac,
+            now,
+            false,
+        )
     }
 
     fn decide_editor_for_platform(
@@ -793,6 +817,7 @@ impl Keymap {
         is_mac: bool,
         is_linux: bool,
         now: Instant,
+        defer_defaults: bool,
     ) -> Decision {
         if self
             .editor_pending
@@ -820,9 +845,11 @@ impl Keymap {
         } else {
             "win"
         };
+        let should_defer_defaults = defer_defaults && self.editor_pending.is_none();
         let editor_entries = self
             .editor_bindings
             .iter()
+            .filter(|binding| !should_defer_defaults || binding.overridden)
             .filter(|binding| {
                 binding
                     .platform
@@ -832,10 +859,11 @@ impl Keymap {
             .filter(|binding| {
                 self.commands
                     .command(&binding.entry.id)
-                    .is_some_and(|command| {
+                    .map(|command| {
                         command.is_registered(is_mac)
                             && matches!(command.execution, command_registry::Execution::Native(_))
                     })
+                    .unwrap_or_else(|| command_registry::keymap_run(&binding.entry.id).is_some())
             })
             .map(|binding| &binding.entry);
         let entries = editor_entries

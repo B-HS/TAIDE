@@ -227,6 +227,7 @@ mod tests {
             capability_revision: 0,
             document_methods: Default::default(),
             document_signature_options: Default::default(),
+            document_completion_options: Default::default(),
             pid: None,
             failure: Some(Failure::TransportClosed),
         };

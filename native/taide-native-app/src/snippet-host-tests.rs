@@ -25,6 +25,7 @@ use crate::host::{HostBridge, HostCommand, HostReply};
 const DEADLINE: Duration = Duration::from_secs(5);
 const FRAME_STEP: f64 = 0.1;
 const SCREEN: [f32; 2] = [1000.0, 900.0];
+const COMPLETION_BYTE_LIMIT: usize = 4096;
 
 struct Events;
 
@@ -246,6 +247,56 @@ fn snippet_전역_catalog는_settings없이_실제_host를_조회하고_변경_�
     )
     .unwrap();
     let mut views = taide_native_ui::settings_view::Views::default();
+    let completions = |files: &[taide_model::snippet::SnippetFile]| {
+        use taide_native_editor::store::{EditorLimits, EditorStore};
+        use taide_native_editor::view::ViewKey;
+
+        let mut store = EditorStore::new(EditorLimits {
+            max_documents: 1,
+            max_views: 1,
+            max_undo_groups: 1,
+            max_document_bytes: COMPLETION_BYTE_LIMIT,
+        })
+        .unwrap();
+        let document = store
+            .open_untitled(TabId::new(), "", "rust".into())
+            .unwrap();
+        let view = store
+            .attach_view(
+                ViewKey {
+                    window: "synthetic-snippet-completion".into(),
+                    pane: PaneId::new(),
+                    tab: TabId::new(),
+                },
+                document,
+            )
+            .unwrap();
+        let mut completion = crate::editor_completion::State::default();
+        let request = completion
+            .begin(
+                &store,
+                crate::editor_completion::Context {
+                    project: ProjectId::new(),
+                    source: view,
+                    owner: view,
+                    word: 0..0,
+                    viewport: egui::ViewportId::ROOT,
+                    automatic: false,
+                },
+                Default::default(),
+            )
+            .unwrap();
+        assert!(completion.supply(&store, &request, files, &services.tasks, Arc::new(|| {})));
+        completion
+            .candidates(&store, view)
+            .unwrap()
+            .into_iter()
+            .map(|candidate| {
+                assert!(candidate.is_snippet());
+                (candidate.item.label.clone(), candidate.text().to_owned())
+            })
+            .collect::<Vec<_>>()
+    };
     let mut read = |views: &mut taide_native_ui::settings_view::Views| {
         let request = views.next_snippet_read().unwrap();
         assert!(views.next_snippet_read().is_none());
@@ -272,6 +323,7 @@ fn snippet_전역_catalog는_settings없이_실제_host를_조회하고_변경_�
     };
     read(&mut views);
     assert!(views.snippet_catalog().files().is_empty());
+    assert!(completions(views.snippet_catalog().files()).is_empty());
     taide_runtime::snippet_actions::snippet_save(
         &state,
         "rust.json".into(),
@@ -292,6 +344,10 @@ fn snippet_전역_catalog는_settings없이_실제_host를_조회하고_변경_�
             .body,
         "before $0"
     );
+    assert_eq!(
+        completions(views.snippet_catalog().files()),
+        vec![("s".into(), "before $0".into())]
+    );
     taide_runtime::snippet_actions::snippet_save(
         &state,
         "rust.json".into(),
@@ -305,6 +361,10 @@ fn snippet_전역_catalog는_settings없이_실제_host를_조회하고_변경_�
             .body,
         "after $0"
     );
+    assert_eq!(
+        completions(views.snippet_catalog().files()),
+        vec![("s".into(), "after $0".into())]
+    );
     assert!(!Arc::ptr_eq(
         &old,
         &views.snippet_catalog().snapshot().unwrap()
@@ -313,6 +373,7 @@ fn snippet_전역_catalog는_settings없이_실제_host를_조회하고_변경_�
     views.refresh_snippets();
     read(&mut views);
     assert!(views.snippet_catalog().files().is_empty());
+    assert!(completions(views.snippet_catalog().files()).is_empty());
     views.refresh_snippets();
     let retired = views.next_snippet_read().unwrap();
     views.clear();

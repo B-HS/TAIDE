@@ -19,6 +19,7 @@ const TYPICAL_FULL_WIDTH_CHARACTER: char = '\u{FF4D}';
 pub(crate) const UNREADABLE_CHARACTER_WIDTH: f32 = 2.0;
 pub(crate) const FALLBACK_CHARACTER_WIDTH: f32 = 5.0;
 const WRAP_CURSOR_ROOM: f32 = 2.0;
+pub(crate) const PREVIEW_OPACITY: f32 = 0.7;
 pub(crate) const FOLD_PLACEHOLDER: &str = "\u{22EF}";
 pub(crate) const FOLD_PLACEHOLDER_MARGIN_EM: f32 = 0.2;
 
@@ -50,7 +51,10 @@ impl EditorGeometry {
     pub fn caret_rect(&self, byte: usize) -> Option<Rect> {
         let row = self.shown_rows().find(|row| {
             let bytes = &row.segment.bytes;
-            bytes.start <= byte && (byte < bytes.end || (byte == bytes.end && !row.wraps))
+            bytes.start <= byte
+                && (byte < bytes.end
+                    || (byte == bytes.end
+                        && (!row.wraps || row.text.injection_anchor(byte - bytes.start))))
         })?;
         Some(Rect::from_x_y_ranges(
             Rangef::point(row.caret_rect(byte).left()),
@@ -107,6 +111,7 @@ pub(crate) struct Row {
     pub(crate) origin: Pos2,
     pub(crate) half_leading: f32,
     pub(crate) galley: Arc<Galley>,
+    injection_carets: Vec<(usize, f32)>,
 }
 
 #[derive(Clone, Copy)]
@@ -118,6 +123,10 @@ pub(crate) struct RowLayout<'a> {
     pub(crate) half_leading: f32,
     pub(crate) tab_size: u32,
     pub(crate) tokens: Option<EditorTokens<'a>>,
+    #[cfg(feature = "native-host")]
+    pub(crate) preview_styles: &'a [crate::editor_completion::PreviewStyle],
+    #[cfg(feature = "native-host")]
+    pub(crate) preview_colors: crate::editor_completion::PreviewColors,
     pub(crate) bold_family: Option<&'a FontFamily>,
     pub(crate) decorations: &'a [FrameDecoration],
     #[cfg(feature = "native-host")]
@@ -131,14 +140,14 @@ impl RowLayout<'_> {
     pub(crate) fn row(&self, index: usize, origin: Pos2) -> Row {
         let segment = self.display.segment(self.document, index);
         let source = Cow::from(self.document.rope.byte_slice(segment.bytes.clone()));
-        let mut text = RowText::expanded(
-            &source,
-            RowColumns {
-                tab_size: self.tab_size,
-                start_column: self.display.row_start_column(index),
-                indent_columns: segment.indent_columns,
-            },
-            self.appearance.foreground,
+        let columns = RowColumns {
+            tab_size: self.tab_size,
+            start_column: self.display.row_start_column(index),
+            indent_columns: segment.indent_columns,
+        };
+        let mut text = self.display.row_projection(index).map_or_else(
+            || RowText::expanded(&source, columns, self.appearance.foreground),
+            |projection| RowText::projected(projection, columns, self.appearance.foreground),
         );
         if let Some(tokens) = self.tokens {
             let line_start = self.document.rope.line_to_byte(segment.line);
@@ -192,9 +201,85 @@ impl RowLayout<'_> {
             let chars = row_char(start)..row_char(end);
             text.decorate(chars, style);
         }
-        let galley = self
-            .painter
-            .layout_job(text.styled_layout_job(&self.appearance.font, self.bold_family));
+        if self.display.row_projection(index).is_some() {
+            #[cfg(feature = "native-host")]
+            let tokens = self
+                .preview_styles
+                .iter()
+                .find(|style| style.line == segment.line && !style.short)
+                .and_then(|style| style.tokens.as_deref())
+                .map(|tokens| RowTokens {
+                    spans: tokens.lines.spans(0),
+                    styles: &tokens.styles,
+                    row_start_byte: 0,
+                });
+            #[cfg(not(feature = "native-host"))]
+            let tokens = None;
+            #[cfg(feature = "native-host")]
+            let is_syntax_highlighted = !self
+                .preview_styles
+                .iter()
+                .any(|style| style.line == segment.line && style.short);
+            #[cfg(feature = "native-host")]
+            let foreground = if is_syntax_highlighted {
+                self.appearance.foreground.gamma_multiply(PREVIEW_OPACITY)
+            } else {
+                self.preview_colors.foreground
+            };
+            #[cfg(not(feature = "native-host"))]
+            let foreground = self.appearance.foreground.gamma_multiply(PREVIEW_OPACITY);
+            #[cfg(not(feature = "native-host"))]
+            let is_syntax_highlighted = true;
+            text.style_injections(foreground, tokens, is_syntax_highlighted);
+            #[cfg(feature = "native-host")]
+            {
+                text.injection_background = self.preview_colors.background;
+                text.injection_border = self.preview_colors.border;
+                text.injection_foreground = self.preview_colors.foreground;
+                for (index, byte) in text.model_bytes.iter().enumerate() {
+                    text.injection_dotted[index] = text.injected[index]
+                        && self.preview_styles.iter().any(|style| {
+                            style.line == segment.line
+                                && (style.short
+                                    || style
+                                        .short_anchors
+                                        .contains(&(*byte as usize + segment.bytes.start)))
+                        });
+                }
+            }
+        }
+        let job = text.styled_layout_job(&self.appearance.font, self.bold_family);
+        let mut injection_carets = Vec::new();
+        for (index, (byte, injected)) in text.model_bytes.iter().zip(&text.injected).enumerate() {
+            if !injected
+                || injection_carets
+                    .iter()
+                    .any(|(source, _)| *source == *byte as usize)
+            {
+                continue;
+            }
+            let index = text.display_char(*byte as usize).min(index);
+            let boundary = job
+                .text
+                .char_indices()
+                .nth(index)
+                .map_or(job.text.len(), |(byte, _)| byte);
+            let mut prefix = job.clone();
+            prefix.text.truncate(boundary);
+            prefix
+                .sections
+                .retain(|section| section.byte_range.start < egui::text::ByteIndex(boundary));
+            for section in &mut prefix.sections {
+                section.byte_range.end =
+                    section.byte_range.end.min(egui::text::ByteIndex(boundary));
+            }
+            let galley = self.painter.layout_job(prefix);
+            injection_carets.push((
+                *byte as usize,
+                galley.pos_from_cursor(CCursor::new(index)).left(),
+            ));
+        }
+        let galley = self.painter.layout_job(job);
         Row {
             index,
             wraps: index + 1 < self.display.rows_of_line(segment.line).end,
@@ -204,6 +289,7 @@ impl RowLayout<'_> {
             origin,
             half_leading: self.half_leading,
             galley,
+            injection_carets,
         }
     }
 }
@@ -214,10 +300,14 @@ impl Row {
     }
 
     pub(crate) fn caret(&self, byte: usize) -> Rect {
-        self.galley.pos_from_cursor(CCursor::new(
-            self.text
-                .display_char(byte.saturating_sub(self.segment.bytes.start)),
-        ))
+        let local = byte.saturating_sub(self.segment.bytes.start);
+        let rect = self
+            .galley
+            .pos_from_cursor(CCursor::new(self.text.display_char(local)));
+        self.injection_carets
+            .iter()
+            .find(|(source, _)| *source == local)
+            .map_or(rect, |(_, x)| rect.translate(vec2(*x - rect.left(), 0.0)))
     }
 
     pub(crate) fn caret_rect(&self, byte: usize) -> Rect {

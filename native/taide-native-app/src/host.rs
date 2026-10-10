@@ -66,6 +66,7 @@ pub enum HostCommand {
         title: String,
     },
     ReadTerminalClipboard(crate::terminal_surface::PasteTarget),
+    ReadCompletionClipboard(crate::editor_completion::Request),
     RestartTerminal {
         tab: TabId,
         size: taide_native_terminal::Size,
@@ -274,6 +275,10 @@ pub enum HostReply {
     },
     TerminalClipboard {
         target: crate::terminal_surface::PasteTarget,
+        result: AppResult<String>,
+    },
+    CompletionClipboard {
+        request: crate::editor_completion::Request,
         result: AppResult<String>,
     },
     TerminalResized {
@@ -896,6 +901,30 @@ async fn dispatch(
                 Ok(None) => None,
                 Err(error) => Some(HostReply::Failed(error)),
             }
+        }
+        HostCommand::ReadCompletionClipboard(request) => {
+            let clipboard = read_clipboard.clone();
+            let state = services.state.clone();
+            let owner = request.clone();
+            let result = services
+                .tasks
+                .run_blocking_result("native-editor-completion-clipboard", move || {
+                    if state.is_shutting_down() || owner.is_cancelled() {
+                        return Err(stopped());
+                    }
+                    let text = clipboard()?;
+                    if text.len() > taide_model::file::REFUSED_FILE_BYTES as usize {
+                        return Err(AppError::InvalidArgument(
+                            "native completion clipboard budget exceeded".into(),
+                        ));
+                    }
+                    if state.is_shutting_down() || owner.is_cancelled() {
+                        return Err(stopped());
+                    }
+                    Ok(text)
+                })
+                .await;
+            Some(HostReply::CompletionClipboard { request, result })
         }
         HostCommand::ReadTerminalClipboard(target) => {
             let clipboard = read_clipboard.clone();

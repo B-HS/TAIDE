@@ -15,6 +15,7 @@ const NESTED_CASE_DEPTH = 32
 const LARGE_INDEX_DIGITS = 400
 const NativeRegExp = globalThis.RegExp
 const originalTransformResolve = Transform.prototype.resolve
+const originalTransformClone = Transform.prototype.clone
 let attempts = []
 let evaluations = []
 
@@ -52,6 +53,24 @@ const transform = (value) => {
 }
 
 class RecordingTransform extends Transform {
+    clone() {
+        const result = originalTransformClone.call(this)
+        const options = [
+            ['i', this.regexp.ignoreCase],
+            ['g', this.regexp.global],
+            ['d', this.regexp.hasIndices],
+            ['m', this.regexp.multiline],
+            ['s', this.regexp.dotAll],
+            ['u', this.regexp.unicode],
+            ['v', this.regexp.unicodeSets],
+            ['y', this.regexp.sticky],
+        ]
+            .filter(([, enabled]) => enabled)
+            .map(([flag]) => flag)
+            .join('')
+        result.regexp = new RecordingRegExp(this.regexp.source, options)
+        return result
+    }
     resolve(value) {
         const result = originalTransformResolve.call(this, value)
         evaluations = [...evaluations, { transform: transform(this), value, result }]
@@ -289,13 +308,24 @@ try {
                   }
                 : {}),
         }))
+        const expected = snippet.children.map(marker)
+        let correctedExpected = expected
+        if (process.argv[2] === 'complete') {
+            Transform.prototype.clone = RecordingTransform.prototype.clone
+            try {
+                correctedExpected = new SnippetParser().parse(input, options.insert, options.enforce).children.map(marker)
+            } finally {
+                Transform.prototype.clone = originalTransformClone
+            }
+        }
         return {
             input,
             options,
             variables,
             whitespace,
             leading,
-            expected: snippet.children.map(marker),
+            expected,
+            correctedExpected,
             attempts,
             text,
             spans,
@@ -315,5 +345,6 @@ try {
 } finally {
     globalThis.RegExp = NativeRegExp
     Transform.prototype.resolve = originalTransformResolve
+    Transform.prototype.clone = originalTransformClone
 }
 if (whitespaceApi) process.exit(0)

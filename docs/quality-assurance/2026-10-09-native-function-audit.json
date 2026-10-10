@@ -1,6 +1,6 @@
 {
     "date": "2026-10-10",
-    "baseline": "24044a94",
+    "baseline": "63be3a98 + 배치 22 제품/CLIPBOARD 연결 작업 트리(미커밋)",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -653,7 +653,7 @@
                 "native/taide-native-app/src/application.rs",
                 "native/taide-native-app/src/lsp.rs",
                 "native/taide-native-ui/src/editor-documentation.rs",
-                "native/taide-native-ui/src/editor-documentation-markup.rs",
+                "native/taide-native-ui/src/editor-markup.rs",
                 "native/taide-native-ui/src/editor_surface.rs",
                 "native/taide-native-ui/src/command-registry.rs",
                 "native/taide-native-ui/src/keymap.rs",
@@ -674,6 +674,35 @@
             ],
             "reports": ["docs/quality-assurance/2026-10-10-native-batch21-hover-signature.md"],
             "limitation": "본문/순수 peek의 typed 호버·자동/명시 서명·provider 우선순위/부분 응답/취소·Markdown/기존 TextMate 코드·안전한 이미지/파일 링크·직렬 입력/포커스·원본 크기/테마·readonly/두 뷰/열린 도움말 종료를 검증했습니다. 실기 pixel/OS IME/접근성·보조 창·대형/성능/soak·기타 LSP·출시는 잔여입니다."
+        },
+        "editor-completion": {
+            "sources": [
+                "native/taide-native-editor/src/completion.rs",
+                "native/taide-native-editor/src/snippet-session.rs",
+                "native/taide-native-app/src/editor-completion.rs",
+                "native/taide-native-app/src/editor-completion-provider.rs",
+                "native/taide-native-app/src/editor-completion-insertion.rs",
+                "native/taide-native-app/src/editor-completion-supply.rs",
+                "native/taide-native-ui/src/editor-completion.rs",
+                "native/taide-native-ui/src/editor_surface.rs",
+                "native/taide-native-app/src/host.rs",
+                "native/taide-native-app/src/application.rs"
+            ],
+            "tests": [
+                "native/taide-native-editor/tests/completion-insertion.rs",
+                "native/taide-native-editor/tests/snippet-insertion.rs",
+                "native/taide-native-app/src/editor-completion-tests.rs",
+                "native/taide-native-app/src/editor-completion-consumer-tests.rs",
+                "native/taide-native-app/src/lsp-editor-completion-tests.rs",
+                "native/taide-native-ui/tests/editor-completion.rs",
+                "native/taide-native-app/src/application-startup-tests.rs"
+            ],
+            "reports": [
+                "docs/quality-assurance/2026-10-10-native-batch22-completion-snippets.md",
+                "docs/quality-assurance/2026-10-10-native-completion-model.md",
+                "docs/quality-assurance/2026-10-10-native-progress-audit.md"
+            ],
+            "limitation": "본문/peek 공급·후보/상세 창·크기 조절·미리보기·입력 후 후보/스니펫 추적·선택/수락·다중 커서·choice/중첩 tabstop·CLIPBOARD 비동기 공급/취소를 실제 소비자와 주입 포트/실제 앱에서 확인했습니다. 종류 표시 대조·최종 회귀·남은 변경 전체 게이트가 남아 partial입니다. 미커밋 작업 트리 근거를 포함하며 전체 완료를 뜻하지 않습니다."
         }
     },
     "rows": [
@@ -2213,9 +2242,9 @@
             "ts": "`lsp/adapters/completion.ts:62`, `code-editor.tsx:297`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:112",
             "domain": "editor",
-            "status": "missing",
-            "proof": "editor-missing",
-            "note": "해당 사용자 동작의 실제 native 편집기/앱 소비 경로가 없습니다. 프로토콜·설정·backend만으로 완료 처리하지 않습니다."
+            "status": "partial",
+            "proof": "editor-completion",
+            "note": "실제 본문/peek 공급·후보/상세 popup·필터/선택/수락/문서·미리보기·크기 조절·직렬 입력을 연결하고 관련 검사를 확인했습니다. 파일/색 후보 종류 표시 대조·최종 회귀·남은 변경 전체 게이트는 배치 22에서 진행 중입니다."
         },
         {
             "id": "editor-42",
@@ -2631,9 +2660,9 @@
             "ts": "`snippet-completion.ts:95`, `src/app/bootstrap-snippets.ts`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:160",
             "domain": "editor",
-            "status": "unwired",
-            "proof": "editor-snippet",
-            "note": "스니펫 parser/session/choice·설정 편집기는 있으나 본문 완성 목록·삽입 소비자는 없습니다."
+            "status": "partial",
+            "proof": "editor-completion",
+            "note": "실제 본문 스니펫 공급·삽입/tabstop·choice·변수/변환·입력 추적·중첩/다중 커서·미리보기와 CLIPBOARD 비동기 공급/취소를 소비하고 검증했습니다. 종류 표시 대조·최종 회귀·남은 변경 전체 게이트가 남았습니다."
         },
         {
             "id": "editor-80",
@@ -7267,5 +7296,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "배치 21 변경 editor/UI/app/LSP SDK 전체 121대상을 직접 1회 실행했고 최초 UI 기대값 1/app 기존 child 초기화 대기 3실패는 해당 검사만 재확인했습니다. 현재 서로 다른 성공은 editor 219·UI 390·app 719·SDK 84, 총 1412건입니다. 보호 Trash 3·editor 기존 성능 1ignored·변경 없는 syntax 3/egui SDK 문서 1ignored와 실기 부채는 성공으로 세지 않습니다. frozen host/Wasm·변경 native/SDK fmt/diff exit 0, 앱 전용 Markdown parser 2패키지·기존 base64 이동/engine 경계 유지, 디스크 623GiB·66%입니다. prototype standalone lock/edition 부채와 최초 실패/영향 재검사를 batch21 QA에 보존했습니다."
+    "validation": "배치 21 변경 editor/UI/app/LSP SDK 전체 121대상을 직접 1회 실행했고 최초 UI 기대값 1/app 기존 child 초기화 대기 3실패는 해당 검사만 재확인했습니다. 현재 서로 다른 성공은 editor 219·UI 390·app 719·SDK 84, 총 1412건입니다. 보호 Trash 3·editor 기존 성능 1ignored·변경 없는 syntax 3/egui SDK 문서 1ignored와 실기 부채는 성공으로 세지 않습니다. frozen host/Wasm·변경 native/SDK fmt/diff exit 0, 앱 전용 Markdown parser 2패키지·기존 base64 이동/engine 경계 유지, 디스크 623GiB·66%입니다. prototype standalone lock/edition 부채와 최초 실패/영향 재검사를 batch21 QA에 보존했습니다. 배치 22의 부분 재판정은 editor-41·editor-79 두 행에 한정합니다. 실제 앱 completion 41·core 삽입 21·UI 후보 창 11의 기존 관련 성공 로그와 현재 소비자 경로를 대조했습니다. 미리보기 연결·최신 helper 검사·변경 전체 게이트는 남아 있어 complete로 올리지 않았습니다. 전체 588행의 동작을 이번 점검에서 다시 실행한 것으로 확대하지 않습니다. 마지막 배치는 33으로 계획했고 남은 302행의 배정과 반복 실행 점검은 2026-10-10-native-remaining-batch-plan.md·native-progress-audit.md에 기록합니다."
 }

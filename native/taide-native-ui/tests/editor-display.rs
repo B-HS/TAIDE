@@ -217,6 +217,10 @@ fn show_problems(
                         documentation: None,
                         #[cfg(feature = "native-host")]
                         documentation_commands: &[],
+                        #[cfg(feature = "native-host")]
+                        completion: None,
+                        #[cfg(feature = "native-host")]
+                        completion_commands: &[],
                         fold_controls: None,
                         problems: if let Some(provider) = problems.as_mut() {
                             Some(&mut **provider)
@@ -1288,6 +1292,10 @@ fn show_brackets_frame(
                         documentation: None,
                         #[cfg(feature = "native-host")]
                         documentation_commands: &[],
+                        #[cfg(feature = "native-host")]
+                        completion: None,
+                        #[cfg(feature = "native-host")]
+                        completion_commands: &[],
                         fold_controls: None,
                         #[cfg(feature = "native-host")]
                         problems: None,
@@ -1587,6 +1595,10 @@ fn 괄호_일치_위젯_포커스는_본문_강조를_유지하면서_외부_입
                             documentation: None,
                             #[cfg(feature = "native-host")]
                             documentation_commands: &[],
+                            #[cfg(feature = "native-host")]
+                            completion: None,
+                            #[cfg(feature = "native-host")]
+                            completion_commands: &[],
                             fold_controls: None,
                             #[cfg(feature = "native-host")]
                             problems: None,
@@ -3205,6 +3217,10 @@ fn 문제_외부_입력창의_기본키와_문자는_보존하고_닫기클릭_�
                             documentation: None,
                             #[cfg(feature = "native-host")]
                             documentation_commands: &[],
+                            #[cfg(feature = "native-host")]
+                            completion: None,
+                            #[cfg(feature = "native-host")]
+                            completion_commands: &[],
                             fold_controls: None,
                             problems: Some(&mut provider),
                             #[cfg(feature = "native-host")]

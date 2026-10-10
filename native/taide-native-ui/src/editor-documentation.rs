@@ -3,7 +3,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
 
-use egui::{Color32, Event, FontId, Id, Key, Modifiers, Rect, Ui, Vec2, pos2, vec2};
+use egui::{Event, FontId, Id, Key, Modifiers, Rect, Ui, Vec2, pos2, vec2};
 use taide_native_editor::document::{DocumentId, EditorError};
 use taide_native_editor::documentation::{
     Command, Kind, RichDocument, SignatureCommand, SignatureTriggers, Signatures,
@@ -14,8 +14,8 @@ use taide_native_editor::view::{SelectionSet, ViewId};
 use crate::editor_geometry::EditorGeometry;
 use crate::editor_surface::EditorAppearance;
 
-#[path = "editor-documentation-markup.rs"]
-mod markup;
+use crate::editor_markup as markup;
+pub use crate::editor_markup::Colors;
 
 const HOVER_REQUEST_DELAY: f64 = 0.150;
 const HOVER_VISIBLE_DELAY: f64 = 0.300;
@@ -41,17 +41,6 @@ const HOVER_FILTER: egui::EventFilter = egui::EventFilter {
     vertical_arrows: true,
     escape: true,
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Colors {
-    pub background: Color32,
-    pub foreground: Color32,
-    pub border: Color32,
-    pub highlight: Color32,
-    pub link: Color32,
-    pub code_background: Color32,
-    pub shadow: Color32,
-}
 
 #[derive(Clone)]
 pub struct Part {
@@ -377,16 +366,6 @@ impl State {
                 continue;
             }
             if body_owned
-                && current.composition.is_none()
-                && self.signature.is_some()
-                && let Some(command) =
-                    signature_shortcut(event, ui.ctx().os().is_mac(), self.signature.as_ref())
-            {
-                self.command(ui, store, view, provider, Command::Signature(command))?;
-                result.consumed.insert(index);
-                ui.ctx().request_repaint();
-            }
-            if body_owned
                 && matches!(
                     event,
                     Event::Text(_)
@@ -403,6 +382,29 @@ impl State {
             }
         }
         Ok(result)
+    }
+
+    pub(crate) fn event(
+        &mut self,
+        ui: &Ui,
+        store: &EditorStore,
+        view: ViewId,
+        provider: &mut dyn Provider,
+        event: &Event,
+    ) -> Result<bool, EditorError> {
+        if store
+            .views()
+            .get(view)
+            .is_some_and(|view| view.composition.is_none())
+            && self.signature.is_some()
+            && let Some(command) =
+                signature_shortcut(event, ui.ctx().os().is_mac(), self.signature.as_ref())
+        {
+            self.command(ui, store, view, provider, Command::Signature(command))?;
+            ui.ctx().request_repaint();
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     pub(crate) fn after_event(

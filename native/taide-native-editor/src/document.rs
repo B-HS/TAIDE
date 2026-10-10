@@ -6,7 +6,7 @@ use taide_model::app::AppFileTarget;
 use taide_model::file::{EditorConfigOptions, FileSizeTier, OpenedFile};
 use taide_model::ids::TabId;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DocumentId(pub(crate) u64);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

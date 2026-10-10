@@ -243,6 +243,7 @@ pub fn editor_presentation(settings: &Settings) -> EditorPresentation {
         return EditorPresentation {
             options: EditorDisplayOptions {
                 word_wrap: settings.editor_word_wrap,
+                suggest_preview: settings.editor_suggest_preview,
                 render_whitespace: match settings.editor_render_whitespace {
                     EditorRenderWhitespace::None => RenderWhitespace::None,
                     EditorRenderWhitespace::Boundary => RenderWhitespace::Boundary,
@@ -462,6 +463,43 @@ pub fn banner_appearance(theme: &ResolvedTheme) -> AppResult<BannerAppearance> {
     Ok(BannerAppearance {
         error: color(theme, "statusIndicator.error")?,
         warning: color(theme, "statusIndicator.warning")?,
+    })
+}
+
+#[cfg(feature = "native-host")]
+pub fn editor_completion_colors(
+    theme: &ResolvedTheme,
+) -> AppResult<crate::editor_completion::Colors> {
+    let fallback =
+        crate::editor_completion::PreviewColors::for_dark_mode(theme.theme_type == ThemeType::Dark);
+    let optional = |key: &str| {
+        theme
+            .colors
+            .get(key)
+            .map(|value| parse_color(value, key))
+            .transpose()
+    };
+    let preview = crate::editor_completion::PreviewColors {
+        foreground: optional("editorGhostText.foreground")?.unwrap_or(fallback.foreground),
+        background: optional("editorGhostText.background")?,
+        border: optional("editorGhostText.border")?,
+    };
+    let mut documentation = editor_documentation_colors(theme)?;
+    documentation.background = color(theme, "editor.widgetBackground")?;
+    Ok(crate::editor_completion::Colors {
+        background: documentation.background,
+        foreground: color(theme, "editor.foreground")?,
+        border: color(theme, "editor.widgetBorder")?,
+        selected_background: color(theme, "list.activeBackground")?,
+        selected_foreground: color(theme, "list.foreground")?,
+        selected_icon: color(theme, "list.foreground")?,
+        highlight: color(theme, "app.accent")?,
+        selected_highlight: color(theme, "app.accent")?,
+        resize: optional("sash.hoverBorder")?
+            .or(optional("focusBorder")?)
+            .unwrap_or(color(theme, "app.focusBorder")?),
+        documentation,
+        preview,
     })
 }
 

@@ -29,6 +29,9 @@ pub mod editor_brackets;
 #[path = "editor-caret.rs"]
 mod editor_caret;
 #[cfg(feature = "native-host")]
+#[path = "editor-completion.rs"]
+pub mod editor_completion;
+#[cfg(feature = "native-host")]
 #[path = "editor-definition-link.rs"]
 mod editor_definition_link;
 #[cfg(feature = "native-host")]
@@ -53,6 +56,9 @@ mod editor_gutter;
 #[cfg(feature = "native-host")]
 #[path = "editor-locations.rs"]
 pub mod editor_locations;
+#[cfg(feature = "native-host")]
+#[path = "editor-markup.rs"]
+pub mod editor_markup;
 #[cfg(feature = "native-host")]
 #[path = "editor-minimap.rs"]
 pub mod editor_minimap;

@@ -59,6 +59,7 @@ pub enum Command {
     Hide,
     ToggleDetails,
     ToggleDetailsFocus,
+    ResetSize,
 }
 
 impl Command {
@@ -78,6 +79,7 @@ impl Command {
             "hideSuggestWidget" => Self::Hide,
             "toggleSuggestionDetails" => Self::ToggleDetails,
             "toggleSuggestionFocus" => Self::ToggleDetailsFocus,
+            "editor.action.resetSuggestSize" => Self::ResetSize,
             _ => return None,
         })
     }

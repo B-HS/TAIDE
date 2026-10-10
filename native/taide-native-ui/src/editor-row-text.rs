@@ -1,8 +1,10 @@
 use std::iter::repeat_n;
 use std::ops::Range;
 
-use egui::text::{ByteIndex, LayoutJob, LayoutSection, TextFormat, TextWrapping};
-use egui::{Color32, FontFamily, FontId, Stroke};
+use egui::text::{ByteIndex, CCursor, LayoutJob, LayoutSection, TextFormat, TextWrapping};
+use egui::{Color32, FontFamily, FontId, Galley, Painter, Pos2, Rect, Stroke, StrokeKind, pos2};
+use taide_native_editor::completion_preview_view::AdditionalLine;
+use taide_native_editor::display_map::RowProjection;
 use taide_native_editor::line_breaks::{is_full_width_character, tab_columns};
 use taide_native_editor::line_tokens::{TokenStyle, TokenStyleTable};
 
@@ -11,6 +13,8 @@ const WIDE_CHARACTER_COLUMNS: f64 = 2.0;
 const TAB_HALVES: usize = 2;
 const SPAN_FIELDS: usize = 2;
 const TEXT_DECORATION_STROKE: f32 = 1.0;
+const DOTTED_UNDERLINE_RADIUS: f32 = 0.5;
+const DOTTED_UNDERLINE_PERIOD: f32 = 2.0;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RowSection {
@@ -53,7 +57,15 @@ pub struct RowText {
     pub font_styles: Vec<RowFontStyle>,
     pub underline_colors: Vec<Option<Color32>>,
     pub model_bytes: Vec<u32>,
+    pub virtual_bytes: Vec<u32>,
     pub indent_chars: usize,
+    pub injected: Vec<bool>,
+    pub preview: Vec<bool>,
+    pub injection_background: Option<Color32>,
+    pub injection_border: Option<Color32>,
+    pub injection_dotted: Vec<bool>,
+    pub injection_foreground: Color32,
+    pub injection_opacity: f32,
 }
 
 fn section_style(style: TokenStyle) -> (Color32, RowFontStyle) {
@@ -92,6 +104,9 @@ impl RowText {
             visible_column += if is_wide { WIDE_CHARACTER_COLUMNS } else { 1.0 };
         }
         model_bytes.push(mapped(source.len()));
+        let injected = vec![false; model_bytes.len()];
+        let preview = vec![false; model_bytes.len()];
+        let injection_dotted = vec![false; model_bytes.len()];
         Self {
             sections: vec![RowSection {
                 chars: 0..model_bytes.len() - 1,
@@ -100,8 +115,201 @@ impl RowText {
             font_styles: vec![RowFontStyle::default()],
             underline_colors: vec![None],
             text,
+            virtual_bytes: model_bytes.clone(),
             model_bytes,
             indent_chars,
+            injected,
+            preview,
+            injection_background: None,
+            injection_border: None,
+            injection_dotted,
+            injection_foreground: foreground,
+            injection_opacity: 1.0,
+        }
+    }
+
+    pub fn projected(projection: &RowProjection, columns: RowColumns, foreground: Color32) -> Self {
+        let mut row = Self::expanded(&projection.text, columns, foreground);
+        for byte in &mut row.virtual_bytes {
+            *byte = byte.saturating_add(u32::try_from(projection.text_start).unwrap_or(u32::MAX));
+        }
+        for (index, byte) in row.model_bytes.iter_mut().enumerate() {
+            let at = projection
+                .units
+                .partition_point(|unit| unit.text_byte <= *byte as usize)
+                .saturating_sub(1);
+            let unit = &projection.units[at];
+            *byte = u32::try_from(
+                unit.source_byte
+                    .saturating_sub(projection.segment.bytes.start),
+            )
+            .unwrap_or(u32::MAX);
+            if index >= row.indent_chars {
+                row.injected[index] = unit.injected;
+                row.preview[index] = unit.is_preview;
+            }
+        }
+        row
+    }
+
+    pub fn additional(
+        line: &AdditionalLine,
+        source_start: usize,
+        columns: RowColumns,
+        foreground: Color32,
+    ) -> Self {
+        let mut row = Self::expanded(&line.text, columns, foreground);
+        let mut run_index = 0;
+        let mut preceding = source_start;
+        for (index, byte) in row.model_bytes.iter_mut().enumerate() {
+            let text_byte = *byte as usize;
+            while let Some(run) = line
+                .runs
+                .get(run_index)
+                .filter(|run| run.bytes.end <= text_byte)
+            {
+                if let Some(source) = &run.source {
+                    preceding = source.end;
+                }
+                run_index += 1;
+            }
+            let source = if let Some(run) = line.runs.get(run_index) {
+                if let Some(source) = &run.source {
+                    source.start + text_byte.saturating_sub(run.bytes.start)
+                } else {
+                    if index >= row.indent_chars {
+                        row.injected[index] = true;
+                    }
+                    preceding
+                }
+            } else {
+                preceding
+            };
+            *byte = u32::try_from(source.saturating_sub(source_start)).unwrap_or(u32::MAX);
+        }
+        row
+    }
+
+    pub fn injection_anchor(&self, model_byte: usize) -> bool {
+        self.model_bytes
+            .iter()
+            .zip(&self.injected)
+            .any(|(byte, injected)| *injected && *byte as usize == model_byte)
+    }
+
+    pub fn style_injections(
+        &mut self,
+        foreground: Color32,
+        tokens: Option<RowTokens<'_>>,
+        is_syntax_highlighted: bool,
+    ) {
+        self.injection_foreground = foreground;
+        self.injection_opacity = if is_syntax_highlighted {
+            crate::editor_geometry::PREVIEW_OPACITY
+        } else {
+            1.0
+        };
+        let mut first = self.indent_chars;
+        while first + 1 < self.model_bytes.len() {
+            if !self.injected[first] {
+                first += 1;
+                continue;
+            }
+            let preview = self.preview[first];
+            let style_at = |index: usize| {
+                tokens.map(|tokens| {
+                    let spans = tokens.spans.as_chunks::<SPAN_FIELDS>().0;
+                    let at = spans
+                        .partition_point(|[byte, _]| *byte <= self.virtual_bytes[index])
+                        .saturating_sub(1);
+                    spans
+                        .get(at)
+                        .map_or(tokens.styles.default_style(), |[_, style]| {
+                            tokens.styles.style(*style)
+                        })
+                })
+            };
+            let style = style_at(first);
+            let mut end = first + 1;
+            while end + 1 < self.model_bytes.len()
+                && self.injected[end]
+                && self.preview[end] == preview
+                && style_at(end) == style
+            {
+                end += 1;
+            }
+            let foreground = style.map_or(foreground, |style| {
+                section_style(style)
+                    .0
+                    .gamma_multiply(self.injection_opacity)
+            });
+            self.decorate(
+                first..end,
+                RowInlineStyle {
+                    foreground: Some(foreground),
+                    underline: None,
+                },
+            );
+            for (section, font_style) in self.sections.iter().zip(&mut self.font_styles) {
+                if section.chars.start >= first && section.chars.end <= end {
+                    if let Some(style) = style {
+                        *font_style = section_style(style).1;
+                    }
+                    font_style.is_italic = !preview;
+                }
+            }
+            first = end;
+        }
+    }
+
+    pub(crate) fn paint_injections(&self, painter: &Painter, origin: Pos2, galley: &Galley) {
+        if self.injection_border.is_none() && !self.injection_dotted.iter().any(|dotted| *dotted) {
+            return;
+        }
+        let mut first = self.indent_chars;
+        while first + 1 < self.model_bytes.len() {
+            if !self.injected[first] {
+                first += 1;
+                continue;
+            }
+            let dotted = self.injection_dotted[first];
+            let mut end = first + 1;
+            while end + 1 < self.model_bytes.len()
+                && self.injected[end]
+                && self.injection_dotted[end] == dotted
+            {
+                end += 1;
+            }
+            let left = origin.x + galley.pos_from_cursor(CCursor::new(first)).left();
+            let right = origin.x + galley.pos_from_cursor(CCursor::new(end)).left();
+            let rect = Rect::from_min_max(
+                pos2(left, origin.y + galley.rect.top()),
+                pos2(right, origin.y + galley.rect.bottom()),
+            );
+            if let Some(color) = self.injection_border {
+                painter.rect_stroke(
+                    rect,
+                    0.0,
+                    Stroke::new(
+                        TEXT_DECORATION_STROKE,
+                        color.gamma_multiply(self.injection_opacity),
+                    ),
+                    StrokeKind::Inside,
+                );
+            }
+            if dotted {
+                let mut x = left + DOTTED_UNDERLINE_RADIUS;
+                while x < right {
+                    painter.circle_filled(
+                        pos2(x, rect.bottom()),
+                        DOTTED_UNDERLINE_RADIUS,
+                        self.injection_foreground
+                            .gamma_multiply(self.injection_opacity),
+                    );
+                    x += DOTTED_UNDERLINE_PERIOD;
+                }
+            }
+            first = end;
         }
     }
 
@@ -238,6 +446,17 @@ impl RowText {
                         leading_space: 0.0,
                         byte_range: text_byte(section.chars.start)..text_byte(section.chars.end),
                         format: TextFormat {
+                            background: self
+                                .injection_background
+                                .filter(|_| {
+                                    self.injected
+                                        .get(section.chars.start)
+                                        .copied()
+                                        .unwrap_or(false)
+                                })
+                                .map_or(Color32::TRANSPARENT, |color| {
+                                    color.gamma_multiply(self.injection_opacity)
+                                }),
                             italics: font_style.is_italic,
                             underline: underline.map_or_else(
                                 || decoration(font_style.is_underlined),
@@ -288,8 +507,14 @@ impl RowText {
             .max(self.indent_chars)
             .min(self.model_bytes.len() - 1);
         let mapped = self.model_bytes[index];
-        let first = self.first_display_char(mapped);
+        if self.injected[index] {
+            return mapped as usize;
+        }
+        let mut first = self.first_display_char(mapped);
         let next = self.display_char_after(mapped);
+        while first < next && self.injected[first] {
+            first += 1;
+        }
         let nearest = if (index - first) * TAB_HALVES <= next - first {
             mapped
         } else {

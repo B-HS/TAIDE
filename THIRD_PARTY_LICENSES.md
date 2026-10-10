@@ -473,15 +473,27 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### regress 0.12.0 (native find)
+### regress 0.12.0 (native find and snippet transforms)
 
 - Source: https://github.com/ridiculousfish/regress
 - License: MIT OR Apache-2.0 (MIT text: see `## Full MIT License Text` above;
   Apache-2.0 text: https://www.apache.org/licenses/LICENSE-2.0)
 - Copyright (c) 2020 ridiculous_fish
-- Used only by `native/taide-native-syntax` for the Rust-native find widget.
+- Used only by `native/taide-native-syntax` for the Rust-native find widget
+  and snippet transforms, including the engine's `utf16` feature.
   The editor and UI crates do not depend on this engine, and it is not part
   of the frozen browser Wasm client's dependency graph.
+
+### iana-time-zone 0.1.65 (native snippet time variables)
+
+- Source: https://github.com/strawlab/iana-time-zone
+- License: MIT OR Apache-2.0 (MIT text: see `## Full MIT License Text` above;
+  Apache-2.0 text: https://www.apache.org/licenses/LICENSE-2.0)
+- Copyright (c) 2020 Andrew D. Straw
+- Already included through chrono, and also referenced directly by
+  `native/taide-native-app` for the system's IANA time zone name in snippets.
+  No package or version is added to the locked graph. This direct reference
+  stays in the native app; editor, UI, and frozen browser manifests are unchanged.
 
 ### Codicons (native find widget)
 
@@ -624,6 +636,36 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   The preview fixtures record 9711 diff cases, 1344 snippet preparation
   cases and 12 view cases obtained by executing the installed original code.
   The MIT text is retained in
+  `native/taide-native-editor/LICENSE-MONACO-SNIPPET`.
+
+- `src/completion.rs`, `src/completion-filter.rs` and
+  `src/completion-model.rs` adapt completion edit ranges, multi-cursor
+  overwrite, snippet preparation, fuzzy scoring and incremental ranking from
+  Monaco Editor 0.56.0 (MIT, Copyright (c) Microsoft Corporation):
+  `editor/contrib/suggest/browser/suggestController.js`, `completionModel.js`,
+  `editor/contrib/snippet/browser/snippetSession.js` and
+  `base/common/filters.js`. The completion filter reference fixture contains
+  8100 samples produced by executing the original scorer. The MIT text is
+  retained in `native/taide-native-editor/LICENSE-MONACO-SNIPPET`.
+
+    The completion model reference executes the original `CompletionModel`,
+    item constructor and comparator for 17 context changes in five scenarios.
+
+- `native/taide-native-app/src/editor-completion-supply.rs` adapts word
+  completion grouping, document order, numeric filtering and edit ranges
+  from Monaco Editor 0.56.0 `editor/browser/services/editorWorkerService.js`
+  and `editor/common/services/editorWebWorker.js` (MIT, Copyright (c)
+  Microsoft Corporation). Its reference fixture executes the original
+  worker for 165 cases and JavaScript Number for 4680 cases. The MIT text
+  is retained in `native/taide-native-editor/LICENSE-MONACO-SNIPPET`.
+
+- `native/taide-native-ui/src/editor-completion.rs` and its native app
+  provider adapt suggestion list/details layout, keyboard selection,
+  resizing and clipboard-dependent snippet preparation from Monaco Editor
+  0.56.0 `editor/contrib/suggest/browser/suggestWidget.js`,
+  `suggestWidgetDetails.js`, `suggestModel.js`, `suggestController.js`,
+  `base/browser/ui/list/listWidget.js` and `base/browser/ui/resizable/resizable.js`
+  (MIT, Copyright (c) Microsoft Corporation). The MIT text is retained in
   `native/taide-native-editor/LICENSE-MONACO-SNIPPET`.
 
 - `src/sticky-model.rs`, `native/taide-native-ui/src/editor-sticky-scroll.rs`

@@ -418,6 +418,24 @@ impl EditorSyntax {
         Some(tokens)
     }
 
+    pub(crate) fn preview_tokens(
+        &mut self,
+        store: &EditorStore,
+        document: DocumentId,
+        line: usize,
+        text: &Arc<[String]>,
+    ) -> Option<Arc<taide_native_editor::line_tokens::PreviewTokens>> {
+        self.catch_up(store, document);
+        if !self.documents.contains_key(&document) {
+            self.peek_tokens(store, document)?;
+        }
+        self.pipeline.preview(document, line, text)
+    }
+
+    pub(crate) fn retain_previews(&mut self, active: &[(DocumentId, usize)]) {
+        self.pipeline.retain_previews(active);
+    }
+
     fn line_kinds(&self, document: &DocumentSnapshot, line: usize) -> Option<Vec<Token>> {
         let Some(tracked) = self.documents.get(&document.id) else {
             return UntokenizedLines.tokens(document, line);

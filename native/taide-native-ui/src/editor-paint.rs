@@ -303,6 +303,8 @@ impl Layers<'_> {
             row.galley.clone(),
             self.appearance.foreground,
         );
+        row.text
+            .paint_injections(self.text_painter, row.text_origin(), &row.galley);
     }
 
     pub(crate) fn composition(&self, caret: Rect, preedit: &str) {

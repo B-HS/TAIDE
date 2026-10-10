@@ -735,8 +735,8 @@ fn snippet_normalization은_원본_기본값_참조_순환_choice_transform복�
         .unwrap_or_else(|error| panic!("{input}: {error:?}"));
         assert_eq!(
             Value::Array(parsed.iter().map(marker).collect()),
-            number_values(case["expected"].clone()),
-            "{input} {:?}",
+            number_values(case["correctedExpected"].clone()),
+            "{input} {:?}; 원본 복제 옵션 누락은 보존 정책으로 교정",
             case["options"]
         );
         let mut text = String::new();

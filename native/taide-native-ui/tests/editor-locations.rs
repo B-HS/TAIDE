@@ -348,6 +348,10 @@ impl Fixture {
                             documentation: None,
                             #[cfg(feature = "native-host")]
                             documentation_commands: &[],
+                            #[cfg(feature = "native-host")]
+                            completion: None,
+                            #[cfg(feature = "native-host")]
+                            completion_commands: &[],
                             problems: None,
                             locations: Some(&mut self.provider),
                         },

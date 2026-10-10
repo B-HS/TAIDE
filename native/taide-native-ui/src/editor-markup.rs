@@ -1,7 +1,6 @@
-use egui::{FontId, RichText, Ui};
+use egui::{Color32, FontId, RichText, Ui};
 use taide_native_editor::documentation::{Alignment, Block, Inline, RichDocument};
 
-use super::{Colors, Provider};
 use crate::editor_surface::EditorAppearance;
 
 const LIST_INDENT: f32 = 20.0;
@@ -9,21 +8,68 @@ const CODE_PADDING: i8 = 5;
 const HEADING_SCALE: [f32; 6] = [2.0, 1.5, 1.17, 1.0, 0.83, 0.67];
 const HEADING_LINE_HEIGHT: f32 = 1.1;
 
-pub(super) fn show(
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Colors {
+    pub background: Color32,
+    pub foreground: Color32,
+    pub border: Color32,
+    pub highlight: Color32,
+    pub link: Color32,
+    pub code_background: Color32,
+    pub shadow: Color32,
+}
+
+pub trait Provider {
+    fn open_link(&mut self, ui: &Ui, target: &str) -> bool;
+    fn code(&mut self, _ui: &Ui, _language: &str, _text: &str) -> Option<egui::text::LayoutJob> {
+        None
+    }
+    fn image(
+        &mut self,
+        _ui: &mut Ui,
+        _source: &str,
+        _alt: &str,
+        _dimensions: taide_native_editor::documentation::ImageDimensions,
+    ) -> Option<egui::Response> {
+        None
+    }
+}
+
+impl<T: crate::editor_documentation::Provider + ?Sized> Provider for T {
+    fn open_link(&mut self, ui: &Ui, target: &str) -> bool {
+        crate::editor_documentation::Provider::open_link(self, ui, target)
+    }
+
+    fn code(&mut self, ui: &Ui, language: &str, text: &str) -> Option<egui::text::LayoutJob> {
+        crate::editor_documentation::Provider::code(self, ui, language, text)
+    }
+
+    fn image(
+        &mut self,
+        ui: &mut Ui,
+        source: &str,
+        alt: &str,
+        dimensions: taide_native_editor::documentation::ImageDimensions,
+    ) -> Option<egui::Response> {
+        crate::editor_documentation::Provider::image(self, ui, source, alt, dimensions)
+    }
+}
+
+pub(crate) fn show(
     ui: &mut Ui,
     document: &RichDocument,
     appearance: &EditorAppearance,
     colors: Colors,
-    provider: &mut dyn Provider,
+    provider: &mut (impl Provider + ?Sized),
 ) {
     blocks(ui, &document.blocks, appearance, colors, provider);
 }
 
-pub(super) fn unwrapped_width(
+pub(crate) fn unwrapped_width(
     ui: &Ui,
     document: &RichDocument,
     appearance: &EditorAppearance,
-    provider: &mut dyn Provider,
+    provider: &mut (impl Provider + ?Sized),
 ) -> f32 {
     block_width(ui, &document.blocks, appearance, provider)
 }
@@ -83,7 +129,7 @@ fn block_width(
     ui: &Ui,
     blocks: &[Block],
     appearance: &EditorAppearance,
-    provider: &mut dyn Provider,
+    provider: &mut (impl Provider + ?Sized),
 ) -> f32 {
     blocks
         .iter()
@@ -154,7 +200,7 @@ fn blocks(
     contents: &[Block],
     appearance: &EditorAppearance,
     colors: Colors,
-    provider: &mut dyn Provider,
+    provider: &mut (impl Provider + ?Sized),
 ) {
     for (index, block) in contents.iter().enumerate() {
         ui.push_id(index, |ui| match block {
@@ -271,7 +317,7 @@ fn inlines(
     contents: &[Inline],
     appearance: &EditorAppearance,
     colors: Colors,
-    provider: &mut dyn Provider,
+    provider: &mut (impl Provider + ?Sized),
     size: f32,
     heading: bool,
 ) {

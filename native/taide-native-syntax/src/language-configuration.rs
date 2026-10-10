@@ -617,6 +617,10 @@ impl MonacoLanguage {
         self.word_pattern.as_ref()
     }
 
+    pub fn visit_words(&self, text: &str, visit: impl FnMut(Range<usize>) -> bool) {
+        self.word.visit_ranges(text, visit);
+    }
+
     pub fn line_comment(&self) -> Option<&str> {
         self.line_comment.as_deref()
     }

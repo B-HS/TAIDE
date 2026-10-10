@@ -101,6 +101,7 @@ pub(crate) fn apply_document_edits(
                     | DocumentEdit::Problem(_)
                     | DocumentEdit::Location(_)
                     | DocumentEdit::Documentation(_)
+                    | DocumentEdit::Completion(_)
             )
     }) {
         let result = match edit {
@@ -120,6 +121,9 @@ pub(crate) fn apply_document_edits(
             | DocumentEdit::Problem(_)
             | DocumentEdit::Location(_)
             | DocumentEdit::Documentation(_) => {
+                continue;
+            }
+            DocumentEdit::Completion(_) => {
                 continue;
             }
         };
@@ -729,16 +733,15 @@ mod tests {
             "editor.action.insertCursorBelow",
             "cursorUndo",
             "editor.action.smartSelect.expand",
+            "editor.action.triggerSuggest",
+            "editor.action.resetSuggestSize",
         ]
         .into_iter()
         .chain(FOLD_ACTIONS.map(|(action, _)| action))
         {
             assert!(actions.contains(action), "{action}");
         }
-        for action in [
-            "editor.action.triggerSuggest",
-            "editor.action.formatDocument",
-        ] {
+        for action in ["editor.action.formatDocument"] {
             assert!(!actions.contains(action), "{action}");
         }
         let detached = ViewKey {

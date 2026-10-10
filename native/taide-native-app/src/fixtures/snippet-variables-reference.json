@@ -1,0 +1,720 @@
+{
+    "models": [
+        {
+            "path": "/",
+            "values": [
+                {
+                    "name": "TM_FILENAME",
+                    "expected": ""
+                },
+                {
+                    "name": "TM_FILENAME_BASE",
+                    "expected": ""
+                },
+                {
+                    "name": "TM_DIRECTORY",
+                    "expected": "/"
+                },
+                {
+                    "name": "TM_DIRECTORY_BASE",
+                    "expected": ""
+                },
+                {
+                    "name": "TM_FILEPATH",
+                    "expected": "/"
+                },
+                {
+                    "name": "RELATIVE_FILEPATH",
+                    "expected": "/"
+                },
+                {
+                    "name": "UNKNOWN",
+                    "expected": null
+                }
+            ]
+        },
+        {
+            "path": "/work/file.ts",
+            "values": [
+                {
+                    "name": "TM_FILENAME",
+                    "expected": "file.ts"
+                },
+                {
+                    "name": "TM_FILENAME_BASE",
+                    "expected": "file"
+                },
+                {
+                    "name": "TM_DIRECTORY",
+                    "expected": "/work"
+                },
+                {
+                    "name": "TM_DIRECTORY_BASE",
+                    "expected": "work"
+                },
+                {
+                    "name": "TM_FILEPATH",
+                    "expected": "/work/file.ts"
+                },
+                {
+                    "name": "RELATIVE_FILEPATH",
+                    "expected": "/work/file.ts"
+                },
+                {
+                    "name": "UNKNOWN",
+                    "expected": null
+                }
+            ]
+        },
+        {
+            "path": "/work/.gitignore",
+            "values": [
+                {
+                    "name": "TM_FILENAME",
+                    "expected": ".gitignore"
+                },
+                {
+                    "name": "TM_FILENAME_BASE",
+                    "expected": ".gitignore"
+                },
+                {
+                    "name": "TM_DIRECTORY",
+                    "expected": "/work"
+                },
+                {
+                    "name": "TM_DIRECTORY_BASE",
+                    "expected": "work"
+                },
+                {
+                    "name": "TM_FILEPATH",
+                    "expected": "/work/.gitignore"
+                },
+                {
+                    "name": "RELATIVE_FILEPATH",
+                    "expected": "/work/.gitignore"
+                },
+                {
+                    "name": "UNKNOWN",
+                    "expected": null
+                }
+            ]
+        },
+        {
+            "path": "/work/name.tar.gz",
+            "values": [
+                {
+                    "name": "TM_FILENAME",
+                    "expected": "name.tar.gz"
+                },
+                {
+                    "name": "TM_FILENAME_BASE",
+                    "expected": "name.tar"
+                },
+                {
+                    "name": "TM_DIRECTORY",
+                    "expected": "/work"
+                },
+                {
+                    "name": "TM_DIRECTORY_BASE",
+                    "expected": "work"
+                },
+                {
+                    "name": "TM_FILEPATH",
+                    "expected": "/work/name.tar.gz"
+                },
+                {
+                    "name": "RELATIVE_FILEPATH",
+                    "expected": "/work/name.tar.gz"
+                },
+                {
+                    "name": "UNKNOWN",
+                    "expected": null
+                }
+            ]
+        },
+        {
+            "path": "/work/한글.with space.rs",
+            "values": [
+                {
+                    "name": "TM_FILENAME",
+                    "expected": "한글.with space.rs"
+                },
+                {
+                    "name": "TM_FILENAME_BASE",
+                    "expected": "한글.with space"
+                },
+                {
+                    "name": "TM_DIRECTORY",
+                    "expected": "/work"
+                },
+                {
+                    "name": "TM_DIRECTORY_BASE",
+                    "expected": "work"
+                },
+                {
+                    "name": "TM_FILEPATH",
+                    "expected": "/work/한글.with space.rs"
+                },
+                {
+                    "name": "RELATIVE_FILEPATH",
+                    "expected": "/work/한글.with space.rs"
+                },
+                {
+                    "name": "UNKNOWN",
+                    "expected": null
+                }
+            ]
+        },
+        {
+            "path": "/work/trailing.",
+            "values": [
+                {
+                    "name": "TM_FILENAME",
+                    "expected": "trailing."
+                },
+                {
+                    "name": "TM_FILENAME_BASE",
+                    "expected": "trailing"
+                },
+                {
+                    "name": "TM_DIRECTORY",
+                    "expected": "/work"
+                },
+                {
+                    "name": "TM_DIRECTORY_BASE",
+                    "expected": "work"
+                },
+                {
+                    "name": "TM_FILEPATH",
+                    "expected": "/work/trailing."
+                },
+                {
+                    "name": "RELATIVE_FILEPATH",
+                    "expected": "/work/trailing."
+                },
+                {
+                    "name": "UNKNOWN",
+                    "expected": null
+                }
+            ]
+        },
+        {
+            "path": "/name",
+            "values": [
+                {
+                    "name": "TM_FILENAME",
+                    "expected": "name"
+                },
+                {
+                    "name": "TM_FILENAME_BASE",
+                    "expected": "name"
+                },
+                {
+                    "name": "TM_DIRECTORY",
+                    "expected": "/"
+                },
+                {
+                    "name": "TM_DIRECTORY_BASE",
+                    "expected": ""
+                },
+                {
+                    "name": "TM_FILEPATH",
+                    "expected": "/name"
+                },
+                {
+                    "name": "RELATIVE_FILEPATH",
+                    "expected": "/name"
+                },
+                {
+                    "name": "UNKNOWN",
+                    "expected": null
+                }
+            ]
+        },
+        {
+            "path": "/work/",
+            "values": [
+                {
+                    "name": "TM_FILENAME",
+                    "expected": "work"
+                },
+                {
+                    "name": "TM_FILENAME_BASE",
+                    "expected": "work"
+                },
+                {
+                    "name": "TM_DIRECTORY",
+                    "expected": "/"
+                },
+                {
+                    "name": "TM_DIRECTORY_BASE",
+                    "expected": ""
+                },
+                {
+                    "name": "TM_FILEPATH",
+                    "expected": "/work/"
+                },
+                {
+                    "name": "RELATIVE_FILEPATH",
+                    "expected": "/work/"
+                },
+                {
+                    "name": "UNKNOWN",
+                    "expected": null
+                }
+            ]
+        },
+        {
+            "path": "tab-1234",
+            "values": [
+                {
+                    "name": "TM_FILENAME",
+                    "expected": "tab-1234"
+                },
+                {
+                    "name": "TM_FILENAME_BASE",
+                    "expected": "tab-1234"
+                },
+                {
+                    "name": "TM_DIRECTORY",
+                    "expected": ""
+                },
+                {
+                    "name": "TM_DIRECTORY_BASE",
+                    "expected": ""
+                },
+                {
+                    "name": "TM_FILEPATH",
+                    "expected": "tab-1234"
+                },
+                {
+                    "name": "RELATIVE_FILEPATH",
+                    "expected": "tab-1234"
+                },
+                {
+                    "name": "UNKNOWN",
+                    "expected": null
+                }
+            ]
+        },
+        {
+            "path": "/1",
+            "values": [
+                {
+                    "name": "TM_FILENAME",
+                    "expected": "1"
+                },
+                {
+                    "name": "TM_FILENAME_BASE",
+                    "expected": "1"
+                },
+                {
+                    "name": "TM_DIRECTORY",
+                    "expected": "/"
+                },
+                {
+                    "name": "TM_DIRECTORY_BASE",
+                    "expected": ""
+                },
+                {
+                    "name": "TM_FILEPATH",
+                    "expected": "/1"
+                },
+                {
+                    "name": "RELATIVE_FILEPATH",
+                    "expected": "/1"
+                },
+                {
+                    "name": "UNKNOWN",
+                    "expected": null
+                }
+            ]
+        }
+    ],
+    "times": [
+        {
+            "date": "2024-02-29T14:59:58.007Z",
+            "offset": 32400,
+            "values": [
+                {
+                    "name": "CURRENT_YEAR",
+                    "expected": "2024"
+                },
+                {
+                    "name": "CURRENT_YEAR_SHORT",
+                    "expected": "24"
+                },
+                {
+                    "name": "CURRENT_MONTH",
+                    "expected": "02"
+                },
+                {
+                    "name": "CURRENT_DATE",
+                    "expected": "29"
+                },
+                {
+                    "name": "CURRENT_HOUR",
+                    "expected": "23"
+                },
+                {
+                    "name": "CURRENT_MINUTE",
+                    "expected": "59"
+                },
+                {
+                    "name": "CURRENT_SECOND",
+                    "expected": "58"
+                },
+                {
+                    "name": "CURRENT_MILLISECOND",
+                    "expected": "007"
+                },
+                {
+                    "name": "CURRENT_DAY_NAME",
+                    "expected": "Thursday"
+                },
+                {
+                    "name": "CURRENT_DAY_NAME_SHORT",
+                    "expected": "Thu"
+                },
+                {
+                    "name": "CURRENT_MONTH_NAME",
+                    "expected": "February"
+                },
+                {
+                    "name": "CURRENT_MONTH_NAME_SHORT",
+                    "expected": "Feb"
+                },
+                {
+                    "name": "CURRENT_SECONDS_UNIX",
+                    "expected": "1709218798"
+                },
+                {
+                    "name": "CURRENT_MILLISECONDS_UNIX",
+                    "expected": "1709218798007"
+                },
+                {
+                    "name": "CURRENT_TIMEZONE_OFFSET",
+                    "expected": "+09:00"
+                },
+                {
+                    "name": "CURRENT_TIMEZONE_NAME",
+                    "expected": "Asia/Seoul"
+                },
+                {
+                    "name": "UNKNOWN",
+                    "expected": null
+                }
+            ]
+        },
+        {
+            "date": "2024-12-31T23:59:59.999Z",
+            "offset": 32400,
+            "values": [
+                {
+                    "name": "CURRENT_YEAR",
+                    "expected": "2025"
+                },
+                {
+                    "name": "CURRENT_YEAR_SHORT",
+                    "expected": "25"
+                },
+                {
+                    "name": "CURRENT_MONTH",
+                    "expected": "01"
+                },
+                {
+                    "name": "CURRENT_DATE",
+                    "expected": "01"
+                },
+                {
+                    "name": "CURRENT_HOUR",
+                    "expected": "08"
+                },
+                {
+                    "name": "CURRENT_MINUTE",
+                    "expected": "59"
+                },
+                {
+                    "name": "CURRENT_SECOND",
+                    "expected": "59"
+                },
+                {
+                    "name": "CURRENT_MILLISECOND",
+                    "expected": "999"
+                },
+                {
+                    "name": "CURRENT_DAY_NAME",
+                    "expected": "Wednesday"
+                },
+                {
+                    "name": "CURRENT_DAY_NAME_SHORT",
+                    "expected": "Wed"
+                },
+                {
+                    "name": "CURRENT_MONTH_NAME",
+                    "expected": "January"
+                },
+                {
+                    "name": "CURRENT_MONTH_NAME_SHORT",
+                    "expected": "Jan"
+                },
+                {
+                    "name": "CURRENT_SECONDS_UNIX",
+                    "expected": "1735689599"
+                },
+                {
+                    "name": "CURRENT_MILLISECONDS_UNIX",
+                    "expected": "1735689599999"
+                },
+                {
+                    "name": "CURRENT_TIMEZONE_OFFSET",
+                    "expected": "+09:00"
+                },
+                {
+                    "name": "CURRENT_TIMEZONE_NAME",
+                    "expected": "Asia/Seoul"
+                },
+                {
+                    "name": "UNKNOWN",
+                    "expected": null
+                }
+            ]
+        },
+        {
+            "date": "1969-12-31T23:59:59.999Z",
+            "offset": 32400,
+            "values": [
+                {
+                    "name": "CURRENT_YEAR",
+                    "expected": "1970"
+                },
+                {
+                    "name": "CURRENT_YEAR_SHORT",
+                    "expected": "70"
+                },
+                {
+                    "name": "CURRENT_MONTH",
+                    "expected": "01"
+                },
+                {
+                    "name": "CURRENT_DATE",
+                    "expected": "01"
+                },
+                {
+                    "name": "CURRENT_HOUR",
+                    "expected": "08"
+                },
+                {
+                    "name": "CURRENT_MINUTE",
+                    "expected": "59"
+                },
+                {
+                    "name": "CURRENT_SECOND",
+                    "expected": "59"
+                },
+                {
+                    "name": "CURRENT_MILLISECOND",
+                    "expected": "999"
+                },
+                {
+                    "name": "CURRENT_DAY_NAME",
+                    "expected": "Thursday"
+                },
+                {
+                    "name": "CURRENT_DAY_NAME_SHORT",
+                    "expected": "Thu"
+                },
+                {
+                    "name": "CURRENT_MONTH_NAME",
+                    "expected": "January"
+                },
+                {
+                    "name": "CURRENT_MONTH_NAME_SHORT",
+                    "expected": "Jan"
+                },
+                {
+                    "name": "CURRENT_SECONDS_UNIX",
+                    "expected": "-1"
+                },
+                {
+                    "name": "CURRENT_MILLISECONDS_UNIX",
+                    "expected": "-1"
+                },
+                {
+                    "name": "CURRENT_TIMEZONE_OFFSET",
+                    "expected": "+09:00"
+                },
+                {
+                    "name": "CURRENT_TIMEZONE_NAME",
+                    "expected": "Asia/Seoul"
+                },
+                {
+                    "name": "UNKNOWN",
+                    "expected": null
+                }
+            ]
+        },
+        {
+            "date": "2000-01-01T00:00:00.000Z",
+            "offset": 32400,
+            "values": [
+                {
+                    "name": "CURRENT_YEAR",
+                    "expected": "2000"
+                },
+                {
+                    "name": "CURRENT_YEAR_SHORT",
+                    "expected": "00"
+                },
+                {
+                    "name": "CURRENT_MONTH",
+                    "expected": "01"
+                },
+                {
+                    "name": "CURRENT_DATE",
+                    "expected": "01"
+                },
+                {
+                    "name": "CURRENT_HOUR",
+                    "expected": "09"
+                },
+                {
+                    "name": "CURRENT_MINUTE",
+                    "expected": "00"
+                },
+                {
+                    "name": "CURRENT_SECOND",
+                    "expected": "00"
+                },
+                {
+                    "name": "CURRENT_MILLISECOND",
+                    "expected": "000"
+                },
+                {
+                    "name": "CURRENT_DAY_NAME",
+                    "expected": "Saturday"
+                },
+                {
+                    "name": "CURRENT_DAY_NAME_SHORT",
+                    "expected": "Sat"
+                },
+                {
+                    "name": "CURRENT_MONTH_NAME",
+                    "expected": "January"
+                },
+                {
+                    "name": "CURRENT_MONTH_NAME_SHORT",
+                    "expected": "Jan"
+                },
+                {
+                    "name": "CURRENT_SECONDS_UNIX",
+                    "expected": "946684800"
+                },
+                {
+                    "name": "CURRENT_MILLISECONDS_UNIX",
+                    "expected": "946684800000"
+                },
+                {
+                    "name": "CURRENT_TIMEZONE_OFFSET",
+                    "expected": "+09:00"
+                },
+                {
+                    "name": "CURRENT_TIMEZONE_NAME",
+                    "expected": "Asia/Seoul"
+                },
+                {
+                    "name": "UNKNOWN",
+                    "expected": null
+                }
+            ]
+        },
+        {
+            "date": "2026-07-01T01:02:03.004Z",
+            "offset": 32400,
+            "values": [
+                {
+                    "name": "CURRENT_YEAR",
+                    "expected": "2026"
+                },
+                {
+                    "name": "CURRENT_YEAR_SHORT",
+                    "expected": "26"
+                },
+                {
+                    "name": "CURRENT_MONTH",
+                    "expected": "07"
+                },
+                {
+                    "name": "CURRENT_DATE",
+                    "expected": "01"
+                },
+                {
+                    "name": "CURRENT_HOUR",
+                    "expected": "10"
+                },
+                {
+                    "name": "CURRENT_MINUTE",
+                    "expected": "02"
+                },
+                {
+                    "name": "CURRENT_SECOND",
+                    "expected": "03"
+                },
+                {
+                    "name": "CURRENT_MILLISECOND",
+                    "expected": "004"
+                },
+                {
+                    "name": "CURRENT_DAY_NAME",
+                    "expected": "Wednesday"
+                },
+                {
+                    "name": "CURRENT_DAY_NAME_SHORT",
+                    "expected": "Wed"
+                },
+                {
+                    "name": "CURRENT_MONTH_NAME",
+                    "expected": "July"
+                },
+                {
+                    "name": "CURRENT_MONTH_NAME_SHORT",
+                    "expected": "Jul"
+                },
+                {
+                    "name": "CURRENT_SECONDS_UNIX",
+                    "expected": "1782867723"
+                },
+                {
+                    "name": "CURRENT_MILLISECONDS_UNIX",
+                    "expected": "1782867723004"
+                },
+                {
+                    "name": "CURRENT_TIMEZONE_OFFSET",
+                    "expected": "+09:00"
+                },
+                {
+                    "name": "CURRENT_TIMEZONE_NAME",
+                    "expected": "Asia/Seoul"
+                },
+                {
+                    "name": "UNKNOWN",
+                    "expected": null
+                }
+            ]
+        }
+    ],
+    "workspace": [
+        {
+            "name": "WORKSPACE_NAME",
+            "expected": ""
+        },
+        {
+            "name": "WORKSPACE_FOLDER",
+            "expected": "/"
+        },
+        {
+            "name": "UNKNOWN",
+            "expected": null
+        }
+    ]
+}

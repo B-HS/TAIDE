@@ -33,6 +33,8 @@ pub mod delete_dialog;
 pub mod diagnostics;
 #[path = "editor-command-text.rs"]
 mod editor_command_text;
+#[path = "editor-completion.rs"]
+mod editor_completion;
 #[path = "editor-documentation.rs"]
 mod editor_documentation;
 #[path = "editor-documentation-code.rs"]

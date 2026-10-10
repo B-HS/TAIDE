@@ -565,6 +565,10 @@ impl Fixture {
                                 syntax_folds: None,
                                 documentation: Some(&mut self.documentation),
                                 documentation_commands: commands,
+                                #[cfg(feature = "native-host")]
+                                completion: None,
+                                #[cfg(feature = "native-host")]
+                                completion_commands: &[],
                             },
                         )
                         .unwrap(),

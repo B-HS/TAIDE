@@ -6111,6 +6111,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "iana-time-zone",
  "icu_collator",
  "icu_locale_core",
  "icu_normalizer",

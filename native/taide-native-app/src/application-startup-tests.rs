@@ -213,6 +213,186 @@ fn actual_app_constructor는_bundle_startup_settings_file_save와_정상_exit_ow
             .unwrap();
     assert_eq!(saved, *services.state.settings.read());
     assert_eq!(application.pending_dirty.get(&owner.tab), Some(&false));
+    let before_clipboard = application
+        .store
+        .documents()
+        .snapshot(document)
+        .unwrap()
+        .rope
+        .to_string();
+    let bridge = application.bridge.take().unwrap();
+    application.runtime.block_on(async {
+        tokio::time::timeout(DEADLINE, bridge.disconnect())
+            .await
+            .unwrap()
+            .unwrap();
+    });
+    let clipboard_reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let captured = clipboard_reads.clone();
+    application.bridge = Some(
+        HostBridge::connect_with_clipboard_ports(
+            services.clone(),
+            Arc::new(|| {}),
+            Arc::new(|_| panic!("unexpected actual clipboard write")),
+            Arc::new(move || {
+                if captured.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                    return Ok("synthetic-native-clipboard".into());
+                }
+                Err(AppError::Forbidden(
+                    "synthetic clipboard read failed".into(),
+                ))
+            }),
+            None,
+        )
+        .unwrap(),
+    );
+    let view = application
+        .store
+        .attach_view(
+            taide_native_editor::view::ViewKey {
+                window: "synthetic-completion-clipboard".into(),
+                pane: owner.pane.clone(),
+                tab: owner.tab.clone(),
+            },
+            document,
+        )
+        .unwrap();
+    let request = application
+        .editor_completion
+        .begin(
+            &application.store,
+            crate::editor_completion::Context {
+                project: owner.project.clone(),
+                source: view,
+                owner: view,
+                word: 0..0,
+                viewport: egui::ViewportId::ROOT,
+                automatic: false,
+            },
+            HashSet::new(),
+        )
+        .unwrap();
+    let snippets = [taide_model::snippet::SnippetFile {
+        file_name: "synthetic.code-snippets".into(),
+        snippets: std::collections::BTreeMap::from([(
+            "Clipboard".into(),
+            taide_model::snippet::SnippetEntry {
+                prefix: taide_model::snippet::SnippetStringOrList::Single("paste".into()),
+                body: taide_model::snippet::SnippetStringOrList::Single(
+                    "${CLIPBOARD:empty}".into(),
+                ),
+                description: None,
+                scope: None,
+            },
+        )]),
+    }];
+    assert!(application.editor_completion.supply(
+        &application.store,
+        &request,
+        &snippets,
+        &services.tasks,
+        Arc::new(|| {})
+    ));
+    assert!(
+        application
+            .editor_completion
+            .pending(&application.store, view)
+    );
+    application.dispatch_completion(&context);
+    wait_for(
+        application,
+        &context,
+        "completion-clipboard",
+        |application| {
+            application
+                .editor_completion
+                .clipboard(&application.store, view)
+                .is_some()
+        },
+    );
+    assert_eq!(
+        application
+            .editor_completion
+            .clipboard(&application.store, view)
+            .unwrap()
+            .as_str(),
+        "synthetic-native-clipboard"
+    );
+    assert!(
+        !application
+            .editor_completion
+            .pending(&application.store, view)
+    );
+    assert_eq!(clipboard_reads.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        before_clipboard
+    );
+    application.editor_completion.close(view);
+    assert!(
+        application
+            .editor_completion
+            .clipboard(&application.store, view)
+            .is_none()
+    );
+    let failed = application
+        .editor_completion
+        .begin(
+            &application.store,
+            crate::editor_completion::Context {
+                project: owner.project.clone(),
+                source: view,
+                owner: view,
+                word: 0..0,
+                viewport: egui::ViewportId::ROOT,
+                automatic: false,
+            },
+            HashSet::new(),
+        )
+        .unwrap();
+    assert!(application.editor_completion.supply(
+        &application.store,
+        &failed,
+        &snippets,
+        &services.tasks,
+        Arc::new(|| {})
+    ));
+    application.dispatch_completion(&context);
+    wait_for(
+        application,
+        &context,
+        "completion-clipboard-failed",
+        |application| {
+            application
+                .editor_completion
+                .request(&application.store, view)
+                .is_none()
+        },
+    );
+    assert_eq!(clipboard_reads.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert!(application.toasts.is_showing(
+        taide_native_ui::toast::Kind::Error,
+        &crate::toast::describe_error(
+            &application.locale,
+            &AppError::Forbidden("synthetic clipboard read failed".into())
+        )
+    ));
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        before_clipboard
+    );
     application.close(&context);
     wait_for(application, &context, "app-exit", |application| {
         application.is_exit_ready

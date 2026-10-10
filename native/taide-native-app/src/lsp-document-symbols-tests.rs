@@ -32,6 +32,14 @@ pub(super) fn fixture(mode: &str) -> (Fixture, ProjectId, EditorStore, DocumentI
     assert!(matches!(
         mode,
         "--native-symbols"
+            | "--native-completion"
+            | "--native-completion-array"
+            | "--native-completion-empty"
+            | "--native-completion-null"
+            | "--native-completion-error"
+            | "--native-completion-bad"
+            | "--native-completion-wait"
+            | "--native-completion-unsupported"
             | "--native-documentation"
             | "--native-documentation-empty"
             | "--native-documentation-null"

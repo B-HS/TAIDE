@@ -3161,6 +3161,35 @@ impl Views {
         self.command_context = context;
     }
 
+    pub(crate) fn route_editor_keymap(
+        &mut self,
+        request: crate::keymap::Route<'_>,
+        actions: &mut Vec<String>,
+        has_focused_shell: bool,
+        completion: &crate::editor_completion::Consumer<'_, '_>,
+        view: taide_native_editor::view::ViewId,
+    ) -> AppResult<bool> {
+        let defer_defaults = completion.defers(view, request.event);
+        self.keymaps
+            .route_editor(request, defer_defaults, |decision| {
+                if let KeymapDecision::Dispatch(id) | KeymapDecision::ResolveChord(id) = decision
+                    && let Some(command) = id
+                        .strip_prefix("monaco.")
+                        .and_then(taide_native_editor::completion::Command::from_action)
+                {
+                    completion.queue_command(view, command);
+                    return true;
+                }
+                application_keymap_decision(
+                    decision,
+                    actions,
+                    has_focused_shell,
+                    true,
+                    &self.command_context,
+                )
+            })
+    }
+
     pub(crate) fn route_find_keymap(
         &mut self,
         request: crate::keymap::Route<'_>,

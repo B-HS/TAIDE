@@ -44,6 +44,8 @@ struct MockServer {
     held_location: Option<Value>,
     documentation: Option<&'static str>,
     held_documentation: BTreeMap<u64, Value>,
+    completion: Option<&'static str>,
+    held_completion: BTreeMap<u64, Value>,
     workspace_symbols: Option<&'static str>,
     held_workspace_symbol: Option<Value>,
     workspace_folders: Vec<Value>,
@@ -246,6 +248,7 @@ impl MockServer {
                 || self.workspace_symbols.is_some()
                 || self.locations.is_some()
                 || self.documentation.is_some()
+                || self.completion.is_some()
             {
                 params["rootUri"]
                     .as_str()
@@ -370,6 +373,21 @@ impl MockServer {
                 if mode != "unsupported" {
                     capabilities["signatureHelpProvider"] =
                         json!({"triggerCharacters":["(",","],"retriggerCharacters":[")"]});
+                }
+            }
+            if let Some(mode) = self.completion {
+                if params["capabilities"]["textDocument"]["completion"]["completionItem"]["snippetSupport"]
+                    != true
+                    || params["capabilities"]["textDocument"]["completion"]["contextSupport"]
+                        != true
+                {
+                    return Err(invalid(
+                        "native completion requires typed snippet capabilities",
+                    ));
+                }
+                if mode != "unsupported" {
+                    capabilities["completionProvider"] =
+                        json!({"triggerCharacters":[".",":"],"resolveProvider":false});
                 }
             }
             if self.should_run_save_actions {
@@ -511,6 +529,17 @@ impl MockServer {
                         .ok_or_else(|| invalid("held documentation requires URI"))?,
                     &held["version"],
                     "synthetic documentation cancelled",
+                )?;
+            }
+            if let Some(held) = self.held_completion.remove(&cancelled_id) {
+                write_response(output, &held["id"], json!([{"label":"stale-cancelled"}]))?;
+                write_document_diagnostic(
+                    output,
+                    held["uri"]
+                        .as_str()
+                        .ok_or_else(|| invalid("held completion requires URI"))?,
+                    &held["version"],
+                    "synthetic completion cancelled",
                 )?;
             }
             if self
@@ -721,6 +750,58 @@ impl MockServer {
             .and_then(Value::as_str)
             .ok_or_else(|| invalid("document requires URI"))?;
         match method {
+            "textDocument/completion" if self.completion.is_some() => {
+                let current = self
+                    .documents
+                    .get(uri)
+                    .ok_or_else(|| invalid("completion requires current mirror"))?;
+                let id = id.ok_or_else(|| invalid("completion requires ID"))?;
+                let mode = self
+                    .completion
+                    .ok_or_else(|| invalid("completion mode required"))?;
+                if params.get("context").is_some()
+                    || !params["position"]["line"].is_u64()
+                    || !params["position"]["character"].is_u64()
+                {
+                    return Err(invalid(
+                        "completion requires UTF-16 position without extra context",
+                    ));
+                }
+                if mode == "wait" {
+                    self.held_completion.insert(
+                        id.as_u64()
+                            .ok_or_else(|| invalid("hold requires numeric ID"))?,
+                        json!({"id":id,"uri":uri,"version":current["version"]}),
+                    );
+                    write_document_diagnostic(
+                        output,
+                        uri,
+                        &current["version"],
+                        "synthetic completion held",
+                    )?;
+                    return Ok(None);
+                }
+                if mode == "error" {
+                    write_payload(
+                        output,
+                        &json!({"jsonrpc":"2.0","id":id,"error":{"code":-32603,"message":"synthetic completion error"}}),
+                    )?;
+                    return Ok(None);
+                }
+                let items = json!([
+                    {"label":"method","kind":3,"detail":"fn method(a)","documentation":{"kind":"markdown","value":"**method**"},
+                    "sortText":"first","filterText":"method","insertTextFormat":2,"textEdit":{"range":{"start":{"line":params["position"]["line"],"character":4},"end":params["position"]},"newText":"method(${1|a,b|})$0"},"data":"opaque"},
+                    {"label":"modifier","kind":999,"insertText":"modifier","documentation":"plain","sortText":"second"}
+                ]);
+                let result = match mode {
+                    "null" => Value::Null,
+                    "empty" => json!([]),
+                    "bad" => json!({"isIncomplete":true,"items":false}),
+                    "array" => items,
+                    _ => json!({"isIncomplete":true,"items":items}),
+                };
+                write_response(output, id, result)?;
+            }
             "textDocument/hover" | "textDocument/signatureHelp" if self.documentation.is_some() => {
                 let current = self
                     .documents
@@ -1233,6 +1314,28 @@ fn main() -> io::Result<ExitCode> {
         Some("--ignore-hover") => server.should_ignore_hover = true,
         Some("--malformed-hover") => server.should_malformed_hover_once = true,
         Some("--ignore-initialize") => server.should_ignore_initialize = true,
+        Some(
+            mode @ ("--native-completion"
+            | "--native-completion-array"
+            | "--native-completion-empty"
+            | "--native-completion-null"
+            | "--native-completion-error"
+            | "--native-completion-bad"
+            | "--native-completion-wait"
+            | "--native-completion-unsupported"),
+        ) => {
+            server.should_track_saves = true;
+            server.completion = Some(match mode {
+                "--native-completion-array" => "array",
+                "--native-completion-empty" => "empty",
+                "--native-completion-null" => "null",
+                "--native-completion-error" => "error",
+                "--native-completion-bad" => "bad",
+                "--native-completion-wait" => "wait",
+                "--native-completion-unsupported" => "unsupported",
+                _ => "normal",
+            });
+        }
         Some("--client-requests") => server.should_send_client_requests = true,
         Some("--client-progress") => server.should_send_client_progress = true,
         Some("--save-lifecycle") => server.should_track_saves = true,

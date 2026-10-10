@@ -69,11 +69,22 @@ impl JsRegex {
     }
 
     pub fn ranges(&self, text: &str) -> Vec<Range<usize>> {
-        self.regex
-            .find_iter(text)
-            .map(|found| found.range())
-            .filter(|range| !range.is_empty())
-            .collect()
+        let mut ranges = Vec::new();
+        self.visit_ranges(text, |range| {
+            if !range.is_empty() {
+                ranges.push(range);
+            }
+            true
+        });
+        ranges
+    }
+
+    pub fn visit_ranges(&self, text: &str, mut visit: impl FnMut(Range<usize>) -> bool) {
+        for found in self.regex.find_iter(text) {
+            if !visit(found.range()) {
+                break;
+            }
+        }
     }
 
     pub fn without_matches(&self, text: &str) -> String {

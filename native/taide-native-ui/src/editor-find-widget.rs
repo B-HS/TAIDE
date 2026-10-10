@@ -13,7 +13,7 @@ use taide_native_editor::view::ViewId;
 use crate::Instant;
 use crate::editor_find::{EditorFind, FindCommand, FindError, FindFocus, OPTIONS_REVEAL_DELAY};
 
-pub const ICON_FAMILY: &str = "taide-monaco-codicons";
+pub use crate::font_families::CODICON_FAMILY as ICON_FAMILY;
 const INITIAL_WIDTH: f32 = 419.0;
 const MIN_WIDTH: f32 = 170.0;
 const NARROW_WIDTH: f32 = 257.0;

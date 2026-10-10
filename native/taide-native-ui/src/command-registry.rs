@@ -74,6 +74,8 @@ pub enum DocumentEdit {
     Location(taide_native_editor::symbol_locations::Command),
     #[cfg(feature = "native-host")]
     Documentation(taide_native_editor::documentation::Command),
+    #[cfg(feature = "native-host")]
+    Completion(taide_native_editor::completion::Command),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -269,6 +271,13 @@ fn execution(id: &str, keymap_id: Option<&str>) -> Execution {
     #[cfg(feature = "native-host")]
     if let Some(command) = id
         .strip_prefix(EDITOR_ACTION_PREFIX)
+        .and_then(taide_native_editor::completion::Command::from_action)
+    {
+        return Execution::Native(Run::EditDocument(DocumentEdit::Completion(command)));
+    }
+    #[cfg(feature = "native-host")]
+    if let Some(command) = id
+        .strip_prefix(EDITOR_ACTION_PREFIX)
         .and_then(taide_native_editor::documentation::Command::from_action)
     {
         return Execution::Native(Run::EditDocument(DocumentEdit::Documentation(command)));
@@ -424,6 +433,13 @@ fn fold_command(action: &str) -> Option<FoldCommand> {
 
 pub fn keymap_run(keymap_id: &str) -> Option<Run> {
     #[cfg(feature = "native-host")]
+    if let Some(command) = keymap_id
+        .strip_prefix(EDITOR_ACTION_PREFIX)
+        .and_then(taide_native_editor::completion::Command::from_action)
+    {
+        return Some(Run::EditDocument(DocumentEdit::Completion(command)));
+    }
+    #[cfg(feature = "native-host")]
     if keymap_id == "find" {
         return Some(Run::EditDocument(DocumentEdit::Find(
             crate::editor_find::FindCommand::Open,
@@ -550,6 +566,10 @@ impl Registry {
                     Execution::Native(Run::EditDocument(DocumentEdit::Documentation(_))) => {
                         Some(action.to_owned())
                     }
+                    #[cfg(feature = "native-host")]
+                    Execution::Native(Run::EditDocument(DocumentEdit::Completion(
+                        taide_native_editor::completion::Command::ResetSize,
+                    ))) => Some(action.to_owned()),
                     Execution::Native(Run::EditDocument(_)) if editor.is_read_only => None,
                     Execution::Native(Run::FoldDocument(_)) if !editor.has_folding => None,
                     Execution::Native(_) => Some(action.to_owned()),
@@ -926,6 +946,8 @@ mod tests {
                 Execution::Native(Run::EditDocument(DocumentEdit::Location(_))) => None,
                 #[cfg(feature = "native-host")]
                 Execution::Native(Run::EditDocument(DocumentEdit::Documentation(_))) => None,
+                #[cfg(feature = "native-host")]
+                Execution::Native(Run::EditDocument(DocumentEdit::Completion(_))) => None,
                 Execution::Native(Run::EditDocument(
                     DocumentEdit::Line(_) | DocumentEdit::Cursor(_),
                 )) => None,
@@ -1058,6 +1080,16 @@ mod tests {
                     ]
                     .into_iter()
                     .filter(|_| EDITOR_DOCUMENTATION_AVAILABLE),
+                )
+                .chain(
+                    ["editor.action.triggerSuggest"]
+                        .into_iter()
+                        .filter(|_| cfg!(feature = "native-host") && !is_read_only),
+                )
+                .chain(
+                    ["editor.action.resetSuggestSize"]
+                        .into_iter()
+                        .filter(|_| cfg!(feature = "native-host")),
                 )
                 .map(str::to_owned)
                 .collect::<HashSet<_>>();

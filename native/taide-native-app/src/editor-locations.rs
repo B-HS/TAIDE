@@ -1024,6 +1024,7 @@ pub(crate) struct Provider<'a> {
     pub(crate) find_appearance: Option<&'a taide_native_ui::editor_find_widget::FindAppearance>,
     pub(crate) documentation:
         Option<std::rc::Rc<std::cell::RefCell<&'a mut crate::editor_documentation::State>>>,
+    pub(crate) completion: Option<crate::editor_completion::Consumer<'a, 'a>>,
 }
 
 impl Provider<'_> {
@@ -1721,6 +1722,32 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_> {
                     language: snapshot.metadata.language_id.clone(),
                 });
         let find = &mut session.find;
+        let completion_consumer = self.completion.clone();
+        let mut completion_host_commands = Vec::new();
+        let mut completion_provider =
+            self.completion
+                .as_ref()
+                .map(|consumer| crate::editor_completion::Provider {
+                    consumer: consumer.clone(),
+                    project: self.project.clone(),
+                    owner: view,
+                    owner_key: session.request.source_key.clone(),
+                    lsp: self.lsp,
+                    viewport: self.viewport,
+                    commands: &mut completion_host_commands,
+                    editor: self.editor,
+                    syntax,
+                    model_path: match &snapshot.key {
+                        taide_native_editor::document::DocumentKey::File(path) => {
+                            path.to_string_lossy().into_owned()
+                        }
+                        taide_native_editor::document::DocumentKey::Untitled(tab) => {
+                            tab.to_string()
+                        }
+                        taide_native_editor::document::DocumentKey::AppFile(_) => String::new(),
+                    },
+                    language: snapshot.metadata.language_id.clone(),
+                });
         let has_find = self.find_appearance.is_some() && self.find_history.is_some();
         let output = self.editor.show_request_with_editor_keymap(
             &mut ui,
@@ -1745,11 +1772,15 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_> {
                     provider as &mut dyn taide_native_ui::editor_documentation::Provider
                 }),
                 documentation_commands: &documentation_commands,
+                completion: completion_provider.as_mut().map(|provider| {
+                    provider as &mut dyn taide_native_ui::editor_completion::Provider
+                }),
+                completion_commands: &[],
             },
             |ui, store, preview, event, composing| {
                 let index = crate::keymap::event_index(ui.ctx(), event, &mut next);
                 keymap
-                    .route(
+                    .route_editor(
                         crate::keymap::Route {
                             context: ui.ctx(),
                             event,
@@ -1761,6 +1792,9 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_> {
                             composing,
                             overrides: self.overrides,
                         },
+                        completion_consumer
+                            .as_ref()
+                            .is_some_and(|consumer| consumer.defers(preview, event)),
                         |decision| {
                             let id = match decision {
                                 crate::keymap::Decision::Dispatch(id)
@@ -1769,6 +1803,14 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_> {
                                 | crate::keymap::Decision::NoMatch => return true,
                                 _ => return false,
                             };
+                            if let Some(consumer) = &completion_consumer
+                                && let Some(command) = id
+                                    .strip_prefix("monaco.")
+                                    .and_then(taide_native_editor::completion::Command::from_action)
+                            {
+                                consumer.queue_command(preview, command);
+                                return true;
+                            }
                             if id == "save" {
                                 if let Ok(snapshot) = store.save_snapshot(document)
                                     && let taide_native_editor::document::DocumentKey::File(path) =
@@ -1857,6 +1899,7 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_> {
             },
         )?;
         self.commands.append(&mut documentation_host_commands);
+        self.commands.append(&mut completion_host_commands);
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
         }
