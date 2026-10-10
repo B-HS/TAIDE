@@ -71,6 +71,11 @@ pub enum ShellIntent {
     OpenSettingsFile,
     OpenKeybindings,
     OpenPalette(PaletteEntry),
+    #[cfg(feature = "native-host")]
+    ChooseIndentation {
+        tab: TabId,
+        command: crate::command_registry::IndentationCommand,
+    },
     ShowOpenProjectNotice,
     ChangeEditorFontSize {
         increase: bool,

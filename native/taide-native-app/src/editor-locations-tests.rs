@@ -606,13 +606,12 @@ fn 실제_preview의_직렬_본문_명령과_저장은_대상_문서와_포커�
         &taide_model::settings::Settings::default(),
     );
     store
-        .override_indentation(
+        .set_indentation(
             target_document,
             configuration,
-            taide_native_editor::indent::IndentOptions {
-                tab_size: configuration.defaults.tab_size,
-                insert_spaces: true,
-            },
+            taide_native_editor::indent::IndentationChange::UseSpaces(
+                configuration.defaults.tab_size,
+            ),
         )
         .unwrap();
     for command in [eframe::egui::Key::F11, eframe::egui::Key::F12] {

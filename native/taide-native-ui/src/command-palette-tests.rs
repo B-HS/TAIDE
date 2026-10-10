@@ -24,6 +24,14 @@ const GEOMETRY_TOLERANCE: f32 = 0.01;
 const LIST_ITEM_ICON_SIDE: f32 = 16.0;
 const SPINNER_SIDE: f32 = 12.0;
 const SETTLE_FRAME_COUNT: usize = 3;
+#[cfg(feature = "native-host")]
+const EXCESS_INDENTATION_SIZE: u32 = 16;
+#[cfg(feature = "native-host")]
+const CURRENT_TAB_SIZE: u32 = 2;
+#[cfg(feature = "native-host")]
+const CONFIGURED_TAB_SIZE: u32 = 4;
+#[cfg(feature = "native-host")]
+const NEXT_TAB_SIZE: u32 = 3;
 
 struct Scene {
     context: egui::Context,
@@ -293,6 +301,157 @@ fn preedit(text: &str) -> Event {
         text: text.into(),
         active_range_chars: None,
     })
+}
+
+#[test]
+#[cfg(feature = "native-host")]
+fn 수동_들여쓰기_목록은_현재_기본_폭과_단일_행을_표시하고_포커스를_복원한다() {
+    let mut scene = Scene::new();
+    scene.focus_previous();
+    scene
+        .palette
+        .open_indentation(&scene.context, CURRENT_TAB_SIZE, CONFIGURED_TAB_SIZE);
+    scene.frame(Vec::new());
+    scene.frame(Vec::new());
+    let inspection = scene.inspection();
+    assert_eq!(inspection.placeholder, "Select Tab Size for Current File");
+    assert_eq!(inspection.heading, None);
+    assert_eq!(scene.labels(), ["1", "2", "3", "4", "5", "6", "7", "8"]);
+    assert_eq!(scene.selected().as_deref(), Some("2"));
+    assert_eq!(
+        inspection.rows[1].detail.as_deref(),
+        Some("Current Tab Size")
+    );
+    assert_eq!(
+        inspection.rows[3].detail.as_deref(),
+        Some("Default Tab Size")
+    );
+    assert!(
+        inspection
+            .rows
+            .iter()
+            .all(|row| row.rect.height() == SINGLE_LINE_ROW_HEIGHT
+                && row.icon_rect.width() == 0.0
+                && row.label_left == row.rect.left() + ITEM_PADDING_X)
+    );
+    assert!(!scene.palette.observes_files());
+    assert!(!scene.palette.observes_symbols());
+    assert!(scene.palette.workspace_query().is_none());
+    scene.press(Key::ArrowDown);
+    assert_eq!(
+        scene.press(Key::Enter).action,
+        Some(Action::IndentationSize(NEXT_TAB_SIZE))
+    );
+    scene.frame(Vec::new());
+    assert_eq!(scene.focused(), Some(Id::new(PREVIOUS_FOCUS)));
+    assert!(!scene.palette.is_open());
+}
+
+#[test]
+#[cfg(feature = "native-host")]
+fn 수동_들여쓰기_필터와_마우스는_숫자만_선택하고_원래_팔레트로_전환한다() {
+    let mut scene = Scene::new().with_project(&["README.md"]);
+    scene
+        .palette
+        .open_indentation(&scene.context, EXCESS_INDENTATION_SIZE, CONFIGURED_TAB_SIZE);
+    scene.frame(Vec::new());
+    scene.frame(Vec::new());
+    assert_eq!(scene.selected().as_deref(), Some("8"));
+    scene.type_text("4");
+    assert_eq!(scene.labels(), ["4"]);
+    assert_eq!(
+        scene.inspection().rows[0].detail.as_deref(),
+        Some("Default Tab Size")
+    );
+    let row = scene.inspection().rows[0].rect.center();
+    assert_eq!(
+        scene.click(row).action,
+        Some(Action::IndentationSize(CONFIGURED_TAB_SIZE))
+    );
+    scene
+        .palette
+        .open_indentation(&scene.context, CONFIGURED_TAB_SIZE, CONFIGURED_TAB_SIZE);
+    scene.frame(Vec::new());
+    scene.frame(Vec::new());
+    assert_eq!(
+        scene.inspection().rows[3].detail.as_deref(),
+        Some("Configured Tab Size")
+    );
+    scene.type_text("@");
+    assert!(scene.labels().is_empty());
+    assert!(!scene.palette.observes_symbols());
+    assert_eq!(scene.press(Key::Enter), Output::default());
+    scene.open(PaletteEntry::Files);
+    assert!(!scene.palette.is_picking_indentation());
+    assert!(scene.palette.observes_files());
+    assert_eq!(scene.labels(), ["README.md"]);
+}
+
+#[test]
+#[cfg(feature = "native-host")]
+fn 수동_들여쓰기_취소와_조합은_값을_실행하지_않는다() {
+    let mut scene = Scene::new();
+    scene.focus_previous();
+    scene
+        .palette
+        .open_indentation(&scene.context, CONFIGURED_TAB_SIZE, CONFIGURED_TAB_SIZE);
+    scene.frame(Vec::new());
+    scene.frame(Vec::new());
+    scene.frame(vec![preedit("4")]);
+    assert_eq!(scene.press(Key::Enter), Output::default());
+    assert_eq!(scene.press(Key::Escape), Output::default());
+    assert!(scene.palette.is_picking_indentation());
+    let committed = scene.frame(vec![
+        Event::Ime(egui::ImeEvent::Commit("4".into())),
+        key_event(Key::Enter, Modifiers::NONE),
+    ]);
+    assert_eq!(committed, Output::default());
+    scene.frame(Vec::new());
+    assert_eq!(scene.press(Key::Escape), Output::default());
+    scene.frame(Vec::new());
+    assert_eq!(scene.focused(), Some(Id::new(PREVIOUS_FOCUS)));
+    scene
+        .palette
+        .open_indentation(&scene.context, CONFIGURED_TAB_SIZE, CONFIGURED_TAB_SIZE);
+    scene.frame(Vec::new());
+    scene.frame(Vec::new());
+    assert_eq!(scene.click(OUTSIDE_DIALOG), Output::default());
+    assert!(!scene.palette.is_open());
+}
+
+#[test]
+#[cfg(feature = "native-host")]
+fn 수동_들여쓰기_명령은_원래_포커스를_보존하며_선택창으로_이어진다() {
+    let mut scene = Scene::new();
+    scene.commands.active_editor_actions = Some(registry().unwrap().editor_action_ids(
+        crate::command_registry::ActiveEditor {
+            is_read_only: true,
+            has_folding: false,
+        },
+    ));
+    scene.focus_previous();
+    scene.open(PaletteEntry::Commands);
+    scene.type_text("Indent Using Spaces");
+    let id = "monaco.editor.action.indentUsingSpaces";
+    assert_eq!(scene.selected().as_deref(), Some(id));
+    assert_eq!(
+        scene.press(Key::Enter).action,
+        Some(Action::RunCommand(id.into()))
+    );
+    assert!(scene.palette.is_open());
+    assert_eq!(scene.palette.source_focus(), Some(Id::new(PREVIOUS_FOCUS)));
+    scene
+        .palette
+        .open_indentation(&scene.context, CONFIGURED_TAB_SIZE, CONFIGURED_TAB_SIZE);
+    scene.frame(Vec::new());
+    scene.frame(Vec::new());
+    assert_eq!(scene.palette.source_focus(), Some(Id::new(PREVIOUS_FOCUS)));
+    assert_eq!(
+        scene.press(Key::Enter).action,
+        Some(Action::IndentationSize(CONFIGURED_TAB_SIZE))
+    );
+    scene.frame(Vec::new());
+    assert_eq!(scene.focused(), Some(Id::new(PREVIOUS_FOCUS)));
 }
 
 fn command() -> Modifiers {

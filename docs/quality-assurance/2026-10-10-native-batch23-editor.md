@@ -339,3 +339,34 @@ Core의 서로 다른 두 폭 입력 13사례, 자동 연결/명시 감지·변�
 검사 뒤 Core 수정은 없으며 마지막 수정은 EditorConfig의 미지정 축 보존입니다. 그 영향의 Core 전체·UI·App 큐와 동결 컴파일만 다시 실행했고 구문/앱 토큰 준비의 변경 없는 성공은 재사용했습니다. native manifest/lock/frozen 경로 diff는 0, 디스크 531GiB·72%입니다. 배치 23의 전체 변경 크레이트 게이트·실기/성능/출시는 아직 미완료입니다. 행 상태는 288완료/588대상·300미완료, 배치 23/최종 33을 유지하며 전체 전환율과 ETA는 미산정입니다.
 
 문서 형식 검사는 저장소의 docs ignore 때문에 초기 명령이 파일을 검사하지 않은 결과를 제외했습니다. 대상 세 파일만 --ignore-path /dev/null --config prettier.config.js로 명시 포함했고 실제 파일별 포맷 출력과 최종 check exit 0을 확인했습니다. 전체 문서의 재포맷은 적용하지 않았습니다.
+
+## 수동 들여쓰기 선택창과 세 명령 (2026-10-11)
+
+설치된 Monaco indentation.js의 ChangeIndentationSizeAction을 읽었습니다. 1~8의 숫자, 현재/기본/일치 값의 설명, 현재 표시 폭의 초기 선택과 8 상한, readonly 옵션 변경, 열 때 캡처한 모델의 폐기 확인을 기준으로 기존 native 팔레트를 확장했습니다. 숫자 설명은 inline 한 줄이며 항목 아이콘은 그리지 않습니다. command palette에서 이어질 때 같은 모달과 원래 포커스를 유지하므로 원본의 모달 전환 회피용 50ms 타이머를 복제하지 않았습니다. 새로운 화면 디자인이나 명령/기본 키를 추가하지 않았습니다.
+
+원본 영어 메시지와 dev/vs/nls/lang/ko.js·ja.js의 1185~1188을 직접 읽어 기존 locale 카탈로그/namespace에 네 메시지를 추가했습니다. UI 선택 상태는 native-host에서만 존재하며 frozen browser 코드/의존 그래프에는 새 기능을 넣지 않았습니다. 세 기존 명령은 typed IndentationCommand/Run/ShellIntent로 등록하고 사용자 키 재지정과 readonly 실행을 지원합니다.
+
+App은 실제 본문/peek 포커스 ID와 소유 탭을 대조하고 Request에 원래 DocumentId/DocumentKey를 보관합니다. 선택 시 현재 전역 설정을 사용하며 다른 탭·교체 문서로 적용을 넘기지 않습니다. 원래 뷰가 닫혀도 살아 있는 mirror의 문서는 적용하고, 폐기 후 동일 키로 다시 연 문서는 거절합니다. 옵션 변경은 텍스트/revision/dirty/undo를 만들지 않으며, 표시 폭만 변경할 때 숫자 편집 폭을 보존합니다. Escape/배경 취소·일반 팔레트 전환·새 선택은 이전 요청을 회수합니다.
+
+### 재현과 직접 검증
+
+로그 접두사는 /private/tmp/taide-batch23-indentation-picker-입니다.
+
+- registry-repro.log: 새 명령 미지원의 실제 실패 1건·exit 101입니다. 첫 indentUsingTabs의 keymap_run이 None이었으며 세 명령을 native 경로에 연결했습니다.
+- ui-lib.log: 신규 선택창 4건과 새 등록 검사 등 130건 통과/기존 기대 집합 1건 실패·exit 101입니다. 기존 모든 editor action 집합에 세 명령의 readonly 지원을 추가해 기대 계약을 갱신했습니다. 부분 성공을 전체 성공으로 보고하지 않습니다.
+- app-request.log: 요청 수명 2건 통과/새 폐기 fixture 1건 실패·exit 101입니다. 내용이 있는 untitled는 UnsavedChanges이므로 명시 discard_document로 폐기해 재개 모델 거절을 검사합니다. 제품의 폐기 게이트를 약화하지 않았습니다.
+- ui-all.log: 변경 후 --all-targets --no-fail-fast·native-host,inspection·test-threads=4, 22대상/435건 통과/0실패/0ignored·exit 0입니다. 목록·현재/기본/일치·상한·숫자 필터/빈 결과·키/마우스·포커스·IME/취소·일반 모드 전환·readonly/등록/재지정·기존 UI 회귀를 포함합니다. 앞선 부분 성공을 중복 합산하지 않습니다.
+
+App 전체 검증과 실패 영향 검사를 마쳤으며 본문의 세 명령, 실제 순수 peek의 F9/F10/F11 재지정, readonly 옵션 변경·원본 텍스트/revision/dirty와 본문 격리·포커스 복원·수명 및 전체 회귀를 확인했습니다. 실제 Trash를 사용하는 기존 3검사는 보호 지시에 따라 제외했습니다. 전체 전환율/잔여 시간은 미산정이며 editor-30과 배치 23은 아직 partial/진행입니다.
+
+App 전체 실행 중 실제 startup 본문/peek/readonly 확장 검사와 Request 3건은 통과했습니다. lib의 기존 preview 직렬 명령 검사 1건에서 reindent의 관찰값이 공백 2칸·기대값 4칸으로 실패했습니다. 해당 준비 코드는 Detect로 숫자 편집 폭 2를 만든 뒤 legacy override_indentation으로 표시 폭/방식만 변경했습니다. c85d1ebe의 독립 폭 계약에 맞게 새 set_indentation(UseSpaces(default width))으로 두 폭을 설정해 기존 4칸 변화/undo 단언을 유지합니다. 제품 모델의 숫자 폭 보존을 제거하거나 기대값을 2칸으로 낮추지 않습니다. 전체 명령의 소유 세션이 종료한 뒤 이 검사만 재실행하며 전체 App를 반복하지 않습니다.
+
+### 최종 결과와 잔여 범위
+
+app-all.log는 --all-targets --no-fail-fast·inspection·test-threads=1로 67대상/802통과/1실패/0ignored·보호 Trash 3제외·exit 101입니다. 제품 코드는 그대로 두고 기존 preview 준비만 올바른 두 폭 API로 수정했습니다. app-preview-final.log에서 정확한 실패 검사 1건이 2.40초/exit 0으로 통과했습니다. 최종 App 서로 다른 803건/미해결 실패 0이며 전체 App 명령을 반복 실행하거나 최초 exit 101을 exit 0으로 바꿔 보고하지 않습니다. 실제 startup의 본문 세 명령·순수 peek 세 키·readonly 옵션 변경·텍스트/revision/dirty/본문 격리·포커스 복원과 정상 종료, Request의 mirror/동일 키 재개/현재 설정 3건은 이 전체에 포함됩니다.
+
+locale-all.log는 --package taide-locale --all-targets --no-fail-fast·test-threads=4로 20건/0실패·exit 0입니다. UI 435·App 803·locale 20의 최종 서로 다른 성공은 1258건입니다. 초기 실패/중간 성공/원본 비교 사례를 중복 합산하지 않습니다. Core는 수정하지 않았으며 c85d1ebe의 전체 285통과/기존 성능 1ignored 근거를 재사용합니다. 기존 성능/OS 입력/시각/IME/접근성·대형 성능/soak/출시와 나머지 배치 23은 완료로 올리지 않습니다.
+
+frozen-host.log의 --tests/inspection은 9.30초, frozen-wasm.log의 --lib/wasm32-unknown-unknown/canvas,inspection은 1.86초로 각각 exit 0입니다. UI/App/locale fmt check·소유 diff check exit 0, frozen/manifest/lock 변경 0입니다. 소유 Cargo/fmt는 각각 앞 세션의 실제 종료 뒤에만 실행했으며 최초 전체 중에도 Rust/포함 리소스를 수정하지 않았습니다. 디스크는 529GiB/72%이고 보호 앱/실제 데이터/OS 설정/클립보드/Keychain/Trash를 건드리지 않았으며 빌드 정리를 하지 않았습니다.
+
+b2d의 문서 모델/수동 선택창 단위를 닫고 editor-30은 실제 포맷/스니펫 독립 폭·내장 서비스/큰 tier 성능·배치 전체/실기/출시 게이트가 남아 partial을 유지합니다. 최신 요구사항 집계는 588대상/288완료/300미완료, 현재 배치 23/최종 33이며 전체 전환율과 잔여 시간은 미산정입니다.

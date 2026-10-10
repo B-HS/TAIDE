@@ -412,6 +412,9 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
     const SCREEN_HEIGHT: f32 = 700.0;
     const CARET: usize = 8;
     const WORKSPACE_CARET: usize = 12;
+    const PICKED_INDENTATION_SIZE: u32 = 2;
+    const BASE_INDENTATION_SIZE: u32 = 4;
+    const DISPLAY_TAB_SIZE: u32 = 8;
     const END_HIGHLIGHT: usize = 19;
     const EXECUTABLE_MODE: u32 = 0o700;
     let mut fixture = Fixture {
@@ -528,6 +531,78 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
     );
     let document = application.files[&path].id;
     paint(application, Vec::new());
+    let indentation_before = application.store.documents().snapshot(document).unwrap();
+    for (id, size, spaces) in [
+        (
+            "monaco.editor.action.indentUsingTabs",
+            PICKED_INDENTATION_SIZE,
+            false,
+        ),
+        (
+            "monaco.editor.action.indentUsingSpaces",
+            PICKED_INDENTATION_SIZE,
+            true,
+        ),
+        (
+            "monaco.editor.action.changeTabDisplaySize",
+            DISPLAY_TAB_SIZE,
+            true,
+        ),
+    ] {
+        application.palette_commands.push(id.into());
+        paint(application, Vec::new());
+        paint(application, Vec::new());
+        assert!(application.palette.is_picking_indentation(), "{id}");
+        paint(
+            application,
+            vec![
+                egui::Event::ModifiersChanged(egui::Modifiers::NONE),
+                egui::Event::Text(size.to_string()),
+                egui::Event::Key {
+                    key: egui::Key::Enter,
+                    physical_key: Some(egui::Key::Enter),
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::Key {
+                    key: egui::Key::Enter,
+                    physical_key: Some(egui::Key::Enter),
+                    pressed: false,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        paint(application, Vec::new());
+        assert!(!application.palette.is_open(), "{id}");
+        assert!(application.indentation_request.is_none());
+        let snapshot = application.store.documents().snapshot(document).unwrap();
+        let options = snapshot.model_indentation(application.editor.indent_options(&snapshot));
+        assert_eq!(
+            (options.tab_size, options.indent_size, options.insert_spaces),
+            (size, PICKED_INDENTATION_SIZE, spaces),
+            "{id}"
+        );
+        assert_eq!(
+            (snapshot.rope, snapshot.revision, snapshot.dirty),
+            (
+                indentation_before.rope.clone(),
+                indentation_before.revision,
+                indentation_before.dirty
+            )
+        );
+    }
+    application
+        .store
+        .set_indentation(
+            document,
+            crate::presentation_refresh::indent_configuration(
+                &application.services.state.settings.read(),
+            ),
+            taide_native_editor::indent::IndentationChange::DisplaySize(PICKED_INDENTATION_SIZE),
+        )
+        .unwrap();
     application.document_edits.push((
         tab.clone(),
         DocumentEdit::Indentation(taide_native_editor::indent::Command::ToTabs),
@@ -1430,6 +1505,110 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
         })
         .unwrap();
     context.memory_mut(|memory| memory.request_focus(focus));
+    let indentation_overrides = application
+        .services
+        .state
+        .settings
+        .read()
+        .keymap_overrides
+        .clone();
+    application.services.state.settings.write().keymap_overrides = Some(r#"[{"actionId":"monaco.editor.action.indentUsingTabs","key":"F9","mods":[]},{"actionId":"monaco.editor.action.indentUsingSpaces","key":"F10","mods":[]},{"actionId":"monaco.editor.action.changeTabDisplaySize","key":"F11","mods":[]}]"#.into());
+    let peek_indentation_before = application
+        .store
+        .documents()
+        .snapshot(peek_document)
+        .unwrap();
+    let body_indentation_before = application.store.documents().snapshot(document).unwrap();
+    for (key, size, spaces) in [
+        (egui::Key::F9, PICKED_INDENTATION_SIZE, false),
+        (egui::Key::F10, PICKED_INDENTATION_SIZE, true),
+        (egui::Key::F11, DISPLAY_TAB_SIZE, true),
+    ] {
+        context.memory_mut(|memory| memory.request_focus(focus));
+        paint(
+            application,
+            vec![
+                egui::Event::ModifiersChanged(egui::Modifiers::NONE),
+                egui::Event::Key {
+                    key,
+                    physical_key: Some(key),
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::Key {
+                    key,
+                    physical_key: Some(key),
+                    pressed: false,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        paint(application, Vec::new());
+        assert!(application.palette.is_picking_indentation(), "{key:?}");
+        paint(
+            application,
+            vec![
+                egui::Event::Text(size.to_string()),
+                egui::Event::Key {
+                    key: egui::Key::Enter,
+                    physical_key: Some(egui::Key::Enter),
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::Key {
+                    key: egui::Key::Enter,
+                    physical_key: Some(egui::Key::Enter),
+                    pressed: false,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        paint(application, Vec::new());
+        assert!(!application.palette.is_open());
+        assert!(context.memory(|memory| memory.has_focus(focus)));
+        let snapshot = application
+            .store
+            .documents()
+            .snapshot(peek_document)
+            .unwrap();
+        let options = snapshot.model_indentation(application.editor.indent_options(&snapshot));
+        assert_eq!(
+            (options.tab_size, options.indent_size, options.insert_spaces),
+            (size, PICKED_INDENTATION_SIZE, spaces),
+            "{key:?}"
+        );
+        assert_eq!(
+            (snapshot.rope, snapshot.revision, snapshot.dirty),
+            (
+                peek_indentation_before.rope.clone(),
+                peek_indentation_before.revision,
+                peek_indentation_before.dirty
+            )
+        );
+        let body = application.store.documents().snapshot(document).unwrap();
+        assert_eq!(
+            (body.indent_options, body.indent_size),
+            (
+                body_indentation_before.indent_options,
+                body_indentation_before.indent_size
+            )
+        );
+    }
+    application.services.state.settings.write().keymap_overrides = indentation_overrides;
+    application
+        .store
+        .set_indentation(
+            peek_document,
+            crate::presentation_refresh::indent_configuration(
+                &application.services.state.settings.read(),
+            ),
+            taide_native_editor::indent::IndentationChange::DisplaySize(PICKED_INDENTATION_SIZE),
+        )
+        .unwrap();
     application.reconcile_lsp();
     wait_for(
         application,
@@ -2453,6 +2632,87 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
         .key
         .tab
         .clone();
+    let readonly_indentation_before = application
+        .store
+        .documents()
+        .snapshot(peek_document)
+        .unwrap();
+    application
+        .palette_commands
+        .push("monaco.editor.action.indentUsingTabs".into());
+    paint(application, Vec::new());
+    paint(application, Vec::new());
+    assert!(application.palette.is_picking_indentation());
+    paint(
+        application,
+        vec![
+            egui::Event::ModifiersChanged(egui::Modifiers::NONE),
+            egui::Event::Text(BASE_INDENTATION_SIZE.to_string()),
+            egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: Some(egui::Key::Enter),
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+            egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: Some(egui::Key::Enter),
+                pressed: false,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+    paint(application, Vec::new());
+    assert!(!application.palette.is_open());
+    let readonly_indentation_after = application
+        .store
+        .documents()
+        .snapshot(peek_document)
+        .unwrap();
+    let readonly_options = readonly_indentation_after.model_indentation(
+        application
+            .editor
+            .indent_options(&readonly_indentation_after),
+    );
+    assert_eq!(
+        (
+            readonly_options.tab_size,
+            readonly_options.indent_size,
+            readonly_options.insert_spaces
+        ),
+        (BASE_INDENTATION_SIZE, BASE_INDENTATION_SIZE, false)
+    );
+    assert!(readonly_indentation_after.metadata.read_only);
+    assert_eq!(
+        (
+            readonly_indentation_after.rope,
+            readonly_indentation_after.revision,
+            readonly_indentation_after.dirty
+        ),
+        (
+            readonly_indentation_before.rope,
+            readonly_indentation_before.revision,
+            readonly_indentation_before.dirty
+        )
+    );
+    let configuration = crate::presentation_refresh::indent_configuration(
+        &application.services.state.settings.read(),
+    );
+    let original = readonly_indentation_before.indent_options.unwrap();
+    application
+        .store
+        .set_indentation(
+            peek_document,
+            configuration,
+            if original.insert_spaces {
+                taide_native_editor::indent::IndentationChange::UseSpaces(original.tab_size)
+            } else {
+                taide_native_editor::indent::IndentationChange::UseTabs(original.tab_size)
+            },
+        )
+        .unwrap();
     let suspended_lsp = application.lsp.take().unwrap();
     wait_for(
         application,

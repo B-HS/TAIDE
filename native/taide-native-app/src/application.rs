@@ -158,6 +158,7 @@ pub struct NativeApplication {
     palette_files: crate::command_palette::FileIndexes,
     palette_file_changes: Arc<crate::command_palette::FileIndexChanges>,
     palette_commands: Vec<String>,
+    indentation_request: Option<crate::editor_indentation::Request>,
     settings_views: crate::settings_view::Views,
     app_file_views: crate::app_file_views::Views,
     settings_appearance: crate::settings_view::Appearance,
@@ -464,6 +465,7 @@ impl NativeApplication {
             palette_files: Default::default(),
             palette_file_changes,
             palette_commands: Vec::new(),
+            indentation_request: None,
             settings_views,
             app_file_views: crate::app_file_views::Views::default(),
             settings_appearance: appearances.settings,
@@ -4223,6 +4225,17 @@ impl NativeApplication {
             }
         };
         match action {
+            Some(crate::command_palette::Action::IndentationSize(size)) => {
+                if let Some(request) = self.indentation_request.take() {
+                    let configuration = crate::presentation_refresh::indent_configuration(
+                        &self.services.state.settings.read(),
+                    );
+                    if let Err(error) = request.apply(&mut self.store, configuration, size) {
+                        self.status = Some(editor_error(error).to_string());
+                    }
+                    context.request_repaint();
+                }
+            }
             Some(crate::command_palette::Action::RunCommand(id)) => {
                 self.palette_commands.push(id);
                 context.request_repaint();
@@ -4316,6 +4329,9 @@ impl NativeApplication {
                 }
             }
             None => (),
+        }
+        if !self.palette.is_picking_indentation() {
+            self.indentation_request = None;
         }
         self.observe_workspace_symbols(context, project, enabled);
     }
@@ -5424,6 +5440,57 @@ impl eframe::App for NativeApplication {
                         self.document_edits.push((tab, edit));
                         context.request_repaint();
                     }
+                    ShellIntent::ChooseIndentation { tab, command } => {
+                        let focused = self
+                            .palette
+                            .source_focus()
+                            .filter(|_| self.palette.is_open())
+                            .or_else(|| context.memory(|memory| memory.focused()));
+                        let source = focused
+                            .and_then(|id| {
+                                self.editor_keymap_targets.get(&(context.viewport_id(), id))
+                            })
+                            .and_then(|(source, _)| {
+                                let owner = self
+                                    .editor_locations
+                                    .preview_owner(*source)
+                                    .unwrap_or(*source);
+                                let owner = self.store.views().get(owner)?;
+                                (owner.key.tab == tab)
+                                    .then(|| {
+                                        self.store.views().get(*source).map(|view| view.document)
+                                    })
+                                    .flatten()
+                            })
+                            .or_else(|| keymap_documents.get(&tab).copied());
+                        let configuration = crate::presentation_refresh::indent_configuration(
+                            &self.services.state.settings.read(),
+                        );
+                        match source.map(|document| {
+                            crate::editor_indentation::Request::new(
+                                &mut self.store,
+                                document,
+                                configuration,
+                                command,
+                            )
+                        }) {
+                            Some(Ok((request, current_size))) => {
+                                self.indentation_request = Some(request);
+                                self.palette.open_indentation(
+                                    &context,
+                                    current_size,
+                                    configuration.defaults.tab_size,
+                                );
+                            }
+                            result => {
+                                self.indentation_request = None;
+                                self.palette.dismiss(&context);
+                                if let Some(Err(error)) = result {
+                                    self.status = Some(editor_error(error).to_string());
+                                }
+                            }
+                        }
+                    }
                     ShellIntent::FoldDocument { tab, command } => {
                         self.fold_commands.push((tab, command));
                         context.request_repaint();
@@ -5459,7 +5526,10 @@ impl eframe::App for NativeApplication {
                         }
                     }
                     ShellIntent::OpenKeybindings => self.keybindings.open(&context),
-                    ShellIntent::OpenPalette(entry) => self.palette.open(&context, entry),
+                    ShellIntent::OpenPalette(entry) => {
+                        self.indentation_request = None;
+                        self.palette.open(&context, entry);
+                    }
                     ShellIntent::NewTerminal { project, pane } => {
                         self.submit(HostCommand::NewTerminal {
                             project,

@@ -56,6 +56,8 @@ const DETAIL_LINE_HEIGHT: f32 = 16.0;
 const SHORTCUT_LETTER_SPACING: f32 = 1.2;
 const DISABLED_OPACITY: f32 = 0.5;
 const ELLIPSIS: char = '…';
+#[cfg(feature = "native-host")]
+const MAX_INDENTATION_SIZE: u32 = 8;
 
 pub struct Appearance {
     modal_background: Color32,
@@ -157,6 +159,8 @@ pub enum Action {
     RunCommand(String),
     OpenFile(String),
     RevealLine(LineTarget),
+    #[cfg(feature = "native-host")]
+    IndentationSize(u32),
     #[cfg(feature = "native-host")]
     RevealSymbol {
         generation: u64,
@@ -280,6 +284,13 @@ struct RowLayout {
     label_left: f32,
 }
 
+#[cfg(feature = "native-host")]
+#[derive(Clone, Copy)]
+struct IndentationPicker {
+    current_size: u32,
+    configured_size: u32,
+}
+
 pub struct Palette {
     is_open: bool,
     query: String,
@@ -298,6 +309,8 @@ pub struct Palette {
     icons: Icons,
     shortcuts: Option<Shortcuts>,
     file_ranking: Option<FileRanking>,
+    #[cfg(feature = "native-host")]
+    indentation: Option<IndentationPicker>,
     #[cfg(any(test, feature = "inspection"))]
     inspection: Inspection,
 }
@@ -330,6 +343,8 @@ impl Palette {
             icons: Icons::new()?,
             shortcuts: None,
             file_ranking: None,
+            #[cfg(feature = "native-host")]
+            indentation: None,
             #[cfg(any(test, feature = "inspection"))]
             inspection: Inspection::default(),
         })
@@ -340,18 +355,57 @@ impl Palette {
     }
 
     pub fn observes_files(&self) -> bool {
+        #[cfg(feature = "native-host")]
+        if self.indentation.is_some() {
+            return false;
+        }
         self.is_open && parse(&self.query).mode == Mode::Files
     }
 
     #[cfg(feature = "native-host")]
     pub fn observes_symbols(&self) -> bool {
-        self.is_open && parse(&self.query).mode == Mode::Symbol
+        self.is_open && self.indentation.is_none() && parse(&self.query).mode == Mode::Symbol
     }
 
     #[cfg(feature = "native-host")]
     pub fn workspace_query(&self) -> Option<&str> {
         let query = parse(&self.query);
-        (self.is_open && query.mode == Mode::WorkspaceSymbol).then_some(query.search_term)
+        (self.is_open && self.indentation.is_none() && query.mode == Mode::WorkspaceSymbol)
+            .then_some(query.search_term)
+    }
+
+    #[cfg(feature = "native-host")]
+    pub fn source_focus(&self) -> Option<Id> {
+        self.focus_return.origin()
+    }
+
+    #[cfg(feature = "native-host")]
+    pub fn is_picking_indentation(&self) -> bool {
+        self.is_open && self.indentation.is_some()
+    }
+
+    #[cfg(feature = "native-host")]
+    pub fn open_indentation(
+        &mut self,
+        context: &egui::Context,
+        current_size: u32,
+        configured_size: u32,
+    ) {
+        self.open(context, PaletteEntry::Commands);
+        self.indentation = Some(IndentationPicker {
+            current_size,
+            configured_size,
+        });
+        self.set_query(String::new());
+        self.selected = Some(current_size.clamp(1, MAX_INDENTATION_SIZE).to_string());
+        self.listed_query = Some(String::new());
+        self.should_reset_scroll = true;
+        self.should_reveal_selected = true;
+    }
+
+    #[cfg(feature = "native-host")]
+    pub fn dismiss(&mut self, context: &egui::Context) {
+        self.close(context, true);
     }
 
     pub fn set_appearance(&mut self, appearance: Appearance) {
@@ -368,6 +422,10 @@ impl Palette {
     }
 
     pub fn open(&mut self, context: &egui::Context, entry: PaletteEntry) {
+        #[cfg(feature = "native-host")]
+        {
+            self.indentation = None;
+        }
         if !self.is_open {
             self.focus_return.capture(context);
             self.is_open = true;
@@ -488,12 +546,21 @@ impl Palette {
                     .and_then(|command| command.runnable(scope.commands));
                 match run {
                     Some(Run::OpenPalette(entry)) => self.set_query(entry_query(entry)),
+                    #[cfg(feature = "native-host")]
+                    Some(Run::ChooseIndentation(_)) => {
+                        output.action = Some(Action::RunCommand(id));
+                    }
                     Some(_) => {
                         output.action = Some(Action::RunCommand(id));
                         self.close(context, false);
                     }
                     None => (),
                 }
+            }
+            #[cfg(feature = "native-host")]
+            Some(Action::IndentationSize(size)) => {
+                output.action = Some(Action::IndentationSize(size));
+                self.close(context, true);
             }
             Some(action) => {
                 output.action = Some(action);
@@ -587,7 +654,15 @@ impl Palette {
                 ))));
             egui::TextEdit::store_state(ui.ctx(), id, state);
         }
-        let placeholder = message(scope.locale, parse(&self.query).mode.placeholder_key(), &[]);
+        #[cfg(feature = "native-host")]
+        let placeholder_key = if self.indentation.is_some() {
+            "palette.indentationPlaceholder"
+        } else {
+            parse(&self.query).mode.placeholder_key()
+        };
+        #[cfg(not(feature = "native-host"))]
+        let placeholder_key = parse(&self.query).mode.placeholder_key();
+        let placeholder = message(scope.locale, placeholder_key, &[]);
         self.trace_input(&placeholder, row);
         let is_enabled = ui.is_enabled();
         let mut field_ui = ui.new_child(
@@ -621,6 +696,49 @@ impl Palette {
     }
 
     fn listing(&mut self, scope: &Scope<'_>) -> AppResult<Listing> {
+        #[cfg(feature = "native-host")]
+        if let Some(picker) = self.indentation {
+            let items = self
+                .matcher
+                .filter(
+                    &self.query,
+                    1..=MAX_INDENTATION_SIZE,
+                    |size| Cow::Owned(size.to_string()),
+                    None,
+                )
+                .into_iter()
+                .map(|ranked| {
+                    let key = match (
+                        ranked.item == picker.current_size,
+                        ranked.item == picker.configured_size,
+                    ) {
+                        (true, true) => Some("palette.configuredTabSize"),
+                        (true, false) => Some("palette.currentTabSize"),
+                        (false, true) => Some("palette.defaultTabSize"),
+                        (false, false) => None,
+                    };
+                    Item {
+                        key: ranked.item.to_string(),
+                        action: Action::IndentationSize(ranked.item),
+                        icon: Icon::CornerDownLeft,
+                        label: ranked.label,
+                        indices: ranked.matched.indices,
+                        detail: key.map(|key| (message(scope.locale, key, &[]), Vec::new())),
+                        shortcut: None,
+                        is_enabled: true,
+                        is_truncated: true,
+                    }
+                })
+                .collect();
+            return Ok(Listing {
+                group: Some(Group {
+                    heading: None,
+                    refreshing: None,
+                    items,
+                }),
+                empty_message: message(scope.locale, "palette.noResults", &[]),
+            });
+        }
         let Query { mode, search_term } = parse(&self.query);
         let search_term = search_term.to_owned();
         let text = |key: &str| message(scope.locale, key, &[]);
@@ -1090,7 +1208,9 @@ impl Palette {
         #[cfg(feature = "native-host")]
         let inline_detail = matches!(
             item.action,
-            Action::RevealSymbol { .. } | Action::OpenWorkspaceSymbol { .. }
+            Action::RevealSymbol { .. }
+                | Action::OpenWorkspaceSymbol { .. }
+                | Action::IndentationSize(_)
         );
         #[cfg(not(feature = "native-host"))]
         let inline_detail = false;
@@ -1102,8 +1222,13 @@ impl Palette {
         let muted = self.appearance.muted.gamma_multiply(opacity);
         let highlight = self.appearance.match_highlight.gamma_multiply(opacity);
         let width = ui.available_width();
-        let icon_side = item.icon.size();
-        let text_width = (width - ITEM_PADDING_X * 2.0 - icon_side - ITEM_GAP).max(0.0);
+        #[cfg(feature = "native-host")]
+        let has_icon = !matches!(item.action, Action::IndentationSize(_));
+        #[cfg(not(feature = "native-host"))]
+        let has_icon = true;
+        let icon_side = if has_icon { item.icon.size() } else { 0.0 };
+        let icon_gap = if has_icon { ITEM_GAP } else { 0.0 };
+        let text_width = (width - ITEM_PADDING_X * 2.0 - icon_side - icon_gap).max(0.0);
         let shortcut = item.shortcut.as_deref().map(|shortcut| {
             let mut job = LayoutJob::single_section(
                 shortcut.to_owned(),
@@ -1207,7 +1332,7 @@ impl Palette {
             egui::pos2(content.left() + icon_side / 2.0, rect.center().y),
             egui::Vec2::splat(icon_side),
         );
-        let label_left = icon.right() + ITEM_GAP;
+        let label_left = icon.right() + icon_gap;
         let layout = RowLayout {
             response,
             icon,
@@ -1228,7 +1353,7 @@ impl Palette {
                 egui::StrokeKind::Inside,
             );
         }
-        if let Some(image) = self.icons.image(item.icon, muted) {
+        if has_icon && let Some(image) = self.icons.image(item.icon, muted) {
             image.paint_at(ui, icon);
         }
         let detail_top = content.top() + label.size().y;

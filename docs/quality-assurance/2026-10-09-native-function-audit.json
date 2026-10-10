@@ -1,6 +1,6 @@
 {
     "date": "2026-10-11",
-    "baseline": "ad9750e8",
+    "baseline": "c85d1ebe",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -789,7 +789,10 @@
                 "native/taide-native-syntax/src/token-pipeline.rs",
                 "native/taide-native-syntax/src/token-worker.rs",
                 "native/taide-native-editor/src/editing.rs",
-                "native/taide-native-editor/src/line-commands.rs"
+                "native/taide-native-editor/src/line-commands.rs",
+                "native/taide-native-app/src/editor-indentation.rs",
+                "native/taide-native-ui/src/command-palette.rs",
+                "native/taide-native-app/src/shell_keymap.rs"
             ],
             "tests": [
                 "native/taide-native-editor/tests/language-typing.rs",
@@ -803,14 +806,16 @@
                 "native/taide-native-syntax/tests/fixtures/reindent-reference.json",
                 "native/taide-native-app/src/editor-syntax-tests.rs",
                 "native/taide-native-syntax/tests/token-pipeline.rs",
-                "native/taide-native-syntax/tests/token-pipeline/worker.rs"
+                "native/taide-native-syntax/tests/token-pipeline/worker.rs",
+                "native/taide-native-app/src/editor-indentation.rs",
+                "native/taide-native-ui/src/command-palette-tests.rs"
             ],
             "reports": [
                 "docs/quality-assurance/2026-10-06-native-batch7-language-config.md",
                 "docs/quality-assurance/2026-10-10-native-batch23-editor.md",
                 "docs/utils/2026-10-10-monaco-reindent-oracle.js"
             ],
-            "limitation": "자동 감지·변환·명시 detect·전체/선택 reindent와 실제 구문 준비를 연결했습니다. Core 모델의 tabSize/indentSize·자동/숫자 상태와 입력/언어/줄 명령 소비, EditorConfig 미지정 축을 보완하고 실제 본문 표시 8/편집 4·readonly를 확인했습니다. 최종 Core 전체 285·UI 84·App 큐 9와 영향 없는 Syntax 38·App 구문 2 재사용의 418건 통과이며 기존 Core 성능 1건은 ignored입니다. 수동 폭/방식 선택창과 세 명령의 본문/peek 통합·실제 LSP 포맷/스니펫 독립 폭·내장 언어 서비스·동기 준비 대형 성능과 batch/실기/출시 게이트는 미완료입니다."
+            "limitation": "수동 선택창의 1~8·현재/기본/일치·상한·필터/키/마우스·IME/취소/포커스와 기존 세 명령의 native/재지정/readonly를 연결했습니다. 실제 본문·순수 peek·readonly 옵션 변경, 캡처 문서의 mirror/폐기/동일 키 교체·현재 설정을 확인했습니다. UI 전체 435·App 최종 서로 다른 803·locale 20의 1258건 통과·보호 Trash 3제외이며 App 최초 전체 1실패는 preview 준비 API 수정 후 해당 1건만 재검사했습니다. 실제 LSP 포맷/스니펫 독립 폭·내장 언어 서비스·동기 준비 대형 성능과 batch/실기/출시 게이트는 미완료입니다."
         }
     },
     "rows": [
@@ -2231,7 +2236,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-indentation",
-            "note": "자동 감지·변환·명시 detect·reindent와 실제 구문 준비에 이어 두 폭의 Core 문서 모델/입력/언어 소비·EditorConfig 미지정 축과 실제 본문 표시 8/편집 4를 확인했습니다. 관련 418건 통과·기존 Core 성능 1건 ignored이며 수동 선택창/세 명령·본문/peek 통합·실제 포맷/스니펫 독립 폭·내장 언어 서비스/대형 성능/전체 게이트는 남아 partial입니다."
+            "note": "자동 감지·변환·reindent·실제 구문 준비·표시/편집 폭 분리에 이어 수동 1~8 선택창/세 명령과 실제 본문·peek·readonly·포커스/IME·문서 수명을 연결했습니다. UI/App/locale 서로 다른 1258건 통과·보호 3제외이며 실제 LSP 포맷/스니펫 독립 폭·내장 서비스/대형 성능·batch/실기/출시 게이트는 남아 partial입니다."
         },
         {
             "id": "editor-31",

@@ -314,6 +314,10 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "symbols",
             "workspaceSymbols",
             "noActiveFile",
+            "indentationPlaceholder",
+            "configuredTabSize",
+            "defaultTabSize",
+            "currentTabSize",
         ],
     ),
     (

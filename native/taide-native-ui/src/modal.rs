@@ -148,6 +148,10 @@ pub struct FocusReturn {
 }
 
 impl FocusReturn {
+    pub fn origin(&self) -> Option<Id> {
+        self.origin
+    }
+
     pub fn capture(&mut self, context: &egui::Context) {
         self.origin = self
             .returning

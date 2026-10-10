@@ -102,6 +102,35 @@ pub enum DocumentEdit {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg(feature = "native-host")]
+pub enum IndentationCommand {
+    Tabs,
+    Spaces,
+    Display,
+}
+
+#[cfg(feature = "native-host")]
+impl IndentationCommand {
+    pub fn from_action(action: &str) -> Option<Self> {
+        match action {
+            "editor.action.indentUsingTabs" => Some(Self::Tabs),
+            "editor.action.indentUsingSpaces" => Some(Self::Spaces),
+            "editor.action.changeTabDisplaySize" => Some(Self::Display),
+            _ => None,
+        }
+    }
+
+    pub fn change(self, size: u32) -> taide_native_editor::indent::IndentationChange {
+        use taide_native_editor::indent::IndentationChange;
+        match self {
+            Self::Tabs => IndentationChange::UseTabs(size),
+            Self::Spaces => IndentationChange::UseSpaces(size),
+            Self::Display => IndentationChange::DisplaySize(size),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PaletteEntry {
     Files,
     Commands,
@@ -133,6 +162,8 @@ pub enum Run {
     ToggleEditorStickyScroll,
     #[cfg(feature = "native-host")]
     ToggleEditorMinimap,
+    #[cfg(feature = "native-host")]
+    ChooseIndentation(IndentationCommand),
     EditDocument(DocumentEdit),
     FoldDocument(FoldCommand),
 }
@@ -291,6 +322,13 @@ fn enablement(id: &str) -> Enablement {
 }
 
 fn execution(id: &str, keymap_id: Option<&str>) -> Execution {
+    #[cfg(feature = "native-host")]
+    if let Some(command) = id
+        .strip_prefix(EDITOR_ACTION_PREFIX)
+        .and_then(IndentationCommand::from_action)
+    {
+        return Execution::Native(Run::ChooseIndentation(command));
+    }
     #[cfg(feature = "native-host")]
     if let Some(command) = id
         .strip_prefix(EDITOR_ACTION_PREFIX)
@@ -469,6 +507,13 @@ fn fold_command(action: &str) -> Option<FoldCommand> {
 }
 
 pub fn keymap_run(keymap_id: &str) -> Option<Run> {
+    #[cfg(feature = "native-host")]
+    if let Some(command) = keymap_id
+        .strip_prefix(EDITOR_ACTION_PREFIX)
+        .and_then(IndentationCommand::from_action)
+    {
+        return Some(Run::ChooseIndentation(command));
+    }
     #[cfg(feature = "native-host")]
     if let Some(command) = keymap_id
         .strip_prefix(EDITOR_ACTION_PREFIX)
@@ -1030,6 +1075,8 @@ mod tests {
                 #[cfg(feature = "native-host")]
                 Execution::Native(Run::ToggleEditorMinimap) => None,
                 #[cfg(feature = "native-host")]
+                Execution::Native(Run::ChooseIndentation(_)) => None,
+                #[cfg(feature = "native-host")]
                 Execution::Native(Run::EditDocument(DocumentEdit::Find(_))) => None,
                 #[cfg(feature = "native-host")]
                 Execution::Native(Run::EditDocument(DocumentEdit::Problem(_))) => None,
@@ -1194,6 +1241,15 @@ mod tests {
                     ["editor.action.resetSuggestSize"]
                         .into_iter()
                         .filter(|_| cfg!(feature = "native-host")),
+                )
+                .chain(
+                    [
+                        "editor.action.indentUsingTabs",
+                        "editor.action.indentUsingSpaces",
+                        "editor.action.changeTabDisplaySize",
+                    ]
+                    .into_iter()
+                    .filter(|_| cfg!(feature = "native-host")),
                 )
                 .chain(
                     [
@@ -1518,6 +1574,39 @@ mod tests {
                 })
                 .count()
         );
+    }
+
+    #[test]
+    #[cfg(feature = "native-host")]
+    fn 수동_들여쓰기_선택_세_명령은_readonly에서도_실행_가능하고_키_재지정을_지원한다() {
+        let registry = registry().unwrap();
+        let actions = registry.editor_action_ids(ActiveEditor {
+            is_read_only: true,
+            has_folding: false,
+        });
+        for action in [
+            "editor.action.indentUsingTabs",
+            "editor.action.indentUsingSpaces",
+            "editor.action.changeTabDisplaySize",
+        ] {
+            let id = format!("monaco.{action}");
+            assert!(keymap_run(&id).is_some(), "{id}");
+            assert!(
+                matches!(
+                    registry.command(&id).unwrap().execution,
+                    Execution::Native(_)
+                ),
+                "{id}"
+            );
+            assert!(actions.contains(action), "{action}");
+            assert!(
+                registry.command(&id).unwrap().is_runnable(&CommandContext {
+                    active_editor_actions: Some(actions.clone()),
+                    ..Default::default()
+                }),
+                "{id}"
+            );
+        }
     }
 
     #[test]

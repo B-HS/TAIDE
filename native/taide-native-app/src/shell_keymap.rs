@@ -201,6 +201,10 @@ pub(crate) fn intent(run: Run, snapshot: &ShellSnapshot) -> Option<ShellIntent> 
             Some(ShellIntent::ToggleEditorStickyScroll)
         }
         Run::ToggleEditorMinimap if has_document => Some(ShellIntent::ToggleEditorMinimap),
+        Run::ChooseIndentation(command) if has_document => Some(ShellIntent::ChooseIndentation {
+            tab: tab.id.clone(),
+            command,
+        }),
         Run::EditDocument(edit) if has_document => Some(ShellIntent::EditDocument {
             tab: tab.id.clone(),
             edit,
