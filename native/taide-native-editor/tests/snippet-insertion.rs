@@ -19,6 +19,9 @@ const NESTING_LIMIT: usize = 32;
 const MARKER_LIMIT: usize = 128;
 const MIRRORED_TEMPLATE: &str = "${2:late}${1:한}$1$0";
 const MATCHING_UNDO_GROUP: u64 = 1;
+const SESSION_INDENT_WIDTH: usize = BYTE_LIMIT * 3 / 4;
+const SESSION_CHOICE_WIDTH: usize = BYTE_LIMIT / 2;
+const SESSION_CURSOR_CHOICE_COUNT: usize = MARKER_LIMIT / 2 + 1;
 
 fn limits() -> ParseLimits {
     ParseLimits {
@@ -85,6 +88,96 @@ fn prepared(template: &str, replace: Range<usize>) -> PreparedSnippet {
     )
     .unwrap();
     PreparedSnippet { replace, expansion }
+}
+
+#[test]
+fn snippet_session_limits는_들여쓰기와_choice의_합계를_수락전에_검증한다() {
+    let text = " ".repeat(SESSION_INDENT_WIDTH);
+    let (mut store, document, view) = fixture(&text, false);
+    store
+        .set_view_state(
+            view,
+            SelectionSet {
+                primary: 0,
+                selections: vec![Selection {
+                    anchor: text.len(),
+                    head: text.len(),
+                }],
+            },
+            ScrollPosition::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    let expected = store.views().get(view).unwrap().clone();
+    let template = format!("${{1|a,{}|}}$0", "b".repeat(SESSION_CHOICE_WIDTH));
+    let result = insert(
+        &mut store,
+        &expected,
+        0,
+        vec![prepared(&template, text.len()..text.len())],
+        limits(),
+    );
+    assert!(matches!(result, Err(EditorError::Capacity)));
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        text
+    );
+    assert_eq!(
+        store.views().get(view).unwrap().selection,
+        expected.selection
+    );
+    assert!(!store.undo(document).unwrap());
+}
+
+#[test]
+fn snippet_session_limits는_커서별_choice_메타데이터를_합산한다() {
+    let (mut store, document, view) = fixture("aa", false);
+    store
+        .set_view_state(
+            view,
+            SelectionSet {
+                primary: 0,
+                selections: vec![
+                    Selection { anchor: 0, head: 0 },
+                    Selection { anchor: 2, head: 2 },
+                ],
+            },
+            ScrollPosition::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    let expected = store.views().get(view).unwrap().clone();
+    let choices = std::iter::repeat_n("a", SESSION_CURSOR_CHOICE_COUNT)
+        .collect::<Vec<_>>()
+        .join(",");
+    let template = format!("${{1|{choices}|}}$0");
+    let result = insert(
+        &mut store,
+        &expected,
+        0,
+        vec![prepared(&template, 0..0), prepared(&template, 2..2)],
+        limits(),
+    );
+    assert!(matches!(result, Err(EditorError::Capacity)));
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        "aa"
+    );
+    assert_eq!(
+        store.views().get(view).unwrap().selection,
+        expected.selection
+    );
+    assert!(!store.undo(document).unwrap());
 }
 
 #[test]

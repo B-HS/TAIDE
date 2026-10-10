@@ -2,6 +2,7 @@ use std::ops::Range;
 
 use crate::document::{DocumentId, Edit, EditorError, UndoGroup, byte_to_char};
 use crate::snippet_expansion::{Expansion, PlaceholderSpan};
+use crate::snippet_normalization::own_cost;
 use crate::snippet_syntax::{Index, Marker, ParseLimits};
 use crate::store::{EditorStore, Transaction};
 use crate::view::{Selection, SelectionSet, ViewId, ViewState};
@@ -61,6 +62,8 @@ pub fn insert(
     sorted.sort_by_key(|(_, snippet)| (snippet.replace.start, snippet.replace.end));
     let mut text_bytes = 0usize;
     let mut placeholder_count = 0usize;
+    let mut session_bytes = 0usize;
+    let mut session_markers = 0usize;
     let mut previous_end = 0;
     for (_, snippet) in &sorted {
         let range = &snippet.replace;
@@ -105,6 +108,16 @@ pub fn insert(
             if !matches!(marker, Some(Marker::Placeholder { index, .. }) if *index == span.index) {
                 return Err(EditorError::InvalidBoundary);
             }
+            let (bytes, markers) = own_cost(marker.ok_or(EditorError::InvalidBoundary)?)?;
+            session_bytes = session_bytes
+                .checked_add(bytes)
+                .ok_or(EditorError::Capacity)?;
+            session_markers = session_markers
+                .checked_add(markers)
+                .ok_or(EditorError::Capacity)?;
+            if session_bytes > limits.max_bytes || session_markers > limits.max_markers {
+                return Err(EditorError::Capacity);
+            }
             for parent in &span.enclosing {
                 if *parent >= position {
                     return Err(EditorError::InvalidBoundary);
@@ -138,6 +151,12 @@ pub fn insert(
             .checked_add(line_leading_whitespace.len())
             .ok_or(EditorError::Capacity)?;
         if context_bytes > limits.max_bytes {
+            return Err(EditorError::Capacity);
+        }
+        if session_bytes
+            .checked_add(context_bytes)
+            .is_none_or(|bytes| bytes > limits.max_bytes)
+        {
             return Err(EditorError::Capacity);
         }
         let offset = snippet
