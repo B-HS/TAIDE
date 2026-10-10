@@ -1812,6 +1812,14 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
         paint(application, Vec::new());
     }
     assert!(context.memory(|memory| memory.has_focus(focus)));
+    assert!(
+        application
+            .terminal_views
+            .chord_status(&context, Instant::now())
+            .shortcut
+            .is_some(),
+        "peek local commands preserve the earlier CtrlK chord until Escape"
+    );
     paint(application, vec![egui::Event::Text("x".into())]);
     assert!(request.is_cancelled());
     assert!(peek_edit_highlight_request.is_cancelled());
@@ -1932,6 +1940,14 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
     );
     assert!(!application.editor_locations.preview_find_visible(view));
     assert!(application.editor_locations.current(view).unwrap().shown);
+    assert!(
+        application
+            .terminal_views
+            .chord_status(&context, Instant::now())
+            .shortcut
+            .is_none(),
+        "peek find Escape cancels the earlier CtrlK chord"
+    );
     paint(
         application,
         vec![
@@ -2474,14 +2490,13 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
         context.keyboard_focus_before_events(),
         Some(root_closing_focus)
     );
-    application.terminal_views.clear_keymap_chord(&context);
     assert!(
         application
             .terminal_views
             .chord_status(&context, Instant::now())
             .shortcut
             .is_none(),
-        "readonly key test must not inherit a chord"
+        "Escape cancels the earlier CtrlK chord before readonly highlight keys"
     );
     paint(
         application,

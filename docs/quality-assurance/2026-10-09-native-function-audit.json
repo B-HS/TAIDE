@@ -1,6 +1,6 @@
 {
     "date": "2026-10-10",
-    "baseline": "a296a28e",
+    "baseline": "6f1ae6ba",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -723,17 +723,19 @@
                 "native/taide-native-ui/src/editor-highlights-keymap-defaults.json",
                 "crates/taide-lsp/src/native/feature.rs",
                 "native/taide-native-editor/src/decoration.rs",
-                "native/taide-native-ui/src/editor_surface.rs"
+                "native/taide-native-ui/src/editor_surface.rs",
+                "native/taide-native-app/src/terminal_surface.rs"
             ],
             "tests": [
                 "native/taide-native-app/src/editor-highlights-tests.rs",
                 "native/taide-native-app/src/lsp-editor-highlights-tests.rs",
                 "native/taide-native-app/src/application-startup-tests.rs",
                 "native/taide-native-ui/tests/keymap-platform.rs",
-                "native/taide-native-ui/src/command-registry.rs"
+                "native/taide-native-ui/src/command-registry.rs",
+                "native/taide-native-app/src/terminal_surface.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-10-native-batch23-editor.md"],
-            "limitation": "상태 15·실제 child 3·실제 앱 1건 통과입니다. 앱 검사에 peek 표시/이동/trigger/편집/닫기와 normal tier readonly queued 이동/ShiftF7/입력 거절·종료 회수를 포함합니다. CtrlK 이후 Escape로 전역 대기가 해제되지 않는 연계는 별도 미해결이며 큰 tier/공급자 변화/원본 설정·배치 전체/실기 게이트 전에는 complete로 올리지 않습니다."
+            "limitation": "상태 15·child 3건의 변경 없는 성공을 재사용하며 이번 Escape 수정의 서로 다른 8건이 통과했습니다. 강제 초기화 없는 실제 앱에서 peek CtrlK 대기→찾기 Escape 취소→readonly ShiftF7·입력 거절·종료 회수를 검증했습니다. 큰 tier/공급자 변화/원본 설정·배치 전체/실기 게이트 전에는 complete로 올리지 않습니다."
         }
     },
     "rows": [
@@ -2385,7 +2387,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-highlights",
-            "note": "배치 23 a296a28e와 후속 종료 회수 작업에서 공급·표시·본문/peek 이동·trigger·취소와 실제 다중 공급자/프로젝트 소유를 연결했습니다. 상태 15·child 3·실제 앱 1건 통과를 QA에 기록합니다. readonly 기본 키는 독립 입력 단계에서 검증했으며 이전 CtrlK 대기/로컬 Escape 연계·큰 tier/공급자 변화·배치 전체 게이트가 남아 partial입니다."
+            "note": "배치 23의 공급·표시·본문/peek 이동·trigger·취소와 다중 공급자/프로젝트 소유를 연결했습니다. 로컬 Escape의 전역 대기 회수 실패를 재현·수정하고 강제 초기화 없는 실제 peek→readonly ShiftF7 흐름을 포함한 8건이 통과했습니다. 큰 tier/공급자 변화/원본 설정·배치 전체 게이트가 남아 partial입니다."
         },
         {
             "id": "editor-52",

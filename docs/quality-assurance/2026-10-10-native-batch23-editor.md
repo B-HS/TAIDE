@@ -112,3 +112,19 @@ highlights-peek-readonly-close-chord-diagnostic.log의 ChordStatus.pending 필�
 최종 App 전체 테스트 대상 컴파일은 highlights-close-app-check-final.log에서 exit 0·1분 16초, UI native-host/inspection 전체 테스트 대상 컴파일은 highlights-close-ui-check-final.log에서 exit 0·32.90초입니다. App/UI fmt check도 각각 직접 실행해 exit 0입니다. 전체 테스트 실행과 컴파일을 구분하며 배치 전체 --no-fail-fast 실행은 아직 아닙니다.
 
 최종 감사 도구의 --write는 highlights-close-audit-final.log에서 exit 0·599행/293근거 경로/588대상·288완료이며 표의 행 비율은 전체 전환율이 아닙니다. QA/JSON/표 포맷과 소유 파일 diff check가 통과했습니다. frozen source·manifest/lock 변경은 0이며 이전 host/Wasm 성공은 변경 없는 조건에서 재사용합니다. 최신 디스크는 542GiB/71%이고 빌드 정리나 보호 범위 변경은 없습니다. 검증된 종료 회수·실제 peek/readonly/공급자 검사와 본문 inspection, 관련 QA/기능표/PROCESS 상단만 선별 Git 대상입니다. 이전 무관한 문서 변경과 PROCESS 하단은 보존합니다.
+
+## 로컬 Escape와 전역 연속 단축키 취소
+
+기준은 `6f1ae6ba` 이후의 수정입니다. 위 절의 잔류 단축키 부채를 별도 실패 검사로 재현했습니다. `Views::capture_window_keymap_with_local`은 로컬 입력을 남기는 분기에서 전역 keymap 처리를 건너뛰어 pending/편집기 deferral을 보존했습니다. 설치된 Monaco의 `abstractKeybindingService.js:194`는 연속 단축키 도중 대응 명령이 없는 입력에서 `_leaveChordMode`를 호출합니다. DOM 팝업 소비까지 동일하다고 확대하지 않으며, 정상 Escape 취소와 로컬 팝업 입력 보존을 native 경계에서 검증했습니다.
+
+- `local-escape-chord-repro.log`: 전역 pending과 편집기 deferral 두 경우를 준비한 단일 검사가 첫 pending 사례의 취소 단언에서 실패했습니다. 0통과·1실패·exit 101·0.04초입니다. Escape 누름/뗌은 로컬 입력으로 남지만 전역 대기는 남았습니다.
+- `local-escape-chord-final.log`: 로컬 입력 분기의 수식 키 없는 Escape 누름에서 현재 뷰포트의 전역 대기를 회수합니다. 다른 로컬 키와 수식 키 Escape는 이 회수 조건에 포함하지 않습니다. 두 대기 종류가 모두 해제되고 Escape 누름/뗌이 그대로 남으며 새 명령을 만들지 않는 검사 1건이 통과했습니다. exit 0·0.02초입니다.
+- `local-escape-chord-app-final.log`: 실제 앱의 후기 readonly 단계에 대기가 남아 있어야 한다는 새 단언이 실패했습니다. 제품 수정으로 앞선 팝업의 Escape가 이미 대기를 회수한 것이며 실행 0통과·1실패·exit 101·5.71초입니다. 후기 단계에서 다시 대기를 가정하지 않고 실제 peek 단계의 취소 전후에 단언을 옮겼습니다.
+- `local-escape-chord-app-linked-final.log`: CtrlK 이후 로컬 명령까지 대기 존재, peek 찾기 Escape 뒤 대기 없음, readonly 단계의 대기 없음과 ShiftF7·입력 거절·앱 종료 회수를 실제 앱에서 확인했습니다. 검사 준비의 `clear_keymap_chord`를 제거했습니다. 앱 1건 통과·exit 0·5.66초입니다.
+- `local-escape-chord-window-final.log`: 기존 사건별 포커스·terminal/editor/button·AX·메뉴와 유효한 로컬 chord 전달 검사 6건 통과·exit 0·0.06초입니다.
+
+이번 수정의 직접 실행 성공은 서로 다른 8건입니다. 이전 앱 성공과 실패를 중복 합산하지 않고, 변경 없는 상태/child 검사의 성공 근거는 재사용합니다. Cargo/fmt는 앞 프로세스의 종료를 확인한 뒤 직렬로 실행했습니다. 큰 tier/공급자 변화/원본 설정·배치 전체 실행·실기/출시 게이트는 남아 있어 editor-51과 배치 23 전체는 미완료입니다.
+
+진척 점검에서 감사 JSON을 직접 재집계한 결과는 599행 중 complete 288·partial 93·unwired 112·missing 95·제외 10·동결 1입니다. 유효 588행의 미완료는 300행이며 행별 작업량 차이 때문에 전체 완성률·신뢰할 잔여 시간을 산정하지 않습니다. 현재 배치 23·최종 계획 33을 유지합니다. 프로세스 이름 필터에서 실행 중인 Cargo/rustfmt/rustc/Bun/앱 검사는 없었고 최근 커밋은 다른 변경이었습니다. 이는 현재 실행 점검이며 이전 불필요한 재시도나 장기 대기 기록을 없애거나 전체 세션의 종료성을 증명하지 않습니다.
+
+`local-escape-chord-app-check-final.log`는 App inspection 전체 테스트 대상 컴파일 exit 0·31.96초입니다. `local-escape-chord-fmt-final.log`의 App fmt check와 `local-escape-chord-audit-final.log`의 감사 재생성도 exit 0입니다. UI/Editor/SDK/Syntax·frozen host/Wasm의 변경 없는 성공은 재사용하며 배치 전체 `--no-fail-fast` 실행으로 확대하지 않습니다. 이번 frozen source·manifest/lock 변경은 0이고 디스크 여유는 542GiB·사용률 71%입니다. 빌드 정리나 보호 범위 변경은 없습니다.

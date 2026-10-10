@@ -2987,6 +2987,14 @@ impl Views {
                 focused = context.previous_keyboard_target(node);
             }
             if focused.is_some_and(|id| local_event(id, &event)) {
+                if matches!(&event, Event::Key { key: egui::Key::Escape, pressed: true, modifiers, .. } if *modifiers == egui::Modifiers::NONE)
+                    && self
+                        .chord_status(context, Instant::now())
+                        .shortcut
+                        .is_some()
+                {
+                    self.clear_keymap_chord(context);
+                }
                 remaining.push(event);
                 continue;
             }
@@ -5056,6 +5064,123 @@ mod input_tests;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn local_escape_chord_전역_대기와_유예를_회수하고_팝업_입력은_남긴다() {
+        const EDITOR_SIZE: f32 = 100.0;
+        for editor_prefix in [false, true] {
+            let context = egui::Context::default();
+            context.set_os(egui::os::OperatingSystem::Mac);
+            let body = egui::Id::new("local escape editor");
+            let mut routes = Views::default();
+            let mut output = context.run_ui(egui::RawInput::default(), |ui| {
+                ui.interact(
+                    Rect::from_min_size(egui::Pos2::ZERO, vec2(EDITOR_SIZE, EDITOR_SIZE)),
+                    body,
+                    Sense::click(),
+                );
+                ui.memory_mut(|memory| memory.request_focus(body));
+            });
+            output.textures_delta.clear();
+            let prefix = Event::Key {
+                key: egui::Key::K,
+                physical_key: Some(egui::Key::K),
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND,
+            };
+            let mut output = context.run_ui(
+                egui::RawInput {
+                    events: vec![prefix.clone()],
+                    ..Default::default()
+                },
+                |ui| {
+                    routes
+                        .keymaps
+                        .route(
+                            crate::keymap::Route {
+                                context: ui.ctx(),
+                                event: &prefix,
+                                index: 0,
+                                scope: KeymapContext {
+                                    terminal: false,
+                                    editor: editor_prefix,
+                                },
+                                composing: false,
+                                overrides: None,
+                            },
+                            |decision| matches!(decision, KeymapDecision::EnterChord),
+                        )
+                        .unwrap();
+                    ui.interact(
+                        Rect::from_min_size(egui::Pos2::ZERO, vec2(EDITOR_SIZE, EDITOR_SIZE)),
+                        body,
+                        Sense::click(),
+                    );
+                },
+            );
+            output.textures_delta.clear();
+            assert!(
+                routes
+                    .chord_status(&context, Instant::now())
+                    .shortcut
+                    .is_some()
+            );
+            let events = [true, false]
+                .map(|pressed| Event::Key {
+                    key: egui::Key::Escape,
+                    physical_key: Some(egui::Key::Escape),
+                    pressed,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                })
+                .to_vec();
+            let mut actions = Vec::new();
+            let mut output = context.run_ui(
+                egui::RawInput {
+                    events: events.clone(),
+                    ..Default::default()
+                },
+                |ui| {
+                    assert_eq!(ui.ctx().keyboard_focus_before_events(), Some(body));
+                    routes
+                        .capture_window_keymap_with_local(
+                            ui.ctx(),
+                            None,
+                            &mut actions,
+                            true,
+                            |id| (id == body).then_some(false),
+                            |id, event| {
+                                id == body
+                                    && matches!(
+                                        event,
+                                        Event::Key {
+                                            key: egui::Key::Escape,
+                                            ..
+                                        }
+                                    )
+                            },
+                        )
+                        .unwrap();
+                    assert_eq!(ui.input(|input| input.events.clone()), events);
+                    ui.interact(
+                        Rect::from_min_size(egui::Pos2::ZERO, vec2(EDITOR_SIZE, EDITOR_SIZE)),
+                        body,
+                        Sense::click(),
+                    );
+                },
+            );
+            output.textures_delta.clear();
+            assert!(actions.is_empty());
+            assert!(
+                routes
+                    .chord_status(&context, Instant::now())
+                    .shortcut
+                    .is_none(),
+                "editor_prefix={editor_prefix}"
+            );
+        }
+    }
+
     #[test]
     fn find_keymap은_사용자_재지정과_해제를_보존하고_문서_커서_키는_입력창에_남긴다() {
         let context = egui::Context::default();
