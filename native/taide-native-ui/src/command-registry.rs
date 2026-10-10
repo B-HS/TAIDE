@@ -97,6 +97,8 @@ pub enum DocumentEdit {
     Completion(taide_native_editor::completion::Command),
     #[cfg(feature = "native-host")]
     Highlight(HighlightCommand),
+    #[cfg(feature = "native-host")]
+    Indentation(taide_native_editor::indent::Command),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -292,6 +294,13 @@ fn execution(id: &str, keymap_id: Option<&str>) -> Execution {
     #[cfg(feature = "native-host")]
     if let Some(command) = id
         .strip_prefix(EDITOR_ACTION_PREFIX)
+        .and_then(taide_native_editor::indent::Command::from_action)
+    {
+        return Execution::Native(Run::EditDocument(DocumentEdit::Indentation(command)));
+    }
+    #[cfg(feature = "native-host")]
+    if let Some(command) = id
+        .strip_prefix(EDITOR_ACTION_PREFIX)
         .and_then(HighlightCommand::from_action)
     {
         return Execution::Native(Run::EditDocument(DocumentEdit::Highlight(command)));
@@ -463,6 +472,13 @@ pub fn keymap_run(keymap_id: &str) -> Option<Run> {
     #[cfg(feature = "native-host")]
     if let Some(command) = keymap_id
         .strip_prefix(EDITOR_ACTION_PREFIX)
+        .and_then(taide_native_editor::indent::Command::from_action)
+    {
+        return Some(Run::EditDocument(DocumentEdit::Indentation(command)));
+    }
+    #[cfg(feature = "native-host")]
+    if let Some(command) = keymap_id
+        .strip_prefix(EDITOR_ACTION_PREFIX)
         .and_then(taide_native_editor::completion::Command::from_action)
     {
         return Some(Run::EditDocument(DocumentEdit::Completion(command)));
@@ -565,6 +581,12 @@ impl Registry {
             .filter_map(|command| {
                 let action = command.editor_action_id()?;
                 match command.execution {
+                    #[cfg(feature = "native-host")]
+                    Execution::Native(Run::EditDocument(DocumentEdit::Indentation(command)))
+                        if !editor.is_read_only || !command.requires_write() =>
+                    {
+                        Some(action.to_owned())
+                    }
                     #[cfg(feature = "native-host")]
                     Execution::Native(Run::EditDocument(DocumentEdit::Find(command)))
                         if !editor.is_read_only || !command.requires_write() =>
@@ -883,6 +905,27 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "native-host")]
+    #[test]
+    fn 들여쓰기_변환과_명시_감지는_기존_명령으로_실행되고_readonly를_구분한다() {
+        let registry = registry().unwrap();
+        let writable = editor_context(&registry, false);
+        let readonly = editor_context(&registry, true);
+        for id in [
+            "monaco.editor.action.indentationToSpaces",
+            "monaco.editor.action.indentationToTabs",
+            "monaco.editor.action.detectIndentation",
+        ] {
+            let command = registry.command(id).unwrap();
+            assert!(command.runnable(&writable).is_some(), "{id}");
+            assert_eq!(
+                command.runnable(&readonly).is_some(),
+                id.ends_with("detectIndentation"),
+                "{id}"
+            );
+        }
+    }
+
     fn editor_context(registry: &Registry, is_read_only: bool) -> CommandContext {
         CommandContext {
             active_editor_actions: Some(registry.editor_action_ids(ActiveEditor {
@@ -982,6 +1025,8 @@ mod tests {
                 Execution::Native(Run::EditDocument(DocumentEdit::Completion(_))) => None,
                 #[cfg(feature = "native-host")]
                 Execution::Native(Run::EditDocument(DocumentEdit::Highlight(_))) => None,
+                #[cfg(feature = "native-host")]
+                Execution::Native(Run::EditDocument(DocumentEdit::Indentation(_))) => None,
                 Execution::Native(Run::EditDocument(
                     DocumentEdit::Line(_) | DocumentEdit::Cursor(_),
                 )) => None,
@@ -1133,6 +1178,18 @@ mod tests {
                     ["editor.action.resetSuggestSize"]
                         .into_iter()
                         .filter(|_| cfg!(feature = "native-host")),
+                )
+                .chain(
+                    [
+                        "editor.action.indentationToSpaces",
+                        "editor.action.indentationToTabs",
+                        "editor.action.detectIndentation",
+                    ]
+                    .into_iter()
+                    .filter(|action| {
+                        cfg!(feature = "native-host")
+                            && (!is_read_only || *action == "editor.action.detectIndentation")
+                    }),
                 )
                 .map(str::to_owned)
                 .collect::<HashSet<_>>();

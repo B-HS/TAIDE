@@ -846,6 +846,22 @@ impl NativeEditor {
         }
     }
 
+    #[cfg(feature = "native-host")]
+    fn follow_indent_options(
+        &self,
+        store: &EditorStore,
+        view: ViewId,
+        context: &mut InputContext<'_>,
+    ) -> Result<IndentOptions, EditorError> {
+        let owner = store.views().get(view).ok_or(EditorError::NotFound)?;
+        let document = store.documents().snapshot(owner.document)?;
+        let options = self.indent_options(&document);
+        context.indent = options;
+        context.projection.wrap_tab_size =
+            context.projection.wrap_tab_size.map(|_| options.tab_size);
+        Ok(options)
+    }
+
     pub fn reveal(
         &self,
         ui: &Ui,
@@ -1336,6 +1352,9 @@ impl NativeEditor {
         #[cfg(feature = "native-host")]
         let mut problem_released = !problem_valid && problem_start.is_some();
         let os = ui.ctx().os();
+        #[cfg(feature = "native-host")]
+        let mut indent = self.indent_options(&previous);
+        #[cfg(not(feature = "native-host"))]
         let indent = self.indent_options(&previous);
         input_state.auto_closed.follow(store, view)?;
         let mut input_context = InputContext {
@@ -1651,6 +1670,7 @@ impl NativeEditor {
                     if editor_keymap(ui, store, view, &event, composing)
                         || keymap(ui, &event, composing)
                     {
+                        indent = self.follow_indent_options(store, view, &mut input_context)?;
                         continue;
                     }
                     let command = (!composing)
@@ -1709,6 +1729,7 @@ impl NativeEditor {
                     if editor_keymap(ui, store, view, &event, composing)
                         || keymap(ui, &event, composing)
                     {
+                        indent = self.follow_indent_options(store, view, &mut input_context)?;
                         continue;
                     }
                     if execute_problem_shortcut(&mut problems, store, view, &event, composing)? {
@@ -1728,6 +1749,7 @@ impl NativeEditor {
                 {
                     #[cfg(feature = "native-host")]
                     {
+                        indent = self.follow_indent_options(store, view, &mut input_context)?;
                         if let Some(provider) = completion.as_deref_mut() {
                             if let Err(error) = input_state
                                 .completion

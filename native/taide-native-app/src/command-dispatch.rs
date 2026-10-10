@@ -88,10 +88,17 @@ pub(crate) fn apply_document_edits(
     store: &mut EditorStore,
     view: ViewId,
     tab: &TabId,
-    context: LineCommandContext<'_>,
+    mut context: LineCommandContext<'_>,
+    indentation: taide_native_editor::indent::IndentConfiguration,
     pending: &mut Vec<(TabId, DocumentEdit)>,
     errors: &mut Vec<EditorError>,
 ) -> bool {
+    if let Some(document) = store.views().get(view).map(|view| view.document)
+        && let Ok(snapshot) = store.documents().snapshot(document)
+        && let Some(options) = snapshot.indent_options
+    {
+        context.indent = options;
+    }
     let mut changed = false;
     for (_, edit) in pending.extract_if(.., |(owner, edit)| {
         owner == tab
@@ -106,6 +113,20 @@ pub(crate) fn apply_document_edits(
             )
     }) {
         let result = match edit {
+            DocumentEdit::Indentation(command) => {
+                let result =
+                    taide_native_editor::indent::run_command(store, view, command, indentation);
+                if result.is_ok() {
+                    context.syntax.follow_edits(store);
+                    if let Some(document) = store.views().get(view).map(|view| view.document)
+                        && let Ok(snapshot) = store.documents().snapshot(document)
+                        && let Some(options) = snapshot.indent_options
+                    {
+                        context.indent = options;
+                    }
+                }
+                result
+            }
             DocumentEdit::DeleteAllLeft => {
                 run_line_command(store, view, LineCommand::DeleteAllLeft, context)
             }
@@ -160,6 +181,125 @@ mod tests {
     const INDENT_WIDTH: u32 = 4;
     const UNDO_GROUPS: usize = 8;
     const AUXILIARY_SLOT: u32 = 1;
+
+    fn indentation_configuration() -> taide_native_editor::indent::IndentConfiguration {
+        taide_native_editor::indent::IndentConfiguration {
+            defaults: IndentOptions {
+                tab_size: INDENT_WIDTH,
+                insert_spaces: true,
+            },
+            detect_indentation: false,
+        }
+    }
+
+    #[test]
+    fn 변환_뒤의_편집_큐는_같은_프레임과_다음_요청에서_최신_옵션을_사용한다() {
+        let mut store = EditorStore::new(EditorLimits {
+            max_documents: 1,
+            max_views: 1,
+            max_undo_groups: UNDO_GROUPS,
+            max_document_bytes: DOCUMENT_BYTES,
+        })
+        .unwrap();
+        let tab = TabId::new();
+        let document = store
+            .open_untitled(tab.clone(), "    x", "plaintext".into())
+            .unwrap();
+        let view = store
+            .attach_view(
+                ViewKey {
+                    window: "synthetic".into(),
+                    pane: PaneId::new(),
+                    tab: tab.clone(),
+                },
+                document,
+            )
+            .unwrap();
+        let context = LineCommandContext {
+            indent: indentation_configuration().defaults,
+            language: None,
+            syntax: &UntokenizedLines,
+            compare: None,
+            transforms: None,
+            word_rules: None,
+        };
+        let mut pending = vec![
+            (
+                tab.clone(),
+                DocumentEdit::Indentation(taide_native_editor::indent::Command::ToTabs),
+            ),
+            (tab.clone(), DocumentEdit::Line(LineCommand::IndentLines)),
+        ];
+        let mut errors = Vec::new();
+        assert!(apply_document_edits(
+            &mut store,
+            view,
+            &tab,
+            context,
+            indentation_configuration(),
+            &mut pending,
+            &mut errors
+        ));
+        assert_eq!(
+            store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .rope
+                .to_string(),
+            "\t\tx"
+        );
+        pending.push((tab.clone(), DocumentEdit::Line(LineCommand::IndentLines)));
+        assert!(apply_document_edits(
+            &mut store,
+            view,
+            &tab,
+            context,
+            indentation_configuration(),
+            &mut pending,
+            &mut errors
+        ));
+        assert_eq!(
+            store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .rope
+                .to_string(),
+            "\t\t\tx"
+        );
+        assert!(errors.is_empty());
+        assert!(store.undo(document).unwrap());
+        assert_eq!(
+            store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .rope
+                .to_string(),
+            "\t\tx"
+        );
+        assert!(store.undo(document).unwrap());
+        assert_eq!(
+            store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .rope
+                .to_string(),
+            "\tx"
+        );
+        assert!(store.undo(document).unwrap());
+        assert_eq!(
+            store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .rope
+                .to_string(),
+            "    x"
+        );
+    }
 
     #[test]
     fn 등록된_줄_명령은_앱_편집_큐에서_언어_규칙과_icu_비교를_적용한다() {
@@ -243,6 +383,7 @@ mod tests {
                         transforms: Some(&resources.transforms),
                         word_rules: language.map(|language| language.rules),
                     },
+                    indentation_configuration(),
                     &mut pending,
                     &mut errors
                 ),
@@ -340,6 +481,7 @@ mod tests {
                         transforms: None,
                         word_rules: Some(rules),
                     },
+                    indentation_configuration(),
                     &mut pending,
                     &mut errors
                 ),
@@ -838,6 +980,7 @@ mod tests {
             view,
             &tab,
             indent,
+            indentation_configuration(),
             &mut pending,
             &mut errors
         ));
@@ -863,6 +1006,7 @@ mod tests {
             view,
             &tab,
             indent,
+            indentation_configuration(),
             &mut pending,
             &mut errors
         ));
@@ -873,6 +1017,7 @@ mod tests {
             view,
             &tab,
             indent,
+            indentation_configuration(),
             &mut pending,
             &mut errors
         ));

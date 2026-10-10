@@ -1917,6 +1917,7 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
                                         || crate::editor_syntax::language_rules("plaintext"),
                                     ),
                                 },
+                                self.indentation,
                                 &mut pending,
                                 &mut errors,
                             );

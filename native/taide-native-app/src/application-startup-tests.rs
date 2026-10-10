@@ -528,6 +528,20 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
     );
     let document = application.files[&path].id;
     paint(application, Vec::new());
+    application.document_edits.push((
+        tab.clone(),
+        DocumentEdit::Indentation(taide_native_editor::indent::Command::ToTabs),
+    ));
+    paint(application, Vec::new());
+    let converted = application.store.documents().snapshot(document).unwrap();
+    assert_eq!(converted.rope.to_string(), "class\n\t\u{1f600}method\nend");
+    assert!(!converted.indent_options.unwrap().insert_spaces);
+    assert!(application.store.undo(document).unwrap());
+    application.document_edits.push((
+        tab.clone(),
+        DocumentEdit::Indentation(taide_native_editor::indent::Command::Detect),
+    ));
+    paint(application, Vec::new());
     let snapshot = application.store.documents().snapshot(document).unwrap();
     assert_eq!(
         application.editor.indent_options(&snapshot),

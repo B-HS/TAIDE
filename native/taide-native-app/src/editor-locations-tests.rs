@@ -455,7 +455,7 @@ fn 실제_preview의_직렬_본문_명령과_저장은_대상_문서와_포커�
     let mut shown_lines = Vec::new();
     let context = Context::default();
     context.set_os(eframe::egui::os::OperatingSystem::Mac);
-    let overrides = r#"[{"actionId":"monaco.editor.action.transformToUppercase","key":"u","mods":["mod"]},{"actionId":"monaco.editor.foldAll","key":"j","mods":["mod"]}]"#;
+    let overrides = r#"[{"actionId":"monaco.editor.action.transformToUppercase","key":"u","mods":["mod"]},{"actionId":"monaco.editor.foldAll","key":"j","mods":["mod"]},{"actionId":"monaco.editor.action.indentationToTabs","key":"f9","mods":["mod"]},{"actionId":"monaco.editor.action.detectIndentation","key":"f10","mods":["mod"]}]"#;
     let mut frame = |events,
                      state: &mut State,
                      store: &mut EditorStore,
@@ -557,6 +557,55 @@ fn 실제_preview의_직렬_본문_명령과_저장은_대상_문서와_포커�
         modifiers: Modifiers::MAC_CMD | Modifiers::COMMAND,
     };
     frame(
+        vec![key(eframe::egui::Key::F9)],
+        &mut state,
+        &mut store,
+        &mut commands,
+        &mut changed,
+        &mut targets,
+    );
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(target_document)
+            .unwrap()
+            .rope
+            .to_string(),
+        "class\n\t\u{1f600}method\nend"
+    );
+    assert!(
+        !store
+            .documents()
+            .snapshot(target_document)
+            .unwrap()
+            .indent_options
+            .unwrap()
+            .insert_spaces
+    );
+    assert!(store.undo(target_document).unwrap());
+    frame(
+        vec![key(eframe::egui::Key::F10)],
+        &mut state,
+        &mut store,
+        &mut commands,
+        &mut changed,
+        &mut targets,
+    );
+    assert!(
+        store
+            .documents()
+            .snapshot(target_document)
+            .unwrap()
+            .indent_options
+            .unwrap()
+            .insert_spaces
+    );
+    let before_uppercase = store
+        .documents()
+        .snapshot(target_document)
+        .unwrap()
+        .revision;
+    frame(
         vec![key(eframe::egui::Key::U), key(eframe::egui::Key::S)],
         &mut state,
         &mut store,
@@ -592,7 +641,7 @@ fn 실제_preview의_직렬_본문_명령과_저장은_대상_문서와_포커�
     };
     assert_eq!(saved_path, path);
     assert_eq!(snapshot.document(), target_document);
-    assert_eq!(snapshot.revision(), 1);
+    assert_eq!(snapshot.revision(), before_uppercase + 1);
     assert_eq!(snapshot.rope().to_string(), "class\n  \u{1f600}METHOD\nend");
     assert!(state.local_key(preview, &key(eframe::egui::Key::S)));
     assert!(state.local_key(view, &key(eframe::egui::Key::F12)));
@@ -620,7 +669,7 @@ fn 실제_preview의_직렬_본문_명령과_저장은_대상_문서와_포커�
             .snapshot(target_document)
             .unwrap()
             .revision,
-        1
+        before_uppercase + 1
     );
 }
 

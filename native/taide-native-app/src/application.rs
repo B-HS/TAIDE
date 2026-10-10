@@ -7023,6 +7023,7 @@ impl AppSurfaces<'_> {
                                 .map(|language| language.rules)
                                 .or_else(|| crate::editor_syntax::language_rules("plaintext")),
                         },
+                        indent_configuration,
                         self.document_edits,
                         &mut edit_errors,
                     );

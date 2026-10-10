@@ -1,3 +1,7 @@
+use crate::document::EditorError;
+use crate::editing::{Plan, SEPARATE_STEP, apply_step, view_document};
+use crate::store::EditorStore;
+use crate::view::{SelectionSet, ViewId};
 use ropey::{Rope, RopeSlice};
 use taide_model::file::{EditorConfigIndentStyle, EditorConfigOptions};
 
@@ -19,6 +23,125 @@ pub struct IndentOptions {
 pub struct IndentConfiguration {
     pub defaults: IndentOptions,
     pub detect_indentation: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Command {
+    ToSpaces,
+    ToTabs,
+    Detect,
+}
+
+impl Command {
+    pub fn from_action(action: &str) -> Option<Self> {
+        match action {
+            "editor.action.indentationToSpaces" => Some(Self::ToSpaces),
+            "editor.action.indentationToTabs" => Some(Self::ToTabs),
+            "editor.action.detectIndentation" => Some(Self::Detect),
+            _ => None,
+        }
+    }
+
+    pub fn requires_write(self) -> bool {
+        self != Self::Detect
+    }
+}
+
+pub fn run_command(
+    store: &mut EditorStore,
+    view: ViewId,
+    command: Command,
+    configuration: IndentConfiguration,
+) -> Result<bool, EditorError> {
+    let (current, document) = view_document(store, view)?;
+    if command.requires_write() && document.metadata.read_only {
+        return Err(EditorError::ReadOnly);
+    }
+    let options = store.configure_indentation(document.id, configuration)?;
+    if command == Command::Detect {
+        return store.override_indentation(
+            document.id,
+            configuration,
+            guess(&document.rope, configuration.defaults),
+        );
+    }
+    let insert_spaces = command == Command::ToSpaces;
+    let width = options.tab_size as usize;
+    let mut projected = document.rope.len_bytes();
+    let mut plan = Plan::new(&SelectionSet {
+        primary: 0,
+        selections: vec![current.selection.selections[current.selection.primary]],
+    });
+    for line in 0..document.rope.len_lines() {
+        let slice = document.rope.line(line);
+        let length = slice
+            .chars()
+            .take_while(|character| matches!(character, ' ' | '\t'))
+            .count();
+        if length == 0 {
+            continue;
+        }
+        let prefix = slice.slice(..length).to_string();
+        let tabs = prefix.bytes().filter(|byte| *byte == b'\t').count();
+        let expanded = if insert_spaces {
+            tabs.checked_mul(width)
+                .and_then(|expanded_tabs| expanded_tabs.checked_add(length - tabs))
+                .ok_or(EditorError::Capacity)?
+        } else {
+            length
+        };
+        projected = projected
+            .checked_sub(length)
+            .and_then(|bytes| bytes.checked_add(expanded))
+            .ok_or(EditorError::Capacity)?;
+        if projected > store.document_byte_limit() {
+            return Err(EditorError::Capacity);
+        }
+        let converted = if insert_spaces && tabs > 0 {
+            prefix.replace('\t', &" ".repeat(width))
+        } else if insert_spaces {
+            prefix.clone()
+        } else {
+            let mut converted = String::with_capacity(prefix.len());
+            for (index, spaces) in prefix.split('\t').enumerate() {
+                if index > 0 {
+                    converted.push('\t');
+                }
+                converted.extend(std::iter::repeat_n('\t', spaces.len() / width));
+                converted.extend(std::iter::repeat_n(' ', spaces.len() % width));
+            }
+            converted
+        };
+        if prefix != converted {
+            let start = document.rope.line_to_byte(line);
+            plan.edit(start..start + length, converted);
+        }
+    }
+    store.set_composition(view, None)?;
+    let changed = apply_step(
+        store,
+        view,
+        plan.transaction(&document, view),
+        SEPARATE_STEP,
+    )?;
+    let options_changed = store.override_indentation(
+        document.id,
+        configuration,
+        IndentOptions {
+            insert_spaces,
+            ..options
+        },
+    )?;
+    if changed {
+        let selected = &store
+            .views()
+            .get(view)
+            .ok_or(EditorError::NotFound)?
+            .selection;
+        let head = selected.selections[selected.primary].head;
+        store.request_selection_reveal(view, head..head, false)?;
+    }
+    Ok(changed || options_changed)
 }
 
 fn is_space_at(text: RopeSlice<'_>, column: usize) -> bool {

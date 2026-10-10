@@ -722,6 +722,98 @@ fn scrollbar는_가로_scroll을_가장_긴_표시_줄로_제한하고_track_클
 }
 
 #[test]
+#[cfg(feature = "native-host")]
+fn 명령의_옵션_변경은_같은_프레임의_다음_tab에_즉시_적용된다() {
+    for (command, source, expected) in [
+        (
+            taide_native_editor::indent::Command::ToTabs,
+            "    x",
+            "\t\tx",
+        ),
+        (
+            taide_native_editor::indent::Command::Detect,
+            "root\n  child",
+            "  root\n  child",
+        ),
+    ] {
+        let (mut store, view) = fixture(source, false);
+        let document = store.views().get(view).unwrap().document;
+        let configuration = IndentConfiguration {
+            defaults: IndentOptions {
+                tab_size: 4,
+                insert_spaces: true,
+            },
+            detect_indentation: false,
+        };
+        store
+            .configure_indentation(document, configuration)
+            .unwrap();
+        let context = Context::default();
+        let mut output = context.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    pos2(0.0, 0.0),
+                    vec2(SCREEN[0], SCREEN[1]),
+                )),
+                events: vec![key(Key::F9, false), key(Key::Tab, false)],
+                ..Default::default()
+            },
+            |ui| {
+                let shown = editor()
+                    .show_request_with_editor_keymap(
+                        ui,
+                        &mut store,
+                        view,
+                        EditorRequest {
+                            request_focus: true,
+                            keymap: |_: &Ui, _: &Event, _| false,
+                            route: |_: &Response| None,
+                            presentation: &EditorPresentation::default(),
+                            tokens: |_: &EditorStore| None,
+                            language: None,
+                            decorations: &[],
+                            fold_commands: &[],
+                            fold_controls: None,
+                            problems: None,
+                            locations: None,
+                            syntax_folds: None,
+                            documentation: None,
+                            documentation_commands: &[],
+                            completion: None,
+                            completion_commands: &[],
+                        },
+                        |_, store, view, event, _| {
+                            if !matches!(
+                                event,
+                                Event::Key {
+                                    key: Key::F9,
+                                    pressed: true,
+                                    ..
+                                }
+                            ) {
+                                return false;
+                            }
+                            taide_native_editor::indent::run_command(
+                                store,
+                                view,
+                                command,
+                                configuration,
+                            )
+                            .unwrap();
+                            true
+                        },
+                    )
+                    .unwrap();
+                assert!(shown.changed);
+                assert!(shown.errors.is_empty());
+            },
+        );
+        output.textures_delta.clear();
+        assert_eq!(text(&store, view), expected, "{command:?}");
+    }
+}
+
+#[test]
 fn 문서의_감지_들여쓰기는_본문_tab과_mirror에_공유되고_readonly에서_내용을_보존한다() {
     const DETECTED_TAB_WIDTH: u32 = 8;
     for (source, expected, defaults) in [

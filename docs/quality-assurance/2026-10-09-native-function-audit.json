@@ -1,6 +1,6 @@
 {
     "date": "2026-10-10",
-    "baseline": "801b80c9",
+    "baseline": "5825d52c",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -779,20 +779,24 @@
                 "native/taide-native-editor/src/document.rs",
                 "native/taide-native-app/src/application.rs",
                 "native/taide-native-app/src/editor-locations.rs",
-                "native/taide-native-app/src/presentation-refresh.rs"
+                "native/taide-native-app/src/presentation-refresh.rs",
+                "native/taide-native-app/src/command-dispatch.rs",
+                "native/taide-native-ui/src/command-registry.rs"
             ],
             "tests": [
                 "native/taide-native-editor/tests/language-typing.rs",
                 "native/taide-native-ui/tests/editor_surface.rs",
                 "native/taide-native-editor/tests/indent.rs",
                 "native/taide-native-app/src/editor-locations-tests.rs",
-                "native/taide-native-app/src/application-startup-tests.rs"
+                "native/taide-native-app/src/application-startup-tests.rs",
+                "native/taide-native-app/src/command-dispatch.rs",
+                "native/taide-native-ui/src/command-registry.rs"
             ],
             "reports": [
                 "docs/quality-assurance/2026-10-06-native-batch7-language-config.md",
                 "docs/quality-assurance/2026-10-10-native-batch23-editor.md"
             ],
-            "limitation": "문서별 자동 감지/본문·peek·입력·mirror/readonly·설정/언어/EditorConfig·undo의 직접 30건이 통과했습니다. 포맷의 실제 LSP 값·탭/공백 변환·명시 detect/reindent·수동 옵션 명령과 전체 batch/실기/성능 게이트는 아직입니다."
+            "limitation": "문서별 자동 감지에 이어 탭/공백 변환·명시 detect의 본문/peek·재지정 키·readonly·동일 프레임 입력/연속 큐·주 선택/undo·용량 거절을 관련 128건에서 확인했습니다. 포맷의 실제 LSP 값·reindent·수동 폭/방식 QuickPick과 전체 batch/실기/성능 게이트는 아직입니다."
         }
     },
     "rows": [
@@ -2213,7 +2217,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-indentation",
-            "note": "EditorConfig 우선 문서별 detectIndentation을 본문/peek·입력/포맷 옵션에 연결했습니다. Monaco 100비교 사례를 포함한 Editor 9·UI 8·App 13건은 통과했으나 변환/reindent/수동 명령·실제 포맷 요청·전체 게이트는 남아 partial입니다."
+            "note": "문서별 자동 감지와 탭/공백 변환·명시 detect를 본문/peek·기존 팔레트/키에 연결했습니다. 같은 프레임/후속 큐의 최신 옵션·readonly/용량 거절·선택/undo를 관련 128건에서 확인했으며 reindent·수동 옵션 QuickPick·실제 포맷 요청·전체 게이트는 남아 partial입니다."
         },
         {
             "id": "editor-31",

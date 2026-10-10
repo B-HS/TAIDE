@@ -2,7 +2,9 @@ use taide_model::file::{EditorConfigIndentStyle, EditorConfigOptions, FileSizeTi
 use taide_model::ids::{PaneId, TabId};
 use taide_native_editor::document::{Edit, UndoGroup};
 use taide_native_editor::editing::{delete_backward, insert_line_break, outdent, tab};
-use taide_native_editor::indent::{IndentConfiguration, IndentOptions, guess, resolve};
+use taide_native_editor::indent::{
+    Command, IndentConfiguration, IndentOptions, guess, resolve, run_command,
+};
 use taide_native_editor::store::{EditorLimits, EditorStore, Transaction};
 use taide_native_editor::view::{Selection, SelectionSet, ViewId, ViewKey};
 
@@ -85,6 +87,268 @@ fn fixture(text: &str, range: (usize, usize)) -> (EditorStore, ViewId) {
         )
         .unwrap();
     (store, view)
+}
+
+#[test]
+fn 변환은_선행_공백만_바꾸고_혼합_접두부와_빈_줄과_개행을_보존한다() {
+    for (command, source, expected) in [
+        (Command::ToSpaces, " \tx", "     x"),
+        (Command::ToSpaces, "\t  \tx", "          x"),
+        (
+            Command::ToSpaces,
+            "\t\r\n \t\r\nbody\t    x",
+            "    \r\n     \r\nbody\t    x",
+        ),
+        (Command::ToSpaces, "\t한\n\t\n", "    한\n    \n"),
+        (Command::ToSpaces, "\u{a0}\tx", "\u{a0}\tx"),
+        (Command::ToSpaces, "    x", "    x"),
+        (Command::ToTabs, "     x", "\t x"),
+        (Command::ToTabs, "    \t    x", "\t\t\tx"),
+        (Command::ToTabs, "\t   x", "\t   x"),
+        (
+            Command::ToTabs,
+            "    \r\n     \r\nbody    x",
+            "\t\r\n\t \r\nbody    x",
+        ),
+        (Command::ToTabs, "    한\n    \n", "\t한\n\t\n"),
+        (Command::ToTabs, "\u{a0}    x", "\u{a0}    x"),
+        (Command::ToTabs, "", ""),
+    ] {
+        let (mut store, view) = fixture(source, (source.len(), source.len()));
+        let document = store.views().get(view).unwrap().document;
+        let configuration = IndentConfiguration {
+            defaults: SPACES,
+            detect_indentation: false,
+        };
+        assert_eq!(
+            run_command(&mut store, view, command, configuration).unwrap(),
+            source != expected || command == Command::ToTabs,
+            "{source:?}"
+        );
+        let after = store.documents().snapshot(document).unwrap();
+        assert_eq!(after.rope.to_string(), expected, "{source:?}");
+        assert_eq!(
+            after.indent_options,
+            Some(IndentOptions {
+                insert_spaces: command == Command::ToSpaces,
+                ..SPACES
+            })
+        );
+        assert_eq!(
+            store.views().get(view).unwrap().selection.selections[0].head,
+            expected.len()
+        );
+        assert_eq!(store.undo(document).unwrap(), source != expected);
+        assert_eq!(
+            store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .rope
+                .to_string(),
+            source
+        );
+        assert_eq!(
+            store.documents().snapshot(document).unwrap().indent_options,
+            after.indent_options
+        );
+    }
+}
+
+#[test]
+fn 변환은_주_선택을_추적하고_undo와_redo는_선택과_내용을_되돌린다() {
+    let source = "    one\n    two";
+    let (mut store, view) = fixture(source, (0, 0));
+    let document = store.views().get(view).unwrap().document;
+    let original = SelectionSet {
+        primary: 1,
+        selections: vec![
+            Selection { anchor: 7, head: 7 },
+            Selection {
+                anchor: source.len(),
+                head: 8,
+            },
+        ],
+    };
+    let current = store.views().get(view).unwrap().clone();
+    store
+        .set_view_state(view, original.clone(), current.scroll, current.folds)
+        .unwrap();
+    let configuration = IndentConfiguration {
+        defaults: SPACES,
+        detect_indentation: false,
+    };
+    assert!(run_command(&mut store, view, Command::ToTabs, configuration).unwrap());
+    let converted = SelectionSet {
+        primary: 0,
+        selections: vec![Selection { anchor: 9, head: 5 }],
+    };
+    assert_eq!(store.views().get(view).unwrap().selection, converted);
+    assert!(store.undo(document).unwrap());
+    assert_eq!(store.views().get(view).unwrap().selection, original);
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        source
+    );
+    assert!(store.redo(document).unwrap());
+    assert_eq!(store.views().get(view).unwrap().selection, converted);
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        "\tone\n\ttwo"
+    );
+    assert_eq!(
+        store
+            .configure_indentation(document, configuration)
+            .unwrap(),
+        TABS
+    );
+}
+
+#[test]
+fn 명시_감지는_readonly와_editorconfig에서도_문서_옵션만_바꾸고_설정_변경에_재평가된다() {
+    let source = "root\n  child\n    nested\nend";
+    let (mut store, view) = fixture(source, (0, 0));
+    let document = store.views().get(view).unwrap().document;
+    let config = EditorConfigOptions {
+        indent_style: Some(EditorConfigIndentStyle::Tab),
+        tab_width: Some(TAB_WIDTH),
+        ..Default::default()
+    };
+    let mut file = opened(source, config);
+    file.read_only = true;
+    store
+        .observe_file(
+            document,
+            std::path::Path::new("/synthetic/indent.txt"),
+            file,
+        )
+        .unwrap();
+    let configuration = IndentConfiguration {
+        defaults: SPACES,
+        detect_indentation: false,
+    };
+    assert_eq!(
+        store
+            .configure_indentation(document, configuration)
+            .unwrap()
+            .tab_size,
+        TAB_WIDTH
+    );
+    let before = store.documents().snapshot(document).unwrap();
+    assert!(run_command(&mut store, view, Command::Detect, configuration).unwrap());
+    let expected = IndentOptions {
+        tab_size: SPACE_SIZE,
+        insert_spaces: true,
+    };
+    assert_eq!(
+        store
+            .configure_indentation(document, configuration)
+            .unwrap(),
+        expected
+    );
+    assert!(!run_command(&mut store, view, Command::Detect, configuration).unwrap());
+    let after = store.documents().snapshot(document).unwrap();
+    assert_eq!(after.rope, before.rope);
+    assert_eq!(after.revision, before.revision);
+    assert_eq!(after.dirty, before.dirty);
+    assert!(after.metadata.read_only);
+    assert_eq!(
+        store.undo(document),
+        Err(taide_native_editor::document::EditorError::ReadOnly)
+    );
+    store
+        .observe_file(
+            document,
+            std::path::Path::new("/synthetic/indent.txt"),
+            opened(source, config),
+        )
+        .unwrap();
+    assert!(!store.undo(document).unwrap());
+    assert_eq!(
+        store
+            .configure_indentation(
+                document,
+                IndentConfiguration {
+                    defaults: TABS,
+                    ..configuration
+                }
+            )
+            .unwrap()
+            .tab_size,
+        TAB_WIDTH
+    );
+}
+
+#[test]
+fn 거절된_변환은_내용과_옵션과_undo를_변경하지_않는다() {
+    let source = "\tx";
+    let (mut store, view) = fixture(source, (0, 0));
+    let document = store.views().get(view).unwrap().document;
+    let configuration = IndentConfiguration {
+        defaults: IndentOptions {
+            tab_size: u32::MAX,
+            insert_spaces: false,
+        },
+        detect_indentation: false,
+    };
+    store
+        .configure_indentation(document, configuration)
+        .unwrap();
+    let before = store.documents().snapshot(document).unwrap();
+    assert_eq!(
+        run_command(&mut store, view, Command::ToSpaces, configuration),
+        Err(taide_native_editor::document::EditorError::Capacity)
+    );
+    for readonly in [false, true] {
+        if readonly {
+            let mut file = opened(source, EditorConfigOptions::default());
+            file.read_only = true;
+            store
+                .observe_file(
+                    document,
+                    std::path::Path::new("/synthetic/indent.txt"),
+                    file,
+                )
+                .unwrap();
+            for command in [Command::ToSpaces, Command::ToTabs] {
+                assert_eq!(
+                    run_command(&mut store, view, command, configuration),
+                    Err(taide_native_editor::document::EditorError::ReadOnly)
+                );
+            }
+        }
+        let after = store.documents().snapshot(document).unwrap();
+        assert_eq!(after.rope, before.rope);
+        assert_eq!(after.revision, before.revision);
+        assert_eq!(after.dirty, before.dirty);
+        assert_eq!(after.indent_options, before.indent_options);
+        if readonly {
+            assert_eq!(
+                store.undo(document),
+                Err(taide_native_editor::document::EditorError::ReadOnly)
+            );
+        } else {
+            assert!(!store.undo(document).unwrap());
+        }
+    }
+    store
+        .observe_file(
+            document,
+            std::path::Path::new("/synthetic/indent.txt"),
+            opened(source, EditorConfigOptions::default()),
+        )
+        .unwrap();
+    assert!(!store.undo(document).unwrap());
 }
 
 #[test]

@@ -305,6 +305,25 @@ impl EditorStore {
         Ok(options)
     }
 
+    pub fn override_indentation(
+        &mut self,
+        document: DocumentId,
+        configuration: IndentConfiguration,
+        mut options: IndentOptions,
+    ) -> Result<bool, EditorError> {
+        self.configure_indentation(document, configuration)?;
+        options.tab_size = options.tab_size.max(1);
+        let indentation = self
+            .documents
+            .documents
+            .get_mut(&document)
+            .and_then(|owner| owner.indentation.as_mut())
+            .ok_or(EditorError::NotFound)?;
+        let changed = indentation.options != options;
+        indentation.options = options;
+        Ok(changed)
+    }
+
     pub fn track_document_disposals(&mut self) {
         self.documents
             .pending_disposals
