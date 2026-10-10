@@ -269,3 +269,5 @@ completion-resize-final.log는 후보 창 19건·exit 0입니다. completion-det
 현재 전체 1690건은 이 CLIPBOARD 구현 전 스냅샷의 근거이며 최신 47건으로 전체 성공을 대신하지 않습니다. 후보 파일/색 표시 대조와 남은 배치 완료 게이트가 남아 d/e/f/g·자동완성/스니펫 두 행은 미완료입니다. 현재 변경과 관련된 App/UI 소비자·근거/고지는 배치 22 논리 단위로 함께 선별 커밋합니다.
 
 현재 공개 HostCommand/HostReply 변경의 외부 테스트 타입 계약은 completion-clipboard-all-check.log에서 cargo check --tests --manifest-path native/taide-native-app/Cargo.toml --locked --offline --target-dir experiments/native-shell-spike/target을 직접 실행해 exit 0으로 확인했습니다. 이 컴파일 검사를 전체 테스트 실행이나 배치 완료로 보고하지 않습니다. 원본 목록/상세/크기/클립보드 흐름의 MIT 고지를 함께 보존했습니다.
+
+목록/상세/미리보기/크기·스니펫·CLIPBOARD 소비와 회귀·원본 표본·고지·QA/기능표/활성 PROCESS를 41e2af5c feat(native): 자동완성 목록과 스니펫 소비 연결로 선별 커밋했습니다. 직접 허용한 경로 79개를 rename 미검출 방식으로 비교해 추가/누락 0·PROCESS 하단 보존·staged/최종 diff check exit 0을 확인했습니다. Git의 rename 집계는 78파일이며 최종 사용자 단독 author와 AI 트레일러 없음도 확인했습니다. 두 요구사항 행은 partial, d/e/f/g는 미완료를 유지하며 최종 배치 33 계획을 이어갑니다.

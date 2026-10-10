@@ -1,6 +1,6 @@
 {
     "date": "2026-10-10",
-    "baseline": "63be3a98 + 배치 22 제품/CLIPBOARD 연결 작업 트리(미커밋)",
+    "baseline": "41e2af5c",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -702,7 +702,7 @@
                 "docs/quality-assurance/2026-10-10-native-completion-model.md",
                 "docs/quality-assurance/2026-10-10-native-progress-audit.md"
             ],
-            "limitation": "본문/peek 공급·후보/상세 창·크기 조절·미리보기·입력 후 후보/스니펫 추적·선택/수락·다중 커서·choice/중첩 tabstop·CLIPBOARD 비동기 공급/취소를 실제 소비자와 주입 포트/실제 앱에서 확인했습니다. 종류 표시 대조·최종 회귀·남은 변경 전체 게이트가 남아 partial입니다. 미커밋 작업 트리 근거를 포함하며 전체 완료를 뜻하지 않습니다."
+            "limitation": "본문/peek 공급·후보/상세 창·크기 조절·미리보기·입력 후 후보/스니펫 추적·선택/수락·다중 커서·choice/중첩 tabstop·CLIPBOARD 비동기 공급/취소를 실제 소비자와 주입 포트/실제 앱에서 확인했습니다. 종류 표시 대조·최종 회귀·남은 변경 전체 게이트가 남아 partial입니다. 전체 완료를 뜻하지 않습니다."
         }
     },
     "rows": [
