@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use lsp_types::NumberOrString;
+use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
 mod budget;
@@ -217,6 +218,19 @@ impl LspCoordinator {
     }
 
     pub(crate) fn signature_options(&self, uri: &str) -> Vec<lsp_types::SignatureHelpOptions> {
+        self.document_options(uri, "signatureHelpProvider", "textDocument/signatureHelp")
+    }
+
+    pub(crate) fn completion_options(&self, uri: &str) -> Vec<lsp_types::CompletionOptions> {
+        self.document_options(uri, "completionProvider", "textDocument/completion")
+    }
+
+    fn document_options<T: DeserializeOwned>(
+        &self,
+        uri: &str,
+        provider: &str,
+        method: &str,
+    ) -> Vec<T> {
         if self.phase != Phase::Running {
             return Vec::new();
         }
@@ -226,13 +240,14 @@ impl LspCoordinator {
         let mut options = self
             .capabilities
             .as_ref()
-            .and_then(|capabilities| capabilities.get("signatureHelpProvider"))
-            .and_then(|value| {
-                serde_json::from_value::<lsp_types::SignatureHelpOptions>(value.clone()).ok()
-            })
+            .and_then(|capabilities| capabilities.get(provider))
+            .and_then(|value| serde_json::from_value(value.clone()).ok())
             .into_iter()
             .collect::<Vec<_>>();
-        options.extend(self.registrations.signature_options(&document.mirror));
+        options.extend(
+            self.registrations
+                .document_options(&document.mirror, method, provider),
+        );
         options
     }
 

@@ -52,6 +52,7 @@ pub struct SessionSnapshot {
     pub capability_revision: u64,
     pub document_methods: Arc<BTreeMap<String, Vec<&'static str>>>,
     pub document_signature_options: Arc<BTreeMap<String, Vec<lsp_types::SignatureHelpOptions>>>,
+    pub document_completion_options: Arc<BTreeMap<String, Vec<lsp_types::CompletionOptions>>>,
     pub pid: Option<u32>,
     pub failure: Option<Failure>,
 }
@@ -223,6 +224,7 @@ impl SessionClient {
             snapshot.registrations = 0;
             snapshot.document_methods = Arc::default();
             snapshot.document_signature_options = Arc::default();
+            snapshot.document_completion_options = Arc::default();
         }
         snapshot
     }
@@ -535,6 +537,7 @@ impl SessionRunner {
             capability_revision: 0,
             document_methods: Arc::default(),
             document_signature_options: Arc::default(),
+            document_completion_options: Arc::default(),
             pid: None,
             failure: None,
         });
@@ -588,7 +591,7 @@ impl SessionRunner {
     }
 
     fn publish(&self) {
-        let (document_methods, document_signature_options) = {
+        let (document_methods, document_signature_options, document_completion_options) = {
             let previous = self.state.borrow();
             if previous.phase == self.coordinator.phase()
                 && previous.generation == self.coordinator.generation()
@@ -601,6 +604,7 @@ impl SessionRunner {
                 (
                     previous.document_methods.clone(),
                     previous.document_signature_options.clone(),
+                    previous.document_completion_options.clone(),
                 )
             } else {
                 let methods = Arc::new(
@@ -627,7 +631,17 @@ impl SessionRunner {
                         })
                         .collect(),
                 );
-                (methods, signatures)
+                let completions = Arc::new(
+                    self.coordinator
+                        .documents
+                        .keys()
+                        .filter_map(|uri| {
+                            let options = self.coordinator.completion_options(uri);
+                            (!options.is_empty()).then_some((uri.clone(), options))
+                        })
+                        .collect(),
+                );
+                (methods, signatures, completions)
             }
         };
         self.state.send_replace(SessionSnapshot {
@@ -644,6 +658,7 @@ impl SessionRunner {
             capability_revision: self.coordinator.capability_revision(),
             document_methods,
             document_signature_options,
+            document_completion_options,
             pid: self.process.as_ref().and_then(|process| process.0.pid()),
             failure: if self.initialize_retry.is_some() {
                 None
@@ -1564,6 +1579,122 @@ mod tests {
             .contains_key(rust_uri));
         drop(runner);
         assert!(client.snapshot().document_signature_options.is_empty());
+    }
+
+    #[tokio::test]
+    async fn completion_trigger는_문서별_정적과_동적_옵션_캐시와_회수를_보존한다() {
+        let initialize =
+            json!({"capabilities":{"textDocument":{"completion":{"dynamicRegistration":true}}}});
+        let (client, mut runner) = prepare(initialize.clone());
+        let rust_uri = "file:///synthetic/rust.rs";
+        let text_uri = "file:///synthetic/text.txt";
+        for (uri, language_id) in [(rust_uri, "rust"), (text_uri, "plaintext")] {
+            runner
+                .coordinator
+                .open(DocumentMirror {
+                    uri: uri.into(),
+                    language_id: language_id.into(),
+                    revision: 0,
+                    version: 0,
+                    text: "synthetic".into(),
+                })
+                .unwrap();
+        }
+        let init = runner.coordinator.begin(0, initialize).unwrap();
+        runner.coordinator.receive(0, 1, json!({"jsonrpc":"2.0","id":init["id"],"result":{"capabilities":{
+            "textDocumentSync":1, "completionProvider":{"triggerCharacters":["."], "resolveProvider":true}
+        }}})).unwrap();
+        runner.coordinator.finish_replay(0).unwrap();
+        let registrations = serde_json::from_value(json!({"registrations":[{
+            "id":"completion", "method":"textDocument/completion", "registerOptions":{
+                "documentSelector":[{"language":"rust","scheme":"file","pattern":"**/*.rs"}],
+                "triggerCharacters":[":"], "allCommitCharacters":[";"],
+                "completionItem":{"labelDetailsSupport":true}
+            }
+        }]}))
+        .unwrap();
+        runner
+            .coordinator
+            .register_capabilities(0, registrations)
+            .unwrap();
+        runner.publish();
+        let before = client.snapshot();
+        let rust = before.document_completion_options.get(rust_uri).unwrap();
+        assert_eq!(rust.len(), 2);
+        assert_eq!(
+            rust[0].trigger_characters.as_deref(),
+            Some([".".to_owned()].as_slice())
+        );
+        assert_eq!(rust[0].resolve_provider, Some(true));
+        assert_eq!(
+            rust[1].trigger_characters.as_deref(),
+            Some([":".to_owned()].as_slice())
+        );
+        assert_eq!(
+            rust[1].all_commit_characters.as_deref(),
+            Some([";".to_owned()].as_slice())
+        );
+        assert_eq!(
+            rust[1]
+                .completion_item
+                .as_ref()
+                .unwrap()
+                .label_details_support,
+            Some(true)
+        );
+        assert!(before.supports_document(rust_uri, "textDocument/completion"));
+        assert_eq!(
+            before
+                .document_completion_options
+                .get(text_uri)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(!before
+            .document_completion_options
+            .contains_key("file:///synthetic/closed.rs"));
+        runner
+            .coordinator
+            .change(rust_uri, 0, 1, "changed".into())
+            .unwrap();
+        runner.publish();
+        assert!(Arc::ptr_eq(
+            &before.document_completion_options,
+            &client.snapshot().document_completion_options
+        ));
+        runner
+            .coordinator
+            .unregister_capabilities(
+                0,
+                serde_json::from_value(json!({"unregisterations":[{
+                    "id":"completion", "method":"textDocument/completion"
+                }]}))
+                .unwrap(),
+            )
+            .unwrap();
+        runner.publish();
+        assert_eq!(
+            client
+                .snapshot()
+                .document_completion_options
+                .get(rust_uri)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(!Arc::ptr_eq(
+            &before.document_completion_options,
+            &client.snapshot().document_completion_options
+        ));
+        runner.coordinator.close(rust_uri).unwrap();
+        runner.publish();
+        assert!(!client
+            .snapshot()
+            .document_completion_options
+            .contains_key(rust_uri));
+        drop(runner);
+        assert!(client.snapshot().document_completion_options.is_empty());
     }
 
     fn prepare(initialize: Value) -> (SessionClient, SessionRunner) {

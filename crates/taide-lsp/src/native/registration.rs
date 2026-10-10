@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use lsp_types::{DocumentFilter, Registration, RegistrationParams, UnregistrationParams};
+use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
 use super::{capabilities, selector::Filter, DocumentMirror, Failure};
@@ -214,19 +215,16 @@ impl Registry {
         *self = Self::default();
     }
 
-    pub(crate) fn signature_options(
+    pub(crate) fn document_options<T: DeserializeOwned>(
         &self,
         document: &DocumentMirror,
-    ) -> Vec<lsp_types::SignatureHelpOptions> {
+        method: &str,
+        provider: &str,
+    ) -> Vec<T> {
         self.entries
             .values()
-            .filter(|entry| {
-                entry.method == "textDocument/signatureHelp"
-                    && entry.selector.matches(Some(document))
-            })
-            .filter_map(|entry| {
-                serde_json::from_value(entry.capabilities["signatureHelpProvider"].clone()).ok()
-            })
+            .filter(|entry| entry.method == method && entry.selector.matches(Some(document)))
+            .filter_map(|entry| serde_json::from_value(entry.capabilities[provider].clone()).ok())
             .collect()
     }
 
@@ -423,6 +421,32 @@ impl Registry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn completion_동적등록은_잘못된_trigger와_resolve_옵션을_원자적으로_거절한다() {
+        let client = json!({"textDocument":{"completion":{"dynamicRegistration":true}}});
+        for (field, value) in [
+            ("triggerCharacters", json!([".", 1])),
+            ("triggerCharacters", json!(1)),
+            ("allCommitCharacters", json!([";", false])),
+            ("resolveProvider", json!("true")),
+            ("completionItem", json!({"labelDetailsSupport":1})),
+        ] {
+            let mut registry = Registry::default();
+            let mut options = json!({"documentSelector":null});
+            options[field] = value;
+            let params = serde_json::from_value(json!({"registrations":[{
+                "id":"completion", "method":"textDocument/completion", "registerOptions":options
+            }]}))
+            .unwrap();
+            assert_eq!(
+                registry.register(params, &client),
+                Err(Failure::MalformedResponse)
+            );
+            assert_eq!(registry.count(), 0);
+            assert_eq!(registry.revision(), 0);
+        }
+    }
 
     #[test]
     fn signature_동적등록은_잘못된_trigger_형식을_원자적으로_거절한다() {
