@@ -3,6 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::document::EditorError;
 use crate::snippet_syntax::{FormatPart, Index, Marker, ParseLimits, Transform, parse};
 
+const ADDITIONAL_REGEX_OPTIONS: [char; 6] = ['d', 'm', 's', 'u', 'v', 'y'];
+
 #[derive(Clone, Copy)]
 pub struct FinalTabstopOptions {
     pub insert: bool,
@@ -236,6 +238,11 @@ impl<F: FnMut(&str, &str) -> Option<RegexMetadata>> Arena<F> {
         if metadata.global {
             options.push('g');
         }
+        options.extend(
+            ADDITIONAL_REGEX_OPTIONS
+                .into_iter()
+                .filter(|option| transform.options.contains(*option)),
+        );
         let metadata = (self.compile)(&pattern, &options).ok_or(EditorError::InvalidBoundary)?;
         if metadata.source.len() > self.limits.max_bytes {
             return Err(EditorError::Capacity);
