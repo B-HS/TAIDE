@@ -616,6 +616,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### Ported source in `native/taide-native-editor`
 
+- `src/completion-preview.rs` and `src/completion-preview-view.rs` adapt
+  suggest-preview insertion diff, inline text, hidden suffix and additional
+  lines from Monaco Editor 0.56.0 (MIT, Copyright (c) Microsoft Corporation):
+  `editor/contrib/inlineCompletions/browser/model/computeGhostText.js` and
+  `editor/contrib/inlineCompletions/browser/view/ghostText/ghostTextView.js`.
+  The preview fixtures record 9711 diff cases, 1344 snippet preparation
+  cases and 12 view cases obtained by executing the installed original code.
+  The MIT text is retained in
+  `native/taide-native-editor/LICENSE-MONACO-SNIPPET`.
+
 - `src/sticky-model.rs`, `native/taide-native-ui/src/editor-sticky-scroll.rs`
   and their editor surface connections adapt nested scope selection,
   push-off layout, hidden range filtering, rendering and interactions from

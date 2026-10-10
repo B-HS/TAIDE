@@ -38,10 +38,19 @@ pub struct TokenizationJob {
     pub visible_lines: Range<usize>,
 }
 
+pub struct PreviewJob {
+    pub id: u64,
+    pub generation: u64,
+    pub language_id: String,
+    pub previous: Option<LineState>,
+    pub lines: Vec<String>,
+}
+
 pub enum WorkerRequest {
     SetPluginGrammars(Vec<PluginGrammar>),
     Configure(Box<WorkerConfiguration>),
     Tokenize(Box<TokenizationJob>),
+    Preview(Box<PreviewJob>),
     Cancel {
         document: DocumentId,
     },
@@ -53,6 +62,10 @@ pub enum WorkerRequest {
 
 #[derive(Debug)]
 pub enum WorkerResponse {
+    Previewed {
+        job: u64,
+        lines: Vec<TokenizedLine>,
+    },
     Configured {
         generation: u64,
         result: Result<TokenStyleTable, SyntaxError>,
@@ -279,6 +292,33 @@ impl WorkerState {
                     job,
                 });
                 None
+            }
+            WorkerRequest::Preview(job) => {
+                let mut lines = Vec::new();
+                if let Some(engine) = self
+                    .engine
+                    .as_mut()
+                    .filter(|engine| engine.generation == job.generation)
+                {
+                    let mut previous = job.previous;
+                    for text in &job.lines {
+                        let Ok(line) = engine.tokenizer.try_tokenize_line(
+                            &job.language_id,
+                            text,
+                            previous.as_ref(),
+                        ) else {
+                            lines.clear();
+                            break;
+                        };
+                        if line.is_stopped_early {
+                            lines.clear();
+                            break;
+                        }
+                        previous = Some(line.end_state.clone());
+                        lines.push(line);
+                    }
+                }
+                Some(WorkerResponse::Previewed { job: job.id, lines })
             }
             WorkerRequest::Cancel { document } => {
                 self.jobs

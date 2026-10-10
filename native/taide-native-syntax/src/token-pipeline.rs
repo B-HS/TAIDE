@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::ops::Range;
+use std::sync::Arc;
 
 use taide_native_editor::change_journal::ChangeSet;
 use taide_native_editor::document::{DocumentId, DocumentSnapshot};
-use taide_native_editor::line_tokens::{LineTokens, TokenStyleTable};
+use taide_native_editor::line_tokens::{LineTokens, PreviewTokens, TokenStyleTable};
 
 use crate::document_tokens::{DocumentTokens, is_too_large_for_tokenization};
 use crate::plugin_grammars::PluginGrammar;
@@ -11,7 +12,7 @@ use crate::requested_languages::{RequestedLanguages, is_bundled_language};
 use crate::textmate_tokenizer::TokenizerLimits;
 use crate::token_theme::TokenTheme;
 use crate::token_worker::{
-    TokenizationJob, WorkerClient, WorkerConfiguration, WorkerRequest, WorkerResponse,
+    PreviewJob, TokenizationJob, WorkerClient, WorkerConfiguration, WorkerRequest, WorkerResponse,
 };
 use crate::tokenizer::SyntaxError;
 
@@ -48,6 +49,14 @@ struct PendingConfiguration {
     language_ids: Vec<String>,
 }
 
+struct Preview {
+    job: u64,
+    revision: u64,
+    generation: u64,
+    text: Arc<[String]>,
+    tokens: Option<Arc<PreviewTokens>>,
+}
+
 pub struct TokenPipeline {
     client: Option<WorkerClient>,
     limits: TokenizerLimits,
@@ -62,6 +71,7 @@ pub struct TokenPipeline {
     last_generation: u64,
     last_job: u64,
     documents: HashMap<DocumentId, PipelineDocument>,
+    previews: HashMap<(DocumentId, usize), Preview>,
 }
 
 impl TokenPipeline {
@@ -84,6 +94,7 @@ impl TokenPipeline {
             last_generation: 0,
             last_job: 0,
             documents: HashMap::new(),
+            previews: HashMap::new(),
         }
     }
 
@@ -113,6 +124,62 @@ impl TokenPipeline {
 
     pub fn contains(&self, document: DocumentId) -> bool {
         self.documents.contains_key(&document)
+    }
+
+    pub fn preview(
+        &mut self,
+        document: DocumentId,
+        line: usize,
+        text: &Arc<[String]>,
+    ) -> Option<Arc<PreviewTokens>> {
+        let tracked = self.documents.get(&document)?;
+        let active = self.active.as_ref()?;
+        if !self.is_tokenizable(tracked)
+            || line >= tracked.snapshot.rope.len_lines()
+            || text.is_empty()
+            || self.pending.is_some()
+            || self.is_configuration_stale
+        {
+            return None;
+        }
+        let generation = active.generation;
+        let revision = tracked.snapshot.revision;
+        let key = (document, line);
+        if let Some(preview) = self.previews.get(&key).filter(|preview| {
+            preview.revision == revision
+                && preview.generation == generation
+                && (Arc::ptr_eq(&preview.text, text) || preview.text == *text)
+        }) {
+            return preview.tokens.clone();
+        }
+        let previous = tracked.store.state_before(line)?;
+        let language_id = tracked.snapshot.metadata.language_id.clone();
+        self.last_job += 1;
+        let id = self.last_job;
+        if !self.send(WorkerRequest::Preview(Box::new(PreviewJob {
+            id,
+            generation,
+            language_id,
+            previous,
+            lines: text.to_vec(),
+        }))) {
+            return None;
+        }
+        self.previews.insert(
+            key,
+            Preview {
+                job: id,
+                revision,
+                generation,
+                text: text.clone(),
+                tokens: None,
+            },
+        );
+        None
+    }
+
+    pub fn retain_previews(&mut self, active: &[(DocumentId, usize)]) {
+        self.previews.retain(|key, _| active.contains(key));
     }
 
     pub fn is_settled(&self) -> bool {
@@ -159,6 +226,8 @@ impl TokenPipeline {
     }
 
     pub fn open(&mut self, snapshot: DocumentSnapshot) {
+        self.previews
+            .retain(|(document, _), _| *document != snapshot.id);
         self.cancel_job(snapshot.id);
         self.request_language(&snapshot);
         let mut document = PipelineDocument {
@@ -192,6 +261,8 @@ impl TokenPipeline {
         snapshot: DocumentSnapshot,
         changes: impl IntoIterator<Item = &'a ChangeSet>,
     ) {
+        self.previews
+            .retain(|(document, _), _| *document != snapshot.id);
         let is_same_language = self.documents.get(&snapshot.id).is_some_and(|document| {
             document.snapshot.metadata.language_id == snapshot.metadata.language_id
         });
@@ -216,6 +287,7 @@ impl TokenPipeline {
     }
 
     pub fn close(&mut self, document: DocumentId) {
+        self.previews.retain(|(id, _), _| *id != document);
         self.cancel_job(document);
         self.documents.remove(&document);
     }
@@ -237,6 +309,7 @@ impl TokenPipeline {
     }
 
     pub fn disconnect(&mut self) {
+        self.previews.clear();
         self.client = None;
         self.pending = None;
         for document in self.documents.values_mut() {
@@ -302,6 +375,34 @@ impl TokenPipeline {
 
     fn accept(&mut self, response: WorkerResponse) -> bool {
         match response {
+            WorkerResponse::Previewed { job, lines } => {
+                let Some(preview) = self
+                    .previews
+                    .values_mut()
+                    .find(|preview| preview.job == job)
+                else {
+                    return false;
+                };
+                let Some(active) = self
+                    .active
+                    .as_ref()
+                    .filter(|active| active.generation == preview.generation)
+                else {
+                    return false;
+                };
+                if lines.len() != preview.text.len() {
+                    return false;
+                }
+                let mut tokens = LineTokens::new(lines.len());
+                for (line, tokenized) in lines.into_iter().enumerate() {
+                    tokens.set_line(line, tokenized.spans, false);
+                }
+                preview.tokens = Some(Arc::new(PreviewTokens {
+                    lines: tokens,
+                    styles: active.style_table.clone(),
+                }));
+                true
+            }
             WorkerResponse::Configured { generation, result } => {
                 let Some(pending) = self
                     .pending
@@ -311,6 +412,7 @@ impl TokenPipeline {
                 };
                 match result {
                     Ok(style_table) => {
+                        self.previews.clear();
                         self.configuration_error = None;
                         self.active = Some(ActiveConfiguration {
                             generation,

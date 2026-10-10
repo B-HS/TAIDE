@@ -49,6 +49,19 @@ impl DocumentTokens {
         &self.tokens
     }
 
+    pub fn state_before(&self, line: usize) -> Option<Option<LineState>> {
+        let Some(previous) = line.checked_sub(1) else {
+            return Some(None);
+        };
+        if !self.tokens.has_accurate_tokens(previous) {
+            return None;
+        }
+        self.end_states
+            .get(previous)
+            .cloned()
+            .filter(Option::is_some)
+    }
+
     pub fn apply(&mut self, changes: &ChangeSet) -> bool {
         let is_applied = self.tokens.apply(changes)
             && changes

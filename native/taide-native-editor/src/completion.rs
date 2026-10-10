@@ -244,6 +244,65 @@ impl Candidate {
         Ok((insert, replace))
     }
 
+    pub fn preview_text(
+        &self,
+        document: &DocumentSnapshot,
+        cursor: usize,
+        indent: IndentOptions,
+        limits: ParseLimits,
+        compile: impl FnMut(&str, &str) -> Option<RegexMetadata>,
+    ) -> Result<String, EditorError> {
+        if self.document != document.id {
+            return Err(EditorError::InvalidIdentity);
+        }
+        if self.revision != document.revision {
+            return Err(EditorError::StaleRevision);
+        }
+        if document.metadata.read_only {
+            return Err(EditorError::ReadOnly);
+        }
+        byte_to_char(&document.rope, cursor)?;
+        if self.text().len() > limits.max_bytes {
+            return Err(EditorError::Capacity);
+        }
+        if !self.is_snippet() {
+            return Ok(self.text().to_owned());
+        }
+        let markers = parse_complete(
+            self.text(),
+            limits,
+            FinalTabstopOptions {
+                insert: false,
+                enforce: false,
+            },
+            compile,
+        )?;
+        let line = line_content_range(document, document.rope.byte_to_line(cursor));
+        if line.len() > limits.max_bytes {
+            return Err(EditorError::Capacity);
+        }
+        let byte_column = cursor - line.start;
+        let line = document.rope.byte_slice(line).to_string();
+        let adjusted = adjust_whitespace(
+            &markers,
+            WhitespaceContext {
+                line: &line,
+                byte_column,
+                indent,
+                line_ending: document.metadata.line_ending,
+                adjust_indentation: true,
+            },
+            limits,
+        )?;
+        Ok(expand(
+            &adjusted.markers,
+            limits,
+            |_| Ok(None),
+            |_, value| Ok(value.to_owned()),
+        )?
+        .text)
+    }
+
     pub fn prepare(
         &self,
         document: &DocumentSnapshot,

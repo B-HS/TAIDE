@@ -3,7 +3,10 @@ use std::ops::Range;
 
 use ropey::{Rope, RopeSlice};
 
-use crate::document::DocumentSnapshot;
+use crate::completion_preview_view::ViewData;
+use crate::display_injections::Injections;
+pub use crate::display_injections::{RowProjection, SourceUnit};
+use crate::document::{DocumentSnapshot, EditorError};
 use crate::editing::line_content_range;
 use crate::line_breaks::{LineBreakData, create_line_breaks};
 pub use crate::line_breaks::{WrapSettings, WrappingIndent};
@@ -242,6 +245,7 @@ pub struct DisplayMap {
     revision: u64,
     wrapped: Option<WrappedLines>,
     hidden: HiddenLines,
+    injections: Injections,
 }
 
 impl DisplayMap {
@@ -251,6 +255,7 @@ impl DisplayMap {
             revision,
             wrapped: None,
             hidden: HiddenLines::default(),
+            injections: Injections::default(),
         }
     }
 
@@ -260,6 +265,7 @@ impl DisplayMap {
             revision: document.revision,
             wrapped: wrap.map(|settings| WrappedLines::new(&document.rope, settings)),
             hidden: HiddenLines::default(),
+            injections: Injections::default(),
         }
     }
 
@@ -267,6 +273,7 @@ impl DisplayMap {
         if self.revision == document.revision {
             return;
         }
+        self.injections = Injections::default();
         let previous = std::mem::take(&mut self.hidden);
         if let Some(wrapped) = &mut self.wrapped {
             let changed = wrapped.update(&document.rope);
@@ -285,6 +292,7 @@ impl DisplayMap {
         if ranges == self.hidden.ranges {
             return false;
         }
+        self.injections = Injections::default();
         let renumbered = [self.hidden.ranges.first(), ranges.first()]
             .into_iter()
             .flatten()
@@ -315,13 +323,18 @@ impl DisplayMap {
     }
 
     pub fn row_count(&self) -> usize {
-        self.wrapped.as_ref().map_or(
+        self.injections.row_count(self.wrapped.as_ref().map_or(
             self.line_count - self.hidden.count(),
             WrappedLines::row_count,
-        )
+        ))
     }
 
     pub fn rows_of_line(&self, line: usize) -> Range<usize> {
+        let rows = self.base_rows_of_line(line);
+        self.injections.boundary(rows.start)..self.injections.boundary(rows.end)
+    }
+
+    pub(crate) fn base_rows_of_line(&self, line: usize) -> Range<usize> {
         let line = line.min(self.line_count.saturating_sub(1));
         match &self.wrapped {
             Some(wrapped) => wrapped.first_rows[line]..wrapped.first_rows[line + 1],
@@ -333,6 +346,10 @@ impl DisplayMap {
     }
 
     pub fn row_start_column(&self, row: usize) -> f64 {
+        let row = match self.injections.locate(row) {
+            Ok(projected) => return projected.start_column,
+            Err(row) => row,
+        };
         let Some(wrapped) = &self.wrapped else {
             return 0.0;
         };
@@ -346,6 +363,13 @@ impl DisplayMap {
     }
 
     pub fn segment(&self, document: &DocumentSnapshot, row: usize) -> RowSegment {
+        let row = match self
+            .injections
+            .locate(row.min(self.row_count().saturating_sub(1)))
+        {
+            Ok(projected) => return projected.segment.clone(),
+            Err(row) => row,
+        };
         let Some(wrapped) = &self.wrapped else {
             let line = self
                 .hidden
@@ -395,11 +419,16 @@ impl DisplayMap {
         if let Some(hidden) = self.hidden.containing(line) {
             return self.rows_of_line(hidden.start - 1).end - 1;
         }
+        if let Some(row) = self.injections.row_of_byte(line, byte) {
+            return row;
+        }
         let Some(wrapped) = &self.wrapped else {
-            return self.hidden.shown_lines_before(line);
+            return self
+                .injections
+                .boundary(self.hidden.shown_lines_before(line));
         };
         let line = line.min(self.line_count.saturating_sub(1));
-        let first = wrapped.first_rows[line];
+        let first = self.injections.boundary(wrapped.first_rows[line]);
         let Some(data) = &wrapped.breaks[line] else {
             return first;
         };
@@ -422,5 +451,28 @@ impl DisplayMap {
         } else {
             row
         }
+    }
+
+    pub fn preview_views(&self) -> &[ViewData] {
+        &self.injections.views
+    }
+
+    pub fn set_preview_views(
+        &mut self,
+        document: &DocumentSnapshot,
+        views: &[ViewData],
+    ) -> Result<bool, EditorError> {
+        if document.revision != self.revision || document.rope.len_lines() != self.line_count {
+            return Err(EditorError::StaleRevision);
+        }
+        if self.injections.views == views {
+            return Ok(false);
+        }
+        self.injections = Injections::build(document, self, views)?;
+        Ok(true)
+    }
+
+    pub fn row_projection(&self, row: usize) -> Option<&RowProjection> {
+        self.injections.locate(row).ok()
     }
 }

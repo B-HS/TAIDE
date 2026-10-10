@@ -10,6 +10,42 @@ const PARTIAL_SCROLL: f32 = 130.0;
 const PARTIAL_FIRST_ROW: usize = 6;
 const HALF_ROW: f32 = 0.5;
 const FAR_BELOW: f32 = 1.0e9;
+const PREVIEW_HEIGHT: f32 = 40.0;
+const MESSAGE_HEIGHT: f32 = 80.0;
+
+#[test]
+fn 여러_미리보기_zone은_기존_메시지와_공존하며_원래_줄좌표와_포인터_행을_보존한다() {
+    let layout = VerticalLayout::new(LINE_HEIGHT, 4)
+        .with_zone(1, MESSAGE_HEIGHT)
+        .with_additional_zones([(2, LINE_HEIGHT), (0, PREVIEW_HEIGHT), (1, LINE_HEIGHT)]);
+    assert_eq!(layout.zone(), Some(80.0..160.0));
+    assert_eq!(layout.additional_zone(0), Some(200.0..220.0));
+    assert_eq!(layout.additional_zone(1), Some(20.0..60.0));
+    assert_eq!(layout.additional_zone(2), Some(160.0..180.0));
+    assert_eq!(layout.content_height(), 240.0);
+    for (row, top) in [(0, 0.0), (1, 60.0), (2, 180.0), (3, 220.0)] {
+        assert_eq!(layout.row_top(row), top);
+        assert_eq!(layout.row_at(top), row);
+    }
+    for (position, row) in [
+        (20.0, 0),
+        (59.0, 0),
+        (80.0, 1),
+        (160.0, 1),
+        (200.0, 2),
+        (240.0, 3),
+    ] {
+        assert_eq!(layout.row_at(position), row);
+    }
+    assert_eq!(
+        layout.visible_rows(LINE_HEIGHT, PREVIEW_HEIGHT - LINE_HEIGHT, 0),
+        0..1
+    );
+    assert_eq!(
+        layout.visible_rows(layout.content_height(), VIEWPORT_HEIGHT, OVERSCAN),
+        4..4
+    );
+}
 
 #[test]
 fn 줄_위치는_줄_번호와_줄_높이의_곱이고_전체_높이는_줄_수를_따른다() {

@@ -1,6 +1,6 @@
 # 자동완성 후보·필터·삽입 모델 검증
 
-현재 상태: 배치 22의 독립 core 모델 구현입니다. 실제 앱/peek 공급자와 화면 연결은 진행 중이며 기능 대응표의 완료 행을 올리지 않습니다. 현재 기능 대응표는 286/588(48.6%), 배치 체크리스트는 2/7입니다.
+현재 상태: 배치 22의 후보·삽입·미리보기 모델을 검증했습니다. UI/App 소비자는 작업 트리에 연결해 회귀를 검사했고 배치 전체 게이트는 남아 있습니다. 이 문서의 표본·체크리스트 비율을 전체 기능 대응률로 환산하지 않습니다. 전체 전환율·잔여시간은 미산정입니다.
 
 ## 계약과 범위
 
@@ -63,3 +63,18 @@ Session.insert_nested는 기존 insertion의 검증·위치 계산을 준비/적
 추가 위험 2건은 /private/tmp/taide-batch22-snippet-nested-context.log의 동일 core 명령 --test snippet-insertion snippet_nested_context에서 exit 0·2통과입니다. 활성 자식에 안쪽 snippet을 넣은 뒤 살아 있는 상위 placeholder의 활성 표시와 ShiftTab 역이동을 확인했습니다. 또 기존/안쪽 들여쓰기 문맥이 각각은 한도 안이어도 합계가 한도를 넘으면 문서·선택·revision·undo를 변경하기 전에 거절합니다. 기존 14+5건과 겹치지 않는 두 검사이며 변경 크레이트 전체 대상 실행으로 확대하지 않습니다.
 
 현재 app 모든 테스트 대상 check는 completion-nested-app-check.log에서 exit 0이며 editor/app fmt check도 exit 0입니다. core 추가 검사 후 fmt도 exit 0입니다. 공유 core 변경 뒤 동결 host/Wasm은 completion-nested-frozen-host.log·completion-nested-frozen-wasm.log에서 각각 exit 0입니다. 모두 기존 locked/offline/shared target이며 Wasm에만 --target wasm32-unknown-unknown을 추가했습니다. 동결 디렉터리 git status는 비어 있습니다. manifest/lock/의존 그래프를 변경하지 않았고 기존 Wasm 경고 6건을 억제하지 않았습니다.
+
+## 자동완성 미리보기 문맥·표시 모델 (2026-10-10)
+
+Core의 후보 미리보기 문자열·삽입 전용 diff·첫 줄 주입/추가 줄/숨긴 접미사·표시 줄 투영과 여러 view zone을 연결했습니다. 원문 문서와 undo를 바꾸지 않으며 선택 수락은 기존 삽입 경로를 사용합니다. 원문과 화면 문자열의 바이트 매핑을 나누어 wrap·탭·Unicode·접기·다음 문서 줄과 원문 커서 위치를 보존합니다. 엔진은 앱 전용 Syntax 경계를 유지합니다.
+
+설치된 Monaco 0.56.0의 computeGhostText·SnippetParser/adjustWhitespace·computeGhostTextViewData를 실제로 실행한 재생성 도구는 [미리보기 oracle](../utils/2026-10-10-monaco-completion-preview-oracle.js)입니다. Core fixture는 diff 9,711개·스니펫 문자열 1,344개·실제 GhostTextView 12개입니다. diff의 9개 원본 UTF-16/문자 수 혼용 사례는 승인한 유효 UTF-8 경계로 바로잡았으며 나머지 원본 결과와 일치합니다. 원본 버그까지 일치했다거나 표본을 전체 기능 완료율로 확대하지 않습니다.
+
+Syntax의 기존 TextMate worker가 원문 앞줄의 상태에서 미리보기 줄만 별도로 평가합니다. 원문 토큰을 바꾸지 않고 revision·테마 세대·요청 ID·후보 입력을 확인하며 늦은 결과를 폐기합니다. 같은 후보는 공유 문자열/토큰 캐시를 재사용하고 활성 문서·줄 밖의 캐시를 회수합니다. 문서 전체 접두사를 복사하거나 editor/UI에 엔진 의존성을 추가하지 않습니다.
+
+실행 결과:
+
+- cargo test --manifest-path native/taide-native-editor/Cargo.toml --locked --offline --target-dir experiments/native-shell-spike/target --test completion-preview --test display-layout --test display-map: exit 0, 23건 통과·기존 성능 검사 1건 ignored. completion-preview-core-final.log에 기록했습니다.
+- cargo test --manifest-path native/taide-native-syntax/Cargo.toml --locked --offline --target-dir experiments/native-shell-spike/target --test token-pipeline: exit 0, 23건 통과. 앞줄 주석·추가 줄·원문 토큰 불변·테마/문서 변경·후보 교체/늦은 응답·닫힘/캐시 회수를 포함하며 completion-preview-syntax-final.log에 기록했습니다.
+
+로그의 공통 접두사는 /private/tmp/taide-batch22-입니다. UI/App의 본문 미리보기 소비는 작업 트리에 연결했고 별도 회귀를 실행 중입니다. 이 모델 검증은 배치 22 전체 --no-fail-fast·최종 기능표·실기 pixel/IME/접근성·성능 게이트를 대체하지 않습니다. 배치 22 전체 완료 판정은 [배치 QA](2026-10-10-native-batch22-completion-snippets.md)의 c–g에 남깁니다.

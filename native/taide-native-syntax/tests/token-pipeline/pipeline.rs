@@ -21,6 +21,102 @@ const RUST_LINE: &str = "let value = \"text\"; // note";
 const LONG_DOCUMENT_LINE_COUNT: usize = 20_000;
 const CORE_AND_RUST: [&str; 4] = ["json", "jsonc", "markdown", "rust"];
 
+fn preview(
+    pipeline: &mut TokenPipeline,
+    worker: &Worker,
+    document: DocumentId,
+    line: usize,
+    lines: &Arc<[String]>,
+) -> Arc<taide_native_editor::line_tokens::PreviewTokens> {
+    let started = std::time::Instant::now();
+    loop {
+        pipeline.poll();
+        if let Some(tokens) = pipeline.preview(document, line, lines) {
+            return tokens;
+        }
+        let remaining = TIMEOUT
+            .checked_sub(started.elapsed())
+            .expect("미리보기 토큰 제한 시간 초과");
+        worker.wake.recv_timeout(remaining).unwrap();
+    }
+}
+
+#[test]
+fn 미리보기는_앞줄_주석_문맥과_추가줄을_원문_토큰_변경_없이_강조하고_테마를_갱신한다() {
+    let (client, worker) = spawn_worker();
+    let mut pipeline = TokenPipeline::new(client);
+    let mut store = store();
+    let source = "/* comment\npending\n*/\nlet value = 1;";
+    let document = open(&mut store, "/preview.rs", "rust", source);
+    let dark = token_theme(&dark_theme());
+    pipeline.set_theme(dark.clone());
+    pipeline.open(snapshot(&store, document));
+    settle(&mut pipeline, &worker);
+    let original = pipeline_spans(&pipeline, document);
+    let lines: Arc<[String]> =
+        Arc::from(["let value = 2;".into(), "*/ let text = \"hello\";".into()]);
+    let tokens = preview(&mut pipeline, &worker, document, 1, &lines);
+    let expected = direct_spans(
+        &CORE_AND_RUST,
+        &dark,
+        TokenizerLimits::default(),
+        "rust",
+        "/* comment\nlet value = 2;\n*/ let text = \"hello\";",
+    );
+    assert_eq!(tokens.lines.spans(0), expected[1]);
+    assert_eq!(tokens.lines.spans(1), expected[2]);
+    assert_eq!(pipeline_spans(&pipeline, document), original);
+    assert_eq!(text(&store, document), source);
+    assert!(Arc::ptr_eq(
+        &tokens,
+        &pipeline.preview(document, 1, &lines).unwrap()
+    ));
+    pipeline.set_theme(token_theme(&light_theme()));
+    assert!(pipeline.preview(document, 1, &lines).is_none());
+    settle(&mut pipeline, &worker);
+    let light = preview(&mut pipeline, &worker, document, 1, &lines);
+    assert_ne!(tokens.styles, light.styles);
+    assert!(!Arc::ptr_eq(&tokens, &light));
+    apply(&mut store, document, vec![(0..2, "  ")]);
+    pipeline.replace(snapshot(&store, document));
+    assert!(pipeline.preview(document, 1, &lines).is_none());
+    settle(&mut pipeline, &worker);
+    let changed = preview(&mut pipeline, &worker, document, 1, &lines);
+    assert_ne!(changed.lines.spans(0), tokens.lines.spans(0));
+}
+
+#[test]
+fn 미리보기는_후보_교체의_늦은_응답과_문서_닫힘을_폐기하고_사용하지_않는_캐시를_회수한다() {
+    let (client, worker) = spawn_worker();
+    let mut pipeline = TokenPipeline::new(client);
+    let mut store = store();
+    let document = open(&mut store, "/preview.rs", "rust", "let value = 1;");
+    let theme = token_theme(&dark_theme());
+    pipeline.set_theme(theme.clone());
+    pipeline.open(snapshot(&store, document));
+    settle(&mut pipeline, &worker);
+    let old: Arc<[String]> = Arc::from(["let text = \"old\";".into()]);
+    let current: Arc<[String]> = Arc::from(["fn current() {}".into()]);
+    assert!(pipeline.preview(document, 0, &old).is_none());
+    assert!(pipeline.preview(document, 0, &current).is_none());
+    let tokens = preview(&mut pipeline, &worker, document, 0, &current);
+    assert_eq!(
+        tokens.lines.spans(0),
+        direct_spans(
+            &CORE_AND_RUST,
+            &theme,
+            TokenizerLimits::default(),
+            "rust",
+            &current[0]
+        )[0]
+    );
+    pipeline.retain_previews(&[]);
+    assert!(pipeline.preview(document, 0, &current).is_none());
+    pipeline.close(document);
+    pipeline.poll();
+    assert!(pipeline.preview(document, 0, &current).is_none());
+}
+
 fn settle(pipeline: &mut TokenPipeline, worker: &Worker) {
     loop {
         pipeline.poll();

@@ -27,6 +27,12 @@ pub struct TokenStyleTable {
     styles: Vec<TokenStyle>,
 }
 
+#[derive(Debug, Clone)]
+pub struct PreviewTokens {
+    pub lines: LineTokens,
+    pub styles: TokenStyleTable,
+}
+
 impl TokenStyleTable {
     pub fn new(default_style: TokenStyle, styles: Vec<TokenStyle>) -> Self {
         Self {

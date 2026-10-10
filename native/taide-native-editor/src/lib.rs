@@ -13,10 +13,16 @@ pub mod completion;
 pub mod completion_filter;
 #[path = "completion-model.rs"]
 pub mod completion_model;
+#[path = "completion-preview.rs"]
+pub mod completion_preview;
+#[path = "completion-preview-view.rs"]
+pub mod completion_preview_view;
 #[path = "cursor-commands.rs"]
 pub mod cursor_commands;
 pub mod decoration;
 pub mod diagnostics;
+#[path = "display-injections.rs"]
+mod display_injections;
 #[path = "display-layout.rs"]
 pub mod display_layout;
 #[path = "display-map.rs"]
