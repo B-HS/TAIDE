@@ -1872,6 +1872,16 @@ impl NativeApplication {
                 let Some(epoch) = self.persistence.begin_save(document) else {
                     return false;
                 };
+                let configuration = crate::presentation_refresh::indent_configuration(
+                    &self.services.state.settings.read(),
+                );
+                let indent = match self.store.configure_indentation(document, configuration) {
+                    Ok(indent) => indent,
+                    Err(_) => {
+                        self.persistence.submission_failed(document);
+                        return false;
+                    }
+                };
                 let current = match self.store.documents().snapshot(document) {
                     Ok(current)
                         if current.revision == snapshot.revision()
@@ -1884,21 +1894,11 @@ impl NativeApplication {
                         return false;
                     }
                 };
-                let settings = self.services.state.settings.read();
-                let config = current.metadata.editor_config;
-                let indent = taide_native_editor::indent::resolve(
-                    &config,
-                    taide_native_editor::indent::IndentOptions {
-                        tab_size: settings.editor_tab_size,
-                        insert_spaces: settings.editor_insert_spaces,
-                    },
-                );
                 let options = taide_lsp::native::protocol::lsp_types::FormattingOptions {
                     tab_size: indent.tab_size,
                     insert_spaces: indent.insert_spaces,
                     ..Default::default()
                 };
-                drop(settings);
                 let result = self
                     .lsp
                     .as_ref()
@@ -6806,6 +6806,11 @@ impl AppSurfaces<'_> {
             .attach_view(key, document)
             .map_err(editor_error)
             .and_then(|view| {
+                let indent_configuration = crate::presentation_refresh::indent_configuration(
+                    &self.services.state.settings.read(),
+                );
+                let indent = self.store.configure_indentation(document, indent_configuration)
+                    .map_err(editor_error)?;
                 let snapshot = self
                     .store
                     .documents()
@@ -6847,13 +6852,6 @@ impl AppSurfaces<'_> {
                     }
                 }
                 let settings = self.services.state.settings.read();
-                let indent = taide_native_editor::indent::resolve(
-                    &snapshot.metadata.editor_config,
-                    taide_native_editor::indent::IndentOptions {
-                        tab_size: settings.editor_tab_size,
-                        insert_spaces: settings.editor_insert_spaces,
-                    },
-                );
                 let mut editor_presentation =
                     crate::presentation_refresh::editor_presentation(&settings);
                 editor_presentation.options.colors = Some(self.editor_display_colors);
@@ -6974,6 +6972,7 @@ impl AppSurfaces<'_> {
                     state: &mut *self.editor_locations, models: self.peek_models, project: editor_project.cloned(), lsp: self.lsp,
                     layout: editor_project.and_then(|project| self.layouts.get(project)), scope: self.scope,
                     commands: &mut location_commands, viewport: ui.ctx().viewport_id(), editor: &editor,
+                    indentation: indent_configuration,
                     presentation: &preview_presentation, tokens: preview_tokens, hover_tokens, shown_lines: &mut preview_shown_lines, changed: &mut *self.changed_documents,
                     overrides: preview_overrides.as_deref(), focus_targets: &mut preview_focus_targets,
                     find_history: None, find_appearance: None,

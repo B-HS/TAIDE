@@ -527,7 +527,16 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
         |application| application.files.contains_key(&path),
     );
     let document = application.files[&path].id;
+    paint(application, Vec::new());
     let snapshot = application.store.documents().snapshot(document).unwrap();
+    assert_eq!(
+        application.editor.indent_options(&snapshot),
+        taide_native_editor::indent::IndentOptions {
+            tab_size: 2,
+            insert_spaces: true,
+        },
+        "actual App must detect the two-space document indentation"
+    );
     let response = serde_json::from_value(serde_json::json!([{"name":"Outer","kind":5,"range":{"start":{"line":0,"character":0},"end":{"line":2,"character":3}},"selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"children":[{"name":"method","kind":6,"range":{"start":{"line":1,"character":2},"end":{"line":1,"character":8}},"selectionRange":{"start":{"line":1,"character":2},"end":{"line":1,"character":8}}}]}])).unwrap();
     let model = Arc::new(
         taide_native_editor::document_symbols::DocumentSymbols::new(

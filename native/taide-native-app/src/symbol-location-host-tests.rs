@@ -400,6 +400,9 @@ async fn 연속_참조_이동은_같은_파일로_돌아와도_앞선_파일_열
         commands: &mut commands,
         viewport: eframe::egui::ViewportId::ROOT,
         editor: &editor,
+        indentation: crate::presentation_refresh::indent_configuration(
+            &taide_model::settings::Settings::default(),
+        ),
         presentation: &presentation,
         tokens: None,
         hover_tokens: None,

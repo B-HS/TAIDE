@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: 배치 23 editor-16의 고정 줄 Ctrl/Meta 정의 이동·hover 밑줄·옆 열기를 기존 정의 공급자에 연결했습니다. 원본 2번째 바이트 클릭이 가려진 본문의 29번째 바이트를 요청하는 실패를 먼저 재현했고, UI 관련 32건·실제 앱 1건이 통과했습니다. Mac/Windows/Linux·정상 읽기 전용·여백/드래그/스크롤 무효화와 기존 본문/고정 줄 동작을 확인했습니다. 하이라이트의 원본 설정 최종 대조도 마쳤으며 기존 성공은 재사용합니다. 배치 전체 게이트 전에는 두 요구사항의 partial을 유지합니다. frozen host 전체 테스트 대상 컴파일과 Wasm canvas/inspection 라이브러리 컴파일은 통과했지만 Wasm에 host 검사들을 포함한 실행은 시간 타입 불일치로 실패해 QA에 보존합니다. 588대상·288완료·300미완료·배치 23/최종 계획 33이며 전체 전환율/잔여 시간은 미산정입니다. main 직접 수행·서브에이전트/workflow 없음·Cargo/fmt 직렬·frozen/manifest/lock 변경 0과 디스크 536GiB/71%를 확인했습니다.
+현재 상태: 배치 23 editor-30의 문서별 자동 들여쓰기 감지를 본문/peek·입력/mirror·저장 포맷 옵션에 연결했습니다. 실제 앱의 2칸 문서를 4칸으로 처리한 실패를 먼저 재현했고 설치 Monaco 100비교 사례를 포함한 Editor 9·UI 8·App 13, 총 30건이 통과했습니다. 전역 감지 설정/EditorConfig/언어·텍스트 편집과 undo·readonly 보존을 확인하며 저장의 실제 LSP 값·변환/reindent/수동 명령과 전체 게이트는 미완료입니다. editor-30은 partial을 유지합니다. frozen host 전체 테스트 대상·Wasm canvas/inspection lib 컴파일과 Editor/UI/App fmt check는 통과했습니다. 588대상·288완료·300미완료·배치 23/최종 계획 33이며 전체 전환율/잔여 시간은 미산정입니다. main 직접 수행·서브에이전트/workflow 없음·Cargo/fmt 직렬·frozen/manifest/lock 변경 0과 디스크 533GiB/71%를 확인했습니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 
@@ -19,6 +19,7 @@
 - [ ] b. 표시·입력·tier — editor-4/7/15/16/19/30의 리거처·semantic token·minimap·sticky scroll·대형 tier·들여쓰기 설정을 원본 앱 동작으로 연결합니다.
 - [x] b1. 고정 줄 정의 이동 — 고정 줄의 실제 문자 위치와 hover 밑줄·플랫폼 보조키/옆 열기를 기존 정의 공급자에 연결했습니다. 2번째 바이트 대신 본문의 29번째 바이트 요청을 먼저 재현했고 최신 위치 15·고정 줄 17·실제 앱 1건이 통과했습니다. snapshot 좌표·여백 차단·드래그/스크롤 무효화·기존 본문/접기 동작과 정상 읽기 전용 탐색을 확인했습니다. batch 전체/실기 게이트는 별도이며 기존 성공을 중복 합산하지 않습니다.
 - [ ] b2. 들여쓰기 설정 — editor-30의 detectIndentation·탭/공백 변환·reindent와 수동 설정/EditorConfig/전역 변경 관계를 원본 모델 옵션·명령에서 확인하고 기존 편집 트랜잭션에 연결합니다. 원본과 현재 코드로 필요한 구현을 먼저 좁히고 관련 검사로 검증합니다.
+- [x] b2a. 자동 감지와 문서 옵션 — 실제 앱의 2칸 문서를 4칸으로 처리하는 실패를 재현한 뒤 설치 Monaco 100사례의 감지 규칙을 Rope에 적용했습니다. 문서별 값을 본문/peek/저장 포맷에 연결하며 최초 1만 줄·빈 줄/정렬·Unicode·EditorConfig/언어·전역 설정 변경/텍스트 편집/undo·mirror/readonly를 Editor 9·UI 8·App 13의 30건에서 확인했습니다. readonly fixture 가정/Provider 초기화·Rope API 컴파일 실패는 QA에 보존합니다. 포맷의 실제 LSP 값·변환/reindent/수동 명령·전체 배치/실기/성능은 b2/f에 남깁니다.
 - [ ] c. 명령·LSP·언어 서비스 — editor-32/33/34/46/47/49/50/51/52/53/56/57/58의 format on type/paste·메뉴/키·rename/code action/format/inlay/highlight/selection/lens/relay·내장 언어 서비스·파일 간 opener를 실제 공급/취소/소유/편집 트랜잭션에 연결합니다.
 - [x] c1. 하이라이트 공급·표시 — 설치 SDK typed API와 기존 LspBridge worker·App 상태/본문·peek 장식을 연결했습니다. 오래된 응답/편집/뷰 회수/공급자 변경·재요청 억제·종류/테마·mirror와 실제 child의 UTF-16/빈/null/오류/미지원/취소·실제 앱 본문 그리기가 관련 11건에서 통과했습니다. 초기 컴파일 오류·sRGB 색 공간 오류·테스트 서버 초기화 모드 누락을 해결한 근거를 QA에 보존했습니다. 후속 이동·실행 검증은 a2에 기록하며 실제 peek 시작·추가 경계와 전체 게이트 전에는 complete로 올리지 않습니다.
 - [ ] d. 문서·뷰·연계 — editor-59/64/67/72/73/74/75/76/81/82/83의 로딩/오류·삭제 draft·뷰 상태 복원·Markdown 분할·Git gutter/conflict/blame/diff·SearchEditor·터미널 실행·IDE 선택 동기화를 기존 서비스에 연결합니다.

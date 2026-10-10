@@ -823,6 +823,9 @@ impl NativeEditor {
     }
 
     pub fn indent_options(&self, document: &DocumentSnapshot) -> IndentOptions {
+        if let Some(options) = document.indent_options {
+            return options;
+        }
         let unit = &self.appearance.indent;
         if !unit.contains('\t') {
             return IndentOptions {

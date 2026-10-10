@@ -112,6 +112,7 @@ pub struct DocumentSnapshot {
     pub revision: u64,
     pub rope: Rope,
     pub metadata: DocumentMetadata,
+    pub indent_options: Option<crate::indent::IndentOptions>,
     pub dirty: bool,
 }
 

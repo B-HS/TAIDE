@@ -15,7 +15,7 @@ use taide_native_editor::decoration::{
 };
 use taide_native_editor::document::{Edit, EditorError, UndoGroup};
 use taide_native_editor::folding::FoldCommand;
-use taide_native_editor::indent::IndentOptions;
+use taide_native_editor::indent::{IndentConfiguration, IndentOptions};
 use taide_native_editor::language_configuration::{
     AutoClosingPair, BracketPair, CharacterPairs, EnterAction, FoldMarker, IndentAction,
     IndentMetadata, Language, LanguageRules, UntokenizedLines,
@@ -719,6 +719,90 @@ fn scrollbar는_가로_scroll을_가장_긴_표시_줄로_제한하고_track_클
             .iter()
             .all(|rect| rect.width() != VERTICAL_SCROLLBAR_SIZE)
     );
+}
+
+#[test]
+fn 문서의_감지_들여쓰기는_본문_tab과_mirror에_공유되고_readonly에서_내용을_보존한다() {
+    const DETECTED_TAB_WIDTH: u32 = 8;
+    for (source, expected, defaults) in [
+        (
+            "root\n  child",
+            "  root\n  child",
+            IndentOptions {
+                tab_size: FILE_INDENT_SIZE,
+                insert_spaces: true,
+            },
+        ),
+        (
+            "root\n\tchild",
+            "\troot\n\tchild",
+            IndentOptions {
+                tab_size: DETECTED_TAB_WIDTH,
+                insert_spaces: false,
+            },
+        ),
+    ] {
+        for read_only in [false, true] {
+            let (mut store, view) = fixture(source, read_only);
+            let document = store.views().get(view).unwrap().document;
+            let options = store
+                .configure_indentation(
+                    document,
+                    IndentConfiguration {
+                        defaults,
+                        detect_indentation: true,
+                    },
+                )
+                .unwrap();
+            let mirror = store
+                .attach_view(
+                    ViewKey {
+                        window: "mirror".into(),
+                        pane: PaneId::new(),
+                        tab: TabId::new(),
+                    },
+                    document,
+                )
+                .unwrap();
+            let base = editor();
+            let context = Context::default();
+            let before = store.documents().snapshot(document).unwrap();
+            assert_eq!(base.indent_options(&before), options);
+            let mut output = context.run_ui(
+                RawInput {
+                    screen_rect: Some(Rect::from_min_size(
+                        pos2(0.0, 0.0),
+                        vec2(SCREEN[0], SCREEN[1]),
+                    )),
+                    events: vec![key(Key::Tab, false)],
+                    ..Default::default()
+                },
+                |ui| {
+                    let shown = base.show(ui, &mut store, view, true).unwrap();
+                    assert_eq!(shown.changed, !read_only);
+                    if read_only {
+                        assert_eq!(shown.errors, vec![EditorError::ReadOnly]);
+                    } else {
+                        assert!(shown.errors.is_empty());
+                    }
+                },
+            );
+            output.textures_delta.clear();
+            assert_eq!(
+                text(&store, view),
+                if read_only { source } else { expected }
+            );
+            assert_eq!(text(&store, mirror), text(&store, view));
+            let after = store.documents().snapshot(document).unwrap();
+            assert_eq!(after.indent_options, Some(options));
+            assert_eq!(after.metadata.read_only, read_only);
+            if read_only {
+                assert_eq!(after.revision, before.revision);
+                assert_eq!(after.dirty, before.dirty);
+            }
+            assert_eq!(base.appearance.indent, "    ");
+        }
+    }
 }
 
 #[test]

@@ -485,6 +485,9 @@ fn 실제_preview의_직렬_본문_명령과_저장은_대상_문서와_포커�
                     commands,
                     viewport: context.viewport_id(),
                     editor: &editor,
+                    indentation: crate::presentation_refresh::indent_configuration(
+                        &taide_model::settings::Settings::default(),
+                    ),
                     presentation: &presentation,
                     tokens: None,
                     hover_tokens: None,
@@ -514,6 +517,17 @@ fn 실제_preview의_직렬_본문_명령과_저장은_대상_문서와_포커�
         &mut targets,
     );
     let preview = state.current(view).unwrap().preview.unwrap();
+    assert_eq!(
+        store
+            .documents()
+            .snapshot(target_document)
+            .unwrap()
+            .indent_options,
+        Some(taide_native_editor::indent::IndentOptions {
+            tab_size: 2,
+            insert_spaces: true
+        }),
+    );
     let focus = targets
         .iter()
         .find(|(_, owner)| *owner == preview)

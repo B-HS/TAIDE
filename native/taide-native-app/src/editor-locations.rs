@@ -1013,6 +1013,7 @@ pub(crate) struct Provider<'a, 'state> {
     pub(crate) commands: &'a mut Vec<crate::host::HostCommand>,
     pub(crate) viewport: eframe::egui::ViewportId,
     pub(crate) editor: &'a taide_native_ui::editor_surface::NativeEditor,
+    pub(crate) indentation: taide_native_editor::indent::IndentConfiguration,
     pub(crate) presentation: &'a taide_native_ui::editor_surface::EditorPresentation,
     pub(crate) tokens: Option<Arc<crate::editor_syntax::PeekTokens>>,
     pub(crate) hover_tokens: Option<Arc<crate::editor_syntax::PeekTokens>>,
@@ -1529,6 +1530,7 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
         presentation.options.scroll_beyond_last_line = false;
         presentation.options.location_colors = None;
         presentation.options.problem_colors = None;
+        store.configure_indentation(document, self.indentation)?;
         let snapshot = store.documents().snapshot(document)?;
         let tokens = self.tokens.as_ref().filter(|tokens| {
             tokens.document == document

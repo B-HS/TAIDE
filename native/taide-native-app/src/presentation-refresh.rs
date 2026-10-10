@@ -9,6 +9,18 @@ use taide_model::{
 };
 use taide_runtime::{AppState, locale_actions, theme_actions};
 
+pub(crate) fn indent_configuration(
+    settings: &Settings,
+) -> taide_native_editor::indent::IndentConfiguration {
+    taide_native_editor::indent::IndentConfiguration {
+        defaults: taide_native_editor::indent::IndentOptions {
+            tab_size: settings.editor_tab_size,
+            insert_spaces: settings.editor_insert_spaces,
+        },
+        detect_indentation: settings.editor_detect_indentation,
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Changes {
     revision: AtomicU64,

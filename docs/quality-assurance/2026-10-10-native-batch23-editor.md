@@ -203,3 +203,27 @@ TS의 `src/features/editor/code-editor.tsx`와 `src/shared/lib/code-editor-setti
 최종 검토에서 definition hit에 기존 본문의 content rect 경계를 명시적으로 적용했습니다. 고정 줄의 일부가 밀려 표시 영역 밖에 놓여도 그 영역으로 정의 요청이 나가지 않습니다. 바깥 영역 거절 사례를 추가한 `bounds.log`의 위치 검사 15건은 통과·exit 0·0.31초이며 `bounds-fmt-check.log`도 exit 0입니다. 고정 줄 17건·기존 실제 앱 1건의 성공은 적용 경로가 같은 범위에서 재사용합니다. definition-link 모듈은 native-host 전용이므로 마지막 경계 추가는 frozen의 컴파일 경로를 바꾸지 않았습니다.
 
 소유 파일 diff check는 exit 0입니다. 중간 patch 적용은 포맷된 문맥 차이로 한 번 거절돼 실제 문맥을 읽고 적용했으며 제품 실패로 합산하지 않습니다. Cargo/fmt는 live session의 종료를 확인한 뒤 직렬 실행했습니다. 전체 batch `--no-fail-fast` 실행은 아직 아닙니다. 최신 서로 다른 직접 실행 성공은 UI 32·실제 앱 1건입니다. 새 고정 줄 정의 이동 child E2E/OS 입력/시각/IME/접근성·대형 성능은 전체 게이트에서 검토하며 임시 데이터·내부 RawInput만 사용했습니다. frozen source·manifest/lock·의존 그래프 변경은 0, 디스크는 536GiB·71%이고 보호 범위·빌드 정리는 건드리지 않았습니다. editor-16/51은 배치 전체 게이트 전까지 partial을 유지합니다.
+
+## 들여쓰기 자동 감지와 문서별 옵션
+
+기준은 `801b80c9` 이후입니다. 원본 `code-editor.tsx`의 전역 `tabSize`/`insertSpaces`/`detectIndentation`과 모델별 EditorConfig 효과를 설치 Monaco 0.56.0의 `indentationGuesser.js`, `textModel.js`, `model.js`에 대조했습니다. native는 전역값과 EditorConfig만 사용해 실제 2칸 문서를 4칸으로 처리했습니다. 실제 앱 검사에 감지 결과 단언을 넣은 `taide-batch23-indent-repro.log`에서 제품 동작의 실패를 재현했습니다. 0통과/1실패, exit 101이며 검사 4.91초/빌드 59.34초입니다.
+
+Rope의 처음 10,000줄에서 선행 ASCII 공백/탭·내용이 있는 줄만 평가합니다. 정렬 행 제외, 스타일의 동률 기본값 유지, 탭의 기본 표시 폭 보존과 공백 폭 후보/2칸 우선 조건을 원본 규칙에 맞췄습니다. 줄 전체를 문자열로 복사하지 않으며 Unicode의 정렬 열 비교는 UTF-16 위치를 사용합니다. EditorConfig는 감지 후 적용하고 폭은 최소 1로 정규화합니다. 원본의 잘못된 정수 변환 등 숫자 버그를 구현 목표로 삼지 않습니다.
+
+문서가 감지 옵션을 소유하며 같은 전역 들여쓰기 설정/언어/EditorConfig에서는 텍스트 편집마다 다시 추측하지 않습니다. 설정 변화는 다음 본문/peek 사용이나 저장 포맷 참여 시 갱신합니다. 새 문서 스냅샷은 언어/EditorConfig가 바뀐 이전 옵션을 노출하지 않습니다. 감지/옵션 변경은 텍스트 revision·dirty·undo를 변경하지 않으며 mirror는 같은 문서를 사용합니다. 본문/미리보기의 실제 입력과 저장의 FormattingOptions는 같은 옵션을 소비합니다. 저장 참여의 실제 LSP 요청 값까지 새 child 검사로 단언한 것은 아니므로 해당 검증은 명령 통합 단계에 남깁니다.
+
+실행 로그 접두사는 `/private/tmp/taide-batch23-indent-`입니다.
+
+- `core.log`: 최초 컴파일은 Ropey Chars가 표준 DoubleEndedIterator를 제공한다는 가정 때문에 E0599·exit 101로 실패했습니다. 마지막 문자를 RopeSlice의 안전한 문자 위치로 조회하도록 수정했습니다.
+- `core-fixed.log`: 들여쓰기 대상 9건 통과·exit 0·0.31초/빌드 2.81초입니다. 새 4건은 설치 Monaco가 생성한 100비교 사례, 감지 줄 수 경계/긴 줄/빈 줄, 편집 시 옵션 보존·전역 감지 설정 변경·undo, EditorConfig/언어 변경·readonly 메타데이터를 확인합니다. 기존 입력/설정 우선순위 5건도 포함하며 사례를 별도 테스트 수로 합산하지 않습니다.
+- `ui.log`: 관련 8건 중 기존 7건 통과·새 1건 실패·exit 101입니다. 새 fixture가 readonly 입력에서 기존 계약의 ReadOnly 오류도 없다고 가정했습니다. 기존 큰 파일 입력 검사와 코드의 계약을 대조해 readonly 거절을 정확히 단언하도록 fixture를 수정했습니다. 제품의 readonly 동작을 우회하거나 바꾸지 않았습니다.
+- `ui-fixed.log`: 새 UI 1건의 4사례가 통과·exit 0·0.06초/빌드 1.41초입니다. 공백 2칸/탭 표시 폭 8·본문 Tab·mirror 공유·readonly 거절과 내용/revision/dirty 보존·기본 appearance 보존을 확인합니다. 변경 없는 기존 UI 7건은 재사용하며 서로 다른 UI 성공은 8건입니다.
+- `peek.log`: 처음 App 검사 컴파일은 기존 symbol-location-host fixture의 Provider 초기화에 새 설정 필드를 빠뜨려 E0063·exit 101로 실패했습니다. 해당 fixture에 같은 전역 설정 변환을 전달했습니다. 단언을 잘못 넣은 순수 State 준비 검사에서는 제거하고 실제 render_preview를 실행한 직후로 옮겼습니다.
+- `peek-fixed.log`: 위치/미리보기 상태와 실제 렌더·본문 명령/저장·포커스의 12건 통과·exit 0·1.28초/빌드 37.34초입니다. 실제 preview 대상의 감지 폭 2를 직접 단언했습니다.
+- `app-fixed.log`: 최초 제품 실패와 같은 실제 App 검사 1건 통과·exit 0·6.99초/빌드 0.31초입니다. 실제 본문 옵션 2와 기존 심볼·접기·peek·하이라이트/readonly·입력·reveal/종료 소비를 확인합니다.
+- `oracle-final.log`: staged diff 검사에서 빈 입력의 TSV 마지막 열이 trailing tab으로 검출돼 입력 hex 열을 중간으로 옮겼습니다. 100사례의 입력/예상값은 열 순서 외에 동일함을 비교했습니다. 변경한 파서의 같은 oracle 1건/100사례가 다시 통과·exit 0·0.01초/빌드 0.84초이며 Editor 전체 성공 수에 중복 합산하지 않습니다. 나머지 8건과 제품/앱/동결 성공은 입력과 해당 실행 경로가 같아 재사용합니다.
+
+- `frozen-host.log`: frozen host의 inspection 전체 테스트 대상 컴파일은 exit 0·21.69초입니다. 실제 테스트 실행을 의미하지 않습니다.
+- `frozen-wasm.log`: 실제 canvas/inspection Wasm 라이브러리 컴파일은 exit 0·15.10초입니다. 앞선 고정 줄 단위에서 기록한 host 테스트의 Wasm 시간 타입 오류를 재실행하거나 해결됐다고 쓰지 않습니다.
+
+서로 다른 직접 실행 성공은 Editor 9·UI 8·App 13, 총 30건입니다. Editor/UI/App fmt check 세 개는 직렬로 실행해 exit 0입니다. Tab 폭은 본문/추가 행·minimap·입력/접기·wrap 설정으로 전달하며 wrap cache도 바뀐 폭을 비교하는 기존 경로를 검토했습니다. 탭/공백 변환·명시 detect/reindent·수동 설정 QuickPick과 전체 배치/실기/성능 게이트는 아직이며 editor-30은 partial을 유지합니다. 의존성/manifest/lock/동결 경로 변경은 0이고 디스크는 533GiB·71%입니다. 보호 앱/실제 사용자 데이터/OS 설정과 빌드 정리는 건드리지 않았습니다. 전체 전환율과 잔여 시간은 산정하지 않습니다.

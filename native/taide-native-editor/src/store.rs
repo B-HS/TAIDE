@@ -14,6 +14,7 @@ use crate::document::{
     EditorError, UndoGroup, apply_edits, byte_to_char,
 };
 use crate::folding::tracked_folds;
+use crate::indent::{IndentConfiguration, IndentOptions};
 use crate::view::{
     Composition, EditRun, GoalColumns, ScrollPosition, SelectionSet, ViewId, ViewKey, ViewState,
     WrapAffinities,
@@ -67,6 +68,22 @@ struct HistoryEntry {
     origin: Option<ViewId>,
 }
 
+struct DocumentIndentation {
+    configuration: IndentConfiguration,
+    editor_config: EditorConfigOptions,
+    language_id: String,
+    options: IndentOptions,
+}
+
+impl DocumentIndentation {
+    fn describes(&self, metadata: &DocumentMetadata) -> bool {
+        self.language_id == metadata.language_id
+            && self.editor_config.indent_style == metadata.editor_config.indent_style
+            && self.editor_config.indent_size == metadata.editor_config.indent_size
+            && self.editor_config.tab_width == metadata.editor_config.tab_width
+    }
+}
+
 struct Document {
     id: DocumentId,
     key: DocumentKey,
@@ -75,6 +92,7 @@ struct Document {
     revision: u64,
     saved_revision: u64,
     metadata: DocumentMetadata,
+    indentation: Option<DocumentIndentation>,
     undo: VecDeque<HistoryEntry>,
     redo: Vec<HistoryEntry>,
     can_merge: bool,
@@ -135,6 +153,11 @@ impl Document {
             revision: self.revision,
             rope: self.rope.clone(),
             metadata: self.metadata.clone(),
+            indent_options: self
+                .indentation
+                .as_ref()
+                .filter(|indentation| indentation.describes(&self.metadata))
+                .map(|indentation| indentation.options),
             dirty: self.requires_save || self.rope != self.baseline,
         }
     }
@@ -248,6 +271,38 @@ impl EditorStore {
     }
     pub fn views(&self) -> &ViewStore {
         &self.views
+    }
+
+    pub fn configure_indentation(
+        &mut self,
+        document: DocumentId,
+        configuration: IndentConfiguration,
+    ) -> Result<IndentOptions, EditorError> {
+        let owner = self
+            .documents
+            .documents
+            .get_mut(&document)
+            .ok_or(EditorError::NotFound)?;
+        if let Some(indentation) = &owner.indentation
+            && indentation.configuration == configuration
+            && indentation.describes(&owner.metadata)
+        {
+            return Ok(indentation.options);
+        }
+        let defaults = if configuration.detect_indentation {
+            crate::indent::guess(&owner.rope, configuration.defaults)
+        } else {
+            configuration.defaults
+        };
+        let mut options = crate::indent::resolve(&owner.metadata.editor_config, defaults);
+        options.tab_size = options.tab_size.max(1);
+        owner.indentation = Some(DocumentIndentation {
+            configuration,
+            editor_config: owner.metadata.editor_config,
+            language_id: owner.metadata.language_id.clone(),
+            options,
+        });
+        Ok(options)
     }
 
     pub fn track_document_disposals(&mut self) {
@@ -1059,6 +1114,7 @@ impl EditorStore {
                 revision: 0,
                 saved_revision: 0,
                 metadata,
+                indentation: None,
                 undo: VecDeque::new(),
                 redo: Vec::new(),
                 can_merge: false,

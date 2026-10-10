@@ -1,6 +1,6 @@
 {
     "date": "2026-10-10",
-    "baseline": "64b2f335",
+    "baseline": "801b80c9",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -769,6 +769,30 @@
                 "docs/quality-assurance/2026-10-10-native-batch23-editor.md"
             ],
             "limitation": "기존 문서 심볼·outline/접기/indent fallback에 고정 줄 Ctrl/Meta/hover/GoTo/Aside를 연결했습니다. 최신 UI 32·실제 앱 회귀 1건은 통과했으나 새 고정 줄 클릭의 실제 child E2E·batch 전체/실기/성능 게이트는 아직입니다."
+        },
+        "editor-indentation": {
+            "sources": [
+                "native/taide-native-editor/src/indent.rs",
+                "native/taide-native-editor/src/language-typing.rs",
+                "native/taide-native-ui/src/editor_surface.rs",
+                "native/taide-native-editor/src/store.rs",
+                "native/taide-native-editor/src/document.rs",
+                "native/taide-native-app/src/application.rs",
+                "native/taide-native-app/src/editor-locations.rs",
+                "native/taide-native-app/src/presentation-refresh.rs"
+            ],
+            "tests": [
+                "native/taide-native-editor/tests/language-typing.rs",
+                "native/taide-native-ui/tests/editor_surface.rs",
+                "native/taide-native-editor/tests/indent.rs",
+                "native/taide-native-app/src/editor-locations-tests.rs",
+                "native/taide-native-app/src/application-startup-tests.rs"
+            ],
+            "reports": [
+                "docs/quality-assurance/2026-10-06-native-batch7-language-config.md",
+                "docs/quality-assurance/2026-10-10-native-batch23-editor.md"
+            ],
+            "limitation": "문서별 자동 감지/본문·peek·입력·mirror/readonly·설정/언어/EditorConfig·undo의 직접 30건이 통과했습니다. 포맷의 실제 LSP 값·탭/공백 변환·명시 detect/reindent·수동 옵션 명령과 전체 batch/실기/성능 게이트는 아직입니다."
         }
     },
     "rows": [
@@ -2188,8 +2212,8 @@
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:96",
             "domain": "editor",
             "status": "partial",
-            "proof": "editor-input",
-            "note": "editorconfig/tabSize/insertSpaces는 연결됐으나 detectIndentation·변환/reindent를 포함한 원본 전체 동작은 남아 있습니다."
+            "proof": "editor-indentation",
+            "note": "EditorConfig 우선 문서별 detectIndentation을 본문/peek·입력/포맷 옵션에 연결했습니다. Monaco 100비교 사례를 포함한 Editor 9·UI 8·App 13건은 통과했으나 변환/reindent/수동 명령·실제 포맷 요청·전체 게이트는 남아 partial입니다."
         },
         {
             "id": "editor-31",
