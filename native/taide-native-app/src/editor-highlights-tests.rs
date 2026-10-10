@@ -158,6 +158,43 @@ fn 완료된_하이라이트_안의_커서_이동은_표시와_요청을_재사�
 }
 
 #[test]
+fn closing_전체_뷰포트의_대기_완료_요청과_표시를_즉시_회수한다() {
+    let (store, view, provider, project) = fixture();
+    let mut state = State::default();
+    let completed = request(&mut state, &store, view, provider, &project);
+    assert!(state.accept(
+        &store,
+        &completed,
+        HashSet::from([provider]),
+        Ok(response(provider))
+    ));
+    let secondary = egui::ViewportId::from_hash_of("synthetic secondary");
+    let now = Instant::now();
+    state
+        .observe(
+            &store,
+            Context {
+                viewport: secondary,
+                ..context(&project, view)
+            },
+            HashSet::from([provider]),
+            now,
+        )
+        .unwrap();
+    let pending = state.current_request(secondary).unwrap();
+    assert!(!completed.is_cancelled());
+    assert!(!pending.is_cancelled());
+    state.clear();
+    assert!(completed.is_cancelled());
+    assert!(pending.is_cancelled());
+    for viewport in [egui::ViewportId::ROOT, secondary] {
+        assert!(state.current_request(viewport).is_none());
+        assert!(state.display(&store, viewport, view, colors()).is_none());
+    }
+    assert!(state.sources.is_empty());
+}
+
+#[test]
 fn navigation_boundary_기호로_시작하는_범위로_이동해도_표시를_유지한다() {
     let (mut store, view, provider, project) = fixture();
     let mut state = State::default();

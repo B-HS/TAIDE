@@ -1,6 +1,6 @@
 # 배치 23 — 편집기의 나머지 기능
 
-기준: 공급·표시 커밋 `3f3df987`와 배치 23 이동/명령 변경, 배정 33행. 메인이 직접 수행하며 서브에이전트/workflow를 사용하지 않습니다. 전체 전환율·잔여 시간은 미산정이며 완료 288·미완료 300행을 유지합니다. editor-51은 공급/표시·본문 이동/실행 연결과 아래 검증 근거에 따라 partial을 유지하며 complete로 올리지 않습니다.
+기준: 이동/명령 커밋 `a296a28e`와 배치 23 종료 회수·추가 앱 검증 작업 트리, 배정 33행. 메인이 직접 수행하며 서브에이전트/workflow를 사용하지 않습니다. 전체 전환율·잔여 시간은 미산정이며 완료 288·미완료 300행을 유지합니다. editor-51은 아래 성공과 실패를 구분한 근거에 따라 partial을 유지하며 complete로 올리지 않습니다.
 
 ## editor-51 문서 하이라이트 원본과 현재 경계
 
@@ -72,3 +72,43 @@ UI 명령 레지스트리의 typed HighlightCommand·native-host 기본 키·rea
 최초 진척 점검은 실제 감사 JSON 599행을 다시 집계했습니다. 제외 10·동결 1을 뺀 588행 중 complete 288·partial 92·unwired 112·missing 96으로 미완료 300행이었습니다. 공급/표시 검증 뒤 editor-51을 partial로 갱신한 현재 분류는 complete 288·partial 93·unwired 112·missing 95로 미완료 300행을 유지합니다. 모든 미완료 ID의 배치 배정 누락 0·중복 0·배치 23 미완료 33행·최종 배치 33을 직접 확인했습니다. 최초 계획의 302행은 배치 22 완료 전 배정 스냅샷입니다.
 
 최초 진척 조사 시 HEAD는 `69c3438b`였고 upstream 차이 0/0을 확인했습니다. 최근 제품 커밋 `603e6025`·`7172a544`·`3f9a2c18`에는 기본 선택/색 견본·상세 공유 상태·Read More 마우스 버튼의 서로 다른 변경이 있습니다. 당시 프로세스 이름과 CPU 누적 시간으로 빌드/테스트와 이전 조사 스크립트의 실행 여부를 확인했고 해당 작업 프로세스는 없었습니다. 이는 당시 실행의 점검이며 전체 작업에서 반복 낭비가 전혀 없었다는 증거로 확대하지 않습니다. 최초 조사에서는 Cargo/fmt나 이전 성공 검사를 다시 실행하지 않았으며 이후 부분 구현의 실제 실행 결과는 앞 절에 구분했습니다.
+
+## peek·종료 회수·다중 공급자 추가 검증
+
+이번 실행 로그의 경로는 /private/tmp/taide-batch23-입니다. 이전 절의 성공은 당시 변경 상태의 기록이며 최신 확장 앱 검사 전체의 성공으로 합산하지 않습니다.
+
+- highlights-peek-close-repro.log: 실제 앱 종료 직후 완료된 하이라이트 요청의 취소 watch가 false인 실패를 재현했습니다. NativeApplication::close에서 State::clear를 호출해 전체 뷰포트의 대기/완료 요청을 취소하고 sources를 비웁니다. highlights-peek-close-final.log는 readonly 추가 전 실제 앱 1건 통과·exit 0·5.58초입니다.
+- highlights-close-state-child-final.log: 상태 15·실제 child 3건, 총 18건 통과·exit 0·5.01초입니다. 새 다중 공급자 검사는 Python의 ruff/basedPyright를 실제 child로 실행해 6가지 응답 조합과 두 프로젝트의 공급자 소유를 확인합니다. 정상 첫 결과·빈 배열·null은 첫 공급자에서 끝나며 오류·잘못된 응답·미지원은 다음 유효 공급자 결과를 사용합니다. 종료 후 tracked task는 0입니다.
+- mock의 --native-documentation-peek-highlights와 --native-highlights-alternate는 기존 모드의 의미를 바꾸지 않고 실제 peek/다중 공급자 검사를 지원합니다. mock 빌드는 highlights-multi-mock.log에서 exit 0입니다.
+- readonly 이전 실제 peek 검사에는 별도 peek 문서의 실제 표시, F7/Shift+F7, Root 명령의 마지막 peek 소스 소비, 명시 trigger, 편집 후 취소와 닫기가 포함됩니다. OS 합성 입력 대신 내부 egui RawInput을 사용합니다.
+
+실패를 성공으로 합산하지 않습니다. 다음은 수정 또는 진단 근거입니다.
+
+- highlights-peek-app.log와 highlights-peek-app-diagnostic.log: wait_for가 logic만 실행해 UI의 50ms 관찰이 진행되지 않았습니다. 필요한 predicate에서 UI 프레임을 실행했고 highlights-peek-app-frames.log는 앱 1건 통과·exit 0·5.81초입니다. 타이머를 늘리지 않았습니다.
+- highlights-multi-child.log: 실제 manifest ID인 basedPyright 대신 basedpyright를 기대해 fixture lookup이 실패했습니다. 세 대체 사례의 기대 ID를 원본 manifest에 맞췄고 최종 18건 실행에서 해당 다중 공급자 검사가 통과했습니다.
+- highlights-peek-readonly-close-final.log: dirty 문서를 refresh_clean_file로 바꾸려다 UnsavedChanges로 실패했습니다. 소유한 임시 파일을 실제 저장하고 공개 mark_saved를 거친 뒤 readonly 메타데이터를 적용했습니다. highlights-peek-readonly-close-saved-final.log의 private SaveSnapshot.rope 접근 컴파일 오류는 공개 rope()로 수정했습니다.
+- highlights-peek-readonly-close-api-final.log와 highlights-peek-readonly-close-focus-final.log: readonly 이동의 실제 키 입력이 0 위치에 남았습니다. 프레임 갱신/이동 방향만 바꿔도 해결되지 않았으므로 해당 포커스 가정을 종료했습니다.
+- highlights-peek-readonly-close-pass-final.log와 highlights-peek-readonly-close-active-final.log: 기존 긴 앱 검사의 F4 단계가 시간 초과했습니다. 진단 중 이동 목적지를 입력 소스로 잘못 활성화한 오류도 highlights-peek-readonly-close-source-active-final.log에서 session=None으로 드러났습니다. F4는 현재 source에서 누른 뒤 다른 destination을 확인하도록 고쳤으며 활성화·실제 본문 포커스·키 해제와 실패 시 세션 상태를 명시했습니다.
+- highlights-peek-readonly-close-source-destination-final.log와 highlights-peek-readonly-close-command-diagnostic.log: F4 이후 readonly까지 진행했지만 Shift+F7 이동은 실패했습니다. 후자의 실패 이전 단언에서 실제 앱의 queued Previous/Next 왕복은 관찰했고, 키 입력 뒤에는 first caret=0·queued=false·status=None입니다. 이 단언들은 독립된 성공 테스트로 세지 않습니다. 현재 키 입력 경로 진단이 미완료이며 검사 전체는 실패입니다.
+
+본문과 도움말/완성 컨트롤의 focus ID가 같은 뷰에 등록됩니다. NativeEditor의 inspection 전용 is_body_focus_target은 실제 InputState가 있는 본문 ID를 구분합니다. 제품 화면이나 편집 동작을 추가하지 않으며 readonly 키 검사에 실제 본문·등록/실행 허용·이전 키 입력 소유 조건을 명시해 다음 진단에 사용합니다.
+
+Cargo/fmt 종료를 확인하기 전에 mock 빌드를 시작한 실행 순서 오류 1건이 있었습니다. fmt session 74697과 빌드 session 20901의 종료·exit 0은 확인했지만 이번 실행 전체를 직렬이었다고 보고하지 않습니다. 복원 시 프로세스 이름 조회에서 Cargo/rustfmt/rustc는 없었고, 이후에는 live session의 종료를 확인한 뒤 다음 Cargo/fmt를 실행합니다. 성공한 18건은 State/worker 동작이 변경되지 않아 재사용합니다.
+
+진척 재점검: 실제 JSON 599행 중 complete 288·partial 93·unwired 112·missing 95·제외 10·동결 1입니다. 미완료 300 ID의 배정 누락 0·중복 0, 배치 23/24/25/26/27/28/29/30의 잔여는 33/52/23/64/32/39/51/6행이며 최종 배치는 33입니다. 행 개수 비율을 전체 진척률이나 ETA로 사용하지 않습니다. 조회 시 최근 8커밋은 서로 다른 변경이고 HEAD a296a28e·upstream 0/0이었습니다. 이는 전체 실행의 종료성을 증명하지 않으며 현재 실패 반복과 원인 분리의 한계를 그대로 기록합니다.
+
+디스크는 이번 확인에서 544GiB·71%입니다. 정리 명령·보호 앱/실제 데이터/OS/클립보드/Keychain/Trash 변경은 없습니다. 최신 실제 앱 성공, 전체 대상 컴파일·선별 Git, 큰 tier/공급자 변화와 배치 전체 --no-fail-fast·실기/출시 게이트는 아직 미완료입니다.
+
+## 최종 단위 검증 결과와 잔류 단축키 부채
+
+highlights-peek-readonly-close-body-focus-diagnostic.log와 highlights-peek-readonly-close-cache-diagnostic.log는 본문 포커스·캐시·source/owner·전역 편집기 연결·등록/실행 허용 조건이 모두 성립해도 Shift+F7이 대기열에 들어오지 않는 실패입니다. busy/disk choice/tab close/shutdown도 false였습니다. 단순 포커스나 readonly 계산 수정 가정을 더 반복하지 않았습니다.
+
+highlights-peek-readonly-close-chord-diagnostic.log의 ChordStatus.pending 필드 오용은 실행 전 컴파일 오류이며 shortcut 필드로 수정했습니다. highlights-peek-readonly-close-chord-api-diagnostic.log는 앞 단계의 CtrlK 연속 단축키 대기가 실제 남은 것을 확인한 실패입니다. highlights-peek-readonly-close-neutral-final.log에서는 Escape 뒤에도 대기가 남았습니다. 이 연계 문제는 미해결로 보존하며 readonly 기본 키의 성공과 구분합니다.
+
+독립 readonly 상호작용 단계의 사전 조건을 기존 Views::clear_keymap_chord로 초기화하고 대기 없음·실제 본문·문서/소유·명령 허용을 단언합니다. 제품의 키 처리나 이동 계산은 바꾸지 않았습니다. highlights-peek-readonly-close-clean-phase-final.log는 실제 앱 1건 통과·exit 0·5.64초이며 peek의 공급/표시/F7/ShiftF7/명시 trigger/편집/닫기, normal tier readonly 문서의 queued 왕복과 ShiftF7·입력 거절/내용/revision/readonly 보존, 앱 종료 취소/작업 0을 포함합니다. 현재 직접 실행 성공은 상태 15·child 3·실제 앱 1의 19건입니다. 이전 앱 검사와 각 실패 이전 단언은 중복 합산하지 않습니다.
+
+일반 사용자 흐름의 CtrlK→peek/도움말 닫기→Escape→F7 연계는 위 초기화를 넣어 완료 처리하지 않습니다. 별도의 재현에서 전역 단축키 pending/deferral과 로컬 입력 소비를 원본 Monaco와 대조하고 실제 정상 취소를 검증해야 합니다. 큰 tier/공급자 변화/원본 설정과 배치 전체 게이트도 미완료여서 editor-51은 partial입니다.
+
+최종 App 전체 테스트 대상 컴파일은 highlights-close-app-check-final.log에서 exit 0·1분 16초, UI native-host/inspection 전체 테스트 대상 컴파일은 highlights-close-ui-check-final.log에서 exit 0·32.90초입니다. App/UI fmt check도 각각 직접 실행해 exit 0입니다. 전체 테스트 실행과 컴파일을 구분하며 배치 전체 --no-fail-fast 실행은 아직 아닙니다.
+
+최종 감사 도구의 --write는 highlights-close-audit-final.log에서 exit 0·599행/293근거 경로/588대상·288완료이며 표의 행 비율은 전체 전환율이 아닙니다. QA/JSON/표 포맷과 소유 파일 diff check가 통과했습니다. frozen source·manifest/lock 변경은 0이며 이전 host/Wasm 성공은 변경 없는 조건에서 재사용합니다. 최신 디스크는 542GiB/71%이고 빌드 정리나 보호 범위 변경은 없습니다. 검증된 종료 회수·실제 peek/readonly/공급자 검사와 본문 inspection, 관련 QA/기능표/PROCESS 상단만 선별 Git 대상입니다. 이전 무관한 문서 변경과 PROCESS 하단은 보존합니다.

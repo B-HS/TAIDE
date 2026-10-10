@@ -482,6 +482,13 @@ impl State {
     }
 
     #[cfg(test)]
+    pub(crate) fn current_request(&self, viewport: egui::ViewportId) -> Option<Request> {
+        self.entries
+            .get(&viewport)
+            .map(|entry| entry.request.clone())
+    }
+
+    #[cfg(test)]
     pub(crate) fn rendering_deadline(&self, viewport: egui::ViewportId) -> Option<Instant> {
         self.entries.get(&viewport).map(|entry| entry.render_after)
     }
@@ -615,6 +622,13 @@ impl State {
                 .collect();
         }
         true
+    }
+
+    pub(crate) fn clear(&mut self) {
+        for (_, entry) in self.entries.drain() {
+            entry.cancel.send_replace(true);
+        }
+        self.sources.clear();
     }
 
     pub(crate) fn close(&mut self, viewport: egui::ViewportId) {

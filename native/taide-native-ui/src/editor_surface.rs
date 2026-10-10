@@ -807,6 +807,11 @@ pub struct NativeEditor {
 }
 
 impl NativeEditor {
+    #[cfg(all(feature = "native-host", feature = "inspection"))]
+    pub fn is_body_focus_target(context: &egui::Context, id: Id) -> bool {
+        context.data(|data| data.get_temp::<InputState>(id).is_some())
+    }
+
     pub fn with_indent(&self, options: IndentOptions) -> Self {
         let mut appearance = self.appearance.clone();
         appearance.indent = if options.insert_spaces {

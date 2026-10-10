@@ -30,7 +30,7 @@ fn wait_for(
     application: &mut NativeApplication,
     context: &egui::Context,
     phase: &str,
-    ready: impl Fn(&NativeApplication) -> bool,
+    ready: impl Fn(&mut NativeApplication) -> bool,
 ) {
     let runtime = application.runtime.handle().clone();
     let result = runtime.block_on(async {
@@ -1015,7 +1015,7 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
     );
     std::fs::write(
         &executable,
-        format!("#!/bin/sh\nexec '{mock}' --native-documentation-peek\n"),
+        format!("#!/bin/sh\nexec '{mock}' --native-documentation-peek-highlights\n"),
     )
     .unwrap();
     runtime
@@ -1429,6 +1429,242 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
                 .is_empty()
         },
     );
+    assert!(
+        !application
+            .lsp
+            .as_ref()
+            .unwrap()
+            .highlight_providers(
+                &project,
+                &application
+                    .store
+                    .documents()
+                    .snapshot(peek_document)
+                    .unwrap()
+            )
+            .is_empty(),
+        "pure peek must have an advertised highlight provider"
+    );
+    assert!(
+        context.memory(|memory| memory.has_focus(focus)),
+        "pure peek focus lost: {:?}",
+        context.memory(|memory| memory.focused())
+    );
+    paint(application, Vec::new());
+    let observed_peek = application
+        .editor_highlights
+        .current_request(egui::ViewportId::ROOT)
+        .unwrap_or_else(|| {
+            panic!(
+                "peek not observed: selection={:?}; composition={:?}; focus={:?}",
+                application.store.views().get(preview).unwrap().selection,
+                application.store.views().get(preview).unwrap().composition,
+                context.memory(|memory| memory.focused()),
+            )
+        });
+    assert_eq!(observed_peek.source, preview);
+    assert!(
+        observed_peek.is_active(
+            &application.services.state.layouts.read()[&project],
+            &application.shell.scope
+        ),
+        "peek owner must be an active tab"
+    );
+    wait_for(
+        application,
+        &context,
+        "pure-peek-highlights",
+        |application| {
+            paint(application, Vec::new());
+            application.editor_highlights.has_highlights(
+                &application.store,
+                egui::ViewportId::ROOT,
+                preview,
+            )
+        },
+    );
+    let peek_highlight_before = application.store.views().get(preview).unwrap().clone();
+    let main_highlight_before = application.store.views().get(view).unwrap().clone();
+    let peek_highlight_request = application
+        .editor_highlights
+        .current_request(egui::ViewportId::ROOT)
+        .unwrap();
+    assert_eq!(peek_highlight_request.source, preview);
+    assert_eq!(peek_highlight_request.owner, view);
+    assert_eq!(peek_highlight_request.snapshot.id, peek_document);
+    assert!(!application.editor_highlights.has_highlights(
+        &application.store,
+        egui::ViewportId::ROOT,
+        view
+    ));
+    let peek_paint = paint(application, Vec::new());
+    assert!(
+        peek_paint.shapes.iter().any(|shape| match &shape.shape {
+            egui::Shape::Rect(rect) => backgrounds.contains(&rect.fill),
+            egui::Shape::Text(text) => text
+                .galley
+                .job
+                .sections
+                .iter()
+                .any(|section| backgrounds.contains(&section.format.background)),
+            _ => false,
+        }),
+        "actual peek must paint its own document highlights"
+    );
+    for (shift, expected) in [
+        (false, END_HIGHLIGHT),
+        (false, 0),
+        (true, END_HIGHLIGHT),
+        (true, WORKSPACE_CARET),
+    ] {
+        let modifiers = if shift {
+            egui::Modifiers::SHIFT
+        } else {
+            egui::Modifiers::NONE
+        };
+        paint(
+            application,
+            vec![
+                egui::Event::ModifiersChanged(modifiers),
+                egui::Event::Key {
+                    key: egui::Key::F7,
+                    physical_key: Some(egui::Key::F7),
+                    pressed: true,
+                    repeat: false,
+                    modifiers,
+                },
+                egui::Event::Key {
+                    key: egui::Key::F7,
+                    physical_key: Some(egui::Key::F7),
+                    pressed: false,
+                    repeat: false,
+                    modifiers,
+                },
+            ],
+        );
+        paint(application, Vec::new());
+        assert_eq!(
+            application
+                .store
+                .views()
+                .get(preview)
+                .unwrap()
+                .selection
+                .selections[0]
+                .head,
+            expected,
+            "peek F7 shift={shift}"
+        );
+        assert_eq!(
+            application.store.views().get(view).unwrap().selection,
+            main_highlight_before.selection
+        );
+        assert!(!peek_highlight_request.is_cancelled());
+    }
+    application.document_edits.push((
+        tab.clone(),
+        DocumentEdit::Highlight(crate::command_registry::HighlightCommand::Previous),
+    ));
+    paint(application, Vec::new());
+    assert_eq!(
+        application
+            .store
+            .views()
+            .get(preview)
+            .unwrap()
+            .selection
+            .selections[0]
+            .head,
+        0
+    );
+    assert_eq!(
+        application.store.views().get(view).unwrap().selection,
+        main_highlight_before.selection
+    );
+    application
+        .store
+        .set_view_state(
+            preview,
+            peek_highlight_before.selection.clone(),
+            peek_highlight_before.scroll.clone(),
+            peek_highlight_before.folds.clone(),
+        )
+        .unwrap();
+    let peek_overrides_before = application
+        .services
+        .state
+        .settings
+        .read()
+        .keymap_overrides
+        .clone();
+    application.services.state.settings.write().keymap_overrides = Some(
+        r#"[{"actionId":"monaco.editor.action.wordHighlight.trigger","key":"F8","mods":[]}]"#
+            .into(),
+    );
+    application.editor_highlights.close(egui::ViewportId::ROOT);
+    paint(
+        application,
+        vec![
+            egui::Event::ModifiersChanged(egui::Modifiers::NONE),
+            egui::Event::Key {
+                key: egui::Key::F8,
+                physical_key: Some(egui::Key::F8),
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+            egui::Event::Key {
+                key: egui::Key::F8,
+                physical_key: Some(egui::Key::F8),
+                pressed: false,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+    let peek_trigger_deadline = application
+        .editor_highlights
+        .rendering_deadline(egui::ViewportId::ROOT)
+        .unwrap();
+    assert!(peek_trigger_deadline > Instant::now());
+    wait_for(
+        application,
+        &context,
+        "pure-peek-explicit-highlights",
+        |application| {
+            paint(application, Vec::new());
+            application.editor_highlights.has_highlights(
+                &application.store,
+                egui::ViewportId::ROOT,
+                preview,
+            )
+        },
+    );
+    assert!(Instant::now() >= peek_trigger_deadline);
+    application.services.state.settings.write().keymap_overrides = peek_overrides_before;
+    application
+        .store
+        .set_view_state(
+            preview,
+            peek_highlight_before.selection,
+            peek_highlight_before.scroll,
+            peek_highlight_before.folds,
+        )
+        .unwrap();
+    let peek_edit_highlight_request = application
+        .editor_highlights
+        .current_request(egui::ViewportId::ROOT)
+        .unwrap();
+    assert_eq!(peek_edit_highlight_request.snapshot.id, peek_document);
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(peek_document)
+            .unwrap()
+            .revision,
+        peek_highlight_request.snapshot.revision
+    );
     context.set_os(egui::os::OperatingSystem::Mac);
     let documentation_key = |key| egui::Event::Key {
         key,
@@ -1578,6 +1814,7 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
     assert!(context.memory(|memory| memory.has_focus(focus)));
     paint(application, vec![egui::Event::Text("x".into())]);
     assert!(request.is_cancelled());
+    assert!(peek_edit_highlight_request.is_cancelled());
     assert!(
         application
             .store
@@ -1857,10 +2094,52 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
         snapshot.revision
     );
 
-    for (modifiers, expected_view) in [
-        (egui::Modifiers::NONE, view),
-        (egui::Modifiers::SHIFT, destination_view),
+    for (modifiers, source_view, expected_view) in [
+        (egui::Modifiers::NONE, destination_view, view),
+        (egui::Modifiers::SHIFT, view, destination_view),
     ] {
+        let navigation_tab = application
+            .store
+            .views()
+            .get(source_view)
+            .unwrap()
+            .key
+            .tab
+            .clone();
+        application
+            .controller
+            .submit(taide_native_ui::commands::ShellMutation::ActivateTab(
+                navigation_tab.clone(),
+            ))
+            .unwrap();
+        wait_for(
+            application,
+            &context,
+            "F4-source-activation",
+            |application| {
+                application
+                    .controller
+                    .snapshot()
+                    .focused_tab()
+                    .is_some_and(|tab| tab.id == navigation_tab)
+            },
+        );
+        paint(application, Vec::new());
+        let navigation_focus = application
+            .editor_keymap_targets
+            .iter()
+            .filter(|((viewport, id), (target, _))| {
+                *viewport == egui::ViewportId::ROOT
+                    && *target == source_view
+                    && taide_native_ui::editor_surface::NativeEditor::is_body_focus_target(
+                        &context, *id,
+                    )
+            })
+            .max_by_key(|(_, (_, pass))| *pass)
+            .map(|((_, id), _)| *id)
+            .unwrap();
+        context.memory_mut(|memory| memory.request_focus(navigation_focus));
+        paint(application, Vec::new());
         paint(
             application,
             vec![
@@ -1872,9 +2151,16 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
                     repeat: false,
                     modifiers,
                 },
+                egui::Event::Key {
+                    key: egui::Key::F4,
+                    physical_key: Some(egui::Key::F4),
+                    pressed: false,
+                    repeat: false,
+                    modifiers,
+                },
             ],
         );
-        runtime.block_on(async {
+        let navigation = runtime.block_on(async {
             tokio::time::timeout(DEADLINE, async {
                 loop {
                     eframe::App::logic(application, &context, &mut eframe::Frame::_new_kittest());
@@ -1890,8 +2176,26 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
                 }
             })
             .await
-            .unwrap();
         });
+        assert!(
+            navigation.is_ok(),
+            "F4 source={source_view:?}; destination={expected_view:?}; focus={:?}; focused_tab={:?}; session={:?}; status={:?}",
+            context.memory(|memory| memory.focused()),
+            application
+                .controller
+                .snapshot()
+                .focused_tab()
+                .map(|tab| &tab.id),
+            application
+                .editor_locations
+                .current(expected_view)
+                .map(|session| (
+                    session.shown,
+                    session.model.as_ref().map(|model| model.targets().len()),
+                    &session.request.source_key,
+                )),
+            application.status,
+        );
         let session = application.editor_locations.current(expected_view).unwrap();
         assert_eq!(session.model.as_ref().unwrap().targets().len(), 2);
         assert_eq!(
@@ -1922,6 +2226,326 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
             .revision,
         snapshot.revision
     );
+    let closing_preview = application
+        .editor_locations
+        .current(destination_view)
+        .unwrap()
+        .preview
+        .unwrap();
+    let closing_preview_focus = application
+        .editor_keymap_targets
+        .iter()
+        .find_map(|((viewport, id), (target, _))| {
+            (*viewport == egui::ViewportId::ROOT && *target == closing_preview).then_some(*id)
+        })
+        .unwrap();
+    context.memory_mut(|memory| memory.request_focus(closing_preview_focus));
+    wait_for(
+        application,
+        &context,
+        "peek-highlights-before-close",
+        |application| {
+            paint(application, Vec::new());
+            application
+                .editor_highlights
+                .current_request(egui::ViewportId::ROOT)
+                .is_some_and(|request| request.source == closing_preview)
+                && application.editor_highlights.has_highlights(
+                    &application.store,
+                    egui::ViewportId::ROOT,
+                    closing_preview,
+                )
+        },
+    );
+    let closed_peek_highlights = application
+        .editor_highlights
+        .current_request(egui::ViewportId::ROOT)
+        .unwrap();
+    application.document_edits.push((
+        application
+            .store
+            .views()
+            .get(destination_view)
+            .unwrap()
+            .key
+            .tab
+            .clone(),
+        DocumentEdit::Location(taide_native_editor::symbol_locations::Command::Close),
+    ));
+    paint(application, Vec::new());
+    paint(application, Vec::new());
+    assert!(
+        application
+            .editor_locations
+            .current(destination_view)
+            .is_none()
+    );
+    assert!(closed_peek_highlights.is_cancelled());
+    let readonly_path = std::path::Path::new(&peek_path);
+    let readonly_save = application.store.save_snapshot(peek_document).unwrap();
+    std::fs::write(readonly_path, readonly_save.rope().to_string()).unwrap();
+    assert!(application.store.mark_saved(readonly_save, None).unwrap());
+    let mut readonly_file = taide_file::service::open_file(readonly_path, &[], false).unwrap();
+    readonly_file.read_only = true;
+    application
+        .store
+        .refresh_clean_file(peek_document, readonly_path, readonly_file)
+        .unwrap();
+    let readonly_before = application
+        .store
+        .documents()
+        .snapshot(peek_document)
+        .unwrap();
+    assert!(readonly_before.metadata.read_only);
+    assert_eq!(
+        readonly_before.metadata.tier,
+        taide_model::file::FileSizeTier::Normal
+    );
+    let root_before_closing = application
+        .store
+        .views()
+        .get(destination_view)
+        .unwrap()
+        .clone();
+    application
+        .store
+        .set_view_state(
+            destination_view,
+            taide_native_editor::view::SelectionSet::default(),
+            root_before_closing.scroll,
+            root_before_closing.folds,
+        )
+        .unwrap();
+    paint(application, Vec::new());
+    let root_closing_focus = application
+        .editor_keymap_targets
+        .iter()
+        .filter(|((viewport, id), (target, _))| {
+            *viewport == egui::ViewportId::ROOT
+                && *target == destination_view
+                && taide_native_ui::editor_surface::NativeEditor::is_body_focus_target(
+                    &context, *id,
+                )
+        })
+        .max_by_key(|(_, (_, pass))| *pass)
+        .map(|((_, id), _)| *id)
+        .unwrap();
+    context.memory_mut(|memory| memory.request_focus(root_closing_focus));
+    let readonly_tab = application
+        .store
+        .views()
+        .get(destination_view)
+        .unwrap()
+        .key
+        .tab
+        .clone();
+    wait_for(
+        application,
+        &context,
+        "root-highlights-before-exit",
+        |application| {
+            paint(application, Vec::new());
+            application
+                .controller
+                .snapshot()
+                .focused_tab()
+                .is_some_and(|tab| tab.id == readonly_tab)
+                && application
+                    .editor_highlights
+                    .current_request(egui::ViewportId::ROOT)
+                    .is_some_and(|request| request.source == destination_view)
+                && application.editor_highlights.has_highlights(
+                    &application.store,
+                    egui::ViewportId::ROOT,
+                    destination_view,
+                )
+        },
+    );
+    let closing_highlights = application
+        .editor_highlights
+        .current_request(egui::ViewportId::ROOT)
+        .unwrap();
+    assert!(context.memory(|memory| memory.has_focus(root_closing_focus)));
+    assert_eq!(closing_highlights.owner, destination_view);
+    assert_eq!(
+        application.controller.snapshot().focused_tab().unwrap().id,
+        application
+            .store
+            .views()
+            .get(destination_view)
+            .unwrap()
+            .key
+            .tab
+    );
+    assert!(application.pending_disk_choice.is_none());
+    let expected_readonly = taide_native_editor::lsp::range_to_bytes(
+        &readonly_before,
+        taide_native_editor::lsp::LspRange::new(
+            taide_native_editor::lsp::Position::new(2, 0),
+            taide_native_editor::lsp::Position::new(2, 3),
+        ),
+    )
+    .unwrap();
+    application.document_edits.push((
+        readonly_tab.clone(),
+        DocumentEdit::Highlight(crate::command_registry::HighlightCommand::Previous),
+    ));
+    paint(application, Vec::new());
+    assert_eq!(
+        application
+            .store
+            .views()
+            .get(destination_view)
+            .unwrap()
+            .selection
+            .selections[0]
+            .head,
+        expected_readonly.start,
+        "readonly queued highlight command"
+    );
+    application.document_edits.push((
+        readonly_tab.clone(),
+        DocumentEdit::Highlight(crate::command_registry::HighlightCommand::Next),
+    ));
+    paint(application, Vec::new());
+    assert_eq!(
+        application
+            .store
+            .views()
+            .get(destination_view)
+            .unwrap()
+            .selection
+            .selections[0]
+            .head,
+        0,
+        "readonly queued highlight command return"
+    );
+    assert_eq!(
+        context.memory(|memory| memory.focused()),
+        Some(root_closing_focus)
+    );
+    assert!(
+        application.editor_highlights.has_highlights(
+            &application.store,
+            egui::ViewportId::ROOT,
+            destination_view
+        ),
+        "readonly cached marks after queued movement"
+    );
+    assert_eq!(
+        application.editor_highlights.source_for_owner(
+            &application.store,
+            egui::ViewportId::ROOT,
+            destination_view
+        ),
+        destination_view
+    );
+    let readonly_shell = application.controller.snapshot();
+    let readonly_project = readonly_shell.focused_project().unwrap();
+    let readonly_global_key = taide_native_editor::view::ViewKey {
+        window: WINDOW_LABEL.into(),
+        pane: readonly_shell.layouts[readonly_project]
+            .focused_pane
+            .clone(),
+        tab: readonly_tab.clone(),
+    };
+    assert_eq!(
+        application.store.views().find(&readonly_global_key),
+        Some(destination_view),
+        "readonly global editor binding"
+    );
+    let readonly_actions = crate::command_dispatch::active_editor_actions(
+        &application.store,
+        Some(&application.store.views().get(destination_view).unwrap().key),
+    )
+    .unwrap();
+    assert!(readonly_actions.contains("editor.action.wordHighlight.prev"));
+    let readonly_context = crate::command_dispatch::context(
+        &application.controller.snapshot(),
+        &application.shell.scope,
+        Some(readonly_actions),
+    );
+    assert!(crate::command_dispatch::accepts(
+        "monaco.editor.action.wordHighlight.prev",
+        true,
+        &readonly_context
+    ));
+    assert_eq!(
+        context.keyboard_focus_before_events(),
+        Some(root_closing_focus)
+    );
+    application.terminal_views.clear_keymap_chord(&context);
+    assert!(
+        application
+            .terminal_views
+            .chord_status(&context, Instant::now())
+            .shortcut
+            .is_none(),
+        "readonly key test must not inherit a chord"
+    );
+    paint(
+        application,
+        vec![
+            egui::Event::ModifiersChanged(egui::Modifiers::SHIFT),
+            egui::Event::Key {
+                key: egui::Key::F7,
+                physical_key: Some(egui::Key::F7),
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::SHIFT,
+            },
+            egui::Event::Key {
+                key: egui::Key::F7,
+                physical_key: Some(egui::Key::F7),
+                pressed: false,
+                repeat: false,
+                modifiers: egui::Modifiers::SHIFT,
+            },
+        ],
+    );
+    let readonly_key_queued = application.document_edits.iter().any(|(owner, edit)| {
+        *owner == readonly_tab
+            && matches!(
+                edit,
+                DocumentEdit::Highlight(crate::command_registry::HighlightCommand::Previous)
+            )
+    });
+    let readonly_first_key_caret = application
+        .store
+        .views()
+        .get(destination_view)
+        .unwrap()
+        .selection
+        .selections[0]
+        .head;
+    paint(application, Vec::new());
+    assert_eq!(
+        application
+            .store
+            .views()
+            .get(destination_view)
+            .unwrap()
+            .selection
+            .selections[0]
+            .head,
+        expected_readonly.start,
+        "readonly F7 first={readonly_first_key_caret}; queued={readonly_key_queued}; busy={}; disk_choice={}; tab_close={}; shutting_down={}; status={:?}",
+        application.workspace_busy(),
+        application.pending_disk_choice.is_some(),
+        application.pending_tab_close.is_some(),
+        application.services.state.is_shutting_down(),
+        application.status
+    );
+    paint(application, vec![egui::Event::Text("z".into())]);
+    let readonly_after = application
+        .store
+        .documents()
+        .snapshot(peek_document)
+        .unwrap();
+    assert!(readonly_after.metadata.read_only);
+    assert_eq!(readonly_after.revision, readonly_before.revision);
+    assert_eq!(readonly_after.rope, readonly_before.rope);
+    assert!(!closing_highlights.is_cancelled());
     let baseline_documents = application
         .store
         .documents()
@@ -1967,6 +2591,7 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
         .clone();
     application.close(&context);
     assert!(closing_hover.is_cancelled());
+    assert!(closing_highlights.is_cancelled());
     assert_eq!(
         baseline_documents,
         application

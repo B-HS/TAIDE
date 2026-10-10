@@ -1042,6 +1042,9 @@ impl MockServer {
                     "empty" => json!([]),
                     "null" => Value::Null,
                     "bad" => json!([{ "range": false }]),
+                    "alternate" => {
+                        json!([{ "range": {"start":{"line":0,"character":0},"end":{"line":0,"character":3}}, "kind":3 }])
+                    }
                     _ => json!([
                         { "range": {"start":{"line":0,"character":0},"end":{"line":0,"character":5}} },
                         { "range": {"start":{"line":1,"character":4},"end":{"line":1,"character":10}}, "kind":2 },
@@ -1386,6 +1389,7 @@ fn main() -> io::Result<ExitCode> {
         Some("--save-lifecycle") => server.should_track_saves = true,
         Some(
             mode @ ("--native-highlights"
+            | "--native-highlights-alternate"
             | "--native-highlights-empty"
             | "--native-highlights-null"
             | "--native-highlights-error"
@@ -1395,6 +1399,7 @@ fn main() -> io::Result<ExitCode> {
         ) => {
             server.should_track_saves = true;
             server.highlights = Some(match mode {
+                "--native-highlights-alternate" => "alternate",
                 "--native-highlights-empty" => "empty",
                 "--native-highlights-null" => "null",
                 "--native-highlights-error" => "error",
@@ -1416,6 +1421,7 @@ fn main() -> io::Result<ExitCode> {
         Some(
             mode @ ("--native-documentation"
             | "--native-documentation-peek"
+            | "--native-documentation-peek-highlights"
             | "--native-documentation-empty"
             | "--native-documentation-null"
             | "--native-documentation-error"
@@ -1426,8 +1432,14 @@ fn main() -> io::Result<ExitCode> {
             | "--native-documentation-unsupported"),
         ) => {
             server.should_track_saves = true;
-            if mode == "--native-documentation-peek" {
+            if matches!(
+                mode,
+                "--native-documentation-peek" | "--native-documentation-peek-highlights"
+            ) {
                 server.locations = Some("normal");
+            }
+            if mode == "--native-documentation-peek-highlights" {
+                server.highlights = Some("normal");
             }
             server.documentation = Some(match mode {
                 "--native-documentation-empty" => "empty",

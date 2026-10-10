@@ -10,6 +10,147 @@ const DEBOUNCE: Duration = Duration::from_millis(50);
 const CARET_BYTE: usize = 13;
 const READY_DEADLINE: Duration = Duration::from_secs(5);
 
+#[tokio::test]
+async fn multihighlight_실제_공급자_우선순위_빈_null_오류_대체와_프로젝트_소유를_보존한다() {
+    use std::os::unix::fs::PermissionsExt;
+    const EXECUTABLE_MODE: u32 = 0o700;
+    const PROVIDER_COUNT: usize = 2;
+    const PROJECT_COUNT: usize = 2;
+    for (mode, expected_id, expected_highlights) in [
+        ("--native-highlights-alternate", "ruff", 1),
+        ("--native-highlights-empty", "ruff", 0),
+        ("--native-highlights-null", "ruff", 0),
+        ("--native-highlights-error", "basedPyright", 3),
+        ("--native-highlights-bad", "basedPyright", 3),
+        ("--native-highlights-unsupported", "basedPyright", 3),
+    ] {
+        tokio::time::timeout(DEADLINE, async {
+            let (fixture, project, mut store, id, bin) =
+                document_symbol_tests::fixture("--native-highlights");
+            let rust = store.documents().snapshot(id).unwrap();
+            let DocumentKey::File(path) = &rust.key else {
+                panic!("file fixture");
+            };
+            let python = path.parent().unwrap().join("source.py");
+            std::fs::write(&python, "class\n  \u{1f600}method\nend").unwrap();
+            let file = taide_file::service::open_file(&python, &[], false).unwrap();
+            let id = store.open_file(python, file).unwrap();
+            let snapshot = store.documents().snapshot(id).unwrap();
+            assert_eq!(snapshot.metadata.language_id, "python");
+            let view = store
+                .attach_view(
+                    ViewKey {
+                        window: "synthetic".into(),
+                        pane: PaneId::new(),
+                        tab: TabId::new(),
+                    },
+                    id,
+                )
+                .unwrap();
+            let mock = std::env::current_exe()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("examples/native-lsp-mock");
+            let escaped = mock.to_str().unwrap().replace('\'', "'\\''");
+            for (binary, mode) in [
+                ("basedpyright-langserver", "--native-highlights"),
+                ("ruff", mode),
+            ] {
+                let path = std::path::PathBuf::from(&bin).join(binary);
+                std::fs::write(&path, format!("#!/bin/sh\nexec '{escaped}' {mode}\n")).unwrap();
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(EXECUTABLE_MODE))
+                    .unwrap();
+            }
+            let other = ProjectId::new();
+            let mut entry = fixture.services.state.projects.read()[&project].clone();
+            entry.id = other.clone();
+            fixture
+                .services
+                .state
+                .projects
+                .write()
+                .insert(other.clone(), entry);
+            let signal = Arc::new(Notify::new());
+            let repaint = signal.clone();
+            let mut bridge = LspBridge::connect(
+                fixture.services.clone(),
+                bin,
+                Arc::new(move || repaint.notify_one()),
+            )
+            .unwrap();
+            bridge.sync(project.clone(), snapshot.clone()).unwrap();
+            bridge.sync(other.clone(), snapshot.clone()).unwrap();
+            running(
+                &mut bridge,
+                &signal,
+                &fixture,
+                PROVIDER_COUNT * PROJECT_COUNT,
+            )
+            .await;
+            let providers = bridge.highlight_providers(&project, &snapshot);
+            let foreign = bridge.highlight_providers(&other, &snapshot);
+            let expected_count = if mode == "--native-highlights-unsupported" {
+                PROVIDER_COUNT - 1
+            } else {
+                PROVIDER_COUNT
+            };
+            assert_eq!(providers.len(), expected_count, "{mode}");
+            assert_eq!(foreign.len(), expected_count);
+            assert!(providers.is_disjoint(&foreign));
+            let expected_name = taide_lsp::manifest::servers()
+                .iter()
+                .find(|spec| spec.id.0 == expected_id)
+                .unwrap()
+                .name
+                .clone();
+            let expected_owner = bridge
+                .states
+                .borrow()
+                .iter()
+                .find(|entry| entry.project == project && entry.name == expected_name)
+                .unwrap()
+                .owner;
+            let mut state = State::default();
+            let context = || Context {
+                project: project.clone(),
+                owner: view,
+                source: view,
+                viewport: eframe::egui::ViewportId::ROOT,
+            };
+            let now = Instant::now();
+            state
+                .observe(&store, context(), providers.clone(), now)
+                .unwrap();
+            let request = state
+                .observe(&store, context(), providers.clone(), now + DEBOUNCE)
+                .unwrap()
+                .unwrap();
+            bridge.highlights(request.clone()).unwrap();
+            loop {
+                if let Reply::Highlights {
+                    request: returned,
+                    result,
+                } = next(&mut bridge, &signal).await
+                {
+                    let response = result.unwrap();
+                    assert_eq!(response.provider.unwrap().owner, expected_owner, "{mode}");
+                    assert_eq!(response.highlights.len(), expected_highlights, "{mode}");
+                    assert!(state.accept(&store, &returned, providers.clone(), Ok(response)));
+                    break;
+                }
+            }
+            bridge.disconnect().await.unwrap();
+            fixture.services.tasks.shutdown().await;
+            assert_eq!(fixture.services.tasks.tracked_count(), 0);
+        })
+        .await
+        .unwrap();
+    }
+}
+
 async fn next(bridge: &mut LspBridge, signal: &Notify) -> Reply {
     loop {
         if let Some(reply) = bridge.poll() {
@@ -23,6 +164,7 @@ async fn running(
     bridge: &mut LspBridge,
     signal: &Notify,
     fixture: &document_symbol_tests::Fixture,
+    expected_count: usize,
 ) {
     let ready = tokio::time::timeout(READY_DEADLINE, async {
         loop {
@@ -33,7 +175,7 @@ async fn running(
             }
             let ready = {
                 let states = bridge.states.borrow();
-                !states.is_empty()
+                states.len() == expected_count
                     && states
                         .iter()
                         .all(|state| state.snapshot.phase == Phase::Running)
@@ -86,7 +228,7 @@ async fn 실제_child와_문서_mirror의_utf16_하이라이트는_정상_빈_nu
             let snapshot = store.documents().snapshot(id).unwrap();
             bridge.sync(project.clone(), snapshot.clone()).unwrap();
             phase = format!("{mode}:initialize");
-            running(&mut bridge, &signal, &fixture).await;
+            running(&mut bridge, &signal, &fixture, 1).await;
             let view = store
                 .attach_view(
                     ViewKey {
@@ -205,7 +347,7 @@ async fn 실제_child의_대기_요청은_뷰_회수로_취소되고_정상_종�
         .unwrap();
         let snapshot = store.documents().snapshot(id).unwrap();
         bridge.sync(project.clone(), snapshot.clone()).unwrap();
-        running(&mut bridge, &signal, &fixture).await;
+        running(&mut bridge, &signal, &fixture, 1).await;
         let view = store
             .attach_view(
                 ViewKey {

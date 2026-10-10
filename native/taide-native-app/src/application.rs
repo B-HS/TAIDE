@@ -2094,6 +2094,7 @@ impl NativeApplication {
         }
         self.app_file_views.clear();
         self.editor_completion.clear();
+        self.editor_highlights.clear();
         if let Err(error) = self
             .editor_documentation
             .clear(&mut self.store, &mut self.editor_syntax)

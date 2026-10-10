@@ -1,6 +1,6 @@
 {
     "date": "2026-10-10",
-    "baseline": "3f3df987",
+    "baseline": "a296a28e",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -722,7 +722,8 @@
                 "native/taide-native-ui/src/keymap.rs",
                 "native/taide-native-ui/src/editor-highlights-keymap-defaults.json",
                 "crates/taide-lsp/src/native/feature.rs",
-                "native/taide-native-editor/src/decoration.rs"
+                "native/taide-native-editor/src/decoration.rs",
+                "native/taide-native-ui/src/editor_surface.rs"
             ],
             "tests": [
                 "native/taide-native-app/src/editor-highlights-tests.rs",
@@ -732,7 +733,7 @@
                 "native/taide-native-ui/src/command-registry.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-10-native-batch23-editor.md"],
-            "limitation": "typed 공급·취소·종류/테마·mirror·본문/peek 소비와 F7/Shift+F7·명시 trigger·표시 재사용을 연결했습니다. 상태 14·실제 앱 본문 그리기/순환/trigger 1·readonly 명령 등록/플랫폼 20과 변경 없는 child 2의 근거를 QA에 기록합니다. 실제 peek 시작·추가 공급자/readonly/tier의 앱 검증과 배치 전체·실기 게이트가 남아 partial입니다."
+            "limitation": "상태 15·실제 child 3·실제 앱 1건 통과입니다. 앱 검사에 peek 표시/이동/trigger/편집/닫기와 normal tier readonly queued 이동/ShiftF7/입력 거절·종료 회수를 포함합니다. CtrlK 이후 Escape로 전역 대기가 해제되지 않는 연계는 별도 미해결이며 큰 tier/공급자 변화/원본 설정·배치 전체/실기 게이트 전에는 complete로 올리지 않습니다."
         }
     },
     "rows": [
@@ -2384,7 +2385,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-highlights",
-            "note": "배치 23 공급 커밋 3f3df987와 후속 이동 작업에서 typed LSP/취소/본문·peek 공급·실제 앱 본문 표시/F7/Shift+F7/trigger와 표시 재사용을 연결했습니다. 상태·등록·키맵과 실제 앱 검증은 QA에 기록하며 실제 peek 시작/추가 경계·배치 전체 게이트가 남아 complete로 올리지 않습니다."
+            "note": "배치 23 a296a28e와 후속 종료 회수 작업에서 공급·표시·본문/peek 이동·trigger·취소와 실제 다중 공급자/프로젝트 소유를 연결했습니다. 상태 15·child 3·실제 앱 1건 통과를 QA에 기록합니다. readonly 기본 키는 독립 입력 단계에서 검증했으며 이전 CtrlK 대기/로컬 Escape 연계·큰 tier/공급자 변화·배치 전체 게이트가 남아 partial입니다."
         },
         {
             "id": "editor-52",
