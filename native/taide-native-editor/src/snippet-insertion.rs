@@ -1,6 +1,8 @@
 use std::ops::Range;
 
-use crate::document::{DocumentId, Edit, EditorError, UndoGroup, byte_to_char};
+use crate::document::{
+    DocumentId, DocumentSnapshot, Edit, EditorError, UndoGroup, apply_edits, byte_to_char,
+};
 use crate::snippet_expansion::{Expansion, PlaceholderSpan};
 use crate::snippet_normalization::own_cost;
 use crate::snippet_syntax::{Index, Marker, ParseLimits};
@@ -29,6 +31,12 @@ pub struct Insertion {
     pub primary_cursor: usize,
 }
 
+pub(crate) struct Plan {
+    pub document: DocumentSnapshot,
+    pub transaction: Transaction,
+    pub insertion: Insertion,
+}
+
 pub fn insert(
     store: &mut EditorStore,
     expected_view: &ViewState,
@@ -36,6 +44,17 @@ pub fn insert(
     snippets: Vec<PreparedSnippet>,
     limits: ParseLimits,
 ) -> Result<Insertion, EditorError> {
+    let plan = prepare(store, expected_view, revision, snippets, limits)?;
+    apply(store, plan)
+}
+
+pub(crate) fn prepare(
+    store: &EditorStore,
+    expected_view: &ViewState,
+    revision: u64,
+    snippets: Vec<PreparedSnippet>,
+    limits: ParseLimits,
+) -> Result<Plan, EditorError> {
     let view = expected_view.id;
     let owner = store.views().get(view).ok_or(EditorError::NotFound)?;
     if owner.document != expected_view.document {
@@ -236,34 +255,48 @@ pub fn insert(
         selections,
     };
     edits.retain(|edit| !edit.bytes.is_empty() || !edit.text.is_empty());
-    let revision = store.apply_separate(
-        document.id,
-        Transaction {
+    let (rope, _) = apply_edits(&document.rope, &edits, store.document_byte_limit())?;
+    let projected = DocumentSnapshot { rope, ..document };
+    selection.validate(&projected.rope)?;
+    Ok(Plan {
+        transaction: Transaction {
             revision,
             edits,
             group: UndoGroup(revision),
             origin: Some(view),
             selection_after: Some(selection.clone()),
         },
-    )?;
+        insertion: Insertion {
+            document: projected.id,
+            view,
+            revision,
+            snippets: placements,
+            selection,
+            primary_cursor: selection_before.primary,
+        },
+        document: projected,
+    })
+}
+
+pub(crate) fn apply(store: &mut EditorStore, plan: Plan) -> Result<Insertion, EditorError> {
+    let mut insertion = plan.insertion;
+    insertion.revision = store.apply_separate(insertion.document, plan.transaction)?;
     if store
         .views()
-        .get(view)
-        .is_some_and(|view| view.selection != selection)
+        .get(insertion.view)
+        .is_some_and(|view| view.selection != insertion.selection)
     {
         let state = store
             .views()
-            .get(view)
+            .get(insertion.view)
             .ok_or(EditorError::NotFound)?
             .clone();
-        store.set_view_state(view, selection.clone(), state.scroll, state.folds)?;
+        store.set_view_state(
+            insertion.view,
+            insertion.selection.clone(),
+            state.scroll,
+            state.folds,
+        )?;
     }
-    Ok(Insertion {
-        document: document.id,
-        view,
-        revision,
-        snippets: placements,
-        selection,
-        primary_cursor: selection_before.primary,
-    })
+    Ok(insertion)
 }

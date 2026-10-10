@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 
 use crate::change_journal::ChangesSince;
@@ -7,13 +7,13 @@ use crate::document::{
 };
 use crate::editing::replacement_transaction;
 use crate::indent::IndentOptions;
-use crate::snippet_insertion::Insertion;
+use crate::snippet_insertion::{self, Insertion, PreparedSnippet};
 use crate::snippet_normalization::own_cost;
 use crate::snippet_syntax::{Index, Marker, ParseLimits, Transform};
 use crate::snippet_tracking::map_utf16_range;
 use crate::snippet_whitespace::normalize_transform;
 use crate::store::{EditorStore, Transaction};
-use crate::view::{Selection, SelectionSet, ViewId};
+use crate::view::{Selection, SelectionSet, ViewId, ViewState};
 
 pub struct TransformRequest<'a> {
     pub transform: &'a Transform,
@@ -32,6 +32,9 @@ struct Placeholder {
     enclosing: Vec<usize>,
     transform: Option<Transform>,
     choices: Option<Vec<String>>,
+    context: usize,
+    owned_bytes: usize,
+    owned_markers: usize,
 }
 
 #[derive(Clone)]
@@ -40,6 +43,12 @@ struct Snippet {
     placeholders: Vec<Placeholder>,
     groups: Vec<Vec<usize>>,
     active_group: usize,
+    contexts: Vec<Context>,
+}
+
+#[derive(Clone)]
+struct Context {
+    cursor_index: usize,
     line_leading_whitespace: String,
 }
 
@@ -91,103 +100,7 @@ impl Session {
         if document.revision != insertion.revision {
             return Err(EditorError::StaleRevision);
         }
-        if indent.tab_size == 0 {
-            return Err(EditorError::InvalidBoundary);
-        }
-        let primary_cursor = insertion.primary_cursor;
-        if !insertion
-            .snippets
-            .iter()
-            .any(|snippet| snippet.cursor_index == primary_cursor)
-        {
-            return Err(EditorError::InvalidBoundary);
-        }
-        let mut snippets = Vec::new();
-        let mut allocated_bytes = 0usize;
-        let mut allocated_markers = 0usize;
-        for snippet in insertion.snippets {
-            allocated_bytes = allocated_bytes
-                .checked_add(snippet.line_leading_whitespace.len())
-                .ok_or(EditorError::Capacity)?;
-            let mut placeholders = Vec::new();
-            for span in snippet.placeholders {
-                let mut nodes = snippet.markers.as_slice();
-                let mut marker = None;
-                for index in &span.marker_path {
-                    let node = nodes.get(*index).ok_or(EditorError::InvalidBoundary)?;
-                    marker = Some(node);
-                    nodes = match node {
-                        Marker::Text(_) => &[],
-                        Marker::Placeholder { children, .. }
-                        | Marker::Variable { children, .. } => children,
-                    };
-                }
-                let Some(Marker::Placeholder {
-                    transform, choices, ..
-                }) = marker
-                else {
-                    return Err(EditorError::InvalidBoundary);
-                };
-                let (bytes, markers) = own_cost(marker.ok_or(EditorError::InvalidBoundary)?)?;
-                allocated_bytes = allocated_bytes
-                    .checked_add(bytes)
-                    .ok_or(EditorError::Capacity)?;
-                allocated_markers = allocated_markers
-                    .checked_add(markers)
-                    .ok_or(EditorError::Capacity)?;
-                if allocated_bytes > limits.max_bytes || allocated_markers > limits.max_markers {
-                    return Err(EditorError::Capacity);
-                }
-                let start = document
-                    .rope
-                    .char_to_utf16_cu(byte_to_char(&document.rope, span.bytes.start)?);
-                let end = document
-                    .rope
-                    .char_to_utf16_cu(byte_to_char(&document.rope, span.bytes.end)?);
-                placeholders.push(Placeholder {
-                    index: span.index,
-                    units: start..end,
-                    authored_nonempty: start < end,
-                    enclosing: span.enclosing,
-                    transform: transform.clone(),
-                    choices: choices.clone(),
-                });
-            }
-            let mut indices = placeholders
-                .iter()
-                .map(|placeholder| placeholder.index)
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .collect::<Vec<_>>();
-            indices.sort_by_key(|index| (*index == Index::FINAL, *index));
-            let groups = indices
-                .into_iter()
-                .map(|index| {
-                    placeholders
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, placeholder)| placeholder.index == index)
-                        .map(|(index, _)| index)
-                        .collect()
-                })
-                .collect();
-            snippets.push(Snippet {
-                cursor_index: snippet.cursor_index,
-                placeholders,
-                groups,
-                active_group: 0,
-                line_leading_whitespace: snippet.line_leading_whitespace,
-            });
-        }
-        let state = State {
-            document: insertion.document,
-            view: insertion.view,
-            revision: insertion.revision,
-            edit_group: UndoGroup(insertion.revision),
-            primary_cursor,
-            snippets,
-            indent,
-        };
+        let state = State::from_insertion(&document, &insertion, indent, limits)?;
         let mut session = Self {
             state: Some(state),
             limits,
@@ -201,6 +114,58 @@ impl Session {
             session.cancel();
         }
         Ok(session)
+    }
+
+    pub fn insert_nested(
+        &mut self,
+        store: &mut EditorStore,
+        expected_view: &ViewState,
+        revision: u64,
+        snippets: Vec<PreparedSnippet>,
+    ) -> Result<(), EditorError> {
+        let document = self.validate(store)?;
+        let state = self.state.as_ref().ok_or(EditorError::Refused)?;
+        if expected_view.id != state.view || expected_view.document != state.document {
+            return Err(EditorError::InvalidIdentity);
+        }
+        let mut plan =
+            snippet_insertion::prepare(store, expected_view, revision, snippets, self.limits)?;
+        let nested =
+            State::from_insertion(&plan.document, &plan.insertion, state.indent, self.limits)?;
+        let parents = state.nested_parents(&document, &expected_view.selection)?;
+        let mut next = state.clone();
+        next.map_edits(&document, &plan.transaction.edits)?;
+        let nontrivial = nested.snippets.iter().any(|snippet| {
+            snippet
+                .placeholders
+                .iter()
+                .any(|placeholder| placeholder.index != Index::FINAL)
+        });
+        if nontrivial && let Some(parents) = parents {
+            next.merge(nested, parents, self.limits)?;
+            plan.insertion.selection = next.selection(&plan.document)?;
+        } else {
+            plan.insertion.selection = SelectionSet {
+                primary: expected_view.selection.primary,
+                selections: plan
+                    .insertion
+                    .snippets
+                    .iter()
+                    .map(|snippet| Selection {
+                        anchor: snippet.bytes.end,
+                        head: snippet.bytes.end,
+                    })
+                    .collect(),
+            };
+        }
+        plan.insertion.selection.validate(&plan.document.rope)?;
+        plan.transaction.selection_after = Some(plan.insertion.selection.clone());
+        let insertion = snippet_insertion::apply(store, plan)?;
+        next.revision = insertion.revision;
+        next.edit_group = UndoGroup(insertion.revision);
+        self.state = Some(next);
+        self.synchronize(store);
+        Ok(())
     }
 
     pub fn is_active(&self) -> bool {
@@ -452,17 +417,21 @@ impl Session {
                         return Err(EditorError::Capacity);
                     }
                     let current = document.rope.byte_slice(range.clone()).to_string();
+                    let context = snippet
+                        .contexts
+                        .get(placeholder.context)
+                        .ok_or(EditorError::InvalidBoundary)?;
                     let text = evaluate(TransformRequest {
                         transform,
                         value: &current,
-                        cursor_index: snippet.cursor_index,
-                        line_leading_whitespace: &snippet.line_leading_whitespace,
+                        cursor_index: context.cursor_index,
+                        line_leading_whitespace: &context.line_leading_whitespace,
                         indent: state.indent,
                         line_ending: document.metadata.line_ending,
                     })?;
                     let text = normalize_transform(
                         &text,
-                        &snippet.line_leading_whitespace,
+                        &context.line_leading_whitespace,
                         state.indent,
                         document.metadata.line_ending,
                         self.limits.max_bytes,
@@ -555,6 +524,306 @@ fn byte_range(
 }
 
 impl State {
+    fn from_insertion(
+        document: &DocumentSnapshot,
+        insertion: &Insertion,
+        indent: IndentOptions,
+        limits: ParseLimits,
+    ) -> Result<Self, EditorError> {
+        if indent.tab_size == 0 {
+            return Err(EditorError::InvalidBoundary);
+        }
+        let primary_cursor = insertion.primary_cursor;
+        if !insertion
+            .snippets
+            .iter()
+            .any(|snippet| snippet.cursor_index == primary_cursor)
+        {
+            return Err(EditorError::InvalidBoundary);
+        }
+        let mut snippets = Vec::new();
+        let mut allocated_bytes = 0usize;
+        let mut allocated_markers = 0usize;
+        for snippet in &insertion.snippets {
+            allocated_bytes = allocated_bytes
+                .checked_add(snippet.line_leading_whitespace.len())
+                .ok_or(EditorError::Capacity)?;
+            let mut placeholders = Vec::new();
+            for span in &snippet.placeholders {
+                let mut nodes = snippet.markers.as_slice();
+                let mut marker = None;
+                for index in &span.marker_path {
+                    let node = nodes.get(*index).ok_or(EditorError::InvalidBoundary)?;
+                    marker = Some(node);
+                    nodes = match node {
+                        Marker::Text(_) => &[],
+                        Marker::Placeholder { children, .. }
+                        | Marker::Variable { children, .. } => children,
+                    };
+                }
+                let Some(Marker::Placeholder {
+                    transform, choices, ..
+                }) = marker
+                else {
+                    return Err(EditorError::InvalidBoundary);
+                };
+                let (bytes, markers) = own_cost(marker.ok_or(EditorError::InvalidBoundary)?)?;
+                allocated_bytes = allocated_bytes
+                    .checked_add(bytes)
+                    .ok_or(EditorError::Capacity)?;
+                allocated_markers = allocated_markers
+                    .checked_add(markers)
+                    .ok_or(EditorError::Capacity)?;
+                if allocated_bytes > limits.max_bytes || allocated_markers > limits.max_markers {
+                    return Err(EditorError::Capacity);
+                }
+                let start = document
+                    .rope
+                    .char_to_utf16_cu(byte_to_char(&document.rope, span.bytes.start)?);
+                let end = document
+                    .rope
+                    .char_to_utf16_cu(byte_to_char(&document.rope, span.bytes.end)?);
+                placeholders.push(Placeholder {
+                    index: span.index,
+                    units: start..end,
+                    authored_nonempty: start < end,
+                    enclosing: span.enclosing.clone(),
+                    transform: transform.clone(),
+                    choices: choices.clone(),
+                    context: 0,
+                    owned_bytes: bytes,
+                    owned_markers: markers,
+                });
+            }
+            let mut indices = placeholders
+                .iter()
+                .map(|placeholder| placeholder.index)
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>();
+            indices.sort_by_key(|index| (*index == Index::FINAL, *index));
+            let groups = indices
+                .into_iter()
+                .map(|index| {
+                    placeholders
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, placeholder)| placeholder.index == index)
+                        .map(|(index, _)| index)
+                        .collect()
+                })
+                .collect();
+            snippets.push(Snippet {
+                cursor_index: snippet.cursor_index,
+                placeholders,
+                groups,
+                active_group: 0,
+                contexts: vec![Context {
+                    cursor_index: snippet.cursor_index,
+                    line_leading_whitespace: snippet.line_leading_whitespace.clone(),
+                }],
+            });
+        }
+        Ok(Self {
+            document: insertion.document,
+            view: insertion.view,
+            revision: insertion.revision,
+            edit_group: UndoGroup(insertion.revision),
+            primary_cursor,
+            snippets,
+            indent,
+        })
+    }
+
+    fn nested_parents(
+        &self,
+        document: &DocumentSnapshot,
+        selection: &SelectionSet,
+    ) -> Result<Option<Vec<Vec<(usize, usize)>>>, EditorError> {
+        let count = self
+            .snippets
+            .iter()
+            .map(|snippet| snippet.groups[snippet.active_group].len())
+            .sum::<usize>();
+        if count != selection.selections.len() {
+            return Ok(None);
+        }
+        let mut used = BTreeSet::new();
+        let mut parents = Vec::new();
+        for snippet in &self.snippets {
+            let mut matches = Vec::new();
+            for parent in &snippet.groups[snippet.active_group] {
+                let range = byte_range(document, &snippet.placeholders[*parent].units)?;
+                let cursor = selection
+                    .selections
+                    .iter()
+                    .enumerate()
+                    .find(|(cursor, selection)| {
+                        !used.contains(cursor)
+                            && range.start <= selection.anchor.min(selection.head)
+                            && selection.anchor.max(selection.head) <= range.end
+                    });
+                let Some((cursor, _)) = cursor else {
+                    return Ok(None);
+                };
+                used.insert(cursor);
+                matches.push((*parent, cursor));
+            }
+            parents.push(matches);
+        }
+        Ok(Some(parents))
+    }
+
+    fn merge(
+        &mut self,
+        nested: Self,
+        parents: Vec<Vec<(usize, usize)>>,
+        limits: ParseLimits,
+    ) -> Result<(), EditorError> {
+        let mut children = nested
+            .snippets
+            .into_iter()
+            .map(|snippet| (snippet.cursor_index, snippet))
+            .collect::<BTreeMap<_, _>>();
+        let mut orders = Vec::new();
+        let mut active_orders = Vec::new();
+        for (snippet, parents) in self.snippets.iter_mut().zip(parents) {
+            let removed = parents
+                .iter()
+                .map(|(parent, _)| *parent)
+                .collect::<BTreeSet<_>>();
+            let mut mapping = BTreeMap::new();
+            let mut placeholders = Vec::new();
+            let mut keys = Vec::new();
+            for (index, placeholder) in snippet.placeholders.iter().enumerate() {
+                if removed.contains(&index)
+                    || placeholder
+                        .enclosing
+                        .iter()
+                        .any(|parent| removed.contains(parent))
+                {
+                    continue;
+                }
+                mapping.insert(index, placeholders.len());
+                keys.push((placeholder.index, 0usize, false, Index::FINAL));
+                placeholders.push(placeholder.clone());
+            }
+            for placeholder in &mut placeholders {
+                placeholder.enclosing = placeholder
+                    .enclosing
+                    .iter()
+                    .map(|parent| {
+                        mapping
+                            .get(parent)
+                            .copied()
+                            .ok_or(EditorError::InvalidBoundary)
+                    })
+                    .collect::<Result<_, _>>()?;
+            }
+            let mut active_order = None;
+            for (parent, cursor) in parents {
+                let parent = &snippet.placeholders[parent];
+                let child = children
+                    .remove(&cursor)
+                    .ok_or(EditorError::InvalidBoundary)?;
+                let context_offset = snippet.contexts.len();
+                snippet.contexts.extend(child.contexts);
+                let placeholder_offset = placeholders.len();
+                let enclosing = parent
+                    .enclosing
+                    .iter()
+                    .map(|index| {
+                        mapping
+                            .get(index)
+                            .copied()
+                            .ok_or(EditorError::InvalidBoundary)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                for mut placeholder in child.placeholders {
+                    let key = (
+                        parent.index,
+                        1usize,
+                        placeholder.index == Index::FINAL,
+                        placeholder.index,
+                    );
+                    if placeholder.index != Index::FINAL {
+                        active_order = Some(active_order.map_or(key, |previous| key.min(previous)));
+                    }
+                    placeholder.enclosing = placeholder
+                        .enclosing
+                        .iter()
+                        .map(|index| {
+                            index
+                                .checked_add(placeholder_offset)
+                                .ok_or(EditorError::Capacity)
+                        })
+                        .chain(enclosing.iter().copied().map(Ok))
+                        .collect::<Result<_, _>>()?;
+                    placeholder.context = placeholder
+                        .context
+                        .checked_add(context_offset)
+                        .ok_or(EditorError::Capacity)?;
+                    keys.push(key);
+                    placeholders.push(placeholder);
+                }
+            }
+            snippet.placeholders = placeholders;
+            snippet.compact_contexts()?;
+            active_orders.push(active_order.ok_or(EditorError::InvalidBoundary)?);
+            orders.push(keys);
+        }
+        if !children.is_empty() {
+            return Err(EditorError::InvalidBoundary);
+        }
+        let unique = orders
+            .iter()
+            .flatten()
+            .copied()
+            .filter(|key| key.0 != Index::FINAL)
+            .collect::<BTreeSet<_>>();
+        let indices = unique
+            .into_iter()
+            .enumerate()
+            .map(|(ordinal, key)| {
+                Ok((
+                    key,
+                    Index::ordered(ordinal.checked_add(1).ok_or(EditorError::Capacity)?)?,
+                ))
+            })
+            .collect::<Result<BTreeMap<_, _>, EditorError>>()?;
+        let mut bytes = 0usize;
+        let mut markers = 0usize;
+        for ((snippet, orders), active) in self.snippets.iter_mut().zip(orders).zip(active_orders) {
+            for context in &snippet.contexts {
+                bytes = bytes
+                    .checked_add(context.line_leading_whitespace.len())
+                    .ok_or(EditorError::Capacity)?;
+            }
+            for (placeholder, order) in snippet.placeholders.iter_mut().zip(orders) {
+                placeholder.index = if order.0 == Index::FINAL {
+                    Index::FINAL
+                } else {
+                    *indices.get(&order).ok_or(EditorError::InvalidBoundary)?
+                };
+                bytes = bytes
+                    .checked_add(placeholder.owned_bytes)
+                    .ok_or(EditorError::Capacity)?;
+                markers = markers
+                    .checked_add(placeholder.owned_markers)
+                    .ok_or(EditorError::Capacity)?;
+                if placeholder.enclosing.len() > limits.max_nesting {
+                    return Err(EditorError::Capacity);
+                }
+            }
+            let active = *indices.get(&active).ok_or(EditorError::InvalidBoundary)?;
+            snippet.regroup(active)?;
+        }
+        if bytes > limits.max_bytes || markers > limits.max_markers {
+            return Err(EditorError::Capacity);
+        }
+        Ok(())
+    }
+
     fn selection(&self, document: &DocumentSnapshot) -> Result<SelectionSet, EditorError> {
         let mut selections = Vec::new();
         let mut primary = 0;
@@ -679,6 +948,49 @@ impl State {
                 )?;
             }
         }
+        Ok(())
+    }
+}
+
+impl Snippet {
+    fn compact_contexts(&mut self) -> Result<(), EditorError> {
+        let used = self
+            .placeholders
+            .iter()
+            .map(|placeholder| placeholder.context)
+            .collect::<BTreeSet<_>>();
+        let mut contexts = Vec::new();
+        let mut mapping = BTreeMap::new();
+        for index in used {
+            mapping.insert(index, contexts.len());
+            contexts.push(
+                self.contexts
+                    .get(index)
+                    .ok_or(EditorError::InvalidBoundary)?
+                    .clone(),
+            );
+        }
+        for placeholder in &mut self.placeholders {
+            placeholder.context = *mapping
+                .get(&placeholder.context)
+                .ok_or(EditorError::InvalidBoundary)?;
+        }
+        self.contexts = contexts;
+        Ok(())
+    }
+
+    fn regroup(&mut self, active: Index) -> Result<(), EditorError> {
+        let mut groups = BTreeMap::<Index, Vec<usize>>::new();
+        for (index, placeholder) in self.placeholders.iter().enumerate() {
+            groups.entry(placeholder.index).or_default().push(index);
+        }
+        let final_group = groups.remove(&Index::FINAL);
+        self.active_group = groups
+            .keys()
+            .position(|index| *index == active)
+            .ok_or(EditorError::InvalidBoundary)?;
+        self.groups = groups.into_values().collect();
+        self.groups.extend(final_group);
         Ok(())
     }
 }

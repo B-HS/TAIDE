@@ -4,12 +4,20 @@ use crate::document::EditorError;
 pub use crate::snippet_normalization::{FinalTabstopOptions, RegexMetadata, parse_complete};
 
 pub(crate) const MAX_STACK_DEPTH: usize = 128;
+const MAX_EXACT_INDEX: u64 = 1 << 53;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Index(f64);
 
 impl Index {
     pub const FINAL: Self = Self(0.0);
+
+    pub(crate) fn ordered(value: usize) -> Result<Self, EditorError> {
+        if value == 0 || u64::try_from(value).map_or(true, |value| value > MAX_EXACT_INDEX) {
+            return Err(EditorError::Capacity);
+        }
+        Ok(Self(value as f64))
+    }
 
     pub fn value(self) -> f64 {
         self.0

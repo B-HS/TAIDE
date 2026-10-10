@@ -239,6 +239,10 @@ impl EditorStore {
         })
     }
 
+    pub(crate) fn document_byte_limit(&self) -> usize {
+        self.limits.max_document_bytes
+    }
+
     pub fn documents(&self) -> &DocumentStore {
         &self.documents
     }

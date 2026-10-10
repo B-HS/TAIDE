@@ -45,3 +45,21 @@ snippet-default-input-after-adjacent.log에서 --test change-journal의 13건은
 ActiveChoice가 첫 커서 대신 원래 주 커서의 placeholder/index·선택지를 반환하도록 수정하고 select_active로 현재 활성 그룹의 전체 mirror 범위를 문서 변경 없이 다시 선택합니다. 문자 입력 후 축소된 커서 상태에서도 선택지 수락이 전체 placeholder를 대체할 수 있습니다. 앱은 선택지 삽입의 용량 거절 시 이전 선택/스크롤/접기를 복원하며 세션을 유지합니다. nested 삽입의 합성은 아직 남은 범위입니다.
 
 snippet-choice-core-api.log의 cargo test --manifest-path native/taide-native-editor/Cargo.toml --locked --offline --target-dir experiments/native-shell-spike/target --test snippet-insertion --test completion-insertion -- --test-threads=4는 exit 0·8+5통과입니다. 새 코어 1건은 두 원래 커서와 네 mirror/두 줄/이모지 입력 뒤 주 커서의 선택지 범위, select_active의 revision 불변/전체 mirror 선택과 다음 tabstop의 primary를 확인합니다. 앱 completion-choice-primary-capacity.log의 실제 Provider 메모리 입력 7건은 exit 0이며 선택지 UI·typed 필터/수락·다중 커서 primary·용량 거절을 확인합니다. 앱 전체 구현 근거는 배치 22 QA에 기록합니다. core fmt exit 0이며 이 결과를 배치 전체 게이트로 확대하지 않습니다.
+
+## 중첩 스니펫의 탭 이동과 원자적 삽입
+
+실제 설치된 Monaco 0.56.0 snippetSession.js의 OneSnippet.merge·SnippetSession.merge와 원본 controller의 기존 세션 병합 경로를 읽었습니다. 원본은 활성 placeholder의 각 발생에 안쪽 snippet을 연결하고, 안쪽 nonfinal 위치·안쪽 final 위치·바깥 다음 위치 순서로 이동합니다. 일반 텍스트/최종 위치만 있는 삽입은 기존 세션의 범위를 추적하며 유지합니다. 원본의 소수 index 누적으로 생기는 위치 충돌은 재현하지 않습니다.
+
+Session.insert_nested는 기존 insertion의 검증·위치 계산을 준비/적용 단계로 나눠 재사용합니다. projected Rope에서 안쪽 metadata·부모 대응·전체 합산 용량·선택과 UTF-16 범위를 검사한 뒤 Store의 분리 undo transaction을 적용합니다. 용량이나 준비물 검증 실패로 실제 문서·선택·revision·undo가 일부 변경되지 않습니다. 교체된 활성 부모와 이전 자손은 제거하고 살아 있는 상위 범위는 유지합니다. 안쪽 final은 일반 이동 위치로 승격하고 바깥 final만 세션을 끝냅니다. 각 커서의 변환/들여쓰기 문맥을 보존하고 사용하지 않는 문맥을 회수합니다. 기존/안쪽 그룹의 순서로 작은 정수 index를 다시 부여하므로 깊은 병합에서도 위치가 합쳐지지 않습니다.
+
+실제 앱은 살아 있는 Session에 수락을 병합하고 표시된 선택지 상태와 변환 엔진 캐시를 갱신합니다. 정규식 엔진은 기존 앱 전용 Syntax 경계의 MonacoSnippetTransforms이며 editor/UI에 엔진 의존성을 추가하지 않습니다. 제거된 placeholder의 과거 컴파일 캐시를 누적하지 않으며 살아 있는 변환은 필요할 때 평가합니다.
+
+- /private/tmp/taide-batch22-completion-nested-first.log: 실제 메모리 Provider의 중첩/일반 수락 2건을 먼저 실패로 재현했습니다. 중첩 final 도달과 일반 후보 수락에서 바깥 세션이 사라졌습니다.
+- /private/tmp/taide-batch22-snippet-nested-core-final.log: cargo test --manifest-path native/taide-native-editor/Cargo.toml --locked --offline --target-dir experiments/native-shell-spike/target --test snippet-insertion --test completion-insertion, exit 0·14+5통과·0실패입니다. 신규 6건은 두 원래 커서/여덟 mirror·choice·주 커서·Unicode, 합산 metadata 용량/분리 undo, 20회 병합, 교체된 자손 회수, 안쪽/바깥 변환의 각 들여쓰기·커서 문맥, stale/잘못된 Unicode 경계/IME/문서 용량의 삽입 전 거절을 확인합니다.
+- /private/tmp/taide-batch22-completion-nested-final.log: app --lib completion_ -- --test-threads=4, exit 0·41통과·0실패입니다. 실제 child 3건과 소비자 12건을 포함하며 신규 소비자 4건은 같은 프레임 문자/Tab/ShiftTab·중첩 final·바깥 tabstop·Unicode mirror·일반 수락·두 변환 엔진 평가·선택지 수락을 확인합니다. OS 입력을 합성하지 않은 egui RawInput 검사입니다.
+
+전체 대상 --no-fail-fast와 미리보기·최종 기능표 완료 판정은 배치 22 PROCESS c–g의 남은 범위입니다. 이 결과를 배치 전체 완료로 확대하지 않습니다.
+
+추가 위험 2건은 /private/tmp/taide-batch22-snippet-nested-context.log의 동일 core 명령 --test snippet-insertion snippet_nested_context에서 exit 0·2통과입니다. 활성 자식에 안쪽 snippet을 넣은 뒤 살아 있는 상위 placeholder의 활성 표시와 ShiftTab 역이동을 확인했습니다. 또 기존/안쪽 들여쓰기 문맥이 각각은 한도 안이어도 합계가 한도를 넘으면 문서·선택·revision·undo를 변경하기 전에 거절합니다. 기존 14+5건과 겹치지 않는 두 검사이며 변경 크레이트 전체 대상 실행으로 확대하지 않습니다.
+
+현재 app 모든 테스트 대상 check는 completion-nested-app-check.log에서 exit 0이며 editor/app fmt check도 exit 0입니다. core 추가 검사 후 fmt도 exit 0입니다. 공유 core 변경 뒤 동결 host/Wasm은 completion-nested-frozen-host.log·completion-nested-frozen-wasm.log에서 각각 exit 0입니다. 모두 기존 locked/offline/shared target이며 Wasm에만 --target wasm32-unknown-unknown을 추가했습니다. 동결 디렉터리 git status는 비어 있습니다. manifest/lock/의존 그래프를 변경하지 않았고 기존 Wasm 경고 6건을 억제하지 않았습니다.
