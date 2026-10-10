@@ -7,6 +7,7 @@
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 
 - [ ] a. 원본과 소유 경계 — 33행의 실제 TS 진입/설정/명령·현재 native 앱 도달 경로/SDK와 공식 API를 대조해 파일 소유권·선행 의존·남은 차이와 검증을 QA에 기록합니다. 미구현/이미 연결된 동작을 실제 코드로 구분하고 기존 패키지/포트를 우선합니다.
+- [x] a1. 문서 하이라이트 원본·현재 경계 조사 — editor-51의 TS adapter와 설치된 Monaco 선택/공급자 우선순위·종류별 표시·본문/peek의 현재 native DecorationLayer 소비 경계를 읽고 배치 23 QA에 기록했습니다. 나머지 32행의 대조와 typed 요청·실제 앱 구현/검증은 미완료이며 전체 a/c를 완료로 올리지 않습니다.
 - [ ] b. 표시·입력·tier — editor-4/7/15/16/19/30의 리거처·semantic token·minimap·sticky scroll·대형 tier·들여쓰기 설정을 원본 앱 동작으로 연결합니다.
 - [ ] c. 명령·LSP·언어 서비스 — editor-32/33/34/46/47/49/50/51/52/53/56/57/58의 format on type/paste·메뉴/키·rename/code action/format/inlay/highlight/selection/lens/relay·내장 언어 서비스·파일 간 opener를 실제 공급/취소/소유/편집 트랜잭션에 연결합니다.
 - [ ] d. 문서·뷰·연계 — editor-59/64/67/72/73/74/75/76/81/82/83의 로딩/오류·삭제 draft·뷰 상태 복원·Markdown 분할·Git gutter/conflict/blame/diff·SearchEditor·터미널 실행·IDE 선택 동기화를 기존 서비스에 연결합니다.
@@ -14,7 +15,7 @@
 - [ ] f. 실제 앱·전체 게이트 — 닫을 기능의 실제 앱/child/mirror·readonly/tier/다중 커서/IME·정상 종료/회귀를 확인하고 변경 크레이트 전체 대상을 --no-fail-fast로 직접 1회 실행합니다. 성공 결과는 재사용하고 실패 영향만 재검사합니다. frozen host/Wasm compile·fmt/diff·manifest/lock/engine/보호 경계·디스크와 배치 31 실기/성능/신뢰성 부채를 구분합니다.
 - [ ] g. 완료 근거·선별 Git — 실제 닫힌 ID만 QA/기능표/PROCESS에 반영하고 논리 단위 선별 커밋·일반 푸시합니다. 배치 24를 기존 계획 안에서 이어가며 배치 번호를 세부 수정마다 늘리지 않습니다.
 
-다음 행동: 배치 23의 33행 TS 경로와 native 소비 경계를 먼저 추출합니다.
+다음 행동: 배치 23 QA의 editor-51 요청·취소·본문/peek 표시 계약을 기존 LspBridge와 DecorationLayer 경계에서 구현합니다. 나머지 32행의 원본 대조는 미완료입니다.
 
 ## 완료: 배치 22 — 자동완성과 사용자 스니펫 소비 (2026-10-10)
 
