@@ -1,6 +1,6 @@
 {
     "date": "2026-10-10",
-    "baseline": "3f9a2c18",
+    "baseline": "2ea355ed",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -708,6 +708,25 @@
                 "docs/quality-assurance/2026-10-10-native-progress-audit.md"
             ],
             "limitation": "본문/peek 공급·목록/단축키/상세·미리보기·기본 선택/모델 교체·색 추출 272표본·다중 커서/choice/중첩/변수/CLIPBOARD·상세 공유/빈 내용·파일 tier와 원본 Read More 마우스 버튼을 실제 UI/Consumer 및 전체 검사에서 확인했습니다. 최초 macOS 대기 실패/영향 재검사와 완료 판단 정정을 QA에 보존하며 실제 pixel/OS IME/접근성·대형 성능/soak·별도 LSP/AI·출시 게이트는 배치 31~33에 남습니다."
+        },
+        "editor-highlights": {
+            "sources": [
+                "native/taide-native-app/src/editor-highlights.rs",
+                "native/taide-native-app/src/lsp-editor-highlights.rs",
+                "native/taide-native-app/src/application.rs",
+                "native/taide-native-app/src/editor-locations.rs",
+                "native/taide-native-app/src/lsp.rs",
+                "native/taide-native-app/src/presentation-refresh.rs",
+                "crates/taide-lsp/src/native/feature.rs",
+                "native/taide-native-editor/src/decoration.rs"
+            ],
+            "tests": [
+                "native/taide-native-app/src/editor-highlights-tests.rs",
+                "native/taide-native-app/src/lsp-editor-highlights-tests.rs",
+                "native/taide-native-app/src/application-startup-tests.rs"
+            ],
+            "reports": ["docs/quality-assurance/2026-10-10-native-batch23-editor.md"],
+            "limitation": "typed 공급·취소·종류/테마·mirror·본문/peek 소비 연결과 상태 8/실제 child 2/실제 앱 본문 그리기 1건을 검증했습니다. F7/Shift+F7/명시 trigger·peek 시작·추가 공급자/readonly/tier의 실제 앱 검증과 배치 전체·실기 게이트가 남아 partial입니다."
         }
     },
     "rows": [
@@ -2357,9 +2376,9 @@
             "ts": "`lsp/adapters/document-highlight.ts:26`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:122",
             "domain": "editor",
-            "status": "missing",
-            "proof": "editor-missing",
-            "note": "해당 사용자 동작의 실제 native 편집기/앱 소비 경로가 없습니다. 프로토콜·설정·backend만으로 완료 처리하지 않습니다."
+            "status": "partial",
+            "proof": "editor-highlights",
+            "note": "배치 23 작업 트리에서 typed LSP/취소/본문·peek 공급과 실제 앱 본문 표시를 연결하고 관련 11건을 검증했습니다. 하이라이트 명령·peek 시작/추가 경계·배치 전체 게이트가 남아 complete로 올리지 않습니다."
         },
         {
             "id": "editor-52",
@@ -7301,5 +7320,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "배치 22 최종 Read More 수정 후 UI 22대상/420통과·App 67대상/770통과의 --all-targets --no-fail-fast 전체를 각 1회 직접 실행해 exit 0을 확인했습니다. 관련 UI 29건과 실제 Consumer 20건은 그 전체 성공에 포함되므로 중복 합산하지 않습니다. 변경하지 않은 Editor 37대상/264통과/성능 1ignored·SDK 2대상/86통과·Syntax 13대상/165통과/성능 3ignored의 이전 성공을 재사용합니다. Editor/UI/App 서로 다른 성공은 1454건이며 SDK/Syntax를 포함한 1705건은 전체 기능률이 아닙니다. 7172a544 이전/버튼 추가 전 전체와 최초 macOS preview 5초 대기 1실패/정확한 영향 1통과는 QA에 보존하고 원인 미확정 부채를 배치 31에 남깁니다. 최신 전체에서 같은 macOS 검사도 통과했지만 원인 해결로 단정하지 않습니다. 원본 마우스 버튼 누락으로 editor-41 완료를 한 차례 정정한 뒤 실제 연결/검증 근거로 다시 complete로 올렸습니다. 보호 Trash 3·성능 ignored 4와 실제 pixel/OS IME/접근성/대형 성능/soak/출시/전환/삭제 게이트를 성공으로 세지 않습니다. frozen host/Wasm compile·최종 UI/App fmt check·manifest/lock/engine/동결 불변과 디스크 561GiB/70%를 확인했습니다. baseline 3f9a2c18은 Read More를 포함한 최종 제품/검증 커밋이며 일반 푸시·0/0을 확인했습니다. 기능표 588대상·288완료·92부분·112미연결·96미구현·잔여 300행, 최종 배치 33이며 전체 전환율/잔여 시간은 미산정입니다."
+    "validation": "배치 22 최종 Read More 수정 후 UI 22대상/420통과·App 67대상/770통과의 --all-targets --no-fail-fast 전체를 각 1회 직접 실행해 exit 0을 확인했습니다. 관련 UI 29건과 실제 Consumer 20건은 그 전체 성공에 포함되므로 중복 합산하지 않습니다. 변경하지 않은 Editor 37대상/264통과/성능 1ignored·SDK 2대상/86통과·Syntax 13대상/165통과/성능 3ignored의 이전 성공을 재사용합니다. Editor/UI/App 서로 다른 성공은 1454건이며 SDK/Syntax를 포함한 1705건은 전체 기능률이 아닙니다. 7172a544 이전/버튼 추가 전 전체와 최초 macOS preview 5초 대기 1실패/정확한 영향 1통과는 QA에 보존하고 원인 미확정 부채를 배치 31에 남깁니다. 최신 전체에서 같은 macOS 검사도 통과했지만 원인 해결로 단정하지 않습니다. 원본 마우스 버튼 누락으로 editor-41 완료를 한 차례 정정한 뒤 실제 연결/검증 근거로 다시 complete로 올렸습니다. 보호 Trash 3·성능 ignored 4와 실제 pixel/OS IME/접근성/대형 성능/soak/출시/전환/삭제 게이트를 성공으로 세지 않습니다. frozen host/Wasm compile·최종 UI/App fmt check·manifest/lock/engine/동결 불변과 디스크 561GiB/70%를 확인했습니다. baseline 3f9a2c18은 Read More를 포함한 최종 제품/검증 커밋이며 일반 푸시·0/0을 확인했습니다. 기능표 588대상·288완료·92부분·112미연결·96미구현·잔여 300행, 최종 배치 33이며 전체 전환율/잔여 시간은 미산정입니다.\n이후 배치 23 작업 트리는 editor-51 공급/표시의 관련 상태 8·실제 child 2·실제 앱 본문 1건을 검증했습니다. 이전 전체 App 성공은 배치 22의 역사적 근거이며 이번 변경의 전체 게이트가 아닙니다. 기능표는 완료 288·부분 93·미연결 112·미구현 95·잔여 300행이고 전체 전환율/잔여 시간은 미산정입니다."
 }

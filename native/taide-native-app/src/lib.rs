@@ -45,6 +45,8 @@ mod editor_documentation_images;
 mod editor_folding;
 #[path = "editor-fonts.rs"]
 mod editor_fonts;
+#[path = "editor-highlights.rs"]
+mod editor_highlights;
 #[path = "editor-locations.rs"]
 mod editor_locations;
 #[path = "editor-markup.rs"]

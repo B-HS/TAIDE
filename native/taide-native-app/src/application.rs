@@ -130,6 +130,7 @@ pub struct NativeApplication {
     editor_locations: crate::editor_locations::State,
     editor_documentation: crate::editor_documentation::State,
     editor_completion: crate::editor_completion::State,
+    editor_highlights: crate::editor_highlights::State,
     peek_models: crate::peek_models::Models,
     workspace_symbols: crate::workspace_symbols::State,
     lsp_status_appearance: crate::lsp::status::Appearance,
@@ -183,6 +184,7 @@ pub struct NativeApplication {
     editor_location_colors: taide_native_ui::editor_locations::Colors,
     editor_documentation_colors: taide_native_ui::editor_documentation::Colors,
     editor_completion_colors: taide_native_ui::editor_completion::Colors,
+    editor_highlight_colors: crate::editor_highlights::Colors,
     editor_sticky_scroll: taide_native_ui::editor_sticky_scroll::StickySetting,
     editor_syntax: crate::editor_syntax::EditorSyntax,
     editor_keymap_targets: HashMap<(egui::ViewportId, egui::Id), (ViewId, u64)>,
@@ -434,6 +436,7 @@ impl NativeApplication {
             editor_locations: crate::editor_locations::State::default(),
             editor_documentation: crate::editor_documentation::State::default(),
             editor_completion: crate::editor_completion::State::default(),
+            editor_highlights: crate::editor_highlights::State::default(),
             peek_models: crate::peek_models::Models::default(),
             workspace_symbols: crate::workspace_symbols::State::default(),
             lsp_status_appearance: appearances.lsp_status,
@@ -490,6 +493,7 @@ impl NativeApplication {
             editor_location_colors: appearances.editor_locations,
             editor_documentation_colors: appearances.editor_documentation,
             editor_completion_colors: appearances.editor_completion,
+            editor_highlight_colors: appearances.editor_highlights,
             editor_sticky_scroll,
             editor_syntax,
             editor_keymap_targets: HashMap::new(),
@@ -766,6 +770,8 @@ impl NativeApplication {
                                             appearances.editor_documentation;
                                         self.editor_completion_colors =
                                             appearances.editor_completion;
+                                        self.editor_highlight_colors =
+                                            appearances.editor_highlights;
                                         self.banner_appearance = appearances.banner;
                                         self.lsp_status_appearance = appearances.lsp_status;
                                         self.status_editor_appearance = appearances.status_editor;
@@ -3341,6 +3347,24 @@ impl NativeApplication {
         }
         while let Some(reply) = self.lsp.as_mut().and_then(crate::lsp::LspBridge::poll) {
             match reply {
+                crate::lsp::Reply::Highlights { request, result } => {
+                    let providers = self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
+                        lsp.highlight_providers(&request.project, &request.snapshot)
+                    });
+                    let active = self
+                        .services
+                        .state
+                        .layouts
+                        .read()
+                        .get(&request.project)
+                        .is_some_and(|layout| request.is_active(layout, &self.shell.scope));
+                    if active && self.closing.is_none() {
+                        self.editor_highlights
+                            .accept(&self.store, &request, providers, result);
+                    } else {
+                        self.editor_highlights.reject(&request);
+                    }
+                }
                 crate::lsp::Reply::Completion { request, result } => {
                     let providers = self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
                         lsp.completion_providers(&request.project, &request.snapshot)
@@ -4334,6 +4358,7 @@ impl NativeApplication {
                 self.editor_location_colors = appearances.editor_locations;
                 self.editor_documentation_colors = appearances.editor_documentation;
                 self.editor_completion_colors = appearances.editor_completion;
+                self.editor_highlight_colors = appearances.editor_highlights;
                 self.banner_appearance = appearances.banner;
                 self.lsp_status_appearance = appearances.lsp_status;
                 self.status_editor_appearance = appearances.status_editor;
@@ -4791,6 +4816,22 @@ impl eframe::App for NativeApplication {
         self.editor_locations
             .retain_active(&snapshot.layouts, &self.shell.scope);
         self.editor_locations.detach_retired(&mut self.store);
+        self.editor_highlights.reconcile(
+            &self.store,
+            |request| {
+                self.closing.is_none()
+                    && projects.contains(&request.project)
+                    && snapshot
+                        .layouts
+                        .get(&request.project)
+                        .is_some_and(|layout| request.is_active(layout, &self.shell.scope))
+            },
+            |project, document| {
+                self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
+                    lsp.highlight_providers(project, document)
+                })
+            },
+        );
         self.editor_documentation.reconcile(
             &self.store,
             &projects,
@@ -4997,6 +5038,7 @@ impl eframe::App for NativeApplication {
             editor_locations: &mut self.editor_locations,
             editor_documentation: &mut self.editor_documentation,
             editor_completion: &mut self.editor_completion,
+            editor_highlights: &mut self.editor_highlights,
             peek_models: &self.peek_models,
             lsp: self.lsp.as_ref(),
             find_history: &mut self.find_history,
@@ -5011,6 +5053,7 @@ impl eframe::App for NativeApplication {
             editor_location_colors: self.editor_location_colors,
             editor_documentation_colors: self.editor_documentation_colors,
             editor_completion_colors: self.editor_completion_colors,
+            editor_highlight_colors: self.editor_highlight_colors,
             editor_sticky_scroll: self.editor_sticky_scroll.synchronize(
                 self.services
                     .state
@@ -5822,6 +5865,7 @@ struct AppSurfaces<'a> {
     editor_locations: &'a mut crate::editor_locations::State,
     editor_documentation: &'a mut crate::editor_documentation::State,
     editor_completion: &'a mut crate::editor_completion::State,
+    editor_highlights: &'a mut crate::editor_highlights::State,
     peek_models: &'a crate::peek_models::Models,
     lsp: Option<&'a crate::lsp::LspBridge>,
     find_history: &'a mut taide_native_ui::editor_find_widget::FindHistory,
@@ -5836,6 +5880,7 @@ struct AppSurfaces<'a> {
     editor_location_colors: taide_native_ui::editor_locations::Colors,
     editor_documentation_colors: taide_native_ui::editor_documentation::Colors,
     editor_completion_colors: taide_native_ui::editor_completion::Colors,
+    editor_highlight_colors: crate::editor_highlights::Colors,
     editor_sticky_scroll: bool,
     editor_syntax: &'a mut crate::editor_syntax::EditorSyntax,
     banner_appearance: &'a BannerAppearance,
@@ -6855,6 +6900,12 @@ impl AppSurfaces<'_> {
                 if let Some((_, delay)) = &navigation_highlight { ui.ctx().request_repaint_after(*delay); }
                 let mut location_commands = Vec::new();
                 let documentation_state = std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_documentation));
+                let highlight_consumer = crate::editor_highlights::Consumer {
+                    state: std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_highlights)),
+                    lsp: self.lsp,
+                    context: ui.ctx().clone(),
+                    colors: self.editor_highlight_colors,
+                };
                 let completion_consumer = crate::editor_completion::Consumer {
                     state: std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_completion)),
                     services: self.services,
@@ -6888,6 +6939,7 @@ impl AppSurfaces<'_> {
                     find_history: None, find_appearance: None,
                     documentation: Some(documentation_state),
                     completion: Some(completion_consumer.clone()),
+                    highlights: Some(highlight_consumer.clone()),
                 };
                 if ui.is_enabled() {
                     for (_, edit) in self.document_edits.extract_if(.., |(owner, edit)| owner == &tab.id && matches!(edit, DocumentEdit::Location(_))) {
@@ -6976,7 +7028,8 @@ impl AppSurfaces<'_> {
                 let find_decorations = find.decorations(&self.store.views().get(view).ok_or_else(|| editor_error(taide_native_editor::document::EditorError::NotFound))?.selection,
                     self.find_appearance.highlight, self.find_appearance.current_match, self.find_appearance.scope);
                 let scroll_decorations = find.scroll_decorations(self.editor_overview_colors);
-                let find_layers = find_decorations.iter().chain(scroll_decorations.iter()).chain(navigation_highlight.as_ref().map(|(layer, _)| layer)).collect::<Vec<_>>();
+                let document_highlights = highlight_consumer.display(self.store, view);
+                let find_layers = find_decorations.iter().chain(scroll_decorations.iter()).chain(navigation_highlight.as_ref().map(|(layer, _)| layer)).chain(document_highlights.as_ref().map(|display| &display.layer)).collect::<Vec<_>>();
                 editor_presentation.options.diagnostics = self.diagnostics.display(self.store, &self.store.documents().snapshot(document).map_err(editor_error)?);
                 let fold_commands = if ui.is_enabled() {
                     crate::command_dispatch::take_fold_commands(&tab.id, self.fold_commands)
@@ -7075,6 +7128,12 @@ impl AppSurfaces<'_> {
                 self.commands.append(&mut location_commands);
                 self.commands.append(&mut documentation_host_commands);
                 self.commands.append(&mut completion_host_commands);
+                if let Some(display) = &document_highlights { display.paint(ui, &output.geometry); }
+                if output.response.has_focus() || ui.memory(|memory| output.focus_ids.iter().any(|id| {
+                    memory.has_focus(*id) && !preview_focus_targets.iter().any(|(target, _)| target == id)
+                })) {
+                    highlight_consumer.observe(self.store, editor_project, view, view);
+                }
                 if let Some(error) = fold_control_error {
                     *self.status = Some(error.to_string());
                 }

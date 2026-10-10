@@ -54,6 +54,8 @@ mod document_symbols;
 mod editor_completion;
 #[path = "lsp-editor-documentation.rs"]
 mod editor_documentation;
+#[path = "lsp-editor-highlights.rs"]
+mod editor_highlights;
 #[path = "lsp-symbol-locations.rs"]
 mod symbol_locations;
 #[path = "lsp-syntax-folding.rs"]
@@ -75,6 +77,9 @@ mod editor_completion_tests;
 #[cfg(all(test, unix))]
 #[path = "lsp-editor-documentation-tests.rs"]
 mod editor_documentation_tests;
+#[cfg(test)]
+#[path = "lsp-editor-highlights-tests.rs"]
+mod editor_highlights_tests;
 
 #[cfg(all(test, unix))]
 #[path = "lsp-symbol-locations-tests.rs"]
@@ -217,6 +222,7 @@ struct Session {
 enum Command {
     Completion(crate::editor_completion::Request),
     Documentation(crate::editor_documentation::Request),
+    Highlights(crate::editor_highlights::Request),
     SymbolLocations(crate::editor_locations::Request),
     SyntaxFolding(crate::editor_folding::Request),
     DocumentSymbols(crate::editor_symbols::Request),
@@ -276,6 +282,10 @@ pub enum Reply {
     Documentation {
         request: crate::editor_documentation::Request,
         result: Result<crate::editor_documentation::Response, Failure>,
+    },
+    Highlights {
+        request: crate::editor_highlights::Request,
+        result: Result<crate::editor_highlights::Response, Failure>,
     },
     SymbolLocations {
         request: crate::editor_locations::Request,
@@ -603,6 +613,18 @@ impl LspBridge {
 
     pub(crate) fn completion(&self, request: crate::editor_completion::Request) -> AppResult<()> {
         self.submit(Command::Completion(request))
+    }
+
+    pub(crate) fn highlights(&self, request: crate::editor_highlights::Request) -> AppResult<()> {
+        self.submit(Command::Highlights(request))
+    }
+
+    pub(crate) fn highlight_providers(
+        &self,
+        project: &ProjectId,
+        snapshot: &DocumentSnapshot,
+    ) -> HashSet<crate::editor_symbols::ProviderIdentity> {
+        self.feature_providers(project, snapshot, "textDocument/documentHighlight")
     }
 
     pub(crate) fn completion_providers(
@@ -1720,6 +1742,50 @@ async fn run(
                     }
                 }) {
                     Some(Reply::Documentation { request: rejected, result: Err(Failure::TransportClosed) })
+                } else {
+                    None
+                }
+            }
+            Command::Highlights(request) => {
+                if request.is_cancelled() {
+                    continue;
+                }
+                let selected = sessions
+                    .iter()
+                    .filter(|(key, session)| {
+                        key.project == request.project
+                            && session.documents.contains_key(&request.snapshot.id)
+                    })
+                    .map(|(key, session)| (key.clone(), session.clone()))
+                    .collect::<HashMap<_, _>>();
+                let sender = replies.clone();
+                let repaint = repaint.clone();
+                let mut cancelled = request.cancelled.clone();
+                let mut stopping = stopping.clone();
+                let rejected = request.clone();
+                if !services
+                    .tasks
+                    .spawn_transient("native-lsp-editor-highlights", async move {
+                        let result = tokio::select! {
+                            biased;
+                            _ = stopping.changed() => return,
+                            _ = cancelled.changed() => return,
+                            result = editor_highlights::request(&selected, &request) => result,
+                        };
+                        if !request.is_cancelled()
+                            && sender
+                                .send(Reply::Highlights { request, result })
+                                .await
+                                .is_ok()
+                        {
+                            repaint();
+                        }
+                    })
+                {
+                    Some(Reply::Highlights {
+                        request: rejected,
+                        result: Err(Failure::TransportClosed),
+                    })
                 } else {
                     None
                 }

@@ -40,6 +40,7 @@ struct MockServer {
     held_symbol: Option<Value>,
     folding: Option<&'static str>,
     held_fold: Option<Value>,
+    highlights: Option<&'static str>,
     locations: Option<&'static str>,
     held_location: Option<Value>,
     documentation: Option<&'static str>,
@@ -249,6 +250,7 @@ impl MockServer {
                 || self.locations.is_some()
                 || self.documentation.is_some()
                 || self.completion.is_some()
+                || self.highlights.is_some()
             {
                 params["rootUri"]
                     .as_str()
@@ -325,6 +327,9 @@ impl MockServer {
                     return Err(invalid("native folding requires line support"));
                 }
                 capabilities["foldingRangeProvider"] = json!(true);
+            }
+            if self.highlights.is_some_and(|mode| mode != "unsupported") {
+                capabilities["documentHighlightProvider"] = json!(true);
             }
             if self.locations.is_some() {
                 for feature in [
@@ -1005,6 +1010,46 @@ impl MockServer {
                 };
                 write_response(output, id, result)?;
             }
+            "textDocument/documentHighlight" => {
+                let id = id.ok_or_else(|| invalid("highlights require ID"))?;
+                let current = self
+                    .documents
+                    .get(uri)
+                    .ok_or_else(|| invalid("highlights require latest mirror"))?;
+                let mode = self
+                    .highlights
+                    .ok_or_else(|| invalid("highlights are not advertised"))?;
+                if mode == "wait" {
+                    write_document_diagnostic(
+                        output,
+                        uri,
+                        &current["version"],
+                        "synthetic highlights held",
+                    )?;
+                    return Ok(None);
+                }
+                if mode == "error" {
+                    write_payload(
+                        output,
+                        &json!({"jsonrpc":"2.0","id":id,"error":{"code":-32603,"message":"synthetic highlight error"}}),
+                    )?;
+                    return Ok(None);
+                }
+                if current.get("text").and_then(Value::as_str).is_none() {
+                    return Err(invalid("highlights require text"));
+                }
+                let result = match mode {
+                    "empty" => json!([]),
+                    "null" => Value::Null,
+                    "bad" => json!([{ "range": false }]),
+                    _ => json!([
+                        { "range": {"start":{"line":0,"character":0},"end":{"line":0,"character":5}} },
+                        { "range": {"start":{"line":1,"character":4},"end":{"line":1,"character":10}}, "kind":2 },
+                        { "range": {"start":{"line":2,"character":0},"end":{"line":2,"character":3}}, "kind":3 }
+                    ]),
+                };
+                write_response(output, id, result)?;
+            }
             "textDocument/documentSymbol" => {
                 let current = self
                     .documents
@@ -1339,6 +1384,26 @@ fn main() -> io::Result<ExitCode> {
         Some("--client-requests") => server.should_send_client_requests = true,
         Some("--client-progress") => server.should_send_client_progress = true,
         Some("--save-lifecycle") => server.should_track_saves = true,
+        Some(
+            mode @ ("--native-highlights"
+            | "--native-highlights-empty"
+            | "--native-highlights-null"
+            | "--native-highlights-error"
+            | "--native-highlights-bad"
+            | "--native-highlights-wait"
+            | "--native-highlights-unsupported"),
+        ) => {
+            server.should_track_saves = true;
+            server.highlights = Some(match mode {
+                "--native-highlights-empty" => "empty",
+                "--native-highlights-null" => "null",
+                "--native-highlights-error" => "error",
+                "--native-highlights-bad" => "bad",
+                "--native-highlights-wait" => "wait",
+                "--native-highlights-unsupported" => "unsupported",
+                _ => "normal",
+            });
+        }
         Some("--native-document") => {
             server.should_track_saves = true;
             server.should_format_documents = true;
@@ -1435,13 +1500,21 @@ fn main() -> io::Result<ExitCode> {
         Some(
             mode @ ("--native-workspace-symbols"
             | "--native-workspace-symbols-folding"
+            | "--native-workspace-symbols-folding-highlights"
             | "--native-workspace-symbols-nested"
             | "--native-workspace-symbols-wait"
             | "--native-workspace-symbols-crash"
             | "--native-workspace-symbols-error"),
         ) => {
-            if mode == "--native-workspace-symbols-folding" {
+            if matches!(
+                mode,
+                "--native-workspace-symbols-folding"
+                    | "--native-workspace-symbols-folding-highlights"
+            ) {
                 server.folding = Some("ranges");
+            }
+            if mode == "--native-workspace-symbols-folding-highlights" {
+                server.highlights = Some("normal");
             }
             server.workspace_symbols = Some(match mode {
                 "--native-workspace-symbols-nested" => "--native-workspace-symbols-nested",

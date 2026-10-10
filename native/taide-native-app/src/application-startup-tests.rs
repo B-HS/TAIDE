@@ -626,7 +626,7 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
     let executable = bin.join("rust-analyzer");
     std::fs::write(
         &executable,
-        format!("#!/bin/sh\nexec '{mock}' --native-workspace-symbols-folding\n"),
+        format!("#!/bin/sh\nexec '{mock}' --native-workspace-symbols-folding-highlights\n"),
     )
     .unwrap();
     std::fs::set_permissions(
@@ -737,6 +737,109 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
         .await
         .unwrap();
     });
+    let highlight_before = application.store.views().get(view).unwrap().clone();
+    application
+        .store
+        .set_view_state(
+            view,
+            taide_native_editor::view::SelectionSet::default(),
+            highlight_before.scroll.clone(),
+            highlight_before.folds.clone(),
+        )
+        .unwrap();
+    let focus = application
+        .editor_keymap_targets
+        .iter()
+        .find_map(|((viewport, id), (target, _))| {
+            (*viewport == egui::ViewportId::ROOT && *target == view).then_some(*id)
+        })
+        .unwrap();
+    context.memory_mut(|memory| memory.request_focus(focus));
+    paint(application, Vec::new());
+    runtime.block_on(async {
+        tokio::time::timeout(DEADLINE, async {
+            loop {
+                eframe::App::logic(application, &context, &mut eframe::Frame::_new_kittest());
+                paint(application, Vec::new());
+                if application
+                    .editor_highlights
+                    .display(
+                        &application.store,
+                        egui::ViewportId::ROOT,
+                        view,
+                        application.editor_highlight_colors,
+                    )
+                    .is_some_and(|display| !display.layer.items().is_empty())
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+    });
+    let display = application
+        .editor_highlights
+        .display(
+            &application.store,
+            egui::ViewportId::ROOT,
+            view,
+            application.editor_highlight_colors,
+        )
+        .unwrap();
+    assert!(
+        display
+            .layer
+            .items()
+            .iter()
+            .any(|item| item.bytes == (0..5))
+    );
+    let backgrounds = display
+        .layer
+        .items()
+        .iter()
+        .filter_map(|item| {
+            if let taide_native_editor::decoration::DecorationKind::Inline(style) = item.kind {
+                return style
+                    .background
+                    .map(|[r, g, b, a]| egui::Color32::from_rgba_unmultiplied(r, g, b, a));
+            }
+            None
+        })
+        .collect::<Vec<_>>();
+    let highlighted = paint(application, Vec::new());
+    assert!(
+        highlighted.shapes.iter().any(|shape| match &shape.shape {
+            egui::Shape::Rect(rect) => backgrounds.contains(&rect.fill),
+            egui::Shape::Text(text) => text
+                .galley
+                .job
+                .sections
+                .iter()
+                .any(|section| backgrounds.contains(&section.format.background)),
+            _ => false,
+        }),
+        "actual application must paint the LSP highlight background"
+    );
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .revision,
+        snapshot.revision
+    );
+    application
+        .store
+        .set_view_state(
+            view,
+            highlight_before.selection,
+            highlight_before.scroll,
+            highlight_before.folds,
+        )
+        .unwrap();
     let syntax = application
         .editor_folding
         .model(&project, &snapshot)

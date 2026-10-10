@@ -32,6 +32,13 @@ pub(super) fn fixture(mode: &str) -> (Fixture, ProjectId, EditorStore, DocumentI
     assert!(matches!(
         mode,
         "--native-symbols"
+            | "--native-highlights"
+            | "--native-highlights-empty"
+            | "--native-highlights-null"
+            | "--native-highlights-error"
+            | "--native-highlights-bad"
+            | "--native-highlights-wait"
+            | "--native-highlights-unsupported"
             | "--native-completion"
             | "--native-completion-array"
             | "--native-completion-empty"

@@ -1003,7 +1003,7 @@ pub(crate) fn reveal(
     store.request_selection_reveal(view, bytes, true)
 }
 
-pub(crate) struct Provider<'a> {
+pub(crate) struct Provider<'a, 'state> {
     pub(crate) state: &'a mut State,
     pub(crate) models: &'a crate::peek_models::Models,
     pub(crate) project: Option<ProjectId>,
@@ -1023,11 +1023,12 @@ pub(crate) struct Provider<'a> {
     pub(crate) find_history: Option<&'a mut taide_native_ui::editor_find_widget::FindHistory>,
     pub(crate) find_appearance: Option<&'a taide_native_ui::editor_find_widget::FindAppearance>,
     pub(crate) documentation:
-        Option<std::rc::Rc<std::cell::RefCell<&'a mut crate::editor_documentation::State>>>,
-    pub(crate) completion: Option<crate::editor_completion::Consumer<'a, 'a>>,
+        Option<std::rc::Rc<std::cell::RefCell<&'state mut crate::editor_documentation::State>>>,
+    pub(crate) completion: Option<crate::editor_completion::Consumer<'a, 'state>>,
+    pub(crate) highlights: Option<crate::editor_highlights::Consumer<'a, 'state>>,
 }
 
-impl Provider<'_> {
+impl Provider<'_, '_> {
     pub(crate) fn request(
         &mut self,
         store: &EditorStore,
@@ -1138,7 +1139,7 @@ impl Provider<'_> {
     }
 }
 
-impl taide_native_ui::editor_locations::Provider for Provider<'_> {
+impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
     fn preview_find_visible(&self, view: ViewId) -> bool {
         self.state.preview_find_visible(view)
     }
@@ -1685,8 +1686,13 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_> {
                 )
             })
             .unwrap_or_default();
+        let document_highlights = self
+            .highlights
+            .as_ref()
+            .and_then(|consumer| consumer.display(store, preview));
         let decorations = std::iter::once(&matches)
             .chain(find_decorations.iter())
+            .chain(document_highlights.as_ref().map(|display| &display.layer))
             .collect::<Vec<_>>();
         let tab = store
             .views()
@@ -1910,6 +1916,16 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_> {
                 .chain(output.focus_ids.iter().copied())
                 .map(|id| (id, preview)),
         );
+        if let Some(display) = &document_highlights {
+            display.paint(&ui, &output.geometry);
+        }
+        if output.response.has_focus()
+            || ui.memory(|memory| output.focus_ids.iter().any(|id| memory.has_focus(*id)))
+        {
+            if let Some(consumer) = &self.highlights {
+                consumer.observe(store, self.project.as_ref(), view, preview);
+            }
+        }
         if output.changed || store.documents().snapshot(document)?.revision != before_find {
             self.changed.insert(document, preview);
         }
