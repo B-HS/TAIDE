@@ -1,6 +1,22 @@
 # PROCESS — TAIDE 작업 상태
 
-## 진행: 배치 22 — 자동완성과 사용자 스니펫 소비 (2026-10-10)
+## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
+
+현재 상태: 배치 22 구현/회귀/전체·실패 영향/frozen compile과 선별 커밋 3f9a2c18의 일반 푸시·원격 차이 0/0을 확인했습니다. 배치 23은 기존 배정 33행의 원본과 현재 소비 경계 대조부터 진행합니다. 전체 요구사항 588행 중 완료 288·미완료 300이며 전체 전환율/잔여 시간은 미산정입니다. 최종 배치 33 계획·main 직접 수행·서브에이전트/workflow 없음·Cargo/fmt 직렬을 유지합니다.
+
+범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
+
+- [ ] a. 원본과 소유 경계 — 33행의 실제 TS 진입/설정/명령·현재 native 앱 도달 경로/SDK와 공식 API를 대조해 파일 소유권·선행 의존·남은 차이와 검증을 QA에 기록합니다. 미구현/이미 연결된 동작을 실제 코드로 구분하고 기존 패키지/포트를 우선합니다.
+- [ ] b. 표시·입력·tier — editor-4/7/15/16/19/30의 리거처·semantic token·minimap·sticky scroll·대형 tier·들여쓰기 설정을 원본 앱 동작으로 연결합니다.
+- [ ] c. 명령·LSP·언어 서비스 — editor-32/33/34/46/47/49/50/51/52/53/56/57/58의 format on type/paste·메뉴/키·rename/code action/format/inlay/highlight/selection/lens/relay·내장 언어 서비스·파일 간 opener를 실제 공급/취소/소유/편집 트랜잭션에 연결합니다.
+- [ ] d. 문서·뷰·연계 — editor-59/64/67/72/73/74/75/76/81/82/83의 로딩/오류·삭제 draft·뷰 상태 복원·Markdown 분할·Git gutter/conflict/blame/diff·SearchEditor·터미널 실행·IDE 선택 동기화를 기존 서비스에 연결합니다.
+- [ ] e. AI·Emmet — editor-77/78/80의 인라인 완성/편집과 Emmet을 원본 명령·표시·수락/거절/취소/오래된 응답에 맞게 연결합니다. 실제 키/개인 데이터 대신 주입 포트·임시 데이터로 검증합니다.
+- [ ] f. 실제 앱·전체 게이트 — 닫을 기능의 실제 앱/child/mirror·readonly/tier/다중 커서/IME·정상 종료/회귀를 확인하고 변경 크레이트 전체 대상을 --no-fail-fast로 직접 1회 실행합니다. 성공 결과는 재사용하고 실패 영향만 재검사합니다. frozen host/Wasm compile·fmt/diff·manifest/lock/engine/보호 경계·디스크와 배치 31 실기/성능/신뢰성 부채를 구분합니다.
+- [ ] g. 완료 근거·선별 Git — 실제 닫힌 ID만 QA/기능표/PROCESS에 반영하고 논리 단위 선별 커밋·일반 푸시합니다. 배치 24를 기존 계획 안에서 이어가며 배치 번호를 세부 수정마다 늘리지 않습니다.
+
+다음 행동: 배치 23의 33행 TS 경로와 native 소비 경계를 먼저 추출합니다.
+
+## 완료: 배치 22 — 자동완성과 사용자 스니펫 소비 (2026-10-10)
 
 ### 진척·반복·최종 배치 점검 (2026-10-10)
 
@@ -12,7 +28,7 @@
 
 상세 기록은 `quality-assurance/2026-10-10-native-progress-audit.md`, 남은 범위는 `quality-assurance/2026-10-10-native-remaining-batch-plan.md`에 저장합니다. 이 점검에서 제품 코드는 수정하지 않습니다. 전체 전환율과 신뢰할 잔여 시간은 미산정이며 반복되는 고정 수치로 대신하지 않습니다.
 
-현재 상태: Read More 버튼을 연결했고 관련 UI 29건·실제 Consumer 20건을 포함한 UI 전체 22대상/420통과·App 전체 67대상/770통과가 exit 0입니다. frozen host/Wasm compile·최종 fmt/manifest/lock/engine·디스크 561GiB/70%를 확인했습니다. a/b/c/d/e/f 완료, 선별 Git g 미완료이며 editor-41·editor-79 두 행 완료·잔여 300행입니다. 최초 UI 완료 판단 정정과 macOS 대기 부채는 QA에 보존합니다. main 직접 수행·최종 배치 33·전체 전환율/잔여 시간 미산정을 유지합니다.
+현재 상태: 배치 22 a/b/c/d/e/f/g를 완료했습니다. 상세 상태/파일 tier 7172a544와 원본 Read More 마우스 버튼/회귀·정정 근거 3f9a2c18을 선별 커밋·일반 푸시하여 0/0을 확인했습니다. 최신 UI 420/App 770 전체 성공과 변경 없는 Editor/SDK/Syntax 재사용, 최초 macOS 대기/완료 판단 정정·실기/성능/출시 부채를 QA에 보존합니다. 기능표 288완료·잔여 300행이며 상단 배치 23을 계속합니다.
 
 기준: 실제 TS completion adapter·사용자 snippet provider/설정·code-editor 옵션, Monaco suggest model/controller/widget/필터/키/preview·기존 native snippet parser/session/insertion·typed LSP/mirror/취소·본문/peek 직렬 입력/도움말/표시/테마입니다. 자동/명시 후보 목록과 선택·수락·취소/문서·삽입 범위·스니펫 tabstop/choice를 실제 앱에 연결합니다. 원본 버그/내부 수치 강제 재현·새 기능/디자인·새 engine/패키지 추가·동결 browser/OS 합성 입력은 하지 않습니다.
 
@@ -27,9 +43,9 @@
 - [x] d5. 원본 Read More 마우스 버튼 — 원본 selected/hover/내용과 docs-side 조건·chevron-right·행 이벤트 차단을 연결했고 UI 1실패 재현 뒤 관련 29건·UI 전체 420건, 실제 Consumer 문서만 열림/스니펫 미삽입을 확인했습니다.
 - [x] e. 실제 앱·회귀 — 기존 dirty/mirror·두 뷰/peek·다중 커서/IME·입력 소유·문서/언어/provider 교체·실제 child·constructor 취소/종료 회수 근거와 최종 App lib 528통과를 확인했습니다. 실제 completion Consumer 19건에서 Normal/Large/ReadOnly 정책과 목록/삽입/세션·원문 보존을 확인했습니다. 작은 metadata 문서의 tier 검사를 대형 성능이나 OS IME/pixel/접근성 실기로 확대하지 않으며 해당 부채는 배치 31에 남습니다.
 - [x] f. 전체 게이트 — Read More 수정 후 변경 UI/App 전체 --all-targets --no-fail-fast를 각 1회 직접 실행해 89대상/1190건 exit 0을 확인했습니다. 변경하지 않은 Editor 264·SDK 86·Syntax 165건과 기존 성능 ignored 4를 재사용했습니다. frozen host/Wasm compile·최종 UI/App fmt check·manifest/lock/engine/동결 불변·보호 Trash 3·디스크 561GiB/70%를 확인했습니다. 최초 macOS 대기 실패의 원인 미확정 부채와 실기/성능/출시 게이트를 보존합니다.
-- [ ] g. 실제 기록·선별 Git·계속 진행 — 7172a544의 정확한 범위/푸시는 보존하고 Read More 누락을 구현·검증한 뒤 UI 완료 판단/QA/전체 게이트를 정정해 선별 커밋·일반 푸시합니다. 그 뒤 기존 배치 23을 이어갑니다.
+- [x] g. 실제 기록·선별 Git·계속 진행 — 실제 Read More 연결/검증 뒤 완료 판단과 QA/기능표를 정정했고 8경로 whitelist 추가/누락 0·PROCESS 하단 보존·staged diff exit 0을 확인했습니다. 사용자 단독 author/AI 트레일러 없이 3f9a2c18을 일반 푸시하고 0/0을 확인했습니다. 기존 배치 23으로 전체 전환을 계속합니다.
 
-배치 상태: a/b/c/d/e/f 완료, g 미완료입니다. 미리보기의 원본 diff 9711·스니펫 문자열 1344·GhostTextView 12표본을 보존하고 원본 UTF-16 버그 9개는 승인한 유효 경계 정책으로 바로잡습니다. 문맥 worker·원문 토큰 불변·테마/후보/문서 교체와 늦은 응답/캐시 회수, 본문 주입/추가 줄/숨긴 접미사·커서 좌표·실제 다중 커서 스니펫 표시/취소/수락을 검증했습니다. 이 표본이나 체크리스트 비율을 전체 전환율로 환산하지 않습니다.
+배치 상태: a/b/c/d/e/f/g 완료입니다. 미리보기의 원본 diff 9711·스니펫 문자열 1344·GhostTextView 12표본을 보존하고 원본 UTF-16 버그 9개는 승인한 유효 경계 정책으로 바로잡습니다. 문맥 worker·원문 토큰 불변·테마/후보/문서 교체와 늦은 응답/캐시 회수, 본문 주입/추가 줄/숨긴 접미사·커서 좌표·실제 다중 커서 스니펫 표시/취소/수락을 검증했습니다. 이 표본이나 체크리스트 비율을 전체 전환율로 환산하지 않습니다.
 
 추가 근거: 중첩/일반 수락의 바깥 세션 만료를 실제 Provider에서 먼저 2실패로 재현했습니다. 중첩 final을 일반 탭 위치로 승격해 바깥 다음 위치와 역이동을 유지하고 준비/병합 용량을 적용 전에 검증했습니다. 이후 본문 미리보기·후보/상세 창·초기화 키를 포함한 실제 앱 회귀 43건과 현재 전체 대상/실패 영향 검사를 확인했습니다. 실행 로그는 /private/tmp/taide-batch22-completion-product- 접두사이며 성공한 전체 명령을 반복하지 않았습니다. a/b/c 완료·d/e/f/g 미완료를 유지하며 검사 개수를 전체 전환율로 환산하지 않습니다.
 
@@ -49,7 +65,7 @@
 - [x] d. 표시·명령·직렬 입력 — 최신 메모리 UI 13건에서 호버/시그니처의 타이밍·직렬 입력/포커스·원본 테마/Markdown·이미지 링크·복수 서명·크기/스크롤·readonly/두 뷰를 확인했습니다. 기존 TextMate 코드/테마·안전한 파일 링크 3건·이미지 4건과 실제 본문/peek 공급을 연결했습니다. OS 합성 입력은 사용하지 않았습니다.
 - [x] e. 실제 앱 통합·의미 있는 회귀 — 실제 앱의 본문/peek typed 응답·코드 색/서명 순환·dirty 같은 모델 인수·열린 도움말 종료/소유 코드 모델 회수와 task 0을 확인했습니다. 닫힌 이미지 대기의 즉시 취소 실패를 재현해 수정했습니다. 파일 host의 보조 pane/viewport와 메모리 UI의 두 뷰/readonly를 검증했고 실기 보조 창·pixel/IME/접근성/성능과 기타 LSP 기능은 잔여 범위로 보존합니다.
 - [x] f. 전체 게이트 — Read More 수정 후 변경 UI/App 전체 --all-targets --no-fail-fast를 각 1회 직접 실행해 89대상/1190건 exit 0을 확인했습니다. 변경하지 않은 Editor 264·SDK 86·Syntax 165건과 기존 성능 ignored 4를 재사용했습니다. frozen host/Wasm compile·최종 UI/App fmt check·manifest/lock/engine/동결 불변·보호 Trash 3·디스크 561GiB/70%를 확인했습니다. 최초 macOS 대기 실패의 원인 미확정 부채와 실기/성능/출시 게이트를 보존합니다.
-- [ ] g. 실제 기록·선별 Git·계속 진행 — 7172a544의 정확한 범위/푸시는 보존하고 Read More 누락을 구현·검증한 뒤 UI 완료 판단/QA/전체 게이트를 정정해 선별 커밋·일반 푸시합니다. 그 뒤 기존 배치 23을 이어갑니다.
+- [x] g. 실제 기록·선별 Git·계속 진행 — 실제 Read More 연결/검증 뒤 완료 판단과 QA/기능표를 정정했고 8경로 whitelist 추가/누락 0·PROCESS 하단 보존·staged diff exit 0을 확인했습니다. 사용자 단독 author/AI 트레일러 없이 3f9a2c18을 일반 푸시하고 0/0을 확인했습니다. 기존 배치 23으로 전체 전환을 계속합니다.
 
 진척: 배치 21 체크리스트 7/7(100%), 현재 기능 대응표 286/588(48.6%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. 전체 121대상·1412건과 실패 영향/보호/실기 부채·동결/포맷/경계·디스크 623GiB/66%를 기록했고 일반 푸시·0/0을 확인했습니다. 상단 배치 22로 전체 전환을 계속합니다.
 
@@ -65,7 +81,7 @@
 - [x] d. 표시·명령 소비 — 플랫폼 키 1건·최신 메모리 UI 12건·앱 상태/preview 명령 12건·peek 토큰 캐시 1건이 통과했습니다. 본문/preview 포커스 인계·키보드 정의 hover·기존 TextMate 코드와 숨은 미리보기 토큰, 참조 강조/reveal·1000개 가상 tree/휠·파일 그룹 키 탐색·닫기 뒤 본문 입력을 연결했습니다. preview 편집·찾기/치환·접기·저장은 대상 문서만 소비하며 기존 browser/IME/readonly/wrap/스크롤 gate를 유지합니다. 일반 hover/완성 등과 순수 preview의 별도 LSP 공급은 잔여 범위입니다.
 - [x] e. 실제 앱·파일 수명 통합 — 파일 host 4건·상태 12건과 최신 실제 앱 1건이 통과했습니다. 연속 이동 취소·레이아웃 이벤트 선행·프로젝트 종료 인계 회수·추적 이력 만료·임시 탭 dirty 차단을 실패 재현 후 수정했습니다. 실제 keyboard hover·preview 찾기/치환·파일 저장·같은 dirty 모델 인수·파일 간 순환·명시 peek 유지·정상 종료와 task 0을 확인했습니다. 실제 사용자 데이터/OS/Trash 보호를 유지합니다.
 - [x] f. 전체 게이트 — Read More 수정 후 변경 UI/App 전체 --all-targets --no-fail-fast를 각 1회 직접 실행해 89대상/1190건 exit 0을 확인했습니다. 변경하지 않은 Editor 264·SDK 86·Syntax 165건과 기존 성능 ignored 4를 재사용했습니다. frozen host/Wasm compile·최종 UI/App fmt check·manifest/lock/engine/동결 불변·보호 Trash 3·디스크 561GiB/70%를 확인했습니다. 최초 macOS 대기 실패의 원인 미확정 부채와 실기/성능/출시 게이트를 보존합니다.
-- [ ] g. 실제 기록·선별 Git·계속 진행 — 7172a544의 정확한 범위/푸시는 보존하고 Read More 누락을 구현·검증한 뒤 UI 완료 판단/QA/전체 게이트를 정정해 선별 커밋·일반 푸시합니다. 그 뒤 기존 배치 23을 이어갑니다.
+- [x] g. 실제 기록·선별 Git·계속 진행 — 실제 Read More 연결/검증 뒤 완료 판단과 QA/기능표를 정정했고 8경로 whitelist 추가/누락 0·PROCESS 하단 보존·staged diff exit 0을 확인했습니다. 사용자 단독 author/AI 트레일러 없이 3f9a2c18을 일반 푸시하고 0/0을 확인했습니다. 기존 배치 23으로 전체 전환을 계속합니다.
 
 진척: 배치 20 체크리스트 7/7(100%), 현재 기능 대응표 284/588(48.3%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. 일반 푸시·0/0을 확인했고 상단 배치 21로 전체 전환을 계속합니다.
 
@@ -81,7 +97,7 @@
 - [x] d. 표시·명령 소비 — native-host 구문 범위/종류를 gutter·본문·19종 명령·원본 기본 키·수동/Import·view state에 연결했습니다. UI 전체 19대상·361통과/기대 순서 1실패 후 해당 1건 통과이며 현재 서로 다른 362건이 통과했습니다. 종류 없는 폴백·readonly·wrap/스크롤·기존 marker와 browser 분기를 보존했습니다.
 - [x] e. 실제 앱·고정 줄 통합 — 실제 LSP 응답의 Import 접기와 현재 pane/탭의 숨김 본문·UTF-16 reveal 펼치기를 실제 앱 검사에서 확인했습니다. 고정 줄 outline→구문→indent와 같은 revision의 Arc 교체·읽기 전용은 메모리 UI에서 통과했고 대형/접기 비활성 문서의 공급 state를 회수합니다. 실기 입력은 후속 게이트입니다.
 - [x] f. 전체 게이트 — Read More 수정 후 변경 UI/App 전체 --all-targets --no-fail-fast를 각 1회 직접 실행해 89대상/1190건 exit 0을 확인했습니다. 변경하지 않은 Editor 264·SDK 86·Syntax 165건과 기존 성능 ignored 4를 재사용했습니다. frozen host/Wasm compile·최종 UI/App fmt check·manifest/lock/engine/동결 불변·보호 Trash 3·디스크 561GiB/70%를 확인했습니다. 최초 macOS 대기 실패의 원인 미확정 부채와 실기/성능/출시 게이트를 보존합니다.
-- [ ] g. 실제 기록·선별 Git·계속 진행 — 7172a544의 정확한 범위/푸시는 보존하고 Read More 누락을 구현·검증한 뒤 UI 완료 판단/QA/전체 게이트를 정정해 선별 커밋·일반 푸시합니다. 그 뒤 기존 배치 23을 이어갑니다.
+- [x] g. 실제 기록·선별 Git·계속 진행 — 실제 Read More 연결/검증 뒤 완료 판단과 QA/기능표를 정정했고 8경로 whitelist 추가/누락 0·PROCESS 하단 보존·staged diff exit 0을 확인했습니다. 사용자 단독 author/AI 트레일러 없이 3f9a2c18을 일반 푸시하고 0/0을 확인했습니다. 기존 배치 23으로 전체 전환을 계속합니다.
 
 진척: 배치 19 체크리스트 7/7(100%), 현재 기능 대응표 282/588(48.0%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. 일반 푸시·0/0을 확인했고 상단 배치 20으로 전체 전환을 계속합니다.
 
@@ -97,7 +113,7 @@
 - [x] d. 팔레트 # 표면 — native-host Hash·서버 순서/미일치 이름 보존·이름 강조·한 줄 컨테이너·빈/loading/프로젝트 안내·현재 세대 키/마우스 선택을 연결해 관련 22건이 통과했습니다. 비동기 결과가 이전 Area 높이에 갇힌 클릭 실패를 재현하고 원본 input+max list 한도에서 max rect를 갱신해 수정했습니다. browser 분기·기존 공통 IME/Tab/포커스 gate를 유지합니다.
 - [x] e. 앱 preview/reveal 통합 — host 3건과 실제 앱 1건이 통과했습니다. main/보조 창의 기존 고정 탭/preview·파일 경계·잠금 대기 중 revision/focus/프로젝트/창/슬롯 변경·늦은 host reply 거절을 확인했습니다. 실제 # 팔레트→child→host→기존 탭의 이모지 UTF-16 2:5/byte 12 커서 이동과 문서 불변을 확인하며 OS 합성 입력은 사용하지 않았습니다.
 - [x] f. 전체 게이트 — Read More 수정 후 변경 UI/App 전체 --all-targets --no-fail-fast를 각 1회 직접 실행해 89대상/1190건 exit 0을 확인했습니다. 변경하지 않은 Editor 264·SDK 86·Syntax 165건과 기존 성능 ignored 4를 재사용했습니다. frozen host/Wasm compile·최종 UI/App fmt check·manifest/lock/engine/동결 불변·보호 Trash 3·디스크 561GiB/70%를 확인했습니다. 최초 macOS 대기 실패의 원인 미확정 부채와 실기/성능/출시 게이트를 보존합니다.
-- [ ] g. 실제 기록·선별 Git·계속 진행 — 7172a544의 정확한 범위/푸시는 보존하고 Read More 누락을 구현·검증한 뒤 UI 완료 판단/QA/전체 게이트를 정정해 선별 커밋·일반 푸시합니다. 그 뒤 기존 배치 23을 이어갑니다.
+- [x] g. 실제 기록·선별 Git·계속 진행 — 실제 Read More 연결/검증 뒤 완료 판단과 QA/기능표를 정정했고 8경로 whitelist 추가/누락 0·PROCESS 하단 보존·staged diff exit 0을 확인했습니다. 사용자 단독 author/AI 트레일러 없이 3f9a2c18을 일반 푸시하고 0/0을 확인했습니다. 기존 배치 23으로 전체 전환을 계속합니다.
 
 진척: 배치 18 체크리스트 7/7 완료(100%), 기능 대응표 281/588(47.8%)입니다. 전체 출시 전환율/잔여 시간은 미산정입니다. app/UI 전체 86대상·1018건·동결 host/Wasm·포맷/diff가 통과했고 보호 3/기존 ignored 5·실기 부채와 디스크 675GiB·64%를 보존했습니다. `2870345d`·`a99fb507`의 일반 푸시·0/0을 확인했으며 상단 배치 19로 전체 전환을 계속합니다.
 
