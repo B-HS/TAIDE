@@ -3308,6 +3308,7 @@ impl NativeEditor {
             store,
             view,
             &geometry,
+            &input_state.sticky,
             &response,
             presentation.options.word_wrap,
             location_widget.as_ref().map(|widget| widget.token.clone()),

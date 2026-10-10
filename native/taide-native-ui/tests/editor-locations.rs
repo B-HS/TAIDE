@@ -9,6 +9,7 @@ use taide_model::file::{EditorConfigOptions, FileSizeTier, OpenedFile};
 use taide_model::ids::{PaneId, TabId};
 use taide_native_editor::document::{DocumentId, EditorError};
 use taide_native_editor::lsp::{LspRange as Range, Position};
+use taide_native_editor::sticky_model::{StickyModel, StickyScope};
 use taide_native_editor::store::{EditorLimits, EditorStore};
 use taide_native_editor::symbol_locations::{Command, Locations, Mode, Target};
 use taide_native_editor::view::{ViewId, ViewKey};
@@ -24,6 +25,11 @@ const FONT_SIZE: f32 = 14.0;
 const BYTES: usize = 4096;
 const SOURCE: &str = "/synthetic/source.rs";
 const TARGET: &str = "/synthetic/target.rs";
+const STICKY_BODY_LINES: usize = 30;
+const STICKY_SCROLL_TOP: f32 = 100.0;
+const STICKY_COLUMN: usize = 2;
+const STICKY_POINTER_OFFSET: f32 = 5.0;
+const UNDERLINE_TOLERANCE: f32 = 0.1;
 
 struct Preview {
     editor: NativeEditor,
@@ -36,6 +42,7 @@ struct Preview {
     requested: Vec<(usize, Mode)>,
     reads: std::cell::Cell<usize>,
     keyboard: Option<(String, usize)>,
+    hovered: Option<usize>,
 }
 
 impl Provider for Preview {
@@ -44,6 +51,7 @@ impl Provider for Preview {
     }
     fn clear_link(&mut self, _: ViewId) {
         self.keyboard = None;
+        self.hovered = None;
     }
     fn link_preview(
         &mut self,
@@ -51,7 +59,9 @@ impl Provider for Preview {
         _: ViewId,
         _: usize,
     ) -> Option<taide_native_ui::editor_locations::LinkPreview> {
-        self.keyboard.as_ref()?;
+        if self.keyboard.is_none() && self.hovered.is_none() {
+            return None;
+        }
         let mut code = egui::text::LayoutJob::default();
         code.append(
             "styled definition",
@@ -108,6 +118,9 @@ impl Provider for Preview {
         byte: usize,
         mode: Mode,
     ) -> Result<bool, EditorError> {
+        if mode == Mode::Hover {
+            self.hovered = Some(byte);
+        }
         self.requested.push((byte, mode));
         Ok(true)
     }
@@ -186,10 +199,54 @@ struct Fixture {
     presentation: EditorPresentation,
     body: Option<Id>,
     time: f64,
+    underlines: Vec<[egui::Pos2; 2]>,
 }
 
 impl Fixture {
     fn new(read_only: bool) -> Self {
+        Self::with_content(read_only, "source\nsecond\nthird\nend")
+    }
+
+    fn sticky(read_only: bool) -> Self {
+        let text = format!("source\n{}end", "body\n".repeat(STICKY_BODY_LINES));
+        let mut fixture = Self::with_content(read_only, &text);
+        fixture.provider.widget = None;
+        fixture.provider.available = true;
+        let mut current = fixture.store.views().get(fixture.source).unwrap().clone();
+        current.scroll.y = STICKY_SCROLL_TOP;
+        let snapshot = fixture
+            .store
+            .documents()
+            .snapshot(current.document)
+            .unwrap();
+        fixture.presentation.options.sticky_scroll = true;
+        fixture.presentation.options.sticky_colors =
+            Some(taide_native_ui::editor_sticky_scroll::EditorStickyColors {
+                background: Color32::DARK_GRAY,
+                border: Color32::GRAY,
+                hover: Color32::LIGHT_GRAY,
+                shadow: Color32::TRANSPARENT,
+            });
+        fixture.presentation.options.sticky_model = Some(Arc::new(StickyModel::new(
+            &snapshot,
+            &[StickyScope {
+                start_line: 0,
+                end_line: STICKY_BODY_LINES + 1,
+            }],
+        )));
+        fixture
+            .store
+            .set_view_state(
+                fixture.source,
+                current.selection,
+                current.scroll,
+                current.folds,
+            )
+            .unwrap();
+        fixture
+    }
+
+    fn with_content(read_only: bool, content: &str) -> Self {
         let editor = NativeEditor {
             appearance: EditorAppearance {
                 font: FontId::monospace(FONT_SIZE),
@@ -242,7 +299,7 @@ impl Fixture {
                 .unwrap();
             (document, view)
         };
-        let (_, source) = open(&mut store, SOURCE, "source\nsecond\nthird\nend", read_only);
+        let (_, source) = open(&mut store, SOURCE, content, read_only);
         let (document, view) = open(&mut store, TARGET, "def\n  \u{1f600}target\nend", false);
         let targets = [
             Range::new(Position::new(0, 0), Position::new(0, 3)),
@@ -274,6 +331,7 @@ impl Fixture {
             requested: Vec::new(),
             reads: std::cell::Cell::new(0),
             keyboard: None,
+            hovered: None,
         };
         let mut presentation = EditorPresentation::default();
         presentation.options.location_colors = Some(Colors {
@@ -298,6 +356,7 @@ impl Fixture {
             presentation,
             body: None,
             time: 0.0,
+            underlines: Vec::new(),
         }
     }
     fn frame(&mut self, events: Vec<Event>, focus: Option<Id>) -> (EditorGeometry, Vec<String>) {
@@ -362,8 +421,10 @@ impl Fixture {
             },
         );
         let mut text = Vec::new();
+        self.underlines.clear();
         for shape in &output.shapes {
             text_in(&shape.shape, &mut text);
+            definition_underlines(&shape.shape, &mut self.underlines);
         }
         output.textures_delta.clear();
         (geometry.unwrap(), text)
@@ -384,6 +445,22 @@ fn text_in(shape: &egui::epaint::Shape, text: &mut Vec<String>) {
         egui::epaint::Shape::Vec(shapes) => {
             for shape in shapes {
                 text_in(shape, text);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn definition_underlines(shape: &egui::epaint::Shape, underlines: &mut Vec<[egui::Pos2; 2]>) {
+    match shape {
+        egui::epaint::Shape::LineSegment { points, stroke }
+            if stroke.color == Color32::LIGHT_BLUE =>
+        {
+            underlines.push(*points);
+        }
+        egui::epaint::Shape::Vec(shapes) => {
+            for shape in shapes {
+                definition_underlines(shape, underlines);
             }
         }
         _ => {}
@@ -568,6 +645,173 @@ fn pointer(point: egui::Pos2, pressed: bool, modifiers: Modifiers) -> Event {
         button: egui::PointerButton::Primary,
         pressed,
         modifiers,
+    }
+}
+
+fn sticky_point(fixture: &mut Fixture, geometry: &EditorGeometry) -> egui::Pos2 {
+    let width = fixture.context.fonts_mut(|fonts| {
+        fonts
+            .layout_no_wrap("so".into(), FontId::monospace(FONT_SIZE), Color32::WHITE)
+            .size()
+            .x
+    });
+    pos2(
+        geometry.content_rect.left() + width,
+        geometry.rect.top() + STICKY_POINTER_OFFSET,
+    )
+}
+
+#[test]
+fn sticky_definition_고정_줄의_정의_밑줄은_실제_표시_줄에서_그려지고_해제된다() {
+    let mut fixture = Fixture::sticky(false);
+    fixture.context.set_os(egui::os::OperatingSystem::Mac);
+    let (geometry, _) = fixture.frame(Vec::new(), None);
+    fixture.frame(Vec::new(), None);
+    let point = sticky_point(&mut fixture, &geometry);
+    let modifiers = Modifiers::MAC_CMD | Modifiers::COMMAND;
+    let (_, text) = fixture.frame_modifiers(vec![Event::PointerMoved(point)], None, modifiers);
+    assert_eq!(fixture.underlines.len(), 1);
+    let points = fixture.underlines[0];
+    let width = fixture.context.fonts_mut(|fonts| {
+        fonts
+            .layout_no_wrap(
+                "source".into(),
+                FontId::monospace(FONT_SIZE),
+                Color32::WHITE,
+            )
+            .size()
+            .x
+    });
+    assert!((points[0].x - geometry.content_rect.left()).abs() < UNDERLINE_TOLERANCE);
+    assert!((points[1].x - points[0].x - width).abs() < UNDERLINE_TOLERANCE);
+    assert!(points[0].y >= geometry.rect.top() && points[0].y < geometry.rect.top() + LINE_HEIGHT);
+    assert!(!text.iter().any(|value| value.contains("styled definition")));
+    fixture.frame(vec![Event::PointerMoved(point)], None);
+    assert!(fixture.underlines.is_empty());
+}
+
+#[test]
+fn sticky_definition_고정_줄의_정의_클릭은_여백_드래그_미지원과_스크롤_변화를_거절한다() {
+    for invalidation in [
+        "gutter",
+        "margin",
+        "outside",
+        "drag",
+        "unsupported",
+        "scroll",
+    ] {
+        let mut fixture = Fixture::sticky(false);
+        fixture.context.set_os(egui::os::OperatingSystem::Mac);
+        fixture.provider.available = invalidation != "unsupported";
+        let (geometry, _) = fixture.frame(Vec::new(), None);
+        fixture.frame(Vec::new(), None);
+        let text_point = sticky_point(&mut fixture, &geometry);
+        let point = match invalidation {
+            "gutter" => pos2(geometry.gutter_rect.center().x, text_point.y),
+            "margin" => pos2(
+                geometry.content_rect.right() - STICKY_POINTER_OFFSET,
+                text_point.y,
+            ),
+            "outside" => pos2(text_point.x, geometry.rect.top() - STICKY_POINTER_OFFSET),
+            _ => text_point,
+        };
+        let modifiers = Modifiers::MAC_CMD | Modifiers::COMMAND;
+        fixture.frame_modifiers(
+            vec![Event::PointerMoved(point), pointer(point, true, modifiers)],
+            None,
+            modifiers,
+        );
+        let up = if invalidation == "drag" {
+            pos2(geometry.content_rect.left(), point.y)
+        } else {
+            point
+        };
+        if invalidation == "scroll" {
+            let mut current = fixture.store.views().get(fixture.source).unwrap().clone();
+            current.scroll.y += LINE_HEIGHT;
+            fixture
+                .store
+                .set_view_state(
+                    fixture.source,
+                    current.selection,
+                    current.scroll,
+                    current.folds,
+                )
+                .unwrap();
+        }
+        fixture.frame_modifiers(vec![pointer(up, false, modifiers)], None, modifiers);
+        assert!(
+            !fixture
+                .provider
+                .requested
+                .iter()
+                .any(|(_, mode)| *mode != Mode::Hover),
+            "{invalidation}"
+        );
+    }
+}
+
+#[test]
+fn sticky_definition_고정_줄의_플랫폼_정의_클릭은_가려진_본문이_아닌_원본_열을_요청한다() {
+    for os in [
+        egui::os::OperatingSystem::Mac,
+        egui::os::OperatingSystem::Windows,
+        egui::os::OperatingSystem::Nix,
+    ] {
+        for read_only in [false, true] {
+            for side in [false, true] {
+                let mut fixture = Fixture::sticky(read_only);
+                fixture.context.set_os(os);
+                let (geometry, _) = fixture.frame(Vec::new(), None);
+                fixture.frame(Vec::new(), None);
+                assert_eq!(geometry.scroll.y, STICKY_SCROLL_TOP);
+                let point = sticky_point(&mut fixture, &geometry);
+                let modifiers = Modifiers {
+                    ctrl: !os.is_mac(),
+                    mac_cmd: os.is_mac(),
+                    command: true,
+                    alt: side,
+                    ..Modifiers::NONE
+                };
+                let before = fixture.text(fixture.source);
+                let selection = fixture
+                    .store
+                    .views()
+                    .get(fixture.source)
+                    .unwrap()
+                    .selection
+                    .clone();
+                fixture.frame_modifiers(
+                    vec![Event::PointerMoved(point), pointer(point, true, modifiers)],
+                    None,
+                    modifiers,
+                );
+                fixture.frame_modifiers(vec![pointer(point, false, modifiers)], None, modifiers);
+                assert_eq!(
+                    fixture
+                        .provider
+                        .requested
+                        .iter()
+                        .filter(|(_, mode)| *mode != Mode::Hover)
+                        .copied()
+                        .collect::<Vec<_>>(),
+                    vec![(STICKY_COLUMN, if side { Mode::Aside } else { Mode::GoTo })],
+                    "{os:?}/{read_only}/{side}"
+                );
+                assert!(
+                    fixture
+                        .provider
+                        .requested
+                        .iter()
+                        .any(|(byte, mode)| *byte == STICKY_COLUMN && *mode == Mode::Hover)
+                );
+                assert_eq!(fixture.text(fixture.source), before);
+                assert_eq!(
+                    fixture.store.views().get(fixture.source).unwrap().selection,
+                    selection
+                );
+            }
+        }
     }
 }
 

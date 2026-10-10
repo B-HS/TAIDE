@@ -115,6 +115,38 @@ pub(crate) struct StickyState {
 }
 
 impl StickyState {
+    pub(crate) fn contains_point(&self, point: egui::Pos2) -> bool {
+        self.shown.iter().any(|row| row.rect.contains(point))
+    }
+
+    pub(crate) fn content_byte_at(&self, point: egui::Pos2) -> Option<usize> {
+        self.shown
+            .iter()
+            .find(|row| row.rect.contains(point))
+            .filter(|row| {
+                point.x >= row.text_left
+                    && point.x >= row.row.caret_rect(row.row.segment.bytes.start).left()
+                    && point.x < row.row.caret_rect(row.row.segment.bytes.end).left()
+            })
+            .map(|row| row.row.byte_at(point))
+    }
+
+    pub(crate) fn definition_range_rects(&self, bytes: &std::ops::Range<usize>) -> Vec<Rect> {
+        self.shown
+            .iter()
+            .filter_map(|row| {
+                row.row.extent(bytes).map(|extent| {
+                    Rect::from_x_y_ranges(
+                        extent,
+                        egui::Rangef::new(row.rect.top(), row.rect.bottom()),
+                    )
+                    .intersect(row.rect)
+                })
+            })
+            .filter(|rect| rect.is_positive())
+            .collect()
+    }
+
     pub(crate) fn model(
         &mut self,
         document: &DocumentSnapshot,

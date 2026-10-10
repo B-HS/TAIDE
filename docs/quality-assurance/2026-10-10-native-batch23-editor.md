@@ -181,3 +181,25 @@ LSP 공급자가 없거나 연결이 없으면 50ms 관찰 뒤 기본 Text 종�
 진척 점검에서 실제 JSON은 599행·완료 288/부분 93/미연결 112/미구현 95/제외 10/동결 1이며 대상 588·미완료 300입니다. 현재 미완료 ID의 배정 누락·중복은 0이며 최종 계획은 33입니다. 최근 8커밋 중 제품 변경은 서로 다른 6건이고 문서 변경은 2건입니다. 조회 중 짧게 보인 Cargo/rustc PID는 재조회 시 소멸했지만 소유 작업을 확인하지 못했으므로 이번 작업의 실행이나 전체 세션의 종료성을 증명한 결과로 확대하지 않습니다. 장시간 조사 프로세스·불필요한 재시도 이력은 기존 진척 감사에 보존합니다.
 
 원본 설정 최종 대조·나머지 배치 23 요구사항·배치 전체/실기 게이트는 남아 partial을 유지합니다. Cargo/fmt는 확인한 session 종료 뒤 직렬로 실행했습니다. frozen source·전체 manifest/lock 변경은 0이고 디스크는 537GiB·71%입니다. 보호 범위나 빌드 정리는 건드리지 않았습니다.
+
+## 원본 하이라이트 설정 최종 대조
+
+TS의 `src/features/editor/code-editor.tsx`와 `src/shared/lib/code-editor-settings.ts`는 occurrencesHighlight/selectionHighlight를 생성·갱신 옵션이나 사용자 설정으로 덮어쓰지 않습니다. 설치 Monaco `editorOptions.js`의 occurrencesHighlight 기본값은 singleFile, selectionHighlight는 true입니다. 현재 native의 문서/동일 문서 mirror 표시·선택/본문/peek 소유 경계를 기존 검증과 대조했습니다. 새 토글이나 설정을 만들지 않았으며 이전 상태/child/앱/서버 수명 성공을 다시 실행하지 않았습니다. 해당 하위 대조를 닫지만 batch 전체/성능/실기 게이트로 확대하지 않습니다.
+
+## 고정 줄의 정의 이동과 hover 표시
+
+기준은 `64b2f335` 이후입니다. 설치 Monaco `stickyScrollController.js`의 Ctrl/Meta gesture는 고정 줄의 실제 문자 위치에서 정의를 요청하고 응답에 따라 밑줄을 표시합니다. 일반 클릭·Shift 종료 줄 이동·접기는 별도입니다. native는 sticky의 보조키 클릭을 건너뛰는 동안 본문 정의 gesture가 가려진 다른 줄의 좌표를 소비하고 있었습니다.
+
+`StickyState`의 실제 Row/rect를 기존 definition gesture의 snapshot에 보관했습니다. 고정 줄 영역에서는 해당 줄의 문자 hit만 사용하고 gutter/여백을 본문으로 투과시키지 않습니다. hover 응답의 밑줄도 실제 고정 줄 rect에 그리며 원본처럼 별도 정의 미리보기 tooltip을 추가하지 않습니다. 기존 `editor_locations::Provider::request_at`을 재사용합니다. App Consumer의 해당 메서드는 실제 byte를 LSP position으로 변환하고 기존 Definition/GoTo/Aside 공급·활성화 경로로 전달합니다. UI spy의 선택 보존은 UI가 직접 선택을 바꾸지 않는다는 검증이며 Consumer가 수행하는 실제 이동 선택과 구분합니다.
+
+실행 로그 접두사는 `/private/tmp/taide-batch23-sticky-definition-`입니다.
+
+- `repro.log`: 0통과/1실패·exit 101·0.03초입니다. Mac의 고정 줄 byte 2 클릭이 실제로 `(29, GoTo)`를 요청해 기대 `(2, GoTo)`와 달랐습니다. 컴파일은 성공했고 제품 동작의 실패입니다.
+- `fixed.log`: 최초 수정의 같은 1건이 통과·exit 0·0.35초입니다. Mac/Windows/Linux × 정상/읽기 전용 × GoTo/Aside의 12사례에서 source byte·hover 요청·원문과 UI 선택 보존을 확인했습니다. 이후 최종 성공과 중복 합산하지 않습니다.
+- `regression.log`: 최신 editor-locations 15건·editor-sticky-scroll 17건, 총 32건 통과·exit 0입니다. 실제 shape의 밑줄 위치/너비·보조키 해제·tooltip 미추가와 gutter/여백/드래그/미지원/스크롤 변화의 요청 거절을 확인했습니다. 기존 본문 정의/peek·고정 줄 클릭/접기/키/정상 읽기 전용/Unicode/가로 스크롤 동작도 통과했습니다.
+- `actual-app.log`: 기존 실제 앱 회귀 1건 통과·exit 0·5.82초입니다. UI 변경 후 App을 다시 빌드해 본문/peek·심볼/접기·하이라이트/입력/종료 소비가 유지됨을 확인합니다. 새 고정 줄 클릭의 child E2E를 직접 추가한 검사는 아니며 해당 입력의 직접 UI 공급자 검증과 구분합니다.
+- `frozen-host.log`: inspection을 포함한 frozen host 전체 테스트 대상 컴파일은 exit 0·41.25초입니다. `frozen-wasm.log`는 canvas/inspection에 `--tests`를 포함하여 host 검사들이 표준 Instant를 Wasm API에 전달하는 타입 오류로 exit 101입니다. 동결 파일을 수정하거나 이 실패를 통과로 쓰지 않습니다. `frozen-wasm-lib.log`의 실제 canvas/inspection Wasm 라이브러리 compile은 exit 0·0.15초입니다. host 검사의 Wasm 포팅은 동결 예외 범위이며 필요한 경우 사용자 결정과 함께 재검토할 부채입니다.
+
+최종 검토에서 definition hit에 기존 본문의 content rect 경계를 명시적으로 적용했습니다. 고정 줄의 일부가 밀려 표시 영역 밖에 놓여도 그 영역으로 정의 요청이 나가지 않습니다. 바깥 영역 거절 사례를 추가한 `bounds.log`의 위치 검사 15건은 통과·exit 0·0.31초이며 `bounds-fmt-check.log`도 exit 0입니다. 고정 줄 17건·기존 실제 앱 1건의 성공은 적용 경로가 같은 범위에서 재사용합니다. definition-link 모듈은 native-host 전용이므로 마지막 경계 추가는 frozen의 컴파일 경로를 바꾸지 않았습니다.
+
+소유 파일 diff check는 exit 0입니다. 중간 patch 적용은 포맷된 문맥 차이로 한 번 거절돼 실제 문맥을 읽고 적용했으며 제품 실패로 합산하지 않습니다. Cargo/fmt는 live session의 종료를 확인한 뒤 직렬 실행했습니다. 전체 batch `--no-fail-fast` 실행은 아직 아닙니다. 최신 서로 다른 직접 실행 성공은 UI 32·실제 앱 1건입니다. 새 고정 줄 정의 이동 child E2E/OS 입력/시각/IME/접근성·대형 성능은 전체 게이트에서 검토하며 임시 데이터·내부 RawInput만 사용했습니다. frozen source·manifest/lock·의존 그래프 변경은 0, 디스크는 536GiB·71%이고 보호 범위·빌드 정리는 건드리지 않았습니다. editor-16/51은 배치 전체 게이트 전까지 partial을 유지합니다.

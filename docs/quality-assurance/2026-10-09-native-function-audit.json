@@ -1,6 +1,6 @@
 {
     "date": "2026-10-10",
-    "baseline": "9ab20583",
+    "baseline": "64b2f335",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -738,6 +738,37 @@
             ],
             "reports": ["docs/quality-assurance/2026-10-10-native-batch23-editor.md"],
             "limitation": "기본 공급자 추가 뒤 상태 20·실제 child 4·실제 앱 1건, 총 25건이 통과했습니다. 기본 단어/whole word/대소문자·UTF-16/999 상한/모델 게이트·취소, peek/mirror/readonly·실제 앱의 None→LSP 복원을 확인했습니다. 실제 서버 재시작/세대·동적 capability 변경과 배치 전체/대형 성능/실기 게이트는 미완료입니다."
+        },
+        "editor-sticky-definition": {
+            "sources": [
+                "native/taide-native-editor/src/document-symbols.rs",
+                "native/taide-native-app/src/editor-symbols.rs",
+                "native/taide-native-app/src/lsp-document-symbols.rs",
+                "native/taide-native-app/src/lsp.rs",
+                "native/taide-native-app/src/application.rs",
+                "native/taide-native-ui/src/command-palette.rs",
+                "native/taide-native-ui/src/editor-sticky-scroll.rs",
+                "native/taide-native-app/src/symbol-outline.rs",
+                "native/taide-native-app/src/breadcrumbs.rs",
+                "native/taide-native-ui/src/editor-definition-link.rs",
+                "native/taide-native-ui/src/editor_surface.rs",
+                "native/taide-native-app/src/editor-locations.rs"
+            ],
+            "tests": [
+                "native/taide-native-editor/tests/document-symbols.rs",
+                "native/taide-native-app/src/editor-symbols-tests.rs",
+                "native/taide-native-app/src/lsp-document-symbols-tests.rs",
+                "native/taide-native-ui/src/command-palette-tests.rs",
+                "native/taide-native-ui/tests/editor-sticky-scroll.rs",
+                "native/taide-native-app/src/application-startup-tests.rs",
+                "native/taide-native-ui/tests/editor-locations.rs"
+            ],
+            "reports": [
+                "docs/quality-assurance/2026-10-10-native-batch16-document-symbols.md",
+                "docs/quality-assurance/2026-10-10-native-batch17-outline-breadcrumbs.md",
+                "docs/quality-assurance/2026-10-10-native-batch23-editor.md"
+            ],
+            "limitation": "기존 문서 심볼·outline/접기/indent fallback에 고정 줄 Ctrl/Meta/hover/GoTo/Aside를 연결했습니다. 최신 UI 32·실제 앱 회귀 1건은 통과했으나 새 고정 줄 클릭의 실제 child E2E·batch 전체/실기/성능 게이트는 아직입니다."
         }
     },
     "rows": [
@@ -2003,8 +2034,8 @@
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:77",
             "domain": "editor",
             "status": "partial",
-            "proof": "editor-symbols",
-            "note": "문서 심볼 outline 우선·최대 범위/선호 provider·selectionRange 헤더와 LSP 구문 접기/indent fallback은 연결됐습니다. Ctrl/Meta 정의 이동은 남아 있습니다."
+            "proof": "editor-sticky-definition",
+            "note": "문서 심볼·구문 접기/indent fallback에 고정 줄 실제 문자 위치의 Ctrl/Meta 정의 이동·hover 밑줄·옆 열기를 연결했습니다. UI 32·실제 앱 회귀 1건이 통과했습니다. 새 고정 줄 클릭 child E2E와 batch 전체/실기 게이트는 별도이며 전체 gate 전까지 partial입니다."
         },
         {
             "id": "editor-17",
@@ -2389,7 +2420,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-highlights",
-            "note": "기본 텍스트/LSP 표시·이동·peek/mirror/readonly/tier의 기존 25건에 더해 실제 서버 재시작과 지원 기능의 동적 등록·해제를 새 검사 1건의 두 사례에서 확인했습니다. 문서 revision이 같은 이전 요청 취소·실제 응답 거절과 새 세대/capability revision의 mirror 응답·정상 종료가 통과했습니다. 원본 설정 최종 대조·배치 전체/실기 게이트가 남아 partial입니다."
+            "note": "기본 텍스트/LSP 표시·이동·peek/mirror/readonly/tier·실제 서버 세대/동적 capability 수명을 검증하고 TS 호스트/설치 Monaco의 singleFile/selectionHighlight 기본 설정 대조를 마쳤습니다. 기존 성공은 재사용하며 batch 전체/실기 게이트 전까지 partial입니다."
         },
         {
             "id": "editor-52",

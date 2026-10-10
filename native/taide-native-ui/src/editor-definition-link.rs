@@ -6,6 +6,7 @@ use taide_native_editor::view::{SelectionSet, ViewId};
 
 use crate::editor_geometry::EditorGeometry;
 use crate::editor_locations::Provider;
+use crate::editor_sticky_scroll::StickyState;
 
 const UNDERLINE_WIDTH: f32 = 1.0;
 const UNDERLINE_INSET: f32 = 2.0;
@@ -16,6 +17,7 @@ struct Scene {
     revision: u64,
     selection: SelectionSet,
     geometry: EditorGeometry,
+    sticky: StickyState,
     word_wrap: bool,
     folds: Vec<std::ops::Range<usize>>,
     peek: Option<String>,
@@ -35,6 +37,16 @@ fn triggered(context: &Context, modifiers: Modifiers) -> bool {
     } else {
         modifiers.ctrl
     }
+}
+
+fn content_byte_at(geometry: &EditorGeometry, sticky: &StickyState, point: Pos2) -> Option<usize> {
+    if !geometry.content_rect.contains(point) {
+        return None;
+    }
+    if sticky.contains_point(point) {
+        return sticky.content_byte_at(point);
+    }
+    geometry.content_byte_at(point)
 }
 
 impl State {
@@ -98,7 +110,7 @@ impl State {
                     let byte = self
                         .scene
                         .as_ref()
-                        .and_then(|scene| scene.geometry.content_byte_at(pos));
+                        .and_then(|scene| content_byte_at(&scene.geometry, &scene.sticky, pos));
                     if pressed {
                         self.pressed = byte
                             .filter(|byte| {
@@ -158,6 +170,7 @@ impl State {
         store: &mut EditorStore,
         view: ViewId,
         geometry: &EditorGeometry,
+        sticky: &StickyState,
         response: &egui::Response,
         word_wrap: bool,
         peek: Option<String>,
@@ -176,10 +189,16 @@ impl State {
             .as_deref()
             .and_then(|provider| provider.keyboard_link(store, view))
             .filter(|_| available);
-        let byte = ui
-            .input(|input| input.pointer.hover_pos())
-            .filter(|_| available && response.contains_pointer() && triggered(ui.ctx(), modifiers))
-            .and_then(|point| geometry.content_byte_at(point));
+        let pointer = ui.input(|input| input.pointer.hover_pos());
+        let byte = pointer
+            .filter(|point| {
+                available
+                    && (response.contains_pointer() || sticky.contains_point(*point))
+                    && triggered(ui.ctx(), modifiers)
+            })
+            .and_then(|point| content_byte_at(geometry, sticky, point));
+        let sticky_hover =
+            keyboard.is_none() && pointer.is_some_and(|point| sticky.contains_point(point));
         if let Some((token, _)) = &keyboard {
             self.keyboard = Some(token.clone());
             self.hovered = None;
@@ -203,7 +222,11 @@ impl State {
             && let Some(preview) = provider.link_preview(store, view, byte)
         {
             let painter = ui.painter().with_clip_rect(geometry.content_rect);
-            let ranges = geometry.range_rects(preview.bytes);
+            let ranges = if sticky_hover {
+                sticky.definition_range_rects(&preview.bytes)
+            } else {
+                geometry.range_rects(preview.bytes)
+            };
             for rect in &ranges {
                 painter.line_segment(
                     [
@@ -232,7 +255,9 @@ impl State {
                 }
             } else {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                response.clone().on_hover_ui(show);
+                if !sticky_hover {
+                    response.clone().on_hover_ui(show);
+                }
             }
         }
         let current = store.views().get(view).ok_or(EditorError::NotFound)?;
@@ -241,6 +266,7 @@ impl State {
             revision: document.revision,
             selection: current.selection.clone(),
             geometry: geometry.clone(),
+            sticky: sticky.clone(),
             word_wrap,
             folds: current.folds.clone(),
             peek,
