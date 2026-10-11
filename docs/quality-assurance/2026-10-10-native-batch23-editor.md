@@ -589,3 +589,5 @@ App의 `editor-rename-controller.rs`는 oneshot 완료·현재 요청/준비/적
 `errors-app-final.log`: 수정 뒤 실패한 정확한 실제 App 1건만 직접 실행해 1통과/0실패·exit 0, 빌드 16.84초·검사 7.52초입니다. 기존 본문/peek F2·writable peek 팔레트·입력/취소/undo와 세 오류의 locale status·기존 오류 알림·문서 rope/revision/dirty·원래 디스크 보존·종료 task 0을 확인했습니다. 이전 App 성공과 같은 검사이므로 중복 합산하지 않으며 현재 서로 다른 관련 성공은 15건입니다.
 
 현재 변경은 App private 소비와 소유 검사 서버/검사에 한정됩니다. Core/UI/SDK·frozen source/manifest/lockfile 변경은 0입니다. 이전 변경 없는 UI 447·frozen host/Wasm 성공은 재사용하되 현재 App 전체 대상 실행의 성공으로 확대하지 않습니다. resource delete는 실제 Trash로 이어지므로 보호된 실행을 추가하지 않습니다. 닫힌 파일·create/rename resource의 실제 rename 요청 연결과 현재 App 전체 실행은 다음 남은 c4 게이트입니다. editor-46 partial·전체 289완료/299미완료·현재 23/최종 33을 유지합니다.
+
+추가 공급자/취소/오류 안내 단위는 `4ac2c4a8`로 9개 소유 경로/구역만 선별 커밋·일반 푸시했고 최종 메시지·사용자 단독 author·AI 트레일러 없음·upstream 0/0을 확인했습니다. 현재 App fmt check는 `boundary-errors-fmt.log` exit 0, QA 형식과 소유 diff check는 exit 0입니다. PROCESS 완료 배치 7 이하 사용자 변경은 index의 기존 구역과 비교해 보존했습니다. 디스크는 457GiB/76%이며 검증 후 ps에 이 작업의 Cargo/mock/native 검사 프로세스가 남아 있지 않았습니다. 동결·manifest·lockfile 변경은 0입니다.
