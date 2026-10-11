@@ -1,6 +1,6 @@
 {
     "date": "2026-10-11",
-    "baseline": "8812c014",
+    "baseline": "885b4417",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1030,15 +1030,18 @@
                 "native/taide-native-app/src/terminal_surface.rs",
                 "native/taide-native-ui/src/editor-context-menu.rs",
                 "native/taide-native-ui/src/editor-context-menu-widget.rs",
-                "native/taide-native-ui/src/keymap.rs"
+                "native/taide-native-ui/src/keymap.rs",
+                "native/taide-native-app/src/symbol-location-host.rs"
             ],
             "tests": [
                 "native/taide-native-app/src/application-context-menu-tests.rs",
                 "native/taide-native-ui/tests/editor-context-menu.rs",
-                "native/taide-native-ui/tests/editor-context-menu-widget.rs"
+                "native/taide-native-ui/tests/editor-context-menu-widget.rs",
+                "native/taide-native-app/src/editor-locations-tests.rs",
+                "native/taide-native-app/src/symbol-location-host-tests.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-11-native-batch23-context-menu-app.md"],
-            "limitation": "실제 본문/peek 클립보드·팔레트 source/닫힘·찾기 입력·readonly/tier/lossy·임시 PTY와 보조 창/연결 실패/종료 회수를 확인했습니다. 보조 창 팔레트의 메뉴 누락을 수정하고 주 창 Settings 활성 상태와 본문/peek source/닫힘 회귀를 확인했습니다. peek LSP 메뉴의 실제 source 위치·같은 파일 preview 이동·다른 파일/옆 열기·소유/닫힘 및 c9d 현재 전체 게이트가 남아 partial입니다. 프로젝트 열기 시간 초과 및 LSP 준비 최초 실패 원인·실제 OS 입력/시각/접근성·성능/출시는 별도이며 동결 remote-web 변경은 없습니다."
+            "limitation": "실제 본문/peek 클립보드·팔레트 source/닫힘·찾기 입력·readonly/tier/lossy·임시 PTY와 보조 창/연결 실패/종료 회수 및 창별 팔레트를 확인했습니다. peek의 실제 문서/URI/UTF-16 위치/선택과 owner pane을 분리해 같은 파일 preview 이동·본문 보존, 다른 파일의 실제 LSP→Host→목적 탭/정의 위치, embedded의 원본 제외/허용 명령과 닫힘/열기 중 source 수명을 확인했습니다. 현재 App 전체 67대상/891통과/1실패·exit 101이며 기존 프로젝트 초기화 실패와 c9d/f1을 유지해 partial입니다. 원인 미확정 신뢰성·실제 OS 입력/시각/접근성·성능/출시는 별도이고 frozen/의존성 변경은 없습니다."
         }
     },
     "rows": [
@@ -2492,7 +2495,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-context-menu",
-            "note": "본문/peek 메뉴·레이블/재지정·주입 클립보드·팔레트 source·찾기 입력과 readonly/tier/lossy 조건을 연결했습니다. 실제 PTY·보조 창/연결 실패/종료 회수를 확인했고 종료한 세션의 대기 잔류와 보조 창 팔레트의 주 창 대상 사용을 수정했습니다. 주 창 Settings 활성에서도 보조 창 메뉴/정의 공급 항목·복사/PTY를 확인했습니다. peek typed 위치·같은 파일 preview 이동·다른 파일/옆 열기·소유/닫힘과 c9d는 남습니다."
+            "note": "본문/peek 메뉴·레이블/재지정·주입 클립보드·찾기·readonly/tier/lossy·실제 PTY/보조 창과 실패/종료 회수, 창별 팔레트를 연결했습니다. peek의 실제 source/owner와 같은 파일 preview 이동·본문 보존, 다른 파일 LSP→Host→목적 탭/정의 위치·원본의 embedded 제외/허용 명령·닫힘/열기 수명을 검증했습니다. 현재 App 전체는 891통과/기존 프로젝트 초기화 1실패·exit 101이며 c9d/f1이 남아 partial입니다."
         },
         {
             "id": "editor-34",
@@ -7632,5 +7635,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "c9c2e1의 보조 창 팔레트 메뉴 누락을 실제 0통과/1실패·9.12초로 재현하고 창별 active tab/공급자 조건 및 캡처한 owner 탭의 typed 메뉴 명령으로 수정했습니다. 영향 exact 17.44초·본문/peek source와 소비 전 닫힘 회귀 exact 11.06초·주 창 Settings 활성 상태에서도 보조 창 메뉴/정의 공급 항목·복사/실제 PTY·닫힌 창 회수를 보존하는 확대 exact 30.16초가 각각 exit 0입니다. 두 서로 다른 기존 검사를 확대/재검사한 결과이며 새 통과 수를 더하지 않습니다. 현재 코드는 관련 검증 근거이고 c9d의 현재 App 전체 게이트는 peek 위치 경계 뒤 남습니다. 이전 App 전체 67대상/882통과/3실패·exit 101, LSP 준비 단독 성공과 readonly fixture 전제 수정/성공·프로젝트 열기 미해결은 QA에 보존하며 새 코드의 전체 성공으로 쓰지 않습니다. UI 최종 서로 다른 492건·frozen host/Wasm은 source/의존 경계 불변으로 재사용했습니다. 소유 2Rust fmt/diff·동결/manifest/lock/UI/Editor/엔진 불변과 디스크 여유 351GiB/사용 81%를 확인했습니다. 소유 4경로 8812c014를 선별 커밋·일반 푸시했고 원격 0/0·사용자 단독 author·AI 트레일러 없음·빈 index를 확인했습니다. 실제 Monaco/TS의 같은 URI 이동은 preview를 이동하고 본문 선택을 보존하므로 이전 본문 이동 가정을 정정했습니다. peek typed 위치·다른 파일/옆 열기·소유/닫힘 및 c9d가 남아 editor-33 partial·296완료/부분 92/미연결 112/미구현 88·292미완료·현재 23/최종 33·전체율/잔여 시간 미산정을 유지합니다."
+    "validation": "c9c2e2의 실제 same-file Go to Definition 실패 31.94초와 embedded Aside 팔레트 활성 차이 11.80초를 재현해 source/owner 계약·활성/Host pane·열기 중 source 수명과 명령 활성 조건을 수정했습니다. 실제 App 3·위치 상태 14·Host 8의 관련 25건이 통과했으며 새 서로 다른 7건은 App 3/상태 2/Host 2입니다. 새 preview 문서의 공급자가 준비되기 전 메뉴를 실행한 검사 전제를 바로잡고 같은 10초 상한에서 실제 다른 파일 URI/목적 pane/byte 12 이동 및 문서/디스크 보존을 확인했습니다. 현재 App 전체 직접 1회 --all-targets --no-fail-fast는 67대상/891통과/1실패·보호 Trash 3제외·exit 101이고 새 7건을 포함하므로 개별 성공을 다시 합산하지 않습니다. lib 651통과/0실패·206.75초와 tests/projects.rs:114의 기존 준비 시간 초과 3통과/1실패·28.82초를 구분합니다. 중간 프로젝트 통과 보고 오류도 실제 실패로 정정했으며 원인 미확정 f1/배치 31 부채·c9d를 유지합니다. 같은 실패 검사/전체 반복·상한 확대·생략을 하지 않았고 소유 핸들은 모두 종료했습니다. App 6Rust fmt/소유 diff·동결/manifest/lock/UI/Editor/엔진 불변·디스크 335GiB/82%를 확인하고 실제 불변 근거로 UI 492 및 frozen host/Wasm의 이전 결과를 재사용했습니다. 소유 9경로 885b4417을 선별 커밋·일반 푸시했고 원격 0/0·빈 index·사용자 단독 author·AI 트레일러 없음·이전 PROCESS 하단 SHA-256 보존을 확인했습니다. editor-33 partial·296완료/292미완료·현재 23/최종 33·전체율/잔여 시간 미산정이며 문서 후속 커밋 때문에 실제 코드 기준을 바꾸지 않습니다."
 }
