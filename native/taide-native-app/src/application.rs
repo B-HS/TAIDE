@@ -3676,6 +3676,7 @@ impl NativeApplication {
     }
 
     fn consume_code_action_navigation(&mut self, finished: crate::editor_code_actions::Finished) {
+        use taide_lsp::native::protocol::lsp_types;
         use taide_native_editor::symbol_locations::{Kind, Mode};
         let source = finished.request.source;
         let Some(view) = self.store.views().get(source) else {
@@ -3711,16 +3712,56 @@ impl NativeApplication {
                 targets: finished.navigation.targets,
             }],
         };
-        if let Ok(Some(model)) =
+        let Ok(Some(model)) =
             self.editor_locations
                 .accept(&request, &self.store, providers, Ok(response))
-        {
-            if request.mode == Mode::GoTo {
-                self.consume_location_model(request, model);
-            } else {
-                self.editor_locations.show(source);
-            }
+        else {
+            return;
+        };
+        if request.mode == Mode::GoTo {
+            self.consume_location_model(request, model);
+            return;
         }
+        if same {
+            self.editor_locations.show(source);
+            return;
+        }
+        let revision = self
+            .services
+            .state
+            .layouts
+            .read()
+            .get(&request.project)
+            .map(|layout| layout.revision);
+        let Some(revision) = revision else {
+            return;
+        };
+        let Ok((source, token, cancelled)) = self.editor_locations.begin_open(&self.store, source)
+        else {
+            return;
+        };
+        let viewport = request.viewport;
+        let target =
+            taide_native_editor::symbol_locations::Target::from_location(lsp_types::Location {
+                uri: finished.navigation.uri,
+                range: lsp_types::Range::new(
+                    finished.navigation.position,
+                    finished.navigation.position,
+                ),
+            });
+        self.submit(HostCommand::OpenSymbolLocation(
+            crate::symbol_location_host::Request {
+                source,
+                token,
+                cancelled,
+                target,
+                side: false,
+                keep_peek: true,
+                revision,
+                scope: self.shell.scope.clone(),
+                viewport,
+            },
+        ));
     }
 
     fn consume_location_model(

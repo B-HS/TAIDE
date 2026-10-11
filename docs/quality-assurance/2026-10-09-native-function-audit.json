@@ -1,6 +1,6 @@
 {
     "date": "2026-10-11",
-    "baseline": "5ff13b75 이후 코드 수정의 빈/비활성 안내와 standalone 수락 키 연결",
+    "baseline": "a0f2cca5 이후 다른 URI 참조·직접 이동과 전구 입력 충돌 수정",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -737,7 +737,7 @@
                 "native/taide-native-app/src/terminal_surface.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-10-native-batch23-editor.md"],
-            "limitation": "기본 공급자 추가 뒤 상태 20·실제 child 4·실제 앱 1건, 총 25건이 통과했습니다. 기본 단어/whole word/대소문자·UTF-16/999 상한/모델 게이트·취소, peek/mirror/readonly·실제 앱의 None→LSP 복원을 확인했습니다. 실제 서버 재시작/세대·동적 capability 변경과 배치 전체/대형 성능/실기 게이트는 미완료입니다."
+            "limitation": "기본 텍스트/LSP 표시와 F7/ShiftF7 이동·본문/peek·mirror/readonly/tier·복수 공급자·null/오류 대체·요청 취소와 실제 서버 재시작/동적 capability 수명·종료를 실제 App/child에서 확인했습니다. TS 호스트와 설치 Monaco 기본 설정을 대조했으며 관련 검사는 현재 App 전체 실행에서도 통과했습니다. 실기/대형 성능/출시 게이트는 기능표의 complete 정의와 구분해 배치 31~33에서 추적합니다."
         },
         "editor-sticky-definition": {
             "sources": [
@@ -894,7 +894,10 @@
                 "native/taide-native-ui/src/editor-code-actions-keymap-defaults.json",
                 "native/taide-native-ui/src/command-registry.rs",
                 "native/taide-native-ui/src/keymap.rs",
-                "native/taide-native-app/src/lsp_workspace_worker.rs"
+                "native/taide-native-app/src/lsp_workspace_worker.rs",
+                "native/taide-native-ui/src/editor-geometry.rs",
+                "native/taide-native-ui/src/editor_surface.rs",
+                "native/taide-native-app/src/symbol-location-host.rs"
             ],
             "tests": [
                 "native/taide-native-app/src/editor-code-actions-tests.rs",
@@ -905,9 +908,36 @@
             ],
             "reports": [
                 "docs/quality-assurance/2026-10-10-native-batch23-editor.md",
-                "docs/bug/2026-10-11-native-code-action-unavailable-message.md"
+                "docs/bug/2026-10-11-native-code-action-unavailable-message.md",
+                "docs/bug/2026-10-11-native-code-action-pointer-selection.md"
             ],
-            "limitation": "외부 LSP의 typed 요청/진단/범위·선택 resolve·원 공급자/소유/revision/취소·본문/peek 여섯 명령/키/팔레트·서버 명령·참조 peek·readonly owner/디스크와 자동 빈 응답 억제를 연결했습니다. 자동 전구 공백 왕복/목록 취소·명시 근접 진단과 실제 닫힌 파일/create/rename·mirror 뒤 command에 이어 빈/비활성 안내·공급자 없는 수동 응답·본문/peek Escape와 일반 입력을 확인했습니다. 원본 standalone은 별도 preview 화면을 제공하지 않으며 수정 수락 키의 일반 적용을 실제 App에서 검증했습니다. 현재 관련 App 최종 서로 다른 21건과 UI 전체 24대상/461통과·frozen host/Wasm check는 안내 변경의 근거입니다. 현재 App 관련 최초 20통과/1실패·exit 101과 수정 영향 1통과를 구분하며 92cbb325 App 전체 835를 이번 소스의 전체 성공으로 쓰지 않습니다. 전구 실제 위치/겹침·다른 URI/client navigation·현재 App 전체 완료 게이트가 남아 partial입니다. 내장 언어 서비스 editor-57과 실기/성능/출시·전환·제거는 별도로 추적합니다. 전체 전환율/잔여 시간은 미산정입니다."
+            "limitation": "외부 LSP의 조회/진단/종류·선택 resolve·WorkspaceEdit/resource 뒤 원 공급자 command·취소/revision/owner·본문/peek 여섯 명령·키/팔레트·빈/비활성 안내·자동 전구의 기능 묶음을 실제 App에서 확인했습니다. 다른 URI의 showReferences와 RA 별칭은 기존 파일 열기와 peek 인계로 연결했고 goto는 LocationLink 선택 범위 시작으로 이동합니다. 전구 클릭의 줄 선택 충돌을 실패 재현 뒤 수정했습니다. 현재 관련 App 23건과 UI 전체 461건이 통과했습니다. App 전체 67대상 최초 838통과/8실패·exit 101 뒤 시간 초과 7건과 수정 영향 전구 검사에서 통과했으며 전체 실행 exit 0으로 바꾸어 보고하지 않습니다. 별도 내장 서비스 editor-57과 파일 opener의 untitled 분기 editor-58, 실기/성능/출시·전환·제거는 별도 미완료입니다."
+        },
+        "editor-command-relay": {
+            "sources": [
+                "crates/taide-lsp/src/native.rs",
+                "crates/taide-lsp/src/native/session.rs",
+                "native/taide-native-app/src/lsp-editor-code-actions.rs",
+                "native/taide-native-app/src/editor-code-actions.rs",
+                "native/taide-native-app/src/application.rs"
+            ],
+            "tests": [
+                "crates/taide-lsp/src/native/session.rs",
+                "native/taide-native-app/src/lsp-editor-code-actions-tests.rs",
+                "native/taide-native-app/src/application-code-actions-tests.rs"
+            ],
+            "reports": ["docs/quality-assurance/2026-10-10-native-batch23-editor.md"],
+            "limitation": "원본의 정적/동적 서버 명령과 문서별 공급자/owner·해제/재시작 계약, WorkspaceEdit 뒤 executeCommand와 client navigation 세 명령을 실제 SDK/child/App에서 확인했습니다. showReferences와 RA 별칭의 다른 파일 peek 및 gotoLocation의 선택 시작 이동을 검증했습니다. 미완료 CodeLens 소비자 editor-53과 untitled opener editor-58은 독립 요구사항으로 추적합니다."
+        },
+        "editor-file-opener": {
+            "sources": [
+                "native/taide-native-app/src/symbol-location-host.rs",
+                "native/taide-native-app/src/application.rs",
+                "native/taide-native-app/src/editor-locations.rs"
+            ],
+            "tests": ["native/taide-native-app/src/symbol-location-host-tests.rs", "native/taide-native-app/src/application-code-actions-tests.rs"],
+            "reports": ["docs/quality-assurance/2026-10-10-native-batch23-editor.md"],
+            "limitation": "실제 앱의 파일 열기·기존 탭/dirty 모델 인수·같은 파일 이동·LocationLink 선택 시작·peek 인계를 기존 SymbolLocationHost와 App 검사에서 확인했습니다. 실제 소비자가 없다는 이전 missing 판정은 잘못됐습니다. 원본의 이미 열린 untitled 편집기 탐색과 나머지 진입의 통합은 남아 partial입니다."
         }
     },
     "rows": [
@@ -2513,9 +2543,9 @@
             "ts": "`lsp/adapters/code-action.ts:232`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:118",
             "domain": "editor",
-            "status": "partial",
+            "status": "complete",
             "proof": "editor-code-actions",
-            "note": "외부 LSP의 typed 요청/진단/범위·선택 resolve·원 공급자/소유/revision/취소·본문/peek 여섯 명령/키/팔레트·서버 명령·참조 peek·readonly owner/디스크와 자동 빈 응답 억제를 연결했습니다. 자동 전구 공백 왕복/목록 취소·명시 근접 진단과 실제 닫힌 파일/create/rename·mirror 뒤 command에 이어 빈/비활성 안내·공급자 없는 수동 응답·본문/peek Escape와 일반 입력을 확인했습니다. 원본 standalone은 별도 preview 화면을 제공하지 않으며 수정 수락 키의 일반 적용을 실제 App에서 검증했습니다. 현재 관련 App 최종 서로 다른 21건과 UI 전체 24대상/461통과·frozen host/Wasm check는 안내 변경의 근거입니다. 현재 App 관련 최초 20통과/1실패·exit 101과 수정 영향 1통과를 구분하며 92cbb325 App 전체 835를 이번 소스의 전체 성공으로 쓰지 않습니다. 전구 실제 위치/겹침·다른 URI/client navigation·현재 App 전체 완료 게이트가 남아 partial입니다. 내장 언어 서비스 editor-57과 실기/성능/출시·전환·제거는 별도로 추적합니다. 전체 전환율/잔여 시간은 미산정입니다."
+            "note": "외부 LSP의 조회/진단/종류·선택 resolve·WorkspaceEdit/resource 뒤 원 공급자 command·취소/revision/owner·본문/peek 여섯 명령·키/팔레트·빈/비활성 안내·자동 전구의 기능 묶음을 실제 App에서 확인했습니다. 다른 URI의 showReferences와 RA 별칭은 기존 파일 열기와 peek 인계로 연결했고 goto는 LocationLink 선택 범위 시작으로 이동합니다. 전구 클릭의 줄 선택 충돌을 실패 재현 뒤 수정했습니다. 현재 관련 App 23건과 UI 전체 461건이 통과했습니다. App 전체 67대상 최초 838통과/8실패·exit 101 뒤 시간 초과 7건과 수정 영향 전구 검사에서 통과했으며 전체 실행 exit 0으로 바꾸어 보고하지 않습니다. 별도 내장 서비스 editor-57과 파일 opener의 untitled 분기 editor-58, 실기/성능/출시·전환·제거는 별도 미완료입니다."
         },
         {
             "id": "editor-48",
@@ -2557,9 +2587,9 @@
             "ts": "`lsp/adapters/document-highlight.ts:26`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:122",
             "domain": "editor",
-            "status": "partial",
+            "status": "complete",
             "proof": "editor-highlights",
-            "note": "기본 텍스트/LSP 표시·이동·peek/mirror/readonly/tier·실제 서버 세대/동적 capability 수명을 검증하고 TS 호스트/설치 Monaco의 singleFile/selectionHighlight 기본 설정 대조를 마쳤습니다. 기존 성공은 재사용하며 batch 전체/실기 게이트 전까지 partial입니다."
+            "note": "기본 텍스트/LSP 표시와 F7/ShiftF7 이동·본문/peek·mirror/readonly/tier·복수 공급자·null/오류 대체·요청 취소와 실제 서버 재시작/동적 capability 수명·종료를 실제 App/child에서 확인했습니다. TS 호스트와 설치 Monaco 기본 설정을 대조했으며 관련 검사는 현재 App 전체 실행에서도 통과했습니다. 실기/대형 성능/출시 게이트는 기능표의 complete 정의와 구분해 배치 31~33에서 추적합니다."
         },
         {
             "id": "editor-52",
@@ -2612,9 +2642,9 @@
             "ts": "`command-relay.ts:73, 154-156`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:127",
             "domain": "editor",
-            "status": "partial",
-            "proof": "editor-lsp",
-            "note": "저장 action의 executeCommand는 연결됐으나 showReferences 등 대화형 relay 소비자는 없습니다."
+            "status": "complete",
+            "proof": "editor-command-relay",
+            "note": "원본의 정적/동적 서버 명령과 문서별 공급자/owner·해제/재시작 계약, WorkspaceEdit 뒤 executeCommand와 client navigation 세 명령을 실제 SDK/child/App에서 확인했습니다. showReferences와 RA 별칭의 다른 파일 peek 및 gotoLocation의 선택 시작 이동을 검증했습니다. 미완료 CodeLens 소비자 editor-53과 untitled opener editor-58은 독립 요구사항으로 추적합니다."
         },
         {
             "id": "editor-57",
@@ -2634,9 +2664,9 @@
             "ts": "`bridge/editor-opener-bridge.ts:40`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:129",
             "domain": "editor",
-            "status": "missing",
-            "proof": "editor-missing",
-            "note": "해당 사용자 동작의 실제 native 편집기/앱 소비 경로가 없습니다. 프로토콜·설정·backend만으로 완료 처리하지 않습니다."
+            "status": "partial",
+            "proof": "editor-file-opener",
+            "note": "실제 앱의 파일 열기·기존 탭/dirty 모델 인수·같은 파일 이동·LocationLink 선택 시작·peek 인계를 기존 SymbolLocationHost와 App 검사에서 확인했습니다. 실제 소비자가 없다는 이전 missing 판정은 잘못됐습니다. 원본의 이미 열린 untitled 편집기 탐색과 나머지 진입의 통합은 남아 partial입니다."
         },
         {
             "id": "editor-59",
@@ -7501,5 +7531,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "현재 기능표는 599행·제외 10/동결 1·대상 588행이며 완료 290/부분 94/미연결 112/미구현 92·미완료 298입니다. 원본 요구사항/ID/근거 경로와 배정 정합성을 별도로 검사하며 이 집계가 모든 동작의 재실행이나 전체 마이그레이션 완성률을 뜻하지 않습니다. 현재 배치 23·최종 33, 전체 전환율/신뢰할 잔여 시간은 미산정입니다.\n안내 변경의 App 관련 검사는 최초 20통과/1실패·exit 101 뒤 실패 영향 1통과·exit 0으로 서로 다른 21건을 확인했습니다. 현재 UI --all-targets --no-fail-fast 직접 1회 실행은 24대상/461통과/0실패/0ignored·exit 0입니다. frozen host inspection 테스트 대상과 canvas/inspection Wasm lib check·소유 Rust 10경로 fmt/diff는 exit 0이며 컴파일을 실행 검사로 세지 않습니다. 92cbb325의 이전 App 전체 67대상/835통과·보호 Trash 3제외·exit 0과 변하지 않은 SDK 전체 90건을 재사용하며 현재 안내 소스의 App 전체 성공으로 보고하지 않습니다. 최초 실패·원인 미확정 watcher/이미지 환경 부채·성능 ignored와 실제 pixel/OS IME/접근성/대형 성능/soak·출시·전환·제거 게이트는 관련 QA와 배치 31~33에 보존합니다. 디스크 428GiB/77%, frozen source/manifest/lock/engine 변경 0이며 빌드 정리나 보호 데이터/OS 입력을 실행하지 않았습니다."
+    "validation": "현재 기능표는 599행·제외 10/동결 1·대상 588행이며 완료 293/부분 92/미연결 112/미구현 91·미완료 295입니다. editor-47/51/56의 실제 기능·앱·검증 근거로 complete를 갱신했고 editor-58은 실제 파일 소비 경로가 있으므로 missing에서 partial로 정정했습니다. 현재 배치 23 잔여 28·최종 33이며 규모가 다른 행 집계로 전체 전환율/잔여 시간을 산정하지 않습니다.\n현재 App 전체 --all-targets --no-fail-fast 직접 1회는 67대상/838통과/8실패·보호 Trash 3제외·exit 101입니다. 전구 충돌 1건은 수정 후 관련 App 23건에서 통과했고 나머지 준비/복구 시간 초과 7건은 코드/상한 변경 없이 실패 영향만 재확인해 통과했습니다. 성공을 중복 합산하지 않은 현재 App 근거는 서로 다른 846건이며 전체 명령 exit 0을 뜻하지 않습니다. UI 전체 1회 24대상/461통과/0실패/0ignored·exit 0, frozen host inspection 테스트 대상과 canvas/inspection Wasm lib check·소유 Rust 7경로 fmt는 exit 0입니다. SDK 전체 90 성공은 변경 없이 재사용했습니다. 초기 시간 초과의 원인은 미확정이며 실기/pixel/OS IME/접근성/성능/soak·출시·전환·제거는 배치 31~33에 보존합니다. 디스크 424GiB/77%, frozen source/manifest/lock/engine/새 의존성 변경 0이며 빌드 정리·보호 데이터/OS 입력을 실행하지 않았습니다."
 }

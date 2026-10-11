@@ -689,3 +689,29 @@ notice-frozen-host.log는 frozen host inspection 테스트 대상 check exit 0·
 현재 App 전체는 이번 안내 소스에서 실행하지 않았습니다. 92cbb325의 67대상/835통과·보호 Trash 3제외·exit 0은 이전 전체 근거이며 현재 관련 21건과 혼동하지 않습니다. 변하지 않은 SDK 전체 90건을 재사용합니다. 디스크는 428GiB 여유/77% 사용이며 정리 명령·보호 앱/실제 데이터/OS 설정/클립보드/Keychain/Trash·OS 합성 입력을 실행하지 않았습니다.
 
 기능표는 599행·대상 588·complete 290/partial 94/unwired 112/missing 92·잔여 298, batch 23 미완료 31·최종 33을 유지합니다. editor-47/c5는 partial이며 전구 실제 위치/겹침·다른 URI/client navigation·현재 App 전체 완료 게이트가 다음입니다. 내장 언어 서비스 editor-57은 별도 미완료 행으로 추적합니다. 실제 pixel/OS IME/접근성/대형 성능/soak·출시·전환·제거는 배치 31~33에 유지하고 안내 검사를 전체 기능률이나 소요시간으로 환산하지 않습니다.
+
+## c5c2 다른 URI 이동과 전구 입력 충돌 (2026-10-11)
+
+원본 src/shared/lib/lsp/command-relay.ts의 showReferences/RA 별칭은 전달된 URI를 먼저 열고 그 위치에 peek를 표시합니다. RA gotoLocation은 targetSelectionRange 또는 range의 시작으로 이동합니다. 설치 Monaco goToCommands.js의 openReference도 선택을 시작으로 축약합니다. 기존 native는 다른 URI의 참조 명령을 원래 source에 표시해 새 origin 파일을 열지 않았습니다. 실제 App 새 검사로 navigation-tab 대기 실패를 재현한 뒤 기존 OpenSymbolLocation/파일 host/peek rehome을 사용해 연결했습니다. source 텍스트/선택과 두 파일 디스크를 보존하고 UTF-16 위치·직접 goto의 단일 커서·종료 task 0을 확인했습니다.
+
+실제 전구 마우스 검사를 추가한 App 전체 실행에서 줄 번호 선택이 전구 클릭을 먼저 소비하는 실패가 드러났습니다. UI 독립 실패를 재현한 뒤 현재 geometry 기반 전구 hit-test를 본문 선택/접기 처리보다 먼저 적용했습니다. 공개 API·기존 pointer/fold 경계는 유지하며 현재 줄/전구 사각형 계산을 공유합니다. 줄 번호 유무/본문 안 전구와 실제 App 자동 전구를 함께 확인했습니다. 전구까지 통과했다고 조기 보고했던 부분은 실패 로그를 확인한 즉시 정정했고 해당 실패를 삭제하지 않습니다.
+
+로그 경로의 공통 접두어는 /private/tmp/taide-batch23-code-actions-입니다.
+
+| 로그                                              | 관찰 결과                                                                                                                |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| navigation-red.log                                | 다른 URI origin 파일 열기 대기 1실패·exit 101                                                                            |
+| navigation-borrow-fixed.log                       | 다른 URI showReferences/RA 별칭 실제 App 1검사의 두 사례 통과·exit 0                                                     |
+| final-app-all.log                                 | 직접 1회 --all-targets --no-fail-fast·inspection·test-threads=1·보호 Trash 3제외, 67대상/838통과/8실패/0ignored·exit 101 |
+| final-app-timeouts-lib.log                        | 최초 실패 중 준비/소유 회수 4건, 기존 바이너리/상한 그대로 4통과·exit 0·3.91초                                           |
+| final-app-timeouts-integration.log                | 최초 실패 중 LSP/복구/프로젝트 3건만 3통과·exit 0·검사 합산 3.50초                                                       |
+| pointer-red-actual.log                            | 줄 번호가 켜진 UI 전구 클릭 1실패·exit 101·0.03초                                                                        |
+| pointer-ui-all.log                                | UI 전체 직접 1회 24대상/461통과/0실패/0ignored·exit 0, 컴파일 16.92초·검사 합산 4.57초                                   |
+| final-app-affected.log                            | 실제 전구/참조/직접 이동을 포함한 관련 App 23통과·exit 0, 컴파일 22.22초·검사 28.61초                                    |
+| pointer-frozen-host.log / pointer-frozen-wasm.log | 각각 컴파일 exit 0·15.83초/10.16초, 테스트 실행으로 세지 않음                                                            |
+
+시간 초과 7건의 초기 원인은 미확정입니다. 상한을 늘리거나 제품을 바꾸지 않은 영향 재검사만으로 모두 통과했습니다. 전체 성공 검사를 다시 실행하지 않았으며 최초 전체 exit 101을 보존합니다. 성공한 838건과 수정/실패 영향 결과를 재사용하면 서로 다른 App 검사 근거는 846건입니다. 관련 23건을 또 더하지 않습니다. 검증 명령은 cargo test --manifest-path native/taide-native-app/Cargo.toml --features inspection --locked --offline --target-dir experiments/native-shell-spike/target --lib code_actions -- --test-threads=1 및 동일 공통 옵션의 UI --features native-host,inspection --all-targets --no-fail-fast -- --test-threads=4입니다. 초기 UI inspection/필터의 0건 실행·Fixture 필드와 layout ReadGuard의 컴파일 실패는 실행 성공으로 세지 않습니다.
+
+소유 Rust 7경로의 fmt check는 exit 0, SDK 전체 90건은 변경 없이 재사용했습니다. frozen source/manifest/lock/engine/새 의존성 변경 0·디스크 424GiB/77%입니다. 보호 앱/실제 데이터/OS 설정/클립보드/Keychain/Trash·OS 합성 입력과 빌드 정리를 실행하지 않았습니다. 읽기 전용 process 관찰에서 전체 검사 대상은 계속 바뀌었고 CPU 지속 점유/잔류 mock은 보이지 않았으며 소유 Cargo terminal 종료를 확인했습니다. 모든 과거 실행의 종료성까지 증명한 결과는 아닙니다.
+
+기능표 complete 정의에 따라 외부 Code Action editor-47, 이미 앱/서버 수명을 검증한 document highlight editor-51, server/client command relay editor-56을 닫습니다. 파일 opener editor-58의 실제 file 경로는 구현돼 missing 판정을 partial로 정정하고 기존 untitled 편집기 탐색은 남깁니다. 현재 599행·대상 588·293완료/92부분/112미연결/91미구현·미완료 295, 배치 23 미완료 28·최종 33입니다. 행 비율을 전체 전환율로 계산하지 않습니다. 내장 서비스/CodeLens/untitled와 pixel·OS IME/접근성/대형 성능/soak·출시·전환·제거는 별도 행/배치 31~33에서 추적하며 다음 기능은 같은 배치의 editor-50 inlay hint입니다.

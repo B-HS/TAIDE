@@ -299,6 +299,170 @@ fn select_with_modifiers(
     paint(application, context, key(egui::Key::Enter, modifiers));
 }
 
+fn opened_navigation(
+    application: &mut NativeApplication,
+    context: &egui::Context,
+    project: &ProjectId,
+    path: &str,
+) -> ViewId {
+    wait(application, context, "navigation-tab", |application| {
+        application
+            .services
+            .state
+            .layouts
+            .read()
+            .get(project)
+            .is_some_and(|layout| {
+                let taide_model::layout::PaneNode::Leaf { tabs, .. } = &layout.root else {
+                    return false;
+                };
+                tabs.iter().any(
+                    |tab| matches!(&tab.kind, TabKind::File { path: actual } if actual == path),
+                )
+            })
+    });
+    paint(application, context, Vec::new());
+    wait(application, context, "navigation-file", |application| {
+        application.files.contains_key(path)
+    });
+    paint(application, context, Vec::new());
+    paint(application, context, Vec::new());
+    let layouts = application.services.state.layouts.read();
+    let taide_model::layout::PaneNode::Leaf { tabs, .. } = &layouts[project].root else {
+        panic!("fixture navigation must retain its pane");
+    };
+    let tab = tabs
+        .iter()
+        .find(|tab| matches!(&tab.kind, TabKind::File { path: actual } if actual == path))
+        .unwrap();
+    application
+        .store
+        .views()
+        .for_document(application.files[path].id)
+        .find(|view| view.key.tab == tab.id)
+        .unwrap()
+        .id
+}
+
+#[test]
+fn 실제_app의_다른_uri_참조_명령은_원본_파일과_utf16_위치에_peek를_옮긴다() {
+    for mode in [
+        "--native-code-actions-references-other",
+        "--native-code-actions-ra-references-other",
+    ] {
+        let mut fixture = fixture(mode);
+        let application = fixture.application.as_mut().unwrap();
+        let context = &fixture.context;
+        let document = application.files[&fixture.path].id;
+        let view = application
+            .store
+            .views()
+            .for_document(document)
+            .find(|view| view.key.tab == fixture.tab)
+            .unwrap()
+            .id;
+        let before = application.store.documents().snapshot(document).unwrap();
+        let selection = application
+            .store
+            .views()
+            .get(view)
+            .unwrap()
+            .selection
+            .clone();
+        focus(application, context, view);
+        paint(
+            application,
+            context,
+            key(
+                egui::Key::Period,
+                egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND,
+            ),
+        );
+        select_first(application, context, view);
+        let origin = opened_navigation(application, context, &fixture.project, &fixture.peek_path);
+        let session = application.editor_locations.current(origin).unwrap();
+        assert!(session.shown);
+        assert_eq!(
+            session.request.position,
+            taide_lsp::native::protocol::lsp_types::Position::new(1, 4)
+        );
+        assert_eq!(
+            session.request.snapshot.id,
+            application.files[&fixture.peek_path].id
+        );
+        assert_eq!(session.model.as_ref().unwrap().targets().len(), 1);
+        let preview = session.preview.unwrap();
+        assert_eq!(
+            application.store.views().get(preview).unwrap().document,
+            document
+        );
+        assert_eq!(
+            application.store.views().get(view).unwrap().selection,
+            selection
+        );
+        assert!(application.editor_locations.current(view).is_none());
+        assert_eq!(
+            application
+                .store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .revision,
+            before.revision
+        );
+        assert_eq!(
+            application
+                .store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .rope,
+            before.rope
+        );
+        assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), TEXT);
+        assert_eq!(std::fs::read_to_string(&fixture.peek_path).unwrap(), TEXT);
+        eframe::App::on_exit(application);
+        assert_eq!(application.services.tasks.tracked_count(), 0);
+    }
+}
+
+#[test]
+fn 실제_app의_client_goto는_location_link의_선택_범위_시작으로_이동한다() {
+    let mut fixture = fixture("--native-code-actions-goto-other");
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let document = application.files[&fixture.path].id;
+    let view = application
+        .store
+        .views()
+        .for_document(document)
+        .find(|view| view.key.tab == fixture.tab)
+        .unwrap()
+        .id;
+    focus(application, context, view);
+    paint(
+        application,
+        context,
+        key(
+            egui::Key::Period,
+            egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND,
+        ),
+    );
+    select_first(application, context, view);
+    let target = opened_navigation(application, context, &fixture.project, &fixture.peek_path);
+    let selections = &application.store.views().get(target).unwrap().selection;
+    let selection = &selections.selections[selections.primary];
+    let start = TEXT.find("method").unwrap();
+    assert_eq!(selection.anchor, start);
+    assert_eq!(selection.head, start);
+    assert!(application.editor_locations.current(target).is_none());
+    assert!(application.editor_locations.current(view).is_none());
+    assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), TEXT);
+    assert_eq!(std::fs::read_to_string(&fixture.peek_path).unwrap(), TEXT);
+    eframe::App::on_exit(application);
+    assert_eq!(application.services.tasks.tracked_count(), 0);
+}
+
 fn wait_prefix(
     application: &mut NativeApplication,
     context: &egui::Context,
@@ -996,11 +1160,48 @@ fn 실제_app의_자동_전구는_공백_왕복과_목록_취소_후에도_다�
         .request()
         .unwrap()
         .clone();
-    assert!(application.editor_code_actions.state.open(
-        &application.store,
-        view,
-        request.token.as_u128()
-    ));
+    paint(application, context, Vec::new());
+    paint(application, context, Vec::new());
+    let editor = context.memory(|memory| memory.focused()).unwrap();
+    let bulb = context
+        .read_response(taide_native_ui::editor_code_actions::bulb_id(
+            editor,
+            request.token.as_u128(),
+        ))
+        .unwrap();
+    let selection = application
+        .store
+        .views()
+        .get(view)
+        .unwrap()
+        .selection
+        .clone();
+    for pressed in [true, false] {
+        paint(
+            application,
+            context,
+            vec![
+                egui::Event::PointerMoved(bulb.rect.center()),
+                egui::Event::PointerButton {
+                    pos: bulb.rect.center(),
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+    }
+    assert_eq!(
+        application.store.views().get(view).unwrap().selection,
+        selection
+    );
+    assert!(
+        application
+            .editor_code_actions
+            .state
+            .listed(&application.store, view)
+            .is_some_and(|(_, _, open)| open)
+    );
     paint(application, context, Vec::new());
     paint(application, context, Vec::new());
     paint(

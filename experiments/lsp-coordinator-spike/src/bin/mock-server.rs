@@ -1636,6 +1636,25 @@ impl MockServer {
                     ));
                 }
                 match self.code_actions {
+                    Some(mode @ ("references-other" | "ra-references-other" | "goto-other")) => {
+                        let origin_uri = uri.replace("/current.rs", "/peek.rs");
+                        let range = json!({"start":{"line":1,"character":4},"end":{"line":1,"character":10}});
+                        let command = if mode == "goto-other" {
+                            json!({"title":"goto","command":"rust-analyzer.gotoLocation","arguments":[{"targetUri":origin_uri,"targetRange":{"start":{"line":1,"character":0},"end":{"line":1,"character":10}},"targetSelectionRange":range}]})
+                        } else {
+                            let name = if mode == "ra-references-other" {
+                                "rust-analyzer.showReferences"
+                            } else {
+                                "editor.action.showReferences"
+                            };
+                            json!({"title":"references","command":name,"arguments":[origin_uri,{"line":1,"character":4},[{"uri":uri,"range":range}]]})
+                        };
+                        write_response(
+                            output,
+                            id,
+                            json!([{"title":"Client navigation","kind":"quickfix","command":command}]),
+                        )?;
+                    }
                     Some("disabled") => {
                         let reference_uri = uri.replace("/current.rs", "/peek.rs");
                         write_response(
@@ -1894,6 +1913,13 @@ fn main() -> io::Result<ExitCode> {
         Some("--native-code-actions-resource") => server.code_actions = Some("resource"),
         Some("--native-code-actions-nearby") => server.code_actions = Some("nearby"),
         Some("--native-code-actions-disabled") => server.code_actions = Some("disabled"),
+        Some("--native-code-actions-references-other") => {
+            server.code_actions = Some("references-other")
+        }
+        Some("--native-code-actions-ra-references-other") => {
+            server.code_actions = Some("ra-references-other")
+        }
+        Some("--native-code-actions-goto-other") => server.code_actions = Some("goto-other"),
         Some("--crash-on-hover") => server.should_crash_on_hover = true,
         Some("--ignore-exit") => server.should_ignore_exit = true,
         Some("--ignore-hover") => server.should_ignore_hover = true,
