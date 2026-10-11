@@ -415,6 +415,34 @@ fn 자동_조회는_source를_제외하고_전구_열기_전후에도_한번만_
 }
 
 #[test]
+fn 자동_전구_목록을_닫아도_같은_수정_후보를_다시_열_수_있다() {
+    let mut fixture = Fixture::new(false, FileSizeTier::Normal);
+    let request = fixture.begin(Command::QuickFix, true);
+    let candidate = fixture.candidate(json!({"title": "fix", "kind": "quickfix"}));
+    fixture.accept(&request, vec![candidate]);
+    assert!(
+        fixture
+            .state
+            .open(&fixture.store, fixture.source, request.token.as_u128())
+    );
+    fixture.state.close(fixture.source, request.token.as_u128());
+    assert!(!request.is_cancelled());
+    let (_, actions, open) = fixture
+        .state
+        .listed(&fixture.store, fixture.source)
+        .unwrap();
+    assert_eq!(actions[0].title, "fix");
+    assert!(!open);
+    assert!(
+        fixture
+            .state
+            .open(&fixture.store, fixture.source, request.token.as_u128())
+    );
+    fixture.state.finish(&request);
+    assert!(request.is_cancelled());
+}
+
+#[test]
 fn 이전_중복_다른_공급자_응답은_현재_수정_목록을_대신할_수_없다() {
     let mut fixture = Fixture::new(false, FileSizeTier::Normal);
     let previous = fixture.begin(Command::QuickFix, false);
@@ -442,6 +470,15 @@ fn 이전_중복_다른_공급자_응답은_현재_수정_목록을_대신할_�
     fixture.state.close(fixture.owner, request.token.as_u128());
     assert!(!request.is_cancelled());
     fixture.state.close(fixture.source, request.token.as_u128());
+    assert!(
+        !fixture
+            .state
+            .listed(&fixture.store, fixture.source)
+            .unwrap()
+            .2
+    );
+    assert!(!request.is_cancelled());
+    fixture.state.finish(&request);
     assert!(request.is_cancelled());
     let request = fixture.begin(Command::QuickFix, false);
     let foreign = Candidate {

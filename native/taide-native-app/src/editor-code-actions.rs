@@ -361,13 +361,18 @@ impl State {
     }
 
     pub(crate) fn close(&mut self, view: ViewId, token: u128) {
-        if self.entry.as_ref().is_some_and(|entry| {
+        let Some(entry) = self.entry.as_mut().filter(|entry| {
             entry.request.source == view
                 && entry.request.token.as_u128() == token
                 && !entry.applying
-        }) {
-            self.clear();
+        }) else {
+            return;
+        };
+        if entry.received && !entry.choosing {
+            entry.menu_open = false;
+            return;
         }
+        self.clear();
     }
 
     pub(crate) fn finish(&mut self, request: &Request) {

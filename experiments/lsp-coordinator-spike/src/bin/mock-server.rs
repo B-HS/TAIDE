@@ -1294,9 +1294,17 @@ impl MockServer {
                 }
                 self.documents.insert(uri.into(), document.clone());
                 if self.code_actions.is_some() {
+                    let diagnostics = if self.code_actions == Some("nearby") {
+                        json!([
+                            {"range":{"start":{"line":1,"character":1},"end":{"line":1,"character":2}},"severity":2,"message":"nearby action"},
+                            {"range":{"start":{"line":1,"character":4},"end":{"line":1,"character":10}},"severity":2,"message":"farther action"}
+                        ])
+                    } else {
+                        json!([{"range":{"start":{"line":1,"character":4},"end":{"line":1,"character":10}},"severity":2,"message":"synthetic action diagnostic","data":{"payload":"diagnostic retained"}}])
+                    };
                     write_payload(
                         output,
-                        &json!({"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":uri,"version":document["version"],"diagnostics":[{"range":{"start":{"line":1,"character":4},"end":{"line":1,"character":10}},"severity":2,"message":"synthetic action diagnostic","data":{"payload":"diagnostic retained"}}]}}),
+                        &json!({"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":uri,"version":document["version"],"diagnostics":diagnostics}}),
                     )?;
                 }
                 if self.should_publish_raw_diagnostics {
@@ -1628,6 +1636,45 @@ impl MockServer {
                     ));
                 }
                 match self.code_actions {
+                    Some("resource") => {
+                        let zero = json!({"start":{"line":0,"character":0},"end":{"line":0,"character":0}});
+                        let closed = uri.replace("/current.rs", "/peek.rs");
+                        let created = uri.replace("/current.rs", "/created.rs");
+                        let renamed = uri.replace("/current.rs", "/generated.rs");
+                        write_response(
+                            output,
+                            id,
+                            json!([{"title":"Workspace fix","kind":"quickfix","edit":{"documentChanges":[
+                            {"textDocument":{"uri":closed,"version":null},"edits":[{"range":zero,"newText":"closed:"}]},
+                            {"kind":"create","uri":created},
+                            {"textDocument":{"uri":created,"version":null},"edits":[{"range":zero,"newText":"created"}]},
+                            {"kind":"rename","oldUri":created,"newUri":renamed},
+                            {"textDocument":{"uri":uri,"version":current["version"]},"edits":[{"range":zero,"newText":"resource:"}]}
+                        ]},"command":{"title":"verify","command":"synthetic.action","arguments":[uri,"resource:"]}}]),
+                        )?;
+                    }
+                    Some("nearby") => {
+                        let position = &params["range"]["end"];
+                        let column = position["character"].as_u64();
+                        if position["line"] != 1 || !matches!(column, Some(2 | 10)) {
+                            write_response(output, id, json!([]))?;
+                        } else {
+                            if params["context"]["only"] != json!(["quickfix"])
+                                || params["context"]["diagnostics"]
+                                    .as_array()
+                                    .is_none_or(Vec::is_empty)
+                            {
+                                return Err(invalid("nearby query requires quickfix kind and intersecting diagnostics"));
+                            }
+                            let prefix = if column == Some(2) { "near:" } else { "far:" };
+                            let zero = json!({"start":{"line":0,"character":0},"end":{"line":0,"character":0}});
+                            write_response(
+                                output,
+                                id,
+                                json!([{"title":prefix,"kind":"quickfix","edit":{"changes":{uri:[{"range":zero,"newText":prefix}]}},"command":{"title":"verify","command":"synthetic.action","arguments":[uri,prefix]}}]),
+                            )?;
+                        }
+                    }
                     Some("null") => write_response(output, id, Value::Null)?,
                     Some("error") => write_payload(
                         output,
@@ -1833,6 +1880,8 @@ fn main() -> io::Result<ExitCode> {
         Some("--native-code-actions-wait") => server.code_actions = Some("wait"),
         Some("--native-code-actions-unsupported") => server.code_actions = Some("unsupported"),
         Some("--native-code-actions-resolve-error") => server.code_actions = Some("resolve-error"),
+        Some("--native-code-actions-resource") => server.code_actions = Some("resource"),
+        Some("--native-code-actions-nearby") => server.code_actions = Some("nearby"),
         Some("--crash-on-hover") => server.should_crash_on_hover = true,
         Some("--ignore-exit") => server.should_ignore_exit = true,
         Some("--ignore-hover") => server.should_ignore_hover = true,

@@ -554,6 +554,229 @@ fn 실제_app의_여섯_수정_명령은_키와_팔레트에서_편집_후_명�
 }
 
 #[test]
+fn 실제_app의_명시_수정은_공백_위치에서도_근접_진단을_조회한다() {
+    let mut fixture = fixture("--native-code-actions-nearby");
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let document = application.files[&fixture.path].id;
+    let view = application
+        .store
+        .views()
+        .for_document(document)
+        .find(|view| view.key.tab == fixture.tab)
+        .unwrap()
+        .id;
+    let head = TEXT.find('\n').unwrap() + 1;
+    application
+        .store
+        .set_view_state(
+            view,
+            SelectionSet {
+                primary: 0,
+                selections: vec![Selection { anchor: head, head }],
+            },
+            Default::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    focus(application, context, view);
+    paint(
+        application,
+        context,
+        key(
+            egui::Key::Period,
+            egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND,
+        ),
+    );
+    wait(application, context, "nearby-list", |application| {
+        application
+            .editor_code_actions
+            .state
+            .listed(&application.store, view)
+            .is_some_and(|(_, actions, open)| open && actions.len() == 2)
+    });
+    select_first(application, context, view);
+    wait_prefix(application, context, document, "near:");
+    assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), TEXT);
+    assert!(application.store.undo(document).unwrap());
+    eframe::App::on_exit(application);
+    assert_eq!(application.services.tasks.tracked_count(), 0);
+}
+
+#[test]
+fn 실제_app의_코드_수정은_닫힌_파일과_생성_이름변경을_명령_전에_적용한다() {
+    let mut fixture = fixture("--native-code-actions-resource");
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let document = application.files[&fixture.path].id;
+    let view = application
+        .store
+        .views()
+        .for_document(document)
+        .find(|view| view.key.tab == fixture.tab)
+        .unwrap()
+        .id;
+    let root = std::path::Path::new(&fixture.path).parent().unwrap();
+    assert!(!application.files.contains_key(&fixture.peek_path));
+    assert!(!root.join("created.rs").exists());
+    assert!(!root.join("generated.rs").exists());
+    focus(application, context, view);
+    paint(
+        application,
+        context,
+        key(
+            egui::Key::Period,
+            egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND,
+        ),
+    );
+    select_first(application, context, view);
+    wait_prefix(application, context, document, "resource:");
+    assert_eq!(
+        std::fs::read_to_string(&fixture.peek_path).unwrap(),
+        format!("closed:{TEXT}")
+    );
+    assert!(!root.join("created.rs").exists());
+    assert_eq!(
+        std::fs::read_to_string(root.join("generated.rs")).unwrap(),
+        "created"
+    );
+    assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), TEXT);
+    assert!(!application.files.contains_key(&fixture.peek_path));
+    assert!(application.store.undo(document).unwrap());
+    eframe::App::on_exit(application);
+    assert_eq!(application.services.tasks.tracked_count(), 0);
+}
+
+#[test]
+fn 실제_app의_자동_전구는_공백_왕복과_목록_취소_후에도_다시_사용한다() {
+    let mut fixture = fixture("--native-code-actions");
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let document = application.files[&fixture.path].id;
+    let view = application
+        .store
+        .views()
+        .for_document(document)
+        .find(|view| view.key.tab == fixture.tab)
+        .unwrap()
+        .id;
+    let head = TEXT.find("method").unwrap();
+    let move_to = |application: &mut NativeApplication, head| {
+        application
+            .store
+            .set_view_state(
+                view,
+                SelectionSet {
+                    primary: 0,
+                    selections: vec![Selection { anchor: head, head }],
+                },
+                Default::default(),
+                Vec::new(),
+            )
+            .unwrap();
+        focus(application, context, view);
+        paint(application, context, Vec::new());
+    };
+    move_to(application, head);
+    wait(application, context, "automatic-actions", |application| {
+        application
+            .editor_code_actions
+            .state
+            .listed(&application.store, view)
+            .is_some_and(|(request, actions, open)| {
+                request.invocation.automatic && !actions.is_empty() && !open
+            })
+    });
+    let previous = application
+        .editor_code_actions
+        .state
+        .request()
+        .unwrap()
+        .clone();
+    move_to(application, TEXT.find('\n').unwrap() + 1);
+    assert!(application.editor_code_actions.state.request().is_none());
+    assert!(previous.is_cancelled());
+    move_to(application, head);
+    wait(
+        application,
+        context,
+        "automatic-return-from-whitespace",
+        |application| {
+            application
+                .editor_code_actions
+                .state
+                .listed(&application.store, view)
+                .is_some_and(|(request, actions, _)| {
+                    request.token != previous.token && !actions.is_empty()
+                })
+        },
+    );
+    let request = application
+        .editor_code_actions
+        .state
+        .request()
+        .unwrap()
+        .clone();
+    assert!(application.editor_code_actions.state.open(
+        &application.store,
+        view,
+        request.token.as_u128()
+    ));
+    paint(application, context, Vec::new());
+    paint(application, context, Vec::new());
+    paint(
+        application,
+        context,
+        key(egui::Key::Escape, egui::Modifiers::NONE),
+    );
+    assert!(!request.is_cancelled());
+    assert!(
+        application
+            .editor_code_actions
+            .state
+            .listed(&application.store, view)
+            .is_some_and(|(current, actions, open)| current.token == request.token
+                && !actions.is_empty()
+                && !open)
+    );
+    for _ in 0..STABILITY_FRAMES {
+        paint(application, context, Vec::new());
+        eframe::App::logic(application, context, &mut eframe::Frame::_new_kittest());
+    }
+    assert_eq!(
+        application
+            .editor_code_actions
+            .state
+            .request()
+            .unwrap()
+            .token,
+        request.token
+    );
+    assert!(
+        application
+            .editor_code_actions
+            .next_refresh(Instant::now())
+            .is_none()
+    );
+    assert!(application.editor_code_actions.state.open(
+        &application.store,
+        view,
+        request.token.as_u128()
+    ));
+    paint(application, context, Vec::new());
+    paint(application, context, Vec::new());
+    paint(
+        application,
+        context,
+        key(egui::Key::Enter, egui::Modifiers::NONE),
+    );
+    wait_prefix(application, context, document, "applied:");
+    assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), TEXT);
+    eframe::App::on_exit(application);
+    assert_eq!(application.services.tasks.tracked_count(), 0);
+}
+
+#[test]
 fn 실제_app의_빈_자동_응답은_반복하지_않고_문서_변경_후에만_새_요청을_만든다() {
     let mut fixture = fixture("--native-code-actions-error");
     let application = fixture.application.as_mut().unwrap();

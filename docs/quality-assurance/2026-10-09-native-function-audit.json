@@ -1,6 +1,6 @@
 {
     "date": "2026-10-11",
-    "baseline": "0e81a8d4 이후 c5c 실제 App 소비 변경",
+    "baseline": "92cbb325 이후 자동 전구·근접 진단과 resource 소비 변경",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -893,7 +893,8 @@
                 "native/taide-native-ui/src/editor-code-actions.rs",
                 "native/taide-native-ui/src/editor-code-actions-keymap-defaults.json",
                 "native/taide-native-ui/src/command-registry.rs",
-                "native/taide-native-ui/src/keymap.rs"
+                "native/taide-native-ui/src/keymap.rs",
+                "native/taide-native-app/src/lsp_workspace_worker.rs"
             ],
             "tests": [
                 "native/taide-native-app/src/editor-code-actions-tests.rs",
@@ -903,7 +904,7 @@
                 "native/taide-native-ui/tests/keymap-platform.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-10-native-batch23-editor.md"],
-            "limitation": "외부 LSP의 typed 요청/선택 resolve·원 공급자 진단/소유·문서 revision/취소·본문/peek 목록과 여섯 명령/기본 키/팔레트·편집 후 서버 명령·클라이언트 참조 preview·readonly owner/디스크 보존·자동 빈 응답의 재요청 억제를 관련 상태 7/child 3/실제 App 2건에서 확인했습니다. 현재 SDK 전체 90통과·UI 전체 456통과/3실패 뒤 영향 registry 14/플랫폼 키 1통과이며 서로 다른 최종 UI 459건입니다. 현재 App 전체 67대상/835통과/0실패/0ignored·보호 Trash 3제외·exit 0을 확인했습니다. Code Action의 닫힌 파일/resource 추가 소비 검증·자동 전구 위치/근접 진단과 수명·preview 의도·다른 URI/client navigation·내장 공급자 editor-57·보호 Trash/실기/성능/출시는 미완료입니다. 전체 전환율/잔여 시간은 미산정입니다."
+            "limitation": "외부 LSP의 typed 요청/진단/범위·선택 resolve·원 공급자/소유/revision/취소·본문/peek 여섯 명령/키/팔레트·서버 명령·참조 peek·readonly owner/디스크와 자동 빈 응답 억제의 기존 소비를 재사용했습니다. 자동 전구 공백 왕복/목록 취소와 명시 근접 진단을 실패 재현 뒤 연결하고 닫힌 파일 편집·create/rename·mirror 뒤 command를 실제 App에서 확인했습니다. 현재 상태 8/child 4/App 5의 관련 17건 exit 0, 기존 SDK 90·UI 459와 92cbb325 App 전체 835/frozen 컴파일은 변경하지 않은 경계의 근거입니다. 이번 소스의 전체 App 840통과로 쓰지 않습니다. 전구 위치/겹침·수동 빈/비활성 안내·preview 분기·다른 URI/client navigation·내장 공급자 editor-57·실기/성능/출시는 미완료입니다. 전체 전환율/잔여 시간은 미산정입니다."
         }
     },
     "rows": [
@@ -2511,7 +2512,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-code-actions",
-            "note": "외부 LSP의 typed 요청/선택 resolve·원 공급자 진단/소유·문서 revision/취소·본문/peek 목록과 여섯 명령/기본 키/팔레트·편집 후 서버 명령·클라이언트 참조 preview·readonly owner/디스크 보존·자동 빈 응답의 재요청 억제를 관련 상태 7/child 3/실제 App 2건에서 확인했습니다. 현재 SDK 전체 90통과·UI 전체 456통과/3실패 뒤 영향 registry 14/플랫폼 키 1통과이며 서로 다른 최종 UI 459건입니다. 현재 App 전체 67대상/835통과/0실패/0ignored·보호 Trash 3제외·exit 0을 확인했습니다. Code Action의 닫힌 파일/resource 추가 소비 검증·자동 전구 위치/근접 진단과 수명·preview 의도·다른 URI/client navigation·내장 공급자 editor-57·보호 Trash/실기/성능/출시는 미완료입니다. 전체 전환율/잔여 시간은 미산정입니다."
+            "note": "외부 LSP의 typed 요청/진단/범위·선택 resolve·원 공급자/소유/revision/취소·본문/peek 여섯 명령/키/팔레트·서버 명령·참조 peek·readonly owner/디스크와 자동 빈 응답 억제의 기존 소비를 재사용했습니다. 자동 전구 공백 왕복/목록 취소와 명시 근접 진단을 실패 재현 뒤 연결하고 닫힌 파일 편집·create/rename·mirror 뒤 command를 실제 App에서 확인했습니다. 현재 상태 8/child 4/App 5의 관련 17건 exit 0, 기존 SDK 90·UI 459와 92cbb325 App 전체 835/frozen 컴파일은 변경하지 않은 경계의 근거입니다. 이번 소스의 전체 App 840통과로 쓰지 않습니다. 전구 위치/겹침·수동 빈/비활성 안내·preview 분기·다른 URI/client navigation·내장 공급자 editor-57·실기/성능/출시는 미완료입니다. 전체 전환율/잔여 시간은 미산정입니다."
         },
         {
             "id": "editor-48",

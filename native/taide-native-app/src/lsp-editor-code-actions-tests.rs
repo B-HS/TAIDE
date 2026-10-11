@@ -7,6 +7,101 @@ use tokio::sync::Notify;
 
 const DEADLINE: Duration = Duration::from_secs(10);
 
+#[tokio::test]
+async fn 실제_child의_명시_수정만_같은_줄의_근접_진단을_조회한다() {
+    tokio::time::timeout(DEADLINE, async {
+        let (fixture, project, mut store, document, bin) =
+            document_symbol_tests::fixture("--native-code-actions-nearby");
+        let view = source(&mut store, document);
+        let before = store.documents().snapshot(document).unwrap();
+        let head = before.rope.line_to_byte(1);
+        store
+            .set_view_state(
+                view,
+                SelectionSet {
+                    primary: 0,
+                    selections: vec![Selection { anchor: head, head }],
+                },
+                Default::default(),
+                Vec::new(),
+            )
+            .unwrap();
+        let signal = Arc::new(Notify::new());
+        let repaint = signal.clone();
+        let mut bridge = LspBridge::connect(
+            fixture.services.clone(),
+            bin,
+            Arc::new(move || repaint.notify_one()),
+        )
+        .unwrap();
+        bridge.sync(project.clone(), before.clone()).unwrap();
+        let providers = ready(&mut bridge, &signal, &project, &before).await;
+        let mut state = State::default();
+        for automatic in [true, false] {
+            let request = state
+                .begin(
+                    &store,
+                    project.clone(),
+                    view,
+                    view,
+                    providers.clone(),
+                    Invocation {
+                        command: ActionCommand::QuickFix,
+                        automatic,
+                    },
+                )
+                .unwrap()
+                .unwrap();
+            let actions = bridge
+                .code_actions(request.clone())
+                .unwrap()
+                .await
+                .unwrap()
+                .unwrap();
+            if automatic {
+                assert!(actions.is_empty());
+                continue;
+            }
+            assert_eq!(
+                actions
+                    .iter()
+                    .map(|candidate| candidate.presentation().title)
+                    .collect::<Vec<_>>(),
+                ["near:", "far:"]
+            );
+            assert_eq!(
+                request.range,
+                lsp_types::Range::new(
+                    lsp_types::Position::new(1, 0),
+                    lsp_types::Position::new(1, 0)
+                )
+            );
+            state
+                .accept(&store, &request, providers.clone(), Ok(actions))
+                .unwrap();
+            let chosen = state
+                .select(&store, view, request.token.as_u128(), 0, false)
+                .unwrap();
+            let resolved = bridge
+                .resolve_code_action(chosen)
+                .unwrap()
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(resolved.edit.is_some());
+            assert_eq!(resolved.command.unwrap().arguments.unwrap()[1], "near:");
+            assert_eq!(
+                store.documents().snapshot(document).unwrap().revision,
+                before.revision
+            );
+        }
+        bridge.disconnect().await.unwrap();
+        assert_eq!(fixture.services.tasks.tracked_count(), 0);
+    })
+    .await
+    .unwrap();
+}
+
 fn source(store: &mut EditorStore, document: DocumentId) -> ViewId {
     let view = store
         .attach_view(

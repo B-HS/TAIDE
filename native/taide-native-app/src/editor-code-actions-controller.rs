@@ -323,6 +323,7 @@ impl Controller {
             self.state.clear();
             self.pending = None;
             self.scheduled = None;
+            self.observed = None;
             return;
         }
         let providers = lsp.code_action_providers(project, &snapshot, Command::QuickFix);

@@ -1,9 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::{Failure, Phase, Session, SessionKey, SessionSnapshot, lsp_types, protocol_documents};
 use crate::editor_code_actions::{Candidate, Chosen, Navigation, Request, Resolved};
 use crate::editor_symbols::ProviderIdentity;
-use taide_native_ui::editor_code_actions::Command;
+use taide_native_editor::lsp::{byte_to_position, position_to_byte};
+use taide_native_ui::editor_code_actions::{Command, kind_contains};
 use tokio::task::JoinSet;
 
 const METHOD: &str = "textDocument/codeAction";
@@ -172,14 +173,35 @@ fn intersects(left: lsp_types::Range, right: lsp_types::Range) -> bool {
     position(left.start) <= position(right.end) && position(right.start) <= position(left.end)
 }
 
-async fn query_one(session: Session, request: Request) -> Result<Vec<Candidate>, Failure> {
+async fn query_one(
+    session: Session,
+    request: Request,
+    range: lsp_types::Range,
+    only: Option<&'static str>,
+) -> Result<Vec<Candidate>, Failure> {
     let document = document(&session, &request)?;
     let before = session.client.snapshot();
     if !before.supports_document(&document.uri, METHOD)
         || !before
             .document_code_action_options
             .get(&document.uri)
-            .is_some_and(|options| supports(request.invocation.command, options))
+            .is_some_and(|options| {
+                supports(request.invocation.command, options)
+                    && only.is_none_or(|requested| {
+                        options.iter().any(|option| {
+                            option
+                                .code_action_kinds
+                                .as_ref()
+                                .filter(|kinds| !kinds.is_empty())
+                                .is_none_or(|kinds| {
+                                    kinds.iter().any(|kind| {
+                                        kind_contains(requested, kind.as_str())
+                                            || kind_contains(kind.as_str(), requested)
+                                    })
+                                })
+                        })
+                    })
+            })
     {
         return Err(Failure::UnsupportedCapability);
     }
@@ -194,20 +216,16 @@ async fn query_one(session: Session, request: Request) -> Result<Vec<Candidate>,
                         .parse()
                         .map_err(|_| Failure::MalformedRequest)?,
                 },
-                range: request.range,
+                range,
                 context: lsp_types::CodeActionContext {
                     diagnostics: session
                         .raw_diagnostics
                         .get(&document.uri)
                         .iter()
-                        .filter(|diagnostic| intersects(diagnostic.range, request.range))
+                        .filter(|diagnostic| intersects(diagnostic.range, range))
                         .cloned()
                         .collect(),
-                    only: request
-                        .invocation
-                        .command
-                        .kind()
-                        .map(|kind| vec![lsp_types::CodeActionKind::new(kind)]),
+                    only: only.map(|kind| vec![lsp_types::CodeActionKind::new(kind)]),
                     trigger_kind: Some(if request.invocation.automatic {
                         lsp_types::CodeActionTriggerKind::AUTOMATIC
                     } else {
@@ -229,9 +247,11 @@ async fn query_one(session: Session, request: Request) -> Result<Vec<Candidate>,
         .collect())
 }
 
-pub(super) async fn query(
+async fn query_at(
     sessions: &HashMap<SessionKey, Session>,
     request: &Request,
+    range: lsp_types::Range,
+    only: Option<&'static str>,
 ) -> Result<Vec<Candidate>, Failure> {
     let mut pending = JoinSet::new();
     for (key, session) in sessions {
@@ -240,7 +260,12 @@ pub(super) async fn query(
         }
         let session = session.clone();
         let request = request.clone();
-        pending.spawn(async move { (session.order, query_one(session, request).await) });
+        pending.spawn(async move {
+            (
+                session.order,
+                query_one(session, request, range, only).await,
+            )
+        });
     }
     let mut responses = Vec::new();
     while let Some(response) = pending.join_next().await {
@@ -256,6 +281,99 @@ pub(super) async fn query(
         .into_iter()
         .flat_map(|(_, candidates)| candidates)
         .collect())
+}
+
+pub(super) async fn query(
+    sessions: &HashMap<SessionKey, Session>,
+    request: &Request,
+) -> Result<Vec<Candidate>, Failure> {
+    let actions = query_at(
+        sessions,
+        request,
+        request.range,
+        request.invocation.command.kind(),
+    )
+    .await?;
+    let valid_fix = |candidate: &Candidate| {
+        let action = candidate.presentation();
+        action.disabled.is_none()
+            && request.invocation.command.accepts(&action)
+            && action
+                .kind
+                .as_deref()
+                .is_some_and(|kind| kind_contains("quickfix", kind))
+    };
+    if request.invocation.automatic
+        || !matches!(
+            request.invocation.command,
+            Command::QuickFix | Command::AutoFix
+        )
+        || actions.iter().any(valid_fix)
+    {
+        return Ok(actions);
+    }
+    let primary = request
+        .selection
+        .selections
+        .get(request.selection.primary)
+        .ok_or(Failure::MalformedRequest)?;
+    let caret =
+        byte_to_position(&request.snapshot, primary.head).map_err(|_| Failure::MalformedRequest)?;
+    let mut positions = sessions
+        .iter()
+        .filter(|(key, _)| key.project == request.project)
+        .filter_map(|(_, session)| {
+            document(session, request)
+                .ok()
+                .map(|document| (session, document))
+        })
+        .flat_map(|(session, document)| session.raw_diagnostics.get(&document.uri))
+        .filter(|diagnostic| {
+            diagnostic.range.start.line == caret.line || diagnostic.range.end.line == caret.line
+        })
+        .map(|diagnostic| diagnostic.range.end)
+        .filter(|position| {
+            position_to_byte(&request.snapshot, *position)
+                .and_then(|byte| byte_to_position(&request.snapshot, byte))
+                .is_ok_and(|actual| actual == *position)
+        })
+        .collect::<Vec<_>>();
+    positions.sort_by_key(|position| {
+        (
+            position.line.abs_diff(caret.line),
+            position.character.abs_diff(caret.character),
+            position.line,
+            position.character,
+        )
+    });
+    positions.dedup();
+    let mut seen = actions
+        .iter()
+        .filter(|candidate| candidate.presentation().disabled.is_none())
+        .map(|candidate| {
+            let action = candidate.presentation();
+            (candidate.provider, action.title, action.kind)
+        })
+        .collect::<HashSet<_>>();
+    let mut nearby = Vec::new();
+    for position in positions {
+        let range = lsp_types::Range::new(position, position);
+        if range == request.range {
+            continue;
+        }
+        for candidate in query_at(sessions, request, range, Some("quickfix"))
+            .await?
+            .into_iter()
+            .filter(valid_fix)
+        {
+            let action = candidate.presentation();
+            if seen.insert((candidate.provider, action.title, action.kind)) {
+                nearby.push(candidate);
+            }
+        }
+    }
+    nearby.extend(actions);
+    Ok(nearby)
 }
 
 pub(super) async fn resolve(

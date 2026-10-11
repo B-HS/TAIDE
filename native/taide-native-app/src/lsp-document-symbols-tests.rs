@@ -39,6 +39,7 @@ pub(super) fn fixture(mode: &str) -> (Fixture, ProjectId, EditorStore, DocumentI
             | "--native-code-actions-wait"
             | "--native-code-actions-unsupported"
             | "--native-code-actions-resolve-error"
+            | "--native-code-actions-nearby"
             | "--native-rename"
             | "--native-rename-range"
             | "--native-rename-no-prepare"

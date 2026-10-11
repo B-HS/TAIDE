@@ -653,3 +653,21 @@ app-keys-fixed.log는 정확한 수동 App 1통과/0실패·exit 0·빌드 7.83�
 현재 app-connected-all.log는 67개 전체 대상/835통과/0실패/0ignored·보호 Trash 3filtered·exit 0으로 종료했습니다. 컴파일 57.93초·전체 target별 검사 시간 합계 187.50초입니다. lib는 594통과/보호 1filtered이며 다른 두 보호 제외는 integration target에 있습니다. 앞선 관련 12건은 이 전체에 포함되므로 더하지 않습니다. 기존 저장 action과 편집/명령·실제 watcher/preview/remote/수명 검사도 이 전체에 포함됩니다. 현재 UI 최초 전체 exit 101과 수정 후 영향 검사만 재사용하며 UI 전체를 반복하지 않습니다. SDK 전체 90건과 22파일 fmt check도 같은 의미의 성공을 재사용합니다.
 
 connected-frozen-host.log는 host inspection 테스트 대상 컴파일 exit 0·17.98초, connected-frozen-wasm.log는 canvas/inspection Wasm lib 컴파일 exit 0·4.85초입니다. 실제 실행 검사로 확대하지 않습니다. 소유 Cargo terminal의 종료를 확인한 뒤 다음 Cargo/Git을 직렬 실행했습니다. 동결 source·manifest·lockfile 변경은 0이며 보호 앱/사용자 데이터/OS 설정/클립보드/Keychain/Trash·OS 합성 입력이나 빌드 정리를 실행하지 않았습니다. 디스크 438GiB/77%입니다. SDK 등록 범위 수정/실패 재현 기록은 0e81a8d4로 독립 커밋했고 사용자 단독 author와 최종 메시지·AI 트레일러 없음·빈 index를 확인했습니다. 현재 검증한 App 소비와 관련 문서/소유 PROCESS만 선별 저장하며 c5/c5c·editor-47 complete와 배치 23 전체를 완료로 올리지 않습니다.
+
+## c5c 자동 전구 수명·근접 진단·닫힌 파일/resource 소비 (2026-10-11)
+
+기준은 92cbb325 뒤의 같은 배치 23 변경입니다. source 상태/요청 API, controller, 실제 child, 실제 App과 합성 mock의 8 Rust 경로를 직렬 수정했습니다. SDK/UI/Core/원본 TS·엔진·manifest·lock·동결 클라이언트 경계는 변경하지 않았습니다.
+
+- [x] 자동 전구 수명: bulb-red.log에서 상태/실제 App 두 검사가 모두 실패했습니다. 목록을 닫을 때 후보와 cancel token까지 폐기하고, 공백 이동에서 observed 요청 기록은 남겨 같은 코드 위치로 돌아와도 재요청하지 않는 두 원인입니다. 완료한 목록은 menu_open만 닫고 대기/resolve 중 취소는 유지합니다. 공백에서는 observed도 회수합니다. 실제 Escape 취소 뒤 같은 후보/UUID 재열기·16프레임 요청 불변·next_refresh 없음·공백 왕복 뒤 새 UUID·선택 적용/원래 디스크·종료 task 0이 통과했습니다.
+- [x] 명시 근접 진단: 설치 Monaco codeActionContributions의 includeNearbyQuickFixes 기본 true와 codeActionModel의 명시 Quick Fix/Auto Fix 대체 조회를 확인했습니다. 현재 범위에 유효한 수정이 없을 때 같은 줄의 진단 끝 위치를 가까운 순서로 조회하며 only quickfix와 각 공급자의 해당 범위 진단을 전달합니다. 주 선택/원 요청 범위는 옮기지 않고 서버 종류·프로젝트/문서·revision/세대/취소를 유지합니다. 겹친 위치는 한 번만 조회하며 같은 공급자/제목/종류의 후보를 중복 추가하지 않습니다. 자동 조회·Refactor/Source 명령에는 이 대체 조회를 하지 않습니다. 원본의 거리 갱신/제목만 중복 제거하는 특이 동작은 강제로 재현하지 않습니다.
+- [x] 실제 파일 적용: 소유 임시 프로젝트에서 닫힌 peek.rs 편집, created.rs 생성/편집과 generated.rs로의 이름 변경, 열린 current.rs 편집 뒤 서버 명령을 실행했습니다. 명령은 최신 서버 mirror의 resource: 접두사를 직접 확인합니다. 닫힌 파일이 열린 모델로 승격되지 않음·파일 생성/이동 결과·열린 문서 원래 디스크/undo·종료 task 0을 실제 App에서 단언했습니다. resource delete/Trash나 실제 사용자 데이터를 실행하지 않았습니다. 기존 WorkspaceEdit/create/rename worker를 그대로 소비하며 해당 worker 자체를 수정하지 않았습니다.
+- [x] 실패와 최종 영향 검사: 로그 접두사는 /private/tmp/taide-batch23-code-actions-입니다. nearby-red.log는 새 child 검사에서 없는 EditorSnapshot을 사용한 컴파일 오류·0건이며 성공/제품 재현으로 세지 않습니다. sync의 실제 API로 준비를 고친 nearby-red-actual.log는 15통과/2실패·exit 101·29.12초입니다. App은 근접 수정이 없어 적용되지 않았고 child의 새 mode 허용 목록 누락도 있었습니다. 허용 준비를 고친 nearby-child-red.log는 실제 child 0통과/1실패·exit 101·0.33초이며 기대 near:/far:에 빈 응답을 관찰했습니다. 제품 대체 조회 구현 뒤 nearby-fixed.log는 상태 8/child 4/App 5, 서로 다른 17통과/0실패/0ignored·exit 0·빌드 23.02초/검사 22.55초입니다. 이 17건에 기존 12건과 새 5건이 포함됩니다.
+- [x] 직렬·정적 검사: resources-mock.log와 nearby-mock-fixed.log의 mock 빌드는 각각 exit 0입니다. 각 Cargo terminal의 종료 뒤 다음 Cargo/fmt/수정을 실행했고 소유 App 7파일과 mock 1파일 rustfmt check·소유 source diff check는 exit 0입니다. 기존 wry 17경고·linker eh_frame 경고, 이전부터 있는 preview/is_applying 제품 빌드 경고를 0경고로 보고하지 않습니다.
+
+이번 변경 위험은 코드 수정 조회/목록 수명과 파일 적용 경계이며 관련 17건이 이를 직접 덮습니다. c5와 배치 23은 아직 미완료라 같은 전체 성공을 반복하지 않습니다. 92cbb325에서 App 전체 67대상/835통과·보호 Trash 3제외·exit 0, SDK 90·최종 UI 459, frozen host/Wasm 컴파일의 기존 근거를 변경하지 않은 경계에서 재사용합니다. 이번 소스 상태에서 전체 App 840건이 통과했다고 쓰지 않습니다. c5 완료 시 남은 통합 영향에 맞춰 전체 대상 게이트를 닫습니다.
+
+루프 점검은 소유 도구의 모든 Cargo 종료·자동 빈 응답/목록 취소의 16프레임 UUID 불변과 새 작업 종료 task 0을 근거로 합니다. 일반 sandbox ps 조회는 권한 거절이었고 읽기 전용 확대 조회에서 보인 Cargo 2건은 cwd가 TAIDE 밖이어서 이번 실행에서 제외했습니다. 이를 종료하거나 변경하지 않았으며 조회 시 TAIDE 소유 Cargo/rustfmt/rustc/합성 mock 잔류는 발견하지 않았습니다. 이 관찰을 모든 과거 실행/제품 전체의 종료 보장으로 확대하지 않습니다.
+
+디스크 확인은 432GiB 여유·사용 77%이며 정리 명령은 실행하지 않았습니다. editor-47은 partial, 588대상/290완료/298미완료·배치 23 잔여 31·최종 33을 유지합니다. 아직 전구 위치/겹침의 실제 소비·수동 빈/비활성 안내·preview 선택·다른 URI/client navigation·내장 공급자 editor-57과 배치 31 실기/성능/출시 게이트는 완료로 올리지 않습니다. 특히 현재 App Chosen.preview는 적용 분기에서 아직 소비하지 않으므로 미리보기 완료로 기록하지 않습니다.
+
+프로토콜의 진단 범위/선택 후 resolve·edit 뒤 command 순서는 [LSP 공식 Code Action 정의](https://raw.githubusercontent.com/microsoft/language-server-protocol/gh-pages/_specifications/lsp/3.17/language/codeAction.md)와 설치 코드에서 확인했습니다. 기존 TS adapter의 hover resolve 편집 부작용은 재현하지 않습니다.
