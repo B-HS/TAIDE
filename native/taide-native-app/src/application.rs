@@ -4894,7 +4894,8 @@ impl NativeApplication {
         if let Some(lsp) = &self.lsp
             && let Some(error) = self.editor_rename.poll(&mut self.store, lsp)
         {
-            self.status = Some(error.to_string());
+            self.status = Some(crate::toast::describe_error(&self.locale, &error));
+            self.toasts.ipc_error(&self.locale, &error, Instant::now());
         }
         self.terminal_views.chord_status(context, Instant::now());
         let (show_usage, hide_in_zen) = {

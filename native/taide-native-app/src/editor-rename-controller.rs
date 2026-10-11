@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use taide_lsp::native::Failure;
-use taide_model::error::{AppError, AppResult};
+use taide_model::error::{AppError, AppErrorKind, AppResult};
 use taide_model::ids::ProjectId;
 use taide_native_editor::document::EditorError;
 use taide_native_editor::lsp::byte_to_position;
@@ -10,7 +10,7 @@ use taide_native_editor::store::EditorStore;
 use taide_native_editor::view::ViewId;
 use tokio::sync::oneshot;
 
-use crate::editor_rename::{Request, Response, State};
+use crate::editor_rename::{Request, Response, Stage, State};
 use crate::lsp::LspBridge;
 
 struct Pending {
@@ -21,6 +21,14 @@ struct Pending {
 struct Applying {
     request: Request,
     receive: oneshot::Receiver<AppResult<()>>,
+}
+
+fn operation_error(stage: &Stage, detail: impl Into<String>) -> AppError {
+    let key = match stage {
+        Stage::Prepare => "editor.renameUnavailable",
+        Stage::Rename { .. } => "editor.workspaceEditApplyFailed",
+    };
+    AppError::localized(AppErrorKind::Internal, key, detail)
 }
 
 #[derive(Default)]
@@ -39,6 +47,7 @@ impl Controller {
         self.state.clear();
         self.pending = None;
         self.applying = None;
+        self.error = None;
     }
 
     pub(crate) fn reconcile(
@@ -93,7 +102,7 @@ impl Controller {
             Ok(receive) => self.pending = Some(Pending { request, receive }),
             Err(error) => {
                 self.state.finish(&request);
-                self.error = Some(error);
+                self.error = Some(operation_error(&request.stage, error.to_string()));
             }
         }
     }
@@ -125,7 +134,10 @@ impl Controller {
                                 }
                                 Err(error) => {
                                     self.state.finish(&pending.request);
-                                    self.error = Some(error);
+                                    self.error = Some(operation_error(
+                                        &pending.request.stage,
+                                        error.to_string(),
+                                    ));
                                 }
                             }
                         }
@@ -138,9 +150,17 @@ impl Controller {
                                 );
                             }
                         }
+                        Err(
+                            Failure::Cancelled
+                            | Failure::StaleRevision
+                            | Failure::StaleGeneration
+                            | Failure::Restarted,
+                        ) => {}
                         Err(error) => {
-                            self.error =
-                                Some(AppError::Internal(format!("native rename: {error:?}")))
+                            self.error = Some(operation_error(
+                                &pending.request.stage,
+                                format!("native rename: {error:?}"),
+                            ))
                         }
                     }
                 } else {
@@ -153,13 +173,17 @@ impl Controller {
                 Ok(result) => {
                     self.state.finish(&applying.request);
                     if let Err(error) = result {
-                        self.error = Some(error);
+                        self.error =
+                            Some(operation_error(&applying.request.stage, error.to_string()));
                     }
                 }
                 Err(oneshot::error::TryRecvError::Empty) => self.applying = Some(applying),
                 Err(oneshot::error::TryRecvError::Closed) => {
                     self.state.finish(&applying.request);
-                    self.error = Some(AppError::Internal("native rename: transport closed".into()));
+                    self.error = Some(operation_error(
+                        &applying.request.stage,
+                        "native rename: transport closed",
+                    ));
                 }
             }
         }

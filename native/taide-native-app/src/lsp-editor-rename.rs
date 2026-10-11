@@ -38,7 +38,6 @@ pub(super) async fn request(
                 }
                 let before = session.client.snapshot();
                 if !before.supports_document(&document.uri, PREPARE_METHOD) {
-                    let (session, _) = candidates[0];
                     return Ok(Response::Prepared(Prepared {
                         provider: identity(session),
                         range: request.fallback.clone(),

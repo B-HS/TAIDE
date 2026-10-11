@@ -41,6 +41,7 @@ pub(super) fn fixture(mode: &str) -> (Fixture, ProjectId, EditorStore, DocumentI
             | "--native-rename-error"
             | "--native-rename-default"
             | "--native-rename-wait"
+            | "--native-rename-wait-edits"
             | "--native-rename-unsupported"
             | "--native-format-options"
             | "--native-format-range-only"

@@ -566,3 +566,26 @@ App의 `editor-rename-controller.rs`는 oneshot 완료·현재 요청/준비/적
 관련 13건·UI 전체/영향 조합 447건과 현재 App 대상 컴파일·frozen 두 컴파일을 근거로 본문/peek 이름 바꾸기의 기본 사용자 경로를 논리 단위로 선별 저장합니다. editor-46은 partial, 배치 23/최종 33·complete 289/미완료 299와 전체 전환율/잔여 시간 미산정을 유지합니다. 실제 OS 화면/IME/접근성/대형 성능·출시 게이트는 배치 31~33에 남고 현재 App 전체 실행을 완료로 올리지 않습니다. 디스크는 464GiB/75%이며 실제 앱 데이터·OS 설정·클립보드/Keychain/Trash·보호 M8 앱을 변경하지 않았습니다. 모든 현재 Cargo/fmt의 terminal 결과를 확인한 뒤 다음 실행 또는 Rust 변경을 진행했습니다.
 
 기본 사용자 경로의 구현·검사·관련 문서 31개 소유 경로/구역은 `89bfd18b`로 선별 커밋·일반 푸시했습니다. staged diff check·정확한 경로 집합·PROCESS 완료 배치 7 이하 index 보존/소유 prefix·사용자 단독 author/최종 메시지/AI 트레일러 없음·push exit 0·upstream 0/0을 확인했습니다. 사용자 HANDOFF/하단 PROCESS/이전 결정/architecture·미추적 피드백/운영 메모는 보존했고 c4 및 배치 23 전체 완료로 올리지 않았습니다. 현재 Cargo/fmt/검사는 모두 terminal입니다.
+
+## c4 추가 공급자와 실제 요청 취소 (2026-10-11)
+
+원본 rename adapter와 설치 Monaco RenameSkeleton의 공급자 순서를 다시 확인했습니다. 원본 skeleton은 prepare null/reject 뒤 prepare를 지원하지 않는 공급자를 만나면 첫 공급자로 되돌아갑니다. 현재 native도 이 인덱스 복귀를 사용해 이미 거절한 공급자를 고르는 오류가 있었습니다. 사용자 지시에 따라 원본의 잘못된 동작을 재현하지 않고 현재 순회 중인 공급자를 유지했습니다.
+
+로그 접두사는 `/private/tmp/taide-batch23-rename-`입니다. Cargo/fmt와 소유 Rust·포함된 mock 소스 수정은 실제 terminal 결과를 확인한 뒤 직렬로 수행했습니다.
+
+- `multi-repro.log`: 첫 실행의 EditorStore import/PathBuf 인자 컴파일 오류를 수정한 뒤 실제 두 Python 공급자·두 프로젝트 검사에서 `base=--native-rename-no-prepare top=--native-rename-null`의 잘못된 owner 선택을 1실패로 재현했습니다.
+- `boundaries-final.log`: 해당 공급자 검사는 1통과입니다. 정상/prepare null/no-prepare/empty/미지원/서버 오류/잘못된 UTF-16의 8조합에서 선택한 공급자·프로젝트 소유·실제 rename·열린 문서 undo·디스크 보존·종료 task 0을 확인했습니다. 동시에 추가한 취소 검사는 1timeout이므로 이 명령의 exit는 101입니다.
+- `cancel-phase.log`: 취소 검사에 정지 단계를 표시한 결과 `--native-rename-wait: cancel diagnostic`에서 두 번째 timeout을 확인했습니다. 앱의 취소 결과는 정상으로 도착했고, 검사 서버의 held_rename 기록을 completion 분기에 잘못 삽입한 것이 원인이었습니다. 실제 rename 분기로 옮기고 completion 변경을 원래 상태로 복원했습니다. SDK나 제품의 취소 동작을 수정했다고 보고하지 않습니다.
+- `cancel-mock-final.log`: 검사 서버 예제 빌드 exit 0, 3.61초. `cancel-final.log`: 실패한 정확한 취소 검사 1통과/0실패, 실행 1.00초·exit 0. prepare 대기는 명시 취소, 새 이름 요청 대기는 source 회수로 취소합니다. 두 사례에서 실제 child의 `$/cancelRequest` 수신 뒤 의도적인 늦은 Prepared/WorkspaceEdit 응답이 도착해도 상태·rope/revision/dirty·원래 디스크가 유지되며 정상 종료 task 0입니다.
+
+서로 다른 관련 성공은 상태 4·실제 child 4·UI 6·기존 실제 App 1의 15건입니다. 성공한 공급자 검사를 취소 fixture 수정 때문에 다시 실행하지 않았습니다. 전체 App 실행·오류 안내·닫힌 파일/resource와 나머지 배치 23 요구사항은 미완료입니다. editor-46은 partial이며 588대상·289완료·299미완료를 유지합니다. 전체 전환율/잔여 시간은 미산정입니다.
+
+## c4 오류 안내의 실제 앱 소비 (2026-10-11)
+
+`errors-app-repro.log`: 기존 실제 App 검사에 prepare null/서버 오류와 새 이름 요청 오류의 세 사례를 추가했습니다. 첫 prepare null에서 `operation failed: native rename: UnsupportedCapability`가 기존 `editor.renameUnavailable` 메시지 대신 노출되는 1실패·exit 101을 재현했습니다. 새 이름 오류만 주는 `--native-rename-edit-error` fixture는 prepare를 정상 완료하고 실제 rename 요청에서 오류를 냅니다. `errors-mock.log`의 예제 빌드는 exit 0입니다.
+
+`editor-rename-controller.rs`는 단계에 따라 기존 `editor.renameUnavailable`/`editor.workspaceEditApplyFailed` locale 키를 사용하는 AppError를 반환하며, 새 요청/명시 clear는 이전 대기 오류를 회수합니다. Cancelled/StaleRevision/StaleGeneration/Restarted 결과는 조용히 회수합니다. `application.rs`는 기존 describe_error와 ipc_error로 status·알림을 표시합니다. 기존 SDK가 ServerError의 코드를 보존하고 서버 메시지를 버리는 계약은 변경하지 않았으며 원본과 정확히 같은 오류 문구를 구현했다고 보고하지 않습니다. resource worker는 순차 적용이므로 일부 변경 뒤 실패한 편집을 다른 공급자로 자동 재시도해 중복 적용하는 원본 경로도 도입하지 않았습니다.
+
+`errors-app-final.log`: 수정 뒤 실패한 정확한 실제 App 1건만 직접 실행해 1통과/0실패·exit 0, 빌드 16.84초·검사 7.52초입니다. 기존 본문/peek F2·writable peek 팔레트·입력/취소/undo와 세 오류의 locale status·기존 오류 알림·문서 rope/revision/dirty·원래 디스크 보존·종료 task 0을 확인했습니다. 이전 App 성공과 같은 검사이므로 중복 합산하지 않으며 현재 서로 다른 관련 성공은 15건입니다.
+
+현재 변경은 App private 소비와 소유 검사 서버/검사에 한정됩니다. Core/UI/SDK·frozen source/manifest/lockfile 변경은 0입니다. 이전 변경 없는 UI 447·frozen host/Wasm 성공은 재사용하되 현재 App 전체 대상 실행의 성공으로 확대하지 않습니다. resource delete는 실제 Trash로 이어지므로 보호된 실행을 추가하지 않습니다. 닫힌 파일·create/rename resource의 실제 rename 요청 연결과 현재 App 전체 실행은 다음 남은 c4 게이트입니다. editor-46 partial·전체 289완료/299미완료·현재 23/최종 33을 유지합니다.

@@ -55,6 +55,7 @@ struct MockServer {
     held_documentation: BTreeMap<u64, Value>,
     completion: Option<&'static str>,
     rename: Option<&'static str>,
+    held_rename: BTreeMap<u64, Value>,
     held_completion: BTreeMap<u64, Value>,
     workspace_symbols: Option<&'static str>,
     held_workspace_symbol: Option<Value>,
@@ -587,6 +588,24 @@ impl MockServer {
             let cancelled_id = message["params"]["id"]
                 .as_u64()
                 .ok_or_else(|| invalid("cancel must identify a numeric request"))?;
+            if let Some(held) = self.held_rename.remove(&cancelled_id) {
+                let range =
+                    json!({"start":{"line":1,"character":4},"end":{"line":1,"character":10}});
+                let response = if held["method"] == "textDocument/prepareRename" {
+                    json!({"range":range,"placeholder":"stale-cancelled"})
+                } else {
+                    json!({"documentChanges":[{"textDocument":{"uri":held["uri"],"version":held["version"]},"edits":[{"range":range,"newText":"stale-cancelled"}]}]})
+                };
+                write_response(output, &held["id"], response)?;
+                write_document_diagnostic(
+                    output,
+                    held["uri"]
+                        .as_str()
+                        .ok_or_else(|| invalid("held rename requires URI"))?,
+                    &held["version"],
+                    "synthetic rename cancelled",
+                )?;
+            }
             if let Some(held) = self.held_formatting.remove(&cancelled_id) {
                 write_response(output, &held["id"], Value::Null)?;
                 write_document_diagnostic(
@@ -1370,7 +1389,12 @@ impl MockServer {
                     return Err(invalid("rename requires current UTF-16 symbol position"));
                 }
                 let id = id.ok_or_else(|| invalid("rename requires ID"))?;
-                if mode == "wait" {
+                if mode == "wait" || (mode == "wait-edits" && method == "textDocument/rename") {
+                    self.held_rename.insert(
+                        id.as_u64()
+                            .ok_or_else(|| invalid("held rename requires numeric ID"))?,
+                        json!({"id":id,"uri":uri,"version":current["version"],"method":method}),
+                    );
                     write_document_diagnostic(
                         output,
                         uri,
@@ -1379,7 +1403,7 @@ impl MockServer {
                     )?;
                     return Ok(None);
                 }
-                if mode == "error" {
+                if mode == "error" || (mode == "edit-error" && method == "textDocument/rename") {
                     write_payload(
                         output,
                         &json!({"jsonrpc":"2.0","id":id,"error":{"code":RENAME_ERROR_CODE,"message":"synthetic rename error"}}),
@@ -1617,8 +1641,10 @@ fn main() -> io::Result<ExitCode> {
             | "--native-rename-empty"
             | "--native-rename-bad"
             | "--native-rename-error"
+            | "--native-rename-edit-error"
             | "--native-rename-default"
             | "--native-rename-wait"
+            | "--native-rename-wait-edits"
             | "--native-rename-unsupported"),
         ) => {
             server.rename = Some(match mode {
@@ -1628,8 +1654,10 @@ fn main() -> io::Result<ExitCode> {
                 "--native-rename-empty" => "empty",
                 "--native-rename-bad" => "bad",
                 "--native-rename-error" => "error",
+                "--native-rename-edit-error" => "edit-error",
                 "--native-rename-default" => "default",
                 "--native-rename-wait" => "wait",
+                "--native-rename-wait-edits" => "wait-edits",
                 "--native-rename-unsupported" => "unsupported",
                 _ => "normal",
             });

@@ -659,6 +659,117 @@ fn actual_app의_rename은_f2와_peek에서_현재_문서만_편집하고_undo�
     assert_eq!(std::fs::read_to_string(&file).unwrap(), TEXT);
     assert_eq!(std::fs::read_to_string(&peek_file).unwrap(), TEXT);
     assert!(application.store.undo(peek_document).unwrap());
+    for (mode, needs_name, key) in [
+        ("--native-rename-null", false, "editor.renameUnavailable"),
+        ("--native-rename-error", false, "editor.renameUnavailable"),
+        (
+            "--native-rename-edit-error",
+            true,
+            "editor.workspaceEditApplyFailed",
+        ),
+    ] {
+        let before = application
+            .store
+            .documents()
+            .snapshot(peek_document)
+            .unwrap();
+        application
+            .runtime
+            .handle()
+            .clone()
+            .block_on(application.lsp.take().unwrap().disconnect())
+            .unwrap();
+        std::fs::write(&executable, format!("#!/bin/sh\nexec '{mock}' {mode}\n")).unwrap();
+        let repaint = context.clone();
+        application.lsp = Some(
+            crate::lsp::LspBridge::connect(
+                application.services.clone(),
+                executable.parent().unwrap().to_path_buf().into_os_string(),
+                Arc::new(move || repaint.request_repaint()),
+            )
+            .unwrap(),
+        );
+        wait_for(
+            application,
+            &context,
+            "rename-error-provider",
+            |application| {
+                !application
+                    .lsp
+                    .as_ref()
+                    .unwrap()
+                    .rename_providers(
+                        &project,
+                        &application
+                            .store
+                            .documents()
+                            .snapshot(peek_document)
+                            .unwrap(),
+                    )
+                    .is_empty()
+            },
+        );
+        application.status = None;
+        application.request_editor_rename_from_source(project.clone(), preview, view);
+        if needs_name {
+            wait_for(
+                application,
+                &context,
+                "rename-error-prepared",
+                |application| application.editor_rename.state.prepared().is_some(),
+            );
+            let token = application
+                .editor_rename
+                .state
+                .prepared()
+                .unwrap()
+                .0
+                .token
+                .as_u128();
+            let mut provider = crate::editor_rename_controller::Provider {
+                consumer: crate::editor_rename_controller::Consumer(std::rc::Rc::new(
+                    std::cell::RefCell::new(&mut application.editor_rename),
+                )),
+                lsp: application.lsp.as_ref(),
+            };
+            taide_native_ui::editor_rename::Provider::accept(
+                &mut provider,
+                &application.store,
+                preview,
+                token,
+                "renamed".into(),
+            );
+        }
+        wait_for(
+            application,
+            &context,
+            "rename-error-presented",
+            |application| application.status.is_some(),
+        );
+        let expected = presentation::message(&application.locale, key, &[]);
+        assert_eq!(
+            application.status.as_deref(),
+            Some(expected.as_str()),
+            "{mode}"
+        );
+        assert!(
+            application
+                .toasts
+                .is_showing(taide_native_ui::toast::Kind::Error, &expected),
+            "{mode}"
+        );
+        assert!(application.editor_rename.state.prepared().is_none());
+        let after = application
+            .store
+            .documents()
+            .snapshot(peek_document)
+            .unwrap();
+        assert_eq!(after.rope, before.rope);
+        assert_eq!(after.revision, before.revision);
+        assert_eq!(after.dirty, before.dirty);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), TEXT);
+        assert_eq!(std::fs::read_to_string(&peek_file).unwrap(), TEXT);
+    }
     eframe::App::on_exit(application);
     assert_eq!(application.services.tasks.tracked_count(), 0);
 }
