@@ -5287,10 +5287,16 @@ impl NativeApplication {
                 now,
             );
         }
-        let active_file = snapshot.focused_tab().and_then(|tab| match &tab.kind {
-            TabKind::File { path } => Some((tab, path.as_str())),
-            _ => None,
-        });
+        let active_file = project
+            .and_then(|project| {
+                let layout = snapshot.layouts.get(project)?;
+                crate::symbol_sidebar::window_tree(project, layout, &self.shell.scope)
+            })
+            .and_then(|(root, focused)| taide_native_ui::snapshot::active_tab(root, focused))
+            .and_then(|tab| match &tab.kind {
+                TabKind::File { path } => Some((tab, path.as_str())),
+                _ => None,
+            });
         let root = project
             .and_then(|project| snapshot.project(project))
             .map(|project| project.root.as_str());
@@ -5367,18 +5373,21 @@ impl NativeApplication {
             }
             Some(crate::command_palette::Action::RunCommand(id)) => {
                 if id == "monaco.editor.action.showContextMenu" {
-                    if let Some((source, owner)) = formatting_source
-                        && let Err(error) = crate::editor_context_menu::request_palette(
+                    if let Some((source, owner)) = formatting_source {
+                        if let Err(error) = crate::editor_context_menu::request_palette(
                             context,
                             &self.store,
                             source,
                             owner,
-                        )
-                    {
-                        self.report(&editor_error(error));
-                        return;
+                        ) {
+                            self.report(&editor_error(error));
+                            return;
+                        }
+                        if let Some(owner) = self.store.views().get(owner) {
+                            self.document_edits
+                                .push((owner.key.tab.clone(), DocumentEdit::ContextMenu));
+                        }
                     }
-                    self.palette_commands.push(id);
                     context.request_repaint();
                     return;
                 }
@@ -5998,13 +6007,21 @@ impl eframe::App for NativeApplication {
             .focused_project()
             .and_then(|project| snapshot.layouts.get(project))
             .map(|layout| layout.focused_pane.clone());
-        let focused_view = snapshot
-            .focused_tab()
-            .zip(target.as_ref())
-            .map(|(tab, pane)| ViewKey {
-                window: WINDOW_LABEL.into(),
-                pane: pane.clone(),
-                tab: tab.id.clone(),
+        let editor_project = match &self.shell.scope {
+            WindowScope::Main => snapshot.focused_project(),
+            WindowScope::Auxiliary { project, .. } => Some(project),
+        };
+        let focused_view = editor_project
+            .and_then(|project| {
+                let layout = snapshot.layouts.get(project)?;
+                crate::symbol_sidebar::window_tree(project, layout, &self.shell.scope)
+            })
+            .and_then(|(root, pane)| {
+                taide_native_ui::snapshot::active_tab(root, pane).map(|tab| ViewKey {
+                    window: WINDOW_LABEL.into(),
+                    pane: pane.clone(),
+                    tab: tab.id.clone(),
+                })
             });
         let command_context = crate::command_dispatch::context(
             &snapshot,
@@ -6056,7 +6073,7 @@ impl eframe::App for NativeApplication {
                                     .and_then(|source| {
                                         self.store.documents().snapshot(source.document).ok()
                                     })
-                                    .zip(snapshot.focused_project())
+                                    .zip(editor_project)
                                     .is_some_and(|(document, project)| {
                                         self.lsp.as_ref().is_some_and(|lsp| {
                                             !lsp.code_lens_providers(project, &document).is_empty()
@@ -6082,7 +6099,7 @@ impl eframe::App for NativeApplication {
                                     .and_then(|source| {
                                         self.store.documents().snapshot(source.document).ok()
                                     })
-                                    .zip(snapshot.focused_project())
+                                    .zip(editor_project)
                                     .is_some_and(|(document, project)| {
                                         self.lsp.as_ref().is_some_and(|lsp| {
                                             !lsp.code_action_providers(project, &document, command)
@@ -6107,7 +6124,7 @@ impl eframe::App for NativeApplication {
                                     .and_then(|source| {
                                         self.store.documents().snapshot(source.document).ok()
                                     })
-                                    .zip(snapshot.focused_project())
+                                    .zip(editor_project)
                                     .is_some_and(|(document, project)| {
                                         self.lsp.as_ref().is_some_and(|lsp| {
                                             !lsp.rename_providers(project, &document).is_empty()
@@ -6133,7 +6150,7 @@ impl eframe::App for NativeApplication {
                                     self.store.documents().snapshot(source.document).ok()
                                 })
                                 .filter(|document| !document.metadata.read_only)
-                                .zip(snapshot.focused_project())
+                                .zip(editor_project)
                                 .is_some_and(|(document, project)| {
                                     self.lsp.as_ref().is_some_and(|lsp| {
                                         !lsp.formatting_providers(project, &document, command)
@@ -6175,7 +6192,7 @@ impl eframe::App for NativeApplication {
                                 .and_then(|view| {
                                     self.store.documents().snapshot(view.document).ok()
                                 })
-                                .zip(snapshot.focused_project())
+                                .zip(editor_project)
                                 .is_some_and(|(document, project)| {
                                     self.lsp.as_ref().is_some_and(|lsp| {
                                         !lsp.documentation_providers(
@@ -6199,7 +6216,7 @@ impl eframe::App for NativeApplication {
                             .and_then(|key| self.store.views().find(key))
                             .and_then(|view| self.store.views().get(view))
                             .and_then(|view| self.store.documents().snapshot(view.document).ok())
-                            .zip(snapshot.focused_project())
+                            .zip(editor_project)
                             .is_some_and(|(document, project)| {
                                 self.lsp.as_ref().is_some_and(|lsp| {
                                     !lsp.location_providers(project, &document, kind).is_empty()

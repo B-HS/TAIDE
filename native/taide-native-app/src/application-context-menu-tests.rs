@@ -1045,6 +1045,57 @@ fn 실제_추가_경계_보조창_메뉴는_클립보드와_터미널의_소유_
         clipboard.writes.lock().unwrap().len() == 1
     });
     assert_eq!(*clipboard.text.read().unwrap(), "\u{1f600}method");
+    let settings_tab = TabId::new();
+    let mut layout = application.services.state.layouts.read()[&fixture.project].clone();
+    let PaneNode::Leaf { tabs, active, .. } = &mut layout.root else {
+        panic!()
+    };
+    tabs.push(Tab {
+        id: settings_tab.clone(),
+        kind: TabKind::Settings,
+        title: "Settings".into(),
+        pinned: false,
+        preview: false,
+        dirty: false,
+        view_state: None,
+    });
+    *active = Some(settings_tab);
+    taide_runtime::layout_actions::finish_mutation(
+        application.services.events.as_ref(),
+        &application.services.state,
+        &fixture.project,
+        &mut layout,
+    );
+    application
+        .services
+        .state
+        .layouts
+        .write()
+        .insert(fixture.project.clone(), layout.clone());
+    application
+        .controller
+        .apply_layouts(HashMap::from([(fixture.project.clone(), layout)]));
+    focus(application, context, view);
+    run_palette(application, context, "monaco.editor.action.showContextMenu");
+    wait(
+        application,
+        context,
+        "auxiliary palette menu command",
+        |application| application.document_edits.is_empty(),
+    );
+    let output = paint(application, context, Vec::new());
+    assert!(text_contains(&output, "Go to Definition"));
+    assert!(
+        text_contains(&output, "Copy"),
+        "auxiliary palette menu missing"
+    );
+    let mut events = vec![egui::Event::Text("Copy".into())];
+    events.extend(key(egui::Key::Enter, EMPTY));
+    paint(application, context, events);
+    wait(application, context, "auxiliary palette copy", |_| {
+        clipboard.writes.lock().unwrap().len() == 2
+    });
+    assert_eq!(*clipboard.text.read().unwrap(), "\u{1f600}method");
     assert_eq!(
         application
             .store
