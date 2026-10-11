@@ -309,6 +309,8 @@ struct InputState {
     #[cfg(feature = "native-host")]
     rename: crate::editor_rename::State,
     #[cfg(feature = "native-host")]
+    code_actions: crate::editor_code_actions::State,
+    #[cfg(feature = "native-host")]
     caret: crate::editor_caret::CaretState,
     #[cfg(feature = "native-host")]
     scroll: crate::editor_scroll::ScrollState,
@@ -1183,6 +1185,8 @@ impl NativeEditor {
             editor_keymap,
             #[cfg(feature = "native-host")]
             None,
+            #[cfg(feature = "native-host")]
+            None,
         )
     }
 
@@ -1204,7 +1208,40 @@ impl NativeEditor {
             crate::editor_rename::Colors,
         )>,
     ) -> Result<EditorOutput, EditorError> {
-        self.show_request_inner(ui, store, view, request, editor_keymap, rename)
+        self.show_request_inner(ui, store, view, request, editor_keymap, rename, None)
+    }
+
+    #[cfg(feature = "native-host")]
+    pub fn show_request_with_code_actions<'tokens>(
+        &self,
+        ui: &mut Ui,
+        store: &mut EditorStore,
+        view: ViewId,
+        request: EditorRequest<
+            '_,
+            impl FnMut(&Ui, &Event, bool) -> bool,
+            impl FnOnce(&Response) -> Option<KeyboardInputRoute>,
+            impl FnOnce(&EditorStore) -> Option<EditorTokens<'tokens>>,
+        >,
+        editor_keymap: impl FnMut(&Ui, &mut EditorStore, ViewId, &Event, bool) -> bool,
+        rename: Option<(
+            &mut dyn crate::editor_rename::Provider,
+            crate::editor_rename::Colors,
+        )>,
+        code_actions: Option<(
+            &mut dyn crate::editor_code_actions::Provider,
+            crate::editor_code_actions::Colors,
+        )>,
+    ) -> Result<EditorOutput, EditorError> {
+        self.show_request_inner(
+            ui,
+            store,
+            view,
+            request,
+            editor_keymap,
+            rename,
+            code_actions,
+        )
     }
 
     fn show_request_inner<'tokens>(
@@ -1222,6 +1259,10 @@ impl NativeEditor {
         #[cfg(feature = "native-host")] mut rename: Option<(
             &mut dyn crate::editor_rename::Provider,
             crate::editor_rename::Colors,
+        )>,
+        #[cfg(feature = "native-host")] mut code_actions: Option<(
+            &mut dyn crate::editor_code_actions::Provider,
+            crate::editor_code_actions::Colors,
         )>,
     ) -> Result<EditorOutput, EditorError> {
         let EditorRequest {
@@ -1269,6 +1310,13 @@ impl NativeEditor {
         let rename_active = rename
             .as_ref()
             .is_some_and(|(provider, _)| provider.current(store, view).is_some());
+        #[cfg(feature = "native-host")]
+        let code_actions_active = !rename_active
+            && code_actions.as_ref().is_some_and(|(provider, _)| {
+                provider
+                    .current(store, view)
+                    .is_some_and(|session| session.menu_open)
+            });
         #[cfg(feature = "native-host")]
         let minimap_dimensions = crate::editor_minimap::measure(
             ui,
@@ -1582,7 +1630,7 @@ impl NativeEditor {
             let mut remaining = Vec::new();
             for (_index, event) in events.into_iter().enumerate() {
                 #[cfg(feature = "native-host")]
-                if rename_active
+                if (rename_active || code_actions_active)
                     && matches!(
                         event,
                         Event::Key { .. }
@@ -3339,16 +3387,29 @@ impl NativeEditor {
             rows: rows.into(),
         };
         #[cfg(feature = "native-host")]
+        let mut popup_output = crate::editor_rename::Output::default();
+        #[cfg(feature = "native-host")]
         if let Some((provider, colors)) = rename.as_mut() {
-            let rename_output = input_state.rename.show(
+            popup_output = input_state.rename.show(
                 ui, store, view, id, &geometry, appearance, *colors, *provider,
             );
-            focus_ids.extend(rename_output.focus_ids);
-            if !rename_output.released.is_empty() {
+        }
+        #[cfg(feature = "native-host")]
+        if !rename_active && let Some((provider, colors)) = code_actions.as_mut() {
+            let code_action_output = input_state
+                .code_actions
+                .show(ui, store, view, id, &geometry, *colors, *provider);
+            popup_output.focus_ids.extend(code_action_output.focus_ids);
+            popup_output.released.extend(code_action_output.released);
+        }
+        #[cfg(feature = "native-host")]
+        {
+            focus_ids.extend(popup_output.focus_ids);
+            if !popup_output.released.is_empty() {
                 projection.cached = store.take_display(view)?;
                 input_context.projection = projection;
                 let mut remaining = Vec::new();
-                for (raw_index, event) in rename_output.released {
+                for (raw_index, event) in popup_output.released {
                     match self.body_input(
                         ui,
                         store,
