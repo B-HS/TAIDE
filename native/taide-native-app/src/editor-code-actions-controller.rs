@@ -19,6 +19,7 @@ use crate::lsp::LspBridge;
 
 const AUTOMATIC_DELAY: Duration = Duration::from_millis(250);
 const BULB_WIDTH: f32 = 22.0;
+const MESSAGE_BORDER: eframe::egui::Color32 = eframe::egui::Color32::from_rgb(0x00, 0x7a, 0xcc);
 
 fn whitespace(character: char) -> bool {
     character == '\u{feff}' || (character.is_whitespace() && character != '\u{85}')
@@ -150,6 +151,14 @@ pub(crate) fn colors(
     let color = |key: &str| taide_native_ui::presentation::color(theme, key);
     let dark = theme.theme_type == taide_model::theme::ThemeType::Dark;
     let [red, green, blue, alpha] = if dark { DISABLED_DARK } else { DISABLED_LIGHT };
+    let optional = |key: &str, fallback| {
+        theme
+            .colors
+            .get(key)
+            .map(|value| taide_native_ui::presentation::parse_color(value, key))
+            .transpose()
+            .map(|value| value.unwrap_or(fallback))
+    };
     Ok(taide_native_ui::editor_code_actions::Colors {
         background: color("menu.background")?,
         foreground: color("app.foreground")?,
@@ -169,6 +178,12 @@ pub(crate) fn colors(
         } else {
             AUTO_FIX_LIGHT_COLOR
         },
+        message_background: optional(
+            "editorHoverWidget.background",
+            color("editor.hoverBackground")?,
+        )?,
+        message_foreground: optional("editorHoverWidget.foreground", color("editor.foreground")?)?,
+        message_border: optional("inputValidation.infoBorder", MESSAGE_BORDER)?,
     })
 }
 
@@ -377,12 +392,22 @@ impl Controller {
         let view = store.views().get(source).ok_or(EditorError::NotFound)?;
         let snapshot = store.documents().snapshot(view.document)?;
         let providers = lsp.code_action_providers(&project, &snapshot, invocation.command);
+        let no_providers = providers.is_empty();
         let Some(request) = self
             .state
             .begin(store, project, source, owner, providers, invocation)?
         else {
             return Ok(false);
         };
+        if no_providers {
+            if let Err(error) = self
+                .state
+                .accept(store, &request, HashSet::new(), Ok(Vec::new()))
+            {
+                self.error = Some(operation_error(format!("native code actions: {error:?}")));
+            }
+            return Ok(true);
+        }
         match lsp.code_actions(request.clone()) {
             Ok(receive) => self.pending = Some(Pending { request, receive }),
             Err(error) => {
@@ -548,6 +573,17 @@ impl Controller {
         source: ViewId,
         event: &eframe::egui::Event,
     ) -> bool {
+        if self.state.message(store, source).is_some()
+            && matches!(
+                event,
+                eframe::egui::Event::Key {
+                    key: eframe::egui::Key::Escape,
+                    ..
+                }
+            )
+        {
+            return true;
+        }
         self.session(store, source)
             .is_some_and(|session| session.menu_open)
             && matches!(
@@ -595,6 +631,13 @@ pub(crate) struct Provider<'a, 'state> {
 }
 
 impl taide_native_ui::editor_code_actions::Provider for Provider<'_, '_> {
+    fn message(
+        &self,
+        store: &EditorStore,
+        view: ViewId,
+    ) -> Option<taide_native_ui::editor_code_actions::Message> {
+        self.consumer.0.borrow().state.message(store, view)
+    }
     fn current(&self, store: &EditorStore, view: ViewId) -> Option<Session> {
         let controller = self.consumer.0.borrow();
         let mut session = controller.session(store, view)?;

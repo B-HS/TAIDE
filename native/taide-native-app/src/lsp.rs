@@ -709,6 +709,9 @@ impl LspBridge {
         snapshot: &DocumentSnapshot,
         command: taide_native_ui::editor_code_actions::Command,
     ) -> HashSet<crate::editor_symbols::ProviderIdentity> {
+        if snapshot.metadata.tier != FileSizeTier::Normal || snapshot.metadata.read_only {
+            return HashSet::new();
+        }
         let DocumentKey::File(path) = &snapshot.key else {
             return HashSet::new();
         };

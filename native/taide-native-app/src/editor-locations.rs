@@ -1152,17 +1152,17 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
             .current(view)
             .and_then(|session| session.preview)
             .is_some_and(|preview| {
-                self.code_actions
-                    .as_ref()
-                    .is_some_and(|consumer| consumer.0.borrow().state.menu_open(preview))
-                    || self.rename.as_ref().is_some_and(|consumer| {
-                        consumer
-                            .0
-                            .borrow()
-                            .state
-                            .prepared()
-                            .is_some_and(|(request, _)| request.source == preview)
-                    })
+                self.code_actions.as_ref().is_some_and(|consumer| {
+                    let controller = consumer.0.borrow();
+                    controller.state.menu_open(preview) || controller.state.message_visible(preview)
+                }) || self.rename.as_ref().is_some_and(|consumer| {
+                    consumer
+                        .0
+                        .borrow()
+                        .state
+                        .prepared()
+                        .is_some_and(|(request, _)| request.source == preview)
+                })
             })
     }
     fn keyboard_link(&self, store: &EditorStore, view: ViewId) -> Option<(String, usize)> {

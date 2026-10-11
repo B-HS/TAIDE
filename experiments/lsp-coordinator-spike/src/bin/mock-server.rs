@@ -1636,6 +1636,17 @@ impl MockServer {
                     ));
                 }
                 match self.code_actions {
+                    Some("disabled") => {
+                        let reference_uri = uri.replace("/current.rs", "/peek.rs");
+                        write_response(
+                            output,
+                            id,
+                            json!([
+                                {"title":"Unavailable fix","kind":"quickfix","isPreferred":true,"disabled":{"reason":"Unavailable here"}},
+                                {"title":"Client references","kind":"quickfix","command":{"title":"references","command":"editor.action.showReferences","arguments":[uri,{"line":0,"character":0},[{"uri":reference_uri,"range":{"start":{"line":1,"character":4},"end":{"line":1,"character":10}}}]]}}
+                            ]),
+                        )?;
+                    }
                     Some("resource") => {
                         let zero = json!({"start":{"line":0,"character":0},"end":{"line":0,"character":0}});
                         let closed = uri.replace("/current.rs", "/peek.rs");
@@ -1882,6 +1893,7 @@ fn main() -> io::Result<ExitCode> {
         Some("--native-code-actions-resolve-error") => server.code_actions = Some("resolve-error"),
         Some("--native-code-actions-resource") => server.code_actions = Some("resource"),
         Some("--native-code-actions-nearby") => server.code_actions = Some("nearby"),
+        Some("--native-code-actions-disabled") => server.code_actions = Some("disabled"),
         Some("--crash-on-hover") => server.should_crash_on_hover = true,
         Some("--ignore-exit") => server.should_ignore_exit = true,
         Some("--ignore-hover") => server.should_ignore_hover = true,

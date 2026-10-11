@@ -671,3 +671,21 @@ connected-frozen-host.log는 host inspection 테스트 대상 컴파일 exit 0·
 디스크 확인은 432GiB 여유·사용 77%이며 정리 명령은 실행하지 않았습니다. editor-47은 partial, 588대상/290완료/298미완료·배치 23 잔여 31·최종 33을 유지합니다. 아직 전구 위치/겹침의 실제 소비·수동 빈/비활성 안내·preview 선택·다른 URI/client navigation·내장 공급자 editor-57과 배치 31 실기/성능/출시 게이트는 완료로 올리지 않습니다. 특히 현재 App Chosen.preview는 적용 분기에서 아직 소비하지 않으므로 미리보기 완료로 기록하지 않습니다.
 
 프로토콜의 진단 범위/선택 후 resolve·edit 뒤 command 순서는 [LSP 공식 Code Action 정의](https://raw.githubusercontent.com/microsoft/language-server-protocol/gh-pages/_specifications/lsp/3.17/language/codeAction.md)와 설치 코드에서 확인했습니다. 기존 TS adapter의 hover resolve 편집 부작용은 재현하지 않습니다.
+
+## c5c 빈/비활성 안내와 standalone 수정 수락 키 (2026-10-11)
+
+기준은 5ff13b75 뒤 안내 변경이며 App/UI와 소유 mock의 10 Rust 경로를 직렬 수정했습니다. 설치 Monaco codeActionController/codeActionCommands/messageController와 inputColors, standaloneServices의 실제 코드를 읽었습니다. 수동 빈 응답/유효한 Quick Fix가 없는 응답에는 명령별 원문 안내, 단일 비활성 자동 적용에는 서버 사유를 표시합니다. 자동 빈 응답은 조용히 유지하고 여러 비활성 Refactor/Source의 기존 목록 동작은 보존합니다. 공급자 없는 Normal/Large의 수동 안내도 연결하며 readonly·IME·revision/선택/뷰/공급자 수명과 원래 디스크를 유지합니다.
+
+- [x] UI/입력: 실제 커서의 reveal·본문 글꼴·원본 editorHoverWidget/inputValidation.infoBorder 테마·위/아래 안내와 Escape/blur/비활성화/창 포커스 상실을 연결했습니다. 안내는 메뉴 포커스를 가져가지 않고 일반 텍스트 입력을 본문에 전달합니다. writable peek의 안내 Escape는 readonly owner의 peek를 닫지 않으며 이후 입력은 실제 peek 선택에 적용됩니다. 소유 임시 데이터와 내부 egui RawInput만 사용했습니다.
+- [x] 원본 미리보기 범위: 설치 Monaco StandaloneBulkEditService.hasPreviewHandler는 false이며 apply의 _options를 소비하지 않습니다. 별도 diff/미리보기 화면을 만드는 요구사항은 없습니다. 기존 수정 수락 키의 Cmd+Enter는 일반 resolve/edit/command·undo로 실제 App에서 확인했고 사용되지 않던 Chosen.preview 필드를 제거했습니다. 원본 hover resolve의 편집 부작용은 재현하지 않습니다.
+- [x] 실패 재현: 로그 접두사는 /private/tmp/taide-batch23-code-actions-입니다. notice-red.log는 상태 관련 9통과/2실패·exit 101·11.85초이며 빈 수동 응답의 menu_open과 공급자 없는 수동 요청의 None에서 제품 문제를 재현했습니다. notice-mock.log는 Display가 없는 Failure.to_string의 컴파일 오류·0검사/exit 101이며 기존 Debug 오류 경로로 고쳤습니다. notice-mock-fixed.log는 빌드 exit 0·19.48초입니다. notice-app.log는 준비 코드에서 존재하지 않는 EditorStore.opened_file을 호출한 컴파일 오류·0검사/exit 101이며 기존 taide_file 파일 서비스로 고쳤습니다.
+- [x] 관련 App: notice-app-fixed.log는 상태 10/child 4/App 7의 21건 중 20통과/1실패·exit 101·빌드 28.75초/검사 34.73초입니다. 실패는 disabled-peek에서 화면을 그리지 않고 UI가 생성할 preview까지 기다린 준비 순서입니다. 기존 실제 UI 프레임/파일 읽기/그리기 순서로 고친 notice-app-peek-fixed.log의 영향 한 검사는 1통과/0실패·exit 0·빌드 15.04초/검사 10.44초입니다. 서로 다른 최종 관련 App 검사는 21건이며 전체 21건 명령의 최초 exit 101을 exit 0으로 바꾸지 않습니다.
+- [x] 현재 UI 전체: notice-ui.log는 12통과/1실패·exit 101·0.12초이며 실제 본문 입력 x 뒤 기대값에 그 입력을 빠뜨린 준비 오류입니다. 수정 영향 한 건인 notice-ui-fixed.log는 exit 0·0.03초입니다. 공개 Provider/Colors와 본문 Escape 처리 영향 때문에 현재 UI 전체를 --all-targets --no-fail-fast로 직접 1회 실행했습니다. notice-ui-all.log는 24대상/461통과/0실패/0ignored·exit 0·빌드 22.63초/대상별 검사 시간 합계 4.66초이며 앞선 좁은 13건을 포함하므로 더하지 않습니다.
+
+App 관련 검사는 cargo test --manifest-path native/taide-native-app/Cargo.toml --features inspection --locked --offline --target-dir experiments/native-shell-spike/target --lib code_actions -- --test-threads=1로 실행했고 실패 영향 한 건에는 실제_app의_비활성_자동수정_안내 필터를 사용했습니다. InitializedApp 검사는 허용된 환경에서 처음부터 실행했습니다. UI 전체는 같은 locked/offline/target-dir에 --manifest-path native/taide-native-ui/Cargo.toml --features native-host,inspection --all-targets --no-fail-fast -- --test-threads=4입니다.
+
+notice-frozen-host.log는 frozen host inspection 테스트 대상 check exit 0·10.39초, notice-frozen-wasm.log는 canvas/inspection Wasm lib check exit 0·2.01초입니다. 실행 검사로 세지 않습니다. 두 check는 현재 public UI 계약 변경 때문에 실행했고 frozen source/manifest/lockfile·engine/새 의존성 변경은 0입니다. 각 Cargo 종료 뒤 다음 Cargo/fmt/Rust 수정을 수행했습니다. 소유 Rust 9파일 edition 2024와 mock edition 2021의 fmt check, 소유 source diff check는 exit 0입니다. 기존 wry 17경고·linker eh_frame 경고와 is_applying 제품 빌드 경고를 0경고로 보고하지 않습니다.
+
+현재 App 전체는 이번 안내 소스에서 실행하지 않았습니다. 92cbb325의 67대상/835통과·보호 Trash 3제외·exit 0은 이전 전체 근거이며 현재 관련 21건과 혼동하지 않습니다. 변하지 않은 SDK 전체 90건을 재사용합니다. 디스크는 428GiB 여유/77% 사용이며 정리 명령·보호 앱/실제 데이터/OS 설정/클립보드/Keychain/Trash·OS 합성 입력을 실행하지 않았습니다.
+
+기능표는 599행·대상 588·complete 290/partial 94/unwired 112/missing 92·잔여 298, batch 23 미완료 31·최종 33을 유지합니다. editor-47/c5는 partial이며 전구 실제 위치/겹침·다른 URI/client navigation·현재 App 전체 완료 게이트가 다음입니다. 내장 언어 서비스 editor-57은 별도 미완료 행으로 추적합니다. 실제 pixel/OS IME/접근성/대형 성능/soak·출시·전환·제거는 배치 31~33에 유지하고 안내 검사를 전체 기능률이나 소요시간으로 환산하지 않습니다.

@@ -161,7 +161,6 @@ fn 수정_목록은_주_선택의_utf16_범위와_원본_data_편집_명령을_�
             true,
         )
         .unwrap();
-    assert!(chosen.preview);
     assert_eq!(serde_json::to_value(&chosen.candidate.raw).unwrap(), value);
     assert!(
         fixture
@@ -317,7 +316,6 @@ fn 여섯_수동_명령의_단일_자동_적용은_종류와_비활성_preferred
         assert_eq!(chosen.is_some(), automatic_apply, "command={command:?}");
         if let Some(chosen) = chosen {
             assert_eq!(chosen.candidate.presentation().title, "valid");
-            assert!(!chosen.preview);
         } else {
             let (_, actions, _) = fixture
                 .state
@@ -412,6 +410,116 @@ fn 자동_조회는_source를_제외하고_전구_열기_전후에도_한번만_
             )
             .is_none()
     );
+}
+
+#[test]
+fn 빈_수동_수정과_단일_비활성_자동적용은_빈_메뉴를_열지_않는다() {
+    for command in [
+        Command::QuickFix,
+        Command::Refactor,
+        Command::Source,
+        Command::OrganizeImports,
+        Command::FixAll,
+        Command::AutoFix,
+    ] {
+        let mut fixture = Fixture::new(false, FileSizeTier::Normal);
+        let request = fixture.begin(command, false);
+        fixture.accept(&request, Vec::new());
+        assert_eq!(
+            fixture
+                .state
+                .message(&fixture.store, fixture.source)
+                .unwrap()
+                .text,
+            command.unavailable_message()
+        );
+        assert!(
+            !fixture
+                .state
+                .listed(&fixture.store, fixture.source)
+                .unwrap()
+                .2,
+            "command={command:?}"
+        );
+    }
+    for (command, kind) in [
+        (Command::OrganizeImports, "source.organizeImports"),
+        (Command::FixAll, "source.fixAll"),
+        (Command::AutoFix, "quickfix"),
+    ] {
+        let mut fixture = Fixture::new(false, FileSizeTier::Normal);
+        let request = fixture.begin(command, false);
+        let disabled = fixture.candidate(json!({"title": "disabled", "kind": kind, "isPreferred": true, "disabled": {"reason": "Unavailable here"}}));
+        fixture.accept(&request, vec![disabled]);
+        assert_eq!(
+            fixture
+                .state
+                .message(&fixture.store, fixture.source)
+                .unwrap()
+                .text,
+            "Unavailable here"
+        );
+        assert!(
+            !fixture
+                .state
+                .listed(&fixture.store, fixture.source)
+                .unwrap()
+                .2,
+            "command={command:?}"
+        );
+    }
+}
+
+#[test]
+fn 공급자가_없어도_수동_수정의_빈_응답을_표시할_수_있다() {
+    for tier in [FileSizeTier::Normal, FileSizeTier::Large] {
+        let mut fixture = Fixture::new(false, tier);
+        let request = fixture
+            .state
+            .begin(
+                &fixture.store,
+                fixture.project.clone(),
+                fixture.source,
+                fixture.owner,
+                HashSet::new(),
+                Invocation {
+                    command: Command::QuickFix,
+                    automatic: false,
+                },
+            )
+            .unwrap();
+        assert!(request.is_some());
+        let request = request.unwrap();
+        fixture
+            .state
+            .accept(&fixture.store, &request, HashSet::new(), Ok(Vec::new()))
+            .unwrap();
+        assert!(
+            !fixture
+                .state
+                .listed(&fixture.store, fixture.source)
+                .unwrap()
+                .2
+        );
+        assert_eq!(
+            fixture
+                .state
+                .message(&fixture.store, fixture.source)
+                .unwrap()
+                .text,
+            Command::QuickFix.unavailable_message()
+        );
+        fixture.state.close(fixture.source, request.token.as_u128());
+        assert!(
+            fixture
+                .state
+                .message(&fixture.store, fixture.source)
+                .is_none()
+        );
+        assert!(!request.is_cancelled());
+        fixture.state.clear();
+        assert!(request.is_cancelled());
+    }
 }
 
 #[test]

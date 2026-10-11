@@ -1318,6 +1318,16 @@ impl NativeEditor {
                     .is_some_and(|session| session.menu_open)
             });
         #[cfg(feature = "native-host")]
+        let code_action_message = (!rename_active)
+            .then(|| {
+                code_actions
+                    .as_ref()
+                    .and_then(|(provider, _)| provider.message(store, view))
+            })
+            .flatten();
+        #[cfg(feature = "native-host")]
+        let code_action_message_active = code_action_message.is_some();
+        #[cfg(feature = "native-host")]
         let minimap_dimensions = crate::editor_minimap::measure(
             ui,
             &previous,
@@ -1372,6 +1382,10 @@ impl NativeEditor {
         let mut input_state = ui
             .ctx()
             .data_mut(|data| data.get_temp::<InputState>(id).unwrap_or_default());
+        #[cfg(feature = "native-host")]
+        input_state
+            .code_actions
+            .reveal_message(store, view, code_action_message.as_ref())?;
         #[cfg(feature = "native-host")]
         let formatting_scroll = store
             .take_formatting_scroll(view)?
@@ -1630,7 +1644,16 @@ impl NativeEditor {
             let mut remaining = Vec::new();
             for (_index, event) in events.into_iter().enumerate() {
                 #[cfg(feature = "native-host")]
-                if (rename_active || code_actions_active)
+                if (rename_active
+                    || code_actions_active
+                    || code_action_message_active
+                        && matches!(
+                            event,
+                            Event::Key {
+                                key: Key::Escape,
+                                ..
+                            }
+                        ))
                     && matches!(
                         event,
                         Event::Key { .. }
@@ -3396,9 +3419,16 @@ impl NativeEditor {
         }
         #[cfg(feature = "native-host")]
         if !rename_active && let Some((provider, colors)) = code_actions.as_mut() {
-            let code_action_output = input_state
-                .code_actions
-                .show(ui, store, view, id, &geometry, *colors, *provider);
+            let code_action_output = input_state.code_actions.show(
+                ui,
+                store,
+                view,
+                id,
+                &geometry,
+                &appearance.font,
+                *colors,
+                *provider,
+            );
             popup_output.focus_ids.extend(code_action_output.focus_ids);
             popup_output.released.extend(code_action_output.released);
         }

@@ -25,12 +25,16 @@ const FRAME_STEP: f64 = 0.1;
 #[derive(Default)]
 struct Actions {
     session: Option<Session>,
+    message: Option<editor_code_actions::Message>,
     selected: Vec<(usize, bool)>,
     opened: usize,
     closed: usize,
 }
 
 impl Provider for Actions {
+    fn message(&self, _: &EditorStore, _: ViewId) -> Option<editor_code_actions::Message> {
+        self.message.clone()
+    }
     fn current(&self, _: &EditorStore, _: ViewId) -> Option<Session> {
         self.session.clone()
     }
@@ -53,6 +57,7 @@ impl Provider for Actions {
         assert_eq!(token, TOKEN);
         self.closed += 1;
         self.session = None;
+        self.message = None;
     }
 }
 
@@ -225,6 +230,9 @@ impl Fixture {
                                     shadow: Color32::BLACK,
                                     lightbulb: Color32::YELLOW,
                                     lightbulb_auto_fix: Color32::LIGHT_YELLOW,
+                                    message_background: Color32::DARK_GRAY,
+                                    message_foreground: Color32::WHITE,
+                                    message_border: Color32::BLUE,
                                 },
                             )),
                         )
@@ -303,6 +311,82 @@ fn key_with(key: Key, modifiers: Modifiers) -> Event {
         pressed: true,
         repeat: false,
         modifiers,
+    }
+}
+
+#[test]
+fn 커서_안내는_메뉴_포커스를_빼앗지_않고_escape와_본문_입력을_보존한다() {
+    let mut fixture = Fixture::new();
+    let first = fixture.frame(Vec::new(), TEXT);
+    fixture
+        .context
+        .memory_mut(|memory| memory.request_focus(first.response.id));
+    fixture.actions.message = Some(editor_code_actions::Message {
+        token: TOKEN,
+        anchor: 6,
+        text: "No code actions available".into(),
+    });
+    fixture.frame(Vec::new(), TEXT);
+    let rendered = fixture.frame(Vec::new(), TEXT);
+    let response = fixture
+        .context
+        .read_response(editor_code_actions::message_id(rendered.response.id, TOKEN))
+        .unwrap();
+    assert!(SCREEN.x >= response.rect.right());
+    assert!(SCREEN.y >= response.rect.bottom());
+    assert!(
+        fixture
+            .context
+            .memory(|memory| memory.has_focus(rendered.response.id))
+    );
+    assert!(
+        fixture
+            .context
+            .read_response(editor_code_actions::focus_id(rendered.response.id, TOKEN))
+            .is_none()
+    );
+    fixture.frame(vec![key_with(Key::Escape, Modifiers::NONE)], TEXT);
+    assert!(fixture.actions.message.is_none());
+    assert_eq!(fixture.actions.closed, 1);
+    assert!(fixture.actions.selected.is_empty());
+    fixture.frame(vec![Event::Text("x".into())], &format!("x{TEXT}"));
+    assert_eq!(
+        fixture
+            .store
+            .documents()
+            .snapshot(fixture.document)
+            .unwrap()
+            .rope
+            .to_string(),
+        format!("x{TEXT}")
+    );
+}
+
+#[test]
+fn 커서_안내는_비활성화와_창_본문_포커스_상실로_회수한다() {
+    for state in [0, 1, 2] {
+        let mut fixture = Fixture::new();
+        let first = fixture.frame(Vec::new(), TEXT);
+        fixture
+            .context
+            .memory_mut(|memory| memory.request_focus(first.response.id));
+        fixture.actions.message = Some(editor_code_actions::Message {
+            token: TOKEN,
+            anchor: 6,
+            text: "Unavailable here".into(),
+        });
+        fixture.frame(Vec::new(), TEXT);
+        match state {
+            0 => fixture.is_enabled = false,
+            1 => fixture.window_focused = false,
+            _ => fixture
+                .context
+                .memory_mut(|memory| memory.surrender_focus(first.response.id)),
+        }
+        fixture.frame(Vec::new(), TEXT);
+        assert!(fixture.actions.message.is_none());
+        assert_eq!(fixture.actions.closed, 1);
+        assert!(fixture.actions.selected.is_empty());
     }
 }
 

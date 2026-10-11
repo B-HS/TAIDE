@@ -62,7 +62,7 @@ impl Request {
                                 && current.revision == self.snapshot.revision
                                 && current.metadata.language_id
                                     == self.snapshot.metadata.language_id
-                                && current.metadata.tier == FileSizeTier::Normal
+                                && current.metadata.tier == self.snapshot.metadata.tier
                                 && !current.metadata.read_only
                         })
             })
@@ -109,7 +109,6 @@ impl Candidate {
 pub(crate) struct Chosen {
     pub(crate) request: Request,
     pub(crate) candidate: Candidate,
-    pub(crate) preview: bool,
 }
 
 pub(crate) struct Resolved {
@@ -142,6 +141,7 @@ struct Entry {
     menu_open: bool,
     choosing: bool,
     applying: bool,
+    message: Option<String>,
     cancel: watch::Sender<bool>,
 }
 
@@ -177,9 +177,10 @@ impl State {
         if snapshot.metadata.read_only {
             return Err(EditorError::ReadOnly);
         }
-        if snapshot.metadata.tier != FileSizeTier::Normal
-            || source.composition.is_some()
-            || providers.is_empty()
+        if source.composition.is_some()
+            || (snapshot.metadata.tier != FileSizeTier::Normal && !providers.is_empty())
+            || (invocation.automatic
+                && (snapshot.metadata.tier != FileSizeTier::Normal || providers.is_empty()))
         {
             return Ok(None);
         }
@@ -216,6 +217,7 @@ impl State {
             menu_open: !invocation.automatic,
             choosing: false,
             applying: false,
+            message: None,
             cancel,
         });
         Ok(Some(request))
@@ -283,7 +285,54 @@ impl State {
                 false,
             ));
         }
+        if !request.invocation.automatic {
+            let disabled = (request.invocation.command.auto_apply_single()
+                && entry.presentation.len() == 1
+                && enabled.is_empty())
+            .then(|| entry.presentation[0].disabled.as_ref())
+            .flatten();
+            if entry.presentation.is_empty()
+                || (request.invocation.command == Command::QuickFix && enabled.is_empty())
+                || disabled.is_some()
+            {
+                entry.message = Some(disabled.filter(|reason| !reason.is_empty()).map_or_else(
+                    || request.invocation.command.unavailable_message().to_owned(),
+                    Clone::clone,
+                ));
+                entry.menu_open = false;
+            }
+        }
         Ok(None)
+    }
+
+    pub(crate) fn message(
+        &self,
+        store: &EditorStore,
+        view: ViewId,
+    ) -> Option<taide_native_ui::editor_code_actions::Message> {
+        let entry = self.entry.as_ref().filter(|entry| {
+            entry.received
+                && !entry.choosing
+                && !entry.applying
+                && entry.request.source == view
+                && entry.request.describes(store)
+        })?;
+        Some(taide_native_ui::editor_code_actions::Message {
+            token: entry.request.token.as_u128(),
+            anchor: entry
+                .request
+                .selection
+                .selections
+                .get(entry.request.selection.primary)?
+                .head,
+            text: entry.message.clone()?,
+        })
+    }
+
+    pub(crate) fn message_visible(&self, view: ViewId) -> bool {
+        self.entry.as_ref().is_some_and(|entry| {
+            entry.request.source == view && !entry.request.is_cancelled() && entry.message.is_some()
+        })
     }
 
     pub(crate) fn listed(
@@ -318,7 +367,7 @@ impl State {
         view: ViewId,
         token: u128,
         index: usize,
-        preview: bool,
+        _preview: bool,
     ) -> Option<Chosen> {
         let entry = self.entry.as_mut().filter(|entry| {
             entry.received
@@ -336,7 +385,6 @@ impl State {
         Some(Chosen {
             request: entry.request.clone(),
             candidate,
-            preview,
         })
     }
 
@@ -370,6 +418,7 @@ impl State {
         };
         if entry.received && !entry.choosing {
             entry.menu_open = false;
+            entry.message = None;
             return;
         }
         self.clear();

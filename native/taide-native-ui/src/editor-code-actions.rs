@@ -20,6 +20,12 @@ const ROW_RADIUS: u8 = 4;
 const BORDER_WIDTH: f32 = 1.0;
 const SHADOW_OFFSET: [i8; 2] = [0, 4];
 const SHADOW_BLUR: u8 = 8;
+const MESSAGE_PADDING_X: i8 = 4;
+const MESSAGE_PADDING_Y: i8 = 2;
+const MESSAGE_RADIUS: u8 = 3;
+const MESSAGE_ANCHOR_SIZE: f32 = 8.0;
+const MESSAGE_LEFT_OFFSET: f32 = 6.0;
+const MESSAGE_MOUSE_LINES: usize = 3;
 const MENU_FILTER: EventFilter = EventFilter {
     tab: true,
     horizontal_arrows: true,
@@ -38,6 +44,17 @@ pub enum Command {
 }
 
 impl Command {
+    pub fn unavailable_message(self) -> &'static str {
+        match self {
+            Self::QuickFix => "No code actions available",
+            Self::Refactor => "No refactorings available",
+            Self::Source => "No source actions available",
+            Self::OrganizeImports => "No organize imports action available",
+            Self::FixAll => "No fix all action available",
+            Self::AutoFix => "No auto fixes available",
+        }
+    }
+
     pub fn from_action(action: &str) -> Option<Self> {
         Some(match action.strip_prefix("monaco.").unwrap_or(action) {
             "editor.action.quickFix" => Self::QuickFix,
@@ -212,7 +229,17 @@ pub struct Session {
     pub labels: Labels,
 }
 
+#[derive(Clone)]
+pub struct Message {
+    pub token: u128,
+    pub anchor: usize,
+    pub text: String,
+}
+
 pub trait Provider {
+    fn message(&self, _store: &EditorStore, _view: ViewId) -> Option<Message> {
+        None
+    }
     fn current(&self, store: &EditorStore, view: ViewId) -> Option<Session>;
     fn open(&mut self, store: &EditorStore, view: ViewId, token: u128);
     fn select(
@@ -238,6 +265,9 @@ pub struct Colors {
     pub shadow: Color32,
     pub lightbulb: Color32,
     pub lightbulb_auto_fix: Color32,
+    pub message_background: Color32,
+    pub message_foreground: Color32,
+    pub message_border: Color32,
 }
 
 #[derive(Clone, Default)]
@@ -247,6 +277,7 @@ pub(crate) struct State {
     show_disabled: bool,
     composing: bool,
     reveal: bool,
+    message_token: Option<u128>,
 }
 
 #[derive(Default)]
@@ -265,6 +296,10 @@ pub fn bulb_id(editor: Id, token: u128) -> Id {
     editor.with(("code-action-lightbulb", token))
 }
 
+pub fn message_id(editor: Id, token: u128) -> Id {
+    editor.with(("code-action-message", token))
+}
+
 pub fn disabled_toggle_id(editor: Id, token: u128) -> Id {
     focus_id(editor, token).with("disabled-toggle")
 }
@@ -276,6 +311,143 @@ enum Row {
 }
 
 impl State {
+    pub(crate) fn reveal_message(
+        &mut self,
+        store: &mut EditorStore,
+        view: ViewId,
+        message: Option<&Message>,
+    ) -> Result<(), taide_native_editor::document::EditorError> {
+        let Some(message) = message else {
+            self.message_token = None;
+            return Ok(());
+        };
+        if self.message_token != Some(message.token) {
+            store.request_selection_reveal(view, message.anchor..message.anchor, true)?;
+            self.message_token = Some(message.token);
+        }
+        Ok(())
+    }
+
+    fn show_message(
+        &mut self,
+        ui: &mut Ui,
+        store: &EditorStore,
+        view: ViewId,
+        editor: Id,
+        geometry: &EditorGeometry,
+        font: &FontId,
+        colors: Colors,
+        provider: &mut dyn Provider,
+        message: Message,
+    ) {
+        let Some(anchor) = geometry.caret_rect(message.anchor) else {
+            return;
+        };
+        let id = message_id(editor, message.token);
+        let pointer = ui.input(|input| input.pointer.hover_pos());
+        let hovered = ui.ctx().read_response(id).is_some_and(|response| {
+            pointer.is_some_and(|position| response.rect.contains(position))
+        });
+        if !ui.is_enabled()
+            || !ui.input(|input| input.raw.focused)
+            || (!ui.memory(|memory| memory.has_focus(editor)) && !hovered)
+            || ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, Key::Escape))
+        {
+            provider.close(view, message.token);
+            return;
+        }
+        let screen = ui.ctx().content_rect();
+        let width_limit = screen.width() * MAX_WIDTH_RATIO;
+        let galley = ui.fonts_mut(|fonts| {
+            fonts.layout(
+                message.text.clone(),
+                font.clone(),
+                colors.message_foreground,
+                (width_limit - f32::from(MESSAGE_PADDING_X) * 2.0).max(0.0),
+            )
+        });
+        let width = galley.size().x + f32::from(MESSAGE_PADDING_X) * 2.0;
+        let height = galley.size().y + f32::from(MESSAGE_PADDING_Y) * 2.0;
+        let above = anchor.top() - height - MESSAGE_ANCHOR_SIZE >= screen.top();
+        let top = if above {
+            anchor.top() - height - MESSAGE_ANCHOR_SIZE
+        } else {
+            anchor.bottom() + MESSAGE_ANCHOR_SIZE
+        };
+        let left = (anchor.left() - MESSAGE_LEFT_OFFSET)
+            .min((screen.right() - width).max(screen.left()))
+            .max(screen.left());
+        let response = egui::Area::new(id.with("area"))
+            .order(egui::Order::Tooltip)
+            .fixed_pos(pos2(left, top))
+            .interactable(false)
+            .show(ui.ctx(), |ui| {
+                let response = egui::Frame::new()
+                    .fill(colors.message_background)
+                    .stroke(Stroke::new(BORDER_WIDTH, colors.message_border))
+                    .corner_radius(MESSAGE_RADIUS)
+                    .inner_margin(egui::Margin::symmetric(
+                        MESSAGE_PADDING_X,
+                        MESSAGE_PADDING_Y,
+                    ))
+                    .show(ui, |ui| {
+                        ui.set_max_width(galley.size().x);
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(&message.text)
+                                    .font(font.clone())
+                                    .color(colors.message_foreground),
+                            )
+                            .wrap(),
+                        );
+                    });
+                ui.interact(response.response.rect, id, Sense::hover())
+            })
+            .inner;
+        let rect = response.rect;
+        let x = anchor.left().clamp(rect.left(), rect.right());
+        let (base, tip) = if above {
+            (rect.bottom(), rect.bottom() + MESSAGE_ANCHOR_SIZE)
+        } else {
+            (rect.top(), rect.top() - MESSAGE_ANCHOR_SIZE)
+        };
+        ui.ctx()
+            .layer_painter(egui::LayerId::new(egui::Order::Tooltip, id.with("area")))
+            .add(egui::Shape::convex_polygon(
+                vec![
+                    pos2(x - MESSAGE_ANCHOR_SIZE, base),
+                    pos2(x + MESSAGE_ANCHOR_SIZE, base),
+                    pos2(x, tip),
+                ],
+                colors.message_border,
+                Stroke::NONE,
+            ));
+        if !hovered
+            && ui.input(|input| {
+                input
+                    .events
+                    .iter()
+                    .any(|event| matches!(event, Event::PointerMoved(_)))
+            })
+            && let Some(position) =
+                pointer.filter(|position| geometry.content_rect.contains(*position))
+            && let Some(row) = geometry.rows.iter().find(|row| {
+                row.origin.y <= position.y && position.y < row.origin.y + geometry.line_height
+            })
+            && let Some(snapshot) = store
+                .views()
+                .get(view)
+                .and_then(|view| store.documents().snapshot(view.document).ok())
+            && snapshot
+                .rope
+                .byte_to_line(row.segment.bytes.start)
+                .abs_diff(snapshot.rope.byte_to_line(message.anchor))
+                > MESSAGE_MOUSE_LINES
+        {
+            provider.close(view, message.token);
+        }
+    }
+
     fn reset_menu(&mut self, ui: &Ui, editor: Id) {
         if self
             .token
@@ -330,9 +502,17 @@ impl State {
         view: ViewId,
         editor: Id,
         geometry: &EditorGeometry,
+        font: &FontId,
         colors: Colors,
         provider: &mut dyn Provider,
     ) -> Output {
+        if let Some(message) = provider.message(store, view) {
+            self.reset_menu(ui, editor);
+            self.show_message(
+                ui, store, view, editor, geometry, font, colors, provider, message,
+            );
+            return Output::default();
+        }
         let Some(session) = provider.current(store, view) else {
             self.reset_menu(ui, editor);
             return Output::default();

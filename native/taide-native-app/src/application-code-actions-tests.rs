@@ -241,6 +241,15 @@ fn fixture(mode: &str) -> Fixture {
     );
     let document = application.files[&fixture.path].id;
     wait(application, &fixture.context, "provider", |application| {
+        if mode == "--native-code-actions-unsupported" {
+            return application
+                .lsp
+                .as_ref()
+                .unwrap()
+                .code_action_diagnostics(&fixture.project, document)
+                .values()
+                .any(|revision| *revision != 0);
+        }
         !application
             .lsp
             .as_ref()
@@ -269,6 +278,15 @@ fn focus(application: &mut NativeApplication, context: &egui::Context, source: V
 }
 
 fn select_first(application: &mut NativeApplication, context: &egui::Context, source: ViewId) {
+    select_with_modifiers(application, context, source, egui::Modifiers::NONE);
+}
+
+fn select_with_modifiers(
+    application: &mut NativeApplication,
+    context: &egui::Context,
+    source: ViewId,
+    modifiers: egui::Modifiers,
+) {
     wait(application, context, "list", |application| {
         application
             .editor_code_actions
@@ -278,11 +296,7 @@ fn select_first(application: &mut NativeApplication, context: &egui::Context, so
     });
     paint(application, context, Vec::new());
     paint(application, context, Vec::new());
-    paint(
-        application,
-        context,
-        key(egui::Key::Enter, egui::Modifiers::NONE),
-    );
+    paint(application, context, key(egui::Key::Enter, modifiers));
 }
 
 fn wait_prefix(
@@ -347,7 +361,12 @@ fn 실제_app의_여섯_수정_명령은_키와_팔레트에서_편집_후_명�
             .is_some_and(|request| !request.invocation.automatic),
         "manual Quick Fix was not dispatched"
     );
-    select_first(application, context, view);
+    select_with_modifiers(
+        application,
+        context,
+        view,
+        egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND,
+    );
     assert!(application.editor_code_actions.state.request().is_some());
     assert!(
         application
@@ -550,6 +569,266 @@ fn 실제_app의_여섯_수정_명령은_키와_팔레트에서_편집_후_명�
     assert!(application.store.undo(peek_document).unwrap());
     eframe::App::on_exit(application);
     assert!(application.editor_code_actions.state.request().is_none());
+    assert_eq!(application.services.tasks.tracked_count(), 0);
+}
+
+#[test]
+fn 실제_app의_빈_미지원_수정은_커서_안내와_escape_후_본문_입력을_보존한다() {
+    for mode in [
+        "--native-code-actions-null",
+        "--native-code-actions-unsupported",
+    ] {
+        let mut fixture = fixture(mode);
+        let application = fixture.application.as_mut().unwrap();
+        let context = &fixture.context;
+        let document = application.files[&fixture.path].id;
+        let view = application
+            .store
+            .views()
+            .for_document(document)
+            .find(|view| view.key.tab == fixture.tab)
+            .unwrap()
+            .id;
+        focus(application, context, view);
+        paint(
+            application,
+            context,
+            key(
+                egui::Key::Period,
+                egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND,
+            ),
+        );
+        wait(application, context, "unavailable-message", |application| {
+            application
+                .editor_code_actions
+                .state
+                .message(&application.store, view)
+                .is_some_and(|message| message.text == "No code actions available")
+        });
+        paint(application, context, Vec::new());
+        paint(application, context, Vec::new());
+        let token = application
+            .editor_code_actions
+            .state
+            .request()
+            .unwrap()
+            .token;
+        let id = application
+            .editor_keymap_targets
+            .iter()
+            .find_map(|((viewport, id), (source, _))| {
+                (*viewport == context.viewport_id() && *source == view).then_some(*id)
+            })
+            .unwrap();
+        assert!(
+            context
+                .read_response(taide_native_ui::editor_code_actions::message_id(
+                    id,
+                    token.as_u128()
+                ))
+                .is_some()
+        );
+        assert_eq!(
+            application
+                .store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .rope
+                .to_string(),
+            TEXT
+        );
+        paint(
+            application,
+            context,
+            key(egui::Key::Escape, egui::Modifiers::NONE),
+        );
+        assert!(
+            application
+                .editor_code_actions
+                .state
+                .message(&application.store, view)
+                .is_none()
+        );
+        paint(application, context, vec![egui::Event::Text("x".into())]);
+        assert_eq!(
+            application
+                .store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .rope
+                .to_string(),
+            format!("x{TEXT}")
+        );
+        assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), TEXT);
+        eframe::App::on_exit(application);
+        assert_eq!(application.services.tasks.tracked_count(), 0);
+    }
+}
+
+#[test]
+fn 실제_app의_비활성_자동수정_안내는_본문과_peek에서_사유와_입력_소유를_보존한다() {
+    let mut fixture = fixture("--native-code-actions-disabled");
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let document = application.files[&fixture.path].id;
+    let view = application
+        .store
+        .views()
+        .for_document(document)
+        .find(|view| view.key.tab == fixture.tab)
+        .unwrap()
+        .id;
+    let modifiers = egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND | egui::Modifiers::ALT;
+    focus(application, context, view);
+    paint(application, context, key(egui::Key::Period, modifiers));
+    wait(
+        application,
+        context,
+        "disabled-root-message",
+        |application| {
+            application
+                .editor_code_actions
+                .state
+                .message(&application.store, view)
+                .is_some_and(|message| message.text == "Unavailable here")
+        },
+    );
+    paint(application, context, Vec::new());
+    paint(
+        application,
+        context,
+        key(egui::Key::Escape, egui::Modifiers::NONE),
+    );
+    assert!(
+        application
+            .editor_code_actions
+            .state
+            .message(&application.store, view)
+            .is_none()
+    );
+    paint(
+        application,
+        context,
+        key(
+            egui::Key::Period,
+            egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND,
+        ),
+    );
+    select_first(application, context, view);
+    wait(application, context, "disabled-peek", |application| {
+        application
+            .editor_locations
+            .current(view)
+            .is_some_and(|session| session.shown)
+    });
+    paint(application, context, Vec::new());
+    wait(application, context, "disabled-peek-read", |application| {
+        application
+            .store
+            .documents()
+            .find(&taide_native_editor::document::DocumentKey::File(
+                PathBuf::from(&fixture.peek_path),
+            ))
+            .is_some()
+    });
+    paint(application, context, Vec::new());
+    let preview = application
+        .editor_locations
+        .current(view)
+        .unwrap()
+        .preview
+        .unwrap();
+    let peek_document = application.store.views().get(preview).unwrap().document;
+    wait(
+        application,
+        context,
+        "disabled-peek-provider",
+        |application| {
+            !application
+                .lsp
+                .as_ref()
+                .unwrap()
+                .code_action_providers(
+                    &fixture.project,
+                    &application
+                        .store
+                        .documents()
+                        .snapshot(peek_document)
+                        .unwrap(),
+                    Command::AutoFix,
+                )
+                .is_empty()
+        },
+    );
+    let mut readonly =
+        taide_file::service::open_file(std::path::Path::new(&fixture.path), &[], false).unwrap();
+    readonly.read_only = true;
+    application
+        .store
+        .observe_file(document, std::path::Path::new(&fixture.path), readonly)
+        .unwrap();
+    let before = application.store.documents().snapshot(document).unwrap();
+    focus(application, context, preview);
+    paint(application, context, key(egui::Key::Period, modifiers));
+    wait(
+        application,
+        context,
+        "disabled-peek-message",
+        |application| {
+            application
+                .editor_code_actions
+                .state
+                .message(&application.store, preview)
+                .is_some_and(|message| message.text == "Unavailable here")
+        },
+    );
+    paint(application, context, Vec::new());
+    paint(application, context, Vec::new());
+    paint(
+        application,
+        context,
+        key(egui::Key::Escape, egui::Modifiers::NONE),
+    );
+    assert!(
+        application
+            .editor_code_actions
+            .state
+            .message(&application.store, preview)
+            .is_none()
+    );
+    assert!(application.editor_locations.current(view).unwrap().shown);
+    let selections = &application.store.views().get(preview).unwrap().selection;
+    let selection = &selections.selections[selections.primary];
+    let mut expected = application
+        .store
+        .documents()
+        .snapshot(peek_document)
+        .unwrap()
+        .rope
+        .to_string();
+    expected.replace_range(
+        selection.anchor.min(selection.head)..selection.anchor.max(selection.head),
+        "x",
+    );
+    paint(application, context, vec![egui::Event::Text("x".into())]);
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(peek_document)
+            .unwrap()
+            .rope
+            .to_string(),
+        expected
+    );
+    let after = application.store.documents().snapshot(document).unwrap();
+    assert_eq!(after.revision, before.revision);
+    assert_eq!(after.rope, before.rope);
+    assert!(after.metadata.read_only);
+    assert_eq!(std::fs::read_to_string(&fixture.peek_path).unwrap(), TEXT);
+    eframe::App::on_exit(application);
     assert_eq!(application.services.tasks.tracked_count(), 0);
 }
 
