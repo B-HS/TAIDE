@@ -770,6 +770,151 @@ fn actual_app의_rename은_f2와_peek에서_현재_문서만_편집하고_undo�
         assert_eq!(std::fs::read_to_string(&file).unwrap(), TEXT);
         assert_eq!(std::fs::read_to_string(&peek_file).unwrap(), TEXT);
     }
+    const RESOURCE_NAME: &str = "renamed_名";
+    let resource_root = file.parent().unwrap();
+    let closed_file = resource_root.join("rename-closed.rs");
+    let created_file = resource_root.join("rename-created.rs");
+    let moved_file = resource_root.join("rename-moved.rs");
+    std::fs::write(&closed_file, "method\n").unwrap();
+    assert!(!created_file.exists());
+    assert!(!moved_file.exists());
+    let owner_before = application.store.documents().snapshot(document).unwrap();
+    application
+        .runtime
+        .handle()
+        .clone()
+        .block_on(application.lsp.take().unwrap().disconnect())
+        .unwrap();
+    std::fs::write(
+        &executable,
+        format!("#!/bin/sh\nexec '{mock}' --native-rename-workspace\n"),
+    )
+    .unwrap();
+    let repaint = context.clone();
+    application.lsp = Some(
+        crate::lsp::LspBridge::connect(
+            application.services.clone(),
+            executable.parent().unwrap().to_path_buf().into_os_string(),
+            Arc::new(move || repaint.request_repaint()),
+        )
+        .unwrap(),
+    );
+    wait_for(
+        application,
+        &context,
+        "rename-resource-provider",
+        |application| {
+            !application
+                .lsp
+                .as_ref()
+                .unwrap()
+                .rename_providers(
+                    &project,
+                    &application
+                        .store
+                        .documents()
+                        .snapshot(peek_document)
+                        .unwrap(),
+                )
+                .is_empty()
+        },
+    );
+    application.status = None;
+    application.request_editor_rename_from_source(project.clone(), preview, view);
+    wait_for(
+        application,
+        &context,
+        "rename-resource-prepared",
+        |application| application.editor_rename.state.prepared().is_some(),
+    );
+    let token = application
+        .editor_rename
+        .state
+        .prepared()
+        .unwrap()
+        .0
+        .token
+        .as_u128();
+    {
+        let mut provider = crate::editor_rename_controller::Provider {
+            consumer: crate::editor_rename_controller::Consumer(std::rc::Rc::new(
+                std::cell::RefCell::new(&mut application.editor_rename),
+            )),
+            lsp: application.lsp.as_ref(),
+        };
+        taide_native_ui::editor_rename::Provider::accept(
+            &mut provider,
+            &application.store,
+            preview,
+            token,
+            RESOURCE_NAME.into(),
+        );
+    }
+    wait_for(
+        application,
+        &context,
+        "rename-resource-applied",
+        |application| {
+            !application.editor_rename.is_applying()
+                && application
+                    .store
+                    .documents()
+                    .snapshot(peek_document)
+                    .is_ok_and(|snapshot| {
+                        snapshot.rope.to_string() == TEXT.replace("method", RESOURCE_NAME)
+                    })
+                && std::fs::read_to_string(&closed_file)
+                    .is_ok_and(|text| text == format!("{RESOURCE_NAME}\n"))
+                && std::fs::read_to_string(&moved_file).is_ok_and(|text| text == RESOURCE_NAME)
+        },
+    );
+    assert!(application.status.is_none(), "{:?}", application.status);
+    assert!(application.editor_rename.state.prepared().is_none());
+    assert!(!created_file.exists());
+    assert!(
+        application
+            .store
+            .documents()
+            .find(&taide_native_editor::document::DocumentKey::File(
+                closed_file.canonicalize().unwrap()
+            ))
+            .is_none()
+    );
+    assert!(
+        application
+            .store
+            .documents()
+            .find(&taide_native_editor::document::DocumentKey::File(
+                moved_file.canonicalize().unwrap()
+            ))
+            .is_none()
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), TEXT);
+    assert_eq!(std::fs::read_to_string(&peek_file).unwrap(), TEXT);
+    let owner_after = application.store.documents().snapshot(document).unwrap();
+    assert_eq!(owner_after.rope, owner_before.rope);
+    assert_eq!(owner_after.revision, owner_before.revision);
+    assert_eq!(owner_after.dirty, owner_before.dirty);
+    assert!(owner_after.metadata.read_only);
+    assert!(
+        application
+            .store
+            .documents()
+            .snapshot(peek_document)
+            .unwrap()
+            .dirty
+    );
+    assert!(application.store.undo(peek_document).unwrap());
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(peek_document)
+            .unwrap()
+            .rope
+            .to_string(),
+        TEXT
+    );
     eframe::App::on_exit(application);
     assert_eq!(application.services.tasks.tracked_count(), 0);
 }

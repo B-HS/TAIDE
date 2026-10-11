@@ -591,3 +591,21 @@ App의 `editor-rename-controller.rs`는 oneshot 완료·현재 요청/준비/적
 현재 변경은 App private 소비와 소유 검사 서버/검사에 한정됩니다. Core/UI/SDK·frozen source/manifest/lockfile 변경은 0입니다. 이전 변경 없는 UI 447·frozen host/Wasm 성공은 재사용하되 현재 App 전체 대상 실행의 성공으로 확대하지 않습니다. resource delete는 실제 Trash로 이어지므로 보호된 실행을 추가하지 않습니다. 닫힌 파일·create/rename resource의 실제 rename 요청 연결과 현재 App 전체 실행은 다음 남은 c4 게이트입니다. editor-46 partial·전체 289완료/299미완료·현재 23/최종 33을 유지합니다.
 
 추가 공급자/취소/오류 안내 단위는 `4ac2c4a8`로 9개 소유 경로/구역만 선별 커밋·일반 푸시했고 최종 메시지·사용자 단독 author·AI 트레일러 없음·upstream 0/0을 확인했습니다. 현재 App fmt check는 `boundary-errors-fmt.log` exit 0, QA 형식과 소유 diff check는 exit 0입니다. PROCESS 완료 배치 7 이하 사용자 변경은 index의 기존 구역과 비교해 보존했습니다. 디스크는 457GiB/76%이며 검증 후 ps에 이 작업의 Cargo/mock/native 검사 프로세스가 남아 있지 않았습니다. 동결·manifest·lockfile 변경은 0입니다.
+
+## c4 닫힌 파일과 resource의 실제 rename 적용 (2026-10-11)
+
+현재 소유 변경은 `experiments/lsp-coordinator-spike/src/bin/mock-server.rs`, `native/taide-native-app/src/application-startup-tests.rs`와 활성 PROCESS/QA입니다. 새 검사 서버 모드 `--native-rename-workspace`는 실제 현재 URI/UTF-16 위치와 새 이름을 확인한 뒤 열린 source edit·닫힌 파일 edit·create·생성 파일 edit·rename의 순서로 WorkspaceEdit를 반환합니다. 같은 기존 App worker의 현재 protocol 문서/프로젝트 roots 경계를 사용하며 제품 적용 코드를 다시 만들거나 새 의존성을 추가하지 않았습니다.
+
+로그 접두사는 `/private/tmp/taide-batch23-rename-resource-`입니다. `mock.log`: 예제 빌드 exit 0, 13.01초. `app.log`: 검사 fixture의 이미 이동한 root 문자열을 다시 참조하는 컴파일 오류로 실행되지 않았습니다. 소유 파일 부모 경로를 사용하도록 수정한 `app-final.log`는 정확한 실제 App 1통과/0실패·exit 0, 빌드 13.36초·검사 8.01초입니다.
+
+이 검사는 readonly owner의 writable peek에서 실제 prepare/새 이름 요청을 실행합니다. 열린 preview는 `renamed_名`으로 편집돼 dirty가 되며 undo로 원래 텍스트를 복원합니다. 닫힌 파일은 디스크에 저장되고 App 문서 저장소에 반입되지 않습니다. 생성 파일은 실제 편집 뒤 이동되며 이전 경로는 사라지고 이동 파일 내용은 새 이름입니다. 본문 readonly owner의 rope/revision/dirty·읽기 전용 메타데이터와 원래 본문/preview 디스크는 그대로이며 정상 종료 task는 0입니다. 소유 임시 파일만 사용하고 delete/Trash·실제 데이터·OS 입력을 실행하지 않았습니다.
+
+이는 기존 실제 App 1건의 확장이므로 서로 다른 rename 관련 성공은 15건을 유지합니다. 현재 App 전체 대상은 `app-all.log`에 --all-targets --no-fail-fast·inspection·test-threads=1·보호 Trash 3제외로 직접 1회 실행 중이며 아직 완료/통과로 기록하지 않습니다. 변경하지 않은 UI/Core/SDK/Syntax와 frozen 성공은 재사용합니다. editor-46 partial·289완료/299미완료·배치 23/최종 33을 전체 검증 전에 올리지 않습니다.
+
+현재 `app-all.log`는 67개 전체 대상·823통과/0실패/0ignored·보호 3filtered·exit 0으로 끝났습니다. Cargo 컴파일은 1분 02초, library는 582통과/보호 1filtered·98.75초이며 전체 target별 검사 시간의 합계는 145.48초입니다. 정확한 관련 App 1건의 성공은 이 전체 성공에 포함되므로 더하지 않습니다. 보호 3건과 실기·OS IME/pixel·접근성/대형 성능/soak·출시 게이트를 성공으로 세지 않습니다. 이전 c3 전체의 프로젝트/open·watcher/remote 5timeout은 이번 같은 이름의 검사에서 통과했지만 원인 수정의 증거는 아니며 배치 31의 불안정성 부채를 유지합니다. 전체 App를 다시 실행하지 않습니다.
+
+최종 검토에서 닫힌 파일/이동 파일의 문서 미반입 단언을 실제 canonicalize 경로로 강화했습니다. 임시 디렉토리의 별칭 경로가 App의 canonical DocumentKey와 달라도 검사만 잘못 통과하는 여지를 제거합니다. 제품 코드·mock 의미는 그대로이고 `app-canonical-final.log`에 강화한 정확한 App 1건을 실행 중입니다. 현재 App fmt check는 `fmt.log` exit 0이며 마지막 검사 형식 후의 제품 의미는 변하지 않았습니다.
+
+강화한 `app-canonical-final.log`는 정확한 실제 App 1통과/0실패·exit 0, 컴파일 6.67초·검사 7.75초입니다. 전체 823건과 같은 검사이므로 추가 성공 수가 아닙니다. 제품 의미가 변하지 않은 전체의 성공과 마지막 검사 단언의 성공을 재사용해 현재 c4 기능 경계를 닫습니다. editor-46의 외부 공급자 rename 사용자 기능은 complete로 갱신할 근거를 갖췄으며 내장 공급자 editor-57과 보호 Trash/실기/pixel/OS IME/접근성/대형 성능/soak·출시/전환/제거는 별도 미완료입니다. 실제 삭제 실행을 검증했다고 기록하지 않습니다.
+
+최종 App fmt check는 `final-fmt.log` exit 0이며 소유 source diff check도 exit 0입니다. 현재 변경 없는 frozen/Core/UI/SDK/Syntax·manifest/lockfile은 이전 검증 근거를 재사용합니다. 디스크 여유는 455GiB/76%입니다. 전체 App 823건과 마지막 1건은 중복 합산하지 않으며 이전 전체의 시간 초과가 이번에 통과한 사실과 원인 미확정 부채를 구분합니다.

@@ -1429,7 +1429,24 @@ impl MockServer {
                         .as_str()
                         .filter(|name| !name.trim().is_empty())
                         .ok_or_else(|| invalid("rename requires new name"))?;
-                    json!({"documentChanges":[{"textDocument":{"uri":uri,"version":current["version"]},"edits":[{"range":range,"newText":name}]}]})
+                    let source = json!({"textDocument":{"uri":uri,"version":current["version"]},"edits":[{"range":range,"newText":name}]});
+                    if mode == "workspace" {
+                        let (directory, _) = uri
+                            .rsplit_once('/')
+                            .ok_or_else(|| invalid("rename fixture requires a file URI"))?;
+                        let closed = format!("{directory}/rename-closed.rs");
+                        let created = format!("{directory}/rename-created.rs");
+                        let moved = format!("{directory}/rename-moved.rs");
+                        json!({"documentChanges":[
+                            source,
+                            {"textDocument":{"uri":closed,"version":null},"edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":6}},"newText":name}]},
+                            {"kind":"create","uri":created},
+                            {"textDocument":{"uri":created,"version":null},"edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"newText":name}]},
+                            {"kind":"rename","oldUri":created,"newUri":moved}
+                        ]})
+                    } else {
+                        json!({"documentChanges":[source]})
+                    }
                 };
                 write_response(output, id, result)?;
             }
@@ -1642,6 +1659,7 @@ fn main() -> io::Result<ExitCode> {
             | "--native-rename-bad"
             | "--native-rename-error"
             | "--native-rename-edit-error"
+            | "--native-rename-workspace"
             | "--native-rename-default"
             | "--native-rename-wait"
             | "--native-rename-wait-edits"
@@ -1655,6 +1673,7 @@ fn main() -> io::Result<ExitCode> {
                 "--native-rename-bad" => "bad",
                 "--native-rename-error" => "error",
                 "--native-rename-edit-error" => "edit-error",
+                "--native-rename-workspace" => "workspace",
                 "--native-rename-default" => "default",
                 "--native-rename-wait" => "wait",
                 "--native-rename-wait-edits" => "wait-edits",
