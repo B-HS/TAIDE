@@ -863,3 +863,5 @@ SDK 전체 1대상/91통과·Core 전체 39대상/306통과/기존 성능 1ignor
 동결 client는 frozen-host.log의 inspection 테스트 대상 check·exit 0·18.12초와 frozen-wasm.log의 wasm32-unknown-unknown lib/canvas,inspection check·exit 0·9.80초로 컴파일만 확인했습니다. 소유 18개 Rust 파일의 edition 2024/2021 fmt check는 각각 exit 0이며 manifest/lock/frozen source와 새 의존성/엔진 변경은 없습니다. 디스크 여유는 389GiB·사용 79%입니다. 보호 앱 번들/실제 사용자 데이터/OS 설정/클립보드/Keychain/Trash·OS 합성 입력·빌드 정리를 수행하지 않았습니다.
 
 실제 typed 복수 공급자·nullable/오류/미지원·UTF-16과 word/중첩/다중 커서·본문/peek 기본/재지정 키·팔레트·같은 프레임 명령 순서·readonly/tier·문서/선택/뷰/공급자 수명·취소/늦은 응답/재시작/정상 종료 및 안정 프레임의 재요청 억제를 근거로 editor-52를 complete로 갱신할 준비를 마쳤습니다. 소유 구현/검사/QA의 선별 Git과 기능표·계획·PROCESS 갱신은 다음 기록 단계입니다. pixel/OS IME/접근성·대형 성능/soak·초기 원인 미확정 부채·출시/전환/제거는 배치 31~33에 유지하며 전체 전환율/잔여 시간은 미산정입니다.
+
+SDK 741b74b9와 구현 ae7c95ed의 선별 커밋/일반 푸시·upstream 0/0을 확인했습니다. 실제 근거와 기능표를 함께 갱신해 editor-52만 partial→complete, 현재 296완료/292미완료·배치 23 잔여 25·최종 33입니다. 소유 PROCESS 아래 외부 변경의 SHA-256 7b26f85e8fdcbd03592f4c6722e88350d490341515c9175d0725ece101c1a4ed는 유지합니다. 같은 배치의 다음 작업은 editor-33 컨텍스트 메뉴 원본 대조이며 전체율/잔여 시간은 미산정입니다.
