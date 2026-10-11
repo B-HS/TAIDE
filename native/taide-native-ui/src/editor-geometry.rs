@@ -87,6 +87,11 @@ impl EditorGeometry {
                 let band = self.row_band(row);
                 band.min <= position.y && position.y < band.max
             })
+            .filter(|row| {
+                !row.hint_rects(true)
+                    .iter()
+                    .any(|(_, rect)| rect.contains(position))
+            })
             .map(|row| row.byte_at(position))
     }
 
@@ -102,6 +107,10 @@ impl EditorGeometry {
                     && position.y < band.max
                     && row.caret_rect(row.segment.bytes.start).left() <= position.x
                     && position.x < row.caret_rect(row.segment.bytes.end).left()
+                    && !row
+                        .hint_rects(true)
+                        .iter()
+                        .any(|(_, rect)| rect.contains(position))
             })
             .map(|row| row.byte_at(position))
     }
@@ -133,6 +142,8 @@ pub(crate) struct RowLayout<'a> {
     pub(crate) preview_styles: &'a [crate::editor_completion::PreviewStyle],
     #[cfg(feature = "native-host")]
     pub(crate) preview_colors: crate::editor_completion::PreviewColors,
+    #[cfg(feature = "native-host")]
+    pub(crate) hint_colors: Option<crate::editor_inlay_hints::Colors>,
     pub(crate) bold_family: Option<&'a FontFamily>,
     pub(crate) decorations: &'a [FrameDecoration],
     #[cfg(feature = "native-host")]
@@ -254,6 +265,25 @@ impl RowLayout<'_> {
                 }
             }
         }
+        #[cfg(feature = "native-host")]
+        if !self.display.inlay_hints().is_empty() {
+            let fallback = crate::editor_inlay_hints::Style {
+                foreground: self.appearance.muted,
+                background: Color32::TRANSPARENT,
+            };
+            let colors = self
+                .hint_colors
+                .unwrap_or(crate::editor_inlay_hints::Colors {
+                    default: fallback,
+                    type_hint: fallback,
+                    parameter: fallback,
+                });
+            let character = crate::editor_inlay_hints::PADDING_CHARACTER;
+            let spacing = (self.appearance.font.size / crate::editor_inlay_hints::PADDING_DIVISOR)
+                .floor()
+                - advance_width(self.painter, &self.appearance.font, character);
+            text.style_hints(self.display.inlay_hints(), &colors, spacing);
+        }
         let job = text.styled_layout_job(&self.appearance.font, self.bold_family);
         let mut injection_carets = Vec::new();
         for (index, (byte, injected)) in text.model_bytes.iter().zip(&text.injected).enumerate() {
@@ -264,7 +294,15 @@ impl RowLayout<'_> {
             {
                 continue;
             }
-            let index = text.display_char(*byte as usize).min(index);
+            let hint_end = text
+                .hints
+                .iter()
+                .zip(&text.model_bytes)
+                .enumerate()
+                .filter(|(_, (hint, source))| hint.is_some() && *source == byte)
+                .map(|(index, _)| index + 1)
+                .max();
+            let index = hint_end.unwrap_or_else(|| text.display_char(*byte as usize).min(index));
             let boundary = job
                 .text
                 .char_indices()
@@ -301,6 +339,40 @@ impl RowLayout<'_> {
 }
 
 impl Row {
+    pub(crate) fn hint_rects(&self, include_padding: bool) -> Vec<(usize, Rect)> {
+        let mut result = Vec::new();
+        let mut first = self.text.indent_chars;
+        while first + 1 < self.text.model_bytes.len() {
+            let Some(index) = self.text.hints[first] else {
+                first += 1;
+                continue;
+            };
+            if !include_padding && self.text.hint_padding[first] {
+                first += 1;
+                continue;
+            }
+            let mut end = first + 1;
+            while end + 1 < self.text.model_bytes.len()
+                && self.text.hints[end] == Some(index)
+                && (include_padding || !self.text.hint_padding[end])
+            {
+                end += 1;
+            }
+            let origin = self.text_origin();
+            let left = origin.x + self.galley.pos_from_cursor(CCursor::new(first)).left();
+            let right = origin.x + self.galley.pos_from_cursor(CCursor::new(end)).left();
+            result.push((
+                index,
+                Rect::from_min_max(
+                    pos2(left, origin.y + self.galley.rect.top()),
+                    pos2(right, origin.y + self.galley.rect.bottom()),
+                ),
+            ));
+            first = end;
+        }
+        result
+    }
+
     pub(crate) fn text_origin(&self) -> Pos2 {
         pos2(self.origin.x, self.origin.y + self.half_leading)
     }

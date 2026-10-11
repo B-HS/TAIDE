@@ -50,6 +50,12 @@ pub struct RowInlineStyle {
     pub underline: Option<Color32>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct HintFormat {
+    background: Color32,
+    spacing: f32,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct RowText {
     pub text: String,
@@ -60,6 +66,9 @@ pub struct RowText {
     pub virtual_bytes: Vec<u32>,
     pub indent_chars: usize,
     pub injected: Vec<bool>,
+    pub hints: Vec<Option<usize>>,
+    pub hint_padding: Vec<bool>,
+    hint_formats: Vec<Option<HintFormat>>,
     pub preview: Vec<bool>,
     pub injection_background: Option<Color32>,
     pub injection_border: Option<Color32>,
@@ -105,6 +114,9 @@ impl RowText {
         }
         model_bytes.push(mapped(source.len()));
         let injected = vec![false; model_bytes.len()];
+        let hints = vec![None; model_bytes.len()];
+        let hint_padding = vec![false; model_bytes.len()];
+        let hint_formats = vec![None; model_bytes.len()];
         let preview = vec![false; model_bytes.len()];
         let injection_dotted = vec![false; model_bytes.len()];
         Self {
@@ -119,6 +131,9 @@ impl RowText {
             model_bytes,
             indent_chars,
             injected,
+            hints,
+            hint_padding,
+            hint_formats,
             preview,
             injection_background: None,
             injection_border: None,
@@ -146,6 +161,8 @@ impl RowText {
             .unwrap_or(u32::MAX);
             if index >= row.indent_chars {
                 row.injected[index] = unit.injected;
+                row.hints[index] = unit.hint;
+                row.hint_padding[index] = unit.hint_padding;
                 row.preview[index] = unit.is_preview;
             }
         }
@@ -211,7 +228,7 @@ impl RowText {
         };
         let mut first = self.indent_chars;
         while first + 1 < self.model_bytes.len() {
-            if !self.injected[first] {
+            if !self.injected[first] || self.hints[first].is_some() {
                 first += 1;
                 continue;
             }
@@ -233,6 +250,7 @@ impl RowText {
             let mut end = first + 1;
             while end + 1 < self.model_bytes.len()
                 && self.injected[end]
+                && self.hints[end].is_none()
                 && self.preview[end] == preview
                 && style_at(end) == style
             {
@@ -262,13 +280,62 @@ impl RowText {
         }
     }
 
+    #[cfg(feature = "native-host")]
+    pub(crate) fn style_hints(
+        &mut self,
+        hints: &[taide_native_editor::inlay_hints::Hint],
+        colors: &crate::editor_inlay_hints::Colors,
+        padding_spacing: f32,
+    ) {
+        let mut first = self.indent_chars;
+        while first + 1 < self.model_bytes.len() {
+            let Some(index) = self.hints[first] else {
+                first += 1;
+                continue;
+            };
+            let Some(hint) = hints.get(index) else {
+                first += 1;
+                continue;
+            };
+            let padding = self.hint_padding[first];
+            let mut end = first + 1;
+            while end + 1 < self.model_bytes.len()
+                && self.hints[end] == Some(index)
+                && self.hint_padding[end] == padding
+            {
+                end += 1;
+            }
+            let style = colors.style(hint.kind);
+            self.decorate(
+                first..end,
+                RowInlineStyle {
+                    foreground: Some(if padding {
+                        Color32::TRANSPARENT
+                    } else {
+                        style.foreground
+                    }),
+                    underline: None,
+                },
+            );
+            self.hint_formats[first..end].fill(Some(HintFormat {
+                background: if padding {
+                    Color32::TRANSPARENT
+                } else {
+                    style.background
+                },
+                spacing: if padding { padding_spacing } else { 0.0 },
+            }));
+            first = end;
+        }
+    }
+
     pub(crate) fn paint_injections(&self, painter: &Painter, origin: Pos2, galley: &Galley) {
         if self.injection_border.is_none() && !self.injection_dotted.iter().any(|dotted| *dotted) {
             return;
         }
         let mut first = self.indent_chars;
         while first + 1 < self.model_bytes.len() {
-            if !self.injected[first] {
+            if !self.injected[first] || self.hints[first].is_some() {
                 first += 1;
                 continue;
             }
@@ -276,6 +343,7 @@ impl RowText {
             let mut end = first + 1;
             while end + 1 < self.model_bytes.len()
                 && self.injected[end]
+                && self.hints[end].is_none()
                 && self.injection_dotted[end] == dotted
             {
                 end += 1;
@@ -433,7 +501,16 @@ impl RowText {
                 .iter()
                 .enumerate()
                 .map(|(index, section)| {
-                    let font_style = self.font_styles.get(index).copied().unwrap_or_default();
+                    let hint_format = self
+                        .hint_formats
+                        .get(section.chars.start)
+                        .copied()
+                        .flatten();
+                    let font_style = if hint_format.is_some() {
+                        RowFontStyle::default()
+                    } else {
+                        self.font_styles.get(index).copied().unwrap_or_default()
+                    };
                     let decoration = |is_drawn: bool| {
                         if is_drawn {
                             Stroke::new(TEXT_DECORATION_STROKE, section.foreground)
@@ -441,22 +518,31 @@ impl RowText {
                             Stroke::NONE
                         }
                     };
-                    let underline = self.underline_colors.get(index).copied().flatten();
+                    let underline = if hint_format.is_some() {
+                        None
+                    } else {
+                        self.underline_colors.get(index).copied().flatten()
+                    };
                     LayoutSection {
                         leading_space: 0.0,
                         byte_range: text_byte(section.chars.start)..text_byte(section.chars.end),
                         format: TextFormat {
-                            background: self
-                                .injection_background
-                                .filter(|_| {
-                                    self.injected
-                                        .get(section.chars.start)
-                                        .copied()
-                                        .unwrap_or(false)
-                                })
-                                .map_or(Color32::TRANSPARENT, |color| {
-                                    color.gamma_multiply(self.injection_opacity)
-                                }),
+                            background: hint_format.map_or_else(
+                                || {
+                                    self.injection_background
+                                        .filter(|_| {
+                                            self.injected
+                                                .get(section.chars.start)
+                                                .copied()
+                                                .unwrap_or(false)
+                                        })
+                                        .map_or(Color32::TRANSPARENT, |color| {
+                                            color.gamma_multiply(self.injection_opacity)
+                                        })
+                                },
+                                |format| format.background,
+                            ),
+                            extra_letter_spacing: hint_format.map_or(0.0, |format| format.spacing),
                             italics: font_style.is_italic,
                             underline: underline.map_or_else(
                                 || decoration(font_style.is_underlined),

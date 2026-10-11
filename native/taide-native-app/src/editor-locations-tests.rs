@@ -502,6 +502,7 @@ fn 실제_preview의_직렬_본문_명령과_저장은_대상_문서와_포커�
                     documentation: None,
                     completion: None,
                     highlights: None,
+                    inlay_hints: None,
                     rename: None,
                     code_actions: None,
                     code_action_colors: None,

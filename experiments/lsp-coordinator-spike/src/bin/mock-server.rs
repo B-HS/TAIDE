@@ -50,6 +50,8 @@ struct MockServer {
     folding: Option<&'static str>,
     held_fold: Option<Value>,
     highlights: Option<&'static str>,
+    inlay_hints: Option<&'static str>,
+    held_inlay_hints: BTreeMap<u64, Value>,
     has_registered_highlight_revision: bool,
     locations: Option<&'static str>,
     held_location: Option<Value>,
@@ -298,6 +300,7 @@ impl MockServer {
                 || self.documentation.is_some()
                 || self.completion.is_some()
                 || self.highlights.is_some()
+                || self.inlay_hints.is_some()
                 || self.rename.is_some()
                 || self.code_actions.is_some()
             {
@@ -397,6 +400,15 @@ impl MockServer {
             }
             if self.highlights.is_some_and(|mode| mode != "unsupported") {
                 capabilities["documentHighlightProvider"] = json!(true);
+            }
+            if let Some(mode) = self.inlay_hints {
+                if params["capabilities"]["textDocument"]["inlayHint"]
+                    .as_object()
+                    .is_none()
+                {
+                    return Err(invalid("native inlay hints require client capability"));
+                }
+                capabilities["inlayHintProvider"] = json!(mode != "unsupported");
             }
             if self.locations.is_some() {
                 for feature in [
@@ -602,6 +614,21 @@ impl MockServer {
             let cancelled_id = message["params"]["id"]
                 .as_u64()
                 .ok_or_else(|| invalid("cancel must identify a numeric request"))?;
+            if let Some(held) = self.held_inlay_hints.remove(&cancelled_id) {
+                write_response(
+                    output,
+                    &held["id"],
+                    json!([{"position":{"line":0,"character":0},"label":"late cancelled"}]),
+                )?;
+                write_document_diagnostic(
+                    output,
+                    held["uri"]
+                        .as_str()
+                        .ok_or_else(|| invalid("inlay cancel URI"))?,
+                    &held["version"],
+                    "synthetic inlay cancelled",
+                )?;
+            }
             if let Some(held) = self.held_code_actions.remove(&cancelled_id) {
                 write_response(output, &held["id"], Value::Null)?;
                 write_document_diagnostic(
@@ -1184,6 +1211,59 @@ impl MockServer {
                     _ => json!([
                         {"startLine":0,"endLine":2,"kind":"imports"},
                         {"startLine":1,"endLine":2,"kind":"custom","startCharacter":0,"endCharacter":0}
+                    ]),
+                };
+                write_response(output, id, result)?;
+            }
+            "textDocument/inlayHint" => {
+                let id = id.ok_or_else(|| invalid("inlay hints require ID"))?;
+                let current = self
+                    .documents
+                    .get(uri)
+                    .ok_or_else(|| invalid("inlay hints require latest mirror"))?;
+                let mode = self
+                    .inlay_hints
+                    .ok_or_else(|| invalid("inlay hints are not advertised"))?;
+                let range = &message["params"]["range"];
+                if range["start"]["line"].as_u64().is_none()
+                    || range["end"]["character"].as_u64().is_none()
+                {
+                    return Err(invalid("inlay hints require range"));
+                }
+                if mode == "wait" {
+                    self.held_inlay_hints.insert(
+                        id.as_u64().ok_or_else(|| invalid("inlay ID"))?,
+                        json!({"id":id,"uri":uri,"version":current["version"]}),
+                    );
+                    write_document_diagnostic(
+                        output,
+                        uri,
+                        &current["version"],
+                        "synthetic inlay held",
+                    )?;
+                    return Ok(None);
+                }
+                if mode == "error" {
+                    write_payload(
+                        output,
+                        &json!({"jsonrpc":"2.0","id":id,"error":{"code":-32603,"message":"synthetic inlay error"}}),
+                    )?;
+                    return Ok(None);
+                }
+                let version = current["version"]
+                    .as_u64()
+                    .ok_or_else(|| invalid("inlay version"))?;
+                let result = match mode {
+                    "empty" => json!([]),
+                    "null" => Value::Null,
+                    "bad" => json!([{"position":false,"label":"bad"}]),
+                    "alternate" => {
+                        json!([{"position":{"line":0,"character":0},"label":"alternate"}])
+                    }
+                    _ => json!([
+                        {"position":{"line":0,"character":0},"label":format!(": T{version}"),"kind":1},
+                        {"position":{"line":1,"character":4},"label":[{"value":"arg: "},{"value":"T"}],"kind":2,"tooltip":{"kind":"markdown","value":"**parameter**"},"paddingLeft":true,"paddingRight":true},
+                        {"position":{"line":0,"character":0},"label":"default"}
                     ]),
                 };
                 write_response(output, id, result)?;
@@ -1975,6 +2055,32 @@ fn main() -> io::Result<ExitCode> {
                 "--native-highlights-dynamic" => "dynamic",
                 _ => "normal",
             });
+        }
+        Some(
+            mode @ ("--native-inlay-hints"
+            | "--native-inlay-hints-alternate"
+            | "--native-inlay-hints-empty"
+            | "--native-inlay-hints-null"
+            | "--native-inlay-hints-error"
+            | "--native-inlay-hints-bad"
+            | "--native-inlay-hints-wait"
+            | "--native-inlay-hints-unsupported"),
+        ) => {
+            server.should_track_saves = true;
+            server.inlay_hints = Some(match mode {
+                "--native-inlay-hints-alternate" => "alternate",
+                "--native-inlay-hints-empty" => "empty",
+                "--native-inlay-hints-null" => "null",
+                "--native-inlay-hints-error" => "error",
+                "--native-inlay-hints-bad" => "bad",
+                "--native-inlay-hints-wait" => "wait",
+                "--native-inlay-hints-unsupported" => "unsupported",
+                _ => "normal",
+            });
+            if mode == "--native-inlay-hints" {
+                server.locations = Some("normal");
+                server.completion = Some("normal");
+            }
         }
         Some("--native-document") => {
             server.should_track_saves = true;

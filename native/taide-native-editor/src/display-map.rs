@@ -457,18 +457,46 @@ impl DisplayMap {
         &self.injections.views
     }
 
+    pub fn inlay_hints(&self) -> &[crate::inlay_hints::Hint] {
+        &self.injections.hints
+    }
+
     pub fn set_preview_views(
         &mut self,
         document: &DocumentSnapshot,
         views: &[ViewData],
     ) -> Result<bool, EditorError> {
+        let hints = self.injections.hints.clone();
+        self.set_injected_content(document, views, &hints, self.injections.hint_label_limit)
+    }
+
+    pub fn set_inlay_hints(
+        &mut self,
+        document: &DocumentSnapshot,
+        hints: &[crate::inlay_hints::Hint],
+        maximum_length: usize,
+    ) -> Result<bool, EditorError> {
+        let views = self.injections.views.clone();
+        self.set_injected_content(document, &views, hints, maximum_length)
+    }
+
+    fn set_injected_content(
+        &mut self,
+        document: &DocumentSnapshot,
+        views: &[ViewData],
+        hints: &[crate::inlay_hints::Hint],
+        maximum_length: usize,
+    ) -> Result<bool, EditorError> {
         if document.revision != self.revision || document.rope.len_lines() != self.line_count {
             return Err(EditorError::StaleRevision);
         }
-        if self.injections.views == views {
+        if self.injections.views == views
+            && self.injections.hints == hints
+            && self.injections.hint_label_limit == maximum_length
+        {
             return Ok(false);
         }
-        self.injections = Injections::build(document, self, views)?;
+        self.injections = Injections::build(document, self, views, hints, maximum_length)?;
         Ok(true)
     }
 

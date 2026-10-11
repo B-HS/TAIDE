@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: 배치 23 c5의 외부 Code Action을 실제 다른 URI 참조/RA 별칭·직접 goto와 전구 입력 충돌 수정으로 마무리했습니다. UI 전체 24대상/461통과·관련 App 23통과·frozen host/Wasm check·소유 Rust 7 fmt는 exit 0입니다. App 전체 직접 1회는 67대상/838통과/8실패·보호 Trash 3제외·exit 101이며 실패 영향 재검사 뒤 서로 다른 846건의 성공 근거를 확인했습니다. 초기 시간 초과 원인 미확정과 전체 exit 101을 보존합니다. 실제 앱/검증 근거로 editor-47/51/56 complete, file opener editor-58 partial을 반영해 588대상·293완료·295미완료·배치 23 잔여 28·최종 33입니다. 다음은 editor-50 inlay hint이며 main 직접 수행·서브에이전트/workflow 없음·전체 전환율/잔여 시간 미산정입니다.
+현재 상태: 배치 23 c6 Inlay Hint의 typed 서버 공급·본문/peek·주입 텍스트/툴팁·수명·편집/ghost/undo 구현과 검증을 마쳤습니다. Core 전체 39대상/299통과/1ignored·UI 전체 25대상/464통과는 exit 0입니다. App 전체 직접 1회는 67대상/853통과/1실패·보호 Trash 3제외·exit 101이며 조건 변경 없는 해당 1건의 재확인은 exit 0입니다. 서로 다른 App 성공 근거는 854건이고 최초 실패 원인 미확정·전체 exit 101을 보존합니다. 관련 App 8건은 중복 합산하지 않습니다. frozen host/Wasm check·소유 Rust 27 fmt·의존/동결 불변과 종료 뒤 잔류 실행 없음·디스크 418GiB/78%를 확인했습니다. 실제 구현/앱/기능 검증으로 editor-50만 complete를 갱신해 588대상·294완료·294미완료·배치 23 잔여 27·최종 33입니다. 소유 변경과 근거를 한 논리 단위로 선별 저장하며 같은 배치의 editor-53 Code Lens를 이어갑니다. main 직접·서브에이전트/workflow 없음·전체 전환율/잔여 시간 미산정입니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 
@@ -54,14 +54,17 @@
 - [x] c5c2. 다른 URI 참조·직접 이동과 실제 전구 — 원본 origin 파일 열기·UTF-16 위치·peek 인계와 LocationLink 선택 시작을 기존 host에 연결했습니다. App/독립 UI에서 전구 클릭의 줄 선택 충돌을 실패 재현 뒤 현재 geometry hit-test로 수정했습니다. 관련 App 23·UI 전체 461·시간 초과 7 영향 재검사·동결 host/Wasm·7Rust fmt/경계/디스크를 확인했으며 QA/기능표/소유 PROCESS를 선별 저장합니다. 현재 App 전체 직접 1회 exit 101과 원인 미확정 부채, 실기/전체 전환 게이트를 보존합니다.
 - [x] c5c1. 빈/비활성 안내와 standalone 수락 키 — 빈 수동 응답·공급자 없는 Normal/Large·명령별 안내/단일 비활성 사유·Escape/blur·본문/readonly owner의 writable peek 입력과 종료를 관련 App 21건에서 확인했습니다. 원본 standalone hasPreviewHandler false/preview 옵션 미소비를 확인해 별도 화면을 추가하지 않고 수정 수락 키의 일반 적용을 검증했습니다. 최초 UI/App 준비 실패와 컴파일 오류를 보존했고 현재 UI 전체 461건·frozen 경계·소유 fmt/diff가 통과했습니다. QA/기능표와 소유 PROCESS는 a0f2cca5로 선별 커밋·일반 푸시했고 원격 차이 0/0을 확인했습니다.
 - [x] c1. 하이라이트 공급·표시 — 설치 SDK typed API와 기존 LspBridge worker·App 상태/본문·peek 장식을 연결했습니다. 오래된 응답/편집/뷰 회수/공급자 변경·재요청 억제·종류/테마·mirror와 실제 child의 UTF-16/빈/null/오류/미지원/취소·실제 앱 본문 그리기가 관련 11건에서 통과했습니다. 초기 컴파일 오류·sRGB 색 공간 오류·테스트 서버 초기화 모드 누락을 해결한 근거를 QA에 보존했습니다. 후속 이동·실행 검증은 a2에 기록하며 실제 peek 시작·추가 경계와 전체 게이트 전에는 complete로 올리지 않습니다.
-- [ ] c6. Inlay Hint — editor-50의 TS label/kind/tooltip/padding과 설치 Monaco 표시/요청 범위·수명을 현재 typed SDK/앱/주입 텍스트 경계에 연결합니다. 기존 ghost completion과 문서/선택을 보존하고 본문/peek·readonly/tier·취소/세대/viewport·실제 child/App·관련 UI를 검증합니다. 새 의존성/디자인·원본에 없는 클릭/resolve 기능을 추가하지 않습니다. 성공 근거를 재사용하며 배치 전체/실기 게이트를 별도로 유지합니다.
+- [x] c6. Inlay Hint — editor-50의 TS label/kind/tooltip/padding과 설치 Monaco 표시/요청 범위·수명을 현재 typed SDK/앱/주입 텍스트 경계에 연결합니다. 기존 ghost completion과 문서/선택을 보존하고 본문/peek·readonly/tier·취소/세대/viewport·실제 child/App·관련 UI를 검증합니다. 새 의존성/디자인·원본에 없는 클릭/resolve 기능을 추가하지 않습니다. 성공 근거를 재사용하며 배치 전체/실기 게이트를 별도로 유지합니다.
+- [x] c6a. 원본과 기존 공급/표시 조사 — TS는 label parts의 value를 하나의 문자열로 합치고 kind/tooltip/padding만 전달합니다. resolve·label 명령/위치·textEdits·workspace refresh는 공급하지 않습니다. 설치 Monaco의 viewport 위/아래+30줄 요청·합산/정렬·주입 텍스트/커서 정지·최초 즉시/이후 debounce, 기본 on/본문 글꼴/padding false/한 줄 maximumLength 43과 종류별 테마를 확인했습니다. 조사 당시 SDK typed InlayHintRequest와 core DisplayMap/Injections·UI Projection/RowText만 있고 App Hint 소비자가 없어 editor-50 missing을 유지했습니다. 실제 구현/검증은 c6b에서 마쳤습니다. 기존 ghost preview와 frozen 공개 생성 계약을 보존할 구현/검증 경계를 QA에 기록했습니다.
+- [x] c6b. 실제 기능 구현·관련 검증 — core 주입 표시와 앱 typed 공급·본문/peek UI/테마/tooltip을 직렬 연결했습니다. 관련 Core 5·UI 3·App 상태 4/실제 child 2/실제 App 2건과 세 크레이트 전체 1회를 확인했습니다. content hover 충돌·직접 종료의 요청 취소 누락은 실패 재현 후 수정했고 툴팁/ghost/회수 시점의 잘못된 검사 가정은 구분해 기록했습니다. 전체 App의 기존 포맷 1실패와 같은 조건 1통과·원인 미확정, 초기 컴파일 0건을 보존하고 기능표 editor-50만 닫습니다. pixel/OS IME/접근성·대형 성능·출시 게이트는 배치 31~33에 유지합니다.
+- [ ] c7. Code Lens — editor-53의 원본 adapter/Monaco 표시·설정·resolve·명령/refresh 수명과 현재 typed SDK·앱·블록 표시 경계를 확인한 뒤 기존 원본 동작과 실제 본문/peek 소비에 연결합니다. 동일 작업 트리에서 main이 직렬 구현·위험 비례 검증하고 성공한 동일 입력/전체 검사를 재사용합니다. 새 기능/디자인·의존성/동결 변경 없이 실제 child/App 근거·기능표·선별 Git으로 닫으며 실기/출시 게이트는 별도로 유지합니다.
 - [ ] d. 문서·뷰·연계 — editor-59/64/67/72/73/74/75/76/81/82/83의 로딩/오류·삭제 draft·뷰 상태 복원·Markdown 분할·Git gutter/conflict/blame/diff·SearchEditor·터미널 실행·IDE 선택 동기화를 기존 서비스에 연결합니다.
 - [ ] e. AI·Emmet — editor-77/78/80의 인라인 완성/편집과 Emmet을 원본 명령·표시·수락/거절/취소/오래된 응답에 맞게 연결합니다. 실제 키/개인 데이터 대신 주입 포트·임시 데이터로 검증합니다.
 - [ ] f. 실제 앱·전체 게이트 — 닫을 기능의 실제 앱/child/mirror·readonly/tier/다중 커서/IME·정상 종료/회귀를 확인하고 변경 크레이트 전체 대상을 --no-fail-fast로 직접 1회 실행합니다. 성공 결과는 재사용하고 실패 영향만 재검사합니다. frozen host/Wasm compile·fmt/diff·manifest/lock/engine/보호 경계·디스크와 배치 31 실기/성능/신뢰성 부채를 구분합니다.
 - [x] f1. 프로젝트 열기 지연 위치 조사·배치 31 이관 — 전체 App 811통과/프로젝트 open 5초 초과 1실패와 Cargo 단독 동일 실패를 보존했습니다. 같은 실행 파일의 직접 검사는 저장소/크레이트 cwd에서 3.81/3.23초에 통과했습니다. 성공한 두 번째 검사 중 start_watch→notify runloop 준비 대기와 FSEventStreamStart→등록 RPC의 실제 스택을 확인했습니다. 실패 시점의 스택이나 지연 변동의 근본 원인은 확인하지 않았으며 해결/전체 exit 0으로 보고하지 않습니다. 제한 확대·검사 생략·OS 변경 없이 반복 조사를 종료하고 배치 31의 실행 환경/신뢰성 게이트에 미해결 위험을 유지합니다.
 - [ ] g. 완료 근거·선별 Git — 실제 닫힌 ID만 QA/기능표/PROCESS에 반영하고 논리 단위 선별 커밋·일반 푸시합니다. 배치 24를 기존 계획 안에서 이어가며 배치 번호를 세부 수정마다 늘리지 않습니다.
 
-다음 행동: 같은 c5의 전구 실제 위치·다른 URI client navigation을 기존 실제 앱/내부 UI 입력 경계에서 확인하고 현재 App 전체 완료 게이트를 묶어 닫습니다. editor-57은 별도 내장 언어 서비스 행에서 추적하며 성공한 같은 입력을 반복하지 않고 최종 배치 33을 유지합니다.
+다음 행동: 같은 배치 23의 editor-53 Code Lens 원본·현재 typed 공급/표시·설정/명령 수명 경계를 확인합니다. editor-57 내장 언어 서비스와 전체 pixel/OS IME/접근성/성능·출시 게이트는 별도 미완료이고, 성공한 같은 입력을 반복하지 않으며 최종 배치 33을 유지합니다.
 
 ## 완료: 배치 22 — 자동완성과 사용자 스니펫 소비 (2026-10-10)
 

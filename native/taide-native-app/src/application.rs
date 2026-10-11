@@ -131,6 +131,7 @@ pub struct NativeApplication {
     editor_documentation: crate::editor_documentation::State,
     editor_completion: crate::editor_completion::State,
     editor_highlights: crate::editor_highlights::State,
+    editor_inlay_hints: crate::editor_inlay_hints::State,
     peek_models: crate::peek_models::Models,
     workspace_symbols: crate::workspace_symbols::State,
     lsp_status_appearance: crate::lsp::status::Appearance,
@@ -190,6 +191,7 @@ pub struct NativeApplication {
     editor_completion_colors: taide_native_ui::editor_completion::Colors,
     editor_highlight_colors: crate::editor_highlights::Colors,
     editor_code_action_colors: taide_native_ui::editor_code_actions::Colors,
+    editor_inlay_hint_colors: taide_native_ui::editor_inlay_hints::Colors,
     editor_sticky_scroll: taide_native_ui::editor_sticky_scroll::StickySetting,
     editor_syntax: crate::editor_syntax::EditorSyntax,
     editor_keymap_targets: HashMap<(egui::ViewportId, egui::Id), (ViewId, u64)>,
@@ -442,6 +444,7 @@ impl NativeApplication {
             editor_documentation: crate::editor_documentation::State::default(),
             editor_completion: crate::editor_completion::State::default(),
             editor_highlights: crate::editor_highlights::State::default(),
+            editor_inlay_hints: crate::editor_inlay_hints::State::default(),
             peek_models: crate::peek_models::Models::default(),
             workspace_symbols: crate::workspace_symbols::State::default(),
             lsp_status_appearance: appearances.lsp_status,
@@ -504,6 +507,7 @@ impl NativeApplication {
             editor_completion_colors: appearances.editor_completion,
             editor_highlight_colors: appearances.editor_highlights,
             editor_code_action_colors: appearances.editor_code_actions,
+            editor_inlay_hint_colors: appearances.editor_inlay_hints,
             editor_sticky_scroll,
             editor_syntax,
             editor_keymap_targets: HashMap::new(),
@@ -784,6 +788,8 @@ impl NativeApplication {
                                             appearances.editor_highlights;
                                         self.editor_code_action_colors =
                                             appearances.editor_code_actions;
+                                        self.editor_inlay_hint_colors =
+                                            appearances.editor_inlay_hints;
                                         self.banner_appearance = appearances.banner;
                                         self.lsp_status_appearance = appearances.lsp_status;
                                         self.status_editor_appearance = appearances.status_editor;
@@ -2144,6 +2150,7 @@ impl NativeApplication {
         self.app_file_views.clear();
         self.editor_completion.clear();
         self.editor_highlights.clear();
+        self.editor_inlay_hints.clear();
         self.editor_rename.clear();
         self.editor_code_actions.clear();
         if let Err(error) = self
@@ -3871,6 +3878,29 @@ impl NativeApplication {
         }
         while let Some(reply) = self.lsp.as_mut().and_then(crate::lsp::LspBridge::poll) {
             match reply {
+                crate::lsp::Reply::InlayHints { request, result } => {
+                    let providers = self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
+                        lsp.inlay_hint_providers(&request.project, &request.snapshot)
+                    });
+                    let active = (request.source == request.owner
+                        || self
+                            .editor_locations
+                            .preview_views()
+                            .contains(&request.source))
+                        && self
+                            .services
+                            .state
+                            .layouts
+                            .read()
+                            .get(&request.project)
+                            .is_some_and(|layout| request.is_active(layout, &self.shell.scope));
+                    if active && self.closing.is_none() {
+                        self.editor_inlay_hints
+                            .accept(&self.store, &request, providers, result);
+                    } else {
+                        self.editor_inlay_hints.reject(&request);
+                    }
+                }
                 crate::lsp::Reply::Highlights { request, result } => {
                     let providers = request
                         .project
@@ -4985,6 +5015,7 @@ impl NativeApplication {
                 self.editor_completion_colors = appearances.editor_completion;
                 self.editor_highlight_colors = appearances.editor_highlights;
                 self.editor_code_action_colors = appearances.editor_code_actions;
+                self.editor_inlay_hint_colors = appearances.editor_inlay_hints;
                 self.banner_appearance = appearances.banner;
                 self.lsp_status_appearance = appearances.lsp_status;
                 self.status_editor_appearance = appearances.status_editor;
@@ -5589,6 +5620,25 @@ impl eframe::App for NativeApplication {
         self.editor_locations
             .retain_active(&snapshot.layouts, &self.shell.scope);
         self.editor_locations.detach_retired(&mut self.store);
+        let inlay_hint_previews = self.editor_locations.preview_views();
+        self.editor_inlay_hints.reconcile(
+            &self.store,
+            |request| {
+                self.closing.is_none()
+                    && (request.source == request.owner
+                        || inlay_hint_previews.contains(&request.source))
+                    && projects.contains(&request.project)
+                    && snapshot
+                        .layouts
+                        .get(&request.project)
+                        .is_some_and(|layout| request.is_active(layout, &self.shell.scope))
+            },
+            |project, document| {
+                self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
+                    lsp.inlay_hint_providers(project, document)
+                })
+            },
+        );
         self.editor_highlights.reconcile(
             &self.store,
             |request| {
@@ -5826,6 +5876,7 @@ impl eframe::App for NativeApplication {
             editor_documentation: &mut self.editor_documentation,
             editor_completion: &mut self.editor_completion,
             editor_highlights: &mut self.editor_highlights,
+            editor_inlay_hints: &mut self.editor_inlay_hints,
             peek_models: &self.peek_models,
             lsp: self.lsp.as_ref(),
             find_history: &mut self.find_history,
@@ -5842,6 +5893,7 @@ impl eframe::App for NativeApplication {
             editor_completion_colors: self.editor_completion_colors,
             editor_highlight_colors: self.editor_highlight_colors,
             editor_code_action_colors: self.editor_code_action_colors,
+            editor_inlay_hint_colors: self.editor_inlay_hint_colors,
             editor_sticky_scroll: self.editor_sticky_scroll.synchronize(
                 self.services
                     .state
@@ -6535,6 +6587,7 @@ impl eframe::App for NativeApplication {
         }
         let pending_close = self.closing.take();
         self.editor_completion.clear();
+        self.editor_inlay_hints.clear();
         if let Err(error) = self
             .editor_documentation
             .clear(&mut self.store, &mut self.editor_syntax)
@@ -6739,6 +6792,7 @@ struct AppSurfaces<'a> {
     editor_documentation: &'a mut crate::editor_documentation::State,
     editor_completion: &'a mut crate::editor_completion::State,
     editor_highlights: &'a mut crate::editor_highlights::State,
+    editor_inlay_hints: &'a mut crate::editor_inlay_hints::State,
     peek_models: &'a crate::peek_models::Models,
     lsp: Option<&'a crate::lsp::LspBridge>,
     find_history: &'a mut taide_native_ui::editor_find_widget::FindHistory,
@@ -6755,6 +6809,7 @@ struct AppSurfaces<'a> {
     editor_completion_colors: taide_native_ui::editor_completion::Colors,
     editor_highlight_colors: crate::editor_highlights::Colors,
     editor_code_action_colors: taide_native_ui::editor_code_actions::Colors,
+    editor_inlay_hint_colors: taide_native_ui::editor_inlay_hints::Colors,
     editor_sticky_scroll: bool,
     editor_syntax: &'a mut crate::editor_syntax::EditorSyntax,
     banner_appearance: &'a BannerAppearance,
@@ -7794,6 +7849,10 @@ impl AppSurfaces<'_> {
                     files: self.settings_views.snippet_catalog().snapshot().unwrap_or_default(),
                     context: ui.ctx().clone(),
                 };
+                let inlay_consumer = crate::editor_inlay_hints::Consumer {
+                    state: std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_inlay_hints)),
+                    lsp: self.lsp, context: ui.ctx().clone(), colors: self.editor_inlay_hint_colors,
+                };
                 let mut documentation_host_commands = Vec::new();
                 let mut documentation_provider = crate::editor_documentation::Provider {
                     state: documentation_state.clone(), project: editor_project.cloned(), owner: view,
@@ -7823,6 +7882,7 @@ impl AppSurfaces<'_> {
                     documentation: Some(documentation_state),
                     completion: Some(completion_consumer.clone()),
                     highlights: Some(highlight_consumer.clone()),
+                    inlay_hints: Some(inlay_consumer.clone()),
                     rename: Some(crate::editor_rename_controller::Consumer(std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_rename)))),
                     code_actions: Some(crate::editor_code_actions_controller::Consumer(std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_code_actions)))),
                     code_action_colors: Some(self.editor_code_action_colors),
@@ -7951,8 +8011,9 @@ impl AppSurfaces<'_> {
                 };
                 location_provider.find_history = Some(self.find_history);
                 location_provider.find_appearance = Some(self.find_appearance);
+                let inlay_hints = inlay_consumer.display(self.store, view);
                 let output = editor
-                    .show_request_with_code_actions(
+                    .show_request_with_inlay_hints(
                         ui,
                         self.store,
                         view,
@@ -8017,6 +8078,7 @@ impl AppSurfaces<'_> {
                         |_, _, _, _, _| false,
                         Some((&mut rename_provider, self.find_appearance.into())),
                         Some((&mut code_action_provider, self.editor_code_action_colors)),
+                        inlay_hints,
                     )
                     .map_err(editor_error)?;
                 self.commands.append(&mut location_commands);
@@ -8026,6 +8088,7 @@ impl AppSurfaces<'_> {
                     self.commands.extend(output.formatting_inputs.into_iter().map(|input| HostCommand::FormatEditorInput { project: project.clone(), source: view, owner: view, input }));
                 }
                 if let Some(display) = &document_highlights { display.paint(ui, &output.geometry); }
+                inlay_consumer.observe(self.store, editor_project, view, view, output.rendered_lines.clone());
                 if output.response.has_focus() || ui.memory(|memory| output.focus_ids.iter().any(|id| {
                     memory.has_focus(*id) && !preview_focus_targets.iter().any(|(target, _)| target == id)
                 })) {
@@ -8157,6 +8220,9 @@ mod exit_tests;
 #[cfg(all(test, unix))]
 #[path = "application-code-actions-tests.rs"]
 mod code_actions_tests;
+#[cfg(all(test, unix))]
+#[path = "application-inlay-hints-tests.rs"]
+mod inlay_hints_tests;
 #[cfg(all(test, unix))]
 #[path = "application-startup-tests.rs"]
 mod startup_tests;

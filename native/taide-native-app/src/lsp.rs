@@ -60,6 +60,8 @@ mod editor_documentation;
 mod editor_formatting;
 #[path = "lsp-editor-highlights.rs"]
 mod editor_highlights;
+#[path = "lsp-editor-inlay-hints.rs"]
+mod editor_inlay_hints;
 #[path = "lsp-editor-rename.rs"]
 mod editor_rename;
 #[path = "lsp-symbol-locations.rs"]
@@ -92,6 +94,9 @@ mod editor_formatting_tests;
 #[cfg(test)]
 #[path = "lsp-editor-highlights-tests.rs"]
 mod editor_highlights_tests;
+#[cfg(all(test, unix))]
+#[path = "lsp-editor-inlay-hints-tests.rs"]
+mod editor_inlay_hints_tests;
 #[cfg(all(test, unix))]
 #[path = "lsp-editor-rename-tests.rs"]
 mod editor_rename_tests;
@@ -261,6 +266,7 @@ enum Command {
     Completion(crate::editor_completion::Request),
     Documentation(crate::editor_documentation::Request),
     Highlights(crate::editor_highlights::Request),
+    InlayHints(crate::editor_inlay_hints::Request),
     SymbolLocations(crate::editor_locations::Request),
     SyntaxFolding(crate::editor_folding::Request),
     DocumentSymbols(crate::editor_symbols::Request),
@@ -328,6 +334,10 @@ pub enum Reply {
     Highlights {
         request: crate::editor_highlights::Request,
         result: Result<crate::editor_highlights::Response, Failure>,
+    },
+    InlayHints {
+        request: crate::editor_inlay_hints::Request,
+        result: Result<crate::editor_inlay_hints::Response, Failure>,
     },
     SymbolLocations {
         request: crate::editor_locations::Request,
@@ -404,6 +414,7 @@ struct RegistryState {
     owner: crate::diagnostics::Owner,
     documents: HashSet<DocumentId>,
     open_documents: HashSet<DocumentId>,
+    document_versions: HashMap<DocumentId, (DocumentKey, u64, String, FileSizeTier)>,
     diagnostic_revisions: HashMap<DocumentId, u64>,
 }
 
@@ -857,6 +868,36 @@ impl LspBridge {
         self.feature_providers(project, snapshot, "textDocument/documentHighlight")
     }
 
+    pub(crate) fn inlay_hints(&self, request: crate::editor_inlay_hints::Request) -> AppResult<()> {
+        self.submit(Command::InlayHints(request))
+    }
+
+    pub(crate) fn inlay_hint_providers(
+        &self,
+        project: &ProjectId,
+        snapshot: &DocumentSnapshot,
+    ) -> HashSet<crate::editor_symbols::ProviderIdentity> {
+        if snapshot.metadata.tier != FileSizeTier::Normal {
+            return HashSet::new();
+        }
+        let mut providers = self.feature_providers(project, snapshot, "textDocument/inlayHint");
+        providers.retain(|provider| {
+            self.states.borrow().iter().any(|state| {
+                state.project == *project
+                    && state.owner == provider.owner
+                    && state.document_versions.get(&snapshot.id).is_some_and(
+                        |(key, revision, language, tier)| {
+                            *key == snapshot.key
+                                && *revision == snapshot.revision
+                                && *language == snapshot.metadata.language_id
+                                && *tier == snapshot.metadata.tier
+                        },
+                    )
+            })
+        });
+        providers
+    }
+
     pub(crate) fn completion_providers(
         &self,
         project: &ProjectId,
@@ -1144,7 +1185,7 @@ fn initialize(plan: &Plan) -> Value {
         "capabilities":{
             "general":{"positionEncodings":["utf-16"]},
             "workspace":{"workspaceFolders":true,"configuration":true,"applyEdit":true,"workspaceEdit":{"documentChanges":true},"symbol":{"dynamicRegistration":false,"symbolKind":{"valueSet":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26]}}},
-            "textDocument":{"hover":{"contentFormat":["markdown","plaintext"]},"completion":{"completionItem":{"snippetSupport":true},"contextSupport":true,"dynamicRegistration":true},"signatureHelp":{},"definition":{"linkSupport":true},"declaration":{"linkSupport":true},"typeDefinition":{"linkSupport":true},"implementation":{"linkSupport":true},"references":{},"foldingRange":{"dynamicRegistration":false,"lineFoldingOnly":true,"rangeLimit":taide_native_editor::folding::MAX_FOLDING_REGIONS},"synchronization":{"dynamicRegistration":false,"didSave":true},"documentSymbol":{"hierarchicalDocumentSymbolSupport":true,"symbolKind":{"valueSet":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26]}},"formatting":{},"codeAction":{"codeActionLiteralSupport":{"codeActionKind":{"valueSet":["","quickfix","refactor","refactor.extract","refactor.inline","refactor.rewrite","source","source.organizeImports","source.fixAll"]}},"resolveSupport":{"properties":["edit"]},"isPreferredSupport":true,"disabledSupport":true,"dataSupport":true}}
+            "textDocument":{"hover":{"contentFormat":["markdown","plaintext"]},"completion":{"completionItem":{"snippetSupport":true},"contextSupport":true,"dynamicRegistration":true},"signatureHelp":{},"definition":{"linkSupport":true},"declaration":{"linkSupport":true},"typeDefinition":{"linkSupport":true},"implementation":{"linkSupport":true},"references":{},"foldingRange":{"dynamicRegistration":false,"lineFoldingOnly":true,"rangeLimit":taide_native_editor::folding::MAX_FOLDING_REGIONS},"synchronization":{"dynamicRegistration":false,"didSave":true},"documentSymbol":{"hierarchicalDocumentSymbolSupport":true,"symbolKind":{"valueSet":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26]}},"formatting":{},"inlayHint":{},"codeAction":{"codeActionLiteralSupport":{"codeActionKind":{"valueSet":["","quickfix","refactor","refactor.extract","refactor.inline","refactor.rewrite","source","source.organizeImports","source.fixAll"]}},"resolveSupport":{"properties":["edit"]},"isPreferredSupport":true,"disabledSupport":true,"dataSupport":true}}
         }
     });
     params["capabilities"]["textDocument"]["rename"] =
@@ -2240,6 +2281,50 @@ async fn run(
                     None
                 }
             }
+            Command::InlayHints(request) => {
+                if request.is_cancelled() {
+                    continue;
+                }
+                let selected = sessions
+                    .iter()
+                    .filter(|(key, session)| {
+                        key.project == request.project
+                            && session.documents.contains_key(&request.snapshot.id)
+                    })
+                    .map(|(key, session)| (key.clone(), session.clone()))
+                    .collect::<HashMap<_, _>>();
+                let sender = replies.clone();
+                let repaint = repaint.clone();
+                let mut cancelled = request.cancelled.clone();
+                let mut stopping = stopping.clone();
+                let rejected = request.clone();
+                if !services
+                    .tasks
+                    .spawn_transient("native-lsp-editor-inlay-hints", async move {
+                        let result = tokio::select! {
+                            biased;
+                            _ = stopping.changed() => return,
+                            _ = cancelled.changed() => return,
+                            result = editor_inlay_hints::request(&selected, &request) => result,
+                        };
+                        if !request.is_cancelled()
+                            && sender
+                                .send(Reply::InlayHints { request, result })
+                                .await
+                                .is_ok()
+                        {
+                            repaint();
+                        }
+                    })
+                {
+                    Some(Reply::InlayHints {
+                        request: rejected,
+                        result: Err(Failure::TransportClosed),
+                    })
+                } else {
+                    None
+                }
+            }
             Command::CloseBinding(project, document) => {
                 let retained = sessions
                     .keys()
@@ -2895,6 +2980,21 @@ fn publish_status(
                     .chain(session.documents.keys().copied())
                     .collect(),
                 open_documents: session.documents.keys().copied().collect(),
+                document_versions: session
+                    .documents
+                    .iter()
+                    .map(|(id, document)| {
+                        (
+                            *id,
+                            (
+                                document.snapshot.key.clone(),
+                                document.snapshot.revision,
+                                document.snapshot.metadata.language_id.clone(),
+                                document.snapshot.metadata.tier,
+                            ),
+                        )
+                    })
+                    .collect(),
                 diagnostic_revisions: session
                     .documents
                     .iter()

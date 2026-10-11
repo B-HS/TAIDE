@@ -715,3 +715,51 @@ notice-frozen-host.log는 frozen host inspection 테스트 대상 check exit 0·
 소유 Rust 7경로의 fmt check는 exit 0, SDK 전체 90건은 변경 없이 재사용했습니다. frozen source/manifest/lock/engine/새 의존성 변경 0·디스크 424GiB/77%입니다. 보호 앱/실제 데이터/OS 설정/클립보드/Keychain/Trash·OS 합성 입력과 빌드 정리를 실행하지 않았습니다. 읽기 전용 process 관찰에서 전체 검사 대상은 계속 바뀌었고 CPU 지속 점유/잔류 mock은 보이지 않았으며 소유 Cargo terminal 종료를 확인했습니다. 모든 과거 실행의 종료성까지 증명한 결과는 아닙니다.
 
 기능표 complete 정의에 따라 외부 Code Action editor-47, 이미 앱/서버 수명을 검증한 document highlight editor-51, server/client command relay editor-56을 닫습니다. 파일 opener editor-58의 실제 file 경로는 구현돼 missing 판정을 partial로 정정하고 기존 untitled 편집기 탐색은 남깁니다. 현재 599행·대상 588·293완료/92부분/112미연결/91미구현·미완료 295, 배치 23 미완료 28·최종 33입니다. 행 비율을 전체 전환율로 계산하지 않습니다. 내장 서비스/CodeLens/untitled와 pixel·OS IME/접근성/대형 성능/soak·출시·전환·제거는 별도 행/배치 31~33에서 추적하며 다음 기능은 같은 배치의 editor-50 inlay hint입니다.
+
+## c6a Inlay Hint 원본과 공급/표시 경계 (2026-10-11)
+
+앞선 전구 입력 수정 c1aee892와 다른 URI 참조/직접 이동 2a17eda4를 사용자 단독 author·AI 트레일러 없이 일반 푸시했고 upstream 0/0·빈 index를 확인했습니다. 이 절은 다음 기능의 읽기 전용 조사이며 editor-50의 실제 구현/검사 성공 또는 complete 근거가 아닙니다.
+
+원본 src/shared/lib/lsp/adapters/inlay-hints.ts:23은 inlayHintProvider capability를 확인한 뒤 textDocument/inlayHint에 모델 URI와 요청 range를 전달합니다. 취소와 null은 빈 hints, 문자열 label은 그대로·label parts는 value를 합친 문자열, Type/Parameter kind·markupContentToString tooltip·paddingLeft/Right를 전달합니다. part의 명령/위치/tooltip, textEdits와 resolveInlayHint를 제공하지 않으며 workspace.inlayHint.refreshSupport도 선언하지 않습니다. 새 hint 클릭/편집/resolve/refresh 기능은 추가 범위가 아닙니다.
+
+설치 Monaco inlayHints.js/controller.js와 editorOptions.js:1424에서 확인한 기능 경계는 다음과 같습니다.
+
+- 공급자별 요청 범위 결과를 모으고 hint 위치로 정렬하며 viewport 위/아래 영역을 포함하고 각 요청을 30줄 확장해 겹치는 범위를 합칩니다. 최초 요청은 즉시, 이후 변경/스크롤은 기존 최소 25ms debounce를 사용하고 모델 폐기/새 요청에 이전 작업을 취소합니다.
+- 기본 옵션은 enabled on·fontSize 0/본문 글꼴·padding false·maximumLength 43입니다. 표시 글꼴의 미지정/잘못된 크기는 본문 크기로 돌아갑니다. server paddingLeft/Right는 별도 hair-space 주입으로 글꼴 크기의 1/3 폭을 사용합니다. label의 ASCII 공백/탭만 NBSP로 바꿉니다.
+- label은 문서에 저장하지 않는 injected text로 표시하고 본문 선택/커서 이동을 원본 바이트에 매핑합니다. 종류 없는/Type/Parameter의 foreground/background 테마 키가 각각 있으며 기본 foreground는 #969696, background는 badgeBackground의 10% alpha입니다. tooltip은 기존 hover 표시를 사용합니다.
+- 현재 SDK crates/taide-lsp/src/native/feature.rs:155에 typed InlayHintRequest가 있고 App의 기존 typed 요청·mirror/revision/owner/세대/capability 취소 경계를 재사용할 수 있습니다. Core DisplayMap/Injections는 ghost completion의 inline/additional/hidden source를 처리하고 UI Projection/RowText는 주입 텍스트와 현재 geometry를 소비합니다.
+- SourceUnit/RowProjection 생성자는 현재 core display-injections.rs 내부에만 있습니다. hint metadata/별도 hint 입력은 기존 ghost preview와 함께 표시돼야 하며 공개 Part/ViewData와 frozen EditorRequest 생성 계약을 깨뜨리지 않습니다. 현재 App Hint 소비자는 없어 editor-50 missing이며 실제 표시·공급·수명·관련 자동 검사가 이어져야 판정을 올립니다.
+
+실제 구현은 core의 유효 문서/바이트·label/kind/padding과 주입 표시, App의 typed 범위/공급자·취소/세대/viewport 상태, 본문/peek의 테마/tooltip 소비를 직렬 연결합니다. 관련 단일 검사부터 수행하며 이미 성공한 같은 상태의 전체/SDK/동결 근거는 재사용합니다. 새로운 geometry/공급 경계 변경이 요구하는 회귀와 배치 f의 전체/실기 게이트는 별도로 기록합니다. 최초 App 전체 시간 초과의 원인 미확정 부채·실기/pixel/OS 입력/접근성/대형 성능/soak·출시·전환·제거는 여전히 미완료입니다.
+
+## c6b Inlay Hint의 실제 앱·서버·주입 표시 (2026-10-11)
+
+Core의 새 inlay-hints와 DisplayMap은 label/kind/tooltip/padding을 원문 밖의 주입 표시로 보관합니다. ASCII 공백/탭만 NBSP로 바꾸고 한 줄 43 UTF-16 단위 기본 상한과 Unicode 경계를 지키며 기존 ghost preview와 함께 투영합니다. Part/ViewData·EditorRequest의 기존 생성 계약은 보존합니다. UI는 본문 글꼴과 종류별 foreground/background, 별도 hair-space 여백, 힌트 뒤의 원문 커서, 원문 선택/편집·wrap/fold/reveal과 툴팁을 소비합니다. 힌트 영역을 문서 호버·정의 링크의 content_byte_at에서 제외해 팝업 충돌을 막으며 클릭은 기존 원문 커서 입력에 둡니다.
+
+앱은 viewport/source별로 본문과 peek의 보이는 줄 위아래 30줄을 요청하고 최초 즉시·변경 뒤 최소 25ms로 갱신합니다. native LSP registry의 문서 key/revision/language/tier 준비를 확인한 뒤 기존 typed InlayHintRequest를 공급자별로 동시에 요청합니다. 여러 공급자의 성공을 합치고 빈/null·오류/잘못된 응답과 다른 프로젝트를 격리하며 정확히 같은 힌트는 한 번 표시합니다. label parts의 value만 합치고 tooltip markup의 value를 평문으로 전달합니다. 원본이 제공하지 않은 resolve·part 클릭·textEdits 수락·workspace refresh나 새 의존성은 추가하지 않습니다.
+
+선택만 바뀌거나 빈/null/오류 결과가 유지되는 프레임은 다시 요청하지 않습니다. 문서/언어/tier·owner/source·공급자 세대/capability·범위가 바뀌면 이전 요청을 취소하고 늦은 응답을 거절합니다. 정상 tier의 readonly는 표시하고 Large/ReadOnly tier의 LSP는 제외합니다. 스크롤 요청 중에는 같은 문서/공급자의 유효 표시를 유지하고 새 범위의 응답만 교체해 범위 밖 캐시를 보존합니다. 설치 Monaco controller의 결과 도착 시 _updateHintsDecorators(ranges, items)를 호출하는 경계를 확인한 뒤 반영했습니다. peek 닫기/retired view의 다음 logic 정리와 두 종료 경로에서 요청을 회수합니다.
+
+직접 실행한 최신 관련 App 검사는 `/private/tmp/taide-batch23-inlay-app-final-related.log`에 8통과/0실패·exit 0, 컴파일 16.02초·검사 11.30초입니다. 명령은 cargo test --manifest-path native/taide-native-app/Cargo.toml --locked --offline --target-dir experiments/native-shell-spike/target --features inspection --lib inlay_hints -- --test-threads=1입니다. 상태 4건은 UTF-16/label parts·여백/툴팁·무효 위치/label·16프레임 요청 재사용·범위/캐시·mirror/viewport/readonly/tier·편집/세대·회수를 확인합니다. 실제 child 2건은 공급자 2개/프로젝트 2개의 정상·빈/null·오류/잘못된 응답/미지원 6사례와 보류 취소의 늦은 응답·SDK 실제 서버 재시작/세대 변화·종료 task 0을 확인합니다. 실제 App 2건은 본문/peek 소비와 닫기·latest mirror·readonly/tier·ghost 동시 표시/수락/기본 undo·원문/revision/디스크 불변·종료 task 0입니다.
+
+실패는 성공과 구분해 보존합니다. UI 툴팁 검사에서 매 프레임 PointerMoved를 보내거나 클릭 직후 포인터를 옮기지 않은 입력은 egui의 정상 tooltip 억제 조건이었습니다. 클릭 후 이동/정지로 검사 입력을 고친 뒤 해당 1건이 통과했습니다. 일반 content_byte_at가 힌트 위에서 Some(9)를 반환한 실제 실패는 inlay-hover-red.log의 0통과/1실패·exit 101로 재현한 뒤 수정했습니다. App 첫 검사에서는 peek Close 프레임에 retired source가 즉시 없어질 것으로 가정해 실패했고 기존 다음 logic 회수 시점과 유효 preview 멤버십을 확인했습니다. 관련 8건의 중간 6통과/2실패·exit 101은 inlay-app-related-red.log에 남으며 직접 on_exit에서 완료 요청 취소가 누락된 실제 실패와 suggest preview 기본값 false인 fixture를 구분합니다. 두 앱 재검사에서 1통과/1실패 뒤 일반 ghost의 is_preview 플래그를 injected 의미로 잘못 가정한 단언을 바로잡았습니다. 0건 필터·테스트 생성 계약/인자/타입/import의 컴파일 실패를 실행 성공으로 세지 않습니다.
+
+공유 표시/입력과 실제 앱 공급 변경을 덮는 Core/UI/App의 전체 --all-targets --no-fail-fast를 각각 직접 1회 실행했습니다. 로그 공통 접두어는 /private/tmp/taide-batch23-inlay-입니다.
+
+| 로그                              | 실제 결과                                                                                                                                                  |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| core-all.log                      | 39대상/299통과/0실패/1ignored·exit 0, 검사 합산 2.29초                                                                                                     |
+| ui-all.log                        | 25대상/464통과/0실패/0ignored·native-host,inspection·exit 0, 검사 합산 4.82초                                                                              |
+| app-all-compile.log               | 첫 App 전체 요청은 Reply::InlayHints에 대한 기존 tests/lsp.rs 관찰 분기의 미대응으로 컴파일 exit 101·실행 0건; 해당 분기를 보완한 뒤 실제 전체 검사를 실행 |
+| app-all.log                       | 67대상/853통과/1실패/0ignored·inspection·test-threads=1·보호 Trash 3제외·exit 101, 컴파일 4.22초·검사 합산 179.97초                                        |
+| app-failed-recheck.log            | 실패한 기존 문서 선택/peek/저장 포맷 1건만 같은 바이너리·조건에서 1통과·exit 0, 컴파일 0.25초·검사 6.09초                                                  |
+| frozen-host.log / frozen-wasm.log | 테스트 대상 host inspection / Wasm lib canvas,inspection 각각 컴파일 exit 0·15.46초/3.86초, 테스트 실행으로 세지 않음                                      |
+| fmt.log / mock-fmt.log            | 소유 native Rust 26경로 edition 2024 / mock 1경로 edition 2021, skip_children=true·check exit 0                                                            |
+
+전체 App 실패의 실제 관찰은 application-startup-tests.rs:1557에서 본문 텍스트/revision/dirty는 같은데 readonly만 기대 true/실제 false였다는 것입니다. 같은 조건에서 해당 1건만 다시 실행해 통과했고 제품·검사 상한·그 검사 소스는 바꾸지 않았습니다. 관찰 응답이 문서 메타데이터를 다시 반영하는 경로와 해당 fixture의 메모리 readonly 주입은 확인했으나 최초 실패 원인은 확정하지 않았습니다. 디스크 권한 변경이나 새 대기/우회를 추가하지 않고 배치 31의 검사 신뢰성 부채로 보존합니다. 현재 서로 다른 App 성공 근거는 854건이며 관련 8건을 중복 합산하지 않고 전체 exit 0이라고 보고하지 않습니다. Core의 기존 성능 1ignored와 실제 Trash를 사용하는 App 3제외는 미실행으로 표시합니다.
+
+마지막 두 신규 검사의 동일 Unicode 문자열을 Rust escape로 표기해 소스의 이모지를 제거했습니다. 런타임 문자열/검사 입력은 같아 이미 성공한 전체 검사를 다시 실행하지 않았고 소유 포맷 검사로 확인했습니다. SDK 전체 90건은 SDK 소스 변경 없이 재사용합니다. manifest/lockfile·frozen source/graph·구문/정규식 엔진·새 의존성 변경은 0입니다. 디스크 여유는 418GiB/78%이며 빌드 정리·보호 앱/실제 데이터/OS 설정/클립보드/Keychain/Trash·OS 합성 입력을 실행하지 않았습니다.
+
+최초 App 전체 실행 중 프로세스 관찰에는 Cargo 1개가 있었고 로그의 검사 대상은 preview→프로젝트→터미널→untitled로 계속 바뀌었습니다. 해당 전체 명령과 실패 1건 재확인·두 컴파일/fmt가 terminal 종료한 뒤 프로세스 조회에 소유 Cargo/rustfmt/실제 App 검사·mock 서버는 남지 않았습니다. 이번 실행의 중복 반복/잔류 증거는 없으며 모든 과거 세션이나 제품의 종료성을 증명했다는 뜻은 아닙니다.
+
+실제 구현·앱 소비·기능 자동 검사 정의에 따라 editor-50만 complete로 갱신합니다. 599행·제외 10/동결 1·대상 588행 중 294완료/92부분/112미연결/90미구현·294미완료이며 배치 23 잔여 27·최종 33입니다. 요구사항 행을 전체 전환율/잔여 시간으로 환산하지 않습니다. 실제 pixel/OS 입력/IME·접근성·대형 성능/soak와 출시·전환·제거 게이트는 배치 31~33에 유지하고 다음 기능은 같은 배치 23의 editor-53 Code Lens입니다.

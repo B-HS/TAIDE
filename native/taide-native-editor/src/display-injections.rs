@@ -6,6 +6,7 @@ use crate::completion_preview_view::ViewData;
 use crate::display_map::{DisplayMap, RowSegment};
 use crate::document::{DocumentSnapshot, EditorError, byte_to_char};
 use crate::editing::line_content_range;
+use crate::inlay_hints::{self, Hint};
 use crate::line_breaks::create_line_breaks;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,6 +15,8 @@ pub struct SourceUnit {
     pub source_byte: usize,
     pub injected: bool,
     pub is_preview: bool,
+    pub hint: Option<usize>,
+    pub hint_padding: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -36,6 +39,8 @@ struct InjectedLine {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Injections {
     pub(crate) views: Vec<ViewData>,
+    pub(crate) hints: Vec<Hint>,
+    pub(crate) hint_label_limit: usize,
     lines: Vec<InjectedLine>,
 }
 
@@ -44,13 +49,22 @@ impl Injections {
         document: &DocumentSnapshot,
         display: &DisplayMap,
         views: &[ViewData],
+        hints: &[Hint],
+        hint_label_limit: usize,
     ) -> Result<Self, EditorError> {
-        let mut grouped = BTreeMap::<usize, Vec<&ViewData>>::new();
+        let hint_views = inlay_hints::views(document, hints, hint_label_limit)?;
+        let mut grouped = BTreeMap::<usize, Vec<(&ViewData, Option<usize>)>>::new();
         for view in views {
             if view.line >= document.rope.len_lines() {
                 return Err(EditorError::InvalidBoundary);
             }
-            grouped.entry(view.line).or_default().push(view);
+            grouped.entry(view.line).or_default().push((view, None));
+        }
+        for (index, view) in &hint_views {
+            grouped
+                .entry(view.line)
+                .or_default()
+                .push((view, Some(*index)));
         }
         let mut lines = Vec::with_capacity(grouped.len());
         for (line, views) in grouped {
@@ -61,10 +75,10 @@ impl Injections {
             let source = line_content_range(document, line);
             let mut inline = views
                 .iter()
-                .flat_map(|view| view.inline.iter())
+                .flat_map(|(view, hint)| view.inline.iter().map(move |part| (part, *hint)))
                 .collect::<Vec<_>>();
-            inline.sort_by_key(|part| part.byte);
-            for part in &inline {
+            inline.sort_by_key(|(part, hint)| (part.byte, hint.is_none()));
+            for (part, _) in &inline {
                 if part.byte < source.start
                     || part.byte > source.end
                     || part.text.contains(['\n', '\r'])
@@ -75,7 +89,7 @@ impl Injections {
             }
             let hidden = views
                 .iter()
-                .filter_map(|view| view.hidden_source.as_ref())
+                .filter_map(|(view, _)| view.hidden_source.as_ref())
                 .map(|range| {
                     if range.start < source.start
                         || range.end != source.end
@@ -89,6 +103,9 @@ impl Injections {
                 .collect::<Result<Vec<_>, _>>()?
                 .into_iter()
                 .min();
+            inline.retain(|(part, hint)| {
+                hint.is_none() || hidden.is_none_or(|start| part.byte <= start)
+            });
             let mut text = String::new();
             let mut units = Vec::new();
             let mut previous = source.start;
@@ -105,23 +122,34 @@ impl Injections {
                             source_byte: start + offset,
                             injected: false,
                             is_preview: false,
+                            hint: None,
+                            hint_padding: false,
                         });
                         text.push(character);
                     }
                 };
-            for Part {
-                byte,
-                text: value,
-                is_preview,
-            } in &inline
+            for (
+                Part {
+                    byte,
+                    text: value,
+                    is_preview,
+                },
+                hint,
+            ) in &inline
             {
                 append_source(previous, *byte, &mut text, &mut units);
-                for character in value.chars() {
+                for (offset, character) in value.char_indices() {
                     units.push(SourceUnit {
                         text_byte: text.len(),
                         source_byte: *byte,
                         injected: true,
                         is_preview: *is_preview,
+                        hint: *hint,
+                        hint_padding: hint.is_some_and(|index| {
+                            offset == 0 && hints[index].padding_left
+                                || offset + character.len_utf8() == value.len()
+                                    && hints[index].padding_right
+                        }),
                     });
                     text.push(character);
                 }
@@ -133,6 +161,8 @@ impl Injections {
                 source_byte: source.end,
                 injected: false,
                 is_preview: false,
+                hint: None,
+                hint_padding: false,
             });
             let breaks = display
                 .wrap_settings()
@@ -192,11 +222,13 @@ impl Injections {
                 line,
                 original,
                 rows,
-                anchors: inline.into_iter().map(|part| part.byte).collect(),
+                anchors: inline.into_iter().map(|(part, _)| part.byte).collect(),
             });
         }
         Ok(Self {
             views: views.to_vec(),
+            hints: hints.to_vec(),
+            hint_label_limit,
             lines,
         })
     }

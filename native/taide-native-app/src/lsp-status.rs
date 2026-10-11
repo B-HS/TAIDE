@@ -179,6 +179,7 @@ mod tests {
                 owner: crate::diagnostics::Owner::new(),
                 documents: Default::default(),
                 open_documents: Default::default(),
+                document_versions: Default::default(),
                 diagnostic_revisions: Default::default(),
             })
             .collect();
@@ -236,6 +237,7 @@ mod tests {
                     owner,
                     documents: std::collections::HashSet::from([document]),
                     open_documents: std::collections::HashSet::from([document]),
+                    document_versions: Default::default(),
                     diagnostic_revisions: Default::default(),
                 })
                 .collect()

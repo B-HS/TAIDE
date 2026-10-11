@@ -55,6 +55,8 @@ mod editor_formatting;
 mod editor_highlights;
 #[path = "editor-indentation.rs"]
 mod editor_indentation;
+#[path = "editor-inlay-hints.rs"]
+mod editor_inlay_hints;
 #[path = "editor-locations.rs"]
 mod editor_locations;
 #[path = "editor-markup.rs"]

@@ -60,6 +60,9 @@ pub mod editor_geometry;
 #[path = "editor-gutter.rs"]
 mod editor_gutter;
 #[cfg(feature = "native-host")]
+#[path = "editor-inlay-hints.rs"]
+pub mod editor_inlay_hints;
+#[cfg(feature = "native-host")]
 #[path = "editor-locations.rs"]
 pub mod editor_locations;
 #[cfg(feature = "native-host")]

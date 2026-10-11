@@ -551,6 +551,10 @@ struct Projection<'a> {
     #[cfg(feature = "native-host")]
     problem_zone: Option<(usize, f32)>,
     preview_views: Vec<taide_native_editor::completion_preview_view::ViewData>,
+    #[cfg(feature = "native-host")]
+    inlay_hints: Option<&'a crate::editor_inlay_hints::Presentation>,
+    #[cfg(feature = "native-host")]
+    retain_cached_hints: bool,
 }
 
 fn preview_layout(line_height: f32, display: &DisplayMap) -> VerticalLayout {
@@ -607,6 +611,22 @@ impl Projection<'_> {
         } else {
             Vec::new()
         };
+        #[cfg(feature = "native-host")]
+        let retained_hints = if self.retain_cached_hints {
+            self.cached
+                .as_ref()
+                .filter(|map| map.revision() == document.revision)
+                .map_or_else(Vec::new, |map| map.inlay_hints().to_vec())
+        } else {
+            Vec::new()
+        };
+        #[cfg(feature = "native-host")]
+        let hints = self
+            .inlay_hints
+            .filter(|hints| hints.describes(document))
+            .map_or(retained_hints.as_slice(), |hints| hints.items.as_ref());
+        #[cfg(not(feature = "native-host"))]
+        let hints = &[];
         let viewport_start = self
             .cached
             .as_ref()
@@ -615,6 +635,7 @@ impl Projection<'_> {
                     && (stale.wrap_settings() != wrap.as_ref()
                         || stale.hidden_lines() != hidden
                         || stale.preview_views() != self.preview_views
+                        || stale.inlay_hints() != hints
                         || zone_changed)
             })
             .zip(
@@ -648,6 +669,11 @@ impl Projection<'_> {
         map.refresh(document);
         map.set_hidden_lines(&hidden);
         map.set_preview_views(document, &self.preview_views)?;
+        map.set_inlay_hints(
+            document,
+            hints,
+            taide_native_editor::inlay_hints::DEFAULT_MAXIMUM_LENGTH,
+        )?;
         if let Some((byte, delta)) = viewport_start
             && map
                 .hidden_lines_at(document.rope.byte_to_line(byte))
@@ -960,6 +986,10 @@ impl NativeEditor {
             wrap_tab_size: presentation.options.word_wrap.then_some(tab_size),
             has_folding: presentation.options.folding,
             preview_views: Vec::new(),
+            #[cfg(feature = "native-host")]
+            inlay_hints: None,
+            #[cfg(feature = "native-host")]
+            retain_cached_hints: true,
             cached,
             rendered_viewport: None,
             stable_scroll_top: None,
@@ -993,6 +1023,8 @@ impl NativeEditor {
                 || crate::editor_completion::PreviewColors::for_dark_mode(ui.visuals().dark_mode),
                 |colors| colors.preview,
             ),
+            #[cfg(feature = "native-host")]
+            hint_colors: None,
             bold_family: registered_family(ui, presentation.options.bold_family.as_ref()),
             decorations: &[],
             #[cfg(feature = "native-host")]
@@ -1187,6 +1219,8 @@ impl NativeEditor {
             None,
             #[cfg(feature = "native-host")]
             None,
+            #[cfg(feature = "native-host")]
+            None,
         )
     }
 
@@ -1208,7 +1242,7 @@ impl NativeEditor {
             crate::editor_rename::Colors,
         )>,
     ) -> Result<EditorOutput, EditorError> {
-        self.show_request_inner(ui, store, view, request, editor_keymap, rename, None)
+        self.show_request_inner(ui, store, view, request, editor_keymap, rename, None, None)
     }
 
     #[cfg(feature = "native-host")]
@@ -1241,6 +1275,42 @@ impl NativeEditor {
             editor_keymap,
             rename,
             code_actions,
+            None,
+        )
+    }
+
+    #[cfg(feature = "native-host")]
+    pub fn show_request_with_inlay_hints<'tokens>(
+        &self,
+        ui: &mut Ui,
+        store: &mut EditorStore,
+        view: ViewId,
+        request: EditorRequest<
+            '_,
+            impl FnMut(&Ui, &Event, bool) -> bool,
+            impl FnOnce(&Response) -> Option<KeyboardInputRoute>,
+            impl FnOnce(&EditorStore) -> Option<EditorTokens<'tokens>>,
+        >,
+        editor_keymap: impl FnMut(&Ui, &mut EditorStore, ViewId, &Event, bool) -> bool,
+        rename: Option<(
+            &mut dyn crate::editor_rename::Provider,
+            crate::editor_rename::Colors,
+        )>,
+        code_actions: Option<(
+            &mut dyn crate::editor_code_actions::Provider,
+            crate::editor_code_actions::Colors,
+        )>,
+        inlay_hints: Option<crate::editor_inlay_hints::Presentation>,
+    ) -> Result<EditorOutput, EditorError> {
+        self.show_request_inner(
+            ui,
+            store,
+            view,
+            request,
+            editor_keymap,
+            rename,
+            code_actions,
+            inlay_hints,
         )
     }
 
@@ -1264,6 +1334,9 @@ impl NativeEditor {
             &mut dyn crate::editor_code_actions::Provider,
             crate::editor_code_actions::Colors,
         )>,
+        #[cfg(feature = "native-host")] inlay_hints: Option<
+            crate::editor_inlay_hints::Presentation,
+        >,
     ) -> Result<EditorOutput, EditorError> {
         let EditorRequest {
             request_focus,
@@ -1511,6 +1584,10 @@ impl NativeEditor {
                     .as_ref()
                     .filter(|map| map.revision() == previous.revision)
                     .map_or_else(Vec::new, |map| map.preview_views().to_vec()),
+                #[cfg(feature = "native-host")]
+                inlay_hints: inlay_hints.as_ref(),
+                #[cfg(feature = "native-host")]
+                retain_cached_hints: false,
                 cached,
                 rendered_viewport: input_state
                     .rendered_viewport
@@ -2420,6 +2497,11 @@ impl NativeEditor {
                 || crate::editor_completion::PreviewColors::for_dark_mode(ui.visuals().dark_mode),
                 |colors| colors.preview,
             ),
+            #[cfg(feature = "native-host")]
+            hint_colors: inlay_hints
+                .as_ref()
+                .filter(|hints| hints.describes(&document))
+                .map(|hints| hints.colors),
             bold_family: registered_family(ui, presentation.options.bold_family.as_ref()),
             decorations: &decorations,
             #[cfg(feature = "native-host")]
@@ -3446,6 +3528,10 @@ impl NativeEditor {
             minimap_rect,
             rows: rows.into(),
         };
+        #[cfg(feature = "native-host")]
+        if let Some(hints) = &inlay_hints {
+            crate::editor_inlay_hints::show_tooltips(ui, id, &document, &geometry, hints);
+        }
         #[cfg(feature = "native-host")]
         let mut popup_output = crate::editor_rename::Output::default();
         #[cfg(feature = "native-host")]

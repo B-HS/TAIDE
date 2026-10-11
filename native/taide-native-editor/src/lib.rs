@@ -38,6 +38,8 @@ pub mod find_replacement;
 pub mod folding;
 pub mod formatting;
 pub mod indent;
+#[path = "inlay-hints.rs"]
+pub mod inlay_hints;
 #[path = "language-configuration.rs"]
 pub mod language_configuration;
 #[path = "language-typing.rs"]
