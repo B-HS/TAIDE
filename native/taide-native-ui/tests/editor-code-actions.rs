@@ -615,44 +615,44 @@ fn 비활성화와_창_포커스_상실은_목록을_회수한다() {
 
 #[test]
 fn 현재_전구를_클릭하면_본문_편집_없이_같은_공급자_목록을_연다() {
-    let mut fixture = Fixture::new();
-    let editor = fixture.open().response.id;
-    let selection = fixture
-        .store
-        .views()
-        .get(fixture.view)
-        .unwrap()
-        .selection
-        .clone();
-    fixture.frame(vec![key(Key::Escape)], TEXT);
-    fixture.actions.session = Some(Session {
-        token: TOKEN,
-        anchor: 6,
-        menu_open: false,
-        include_disabled: false,
-        show_headers: true,
-        actions: candidates(),
-        bulb: Some(Bulb {
+    for (line_numbers, gutter) in [(false, true), (true, true), (true, false)] {
+        let mut fixture = Fixture::new();
+        fixture.editor.appearance.line_numbers = line_numbers;
+        let editor = fixture.open().response.id;
+        let selection = fixture
+            .store
+            .views()
+            .get(fixture.view)
+            .unwrap()
+            .selection
+            .clone();
+        fixture.frame(vec![key(Key::Escape)], TEXT);
+        fixture.actions.session = Some(Session {
+            token: TOKEN,
             anchor: 6,
-            gutter: true,
-        }),
-        labels: Labels::default(),
-    });
-    fixture.frame(Vec::new(), TEXT);
-    fixture.click(editor_code_actions::bulb_id(editor, TOKEN));
-    assert_eq!(fixture.actions.opened, 1);
-    assert_eq!(
-        fixture.store.views().get(fixture.view).unwrap().selection,
-        selection
-    );
-    fixture.frame(Vec::new(), TEXT);
-    assert!(
-        fixture
-            .context
-            .memory(|memory| memory.has_focus(editor_code_actions::focus_id(editor, TOKEN)))
-    );
-    fixture.frame(vec![key(Key::Enter)], TEXT);
-    assert_eq!(fixture.actions.selected, [(4, false)]);
+            menu_open: false,
+            include_disabled: false,
+            show_headers: true,
+            actions: candidates(),
+            bulb: Some(Bulb { anchor: 6, gutter }),
+            labels: Labels::default(),
+        });
+        fixture.frame(Vec::new(), TEXT);
+        fixture.click(editor_code_actions::bulb_id(editor, TOKEN));
+        assert_eq!(fixture.actions.opened, 1);
+        assert_eq!(
+            fixture.store.views().get(fixture.view).unwrap().selection,
+            selection
+        );
+        fixture.frame(Vec::new(), TEXT);
+        assert!(
+            fixture
+                .context
+                .memory(|memory| memory.has_focus(editor_code_actions::focus_id(editor, TOKEN)))
+        );
+        fixture.frame(vec![key(Key::Enter)], TEXT);
+        assert_eq!(fixture.actions.selected, [(4, false)]);
+    }
 }
 
 #[test]

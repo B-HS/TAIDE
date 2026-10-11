@@ -33,6 +33,16 @@ const MENU_FILTER: EventFilter = EventFilter {
     escape: true,
 };
 
+pub(crate) fn bulb_rect(anchor: Rect, gutter_left: Option<f32>) -> Rect {
+    Rect::from_min_size(
+        pos2(
+            gutter_left.unwrap_or(anchor.left()),
+            anchor.center().y - ICON_SIZE / 2.0,
+        ),
+        vec2(ICON_SIZE, ICON_SIZE),
+    )
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
     QuickFix,
@@ -532,15 +542,7 @@ impl State {
                 && let Some(bulb) = session.bulb
                 && let Some(anchor) = geometry.caret_rect(bulb.anchor)
             {
-                let left = if bulb.gutter {
-                    geometry.gutter_rect.left()
-                } else {
-                    anchor.left()
-                };
-                let rect = Rect::from_min_size(
-                    pos2(left, anchor.center().y - ICON_SIZE / 2.0),
-                    vec2(ICON_SIZE, ICON_SIZE),
-                );
+                let rect = bulb_rect(anchor, bulb.gutter.then_some(geometry.gutter_rect.left()));
                 let preferred = session.actions.iter().any(|action| {
                     action.disabled.is_none()
                         && action.preferred

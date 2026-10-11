@@ -2692,10 +2692,46 @@ impl NativeEditor {
                 .is_some_and(|rect| press.origin.is_some_and(|point| rect.contains(point)));
         #[cfg(not(feature = "native-host"))]
         let is_problem_press = false;
+        #[cfg(feature = "native-host")]
+        let is_code_action_press = !rename_active
+            && ui.is_enabled()
+            && ui.input(|input| input.raw.focused)
+            && ui.memory(|memory| memory.has_focus(id))
+            && code_actions.as_ref().is_some_and(|(provider, _)| {
+                let Some(session) = provider.current(store, view) else {
+                    return false;
+                };
+                !session.menu_open
+                    && session
+                        .actions
+                        .iter()
+                        .any(|action| action.disabled.is_none())
+                    && session.bulb.is_some_and(|bulb| {
+                        crate::editor_geometry::caret_rect(
+                            &rows,
+                            rect,
+                            appearance.line_height,
+                            bulb.anchor,
+                        )
+                        .is_some_and(|anchor| {
+                            let bulb_rect = crate::editor_code_actions::bulb_rect(
+                                anchor,
+                                bulb.gutter.then_some(rect.left()),
+                            );
+                            press
+                                .origin
+                                .is_some_and(|origin| bulb_rect.contains(origin))
+                        })
+                    })
+            });
+        #[cfg(not(feature = "native-host"))]
+        let is_code_action_press = false;
         if is_fold_button_pressed {
             input_state.fold_press = press
                 .origin
-                .filter(|_| ui.is_enabled() && response.is_pointer_button_down_on())
+                .filter(|_| {
+                    !is_code_action_press && ui.is_enabled() && response.is_pointer_button_down_on()
+                })
                 .and_then(&fold_target);
         }
         let fold_press = input_state.fold_press;
@@ -2705,6 +2741,7 @@ impl NativeEditor {
         if !scrolling
             && !is_sticky_press
             && !is_problem_press
+            && !is_code_action_press
             && !fold_press.is_some_and(|press| press.is_on_control)
             && (press.down || response.clicked() || response.drag_started() || response.dragged())
             && let Some(pointer) = response.interact_pointer_pos()

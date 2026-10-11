@@ -36,6 +36,22 @@ pub struct EditorGeometry {
     pub(crate) rows: Arc<[Row]>,
 }
 
+pub(crate) fn caret_rect(rows: &[Row], rect: Rect, line_height: f32, byte: usize) -> Option<Rect> {
+    let row = rows.iter().find(|row| {
+        let bytes = &row.segment.bytes;
+        row.origin.y + line_height > rect.top()
+            && row.origin.y < rect.bottom()
+            && bytes.start <= byte
+            && (byte < bytes.end
+                || (byte == bytes.end
+                    && (!row.wraps || row.text.injection_anchor(byte - bytes.start))))
+    })?;
+    Some(Rect::from_x_y_ranges(
+        Rangef::point(row.caret_rect(byte).left()),
+        Rangef::new(row.origin.y, row.origin.y + line_height),
+    ))
+}
+
 impl EditorGeometry {
     fn row_band(&self, row: &Row) -> Rangef {
         Rangef::new(row.origin.y, row.origin.y + self.line_height)
@@ -49,17 +65,7 @@ impl EditorGeometry {
     }
 
     pub fn caret_rect(&self, byte: usize) -> Option<Rect> {
-        let row = self.shown_rows().find(|row| {
-            let bytes = &row.segment.bytes;
-            bytes.start <= byte
-                && (byte < bytes.end
-                    || (byte == bytes.end
-                        && (!row.wraps || row.text.injection_anchor(byte - bytes.start))))
-        })?;
-        Some(Rect::from_x_y_ranges(
-            Rangef::point(row.caret_rect(byte).left()),
-            self.row_band(row),
-        ))
+        caret_rect(&self.rows, self.rect, self.line_height, byte)
     }
 
     pub fn range_rects(&self, bytes: Range<usize>) -> Vec<Rect> {
