@@ -119,7 +119,7 @@ startup-lossy-green.log는 실제 lossy/read_only 원본과 writable peek의 포
 
 - [x] TS 원본 command-palette.tsx의 resolveWindowPaneTree/getWindowContext·현재 창의 activeTab 대조
 - [x] 실제 보조 창 팔레트 메뉴 누락의 실패 재현·창별 활성 탭/공급자 조건·캡처한 owner 탭의 typed 메뉴 명령 연결
-- [ ] 본문/peek source와 닫힘 회귀·주 창이 비편집기일 때의 보조 창 팔레트·형식/문서/선별 Git
+- [x] 본문/peek source와 닫힘 회귀·주 창 Settings 활성의 보조 창 팔레트·형식/문서/선별 Git
 - [ ] peek LSP 메뉴의 실제 원본 이동 대상/소유·c9 완료 게이트
 
 aux-palette-red.log는 기존 보조 창 검사에 실제 Show Context Menu→Copy를 추가한 첫 실행에서 메뉴가 없다는 0통과/1실패·9.12초·exit 101입니다. TS 원본은 현재 창의 pane tree에서 activeTab을 얻지만 native show_palette와 명령의 활성 편집기/공급자 조건은 주 창의 탭/프로젝트를 사용했습니다. 창별 window_tree와 focused pane을 사용하고 Show Context Menu는 이미 캡처한 owner.key.tab에 DocumentEdit::ContextMenu로 직접 연결했습니다. 이 typed 전달은 팔레트 확인 뒤 전역 focused_tab에서 대상을 다시 찾지 않습니다.
@@ -131,3 +131,5 @@ main-peek-regression.log는 typed 메뉴 전달 변경 뒤 본문/peek 팔레트
 peek 이동의 원본 기준을 실제 소스로 정정합니다. 설치 Monaco goToCommands.js의 _onResult는 EmbeddedCodeEditorWidget에서 직접 peek를 중첩하지 않고 _openReference를 실행하며 source editor를 openCodeEditor에 넘깁니다. standaloneCodeEditorService.doOpenEditor/findModel은 같은 URI에서 해당 source editor의 selection을 바꿉니다. TAIDE editor-opener-bridge.ts도 같은 URI는 false로 넘겨 이 기본 처리를 유지합니다. 따라서 같은 파일의 정의 이동은 preview를 이동하고 본문 선택을 보존해야 합니다. 이전 PROCESS의 본문 이동 가정은 실제 검사 근거가 아니었으며 이 기준으로 정정합니다. 다른 파일/옆 열기·소유 창·늦은 응답/닫힘은 별도의 실제 경계를 확인해야 합니다. 현재 native Request.is_active/retain_active는 source_key의 가상 pane/tab을 실제 layout에서 검사하므로 preview 요청이 남을 수 없다는 코드상의 차이가 있으며 아직 새 실제 실패로 보고하지 않습니다.
 
 aux-inactive-main.log는 주 창 Settings 활성 상태의 보조 창 팔레트 메뉴/정의 공급 항목·UTF-8 선택 복사·본문 선택 보존·실제 PTY 및 닫힌 창 회수까지 기존 1검사에 확대해 30.16초·exit 0으로 통과했습니다. 소유 2Rust rustfmt --check와 관련 3경로 diff check는 exit 0이고 디스크 여유는 351GiB/사용 81%입니다. 모든 이번 Cargo 핸들은 종료했으며 새 코드의 App 전체 실행은 c9d에서 남은 peek 위치 경계 뒤 직접 1회 확인합니다. 현재는 관련 두 기존 검사의 실제 확대 근거만 완료로 두고 이전 전체 성공/통과 수를 새 코드 전체 완료나 새 검사 수로 쓰지 않습니다. 선별 Git은 대기 중입니다.
+
+창별 팔레트 구현·확대 App 검사·QA·PROCESS 상단의 4소유 경로를 8812c014로 선별 커밋·일반 푸시하고 원격 0/0·사용자 단독 author·AI 트레일러 없음·빈 index를 확인했습니다. PROCESS의 이전 세션 하단 SHA-256 7b26f85e8fdcbd03592f4c6722e88350d490341515c9175d0725ece101c1a4ed를 보존했고 외부 변경을 stage하지 않았습니다. 제품 기준은 실제 8812c014이며 문서 후속 커밋 때문에 기준을 다시 바꾸지 않습니다. 현재 App 전체 성공으로 확대하지 않고 다음 실제 source/소유 경계를 유지합니다.
