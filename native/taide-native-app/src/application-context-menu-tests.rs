@@ -14,6 +14,11 @@ const SHIFT: egui::Modifiers = egui::Modifiers {
     shift: true,
     ..EMPTY
 };
+const COMMAND: egui::Modifiers = egui::Modifiers {
+    mac_cmd: true,
+    command: true,
+    ..EMPTY
+};
 
 fn fixture() -> Fixture {
     fixture_with_provider(
@@ -760,4 +765,117 @@ fn 실제_추가_팔레트_메뉴는_본문과_peek의_원래_입력_대상을_�
             .to_string(),
         TEXT
     );
+}
+
+#[test]
+fn 실제_찾기_입력은_본문_메뉴_키를_차단하고_팔레트의_본문과_peek_대상을_보존한다() {
+    let mut fixture = fixture();
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let owner = body_view(application, &fixture.path, &fixture.tab);
+    let clipboard = clipboard(application, context);
+    for (index, preview) in [false, true].into_iter().enumerate() {
+        let source = if preview {
+            select(application, owner, 0, 0);
+            focus(application, context, owner);
+            run_palette(application, context, "monaco.editor.action.peekDefinition");
+            wait(application, context, "find menu peek", |application| {
+                application
+                    .editor_locations
+                    .current(owner)
+                    .is_some_and(|session| session.preview.is_some())
+            });
+            application
+                .editor_locations
+                .current(owner)
+                .unwrap()
+                .preview
+                .unwrap()
+        } else {
+            owner
+        };
+        select(application, source, 8, 18);
+        focus(application, context, source);
+        paint(application, context, key(egui::Key::F, COMMAND));
+        wait(application, context, "find menu input", |application| {
+            if preview {
+                application.editor_locations.preview_find_visible(owner)
+            } else {
+                application
+                    .editor_find
+                    .get(&source)
+                    .is_some_and(|find| find.visible)
+            }
+        });
+        let input = context.memory(|memory| memory.focused()).unwrap();
+        assert_ne!(
+            input,
+            crate::editor_context_menu::body(context, source).unwrap()
+        );
+        if preview {
+            assert_eq!(
+                application.editor_keymap_targets[&(context.viewport_id(), input)].0,
+                source
+            );
+        }
+        let selection = application
+            .store
+            .views()
+            .get(source)
+            .unwrap()
+            .selection
+            .clone();
+        let output = paint(application, context, key(egui::Key::F10, SHIFT));
+        assert!(
+            !text_contains(&output, "Copy"),
+            "find input opened body menu: preview={preview}"
+        );
+        assert_eq!(context.memory(|memory| memory.focused()), Some(input));
+        assert_eq!(
+            application.store.views().get(source).unwrap().selection,
+            selection
+        );
+        run_palette(application, context, "monaco.editor.action.showContextMenu");
+        wait(
+            application,
+            context,
+            "find palette menu command",
+            |application| application.document_edits.is_empty(),
+        );
+        let output = paint(application, context, Vec::new());
+        assert!(
+            text_contains(&output, "Copy"),
+            "find palette menu missing: preview={preview}"
+        );
+        let mut events = vec![egui::Event::Text("Copy".into())];
+        events.extend(key(egui::Key::Enter, EMPTY));
+        paint(application, context, events);
+        wait(application, context, "find palette source copy", |_| {
+            clipboard.writes.lock().unwrap().len() == index + 1
+        });
+        assert_eq!(*clipboard.text.read().unwrap(), "\u{1f600}method");
+        if preview {
+            assert_eq!(
+                application
+                    .store
+                    .views()
+                    .get(owner)
+                    .unwrap()
+                    .selection
+                    .selections,
+                vec![Selection { anchor: 0, head: 0 }]
+            );
+        }
+        let document = application.store.views().get(source).unwrap().document;
+        assert_eq!(
+            application
+                .store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .rope
+                .to_string(),
+            TEXT
+        );
+    }
 }

@@ -71,3 +71,16 @@ palette-app-all-targets.log의 새 App 전체는 exit 0으로 종료했습니다
 다음 찾기 연계 검사의 원본은 설치 Monaco contextmenu.js의 ShowContextMenu(321~338)·editorContextKeys.js(23)·codeEditorWidget.js(1092~1097, 1669~1673)입니다. Shift+F10은 실제 editor view의 hasTextFocus로 설정하는 textInputFocus 조건이며 팔레트 액션 자체에는 별도 precondition이 없습니다. native 찾기 입력에서 본문 메뉴를 잘못 열지 않는지와 팔레트의 원래 editor source를 각각 검증합니다. 이 조건의 코드 확인을 실제 앱 검사 통과로 보고하지 않습니다.
 
 현재 재개 점검에서 실제 기능표는 599행·제외 10/동결 1·대상 588 중 complete 296/partial 92/unwired 112/missing 88이며 코드 기준은 46e059aa입니다. 종료 로그와 최근 구현 커밋을 대조했고 읽기 전용 프로세스 조회에서 TAIDE Cargo/rustc/감사 작업 잔류는 없었습니다. 무관한 다른 프로젝트의 검사는 이 판정에서 제외합니다. 이 관찰은 현재 실행의 잔류 여부이며 과거 전체 반복이나 제품의 모든 루프 종료성에 대한 증명은 아닙니다. 문서 전용 커밋 뒤에는 native 코드 기준을 다시 바꾸거나 같은 성공 검사를 반복하지 않습니다.
+
+## 실제 찾기 입력과 메뉴 source (c9c2c)
+
+- [x] 본문/peek의 기본 Cmd+F 찾기 입력에서 Shift+F10의 본문 메뉴 차단·입력 포커스와 문서 선택 보존
+- [x] 같은 찾기 입력에서 실제 팔레트 Show Context Menu→Copy의 원래 본문/peek UTF-8 선택·본문 선택/원문 보존
+- [x] 새 exact 검사 최초 실행·검사 Rust 1파일 fmt/diff·디스크 여유 363GiB/사용 81%
+- [ ] 보조 창·터미널 실패/종료/소유 scope와 c9 완료 게이트
+
+application-context-menu-tests.rs의 새 실제 App 검사 1건은 본문과 peek의 두 경우를 실행합니다. 기존 App 프레임과 주입 클립보드 포트·임시 LSP를 사용하고 egui 메모리 입력만 전달합니다. 실제 OS 합성 입력이나 사용자 앱/클립보드를 사용하지 않습니다. 제품 코드·UI/엔진/manifest/lock·동결 remote-web 변경은 없습니다.
+
+검증 명령은 cargo test --manifest-path native/taide-native-app/Cargo.toml --features inspection --locked --offline --target-dir experiments/native-shell-spike/target --lib application::context_menu_tests::실제_찾기_입력은_본문_메뉴_키를_차단하고_팔레트의_본문과_peek_대상을_보존한다 -- --exact --test-threads=1입니다. /private/tmp/taide-batch23-menu-find-actual.log는 최초 1통과/641filtered·23.74초·exit 0입니다. 해당 핸들은 종료했으며 같은 성공 검사를 반복하지 않습니다.
+
+제품 코드 불변의 직전 App 전체 881건·UI 최종 서로 다른 492건·frozen 성공을 재사용합니다. 현재 서로 다른 App 근거는 882건이며 전체 882건을 한 번에 실행한 결과가 아닙니다. 추가 보조 창/터미널 실패·종료/소유 범위는 미완료로 유지하고 editor-33 partial·완료 296/미완료 292·배치 23/최종 33·전체율/잔여 시간 미산정을 유지합니다.
