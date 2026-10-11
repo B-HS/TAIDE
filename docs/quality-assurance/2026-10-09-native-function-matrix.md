@@ -1,6 +1,6 @@
 # Rust-native 현재 기능 대응표
 
-기준: 2026-10-11, native 코드 25b5e8e9. [배치 14 감사](2026-10-09-native-batch14-function-audit.md)와 [전체 완료 근거](2026-10-09-native-completion-evidence.md)를 함께 읽습니다. 서브에이전트/workflow 없이 실제 Source·앱 도달·검증 경계를 대조했습니다.
+기준: 2026-10-11, native 코드 89bfd18b. [배치 14 감사](2026-10-09-native-batch14-function-audit.md)와 [전체 완료 근거](2026-10-09-native-completion-evidence.md)를 함께 읽습니다. 서브에이전트/workflow 없이 실제 Source·앱 도달·검증 경계를 대조했습니다.
 
 complete는 구현·실제 앱 경로·해당 동작 묶음의 자동 검사 근거가 있는 요구사항입니다. 전체 상태별 pixel·OS 입력·접근성·성능·출시 통과를 뜻하지 않습니다. partial은 일부 하위 동작/검증이 남은 항목, unwired는 모델/서비스/계약이 있으나 실제 소비자가 없는 항목, missing은 사용자 구현이 없는 항목입니다. not-applicable은 웹 기술/내부 지표 전용, frozen은 사용자 동결 범위입니다.
 
