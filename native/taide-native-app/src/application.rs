@@ -134,6 +134,9 @@ pub struct NativeApplication {
     editor_inlay_hints: crate::editor_inlay_hints::State,
     editor_code_lenses: crate::editor_code_lenses::State,
     editor_selection_ranges: crate::editor_selection_ranges::State,
+    editor_clipboard: crate::editor_context_menu::Clipboard,
+    editor_menu_changes: HashMap<DocumentId, ViewId>,
+    editor_terminal_writes: Vec<crate::editor_context_menu::TerminalDelivery>,
     peek_models: crate::peek_models::Models,
     workspace_symbols: crate::workspace_symbols::State,
     lsp_status_appearance: crate::lsp::status::Appearance,
@@ -450,6 +453,9 @@ impl NativeApplication {
             editor_inlay_hints: crate::editor_inlay_hints::State::default(),
             editor_code_lenses: crate::editor_code_lenses::State::default(),
             editor_selection_ranges: crate::editor_selection_ranges::State::default(),
+            editor_clipboard: crate::editor_context_menu::Clipboard::default(),
+            editor_menu_changes: HashMap::new(),
+            editor_terminal_writes: Vec::new(),
             peek_models: crate::peek_models::Models::default(),
             workspace_symbols: crate::workspace_symbols::State::default(),
             lsp_status_appearance: appearances.lsp_status,
@@ -960,6 +966,23 @@ impl NativeApplication {
                         }
                     }
                 }
+                HostReply::EditorClipboard { request, result } => {
+                    if self.closing.is_none()
+                        && !self.services.state.is_shutting_down()
+                        && request.target.is_active(&self.services.state)
+                        && self.editor_clipboard.finish(&request, &self.store)
+                    {
+                        match result {
+                            Ok(text) => {
+                                if let Err(error) = self.apply_editor_menu_clipboard(&request, text)
+                                {
+                                    self.report(&error);
+                                }
+                            }
+                            Err(error) => self.report(&error),
+                        }
+                    }
+                }
                 HostReply::CompletionClipboard { request, result } => {
                     let active = self
                         .services
@@ -1012,7 +1035,21 @@ impl NativeApplication {
                         }
                     }
                 }
+                HostReply::EditorTerminalTarget(result) => match result {
+                    Ok(delivery)
+                        if self.closing.is_none()
+                            && delivery.session(&self.services.state).is_some() =>
+                    {
+                        self.editor_terminal_writes.push(delivery)
+                    }
+                    Ok(_) => {}
+                    Err(error) => self.report(&error),
+                },
                 HostReply::TerminalAttached { tab, result } => {
+                    if result.is_err() {
+                        self.editor_terminal_writes
+                            .retain(|delivery| delivery.tab != tab);
+                    }
                     self.terminal_views.attached(
                         tab,
                         &result,
@@ -1836,6 +1873,25 @@ impl NativeApplication {
     }
 
     fn submit(&mut self, command: HostCommand) -> bool {
+        if let HostCommand::EditorContextMenu(request) = command {
+            #[cfg(test)]
+            let context = request.context.clone();
+            let result = self.run_editor_context_menu(request);
+            #[cfg(test)]
+            context.data_mut(|data| {
+                data.insert_temp(
+                    egui::Id::new("native-editor-context-menu-result"),
+                    format!("{result:?}"),
+                )
+            });
+            return match result {
+                Ok(handled) => handled,
+                Err(error) => {
+                    self.report(&error);
+                    false
+                }
+            };
+        }
         if let HostCommand::CodeActions {
             project,
             source,
@@ -2102,7 +2158,326 @@ impl NativeApplication {
         true
     }
 
+    fn run_editor_context_menu(
+        &mut self,
+        request: crate::editor_context_menu::Request,
+    ) -> AppResult<bool> {
+        #[cfg(test)]
+        {
+            let trace = (
+                request.invocation.action.id().to_owned(),
+                request.matches(&self.store),
+                request.is_active(&self.services.state),
+            );
+            request.context.data_mut(|data| {
+                data.insert_temp(
+                    egui::Id::new("native-editor-context-menu-invocation"),
+                    trace,
+                )
+            });
+        }
+        if self.closing.is_some()
+            || self.services.state.is_shutting_down()
+            || !request.matches(&self.store)
+            || !request.is_active(&self.services.state)
+        {
+            return Ok(false);
+        }
+        use taide_native_ui::editor_context_menu::Action;
+        let source = request.invocation.session.source;
+        let owner = request.invocation.session.owner;
+        let view =
+            self.store.views().get(source).ok_or_else(|| {
+                editor_error(taide_native_editor::document::EditorError::NotFound)
+            })?;
+        let snapshot = self
+            .store
+            .documents()
+            .snapshot(view.document)
+            .map_err(editor_error)?;
+        match request.invocation.action {
+            action @ (Action::Copy | Action::Cut | Action::Paste) => {
+                use crate::editor_context_menu::ClipboardOperation;
+                let operation = if action == Action::Paste {
+                    ClipboardOperation::Paste
+                } else {
+                    let Some(text) = taide_native_editor::editing::clipboard_text(
+                        &self.store,
+                        source,
+                        request.context.os() == egui::os::OperatingSystem::Windows,
+                    )
+                    .map_err(editor_error)?
+                    else {
+                        return Ok(false);
+                    };
+                    if action == Action::Cut {
+                        ClipboardOperation::Cut(text)
+                    } else {
+                        ClipboardOperation::Copy(text)
+                    }
+                };
+                let clipboard = self.editor_clipboard.begin(request, operation);
+                let submitted = self.submit(HostCommand::EditorClipboard(clipboard.clone()));
+                if !submitted {
+                    self.editor_clipboard.finish(&clipboard, &self.store);
+                }
+                Ok(submitted)
+            }
+            Action::ToggleMinimap => Ok(self.submit(HostCommand::ToggleEditorMinimap)),
+            Action::RunSelectedText => {
+                let selection = view.selection.selections[view.selection.primary];
+                let text = if selection.anchor == selection.head {
+                    snapshot
+                        .rope
+                        .line(snapshot.rope.byte_to_line(selection.head))
+                        .to_string()
+                        .trim_end_matches(['\r', '\n'])
+                        .to_owned()
+                } else {
+                    snapshot
+                        .rope
+                        .byte_slice(
+                            selection.anchor.min(selection.head)
+                                ..selection.anchor.max(selection.head),
+                        )
+                        .to_string()
+                };
+                let title = presentation::message(&self.locale, "terminal.title", &[]);
+                Ok(self.submit(HostCommand::RunEditorText(
+                    crate::editor_context_menu::TerminalRequest {
+                        target: request,
+                        payload: format!("{text}\n"),
+                        title,
+                    },
+                )))
+            }
+            Action::Command(id) => {
+                use crate::command_registry::{DocumentEdit, Execution, Run};
+                let execution = crate::command_registry::registry()?
+                    .command(&format!("monaco.{id}"))
+                    .map(|command| command.execution);
+                match execution {
+                    Some(Execution::Native(Run::RenameEditor)) => {
+                        if let Some(project) = request.project {
+                            self.request_editor_rename_from_source(project, source, owner);
+                            return Ok(true);
+                        }
+                    }
+                    Some(Execution::Native(Run::CodeActions(command))) => {
+                        if let Some(project) = request.project {
+                            self.request_editor_code_actions_from_source(
+                                project,
+                                source,
+                                owner,
+                                crate::editor_code_actions::Invocation {
+                                    command,
+                                    automatic: false,
+                                },
+                            );
+                            return Ok(true);
+                        }
+                    }
+                    Some(Execution::Native(Run::FormatEditor(command))) => {
+                        self.request_editor_formatting(
+                            &request.context,
+                            &request.owner_key.tab,
+                            Some(snapshot.id),
+                            command,
+                            Some((source, owner)),
+                        );
+                        return Ok(true);
+                    }
+                    Some(Execution::Native(Run::EditDocument(DocumentEdit::Cursor(command)))) => {
+                        let context = taide_native_editor::line_commands::LineCommandContext {
+                            indent: self.editor.indent_options(&snapshot),
+                            language: None,
+                            syntax: &taide_native_editor::language_configuration::UntokenizedLines,
+                            compare: None,
+                            transforms: None,
+                            word_rules: crate::editor_syntax::language_rules(
+                                &snapshot.metadata.language_id,
+                            )
+                            .or_else(|| crate::editor_syntax::language_rules("plaintext")),
+                        };
+                        taide_native_editor::cursor_commands::run_cursor_command(
+                            &mut self.store,
+                            source,
+                            command,
+                            context,
+                        )
+                        .map_err(editor_error)?;
+                        request.context.request_repaint();
+                        return Ok(true);
+                    }
+                    Some(Execution::Native(Run::EditDocument(DocumentEdit::Location(
+                        taide_native_editor::symbol_locations::Command::Request { kind, mode },
+                    )))) => {
+                        let Some((project, lsp)) = request.project.zip(self.lsp.as_ref()) else {
+                            return Ok(false);
+                        };
+                        let providers = lsp.location_providers(&project, &snapshot, kind);
+                        if providers.is_empty() {
+                            return Ok(false);
+                        }
+                        if mode == taide_native_editor::symbol_locations::Mode::Peek
+                            && self
+                                .editor_locations
+                                .current(source)
+                                .is_some_and(|session| {
+                                    session.shown
+                                        && session.request.kind == kind
+                                        && session.request.selection == view.selection
+                                })
+                        {
+                            self.editor_locations.close(source);
+                            return Ok(true);
+                        }
+                        let mut location = self
+                            .editor_locations
+                            .begin(project, &self.store, source, kind, mode, providers, None)
+                            .map_err(editor_error)?;
+                        self.editor_locations
+                            .set_viewport(&mut location, request.invocation.session.viewport);
+                        if lsp.symbol_locations(location.clone()).is_err() {
+                            self.editor_locations.close_request(&location);
+                            return Ok(false);
+                        }
+                        return Ok(true);
+                    }
+                    _ => {
+                        return Err(AppError::Internal(format!(
+                            "native editor menu command is unavailable: {id}"
+                        )));
+                    }
+                }
+                Ok(false)
+            }
+        }
+    }
+
+    fn apply_editor_menu_clipboard(
+        &mut self,
+        request: &crate::editor_context_menu::ClipboardRequest,
+        text: Option<String>,
+    ) -> AppResult<()> {
+        use crate::editor_context_menu::ClipboardOperation;
+        let source = request.target.invocation.session.source;
+        let owner = request.target.invocation.session.owner;
+        let view = self
+            .store
+            .views()
+            .get(source)
+            .ok_or_else(|| editor_error(taide_native_editor::document::EditorError::NotFound))?
+            .clone();
+        let snapshot = self
+            .store
+            .documents()
+            .snapshot(view.document)
+            .map_err(editor_error)?;
+        let mut formatting = None;
+        let changed = match &request.operation {
+            ClipboardOperation::Copy(copied) => {
+                taide_native_ui::editor_surface::remember_clipboard(
+                    &request.target.context,
+                    copied.clone(),
+                );
+                false
+            }
+            ClipboardOperation::Cut(copied) => {
+                let changed = taide_native_editor::editing::cut(&mut self.store, source)
+                    .map_err(editor_error)?;
+                taide_native_ui::editor_surface::remember_clipboard(
+                    &request.target.context,
+                    copied.clone(),
+                );
+                changed
+            }
+            ClipboardOperation::Paste => {
+                let text = text.ok_or_else(|| {
+                    AppError::Internal("native editor paste response has no text".into())
+                })?;
+                let selection = view.selection.selections[view.selection.primary];
+                let start = taide_native_editor::lsp::byte_to_position(
+                    &snapshot,
+                    selection.anchor.min(selection.head),
+                )
+                .map_err(editor_error)?;
+                let clipboard = taide_native_ui::editor_surface::clipboard_source(
+                    &request.target.context,
+                    &text,
+                );
+                self.store
+                    .set_composition(source, None)
+                    .map_err(editor_error)?;
+                let changed = taide_native_editor::editing::paste(
+                    &mut self.store,
+                    source,
+                    &text,
+                    clipboard.as_ref(),
+                )
+                .map_err(editor_error)?;
+                if changed {
+                    formatting = taide_native_ui::editor_formatting_input::Input::pasted(
+                        &self.store,
+                        source,
+                        start,
+                    )
+                    .map_err(editor_error)?;
+                }
+                changed
+            }
+        };
+        if changed {
+            self.editor_menu_changes.insert(snapshot.id, source);
+            let current = self
+                .store
+                .documents()
+                .snapshot(snapshot.id)
+                .map_err(editor_error)?;
+            let tabs: Vec<_> =
+                if let taide_native_editor::document::DocumentKey::AppFile(target) = current.key {
+                    self.app_file_views.changed(snapshot.id);
+                    crate::app_file_views::target_tabs(&self.services.state, target)
+                } else {
+                    self.store
+                        .views()
+                        .for_document(snapshot.id)
+                        .map(|view| view.key.tab.clone())
+                        .collect()
+                };
+            for tab in tabs {
+                self.pending_dirty.insert(tab, current.dirty);
+            }
+            if let Some(project) = &request.target.project {
+                if let Some(input) = formatting {
+                    self.submit(HostCommand::FormatEditorInput {
+                        project: project.clone(),
+                        source,
+                        owner,
+                        input,
+                    });
+                }
+            }
+        }
+        request.target.context.request_repaint();
+        Ok(())
+    }
+
     fn flush_dirty(&mut self) -> bool {
+        let queued = std::mem::take(&mut self.editor_terminal_writes);
+        for delivery in queued {
+            if self.closing.is_some() {
+                continue;
+            }
+            let Some(id) = delivery.session(&self.services.state) else {
+                continue;
+            };
+            if self.terminals.hub().get(&id).is_some() {
+                self.submit(HostCommand::WriteEditorText(delivery));
+            } else {
+                self.editor_terminal_writes.push(delivery);
+            }
+        }
         let pending: Vec<_> = self
             .pending_dirty
             .iter()
@@ -3474,7 +3849,10 @@ impl NativeApplication {
     }
 
     fn reconcile_lsp(&mut self) {
+        self.editor_clipboard
+            .reconcile(&self.store, &self.services.state);
         if self.closing.is_some() || self.services.state.is_shutting_down() {
+            self.editor_clipboard.clear();
             self.editor_formatting.clear();
             self.editor_rename.clear();
             self.editor_code_actions.clear();
@@ -5999,7 +6377,7 @@ impl eframe::App for NativeApplication {
         let mut save_missing_drafts = Vec::new();
         let mut load_untitled = Vec::new();
         let mut banner_actions = Vec::new();
-        let mut changed_documents = HashMap::new();
+        let mut changed_documents = std::mem::take(&mut self.editor_menu_changes);
         let mut new_focus = self.focused.clone();
         let mut status = self.status.take();
         let is_workspace_busy = self.workspace_busy();
@@ -8215,6 +8593,19 @@ impl AppSurfaces<'_> {
                         taide_native_editor::document::DocumentKey::AppFile(_) => path.unwrap_or(&tab.title).to_owned(),
                     },
                 };
+                let mut menu_keyboard_open = false;
+                if ui.is_enabled() {
+                    for _ in self.document_edits.extract_if(.., |(owner, edit)| owner == &tab.id && *edit == DocumentEdit::ContextMenu) {
+                        let preview = location_provider.state.current(view).and_then(|session| session.preview);
+                        if let Some(body) = ui.memory(|memory| memory.focused()).filter(|id| {
+                            self.editor_keymap_targets.get(&(ui.ctx().viewport_id(), *id)).is_some_and(|(source, _)| Some(*source) == preview)
+                        }) {
+                            taide_native_ui::editor_context_menu::request_keyboard(ui.ctx(), body, usize::MAX);
+                        } else {
+                            menu_keyboard_open = true;
+                        }
+                    }
+                }
                 let edited = ui.is_enabled()
                     && crate::command_dispatch::apply_document_edits_with_cursor(
                         self.store,
@@ -8329,7 +8720,8 @@ impl AppSurfaces<'_> {
                             request_focus: focus,
                             keymap: |ui: &Ui, event: &egui::Event, composing: bool| {
                                 let index = crate::keymap::event_index(ui.ctx(), event, &mut next);
-                                match terminal_views.route_editor_keymap(
+                                let before = keymap_actions.len();
+                                let routed = terminal_views.route_editor_keymap(
                                     crate::keymap::Route {
                                         context: ui.ctx(),
                                         event,
@@ -8350,7 +8742,12 @@ impl AppSurfaces<'_> {
                                     has_focused_shell,
                                     &completion_consumer,
                                     view,
-                                ) {
+                                );
+                                if keymap_actions.get(before).is_some_and(|id| id == "monaco.editor.action.showContextMenu") {
+                                    keymap_actions.remove(before);
+                                    taide_native_ui::editor_context_menu::request_keyboard(ui.ctx(), ui.make_persistent_id(("native-code-editor", view)), index);
+                                }
+                                match routed {
                                     Ok(true) => true,
                                     Ok(false) => {
                                         if !composing && let Some(command) = taide_native_ui::editor_find_widget::editor_shortcut(event, ui.ctx().os().is_mac(), find_visible) && (!command.requires_write() || !find_read_only) {
@@ -8390,6 +8787,21 @@ impl AppSurfaces<'_> {
                         code_lenses,
                     )
                     .map_err(editor_error)?;
+                let menu = crate::editor_context_menu::show(
+                    ui, self.store,
+                    taide_native_ui::editor_context_menu::Request {
+                        source: view, owner: view, response: &output.response, geometry: &output.geometry,
+                        keyboard_open: menu_keyboard_open, excluded: &[],
+                    },
+                    crate::editor_context_menu::Environment {
+                        project: editor_project, lsp: self.lsp, locale: Some(self.locale),
+                        overrides: preview_overrides.as_deref(), scope: self.scope, embedded: false,
+                    }, self.commands,
+                ).map_err(editor_error)?;
+                if menu.opened {
+                    *self.focused = Some((pane.clone(), tab.id.clone()));
+                    intents.push(ShellIntent::Mutate(ShellMutation::FocusPane(pane.clone())));
+                }
                 self.commands.append(&mut location_commands);
                 self.commands.append(&mut documentation_host_commands);
                 self.commands.append(&mut completion_host_commands);
@@ -8443,7 +8855,7 @@ impl AppSurfaces<'_> {
                 if output.response.clicked() {
                     intents.push(ShellIntent::Mutate(ShellMutation::FocusPane(pane.clone())));
                 }
-                if output.changed || edited || find_edited {
+                if output.changed || edited || find_edited || self.changed_documents.contains_key(&document) {
                     if matches!(tab.kind, TabKind::AppFile { .. }) {
                         self.app_file_views.changed(document);
                     }
@@ -8540,6 +8952,10 @@ mod inlay_hints_tests;
 #[cfg(all(test, unix))]
 #[path = "application-selection-ranges-tests.rs"]
 mod selection_ranges_tests;
+
+#[cfg(all(test, unix))]
+#[path = "application-context-menu-tests.rs"]
+mod context_menu_tests;
 #[cfg(all(test, unix))]
 #[path = "application-startup-tests.rs"]
 mod startup_tests;

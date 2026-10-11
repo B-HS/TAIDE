@@ -19,6 +19,10 @@ pub type ClipboardWriter = Arc<dyn Fn(&str) -> AppResult<()> + Send + Sync>;
 pub type ClipboardReader = Arc<dyn Fn() -> AppResult<String> + Send + Sync>;
 
 pub enum HostCommand {
+    EditorContextMenu(crate::editor_context_menu::Request),
+    EditorClipboard(crate::editor_context_menu::ClipboardRequest),
+    RunEditorText(crate::editor_context_menu::TerminalRequest),
+    WriteEditorText(crate::editor_context_menu::TerminalDelivery),
     CodeActions {
         project: ProjectId,
         source: taide_native_editor::view::ViewId,
@@ -223,6 +227,13 @@ pub enum HostCommand {
 }
 
 pub enum HostReply {
+    EditorTerminalTarget(
+        taide_model::error::AppResult<crate::editor_context_menu::TerminalDelivery>,
+    ),
+    EditorClipboard {
+        request: crate::editor_context_menu::ClipboardRequest,
+        result: AppResult<Option<String>>,
+    },
     DocumentationFileOpened {
         result: AppResult<crate::terminal_tabs::OpenedFileLink>,
     },
@@ -638,9 +649,71 @@ async fn dispatch(
     let terminals = integrations.terminals.as_ref();
     let reconcile = &integrations.reconcile;
     match command {
-        HostCommand::FormatEditorInput { .. }
+        HostCommand::EditorContextMenu(_)
+        | HostCommand::FormatEditorInput { .. }
         | HostCommand::RenameEditor { .. }
         | HostCommand::CodeActions { .. } => None,
+        HostCommand::RunEditorText(request) => Some(HostReply::EditorTerminalTarget(
+            crate::editor_context_menu::terminal_target(services, request).await,
+        )),
+        HostCommand::WriteEditorText(delivery) => {
+            let result = async {
+                let id = delivery.session(&services.state).ok_or_else(|| {
+                    AppError::NotFound("native editor terminal target is gone".into())
+                })?;
+                let session = terminals
+                    .and_then(|terminals| terminals.tabs.hub().get(&id))
+                    .filter(|session| {
+                        session.metadata().project_id() == &delivery.project
+                            && !session.is_finished()
+                            && session.failure().is_none()
+                    })
+                    .ok_or_else(|| {
+                        AppError::NotFound("native editor terminal session is unavailable".into())
+                    })?;
+                session.write_raw(services, delivery.payload).await
+            }
+            .await;
+            result.err().map(HostReply::Failed)
+        }
+        HostCommand::EditorClipboard(request) => {
+            let owner = request.clone();
+            let state = services.state.clone();
+            let writer = clipboard.clone();
+            let reader = read_clipboard.clone();
+            let result = services
+                .tasks
+                .run_blocking_result("native-editor-menu-clipboard", move || {
+                    if state.is_shutting_down()
+                        || owner.is_cancelled()
+                        || !owner.target.is_active(&state)
+                    {
+                        return Err(stopped());
+                    }
+                    let result = match &owner.operation {
+                        crate::editor_context_menu::ClipboardOperation::Copy(text)
+                        | crate::editor_context_menu::ClipboardOperation::Cut(text) => {
+                            writer(&text.text)?;
+                            None
+                        }
+                        crate::editor_context_menu::ClipboardOperation::Paste => {
+                            let text = reader()?;
+                            if text.len() > taide_model::file::REFUSED_FILE_BYTES as usize {
+                                return Err(AppError::InvalidArgument(
+                                    "native editor clipboard budget exceeded".into(),
+                                ));
+                            }
+                            Some(text)
+                        }
+                    };
+                    if state.is_shutting_down() || owner.is_cancelled() {
+                        return Err(stopped());
+                    }
+                    Ok(result)
+                })
+                .await;
+            Some(HostReply::EditorClipboard { request, result })
+        }
         HostCommand::OpenDocumentationFile(request) => Some(HostReply::DocumentationFileOpened {
             result: request.open(services).await,
         }),

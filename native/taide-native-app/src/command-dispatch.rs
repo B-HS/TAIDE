@@ -139,6 +139,7 @@ pub(crate) fn apply_document_edits_with_cursor(
                     | DocumentEdit::Completion(_)
                     | DocumentEdit::Highlight(_)
                     | DocumentEdit::CodeLens
+                    | DocumentEdit::ContextMenu
             )
     }) {
         let result = match edit {
@@ -182,6 +183,7 @@ pub(crate) fn apply_document_edits_with_cursor(
                 continue;
             }
             DocumentEdit::CodeLens => continue,
+            DocumentEdit::ContextMenu => continue,
         };
         match result {
             Ok(applied) => changed |= applied,

@@ -33,7 +33,7 @@ impl Input {
         })
     }
 
-    pub(crate) fn pasted(
+    pub fn pasted(
         store: &EditorStore,
         view: ViewId,
         start: Position,

@@ -22,6 +22,49 @@ const SCREEN: egui::Vec2 = vec2(700.0, 450.0);
 const POINTER_OFFSET: f32 = 1.0;
 const SCROLL_TEXT_REPEATS: usize = 80;
 
+#[test]
+fn 키보드_메뉴_요청_뒤_같은_프레임의_문자와_실행은_본문에_새지_않는다() {
+    let mut fixture = Fixture::new();
+    fixture.frame(Vec::new(), false);
+    let (body, menu, _) = fixture.frame(
+        vec![
+            Event::Key {
+                key: Key::F10,
+                physical_key: Some(Key::F10),
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers {
+                    shift: true,
+                    ..Modifiers::NONE
+                },
+            },
+            Event::Text("Copy".into()),
+            key(Key::Enter),
+        ],
+        false,
+    );
+    let document = fixture.store.views().get(fixture.view).unwrap().document;
+    assert_eq!(
+        menu.invocation.as_ref().map(|invocation| invocation.action),
+        Some(Action::Copy),
+        "opened={}, body_clicked={}, contents={}, focus={:?}",
+        menu.opened,
+        body.response.clicked(),
+        fixture.store.documents().snapshot(document).unwrap().rope,
+        fixture.context.memory(|memory| memory.focused())
+    );
+    assert_eq!(
+        fixture
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        TEXT
+    );
+}
+
 struct Fixture {
     context: egui::Context,
     store: EditorStore,
@@ -112,7 +155,14 @@ impl Fixture {
                         &mut self.store,
                         self.view,
                         self.time == FRAME_STEP,
-                        |_, _, _| false,
+                        |ui, event, _| {
+                            if matches!(event, Event::Key { key: Key::F10, pressed: true, modifiers, .. } if modifiers.shift) {
+                                let index = taide_native_ui::keymap::event_index(ui.ctx(), event, &mut 0);
+                                editor_context_menu::request_keyboard(ui.ctx(), ui.make_persistent_id(("native-code-editor", self.view)), index);
+                                return true;
+                            }
+                            false
+                        },
                         |response| response.ctx.keyboard_input_route(response.id),
                         &EditorPresentation::default(),
                     )

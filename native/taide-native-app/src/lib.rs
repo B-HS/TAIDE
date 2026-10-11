@@ -41,6 +41,8 @@ mod editor_code_lenses;
 mod editor_command_text;
 #[path = "editor-completion.rs"]
 mod editor_completion;
+#[path = "editor-context-menu.rs"]
+mod editor_context_menu;
 #[path = "editor-documentation.rs"]
 mod editor_documentation;
 #[path = "editor-documentation-code.rs"]

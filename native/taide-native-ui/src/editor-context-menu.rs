@@ -5,8 +5,7 @@ use taide_native_editor::view::{ScrollPosition, Selection, SelectionSet, ViewId,
 
 #[path = "editor-context-menu-widget.rs"]
 mod widget;
-pub(crate) use widget::owns_event;
-pub use widget::{Geometry, Invocation, Output, Request, show};
+pub use widget::{Geometry, Invocation, Output, Request, owns_event, request_keyboard, show};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {

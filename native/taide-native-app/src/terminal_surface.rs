@@ -2986,6 +2986,12 @@ impl Views {
             if let Some(node) = context.keyboard_focus_request_at(index) {
                 focused = context.previous_keyboard_target(node);
             }
+            if focused.is_some_and(|id| {
+                taide_native_ui::editor_context_menu::owns_event(context, id, index)
+            }) {
+                remaining.push(event);
+                continue;
+            }
             if focused.is_some_and(|id| local_event(id, &event)) {
                 if matches!(&event, Event::Key { key: egui::Key::Escape, pressed: true, modifiers, .. } if *modifiers == egui::Modifiers::NONE)
                     && self
@@ -3033,6 +3039,13 @@ impl Views {
                         overrides,
                     },
                     |decision| {
+                        if scope.editor
+                            && matches!(&decision, crate::keymap::Decision::Dispatch(id) | crate::keymap::Decision::ResolveChord(id) if id == "monaco.editor.action.showContextMenu")
+                            && let Some(body) = focused
+                        {
+                            taide_native_ui::editor_context_menu::request_keyboard(context, body, index);
+                            return true;
+                        }
                         application_keymap_decision(
                             decision,
                             actions,

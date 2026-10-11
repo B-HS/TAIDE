@@ -4283,6 +4283,18 @@ fn key_action(key: Key, modifiers: Modifiers, context: &InputContext<'_>) -> Opt
     })
 }
 
+#[cfg(feature = "native-host")]
+pub fn remember_clipboard(context: &egui::Context, text: ClipboardText) {
+    context.data_mut(|data| data.insert_temp(Id::new(CLIPBOARD_MEMORY), text));
+}
+
+#[cfg(feature = "native-host")]
+pub fn clipboard_source(context: &egui::Context, text: &str) -> Option<ClipboardText> {
+    context
+        .data(|data| data.get_temp::<ClipboardText>(Id::new(CLIPBOARD_MEMORY)))
+        .filter(|copied| is_same_clipboard_text(&copied.text, text))
+}
+
 fn is_same_clipboard_text(copied: &str, pasted: &str) -> bool {
     copied.replace("\r\n", "\n") == pasted.replace("\r\n", "\n")
 }

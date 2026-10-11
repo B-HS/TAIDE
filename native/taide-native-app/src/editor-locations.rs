@@ -162,6 +162,24 @@ pub(crate) struct State {
 }
 
 impl State {
+    pub(crate) fn set_viewport(
+        &mut self,
+        request: &mut Request,
+        viewport: eframe::egui::ViewportId,
+    ) {
+        request.viewport = viewport;
+        let sessions = if request.mode == Mode::Hover {
+            &mut self.hovers
+        } else {
+            &mut self.sessions
+        };
+        if let Some(session) = sessions.get_mut(&request.source)
+            && session.request.token == request.token
+        {
+            session.request.viewport = viewport;
+        }
+    }
+
     pub(crate) fn cancel_open(&mut self, view: ViewId) {
         if let Some(session) = self.sessions.get_mut(&view) {
             session.open = None;
@@ -1069,16 +1087,7 @@ impl Provider<'_, '_> {
         let mut request = self
             .state
             .begin(project, store, view, kind, mode, providers, position)?;
-        request.viewport = self.viewport;
-        if let Some(session) = (if mode == Mode::Hover {
-            &mut self.state.hovers
-        } else {
-            &mut self.state.sessions
-        })
-        .get_mut(&view)
-        {
-            session.request.viewport = self.viewport;
-        }
+        self.state.set_viewport(&mut request, self.viewport);
         if lsp.symbol_locations(request.clone()).is_err() {
             self.state.close_request(&request);
             return Ok(false);
@@ -1957,6 +1966,10 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
                             let crate::command_registry::Run::EditDocument(edit) = run else {
                                 return false;
                             };
+                            if edit == crate::command_registry::DocumentEdit::ContextMenu {
+                                taide_native_ui::editor_context_menu::request_keyboard(ui.ctx(), ui.make_persistent_id(("native-code-editor", preview)), index);
+                                return true;
+                            }
                             if let crate::command_registry::DocumentEdit::Cursor(command @ (taide_native_editor::cursor_commands::CursorCommand::Expand | taide_native_editor::cursor_commands::CursorCommand::Shrink)) = edit
                                 && let Some(consumer) = &self.selection_ranges
                             {
@@ -2055,6 +2068,27 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
                 }),
             inlay_hints,
             code_lenses,
+        )?;
+        crate::editor_context_menu::show(
+            &mut ui,
+            store,
+            taide_native_ui::editor_context_menu::Request {
+                source: preview,
+                owner: view,
+                response: &output.response,
+                geometry: &output.geometry,
+                keyboard_open: false,
+                excluded: &[],
+            },
+            crate::editor_context_menu::Environment {
+                project: self.project.as_ref(),
+                lsp: self.lsp,
+                locale: None,
+                overrides: self.overrides,
+                scope: self.scope,
+                embedded: true,
+            },
+            self.commands,
         )?;
         self.commands.append(&mut documentation_host_commands);
         if let Some(consumer) = &self.selection_ranges {

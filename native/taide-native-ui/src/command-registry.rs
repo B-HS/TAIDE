@@ -15,6 +15,7 @@ const MAC_PLATFORM: &str = "mac";
 pub const EDITOR_FIND_AVAILABLE: bool = cfg!(feature = "native-host");
 pub const EDITOR_SYNTAX_FOLDING_AVAILABLE: bool = cfg!(feature = "native-host");
 pub const EDITOR_LOCATIONS_AVAILABLE: bool = cfg!(feature = "native-host");
+pub const EDITOR_CONTEXT_MENU_AVAILABLE: bool = cfg!(feature = "native-host");
 pub const EDITOR_DOCUMENTATION_AVAILABLE: bool = cfg!(feature = "native-host");
 pub const EDITOR_HIGHLIGHTS_AVAILABLE: bool = cfg!(feature = "native-host");
 pub const EDITOR_FORMATTING_AVAILABLE: bool = cfg!(feature = "native-host");
@@ -102,6 +103,8 @@ pub enum DocumentEdit {
     Highlight(HighlightCommand),
     #[cfg(feature = "native-host")]
     CodeLens,
+    #[cfg(feature = "native-host")]
+    ContextMenu,
     #[cfg(feature = "native-host")]
     Indentation(taide_native_editor::indent::Command),
 }
@@ -333,6 +336,10 @@ fn enablement(id: &str) -> Enablement {
 }
 
 fn execution(id: &str, keymap_id: Option<&str>) -> Execution {
+    #[cfg(feature = "native-host")]
+    if id == "monaco.editor.action.showContextMenu" {
+        return Execution::Native(Run::EditDocument(DocumentEdit::ContextMenu));
+    }
     #[cfg(feature = "native-host")]
     if id == "monaco.codelens.showLensesInCurrentLine" {
         return Execution::Native(Run::EditDocument(DocumentEdit::CodeLens));
@@ -720,6 +727,10 @@ impl Registry {
                     }
                     #[cfg(feature = "native-host")]
                     Execution::Native(Run::EditDocument(DocumentEdit::CodeLens)) => {
+                        Some(action.to_owned())
+                    }
+                    #[cfg(feature = "native-host")]
+                    Execution::Native(Run::EditDocument(DocumentEdit::ContextMenu)) => {
                         Some(action.to_owned())
                     }
                     #[cfg(feature = "native-host")]
@@ -1175,6 +1186,8 @@ mod tests {
                 #[cfg(feature = "native-host")]
                 Execution::Native(Run::EditDocument(DocumentEdit::CodeLens)) => None,
                 #[cfg(feature = "native-host")]
+                Execution::Native(Run::EditDocument(DocumentEdit::ContextMenu)) => None,
+                #[cfg(feature = "native-host")]
                 Execution::Native(Run::EditDocument(DocumentEdit::Indentation(_))) => None,
                 Execution::Native(Run::EditDocument(
                     DocumentEdit::Line(_) | DocumentEdit::Cursor(_),
@@ -1188,6 +1201,21 @@ mod tests {
         assert_eq!(native, [before_folds, &fold_commands, after_folds].concat());
         #[cfg(feature = "native-host")]
         {
+            assert_eq!(
+                registry
+                    .command("monaco.editor.action.showContextMenu")
+                    .unwrap()
+                    .execution,
+                Execution::Native(Run::EditDocument(DocumentEdit::ContextMenu))
+            );
+            assert!(
+                registry
+                    .editor_action_ids(ActiveEditor {
+                        is_read_only: true,
+                        has_folding: false
+                    })
+                    .contains(&"editor.action.showContextMenu".to_owned())
+            );
             assert_eq!(
                 registry
                     .command("monaco.editor.action.rename")
@@ -1266,9 +1294,13 @@ mod tests {
                 }))
                 .chain(fold_actions.into_iter().filter(|_| has_folding))
                 .chain(
-                    ["editor.action.toggleStickyScroll", "taide.toggleMinimap"]
-                        .into_iter()
-                        .filter(|_| cfg!(feature = "native-host")),
+                    [
+                        "editor.action.toggleStickyScroll",
+                        "taide.toggleMinimap",
+                        "editor.action.showContextMenu",
+                    ]
+                    .into_iter()
+                    .filter(|_| cfg!(feature = "native-host")),
                 )
                 .chain(
                     [

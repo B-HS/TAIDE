@@ -76,7 +76,23 @@ struct State {
     submenu_search: Search,
 }
 
-pub(crate) fn owns_event(context: &egui::Context, body: Id, event_index: usize) -> bool {
+#[derive(Clone, Copy)]
+struct KeyboardRequest {
+    frame: u64,
+    index: usize,
+}
+
+pub fn request_keyboard(context: &egui::Context, body: Id, index: usize) {
+    let frame = context.cumulative_frame_nr();
+    context.data_mut(|data| {
+        data.insert_temp(
+            body.with("editor-context-menu-keyboard-request"),
+            KeyboardRequest { frame, index },
+        );
+    });
+}
+
+pub fn owns_event(context: &egui::Context, body: Id, event_index: usize) -> bool {
     if event_index == usize::MAX {
         return false;
     }
@@ -87,6 +103,30 @@ pub(crate) fn owns_event(context: &egui::Context, body: Id, event_index: usize) 
     });
     let mut focused = context.keyboard_focus_before_events();
     let events = context.input(|input| input.raw.events.clone());
+    let requested = context.data(|data| {
+        data.get_temp::<KeyboardRequest>(body.with("editor-context-menu-keyboard-request"))
+    });
+    if let Some(requested) = requested
+        && requested.frame == context.cumulative_frame_nr()
+        && requested.index < event_index
+        && !events
+            .iter()
+            .skip(requested.index + 1)
+            .take(event_index - requested.index)
+            .any(|event| {
+                matches!(
+                    event,
+                    Event::PointerButton { pressed: true, .. }
+                        | Event::WindowFocused(false)
+                        | Event::AccessKitActionRequest(egui::accesskit::ActionRequest {
+                            action: egui::accesskit::Action::Focus,
+                            ..
+                        })
+                )
+            })
+    {
+        return true;
+    }
     for (index, event) in events.iter().enumerate().take(event_index + 1) {
         if let Some(node) = context.keyboard_focus_request_at(index) {
             focused = context.previous_keyboard_target(node);
@@ -300,6 +340,14 @@ pub fn show(
     ui.ctx()
         .register_context_menu_keyboard_focus(response.id, menu_owner_id);
     let enabled = ui.is_enabled() && response.enabled() && ui.input(|input| input.raw.focused);
+    let frame = ui.ctx().cumulative_frame_nr();
+    let keyboard_open = keyboard_open
+        || ui.ctx().data(|data| {
+            data.get_temp::<KeyboardRequest>(
+                response.id.with("editor-context-menu-keyboard-request"),
+            )
+            .is_some_and(|request| request.frame == frame)
+        });
     let pointer_open = enabled
         && response.contains_pointer()
         && ui.input(|input| input.pointer.button_pressed(egui::PointerButton::Secondary));
@@ -327,6 +375,11 @@ pub fn show(
     };
     let was_open = state.session.is_some();
     if let Some((anchor, head)) = opening {
+        ui.ctx().data_mut(|data| {
+            data.remove::<KeyboardRequest>(
+                response.id.with("editor-context-menu-keyboard-request"),
+            );
+        });
         let before = store
             .views()
             .get(source)
@@ -362,7 +415,20 @@ pub fn show(
             !session.matches(store, source, owner, viewport)
                 || session.groups != groups(store, source)
         });
-    if invalid || response.clicked() || state.session.is_none() {
+    let body_pointer_click = response.clicked()
+        && ui.input(|input| {
+            input.raw.events.iter().any(|event| {
+                matches!(
+                    event,
+                    Event::PointerButton {
+                        button: egui::PointerButton::Primary,
+                        pressed: false,
+                        ..
+                    }
+                )
+            })
+        });
+    if invalid || body_pointer_click || state.session.is_none() {
         Popup::close_id(ui.ctx(), popup_id);
         state = State::default();
         if enabled && (was_open && !pointer_open || pointer_open && opening.is_none()) {
@@ -407,7 +473,7 @@ pub fn show(
             &root_items,
             &submenus,
             &mut state.root_search,
-            false,
+            output.opened,
         );
         open_submenu = navigation.open_submenu;
         if let Some(selected) = navigation.selected

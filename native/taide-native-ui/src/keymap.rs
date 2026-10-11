@@ -562,6 +562,19 @@ impl Keymap {
         } else {
             editor_parsed
         };
+        let editor_parsed = if command_registry::EDITOR_CONTEXT_MENU_AVAILABLE {
+            let mut entries = editor_parsed
+                .as_array()
+                .cloned()
+                .ok_or_else(|| AppError::Internal("native editor keymap is not an array".into()))?;
+            let menus: Vec<Value> =
+                serde_json::from_str(include_str!("editor-context-menu-keymap-defaults.json"))
+                    .map_err(|error| AppError::Internal(error.to_string()))?;
+            entries.extend(menus);
+            Value::Array(entries)
+        } else {
+            editor_parsed
+        };
         let editor_base = editor_parsed
             .as_array()
             .ok_or_else(|| AppError::Internal("native editor keymap is not an array".into()))?

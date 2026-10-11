@@ -1,0 +1,7 @@
+[
+    {
+        "id": "monaco.editor.action.showContextMenu",
+        "key": "F10",
+        "mods": ["shift"]
+    }
+]
