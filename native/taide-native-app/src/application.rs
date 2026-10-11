@@ -1037,8 +1037,7 @@ impl NativeApplication {
                 }
                 HostReply::EditorTerminalTarget(result) => match result {
                     Ok(delivery)
-                        if self.closing.is_none()
-                            && delivery.session(&self.services.state).is_some() =>
+                        if self.closing.is_none() && delivery.session(&self.services).is_some() =>
                     {
                         self.editor_terminal_writes.push(delivery)
                     }
@@ -2469,7 +2468,7 @@ impl NativeApplication {
             if self.closing.is_some() {
                 continue;
             }
-            let Some(id) = delivery.session(&self.services.state) else {
+            let Some(id) = delivery.session(&self.services) else {
                 continue;
             };
             if self.terminals.hub().get(&id).is_some() {

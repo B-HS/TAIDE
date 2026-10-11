@@ -927,6 +927,7 @@ fn actual_app의_문서_선택_peek와_저장_포맷은_현재_편집_폭과_소
     const CHANGED_SIZE: u32 = 2;
     const DISPLAY_SIZE: u32 = 8;
     const EXECUTABLE_MODE: u32 = 0o700;
+    const INVALID_UTF8_SUFFIX: &[u8] = b"\xff";
     let mut fixture = Fixture {
         directory: std::env::temp_dir().join(format!(
             "taide-native-format-options-app-{}",
@@ -1498,14 +1499,17 @@ fn actual_app의_문서_선택_peek와_저장_포맷은_현재_편집_폭과_소
     );
     assert_eq!(std::fs::read_to_string(&file).unwrap(), disk);
     assert_eq!(std::fs::read_to_string(&peek_file).unwrap(), peek_text);
-    let mut readonly =
-        taide_file::service::open_file(std::path::Path::new(&path), &[], false).unwrap();
-    readonly.read_only = true;
+    let mut readonly_disk = std::fs::read(&file).unwrap();
+    readonly_disk.extend_from_slice(INVALID_UTF8_SUFFIX);
+    std::fs::write(&file, &readonly_disk).unwrap();
+    let readonly = taide_file::service::open_file(std::path::Path::new(&path), &[], false).unwrap();
+    assert!(readonly.read_only && readonly.encoding_lossy);
     application
         .store
         .observe_file(document, std::path::Path::new(&path), readonly)
         .unwrap();
     let owner_before = application.store.documents().snapshot(document).unwrap();
+    assert!(owner_before.metadata.read_only && owner_before.metadata.lossy);
     context.memory_mut(|memory| memory.request_focus(peek_focus));
     application.palette.open(
         &context,
@@ -1568,7 +1572,8 @@ fn actual_app의_문서_선택_peek와_저장_포맷은_현재_편집_폭과_소
             true
         )
     );
-    assert_eq!(std::fs::read_to_string(&file).unwrap(), disk);
+    assert!(owner_after.metadata.lossy);
+    assert_eq!(std::fs::read(&file).unwrap(), readonly_disk);
     assert_eq!(std::fs::read_to_string(&peek_file).unwrap(), peek_text);
     assert!(application.store.undo(peek_document).unwrap());
     assert_eq!(
@@ -1586,7 +1591,7 @@ fn actual_app의_문서_선택_peek와_저장_포맷은_현재_편집_폭과_소
         application.editor_locations.current(view).unwrap().preview,
         Some(preview)
     );
-    assert_eq!(std::fs::read_to_string(&file).unwrap(), disk);
+    assert_eq!(std::fs::read(&file).unwrap(), readonly_disk);
     assert_eq!(std::fs::read_to_string(&peek_file).unwrap(), peek_text);
 }
 

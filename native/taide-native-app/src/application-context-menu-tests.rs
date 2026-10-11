@@ -19,6 +19,8 @@ const COMMAND: egui::Modifiers = egui::Modifiers {
     command: true,
     ..EMPTY
 };
+const STABLE_FRAMES: usize = 16;
+const AUXILIARY_SLOT: u32 = 1;
 
 fn fixture() -> Fixture {
     fixture_with_provider(
@@ -118,7 +120,10 @@ fn clipboard(application: &mut NativeApplication, context: &egui::Context) -> Ar
                 Ok(())
             }),
             Arc::new(move || Ok(reader.text.read().unwrap().clone())),
-            None,
+            Some(crate::host::Terminals {
+                tabs: application.terminals.clone(),
+                environment: crate::terminal_environment::provider(),
+            }),
         )
         .unwrap();
         let old = application.bridge.replace(bridge).unwrap();
@@ -452,10 +457,7 @@ fn 실제_터미널_대상은_같은_pane의_기존_탭을_우선하고_새_탭�
             },
         ))
         .unwrap();
-    assert_eq!(
-        first.session(&application.services.state).as_deref(),
-        Some("")
-    );
+    assert_eq!(first.session(&application.services).as_deref(), Some(""));
     let terminal = first.tab.clone();
     assert_eq!(first.payload, "class\n");
     runtime
@@ -513,9 +515,18 @@ fn 실제_터미널_대상은_같은_pane의_기존_탭을_우선하고_새_탭�
 }
 
 fn terminal_text(application: &NativeApplication, project: &ProjectId) -> Option<String> {
+    terminal_text_in_scope(application, project, &WindowScope::Main)
+}
+
+fn terminal_text_in_scope(
+    application: &NativeApplication,
+    project: &ProjectId,
+    scope: &WindowScope,
+) -> Option<String> {
     let layouts = application.services.state.layouts.read();
     let layout = layouts.get(project)?;
-    let session = crate::tabs::tabs_in(&layout.root)
+    let (root, _) = crate::symbol_sidebar::window_tree(project, layout, scope)?;
+    let session = crate::tabs::tabs_in(root)
         .into_iter()
         .find_map(|tab| match &tab.kind {
             TabKind::Terminal { session_id, .. } => application.terminals.hub().get(session_id),
@@ -876,6 +887,338 @@ fn 실제_찾기_입력은_본문_메뉴_키를_차단하고_팔레트의_본문
                 .rope
                 .to_string(),
             TEXT
+        );
+    }
+}
+
+#[test]
+fn 실제_추가_경계_터미널_연결_실패는_전달을_회수하고_다음_터미널로_재전송하지_않는다() {
+    let mut fixture = fixture();
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    application.services.state.settings.write().shell_override = Some(
+        fixture
+            .directory
+            .join("missing-shell")
+            .to_str()
+            .unwrap()
+            .into(),
+    );
+    let errors = application.toasts.inspection().len();
+    let label = presentation::message(&application.locale, "terminal.runSelectedText", &[]);
+    let view = body_view(application, &fixture.path, &fixture.tab);
+    select(application, view, 0, 0);
+    menu_action(application, context, view, &label);
+    wait(
+        application,
+        context,
+        "menu terminal attach failure",
+        |application| application.toasts.inspection().len() > errors,
+    );
+    assert!(
+        application
+            .toasts
+            .inspection()
+            .iter()
+            .any(|toast| { toast.kind == taide_native_ui::toast::Kind::Error })
+    );
+    assert!(
+        application
+            .services
+            .terminal
+            .sessions_for_project(&fixture.project)
+            .is_empty()
+    );
+    for _ in 0..STABLE_FRAMES {
+        eframe::App::logic(application, context, &mut eframe::Frame::_new_kittest());
+        paint(application, context, Vec::new());
+        assert!(application.editor_terminal_writes.is_empty());
+    }
+    let failed = {
+        let layouts = application.services.state.layouts.read();
+        crate::tabs::tabs_in(&layouts[&fixture.project].root)
+            .into_iter()
+            .find(|tab| matches!(tab.kind, TabKind::Terminal { .. }))
+            .unwrap()
+            .id
+            .clone()
+    };
+    application.request_close_tabs(vec![failed.clone()]);
+    wait(
+        application,
+        context,
+        "failed terminal tab close",
+        |application| {
+            !application.has_layout_tab(&failed)
+                && application.pending_tab_close.is_none()
+                && application
+                    .controller
+                    .snapshot()
+                    .focused_tab()
+                    .is_some_and(|tab| tab.id == fixture.tab)
+        },
+    );
+    application.services.state.settings.write().shell_override = Some("/bin/cat".into());
+    let view = body_view(application, &fixture.path, &fixture.tab);
+    select(application, view, 8, 18);
+    menu_action(application, context, view, &label);
+    wait(
+        application,
+        context,
+        "menu terminal after failure",
+        |application| {
+            terminal_text(application, &fixture.project).is_some_and(|text| text.contains("method"))
+        },
+    );
+    assert!(application.editor_terminal_writes.is_empty());
+    let text = terminal_text(application, &fixture.project).unwrap();
+    assert!(text.contains('\u{1f600}'));
+    assert!(!text.contains("class"));
+}
+
+#[test]
+fn 실제_추가_경계_보조창_메뉴는_클립보드와_터미널의_소유_pane을_보존한다() {
+    use taide_model::layout::{AuxWindowLayout, PaneNode};
+    let mut fixture = fixture();
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let main = body_view(application, &fixture.path, &fixture.tab);
+    select(application, main, 0, 0);
+    let pane = PaneId::new();
+    let auxiliary_tab = TabId::new();
+    let mut layout = application.services.state.layouts.read()[&fixture.project].clone();
+    layout.auxiliary_windows.push(AuxWindowLayout {
+        slot: AUXILIARY_SLOT,
+        root: PaneNode::Leaf {
+            id: pane.clone(),
+            tabs: vec![Tab {
+                id: auxiliary_tab.clone(),
+                kind: TabKind::File {
+                    path: fixture.path.clone(),
+                },
+                title: "current.rs".into(),
+                pinned: false,
+                preview: false,
+                dirty: false,
+                view_state: None,
+            }],
+            active: Some(auxiliary_tab.clone()),
+        },
+        focused_pane: pane.clone(),
+    });
+    taide_runtime::layout_actions::finish_mutation(
+        application.services.events.as_ref(),
+        &application.services.state,
+        &fixture.project,
+        &mut layout,
+    );
+    application
+        .services
+        .state
+        .layouts
+        .write()
+        .insert(fixture.project.clone(), layout.clone());
+    application
+        .controller
+        .apply_layouts(HashMap::from([(fixture.project.clone(), layout)]));
+    let scope = WindowScope::Auxiliary {
+        project: fixture.project.clone(),
+        slot: AUXILIARY_SLOT,
+    };
+    application.shell.scope = scope.clone();
+    paint(application, context, Vec::new());
+    let view = body_view(application, &fixture.path, &auxiliary_tab);
+    select(application, view, 8, 18);
+    let clipboard = clipboard(application, context);
+    let wrong_window = target(
+        application,
+        context,
+        &fixture.project,
+        view,
+        view,
+        Action::Copy,
+    );
+    assert!(!application.run_editor_context_menu(wrong_window).unwrap());
+    assert!(clipboard.writes.lock().unwrap().is_empty());
+    menu_action(application, context, view, "Copy");
+    wait(application, context, "auxiliary menu copy", |_| {
+        clipboard.writes.lock().unwrap().len() == 1
+    });
+    assert_eq!(*clipboard.text.read().unwrap(), "\u{1f600}method");
+    assert_eq!(
+        application
+            .store
+            .views()
+            .get(main)
+            .unwrap()
+            .selection
+            .selections,
+        vec![Selection { anchor: 0, head: 0 }]
+    );
+    application.services.state.settings.write().shell_override = Some("/bin/cat".into());
+    let label = presentation::message(&application.locale, "terminal.runSelectedText", &[]);
+    menu_action(application, context, view, &label);
+    wait(
+        application,
+        context,
+        "auxiliary menu terminal",
+        |application| {
+            terminal_text_in_scope(application, &fixture.project, &scope)
+                .is_some_and(|text| text.contains("method") && text.contains('\u{1f600}'))
+        },
+    );
+    assert!(application.editor_terminal_writes.is_empty());
+    let layouts = application.services.state.layouts.read();
+    let layout = &layouts[&fixture.project];
+    assert!(
+        !crate::tabs::tabs_in(&layout.root)
+            .iter()
+            .any(|tab| matches!(tab.kind, TabKind::Terminal { .. }))
+    );
+    let window = layout
+        .auxiliary_windows
+        .iter()
+        .find(|window| window.slot == AUXILIARY_SLOT)
+        .unwrap();
+    let PaneNode::Leaf {
+        id, tabs, active, ..
+    } = &window.root
+    else {
+        panic!()
+    };
+    assert_eq!(*id, pane);
+    let terminal = tabs
+        .iter()
+        .find(|tab| matches!(tab.kind, TabKind::Terminal { .. }))
+        .unwrap();
+    assert_eq!(active.as_ref(), Some(&terminal.id));
+    assert_eq!(
+        tabs.iter()
+            .filter(|tab| matches!(tab.kind, TabKind::Terminal { .. }))
+            .count(),
+        1
+    );
+    drop(layouts);
+    assert!(
+        terminal_text_in_scope(application, &fixture.project, &scope)
+            .is_some_and(|text| !text.contains("class"))
+    );
+    let runtime = application.runtime.handle().clone();
+    runtime
+        .block_on(taide_runtime::layout_actions::layout_activate_tab(
+            application.services.events.as_ref(),
+            &application.services.state,
+            auxiliary_tab,
+        ))
+        .unwrap();
+    let mut request = target(
+        application,
+        context,
+        &fixture.project,
+        view,
+        view,
+        Action::RunSelectedText,
+    );
+    request.scope = scope;
+    let queued = runtime
+        .block_on(crate::editor_context_menu::terminal_target(
+            &application.services,
+            crate::editor_context_menu::TerminalRequest {
+                target: request,
+                payload: "closed-window\n".into(),
+                title: "Terminal".into(),
+            },
+        ))
+        .unwrap();
+    application.editor_terminal_writes.push(queued);
+    let mut layout = application.services.state.layouts.read()[&fixture.project].clone();
+    layout.auxiliary_windows.clear();
+    taide_runtime::layout_actions::finish_mutation(
+        application.services.events.as_ref(),
+        &application.services.state,
+        &fixture.project,
+        &mut layout,
+    );
+    application
+        .services
+        .state
+        .layouts
+        .write()
+        .insert(fixture.project.clone(), layout);
+    assert!(application.flush_dirty());
+    assert!(application.editor_terminal_writes.is_empty());
+}
+
+#[test]
+fn 실제_추가_경계_종료한_터미널과_앱은_대기_전달을_회수한다() {
+    let mut fixture = fixture();
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    application.services.state.settings.write().shell_override = Some("/bin/cat".into());
+    let label = presentation::message(&application.locale, "terminal.runSelectedText", &[]);
+    let view = body_view(application, &fixture.path, &fixture.tab);
+    select(application, view, 8, 18);
+    menu_action(application, context, view, &label);
+    wait(
+        application,
+        context,
+        "terminal before close",
+        |application| {
+            terminal_text(application, &fixture.project).is_some_and(|text| text.contains("method"))
+        },
+    );
+    let session = application
+        .services
+        .terminal
+        .sessions_for_project(&fixture.project)[0]
+        .id
+        .clone();
+    let runtime = application.runtime.handle().clone();
+    for stopping in [false, true] {
+        runtime
+            .block_on(taide_runtime::layout_actions::layout_activate_tab(
+                application.services.events.as_ref(),
+                &application.services.state,
+                fixture.tab.clone(),
+            ))
+            .unwrap();
+        let queued = runtime
+            .block_on(crate::editor_context_menu::terminal_target(
+                &application.services,
+                crate::editor_context_menu::TerminalRequest {
+                    target: target(
+                        application,
+                        context,
+                        &fixture.project,
+                        view,
+                        view,
+                        Action::RunSelectedText,
+                    ),
+                    payload: "closed-session\n".into(),
+                    title: "Terminal".into(),
+                },
+            ))
+            .unwrap();
+        application.editor_terminal_writes.push(queued);
+        if stopping {
+            application.services.state.begin_shutdown();
+        } else {
+            runtime
+                .block_on(application.terminals.close(&session))
+                .unwrap();
+            assert!(application.terminals.hub().get(&session).is_none());
+            assert!(
+                application
+                    .services
+                    .terminal
+                    .sessions_for_project(&fixture.project)
+                    .is_empty()
+            );
+        }
+        assert!(application.flush_dirty());
+        assert!(
+            application.editor_terminal_writes.is_empty(),
+            "stale terminal delivery survived: stopping={stopping}"
         );
     }
 }

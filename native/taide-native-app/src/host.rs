@@ -658,7 +658,7 @@ async fn dispatch(
         )),
         HostCommand::WriteEditorText(delivery) => {
             let result = async {
-                let id = delivery.session(&services.state).ok_or_else(|| {
+                let id = delivery.session(services).ok_or_else(|| {
                     AppError::NotFound("native editor terminal target is gone".into())
                 })?;
                 let session = terminals

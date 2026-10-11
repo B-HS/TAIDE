@@ -44,10 +44,12 @@ pub struct TerminalDelivery {
     pane: taide_model::ids::PaneId,
     pub(crate) tab: taide_model::ids::TabId,
     pub(crate) payload: String,
+    initial_session: Option<String>,
 }
 
 impl TerminalDelivery {
-    pub(crate) fn session(&self, state: &taide_runtime::AppState) -> Option<String> {
+    pub(crate) fn session(&self, services: &taide_runtime::AppServices) -> Option<String> {
+        let state = &services.state;
         if state.is_shutting_down() {
             return None;
         }
@@ -63,7 +65,16 @@ impl TerminalDelivery {
         let taide_model::layout::TabKind::Terminal { session_id, .. } = &tab.kind else {
             return None;
         };
-        Some(session_id.clone())
+        let session = session_id.clone();
+        drop(layouts);
+        if self
+            .initial_session
+            .as_ref()
+            .is_some_and(|initial| *initial != session || services.terminal.cwd(initial).is_none())
+        {
+            return None;
+        }
+        Some(session)
     }
 }
 
@@ -106,11 +117,20 @@ pub(crate) async fn terminal_target(
                 tabs.iter()
                     .find(|tab| matches!(tab.kind, TabKind::Terminal { .. }))
             })
-            .map(|tab| tab.id.clone())
+            .and_then(|tab| match &tab.kind {
+                TabKind::Terminal { session_id, .. } => Some((tab.id.clone(), session_id.clone())),
+                _ => None,
+            })
     };
-    let tab = if let Some(tab) = existing {
+    let (tab, initial_session) = if let Some((tab, session)) = existing {
         taide_layout::service::activate_tab(layout, &tab)?;
-        tab
+        let initial_session = services
+            .terminal
+            .sessions_for_project(&project)
+            .iter()
+            .any(|current| current.id == session)
+            .then_some(session);
+        (tab, initial_session)
     } else {
         let tab = Tab {
             id: taide_model::ids::TabId::new(),
@@ -124,7 +144,10 @@ pub(crate) async fn terminal_target(
             dirty: false,
             view_state: None,
         };
-        taide_layout::service::open_tab(layout, &pane, tab, false)?
+        (
+            taide_layout::service::open_tab(layout, &pane, tab, false)?,
+            None,
+        )
     };
     taide_runtime::layout_actions::finish_mutation(
         services.events.as_ref(),
@@ -139,6 +162,7 @@ pub(crate) async fn terminal_target(
         pane,
         tab,
         payload: request.payload,
+        initial_session,
     })
 }
 
