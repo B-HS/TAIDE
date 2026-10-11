@@ -51,3 +51,5 @@ frozen remote-web host `cargo check --tests`는 24.20초·exit 0입니다. Wasm�
 Engine/Editor/frozen과 모든 Cargo.toml/Cargo.lock의 작업 diff는 0이며 디스크 여유는 331GiB/82%입니다. 빌드 정리나 보호 앱 변경은 하지 않았습니다.
 
 UI의 테스트 대상 컴파일도 `cargo check --tests --features inspection`에서 39.41초·exit 0입니다. 현재 소유 Cargo 핸들은 모두 종료했습니다. 전체 대상 실행이나 OS 실기 통과로 확대하지 않습니다.
+
+검증한 소유 8경로와 PROCESS 상단을 `6d7532cc`로 선별 저장했습니다. 제품 기능표의 코드 기준은 이 커밋으로 고정하며 이후 문서 전용 커밋으로 바꾸지 않습니다. 작업 PROCESS 하단의 기존 사용자 변경 SHA-256은 `7b26f85e8fdcbd03592f4c6722e88350d490341515c9175d0725ece101c1a4ed`를 보존했습니다.
