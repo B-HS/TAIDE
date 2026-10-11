@@ -5367,6 +5367,22 @@ impl NativeApplication {
                 }
             }
             Some(crate::command_palette::Action::RunCommand(id)) => {
+                if id == "monaco.editor.action.showContextMenu" {
+                    if let Some((source, owner)) = formatting_source
+                        && let Err(error) = crate::editor_context_menu::request_palette(
+                            context,
+                            &self.store,
+                            source,
+                            owner,
+                        )
+                    {
+                        self.report(&editor_error(error));
+                        return;
+                    }
+                    self.palette_commands.push(id);
+                    context.request_repaint();
+                    return;
+                }
                 if matches!(
                     id.as_str(),
                     "monaco.editor.action.smartSelect.expand"
@@ -8597,12 +8613,24 @@ impl AppSurfaces<'_> {
                 if ui.is_enabled() {
                     for _ in self.document_edits.extract_if(.., |(owner, edit)| owner == &tab.id && *edit == DocumentEdit::ContextMenu) {
                         let preview = location_provider.state.current(view).and_then(|session| session.preview);
-                        if let Some(body) = ui.memory(|memory| memory.focused()).filter(|id| {
-                            self.editor_keymap_targets.get(&(ui.ctx().viewport_id(), *id)).is_some_and(|(source, _)| Some(*source) == preview)
+                        let request = crate::editor_context_menu::take_palette(ui.ctx(), view);
+                        if request.as_ref().is_some_and(|request| {
+                            !request.matches(self.store, request.source, view, ui.ctx().viewport_id())
                         }) {
-                            taide_native_ui::editor_context_menu::request_keyboard(ui.ctx(), body, usize::MAX);
-                        } else {
+                            continue;
+                        }
+                        let source = request.map(|request| request.source).or_else(|| {
+                            ui.memory(|memory| memory.focused()).and_then(|id| {
+                                self.editor_keymap_targets.get(&(ui.ctx().viewport_id(), id))
+                                    .map(|(source, _)| *source).filter(|source| Some(*source) == preview)
+                            })
+                        }).unwrap_or(view);
+                        if source == view {
                             menu_keyboard_open = true;
+                        } else if Some(source) == preview
+                            && let Some(body) = crate::editor_context_menu::body(ui.ctx(), source)
+                        {
+                            taide_native_ui::editor_context_menu::request_keyboard(ui.ctx(), body, usize::MAX);
                         }
                     }
                 }

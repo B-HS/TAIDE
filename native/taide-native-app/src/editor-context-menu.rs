@@ -256,7 +256,6 @@ pub(crate) fn show(
     environment: Environment<'_>,
     commands: &mut Vec<crate::host::HostCommand>,
 ) -> Result<menu::Output, EditorError> {
-    #[cfg(test)]
     ui.ctx().data_mut(|data| {
         data.insert_temp(
             eframe::egui::Id::new(("native-editor-context-menu-body", request.source)),
@@ -297,13 +296,44 @@ pub(crate) fn show(
     Ok(output)
 }
 
-#[cfg(test)]
 pub(crate) fn body(context: &EguiContext, source: ViewId) -> Option<eframe::egui::Id> {
     context.data(|data| {
         data.get_temp(eframe::egui::Id::new((
             "native-editor-context-menu-body",
             source,
         )))
+    })
+}
+
+pub(crate) fn request_palette(
+    context: &EguiContext,
+    store: &EditorStore,
+    source: ViewId,
+    owner: ViewId,
+) -> Result<(), EditorError> {
+    let request = menu::Session::open(
+        store,
+        source,
+        owner,
+        context.viewport_id(),
+        eframe::egui::Pos2::ZERO,
+        Vec::new(),
+    )?;
+    context.data_mut(|data| {
+        data.insert_temp(
+            eframe::egui::Id::new(("native-editor-context-menu-palette", owner)),
+            request,
+        );
+    });
+    Ok(())
+}
+
+pub(crate) fn take_palette(context: &EguiContext, owner: ViewId) -> Option<menu::Session> {
+    let key = eframe::egui::Id::new(("native-editor-context-menu-palette", owner));
+    context.data_mut(|data| {
+        let request = data.get_temp(key);
+        data.remove::<menu::Session>(key);
+        request
     })
 }
 

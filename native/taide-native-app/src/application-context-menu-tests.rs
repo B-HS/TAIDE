@@ -1,6 +1,7 @@
 use super::inlay_hints_tests::{
     Fixture, body_view, fixture_with_provider, key, paint, text_contains, wait,
 };
+use super::selection_ranges_tests::run_palette;
 use super::*;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, RwLock};
@@ -575,4 +576,188 @@ fn 실제_메뉴의_현재줄과_선택은_준비된_동일_터미널에_raw로_
     assert_eq!(sessions[0].id, session);
     assert!(application.editor_terminal_writes.is_empty());
     assert!(terminal_text(application, &fixture.project).is_some_and(|text| !text.contains("end")));
+}
+
+#[test]
+fn 실제_추가_메뉴는_readonly_tier와_lossy의_공급_조건을_보존한다() {
+    let mut fixture = fixture();
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let view = body_view(application, &fixture.path, &fixture.tab);
+    let document = application.store.views().get(view).unwrap().document;
+    let clipboard = clipboard(application, context);
+    use taide_model::file::FileSizeTier;
+    for (tier, read_only, lossy, definition) in [
+        (FileSizeTier::Normal, false, false, true),
+        (FileSizeTier::Normal, true, false, true),
+        (FileSizeTier::Large, true, false, false),
+        (FileSizeTier::ReadOnly, true, false, false),
+        (FileSizeTier::Normal, true, true, false),
+        (FileSizeTier::Normal, false, false, true),
+    ] {
+        let mut file =
+            taide_file::service::open_file(std::path::Path::new(&fixture.path), &[], false)
+                .unwrap();
+        file.tier = tier;
+        file.read_only = read_only;
+        file.encoding_lossy = lossy;
+        application
+            .store
+            .observe_file(document, std::path::Path::new(&fixture.path), file)
+            .unwrap();
+        focus(application, context, view);
+        let output = paint(application, context, key(egui::Key::F10, SHIFT));
+        assert!(text_contains(&output, "Copy"));
+        assert_eq!(text_contains(&output, "Cut"), !read_only);
+        assert_eq!(text_contains(&output, "Paste"), !read_only);
+        assert_eq!(text_contains(&output, "Change All Occurrences"), !read_only);
+        assert_eq!(text_contains(&output, "Go to Definition"), definition);
+        paint(application, context, key(egui::Key::Escape, EMPTY));
+        assert_eq!(
+            application
+                .store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .rope
+                .to_string(),
+            TEXT
+        );
+    }
+    let mut file =
+        taide_file::service::open_file(std::path::Path::new(&fixture.path), &[], false).unwrap();
+    file.read_only = true;
+    application
+        .store
+        .observe_file(document, std::path::Path::new(&fixture.path), file)
+        .unwrap();
+    select(application, view, 8, 18);
+    menu_action(application, context, view, "Copy");
+    wait(application, context, "readonly menu copy", |_| {
+        clipboard.writes.lock().unwrap().len() == 1
+    });
+    assert_eq!(*clipboard.text.read().unwrap(), "\u{1f600}method");
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        TEXT
+    );
+}
+
+#[test]
+fn 실제_추가_팔레트_메뉴는_본문과_peek의_원래_입력_대상을_보존한다() {
+    let mut fixture = fixture();
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let view = body_view(application, &fixture.path, &fixture.tab);
+    let clipboard = clipboard(application, context);
+    focus(application, context, view);
+    run_palette(application, context, "monaco.editor.action.showContextMenu");
+    wait(
+        application,
+        context,
+        "body palette menu command",
+        |application| application.document_edits.is_empty(),
+    );
+    let output = paint(application, context, Vec::new());
+    assert!(
+        text_contains(&output, "Copy"),
+        "body palette menu missing; palette={:?}; commands={:?}; edits={:?}; menu={:?}; selection={:?}; focus={:?}",
+        application.palette.inspection(),
+        application.palette_commands,
+        application.document_edits,
+        context.data(
+            |data| data.get_temp::<String>(egui::Id::new("native-editor-context-menu-result"))
+        ),
+        application
+            .store
+            .views()
+            .get(view)
+            .unwrap()
+            .selection
+            .selections,
+        context.memory(|memory| memory.focused())
+    );
+    assert!(
+        context.data(|data| data.get_temp::<String>(egui::Id::new("native-editor-context-menu-result"))).is_none(),
+        "palette confirmation must not execute a menu item"
+    );
+    let mut events = vec![egui::Event::Text("Copy".into())];
+    events.extend(key(egui::Key::Enter, EMPTY));
+    paint(application, context, events);
+    wait(application, context, "palette body copy", |_| {
+        clipboard.writes.lock().unwrap().len() == 1
+    });
+    assert_eq!(*clipboard.text.read().unwrap(), "class\n");
+    select(application, view, 0, 0);
+    focus(application, context, view);
+    run_palette(application, context, "monaco.editor.action.peekDefinition");
+    wait(application, context, "palette menu peek", |application| {
+        application
+            .editor_locations
+            .current(view)
+            .is_some_and(|session| session.preview.is_some())
+    });
+    let preview = application
+        .editor_locations
+        .current(view)
+        .unwrap()
+        .preview
+        .unwrap();
+    select(application, preview, 8, 18);
+    focus(application, context, preview);
+    run_palette(application, context, "monaco.editor.action.showContextMenu");
+    wait(
+        application,
+        context,
+        "peek palette menu command",
+        |application| application.document_edits.is_empty(),
+    );
+    let output = paint(application, context, Vec::new());
+    assert!(text_contains(&output, "Copy"), "peek palette menu missing");
+    let mut events = vec![egui::Event::Text("Copy".into())];
+    events.extend(key(egui::Key::Enter, EMPTY));
+    paint(application, context, events);
+    wait(application, context, "palette peek copy", |_| {
+        clipboard.writes.lock().unwrap().len() == 2
+    });
+    assert_eq!(*clipboard.text.read().unwrap(), "\u{1f600}method");
+    assert_eq!(
+        application
+            .store
+            .views()
+            .get(view)
+            .unwrap()
+            .selection
+            .selections,
+        vec![Selection { anchor: 0, head: 0 }]
+    );
+    focus(application, context, preview);
+    run_palette(application, context, "monaco.editor.action.showContextMenu");
+    application.editor_locations.close(view);
+    wait(
+        application,
+        context,
+        "closed peek menu command",
+        |application| application.document_edits.is_empty(),
+    );
+    let output = paint(application, context, Vec::new());
+    assert!(!text_contains(&output, "Copy"));
+    assert_eq!(clipboard.writes.lock().unwrap().len(), 2);
+    let document = application.store.views().get(view).unwrap().document;
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        TEXT
+    );
 }

@@ -71,7 +71,11 @@ fn focus(application: &mut NativeApplication, context: &egui::Context, view: Vie
     paint(application, context, Vec::new());
 }
 
-fn run_palette(application: &mut NativeApplication, context: &egui::Context, command: &str) {
+pub(super) fn run_palette(
+    application: &mut NativeApplication,
+    context: &egui::Context,
+    command: &str,
+) {
     application.palette.open(
         context,
         taide_native_ui::command_registry::PaletteEntry::Commands,

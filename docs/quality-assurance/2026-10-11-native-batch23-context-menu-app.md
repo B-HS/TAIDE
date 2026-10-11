@@ -51,3 +51,19 @@ application-context-menu-tests.rs의 새 exact 검사에서 임시 앱의 shell_
 terminal-actual.log는 최초 1통과/638filtered·exit 0·8.19초입니다. 이 단위는 production 변경 없이 새 검사 1건만 추가했으므로 앞선 App 전체 878건·UI 최종 492건·frozen 결과를 재사용하며 App 전체를 다시 실행하지 않습니다. 현재 서로 다른 App 성공 근거는 879건이고 879건을 한 전체 실행에서 검사했다고 보고하지 않습니다. c9c2의 남은 앱 경계와 editor-33 partial·완료 296/미완료 292·배치 23/최종 33을 유지합니다.
 
 새 검사의 소유 Rust 1파일 fmt/diff check는 exit 0이며 최신 디스크 여유는 368GiB/사용 80%입니다. 실제 메뉴 전달을 검증한 해당 핸들은 exit 0으로 종료했습니다. 검증한 검사/QA·기능표·소유 PROCESS만 다음 선별 Git에 포함하며 외부 문서와 PROCESS 하단은 보존합니다.
+
+## 실제 공급 조건과 팔레트 소유 (c9c2b)
+
+- additional-app.log의 새 2건 최초 실행은 1통과/1실패·exit 101·30.19초입니다. 실제 메뉴에서 Normal/writable·Normal/readonly·Large·ReadOnly·lossy·Normal 복원의 탐색/수정/클립보드 항목과 readonly UTF-8 선택 복사·원문 보존은 통과했습니다. 물리 대형 문서 성능이나 실제 OS 클립보드를 검사한 것은 아닙니다.
+- 최초 팔레트 검사와 palette-diagnostic.log는 메뉴 확인 시점에 ContextMenu 명령이 아직 큐에 남아 있었습니다. 기존 10초 제한 안에서 명령 소비를 기다리도록 검사 전제를 수정했습니다. 시간을 늘리거나 임의 키 상태를 초기화하지 않았습니다.
+- palette-owned-source.log는 본문 메뉴/복사 이후 실제 peek 팔레트 복사의 결과가 선택 문자열 대신 본문의 현재 줄이라는 1실패·exit 101·9.07초를 재현했습니다. 팔레트를 닫은 뒤 현재 focus로 대상 preview를 추측하면서 원래 source를 잃었습니다.
+- App의 show_palette에서 닫기 전 source/owner·문서/선택/뷰포트를 세션으로 캡처하고 소유 본문에서 한 번만 회수합니다. 실제 body ID로 해당 peek의 메뉴를 열며 세션이 만료되면 본문 메뉴로 대체하지 않습니다. UI/엔진/manifest/lock/동결 source는 바꾸지 않았습니다.
+- 수정 뒤 palette-source-green.log의 1통과·9.15초와 닫힘 사례를 추가한 palette-close-green.log의 1통과·9.12초·exit 0을 확인했습니다. 같은 검사 1건이므로 합산하지 않습니다. 소유 4Rust fmt/diff는 exit 0이며 새 App 전체는 palette-app-all-targets.log에서 직접 1회 진행 중입니다. 이전 App 전체 878은 새 코드의 전체 성공으로 재사용하지 않습니다. App에 의존하지 않는 frozen host/Wasm과 source 불변 UI 492는 재사용합니다.
+
+- [x] 실제 metadata 공급·readonly 복사
+- [x] 본문/peek 팔레트 source·확정 키 중복 실행 방지·소비 전 peek 닫힘의 본문 대체 방지
+- [x] 새 App 전체 종료 결과·디스크·근거: 67대상/881통과/0실패·보호 Trash 3제외·exit 0, 여유 363GiB/사용 81%
+- [ ] 팔레트 source 수정 단위 선별 Git
+- [ ] 추가 찾기/보조 창·터미널 실패/종료/소유 scope와 c9 완료 게이트
+
+palette-app-all-targets.log의 새 App 전체는 exit 0으로 종료했습니다. 관련 2건·재검사와 앞선 PTY 1건은 이 전체에 포함되므로 합산하지 않습니다. 소유 4Rust fmt/diff check는 exit 0이고 native의 manifest/lock·UI/syntax/remote-web source 변경은 없습니다. frozen의 egui 입력 vendor 경로도 바꾸지 않았습니다. 현재 전체와 관련 검사 핸들은 모두 종료했으며 동일 성공 검사를 다시 실행하지 않습니다.
