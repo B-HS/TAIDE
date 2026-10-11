@@ -90,7 +90,7 @@ application-context-menu-tests.rs의 새 실제 App 검사 1건은 본문과 pee
 - [x] scoped NativeShell의 보조 창 복사·실제 PTY 전달·잘못된 Main scope 거절·본문 선택/터미널 보존·닫힌 창의 전달 회수
 - [x] 실제 연결 실패 후 16프레임 전달 회수·실제 실패 탭 닫기·다음 PTY에 이전 payload 미전달
 - [x] 실제 연결된 세션 종료의 대기 잔류 실패 재현·수정·앱 shutdown 회수
-- [ ] 현재 수정의 App 전체 --all-targets --no-fail-fast 직접 1회 종료·경계/fmt/디스크·선별 Git
+- [x] 현재 수정의 App 전체 직접 1회 종료·실패 exact/readonly 전제 수정·경계/fmt/디스크·선별 Git — 전체 exit 101과 프로젝트 열기 미해결을 보존
 - [ ] peek LSP 메뉴의 source/owner와 보조 창 팔레트의 활성 탭·c9 완료 게이트
 
 owner-failure.log의 새 2건은 0통과/2실패·exit 101·10.35초입니다. 보조 창 fixture는 같은 revision을 apply_layouts에만 넘겨 새 창이 표시되지 않았고, 연결 실패 검사에서는 탭 제거 직후 아직 닫기 인계가 끝나지 않았습니다. 실제 finish_mutation 발행과 pending_tab_close/활성 탭 완료 조건을 사용했습니다. owner-ready.log는 연결 실패 1통과/보조 창 1실패·exit 101·19.98초입니다. 후자는 주입 클립보드 helper가 HostBridge의 터미널 포트를 None으로 바꿔 실제 연결을 끊은 검사 전제 오류였습니다. helper에서 기존 Tabs와 실제 environment provider를 보존한 뒤 auxiliary-ports.log의 영향 1건이 23.49초·exit 0으로 통과했습니다. 성공한 연결 실패 검사를 다시 실행하지 않았으며 물리 보조 창/OS 입력 통과로 확대하지 않습니다.
@@ -112,3 +112,5 @@ startup 검사는 실제 writable 파일에서 OpenedFile.read_only만 true로 �
 startup-lossy.log는 DocumentMetadata의 실제 필드 lossy를 OpenedFile의 encoding_lossy로 가정해 컴파일 실패·실행 0건입니다. DocumentMetadata::from_opened의 실제 매핑을 확인한 뒤 lossy 단언으로 바로잡았으며 해당 로그를 통과 건수에 넣지 않습니다. startup-lossy-green.log의 영향 exact가 진행 중입니다.
 
 startup-lossy-green.log는 실제 lossy/read_only 원본과 writable peek의 포맷·undo·본문 rope/revision/dirty·readonly=true 및 디스크 bytes 보존이 1통과/644filtered·29.70초·exit 0입니다. 성공한 전체 대상은 재실행하지 않습니다. 현재 서로 다른 App 성공은 884건이고 프로젝트 열기 1건은 미해결입니다. 최초 전체 882통과/3실패·exit 101을 전체 성공으로 바꾸지 않습니다. 소유 5Rust rustfmt --check와 6경로 diff check는 exit 0이며 동결/manifest/lock/UI/Editor/엔진 변경은 없습니다. 디스크 여유는 353GiB/사용 81%이고 정리/OS 설정 변경을 실행하지 않았습니다. 모든 이번 Cargo 핸들은 종료했으며 선별 Git은 대기 중입니다.
+
+종료 회수 구현·새 App 3검사·readonly 전제 수정·QA·PROCESS 상단의 소유 7경로를 a4858343으로 선별 커밋하고 일반 푸시했습니다. 사용자 단독 author/AI 트레일러 없음·원격 0/0·빈 index를 확인했습니다. PROCESS의 이전 세션 하단 SHA-256은 7b26f85e8fdcbd03592f4c6722e88350d490341515c9175d0725ece101c1a4ed로 보존했고 외부 변경은 stage하지 않았습니다. 현재 기능표 기준은 실제 제품 코드 커밋 a4858343이며 이후 문서 커밋 때문에 기준을 다시 바꾸지 않습니다.

@@ -1,6 +1,6 @@
 {
     "date": "2026-10-11",
-    "baseline": "46e059aa",
+    "baseline": "a4858343",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1038,7 +1038,7 @@
                 "native/taide-native-ui/tests/editor-context-menu-widget.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-11-native-batch23-context-menu-app.md"],
-            "limitation": "실제 본문/peek·임시 PTY와 readonly/tier/lossy·팔레트 source/닫힘·찾기 입력의 Shift+F10 차단과 팔레트 source를 확인했습니다. 보조 창·터미널 실패/종료/소유 scope 및 c9 완료 게이트가 남아 partial입니다. 실제 OS 입력/시각/접근성·성능/출시는 별도이며 동결 remote-web 변경은 없습니다."
+            "limitation": "실제 본문/peek 클립보드·팔레트 source/닫힘·찾기 입력·readonly/tier/lossy·임시 PTY를 확인했습니다. 보조 창 복사/PTY/닫힘·연결 실패/다음 세션 미전달·세션 종료/앱 shutdown 회수도 확인했습니다. peek LSP 메뉴의 typed 위치 요청과 보조 창 팔레트 source·c9 게이트가 남아 partial입니다. 전체 App의 프로젝트 열기 시간 초과 및 LSP 준비의 최초 실패 원인은 배치 31 신뢰성 과제로 남습니다. 실제 OS 입력/시각/접근성·성능/출시는 별도이며 동결 remote-web 변경은 없습니다."
         }
     },
     "rows": [
@@ -2492,7 +2492,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-context-menu",
-            "note": "본문/peek 메뉴·레이블/재지정·주입 클립보드·정의 이동·실제 PTY 전달을 연결했습니다. 실제 readonly/tier/lossy 항목과 본문/peek 팔레트·소비 전 닫힘을 확인하고 peek의 원래 source 유실을 수정했습니다. 찾기 입력의 본문 메뉴 키 차단·포커스/선택과 팔레트 source는 새 실제 App 검사에서 통과했습니다. 보조 창·터미널 실패/종료/소유 scope와 완료 게이트는 남습니다."
+            "note": "본문/peek 메뉴·레이블/재지정·주입 클립보드·원래 팔레트 source·찾기 입력의 메뉴 키 차단과 readonly/tier/lossy 조건을 연결했습니다. 실제 PTY와 보조 창·연결 실패/재전송 차단·창/세션/앱 종료 회수를 확인하고 이미 종료한 세션의 대기 잔류를 수정했습니다. peek LSP 메뉴의 typed 위치 요청·보조 창 팔레트 source와 c9 완료 게이트는 남습니다."
         },
         {
             "id": "editor-34",
@@ -7632,5 +7632,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "c9c2c의 본문/peek 찾기 입력에서 Shift+F10의 본문 메뉴 차단·포커스/선택 보존과 팔레트의 원래 source 복사를 새 exact 1건 최초 실행·23.74초·exit 0으로 확인했습니다. 제품 코드 불변의 App 전체 67대상/881통과/0실패·보호 Trash 3제외와 UI 최종 492/frozen 성공을 재사용하며 서로 다른 현재 App 근거는 882건입니다. 전체 882건을 한 번에 실행한 것은 아닙니다. 검사 Rust 1파일 fmt/diff·디스크 여유 363GiB/사용 81%를 확인했습니다. 보조 창·터미널 실패/종료/소유 scope와 c9 완료 게이트가 남아 editor-33 partial·296완료/부분 92/미연결 112/미구현 88·292미완료·배치 23/최종 33·전체율/잔여 시간 미산정을 유지합니다.\n\n직전 제품 코드 검증:\n현재 c9c2b의 실제 readonly/tier/lossy·본문/peek 팔레트·소비 전 peek 닫힘을 확인하고 source 유실을 수정했습니다. 현재 App 전체 직접 1회는 67대상/881통과/0실패·보호 Trash 3제외·exit 0입니다. 관련 2건/재검사/PTY 검사는 전체에 포함돼 중복 합산하지 않습니다. UI 최종 492/frozen은 source 불변으로 재사용하며 소유 4Rust fmt/diff·manifest/lock/engine/동결 불변과 디스크 여유 363GiB/사용 81%를 확인했습니다. 추가 찾기/보조 창·터미널 실패/종료/소유 scope와 c9 완료 게이트가 남아 editor-33 partial·296완료/부분 92/미연결 112/미구현 88·292미완료·배치 23/최종 33·전체율/잔여 시간 미산정을 유지합니다.\n\n이전 c9c1/c9c2a 완료 근거: 현재 c9c1의 본문/peek 메뉴와 주입 클립보드·정의 이동·터미널 대상/준비 큐를 연결해 editor-33을 missing에서 partial로 갱신했습니다. 대상 588 중 완료 296/부분 92/미연결 112/미구현 88·미완료 292, 기존 배치 23 잔여 25·최종 33입니다. App 전체 직접 1회는 67대상/878통과/0실패·보호 Trash 3제외·exit 0이며 관련 4건을 중복 합산하지 않습니다. UI 전체 최초 491통과/1실패·exit 101 뒤 registry 기대값 영향 1통과로 서로 다른 최종 492건입니다. frozen host/Wasm·15Rust fmt/diff·manifest/lock/engine/동결 경계와 디스크 여유 369GiB/사용 80%를 확인했습니다. 추가 App 경계·실기/성능/출시·전환·제거가 남아 전체율/잔여 시간은 미산정입니다.\n\nc9c2a의 새 실제 메뉴→PTY 전달 exact 검사는 최초 1통과/638filtered·exit 0·8.19초입니다. production 불변의 전체 성공을 재사용해 서로 다른 App 근거는 879건이며 전체 879건을 한 번에 실행한 것은 아닙니다. 메뉴 연결 a81c8392는 소유 21경로를 선별 커밋·일반 푸시·원격 0/0으로 저장했습니다.\n\n이전 스마트 선택 완료 근거: ae7c95ed의 c8 실제 본문/peek typed 공급·명령·수명 근거로 editor-52만 partial→complete로 갱신했습니다. 599행·제외 10/동결 1·대상 588 중 완료 296/부분 91/미연결 112/미구현 89·미완료 292, 기존 배치 23 잔여 25·최종 33입니다. 행 수로 전체 전환율/잔여 시간을 계산하지 않습니다.\nSDK 전체 1대상/91통과와 Core 전체 39대상/306통과/기존 성능 1ignored는 각 직접 1회·exit 0입니다. App 전체 67대상/873통과/1실패·보호 Trash 3제외·exit 101 뒤 조건 변경 없는 실패 1통과로 서로 다른 현재 App 성공은 874건입니다. 변경 3크레이트의 서로 다른 1271건에 관련 12건/재검사/컴파일·필터 0건을 중복 합산하지 않습니다. 최초 phase=document 준비 시간 초과의 원인은 미확정이며 이전 c6/c7 부채와 함께 배치 31에 보존합니다. UI 471/Locale 20은 소스 불변으로 재사용했습니다. frozen host inspection 테스트 대상/Wasm canvas,inspection lib check와 소유 18Rust fmt·선별 diff는 exit 0입니다. manifest/lock/frozen source/graph/엔진/새 의존성 변경 0·빌드 정리/보호 데이터/OS 입력 없음, 디스크 389GiB/79%입니다. SDK 수정 741b74b9와 구현 ae7c95ed는 사용자 단독 author·AI 트레일러 없이 일반 푸시했고 upstream 0/0을 확인했습니다. 실기/성능/출시·전환·제거는 배치 31~33에 유지합니다."
+    "validation": "c9c2d의 실제 보조 창 복사/PTY·닫힌 창 회수·연결 실패/닫기/다음 세션 재전송 차단을 확인했습니다. 연결된 세션 종료 후 대기 payload 잔류를 실패 재현→소유 세션 ID/실제 store 생존 검증→관련 성공으로 수정했습니다. 현재 App 전체 직접 1회는 67대상/882통과/3실패·보호 3제외·exit 101입니다. 실패 LSP 준비는 변경 없는 exact 1통과·0.32초이며 readonly 검사는 실제 lossy 파일 정책으로 전제를 고친 영향 exact 1통과·29.70초입니다. 서로 다른 현재 App 성공은 884건이고 전체 884건을 한 번에 통과한 것은 아닙니다. 프로젝트 열기는 동일 준비 지점의 exact도 실패해 배치 31의 기존 신뢰성 과제로 유지하며 LSP 준비의 최초 실패 원인도 미확정입니다. 컴파일 실패 0건을 합산하지 않고 성공한 전체 대상을 반복하지 않습니다. UI 최종 서로 다른 492건과 frozen host/Wasm은 source/의존 경계 불변으로 재사용했습니다. 소유 5Rust fmt·관련 diff·동결/manifest/lock/UI/Editor/엔진 변경 없음과 디스크 여유 353GiB/사용 81%를 확인했습니다. 구현 a4858343의 7경로를 선별 커밋·일반 푸시했고 원격 0/0·사용자 단독 author·AI 트레일러 없음·빈 index를 확인했습니다. peek LSP 메뉴/보조 창 팔레트 source·c9 게이트가 남아 editor-33 partial·296완료/부분 92/미연결 112/미구현 88·292미완료·현재 23/최종 33·전체율/잔여 시간 미산정을 유지합니다. 이전 검증과 시행착오의 명령/로그/재현 근거는 각 QA에 보존합니다."
 }
