@@ -85,6 +85,11 @@ pub enum ShellIntent {
     RenameEditor {
         tab: TabId,
     },
+    #[cfg(feature = "native-host")]
+    CodeActions {
+        tab: TabId,
+        command: crate::editor_code_actions::Command,
+    },
     ShowOpenProjectNotice,
     ChangeEditorFontSize {
         increase: bool,

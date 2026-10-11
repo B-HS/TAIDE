@@ -1,0 +1,10 @@
+[
+    { "id": "monaco.editor.action.quickFix", "key": ".", "mods": ["mod"] },
+    { "id": "monaco.editor.action.refactor", "platform": "mac", "key": "R", "mods": ["ctrl", "shift"] },
+    { "id": "monaco.editor.action.refactor", "platform": "win", "key": "R", "mods": ["mod", "shift"] },
+    { "id": "monaco.editor.action.refactor", "platform": "linux", "key": "R", "mods": ["mod", "shift"] },
+    { "id": "monaco.editor.action.organizeImports", "key": "O", "mods": ["shift", "alt"] },
+    { "id": "monaco.editor.action.autoFix", "platform": "mac", "key": ".", "mods": ["mod", "alt"] },
+    { "id": "monaco.editor.action.autoFix", "platform": "win", "key": ".", "mods": ["shift", "alt"] },
+    { "id": "monaco.editor.action.autoFix", "platform": "linux", "key": ".", "mods": ["shift", "alt"] }
+]

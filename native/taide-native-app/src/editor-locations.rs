@@ -1028,6 +1028,8 @@ pub(crate) struct Provider<'a, 'state> {
     pub(crate) completion: Option<crate::editor_completion::Consumer<'a, 'state>>,
     pub(crate) highlights: Option<crate::editor_highlights::Consumer<'a, 'state>>,
     pub(crate) rename: Option<crate::editor_rename_controller::Consumer<'state>>,
+    pub(crate) code_actions: Option<crate::editor_code_actions_controller::Consumer<'state>>,
+    pub(crate) code_action_colors: Option<taide_native_ui::editor_code_actions::Colors>,
 }
 
 impl Provider<'_, '_> {
@@ -1150,14 +1152,17 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
             .current(view)
             .and_then(|session| session.preview)
             .is_some_and(|preview| {
-                self.rename.as_ref().is_some_and(|consumer| {
-                    consumer
-                        .0
-                        .borrow()
-                        .state
-                        .prepared()
-                        .is_some_and(|(request, _)| request.source == preview)
-                })
+                self.code_actions
+                    .as_ref()
+                    .is_some_and(|consumer| consumer.0.borrow().state.menu_open(preview))
+                    || self.rename.as_ref().is_some_and(|consumer| {
+                        consumer
+                            .0
+                            .borrow()
+                            .state
+                            .prepared()
+                            .is_some_and(|(request, _)| request.source == preview)
+                    })
             })
     }
     fn keyboard_link(&self, store: &EditorStore, view: ViewId) -> Option<(String, usize)> {
@@ -1784,7 +1789,16 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
         let rename_colors = self
             .find_appearance
             .map(taide_native_ui::editor_rename::Colors::from);
-        let output = self.editor.show_request_with_rename(
+        let mut code_action_provider = self.code_actions.as_ref().map(|consumer| {
+            crate::editor_code_actions_controller::Provider {
+                consumer: consumer.clone(),
+                lsp: self.lsp,
+                context: ui.ctx().clone(),
+                font: self.editor.appearance.font.clone(),
+                tab_size: self.editor.indent_options(&snapshot).tab_size,
+            }
+        });
+        let output = self.editor.show_request_with_code_actions(
             &mut ui,
             store,
             preview,
@@ -1878,6 +1892,22 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
                                 pending_folds.push(command);
                                 ui.ctx().request_repaint();
                                 return true;
+                            }
+                            if let crate::command_registry::Run::CodeActions(command) = run {
+                                if self.code_actions.is_some()
+                                    && self.lsp.is_some()
+                                    && let Some(project) = &self.project
+                                {
+                                    commands.push(crate::host::HostCommand::CodeActions {
+                                        project: project.clone(),
+                                        source: preview,
+                                        owner: view,
+                                        command,
+                                    });
+                                    ui.ctx().request_repaint();
+                                    return true;
+                                }
+                                return false;
                             }
                             if let crate::command_registry::Run::RenameEditor = run {
                                 if self.rename.is_some()
@@ -1976,6 +2006,15 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
                         colors,
                     )
                 }),
+            code_action_provider
+                .as_mut()
+                .zip(self.code_action_colors)
+                .map(|(provider, colors)| {
+                    (
+                        provider as &mut dyn taide_native_ui::editor_code_actions::Provider,
+                        colors,
+                    )
+                }),
         )?;
         self.commands.append(&mut documentation_host_commands);
         self.commands.append(&mut completion_host_commands);
@@ -1997,6 +2036,19 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
         {
             if let Some(consumer) = &self.highlights {
                 consumer.observe(store, self.project.as_ref(), view, preview);
+            }
+            if let Some(consumer) = &self.code_actions {
+                consumer.observe(
+                    store,
+                    self.project.as_ref(),
+                    preview,
+                    view,
+                    self.lsp,
+                    Instant::now(),
+                );
+                if let Some(delay) = consumer.0.borrow().next_refresh(Instant::now()) {
+                    ui.ctx().request_repaint_after(delay);
+                }
             }
         }
         if output.changed || store.documents().snapshot(document)?.revision != before_find {

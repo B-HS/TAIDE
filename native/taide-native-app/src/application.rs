@@ -161,6 +161,7 @@ pub struct NativeApplication {
     indentation_request: Option<crate::editor_indentation::Request>,
     editor_formatting: crate::editor_formatting::State,
     editor_rename: crate::editor_rename_controller::Controller,
+    editor_code_actions: crate::editor_code_actions_controller::Controller,
     settings_views: crate::settings_view::Views,
     app_file_views: crate::app_file_views::Views,
     settings_appearance: crate::settings_view::Appearance,
@@ -188,6 +189,7 @@ pub struct NativeApplication {
     editor_documentation_colors: taide_native_ui::editor_documentation::Colors,
     editor_completion_colors: taide_native_ui::editor_completion::Colors,
     editor_highlight_colors: crate::editor_highlights::Colors,
+    editor_code_action_colors: taide_native_ui::editor_code_actions::Colors,
     editor_sticky_scroll: taide_native_ui::editor_sticky_scroll::StickySetting,
     editor_syntax: crate::editor_syntax::EditorSyntax,
     editor_keymap_targets: HashMap<(egui::ViewportId, egui::Id), (ViewId, u64)>,
@@ -470,6 +472,7 @@ impl NativeApplication {
             indentation_request: None,
             editor_formatting: Default::default(),
             editor_rename: Default::default(),
+            editor_code_actions: Default::default(),
             settings_views,
             app_file_views: crate::app_file_views::Views::default(),
             settings_appearance: appearances.settings,
@@ -500,6 +503,7 @@ impl NativeApplication {
             editor_documentation_colors: appearances.editor_documentation,
             editor_completion_colors: appearances.editor_completion,
             editor_highlight_colors: appearances.editor_highlights,
+            editor_code_action_colors: appearances.editor_code_actions,
             editor_sticky_scroll,
             editor_syntax,
             editor_keymap_targets: HashMap::new(),
@@ -778,6 +782,8 @@ impl NativeApplication {
                                             appearances.editor_completion;
                                         self.editor_highlight_colors =
                                             appearances.editor_highlights;
+                                        self.editor_code_action_colors =
+                                            appearances.editor_code_actions;
                                         self.banner_appearance = appearances.banner;
                                         self.lsp_status_appearance = appearances.lsp_status;
                                         self.status_editor_appearance = appearances.status_editor;
@@ -1816,6 +1822,24 @@ impl NativeApplication {
     }
 
     fn submit(&mut self, command: HostCommand) -> bool {
+        if let HostCommand::CodeActions {
+            project,
+            source,
+            owner,
+            command,
+        } = command
+        {
+            self.request_editor_code_actions_from_source(
+                project,
+                source,
+                owner,
+                crate::editor_code_actions::Invocation {
+                    command,
+                    automatic: false,
+                },
+            );
+            return true;
+        }
         if let HostCommand::RenameEditor {
             project,
             source,
@@ -2121,6 +2145,7 @@ impl NativeApplication {
         self.editor_completion.clear();
         self.editor_highlights.clear();
         self.editor_rename.clear();
+        self.editor_code_actions.clear();
         if let Err(error) = self
             .editor_documentation
             .clear(&mut self.store, &mut self.editor_syntax)
@@ -3127,6 +3152,79 @@ impl NativeApplication {
             })
     }
 
+    fn request_editor_code_actions(
+        &mut self,
+        context: &egui::Context,
+        tab: &TabId,
+        fallback: Option<DocumentId>,
+        command: taide_native_ui::editor_code_actions::Command,
+        source: Option<(ViewId, ViewId)>,
+    ) {
+        let Some((source, owner)) =
+            source.or_else(|| self.focused_editor_source(context, tab, fallback))
+        else {
+            return;
+        };
+        let snapshot = self.controller.snapshot();
+        let Some(project) = snapshot.layouts.iter().find_map(|(project, layout)| {
+            taide_layout::service::all_roots(layout)
+                .any(|root| {
+                    crate::tabs::tabs_in(root)
+                        .iter()
+                        .any(|candidate| candidate.id == *tab)
+                })
+                .then_some(project.clone())
+        }) else {
+            return;
+        };
+        self.request_editor_code_actions_from_source(
+            project,
+            source,
+            owner,
+            crate::editor_code_actions::Invocation {
+                command,
+                automatic: false,
+            },
+        );
+    }
+
+    fn request_editor_code_actions_from_source(
+        &mut self,
+        project: ProjectId,
+        source: ViewId,
+        owner: ViewId,
+        invocation: crate::editor_code_actions::Invocation,
+    ) {
+        if self.closing.is_some() || self.is_exit_ready || self.services.state.is_shutting_down() {
+            return;
+        }
+        if source != owner && self.editor_locations.preview_owner(source) != Some(owner) {
+            return;
+        }
+        let shell = self.controller.snapshot();
+        if !self.store.views().get(owner).is_some_and(|owner| {
+            shell.layouts.get(&project).is_some_and(|layout| {
+                taide_layout::service::all_roots(layout).any(|root| {
+                    taide_native_ui::snapshot::active_tab(root, &owner.key.pane)
+                        .is_some_and(|tab| tab.id == owner.key.tab)
+                })
+            })
+        }) {
+            return;
+        }
+        self.reconcile_lsp();
+        let Some(lsp) = &self.lsp else {
+            return;
+        };
+        match self
+            .editor_code_actions
+            .begin(&self.store, project, source, owner, invocation, lsp)
+        {
+            Ok(_) | Err(taide_native_editor::document::EditorError::ReadOnly) => (),
+            Err(error) => self.status = Some(editor_error(error).to_string()),
+        }
+    }
+
     fn request_editor_rename(
         &mut self,
         context: &egui::Context,
@@ -3362,6 +3460,7 @@ impl NativeApplication {
         if self.closing.is_some() || self.services.state.is_shutting_down() {
             self.editor_formatting.clear();
             self.editor_rename.clear();
+            self.editor_code_actions.clear();
             return;
         }
         self.lsp_diagnostics.retain_documents(
@@ -3374,6 +3473,7 @@ impl NativeApplication {
         let Some(lsp) = self.lsp.as_mut() else {
             self.editor_formatting.clear();
             self.editor_rename.clear();
+            self.editor_code_actions.clear();
             self.editor_symbols.retain(&HashSet::new());
             self.editor_folding.retain(&HashSet::new());
             return;
@@ -3398,6 +3498,26 @@ impl NativeApplication {
                     })
             })
         });
+        self.editor_code_actions
+            .reconcile(&self.store, lsp, |request| {
+                self.store.views().get(request.owner).is_some_and(|owner| {
+                    rename_shell
+                        .layouts
+                        .get(&request.project)
+                        .is_some_and(|layout| {
+                            crate::symbol_sidebar::window_tree(
+                                &request.project,
+                                layout,
+                                &self.shell.scope,
+                            )
+                            .is_some_and(|(root, _)| {
+                                taide_native_ui::snapshot::active_tab(root, &owner.key.pane)
+                                    .is_some_and(|tab| tab.id == owner.key.tab)
+                            })
+                        })
+                }) && (request.source == request.owner
+                    || self.editor_locations.preview_owner(request.source) == Some(request.owner))
+            });
         if let Err(error) = lsp.reconcile_models(&mut self.store) {
             self.status = Some(error.to_string());
             return;
@@ -3551,6 +3671,54 @@ impl NativeApplication {
                 || !self.submit(HostCommand::ReadCompletionClipboard(request.clone()))
             {
                 self.editor_completion.close(request.source);
+            }
+        }
+    }
+
+    fn consume_code_action_navigation(&mut self, finished: crate::editor_code_actions::Finished) {
+        use taide_native_editor::symbol_locations::{Kind, Mode};
+        let source = finished.request.source;
+        let Some(view) = self.store.views().get(source) else {
+            return;
+        };
+        let Ok(snapshot) = self.store.documents().snapshot(view.document) else {
+            return;
+        };
+        let same =
+            crate::editor_locations::file_path(&finished.navigation.uri).is_some_and(|path| {
+                snapshot.key == taide_native_editor::document::DocumentKey::File(path)
+            });
+        let position = if same {
+            Some(finished.navigation.position)
+        } else {
+            None
+        };
+        let providers = HashSet::from([finished.provider]);
+        let Ok(request) = self.editor_locations.begin(
+            finished.request.project,
+            &self.store,
+            source,
+            Kind::References,
+            finished.navigation.mode,
+            providers.clone(),
+            position,
+        ) else {
+            return;
+        };
+        let response = crate::editor_locations::Response {
+            groups: vec![crate::editor_locations::Group {
+                provider: finished.provider,
+                targets: finished.navigation.targets,
+            }],
+        };
+        if let Ok(Some(model)) =
+            self.editor_locations
+                .accept(&request, &self.store, providers, Ok(response))
+        {
+            if request.mode == Mode::GoTo {
+                self.consume_location_model(request, model);
+            } else {
+                self.editor_locations.show(source);
             }
         }
     }
@@ -4591,6 +4759,20 @@ impl NativeApplication {
                 }
             }
             Some(crate::command_palette::Action::RunCommand(id)) => {
+                if let Some(command) =
+                    taide_native_ui::editor_code_actions::Command::from_action(&id)
+                    && let Some((tab, _)) = active_file
+                {
+                    self.request_editor_code_actions(
+                        context,
+                        &tab.id,
+                        active_document.as_ref().map(|document| document.id),
+                        command,
+                        formatting_source,
+                    );
+                    context.request_repaint();
+                    return;
+                }
                 if id == "monaco.editor.action.rename"
                     && let Some((tab, _)) = active_file
                 {
@@ -4761,6 +4943,7 @@ impl NativeApplication {
                 self.editor_documentation_colors = appearances.editor_documentation;
                 self.editor_completion_colors = appearances.editor_completion;
                 self.editor_highlight_colors = appearances.editor_highlights;
+                self.editor_code_action_colors = appearances.editor_code_actions;
                 self.banner_appearance = appearances.banner;
                 self.lsp_status_appearance = appearances.lsp_status;
                 self.status_editor_appearance = appearances.status_editor;
@@ -4896,6 +5079,20 @@ impl NativeApplication {
         {
             self.status = Some(crate::toast::describe_error(&self.locale, &error));
             self.toasts.ipc_error(&self.locale, &error, Instant::now());
+        }
+        if let Some(lsp) = &self.lsp {
+            self.editor_code_actions.dispatch(lsp, Instant::now());
+            if let Some(delay) = self.editor_code_actions.next_refresh(Instant::now()) {
+                context.request_repaint_after(delay);
+            }
+            let (error, finished) = self.editor_code_actions.poll(&self.store, lsp);
+            if let Some(error) = error {
+                self.status = Some(crate::toast::describe_error(&self.locale, &error));
+                self.toasts.ipc_error(&self.locale, &error, Instant::now());
+            }
+            if let Some(finished) = finished {
+                self.consume_code_action_navigation(finished);
+            }
         }
         self.terminal_views.chord_status(context, Instant::now());
         let (show_usage, hide_in_zen) = {
@@ -5175,9 +5372,42 @@ impl eframe::App for NativeApplication {
                             "editor.action.formatDocument".to_owned(),
                             "editor.action.formatSelection".to_owned(),
                             "editor.action.rename".to_owned(),
+                            "editor.action.quickFix".to_owned(),
+                            "editor.action.refactor".to_owned(),
+                            "editor.action.sourceAction".to_owned(),
+                            "editor.action.organizeImports".to_owned(),
+                            "editor.action.fixAll".to_owned(),
+                            "editor.action.autoFix".to_owned(),
                         ]);
                     }
                     actions.retain(|action| {
+                        if let Some(command) =
+                            taide_native_ui::editor_code_actions::Command::from_action(action)
+                        {
+                            return writable_source
+                                && focused_view
+                                    .as_ref()
+                                    .and_then(|key| {
+                                        let fallback = self
+                                            .store
+                                            .views()
+                                            .find(key)
+                                            .and_then(|view| self.store.views().get(view))
+                                            .map(|view| view.document);
+                                        self.focused_editor_source(&context, &key.tab, fallback)
+                                    })
+                                    .and_then(|(source, _)| self.store.views().get(source))
+                                    .and_then(|source| {
+                                        self.store.documents().snapshot(source.document).ok()
+                                    })
+                                    .zip(snapshot.focused_project())
+                                    .is_some_and(|(document, project)| {
+                                        self.lsp.as_ref().is_some_and(|lsp| {
+                                            !lsp.code_action_providers(project, &document, command)
+                                                .is_empty()
+                                        })
+                                    });
+                        }
                         if action == "editor.action.rename" {
                             return writable_source
                                 && focused_view
@@ -5483,7 +5713,9 @@ impl eframe::App for NativeApplication {
                     self.editor_keymap_targets
                         .get(&(viewport, id))
                         .is_some_and(|(view, _)| {
-                            self.editor_rename.local_key(*view, event)
+                            self.editor_code_actions
+                                .local_key(&self.store, *view, event)
+                                || self.editor_rename.local_key(*view, event)
                                 || self.editor_locations.local_key(*view, event)
                         })
                 },
@@ -5549,6 +5781,7 @@ impl eframe::App for NativeApplication {
             editor_problems: &mut self.editor_problems,
             editor_locations: &mut self.editor_locations,
             editor_rename: &mut self.editor_rename,
+            editor_code_actions: &mut self.editor_code_actions,
             editor_documentation: &mut self.editor_documentation,
             editor_completion: &mut self.editor_completion,
             editor_highlights: &mut self.editor_highlights,
@@ -5567,6 +5800,7 @@ impl eframe::App for NativeApplication {
             editor_documentation_colors: self.editor_documentation_colors,
             editor_completion_colors: self.editor_completion_colors,
             editor_highlight_colors: self.editor_highlight_colors,
+            editor_code_action_colors: self.editor_code_action_colors,
             editor_sticky_scroll: self.editor_sticky_scroll.synchronize(
                 self.services
                     .state
@@ -6018,6 +6252,16 @@ impl eframe::App for NativeApplication {
                         );
                         context.request_repaint();
                     }
+                    ShellIntent::CodeActions { tab, command } => {
+                        self.request_editor_code_actions(
+                            &context,
+                            &tab,
+                            keymap_documents.get(&tab).copied(),
+                            command,
+                            None,
+                        );
+                        context.request_repaint();
+                    }
                     ShellIntent::RenameEditor { tab } => {
                         self.request_editor_rename(
                             &context,
@@ -6450,6 +6694,7 @@ struct AppSurfaces<'a> {
     editor_problems: &'a mut crate::editor_problems::State,
     editor_locations: &'a mut crate::editor_locations::State,
     editor_rename: &'a mut crate::editor_rename_controller::Controller,
+    editor_code_actions: &'a mut crate::editor_code_actions_controller::Controller,
     editor_documentation: &'a mut crate::editor_documentation::State,
     editor_completion: &'a mut crate::editor_completion::State,
     editor_highlights: &'a mut crate::editor_highlights::State,
@@ -6468,6 +6713,7 @@ struct AppSurfaces<'a> {
     editor_documentation_colors: taide_native_ui::editor_documentation::Colors,
     editor_completion_colors: taide_native_ui::editor_completion::Colors,
     editor_highlight_colors: crate::editor_highlights::Colors,
+    editor_code_action_colors: taide_native_ui::editor_code_actions::Colors,
     editor_sticky_scroll: bool,
     editor_syntax: &'a mut crate::editor_syntax::EditorSyntax,
     banner_appearance: &'a BannerAppearance,
@@ -7537,7 +7783,10 @@ impl AppSurfaces<'_> {
                     completion: Some(completion_consumer.clone()),
                     highlights: Some(highlight_consumer.clone()),
                     rename: Some(crate::editor_rename_controller::Consumer(std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_rename)))),
+                    code_actions: Some(crate::editor_code_actions_controller::Consumer(std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_code_actions)))),
+                    code_action_colors: Some(self.editor_code_action_colors),
                 };
+                let mut code_action_provider = crate::editor_code_actions_controller::Provider { consumer: location_provider.code_actions.as_ref().expect("code action consumer").clone(), lsp: self.lsp, context: ui.ctx().clone(), font: editor.appearance.font.clone(), tab_size: editor.indent_options(&snapshot).tab_size };
                 let mut rename_provider = crate::editor_rename_controller::Provider {
                     consumer: location_provider.rename.as_ref().expect("rename consumer").clone(), lsp: self.lsp,
                 };
@@ -7662,7 +7911,7 @@ impl AppSurfaces<'_> {
                 location_provider.find_history = Some(self.find_history);
                 location_provider.find_appearance = Some(self.find_appearance);
                 let output = editor
-                    .show_request_with_rename(
+                    .show_request_with_code_actions(
                         ui,
                         self.store,
                         view,
@@ -7726,6 +7975,7 @@ impl AppSurfaces<'_> {
                         },
                         |_, _, _, _, _| false,
                         Some((&mut rename_provider, self.find_appearance.into())),
+                        Some((&mut code_action_provider, self.editor_code_action_colors)),
                     )
                     .map_err(editor_error)?;
                 self.commands.append(&mut location_commands);
@@ -7739,6 +7989,8 @@ impl AppSurfaces<'_> {
                     memory.has_focus(*id) && !preview_focus_targets.iter().any(|(target, _)| target == id)
                 })) {
                     highlight_consumer.observe(self.store, editor_project, view, view);
+                    code_action_provider.consumer.observe(self.store, editor_project, view, view, self.lsp, Instant::now());
+                    if let Some(delay) = code_action_provider.consumer.0.borrow().next_refresh(Instant::now()) { ui.ctx().request_repaint_after(delay); }
                 }
                 if let Some(error) = fold_control_error {
                     *self.status = Some(error.to_string());
@@ -7861,6 +8113,9 @@ fn media_appearance(
 #[path = "application-exit-tests.rs"]
 mod exit_tests;
 
+#[cfg(all(test, unix))]
+#[path = "application-code-actions-tests.rs"]
+mod code_actions_tests;
 #[cfg(all(test, unix))]
 #[path = "application-startup-tests.rs"]
 mod startup_tests;

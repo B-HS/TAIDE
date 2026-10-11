@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: 배치 23 c5b Code Action 목록/전구의 공통 UI와 선택 API를 연결하고 검증했습니다. UI 전체 24대상은 최초 454통과/2실패·exit 101, 실패 영향과 검사 강화 뒤 새 메뉴 11건은 모두 통과해 서로 다른 최종 458건입니다. 포인터가 방향키 선택을 덮는 실패와 클릭 포커스/fixture sizing 문제의 실제 실패·수정을 QA에 보존하며 전체 실행을 exit 0으로 보고하지 않습니다. 현재 App 전체 테스트 대상 컴파일 exit 0(2분 46초)·UI fmt·frozen host/Wasm 컴파일 exit 0, 동결/manifest/lock 변경 0·디스크 448GiB/76%입니다. 앞선 SDK 공급자 옵션은 19c573e9로 일반 푸시했고 변경 없는 전체 89통과 근거를 재사용합니다. 기능표는 588대상·290완료·partial 93·unwired 112·missing 93·298미완료·배치 23 미완료 31, 현재 23/최종 33입니다. c5의 실제 App typed 요청/resolve/선택 적용·테마/번역·자동 요청/전구 위치·기본 키/팔레트·본문/peek·실제 child/App와 내장 공급자/editor-57·실기/보호 Trash/출시·전환·제거는 미완료입니다. 전체 전환율/잔여 시간은 미산정, main 직접 수행·서브에이전트/workflow 없음입니다.
+현재 상태: 배치 23 c5c의 실제 Code Action 기본 소비를 상태 7·child 3·실제 App 2의 관련 12건에서 확인했습니다. SDK 전체 90통과·exit 0, UI 전체 24대상/456통과/3실패·exit 101 뒤 영향 registry 14/플랫폼 키 1통과로 최종 서로 다른 UI 459건, 현재 App 전체 67대상/835통과/0실패·보호 Trash 3제외·exit 0입니다. 전체는 각 1회이며 같은 성공을 반복하거나 UI 최초 exit 101을 바꾸지 않습니다. frozen host/Wasm 컴파일 exit 0·native App/UI 소유 22Rust fmt check exit 0·동결/manifest/lock 변경 0·디스크 438GiB/77%를 확인했습니다. SDK 등록 범위 수정은 0e81a8d4로 독립 저장했고 검증한 App 소비/문서/소유 PROCESS를 선별 저장 중입니다. editor-47 missing→partial, 현재 588대상·290완료·partial 94·unwired 112·missing 92·298미완료·배치 23 미완료 31, 배정 누락/중복/알 수 없는 ID 각각 0입니다. 현재 23/최종 33이며 기능표/생성기 백분율을 제거하고 전체 전환율/잔여 시간은 미산정으로 유지합니다. c5의 resource·자동 전구/근접 진단·수명/preview·다른 URI/client navigation·내장 공급자/editor-57과 실기/성능/출시/전환/제거는 미완료입니다. main 직접 수행·서브에이전트/workflow 없음입니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 

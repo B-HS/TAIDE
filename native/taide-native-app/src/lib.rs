@@ -31,6 +31,10 @@ pub mod command_registry;
 mod css_motion;
 pub mod delete_dialog;
 pub mod diagnostics;
+#[path = "editor-code-actions.rs"]
+mod editor_code_actions;
+#[path = "editor-code-actions-controller.rs"]
+mod editor_code_actions_controller;
 #[path = "editor-command-text.rs"]
 mod editor_command_text;
 #[path = "editor-completion.rs"]

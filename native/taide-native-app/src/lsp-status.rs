@@ -179,6 +179,7 @@ mod tests {
                 owner: crate::diagnostics::Owner::new(),
                 documents: Default::default(),
                 open_documents: Default::default(),
+                diagnostic_revisions: Default::default(),
             })
             .collect();
         let (states, receiver) = tokio::sync::watch::channel(sessions);
@@ -235,6 +236,7 @@ mod tests {
                     owner,
                     documents: std::collections::HashSet::from([document]),
                     open_documents: std::collections::HashSet::from([document]),
+                    diagnostic_revisions: Default::default(),
                 })
                 .collect()
         };

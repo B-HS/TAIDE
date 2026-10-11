@@ -11,6 +11,8 @@ const ROOTLESS_DRIVE_BYTES: usize = 2;
 #[derive(Clone, Default)]
 pub(super) struct Store {
     batches: HashMap<Key, Arc<[Diagnostic]>>,
+    revisions: HashMap<Key, u64>,
+    next_revision: u64,
 }
 
 impl Store {
@@ -18,6 +20,7 @@ impl Store {
         let key = Key::new(uri);
         if diagnostics.is_empty() {
             self.batches.remove(&key);
+            self.revisions.remove(&key);
             return;
         }
         if self
@@ -27,6 +30,8 @@ impl Store {
         {
             return;
         }
+        self.next_revision = self.next_revision.wrapping_add(1);
+        self.revisions.insert(key.clone(), self.next_revision);
         self.batches.insert(key, Arc::from(diagnostics));
     }
 
@@ -41,8 +46,17 @@ impl Store {
 
     pub(super) fn remove(&mut self, uri: &str) {
         if let Ok(uri) = uri.parse::<Uri>() {
-            self.batches.remove(&Key::new(&uri));
+            let key = Key::new(&uri);
+            self.batches.remove(&key);
+            self.revisions.remove(&key);
         }
+    }
+
+    pub(super) fn revision(&self, uri: &str) -> u64 {
+        uri.parse::<Uri>()
+            .ok()
+            .and_then(|uri| self.revisions.get(&Key::new(&uri)).copied())
+            .unwrap_or_default()
     }
 }
 

@@ -19,6 +19,7 @@ pub const EDITOR_DOCUMENTATION_AVAILABLE: bool = cfg!(feature = "native-host");
 pub const EDITOR_HIGHLIGHTS_AVAILABLE: bool = cfg!(feature = "native-host");
 pub const EDITOR_FORMATTING_AVAILABLE: bool = cfg!(feature = "native-host");
 pub const EDITOR_RENAME_AVAILABLE: bool = cfg!(feature = "native-host");
+pub const EDITOR_CODE_ACTIONS_AVAILABLE: bool = cfg!(feature = "native-host");
 const EDITOR_ACTIONS_WITHOUT_SUPPORT_GATE: [&str; 21] = [
     "editor.action.goToImplementation",
     "editor.action.goToLocation",
@@ -170,6 +171,8 @@ pub enum Run {
     FormatEditor(taide_native_editor::formatting::Command),
     #[cfg(feature = "native-host")]
     RenameEditor,
+    #[cfg(feature = "native-host")]
+    CodeActions(crate::editor_code_actions::Command),
     EditDocument(DocumentEdit),
     FoldDocument(FoldCommand),
 }
@@ -328,6 +331,10 @@ fn enablement(id: &str) -> Enablement {
 }
 
 fn execution(id: &str, keymap_id: Option<&str>) -> Execution {
+    #[cfg(feature = "native-host")]
+    if let Some(command) = crate::editor_code_actions::Command::from_action(id) {
+        return Execution::Native(Run::CodeActions(command));
+    }
     #[cfg(feature = "native-host")]
     if id == "monaco.editor.action.rename" {
         return Execution::Native(Run::RenameEditor);
@@ -525,6 +532,10 @@ fn fold_command(action: &str) -> Option<FoldCommand> {
 
 pub fn keymap_run(keymap_id: &str) -> Option<Run> {
     #[cfg(feature = "native-host")]
+    if let Some(command) = crate::editor_code_actions::Command::from_action(keymap_id) {
+        return Some(Run::CodeActions(command));
+    }
+    #[cfg(feature = "native-host")]
     if keymap_id == "monaco.editor.action.rename" {
         return Some(Run::RenameEditor);
     }
@@ -655,11 +666,9 @@ impl Registry {
                 let action = command.editor_action_id()?;
                 match command.execution {
                     #[cfg(feature = "native-host")]
-                    Execution::Native(Run::FormatEditor(_) | Run::RenameEditor)
-                        if editor.is_read_only =>
-                    {
-                        None
-                    }
+                    Execution::Native(
+                        Run::FormatEditor(_) | Run::RenameEditor | Run::CodeActions(_),
+                    ) if editor.is_read_only => None,
                     #[cfg(feature = "native-host")]
                     Execution::Native(Run::EditDocument(DocumentEdit::Indentation(command)))
                         if !editor.is_read_only || !command.requires_write() =>
@@ -1115,6 +1124,8 @@ mod tests {
                 #[cfg(feature = "native-host")]
                 Execution::Native(Run::RenameEditor) => None,
                 #[cfg(feature = "native-host")]
+                Execution::Native(Run::CodeActions(_)) => None,
+                #[cfg(feature = "native-host")]
                 Execution::Native(Run::EditDocument(DocumentEdit::Find(_))) => None,
                 #[cfg(feature = "native-host")]
                 Execution::Native(Run::EditDocument(DocumentEdit::Problem(_))) => None,
@@ -1301,6 +1312,18 @@ mod tests {
                     ["editor.action.rename"]
                         .into_iter()
                         .filter(|_| EDITOR_RENAME_AVAILABLE && !is_read_only),
+                )
+                .chain(
+                    [
+                        "editor.action.quickFix",
+                        "editor.action.refactor",
+                        "editor.action.sourceAction",
+                        "editor.action.organizeImports",
+                        "editor.action.fixAll",
+                        "editor.action.autoFix",
+                    ]
+                    .into_iter()
+                    .filter(|_| EDITOR_CODE_ACTIONS_AVAILABLE && !is_read_only),
                 )
                 .chain(
                     ["editor.action.resetSuggestSize"]
@@ -1626,6 +1649,17 @@ mod tests {
                 allowed,
                 "{id}"
             );
+            #[cfg(feature = "native-host")]
+            if id == "monaco.editor.action.quickFix" {
+                assert_eq!(
+                    command.execution,
+                    Execution::Native(Run::CodeActions(
+                        crate::editor_code_actions::Command::QuickFix
+                    ))
+                );
+                assert!(contexts.iter().all(|context| command.is_runnable(context)));
+                continue;
+            }
             assert_eq!(command.execution, Execution::Unavailable, "{id}");
             assert!(
                 contexts.iter().all(|context| !command.is_runnable(context)),

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::io::{self, BufRead, Read, Write};
 use std::process::ExitCode;
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 const MAX_HEADER_BYTES: usize = 4 * 1024;
 const MAX_BODY_BYTES: usize = 1024 * 1024;
@@ -40,6 +40,8 @@ struct MockServer {
     should_wait_formatting: bool,
     held_formatting: BTreeMap<u64, Value>,
     should_run_save_actions: bool,
+    code_actions: Option<&'static str>,
+    held_code_actions: BTreeMap<u64, Value>,
     should_publish_raw_diagnostics: bool,
     should_publish_inactive_diagnostics: bool,
     should_track_workspace_roots: bool,
@@ -297,6 +299,7 @@ impl MockServer {
                 || self.completion.is_some()
                 || self.highlights.is_some()
                 || self.rename.is_some()
+                || self.code_actions.is_some()
             {
                 params["rootUri"]
                     .as_str()
@@ -375,7 +378,8 @@ impl MockServer {
                 };
             }
             if self.document_symbols.is_some() {
-                if params["capabilities"]["textDocument"]["documentSymbol"]["hierarchicalDocumentSymbolSupport"]
+                if params["capabilities"]["textDocument"]["documentSymbol"]
+                    ["hierarchicalDocumentSymbolSupport"]
                     != true
                 {
                     return Err(invalid(
@@ -444,7 +448,8 @@ impl MockServer {
                 }
             }
             if let Some(mode) = self.completion {
-                if params["capabilities"]["textDocument"]["completion"]["completionItem"]["snippetSupport"]
+                if params["capabilities"]["textDocument"]["completion"]["completionItem"]
+                    ["snippetSupport"]
                     != true
                     || params["capabilities"]["textDocument"]["completion"]["contextSupport"]
                         != true
@@ -457,6 +462,15 @@ impl MockServer {
                     capabilities["completionProvider"] =
                         json!({"triggerCharacters":[".",":"],"resolveProvider":false});
                 }
+            }
+            if let Some(mode) = self.code_actions {
+                capabilities["codeActionProvider"] = if mode == "unsupported" {
+                    json!(false)
+                } else {
+                    json!({"resolveProvider":true,"codeActionKinds":["quickfix","refactor","source"]})
+                };
+                capabilities["executeCommandProvider"] =
+                    json!({"commands":["synthetic.action","synthetic.bare"]});
             }
             if self.should_run_save_actions {
                 capabilities["codeActionProvider"] = json!({"resolveProvider":true,"codeActionKinds":["source.fixAll","source.organizeImports"]});
@@ -588,6 +602,17 @@ impl MockServer {
             let cancelled_id = message["params"]["id"]
                 .as_u64()
                 .ok_or_else(|| invalid("cancel must identify a numeric request"))?;
+            if let Some(held) = self.held_code_actions.remove(&cancelled_id) {
+                write_response(output, &held["id"], Value::Null)?;
+                write_document_diagnostic(
+                    output,
+                    held["uri"]
+                        .as_str()
+                        .ok_or_else(|| invalid("action cancel requires URI"))?,
+                    &held["version"],
+                    "synthetic action cancelled",
+                )?;
+            }
             if let Some(held) = self.held_rename.remove(&cancelled_id) {
                 let range =
                     json!({"start":{"line":1,"character":4},"end":{"line":1,"character":10}});
@@ -733,6 +758,67 @@ impl MockServer {
             write_payload(
                 output,
                 &json!({"jsonrpc":"2.0","id":"unregister","method":"client/unregisterCapability","params":{"unregisterations":[{"id":"dynamic-hover","method":"textDocument/hover"}]}}),
+            )?;
+            return Ok(None);
+        }
+        if self.code_actions.is_some() && method == "codeAction/resolve" {
+            let params = &message["params"];
+            let id = id.ok_or_else(|| invalid("resolve requires ID"))?;
+            if params["title"] != "Resolved fix" {
+                write_response(output, id, params.clone())?;
+                return Ok(None);
+            }
+            let uri = params["data"]["uri"]
+                .as_str()
+                .ok_or_else(|| invalid("resolve must preserve raw data"))?;
+            if params["data"]["payload"] != "preserved" || params["title"] != "Resolved fix" {
+                return Err(invalid("resolve must preserve the selected action"));
+            }
+            if self.code_actions == Some("resolve-error") {
+                write_payload(
+                    output,
+                    &json!({"jsonrpc":"2.0","id":id,"error":{"code":RENAME_ERROR_CODE,"message":"synthetic resolve error"}}),
+                )?;
+                return Ok(None);
+            }
+            let mut resolved = params.clone();
+            resolved["edit"] = json!({"changes":{uri:[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"newText":"applied:"}]}});
+            resolved["command"] = json!({"title":"verify edit","command":"synthetic.action","arguments":[uri,"applied:"]});
+            write_response(output, id, resolved)?;
+            return Ok(None);
+        }
+        if self.code_actions.is_some() && method == "workspace/executeCommand" {
+            let params = &message["params"];
+            let uri = params["arguments"][0]
+                .as_str()
+                .ok_or_else(|| invalid("action command requires URI"))?;
+            let document = self
+                .documents
+                .get(uri)
+                .ok_or_else(|| invalid("action command requires its own session mirror"))?;
+            if params["command"] == "synthetic.action" {
+                let prefix = params["arguments"][1]
+                    .as_str()
+                    .ok_or_else(|| invalid("action command requires expected edit"))?;
+                if !document["text"]
+                    .as_str()
+                    .is_some_and(|text| text.starts_with(prefix))
+                {
+                    return Err(invalid("action command must follow mirror edit"));
+                }
+            } else if params["command"] != "synthetic.bare" {
+                return Err(invalid("unregistered command reached the server"));
+            }
+            write_response(
+                output,
+                id.ok_or_else(|| invalid("action command requires ID"))?,
+                Value::Null,
+            )?;
+            write_document_diagnostic(
+                output,
+                uri,
+                &document["version"],
+                "synthetic action executed",
             )?;
             return Ok(None);
         }
@@ -1207,6 +1293,12 @@ impl MockServer {
                     return Err(invalid("didOpen requires one balanced, valid mirror"));
                 }
                 self.documents.insert(uri.into(), document.clone());
+                if self.code_actions.is_some() {
+                    write_payload(
+                        output,
+                        &json!({"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":uri,"version":document["version"],"diagnostics":[{"range":{"start":{"line":1,"character":4},"end":{"line":1,"character":10}},"severity":2,"message":"synthetic action diagnostic","data":{"payload":"diagnostic retained"}}]}}),
+                    )?;
+                }
                 if self.should_publish_raw_diagnostics {
                     write_payload(
                         output,
@@ -1522,6 +1614,59 @@ impl MockServer {
                     json!([{"range":range,"newText":format!("range:{size}:{spaces}:{selected}") }]),
                 )?;
             }
+            "textDocument/codeAction" if self.code_actions.is_some() => {
+                let id = id.ok_or_else(|| invalid("code actions require ID"))?;
+                let current = self
+                    .documents
+                    .get(uri)
+                    .ok_or_else(|| invalid("code actions require an open mirror"))?;
+                if !matches!(params["context"]["triggerKind"].as_u64(), Some(1 | 2))
+                    || params["context"]["diagnostics"].as_array().is_none()
+                {
+                    return Err(invalid(
+                        "code actions require typed trigger and diagnostics",
+                    ));
+                }
+                match self.code_actions {
+                    Some("null") => write_response(output, id, Value::Null)?,
+                    Some("error") => write_payload(
+                        output,
+                        &json!({"jsonrpc":"2.0","id":id,"error":{"code":RENAME_ERROR_CODE,"message":"synthetic action query error"}}),
+                    )?,
+                    Some("bad") => write_response(output, id, json!([{"title":false}]))?,
+                    Some("wait") => {
+                        self.held_code_actions.insert(
+                            id.as_u64()
+                                .ok_or_else(|| invalid("held action needs numeric ID"))?,
+                            json!({"id":id,"uri":uri,"version":current["version"]}),
+                        );
+                        write_document_diagnostic(
+                            output,
+                            uri,
+                            &current["version"],
+                            "synthetic action held",
+                        )?;
+                    }
+                    _ => {
+                        let zero = json!({"start":{"line":0,"character":0},"end":{"line":0,"character":0}});
+                        let reference_uri = uri.replace("/current.rs", "/peek.rs");
+                        write_response(
+                            output,
+                            id,
+                            json!([
+                                {"title":"Resolved fix","kind":"quickfix.synthetic","isPreferred":true,"data":{"uri":uri,"payload":"preserved"},"diagnostics":params["context"]["diagnostics"]},
+                                {"title":"Direct fix","kind":"quickfix","edit":{"changes":{uri:[{"range":zero,"newText":"direct:"}]}},"command":{"title":"verify","command":"synthetic.action","arguments":[uri,"direct:"]}},
+                                {"title":"Disabled fix","kind":"quickfix","disabled":{"reason":""}},
+                                {"title":"Extract","kind":"refactor.extract","edit":{"changes":{uri:[{"range":zero,"newText":"extract:"}]}}},
+                                {"title":"Imports","kind":"source.organizeImports","edit":{"changes":{uri:[{"range":zero,"newText":"imports:"}]}}},
+                                {"title":"Fix all","kind":"source.fixAll","edit":{"changes":{uri:[{"range":zero,"newText":"all:"}]}}},
+                                {"title":"Bare command","command":"synthetic.bare","arguments":[uri]},
+                            {"title":"Client references","kind":"quickfix","command":{"title":"references","command":"editor.action.showReferences","arguments":[uri,{"line":0,"character":0},[{"uri":reference_uri,"range":{"start":{"line":1,"character":4},"end":{"line":1,"character":10}}}]]}}
+                            ]),
+                        )?;
+                    }
+                }
+            }
             "textDocument/codeAction" if self.should_run_save_actions => {
                 let current = self
                     .documents
@@ -1681,6 +1826,13 @@ fn main() -> io::Result<ExitCode> {
                 _ => "normal",
             });
         }
+        Some("--native-code-actions") => server.code_actions = Some("normal"),
+        Some("--native-code-actions-null") => server.code_actions = Some("null"),
+        Some("--native-code-actions-error") => server.code_actions = Some("error"),
+        Some("--native-code-actions-bad") => server.code_actions = Some("bad"),
+        Some("--native-code-actions-wait") => server.code_actions = Some("wait"),
+        Some("--native-code-actions-unsupported") => server.code_actions = Some("unsupported"),
+        Some("--native-code-actions-resolve-error") => server.code_actions = Some("resolve-error"),
         Some("--crash-on-hover") => server.should_crash_on_hover = true,
         Some("--ignore-exit") => server.should_ignore_exit = true,
         Some("--ignore-hover") => server.should_ignore_hover = true,

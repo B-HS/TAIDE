@@ -3,6 +3,50 @@ use taide_native_ui::keymap::{Context, Decision, Route, Windows};
 
 #[cfg(feature = "native-host")]
 #[test]
+fn 코드_수정_기본키는_실제_마침표와_세_플랫폼_수식키를_사용한다() {
+    for os in [
+        OperatingSystem::Mac,
+        OperatingSystem::Windows,
+        OperatingSystem::Nix,
+    ] {
+        let context = egui::Context::default();
+        context.set_os(os);
+        let mut windows = Windows::default();
+        let command = if os == OperatingSystem::Mac {
+            Modifiers::MAC_CMD | Modifiers::COMMAND
+        } else {
+            Modifiers::CTRL | Modifiers::COMMAND
+        };
+        let auto_fix = if os == OperatingSystem::Mac {
+            command | Modifiers::ALT
+        } else {
+            Modifiers::SHIFT | Modifiers::ALT
+        };
+        for (key, modifiers, id) in [
+            (Key::Period, command, "monaco.editor.action.quickFix"),
+            (
+                Key::R,
+                Modifiers::CTRL | Modifiers::SHIFT,
+                "monaco.editor.action.refactor",
+            ),
+            (
+                Key::O,
+                Modifiers::SHIFT | Modifiers::ALT,
+                "monaco.editor.action.organizeImports",
+            ),
+            (Key::Period, auto_fix, "monaco.editor.action.autoFix"),
+        ] {
+            assert!(
+                editor_event(&mut windows, &context, key, modifiers, None, false)
+                    .contains(&Decision::Dispatch(id.into())),
+                "os={os:?}; id={id}"
+            );
+        }
+    }
+}
+
+#[cfg(feature = "native-host")]
+#[test]
 fn 문서와_선택_포맷의_기본키는_플랫폼_재지정_chord와_ime를_따른다() {
     for os in [
         OperatingSystem::Mac,

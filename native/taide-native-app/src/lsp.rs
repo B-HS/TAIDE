@@ -50,6 +50,8 @@ mod idle;
 
 #[path = "lsp-document-symbols.rs"]
 mod document_symbols;
+#[path = "lsp-editor-code-actions.rs"]
+mod editor_code_actions;
 #[path = "lsp-editor-completion.rs"]
 mod editor_completion;
 #[path = "lsp-editor-documentation.rs"]
@@ -75,6 +77,9 @@ mod diagnostics_tests;
 #[cfg(all(test, unix))]
 #[path = "lsp-document-symbols-tests.rs"]
 mod document_symbol_tests;
+#[cfg(all(test, unix))]
+#[path = "lsp-editor-code-actions-tests.rs"]
+mod editor_code_actions_tests;
 #[cfg(all(test, unix))]
 #[path = "lsp-editor-completion-tests.rs"]
 mod editor_completion_tests;
@@ -230,6 +235,19 @@ struct Session {
 }
 
 enum Command {
+    EditorCodeActions {
+        request: crate::editor_code_actions::Request,
+        completion: oneshot::Sender<Result<Vec<crate::editor_code_actions::Candidate>, Failure>>,
+    },
+    ResolveEditorCodeAction {
+        chosen: crate::editor_code_actions::Chosen,
+        completion: oneshot::Sender<Result<crate::editor_code_actions::Resolved, Failure>>,
+    },
+    ApplyEditorCodeAction {
+        chosen: crate::editor_code_actions::Chosen,
+        resolved: crate::editor_code_actions::Resolved,
+        completion: oneshot::Sender<AppResult<Option<crate::editor_code_actions::Navigation>>>,
+    },
     EditorRename {
         request: crate::editor_rename::Request,
         completion: oneshot::Sender<Result<crate::editor_rename::Response, Failure>>,
@@ -386,6 +404,7 @@ struct RegistryState {
     owner: crate::diagnostics::Owner,
     documents: HashSet<DocumentId>,
     open_documents: HashSet<DocumentId>,
+    diagnostic_revisions: HashMap<DocumentId, u64>,
 }
 
 struct Publishers {
@@ -660,6 +679,101 @@ impl LspBridge {
             completion,
         })?;
         Ok(receive)
+    }
+
+    pub(crate) fn code_actions(
+        &self,
+        request: crate::editor_code_actions::Request,
+    ) -> AppResult<oneshot::Receiver<Result<Vec<crate::editor_code_actions::Candidate>, Failure>>>
+    {
+        let (completion, receive) = oneshot::channel();
+        self.submit(Command::EditorCodeActions {
+            request,
+            completion,
+        })?;
+        Ok(receive)
+    }
+
+    pub(crate) fn resolve_code_action(
+        &self,
+        chosen: crate::editor_code_actions::Chosen,
+    ) -> AppResult<oneshot::Receiver<Result<crate::editor_code_actions::Resolved, Failure>>> {
+        let (completion, receive) = oneshot::channel();
+        self.submit(Command::ResolveEditorCodeAction { chosen, completion })?;
+        Ok(receive)
+    }
+
+    pub(crate) fn code_action_providers(
+        &self,
+        project: &ProjectId,
+        snapshot: &DocumentSnapshot,
+        command: taide_native_ui::editor_code_actions::Command,
+    ) -> HashSet<crate::editor_symbols::ProviderIdentity> {
+        let DocumentKey::File(path) = &snapshot.key else {
+            return HashSet::new();
+        };
+        let Some(path) = path.to_str() else {
+            return HashSet::new();
+        };
+        if self.states.has_changed().is_err() {
+            return HashSet::new();
+        }
+        let uri = taide_lsp::service::workspace_folder_uri(path);
+        self.states
+            .borrow()
+            .iter()
+            .filter_map(|state| {
+                let options = state.snapshot.document_code_action_options.get(&uri)?;
+                (state.project == *project
+                    && state.open_documents.contains(&snapshot.id)
+                    && state
+                        .snapshot
+                        .supports_document(&uri, "textDocument/codeAction")
+                    && editor_code_actions::supports(command, options))
+                .then_some(crate::editor_symbols::ProviderIdentity {
+                    owner: state.owner,
+                    generation: state.snapshot.generation,
+                    capability_revision: state.snapshot.capability_revision,
+                })
+            })
+            .collect()
+    }
+
+    pub(crate) fn apply_code_action(
+        &self,
+        chosen: crate::editor_code_actions::Chosen,
+        resolved: crate::editor_code_actions::Resolved,
+    ) -> AppResult<oneshot::Receiver<AppResult<Option<crate::editor_code_actions::Navigation>>>>
+    {
+        let (completion, receive) = oneshot::channel();
+        self.submit(Command::ApplyEditorCodeAction {
+            chosen,
+            resolved,
+            completion,
+        })?;
+        Ok(receive)
+    }
+
+    pub(crate) fn code_action_diagnostics(
+        &self,
+        project: &ProjectId,
+        document: DocumentId,
+    ) -> HashMap<crate::diagnostics::Owner, u64> {
+        self.states
+            .borrow()
+            .iter()
+            .filter(|state| state.project == *project && state.open_documents.contains(&document))
+            .map(|state| {
+                (
+                    state.owner,
+                    state
+                        .diagnostic_revisions
+                        .get(&document)
+                        .copied()
+                        .unwrap_or_default(),
+                )
+            })
+            .collect()
     }
 
     pub(crate) fn rename_providers(
@@ -1027,7 +1141,7 @@ fn initialize(plan: &Plan) -> Value {
         "capabilities":{
             "general":{"positionEncodings":["utf-16"]},
             "workspace":{"workspaceFolders":true,"configuration":true,"applyEdit":true,"workspaceEdit":{"documentChanges":true},"symbol":{"dynamicRegistration":false,"symbolKind":{"valueSet":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26]}}},
-            "textDocument":{"hover":{"contentFormat":["markdown","plaintext"]},"completion":{"completionItem":{"snippetSupport":true},"contextSupport":true,"dynamicRegistration":true},"signatureHelp":{},"definition":{"linkSupport":true},"declaration":{"linkSupport":true},"typeDefinition":{"linkSupport":true},"implementation":{"linkSupport":true},"references":{},"foldingRange":{"dynamicRegistration":false,"lineFoldingOnly":true,"rangeLimit":taide_native_editor::folding::MAX_FOLDING_REGIONS},"synchronization":{"dynamicRegistration":false,"didSave":true},"documentSymbol":{"hierarchicalDocumentSymbolSupport":true,"symbolKind":{"valueSet":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26]}},"formatting":{},"codeAction":{"codeActionLiteralSupport":{"codeActionKind":{"valueSet":["source.fixAll","source.organizeImports"]}},"resolveSupport":{"properties":["edit","command"]},"dataSupport":true}}
+            "textDocument":{"hover":{"contentFormat":["markdown","plaintext"]},"completion":{"completionItem":{"snippetSupport":true},"contextSupport":true,"dynamicRegistration":true},"signatureHelp":{},"definition":{"linkSupport":true},"declaration":{"linkSupport":true},"typeDefinition":{"linkSupport":true},"implementation":{"linkSupport":true},"references":{},"foldingRange":{"dynamicRegistration":false,"lineFoldingOnly":true,"rangeLimit":taide_native_editor::folding::MAX_FOLDING_REGIONS},"synchronization":{"dynamicRegistration":false,"didSave":true},"documentSymbol":{"hierarchicalDocumentSymbolSupport":true,"symbolKind":{"valueSet":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26]}},"formatting":{},"codeAction":{"codeActionLiteralSupport":{"codeActionKind":{"valueSet":["","quickfix","refactor","refactor.extract","refactor.inline","refactor.rewrite","source","source.organizeImports","source.fixAll"]}},"resolveSupport":{"properties":["edit"]},"isPreferredSupport":true,"disabledSupport":true,"dataSupport":true}}
         }
     });
     params["capabilities"]["textDocument"]["rename"] =
@@ -1782,6 +1896,101 @@ async fn run(
             break;
         };
         let reply = match command {
+            Command::EditorCodeActions {
+                request,
+                completion,
+            } => {
+                let selected = sessions
+                    .iter()
+                    .filter(|(key, session)| {
+                        key.project == request.project
+                            && session.documents.contains_key(&request.snapshot.id)
+                    })
+                    .map(|(key, session)| (key.clone(), session.clone()))
+                    .collect::<HashMap<_, _>>();
+                let mut cancelled = request.cancelled.clone();
+                let mut stopping = stopping.clone();
+                let repaint = repaint.clone();
+                services
+                    .tasks
+                    .spawn_transient("native-lsp-editor-code-actions", async move {
+                        let result = tokio::select! {
+                            biased;
+                            _ = stopping.changed() => Err(Failure::Stopped),
+                            _ = cancelled.changed() => Err(Failure::Cancelled),
+                            result = editor_code_actions::query(&selected, &request) => result,
+                        };
+                        let _ = completion.send(result);
+                        repaint();
+                    });
+                None
+            }
+            Command::ResolveEditorCodeAction { chosen, completion } => {
+                let selected = sessions
+                    .iter()
+                    .filter(|(key, session)| {
+                        key.project == chosen.request.project
+                            && session.documents.contains_key(&chosen.request.snapshot.id)
+                    })
+                    .map(|(key, session)| (key.clone(), session.clone()))
+                    .collect::<HashMap<_, _>>();
+                let mut cancelled = chosen.request.cancelled.clone();
+                let mut stopping = stopping.clone();
+                let repaint = repaint.clone();
+                services.tasks.spawn_transient(
+                    "native-lsp-editor-code-action-resolve",
+                    async move {
+                        let result = tokio::select! {
+                            biased;
+                            _ = stopping.changed() => Err(Failure::Stopped),
+                            _ = cancelled.changed() => Err(Failure::Cancelled),
+                            result = editor_code_actions::resolve(&selected, &chosen) => result,
+                        };
+                        let _ = completion.send(result);
+                        repaint();
+                    },
+                );
+                None
+            }
+            Command::ApplyEditorCodeAction {
+                chosen,
+                resolved,
+                completion,
+            } => {
+                let session = sessions.iter().find_map(|(key, session)| {
+                    (key.project == chosen.request.project
+                        && editor_code_actions::identity(session) == chosen.candidate.provider
+                        && resolved.provider == chosen.candidate.provider
+                        && session.client.snapshot().phase == Phase::Running
+                        && editor_code_actions::document(session, &chosen.request).is_ok())
+                    .then_some(session.clone())
+                });
+                let Some(session) = session else {
+                    let _ = completion.send(Err(failure(Failure::StaleGeneration)));
+                    repaint();
+                    continue;
+                };
+                let services = services.clone();
+                let tasks = services.tasks.clone();
+                let sender = replies.clone();
+                let repaint = repaint.clone();
+                let commands = commands.clone();
+                tasks.spawn_transient("native-lsp-editor-code-action-apply", async move {
+                    let result = editor_code_actions::apply(
+                        &services,
+                        &session,
+                        &chosen.request,
+                        resolved,
+                        &commands,
+                        &sender,
+                        &repaint,
+                    )
+                    .await;
+                    let _ = completion.send(result);
+                    repaint();
+                });
+                None
+            }
             Command::ApplyEditorRename {
                 request,
                 edits,
@@ -2683,6 +2892,11 @@ fn publish_status(
                     .chain(session.documents.keys().copied())
                     .collect(),
                 open_documents: session.documents.keys().copied().collect(),
+                diagnostic_revisions: session
+                    .documents
+                    .iter()
+                    .map(|(id, document)| (*id, session.raw_diagnostics.revision(&document.uri)))
+                    .collect(),
             })
             .collect(),
     );

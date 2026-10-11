@@ -32,6 +32,13 @@ pub(super) fn fixture(mode: &str) -> (Fixture, ProjectId, EditorStore, DocumentI
     assert!(matches!(
         mode,
         "--native-symbols"
+            | "--native-code-actions"
+            | "--native-code-actions-null"
+            | "--native-code-actions-error"
+            | "--native-code-actions-bad"
+            | "--native-code-actions-wait"
+            | "--native-code-actions-unsupported"
+            | "--native-code-actions-resolve-error"
             | "--native-rename"
             | "--native-rename-range"
             | "--native-rename-no-prepare"
