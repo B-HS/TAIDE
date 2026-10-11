@@ -119,7 +119,7 @@ pub(crate) struct Resolved {
     pub(crate) roots: Vec<String>,
 }
 
-pub(crate) struct Navigation {
+pub struct Navigation {
     pub(crate) uri: lsp_types::Uri,
     pub(crate) position: lsp_types::Position,
     pub(crate) targets: Vec<taide_native_editor::symbol_locations::Target>,

@@ -305,6 +305,72 @@ fn preedit(text: &str) -> Event {
 
 #[test]
 #[cfg(feature = "native-host")]
+fn code_lens_선택은_원래_순서_아이콘_필터와_포커스를_보존한다() {
+    let mut scene = Scene::new();
+    scene.focus_previous();
+    scene.palette.open_code_lenses(
+        &scene.context,
+        1,
+        vec!["$(run) Run".into(), "3 references".into()],
+    );
+    scene.frame(Vec::new());
+    scene.frame(Vec::new());
+    assert!(scene.palette.is_picking_code_lenses());
+    assert_eq!(scene.inspection().placeholder, "Select a command");
+    assert_eq!(scene.inspection().heading, None);
+    assert_eq!(scene.labels(), ["\u{eb2c} Run", "3 references"]);
+    assert_eq!(scene.selected().as_deref(), Some("0"));
+    assert!(!scene.palette.observes_files() && !scene.palette.observes_symbols());
+    assert!(scene.palette.workspace_query().is_none());
+    scene.type_text("ref");
+    assert_eq!(scene.labels(), ["3 references"]);
+    assert_eq!(
+        scene.press(Key::Enter).action,
+        Some(Action::CodeLensCommand {
+            generation: 1,
+            index: 1
+        })
+    );
+    scene.frame(Vec::new());
+    assert_eq!(scene.focused(), Some(Id::new(PREVIOUS_FOCUS)));
+}
+
+#[test]
+#[cfg(feature = "native-host")]
+fn code_lens_빈목록_취소와_조합은_명령을_실행하지_않는다() {
+    let mut scene = Scene::new();
+    scene
+        .palette
+        .open_code_lenses(&scene.context, 1, Vec::new());
+    assert!(!scene.palette.is_open());
+    scene
+        .palette
+        .open_code_lenses(&scene.context, 1, vec!["Run".into()]);
+    scene.frame(Vec::new());
+    scene.frame(Vec::new());
+    scene.frame(vec![preedit("Run")]);
+    assert_eq!(scene.press(Key::Enter), Output::default());
+    assert!(scene.palette.is_picking_code_lenses());
+    scene.frame(vec![Event::Ime(egui::ImeEvent::Commit("Run".into()))]);
+    assert_eq!(scene.press(Key::Escape), Output::default());
+    assert!(!scene.palette.is_open());
+    scene
+        .palette
+        .open_code_lenses(&scene.context, 1, vec!["Run".into()]);
+    scene.frame(Vec::new());
+    scene.frame(Vec::new());
+    let row = scene.inspection().rows[0].rect.center();
+    assert_eq!(
+        scene.click(row).action,
+        Some(Action::CodeLensCommand {
+            generation: 1,
+            index: 0
+        })
+    );
+}
+
+#[test]
+#[cfg(feature = "native-host")]
 fn 수동_들여쓰기_목록은_현재_기본_폭과_단일_행을_표시하고_포커스를_복원한다() {
     let mut scene = Scene::new();
     scene.focus_previous();

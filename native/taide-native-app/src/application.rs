@@ -132,6 +132,7 @@ pub struct NativeApplication {
     editor_completion: crate::editor_completion::State,
     editor_highlights: crate::editor_highlights::State,
     editor_inlay_hints: crate::editor_inlay_hints::State,
+    editor_code_lenses: crate::editor_code_lenses::State,
     peek_models: crate::peek_models::Models,
     workspace_symbols: crate::workspace_symbols::State,
     lsp_status_appearance: crate::lsp::status::Appearance,
@@ -192,6 +193,7 @@ pub struct NativeApplication {
     editor_highlight_colors: crate::editor_highlights::Colors,
     editor_code_action_colors: taide_native_ui::editor_code_actions::Colors,
     editor_inlay_hint_colors: taide_native_ui::editor_inlay_hints::Colors,
+    editor_code_lens_colors: taide_native_ui::editor_code_lenses::Colors,
     editor_sticky_scroll: taide_native_ui::editor_sticky_scroll::StickySetting,
     editor_syntax: crate::editor_syntax::EditorSyntax,
     editor_keymap_targets: HashMap<(egui::ViewportId, egui::Id), (ViewId, u64)>,
@@ -445,6 +447,7 @@ impl NativeApplication {
             editor_completion: crate::editor_completion::State::default(),
             editor_highlights: crate::editor_highlights::State::default(),
             editor_inlay_hints: crate::editor_inlay_hints::State::default(),
+            editor_code_lenses: crate::editor_code_lenses::State::default(),
             peek_models: crate::peek_models::Models::default(),
             workspace_symbols: crate::workspace_symbols::State::default(),
             lsp_status_appearance: appearances.lsp_status,
@@ -508,6 +511,7 @@ impl NativeApplication {
             editor_highlight_colors: appearances.editor_highlights,
             editor_code_action_colors: appearances.editor_code_actions,
             editor_inlay_hint_colors: appearances.editor_inlay_hints,
+            editor_code_lens_colors: appearances.editor_code_lenses,
             editor_sticky_scroll,
             editor_syntax,
             editor_keymap_targets: HashMap::new(),
@@ -790,6 +794,8 @@ impl NativeApplication {
                                             appearances.editor_code_actions;
                                         self.editor_inlay_hint_colors =
                                             appearances.editor_inlay_hints;
+                                        self.editor_code_lens_colors =
+                                            appearances.editor_code_lenses;
                                         self.banner_appearance = appearances.banner;
                                         self.lsp_status_appearance = appearances.lsp_status;
                                         self.status_editor_appearance = appearances.status_editor;
@@ -2151,6 +2157,7 @@ impl NativeApplication {
         self.editor_completion.clear();
         self.editor_highlights.clear();
         self.editor_inlay_hints.clear();
+        self.editor_code_lenses.clear();
         self.editor_rename.clear();
         self.editor_code_actions.clear();
         if let Err(error) = self
@@ -3683,31 +3690,44 @@ impl NativeApplication {
     }
 
     fn consume_code_action_navigation(&mut self, finished: crate::editor_code_actions::Finished) {
+        self.consume_editor_command_navigation(
+            finished.request.project,
+            finished.request.source,
+            finished.provider,
+            finished.navigation,
+        );
+    }
+
+    fn consume_editor_command_navigation(
+        &mut self,
+        project: ProjectId,
+        source: taide_native_editor::view::ViewId,
+        provider: crate::editor_symbols::ProviderIdentity,
+        navigation: crate::editor_code_actions::Navigation,
+    ) {
         use taide_lsp::native::protocol::lsp_types;
         use taide_native_editor::symbol_locations::{Kind, Mode};
-        let source = finished.request.source;
         let Some(view) = self.store.views().get(source) else {
             return;
         };
         let Ok(snapshot) = self.store.documents().snapshot(view.document) else {
             return;
         };
-        let same =
-            crate::editor_locations::file_path(&finished.navigation.uri).is_some_and(|path| {
-                snapshot.key == taide_native_editor::document::DocumentKey::File(path)
-            });
+        let same = crate::editor_locations::file_path(&navigation.uri).is_some_and(|path| {
+            snapshot.key == taide_native_editor::document::DocumentKey::File(path)
+        });
         let position = if same {
-            Some(finished.navigation.position)
+            Some(navigation.position)
         } else {
             None
         };
-        let providers = HashSet::from([finished.provider]);
+        let providers = HashSet::from([provider]);
         let Ok(request) = self.editor_locations.begin(
-            finished.request.project,
+            project,
             &self.store,
             source,
             Kind::References,
-            finished.navigation.mode,
+            navigation.mode,
             providers.clone(),
             position,
         ) else {
@@ -3715,8 +3735,8 @@ impl NativeApplication {
         };
         let response = crate::editor_locations::Response {
             groups: vec![crate::editor_locations::Group {
-                provider: finished.provider,
-                targets: finished.navigation.targets,
+                provider: provider,
+                targets: navigation.targets,
             }],
         };
         let Ok(Some(model)) =
@@ -3750,11 +3770,8 @@ impl NativeApplication {
         let viewport = request.viewport;
         let target =
             taide_native_editor::symbol_locations::Target::from_location(lsp_types::Location {
-                uri: finished.navigation.uri,
-                range: lsp_types::Range::new(
-                    finished.navigation.position,
-                    finished.navigation.position,
-                ),
+                uri: navigation.uri,
+                range: lsp_types::Range::new(navigation.position, navigation.position),
             });
         self.submit(HostCommand::OpenSymbolLocation(
             crate::symbol_location_host::Request {
@@ -3868,6 +3885,24 @@ impl NativeApplication {
         }
     }
 
+    fn is_current_code_lens_request(&self, request: &crate::editor_code_lenses::Request) -> bool {
+        self.closing.is_none()
+            && self.services.state.settings.read().editor_code_lens_enabled
+            && request.describes(&self.store)
+            && (request.source == request.owner
+                || self
+                    .editor_locations
+                    .preview_views()
+                    .contains(&request.source))
+            && self
+                .services
+                .state
+                .layouts
+                .read()
+                .get(&request.project)
+                .is_some_and(|layout| request.is_active(layout, &self.shell.scope))
+    }
+
     fn poll_lsp(&mut self) {
         if let Some(bindings) = self
             .lsp
@@ -3878,6 +3913,61 @@ impl NativeApplication {
         }
         while let Some(reply) = self.lsp.as_mut().and_then(crate::lsp::LspBridge::poll) {
             match reply {
+                crate::lsp::Reply::CodeLenses { request, result } => {
+                    let providers = self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
+                        lsp.code_lens_providers(&request.project, &request.snapshot)
+                    });
+                    if self.is_current_code_lens_request(&request) {
+                        self.editor_code_lenses.accept(
+                            &self.store,
+                            &request,
+                            providers,
+                            result,
+                            Instant::now(),
+                        );
+                    }
+                }
+                crate::lsp::Reply::CodeLensResolved { request, result } => {
+                    if self.is_current_code_lens_request(&request.request)
+                        && self.lsp.as_ref().is_some_and(|lsp| {
+                            lsp.code_lens_providers(
+                                &request.request.project,
+                                &request.request.snapshot,
+                            )
+                            .contains(&request.provider)
+                        })
+                    {
+                        self.editor_code_lenses
+                            .resolved(&self.store, &request, result);
+                    }
+                }
+                crate::lsp::Reply::CodeLensExecuted { request, result } => {
+                    if self.is_current_code_lens_request(&request.request)
+                        && self.lsp.as_ref().is_some_and(|lsp| {
+                            lsp.code_lens_providers(
+                                &request.request.project,
+                                &request.request.snapshot,
+                            )
+                            .contains(&request.provider)
+                        })
+                        && self.editor_code_lenses.executed(&self.store, &request)
+                    {
+                        match result {
+                            Ok(Some(navigation)) => self.consume_editor_command_navigation(
+                                request.request.project,
+                                request.request.source,
+                                request.provider,
+                                navigation,
+                            ),
+                            Ok(None) => {}
+                            Err(error) => self.status = Some(error.to_string()),
+                        }
+                    }
+                }
+                crate::lsp::Reply::CodeLensRefresh { project, provider } => {
+                    self.editor_code_lenses
+                        .refresh(&project, provider, Instant::now());
+                }
                 crate::lsp::Reply::InlayHints { request, result } => {
                     let providers = self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
                         lsp.inlay_hint_providers(&request.project, &request.snapshot)
@@ -4754,6 +4844,16 @@ impl NativeApplication {
         keymap_overrides: Option<&str>,
         enabled: bool,
     ) {
+        if self.palette.is_picking_code_lenses()
+            && !self.editor_code_lenses.picker_is_current(&self.store)
+        {
+            self.palette.dismiss(context);
+            self.editor_code_lenses.cancel_picker();
+        }
+        if let Some(picker) = self.editor_code_lenses.picker(&self.store) {
+            self.palette
+                .open_code_lenses(context, picker.generation, picker.titles);
+        }
         let now = Instant::now();
         let project = command_context.active_project.as_ref();
         self.observe_workspace_symbols(context, project, enabled);
@@ -4818,6 +4918,25 @@ impl NativeApplication {
             }
         };
         match action {
+            Some(crate::command_palette::Action::CodeLensCommand { generation, index }) => {
+                if let Some(request) =
+                    self.editor_code_lenses
+                        .choose(&self.store, generation, index)
+                {
+                    if self
+                        .lsp
+                        .as_ref()
+                        .is_none_or(|lsp| lsp.execute_code_lens(request.clone()).is_err())
+                    {
+                        self.editor_code_lenses.executed(&self.store, &request);
+                        self.status = Some(
+                            editor_error(taide_native_editor::document::EditorError::NotFound)
+                                .to_string(),
+                        );
+                    }
+                    context.request_repaint();
+                }
+            }
             Some(crate::command_palette::Action::IndentationSize(size)) => {
                 if let Some(request) = self.indentation_request.take() {
                     let configuration = crate::presentation_refresh::indent_configuration(
@@ -4830,6 +4949,17 @@ impl NativeApplication {
                 }
             }
             Some(crate::command_palette::Action::RunCommand(id)) => {
+                if id == "monaco.codelens.showLensesInCurrentLine" {
+                    if let Some((source, _)) = formatting_source {
+                        self.editor_code_lenses.begin_picker(
+                            &self.store,
+                            context.viewport_id(),
+                            source,
+                        );
+                        context.request_repaint();
+                    }
+                    return;
+                }
                 if let Some(command) =
                     taide_native_ui::editor_code_actions::Command::from_action(&id)
                     && let Some((tab, _)) = active_file
@@ -5016,6 +5146,7 @@ impl NativeApplication {
                 self.editor_highlight_colors = appearances.editor_highlights;
                 self.editor_code_action_colors = appearances.editor_code_actions;
                 self.editor_inlay_hint_colors = appearances.editor_inlay_hints;
+                self.editor_code_lens_colors = appearances.editor_code_lenses;
                 self.banner_appearance = appearances.banner;
                 self.lsp_status_appearance = appearances.lsp_status;
                 self.status_editor_appearance = appearances.status_editor;
@@ -5453,6 +5584,30 @@ impl eframe::App for NativeApplication {
                         ]);
                     }
                     actions.retain(|action| {
+                        if action == "codelens.showLensesInCurrentLine" {
+                            return self.services.state.settings.read().editor_code_lens_enabled
+                                && focused_view
+                                    .as_ref()
+                                    .and_then(|key| {
+                                        let fallback = self
+                                            .store
+                                            .views()
+                                            .find(key)
+                                            .and_then(|view| self.store.views().get(view))
+                                            .map(|view| view.document);
+                                        self.focused_editor_source(&context, &key.tab, fallback)
+                                    })
+                                    .and_then(|(source, _)| self.store.views().get(source))
+                                    .and_then(|source| {
+                                        self.store.documents().snapshot(source.document).ok()
+                                    })
+                                    .zip(snapshot.focused_project())
+                                    .is_some_and(|(document, project)| {
+                                        self.lsp.as_ref().is_some_and(|lsp| {
+                                            !lsp.code_lens_providers(project, &document).is_empty()
+                                        })
+                                    });
+                        }
                         if let Some(command) =
                             taide_native_ui::editor_code_actions::Command::from_action(action)
                         {
@@ -5621,6 +5776,26 @@ impl eframe::App for NativeApplication {
             .retain_active(&snapshot.layouts, &self.shell.scope);
         self.editor_locations.detach_retired(&mut self.store);
         let inlay_hint_previews = self.editor_locations.preview_views();
+        let code_lens_enabled = self.services.state.settings.read().editor_code_lens_enabled;
+        self.editor_code_lenses.reconcile(
+            &self.store,
+            |request| {
+                code_lens_enabled
+                    && self.closing.is_none()
+                    && (request.source == request.owner
+                        || inlay_hint_previews.contains(&request.source))
+                    && projects.contains(&request.project)
+                    && snapshot
+                        .layouts
+                        .get(&request.project)
+                        .is_some_and(|layout| request.is_active(layout, &self.shell.scope))
+            },
+            |project, document| {
+                self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
+                    lsp.code_lens_providers(project, document)
+                })
+            },
+        );
         self.editor_inlay_hints.reconcile(
             &self.store,
             |request| {
@@ -5877,6 +6052,7 @@ impl eframe::App for NativeApplication {
             editor_completion: &mut self.editor_completion,
             editor_highlights: &mut self.editor_highlights,
             editor_inlay_hints: &mut self.editor_inlay_hints,
+            editor_code_lenses: &mut self.editor_code_lenses,
             peek_models: &self.peek_models,
             lsp: self.lsp.as_ref(),
             find_history: &mut self.find_history,
@@ -5894,6 +6070,7 @@ impl eframe::App for NativeApplication {
             editor_highlight_colors: self.editor_highlight_colors,
             editor_code_action_colors: self.editor_code_action_colors,
             editor_inlay_hint_colors: self.editor_inlay_hint_colors,
+            editor_code_lens_colors: self.editor_code_lens_colors,
             editor_sticky_scroll: self.editor_sticky_scroll.synchronize(
                 self.services
                     .state
@@ -6588,6 +6765,7 @@ impl eframe::App for NativeApplication {
         let pending_close = self.closing.take();
         self.editor_completion.clear();
         self.editor_inlay_hints.clear();
+        self.editor_code_lenses.clear();
         if let Err(error) = self
             .editor_documentation
             .clear(&mut self.store, &mut self.editor_syntax)
@@ -6793,6 +6971,7 @@ struct AppSurfaces<'a> {
     editor_completion: &'a mut crate::editor_completion::State,
     editor_highlights: &'a mut crate::editor_highlights::State,
     editor_inlay_hints: &'a mut crate::editor_inlay_hints::State,
+    editor_code_lenses: &'a mut crate::editor_code_lenses::State,
     peek_models: &'a crate::peek_models::Models,
     lsp: Option<&'a crate::lsp::LspBridge>,
     find_history: &'a mut taide_native_ui::editor_find_widget::FindHistory,
@@ -6810,6 +6989,7 @@ struct AppSurfaces<'a> {
     editor_highlight_colors: crate::editor_highlights::Colors,
     editor_code_action_colors: taide_native_ui::editor_code_actions::Colors,
     editor_inlay_hint_colors: taide_native_ui::editor_inlay_hints::Colors,
+    editor_code_lens_colors: taide_native_ui::editor_code_lenses::Colors,
     editor_sticky_scroll: bool,
     editor_syntax: &'a mut crate::editor_syntax::EditorSyntax,
     banner_appearance: &'a BannerAppearance,
@@ -7849,6 +8029,22 @@ impl AppSurfaces<'_> {
                     files: self.settings_views.snippet_catalog().snapshot().unwrap_or_default(),
                     context: ui.ctx().clone(),
                 };
+                let code_lens_consumer = crate::editor_code_lenses::Consumer {
+                    state: std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_code_lenses)),
+                    lsp: self.lsp, context: ui.ctx().clone(), colors: self.editor_code_lens_colors,
+                    enabled: self.services.state.settings.read().editor_code_lens_enabled,
+                };
+                if ui.is_enabled() {
+                    for _ in self.document_edits.extract_if(.., |(owner, edit)| owner == &tab.id && *edit == DocumentEdit::CodeLens) {
+                        let preview = self.editor_locations.current(view).and_then(|session| session.preview);
+                        let source = ui.memory(|memory| memory.focused()).and_then(|id| self.editor_keymap_targets.get(&(ui.ctx().viewport_id(), id))).and_then(|(source, _)| {
+                            (*source == view || preview == Some(*source)).then_some(*source)
+                        }).unwrap_or(view);
+                        code_lens_consumer.before(self.store, editor_project, view, source);
+                        code_lens_consumer.state.borrow_mut().begin_picker(self.store, ui.ctx().viewport_id(), source);
+                        ui.ctx().request_repaint();
+                    }
+                }
                 let inlay_consumer = crate::editor_inlay_hints::Consumer {
                     state: std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_inlay_hints)),
                     lsp: self.lsp, context: ui.ctx().clone(), colors: self.editor_inlay_hint_colors,
@@ -7883,6 +8079,7 @@ impl AppSurfaces<'_> {
                     completion: Some(completion_consumer.clone()),
                     highlights: Some(highlight_consumer.clone()),
                     inlay_hints: Some(inlay_consumer.clone()),
+                    code_lenses: Some(code_lens_consumer.clone()),
                     rename: Some(crate::editor_rename_controller::Consumer(std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_rename)))),
                     code_actions: Some(crate::editor_code_actions_controller::Consumer(std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_code_actions)))),
                     code_action_colors: Some(self.editor_code_action_colors),
@@ -8012,8 +8209,9 @@ impl AppSurfaces<'_> {
                 location_provider.find_history = Some(self.find_history);
                 location_provider.find_appearance = Some(self.find_appearance);
                 let inlay_hints = inlay_consumer.display(self.store, view);
+                let code_lenses = code_lens_consumer.before(self.store, editor_project, view, view);
                 let output = editor
-                    .show_request_with_inlay_hints(
+                    .show_request_with_code_lenses(
                         ui,
                         self.store,
                         view,
@@ -8079,6 +8277,7 @@ impl AppSurfaces<'_> {
                         Some((&mut rename_provider, self.find_appearance.into())),
                         Some((&mut code_action_provider, self.editor_code_action_colors)),
                         inlay_hints,
+                        code_lenses,
                     )
                     .map_err(editor_error)?;
                 self.commands.append(&mut location_commands);
@@ -8089,6 +8288,7 @@ impl AppSurfaces<'_> {
                 }
                 if let Some(display) = &document_highlights { display.paint(ui, &output.geometry); }
                 inlay_consumer.observe(self.store, editor_project, view, view, output.rendered_lines.clone());
+                code_lens_consumer.after(self.store, view, &output.code_lenses);
                 if output.response.has_focus() || ui.memory(|memory| output.focus_ids.iter().any(|id| {
                     memory.has_focus(*id) && !preview_focus_targets.iter().any(|(target, _)| target == id)
                 })) {
@@ -8220,6 +8420,9 @@ mod exit_tests;
 #[cfg(all(test, unix))]
 #[path = "application-code-actions-tests.rs"]
 mod code_actions_tests;
+#[cfg(test)]
+#[path = "application-code-lenses-tests.rs"]
+mod code_lenses_tests;
 #[cfg(all(test, unix))]
 #[path = "application-inlay-hints-tests.rs"]
 mod inlay_hints_tests;

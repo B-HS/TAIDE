@@ -1,6 +1,6 @@
 {
     "date": "2026-10-11",
-    "baseline": "2a17eda4",
+    "baseline": "5f1b9dc2",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -927,7 +927,7 @@
                 "native/taide-native-app/src/application-code-actions-tests.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-10-native-batch23-editor.md"],
-            "limitation": "원본의 정적/동적 서버 명령과 문서별 공급자/owner·해제/재시작 계약, WorkspaceEdit 뒤 executeCommand와 client navigation 세 명령을 실제 SDK/child/App에서 확인했습니다. showReferences와 RA 별칭의 다른 파일 peek 및 gotoLocation의 선택 시작 이동을 검증했습니다. 미완료 CodeLens 소비자 editor-53과 untitled opener editor-58은 독립 요구사항으로 추적합니다."
+            "limitation": "원본의 정적/동적 서버 명령과 문서별 공급자/owner·해제/재시작 계약, WorkspaceEdit 뒤 executeCommand와 client navigation 세 명령을 실제 SDK/child/App에서 확인했습니다. showReferences와 RA 별칭의 다른 파일 peek 및 gotoLocation의 선택 시작 이동을 검증했습니다. CodeLens 소비자 editor-53은 별도 실제 연결/검증으로 완료했으며 untitled opener editor-58은 독립 미완료 요구사항으로 추적합니다."
         },
         "editor-file-opener": {
             "sources": [
@@ -964,6 +964,40 @@
             ],
             "reports": ["docs/quality-assurance/2026-10-10-native-batch23-editor.md"],
             "limitation": "기존 typed SDK를 사용해 복수 서버의 label/kind/tooltip/padding을 본문/peek의 주입 텍스트로 표시했습니다. 원문/선택·Unicode·wrap/fold·ghost 동시 표시/수락/undo·readonly/tier·viewport/문서/공급자 세대·취소/늦은 응답·정상 종료를 실제 child/App와 관련 검사에서 확인했습니다. 원본이 제공하지 않은 resolve/part 명령/textEdits/refresh는 추가하지 않았습니다. 전체 App 최초 포맷 1실패와 조건 변경 없는 해당 1통과·원인 미확정, pixel/OS IME/접근성/대형 성능/출시 게이트는 별도로 보존합니다."
+        },
+        "editor-code-lenses": {
+            "sources": [
+                "native/taide-native-editor/src/display-layout.rs",
+                "native/taide-native-ui/src/editor-code-lenses.rs",
+                "native/taide-native-ui/src/editor-code-lens-codicons.json",
+                "native/taide-native-ui/src/editor_surface.rs",
+                "native/taide-native-ui/src/command-palette.rs",
+                "native/taide-native-ui/src/command-registry.rs",
+                "native/taide-native-app/src/editor-code-lenses.rs",
+                "native/taide-native-app/src/lsp-editor-code-lenses.rs",
+                "native/taide-native-app/src/lsp.rs",
+                "native/taide-native-app/src/application.rs",
+                "native/taide-native-app/src/editor-locations.rs",
+                "native/taide-native-app/src/presentation-refresh.rs",
+                "crates/taide-locale/src/service.rs",
+                "crates/taide-locale/resources/locales/en.json",
+                "crates/taide-locale/resources/locales/ko.json",
+                "crates/taide-locale/resources/locales/ja.json"
+            ],
+            "tests": [
+                "native/taide-native-editor/tests/display-layout.rs",
+                "native/taide-native-ui/tests/editor-code-lenses.rs",
+                "native/taide-native-ui/src/command-palette-tests.rs",
+                "native/taide-native-ui/src/command-registry.rs",
+                "native/taide-native-app/src/editor-code-lenses-tests.rs",
+                "native/taide-native-app/src/lsp-editor-code-lenses-tests.rs",
+                "native/taide-native-app/src/application-code-lenses-tests.rs"
+            ],
+            "reports": [
+                "docs/quality-assurance/2026-10-10-native-batch23-editor.md",
+                "native/taide-native-ui/src/editor-code-lens-codicons-notice.md"
+            ],
+            "limitation": "기존 typed SDK의 전체 문서 공급·보이는 렌즈 resolve와 range/data 소유를 본문/peek의 줄 위 공간·아이콘/클릭·현재 줄 QuickPick·서버/client 명령·client별 refresh에 연결했습니다. 실제 복수 child/App·설정/readonly/tier·Unicode/wrap/fold/reveal·문서/뷰/공급자 세대·취소/늦은 응답/정상 종료와 안정 프레임의 중복 요청 억제를 검증했습니다. 전체 최초 실패와 영향 검사 성공을 구분하고 프로젝트 열기 시간 초과의 원인 미확정·실기/성능/출시 게이트는 별도로 보존합니다."
         }
     },
     "rows": [
@@ -2635,9 +2669,9 @@
             "ts": "`lsp/adapters/code-lens.ts:105`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:124",
             "domain": "editor",
-            "status": "missing",
-            "proof": "editor-missing",
-            "note": "해당 사용자 동작의 실제 native 편집기/앱 소비 경로가 없습니다. 프로토콜·설정·backend만으로 완료 처리하지 않습니다."
+            "status": "complete",
+            "proof": "editor-code-lenses",
+            "note": "기존 typed SDK의 전체 문서 공급·보이는 렌즈 resolve와 range/data 소유를 본문/peek의 줄 위 공간·아이콘/클릭·현재 줄 QuickPick·서버/client 명령·client별 refresh에 연결했습니다. 실제 복수 child/App·설정/readonly/tier·Unicode/wrap/fold/reveal·문서/뷰/공급자 세대·취소/늦은 응답/정상 종료와 안정 프레임의 중복 요청 억제를 검증했습니다. 전체 최초 실패와 영향 검사 성공을 구분하고 프로젝트 열기 시간 초과의 원인 미확정·실기/성능/출시 게이트는 별도로 보존합니다."
         },
         {
             "id": "editor-54",
@@ -2670,7 +2704,7 @@
             "domain": "editor",
             "status": "complete",
             "proof": "editor-command-relay",
-            "note": "원본의 정적/동적 서버 명령과 문서별 공급자/owner·해제/재시작 계약, WorkspaceEdit 뒤 executeCommand와 client navigation 세 명령을 실제 SDK/child/App에서 확인했습니다. showReferences와 RA 별칭의 다른 파일 peek 및 gotoLocation의 선택 시작 이동을 검증했습니다. 미완료 CodeLens 소비자 editor-53과 untitled opener editor-58은 독립 요구사항으로 추적합니다."
+            "note": "원본의 정적/동적 서버 명령과 문서별 공급자/owner·해제/재시작 계약, WorkspaceEdit 뒤 executeCommand와 client navigation 세 명령을 실제 SDK/child/App에서 확인했습니다. showReferences와 RA 별칭의 다른 파일 peek 및 gotoLocation의 선택 시작 이동을 검증했습니다. CodeLens 소비자 editor-53은 별도 실제 연결/검증으로 완료했으며 untitled opener editor-58은 독립 미완료 요구사항으로 추적합니다."
         },
         {
             "id": "editor-57",
@@ -7557,5 +7591,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "2a17eda4 이후 현재 c6 기능 구현/앱/검증 근거로 editor-50만 complete를 갱신했습니다. 599행·제외 10/동결 1·대상 588행 중 완료 294/부분 92/미연결 112/미구현 90·미완료 294, 배치 23 잔여 27·최종 33입니다. 규모가 다르고 중복 참조를 포함한 행 수는 전체 전환율/잔여 시간을 뜻하지 않습니다.\nCore 전체 39대상/299통과/1ignored·UI 전체 25대상/464통과는 exit 0입니다. App 전체 직접 1회는 67대상/853통과/1실패·보호 Trash 3제외·exit 101이며 조건 변경 없이 실패 1건만 재확인해 exit 0입니다. 서로 다른 App 성공 근거는 854건, 관련 App 8건은 중복 합산하지 않으며 최초 실패 원인 미확정과 전체 exit 101을 보존합니다. 최초 컴파일 실패의 실행 0건은 검사 성공으로 세지 않습니다. frozen host inspection 테스트 대상/Wasm canvas,inspection lib check·소유 Rust 27경로 fmt는 exit 0, SDK 전체 90건은 소스 불변으로 재사용했습니다. pixel/OS IME/접근성/대형 성능/soak·출시·전환·제거는 배치 31~33에 유지합니다. 디스크 418GiB/78%, manifest/lock/frozen source/graph/엔진/새 의존성 변경 0·빌드 정리/보호 데이터/OS 입력 없음입니다."
+    "validation": "5f1b9dc2 이후 c7의 실제 본문/peek·typed 공급/resolve·현재 줄 선택·서버/client 명령/refresh·수명/취소 근거로 editor-53만 complete를 갱신했습니다. 599행·제외 10/동결 1·대상 588 중 완료 295/부분 92/미연결 112/미구현 89·미완료 293, 배치 23 잔여 26·최종 33입니다. 행 수는 전체 전환율/잔여 시간을 뜻하지 않습니다.\nCore 전체 39대상/301통과/1ignored·exit 0입니다. UI 전체 26대상/470통과/1실패·exit 101 뒤 실패 영향 1통과로 서로 다른 성공 471건, App 전체 67대상/860통과/2실패·보호 Trash 3제외·exit 101 뒤 최신 peek 팔레트/조건 변경 없는 project 영향 각각 1통과로 서로 다른 성공 862건입니다. Locale 전체 1대상/19통과/1실패·exit 101 뒤 메시지 키 등록 누락을 수정한 관련 2통과로 서로 다른 20건입니다. 전체 최초 exit 101과 실패 원인/수정·프로젝트 열기 timeout 원인 미확정·c6 최초 포맷 실패 부채를 QA에 보존하며 관련 성공/초기 컴파일 실행 0건을 중복 합산하지 않습니다. frozen host inspection 테스트 대상/Wasm canvas,inspection lib check·소유 native 27/Locale 1/mock 1 Rust fmt와 소유 diff check는 exit 0입니다. SDK 전체 90건은 소스 불변으로 재사용했습니다. pixel/OS IME/접근성/대형 성능/soak·출시·전환·제거는 배치 31~33에 유지합니다. 디스크 406GiB/78%, manifest/lock/frozen source/graph/엔진/새 의존성 변경 0·빌드 정리/보호 데이터/OS 입력 없음입니다."
 }

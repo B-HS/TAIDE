@@ -419,6 +419,7 @@ async fn 연속_참조_이동은_같은_파일로_돌아와도_앞선_파일_열
         code_actions: None,
         code_action_colors: None,
         inlay_hints: None,
+        code_lenses: None,
     };
     assert!(
         provider

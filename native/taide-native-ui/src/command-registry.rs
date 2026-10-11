@@ -101,6 +101,8 @@ pub enum DocumentEdit {
     #[cfg(feature = "native-host")]
     Highlight(HighlightCommand),
     #[cfg(feature = "native-host")]
+    CodeLens,
+    #[cfg(feature = "native-host")]
     Indentation(taide_native_editor::indent::Command),
 }
 
@@ -332,6 +334,10 @@ fn enablement(id: &str) -> Enablement {
 
 fn execution(id: &str, keymap_id: Option<&str>) -> Execution {
     #[cfg(feature = "native-host")]
+    if id == "monaco.codelens.showLensesInCurrentLine" {
+        return Execution::Native(Run::EditDocument(DocumentEdit::CodeLens));
+    }
+    #[cfg(feature = "native-host")]
     if let Some(command) = crate::editor_code_actions::Command::from_action(id) {
         return Execution::Native(Run::CodeActions(command));
     }
@@ -532,6 +538,10 @@ fn fold_command(action: &str) -> Option<FoldCommand> {
 
 pub fn keymap_run(keymap_id: &str) -> Option<Run> {
     #[cfg(feature = "native-host")]
+    if keymap_id == "monaco.codelens.showLensesInCurrentLine" {
+        return Some(Run::EditDocument(DocumentEdit::CodeLens));
+    }
+    #[cfg(feature = "native-host")]
     if let Some(command) = crate::editor_code_actions::Command::from_action(keymap_id) {
         return Some(Run::CodeActions(command));
     }
@@ -706,6 +716,10 @@ impl Registry {
                     }
                     #[cfg(feature = "native-host")]
                     Execution::Native(Run::EditDocument(DocumentEdit::Highlight(_))) => {
+                        Some(action.to_owned())
+                    }
+                    #[cfg(feature = "native-host")]
+                    Execution::Native(Run::EditDocument(DocumentEdit::CodeLens)) => {
                         Some(action.to_owned())
                     }
                     #[cfg(feature = "native-host")]
@@ -995,6 +1009,27 @@ mod tests {
 
     #[cfg(feature = "native-host")]
     #[test]
+    fn code_lens_명령은_native_편집기의_keymap과_readonly_탐색에_연결된다() {
+        let registry = registry().unwrap();
+        let id = "monaco.codelens.showLensesInCurrentLine";
+        assert_eq!(
+            keymap_run(id),
+            Some(Run::EditDocument(DocumentEdit::CodeLens))
+        );
+        let command = registry.command(id).unwrap();
+        assert_eq!(
+            command.runnable(&editor_context(registry, false)),
+            Some(Run::EditDocument(DocumentEdit::CodeLens))
+        );
+        assert_eq!(
+            command.runnable(&editor_context(registry, true)),
+            Some(Run::EditDocument(DocumentEdit::CodeLens))
+        );
+        assert!(command.runnable(&CommandContext::default()).is_none());
+    }
+
+    #[cfg(feature = "native-host")]
+    #[test]
     fn 들여쓰기_변환과_명시_감지는_기존_명령으로_실행되고_readonly를_구분한다() {
         let registry = registry().unwrap();
         let writable = editor_context(&registry, false);
@@ -1137,6 +1172,8 @@ mod tests {
                 Execution::Native(Run::EditDocument(DocumentEdit::Completion(_))) => None,
                 #[cfg(feature = "native-host")]
                 Execution::Native(Run::EditDocument(DocumentEdit::Highlight(_))) => None,
+                #[cfg(feature = "native-host")]
+                Execution::Native(Run::EditDocument(DocumentEdit::CodeLens)) => None,
                 #[cfg(feature = "native-host")]
                 Execution::Native(Run::EditDocument(DocumentEdit::Indentation(_))) => None,
                 Execution::Native(Run::EditDocument(
@@ -1327,6 +1364,11 @@ mod tests {
                 )
                 .chain(
                     ["editor.action.resetSuggestSize"]
+                        .into_iter()
+                        .filter(|_| cfg!(feature = "native-host")),
+                )
+                .chain(
+                    ["codelens.showLensesInCurrentLine"]
                         .into_iter()
                         .filter(|_| cfg!(feature = "native-host")),
                 )

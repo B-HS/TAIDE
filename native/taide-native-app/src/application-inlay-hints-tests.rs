@@ -9,14 +9,14 @@ const FRAME_SIZE: egui::Vec2 = egui::vec2(1000.0, 700.0);
 const EXECUTABLE_MODE: u32 = 0o700;
 const STABILITY_FRAMES: usize = 16;
 
-struct Fixture {
-    directory: PathBuf,
-    path: String,
-    peek_path: String,
-    project: ProjectId,
-    tab: TabId,
-    context: egui::Context,
-    application: Option<NativeApplication>,
+pub(super) struct Fixture {
+    pub(super) directory: PathBuf,
+    pub(super) path: String,
+    pub(super) peek_path: String,
+    pub(super) project: ProjectId,
+    pub(super) tab: TabId,
+    pub(super) context: egui::Context,
+    pub(super) application: Option<NativeApplication>,
 }
 
 impl Drop for Fixture {
@@ -29,7 +29,7 @@ impl Drop for Fixture {
     }
 }
 
-fn paint(
+pub(super) fn paint(
     application: &mut NativeApplication,
     context: &egui::Context,
     events: Vec<egui::Event>,
@@ -46,7 +46,7 @@ fn paint(
     output
 }
 
-fn key(key: egui::Key, modifiers: egui::Modifiers) -> Vec<egui::Event> {
+pub(super) fn key(key: egui::Key, modifiers: egui::Modifiers) -> Vec<egui::Event> {
     [true, false]
         .into_iter()
         .map(|pressed| egui::Event::Key {
@@ -59,7 +59,7 @@ fn key(key: egui::Key, modifiers: egui::Modifiers) -> Vec<egui::Event> {
         .collect()
 }
 
-fn wait(
+pub(super) fn wait(
     application: &mut NativeApplication,
     context: &egui::Context,
     phase: &str,
@@ -88,6 +88,28 @@ fn wait(
 }
 
 fn fixture(mode: &str, is_suggest_preview_enabled: bool) -> Fixture {
+    fixture_with_provider(
+        mode,
+        is_suggest_preview_enabled,
+        |application, project, document| {
+            !application
+                .lsp
+                .as_ref()
+                .unwrap()
+                .inlay_hint_providers(
+                    project,
+                    &application.store.documents().snapshot(document).unwrap(),
+                )
+                .is_empty()
+        },
+    )
+}
+
+pub(super) fn fixture_with_provider(
+    mode: &str,
+    is_suggest_preview_enabled: bool,
+    provider_ready: impl Fn(&NativeApplication, &ProjectId, DocumentId) -> bool,
+) -> Fixture {
     let directory =
         std::env::temp_dir().join(format!("taide-native-inlay-hints-app-{}", ProjectId::new()));
     let data = directory.join("data");
@@ -223,21 +245,13 @@ fn fixture(mode: &str, is_suggest_preview_enabled: bool) -> Fixture {
     );
     let document = application.files[&fixture.path].id;
     wait(application, &fixture.context, "provider", |application| {
-        !application
-            .lsp
-            .as_ref()
-            .unwrap()
-            .inlay_hint_providers(
-                &fixture.project,
-                &application.store.documents().snapshot(document).unwrap(),
-            )
-            .is_empty()
+        provider_ready(application, &fixture.project, document)
     });
     paint(application, &fixture.context, Vec::new());
     fixture
 }
 
-fn body_view(application: &NativeApplication, path: &str, tab: &TabId) -> ViewId {
+pub(super) fn body_view(application: &NativeApplication, path: &str, tab: &TabId) -> ViewId {
     application
         .store
         .views()
@@ -260,7 +274,7 @@ fn hints(
     )
 }
 
-fn text_contains(output: &egui::FullOutput, label: &str) -> bool {
+pub(super) fn text_contains(output: &egui::FullOutput, label: &str) -> bool {
     output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text().contains(label)))
 }
 

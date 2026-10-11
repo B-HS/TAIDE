@@ -35,6 +35,8 @@ pub mod diagnostics;
 mod editor_code_actions;
 #[path = "editor-code-actions-controller.rs"]
 mod editor_code_actions_controller;
+#[path = "editor-code-lenses.rs"]
+mod editor_code_lenses;
 #[path = "editor-command-text.rs"]
 mod editor_command_text;
 #[path = "editor-completion.rs"]

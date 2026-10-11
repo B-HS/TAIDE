@@ -1028,6 +1028,7 @@ pub(crate) struct Provider<'a, 'state> {
     pub(crate) completion: Option<crate::editor_completion::Consumer<'a, 'state>>,
     pub(crate) highlights: Option<crate::editor_highlights::Consumer<'a, 'state>>,
     pub(crate) inlay_hints: Option<crate::editor_inlay_hints::Consumer<'a, 'state>>,
+    pub(crate) code_lenses: Option<crate::editor_code_lenses::Consumer<'a, 'state>>,
     pub(crate) rename: Option<crate::editor_rename_controller::Consumer<'state>>,
     pub(crate) code_actions: Option<crate::editor_code_actions_controller::Consumer<'state>>,
     pub(crate) code_action_colors: Option<taide_native_ui::editor_code_actions::Colors>,
@@ -1803,7 +1804,11 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
             .inlay_hints
             .as_ref()
             .and_then(|consumer| consumer.display(store, preview));
-        let output = self.editor.show_request_with_inlay_hints(
+        let code_lenses = self
+            .code_lenses
+            .as_ref()
+            .and_then(|consumer| consumer.before(store, self.project.as_ref(), view, preview));
+        let output = self.editor.show_request_with_code_lenses(
             &mut ui,
             store,
             preview,
@@ -2021,6 +2026,7 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
                     )
                 }),
             inlay_hints,
+            code_lenses,
         )?;
         self.commands.append(&mut documentation_host_commands);
         self.commands.append(&mut completion_host_commands);
@@ -2037,6 +2043,9 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
                 preview,
                 output.rendered_lines.clone(),
             );
+        }
+        if let Some(consumer) = &self.code_lenses {
+            consumer.after(store, preview, &output.code_lenses);
         }
         self.focus_targets.extend(
             std::iter::once(output.response.id)

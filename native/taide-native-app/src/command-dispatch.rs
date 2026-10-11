@@ -110,6 +110,7 @@ pub(crate) fn apply_document_edits(
                     | DocumentEdit::Documentation(_)
                     | DocumentEdit::Completion(_)
                     | DocumentEdit::Highlight(_)
+                    | DocumentEdit::CodeLens
             )
     }) {
         let result = match edit {
@@ -156,6 +157,7 @@ pub(crate) fn apply_document_edits(
             DocumentEdit::Highlight(_) => {
                 continue;
             }
+            DocumentEdit::CodeLens => continue,
         };
         match result {
             Ok(applied) => changed |= applied,

@@ -53,7 +53,9 @@ pub(super) fn document<'a>(
     Ok(document)
 }
 
-fn client_navigation(command: lsp_types::Command) -> Result<Option<Navigation>, Failure> {
+pub(super) fn client_navigation(
+    command: lsp_types::Command,
+) -> Result<Option<Navigation>, Failure> {
     use taide_native_editor::symbol_locations::{Mode, Target};
     let arguments = command.arguments.unwrap_or_default();
     let target = |value: &serde_json::Value| {

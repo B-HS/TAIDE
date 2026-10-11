@@ -10,11 +10,20 @@ struct AdditionalZone {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+struct BeforeZone {
+    row: usize,
+    height: f32,
+    order: usize,
+    offset: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct VerticalLayout {
     line_height: f32,
     row_count: usize,
     zone: Option<(usize, f32)>,
     additional: Vec<AdditionalZone>,
+    before: Vec<BeforeZone>,
 }
 
 impl VerticalLayout {
@@ -24,6 +33,7 @@ impl VerticalLayout {
             row_count,
             zone: None,
             additional: Vec::new(),
+            before: Vec::new(),
         }
     }
 
@@ -36,6 +46,7 @@ impl VerticalLayout {
     pub fn zone(&self) -> Option<Range<f32>> {
         let (row, height) = self.zone?;
         let top = (row + 1) as f32 * self.line_height
+            + self.before_height(row)
             + self
                 .additional
                 .iter()
@@ -67,6 +78,7 @@ impl VerticalLayout {
     pub fn additional_zone(&self, order: usize) -> Option<Range<f32>> {
         let zone = self.additional.iter().find(|zone| zone.order == order)?;
         let top = (zone.after_row + 1) as f32 * self.line_height
+            + self.before_height(zone.after_row)
             + self
                 .zone
                 .filter(|(row, _)| *row <= zone.after_row)
@@ -80,8 +92,61 @@ impl VerticalLayout {
         Some(top..top + zone.height)
     }
 
+    pub fn with_before_zones(mut self, zones: impl IntoIterator<Item = (usize, f32)>) -> Self {
+        self.before = zones
+            .into_iter()
+            .enumerate()
+            .filter_map(|(order, (row, height))| {
+                (row < self.row_count && height.is_finite() && height > 0.0).then_some(BeforeZone {
+                    row,
+                    height,
+                    order,
+                    offset: 0.0,
+                })
+            })
+            .collect();
+        self.before.sort_by_key(|zone| (zone.row, zone.order));
+        let mut offset = 0.0;
+        for zone in &mut self.before {
+            zone.offset = offset;
+            offset += zone.height;
+        }
+        self
+    }
+
+    fn before_height(&self, row: usize) -> f32 {
+        let end = self.before.partition_point(|zone| zone.row <= row);
+        end.checked_sub(1).map_or(0.0, |index| {
+            self.before[index].offset + self.before[index].height
+        })
+    }
+
+    fn before_range(&self, zone: &BeforeZone) -> Range<f32> {
+        let top = zone.row as f32 * self.line_height
+            + zone.offset
+            + self
+                .zone
+                .filter(|(row, _)| *row < zone.row)
+                .map_or(0.0, |(_, height)| height)
+            + self
+                .additional
+                .iter()
+                .take_while(|candidate| candidate.after_row < zone.row)
+                .map(|candidate| candidate.height)
+                .sum::<f32>();
+        top..top + zone.height
+    }
+
+    pub fn before_zone(&self, order: usize) -> Option<Range<f32>> {
+        self.before
+            .iter()
+            .find(|zone| zone.order == order)
+            .map(|zone| self.before_range(zone))
+    }
+
     pub fn row_top(&self, row: usize) -> f32 {
         row as f32 * self.line_height
+            + self.before_height(row)
             + self
                 .zone
                 .filter(|(after, _)| row > *after)
@@ -104,6 +169,15 @@ impl VerticalLayout {
 
     pub fn row_at(&self, y: f32) -> usize {
         let mut shift = 0.0;
+        for zone in &self.before {
+            let range = self.before_range(zone);
+            if range.contains(&y) {
+                return zone.row;
+            }
+            if y >= range.end {
+                shift += zone.height;
+            }
+        }
         if let Some(zone) = self.zone() {
             if zone.contains(&y) {
                 return self.zone.unwrap().0;
@@ -129,10 +203,14 @@ impl VerticalLayout {
         self.row_count as f32 * self.line_height
             + self.zone.map_or(0.0, |(_, height)| height)
             + self.additional.iter().map(|zone| zone.height).sum::<f32>()
+            + self
+                .before
+                .last()
+                .map_or(0.0, |zone| zone.offset + zone.height)
     }
 
     pub fn visible_rows(&self, top: f32, height: f32, overscan: usize) -> Range<usize> {
-        if self.zone.is_some() || !self.additional.is_empty() {
+        if self.zone.is_some() || !self.additional.is_empty() || !self.before.is_empty() {
             if top >= self.content_height() {
                 return self.row_count..self.row_count;
             }

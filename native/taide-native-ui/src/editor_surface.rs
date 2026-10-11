@@ -271,6 +271,8 @@ struct RenderedViewport {
     content_height: f32,
     #[cfg(feature = "native-host")]
     problem_zone: Option<(usize, f32)>,
+    #[cfg(feature = "native-host")]
+    code_lens_height: f32,
 }
 
 #[derive(Clone)]
@@ -310,6 +312,10 @@ struct InputState {
     rename: crate::editor_rename::State,
     #[cfg(feature = "native-host")]
     code_actions: crate::editor_code_actions::State,
+    #[cfg(feature = "native-host")]
+    code_lenses: crate::editor_code_lenses::State,
+    #[cfg(feature = "native-host")]
+    code_lens_presentation: Option<crate::editor_code_lenses::Presentation>,
     #[cfg(feature = "native-host")]
     caret: crate::editor_caret::CaretState,
     #[cfg(feature = "native-host")]
@@ -555,6 +561,10 @@ struct Projection<'a> {
     inlay_hints: Option<&'a crate::editor_inlay_hints::Presentation>,
     #[cfg(feature = "native-host")]
     retain_cached_hints: bool,
+    #[cfg(feature = "native-host")]
+    code_lenses: Option<crate::editor_code_lenses::Presentation>,
+    #[cfg(feature = "native-host")]
+    rendered_code_lenses: Option<crate::editor_code_lenses::Presentation>,
 }
 
 fn preview_layout(line_height: f32, display: &DisplayMap) -> VerticalLayout {
@@ -586,9 +596,15 @@ impl Projection<'_> {
         folds: &[Range<usize>],
     ) -> Result<(&DisplayMap, Option<f32>), EditorError> {
         #[cfg(feature = "native-host")]
-        let zone_changed = self
-            .rendered_viewport
-            .is_some_and(|rendered| rendered.problem_zone != self.problem_zone);
+        let zone_changed = self.rendered_viewport.is_some_and(|rendered| {
+            rendered.problem_zone != self.problem_zone
+                || rendered.code_lens_height
+                    != crate::editor_code_lenses::presentation_height(
+                        self.code_lenses.as_ref(),
+                        document,
+                        self.appearance,
+                    )
+        }) || self.code_lenses != self.rendered_code_lenses;
         #[cfg(not(feature = "native-host"))]
         let zone_changed = false;
         let wrap = self.wrap_tab_size.map(|tab_size| {
@@ -645,6 +661,14 @@ impl Projection<'_> {
             .map(|(stale, rendered)| {
                 let layout = preview_layout(rendered.line_height, stale);
                 #[cfg(feature = "native-host")]
+                let layout = crate::editor_code_lenses::layout(
+                    layout,
+                    document,
+                    stale,
+                    rendered.code_lens_height,
+                    self.rendered_code_lenses.as_ref(),
+                );
+                #[cfg(feature = "native-host")]
                 let layout = rendered.problem_zone.map_or_else(
                     || layout.clone(),
                     |(position, height)| {
@@ -680,6 +704,14 @@ impl Projection<'_> {
                 .is_none()
         {
             let layout = preview_layout(self.appearance.line_height, map);
+            #[cfg(feature = "native-host")]
+            let layout = crate::editor_code_lenses::layout(
+                layout,
+                document,
+                map,
+                crate::editor_code_lenses::height(self.appearance),
+                self.code_lenses.as_ref(),
+            );
             #[cfg(feature = "native-host")]
             let layout = self.problem_zone.map_or_else(
                 || layout.clone(),
@@ -719,6 +751,8 @@ pub struct EditorOutput {
     pub formatting_inputs: Vec<crate::editor_formatting_input::Input>,
     #[cfg(feature = "native-host")]
     pub toggle_sticky_scroll: bool,
+    #[cfg(feature = "native-host")]
+    pub code_lenses: crate::editor_code_lenses::Output,
     #[cfg(all(feature = "native-host", feature = "inspection"))]
     pub documentation_geometry: crate::editor_documentation::Geometry,
     #[cfg(all(feature = "native-host", feature = "inspection"))]
@@ -979,6 +1013,11 @@ impl NativeEditor {
                     .problems
                     .zone(store, &document, appearance.line_height, rect.height())
             });
+        #[cfg(feature = "native-host")]
+        let code_lenses = ui.ctx().data(|data| {
+            data.get_temp::<InputState>(ui.make_persistent_id(("native-code-editor", view)))
+                .and_then(|input| input.code_lens_presentation)
+        });
         let mut projection = Projection {
             painter: ui.painter().clone(),
             appearance,
@@ -990,6 +1029,10 @@ impl NativeEditor {
             inlay_hints: None,
             #[cfg(feature = "native-host")]
             retain_cached_hints: true,
+            #[cfg(feature = "native-host")]
+            code_lenses: code_lenses.clone(),
+            #[cfg(feature = "native-host")]
+            rendered_code_lenses: code_lenses.clone(),
             cached,
             rendered_viewport: None,
             stable_scroll_top: None,
@@ -998,6 +1041,14 @@ impl NativeEditor {
         };
         let display = projection.map(&document, &current.folds)?;
         let layout = preview_layout(appearance.line_height, display);
+        #[cfg(feature = "native-host")]
+        let layout = crate::editor_code_lenses::layout(
+            layout,
+            &document,
+            display,
+            crate::editor_code_lenses::height(appearance),
+            code_lenses.as_ref(),
+        );
         #[cfg(feature = "native-host")]
         let layout = problem_zone.map_or_else(
             || layout.clone(),
@@ -1221,6 +1272,8 @@ impl NativeEditor {
             None,
             #[cfg(feature = "native-host")]
             None,
+            #[cfg(feature = "native-host")]
+            None,
         )
     }
 
@@ -1242,7 +1295,17 @@ impl NativeEditor {
             crate::editor_rename::Colors,
         )>,
     ) -> Result<EditorOutput, EditorError> {
-        self.show_request_inner(ui, store, view, request, editor_keymap, rename, None, None)
+        self.show_request_inner(
+            ui,
+            store,
+            view,
+            request,
+            editor_keymap,
+            rename,
+            None,
+            None,
+            None,
+        )
     }
 
     #[cfg(feature = "native-host")]
@@ -1275,6 +1338,7 @@ impl NativeEditor {
             editor_keymap,
             rename,
             code_actions,
+            None,
             None,
         )
     }
@@ -1311,6 +1375,44 @@ impl NativeEditor {
             rename,
             code_actions,
             inlay_hints,
+            None,
+        )
+    }
+
+    #[cfg(feature = "native-host")]
+    pub fn show_request_with_code_lenses<'tokens>(
+        &self,
+        ui: &mut Ui,
+        store: &mut EditorStore,
+        view: ViewId,
+        request: EditorRequest<
+            '_,
+            impl FnMut(&Ui, &Event, bool) -> bool,
+            impl FnOnce(&Response) -> Option<KeyboardInputRoute>,
+            impl FnOnce(&EditorStore) -> Option<EditorTokens<'tokens>>,
+        >,
+        editor_keymap: impl FnMut(&Ui, &mut EditorStore, ViewId, &Event, bool) -> bool,
+        rename: Option<(
+            &mut dyn crate::editor_rename::Provider,
+            crate::editor_rename::Colors,
+        )>,
+        code_actions: Option<(
+            &mut dyn crate::editor_code_actions::Provider,
+            crate::editor_code_actions::Colors,
+        )>,
+        inlay_hints: Option<crate::editor_inlay_hints::Presentation>,
+        code_lenses: Option<crate::editor_code_lenses::Presentation>,
+    ) -> Result<EditorOutput, EditorError> {
+        self.show_request_inner(
+            ui,
+            store,
+            view,
+            request,
+            editor_keymap,
+            rename,
+            code_actions,
+            inlay_hints,
+            code_lenses,
         )
     }
 
@@ -1336,6 +1438,9 @@ impl NativeEditor {
         )>,
         #[cfg(feature = "native-host")] inlay_hints: Option<
             crate::editor_inlay_hints::Presentation,
+        >,
+        #[cfg(feature = "native-host")] code_lenses: Option<
+            crate::editor_code_lenses::Presentation,
         >,
     ) -> Result<EditorOutput, EditorError> {
         let EditorRequest {
@@ -1588,6 +1693,10 @@ impl NativeEditor {
                 inlay_hints: inlay_hints.as_ref(),
                 #[cfg(feature = "native-host")]
                 retain_cached_hints: false,
+                #[cfg(feature = "native-host")]
+                code_lenses: code_lenses.clone(),
+                #[cfg(feature = "native-host")]
+                rendered_code_lenses: input_state.code_lens_presentation.clone(),
                 cached,
                 rendered_viewport: input_state
                     .rendered_viewport
@@ -2182,6 +2291,14 @@ impl NativeEditor {
         );
         let layout = preview_layout(appearance.line_height, display);
         #[cfg(feature = "native-host")]
+        let layout = crate::editor_code_lenses::layout(
+            layout,
+            &document,
+            display,
+            crate::editor_code_lenses::height(appearance),
+            code_lenses.as_ref(),
+        );
+        #[cfg(feature = "native-host")]
         let layout = zone_position.map_or_else(
             || layout.clone(),
             |(position, height)| {
@@ -2720,6 +2837,35 @@ impl NativeEditor {
             .is_some_and(|origin| sticky_rect.contains(origin) && sticky_rect.height() > 0.0);
         #[cfg(not(feature = "native-host"))]
         let is_sticky_press = false;
+        #[cfg(feature = "native-host")]
+        let code_lens_output = input_state.code_lenses.show(
+            ui,
+            crate::editor_code_lenses::Frame {
+                id,
+                document: &document,
+                display,
+                layout: &layout,
+                rows: &row_layout,
+                appearance,
+                rect,
+                text_rect: Rect::from_min_max(
+                    pos2(text_rect.left(), sticky_rect.bottom()),
+                    text_rect.max,
+                ),
+                scroll: vec2(state.scroll.x, state.scroll.y),
+            },
+            code_lenses.as_ref(),
+        );
+        #[cfg(feature = "native-host")]
+        let is_code_lens_press = press.origin.is_some_and(|origin| {
+            code_lens_output
+                .geometry
+                .zones
+                .iter()
+                .any(|zone| zone.contains(origin))
+        });
+        #[cfg(not(feature = "native-host"))]
+        let is_code_lens_press = false;
         let fold_placeholder_width = painter
             .layout_no_wrap(
                 FOLD_PLACEHOLDER.into(),
@@ -2812,7 +2958,10 @@ impl NativeEditor {
             input_state.fold_press = press
                 .origin
                 .filter(|_| {
-                    !is_code_action_press && ui.is_enabled() && response.is_pointer_button_down_on()
+                    !is_code_action_press
+                        && !is_code_lens_press
+                        && ui.is_enabled()
+                        && response.is_pointer_button_down_on()
                 })
                 .and_then(&fold_target);
         }
@@ -2824,6 +2973,7 @@ impl NativeEditor {
             && !is_sticky_press
             && !is_problem_press
             && !is_code_action_press
+            && !is_code_lens_press
             && !fold_press.is_some_and(|press| press.is_on_control)
             && (press.down || response.clicked() || response.drag_started() || response.dragged())
             && let Some(pointer) = response.interact_pointer_pos()
@@ -3516,7 +3666,19 @@ impl NativeEditor {
             content_height,
             #[cfg(feature = "native-host")]
             problem_zone: zone_position,
+            #[cfg(feature = "native-host")]
+            code_lens_height: crate::editor_code_lenses::presentation_height(
+                code_lenses.as_ref(),
+                &document,
+                appearance,
+            ),
         });
+        #[cfg(feature = "native-host")]
+        {
+            input_state.code_lens_presentation = code_lenses
+                .clone()
+                .filter(|value| value.describes(&document));
+        }
         let geometry = EditorGeometry {
             rect,
             content_rect: text_rect,
@@ -3658,6 +3820,8 @@ impl NativeEditor {
             formatting_inputs: output.formatting_inputs,
             #[cfg(feature = "native-host")]
             toggle_sticky_scroll,
+            #[cfg(feature = "native-host")]
+            code_lenses: code_lens_output,
             #[cfg(all(feature = "native-host", feature = "inspection"))]
             documentation_geometry,
             #[cfg(all(feature = "native-host", feature = "inspection"))]

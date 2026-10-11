@@ -485,6 +485,7 @@
     "palette.filesRefreshing": "Refreshing",
     "palette.linePlaceholder": "Go to line (e.g. 42 or 42:10)",
     "palette.noActiveFile": "Open a file first",
+    "palette.codeLensPlaceholder": "Select a command",
     "palette.indentationPlaceholder": "Select Tab Size for Current File",
     "palette.configuredTabSize": "Configured Tab Size",
     "palette.defaultTabSize": "Default Tab Size",

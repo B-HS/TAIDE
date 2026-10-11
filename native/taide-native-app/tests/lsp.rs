@@ -339,6 +339,10 @@ fn 실제_저장은_fix_all_resolve_edit_command_server_apply_edit_imports_forma
                     | Reply::EditorFormatted { .. }
                     | Reply::Highlights { .. }
                     | Reply::InlayHints { .. }
+                    | Reply::CodeLenses { .. }
+                    | Reply::CodeLensResolved { .. }
+                    | Reply::CodeLensExecuted { .. }
+                    | Reply::CodeLensRefresh { .. }
                     | Reply::SyntaxFolding { .. }
                     | Reply::Documentation { .. }
                     | Reply::SymbolLocations { .. }

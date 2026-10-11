@@ -10,7 +10,7 @@ use taide_infra::lsp_proc::LspProcConfig;
 use taide_infra::lsp_writer::WriterLimits;
 use taide_infra::root_guard;
 use taide_lsp::native::protocol::{
-    Rejection, ServerNotification, ServerReply, ServerRequestKind, lsp_types,
+    RefreshKind, Rejection, ServerNotification, ServerReply, ServerRequestKind, lsp_types,
 };
 use taide_lsp::native::session::{
     SessionClient, SessionNotice, SessionNoticeKind, SessionOptions, SessionSnapshot,
@@ -52,6 +52,8 @@ mod idle;
 mod document_symbols;
 #[path = "lsp-editor-code-actions.rs"]
 mod editor_code_actions;
+#[path = "lsp-editor-code-lenses.rs"]
+mod editor_code_lenses;
 #[path = "lsp-editor-completion.rs"]
 mod editor_completion;
 #[path = "lsp-editor-documentation.rs"]
@@ -82,6 +84,9 @@ mod document_symbol_tests;
 #[cfg(all(test, unix))]
 #[path = "lsp-editor-code-actions-tests.rs"]
 mod editor_code_actions_tests;
+#[cfg(test)]
+#[path = "lsp-editor-code-lenses-tests.rs"]
+mod editor_code_lenses_tests;
 #[cfg(all(test, unix))]
 #[path = "lsp-editor-completion-tests.rs"]
 mod editor_completion_tests;
@@ -267,6 +272,7 @@ enum Command {
     Documentation(crate::editor_documentation::Request),
     Highlights(crate::editor_highlights::Request),
     InlayHints(crate::editor_inlay_hints::Request),
+    CodeLensWork(editor_code_lenses::Work),
     SymbolLocations(crate::editor_locations::Request),
     SyntaxFolding(crate::editor_folding::Request),
     DocumentSymbols(crate::editor_symbols::Request),
@@ -319,6 +325,22 @@ enum Command {
 }
 
 pub enum Reply {
+    CodeLenses {
+        request: crate::editor_code_lenses::Request,
+        result: Result<crate::editor_code_lenses::Response, Failure>,
+    },
+    CodeLensResolved {
+        request: crate::editor_code_lenses::ResolveRequest,
+        result: Result<lsp_types::CodeLens, Failure>,
+    },
+    CodeLensExecuted {
+        request: crate::editor_code_lenses::ExecuteRequest,
+        result: AppResult<Option<crate::editor_code_actions::Navigation>>,
+    },
+    CodeLensRefresh {
+        project: ProjectId,
+        provider: crate::editor_symbols::ProviderIdentity,
+    },
     EditorFormatted {
         request: crate::editor_formatting::Request,
         result: Result<crate::editor_formatting::Response, Failure>,
@@ -877,10 +899,51 @@ impl LspBridge {
         project: &ProjectId,
         snapshot: &DocumentSnapshot,
     ) -> HashSet<crate::editor_symbols::ProviderIdentity> {
+        self.ready_feature_providers(project, snapshot, "textDocument/inlayHint")
+    }
+
+    pub(crate) fn code_lens_providers(
+        &self,
+        project: &ProjectId,
+        snapshot: &DocumentSnapshot,
+    ) -> HashSet<crate::editor_symbols::ProviderIdentity> {
+        self.ready_feature_providers(project, snapshot, "textDocument/codeLens")
+    }
+
+    pub(crate) fn code_lenses(&self, request: crate::editor_code_lenses::Request) -> AppResult<()> {
+        self.submit(Command::CodeLensWork(editor_code_lenses::Work::Provide(
+            request,
+        )))
+    }
+
+    pub(crate) fn resolve_code_lens(
+        &self,
+        request: crate::editor_code_lenses::ResolveRequest,
+    ) -> AppResult<()> {
+        self.submit(Command::CodeLensWork(editor_code_lenses::Work::Resolve(
+            request,
+        )))
+    }
+
+    pub(crate) fn execute_code_lens(
+        &self,
+        request: crate::editor_code_lenses::ExecuteRequest,
+    ) -> AppResult<()> {
+        self.submit(Command::CodeLensWork(editor_code_lenses::Work::Execute(
+            request,
+        )))
+    }
+
+    fn ready_feature_providers(
+        &self,
+        project: &ProjectId,
+        snapshot: &DocumentSnapshot,
+        method: &str,
+    ) -> HashSet<crate::editor_symbols::ProviderIdentity> {
         if snapshot.metadata.tier != FileSizeTier::Normal {
             return HashSet::new();
         }
-        let mut providers = self.feature_providers(project, snapshot, "textDocument/inlayHint");
+        let mut providers = self.feature_providers(project, snapshot, method);
         providers.retain(|provider| {
             self.states.borrow().iter().any(|state| {
                 state.project == *project
@@ -1190,6 +1253,8 @@ fn initialize(plan: &Plan) -> Value {
     });
     params["capabilities"]["textDocument"]["rename"] =
         json!({"prepareSupport":true,"dynamicRegistration":true});
+    params["capabilities"]["textDocument"]["codeLens"] = json!({});
+    params["capabilities"]["workspace"]["codeLens"] = json!({"refreshSupport":true});
     if let Some(initialization) = &plan.spec.initialization_options {
         params["initializationOptions"] = initialization.clone();
     }
@@ -1587,6 +1652,30 @@ async fn notice(
     }
     match notice.kind {
         SessionNoticeKind::Request(request) => {
+            if matches!(
+                request.kind.as_ref(),
+                ServerRequestKind::Refresh(RefreshKind::CodeLens)
+            ) {
+                if let Err(error) = session
+                    .client
+                    .reply(request.ticket, ServerReply::Acknowledged)
+                    .await
+                {
+                    return Some(Reply::Failed {
+                        document: None,
+                        error: failure(error),
+                    });
+                }
+                let state = session.client.snapshot();
+                return Some(Reply::CodeLensRefresh {
+                    project: key.project.clone(),
+                    provider: crate::editor_symbols::ProviderIdentity {
+                        owner: session.owner,
+                        generation: state.generation,
+                        capability_revision: state.capability_revision,
+                    },
+                });
+            }
             if let ServerRequestKind::ApplyEdit(params) = request.kind.as_ref() {
                 let documents = protocol_documents(session);
                 let client = session.client.clone();
@@ -2277,6 +2366,44 @@ async fn run(
                         request: rejected,
                         result: Err(Failure::TransportClosed),
                     })
+                } else {
+                    None
+                }
+            }
+            Command::CodeLensWork(work) => {
+                let request = work.request().clone();
+                if request.is_cancelled() {
+                    continue;
+                }
+                let selected = sessions
+                    .iter()
+                    .filter(|(key, session)| {
+                        key.project == request.project
+                            && session.documents.contains_key(&request.snapshot.id)
+                    })
+                    .map(|(key, session)| (key.clone(), session.clone()))
+                    .collect::<HashMap<_, _>>();
+                let sender = replies.clone();
+                let repaint = repaint.clone();
+                let commands = commands.clone();
+                let mut cancelled = request.cancelled.clone();
+                let mut stopping = stopping.clone();
+                let rejected = work.clone();
+                if !services
+                    .tasks
+                    .spawn_transient("native-lsp-editor-code-lens", async move {
+                        let reply = tokio::select! {
+                            biased;
+                            _ = stopping.changed() => return,
+                            _ = cancelled.changed() => return,
+                            reply = editor_code_lenses::run(&selected, work, &commands) => reply,
+                        };
+                        if !request.is_cancelled() && sender.send(reply).await.is_ok() {
+                            repaint();
+                        }
+                    })
+                {
+                    Some(rejected.rejected(Failure::TransportClosed))
                 } else {
                     None
                 }

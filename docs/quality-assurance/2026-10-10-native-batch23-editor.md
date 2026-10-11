@@ -763,3 +763,53 @@ Core의 새 inlay-hints와 DisplayMap은 label/kind/tooltip/padding을 원문 �
 최초 App 전체 실행 중 프로세스 관찰에는 Cargo 1개가 있었고 로그의 검사 대상은 preview→프로젝트→터미널→untitled로 계속 바뀌었습니다. 해당 전체 명령과 실패 1건 재확인·두 컴파일/fmt가 terminal 종료한 뒤 프로세스 조회에 소유 Cargo/rustfmt/실제 App 검사·mock 서버는 남지 않았습니다. 이번 실행의 중복 반복/잔류 증거는 없으며 모든 과거 세션이나 제품의 종료성을 증명했다는 뜻은 아닙니다.
 
 실제 구현·앱 소비·기능 자동 검사 정의에 따라 editor-50만 complete로 갱신합니다. 599행·제외 10/동결 1·대상 588행 중 294완료/92부분/112미연결/90미구현·294미완료이며 배치 23 잔여 27·최종 33입니다. 요구사항 행을 전체 전환율/잔여 시간으로 환산하지 않습니다. 실제 pixel/OS 입력/IME·접근성·대형 성능/soak와 출시·전환·제거 게이트는 배치 31~33에 유지하고 다음 기능은 같은 배치 23의 editor-53 Code Lens입니다.
+
+## c7a Code Lens 원본·현재 경계와 소유 (2026-10-11)
+
+직전 c6의 33개 소유 경로를 5f1b9dc2로 선별 커밋·일반 푸시하고 upstream 0/0·빈 index를 확인했습니다. 이 절은 다음 기능 조사이며 editor-53은 실제 App 소비자가 없어 missing을 유지합니다. 기능표 294완료/294미완료와 배치 23 잔여 27·최종 33은 변하지 않습니다.
+
+원본 src/shared/lib/lsp/adapters/code-lens.ts는 textDocument/codeLens에 전체 문서 URI를 보내고 range와 command를 변환하며 WeakMap으로 data를 보존합니다. resolve 지원 시 range/data만 codeLens/resolve에 보내고 기존 range는 유지하면서 command만 바꿉니다. 빈 command ID는 미표시이고 취소 결과는 원래 lens를 유지합니다. provide 때마다 현재 editorCodeLensEnabled getter를 읽고 서버 지원 여부와 분리합니다. src/entities/lsp/lsp-session-registry.ts:367의 workspace/codeLens/refresh는 해당 client만 갱신하고 300ms debounce 뒤 provider 변경을 알립니다. initialize-params.ts는 workspace.codeLens.refreshSupport와 textDocument.codeLens를 선언합니다.
+
+설치 Monaco codelens.js는 복수 공급자를 동시에 요청해 line/provider 우선순위/column으로 정렬합니다. codelensWidget.js는 같은 줄 렌즈를 하나의 zone에 묶어 그 줄 위 공간을 확보하고 첫 비공백 column 위에 명령을 표시합니다. command 제목의 양끝 공백·codicon과 NBSP 파이프 구분, foreground/hover link 테마, 본문 0.9배를 내린 기본 글꼴 크기·max(1.3,lineHeight/fontSize)에 따른 렌즈 높이·짧은 최초 나타남을 사용합니다. codelensController.js는 기본 최소 250ms 공급/resolve, 보이는 zone만 미해석 렌즈를 resolve, 내용/포커스/스크롤·레이아웃·설정·dispose의 수명을 관리합니다. codelens.showLensesInCurrentLine은 현재 줄의 명령을 기존 quick pick에서 선택해 실행하고 빈 목록은 열지 않습니다. 공식 [Monaco CodeLensProvider API](https://microsoft.github.io/monaco-editor/typedoc/interfaces/editor_editor_api.languages.CodeLensProvider.html)와 설치된 API/구현을 함께 확인했습니다.
+
+현재 crates/taide-lsp/src/native/feature.rs·capabilities.rs·registration.rs는 CodeLensRequest/Resolve와 지원/동적 계약을 제공하고 protocol.rs에는 RefreshKind::CodeLens가 있습니다. App lsp.rs의 notice는 현재 refresh를 Unavailable로 거절하며 실제 렌즈 소비자는 없습니다. 원본 Code Action의 command relay와 client navigation은 이미 본문/peek를 검증한 경로이므로 렌즈 실행에서도 같은 소유·문서·세대 검증 경계를 재사용합니다. 설정 UI/model은 이미 editor_code_lens_enabled를 보존합니다.
+
+소유 범위는 core display-layout.rs/관련 검사, UI 새 editor-code-lenses와 editor_surface의 투영/스크롤·입력/표시, App 새 editor-code-lenses·lsp-editor-code-lenses와 기존 lsp/본문·peek/명령·설정/테마 연결, 소유 mock/실제 child/App 검사 및 이 QA/기능표/PROCESS 상단입니다. 기존 VerticalLayout은 줄 뒤 단일/추가 zone만 있어 첫 줄 위 공간을 표현할 수 없으므로 줄 위 zone을 추가하되 기존 생성 계약과 peek/problem/ghost의 순서/좌표를 보존합니다. 문서 바이트/텍스트/선택·readonly/tier/Unicode·wrap/fold/reveal/스크롤·viewport/거절/오래된 응답·설정/client별 refresh·실제 명령/종료를 기능 위험에 맞게 확인합니다. Core/UI에 LSP·정규식/구문 의존성은 추가하지 않고 frozen graph/manifest/lock·보호 데이터/OS 입력을 유지합니다.
+
+### c7b — Core 줄 위 공간과 native CodeLens 표시의 현재 증거
+
+- 새 VerticalLayout before zone은 첫/중간 줄·동일 줄 여러 공간·기존 problem/peek/ghost 뒤 공간과 행 역변환/가시 범위를 함께 보존합니다. `/private/tmp/taide-batch23-code-lenses-layout.log`: 관련 7통과·0실패·exit 0이며 Core 전체는 아직 실행하지 않았습니다.
+- Native UI는 source 문서에 문자열을 넣지 않고 줄의 첫 비공백 위치에 floor(본문 font×0.9) 크기·원본 줄 위 높이·같은 줄 구분자·아이콘/hover/클릭·미해결 빈 공간을 그립니다. 기존 공개 EditorRequest와 show wrapper는 보존합니다. 설치 Monaco 0.56의 742 codicon 별칭을 데이터로 반입했고 별도 MIT notice와 기존 폰트 라이선스를 보존합니다. 신규 의존성·font 변경은 없습니다.
+- UI 최신 서로 다른 CodeLens 4건과 기존 Inlay 3건, 총 7건이 통과했습니다. `/private/tmp/taide-batch23-code-lenses-ui-final-related.log` 3+3통과·exit 0, `/private/tmp/taide-batch23-code-lenses-reveal-presented.log` 영향 2통과·exit 0의 중복 1건은 합산하지 않습니다. 클릭/미해결 공간의 source 선택·Rope/revision/dirty 보존, fold/wrap·오래된 revision 제거·실제 현재 presentation을 쓴 reveal을 확인했습니다.
+- 최초 UI check의 private byte_to_char import 실패는 실행 0건이며 공개 Core API를 넓히지 않고 Rope roundtrip 검증으로 수정했습니다. 첫 fold fixture는 native의 숨김 범위 끝을 잘못 가정하여 2통과/1실패였고 실제 원본 경계를 읽어 fixture를 수정했습니다. CSS의 ASCII 공백 축약은 실패 테스트(`/private/tmp/taide-batch23-code-lenses-spacing-red.log`, 0통과/1실패)로 재현한 후 제품을 수정했습니다. reveal 최초 1실패는 custom presentation으로 그리면서 default reveal을 사용한 fixture의 불일치였고 실제 App이 쓰는 presented 경로로 수정 후 영향 검사 2건이 통과했습니다.
+- 동결 브라우저 host compile(`/private/tmp/taide-batch23-code-lenses-frozen-host.log`, Finished dev 17.72초)과 Wasm compile(`/private/tmp/taide-batch23-code-lenses-frozen-wasm.log`, Finished dev 15.02초)은 완료되었습니다. source/manifest/lock/dependency graph 변경은 없습니다. native-host의 lens가 없는 height 비교는 마지막으로 수정했고 이후 실제 App/전체 UI 검증에서 확인할 예정입니다.
+- 아직 보이는 항목 typed resolve·실제 본문/peek/현재 줄 명령 선택·서버/client 실행·client별 refresh·수명/취소/안정 프레임·전체 대상/실기 검증은 완료하지 않았습니다. editor-53 missing·588대상/294완료/294미완료·배치 23 잔여 27·최종 33을 유지합니다.
+
+### c7c — 실제 공급·명령과 반복 실행 확인
+
+typed 전체 문서 공급·보이는 렌즈 resolve·data/range 소유·서버 명령/client references·client별 refresh와 현재 줄 QuickPick을 연결했습니다. /private/tmp/taide-batch23-code-lenses-related.log는 실제 App 2·상태 4·실제 child 2의 서로 다른 8통과/0실패·exit 0입니다. 이후 peek의 실제 명령 팔레트와 현재 source 선택·명령 가용성 검사를 추가했고 최신 App 전체 검증 전에는 이전 8건을 최신 App 전체 성공으로 확대하지 않습니다. 두 공급자/두 프로젝트·빈/null/오류/잘못된 응답/미지원·실제 제공/resolve 취소/늦은 응답·서버 재시작과 정상 종료 task 0을 검증했습니다.
+
+요청 상태는 완료/빈/오류를 보존하고 resolve는 Pending→Finished로 한 번 끝냅니다. 동일 입력의 안정 프레임 16회에서 provide/resolve를 다시 요청하지 않는 상태 검사가 통과했습니다. 실제 서버 refresh·문서/뷰/설정/공급자 변경에서만 취소 후 새 요청을 시작합니다. 현재 코드의 이 경계와 최근 검사 종료를 확인한 것이며 전체 제품이나 모든 과거 세션의 종료성 증명은 아닙니다. 시스템 프로세스 이름 조회에서도 이 작업의 cargo/rustc/rustfmt/mock/test 잔류는 없었습니다.
+
+UI 전체 1회는 26대상/470통과/1실패·exit 101입니다. 실패는 기존 명령 집계의 expected 목록에서 새 Code Lens 명령을 빠뜨린 것이며 /private/tmp/taide-batch23-code-lenses-ui-recheck.log의 정확한 실패 검사 1통과/exit 0으로 수정 영향을 확인했습니다. 성공한 470건은 재실행하지 않으며 서로 다른 최종 UI 성공은 471건입니다. 전체 최초 exit 101을 exit 0으로 바꾸어 보고하지 않습니다. App 전체 integration 검사의 Reply 매칭에도 새 네 응답 종류를 명시했습니다.
+
+설치 Monaco cursorCommon.js의 PageUp/Down pageSize는 floor(layoutInfo.height/lineHeight)-2이고 CodeLens zone 높이를 따로 빼지 않습니다. Native surface의 기존 page_lines도 같은 기준이므로 새 페이지 이동 규칙을 추가하지 않았습니다. viewport 기반 zone 가시성으로 resolve하고 sticky 아래 실제 글자는 기존 clip 영역으로 표시합니다. 새 의존성/OS 합성 입력·보호 데이터/동결 코드는 변경하지 않았습니다.
+
+### c7d — 최신 전체 대상·완료 판정과 남은 게이트
+
+최신 실제 peek 검사에는 원본 명령 팔레트 입력·현재 source/owner·선택한 명령의 enabled/selected·현재 줄 QuickPick과 Escape·source Rope/revision/dirty·디스크·종료 task 0을 포함했습니다. 최초 전체의 212행은 입력 준비 한 프레임을 빠뜨려 검색어가 전달되지 않은 결과였습니다. 기존 실제 App 팔레트처럼 두 프레임을 준비하고 입력 포커스/preview source를 확인하자 검색 결과는 2행이었습니다. 부분 검색어 CodeLens가 반드시 한 결과를 낸다는 검사 가정을 제거하고 기존 카탈로그의 정확한 지역화 제목·명령 ID·선택 상태로 검사했습니다. /private/tmp/taide-batch23-code-lenses-app-recheck.log는 0통과/1실패·exit 101, 최종 app-picker-recheck.log는 해당 실제 App 1통과/0실패·exit 0(9.99초)입니다. 같은 실패 가정을 반복하거나 제품의 검색 동작을 바꾸지 않았습니다.
+
+| 직접 실행한 전체 대상                                                       | 최초 결과                            | 실패 영향 확인                                                                                                  |
+| --------------------------------------------------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| Core --all-targets --no-fail-fast                                           | 39대상/301통과/0실패/1ignored·exit 0 | 관련 7건은 전체와 중복 합산하지 않음                                                                            |
+| UI --all-targets --no-fail-fast·inspection                                  | 26대상/470통과/1실패·exit 101        | 새 명령 집계 기대값 수정 뒤 정확한 실패 1통과·exit 0; 서로 다른 성공 471건                                      |
+| App --all-targets --no-fail-fast·inspection·test-threads=1·보호 Trash 3제외 | 67대상/860통과/2실패·exit 101        | 최신 peek 팔레트 1통과와 조건 변경 없는 project 1통과; 서로 다른 성공 862건                                     |
+| Locale --all-targets --no-fail-fast                                         | 1대상/19통과/1실패·exit 101          | 새 palette.codeLensPlaceholder의 MESSAGE_NAMESPACES 누락 수정 뒤 키 등록/중복 2통과·exit 0; 서로 다른 성공 20건 |
+
+로그 접두사는 /private/tmp/taide-batch23-code-lenses-이며 전체 결과는 core-all.log/ui-all.log/app-all.log/locale-all.log, 영향 결과는 ui-recheck.log/app-picker-recheck.log/project-recheck.log/locale-recheck.log입니다. 초기 private Core import/App test initializer/최초 mock build의 ViewId tuple 컴파일 실패는 실행 0건이며 성공 수에 포함하지 않습니다. 실제 source/owner tuple의 첫 값을 현재 줄 명령에 사용하고 peek 검사에서 해당 source를 확인했습니다. Locale의 required_message_keys는 NativeApp runtime에서 호출되지 않으며 기존 내장 카탈로그와 App 소비는 변경하지 않아 성공한 App 전체 부분을 반복하지 않습니다.
+
+App의 다른 실패는 변경하지 않은 tests/projects.rs:114의 프로젝트 열기 Notify timeout(Elapsed)이었습니다. 코드/기한/조건 변경 없는 정확한 단독 project-recheck.log는 1통과·exit 0(2.48초)입니다. 최초 12.86초 실패와 원인 미확정을 배치 31 신뢰성 부채로 보존하며, 초기 c6 포맷 실패 역시 이번 성공만으로 원인 해결 처리하지 않습니다. 전체 최초 exit 101을 전체 성공으로 바꾸어 보고하지 않습니다.
+
+마지막 소스에서 frozen host 테스트 대상 inspection check는 exit 0(11.36초), Wasm lib canvas,inspection check는 exit 0(2.11초)입니다. 소유 native Rust 27경로·Locale 1경로·소유 mock 1경로 fmt check와 소유 diff check는 exit 0입니다. SDK 전체 90건은 소스 불변으로 재사용했습니다. manifest/lock/frozen source/의존 그래프·TextMate/정규식 엔진 변경 0, 새 의존성/OS 합성 입력·보호 데이터/OS 설정·클립보드/Keychain/Trash 변경과 빌드 정리는 없습니다. 디스크는 406GiB/78%입니다.
+
+실제 본문/peek의 전체 문서 공급·동일 줄 그룹/표시·가시 resolve·현재 줄 선택/서버·client 실행·scoped refresh·설정/readonly/tier·편집/뷰/공급자 수명·취소/오래된 응답·종료를 근거로 editor-53만 missing→complete로 닫습니다. 새 기능이나 원본 버그의 강제 재현은 추가하지 않았습니다. 이전 command-relay 설명의 미완료 CodeLens 참조를 정정하고 editor-58은 별도로 유지합니다. 최신 588대상/295완료/293미완료·배치 23 잔여 26·최종 33이며 전체 전환율/잔여 시간은 미산정입니다. pixel/OS IME/접근성·대형 성능/soak·최초 시간 초과 원인·출시·전환·제거는 배치 31~33의 별도 게이트입니다. 다음 기능은 같은 배치의 partial editor-52 Selection Range입니다.

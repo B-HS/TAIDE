@@ -52,6 +52,10 @@ struct MockServer {
     highlights: Option<&'static str>,
     inlay_hints: Option<&'static str>,
     held_inlay_hints: BTreeMap<u64, Value>,
+    code_lenses: Option<&'static str>,
+    held_code_lenses: BTreeMap<u64, Value>,
+    code_lens_counts: BTreeMap<String, usize>,
+    code_lens_refresh_uri: Option<String>,
     has_registered_highlight_revision: bool,
     locations: Option<&'static str>,
     held_location: Option<Value>,
@@ -186,6 +190,113 @@ fn write_document_diagnostic(
 }
 
 impl MockServer {
+    fn handle_code_lens(
+        &mut self,
+        method: &str,
+        message: &Value,
+        output: &mut impl Write,
+    ) -> io::Result<()> {
+        let mode = self
+            .code_lenses
+            .ok_or_else(|| invalid("CodeLens mode missing"))?;
+        let id = message
+            .get("id")
+            .ok_or_else(|| invalid("CodeLens ID required"))?;
+        let params = &message["params"];
+        let uri = match method {
+            "textDocument/codeLens" => params["textDocument"]["uri"].as_str(),
+            "codeLens/resolve" => params["data"]["uri"].as_str(),
+            _ => params["arguments"][0].as_str(),
+        }
+        .ok_or_else(|| invalid("CodeLens URI required"))?;
+        let current = self
+            .documents
+            .get(uri)
+            .ok_or_else(|| invalid("CodeLens latest mirror required"))?;
+        if method == "workspace/executeCommand" {
+            if params["command"] != "synthetic.lens" || params["arguments"][1] != current["version"]
+            {
+                return Err(invalid(
+                    "CodeLens execute must preserve its server and arguments",
+                ));
+            }
+            write_response(output, id, Value::Null)?;
+            write_document_diagnostic(output, uri, &current["version"], "synthetic lens executed")?;
+            if mode == "refresh" {
+                self.code_lens_refresh_uri = Some(uri.into());
+                write_payload(
+                    output,
+                    &json!({"jsonrpc":"2.0","id":"lens-refresh","method":"workspace/codeLens/refresh"}),
+                )?;
+            }
+            return Ok(());
+        }
+        let resolving = method == "codeLens/resolve";
+        if resolving
+            && (params["data"]["payload"] != json!({"kept":true})
+                || params["command"].is_object()
+                || params["data"]["version"] != current["version"]
+                || params["range"]["start"]["line"] != params["data"]["row"])
+        {
+            return Err(invalid("CodeLens resolve must preserve raw range and data"));
+        }
+        if mode == "wait" || (resolving && mode == "resolve-wait") {
+            self.held_code_lenses.insert(id.as_u64().ok_or_else(|| invalid("held lens ID"))?, json!({"id":id,"uri":uri,"version":current["version"],"resolve":resolving,"lens":params}));
+            write_document_diagnostic(
+                output,
+                uri,
+                &current["version"],
+                if resolving {
+                    "synthetic lens resolve held"
+                } else {
+                    "synthetic lens held"
+                },
+            )?;
+            return Ok(());
+        }
+        if mode == "error" || (resolving && mode == "resolve-error") {
+            return write_payload(
+                output,
+                &json!({"jsonrpc":"2.0","id":id,"error":{"code":RENAME_ERROR_CODE,"message":"synthetic lens error"}}),
+            );
+        }
+        let version = current["version"].clone();
+        if resolving {
+            let row = params["data"]["row"]
+                .as_u64()
+                .ok_or_else(|| invalid("lens row"))?;
+            let command = if row == 1 {
+                json!({"title":format!("Resolved v{version}"),"command":"synthetic.lens","arguments":[uri,version]})
+            } else {
+                json!({"title":"Show references","command":"editor.action.showReferences","arguments":[uri,{"line":0,"character":0},[{"uri":uri,"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}}}]]})
+            };
+            return write_response(
+                output,
+                id,
+                json!({"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"command":command,"data":"discard resolved data"}),
+            );
+        }
+        let count = self.code_lens_counts.entry(uri.into()).or_default();
+        *count += 1;
+        write_document_diagnostic(
+            output,
+            uri,
+            &version,
+            &format!("synthetic lens provided {count}"),
+        )?;
+        let result = match mode {
+            "empty" => json!([]),
+            "null" => Value::Null,
+            "bad" => json!([{"range":false}]),
+            _ => json!([
+                {"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"command":{"title":format!("Run v{version}"),"command":"synthetic.lens","arguments":[uri,version]}},
+                {"range":{"start":{"line":1,"character":4},"end":{"line":1,"character":4}},"data":{"uri":uri,"version":version,"row":1,"payload":{"kept":true}}},
+                {"range":{"start":{"line":2,"character":0},"end":{"line":2,"character":0}},"data":{"uri":uri,"version":version,"row":2,"payload":{"kept":true}}}
+            ]),
+        };
+        write_response(output, id, result)
+    }
+
     fn handle(&mut self, message: Value, output: &mut impl Write) -> io::Result<Option<ExitCode>> {
         if message.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
             return Err(invalid("fixture requires JSON-RPC 2.0"));
@@ -217,7 +328,8 @@ impl MockServer {
         if message.get("method").is_none()
             && (self.should_send_client_requests
                 || self.has_dynamic_registration
-                || self.highlights == Some("dynamic"))
+                || self.highlights == Some("dynamic")
+                || self.code_lenses.is_some())
         {
             if message.get("id").is_none()
                 || message.get("result").is_some() == message.get("error").is_some()
@@ -228,6 +340,25 @@ impl MockServer {
                 output,
                 &json!({"jsonrpc":"2.0","method":"synthetic/clientReply","params":message}),
             )?;
+            if message["id"] == "lens-refresh" {
+                if message.get("result") != Some(&Value::Null) {
+                    return Err(invalid("CodeLens refresh must be acknowledged"));
+                }
+                let uri = self
+                    .code_lens_refresh_uri
+                    .take()
+                    .ok_or_else(|| invalid("unexpected CodeLens refresh response"))?;
+                let current = self
+                    .documents
+                    .get(&uri)
+                    .ok_or_else(|| invalid("refresh mirror missing"))?;
+                write_document_diagnostic(
+                    output,
+                    &uri,
+                    &current["version"],
+                    "synthetic lens refresh acknowledged",
+                )?;
+            }
             if self.has_dynamic_registration && message["id"] == "unregister" {
                 if message.get("result") != Some(&Value::Null) {
                     return Err(invalid("unregister must be acknowledged"));
@@ -409,6 +540,21 @@ impl MockServer {
                     return Err(invalid("native inlay hints require client capability"));
                 }
                 capabilities["inlayHintProvider"] = json!(mode != "unsupported");
+            }
+            if let Some(mode) = self.code_lenses {
+                if params["capabilities"]["textDocument"]["codeLens"]
+                    .as_object()
+                    .is_none()
+                    || params["capabilities"]["workspace"]["codeLens"]["refreshSupport"] != true
+                {
+                    return Err(invalid(
+                        "CodeLens requires provide and refresh capabilities",
+                    ));
+                }
+                if mode != "unsupported" {
+                    capabilities["codeLensProvider"] = json!({"resolveProvider":true});
+                }
+                capabilities["executeCommandProvider"] = json!({"commands":["synthetic.lens"]});
             }
             if self.locations.is_some() {
                 for feature in [
@@ -614,6 +760,25 @@ impl MockServer {
             let cancelled_id = message["params"]["id"]
                 .as_u64()
                 .ok_or_else(|| invalid("cancel must identify a numeric request"))?;
+            if let Some(held) = self.held_code_lenses.remove(&cancelled_id) {
+                write_response(
+                    output,
+                    &held["id"],
+                    if held["resolve"] == true {
+                        held["lens"].clone()
+                    } else {
+                        json!([])
+                    },
+                )?;
+                write_document_diagnostic(
+                    output,
+                    held["uri"]
+                        .as_str()
+                        .ok_or_else(|| invalid("lens cancel URI"))?,
+                    &held["version"],
+                    "synthetic lens cancelled",
+                )?;
+            }
             if let Some(held) = self.held_inlay_hints.remove(&cancelled_id) {
                 write_response(
                     output,
@@ -786,6 +951,15 @@ impl MockServer {
                 output,
                 &json!({"jsonrpc":"2.0","id":"unregister","method":"client/unregisterCapability","params":{"unregisterations":[{"id":"dynamic-hover","method":"textDocument/hover"}]}}),
             )?;
+            return Ok(None);
+        }
+        if self.code_lenses.is_some()
+            && matches!(
+                method,
+                "textDocument/codeLens" | "codeLens/resolve" | "workspace/executeCommand"
+            )
+        {
+            self.handle_code_lens(method, &message, output)?;
             return Ok(None);
         }
         if self.code_actions.is_some() && method == "codeAction/resolve" {
@@ -2081,6 +2255,33 @@ fn main() -> io::Result<ExitCode> {
                 server.locations = Some("normal");
                 server.completion = Some("normal");
             }
+        }
+        Some(
+            mode @ ("--native-code-lenses"
+            | "--native-code-lenses-empty"
+            | "--native-code-lenses-null"
+            | "--native-code-lenses-error"
+            | "--native-code-lenses-bad"
+            | "--native-code-lenses-unsupported"
+            | "--native-code-lenses-wait"
+            | "--native-code-lenses-resolve-error"
+            | "--native-code-lenses-resolve-wait"
+            | "--native-code-lenses-refresh"),
+        ) => {
+            server.should_track_saves = true;
+            server.locations = Some("normal");
+            server.code_lenses = Some(match mode {
+                "--native-code-lenses-empty" => "empty",
+                "--native-code-lenses-null" => "null",
+                "--native-code-lenses-error" => "error",
+                "--native-code-lenses-bad" => "bad",
+                "--native-code-lenses-unsupported" => "unsupported",
+                "--native-code-lenses-wait" => "wait",
+                "--native-code-lenses-resolve-error" => "resolve-error",
+                "--native-code-lenses-resolve-wait" => "resolve-wait",
+                "--native-code-lenses-refresh" => "refresh",
+                _ => "normal",
+            });
         }
         Some("--native-document") => {
             server.should_track_saves = true;

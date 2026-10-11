@@ -32,6 +32,9 @@ mod editor_caret;
 #[path = "editor-code-actions.rs"]
 pub mod editor_code_actions;
 #[cfg(feature = "native-host")]
+#[path = "editor-code-lenses.rs"]
+pub mod editor_code_lenses;
+#[cfg(feature = "native-host")]
 #[path = "editor-completion.rs"]
 pub mod editor_completion;
 #[cfg(feature = "native-host")]

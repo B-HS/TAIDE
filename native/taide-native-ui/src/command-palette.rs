@@ -162,6 +162,11 @@ pub enum Action {
     #[cfg(feature = "native-host")]
     IndentationSize(u32),
     #[cfg(feature = "native-host")]
+    CodeLensCommand {
+        generation: u64,
+        index: usize,
+    },
+    #[cfg(feature = "native-host")]
     RevealSymbol {
         generation: u64,
         index: usize,
@@ -291,6 +296,12 @@ struct IndentationPicker {
     configured_size: u32,
 }
 
+#[cfg(feature = "native-host")]
+struct CodeLensPicker {
+    generation: u64,
+    titles: Vec<String>,
+}
+
 pub struct Palette {
     is_open: bool,
     query: String,
@@ -311,6 +322,8 @@ pub struct Palette {
     file_ranking: Option<FileRanking>,
     #[cfg(feature = "native-host")]
     indentation: Option<IndentationPicker>,
+    #[cfg(feature = "native-host")]
+    code_lenses: Option<CodeLensPicker>,
     #[cfg(any(test, feature = "inspection"))]
     inspection: Inspection,
 }
@@ -345,6 +358,8 @@ impl Palette {
             file_ranking: None,
             #[cfg(feature = "native-host")]
             indentation: None,
+            #[cfg(feature = "native-host")]
+            code_lenses: None,
             #[cfg(any(test, feature = "inspection"))]
             inspection: Inspection::default(),
         })
@@ -356,7 +371,7 @@ impl Palette {
 
     pub fn observes_files(&self) -> bool {
         #[cfg(feature = "native-host")]
-        if self.indentation.is_some() {
+        if self.indentation.is_some() || self.code_lenses.is_some() {
             return false;
         }
         self.is_open && parse(&self.query).mode == Mode::Files
@@ -364,13 +379,19 @@ impl Palette {
 
     #[cfg(feature = "native-host")]
     pub fn observes_symbols(&self) -> bool {
-        self.is_open && self.indentation.is_none() && parse(&self.query).mode == Mode::Symbol
+        self.is_open
+            && self.indentation.is_none()
+            && self.code_lenses.is_none()
+            && parse(&self.query).mode == Mode::Symbol
     }
 
     #[cfg(feature = "native-host")]
     pub fn workspace_query(&self) -> Option<&str> {
         let query = parse(&self.query);
-        (self.is_open && self.indentation.is_none() && query.mode == Mode::WorkspaceSymbol)
+        (self.is_open
+            && self.indentation.is_none()
+            && self.code_lenses.is_none()
+            && query.mode == Mode::WorkspaceSymbol)
             .then_some(query.search_term)
     }
 
@@ -404,6 +425,30 @@ impl Palette {
     }
 
     #[cfg(feature = "native-host")]
+    pub fn open_code_lenses(
+        &mut self,
+        context: &egui::Context,
+        generation: u64,
+        titles: Vec<String>,
+    ) {
+        if titles.is_empty() {
+            return;
+        }
+        self.open(context, PaletteEntry::Commands);
+        self.code_lenses = Some(CodeLensPicker { generation, titles });
+        self.set_query(String::new());
+        self.selected = Some("0".into());
+        self.listed_query = Some(String::new());
+        self.should_reset_scroll = true;
+        self.should_reveal_selected = true;
+    }
+
+    #[cfg(feature = "native-host")]
+    pub fn is_picking_code_lenses(&self) -> bool {
+        self.is_open && self.code_lenses.is_some()
+    }
+
+    #[cfg(feature = "native-host")]
     pub fn dismiss(&mut self, context: &egui::Context) {
         self.close(context, true);
     }
@@ -425,6 +470,7 @@ impl Palette {
         #[cfg(feature = "native-host")]
         {
             self.indentation = None;
+            self.code_lenses = None;
         }
         if !self.is_open {
             self.focus_return.capture(context);
@@ -562,6 +608,11 @@ impl Palette {
                 output.action = Some(Action::IndentationSize(size));
                 self.close(context, true);
             }
+            #[cfg(feature = "native-host")]
+            Some(action @ Action::CodeLensCommand { .. }) => {
+                output.action = Some(action);
+                self.close(context, true);
+            }
             Some(action) => {
                 output.action = Some(action);
                 self.close(context, false);
@@ -655,7 +706,9 @@ impl Palette {
             egui::TextEdit::store_state(ui.ctx(), id, state);
         }
         #[cfg(feature = "native-host")]
-        let placeholder_key = if self.indentation.is_some() {
+        let placeholder_key = if self.code_lenses.is_some() {
+            "palette.codeLensPlaceholder"
+        } else if self.indentation.is_some() {
             "palette.indentationPlaceholder"
         } else {
             parse(&self.query).mode.placeholder_key()
@@ -696,6 +749,48 @@ impl Palette {
     }
 
     fn listing(&mut self, scope: &Scope<'_>) -> AppResult<Listing> {
+        #[cfg(feature = "native-host")]
+        if let Some(picker) = &self.code_lenses {
+            let items = self
+                .matcher
+                .filter(
+                    &self.query,
+                    picker.titles.iter().enumerate(),
+                    |(_, title)| {
+                        Cow::Owned(
+                            crate::editor_code_lenses::label_parts(title)
+                                .into_iter()
+                                .map(|(text, _)| text)
+                                .collect::<String>(),
+                        )
+                    },
+                    None,
+                )
+                .into_iter()
+                .map(|ranked| Item {
+                    key: ranked.item.0.to_string(),
+                    action: Action::CodeLensCommand {
+                        generation: picker.generation,
+                        index: ranked.item.0,
+                    },
+                    icon: Icon::CornerDownLeft,
+                    label: ranked.label,
+                    indices: ranked.matched.indices,
+                    detail: None,
+                    shortcut: None,
+                    is_enabled: true,
+                    is_truncated: true,
+                })
+                .collect();
+            return Ok(Listing {
+                group: Some(Group {
+                    heading: None,
+                    refreshing: None,
+                    items,
+                }),
+                empty_message: message(scope.locale, "palette.noResults", &[]),
+            });
+        }
         #[cfg(feature = "native-host")]
         if let Some(picker) = self.indentation {
             let items = self
@@ -1211,6 +1306,7 @@ impl Palette {
             Action::RevealSymbol { .. }
                 | Action::OpenWorkspaceSymbol { .. }
                 | Action::IndentationSize(_)
+                | Action::CodeLensCommand { .. }
         );
         #[cfg(not(feature = "native-host"))]
         let inline_detail = false;
@@ -1223,7 +1319,10 @@ impl Palette {
         let highlight = self.appearance.match_highlight.gamma_multiply(opacity);
         let width = ui.available_width();
         #[cfg(feature = "native-host")]
-        let has_icon = !matches!(item.action, Action::IndentationSize(_));
+        let has_icon = !matches!(
+            item.action,
+            Action::IndentationSize(_) | Action::CodeLensCommand { .. }
+        );
         #[cfg(not(feature = "native-host"))]
         let has_icon = true;
         let icon_side = if has_icon { item.icon.size() } else { 0.0 };
@@ -1265,6 +1364,49 @@ impl Palette {
             label_width,
             item.is_truncated,
         );
+        #[cfg(feature = "native-host")]
+        if let Action::CodeLensCommand { index, .. } = item.action
+            && let Some(title) = self
+                .code_lenses
+                .as_ref()
+                .and_then(|picker| picker.titles.get(index))
+        {
+            let mut job = LayoutJob::default();
+            let mut offset = 0;
+            for (text, icon) in crate::editor_code_lenses::label_parts(title) {
+                let indices = item
+                    .indices
+                    .iter()
+                    .filter_map(|index| index.checked_sub(offset))
+                    .collect::<Vec<_>>();
+                for segment in highlight_segments(&text, &indices) {
+                    let family = if icon {
+                        crate::font_families::codicons(ui)
+                    } else if segment.is_matched {
+                        crate::font_families::semibold(ui)
+                    } else {
+                        FontFamily::Proportional
+                    };
+                    job.append(
+                        segment.text,
+                        0.0,
+                        TextFormat {
+                            font_id: FontId::new(BODY_FONT, family),
+                            line_height: Some(BODY_LINE_HEIGHT),
+                            color: if segment.is_matched {
+                                highlight
+                            } else {
+                                label_color
+                            },
+                            ..Default::default()
+                        },
+                    );
+                }
+                offset += text.encode_utf16().count();
+            }
+            job.wrap = truncation(label_width);
+            label = ui.fonts_mut(|fonts| fonts.layout_job(job));
+        }
         let mut detail = item.detail.as_ref().map(|(detail, indices)| {
             highlighted(
                 ui,

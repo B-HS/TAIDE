@@ -14,6 +14,65 @@ const PREVIEW_HEIGHT: f32 = 40.0;
 const MESSAGE_HEIGHT: f32 = 80.0;
 
 #[test]
+fn 줄_위_lens_zone은_첫_줄과_중간_줄에서_기존_메시지와_ghost의_순서를_보존한다() {
+    const FIRST_HEIGHT: f32 = 12.0;
+    const SECOND_HEIGHT: f32 = 8.0;
+    const THIRD_HEIGHT: f32 = 4.0;
+    let layout = VerticalLayout::new(LINE_HEIGHT, 4)
+        .with_zone(1, MESSAGE_HEIGHT)
+        .with_additional_zones([(0, PREVIEW_HEIGHT)])
+        .with_before_zones([(2, SECOND_HEIGHT), (0, FIRST_HEIGHT), (2, THIRD_HEIGHT)]);
+    assert_eq!(layout.before_zone(0), Some(172.0..180.0));
+    assert_eq!(layout.before_zone(1), Some(0.0..12.0));
+    assert_eq!(layout.before_zone(2), Some(180.0..184.0));
+    assert_eq!(layout.before_zone(3), None);
+    assert_eq!(layout.additional_zone(0), Some(32.0..72.0));
+    assert_eq!(layout.zone(), Some(92.0..172.0));
+    assert_eq!(layout.content_height(), 224.0);
+    for (row, top) in [(0, 12.0), (1, 72.0), (2, 184.0), (3, 204.0)] {
+        assert_eq!(layout.row_top(row), top);
+        assert_eq!(layout.row_at(top), row);
+    }
+    for (position, row) in [
+        (0.0, 0),
+        (11.0, 0),
+        (32.0, 0),
+        (71.0, 0),
+        (92.0, 1),
+        (171.0, 1),
+        (172.0, 2),
+        (183.0, 2),
+        (224.0, 3),
+    ] {
+        assert_eq!(layout.row_at(position), row);
+    }
+    assert_eq!(layout.visible_rows(0.0, FIRST_HEIGHT, 0), 0..1);
+    assert_eq!(layout.visible_rows(172.0, FIRST_HEIGHT, 0), 2..3);
+    assert_eq!(layout.visible_rows(224.0, VIEWPORT_HEIGHT, 0), 4..4);
+}
+
+#[test]
+fn 줄_위_zone은_범위와_높이를_검증하고_빈_문서와_교체에서도_원래_순번을_보존한다() {
+    const HEIGHT: f32 = 8.0;
+    let layout = VerticalLayout::new(LINE_HEIGHT, 4)
+        .with_before_zones([(0, HEIGHT)])
+        .with_before_zones([(0, 0.0), (0, f32::NAN), (4, HEIGHT), (1, HEIGHT)]);
+    for order in 0..3 {
+        assert_eq!(layout.before_zone(order), None);
+    }
+    assert_eq!(layout.before_zone(3), Some(20.0..28.0));
+    assert_eq!(layout.row_top(0), 0.0);
+    assert_eq!(layout.row_top(1), 28.0);
+    assert_eq!(layout.content_height(), 88.0);
+    assert_eq!(layout.row_at(f32::NAN), 0);
+    assert_eq!(layout.row_at(-LINE_HEIGHT), 0);
+    let empty = VerticalLayout::new(LINE_HEIGHT, 0).with_before_zones([(0, HEIGHT)]);
+    assert_eq!(empty.before_zone(0), None);
+    assert_eq!(empty.content_height(), 0.0);
+    assert_eq!(empty.visible_rows(0.0, VIEWPORT_HEIGHT, 0), 0..0);
+}
+
+#[test]
 fn 여러_미리보기_zone은_기존_메시지와_공존하며_원래_줄좌표와_포인터_행을_보존한다() {
     let layout = VerticalLayout::new(LINE_HEIGHT, 4)
         .with_zone(1, MESSAGE_HEIGHT)

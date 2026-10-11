@@ -315,6 +315,7 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "workspaceSymbols",
             "noActiveFile",
             "indentationPlaceholder",
+            "codeLensPlaceholder",
             "configuredTabSize",
             "defaultTabSize",
             "currentTabSize",
