@@ -505,3 +505,74 @@ fn 실제_터미널_대상은_같은_pane의_기존_탭을_우선하고_새_탭�
     assert!(application.flush_dirty());
     assert!(application.editor_terminal_writes.is_empty());
 }
+
+fn terminal_text(application: &NativeApplication, project: &ProjectId) -> Option<String> {
+    let layouts = application.services.state.layouts.read();
+    let layout = layouts.get(project)?;
+    let session = crate::tabs::tabs_in(&layout.root)
+        .into_iter()
+        .find_map(|tab| match &tab.kind {
+            TabKind::Terminal { session_id, .. } => application.terminals.hub().get(session_id),
+            _ => None,
+        })?;
+    session
+        .snapshot(|snapshot| {
+            snapshot
+                .core
+                .content()
+                .map(|content| content.display_iter.map(|cell| cell.c).collect())
+        })
+        .ok()?
+        .ok()
+}
+
+#[test]
+fn 실제_메뉴의_현재줄과_선택은_준비된_동일_터미널에_raw로_전달된다() {
+    let mut fixture = fixture();
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    application.services.state.settings.write().shell_override = Some("/bin/cat".into());
+    let label = presentation::message(&application.locale, "terminal.runSelectedText", &[]);
+    let view = body_view(application, &fixture.path, &fixture.tab);
+    select(application, view, 0, 0);
+    menu_action(application, context, view, &label);
+    wait(
+        application,
+        context,
+        "terminal current line",
+        |application| {
+            terminal_text(application, &fixture.project).is_some_and(|text| text.contains("class"))
+        },
+    );
+    let sessions = application
+        .services
+        .terminal
+        .sessions_for_project(&fixture.project);
+    assert_eq!(sessions.len(), 1);
+    let session = sessions[0].id.clone();
+    assert!(application.editor_terminal_writes.is_empty());
+    let runtime = application.runtime.handle().clone();
+    runtime
+        .block_on(taide_runtime::layout_actions::layout_activate_tab(
+            application.services.events.as_ref(),
+            &application.services.state,
+            fixture.tab.clone(),
+        ))
+        .unwrap();
+    paint(application, context, Vec::new());
+    let view = body_view(application, &fixture.path, &fixture.tab);
+    select(application, view, 8, 18);
+    menu_action(application, context, view, &label);
+    wait(application, context, "terminal selection", |application| {
+        terminal_text(application, &fixture.project)
+            .is_some_and(|text| text.contains("method") && text.contains('\u{1f600}'))
+    });
+    let sessions = application
+        .services
+        .terminal
+        .sessions_for_project(&fixture.project);
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0].id, session);
+    assert!(application.editor_terminal_writes.is_empty());
+    assert!(terminal_text(application, &fixture.project).is_some_and(|text| !text.contains("end")));
+}

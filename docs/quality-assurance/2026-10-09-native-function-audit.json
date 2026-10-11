@@ -1,6 +1,6 @@
 {
     "date": "2026-10-11",
-    "baseline": "fee84f7e",
+    "baseline": "a81c8392",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1038,7 +1038,7 @@
                 "native/taide-native-ui/tests/editor-context-menu-widget.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-11-native-batch23-context-menu-app.md"],
-            "limitation": "관련 App 4개 사례와 UI 직렬 키 1개 사례를 확인했습니다. 이전 실패·진단 재실행을 별도 성공으로 합산하지 않습니다. 실제 PTY 전달·추가 App 경계·전체 게이트/실기 전 partial을 유지합니다."
+            "limitation": "실제 본문/peek와 임시 PTY의 전달까지 연결했습니다. 추가 터미널 실패/종료/소유 scope·provider/readonly/크기 등급·팔레트/찾기/보조 창의 App 소비와 c9 완료 게이트가 남아 partial입니다. 실제 OS 입력/시각/접근성·성능/출시는 별도이며 동결 remote-web 변경은 없습니다."
         }
     },
     "rows": [
@@ -2492,7 +2492,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-context-menu",
-            "note": "본문/peek의 실제 메뉴와 원본 레이블·재지정·복사/잘라내기/붙여넣기·실패/오래된 응답·정의 이동을 연결했습니다. 터미널 대상/준비 큐 검사는 있으며 실제 PTY 전달·추가 App 공급/readonly/팔레트와 통합 게이트는 남습니다."
+            "note": "본문/peek의 실제 메뉴·원본 레이블/재지정·복사/잘라내기/붙여넣기·실패/늦은 응답·정의 이동과 실제 PTY의 현재 줄/UTF-8 선택 전달·세션 재사용을 확인했습니다. 터미널 추가 실패/종료/소유 scope·App 공급/readonly/팔레트/찾기/보조 창과 완료 게이트는 남습니다."
         },
         {
             "id": "editor-34",
@@ -7632,5 +7632,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "현재 c9c1의 본문/peek 메뉴와 주입 클립보드·정의 이동·터미널 대상/준비 큐를 연결해 editor-33을 missing에서 partial로 갱신했습니다. 대상 588 중 완료 296/부분 92/미연결 112/미구현 88·미완료 292, 기존 배치 23 잔여 25·최종 33입니다. App 전체 직접 1회는 67대상/878통과/0실패·보호 Trash 3제외·exit 0이며 관련 4건을 중복 합산하지 않습니다. UI 전체 최초 491통과/1실패·exit 101 뒤 registry 기대값 영향 1통과로 서로 다른 최종 492건입니다. frozen host/Wasm·15Rust fmt/diff·manifest/lock/engine/동결 경계와 디스크 여유 369GiB/사용 80%를 확인했습니다. 실제 PTY 전달·추가 App 경계·실기/성능/출시·전환·제거가 남아 전체율/잔여 시간은 미산정입니다.\n\n이전 스마트 선택 완료 근거: ae7c95ed의 c8 실제 본문/peek typed 공급·명령·수명 근거로 editor-52만 partial→complete로 갱신했습니다. 599행·제외 10/동결 1·대상 588 중 완료 296/부분 91/미연결 112/미구현 89·미완료 292, 기존 배치 23 잔여 25·최종 33입니다. 행 수로 전체 전환율/잔여 시간을 계산하지 않습니다.\nSDK 전체 1대상/91통과와 Core 전체 39대상/306통과/기존 성능 1ignored는 각 직접 1회·exit 0입니다. App 전체 67대상/873통과/1실패·보호 Trash 3제외·exit 101 뒤 조건 변경 없는 실패 1통과로 서로 다른 현재 App 성공은 874건입니다. 변경 3크레이트의 서로 다른 1271건에 관련 12건/재검사/컴파일·필터 0건을 중복 합산하지 않습니다. 최초 phase=document 준비 시간 초과의 원인은 미확정이며 이전 c6/c7 부채와 함께 배치 31에 보존합니다. UI 471/Locale 20은 소스 불변으로 재사용했습니다. frozen host inspection 테스트 대상/Wasm canvas,inspection lib check와 소유 18Rust fmt·선별 diff는 exit 0입니다. manifest/lock/frozen source/graph/엔진/새 의존성 변경 0·빌드 정리/보호 데이터/OS 입력 없음, 디스크 389GiB/79%입니다. SDK 수정 741b74b9와 구현 ae7c95ed는 사용자 단독 author·AI 트레일러 없이 일반 푸시했고 upstream 0/0을 확인했습니다. 실기/성능/출시·전환·제거는 배치 31~33에 유지합니다."
+    "validation": "현재 c9c1의 본문/peek 메뉴와 주입 클립보드·정의 이동·터미널 대상/준비 큐를 연결해 editor-33을 missing에서 partial로 갱신했습니다. 대상 588 중 완료 296/부분 92/미연결 112/미구현 88·미완료 292, 기존 배치 23 잔여 25·최종 33입니다. App 전체 직접 1회는 67대상/878통과/0실패·보호 Trash 3제외·exit 0이며 관련 4건을 중복 합산하지 않습니다. UI 전체 최초 491통과/1실패·exit 101 뒤 registry 기대값 영향 1통과로 서로 다른 최종 492건입니다. frozen host/Wasm·15Rust fmt/diff·manifest/lock/engine/동결 경계와 디스크 여유 369GiB/사용 80%를 확인했습니다. 추가 App 경계·실기/성능/출시·전환·제거가 남아 전체율/잔여 시간은 미산정입니다.\n\nc9c2a의 새 실제 메뉴→PTY 전달 exact 검사는 최초 1통과/638filtered·exit 0·8.19초입니다. production 불변의 전체 성공을 재사용해 서로 다른 App 근거는 879건이며 전체 879건을 한 번에 실행한 것은 아닙니다. 메뉴 연결 a81c8392는 소유 21경로를 선별 커밋·일반 푸시·원격 0/0으로 저장했습니다.\n\n이전 스마트 선택 완료 근거: ae7c95ed의 c8 실제 본문/peek typed 공급·명령·수명 근거로 editor-52만 partial→complete로 갱신했습니다. 599행·제외 10/동결 1·대상 588 중 완료 296/부분 91/미연결 112/미구현 89·미완료 292, 기존 배치 23 잔여 25·최종 33입니다. 행 수로 전체 전환율/잔여 시간을 계산하지 않습니다.\nSDK 전체 1대상/91통과와 Core 전체 39대상/306통과/기존 성능 1ignored는 각 직접 1회·exit 0입니다. App 전체 67대상/873통과/1실패·보호 Trash 3제외·exit 101 뒤 조건 변경 없는 실패 1통과로 서로 다른 현재 App 성공은 874건입니다. 변경 3크레이트의 서로 다른 1271건에 관련 12건/재검사/컴파일·필터 0건을 중복 합산하지 않습니다. 최초 phase=document 준비 시간 초과의 원인은 미확정이며 이전 c6/c7 부채와 함께 배치 31에 보존합니다. UI 471/Locale 20은 소스 불변으로 재사용했습니다. frozen host inspection 테스트 대상/Wasm canvas,inspection lib check와 소유 18Rust fmt·선별 diff는 exit 0입니다. manifest/lock/frozen source/graph/엔진/새 의존성 변경 0·빌드 정리/보호 데이터/OS 입력 없음, 디스크 389GiB/79%입니다. SDK 수정 741b74b9와 구현 ae7c95ed는 사용자 단독 author·AI 트레일러 없이 일반 푸시했고 upstream 0/0을 확인했습니다. 실기/성능/출시·전환·제거는 배치 31~33에 유지합니다."
 }

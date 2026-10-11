@@ -8,7 +8,7 @@
 - 실제 TS code-editor 등록과 설치 Monaco contextmenu.js의 ShowContextMenu에서 Shift+F10/textInputFocus를 확인했습니다. 기본 Monaco 메뉴는 영어를 유지하며 TS에서 번역하는 미니맵·터미널 항목만 기존 locale을 사용합니다. 표시는 기존 keymap catalog의 플랫폼/재지정/해제 값을 소비합니다.
 - 실제 연결된 LSP 공급자를 현재 문서에서 조회합니다. source/owner/view key·viewport·문서 revision/메타데이터·선택/스크롤/composition과 window/pane의 활성 소유가 만료되면 실행과 늦은 클립보드 응답을 거절합니다.
 - Copy/Cut/Paste는 기존 core 편집 트랜잭션과 UI ClipboardText를 소비합니다. 잘라내기는 주입 writer 성공 뒤에만 편집하며 붙여넣기의 포맷 입력·dirty/mirror·undo를 기존 경로에 인계합니다.
-- 터미널 실행은 primary 선택 또는 현재 줄 뒤에 줄바꿈을 붙이고 같은 pane의 기존 terminal을 우선합니다. 없으면 기존 layout API로 열고 실제 terminal attach/Hub가 준비될 때까지 payload를 보존합니다. raw writer·종료/삭제·attach 실패는 기존 host 경계에서 처리합니다. 실제 PTY 전달의 새 통합 검증은 아직 남습니다.
+- 터미널 실행은 primary 선택 또는 현재 줄 뒤에 줄바꿈을 붙이고 같은 pane의 기존 terminal을 우선합니다. 없으면 기존 layout API로 열고 실제 terminal attach/Hub가 준비될 때까지 payload를 보존합니다. 임시 App과 /bin/cat의 실제 PTY에서 새/기존 세션의 전달을 확인했습니다. raw writer·종료/삭제·attach 실패의 추가 앱 경계는 아직 남습니다.
 
 ## 재현과 수정
 
@@ -27,11 +27,12 @@
 ## 남은 확인
 
 - [x] App 관련 4건: 실제 본문·peek 키/복사·정의 이동/레이블·재지정, 잘라내기 실패·오래된 paste·undo/dirty, 같은 pane의 기존/새 터미널 대상
-- [ ] 실제 터미널 준비/attach와 raw 전달·scope/취소, 공급자/읽기 전용·팔레트의 추가 App 경계
+- [x] 실제 터미널 준비/attach와 raw 전달: 현재 줄/UTF-8 primary 선택·동일 session 재사용·준비 큐 회수·전체 문서 미전달
+- [ ] 추가 터미널 실패/종료/소유 scope, 공급자/읽기 전용·팔레트/찾기/보조 창의 App 경계
 - [x] 변경 UI 전체 --all-targets --no-fail-fast 직접 1회·실패 영향만 재검사: 최초 491통과/1실패 뒤 영향 1통과
 - [x] 변경 App 전체 --all-targets --no-fail-fast 직접 1회: 67대상/878통과/0실패·보호 Trash 3제외·exit 0
 - [x] frozen host/Wasm compile·소유 15Rust fmt/diff·manifest/lock/engine/동결/보호 불변·디스크: 두 compile exit 0, 여유 369GiB/사용 80%
-- [ ] c9c1의 검증된 연결 단위 선별 Git
+- [x] c9c1의 검증된 연결 단위 선별 Git: 소유 21경로·외부 PROCESS 하단 제외·사용자 단독 author·AI 트레일러 없이 a81c8392 커밋/일반 푸시·원격 0/0
 
 실제 사용자 데이터·OS 설정·클립보드·Keychain·Trash·보호 M8 앱·합성 OS 입력은 사용하지 않습니다. 새 엔진/의존성과 remote-web source/manifest/lock/기능 변경은 없습니다. 앞선 491건 전체 성공과 386GiB 여유는 변경 전 상태의 기록이며 현재 상태의 성공·디스크 수치로 재사용하지 않습니다.
 
@@ -42,3 +43,11 @@
 최근 6개 커밋은 메뉴 모델/표시·스마트 선택 계약/구현·문서의 서로 다른 변경입니다. 현재 App 전체 실행은 같은 Cargo PID 99744에서 관련 child의 테스트 로그가 LSP→remote→lib 637건 종료→나머지 대상으로 진행했습니다. 이 관찰에서 정지한 무한 반복은 확인하지 않았습니다. 과거 세션 전체의 종료성을 입증한 것은 아니며, 이번 fixture 기대값 오류로 불필요하게 길어진 반복은 위 실패 기록에 보존합니다. 동일 상태의 성공한 UI 전체를 다시 실행하지 않습니다.
 
 App 전체와 두 frozen 컴파일은 모두 종료했습니다. native/taide-remote-web 및 native의 Cargo.toml/Cargo.lock·구문 엔진 경로의 diff는 없습니다. wasm은 기존 canvas,inspection 기능으로만 컴파일했고 feature/의존 그래프·lockfile을 바꾸지 않았습니다. 현재 메뉴 표시 소비자가 닫힌 프레임에서도 shortcut catalog를 계산하는 비용은 배치 31 성능 게이트에서 측정할 항목으로 남기며 성능 통과로 보고하지 않습니다.
+
+## 실제 메뉴의 PTY 전달 (c9c2a)
+
+application-context-menu-tests.rs의 새 exact 검사에서 임시 앱의 shell_override만 /bin/cat로 지정했습니다. 실제 메뉴의 현재 줄 전달 뒤 같은 파일 탭을 활성화하고 UTF-8 primary 선택을 전달해 실제 TerminalCore 출력·PTY session ID·준비 큐를 단언했습니다. 전체 문서의 나머지 줄은 전달되지 않았고 실제 사용자 터미널/앱 데이터나 OS 클립보드는 사용하지 않았습니다.
+
+terminal-actual.log는 최초 1통과/638filtered·exit 0·8.19초입니다. 이 단위는 production 변경 없이 새 검사 1건만 추가했으므로 앞선 App 전체 878건·UI 최종 492건·frozen 결과를 재사용하며 App 전체를 다시 실행하지 않습니다. 현재 서로 다른 App 성공 근거는 879건이고 879건을 한 전체 실행에서 검사했다고 보고하지 않습니다. c9c2의 남은 앱 경계와 editor-33 partial·완료 296/미완료 292·배치 23/최종 33을 유지합니다.
+
+새 검사의 소유 Rust 1파일 fmt/diff check는 exit 0이며 최신 디스크 여유는 368GiB/사용 80%입니다. 실제 메뉴 전달을 검증한 해당 핸들은 exit 0으로 종료했습니다. 검증한 검사/QA·기능표·소유 PROCESS만 다음 선별 Git에 포함하며 외부 문서와 PROCESS 하단은 보존합니다.
