@@ -96,6 +96,20 @@ impl EditorGeometry {
     }
 
     #[cfg(feature = "native-host")]
+    pub fn context_menu_byte_at(&self, position: Pos2, document_end: usize) -> Option<usize> {
+        if !self.content_rect.contains(position) {
+            return None;
+        }
+        if let Some(byte) = self.byte_at(position) {
+            return Some(byte);
+        }
+        self.shown_rows().last().and_then(|row| {
+            (row.segment.bytes.end == document_end && position.y >= row.origin.y + self.line_height)
+                .then_some(document_end)
+        })
+    }
+
+    #[cfg(feature = "native-host")]
     pub fn content_byte_at(&self, position: Pos2) -> Option<usize> {
         if !self.content_rect.contains(position) {
             return None;

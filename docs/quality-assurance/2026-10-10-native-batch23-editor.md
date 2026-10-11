@@ -877,7 +877,7 @@ SDK 741b74b9와 구현 ae7c95ed의 선별 커밋/일반 푸시·upstream 0/0을 
 소유는 UI의 새 editor-context-menu.rs/관련 검사·lib.rs·editor_surface.rs, App의 새 editor-context-menu 소비자/관련 검사·application.rs·editor-locations.rs·keymap/registry·필요한 host typed clipboard 경계입니다. 진행 순서는 메뉴 모델/입력/표시, 실제 본문/peek·클립보드·터미널 소비, 통합 게이트입니다. 선택 텍스트 터미널 실행은 아직 native 소비가 없어 원본 editor-pane command의 대상 선택/현재 줄/개행/실행 정책을 추가 대조한 뒤 기존 terminal 서비스로 연결합니다. ClipboardReader/Writer는 기존 주입 포트만 사용하고 검사는 가짜 포트로 한정합니다. 구현하지 않은 기능을 지원한다고 표시하거나 editor-33을 먼저 완료로 올리지 않습니다.
 
 - [x] 원본 항목·순서·조건·선택/키·현재 소유/선행 경계 대조
-- [ ] 메뉴 모델·UI hit/표시/keyboard·owner/source 수명 검사
+- [x] 메뉴 모델·UI hit/표시/keyboard·owner/source 수명 검사: 모델 8건과 UI 전체의 메뉴 입력 12건
 - [ ] 실제 App 본문/peek·provider/readonly·재지정 키·copy/cut/paste·터미널 소비 검사
 - [ ] 변경 crate 전체 1회·frozen/형식/보호·디스크·기능표·선별 Git
 
@@ -890,3 +890,20 @@ native/taide-native-ui/src/editor-context-menu.rs와 tests/editor-context-menu.r
 추가 원본 대조에서 referencesWidget.js의 EmbeddedCodeEditorWidget은 루트의 사용자 addAction을 등록하지 않으며 standaloneCodeEditor.js는 메뉴 when을 editorId에 한정하는 것을 확인했습니다. peek에 미니맵/터미널 액션을 노출하는 모델 오류를 embedded-red.log의 실제 1실패·exit 101로 재현했습니다. embedded 그룹 생성에서 두 항목과 비어 있는 그룹을 제외해 embedded-green.log의 영향 1건·exit 0으로 확인했습니다. 7개 변경 없는 성공을 재사용하고 8+1을 9개로 중복 합산하지 않습니다.
 
 TS editor-area.tsx의 터미널 정책도 대조했습니다. 주 선택이 비어 있지 않으면 범위 텍스트, 아니면 현재 줄이며 끝에 줄바꿈을 붙입니다. 현재 pane의 resolveRunTargetTerminalTab 결과가 있으면 활성화/쓰기, 없으면 같은 pane에 terminal을 연 뒤 씁니다. 실제 native 소비는 c9c에 남깁니다. OS 클립보드/키·앱 데이터·동결 source/manifest/lock/vendor·의존성 변경은 없습니다.
+
+### c9b2 — 실제 메뉴 UI와 직렬 입력
+
+host 전용 editor-context-menu-widget.rs의 기존 egui Popup/SubMenuButton 소비와 editor-geometry.rs의 본문/빈 영역 hit를 연결했습니다. 그룹·하위 메뉴·키 표시, 방향/Home/End/Enter/Space·문자 검색, 하위 메뉴의 Left/Escape, 루트 취소·포커스 복귀, 선택·스크롤·공급 조건·활성 상태의 회수를 메모리 UI에서 검사합니다. AccessKit에는 Menu/MenuItem/Splitter와 하위 메뉴 관계를 표시합니다. 초기 Popup의 공식 sizing pass에는 request_discard를 사용하고 한 프레임의 명령 반환은 한 번으로 제한합니다. 실제 App 본문/peek의 소비와 공급 조건·번역/재지정 키·클립보드·터미널 연결은 c9c에 남습니다.
+
+검사 로그 접두사는 /private/tmp/taide-batch23-context-menu-widget-입니다. first.log의 7실패는 메모리 UI fixture가 FullOutput의 textures_delta를 처리하지 않은 오류이며 제품 성공으로 세지 않습니다. fixture.log의 6통과/1실패 뒤 scroll.log는 실제로 스크롤할 수 있는 긴 문서로 준비한 영향 1건 통과입니다. serial-red.log는 문자 검색→Enter와 하위 메뉴→End→Enter의 순서를 잃는 실제 2실패이고, 입력 소비를 직렬화한 serial-green.log는 그 2건 통과입니다.
+
+related.log의 10통과/2실패와 sizing.log의 10통과/2실패를 보존합니다. sizing 수정은 실제 항목 클릭을 해결했지만 우클릭 직후 본문 Enter 누수는 해결하지 못했습니다. sizing 뒤 선택 변경 단언의 실패는 여러 UI pass 중 마지막 값만 보관한 fixture 문제여서 프레임의 transient 출력을 합쳤습니다. pointer-serial.log와 pointer-diagnostic.log에서도 입력 누수는 실패로 남았습니다. input-ownership.log의 11통과/1실패 뒤 focus-trace.log에서 route=None·포인터/메뉴 focus transition=None과 본문 줄바꿈을 관찰했습니다. 본문 포인터 포커스 등록과 메뉴 인계 뒤 입력 소유 보존을 함께 수정한 pointer-admission.log는 실제 해당 1건 통과·exit 0입니다. 진단용 trace 필드는 제거했습니다.
+
+포인터 등록 뒤 메뉴 대상이 아닌 gutter 클릭에서 다음 본문 입력이 사라지는 회귀를 기존 검사에 추가해 invalid-focus-red.log의 1실패로 재현했습니다. 유효하지 않은 메뉴 요청에는 활성 본문 포커스를 복원합니다. 같은 가정이나 성공 검사를 반복하는 대신 관찰한 각 실패 경계만 수정했으며, 이전 검사를 중복 합산하거나 App 메뉴 기능 완료로 올리지 않습니다.
+
+- [x] 최신 UI 전체 --features inspection --all-targets --no-fail-fast 직접 1회: /private/tmp/taide-batch23-context-menu-ui-all-targets.log, 28대상/491통과·0실패/ignored·exit 0
+- [ ] 실제 App 본문/peek·공급 조건·키/번역·클립보드/터미널 소비와 통합 게이트: c9c/c9d
+
+현재 기능 감사 JSON을 직접 재집계한 값은 총 599·제외 10/동결 1·대상 588·완료 296/부분 91/미연결 112/미구현 89·미완료 292입니다. 미완료 배정 누락/중복/알 수 없는 ID는 각각 0이고 현재 23/최종 계획 33은 유지합니다. 전체 전환율과 잔여 시간은 미산정입니다. 전체 UI 검사 시작 전 ps의 Cargo/test 일치가 0이고 최근 서로 다른 SDK/스마트 선택/메뉴 모델 커밋을 확인했지만 전체 과거 실행이나 제품의 무한 반복 부재를 증명한 것으로 확대하지 않습니다. 이번 메뉴 입력 진단의 잘못된 가정과 실패는 위 로그에 남기며 세부 검증 때문에 배치를 추가하지 않습니다.
+
+전체 실행의 28개 시작 대상과 28개 종료 결과가 일치합니다. 491건에는 메뉴 모델 8건과 실제 메뉴 입력 12건이 포함되므로 앞선 관련 성공을 더하지 않습니다. invalid-focus-red.log의 실패와 우클릭 직후 입력 누수도 이 최종 메뉴 12건에서 통과했습니다. 컴파일 46.95초와 각 대상의 실행 시간을 구분하고 전체 잔여 시간 예측으로 사용하지 않습니다. 소유 Rust 5경로의 edition 2024 rustfmt --check는 exit 0입니다. 동결 source·manifest/lock·vendor·새 의존성 변경은 없으며 이번 UI 단계의 App 전체와 동결 컴파일은 새로 실행하지 않았습니다. 디스크 여유는 386GiB·사용 79%이고 빌드 정리나 보호 앱/실제 데이터/OS/클립보드/Keychain/Trash 변경은 없습니다. 실제 App 연결 전 editor-33 missing과 c9c/c9d를 유지하고 검증한 UI 단위만 선별 저장합니다.

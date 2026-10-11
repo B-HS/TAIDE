@@ -1871,6 +1871,11 @@ impl NativeEditor {
                     store.set_composition(view, None)?;
                 }
                 #[cfg(feature = "native-host")]
+                if crate::editor_context_menu::owns_event(ui.ctx(), id, raw_index) {
+                    remaining.push(event);
+                    continue;
+                }
+                #[cfg(feature = "native-host")]
                 {
                     let request = ui.ctx().keyboard_focus_request_at(raw_index);
                     let ours = request.is_some_and(|node| {
