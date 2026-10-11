@@ -66,6 +66,8 @@ mod editor_highlights;
 mod editor_inlay_hints;
 #[path = "lsp-editor-rename.rs"]
 mod editor_rename;
+#[path = "lsp-editor-selection-ranges.rs"]
+mod editor_selection_ranges;
 #[path = "lsp-symbol-locations.rs"]
 mod symbol_locations;
 #[path = "lsp-syntax-folding.rs"]
@@ -105,6 +107,9 @@ mod editor_inlay_hints_tests;
 #[cfg(all(test, unix))]
 #[path = "lsp-editor-rename-tests.rs"]
 mod editor_rename_tests;
+#[cfg(all(test, unix))]
+#[path = "lsp-editor-selection-ranges-tests.rs"]
+mod editor_selection_ranges_tests;
 
 #[cfg(all(test, unix))]
 #[path = "lsp-symbol-locations-tests.rs"]
@@ -273,6 +278,7 @@ enum Command {
     Highlights(crate::editor_highlights::Request),
     InlayHints(crate::editor_inlay_hints::Request),
     CodeLensWork(editor_code_lenses::Work),
+    SelectionRanges(crate::editor_selection_ranges::Request),
     SymbolLocations(crate::editor_locations::Request),
     SyntaxFolding(crate::editor_folding::Request),
     DocumentSymbols(crate::editor_symbols::Request),
@@ -325,6 +331,10 @@ enum Command {
 }
 
 pub enum Reply {
+    SelectionRanges {
+        request: crate::editor_selection_ranges::Request,
+        result: Result<crate::editor_selection_ranges::Response, Failure>,
+    },
     CodeLenses {
         request: crate::editor_code_lenses::Request,
         result: Result<crate::editor_code_lenses::Response, Failure>,
@@ -916,6 +926,21 @@ impl LspBridge {
         )))
     }
 
+    pub(crate) fn selection_range_providers(
+        &self,
+        project: &ProjectId,
+        snapshot: &DocumentSnapshot,
+    ) -> HashSet<crate::editor_symbols::ProviderIdentity> {
+        self.ready_feature_providers(project, snapshot, "textDocument/selectionRange")
+    }
+
+    pub(crate) fn selection_ranges(
+        &self,
+        request: crate::editor_selection_ranges::Request,
+    ) -> AppResult<()> {
+        self.submit(Command::SelectionRanges(request))
+    }
+
     pub(crate) fn resolve_code_lens(
         &self,
         request: crate::editor_code_lenses::ResolveRequest,
@@ -1254,6 +1279,7 @@ fn initialize(plan: &Plan) -> Value {
     params["capabilities"]["textDocument"]["rename"] =
         json!({"prepareSupport":true,"dynamicRegistration":true});
     params["capabilities"]["textDocument"]["codeLens"] = json!({});
+    params["capabilities"]["textDocument"]["selectionRange"] = json!({"dynamicRegistration":false});
     params["capabilities"]["workspace"]["codeLens"] = json!({"refreshSupport":true});
     if let Some(initialization) = &plan.spec.initialization_options {
         params["initializationOptions"] = initialization.clone();
@@ -2369,6 +2395,35 @@ async fn run(
                 } else {
                     None
                 }
+            }
+            Command::SelectionRanges(request) => {
+                if request.is_cancelled() {
+                    continue;
+                }
+                let selected = sessions
+                    .iter()
+                    .filter(|(key, session)| {
+                        Some(&key.project) == request.project.as_ref()
+                            && session.documents.contains_key(&request.snapshot.id)
+                    })
+                    .map(|(key, session)| (key.clone(), session.clone()))
+                    .collect::<HashMap<_, _>>();
+                let sender = replies.clone();
+                let repaint = repaint.clone();
+                let mut cancelled = request.cancelled.clone();
+                let mut stopping = stopping.clone();
+                let rejected = request.clone();
+                if !services.tasks.spawn_transient("native-lsp-editor-selection-ranges", async move {
+                    let result = tokio::select! {
+                        biased;
+                        _ = stopping.changed() => return,
+                        _ = cancelled.changed() => return,
+                        result = editor_selection_ranges::request(&selected, &request) => result,
+                    };
+                    if !request.is_cancelled() && sender.send(Reply::SelectionRanges { request, result }).await.is_ok() { repaint(); }
+                }) {
+                    Some(Reply::SelectionRanges { request: rejected, result: Err(Failure::TransportClosed) })
+                } else { None }
             }
             Command::CodeLensWork(work) => {
                 let request = work.request().clone();

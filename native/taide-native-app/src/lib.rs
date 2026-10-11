@@ -70,6 +70,8 @@ mod editor_rename;
 #[path = "editor-rename-controller.rs"]
 mod editor_rename_controller;
 pub mod editor_reveal;
+#[path = "editor-selection-ranges.rs"]
+mod editor_selection_ranges;
 #[path = "editor-symbols.rs"]
 mod editor_symbols;
 #[path = "editor-syntax.rs"]

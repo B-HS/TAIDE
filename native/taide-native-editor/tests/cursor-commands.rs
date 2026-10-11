@@ -1,6 +1,9 @@
 use taide_model::file::{EditorConfigOptions, FileSizeTier, OpenedFile};
 use taide_model::ids::{PaneId, TabId};
-use taide_native_editor::cursor_commands::{CursorCommand, run_cursor_command};
+use taide_native_editor::cursor_commands::{
+    CursorCommand, clear_smart_selection, has_smart_selection, run_cursor_command,
+    run_smart_selection_with_ranges,
+};
 use taide_native_editor::document::EditorError;
 use taide_native_editor::editing::{compose_text, type_text};
 use taide_native_editor::indent::IndentOptions;
@@ -237,6 +240,112 @@ fn 스마트_선택은_부분단어_단어_줄_전체로_확장하고_축소_외
     set_ranges(&mut store, view, &[(12, 12)]);
     run(&mut store, view, CursorCommand::Shrink);
     assert_eq!(ranges(&store, view), [(12, 12)]);
+}
+
+#[test]
+fn 외부_스마트_범위는_단어와_중첩을_합치고_캐시로_원선택까지_축소한다() {
+    let text = "fooBar(x, y)\n tail";
+    let (mut store, view) = fixture(text, &[(1, 1)], false);
+    let document = store.views().get(view).unwrap().document;
+    let before = store.documents().snapshot(document).unwrap();
+    assert!(!has_smart_selection(&store, view));
+    run_smart_selection_with_ranges(
+        &mut store,
+        view,
+        true,
+        &[vec![0..6, 0..12, 4..10, 0..text.len(), 0..12]],
+        CONTEXT,
+    )
+    .unwrap();
+    assert_eq!(ranges(&store, view), [(0, 3)]);
+    assert!(has_smart_selection(&store, view));
+    for expected in [(0, 6), (0, 12), (0, text.len())] {
+        run(&mut store, view, CursorCommand::Expand);
+        assert_eq!(ranges(&store, view), [expected]);
+    }
+    for expected in [(0, 12), (0, 6), (0, 3), (1, 1)] {
+        run(&mut store, view, CursorCommand::Shrink);
+        assert_eq!(ranges(&store, view), [expected]);
+    }
+    let after = store.documents().snapshot(document).unwrap();
+    assert_eq!(
+        (after.rope, after.revision, after.dirty),
+        (before.rope, before.revision, before.dirty)
+    );
+    assert!(!store.undo(document).unwrap());
+}
+
+#[test]
+fn 외부_스마트_범위는_다중커서와_readonly에서_잘못된_utf8과_비포함을_버린다() {
+    let text = "文😀foo (bar)\n next";
+    let (mut store, view) = fixture(text, &[(8, 8), (13, 13)], true);
+    let document = store.views().get(view).unwrap().document;
+    let before = store.documents().snapshot(document).unwrap();
+    run_smart_selection_with_ranges(
+        &mut store,
+        view,
+        true,
+        &[vec![1..10, 3..5, 7..10, 7..16, 21..22], Vec::new()],
+        CONTEXT,
+    )
+    .unwrap();
+    assert_eq!(ranges(&store, view), [(7, 10), (12, 15)]);
+    run(&mut store, view, CursorCommand::Shrink);
+    assert_eq!(ranges(&store, view), [(8, 8), (13, 13)]);
+    let after = store.documents().snapshot(document).unwrap();
+    assert_eq!(
+        (after.rope, after.revision, after.dirty),
+        (before.rope, before.revision, before.dirty)
+    );
+    assert!(after.metadata.read_only);
+}
+
+#[test]
+fn 외부_스마트_범위는_여러줄_부모에서_선행후행_공백의_중간단계를_보존한다() {
+    let text = "  one\n    two\n  end\n";
+    let (mut store, view) = fixture(text, &[(3, 3)], false);
+    run_smart_selection_with_ranges(&mut store, view, true, &[vec![2..13]], CONTEXT).unwrap();
+    assert_eq!(ranges(&store, view), [(2, 5)]);
+    for expected in [(2, 13), (0, 13), (0, text.len())] {
+        run(&mut store, view, CursorCommand::Expand);
+        assert_eq!(ranges(&store, view), [expected]);
+    }
+}
+
+#[test]
+fn 외부_스마트_범위의_위치수_거절과_명시회수_수동이동_편집은_캐시를_분리한다() {
+    let (mut store, view) = fixture("alpha beta", &[(2, 2)], false);
+    assert_eq!(
+        run_smart_selection_with_ranges(&mut store, view, true, &[], CONTEXT),
+        Err(EditorError::InvalidBoundary)
+    );
+    assert_eq!(ranges(&store, view), [(2, 2)]);
+    assert!(!has_smart_selection(&store, view));
+    run_smart_selection_with_ranges(&mut store, view, false, &[vec![0..5]], CONTEXT).unwrap();
+    assert_eq!(ranges(&store, view), [(2, 2)]);
+    assert!(has_smart_selection(&store, view));
+    clear_smart_selection(&mut store, view).unwrap();
+    assert_eq!(ranges(&store, view), [(2, 2)]);
+    assert!(!has_smart_selection(&store, view));
+    run_smart_selection_with_ranges(&mut store, view, true, &[vec![0..5]], CONTEXT).unwrap();
+    set_ranges(&mut store, view, &[(8, 8)]);
+    assert!(!has_smart_selection(&store, view));
+    run_smart_selection_with_ranges(&mut store, view, true, &[Vec::new()], CONTEXT).unwrap();
+    assert!(has_smart_selection(&store, view));
+    type_text(&mut store, view, "X").unwrap();
+    assert!(!has_smart_selection(&store, view));
+}
+
+#[test]
+fn 외부_스마트_범위의_cursor_undo는_이전_단계_캐시를_회수한다() {
+    let (mut store, view) = fixture("alpha beta", &[(2, 2)], false);
+    run_smart_selection_with_ranges(&mut store, view, true, &[vec![0..5, 0..10]], CONTEXT).unwrap();
+    assert_eq!(ranges(&store, view), [(0, 5)]);
+    run(&mut store, view, CursorCommand::Undo);
+    assert_eq!(ranges(&store, view), [(2, 2)]);
+    assert!(!has_smart_selection(&store, view));
+    run(&mut store, view, CursorCommand::Expand);
+    assert_eq!(ranges(&store, view), [(0, 5)]);
 }
 
 #[test]

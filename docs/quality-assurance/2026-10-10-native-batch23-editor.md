@@ -829,3 +829,37 @@ App command-dispatch는 현재 본문 view에서 기본 Core Cursor 명령을 �
 Core는 기존 CursorMemory의 확장/축소·정렬/중첩/줄 공백/원선택과 history를 재사용하는 외부 범위 API를 연결했습니다. core-related.log는 다중 커서/readonly·UTF-8 불일치/비포함/위치수·수동 이동/편집·명시 회수와 cursor undo를 포함한 최초 4통과/1실패·exit 101입니다. 실패는 cursor undo가 set_view_state에서 회수한 smart 캐시를 복제 메모리로 복구하는 것이었습니다. 해당 분기의 smart 캐시를 회수하도록 수정한 뒤 core-undo-recheck.log는 정확한 해당 검사 1통과/0실패·exit 0입니다. 앞선 네 성공을 재실행하거나 전체 대상 성공으로 보고하지 않습니다.
 
 SDK/Core 전체 대상과 실제 LSP child/App·본문/peek 명령/수명은 아직 확인하지 않았습니다. 관련 단계 c8b만 닫고 c8c/c8d 및 editor-52 partial·295완료/293미완료·배치 23 잔여 26/최종 33을 유지합니다. 다음 단계는 실제 App 연결이며, 완료한 c7의 공급/resolve를 다음 행동으로 지목하던 활성 PROCESS 한 줄을 정정했습니다.
+
+### c8c — 실제 Selection Range 공급·명령과 종료 (2026-10-11)
+
+App 전용 initialize는 selectionRange 지원을 선언하고 기존 typed SDK의 nullable 전체/위치별 root와 parent 체인을 실제 준비된 모든 공급자에게 요청합니다. 요청은 현재 프로젝트·문서/revision/언어/tier·source/owner/viewport·선택과 공급자 generation/capability revision을 캡처합니다. UTF-16 좌표를 UTF-8로 왕복 확인하며 잘못된 위치별 개수/노드/다른 공급자는 제외하고 유효한 parent는 보존합니다. 외부 공급자가 있을 때에는 항상 word와 외부 범위를 합치고, 없거나 프로젝트/파일/Normal tier가 아니면 기존 Core 기본 선택을 사용합니다. 편집 엔진/새 의존성/동결 client는 변경하지 않았습니다.
+
+본문과 peek의 실제 기존 명령 큐·기본/재지정 키·팔레트에서 원래 source/owner를 유지합니다. 완료된 확장/축소는 Core 캐시를 재사용하고 대기 중 반복 명령은 요청을 늘리지 않습니다. 수동 선택·편집·IME·뷰/owner 닫기·공급자 교체·서버 재시작·종료에서 요청과 캐시를 회수합니다. 안정 16프레임과 오류/빈 응답에서도 자동 재요청이 없으며 오래된 유효 응답을 실제 child 취소 뒤 거절했습니다.
+
+관련 검사 로그 접두사는 /private/tmp/taide-batch23-selection-ranges-입니다.
+
+- app-state.log와 app-related.log의 첫 시도는 각각 Snapshot.dirty 경로 및 Path import 컴파일 오류로 실행 0건입니다. 실제 필드와 명시 import로 수정했으며 성공 근거로 세지 않습니다.
+- app-related-recheck.log는 실제 9건 중 5통과/4실패·exit 101입니다. Monaco DEFAULT_WORD_REGEXP는 이모지를 단어에 포함하므로 올바른 절대 범위는 8..18입니다. 중첩 확장은 같은 줄 0..11의 다중 선택을 하나로 병합하며 축소는 각 이전 단어 선택을 복원합니다. 제품 동작 대신 잘못된 fixture 기대값을 실제 설치 Monaco/Core 근거에 맞춰 수정했습니다.
+- failed-scope.log는 앞선 실패 4건만 재검사해 2통과/2실패·exit 101입니다. 본문/peek의 입력·선택·문서 보존 단언은 통과했고 직접 on_exit 호출이 설정하지 않는 is_exit_ready를 기다린 두 검사가 실패했습니다. 기존 직접 종료 검사처럼 실제 tracked 작업 0과 캐시 회수를 확인하도록 수정한 app-input-recheck.log의 해당 2건은 통과·exit 0·10.01초입니다. 성공한 상태/child 검사는 반복하지 않았습니다.
+- provider-scope.log의 새 실제 복수 child/두 프로젝트 검사 1건은 정상/null/오류/미지원의 네 사례·공급자 수/소유 격리·문서 보존·정상 종료에서 통과했습니다. 로그는 test result 1통과/0실패·1.92초로 끝났고 실행 프로세스도 남아 있지 않았습니다. 누락된 terminal handle을 이유로 재시작하지 않았습니다.
+- input-boundaries.log의 새 실제 App 검사 1건은 F9/F10 재지정·다중 커서·IME 중 요청 차단/내용 보존·대기 취소/늦은 유효 응답 거절·정상 종료에서 통과·exit 0·7.10초입니다. 관련 서로 다른 최종 성공은 상태 5/child 3/App 3의 11건이며 재검사나 초기 컴파일 0건을 중복 합산하지 않습니다.
+
+SDK 전체는 sdk-all.log의 --all-targets --no-fail-fast 직접 1회에서 91통과/0실패·exit 0·0.37초입니다. Core/App 전체, frozen host/Wasm·fmt/디스크·기능표·선별 Git은 c8d의 미완료이며 editor-52 partial·295완료/293미완료·배치 23 잔여 26/최종 33을 유지합니다. 이번 자동 입력 검사는 격리된 앱의 egui 입력이고 OS 합성 입력/실제 사용자 데이터/클립보드/Keychain/Trash를 사용하지 않았습니다. pixel/OS IME/접근성·대형 성능/soak·초기 원인 미확정 부채·출시/전환/제거는 배치 31~33에 남습니다.
+
+### c8c1 — 같은 프레임의 명령 순서
+
+본문은 기존 편집 큐에서 스마트 선택만 먼저 꺼내 일반 Cursor 명령보다 앞서 소비하고 있었습니다. 실제 App의 ExpandLine→Expand 큐에서 이전 caret로 만든 요청이 줄 선택 변경 뒤 만료되는 실패를 재현했습니다. 명령 순서 검사 전에 잘못된 이름 필터를 입력한 command-order-filter-zero.log는 0건/exit 0이므로 성공 근거에서 제외합니다. 올바른 이름의 command-order-red.log는 실제 0통과/1실패·exit 101·18.26초이며 ordered smart selection 대기가 실패했습니다.
+
+command-dispatch의 기존 순차 큐 소비에 Cursor 실행 포트를 연결하고 본문 스마트 선택은 해당 명령 차례의 선택을 캡처합니다. 원래 기본 Cursor 경로와 peek의 기존 명령 소비를 유지하며, 현재 source가 본문일 때만 그 문서의 언어/토큰/들여쓰기 문맥에서 즉시 준비합니다. peek는 원래 preview 문맥에서 준비합니다. 같은 프레임 줄 선택→확장이 전체 문서까지 확장하고 원문/revision/dirty/디스크를 보존합니다. command-order-green.log의 영향 App 4건은 통과·exit 0·21.08초입니다. 앞선 관련 App 3건을 새 성공으로 중복 합산하지 않으며 최종 서로 다른 관련 성공은 상태 5/child 3/App 4의 12건입니다. 새 실제 child 검사는 Unix fixture 경계로 제한하며 다른 플랫폼의 실행 통과를 주장하지 않습니다.
+
+Core 전체 core-all.log의 직접 --all-targets --no-fail-fast 1회는 39대상/306통과/0실패/기존 성능 1ignored·exit 0입니다. SDK 전체 91건을 재사용해 응답 계약 수정 한 파일만 741b74b9로 사용자 단독 author·AI 트레일러 없이 커밋·일반 푸시했으며 upstream 차이 0/0을 확인했습니다. Core와 SDK 소스는 이후 바꾸지 않아 전체 검사를 반복하지 않습니다. App 전체 app-all.log는 보호 Trash 3검사를 제외하고 직접 1회 실행 중이며 아직 결과를 판정하지 않습니다. 전체율/잔여 시간은 미산정이고 기능표·최종 배치는 유지합니다.
+
+### c8d — 최신 전체 대상과 완료 근거
+
+SDK 전체 1대상/91통과·Core 전체 39대상/306통과/기존 성능 1ignored는 각각 직접 1회·exit 0입니다. App 전체 app-all.log는 보호 Trash 3건을 제외한 직접 1회에서 67대상/873통과/1실패·exit 101로 종료했습니다. 실패한 기존 코드 수정 안내 검사는 기능 요청 전에 phase=document·status=None·tasks=8·request=None·focus/source=None의 초기 문서 준비 대기에서 실패했습니다. 첫 재검사에도 잘못된 이름 필터를 입력한 app-failed-filter-zero.log는 0건/exit 0으로 성공 근거에서 제외했습니다. 실제 실패 이름을 로그에서 직접 읽어 실행한 app-failed-scope.log는 소스/검사 조건 변경 없이 해당 1통과/0실패·exit 0·7.45초입니다. 최종 서로 다른 App 성공 근거는 874건이며 최초 전체 exit 101을 전체 통과로 바꾸지 않습니다. 최초 준비 시간 초과의 근본 원인은 미확정으로 배치 31의 검증 부채에 보존합니다.
+
+이번 변경 SDK/Core/App의 최종 서로 다른 성공은 1271건입니다. 관련 12건과 실패 재검사/초기 컴파일/필터 0건을 중복 합산하지 않습니다. 변경하지 않은 UI의 c7 전체 470통과/1실패 뒤 영향 1통과인 서로 다른 471건과 Locale의 19통과/1실패 뒤 키 등록 수정·영향 검사인 서로 다른 20건을 재사용합니다. UI/Locale의 최초 전체 실패나 앞선 c6 포맷/프로젝트 준비 원인 미확정 부채도 그대로 유지합니다.
+
+동결 client는 frozen-host.log의 inspection 테스트 대상 check·exit 0·18.12초와 frozen-wasm.log의 wasm32-unknown-unknown lib/canvas,inspection check·exit 0·9.80초로 컴파일만 확인했습니다. 소유 18개 Rust 파일의 edition 2024/2021 fmt check는 각각 exit 0이며 manifest/lock/frozen source와 새 의존성/엔진 변경은 없습니다. 디스크 여유는 389GiB·사용 79%입니다. 보호 앱 번들/실제 사용자 데이터/OS 설정/클립보드/Keychain/Trash·OS 합성 입력·빌드 정리를 수행하지 않았습니다.
+
+실제 typed 복수 공급자·nullable/오류/미지원·UTF-16과 word/중첩/다중 커서·본문/peek 기본/재지정 키·팔레트·같은 프레임 명령 순서·readonly/tier·문서/선택/뷰/공급자 수명·취소/늦은 응답/재시작/정상 종료 및 안정 프레임의 재요청 억제를 근거로 editor-52를 complete로 갱신할 준비를 마쳤습니다. 소유 구현/검사/QA의 선별 Git과 기능표·계획·PROCESS 갱신은 다음 기록 단계입니다. pixel/OS IME/접근성·대형 성능/soak·초기 원인 미확정 부채·출시/전환/제거는 배치 31~33에 유지하며 전체 전환율/잔여 시간은 미산정입니다.

@@ -88,10 +88,38 @@ pub(crate) fn apply_document_edits(
     store: &mut EditorStore,
     view: ViewId,
     tab: &TabId,
+    context: LineCommandContext<'_>,
+    indentation: taide_native_editor::indent::IndentConfiguration,
+    pending: &mut Vec<(TabId, DocumentEdit)>,
+    errors: &mut Vec<EditorError>,
+) -> bool {
+    apply_document_edits_with_cursor(
+        store,
+        view,
+        tab,
+        context,
+        indentation,
+        pending,
+        errors,
+        |store, command, context| {
+            taide_native_editor::cursor_commands::run_cursor_command(store, view, command, context)
+        },
+    )
+}
+
+pub(crate) fn apply_document_edits_with_cursor(
+    store: &mut EditorStore,
+    view: ViewId,
+    tab: &TabId,
     mut context: LineCommandContext<'_>,
     indentation: taide_native_editor::indent::IndentConfiguration,
     pending: &mut Vec<(TabId, DocumentEdit)>,
     errors: &mut Vec<EditorError>,
+    mut cursor: impl FnMut(
+        &mut EditorStore,
+        taide_native_editor::cursor_commands::CursorCommand,
+        LineCommandContext<'_>,
+    ) -> Result<bool, EditorError>,
 ) -> bool {
     if let Some(document) = store.views().get(view).map(|view| view.document)
         && let Ok(snapshot) = store.documents().snapshot(document)
@@ -140,11 +168,7 @@ pub(crate) fn apply_document_edits(
                 run_line_command(store, view, LineCommand::OutdentLines, context)
             }
             DocumentEdit::Line(command) => run_line_command(store, view, command, context),
-            DocumentEdit::Cursor(command) => {
-                taide_native_editor::cursor_commands::run_cursor_command(
-                    store, view, command, context,
-                )
-            }
+            DocumentEdit::Cursor(command) => cursor(store, command, context),
             DocumentEdit::Find(_)
             | DocumentEdit::Problem(_)
             | DocumentEdit::Location(_)

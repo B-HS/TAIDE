@@ -133,6 +133,7 @@ pub struct NativeApplication {
     editor_highlights: crate::editor_highlights::State,
     editor_inlay_hints: crate::editor_inlay_hints::State,
     editor_code_lenses: crate::editor_code_lenses::State,
+    editor_selection_ranges: crate::editor_selection_ranges::State,
     peek_models: crate::peek_models::Models,
     workspace_symbols: crate::workspace_symbols::State,
     lsp_status_appearance: crate::lsp::status::Appearance,
@@ -448,6 +449,7 @@ impl NativeApplication {
             editor_highlights: crate::editor_highlights::State::default(),
             editor_inlay_hints: crate::editor_inlay_hints::State::default(),
             editor_code_lenses: crate::editor_code_lenses::State::default(),
+            editor_selection_ranges: crate::editor_selection_ranges::State::default(),
             peek_models: crate::peek_models::Models::default(),
             workspace_symbols: crate::workspace_symbols::State::default(),
             lsp_status_appearance: appearances.lsp_status,
@@ -2158,6 +2160,7 @@ impl NativeApplication {
         self.editor_highlights.clear();
         self.editor_inlay_hints.clear();
         self.editor_code_lenses.clear();
+        self.editor_selection_ranges.clear(&mut self.store);
         self.editor_rename.clear();
         self.editor_code_actions.clear();
         if let Err(error) = self
@@ -3903,6 +3906,26 @@ impl NativeApplication {
                 .is_some_and(|layout| request.is_active(layout, &self.shell.scope))
     }
 
+    fn is_current_selection_range_request(
+        &self,
+        request: &crate::editor_selection_ranges::Request,
+    ) -> bool {
+        self.closing.is_none()
+            && request.describes(&self.store)
+            && (request.source == request.owner
+                || self
+                    .editor_locations
+                    .preview_views()
+                    .contains(&request.source))
+            && self
+                .services
+                .state
+                .layouts
+                .read()
+                .iter()
+                .any(|(project, layout)| request.is_active(project, layout, &self.shell.scope))
+    }
+
     fn poll_lsp(&mut self) {
         if let Some(bindings) = self
             .lsp
@@ -3913,6 +3936,23 @@ impl NativeApplication {
         }
         while let Some(reply) = self.lsp.as_mut().and_then(crate::lsp::LspBridge::poll) {
             match reply {
+                crate::lsp::Reply::SelectionRanges { request, result } => {
+                    let providers = request
+                        .project
+                        .as_ref()
+                        .zip(self.lsp.as_ref())
+                        .map_or_else(HashSet::new, |(project, lsp)| {
+                            lsp.selection_range_providers(project, &request.snapshot)
+                        });
+                    if self.is_current_selection_range_request(&request) {
+                        self.editor_selection_ranges.accept(
+                            &self.store,
+                            &request,
+                            providers,
+                            result,
+                        );
+                    }
+                }
                 crate::lsp::Reply::CodeLenses { request, result } => {
                     let providers = self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
                         lsp.code_lens_providers(&request.project, &request.snapshot)
@@ -4949,6 +4989,28 @@ impl NativeApplication {
                 }
             }
             Some(crate::command_palette::Action::RunCommand(id)) => {
+                if matches!(
+                    id.as_str(),
+                    "monaco.editor.action.smartSelect.expand"
+                        | "monaco.editor.action.smartSelect.shrink"
+                ) {
+                    if let Some((source, owner)) = formatting_source {
+                        if let Err(error) = self.editor_selection_ranges.queue(
+                            &self.store,
+                            crate::editor_selection_ranges::Context {
+                                project: project.cloned(),
+                                owner,
+                                source,
+                                viewport: context.viewport_id(),
+                            },
+                            id == "monaco.editor.action.smartSelect.expand",
+                        ) {
+                            self.status = Some(editor_error(error).to_string());
+                        }
+                        context.request_repaint();
+                    }
+                    return;
+                }
                 if id == "monaco.codelens.showLensesInCurrentLine" {
                     if let Some((source, _)) = formatting_source {
                         self.editor_code_lenses.begin_picker(
@@ -5776,6 +5838,23 @@ impl eframe::App for NativeApplication {
             .retain_active(&snapshot.layouts, &self.shell.scope);
         self.editor_locations.detach_retired(&mut self.store);
         let inlay_hint_previews = self.editor_locations.preview_views();
+        self.editor_selection_ranges.reconcile(
+            &mut self.store,
+            |request| {
+                self.closing.is_none()
+                    && (request.source == request.owner
+                        || inlay_hint_previews.contains(&request.source))
+                    && snapshot.layouts.iter().any(|(project, layout)| {
+                        projects.contains(project)
+                            && request.is_active(project, layout, &self.shell.scope)
+                    })
+            },
+            |project, document| {
+                self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
+                    lsp.selection_range_providers(project, document)
+                })
+            },
+        );
         let code_lens_enabled = self.services.state.settings.read().editor_code_lens_enabled;
         self.editor_code_lenses.reconcile(
             &self.store,
@@ -6053,6 +6132,7 @@ impl eframe::App for NativeApplication {
             editor_highlights: &mut self.editor_highlights,
             editor_inlay_hints: &mut self.editor_inlay_hints,
             editor_code_lenses: &mut self.editor_code_lenses,
+            editor_selection_ranges: &mut self.editor_selection_ranges,
             peek_models: &self.peek_models,
             lsp: self.lsp.as_ref(),
             find_history: &mut self.find_history,
@@ -6766,6 +6846,7 @@ impl eframe::App for NativeApplication {
         self.editor_completion.clear();
         self.editor_inlay_hints.clear();
         self.editor_code_lenses.clear();
+        self.editor_selection_ranges.clear(&mut self.store);
         if let Err(error) = self
             .editor_documentation
             .clear(&mut self.store, &mut self.editor_syntax)
@@ -6972,6 +7053,7 @@ struct AppSurfaces<'a> {
     editor_highlights: &'a mut crate::editor_highlights::State,
     editor_inlay_hints: &'a mut crate::editor_inlay_hints::State,
     editor_code_lenses: &'a mut crate::editor_code_lenses::State,
+    editor_selection_ranges: &'a mut crate::editor_selection_ranges::State,
     peek_models: &'a crate::peek_models::Models,
     lsp: Option<&'a crate::lsp::LspBridge>,
     find_history: &'a mut taide_native_ui::editor_find_widget::FindHistory,
@@ -8034,6 +8116,14 @@ impl AppSurfaces<'_> {
                     lsp: self.lsp, context: ui.ctx().clone(), colors: self.editor_code_lens_colors,
                     enabled: self.services.state.settings.read().editor_code_lens_enabled,
                 };
+                let selection_range_consumer = crate::editor_selection_ranges::Consumer {
+                    state: std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_selection_ranges)),
+                    lsp: self.lsp, context: ui.ctx().clone(),
+                };
+                let selection_range_preview = self.editor_locations.current(view).and_then(|session| session.preview);
+                let selection_range_source = ui.memory(|memory| memory.focused()).and_then(|id| self.editor_keymap_targets.get(&(ui.ctx().viewport_id(), id))).and_then(|(source, _)| {
+                    (*source == view || selection_range_preview == Some(*source)).then_some(*source)
+                }).unwrap_or(view);
                 if ui.is_enabled() {
                     for _ in self.document_edits.extract_if(.., |(owner, edit)| owner == &tab.id && *edit == DocumentEdit::CodeLens) {
                         let preview = self.editor_locations.current(view).and_then(|session| session.preview);
@@ -8080,6 +8170,7 @@ impl AppSurfaces<'_> {
                     highlights: Some(highlight_consumer.clone()),
                     inlay_hints: Some(inlay_consumer.clone()),
                     code_lenses: Some(code_lens_consumer.clone()),
+                    selection_ranges: Some(selection_range_consumer.clone()),
                     rename: Some(crate::editor_rename_controller::Consumer(std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_rename)))),
                     code_actions: Some(crate::editor_code_actions_controller::Consumer(std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_code_actions)))),
                     code_action_colors: Some(self.editor_code_action_colors),
@@ -8105,6 +8196,14 @@ impl AppSurfaces<'_> {
                         },
                     );
                 let mut completion_host_commands = Vec::new();
+                if ui.is_enabled() {
+                    selection_range_consumer.before(self.store, editor_project, view, view,
+                        taide_native_editor::line_commands::LineCommandContext {
+                            indent: editor.indent_options(&snapshot), language, syntax: &syntax_lease,
+                            compare: Some(&compare), transforms: Some(&text_resources.transforms),
+                            word_rules: language.map(|language| language.rules).or_else(|| crate::editor_syntax::language_rules("plaintext")),
+                        }).map_err(editor_error)?;
+                }
                 let mut completion_provider = crate::editor_completion::Provider {
                     consumer: completion_consumer.clone(), project: editor_project.cloned(), owner: view,
                     owner_key: self.store.views().get(view).ok_or_else(|| editor_error(taide_native_editor::document::EditorError::NotFound))?.key.clone(),
@@ -8117,7 +8216,7 @@ impl AppSurfaces<'_> {
                     },
                 };
                 let edited = ui.is_enabled()
-                    && crate::command_dispatch::apply_document_edits(
+                    && crate::command_dispatch::apply_document_edits_with_cursor(
                         self.store,
                         view,
                         &tab.id,
@@ -8134,6 +8233,17 @@ impl AppSurfaces<'_> {
                         indent_configuration,
                         self.document_edits,
                         &mut edit_errors,
+                        |store, command, context| {
+                            if matches!(command, taide_native_editor::cursor_commands::CursorCommand::Expand | taide_native_editor::cursor_commands::CursorCommand::Shrink) {
+                                selection_range_consumer.queue(store, editor_project, view, selection_range_source,
+                                    command == taide_native_editor::cursor_commands::CursorCommand::Expand)?;
+                                if selection_range_source == view {
+                                    selection_range_consumer.before(store, editor_project, view, view, context)?;
+                                }
+                                return Ok(false);
+                            }
+                            taide_native_editor::cursor_commands::run_cursor_command(store, view, command, context)
+                        },
                     );
                 self.command_errors
                     .extend(edit_errors.into_iter().map(editor_error));
@@ -8289,6 +8399,7 @@ impl AppSurfaces<'_> {
                 if let Some(display) = &document_highlights { display.paint(ui, &output.geometry); }
                 inlay_consumer.observe(self.store, editor_project, view, view, output.rendered_lines.clone());
                 code_lens_consumer.after(self.store, view, &output.code_lenses);
+                selection_range_consumer.after(self.store, view);
                 if output.response.has_focus() || ui.memory(|memory| output.focus_ids.iter().any(|id| {
                     memory.has_focus(*id) && !preview_focus_targets.iter().any(|(target, _)| target == id)
                 })) {
@@ -8426,6 +8537,9 @@ mod code_lenses_tests;
 #[cfg(all(test, unix))]
 #[path = "application-inlay-hints-tests.rs"]
 mod inlay_hints_tests;
+#[cfg(all(test, unix))]
+#[path = "application-selection-ranges-tests.rs"]
+mod selection_ranges_tests;
 #[cfg(all(test, unix))]
 #[path = "application-startup-tests.rs"]
 mod startup_tests;

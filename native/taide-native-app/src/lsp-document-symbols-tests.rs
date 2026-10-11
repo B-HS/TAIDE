@@ -32,6 +32,15 @@ pub(super) fn fixture(mode: &str) -> (Fixture, ProjectId, EditorStore, DocumentI
     assert!(matches!(
         mode,
         "--native-symbols"
+            | "--native-selection-ranges"
+            | "--native-selection-ranges-empty"
+            | "--native-selection-ranges-null"
+            | "--native-selection-ranges-partial-null"
+            | "--native-selection-ranges-error"
+            | "--native-selection-ranges-bad"
+            | "--native-selection-ranges-bad-length"
+            | "--native-selection-ranges-unsupported"
+            | "--native-selection-ranges-wait"
             | "--native-code-actions"
             | "--native-code-actions-null"
             | "--native-code-actions-error"

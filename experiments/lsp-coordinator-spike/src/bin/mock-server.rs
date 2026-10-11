@@ -56,6 +56,9 @@ struct MockServer {
     held_code_lenses: BTreeMap<u64, Value>,
     code_lens_counts: BTreeMap<String, usize>,
     code_lens_refresh_uri: Option<String>,
+    selection_ranges: Option<&'static str>,
+    held_selection_ranges: BTreeMap<u64, Value>,
+    selection_range_counts: BTreeMap<String, usize>,
     has_registered_highlight_revision: bool,
     locations: Option<&'static str>,
     held_location: Option<Value>,
@@ -190,6 +193,95 @@ fn write_document_diagnostic(
 }
 
 impl MockServer {
+    fn handle_selection_ranges(
+        &mut self,
+        message: &Value,
+        output: &mut impl Write,
+    ) -> io::Result<()> {
+        let mode = self
+            .selection_ranges
+            .ok_or_else(|| invalid("selection range mode missing"))?;
+        let id = message
+            .get("id")
+            .ok_or_else(|| invalid("selection range requires ID"))?;
+        let params = &message["params"];
+        let uri = params["textDocument"]["uri"]
+            .as_str()
+            .ok_or_else(|| invalid("selection range requires URI"))?;
+        let document = self
+            .documents
+            .get(uri)
+            .ok_or_else(|| invalid("selection range requires mirror"))?;
+        let text = document["text"]
+            .as_str()
+            .ok_or_else(|| invalid("selection range requires text"))?;
+        let positions = params["positions"]
+            .as_array()
+            .ok_or_else(|| invalid("selection range requires positions"))?;
+        let mut result = Vec::new();
+        let last_line = text.split('\n').count() - 1;
+        let last_width = text
+            .split('\n')
+            .last()
+            .ok_or_else(|| invalid("selection text missing"))?
+            .trim_end_matches('\r')
+            .encode_utf16()
+            .count();
+        for (index, position) in positions.iter().enumerate() {
+            position_byte(text, position)?;
+            if mode == "partial-null" && index == 1 {
+                result.push(Value::Null);
+                continue;
+            }
+            let line = position["line"]
+                .as_u64()
+                .ok_or_else(|| invalid("selection line missing"))?;
+            let content = text
+                .split('\n')
+                .nth(line as usize)
+                .ok_or_else(|| invalid("selection line outside mirror"))?
+                .trim_end_matches('\r');
+            result.push(json!({"range":{"start":{"line":line,"character":0},"end":{"line":line,"character":content.encode_utf16().count()}},"parent":{"range":{"start":{"line":0,"character":0},"end":{"line":last_line,"character":last_width}}}}));
+        }
+        let count = self.selection_range_counts.entry(uri.into()).or_default();
+        *count += 1;
+        write_document_diagnostic(
+            output,
+            uri,
+            &document["version"],
+            &format!("synthetic selection requested {}", *count),
+        )?;
+        if mode == "error" {
+            return write_payload(
+                output,
+                &json!({"jsonrpc":"2.0","id":id,"error":{"code":-32603,"message":"synthetic selection failure"}}),
+            );
+        }
+        let result = match mode {
+            "empty" => json!([]),
+            "null" => Value::Null,
+            "bad" => {
+                json!([{"range":{"start":{"line":0,"character":8},"end":{"line":0,"character":1}}}])
+            }
+            "bad-length" => json!([null, null, null]),
+            _ => json!(result),
+        };
+        if mode == "wait" {
+            self.held_selection_ranges.insert(
+                id.as_u64()
+                    .ok_or_else(|| invalid("selection ID must be numeric"))?,
+                json!({"id":id,"uri":uri,"version":document["version"],"result":result}),
+            );
+            return write_document_diagnostic(
+                output,
+                uri,
+                &document["version"],
+                "synthetic selection waiting",
+            );
+        }
+        write_response(output, id, result)
+    }
+
     fn handle_code_lens(
         &mut self,
         method: &str,
@@ -556,6 +648,15 @@ impl MockServer {
                 }
                 capabilities["executeCommandProvider"] = json!({"commands":["synthetic.lens"]});
             }
+            if let Some(mode) = self.selection_ranges {
+                if params["capabilities"]["textDocument"]["selectionRange"]
+                    .as_object()
+                    .is_none()
+                {
+                    return Err(invalid("selection ranges require client capability"));
+                }
+                capabilities["selectionRangeProvider"] = json!(mode != "unsupported");
+            }
             if self.locations.is_some() {
                 for feature in [
                     "definition",
@@ -760,6 +861,17 @@ impl MockServer {
             let cancelled_id = message["params"]["id"]
                 .as_u64()
                 .ok_or_else(|| invalid("cancel must identify a numeric request"))?;
+            if let Some(held) = self.held_selection_ranges.remove(&cancelled_id) {
+                write_response(output, &held["id"], held["result"].clone())?;
+                write_document_diagnostic(
+                    output,
+                    held["uri"]
+                        .as_str()
+                        .ok_or_else(|| invalid("selection cancel URI missing"))?,
+                    &held["version"],
+                    "synthetic selection cancelled",
+                )?;
+            }
             if let Some(held) = self.held_code_lenses.remove(&cancelled_id) {
                 write_response(
                     output,
@@ -960,6 +1072,10 @@ impl MockServer {
             )
         {
             self.handle_code_lens(method, &message, output)?;
+            return Ok(None);
+        }
+        if method == "textDocument/selectionRange" && self.selection_ranges.is_some() {
+            self.handle_selection_ranges(&message, output)?;
             return Ok(None);
         }
         if self.code_actions.is_some() && method == "codeAction/resolve" {
@@ -2280,6 +2396,31 @@ fn main() -> io::Result<ExitCode> {
                 "--native-code-lenses-resolve-error" => "resolve-error",
                 "--native-code-lenses-resolve-wait" => "resolve-wait",
                 "--native-code-lenses-refresh" => "refresh",
+                _ => "normal",
+            });
+        }
+        Some(
+            mode @ ("--native-selection-ranges"
+            | "--native-selection-ranges-empty"
+            | "--native-selection-ranges-null"
+            | "--native-selection-ranges-partial-null"
+            | "--native-selection-ranges-error"
+            | "--native-selection-ranges-bad"
+            | "--native-selection-ranges-bad-length"
+            | "--native-selection-ranges-unsupported"
+            | "--native-selection-ranges-wait"),
+        ) => {
+            server.should_track_saves = true;
+            server.locations = Some("normal");
+            server.selection_ranges = Some(match mode {
+                "--native-selection-ranges-empty" => "empty",
+                "--native-selection-ranges-null" => "null",
+                "--native-selection-ranges-partial-null" => "partial-null",
+                "--native-selection-ranges-error" => "error",
+                "--native-selection-ranges-bad" => "bad",
+                "--native-selection-ranges-bad-length" => "bad-length",
+                "--native-selection-ranges-unsupported" => "unsupported",
+                "--native-selection-ranges-wait" => "wait",
                 _ => "normal",
             });
         }

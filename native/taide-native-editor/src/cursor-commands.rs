@@ -3,7 +3,7 @@ use crate::bracket_navigation::{
 };
 use crate::change_journal::ChangesSince;
 use crate::decoration::{Decoration, DecorationKind, DecorationLayer, InlineStyle, Stickiness};
-use crate::document::{DocumentSnapshot, EditorError};
+use crate::document::{DocumentSnapshot, EditorError, byte_to_char};
 use crate::editing::{
     Mark, Plan, SEPARATE_STEP, apply_step, line_content_range, line_text, offset_at_visible_column,
     visible_column,
@@ -113,6 +113,67 @@ pub enum CursorCommand {
     MoveCaretRight,
 }
 
+pub fn has_smart_selection(store: &EditorStore, view: ViewId) -> bool {
+    let Some(current) = store.views().get(view) else {
+        return false;
+    };
+    store
+        .documents()
+        .snapshot(current.document)
+        .is_ok_and(|document| {
+            current.cursor_memory.revision == document.revision
+                && current.cursor_memory.smart.is_some()
+        })
+}
+
+pub fn clear_smart_selection(store: &mut EditorStore, view: ViewId) -> Result<(), EditorError> {
+    store.cursor_memory_mut(view)?.smart = None;
+    Ok(())
+}
+
+pub fn run_smart_selection_with_ranges(
+    store: &mut EditorStore,
+    view: ViewId,
+    forward: bool,
+    provided: &[Vec<Range<usize>>],
+    context: LineCommandContext<'_>,
+) -> Result<bool, EditorError> {
+    let current = store
+        .views()
+        .get(view)
+        .ok_or(EditorError::NotFound)?
+        .clone();
+    let document = store.documents().snapshot(current.document)?;
+    if provided.len() != current.selection.selections.len() {
+        return Err(EditorError::InvalidBoundary);
+    }
+    let ranges = current
+        .selection
+        .selections
+        .iter()
+        .zip(provided)
+        .map(|(selection, provided)| {
+            selection_ranges_with_external(&document, *selection, context, Some(provided))
+        })
+        .collect();
+    let memory = store.cursor_memory_mut(view)?;
+    memory.prepare(document.revision);
+    memory.smart = Some(SmartSelection {
+        ranges,
+        indices: vec![0; provided.len()],
+    });
+    run_cursor_command(
+        store,
+        view,
+        if forward {
+            CursorCommand::Expand
+        } else {
+            CursorCommand::Shrink
+        },
+        context,
+    )
+}
+
 pub fn run_cursor_command(
     store: &mut EditorStore,
     view: ViewId,
@@ -184,6 +245,7 @@ pub fn run_cursor_command(
             })
         };
         if let Some((selection, scroll)) = next {
+            memory.smart = None;
             store.set_view_state(view, selection, scroll, current.folds)?;
             *store.cursor_memory_mut(view)? = memory;
         }
@@ -767,6 +829,15 @@ pub fn selection_ranges(
     selection: Selection,
     context: LineCommandContext<'_>,
 ) -> Vec<Range<usize>> {
+    selection_ranges_with_external(document, selection, context, None)
+}
+
+fn selection_ranges_with_external(
+    document: &DocumentSnapshot,
+    selection: Selection,
+    context: LineCommandContext<'_>,
+    provided: Option<&[Range<usize>]>,
+) -> Vec<Range<usize>> {
     let byte = selection.head;
     let mut ranges = Vec::new();
     if let Some(word) = configured_word(document, byte, context) {
@@ -786,7 +857,7 @@ pub fn selection_ranges(
     if !content.text.is_empty() && content.text.chars().all(|c| c == ' ' || c == '\t') {
         ranges.push(content.start..content.start + content.text.len());
     }
-    if let Some(language) = context.language {
+    if let Some(language) = context.language.filter(|_| provided.is_none()) {
         for pair in bracket_pairs(document, language)
             .iter()
             .filter(|pair| pair.open.end <= byte && byte <= pair.close.start)
@@ -818,6 +889,20 @@ pub fn selection_ranges(
                 }
             }
         }
+    }
+    if let Some(provided) = provided {
+        ranges.extend(
+            provided
+                .iter()
+                .filter(|range| {
+                    range.start <= byte
+                        && byte <= range.end
+                        && range.start <= range.end
+                        && byte_to_char(&document.rope, range.start).is_ok()
+                        && byte_to_char(&document.rope, range.end).is_ok()
+                })
+                .cloned(),
+        );
     }
     ranges.push(0..document.rope.len_bytes());
     ranges.sort_by_key(|range| (std::cmp::Reverse(range.start), range.end));

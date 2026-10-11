@@ -1029,6 +1029,7 @@ pub(crate) struct Provider<'a, 'state> {
     pub(crate) highlights: Option<crate::editor_highlights::Consumer<'a, 'state>>,
     pub(crate) inlay_hints: Option<crate::editor_inlay_hints::Consumer<'a, 'state>>,
     pub(crate) code_lenses: Option<crate::editor_code_lenses::Consumer<'a, 'state>>,
+    pub(crate) selection_ranges: Option<crate::editor_selection_ranges::Consumer<'a, 'state>>,
     pub(crate) rename: Option<crate::editor_rename_controller::Consumer<'state>>,
     pub(crate) code_actions: Option<crate::editor_code_actions_controller::Consumer<'state>>,
     pub(crate) code_action_colors: Option<taide_native_ui::editor_code_actions::Colors>,
@@ -1808,6 +1809,25 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
             .code_lenses
             .as_ref()
             .and_then(|consumer| consumer.before(store, self.project.as_ref(), view, preview));
+        let selection_range_rules = taide_native_editor::line_commands::LineCommandContext {
+            indent: self.editor.indent_options(&snapshot),
+            language,
+            syntax,
+            compare: Some(&compare),
+            transforms: Some(&text_resources.transforms),
+            word_rules: rules,
+        };
+        if ui.is_enabled()
+            && let Some(consumer) = &self.selection_ranges
+        {
+            consumer.before(
+                store,
+                self.project.as_ref(),
+                view,
+                preview,
+                selection_range_rules,
+            )?;
+        }
         let output = self.editor.show_request_with_code_lenses(
             &mut ui,
             store,
@@ -1937,6 +1957,14 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
                             let crate::command_registry::Run::EditDocument(edit) = run else {
                                 return false;
                             };
+                            if let crate::command_registry::DocumentEdit::Cursor(command @ (taide_native_editor::cursor_commands::CursorCommand::Expand | taide_native_editor::cursor_commands::CursorCommand::Shrink)) = edit
+                                && let Some(consumer) = &self.selection_ranges
+                            {
+                                if let Err(error) = consumer.queue(store, self.project.as_ref(), view, preview, command == taide_native_editor::cursor_commands::CursorCommand::Expand) {
+                                    errors.push(error);
+                                }
+                                return true;
+                            }
                             if let crate::command_registry::DocumentEdit::Highlight(command) = edit
                             {
                                 let Some(consumer) = &highlight_consumer else {
@@ -2029,6 +2057,9 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
             code_lenses,
         )?;
         self.commands.append(&mut documentation_host_commands);
+        if let Some(consumer) = &self.selection_ranges {
+            consumer.after(store, preview);
+        }
         self.commands.append(&mut completion_host_commands);
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
