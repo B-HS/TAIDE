@@ -813,3 +813,19 @@ App의 다른 실패는 변경하지 않은 tests/projects.rs:114의 프로젝�
 마지막 소스에서 frozen host 테스트 대상 inspection check는 exit 0(11.36초), Wasm lib canvas,inspection check는 exit 0(2.11초)입니다. 소유 native Rust 27경로·Locale 1경로·소유 mock 1경로 fmt check와 소유 diff check는 exit 0입니다. SDK 전체 90건은 소스 불변으로 재사용했습니다. manifest/lock/frozen source/의존 그래프·TextMate/정규식 엔진 변경 0, 새 의존성/OS 합성 입력·보호 데이터/OS 설정·클립보드/Keychain/Trash 변경과 빌드 정리는 없습니다. 디스크는 406GiB/78%입니다.
 
 실제 본문/peek의 전체 문서 공급·동일 줄 그룹/표시·가시 resolve·현재 줄 선택/서버·client 실행·scoped refresh·설정/readonly/tier·편집/뷰/공급자 수명·취소/오래된 응답·종료를 근거로 editor-53만 missing→complete로 닫습니다. 새 기능이나 원본 버그의 강제 재현은 추가하지 않았습니다. 이전 command-relay 설명의 미완료 CodeLens 참조를 정정하고 editor-58은 별도로 유지합니다. 최신 588대상/295완료/293미완료·배치 23 잔여 26·최종 33이며 전체 전환율/잔여 시간은 미산정입니다. pixel/OS IME/접근성·대형 성능/soak·최초 시간 초과 원인·출시·전환·제거는 배치 31~33의 별도 게이트입니다. 다음 기능은 같은 배치의 partial editor-52 Selection Range입니다.
+
+### c8a — Selection Range 원본과 현재 경계
+
+대상 editor-52는 partial입니다. src/shared/lib/lsp/adapters/selection-range.ts는 각 selection head를 UTF-16 positions로 textDocument/selectionRange에 전달하고 위치별 root null/parent 체인을 Monaco 범위 배열로 바꿉니다. 취소/null 전체 응답은 위치마다 빈 체인입니다. 설치 Monaco 0.56 smartSelect.js/wordSelections.js는 모든 외부 공급자와 항상 word 범위를 합치며 외부 공급자가 없을 때만 bracket을 추가합니다. 범위를 안쪽부터 정렬하고 중복/비중첩을 제거하며 줄 변경 시 선행/후행 공백 단계·원래 선택을 삽입합니다. 기존 상태는 expand/shrink에서 재사용하며 수동 커서 이동 시 회수합니다. 두 smartSelect 옵션은 true이고 TS host의 별도 override는 없습니다. 공식 [Monaco SelectionRangeProvider API](https://microsoft.github.io/monaco-editor/typedoc/interfaces/languages.SelectionRangeProvider.html)와 설치 코드를 함께 확인했습니다.
+
+현재 Core cursor-commands.rs는 단어/부분 단어·괄호·문서·중첩/trivia와 CursorMemory 스마트 선택/undo를 이미 제공합니다. 새 Core API는 이 메모리와 이동을 재사용해 외부 범위를 공급하고 source UTF-8/문서/선택 수를 검증합니다. SDK native/feature.rs의 기존 typed SelectionRangeRequest는 원본 위치별 null을 거절하므로 이를 직접 실패 재현한 뒤 nullable 정확 타입으로 보존합니다. 신규 의존성/엔진/graph/manifest/lock 변경은 없습니다.
+
+App command-dispatch는 현재 본문 view에서 기본 Core Cursor 명령을 실행하며 LSP selection range 상태/worker/소비자는 없습니다. 이번 소유 범위는 SDK native feature/관련 검사, Core cursor-commands/관련 검사, 새 App editor-selection-ranges/lsp-editor-selection-ranges 및 실제 상태/child/App 검사, 기존 lsp/본문·peek/명령 큐·팔레트/종료와 소유 mock, 이 QA/기능표/계획/PROCESS입니다. source/owner와 현재 선택을 캡처하고 편집/수동 선택/뷰 회수/공급자 세대·readonly/tier/IME의 오래된 응답을 거절합니다. 실제 기본 키/재지정/팔레트·복수 공급자/다중 커서/nullable/오류·취소/재시작/정상 종료를 확인하며 보호 OS 입력/데이터와 frozen client를 유지합니다. 현재 295완료/293미완료·배치 23 잔여 26·최종 33이고 실제 연결·검증 전에는 editor-52를 complete로 올리지 않습니다.
+
+### c8b — SDK nullable 계약·Core 연결과 실패 영향
+
+소유 로그 접두사는 /private/tmp/taide-batch23-selection-ranges-입니다. SDK의 처음 잘못된 필터 sdk-red.log는 실행 0건/exit 0이므로 성공 근거에서 제외합니다. 올바른 selection_range_tests 필터의 sdk-red-corrected.log는 위치별 null을 MalformedResponse로 거절하는 실제 0통과/1실패·exit 101입니다. request::SelectionRangeRequest의 Reply를 Option<Vec<Option<SelectionRange>>>로 바꾼 뒤 sdk-green.log는 관련 1통과/0실패·exit 0입니다. null 전체/위치별 null/parent와 잘못된 범위를 확인하며 기존 typed 검증과 의존 그래프를 유지합니다.
+
+Core는 기존 CursorMemory의 확장/축소·정렬/중첩/줄 공백/원선택과 history를 재사용하는 외부 범위 API를 연결했습니다. core-related.log는 다중 커서/readonly·UTF-8 불일치/비포함/위치수·수동 이동/편집·명시 회수와 cursor undo를 포함한 최초 4통과/1실패·exit 101입니다. 실패는 cursor undo가 set_view_state에서 회수한 smart 캐시를 복제 메모리로 복구하는 것이었습니다. 해당 분기의 smart 캐시를 회수하도록 수정한 뒤 core-undo-recheck.log는 정확한 해당 검사 1통과/0실패·exit 0입니다. 앞선 네 성공을 재실행하거나 전체 대상 성공으로 보고하지 않습니다.
+
+SDK/Core 전체 대상과 실제 LSP child/App·본문/peek 명령/수명은 아직 확인하지 않았습니다. 관련 단계 c8b만 닫고 c8c/c8d 및 editor-52 partial·295완료/293미완료·배치 23 잔여 26/최종 33을 유지합니다. 다음 단계는 실제 App 연결이며, 완료한 c7의 공급/resolve를 다음 행동으로 지목하던 활성 PROCESS 한 줄을 정정했습니다.
