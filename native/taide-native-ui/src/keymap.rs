@@ -532,6 +532,21 @@ impl Keymap {
         } else {
             editor_parsed
         };
+        let editor_parsed = if command_registry::EDITOR_RENAME_AVAILABLE {
+            let mut entries = editor_parsed
+                .as_array()
+                .ok_or_else(|| {
+                    AppError::Internal("native editor keymap fixture is not an array".into())
+                })?
+                .clone();
+            let rename: Vec<Value> =
+                serde_json::from_str(include_str!("editor-rename-keymap-defaults.json"))
+                    .map_err(|error| AppError::Internal(error.to_string()))?;
+            entries.extend(rename);
+            Value::Array(entries)
+        } else {
+            editor_parsed
+        };
         let editor_base = editor_parsed
             .as_array()
             .ok_or_else(|| AppError::Internal("native editor keymap is not an array".into()))?

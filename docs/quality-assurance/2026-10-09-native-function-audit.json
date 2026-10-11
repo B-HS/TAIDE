@@ -1,6 +1,6 @@
 {
     "date": "2026-10-11",
-    "baseline": "965401bd",
+    "baseline": "25b5e8e9",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -820,6 +820,32 @@
                 "docs/utils/2026-10-10-monaco-reindent-oracle.js"
             ],
             "limitation": "자동 감지·변환·indent/outdent·reindent·실제 구문 준비·두 폭/수동 선택·EditorConfig/전역 변경에 현재 저장 포맷/스니펫 소비를 연결했습니다. 본문/peek 미리보기 재평가·수락/undo·owner와 실제 앱 저장→child→파일의 현재 편집 폭/방식을 검증했습니다. 최신 Core 37대상/286통과/성능 1ignored·App 전체 67대상/780통과/26실패 후 실패 26건만 재검사해 최종 서로 다른 806통과·보호 Trash 3제외입니다. 최초 exit 101과 이미지/watcher 원인 미확정, 독립 실험 lock/fmt 검사 부채는 배치 31에 보존합니다. 변경하지 않은 UI 435·locale 20의 이전 전체 성공은 재사용합니다. 큰 tier·formatOnType/Paste·내장 언어 서비스는 별도 ID이며 전체 실기/성능/출시 통과를 뜻하지 않습니다."
+        },
+        "editor-rename": {
+            "sources": [
+                "native/taide-native-app/src/editor-rename.rs",
+                "native/taide-native-app/src/editor-rename-controller.rs",
+                "native/taide-native-app/src/lsp-editor-rename.rs",
+                "native/taide-native-app/src/lsp.rs",
+                "native/taide-native-app/src/lsp_workspace_worker.rs",
+                "native/taide-native-app/src/application.rs",
+                "native/taide-native-app/src/editor-locations.rs",
+                "native/taide-native-app/src/host.rs",
+                "native/taide-native-ui/src/editor-rename.rs",
+                "native/taide-native-ui/src/editor-rename-keymap-defaults.json",
+                "native/taide-native-ui/src/editor_surface.rs",
+                "native/taide-native-ui/src/editor-locations.rs",
+                "native/taide-native-ui/src/command-registry.rs",
+                "native/taide-native-ui/src/keymap.rs"
+            ],
+            "tests": [
+                "native/taide-native-app/src/editor-rename-tests.rs",
+                "native/taide-native-app/src/lsp-editor-rename-tests.rs",
+                "native/taide-native-app/src/application-startup-tests.rs",
+                "native/taide-native-ui/tests/editor-rename.rs"
+            ],
+            "reports": ["docs/quality-assurance/2026-10-10-native-batch23-editor.md"],
+            "limitation": "typed 준비/요청·심볼 입력 창과 본문/peek F2·readonly owner의 writable peek 팔레트·실제 WorkspaceEdit 적용/undo·디스크 보존·Escape/blur/비활성화/IME·같은 프레임 종료 뒤 글자 전달을 상태 4·child 2·UI 6·실제 App 1, 서로 다른 관련 13건에서 확인했습니다. UI 전체 최초 446통과/1실패와 영향 1통과로 서로 다른 447건입니다. 추가 공급자/대기 취소·오류 표시·닫힌 파일/resource와 현재 App 전체 실행은 남아 있으며 전체 사용자 기능 완료로 올리지 않습니다. App 전체 대상 컴파일·동결 host/Wasm·현재 UI/App fmt는 통과했으며 App 전체 실행 성공은 아닙니다. 전체 전환율/잔여 시간은 미산정입니다."
         },
         "editor-formatting": {
             "sources": [
@@ -2447,9 +2473,9 @@
             "ts": "`lsp/adapters/rename.ts:17`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:117",
             "domain": "editor",
-            "status": "missing",
-            "proof": "editor-missing",
-            "note": "해당 사용자 동작의 실제 native 편집기/앱 소비 경로가 없습니다. 프로토콜·설정·backend만으로 완료 처리하지 않습니다."
+            "status": "partial",
+            "proof": "editor-rename",
+            "note": "typed 준비/요청·심볼 입력 창과 본문/peek F2·readonly owner의 writable peek 팔레트·실제 WorkspaceEdit 적용/undo·디스크 보존·Escape/blur/비활성화/IME·같은 프레임 종료 뒤 글자 전달을 상태 4·child 2·UI 6·실제 App 1, 서로 다른 관련 13건에서 확인했습니다. UI 전체 최초 446통과/1실패와 영향 1통과로 서로 다른 447건입니다. 추가 공급자/대기 취소·오류 표시·닫힌 파일/resource와 현재 App 전체 실행은 남아 있으며 전체 사용자 기능 완료로 올리지 않습니다."
         },
         {
             "id": "editor-47",
@@ -7446,5 +7472,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "배치 22 최종 Read More 수정 후 UI 22대상/420통과·App 67대상/770통과의 --all-targets --no-fail-fast 전체를 각 1회 직접 실행해 exit 0을 확인했습니다. 관련 UI 29건과 실제 Consumer 20건은 그 전체 성공에 포함되므로 중복 합산하지 않습니다. 변경하지 않은 Editor 37대상/264통과/성능 1ignored·SDK 2대상/86통과·Syntax 13대상/165통과/성능 3ignored의 이전 성공을 재사용합니다. Editor/UI/App 서로 다른 성공은 1454건이며 SDK/Syntax를 포함한 1705건은 전체 기능률이 아닙니다. 7172a544 이전/버튼 추가 전 전체와 최초 macOS preview 5초 대기 1실패/정확한 영향 1통과는 QA에 보존하고 원인 미확정 부채를 배치 31에 남깁니다. 최신 전체에서 같은 macOS 검사도 통과했지만 원인 해결로 단정하지 않습니다. 원본 마우스 버튼 누락으로 editor-41 완료를 한 차례 정정한 뒤 실제 연결/검증 근거로 다시 complete로 올렸습니다. 보호 Trash 3·성능 ignored 4와 실제 pixel/OS IME/접근성/대형 성능/soak/출시/전환/삭제 게이트를 성공으로 세지 않습니다. frozen host/Wasm compile·최종 UI/App fmt check·manifest/lock/engine/동결 불변과 디스크 561GiB/70%를 확인했습니다. baseline 3f9a2c18은 Read More를 포함한 최종 제품/검증 커밋이며 일반 푸시·0/0을 확인했습니다. 기능표 588대상·288완료·92부분·112미연결·96미구현·잔여 300행, 최종 배치 33이며 전체 전환율/잔여 시간은 미산정입니다.\n이후 배치 23 작업 트리는 editor-51 공급/표시의 관련 상태 8·실제 child 2·실제 앱 본문 1건을 검증했습니다. 이전 전체 App 성공은 배치 22의 역사적 근거이며 이번 변경의 전체 게이트가 아닙니다. 기능표는 완료 288·부분 93·미연결 112·미구현 95·잔여 300행이고 전체 전환율/잔여 시간은 미산정입니다.\n배치 23 후속 하이라이트 이동/trigger/재사용은 상태 14·실제 앱 본문 1·UI 등록/플랫폼 20의 35건에서 통과했습니다. App 전체 테스트 대상 컴파일은 highlights-navigation-check-final.log에서 exit 0이며 변경 없는 child 2건의 성공은 재사용합니다. 전체 실행 게이트와 실제 peek/readonly/tier/추가 공급자 및 출시 게이트는 미완료이고 editor-51은 partial을 유지합니다.\n배치 23 재들여쓰기 단위는 Core 19·Syntax 1·UI 12·App 21의 서로 다른 53건이 통과했습니다. Monaco 2760비교는 Syntax 검사 1건에 포함되며 별도 성공 수가 아닙니다. frozen host 테스트 대상/Wasm lib 컴파일·변경 네 크레이트 fmt check를 확인했으나 batch 전체 실행은 아직이며 editor-30 partial을 유지합니다. baseline 29dc6d0c 이후 작업 트리의 근거이며 QA에 실패와 구문 캐시/수동 설정/포맷/전체 게이트의 잔여를 보존합니다.\n배치 23 재들여쓰기의 미준비 구문 준비 보완은 Core 19·Syntax 25·App 40의 서로 다른 84건에서 통과했습니다. 마지막 selected/readonly 보완의 2건과 0건 필터·기존 oracle 2760사례를 중복 합산하지 않습니다. 실제 TextMate 워커의 cold/partial·초기 peek·오래된 revision·언어 교체·정상 종료를 확인했고 frozen host/Wasm 컴파일·Core/Syntax/App fmt도 통과했습니다. baseline ec8504ad 이후 작업 트리의 근거이며 batch 23 전체/실기/성능/출시와 수동 설정/독립 두 폭/실제 포맷/내장 서비스 게이트는 미완료입니다. 동일 세대의 다른 설정에서 UnknownLanguage 실패를 재현한 뒤 설정/플러그인 문법 전체 비교를 적용했고 새 워커 1건과 영향 App 2건이 통과했습니다. 새 1건만 누적하며 세대 충돌/범위 거절/기존 표시 엔진 보존·종료 검증을 QA에 기록했습니다.\n배치 23 현재 포맷/스니펫 편집 폭 보완은 Core 전체 37대상/286통과/성능 1ignored·App 전체 67대상/780통과/26실패 후 실패 26건만 권한이 허용된 환경에서 재검사해 최종 서로 다른 806통과입니다. 최신 Core/App 1092건이며 보호 Trash 3·최초 exit 101·이미지/watcher 원인 미확정과 독립 실험 lock/fmt 검사 부채를 보존합니다. 동결 host/Wasm 컴파일·Core/App fmt·소유 diff와 frozen/manifest/lock 변경 0, 525GiB/72%를 확인했습니다. editor-30 기능 묶음만 complete로 닫고 별도 editor-32/57/19와 배치 23 전체/실기/성능/출시는 미완료입니다. baseline 3589990b 이후 작업 트리이며 전체 전환율/잔여 시간은 미산정입니다. 965401bd 이후 외부 입력/붙여넣기 포맷은 SDK 전체 87·최종 UI 전체 22대상/441건·App 전체 67대상/809통과/5timeout, 추가 실패 네 건의 정확한 단독 검사 4통과와 마지막 UI 영향 실제 앱 1통과로 검증했습니다. 서로 다른 현재 App 성공은 813건이며 전체 exit 101과 기존 프로젝트 open 미해결을 보존합니다. editor-32만 missing에서 partial로 옮기며 complete 289·partial 93·unwired 112·missing 94·미완료 299입니다. 동결 host/Wasm·SDK/UI/App fmt check exit 0이고 Wasm 종료 확인 전 fmt 시작의 순서 이탈 1회를 QA에 기록했습니다. 디스크 503GiB/73%, 배치 23/최종 33·전체 전환율/잔여 시간 미산정을 유지합니다."
+    "validation": "배치 22 최종 Read More 수정 후 UI 22대상/420통과·App 67대상/770통과의 --all-targets --no-fail-fast 전체를 각 1회 직접 실행해 exit 0을 확인했습니다. 관련 UI 29건과 실제 Consumer 20건은 그 전체 성공에 포함되므로 중복 합산하지 않습니다. 변경하지 않은 Editor 37대상/264통과/성능 1ignored·SDK 2대상/86통과·Syntax 13대상/165통과/성능 3ignored의 이전 성공을 재사용합니다. Editor/UI/App 서로 다른 성공은 1454건이며 SDK/Syntax를 포함한 1705건은 전체 기능률이 아닙니다. 7172a544 이전/버튼 추가 전 전체와 최초 macOS preview 5초 대기 1실패/정확한 영향 1통과는 QA에 보존하고 원인 미확정 부채를 배치 31에 남깁니다. 최신 전체에서 같은 macOS 검사도 통과했지만 원인 해결로 단정하지 않습니다. 원본 마우스 버튼 누락으로 editor-41 완료를 한 차례 정정한 뒤 실제 연결/검증 근거로 다시 complete로 올렸습니다. 보호 Trash 3·성능 ignored 4와 실제 pixel/OS IME/접근성/대형 성능/soak/출시/전환/삭제 게이트를 성공으로 세지 않습니다. frozen host/Wasm compile·최종 UI/App fmt check·manifest/lock/engine/동결 불변과 디스크 561GiB/70%를 확인했습니다. baseline 3f9a2c18은 Read More를 포함한 최종 제품/검증 커밋이며 일반 푸시·0/0을 확인했습니다. 기능표 588대상·288완료·92부분·112미연결·96미구현·잔여 300행, 최종 배치 33이며 전체 전환율/잔여 시간은 미산정입니다.\n이후 배치 23 작업 트리는 editor-51 공급/표시의 관련 상태 8·실제 child 2·실제 앱 본문 1건을 검증했습니다. 이전 전체 App 성공은 배치 22의 역사적 근거이며 이번 변경의 전체 게이트가 아닙니다. 기능표는 완료 288·부분 93·미연결 112·미구현 95·잔여 300행이고 전체 전환율/잔여 시간은 미산정입니다.\n배치 23 후속 하이라이트 이동/trigger/재사용은 상태 14·실제 앱 본문 1·UI 등록/플랫폼 20의 35건에서 통과했습니다. App 전체 테스트 대상 컴파일은 highlights-navigation-check-final.log에서 exit 0이며 변경 없는 child 2건의 성공은 재사용합니다. 전체 실행 게이트와 실제 peek/readonly/tier/추가 공급자 및 출시 게이트는 미완료이고 editor-51은 partial을 유지합니다.\n배치 23 재들여쓰기 단위는 Core 19·Syntax 1·UI 12·App 21의 서로 다른 53건이 통과했습니다. Monaco 2760비교는 Syntax 검사 1건에 포함되며 별도 성공 수가 아닙니다. frozen host 테스트 대상/Wasm lib 컴파일·변경 네 크레이트 fmt check를 확인했으나 batch 전체 실행은 아직이며 editor-30 partial을 유지합니다. baseline 29dc6d0c 이후 작업 트리의 근거이며 QA에 실패와 구문 캐시/수동 설정/포맷/전체 게이트의 잔여를 보존합니다.\n배치 23 재들여쓰기의 미준비 구문 준비 보완은 Core 19·Syntax 25·App 40의 서로 다른 84건에서 통과했습니다. 마지막 selected/readonly 보완의 2건과 0건 필터·기존 oracle 2760사례를 중복 합산하지 않습니다. 실제 TextMate 워커의 cold/partial·초기 peek·오래된 revision·언어 교체·정상 종료를 확인했고 frozen host/Wasm 컴파일·Core/Syntax/App fmt도 통과했습니다. baseline ec8504ad 이후 작업 트리의 근거이며 batch 23 전체/실기/성능/출시와 수동 설정/독립 두 폭/실제 포맷/내장 서비스 게이트는 미완료입니다. 동일 세대의 다른 설정에서 UnknownLanguage 실패를 재현한 뒤 설정/플러그인 문법 전체 비교를 적용했고 새 워커 1건과 영향 App 2건이 통과했습니다. 새 1건만 누적하며 세대 충돌/범위 거절/기존 표시 엔진 보존·종료 검증을 QA에 기록했습니다.\n배치 23 현재 포맷/스니펫 편집 폭 보완은 Core 전체 37대상/286통과/성능 1ignored·App 전체 67대상/780통과/26실패 후 실패 26건만 권한이 허용된 환경에서 재검사해 최종 서로 다른 806통과입니다. 최신 Core/App 1092건이며 보호 Trash 3·최초 exit 101·이미지/watcher 원인 미확정과 독립 실험 lock/fmt 검사 부채를 보존합니다. 동결 host/Wasm 컴파일·Core/App fmt·소유 diff와 frozen/manifest/lock 변경 0, 525GiB/72%를 확인했습니다. editor-30 기능 묶음만 complete로 닫고 별도 editor-32/57/19와 배치 23 전체/실기/성능/출시는 미완료입니다. baseline 3589990b 이후 작업 트리이며 전체 전환율/잔여 시간은 미산정입니다. 965401bd 이후 외부 입력/붙여넣기 포맷은 SDK 전체 87·최종 UI 전체 22대상/441건·App 전체 67대상/809통과/5timeout, 추가 실패 네 건의 정확한 단독 검사 4통과와 마지막 UI 영향 실제 앱 1통과로 검증했습니다. 서로 다른 현재 App 성공은 813건이며 전체 exit 101과 기존 프로젝트 open 미해결을 보존합니다. editor-32만 missing에서 partial로 옮기며 complete 289·partial 93·unwired 112·missing 94·미완료 299입니다. 동결 host/Wasm·SDK/UI/App fmt check exit 0이고 Wasm 종료 확인 전 fmt 시작의 순서 이탈 1회를 QA에 기록했습니다. 디스크 503GiB/73%, 배치 23/최종 33·전체 전환율/잔여 시간 미산정을 유지합니다.\n배치 23 c4 기본 이름 바꾸기는 상태 4·실제 child 2·UI 4·실제 App 1의 서로 다른 관련 11건에서 본문/peek F2·실제 적용/undo·디스크·취소/종료를 확인했습니다. 팔레트/입력 종료 프레임·추가 공급자/대기 취소·오류·닫힌 파일/resource와 현재 전체 게이트는 미완료입니다. editor-46 missing→partial, 588대상·complete 289·partial 94·unwired 112·missing 93·잔여 299, 최종 배치 33이며 전체 전환율/잔여 시간은 미산정입니다. 현재 c4 작업 트리는 미커밋이고 QA에 최초 실패와 수정/검증 순서 이탈을 보존합니다.\n배치 23 c4 후속 팔레트/입력 종료 순서는 관련 13건·UI 전체 447건에서 확인했습니다. 현재 App 전체 실행과 추가 공급자/대기 취소·오류·닫힌 파일/resource는 미완료이며 editor-46 partial, 289완료/299미완료·최종 33을 유지합니다.\n현재 c4 기본 사용자 경로는 비활성화 시 취소 회수와 영향 UI 6/실제 App 1을 추가로 확인했고 기존 검사와 중복 합산하지 않습니다. UI 현재 서로 다른 447건·App 전체 대상 컴파일·frozen host/Wasm compile·형식/의존 경계를 확인했으며 App 전체 실행/추가 기능과 editor-46 partial을 유지합니다."
 }

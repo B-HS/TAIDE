@@ -18,6 +18,7 @@ pub const EDITOR_LOCATIONS_AVAILABLE: bool = cfg!(feature = "native-host");
 pub const EDITOR_DOCUMENTATION_AVAILABLE: bool = cfg!(feature = "native-host");
 pub const EDITOR_HIGHLIGHTS_AVAILABLE: bool = cfg!(feature = "native-host");
 pub const EDITOR_FORMATTING_AVAILABLE: bool = cfg!(feature = "native-host");
+pub const EDITOR_RENAME_AVAILABLE: bool = cfg!(feature = "native-host");
 const EDITOR_ACTIONS_WITHOUT_SUPPORT_GATE: [&str; 21] = [
     "editor.action.goToImplementation",
     "editor.action.goToLocation",
@@ -167,6 +168,8 @@ pub enum Run {
     ChooseIndentation(IndentationCommand),
     #[cfg(feature = "native-host")]
     FormatEditor(taide_native_editor::formatting::Command),
+    #[cfg(feature = "native-host")]
+    RenameEditor,
     EditDocument(DocumentEdit),
     FoldDocument(FoldCommand),
 }
@@ -325,6 +328,10 @@ fn enablement(id: &str) -> Enablement {
 }
 
 fn execution(id: &str, keymap_id: Option<&str>) -> Execution {
+    #[cfg(feature = "native-host")]
+    if id == "monaco.editor.action.rename" {
+        return Execution::Native(Run::RenameEditor);
+    }
     #[cfg(feature = "native-host")]
     if let Some(command) = id
         .strip_prefix(EDITOR_ACTION_PREFIX)
@@ -518,6 +525,10 @@ fn fold_command(action: &str) -> Option<FoldCommand> {
 
 pub fn keymap_run(keymap_id: &str) -> Option<Run> {
     #[cfg(feature = "native-host")]
+    if keymap_id == "monaco.editor.action.rename" {
+        return Some(Run::RenameEditor);
+    }
+    #[cfg(feature = "native-host")]
     if let Some(command) = keymap_id
         .strip_prefix(EDITOR_ACTION_PREFIX)
         .and_then(taide_native_editor::formatting::Command::from_action)
@@ -644,7 +655,11 @@ impl Registry {
                 let action = command.editor_action_id()?;
                 match command.execution {
                     #[cfg(feature = "native-host")]
-                    Execution::Native(Run::FormatEditor(_)) if editor.is_read_only => None,
+                    Execution::Native(Run::FormatEditor(_) | Run::RenameEditor)
+                        if editor.is_read_only =>
+                    {
+                        None
+                    }
                     #[cfg(feature = "native-host")]
                     Execution::Native(Run::EditDocument(DocumentEdit::Indentation(command)))
                         if !editor.is_read_only || !command.requires_write() =>
@@ -1098,6 +1113,8 @@ mod tests {
                 #[cfg(feature = "native-host")]
                 Execution::Native(Run::FormatEditor(_)) => None,
                 #[cfg(feature = "native-host")]
+                Execution::Native(Run::RenameEditor) => None,
+                #[cfg(feature = "native-host")]
                 Execution::Native(Run::EditDocument(DocumentEdit::Find(_))) => None,
                 #[cfg(feature = "native-host")]
                 Execution::Native(Run::EditDocument(DocumentEdit::Problem(_))) => None,
@@ -1121,6 +1138,20 @@ mod tests {
         let fold_commands = FOLD_COMMANDS.map(|(id, command)| (id, Run::FoldDocument(command)));
         let (before_folds, after_folds) = NATIVE_COMMANDS.split_at(NATIVE_COMMANDS.len() - 1);
         assert_eq!(native, [before_folds, &fold_commands, after_folds].concat());
+        #[cfg(feature = "native-host")]
+        {
+            assert_eq!(
+                registry
+                    .command("monaco.editor.action.rename")
+                    .unwrap()
+                    .execution,
+                Execution::Native(Run::RenameEditor)
+            );
+            assert_eq!(
+                keymap_run("monaco.editor.action.rename"),
+                Some(Run::RenameEditor)
+            );
+        }
         let defaults: Vec<Value> = serde_json::from_str(KEYMAP_DEFAULTS).unwrap();
         assert_eq!(defaults.len(), KEYMAP_COUNT);
         let keymap_ids = defaults
@@ -1265,6 +1296,11 @@ mod tests {
                     ]
                     .into_iter()
                     .filter(|_| EDITOR_FORMATTING_AVAILABLE && !is_read_only),
+                )
+                .chain(
+                    ["editor.action.rename"]
+                        .into_iter()
+                        .filter(|_| EDITOR_RENAME_AVAILABLE && !is_read_only),
                 )
                 .chain(
                     ["editor.action.resetSuggestSize"]

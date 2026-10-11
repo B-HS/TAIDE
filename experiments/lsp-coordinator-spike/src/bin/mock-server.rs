@@ -16,6 +16,7 @@ const SERVER_REQUEST_ID: i32 = -1;
 const INITIALIZE_TRANSIENT_FAILURES: usize = 2;
 const INITIALIZE_EXHAUSTED_FAILURES: usize = 3;
 const INITIALIZE_FAILURE_CODE: i64 = -32002;
+const RENAME_ERROR_CODE: i64 = -32603;
 
 #[derive(Default)]
 struct MockServer {
@@ -53,6 +54,7 @@ struct MockServer {
     documentation: Option<&'static str>,
     held_documentation: BTreeMap<u64, Value>,
     completion: Option<&'static str>,
+    rename: Option<&'static str>,
     held_completion: BTreeMap<u64, Value>,
     workspace_symbols: Option<&'static str>,
     held_workspace_symbol: Option<Value>,
@@ -293,6 +295,7 @@ impl MockServer {
                 || self.documentation.is_some()
                 || self.completion.is_some()
                 || self.highlights.is_some()
+                || self.rename.is_some()
             {
                 params["rootUri"]
                     .as_str()
@@ -359,6 +362,16 @@ impl MockServer {
             if self.should_format_on_type {
                 capabilities["documentOnTypeFormattingProvider"] =
                     json!({"firstTriggerCharacter":";","moreTriggerCharacter":["\n"]});
+            }
+            if let Some(mode) = self.rename {
+                if params["capabilities"]["textDocument"]["rename"]["prepareSupport"] != true {
+                    return Err(invalid("native rename requires prepare support"));
+                }
+                capabilities["renameProvider"] = match mode {
+                    "unsupported" => json!(false),
+                    "no-prepare" => json!(true),
+                    _ => json!({"prepareProvider":true}),
+                };
             }
             if self.document_symbols.is_some() {
                 if params["capabilities"]["textDocument"]["documentSymbol"]["hierarchicalDocumentSymbolSupport"]
@@ -1334,6 +1347,68 @@ impl MockServer {
                     }]),
                 )?;
             }
+            "textDocument/prepareRename" | "textDocument/rename" => {
+                let mode = self
+                    .rename
+                    .ok_or_else(|| invalid("rename fixture is disabled"))?;
+                let uri = params["textDocument"]["uri"]
+                    .as_str()
+                    .ok_or_else(|| invalid("rename requires URI"))?;
+                let current = self
+                    .documents
+                    .get(uri)
+                    .ok_or_else(|| invalid("rename requires mirror"))?;
+                let text = current["text"]
+                    .as_str()
+                    .ok_or_else(|| invalid("rename requires text"))?;
+                let byte = position_byte(text, &params["position"])?;
+                let word = "method";
+                let start = text
+                    .find(word)
+                    .ok_or_else(|| invalid("rename requires fixture symbol"))?;
+                if !(start..=start + word.len()).contains(&byte) {
+                    return Err(invalid("rename requires current UTF-16 symbol position"));
+                }
+                let id = id.ok_or_else(|| invalid("rename requires ID"))?;
+                if mode == "wait" {
+                    write_document_diagnostic(
+                        output,
+                        uri,
+                        &current["version"],
+                        "synthetic rename held",
+                    )?;
+                    return Ok(None);
+                }
+                if mode == "error" {
+                    write_payload(
+                        output,
+                        &json!({"jsonrpc":"2.0","id":id,"error":{"code":RENAME_ERROR_CODE,"message":"synthetic rename error"}}),
+                    )?;
+                    return Ok(None);
+                }
+                let range =
+                    json!({"start":{"line":1,"character":4},"end":{"line":1,"character":10}});
+                let result = if method == "textDocument/prepareRename" {
+                    match mode {
+                        "null" => Value::Null,
+                        "range" => range,
+                        "default" => json!({"defaultBehavior":true}),
+                        "bad" => {
+                            json!({"range":{"start":{"line":1,"character":3},"end":{"line":1,"character":10}},"placeholder":word})
+                        }
+                        _ => json!({"range":range,"placeholder":word}),
+                    }
+                } else if mode == "empty" {
+                    Value::Null
+                } else {
+                    let name = params["newName"]
+                        .as_str()
+                        .filter(|name| !name.trim().is_empty())
+                        .ok_or_else(|| invalid("rename requires new name"))?;
+                    json!({"documentChanges":[{"textDocument":{"uri":uri,"version":current["version"]},"edits":[{"range":range,"newText":name}]}]})
+                };
+                write_response(output, id, result)?;
+            }
             "textDocument/onTypeFormatting" => {
                 if !self.should_format_on_type {
                     return Err(invalid("on type formatter fixture is disabled"));
@@ -1534,6 +1609,31 @@ fn main() -> io::Result<ExitCode> {
     let mut server = MockServer::default();
     match args.first().map(String::as_str) {
         None => {}
+        Some(
+            mode @ ("--native-rename"
+            | "--native-rename-range"
+            | "--native-rename-no-prepare"
+            | "--native-rename-null"
+            | "--native-rename-empty"
+            | "--native-rename-bad"
+            | "--native-rename-error"
+            | "--native-rename-default"
+            | "--native-rename-wait"
+            | "--native-rename-unsupported"),
+        ) => {
+            server.rename = Some(match mode {
+                "--native-rename-range" => "range",
+                "--native-rename-no-prepare" => "no-prepare",
+                "--native-rename-null" => "null",
+                "--native-rename-empty" => "empty",
+                "--native-rename-bad" => "bad",
+                "--native-rename-error" => "error",
+                "--native-rename-default" => "default",
+                "--native-rename-wait" => "wait",
+                "--native-rename-unsupported" => "unsupported",
+                _ => "normal",
+            });
+        }
         Some("--crash-on-hover") => server.should_crash_on_hover = true,
         Some("--ignore-exit") => server.should_ignore_exit = true,
         Some("--ignore-hover") => server.should_ignore_hover = true,

@@ -103,6 +103,9 @@ pub trait Provider {
     fn preview_find_visible(&self, _view: ViewId) -> bool {
         false
     }
+    fn preview_input_active(&self, _view: ViewId) -> bool {
+        false
+    }
     fn current(&mut self, store: &EditorStore, view: ViewId) -> Option<Widget>;
     fn execute(
         &mut self,
@@ -320,6 +323,22 @@ impl State {
                         .iter()
                         .any(|id| owns_event(ui.ctx(), *id, index))
                 });
+            if preview_owned
+                && provider
+                    .as_deref()
+                    .is_some_and(|provider| provider.preview_input_active(view))
+                && matches!(
+                    event,
+                    Event::Key { .. }
+                        | Event::Text(_)
+                        | Event::Paste(_)
+                        | Event::Copy
+                        | Event::Cut
+                        | Event::Ime(_)
+                )
+            {
+                continue;
+            }
             let widget = provider
                 .as_deref_mut()
                 .and_then(|provider| provider.current(store, view))

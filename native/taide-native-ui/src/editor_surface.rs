@@ -307,6 +307,8 @@ struct InputState {
     #[cfg(feature = "native-host")]
     completion: crate::editor_completion::State,
     #[cfg(feature = "native-host")]
+    rename: crate::editor_rename::State,
+    #[cfg(feature = "native-host")]
     caret: crate::editor_caret::CaretState,
     #[cfg(feature = "native-host")]
     scroll: crate::editor_scroll::ScrollState,
@@ -1171,7 +1173,56 @@ impl NativeEditor {
             impl FnOnce(&Response) -> Option<KeyboardInputRoute>,
             impl FnOnce(&EditorStore) -> Option<EditorTokens<'tokens>>,
         >,
+        editor_keymap: impl FnMut(&Ui, &mut EditorStore, ViewId, &Event, bool) -> bool,
+    ) -> Result<EditorOutput, EditorError> {
+        self.show_request_inner(
+            ui,
+            store,
+            view,
+            request,
+            editor_keymap,
+            #[cfg(feature = "native-host")]
+            None,
+        )
+    }
+
+    #[cfg(feature = "native-host")]
+    pub fn show_request_with_rename<'tokens>(
+        &self,
+        ui: &mut Ui,
+        store: &mut EditorStore,
+        view: ViewId,
+        request: EditorRequest<
+            '_,
+            impl FnMut(&Ui, &Event, bool) -> bool,
+            impl FnOnce(&Response) -> Option<KeyboardInputRoute>,
+            impl FnOnce(&EditorStore) -> Option<EditorTokens<'tokens>>,
+        >,
+        editor_keymap: impl FnMut(&Ui, &mut EditorStore, ViewId, &Event, bool) -> bool,
+        rename: Option<(
+            &mut dyn crate::editor_rename::Provider,
+            crate::editor_rename::Colors,
+        )>,
+    ) -> Result<EditorOutput, EditorError> {
+        self.show_request_inner(ui, store, view, request, editor_keymap, rename)
+    }
+
+    fn show_request_inner<'tokens>(
+        &self,
+        ui: &mut Ui,
+        store: &mut EditorStore,
+        view: ViewId,
+        request: EditorRequest<
+            '_,
+            impl FnMut(&Ui, &Event, bool) -> bool,
+            impl FnOnce(&Response) -> Option<KeyboardInputRoute>,
+            impl FnOnce(&EditorStore) -> Option<EditorTokens<'tokens>>,
+        >,
         mut editor_keymap: impl FnMut(&Ui, &mut EditorStore, ViewId, &Event, bool) -> bool,
+        #[cfg(feature = "native-host")] mut rename: Option<(
+            &mut dyn crate::editor_rename::Provider,
+            crate::editor_rename::Colors,
+        )>,
     ) -> Result<EditorOutput, EditorError> {
         let EditorRequest {
             request_focus,
@@ -1214,6 +1265,10 @@ impl NativeEditor {
             .ok_or(EditorError::NotFound)?
             .clone();
         let previous = store.documents().snapshot(current.document)?;
+        #[cfg(feature = "native-host")]
+        let rename_active = rename
+            .as_ref()
+            .is_some_and(|(provider, _)| provider.current(store, view).is_some());
         #[cfg(feature = "native-host")]
         let minimap_dimensions = crate::editor_minimap::measure(
             ui,
@@ -1527,6 +1582,21 @@ impl NativeEditor {
             let mut remaining = Vec::new();
             for (_index, event) in events.into_iter().enumerate() {
                 #[cfg(feature = "native-host")]
+                if rename_active
+                    && matches!(
+                        event,
+                        Event::Key { .. }
+                            | Event::Text(_)
+                            | Event::Paste(_)
+                            | Event::Copy
+                            | Event::Cut
+                            | Event::Ime(_)
+                    )
+                {
+                    remaining.push(event);
+                    continue;
+                }
+                #[cfg(feature = "native-host")]
                 let raw_index = egui::Context::raw_event_index(&raw_events, &event, &mut raw_next);
                 #[cfg(feature = "native-host")]
                 if location_input.consumed.contains(&raw_index)
@@ -1677,6 +1747,7 @@ impl NativeEditor {
                     remaining.push(event);
                     continue;
                 }
+                #[cfg(feature = "native-host")]
                 let composing = store
                     .views()
                     .get(view)
@@ -1760,149 +1831,39 @@ impl NativeEditor {
                     remaining.push(event);
                     continue;
                 }
-                if editor_keymap(ui, store, view, &event, composing)
-                    || keymap(ui, &event, composing)
-                {
-                    #[cfg(feature = "native-host")]
-                    {
-                        indent = self.follow_indent_options(store, view, &mut input_context)?;
-                        if let Some(provider) = completion.as_deref_mut() {
-                            if let Err(error) = input_state
-                                .completion
-                                .flush_commands(ui, store, view, id, provider)
-                            {
-                                output.errors.push(error);
-                            }
-                            if let Err(error) = provider.after_event(store, view, &event) {
-                                output.errors.push(error);
-                            }
-                        }
-                        last_editor_event = Some(raw_index);
-                    }
-                    continue;
-                }
-                #[cfg(feature = "native-host")]
-                if execute_problem_shortcut(&mut problems, store, view, &event, composing)? {
-                    last_editor_event = Some(raw_index);
-                    response.request_focus();
-                    continue;
-                }
-                #[cfg(feature = "native-host")]
-                if let Some(provider) = completion.as_deref_mut() {
-                    let typed_before = if matches!(event, Event::Text(_)) {
-                        let current = store.views().get(view).ok_or(EditorError::NotFound)?;
-                        Some((
-                            current.selection.clone(),
-                            store.documents().snapshot(current.document)?.revision,
-                        ))
-                    } else {
-                        None
-                    };
-                    match input_state
-                        .completion
-                        .event(ui, store, view, id, provider, &event, raw_index, composing)
-                    {
-                        Ok(true) => {
-                            if let Err(error) = provider.after_event(store, view, &event) {
-                                output.errors.push(error);
-                            }
-                            if let Event::Text(text) = &event
-                                && let Some((selection, revision)) = typed_before
-                            {
-                                let current =
-                                    store.views().get(view).ok_or(EditorError::NotFound)?;
-                                if current.selection != selection
-                                    || store.documents().snapshot(current.document)?.revision
-                                        != revision
-                                {
-                                    output.formatting_inputs.extend(
-                                        crate::editor_formatting_input::Input::typed(
-                                            store, view, text,
-                                        )?,
-                                    );
-                                }
-                            }
-                            last_editor_event = Some(raw_index);
-                            continue;
-                        }
-                        Ok(false) => {}
-                        Err(error) => {
-                            output.errors.push(error);
-                            continue;
-                        }
-                    }
-                }
-                #[cfg(feature = "native-host")]
-                if let Some(provider) = documentation.as_deref_mut() {
-                    match input_state
-                        .documentation
-                        .event(ui, store, view, provider, &event)
-                    {
-                        Ok(true) => {
-                            last_editor_event = Some(raw_index);
-                            continue;
-                        }
-                        Ok(false) => {}
-                        Err(error) => {
-                            output.errors.push(error);
-                            continue;
-                        }
-                    }
-                }
-                if let Some(language) = language {
-                    language.syntax.follow_edits(store);
-                }
-                #[cfg(feature = "native-host")]
-                let documentation_before = store.views().get(view).and_then(|view| {
-                    Some((
-                        store.documents().snapshot(view.document).ok()?.revision,
-                        view.selection.clone(),
-                    ))
-                });
-                match self.input(
+                match self.body_input(
+                    ui,
                     store,
                     view,
+                    #[cfg(feature = "native-host")]
+                    id,
                     &event,
+                    #[cfg(feature = "native-host")]
+                    raw_index,
                     &mut input_state,
                     &mut output,
                     &mut input_context,
+                    &mut editor_keymap,
+                    &mut keymap,
+                    #[cfg(feature = "native-host")]
+                    &mut problems,
+                    #[cfg(feature = "native-host")]
+                    &mut completion,
+                    #[cfg(feature = "native-host")]
+                    &mut documentation,
                 ) {
                     Ok(true) => {
                         #[cfg(feature = "native-host")]
                         {
                             last_editor_event = Some(raw_index);
                         }
-                        input_state.auto_closed.follow(store, view)?;
-                        #[cfg(feature = "native-host")]
-                        if let Some(provider) = completion.as_deref_mut()
-                            && let Err(error) = input_state
-                                .completion
-                                .after_event(ui, store, view, provider, &event)
-                        {
-                            output.errors.push(error);
-                        }
-                        #[cfg(feature = "native-host")]
-                        if let Some(provider) = documentation.as_deref_mut() {
-                            let changed = store.views().get(view).is_some_and(|view| {
-                                store
-                                    .documents()
-                                    .snapshot(view.document)
-                                    .is_ok_and(|document| {
-                                        documentation_before.as_ref().is_none_or(
-                                            |(revision, selection)| {
-                                                *revision != document.revision
-                                                    || *selection != view.selection
-                                            },
-                                        )
-                                    })
-                            });
-                            input_state
-                                .documentation
-                                .after_event(ui, store, view, provider, &event, changed);
-                        }
                     }
                     Ok(false) => remaining.push(event),
                     Err(error) => output.errors.push(error),
+                }
+                #[cfg(feature = "native-host")]
+                {
+                    indent = input_context.indent;
                 }
             }
             ui.input_mut(|input| input.events = remaining);
@@ -1921,7 +1882,7 @@ impl NativeEditor {
             input_state.ime_revision = None;
             store.set_composition(view, None)?;
         }
-        if let Some(copied) = output.copied {
+        if let Some(copied) = output.copied.take() {
             ui.ctx().copy_text(copied.text.clone());
             ui.ctx()
                 .data_mut(|data| data.insert_temp(Id::new(CLIPBOARD_MEMORY), copied));
@@ -3378,6 +3339,49 @@ impl NativeEditor {
             rows: rows.into(),
         };
         #[cfg(feature = "native-host")]
+        if let Some((provider, colors)) = rename.as_mut() {
+            let rename_output = input_state.rename.show(
+                ui, store, view, id, &geometry, appearance, *colors, *provider,
+            );
+            focus_ids.extend(rename_output.focus_ids);
+            if !rename_output.released.is_empty() {
+                projection.cached = store.take_display(view)?;
+                input_context.projection = projection;
+                let mut remaining = Vec::new();
+                for (raw_index, event) in rename_output.released {
+                    match self.body_input(
+                        ui,
+                        store,
+                        view,
+                        id,
+                        &event,
+                        raw_index,
+                        &mut input_state,
+                        &mut output,
+                        &mut input_context,
+                        &mut editor_keymap,
+                        &mut keymap,
+                        &mut problems,
+                        &mut completion,
+                        &mut documentation,
+                    ) {
+                        Ok(true) => (),
+                        Ok(false) => remaining.push(event),
+                        Err(error) => output.errors.push(error),
+                    }
+                }
+                store.set_display(view, input_context.projection.cached)?;
+                ui.input_mut(|input| input.events.extend(remaining));
+                if let Some(copied) = output.copied.take() {
+                    ui.ctx().copy_text(copied.text.clone());
+                    ui.ctx()
+                        .data_mut(|data| data.insert_temp(Id::new(CLIPBOARD_MEMORY), copied));
+                }
+                input_state.rendered_viewport = None;
+                ui.ctx().request_repaint();
+            }
+        }
+        #[cfg(feature = "native-host")]
         if let Some(provider) = completion.as_deref_mut()
             && let Some(colors) = presentation.options.completion_colors
         {
@@ -3446,6 +3450,157 @@ impl NativeEditor {
             completion_geometry,
             geometry,
         })
+    }
+
+    fn body_input(
+        &self,
+        ui: &Ui,
+        store: &mut EditorStore,
+        view: ViewId,
+        #[cfg(feature = "native-host")] id: Id,
+        event: &Event,
+        #[cfg(feature = "native-host")] raw_index: usize,
+        state: &mut InputState,
+        output: &mut InputOutput,
+        context: &mut InputContext<'_>,
+        editor_keymap: &mut impl FnMut(&Ui, &mut EditorStore, ViewId, &Event, bool) -> bool,
+        keymap: &mut impl FnMut(&Ui, &Event, bool) -> bool,
+        #[cfg(feature = "native-host")] problems: &mut Option<
+            &mut dyn crate::editor_problems::Provider,
+        >,
+        #[cfg(feature = "native-host")] completion: &mut Option<
+            &mut dyn crate::editor_completion::Provider,
+        >,
+        #[cfg(feature = "native-host")] documentation: &mut Option<
+            &mut dyn crate::editor_documentation::Provider,
+        >,
+    ) -> Result<bool, EditorError> {
+        let composing = store
+            .views()
+            .get(view)
+            .is_some_and(|view| view.composition.is_some());
+        if editor_keymap(ui, store, view, event, composing) || keymap(ui, event, composing) {
+            #[cfg(feature = "native-host")]
+            {
+                self.follow_indent_options(store, view, context)?;
+                if let Some(provider) = completion.as_deref_mut() {
+                    if let Err(error) = state
+                        .completion
+                        .flush_commands(ui, store, view, id, provider)
+                    {
+                        output.errors.push(error);
+                    }
+                    if let Err(error) = provider.after_event(store, view, event) {
+                        output.errors.push(error);
+                    }
+                }
+            }
+            return Ok(true);
+        }
+        #[cfg(feature = "native-host")]
+        if execute_problem_shortcut(problems, store, view, event, composing)? {
+            ui.memory_mut(|memory| memory.request_focus(id));
+            return Ok(true);
+        }
+        #[cfg(feature = "native-host")]
+        if let Some(provider) = completion.as_deref_mut() {
+            let typed_before = if matches!(event, Event::Text(_)) {
+                let current = store.views().get(view).ok_or(EditorError::NotFound)?;
+                Some((
+                    current.selection.clone(),
+                    store.documents().snapshot(current.document)?.revision,
+                ))
+            } else {
+                None
+            };
+            match state
+                .completion
+                .event(ui, store, view, id, provider, event, raw_index, composing)
+            {
+                Ok(true) => {
+                    if let Err(error) = provider.after_event(store, view, event) {
+                        output.errors.push(error);
+                    }
+                    if let Event::Text(text) = event
+                        && let Some((selection, revision)) = typed_before
+                    {
+                        let current = store.views().get(view).ok_or(EditorError::NotFound)?;
+                        if current.selection != selection
+                            || store.documents().snapshot(current.document)?.revision != revision
+                        {
+                            output.formatting_inputs.extend(
+                                crate::editor_formatting_input::Input::typed(store, view, text)?,
+                            );
+                        }
+                    }
+
+                    return Ok(true);
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    output.errors.push(error);
+                    return Ok(true);
+                }
+            }
+        }
+        #[cfg(feature = "native-host")]
+        if let Some(provider) = documentation.as_deref_mut() {
+            match state.documentation.event(ui, store, view, provider, event) {
+                Ok(true) => {
+                    return Ok(true);
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    output.errors.push(error);
+                    return Ok(true);
+                }
+            }
+        }
+        if let Some(language) = context.language {
+            language.syntax.follow_edits(store);
+        }
+        #[cfg(feature = "native-host")]
+        let documentation_before = store.views().get(view).and_then(|view| {
+            Some((
+                store.documents().snapshot(view.document).ok()?.revision,
+                view.selection.clone(),
+            ))
+        });
+        match self.input(store, view, event, state, output, context) {
+            Ok(true) => {
+                state.auto_closed.follow(store, view)?;
+                #[cfg(feature = "native-host")]
+                if let Some(provider) = completion.as_deref_mut()
+                    && let Err(error) = state
+                        .completion
+                        .after_event(ui, store, view, provider, event)
+                {
+                    output.errors.push(error);
+                }
+                #[cfg(feature = "native-host")]
+                if let Some(provider) = documentation.as_deref_mut() {
+                    let changed = store.views().get(view).is_some_and(|view| {
+                        store
+                            .documents()
+                            .snapshot(view.document)
+                            .is_ok_and(|document| {
+                                documentation_before
+                                    .as_ref()
+                                    .is_none_or(|(revision, selection)| {
+                                        *revision != document.revision
+                                            || *selection != view.selection
+                                    })
+                            })
+                    });
+                    state
+                        .documentation
+                        .after_event(ui, store, view, provider, event, changed);
+                }
+            }
+            Ok(false) => return Ok(false),
+            Err(error) => return Err(error),
+        }
+        Ok(true)
     }
 
     fn input(

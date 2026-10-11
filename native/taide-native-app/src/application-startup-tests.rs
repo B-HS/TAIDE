@@ -58,6 +58,612 @@ fn wait_for(
 }
 
 #[test]
+fn actual_app의_rename은_f2와_peek에서_현재_문서만_편집하고_undo와_취소를_보존한다() {
+    use std::os::unix::fs::PermissionsExt;
+    use taide_native_editor::view::{Selection, SelectionSet};
+    const TEXT: &str = "class\n  \u{1f600}method\nend";
+    const EXECUTABLE_MODE: u32 = 0o700;
+    let mut fixture = Fixture {
+        directory: std::env::temp_dir()
+            .join(format!("taide-native-rename-app-{}", ProjectId::new())),
+        application: None,
+    };
+    let data = fixture.directory.join("data");
+    let root = fixture.directory.join("project");
+    let bin = fixture.directory.join("bin");
+    for directory in [&data, &root, &bin] {
+        std::fs::create_dir_all(directory).unwrap();
+    }
+    let file = root.join("current.rs");
+    let peek_file = root.join("peek.rs");
+    std::fs::write(&file, TEXT).unwrap();
+    std::fs::write(&peek_file, TEXT).unwrap();
+    let path = file.canonicalize().unwrap().to_str().unwrap().to_owned();
+    let peek_path = peek_file
+        .canonicalize()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let root = root.canonicalize().unwrap().to_str().unwrap().to_owned();
+    let state = AppState::new(AppPaths::new(data));
+    {
+        let mut settings = state.settings.write();
+        settings.remote_access_enabled = false;
+        settings.ide_integration_enabled = false;
+        settings.agent_hooks_enabled = false;
+    }
+    let project = ProjectId::new();
+    let pane = PaneId::new();
+    let tab = TabId::new();
+    let slot = ShellSlotId::new();
+    state.projects.write().insert(
+        project.clone(),
+        Project {
+            id: project.clone(),
+            root: root.clone(),
+            name: "synthetic rename".into(),
+            capabilities: Vec::new(),
+            root_missing: false,
+            last_opened_at: 0.0,
+            display: Default::default(),
+        },
+    );
+    let mut layout = taide_layout::service::default_layout();
+    layout.root = taide_model::layout::PaneNode::Leaf {
+        id: pane.clone(),
+        tabs: vec![Tab {
+            id: tab.clone(),
+            kind: TabKind::File { path: path.clone() },
+            title: "current.rs".into(),
+            pinned: false,
+            preview: false,
+            dirty: false,
+            view_state: None,
+        }],
+        active: Some(tab.clone()),
+    };
+    layout.focused_pane = pane;
+    state.layouts.write().insert(project.clone(), layout);
+    {
+        let mut session = state.session.write();
+        session.projects = vec![taide_model::project::ProjectRef {
+            id: project.clone(),
+            root,
+            name: "synthetic rename".into(),
+            display: Default::default(),
+            root_missing: false,
+        }];
+        session.active_project = Some(project.clone());
+        session.focused_shell_slot = Some(slot.clone());
+        session.shell_slots = Some(taide_model::project::ShellSlotTree::Leaf {
+            slot_id: slot,
+            project_id: project.clone(),
+        });
+    }
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let tasks = TaskSupervisor::new(runtime.handle().clone());
+    let context = egui::Context::default();
+    fixture.application = Some(
+        NativeApplication::new(
+            &eframe::CreationContext::_new_kittest(context.clone()),
+            runtime,
+            state,
+            tasks,
+            bin.join("taide"),
+            Vec::new(),
+        )
+        .unwrap(),
+    );
+    let application = fixture.application.as_mut().unwrap();
+    let paint = |application: &mut NativeApplication, events| {
+        let mut output = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1000.0, 700.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| eframe::App::ui(application, ui, &mut eframe::Frame::_new_kittest()),
+        );
+        output.textures_delta.clear();
+    };
+    let key = |key| egui::Event::Key {
+        key,
+        physical_key: Some(key),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    paint(application, Vec::new());
+    wait_for(
+        application,
+        &context,
+        "rename-document-read",
+        |application| application.files.contains_key(&path),
+    );
+    let document = application.files[&path].id;
+    let mock = std::env::current_exe()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("examples/native-lsp-mock");
+    assert!(mock.is_file());
+    let mock = mock.to_str().unwrap().replace('\'', "'\\''");
+    let executable = bin.join("rust-analyzer");
+    std::fs::write(
+        &executable,
+        format!("#!/bin/sh\nexec '{mock}' --native-rename\n"),
+    )
+    .unwrap();
+    std::fs::set_permissions(
+        &executable,
+        std::fs::Permissions::from_mode(EXECUTABLE_MODE),
+    )
+    .unwrap();
+    application
+        .runtime
+        .handle()
+        .clone()
+        .block_on(application.lsp.take().unwrap().disconnect())
+        .unwrap();
+    let repaint = context.clone();
+    application.lsp = Some(
+        crate::lsp::LspBridge::connect(
+            application.services.clone(),
+            bin.into_os_string(),
+            Arc::new(move || repaint.request_repaint()),
+        )
+        .unwrap(),
+    );
+    wait_for(application, &context, "rename-provider", |application| {
+        !application
+            .lsp
+            .as_ref()
+            .unwrap()
+            .rename_providers(
+                &project,
+                &application.store.documents().snapshot(document).unwrap(),
+            )
+            .is_empty()
+    });
+    paint(application, Vec::new());
+    let view = application
+        .store
+        .views()
+        .for_document(document)
+        .find(|view| view.key.tab == tab)
+        .unwrap()
+        .id;
+    let head = TEXT.find("method").unwrap() + "me".len();
+    application
+        .store
+        .set_view_state(
+            view,
+            SelectionSet {
+                primary: 0,
+                selections: vec![Selection { anchor: head, head }],
+            },
+            Default::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    paint(application, Vec::new());
+    let focus = application
+        .editor_keymap_targets
+        .iter()
+        .find_map(|((viewport, id), (target, _))| {
+            (*viewport == egui::ViewportId::ROOT && *target == view).then_some(*id)
+        })
+        .unwrap();
+    context.memory_mut(|memory| memory.request_focus(focus));
+    paint(application, vec![key(egui::Key::F2)]);
+    wait_for(
+        application,
+        &context,
+        "rename-body-prepared",
+        |application| application.editor_rename.state.prepared().is_some(),
+    );
+    paint(application, Vec::new());
+    paint(
+        application,
+        vec![egui::Event::Text("renamed".into()), key(egui::Key::Enter)],
+    );
+    wait_for(
+        application,
+        &context,
+        "rename-body-applied",
+        |application| {
+            application
+                .store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .rope
+                .to_string()
+                == TEXT.replace("method", "renamed")
+        },
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), TEXT);
+    assert!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .dirty
+    );
+    wait_for(
+        application,
+        &context,
+        "rename-body-worker-finished",
+        |application| !application.editor_rename.is_applying(),
+    );
+    assert!(application.store.undo(document).unwrap());
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        TEXT
+    );
+    paint(application, Vec::new());
+    wait_for(
+        application,
+        &context,
+        "rename-body-finished",
+        |application| application.editor_rename.state.prepared().is_none(),
+    );
+    let available = application.lsp.as_ref().unwrap().rename_providers(
+        &project,
+        &application.store.documents().snapshot(document).unwrap(),
+    );
+    let identity = *available.iter().next().unwrap();
+    let request = application
+        .editor_locations
+        .begin(
+            project.clone(),
+            &application.store,
+            view,
+            taide_native_editor::symbol_locations::Kind::Definition,
+            taide_native_editor::symbol_locations::Mode::Peek,
+            available.clone(),
+            None,
+        )
+        .unwrap();
+    let range = taide_native_editor::lsp::LspRange::new(
+        taide_native_editor::lsp::Position::new(1, 4),
+        taide_native_editor::lsp::Position::new(1, 10),
+    );
+    application
+        .editor_locations
+        .accept(
+            &request,
+            &application.store,
+            available,
+            Ok(crate::editor_locations::Response {
+                groups: vec![crate::editor_locations::Group {
+                    provider: identity,
+                    targets: vec![taide_native_editor::symbol_locations::Target {
+                        uri: taide_lsp::service::workspace_folder_uri(&peek_path)
+                            .parse()
+                            .unwrap(),
+                        range,
+                        selection: range,
+                        origin: None,
+                    }],
+                }],
+            }),
+        )
+        .unwrap()
+        .unwrap();
+    application.editor_locations.show(view);
+    paint(application, Vec::new());
+    let peek_key = taide_native_editor::document::DocumentKey::File(peek_path.into());
+    wait_for(application, &context, "rename-peek-read", |application| {
+        application.store.documents().find(&peek_key).is_some()
+    });
+    paint(application, Vec::new());
+    let peek_document = application.store.documents().find(&peek_key).unwrap();
+    let preview = application
+        .editor_locations
+        .current(view)
+        .unwrap()
+        .preview
+        .unwrap();
+    wait_for(
+        application,
+        &context,
+        "rename-peek-provider",
+        |application| {
+            !application
+                .lsp
+                .as_ref()
+                .unwrap()
+                .rename_providers(
+                    &project,
+                    &application
+                        .store
+                        .documents()
+                        .snapshot(peek_document)
+                        .unwrap(),
+                )
+                .is_empty()
+        },
+    );
+    application
+        .store
+        .set_view_state(
+            preview,
+            SelectionSet {
+                primary: 0,
+                selections: vec![Selection { anchor: head, head }],
+            },
+            Default::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    paint(application, Vec::new());
+    let focus = application
+        .editor_keymap_targets
+        .iter()
+        .find_map(|((viewport, id), (target, _))| {
+            (*viewport == egui::ViewportId::ROOT && *target == preview).then_some(*id)
+        })
+        .unwrap();
+    context.memory_mut(|memory| memory.request_focus(focus));
+    paint(application, vec![key(egui::Key::F2)]);
+    wait_for(
+        application,
+        &context,
+        "rename-peek-prepared",
+        |application| {
+            application
+                .editor_rename
+                .state
+                .prepared()
+                .is_some_and(|(request, _)| request.source == preview && request.owner == view)
+        },
+    );
+    paint(application, Vec::new());
+    paint(
+        application,
+        vec![egui::Event::Text("peekName".into()), key(egui::Key::Enter)],
+    );
+    wait_for(
+        application,
+        &context,
+        "rename-peek-applied",
+        |application| {
+            application
+                .store
+                .documents()
+                .snapshot(peek_document)
+                .unwrap()
+                .rope
+                .to_string()
+                == TEXT.replace("method", "peekName")
+        },
+    );
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        TEXT
+    );
+    assert_eq!(std::fs::read_to_string(&peek_file).unwrap(), TEXT);
+    wait_for(
+        application,
+        &context,
+        "rename-peek-worker-finished",
+        |application| !application.editor_rename.is_applying(),
+    );
+    assert!(application.store.undo(peek_document).unwrap());
+    paint(application, Vec::new());
+    application
+        .store
+        .set_view_state(
+            preview,
+            SelectionSet {
+                primary: 0,
+                selections: vec![Selection { anchor: head, head }],
+            },
+            Default::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    context.memory_mut(|memory| memory.request_focus(focus));
+    paint(application, vec![key(egui::Key::F2)]);
+    wait_for(
+        application,
+        &context,
+        "rename-peek-cancel-prepared",
+        |application| application.editor_rename.state.prepared().is_some(),
+    );
+    paint(application, Vec::new());
+    paint(
+        application,
+        vec![egui::Event::Text("unused".into()), key(egui::Key::Escape)],
+    );
+    assert!(application.editor_rename.state.prepared().is_none());
+    assert!(application.editor_locations.current(view).unwrap().shown);
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(peek_document)
+            .unwrap()
+            .rope
+            .to_string(),
+        TEXT
+    );
+    let mut readonly =
+        taide_file::service::open_file(std::path::Path::new(&path), &[], false).unwrap();
+    readonly.read_only = true;
+    application
+        .store
+        .observe_file(document, std::path::Path::new(&path), readonly)
+        .unwrap();
+    let owner_before = application.store.documents().snapshot(document).unwrap();
+    context.memory_mut(|memory| memory.request_focus(focus));
+    application.palette.open(
+        &context,
+        taide_native_ui::command_registry::PaletteEntry::Commands,
+    );
+    paint(application, Vec::new());
+    paint(application, Vec::new());
+    let label = crate::command_registry::registry()
+        .unwrap()
+        .command("monaco.editor.action.rename")
+        .unwrap()
+        .label(&application.locale);
+    paint(application, vec![egui::Event::Text(label)]);
+    assert!(
+        application
+            .palette
+            .inspection()
+            .rows
+            .iter()
+            .any(|row| row.key == "monaco.editor.action.rename"
+                && row.is_enabled
+                && row.is_selected),
+        "palette={:?}",
+        application.palette.inspection()
+    );
+    paint(application, vec![key(egui::Key::Enter)]);
+    wait_for(
+        application,
+        &context,
+        "rename-readonly-owner-peek-palette",
+        |application| {
+            application
+                .editor_rename
+                .state
+                .prepared()
+                .is_some_and(|(request, _)| request.source == preview && request.owner == view)
+        },
+    );
+    paint(application, Vec::new());
+    paint(
+        application,
+        vec![
+            egui::Event::Text("paletteName".into()),
+            key(egui::Key::Enter),
+        ],
+    );
+    wait_for(
+        application,
+        &context,
+        "rename-peek-palette-applied",
+        |application| {
+            application
+                .store
+                .documents()
+                .snapshot(peek_document)
+                .unwrap()
+                .rope
+                .to_string()
+                == TEXT.replace("method", "paletteName")
+        },
+    );
+    wait_for(
+        application,
+        &context,
+        "rename-peek-palette-worker-finished",
+        |application| !application.editor_rename.is_applying(),
+    );
+    let owner_after = application.store.documents().snapshot(document).unwrap();
+    assert_eq!(
+        (
+            owner_after.rope,
+            owner_after.revision,
+            owner_after.dirty,
+            owner_after.metadata.read_only
+        ),
+        (
+            owner_before.rope,
+            owner_before.revision,
+            owner_before.dirty,
+            owner_before.metadata.read_only
+        )
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), TEXT);
+    assert_eq!(std::fs::read_to_string(&peek_file).unwrap(), TEXT);
+    assert!(application.store.undo(peek_document).unwrap());
+    application
+        .store
+        .set_view_state(
+            preview,
+            SelectionSet {
+                primary: 0,
+                selections: vec![Selection { anchor: head, head }],
+            },
+            Default::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    paint(application, Vec::new());
+    context.memory_mut(|memory| memory.request_focus(focus));
+    paint(application, vec![key(egui::Key::F2)]);
+    wait_for(
+        application,
+        &context,
+        "rename-peek-cancel-release-prepared",
+        |application| application.editor_rename.state.prepared().is_some(),
+    );
+    paint(application, Vec::new());
+    paint(
+        application,
+        vec![
+            egui::Event::Text("unused".into()),
+            key(egui::Key::Escape),
+            egui::Event::Text("post".into()),
+        ],
+    );
+    assert!(application.editor_rename.state.prepared().is_none());
+    assert!(application.editor_locations.current(view).unwrap().shown);
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(peek_document)
+            .unwrap()
+            .rope
+            .to_string(),
+        format!("{}post{}", &TEXT[..head], &TEXT[head..])
+    );
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        TEXT
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), TEXT);
+    assert_eq!(std::fs::read_to_string(&peek_file).unwrap(), TEXT);
+    assert!(application.store.undo(peek_document).unwrap());
+    eframe::App::on_exit(application);
+    assert_eq!(application.services.tasks.tracked_count(), 0);
+}
+
+#[test]
 fn actual_app의_문서_선택_peek와_저장_포맷은_현재_편집_폭과_소유를_보존한다() {
     use std::os::unix::fs::PermissionsExt;
     use taide_native_editor::indent::{IndentOptions, IndentationChange};

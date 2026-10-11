@@ -1027,6 +1027,7 @@ pub(crate) struct Provider<'a, 'state> {
         Option<std::rc::Rc<std::cell::RefCell<&'state mut crate::editor_documentation::State>>>,
     pub(crate) completion: Option<crate::editor_completion::Consumer<'a, 'state>>,
     pub(crate) highlights: Option<crate::editor_highlights::Consumer<'a, 'state>>,
+    pub(crate) rename: Option<crate::editor_rename_controller::Consumer<'state>>,
 }
 
 impl Provider<'_, '_> {
@@ -1143,6 +1144,21 @@ impl Provider<'_, '_> {
 impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
     fn preview_find_visible(&self, view: ViewId) -> bool {
         self.state.preview_find_visible(view)
+    }
+    fn preview_input_active(&self, view: ViewId) -> bool {
+        self.state
+            .current(view)
+            .and_then(|session| session.preview)
+            .is_some_and(|preview| {
+                self.rename.as_ref().is_some_and(|consumer| {
+                    consumer
+                        .0
+                        .borrow()
+                        .state
+                        .prepared()
+                        .is_some_and(|(request, _)| request.source == preview)
+                })
+            })
     }
     fn keyboard_link(&self, store: &EditorStore, view: ViewId) -> Option<(String, usize)> {
         let request = &self.state.hover(view)?.request;
@@ -1758,7 +1774,17 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
                     language: snapshot.metadata.language_id.clone(),
                 });
         let has_find = self.find_appearance.is_some() && self.find_history.is_some();
-        let output = self.editor.show_request_with_editor_keymap(
+        let mut rename_provider =
+            self.rename
+                .as_ref()
+                .map(|consumer| crate::editor_rename_controller::Provider {
+                    consumer: consumer.clone(),
+                    lsp: self.lsp,
+                });
+        let rename_colors = self
+            .find_appearance
+            .map(taide_native_ui::editor_rename::Colors::from);
+        let output = self.editor.show_request_with_rename(
             &mut ui,
             store,
             preview,
@@ -1853,6 +1879,21 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
                                 ui.ctx().request_repaint();
                                 return true;
                             }
+                            if let crate::command_registry::Run::RenameEditor = run {
+                                if self.rename.is_some()
+                                    && self.lsp.is_some()
+                                    && let Some(project) = &self.project
+                                {
+                                    commands.push(crate::host::HostCommand::RenameEditor {
+                                        project: project.clone(),
+                                        source: preview,
+                                        owner: view,
+                                    });
+                                    ui.ctx().request_repaint();
+                                    return true;
+                                }
+                                return false;
+                            }
                             let crate::command_registry::Run::EditDocument(edit) = run else {
                                 return false;
                             };
@@ -1926,6 +1967,15 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
                     )
                     .unwrap_or(false)
             },
+            rename_provider
+                .as_mut()
+                .zip(rename_colors)
+                .map(|(provider, colors)| {
+                    (
+                        provider as &mut dyn taide_native_ui::editor_rename::Provider,
+                        colors,
+                    )
+                }),
         )?;
         self.commands.append(&mut documentation_host_commands);
         self.commands.append(&mut completion_host_commands);

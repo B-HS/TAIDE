@@ -32,6 +32,16 @@ pub(super) fn fixture(mode: &str) -> (Fixture, ProjectId, EditorStore, DocumentI
     assert!(matches!(
         mode,
         "--native-symbols"
+            | "--native-rename"
+            | "--native-rename-range"
+            | "--native-rename-no-prepare"
+            | "--native-rename-null"
+            | "--native-rename-empty"
+            | "--native-rename-bad"
+            | "--native-rename-error"
+            | "--native-rename-default"
+            | "--native-rename-wait"
+            | "--native-rename-unsupported"
             | "--native-format-options"
             | "--native-format-range-only"
             | "--native-format-range-overlap"

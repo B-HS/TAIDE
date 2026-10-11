@@ -209,6 +209,9 @@ pub(crate) fn intent(run: Run, snapshot: &ShellSnapshot) -> Option<ShellIntent> 
             tab: tab.id.clone(),
             command,
         }),
+        Run::RenameEditor if has_document => Some(ShellIntent::RenameEditor {
+            tab: tab.id.clone(),
+        }),
         Run::EditDocument(edit) if has_document => Some(ShellIntent::EditDocument {
             tab: tab.id.clone(),
             edit,

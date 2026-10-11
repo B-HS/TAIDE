@@ -19,6 +19,11 @@ pub type ClipboardWriter = Arc<dyn Fn(&str) -> AppResult<()> + Send + Sync>;
 pub type ClipboardReader = Arc<dyn Fn() -> AppResult<String> + Send + Sync>;
 
 pub enum HostCommand {
+    RenameEditor {
+        project: taide_model::ids::ProjectId,
+        source: taide_native_editor::view::ViewId,
+        owner: taide_native_editor::view::ViewId,
+    },
     FormatEditorInput {
         project: ProjectId,
         source: taide_native_editor::view::ViewId,
@@ -627,7 +632,7 @@ async fn dispatch(
     let terminals = integrations.terminals.as_ref();
     let reconcile = &integrations.reconcile;
     match command {
-        HostCommand::FormatEditorInput { .. } => None,
+        HostCommand::FormatEditorInput { .. } | HostCommand::RenameEditor { .. } => None,
         HostCommand::OpenDocumentationFile(request) => Some(HostReply::DocumentationFileOpened {
             result: request.open(services).await,
         }),

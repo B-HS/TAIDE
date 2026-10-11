@@ -81,6 +81,10 @@ pub enum ShellIntent {
         tab: TabId,
         command: taide_native_editor::formatting::Command,
     },
+    #[cfg(feature = "native-host")]
+    RenameEditor {
+        tab: TabId,
+    },
     ShowOpenProjectNotice,
     ChangeEditorFontSize {
         increase: bool,

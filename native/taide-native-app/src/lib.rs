@@ -57,6 +57,10 @@ mod editor_locations;
 mod editor_markup;
 #[path = "editor-problems.rs"]
 mod editor_problems;
+#[path = "editor-rename.rs"]
+mod editor_rename;
+#[path = "editor-rename-controller.rs"]
+mod editor_rename_controller;
 pub mod editor_reveal;
 #[path = "editor-symbols.rs"]
 mod editor_symbols;

@@ -502,6 +502,7 @@ fn 실제_preview의_직렬_본문_명령과_저장은_대상_문서와_포커�
                     documentation: None,
                     completion: None,
                     highlights: None,
+                    rename: None,
                 };
                 provider
                     .render_preview(&mut ui, store, view, rect, false)

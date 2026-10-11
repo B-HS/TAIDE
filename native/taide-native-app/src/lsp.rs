@@ -58,6 +58,8 @@ mod editor_documentation;
 mod editor_formatting;
 #[path = "lsp-editor-highlights.rs"]
 mod editor_highlights;
+#[path = "lsp-editor-rename.rs"]
+mod editor_rename;
 #[path = "lsp-symbol-locations.rs"]
 mod symbol_locations;
 #[path = "lsp-syntax-folding.rs"]
@@ -85,6 +87,9 @@ mod editor_formatting_tests;
 #[cfg(test)]
 #[path = "lsp-editor-highlights-tests.rs"]
 mod editor_highlights_tests;
+#[cfg(all(test, unix))]
+#[path = "lsp-editor-rename-tests.rs"]
+mod editor_rename_tests;
 
 #[cfg(all(test, unix))]
 #[path = "lsp-symbol-locations-tests.rs"]
@@ -225,6 +230,15 @@ struct Session {
 }
 
 enum Command {
+    EditorRename {
+        request: crate::editor_rename::Request,
+        completion: oneshot::Sender<Result<crate::editor_rename::Response, Failure>>,
+    },
+    ApplyEditorRename {
+        request: crate::editor_rename::Request,
+        edits: crate::editor_rename::Edits,
+        completion: oneshot::Sender<AppResult<()>>,
+    },
     EditorFormat(crate::editor_formatting::Request),
     Completion(crate::editor_completion::Request),
     Documentation(crate::editor_documentation::Request),
@@ -636,6 +650,40 @@ impl LspBridge {
         self.submit(Command::EditorFormat(request))
     }
 
+    pub(crate) fn rename_editor(
+        &self,
+        request: crate::editor_rename::Request,
+    ) -> AppResult<oneshot::Receiver<Result<crate::editor_rename::Response, Failure>>> {
+        let (completion, receive) = oneshot::channel();
+        self.submit(Command::EditorRename {
+            request,
+            completion,
+        })?;
+        Ok(receive)
+    }
+
+    pub(crate) fn rename_providers(
+        &self,
+        project: &ProjectId,
+        snapshot: &DocumentSnapshot,
+    ) -> HashSet<crate::editor_symbols::ProviderIdentity> {
+        self.feature_providers(project, snapshot, "textDocument/rename")
+    }
+
+    pub(crate) fn apply_editor_rename(
+        &self,
+        request: crate::editor_rename::Request,
+        edits: crate::editor_rename::Edits,
+    ) -> AppResult<oneshot::Receiver<AppResult<()>>> {
+        let (completion, receive) = oneshot::channel();
+        self.submit(Command::ApplyEditorRename {
+            request,
+            edits,
+            completion,
+        })?;
+        Ok(receive)
+    }
+
     pub(crate) fn formatting_providers(
         &self,
         project: &ProjectId,
@@ -982,6 +1030,8 @@ fn initialize(plan: &Plan) -> Value {
             "textDocument":{"hover":{"contentFormat":["markdown","plaintext"]},"completion":{"completionItem":{"snippetSupport":true},"contextSupport":true,"dynamicRegistration":true},"signatureHelp":{},"definition":{"linkSupport":true},"declaration":{"linkSupport":true},"typeDefinition":{"linkSupport":true},"implementation":{"linkSupport":true},"references":{},"foldingRange":{"dynamicRegistration":false,"lineFoldingOnly":true,"rangeLimit":taide_native_editor::folding::MAX_FOLDING_REGIONS},"synchronization":{"dynamicRegistration":false,"didSave":true},"documentSymbol":{"hierarchicalDocumentSymbolSupport":true,"symbolKind":{"valueSet":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26]}},"formatting":{},"codeAction":{"codeActionLiteralSupport":{"codeActionKind":{"valueSet":["source.fixAll","source.organizeImports"]}},"resolveSupport":{"properties":["edit","command"]},"dataSupport":true}}
         }
     });
+    params["capabilities"]["textDocument"]["rename"] =
+        json!({"prepareSupport":true,"dynamicRegistration":true});
     if let Some(initialization) = &plan.spec.initialization_options {
         params["initializationOptions"] = initialization.clone();
     }
@@ -1732,6 +1782,85 @@ async fn run(
             break;
         };
         let reply = match command {
+            Command::ApplyEditorRename {
+                request,
+                edits,
+                completion,
+            } => {
+                let valid = !request.is_cancelled()
+                    && sessions.iter().any(|(key, session)| {
+                        key.project == request.project
+                            && editor_rename::identity(session) == edits.provider
+                            && session.client.snapshot().phase == Phase::Running
+                            && session
+                                .documents
+                                .get(&request.snapshot.id)
+                                .is_some_and(|document| {
+                                    document.snapshot.key == request.snapshot.key
+                                        && document.snapshot.revision == request.snapshot.revision
+                                        && session
+                                            .client
+                                            .snapshot()
+                                            .supports_document(&document.uri, "textDocument/rename")
+                                })
+                    });
+                if !valid {
+                    let _ = completion.send(Err(failure(Failure::StaleGeneration)));
+                    repaint();
+                    continue;
+                }
+                let services = services.clone();
+                let tasks = services.tasks.clone();
+                let sender = replies.clone();
+                let repaint = repaint.clone();
+                tasks.spawn_transient("native-lsp-editor-rename-apply", async move {
+                    let result = crate::lsp_workspace_worker::apply(
+                        &services,
+                        edits.edit,
+                        edits.documents,
+                        Some(edits.roots),
+                        &sender,
+                        &repaint,
+                    )
+                    .await;
+                    let _ = completion.send(result);
+                    repaint();
+                });
+                None
+            }
+            Command::EditorRename {
+                request,
+                completion,
+            } => {
+                if request.is_cancelled() {
+                    let _ = completion.send(Err(Failure::Cancelled));
+                    continue;
+                }
+                let selected = sessions
+                    .iter()
+                    .filter(|(key, session)| {
+                        key.project == request.project
+                            && session.documents.contains_key(&request.snapshot.id)
+                    })
+                    .map(|(key, session)| (key.clone(), session.clone()))
+                    .collect::<HashMap<_, _>>();
+                let repaint = repaint.clone();
+                let mut cancelled = request.cancelled.clone();
+                let mut stopping = stopping.clone();
+                services
+                    .tasks
+                    .spawn_transient("native-lsp-editor-rename", async move {
+                        let result = tokio::select! {
+                            biased;
+                            _ = stopping.changed() => Err(Failure::Stopped),
+                            _ = cancelled.changed() => Err(Failure::Cancelled),
+                            result = editor_rename::request(&selected, &request) => result,
+                        };
+                        let _ = completion.send(result);
+                        repaint();
+                    });
+                None
+            }
             Command::Completion(request) => {
                 if request.is_cancelled() {
                     continue;

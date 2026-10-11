@@ -80,6 +80,9 @@ mod editor_pointer;
 #[cfg(feature = "native-host")]
 #[path = "editor-problems.rs"]
 pub mod editor_problems;
+#[cfg(feature = "native-host")]
+#[path = "editor-rename.rs"]
+pub mod editor_rename;
 #[path = "editor-row-text.rs"]
 pub mod editor_row_text;
 #[cfg(feature = "native-host")]
