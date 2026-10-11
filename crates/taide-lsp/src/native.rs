@@ -346,10 +346,20 @@ impl LspCoordinator {
                 return Err(Failure::MalformedResponse);
             }
         }
-        let is_static = self
-            .capabilities
-            .as_ref()
-            .is_some_and(|capabilities| capabilities::supports(capabilities, method));
+        let is_static = self.capabilities.as_ref().is_some_and(|capabilities| {
+            capabilities::supports(capabilities, method)
+                && (method != "workspace/executeCommand"
+                    || params
+                        .get("command")
+                        .and_then(Value::as_str)
+                        .is_some_and(|command| {
+                            capabilities["executeCommandProvider"]["commands"]
+                                .as_array()
+                                .is_some_and(|commands| {
+                                    commands.iter().any(|value| value.as_str() == Some(command))
+                                })
+                        }))
+        });
         let mirror = document.map(|(uri, _)| &self.documents[uri].mirror);
         if !is_static
             && !self.registrations.supports(
@@ -1024,6 +1034,58 @@ mod request_id_tests {
 
     const REQUEST_TIMEOUT_MS: u64 = 500;
     const DOCUMENT_URI: &str = "file:///synthetic/request-id.rs";
+
+    #[test]
+    fn 정적_실행_명령은_등록한_ID만_허용하고_동적_등록과_해제를_함께_평가한다() {
+        let mut coordinator = LspCoordinator::new(REQUEST_TIMEOUT_MS);
+        let initialize = coordinator.begin(0, json!({"capabilities":{"workspace":{"executeCommand":{"dynamicRegistration":true}}}})).unwrap();
+        coordinator.receive(0, 1, json!({"jsonrpc":"2.0","id":initialize["id"],"result":{"capabilities":{"executeCommandProvider":{"commands":["synthetic.static"]}}}})).unwrap();
+        coordinator.finish_replay(0).unwrap();
+        assert!(coordinator
+            .request(
+                2,
+                "workspace/executeCommand",
+                json!({"command":"synthetic.static","arguments":[]}),
+                None
+            )
+            .is_ok());
+        assert_eq!(
+            coordinator.request(
+                2,
+                "workspace/executeCommand",
+                json!({"command":"synthetic.unknown","arguments":[]}),
+                None
+            ),
+            Err(Failure::UnsupportedCapability)
+        );
+        coordinator.register_capabilities(0, serde_json::from_value(json!({"registrations":[{"id":"synthetic.commands","method":"workspace/executeCommand","registerOptions":{"commands":["synthetic.dynamic"]}}]})).unwrap()).unwrap();
+        assert!(coordinator
+            .request(
+                2,
+                "workspace/executeCommand",
+                json!({"command":"synthetic.dynamic","arguments":[]}),
+                None
+            )
+            .is_ok());
+        coordinator.unregister_capabilities(0, serde_json::from_value(json!({"unregisterations":[{"id":"synthetic.commands","method":"workspace/executeCommand"}]})).unwrap()).unwrap();
+        assert_eq!(
+            coordinator.request(
+                2,
+                "workspace/executeCommand",
+                json!({"command":"synthetic.dynamic","arguments":[]}),
+                None
+            ),
+            Err(Failure::UnsupportedCapability)
+        );
+        assert!(coordinator
+            .request(
+                2,
+                "workspace/executeCommand",
+                json!({"command":"synthetic.static","arguments":[]}),
+                None
+            )
+            .is_ok());
+    }
 
     #[test]
     fn wire_id는_integer_경계를_넘어도_response_cancel_timeout_restart_shutdown을_유지한다() {
