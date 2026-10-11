@@ -53,6 +53,7 @@ pub struct SessionSnapshot {
     pub document_methods: Arc<BTreeMap<String, Vec<&'static str>>>,
     pub document_signature_options: Arc<BTreeMap<String, Vec<lsp_types::SignatureHelpOptions>>>,
     pub document_completion_options: Arc<BTreeMap<String, Vec<lsp_types::CompletionOptions>>>,
+    pub document_code_action_options: Arc<BTreeMap<String, Vec<lsp_types::CodeActionOptions>>>,
     pub document_on_type_formatting_options:
         Arc<BTreeMap<String, Vec<lsp_types::DocumentOnTypeFormattingOptions>>>,
     pub pid: Option<u32>,
@@ -227,6 +228,7 @@ impl SessionClient {
             snapshot.document_methods = Arc::default();
             snapshot.document_signature_options = Arc::default();
             snapshot.document_completion_options = Arc::default();
+            snapshot.document_code_action_options = Arc::default();
             snapshot.document_on_type_formatting_options = Arc::default();
         }
         snapshot
@@ -541,6 +543,7 @@ impl SessionRunner {
             document_methods: Arc::default(),
             document_signature_options: Arc::default(),
             document_completion_options: Arc::default(),
+            document_code_action_options: Arc::default(),
             document_on_type_formatting_options: Arc::default(),
             pid: None,
             failure: None,
@@ -599,6 +602,7 @@ impl SessionRunner {
             document_methods,
             document_signature_options,
             document_completion_options,
+            document_code_action_options,
             document_on_type_formatting_options,
         ) = {
             let previous = self.state.borrow();
@@ -614,6 +618,7 @@ impl SessionRunner {
                     previous.document_methods.clone(),
                     previous.document_signature_options.clone(),
                     previous.document_completion_options.clone(),
+                    previous.document_code_action_options.clone(),
                     previous.document_on_type_formatting_options.clone(),
                 )
             } else {
@@ -661,7 +666,23 @@ impl SessionRunner {
                         })
                         .collect(),
                 );
-                (methods, signatures, completions, on_type_formatting)
+                let code_actions = Arc::new(
+                    self.coordinator
+                        .documents
+                        .keys()
+                        .filter_map(|uri| {
+                            let options = self.coordinator.code_action_options(uri);
+                            (!options.is_empty()).then_some((uri.clone(), options))
+                        })
+                        .collect(),
+                );
+                (
+                    methods,
+                    signatures,
+                    completions,
+                    code_actions,
+                    on_type_formatting,
+                )
             }
         };
         self.state.send_replace(SessionSnapshot {
@@ -679,6 +700,7 @@ impl SessionRunner {
             document_methods,
             document_signature_options,
             document_completion_options,
+            document_code_action_options,
             document_on_type_formatting_options,
             pid: self.process.as_ref().and_then(|process| process.0.pid()),
             failure: if self.initialize_retry.is_some() {
@@ -1796,6 +1818,196 @@ mod tests {
             .contains_key(rust_uri));
         drop(runner);
         assert!(client.snapshot().document_completion_options.is_empty());
+    }
+
+    #[tokio::test]
+    async fn code_action은_정적_boolean과_종류_resolve_옵션을_열린_문서에만_공급한다() {
+        let uri = "file:///synthetic/actions.rs";
+        for provider in [
+            None,
+            Some(json!(false)),
+            Some(json!(true)),
+            Some(json!({})),
+            Some(json!({
+                "codeActionKinds":["quickfix","refactor.extract"],
+                "resolveProvider":true,
+                "workDoneProgress":true
+            })),
+        ] {
+            let initialize = json!({"capabilities":{}});
+            let (client, mut runner) = prepare(initialize.clone());
+            assert!(client.snapshot().document_code_action_options.is_empty());
+            runner
+                .coordinator
+                .open(DocumentMirror {
+                    uri: uri.into(),
+                    language_id: "rust".into(),
+                    revision: 0,
+                    version: 0,
+                    text: "synthetic".into(),
+                })
+                .unwrap();
+            let init = runner.coordinator.begin(0, initialize).unwrap();
+            let mut capabilities = json!({"textDocumentSync":1});
+            if let Some(provider) = &provider {
+                capabilities["codeActionProvider"] = provider.clone();
+            }
+            runner
+                .coordinator
+                .receive(
+                    0,
+                    1,
+                    json!({
+                        "jsonrpc":"2.0","id":init["id"],
+                        "result":{"capabilities":capabilities}
+                    }),
+                )
+                .unwrap();
+            runner.coordinator.finish_replay(0).unwrap();
+            runner.publish();
+            let snapshot = client.snapshot();
+            let options = snapshot.document_code_action_options.get(uri);
+            match provider {
+                Some(Value::Bool(true)) => {
+                    assert_eq!(options.unwrap(), &[lsp_types::CodeActionOptions::default()]);
+                    assert!(snapshot.supports_document(uri, "textDocument/codeAction"));
+                    assert!(!snapshot.supports_document(uri, "codeAction/resolve"));
+                }
+                Some(provider @ Value::Object(_)) => {
+                    let expected: lsp_types::CodeActionOptions =
+                        serde_json::from_value(provider).unwrap();
+                    assert_eq!(options.unwrap(), &[expected.clone()]);
+                    assert_eq!(
+                        snapshot.supports_document(uri, "codeAction/resolve"),
+                        expected.resolve_provider == Some(true)
+                    );
+                }
+                None | Some(Value::Bool(false)) => {
+                    assert!(options.is_none());
+                    assert!(!snapshot.supports_document(uri, "textDocument/codeAction"));
+                }
+                _ => unreachable!(),
+            }
+            assert!(!snapshot
+                .document_code_action_options
+                .contains_key("file:///synthetic/closed.rs"));
+            runner.coordinator.close(uri).unwrap();
+            runner.publish();
+            assert!(client.snapshot().document_code_action_options.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn code_action의_동적_selector_교체와_revision_캐시_닫힘_채널종료는_옵션을_회수한다() {
+        let initialize =
+            json!({"capabilities":{"textDocument":{"codeAction":{"dynamicRegistration":true}}}});
+        let (client, mut runner) = prepare(initialize.clone());
+        let rust_uri = "file:///synthetic/actions.rs";
+        let text_uri = "file:///synthetic/actions.txt";
+        for (uri, language_id) in [(rust_uri, "rust"), (text_uri, "plaintext")] {
+            runner
+                .coordinator
+                .open(DocumentMirror {
+                    uri: uri.into(),
+                    language_id: language_id.into(),
+                    revision: 0,
+                    version: 0,
+                    text: "synthetic".into(),
+                })
+                .unwrap();
+        }
+        let init = runner.coordinator.begin(0, initialize).unwrap();
+        runner.coordinator.receive(0, 1, json!({"jsonrpc":"2.0","id":init["id"],"result":{"capabilities":{"textDocumentSync":1,"codeActionProvider":true}}})).unwrap();
+        runner.coordinator.finish_replay(0).unwrap();
+        let registration = |language: &str, kind: &str| {
+            serde_json::from_value(json!({"registrations":[{
+            "id":"actions","method":"textDocument/codeAction",
+            "registerOptions":{"documentSelector":[{"language":language,"scheme":"file"}],"codeActionKinds":[kind],"resolveProvider":true}
+        }]})).unwrap()
+        };
+        runner
+            .coordinator
+            .register_capabilities(0, registration("rust", "refactor.extract"))
+            .unwrap();
+        runner.publish();
+        let before = client.snapshot();
+        let rust = before.document_code_action_options.get(rust_uri).unwrap();
+        assert_eq!(rust.len(), 2);
+        assert_eq!(rust[0], lsp_types::CodeActionOptions::default());
+        assert_eq!(
+            rust[1].code_action_kinds.as_deref(),
+            Some([lsp_types::CodeActionKind::REFACTOR_EXTRACT].as_slice())
+        );
+        assert_eq!(rust[1].resolve_provider, Some(true));
+        assert_eq!(
+            before
+                .document_code_action_options
+                .get(text_uri)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(before.supports_document(rust_uri, "codeAction/resolve"));
+        assert!(!before.supports_document(text_uri, "codeAction/resolve"));
+        runner
+            .coordinator
+            .change(rust_uri, 0, 1, "changed".into())
+            .unwrap();
+        runner.publish();
+        assert!(Arc::ptr_eq(
+            &before.document_code_action_options,
+            &client.snapshot().document_code_action_options
+        ));
+        runner.coordinator.unregister_capabilities(0, serde_json::from_value(json!({"unregisterations":[{"id":"actions","method":"textDocument/codeAction"}]})).unwrap()).unwrap();
+        runner.publish();
+        let removed = client.snapshot();
+        assert_eq!(
+            removed
+                .document_code_action_options
+                .get(rust_uri)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(!removed.supports_document(rust_uri, "codeAction/resolve"));
+        assert!(!Arc::ptr_eq(
+            &before.document_code_action_options,
+            &removed.document_code_action_options
+        ));
+        runner
+            .coordinator
+            .register_capabilities(0, registration("plaintext", "quickfix"))
+            .unwrap();
+        runner.publish();
+        let replaced = client.snapshot();
+        assert_eq!(
+            replaced
+                .document_code_action_options
+                .get(rust_uri)
+                .unwrap()
+                .len(),
+            1
+        );
+        let text = replaced.document_code_action_options.get(text_uri).unwrap();
+        assert_eq!(text.len(), 2);
+        assert_eq!(
+            text[1].code_action_kinds.as_deref(),
+            Some([lsp_types::CodeActionKind::QUICKFIX].as_slice())
+        );
+        assert!(!replaced.supports_document(rust_uri, "codeAction/resolve"));
+        assert!(replaced.supports_document(text_uri, "codeAction/resolve"));
+        runner.coordinator.close(rust_uri).unwrap();
+        runner.publish();
+        assert!(!client
+            .snapshot()
+            .document_code_action_options
+            .contains_key(rust_uri));
+        drop(runner);
+        let stopped = client.snapshot();
+        assert_eq!(stopped.phase, Phase::Degraded);
+        assert_eq!(stopped.failure, Some(Failure::TransportClosed));
+        assert!(stopped.document_code_action_options.is_empty());
+        assert!(!stopped.supports_document(text_uri, "codeAction/resolve"));
     }
 
     fn prepare(initialize: Value) -> (SessionClient, SessionRunner) {

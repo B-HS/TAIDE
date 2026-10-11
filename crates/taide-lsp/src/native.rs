@@ -225,6 +225,20 @@ impl LspCoordinator {
         self.document_options(uri, "completionProvider", "textDocument/completion")
     }
 
+    pub(crate) fn code_action_options(&self, uri: &str) -> Vec<lsp_types::CodeActionOptions> {
+        let mut options =
+            self.document_options(uri, "codeActionProvider", "textDocument/codeAction");
+        if self.phase == Phase::Running
+            && self.documents.contains_key(uri)
+            && self.capabilities.as_ref().is_some_and(|capabilities| {
+                capabilities.get("codeActionProvider") == Some(&Value::Bool(true))
+            })
+        {
+            options.insert(0, lsp_types::CodeActionOptions::default());
+        }
+        options
+    }
+
     pub(crate) fn on_type_formatting_options(
         &self,
         uri: &str,
