@@ -23,6 +23,7 @@ const AUX_SLOT: u32 = 4;
 const FONT_SIZE: f32 = 14.0;
 const LINE_HEIGHT: f32 = 20.0;
 const HORIZONTAL_PADDING: f32 = 8.0;
+const PREVIEW_TEXT: &str = "class\n  \u{1f600}method\nend";
 
 #[tokio::test]
 async fn 문서_파일_링크는_본문과_보조창의_원본_pane_줄열과_늦은_owner를_검사한다() {
@@ -260,11 +261,227 @@ impl Fixture {
             locations,
         }
     }
+
+    fn request_from_preview(&mut self, side: bool) {
+        let owner = self.request.source.source;
+        let project = self.request.source.project.clone();
+        let target = self.request.target.clone();
+        let path = crate::editor_locations::file_path(&target.uri).unwrap();
+        let opened = taide_file::service::open_file(&path, &[], false).unwrap();
+        let document = self.store.open_file(path, opened).unwrap();
+        let identity = crate::editor_symbols::ProviderIdentity {
+            owner: crate::diagnostics::Owner::new(),
+            generation: 1,
+            capability_revision: 0,
+        };
+        let providers = HashSet::from([identity]);
+        let parent = self
+            .locations
+            .begin(
+                project.clone(),
+                &self.store,
+                owner,
+                Kind::Definition,
+                Mode::Peek,
+                providers.clone(),
+                None,
+            )
+            .unwrap();
+        self.locations
+            .accept(
+                &parent,
+                &self.store,
+                providers.clone(),
+                Ok(crate::editor_locations::Response {
+                    groups: vec![crate::editor_locations::Group {
+                        provider: identity,
+                        targets: vec![target.clone()],
+                    }],
+                }),
+            )
+            .unwrap()
+            .unwrap();
+        self.locations.show(owner);
+        assert_eq!(
+            self.locations
+                .prepare_preview(&mut self.store, owner)
+                .unwrap(),
+            Some(document)
+        );
+        let preview = self.locations.current(owner).unwrap().preview.unwrap();
+        let destination = self.directory.join("project/destination.rs");
+        std::fs::write(&destination, PREVIEW_TEXT).unwrap();
+        let mut target = target;
+        target.uri = taide_lsp::service::workspace_folder_uri(destination.to_str().unwrap())
+            .parse()
+            .unwrap();
+        let mode = if side { Mode::Aside } else { Mode::GoTo };
+        let child = self
+            .locations
+            .begin(
+                project,
+                &self.store,
+                preview,
+                Kind::Definition,
+                mode,
+                providers.clone(),
+                None,
+            )
+            .unwrap();
+        self.locations
+            .accept(
+                &child,
+                &self.store,
+                providers,
+                Ok(crate::editor_locations::Response {
+                    groups: vec![crate::editor_locations::Group {
+                        provider: identity,
+                        targets: vec![target.clone()],
+                    }],
+                }),
+            )
+            .unwrap()
+            .unwrap();
+        let (source, token, cancelled) = self.locations.begin_open(&self.store, preview).unwrap();
+        self.request.source = source;
+        self.request.token = token;
+        self.request.cancelled = cancelled;
+        self.request.target = target;
+        self.request.side = side;
+    }
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
         self.services.tasks.stop_all();
         let _ = std::fs::remove_dir_all(&self.directory);
+    }
+}
+
+#[tokio::test]
+async fn peek_위치_host는_실제_소스를_보존하며_소유_창에서_다른_파일을_열거나_옆에_연다() {
+    for auxiliary in [false, true] {
+        for side in [false, true] {
+            let mut f = Fixture::new(auxiliary);
+            f.request_from_preview(side);
+            let request = &f.request.source;
+            let owner = f.store.views().get(request.owner).unwrap().clone();
+            let preview = f.store.views().get(request.source).unwrap().clone();
+            let source = f.store.documents().snapshot(preview.document).unwrap();
+            let body = f.store.documents().snapshot(owner.document).unwrap();
+            let before = f.services.state.layouts.read()[&request.project].clone();
+            assert_ne!(request.source_key, request.owner_key);
+            assert_ne!(preview.document, owner.document);
+            assert_eq!(request.owner_key, owner.key);
+            assert_eq!(request.source_key, preview.key);
+            assert_eq!(request.snapshot.id, preview.document);
+            assert_eq!(request.position, Position::new(1, 4));
+            assert!(request.describes(&f.store, true));
+            assert!(request.is_active(&before, &f.request.scope));
+            let opened = open(&f.services, &f.request).await.unwrap();
+            assert_eq!(opened.project, request.project);
+            assert_eq!(opened.viewport, f.request.viewport);
+            assert_eq!((opened.line, opened.column), (2.0, 5.0));
+            assert_ne!(opened.pane, request.source_key.pane);
+            if side {
+                assert_ne!(opened.pane, request.owner_key.pane);
+            } else {
+                assert_eq!(opened.pane, request.owner_key.pane);
+            }
+            let (root, focused) = crate::symbol_sidebar::window_tree(
+                &opened.project,
+                &opened.layout,
+                &f.request.scope,
+            )
+            .unwrap();
+            assert_eq!(focused, &opened.pane);
+            assert_eq!(
+                taide_native_ui::snapshot::active_tab(root, focused)
+                    .unwrap()
+                    .id,
+                opened.tab
+            );
+            assert_eq!(
+                taide_layout::service::collect_leaves(root).len(),
+                if side { 2 } else { 1 }
+            );
+            if side {
+                assert_eq!(
+                    taide_native_ui::snapshot::active_tab(root, &owner.key.pane)
+                        .unwrap()
+                        .id,
+                    owner.key.tab
+                );
+            }
+            if auxiliary {
+                assert_eq!(opened.layout.root, before.root);
+            }
+            assert_eq!(
+                f.store.views().get(request.owner).unwrap().selection,
+                owner.selection
+            );
+            assert_eq!(
+                f.store.views().get(request.source).unwrap().selection,
+                preview.selection
+            );
+            for before in [source, body] {
+                let after = f.store.documents().snapshot(before.id).unwrap();
+                assert_eq!(
+                    (
+                        &after.rope,
+                        after.revision,
+                        after.dirty,
+                        after.metadata.read_only
+                    ),
+                    (
+                        &before.rope,
+                        before.revision,
+                        before.dirty,
+                        before.metadata.read_only
+                    )
+                );
+            }
+            assert_eq!(
+                std::fs::read_to_string(f.directory.join("project/source.rs")).unwrap(),
+                "source"
+            );
+            assert_eq!(
+                std::fs::read_to_string(f.directory.join("project/target.rs")).unwrap(),
+                PREVIEW_TEXT
+            );
+            assert_eq!(std::fs::read_to_string(&opened.path).unwrap(), PREVIEW_TEXT);
+            f.services.tasks.shutdown().await;
+        }
+    }
+}
+
+#[tokio::test]
+async fn peek_위치_host는_소유_닫힘과_늦은_레이아웃의_파일_열기를_거절한다() {
+    for auxiliary in [false, true] {
+        for closed in [false, true] {
+            let mut f = Fixture::new(auxiliary);
+            f.request_from_preview(false);
+            if closed {
+                f.locations.close(f.request.source.owner);
+                assert!(f.request.is_cancelled());
+                assert!(!f.locations.is_current_open(&f.request));
+            } else {
+                f.services
+                    .state
+                    .layouts
+                    .write()
+                    .get_mut(&f.request.source.project)
+                    .unwrap()
+                    .revision += 1;
+            }
+            let before = f.services.state.layouts.read().clone();
+            assert!(open(&f.services, &f.request).await.is_err());
+            assert_eq!(*f.services.state.layouts.read(), before);
+            f.locations.close(f.request.source.owner);
+            f.locations.detach_retired(&mut f.store);
+            assert!(f.store.views().get(f.request.source.source).is_none());
+            assert!(f.store.views().get(f.request.source.owner).is_some());
+            f.services.tasks.shutdown().await;
+        }
     }
 }
 

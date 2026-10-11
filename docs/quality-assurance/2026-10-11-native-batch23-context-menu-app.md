@@ -1,6 +1,6 @@
 # 배치 23 편집기 메뉴의 실제 App 연결
 
-상태: c9c1의 실제 App 연결과 관련 4건을 확인하고 전체 게이트를 진행합니다. editor-33은 missing→partial입니다. 현재 대상 588행 중 296완료/부분 92/미연결 112/미구현 88·292미완료이며 전체 전환율/잔여 시간은 미산정입니다. 배치 23 잔여 25행·현재 23/최종 33은 그대로입니다. 기존 c9a/c9b 기준은 [배치 23 기록](2026-10-10-native-batch23-editor.md)에 있습니다.
+상태: c9c2e2의 실제 같은 파일/다른 파일 정의 이동·embedded 명령 활성 조건과 source/owner·닫힘/열기 수명을 확인했습니다. 현재 App 전체 직접 1회는 67대상/891통과/1실패·보호 Trash 3제외·exit 101이며 실패는 기존 프로젝트 open 준비 시간 초과 1건입니다. editor-33은 partial, 현재 23/최종 33·전체 전환율/잔여 시간은 미산정입니다. 검증된 피크 경계 변경의 선별 Git은 대기 중이며 c9d와 배치 31의 신뢰성 과제를 미완료로 보존합니다.
 
 ## 대상과 기준
 
@@ -133,3 +133,43 @@ peek 이동의 원본 기준을 실제 소스로 정정합니다. 설치 Monaco 
 aux-inactive-main.log는 주 창 Settings 활성 상태의 보조 창 팔레트 메뉴/정의 공급 항목·UTF-8 선택 복사·본문 선택 보존·실제 PTY 및 닫힌 창 회수까지 기존 1검사에 확대해 30.16초·exit 0으로 통과했습니다. 소유 2Rust rustfmt --check와 관련 3경로 diff check는 exit 0이고 디스크 여유는 351GiB/사용 81%입니다. 모든 이번 Cargo 핸들은 종료했으며 새 코드의 App 전체 실행은 c9d에서 남은 peek 위치 경계 뒤 직접 1회 확인합니다. 현재는 관련 두 기존 검사의 실제 확대 근거만 완료로 두고 이전 전체 성공/통과 수를 새 코드 전체 완료나 새 검사 수로 쓰지 않습니다. 선별 Git은 대기 중입니다.
 
 창별 팔레트 구현·확대 App 검사·QA·PROCESS 상단의 4소유 경로를 8812c014로 선별 커밋·일반 푸시하고 원격 0/0·사용자 단독 author·AI 트레일러 없음·빈 index를 확인했습니다. PROCESS의 이전 세션 하단 SHA-256 7b26f85e8fdcbd03592f4c6722e88350d490341515c9175d0725ece101c1a4ed를 보존했고 외부 변경을 stage하지 않았습니다. 제품 기준은 실제 8812c014이며 문서 후속 커밋 때문에 기준을 다시 바꾸지 않습니다. 현재 App 전체 성공으로 확대하지 않고 다음 실제 source/소유 경계를 유지합니다.
+
+## peek 정의 이동의 실제 source와 소유 (c9c2e2 진행)
+
+- [x] 실제 peek 메뉴의 Go to Definition이 preview를 이동하지 않는 실패 재현
+- [x] 원본에서 제공하는 same-file Go to Definition의 preview 이동·본문 선택/문서/디스크 보존·요청 회수와 embedded Peek 항목 제외
+- [ ] 상태/Host 열기·다른 파일/옆 열기·늦은 응답/닫힘·현재 전체 게이트/선별 Git
+
+peek-definition-red.log는 새 실제 App 1검사가 Go to Definition 단계에서 preview 선택을 바꾸지 못해 0통과/1실패·31.94초·exit 101입니다. 메뉴와 실제 LSP를 거치며 source의 선택이 정확히 정의 시작점으로 이동해야만 통과합니다. 세션 없음/모델 있음 같은 간접 조건으로 이동을 통과시키지 않습니다. Peek Definition도 동일 source 이동·본문 선택 및 기존 peek 보존을 확인하는 두 번째 경우로 포함했으나 최초 실패에서는 실행되지 않았습니다. 로그 접두사는 /private/tmp/taide-batch23-menu-입니다.
+
+위치 Request는 실제 source/source_key·문서·선택·position을 보존하고 owner/owner_key를 별도 캡처하도록 수정 중입니다. 활성 창/pane 검사와 Host 파일 열기는 owner_key를 쓰며 Source의 URI/선택/문서 revision 검증은 바꾸지 않습니다. 실제 Monaco처럼 embedded Peek 요청은 GoTo로 평가하고 여러 결과가 있어도 가상 pane에 새 peek를 표시하지 않습니다. 소유 peek를 닫으면 종속 요청을 회수하고, 파일 열기 응답을 기다리는 source view는 기존 열기 수명 동안만 보존하며 응답 뒤 실제 이동 대상으로 rehome하면 owner를 함께 갱신합니다. 현재 green exact는 진행 중이며 다른 파일/옆 열기·늦은 응답/수명과 전체 성공을 아직 보고하지 않습니다.
+
+peek-definition-green.log는 첫 Go to Definition의 실제 이동/보존 단언까지 진행했으나 두 번째 Peek Definition을 기다려 0통과/1실패·19.17초·exit 101로 종료했습니다. peek-definition-submenu.log도 없는 Peek 하위 메뉴를 기대한 단언에서 0통과/1실패·9.22초·exit 101입니다. 설치 Monaco의 PeekDefinitionAction precondition은 notInPeekEditor와 isInEmbeddedEditor의 부정을 요구하고 native editor-context-menu.groups도 embedded에서는 Peek 하위 항목을 만들지 않습니다. 이 두 실패는 검사 전제 오류이며 메뉴를 새로 추가하거나 실제 이동 단언을 완화하지 않았습니다.
+
+정확한 메뉴 범위로 검사를 바로잡은 peek-definition-source.log는 실제 LSP를 통한 preview의 byte 12 이동·본문 선택 0 보존·기존 parent peek 보존·자식 위치 요청 회수·rope/revision/dirty/readonly 및 원본 디스크 보존과 Peek Definition 항목 제외가 새 App 1건·7.05초·exit 0으로 통과했습니다. 앞서 잘못된 이름 필터로 실행된 0건을 통과로 포함하지 않습니다. 상태/Host와 다른 파일/옆 열기·수명/늦은 응답·현재 전체 게이트는 진행 중입니다.
+
+peek-owner-state.log는 기존 회귀 12건과 새 2건이 14통과·3.58초·exit 0입니다. GoTo/Aside/Hover의 실제 preview source_key·문서/선택/UTF-16 위치와 본문 owner_key를 각각 확인했으며 소유 닫힘의 요청/열기 취소와 늦은 응답 거절을 검사했습니다. 다른 탭으로 활성 상태가 넘어가기 전에는 owner로 요청을 유지하고, 열기 중에는 preview 뷰를 보존한 뒤 응답 인계/취소·기존 만료·소유 닫힘에서 회수합니다. 시간 상한을 확대하거나 실제 요청 위치/선택을 본문으로 치환하지 않습니다.
+
+peek-owner-host.log는 기존 회귀 6건과 새 2건이 8통과·0.04초·exit 0입니다. 실제 임시 target 파일을 preview 문서로 읽어 본문과 다른 source 문서/URI/키·UTF-16 위치를 보존하고, 실제 Host에서 세 번째 파일을 주 창/보조 창의 같은 pane 또는 오른쪽 그룹으로 엽니다. 가상 preview pane을 레이아웃에 넣지 않으며 보조 창에서는 주 창 layout을 보존합니다. 내용/revision/dirty/readonly·원본 선택/디스크, 소유 닫힘/늦은 layout revision 거절과 preview 회수도 확인했습니다. 이 Host 검사를 실제 LSP/팔레트 전체 입력 흐름으로 확대하지 않습니다. 실제 App의 preview 팔레트 Aside·LSP→Host→목적 뷰 이동은 별도 새 검사에서 진행 중입니다.
+
+peek-definition-side-app.log는 목적지 그룹/정의 시작점 이동까지 도달했으나 기존 preview 생존 단언에서 0통과/1실패·27.44초·exit 101입니다. 설치 Monaco OpenDefinitionToSideAction은 isInEmbeddedEditor 부정을 요구하므로 embedded에서 Aside 팔레트 실행을 기대한 전제가 잘못됐습니다. 이를 원본이 허용하는 제품 동작의 실패로 보고하지 않습니다. 다만 native 팔레트가 그 명령을 실행 가능하게 표시하는 차이가 실제로 관찰됐으며, 원본의 제외 8명령과 허용 3명령을 검사하는 실제 App 검사로 교체해 활성 조건의 실패를 재현 중입니다. Host의 다른 파일/옆 열기 성공도 이 팔레트의 지원 선언으로 확대하지 않습니다.
+
+peek-location-palette-red.log는 검사 파일 생성 시 한국어 함수 이름을 literal Unicode escape로 쓴 오류로 fmt/컴파일 실패·실행 0건·exit 101입니다. 실제 UTF-8 함수 이름으로 바로잡고 fmt 성공을 확인한 뒤 source-red.log에서 제품의 실제 활성 조건 검사를 실행합니다. 이 생성 오류를 제품 실패나 통과로 합산하지 않습니다.
+
+peek-location-palette-source-red.log는 실제 native 팔레트가 embedded의 Aside를 활성화하는 차이를 0통과/1실패·11.80초·exit 101로 재현했습니다. source/owner를 구하고 embedded에서는 Peek/Aside와 Declaration/References를 제외하며 실제 source 문서의 공급자를 검사하도록 수정했습니다. 로컬 명령의 Provider.apply에도 같은 조건을 적용했으며 마우스 hover API는 바꾸지 않았습니다. peek-location-palette-green.log는 제외 8/허용 3행의 활성 상태와 source/owner 선택·문서·기존 peek·디스크 보존이 1통과·11.27초·exit 0입니다.
+
+실제 다른 파일 이동을 확인하기 위해 기존 소유 mock에 --native-locations-cross-file 모드를 추가했습니다. 실제 요청 URI가 본문 current.rs이면 peek.rs, preview peek.rs이면 destination.rs를 응답하므로 본문으로 요청을 잘못 치환하면 목적지 검사를 통과할 수 없습니다. 정상 모드는 바꾸지 않으며 새 의존성/manifest/lock 변경이 없습니다. 기존 fixture의 소유 파일만 쓰고 새 실제 App 검사의 LSP→Host→layout→문서 선택 및 preview 회수 결과는 아직 대기 중입니다.
+
+peek-cross-file-mock-build.log는 기존 App example의 새 cross-file 모드가 26.15초·exit 0으로 빌드됐습니다. mock의 무관한 기존 포맷을 보존해 최종 diff는 새 모드/응답 13행뿐입니다. peek-definition-cross-file-app.log는 새 실제 App 검사에서 다른 파일 정의 이동 조건을 만족하지 못해 0통과/1실패·19.98초·exit 101입니다. 원본이 허용하는 Go to Definition 메뉴와 실제 LSP를 사용한 실패이며 기존 상태/Host 성공으로 덮지 않습니다. 요청 유효성·source/owner 뷰와 목적 탭의 실제 상태 변화만 임시 관찰해 원인을 확인 중이며 현재 전체 c9d는 시작하지 않았습니다.
+
+peek-definition-cross-file-diagnostic.log는 같은 실패가 0통과/1실패·19.28초·exit 101이고, 소유 본문/preview는 살아 있으며 위치 자식 요청과 목적 탭이 전혀 생성되지 않은 실제 관찰입니다. LspBridge.feature_providers와 App의 preview_bindings→sync/retain_bindings는 새 preview 문서의 비동기 연결이 완료된 뒤 공급자를 반환합니다. 메뉴 helper의 paint는 UI 입력만 실행하며 최초 preview 생성 단언은 이 연결 완료를 보장하지 않았습니다. 이 추가 두 실패를 source 뷰 조기 회수의 제품 버그로 보고하지 않습니다.
+
+새 preview 문서의 실제 정의 공급자가 준비된 조건을 먼저 확인한 peek-definition-cross-file-ready.log는 같은 10초 상한을 유지하며 1통과·9.38초·exit 0입니다. actual source URI peek.rs의 실제 LSP 응답은 destination.rs이고, 기존 소유 pane의 실제 목적 탭/정의 byte 12 이동·자식/기존 peek 회수·본문 탭 유지·두 문서 rope/revision/dirty/readonly 및 세 실제 원본 파일 보존을 확인했습니다. 간접 상태로 이동을 대신하지 않았고 실제 Source/Host 수정은 바꾸지 않았습니다. 임시 진단 출력을 제거했으며 현재 App의 전체 대상을 --all-targets --no-fail-fast로 직접 1회 실행 중입니다. 보호 Trash 3건만 기존처럼 제외하고 성공했던 전체 대상을 별도로 반복하지 않습니다.
+
+peek-owner-all-targets.log의 현재 lib 대상은 651통과/0실패·보호 1제외·206.75초입니다. 최종 진단 제거 뒤 새 App 3건과 새 상태 2/Host 2건을 포함한 현재 코드의 실제 전체 lib 결과입니다. 다른 통합 대상은 아직 진행 중이므로 이 lib 성공을 App 전체 exit 0으로 확대하지 않습니다. readonly fixture의 lossy 원본과 이전 LSP 하이라이트 child 실패도 이 lib 실행에서는 통과했습니다. 최초 전체 실패의 원인 해결이나 반복 안정성으로 확대하지 않고 배치 31의 기존 준비/신뢰성 부채를 보존합니다.
+
+현재 전체의 tests/projects.rs:114 실제_project_open_restore_file_tab_전체_tree와_exit가_같은_소유권을_쓴다는 다시 준비 시간 초과로 실패했습니다. projects 대상은 3통과/1실패·28.82초입니다. 중간 commentary에서 통과했다고 보고한 것은 완료 로그를 확인하지 않은 판단 오류였으며 실제 결과로 정정합니다. 최초 App lib 651통과와 이 실패를 구분하고 전체 exit 0으로 보고하지 않습니다. 이전 전체/실패 exact에서도 동일 지점에 실패했으므로 근거 없는 같은 재실행·상한 확대·생략을 하지 않습니다. 기존 f1/배치 31의 프로젝트 초기화·watcher 신뢰성 과제로 보존하고 현재 전체의 남은 대상 종료를 확인합니다.
+
+peek-owner-all-targets.log의 현재 App 전체 직접 1회는 67대상/891통과/1실패·보호 Trash 3제외·exit 101로 종료했습니다. 새 서로 다른 7건은 실제 App 3·위치 상태 2·Host 2건이며 현재 전체 통과에 포함하므로 개별 25건을 다시 합산하지 않습니다. 유일한 실패는 기존 tests/projects.rs:114이며 이번 변경이 사용하지 않는 OpenProject 준비 경로입니다. 기존 f1의 원인 미확정 부채를 유지하며 같은 실패 검사/전체 성공 대상 재실행·상한 확대·검사 생략을 하지 않았습니다. 해당 전체 검사의 모든 소유 핸들은 종료했습니다.
+
+소유 App 6Rust rustfmt --check와 소유 8경로 diff check는 exit 0입니다. 새 mock은 App example의 실제 빌드와 App 전체에 포함되며 독립 실험의 기존 lock/fmt 부채를 새 성공으로 보고하지 않습니다. 동결 remote-web source·manifest/lock/의존 그래프·UI/Editor/구문 엔진은 바꾸지 않았고 기존 frozen host/Wasm 성공을 실제 불변 근거로 재사용합니다. 디스크 여유는 335GiB/사용 82%이며 빌드 정리나 보호 앱/사용자 데이터/OS 변경을 실행하지 않았습니다. 검증된 소유 7Rust·QA·PROCESS 상단의 선별 커밋/일반 푸시는 대기 중입니다.

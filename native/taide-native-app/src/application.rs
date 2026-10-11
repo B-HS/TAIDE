@@ -4177,7 +4177,9 @@ impl NativeApplication {
         if request.mode == Mode::Hover {
             return;
         }
-        if request.mode == Mode::Peek || model.targets().len() > 1 {
+        if request.source == request.owner
+            && (request.mode == Mode::Peek || model.targets().len() > 1)
+        {
             self.editor_locations.show(request.source);
             return;
         }
@@ -6206,15 +6208,29 @@ impl eframe::App for NativeApplication {
                         }
                         let Some(taide_native_editor::symbol_locations::Command::Request {
                             kind,
-                            ..
+                            mode,
                         }) = taide_native_editor::symbol_locations::Command::from_action(action)
                         else {
                             return true;
                         };
                         focused_view
                             .as_ref()
-                            .and_then(|key| self.store.views().find(key))
-                            .and_then(|view| self.store.views().get(view))
+                            .and_then(|key| {
+                                let fallback = self
+                                    .store
+                                    .views()
+                                    .find(key)
+                                    .and_then(|view| self.store.views().get(view))
+                                    .map(|view| view.document);
+                                self.focused_editor_source(&context, &key.tab, fallback)
+                            })
+                            .filter(|(source, owner)| {
+                                source == owner
+                                    || crate::editor_locations::supports_embedded_request(
+                                        kind, mode,
+                                    )
+                            })
+                            .and_then(|(source, _)| self.store.views().get(source))
                             .and_then(|view| self.store.documents().snapshot(view.document).ok())
                             .zip(editor_project)
                             .is_some_and(|(document, project)| {

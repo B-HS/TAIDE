@@ -75,9 +75,9 @@ pub(crate) async fn open(
                     &request.scope,
                 )
                 .is_some_and(|(root, focused)| {
-                    *focused == request.source.source_key.pane
+                    *focused == request.source.owner_key.pane
                         && taide_native_ui::snapshot::active_tab(root, focused)
-                            .is_some_and(|tab| tab.id == request.source.source_key.tab)
+                            .is_some_and(|tab| tab.id == request.source.owner_key.tab)
                 })
         })
         .ok_or_else(|| AppError::NotFound("native location source pane changed".into()))?;
@@ -99,12 +99,12 @@ pub(crate) async fn open(
     let tab = if request.side {
         taide_layout::service::open_tab_in_split(
             layout,
-            &request.source.source_key.pane,
+            &request.source.owner_key.pane,
             DropEdge::Right,
             tab,
         )?
     } else {
-        taide_layout::service::open_tab(layout, &request.source.source_key.pane, tab, preview)?
+        taide_layout::service::open_tab(layout, &request.source.owner_key.pane, tab, preview)?
     };
     let pane = taide_layout::service::all_roots(layout)
         .find_map(|root| {

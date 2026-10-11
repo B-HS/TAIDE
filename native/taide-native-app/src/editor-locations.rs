@@ -24,6 +24,11 @@ const HOVER_LINES: usize = 8;
 const HOVER_SPAN_FIELDS: usize = 2;
 const TOKEN_DECORATION_WIDTH: f32 = 1.0;
 
+pub(crate) fn supports_embedded_request(kind: Kind, mode: Mode) -> bool {
+    !matches!(mode, Mode::Peek | Mode::Aside)
+        && !matches!(kind, Kind::Declaration | Kind::References)
+}
+
 struct TrackedReference {
     index: usize,
     range: DecorationLayer,
@@ -79,6 +84,8 @@ pub struct Request {
     pub snapshot: DocumentSnapshot,
     pub source: ViewId,
     pub source_key: ViewKey,
+    pub(crate) owner: ViewId,
+    pub(crate) owner_key: ViewKey,
     pub selection: SelectionSet,
     pub position: Position,
     pub kind: Kind,
@@ -97,9 +104,9 @@ impl Request {
     ) -> bool {
         crate::symbol_sidebar::window_tree(&self.project, layout, scope).is_some_and(
             |(root, focused)| {
-                *focused == self.source_key.pane
+                *focused == self.owner_key.pane
                     && taide_native_ui::snapshot::active_tab(root, focused)
-                        .is_some_and(|tab| tab.id == self.source_key.tab)
+                        .is_some_and(|tab| tab.id == self.owner_key.tab)
             },
         )
     }
@@ -108,6 +115,13 @@ impl Request {
     }
 
     pub(crate) fn describes(&self, store: &EditorStore, check_selection: bool) -> bool {
+        if store
+            .views()
+            .get(self.owner)
+            .is_none_or(|owner| owner.key != self.owner_key)
+        {
+            return false;
+        }
         store.views().get(self.source).is_some_and(|view| {
             view.key == self.source_key
                 && view.document == self.snapshot.id
@@ -269,6 +283,8 @@ impl State {
         )?;
         pending.session.request.source = view;
         pending.session.request.source_key = current.key.clone();
+        pending.session.request.owner = view;
+        pending.session.request.owner_key = current.key.clone();
         pending.session.request.snapshot = snapshot.clone();
         pending.session.request.selection = current.selection.clone();
         pending.session.request.position = position;
@@ -428,9 +444,9 @@ impl State {
                         .is_some_and(|(root, _)| {
                             taide_native_ui::snapshot::active_tab(
                                 root,
-                                &session.request.source_key.pane,
+                                &session.request.owner_key.pane,
                             )
-                            .is_some_and(|tab| tab.id == session.request.source_key.tab)
+                            .is_some_and(|tab| tab.id == session.request.owner_key.tab)
                         })
                 });
                 if !active {
@@ -451,6 +467,18 @@ impl State {
         position: Option<Position>,
     ) -> Result<Request, EditorError> {
         let current = store.views().get(view).ok_or(EditorError::NotFound)?;
+        let owner = self.preview_owner(view).unwrap_or(view);
+        let owner_key = store
+            .views()
+            .get(owner)
+            .ok_or(EditorError::NotFound)?
+            .key
+            .clone();
+        let mode = if owner != view && mode == Mode::Peek {
+            Mode::GoTo
+        } else {
+            mode
+        };
         let snapshot = store.documents().snapshot(current.document)?;
         let head = current.selection.selections[current.selection.primary].head;
         let keyboard = mode == Mode::Hover && position.is_none();
@@ -461,6 +489,8 @@ impl State {
             snapshot,
             source: view,
             source_key: current.key.clone(),
+            owner,
+            owner_key,
             selection: current.selection.clone(),
             position,
             kind,
@@ -581,6 +611,9 @@ impl State {
         if let Some(session) = self.sessions.remove(&view) {
             self.retired_previews.extend(session.preview);
         }
+        for sessions in [&mut self.sessions, &mut self.hovers] {
+            sessions.retain(|_, session| session.request.owner != view);
+        }
     }
 
     pub(crate) fn reconcile(
@@ -646,7 +679,12 @@ impl State {
                 &self.sessions
             })
             .get(&request.source)
-            .is_some_and(|session| session.request.token == request.token)
+            .is_some_and(|session| {
+                session.request.token == request.token
+                    && (request.source == request.owner
+                        || session.open.is_some()
+                        || self.preview_owner(request.source) == Some(request.owner))
+            })
     }
 
     pub(crate) fn preview_views(&self) -> HashSet<ViewId> {
@@ -684,7 +722,18 @@ impl State {
     }
 
     pub(crate) fn detach_retired(&mut self, store: &mut EditorStore) {
-        for view in self.retired_previews.drain(..) {
+        let leased: HashSet<_> = self
+            .sessions
+            .values()
+            .chain(self.hovers.values())
+            .filter(|session| session.open.is_some())
+            .map(|session| session.request.source)
+            .collect();
+        for view in std::mem::take(&mut self.retired_previews) {
+            if leased.contains(&view) {
+                self.retired_previews.push(view);
+                continue;
+            }
             if store.views().get(view).is_some() {
                 let _ = store.detach_view(view);
             }
@@ -871,6 +920,9 @@ impl State {
         providers: HashSet<ProviderIdentity>,
         result: Result<Response, Failure>,
     ) -> Result<Option<Arc<Locations>>, Failure> {
+        if !self.is_current(request) {
+            return Ok(None);
+        }
         let Some(session) = (if request.mode == Mode::Hover {
             &mut self.hovers
         } else {
@@ -1444,7 +1496,14 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
             return Ok(false);
         }
         match command {
-            Command::Request { kind, mode } => self.request(store, view, kind, mode, None),
+            Command::Request { kind, mode } => {
+                if self.state.preview_owner(view).is_some()
+                    && !supports_embedded_request(kind, mode)
+                {
+                    return Ok(false);
+                }
+                self.request(store, view, kind, mode, None)
+            }
             Command::Close => {
                 let visible = self.state.current(view).is_some();
                 self.state.close(view);

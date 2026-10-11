@@ -132,6 +132,191 @@ fn provider(generation: u64) -> ProviderIdentity {
 }
 
 #[test]
+fn peek_요청은_실제_source와_owner를_보존하고_닫힌_owner의_늦은_응답을_거절한다() {
+    for mode in [Mode::GoTo, Mode::Aside, Mode::Hover] {
+        let (mut store, document, owner) = fixture();
+        let project = ProjectId::new();
+        let identity = provider(1);
+        let providers = HashSet::from([identity]);
+        let mut state = State::default();
+        let parent = state
+            .begin(
+                project.clone(),
+                &store,
+                owner,
+                Kind::Definition,
+                Mode::Peek,
+                providers.clone(),
+                None,
+            )
+            .unwrap();
+        state
+            .accept(&parent, &store, providers.clone(), Ok(response(identity)))
+            .unwrap()
+            .unwrap();
+        state.show(owner);
+        state.prepare_preview(&mut store, owner).unwrap();
+        let preview = state.current(owner).unwrap().preview.unwrap();
+        let request = state
+            .begin(
+                project,
+                &store,
+                preview,
+                Kind::Definition,
+                mode,
+                providers.clone(),
+                None,
+            )
+            .unwrap();
+        assert_eq!(request.source, preview);
+        assert_eq!(request.source_key, store.views().get(preview).unwrap().key);
+        assert_eq!(request.owner, owner);
+        assert_eq!(request.owner_key, store.views().get(owner).unwrap().key);
+        assert_ne!(request.source_key, request.owner_key);
+        assert_eq!(request.snapshot.id, document);
+        assert_eq!(
+            request.selection,
+            store.views().get(preview).unwrap().selection
+        );
+        assert_eq!(request.position, Position::new(1, 4));
+        assert!(state.is_current(&request));
+        let open = (mode != Mode::Hover).then(|| state.begin_open(&store, preview).unwrap().2);
+        state.close(owner);
+        assert!(parent.is_cancelled());
+        assert!(request.is_cancelled());
+        assert!(!state.is_current(&request));
+        assert!(open.is_none_or(|cancelled| *cancelled.borrow()));
+        assert!(
+            state
+                .accept(&request, &store, providers, Ok(response(identity)))
+                .unwrap()
+                .is_none()
+        );
+        state.detach_retired(&mut store);
+        assert!(store.views().get(preview).is_none());
+        assert!(store.views().get(owner).is_some());
+        assert!(state.sessions.is_empty());
+        assert!(state.hovers.is_empty());
+        assert!(state.retired_previews.is_empty());
+    }
+}
+
+#[test]
+fn peek_파일_열기는_레이아웃_인계_동안만_source를_보존하고_취소_만료_닫힘에_회수한다() {
+    use taide_model::layout::{PaneNode, Tab, TabKind};
+    for case in ["reply", "expiry", "close"] {
+        let (mut store, document, owner) = fixture();
+        let project = ProjectId::new();
+        let identity = provider(1);
+        let providers = HashSet::from([identity]);
+        let mut state = State::default();
+        let parent = state
+            .begin(
+                project.clone(),
+                &store,
+                owner,
+                Kind::Definition,
+                Mode::Peek,
+                providers.clone(),
+                None,
+            )
+            .unwrap();
+        state
+            .accept(&parent, &store, providers.clone(), Ok(response(identity)))
+            .unwrap();
+        state.show(owner);
+        state.prepare_preview(&mut store, owner).unwrap();
+        let preview = state.current(owner).unwrap().preview.unwrap();
+        let child = state
+            .begin(
+                project.clone(),
+                &store,
+                preview,
+                Kind::Definition,
+                Mode::GoTo,
+                providers.clone(),
+                None,
+            )
+            .unwrap();
+        let mut layout = taide_layout::service::default_layout();
+        let destination = TabId::new();
+        let key = store.views().get(owner).unwrap().key.clone();
+        layout.root = PaneNode::Leaf {
+            id: key.pane.clone(),
+            tabs: vec![
+                Tab {
+                    id: key.tab.clone(),
+                    kind: TabKind::File { path: PATH.into() },
+                    title: "source.rs".into(),
+                    pinned: false,
+                    preview: false,
+                    dirty: false,
+                    view_state: None,
+                },
+                Tab {
+                    id: destination.clone(),
+                    kind: TabKind::File {
+                        path: "/synthetic/target.rs".into(),
+                    },
+                    title: "target.rs".into(),
+                    pinned: false,
+                    preview: true,
+                    dirty: false,
+                    view_state: None,
+                },
+            ],
+            active: Some(key.tab),
+        };
+        layout.focused_pane = key.pane;
+        let mut layouts = HashMap::from([(project.clone(), layout)]);
+        let scope = taide_native_ui::shell::WindowScope::Main;
+        assert!(child.is_active(&layouts[&project], &scope));
+        state.retain_active(&layouts, &scope);
+        assert!(state.is_current(&child));
+        state
+            .accept(&child, &store, providers.clone(), Ok(response(identity)))
+            .unwrap()
+            .unwrap();
+        let (_, _, cancelled) = state.begin_open(&store, preview).unwrap();
+        let PaneNode::Leaf { active, .. } = &mut layouts.get_mut(&project).unwrap().root else {
+            panic!()
+        };
+        *active = Some(destination);
+        state.retain_active(&layouts, &scope);
+        state.detach_retired(&mut store);
+        assert!(parent.is_cancelled());
+        assert!(state.is_current(&child));
+        assert!(!*cancelled.borrow());
+        assert!(store.views().get(preview).is_some());
+        assert!(state.current(owner).is_none());
+        match case {
+            "reply" => state.cancel_open(preview),
+            "expiry" => {
+                state
+                    .sessions
+                    .get_mut(&preview)
+                    .unwrap()
+                    .open
+                    .as_mut()
+                    .unwrap()
+                    .deadline = Instant::now();
+            }
+            _ => state.close(owner),
+        }
+        state.retain_active(&layouts, &scope);
+        state.detach_retired(&mut store);
+        assert!(*cancelled.borrow(), "{case}");
+        assert!(child.is_cancelled(), "{case}");
+        assert!(!state.is_current(&child), "{case}");
+        assert!(store.views().get(preview).is_none(), "{case}");
+        assert!(store.views().get(owner).is_some());
+        assert!(state.sessions.is_empty());
+        assert!(state.retired_previews.is_empty());
+        assert!(!store.documents().snapshot(document).unwrap().dirty);
+    }
+}
+
+#[test]
 fn 위치_응답은_요청_선택_provider와_문서_버전을_확인한다() {
     let (mut store, document, view) = fixture();
     let mut current = store.views().get(view).unwrap().clone();

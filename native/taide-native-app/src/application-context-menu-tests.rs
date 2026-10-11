@@ -23,22 +23,22 @@ const STABLE_FRAMES: usize = 16;
 const AUXILIARY_SLOT: u32 = 1;
 
 fn fixture() -> Fixture {
-    fixture_with_provider(
-        "--native-inlay-hints",
-        false,
-        |application, project, document| {
-            !application
-                .lsp
-                .as_ref()
-                .unwrap()
-                .location_providers(
-                    project,
-                    &application.store.documents().snapshot(document).unwrap(),
-                    taide_native_editor::symbol_locations::Kind::Definition,
-                )
-                .is_empty()
-        },
-    )
+    location_fixture("--native-inlay-hints")
+}
+
+fn location_fixture(mode: &str) -> Fixture {
+    fixture_with_provider(mode, false, |application, project, document| {
+        !application
+            .lsp
+            .as_ref()
+            .unwrap()
+            .location_providers(
+                project,
+                &application.store.documents().snapshot(document).unwrap(),
+                taide_native_editor::symbol_locations::Kind::Definition,
+            )
+            .is_empty()
+    })
 }
 
 fn target(
@@ -1271,5 +1271,309 @@ fn 실제_추가_경계_종료한_터미널과_앱은_대기_전달을_회수한
             application.editor_terminal_writes.is_empty(),
             "stale terminal delivery survived: stopping={stopping}"
         );
+    }
+}
+
+#[test]
+fn 실제_peek_메뉴의_같은_파일_정의_이동은_preview와_본문의_선택을_분리한다() {
+    const DEFINITION_BYTE: usize = 12;
+    let mut fixture = fixture();
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let owner = body_view(application, &fixture.path, &fixture.tab);
+    select(application, owner, 0, 0);
+    focus(application, context, owner);
+    run_palette(application, context, "monaco.editor.action.peekDefinition");
+    wait(
+        application,
+        context,
+        "definition menu preview",
+        |application| {
+            application
+                .editor_locations
+                .current(owner)
+                .is_some_and(|session| session.preview.is_some())
+        },
+    );
+    let preview = application
+        .editor_locations
+        .current(owner)
+        .unwrap()
+        .preview
+        .unwrap();
+    let document = application.store.views().get(preview).unwrap().document;
+    let before = application.store.documents().snapshot(document).unwrap();
+    select(application, preview, 0, 0);
+    let output = menu_action(application, context, preview, "Go to Definition");
+    assert!(!text_contains(&output, "Peek Definition"));
+    wait(application, context, "Go to Definition", |application| {
+        application.store.views().get(preview).is_some_and(|view| {
+            view.selection.selections
+                == vec![Selection {
+                    anchor: DEFINITION_BYTE,
+                    head: DEFINITION_BYTE,
+                }]
+        })
+    });
+    assert_eq!(
+        application
+            .store
+            .views()
+            .get(owner)
+            .unwrap()
+            .selection
+            .selections,
+        vec![Selection { anchor: 0, head: 0 }]
+    );
+    assert_eq!(
+        application.editor_locations.current(owner).unwrap().preview,
+        Some(preview)
+    );
+    assert!(application.editor_locations.current(preview).is_none());
+    let after = application.store.documents().snapshot(document).unwrap();
+    assert_eq!(
+        (
+            &after.rope,
+            after.revision,
+            after.dirty,
+            after.metadata.read_only
+        ),
+        (
+            &before.rope,
+            before.revision,
+            before.dirty,
+            before.metadata.read_only
+        )
+    );
+    assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), TEXT);
+}
+
+#[test]
+fn 실제_peek_팔레트는_원본의_위치_명령_활성_조건과_선택을_보존한다() {
+    let mut fixture = fixture();
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let owner = body_view(application, &fixture.path, &fixture.tab);
+    select(application, owner, 0, 0);
+    focus(application, context, owner);
+    run_palette(application, context, "monaco.editor.action.peekDefinition");
+    wait(
+        application,
+        context,
+        "definition palette preview",
+        |application| {
+            application
+                .editor_locations
+                .current(owner)
+                .is_some_and(|session| session.preview.is_some())
+        },
+    );
+    let preview = application
+        .editor_locations
+        .current(owner)
+        .unwrap()
+        .preview
+        .unwrap();
+    let document = application.store.views().get(preview).unwrap().document;
+    let before = application.store.documents().snapshot(document).unwrap();
+    select(application, preview, 0, 0);
+    for (command, enabled) in [
+        ("monaco.editor.action.revealDefinitionAside", false),
+        ("monaco.editor.action.peekDefinition", false),
+        ("monaco.editor.action.peekDeclaration", false),
+        ("monaco.editor.action.peekTypeDefinition", false),
+        ("monaco.editor.action.peekImplementation", false),
+        ("monaco.editor.action.referenceSearch.trigger", false),
+        ("monaco.editor.action.revealDeclaration", false),
+        ("monaco.editor.action.goToReferences", false),
+        ("monaco.editor.action.revealDefinition", true),
+        ("monaco.editor.action.goToTypeDefinition", true),
+        ("monaco.editor.action.goToImplementation", true),
+    ] {
+        focus(application, context, preview);
+        application.palette.open(
+            context,
+            taide_native_ui::command_registry::PaletteEntry::Commands,
+        );
+        paint(application, context, Vec::new());
+        paint(application, context, Vec::new());
+        assert!(application.palette.inspection().has_input_focus);
+        let label = crate::command_registry::registry()
+            .unwrap()
+            .command(command)
+            .unwrap()
+            .label(&application.locale);
+        paint(application, context, vec![egui::Event::Text(label)]);
+        let row = application
+            .palette
+            .inspection()
+            .rows
+            .iter()
+            .find(|row| row.key == command)
+            .unwrap();
+        assert_eq!(row.is_enabled, enabled, "{command}");
+        paint(application, context, key(egui::Key::Escape, EMPTY));
+    }
+    for view in [owner, preview] {
+        assert_eq!(
+            application
+                .store
+                .views()
+                .get(view)
+                .unwrap()
+                .selection
+                .selections,
+            vec![Selection { anchor: 0, head: 0 }]
+        );
+    }
+    assert_eq!(
+        application.editor_locations.current(owner).unwrap().preview,
+        Some(preview)
+    );
+    let after = application.store.documents().snapshot(document).unwrap();
+    assert_eq!(
+        (
+            &after.rope,
+            after.revision,
+            after.dirty,
+            after.metadata.read_only
+        ),
+        (
+            &before.rope,
+            before.revision,
+            before.dirty,
+            before.metadata.read_only
+        )
+    );
+    assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), TEXT);
+}
+
+#[test]
+fn 실제_peek_메뉴의_다른_파일_정의_이동은_소유_pane의_목적_탭을_연다() {
+    const DEFINITION_BYTE: usize = 12;
+    let mut fixture = location_fixture("--native-locations-cross-file");
+    let destination_path = fixture.directory.join("project/destination.rs");
+    std::fs::write(&destination_path, TEXT).unwrap();
+    let destination_path = destination_path
+        .canonicalize()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let owner = body_view(application, &fixture.path, &fixture.tab);
+    let owner_key = application.store.views().get(owner).unwrap().key.clone();
+    let body = application
+        .store
+        .documents()
+        .snapshot(application.files[&fixture.path].id)
+        .unwrap();
+    select(application, owner, 0, 0);
+    focus(application, context, owner);
+    run_palette(application, context, "monaco.editor.action.peekDefinition");
+    wait(application, context, "cross-file preview", |application| {
+        application
+            .editor_locations
+            .current(owner)
+            .is_some_and(|session| session.preview.is_some())
+    });
+    let preview = application
+        .editor_locations
+        .current(owner)
+        .unwrap()
+        .preview
+        .unwrap();
+    let preview_document = application.store.views().get(preview).unwrap().document;
+    let before = application
+        .store
+        .documents()
+        .snapshot(preview_document)
+        .unwrap();
+    assert_ne!(preview_document, body.id);
+    assert_eq!(
+        before.key,
+        taide_native_editor::document::DocumentKey::File(fixture.peek_path.clone().into())
+    );
+    wait(
+        application,
+        context,
+        "cross-file preview definition provider",
+        |application| {
+            !application
+                .lsp
+                .as_ref()
+                .unwrap()
+                .location_providers(
+                    &fixture.project,
+                    &application
+                        .store
+                        .documents()
+                        .snapshot(preview_document)
+                        .unwrap(),
+                    taide_native_editor::symbol_locations::Kind::Definition,
+                )
+                .is_empty()
+        },
+    );
+    select(application, preview, 0, 0);
+    menu_action(application, context, preview, "Go to Definition");
+    wait(
+        application,
+        context,
+        "cross-file definition navigation",
+        |application| {
+            let layout = application.services.state.layouts.read()[&fixture.project].clone();
+            let Some(tab) =
+                taide_native_ui::snapshot::active_tab(&layout.root, &layout.focused_pane)
+            else {
+                return false;
+            };
+            let Some(file) = application.files.get(&destination_path) else {
+                return false;
+            };
+            tab.kind
+                == (taide_model::layout::TabKind::File {
+                    path: destination_path.clone(),
+                })
+                && layout.focused_pane == owner_key.pane
+                && application.store.views().for_document(file.id).any(|view| {
+                    view.key.pane == owner_key.pane
+                        && view.key.tab == tab.id
+                        && view.selection.selections
+                            == vec![Selection {
+                                anchor: DEFINITION_BYTE,
+                                head: DEFINITION_BYTE,
+                            }]
+                })
+        },
+    );
+    assert!(application.editor_locations.current(preview).is_none());
+    assert!(application.editor_locations.current(owner).is_none());
+    assert!(application.store.views().get(preview).is_none());
+    let layout = application.services.state.layouts.read()[&fixture.project].clone();
+    assert_eq!(taide_layout::service::collect_leaves(&layout.root).len(), 1);
+    assert!(taide_layout::service::collect_leaves(&layout.root).iter().any(|leaf| {
+        matches!(leaf, taide_model::layout::PaneNode::Leaf { tabs, .. } if tabs.iter().any(|tab| tab.id == owner_key.tab))
+    }));
+    for before in [body, before] {
+        let after = application.store.documents().snapshot(before.id).unwrap();
+        assert_eq!(
+            (
+                &after.rope,
+                after.revision,
+                after.dirty,
+                after.metadata.read_only
+            ),
+            (
+                &before.rope,
+                before.revision,
+                before.dirty,
+                before.metadata.read_only
+            )
+        );
+    }
+    for path in [&fixture.path, &fixture.peek_path, &destination_path] {
+        assert_eq!(std::fs::read_to_string(path).unwrap(), TEXT);
     }
 }
