@@ -2029,6 +2029,13 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
                                 taide_native_ui::editor_context_menu::request_keyboard(ui.ctx(), ui.make_persistent_id(("native-code-editor", preview)), index);
                                 return true;
                             }
+                            if edit == crate::command_registry::DocumentEdit::RunSelectedText {
+                                match crate::editor_context_menu::Request::run_selected_text(ui.ctx(), store, view, self.project.as_ref(), self.scope) {
+                                    Ok(request) => commands.push(crate::host::HostCommand::EditorContextMenu(request)),
+                                    Err(error) => errors.push(error),
+                                }
+                                return true;
+                            }
                             if let crate::command_registry::DocumentEdit::Cursor(command @ (taide_native_editor::cursor_commands::CursorCommand::Expand | taide_native_editor::cursor_commands::CursorCommand::Shrink)) = edit
                                 && let Some(consumer) = &self.selection_ranges
                             {

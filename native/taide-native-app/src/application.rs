@@ -6914,6 +6914,39 @@ impl eframe::App for NativeApplication {
                         }
                     }
                     ShellIntent::EditDocument { tab, edit } => {
+                        if edit == DocumentEdit::RunSelectedText {
+                            let project = command_context.active_project.as_ref();
+                            let owner = project
+                                .and_then(|project| {
+                                    crate::symbol_sidebar::window_tree(
+                                        project,
+                                        snapshot.layouts.get(project)?,
+                                        &self.shell.scope,
+                                    )
+                                })
+                                .and_then(|(_, pane)| {
+                                    self.store.views().find(&ViewKey {
+                                        window: WINDOW_LABEL.into(),
+                                        pane: pane.clone(),
+                                        tab: tab.clone(),
+                                    })
+                                });
+                            if let Some(owner) = owner {
+                                match crate::editor_context_menu::Request::run_selected_text(
+                                    &context,
+                                    &self.store,
+                                    owner,
+                                    project,
+                                    &self.shell.scope,
+                                ) {
+                                    Ok(request) => {
+                                        self.submit(HostCommand::EditorContextMenu(request));
+                                    }
+                                    Err(error) => self.report(&editor_error(error)),
+                                }
+                            }
+                            continue;
+                        }
                         self.document_edits.push((tab, edit));
                         context.request_repaint();
                     }

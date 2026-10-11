@@ -19,10 +19,17 @@ pub(crate) fn active_editor_actions(
 ) -> Option<HashSet<String>> {
     let view = store.views().get(store.views().find(focused_view?)?)?;
     let document = store.documents().snapshot(view.document).ok()?;
-    Some(registry().ok()?.editor_action_ids(ActiveEditor {
+    let mut actions = registry().ok()?.editor_action_ids(ActiveEditor {
         is_read_only: document.metadata.read_only,
         has_folding: taide_native_ui::presentation::editor_folding(document.metadata.tier),
-    }))
+    });
+    if !matches!(
+        document.key,
+        taide_native_editor::document::DocumentKey::File(_)
+    ) {
+        actions.remove("taide.runSelectedTextInTerminal");
+    }
+    Some(actions)
 }
 
 pub(crate) fn context(
@@ -140,6 +147,7 @@ pub(crate) fn apply_document_edits_with_cursor(
                     | DocumentEdit::Highlight(_)
                     | DocumentEdit::CodeLens
                     | DocumentEdit::ContextMenu
+                    | DocumentEdit::RunSelectedText
             )
     }) {
         let result = match edit {
@@ -184,6 +192,7 @@ pub(crate) fn apply_document_edits_with_cursor(
             }
             DocumentEdit::CodeLens => continue,
             DocumentEdit::ContextMenu => continue,
+            DocumentEdit::RunSelectedText => continue,
         };
         match result {
             Ok(applied) => changed |= applied,

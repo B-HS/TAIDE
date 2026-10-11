@@ -106,6 +106,8 @@ pub enum DocumentEdit {
     #[cfg(feature = "native-host")]
     ContextMenu,
     #[cfg(feature = "native-host")]
+    RunSelectedText,
+    #[cfg(feature = "native-host")]
     Indentation(taide_native_editor::indent::Command),
 }
 
@@ -316,7 +318,7 @@ fn enablement(id: &str) -> Enablement {
         return Enablement::SupportedEditorAction;
     }
     #[cfg(feature = "native-host")]
-    if id == "editor.find" {
+    if id == "editor.find" || id == "terminal.runSelectedText" {
         return Enablement::ActiveEditor;
     }
     match id {
@@ -336,6 +338,13 @@ fn enablement(id: &str) -> Enablement {
 }
 
 fn execution(id: &str, keymap_id: Option<&str>) -> Execution {
+    #[cfg(feature = "native-host")]
+    if matches!(
+        id,
+        "terminal.runSelectedText" | "monaco.taide.runSelectedTextInTerminal"
+    ) {
+        return Execution::Native(Run::EditDocument(DocumentEdit::RunSelectedText));
+    }
     #[cfg(feature = "native-host")]
     if id == "monaco.editor.action.showContextMenu" {
         return Execution::Native(Run::EditDocument(DocumentEdit::ContextMenu));
@@ -731,6 +740,10 @@ impl Registry {
                     }
                     #[cfg(feature = "native-host")]
                     Execution::Native(Run::EditDocument(DocumentEdit::ContextMenu)) => {
+                        Some(action.to_owned())
+                    }
+                    #[cfg(feature = "native-host")]
+                    Execution::Native(Run::EditDocument(DocumentEdit::RunSelectedText)) => {
                         Some(action.to_owned())
                     }
                     #[cfg(feature = "native-host")]
@@ -1188,6 +1201,8 @@ mod tests {
                 #[cfg(feature = "native-host")]
                 Execution::Native(Run::EditDocument(DocumentEdit::ContextMenu)) => None,
                 #[cfg(feature = "native-host")]
+                Execution::Native(Run::EditDocument(DocumentEdit::RunSelectedText)) => None,
+                #[cfg(feature = "native-host")]
                 Execution::Native(Run::EditDocument(DocumentEdit::Indentation(_))) => None,
                 Execution::Native(Run::EditDocument(
                     DocumentEdit::Line(_) | DocumentEdit::Cursor(_),
@@ -1298,6 +1313,7 @@ mod tests {
                         "editor.action.toggleStickyScroll",
                         "taide.toggleMinimap",
                         "editor.action.showContextMenu",
+                        "taide.runSelectedTextInTerminal",
                     ]
                     .into_iter()
                     .filter(|_| cfg!(feature = "native-host")),

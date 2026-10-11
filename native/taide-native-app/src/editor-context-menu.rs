@@ -167,6 +167,37 @@ pub(crate) async fn terminal_target(
 }
 
 impl Request {
+    pub(crate) fn run_selected_text(
+        context: &EguiContext,
+        store: &EditorStore,
+        owner: ViewId,
+        project: Option<&ProjectId>,
+        scope: &WindowScope,
+    ) -> Result<Self, EditorError> {
+        Ok(Self {
+            invocation: menu::Invocation {
+                session: menu::Session::open(
+                    store,
+                    owner,
+                    owner,
+                    context.viewport_id(),
+                    eframe::egui::Pos2::ZERO,
+                    Vec::new(),
+                )?,
+                action: Action::RunSelectedText,
+            },
+            context: context.clone(),
+            project: project.cloned(),
+            scope: scope.clone(),
+            owner_key: store
+                .views()
+                .get(owner)
+                .ok_or(EditorError::NotFound)?
+                .key
+                .clone(),
+        })
+    }
+
     pub(crate) fn matches(&self, store: &EditorStore) -> bool {
         let session = &self.invocation.session;
         session.matches(store, session.source, session.owner, session.viewport)
