@@ -1,6 +1,6 @@
 {
     "date": "2026-10-11",
-    "baseline": "f3e68234",
+    "baseline": "46e059aa",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {

@@ -63,7 +63,11 @@ terminal-actual.log는 최초 1통과/638filtered·exit 0·8.19초입니다. 이
 - [x] 실제 metadata 공급·readonly 복사
 - [x] 본문/peek 팔레트 source·확정 키 중복 실행 방지·소비 전 peek 닫힘의 본문 대체 방지
 - [x] 새 App 전체 종료 결과·디스크·근거: 67대상/881통과/0실패·보호 Trash 3제외·exit 0, 여유 363GiB/사용 81%
-- [ ] 팔레트 source 수정 단위 선별 Git
+- [x] 팔레트 source 수정 단위 선별 Git: 소유 9경로·외부 PROCESS 하단 제외·사용자 단독 author·AI 트레일러 없이 46e059aa 커밋/일반 푸시·원격 0/0
 - [ ] 추가 찾기/보조 창·터미널 실패/종료/소유 scope와 c9 완료 게이트
 
 palette-app-all-targets.log의 새 App 전체는 exit 0으로 종료했습니다. 관련 2건·재검사와 앞선 PTY 1건은 이 전체에 포함되므로 합산하지 않습니다. 소유 4Rust fmt/diff check는 exit 0이고 native의 manifest/lock·UI/syntax/remote-web source 변경은 없습니다. frozen의 egui 입력 vendor 경로도 바꾸지 않았습니다. 현재 전체와 관련 검사 핸들은 모두 종료했으며 동일 성공 검사를 다시 실행하지 않습니다.
+
+다음 찾기 연계 검사의 원본은 설치 Monaco contextmenu.js의 ShowContextMenu(321~338)·editorContextKeys.js(23)·codeEditorWidget.js(1092~1097, 1669~1673)입니다. Shift+F10은 실제 editor view의 hasTextFocus로 설정하는 textInputFocus 조건이며 팔레트 액션 자체에는 별도 precondition이 없습니다. native 찾기 입력에서 본문 메뉴를 잘못 열지 않는지와 팔레트의 원래 editor source를 각각 검증합니다. 이 조건의 코드 확인을 실제 앱 검사 통과로 보고하지 않습니다.
+
+현재 재개 점검에서 실제 기능표는 599행·제외 10/동결 1·대상 588 중 complete 296/partial 92/unwired 112/missing 88이며 코드 기준은 46e059aa입니다. 종료 로그와 최근 구현 커밋을 대조했고 읽기 전용 프로세스 조회에서 TAIDE Cargo/rustc/감사 작업 잔류는 없었습니다. 무관한 다른 프로젝트의 검사는 이 판정에서 제외합니다. 이 관찰은 현재 실행의 잔류 여부이며 과거 전체 반복이나 제품의 모든 루프 종료성에 대한 증명은 아닙니다. 문서 전용 커밋 뒤에는 native 코드 기준을 다시 바꾸거나 같은 성공 검사를 반복하지 않습니다.
