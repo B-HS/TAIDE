@@ -40,6 +40,35 @@ pub trait FeatureRequest: Request {
     type Reply: serde::de::DeserializeOwned + Serialize + Send + Sync + 'static;
 }
 
+#[cfg(test)]
+mod selection_range_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn selection_range는_위치별_null과_parent를_보존하고_잘못된_범위를_거절한다() {
+        let ranges = json!([
+            null,
+            {
+                "range":{"start":{"line":0,"character":2},"end":{"line":0,"character":6}},
+                "parent":{"range":{"start":{"line":0,"character":0},"end":{"line":2,"character":0}}}
+            }
+        ]);
+        let reply = TypedReply::<request::SelectionRangeRequest>::decode(ranges.clone()).unwrap();
+        assert_eq!(serde_json::to_value(reply.value).unwrap(), ranges);
+        for empty in [Value::Null, json!([]), json!([null])] {
+            assert!(TypedReply::<request::SelectionRangeRequest>::decode(empty).is_ok());
+        }
+        for invalid in [
+            json!([{"range":{"start":{"line":1,"character":0},"end":{"line":0,"character":0}}}]),
+            json!([{"range":{"start":{"line":0,"character":-1},"end":{"line":0,"character":3}}}]),
+            json!([{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":3}},"parent":4}]),
+        ] {
+            assert!(TypedReply::<request::SelectionRangeRequest>::decode(invalid).is_err());
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FoldingRangeReply {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -155,7 +184,7 @@ feature_contracts! {
     "textDocument/inlayHint" => request::InlayHintRequest,
     "textDocument/documentSymbol" => request::DocumentSymbolRequest,
     "textDocument/documentHighlight" => request::DocumentHighlightRequest,
-    "textDocument/selectionRange" => request::SelectionRangeRequest,
+    "textDocument/selectionRange" => request::SelectionRangeRequest => Option<Vec<Option<lsp_types::SelectionRange>>>,
     "textDocument/codeAction" => request::CodeActionRequest,
     "textDocument/foldingRange" => request::FoldingRangeRequest => Option<Vec<FoldingRangeReply>>,
     "textDocument/implementation" => request::GotoImplementation,
