@@ -38,6 +38,9 @@ pub mod editor_code_lenses;
 #[path = "editor-completion.rs"]
 pub mod editor_completion;
 #[cfg(feature = "native-host")]
+#[path = "editor-context-menu.rs"]
+pub mod editor_context_menu;
+#[cfg(feature = "native-host")]
 #[path = "editor-definition-link.rs"]
 mod editor_definition_link;
 #[cfg(feature = "native-host")]

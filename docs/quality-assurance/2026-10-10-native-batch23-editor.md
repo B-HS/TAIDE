@@ -865,3 +865,28 @@ SDK 전체 1대상/91통과·Core 전체 39대상/306통과/기존 성능 1ignor
 실제 typed 복수 공급자·nullable/오류/미지원·UTF-16과 word/중첩/다중 커서·본문/peek 기본/재지정 키·팔레트·같은 프레임 명령 순서·readonly/tier·문서/선택/뷰/공급자 수명·취소/늦은 응답/재시작/정상 종료 및 안정 프레임의 재요청 억제를 근거로 editor-52를 complete로 갱신할 준비를 마쳤습니다. 소유 구현/검사/QA의 선별 Git과 기능표·계획·PROCESS 갱신은 다음 기록 단계입니다. pixel/OS IME/접근성·대형 성능/soak·초기 원인 미확정 부채·출시/전환/제거는 배치 31~33에 유지하며 전체 전환율/잔여 시간은 미산정입니다.
 
 SDK 741b74b9와 구현 ae7c95ed의 선별 커밋/일반 푸시·upstream 0/0을 확인했습니다. 실제 근거와 기능표를 함께 갱신해 editor-52만 partial→complete, 현재 296완료/292미완료·배치 23 잔여 25·최종 33입니다. 소유 PROCESS 아래 외부 변경의 SHA-256 7b26f85e8fdcbd03592f4c6722e88350d490341515c9175d0725ece101c1a4ed는 유지합니다. 같은 배치의 다음 작업은 editor-33 컨텍스트 메뉴 원본 대조이며 전체율/잔여 시간은 미산정입니다.
+
+### c9a — 컨텍스트 메뉴 원본과 소유 (2026-10-11)
+
+원본은 src/features/editor/code-editor.tsx의 taide.toggleMinimap/navigation/1.5와 src/widgets/editor-pane/editor-pane.tsx의 taide.runSelectedTextInTerminal/9_terminal입니다. AI 인라인 편집 addAction에는 contextMenuGroupId가 없어 메뉴에 추가하지 않습니다. 설치 Monaco 0.56의 contextmenu.js·editorExtensions.js·standaloneCodeEditor.js·menuService.js·actions.js와 clipboard/multicursor/codeAction/gotoSymbol/rename/format의 등록을 읽었습니다. navigation이 먼저이고 그 뒤 그룹 이름순, 같은 그룹은 order 뒤 원래 제목순입니다. 구현/참조 이동은 모두 1.45이며 영어 원래 제목으로 구현이 먼저입니다. 비어 있는 Peek/Copy As/Share 하위 메뉴는 제거하고 비어 있지 않은 그룹 사이에만 구분선을 둡니다. 이 설치의 Copy As/Share에는 하위 항목 등록이 없습니다.
+
+우클릭은 모든 선택 중 하나의 범위에 포함되면 전체 선택을 유지하고, 밖이면 클릭 위치의 단일 커서로 바꿉니다. 문자/빈 본문/textarea만 대상이며 gutter·overlay/injected widget은 제외합니다. 키보드 명령은 editor.action.showContextMenu/Shift+F10이고 커서 아래를 기준으로 표시하며 본문 스크롤에 메뉴를 닫습니다. 실제 기능 공급·readonly·비어 있지 않은 선택·peek/embedded 조건을 반영하며 rename/refactor/source/format과 navigation은 기존 실행 경계를 재사용합니다.
+
+공식 웹 Monaco IActionDescriptor와 docs.rs egui 0.36.2 Popup 페이지는 접근 실패여서 성공 근거로 쓰지 않습니다. 설치된 monaco.d.ts/action 구현과 실제 patch 경로 native/taide-native-app/vendor/egui-input/src/containers/popup.rs의 공개 Rustdoc/API를 기준으로 사용합니다. 새로운 의존성이나 vendor 수정은 하지 않습니다. 기존 theme menu.background/menu.border와 메뉴 keyboard owner 등록을 재사용합니다.
+
+소유는 UI의 새 editor-context-menu.rs/관련 검사·lib.rs·editor_surface.rs, App의 새 editor-context-menu 소비자/관련 검사·application.rs·editor-locations.rs·keymap/registry·필요한 host typed clipboard 경계입니다. 진행 순서는 메뉴 모델/입력/표시, 실제 본문/peek·클립보드·터미널 소비, 통합 게이트입니다. 선택 텍스트 터미널 실행은 아직 native 소비가 없어 원본 editor-pane command의 대상 선택/현재 줄/개행/실행 정책을 추가 대조한 뒤 기존 terminal 서비스로 연결합니다. ClipboardReader/Writer는 기존 주입 포트만 사용하고 검사는 가짜 포트로 한정합니다. 구현하지 않은 기능을 지원한다고 표시하거나 editor-33을 먼저 완료로 올리지 않습니다.
+
+- [x] 원본 항목·순서·조건·선택/키·현재 소유/선행 경계 대조
+- [ ] 메뉴 모델·UI hit/표시/keyboard·owner/source 수명 검사
+- [ ] 실제 App 본문/peek·provider/readonly·재지정 키·copy/cut/paste·터미널 소비 검사
+- [ ] 변경 crate 전체 1회·frozen/형식/보호·디스크·기능표·선별 Git
+
+### c9b1 — 메뉴 항목·선택·수명 모델
+
+native/taide-native-ui/src/editor-context-menu.rs와 tests/editor-context-menu.rs를 추가하고 lib.rs에서 native-host로 한정했습니다. 원본 navigation/1_modification/9_cutcopypaste/9_terminal 그룹과 구현/참조 동률 제목 순서, 비어 있는 Peek 제거, readonly·선택·embedded·provider 조건, 번역/재지정 키 공급과 byte 기준 우클릭 선택 보존을 모델로 만들었습니다. Session은 source/owner/viewport와 문서 ID/키/revision·언어/tier/readonly/lossy·선택/스크롤/IME 상태를 대조합니다. 실제 Popup 렌더링·hit/키보드·App 실행은 아직 연결하지 않았으므로 editor-33 missing·296완료/292미완료를 유지합니다.
+
+최초 /private/tmp/taide-batch23-context-menu-model.log는 Core의 pub(crate) byte_to_char를 UI에서 가져온 컴파일 오류·exit 101·검사 0건입니다. Core API를 넓히지 않고 기존 public Rope의 byte/char 왕복 경계 검사를 사용해 model-green.log에서 서로 다른 관련 8건·exit 0을 확인했습니다. 이 8건은 메뉴의 실제 앱/렌더링 검사가 아닙니다.
+
+추가 원본 대조에서 referencesWidget.js의 EmbeddedCodeEditorWidget은 루트의 사용자 addAction을 등록하지 않으며 standaloneCodeEditor.js는 메뉴 when을 editorId에 한정하는 것을 확인했습니다. peek에 미니맵/터미널 액션을 노출하는 모델 오류를 embedded-red.log의 실제 1실패·exit 101로 재현했습니다. embedded 그룹 생성에서 두 항목과 비어 있는 그룹을 제외해 embedded-green.log의 영향 1건·exit 0으로 확인했습니다. 7개 변경 없는 성공을 재사용하고 8+1을 9개로 중복 합산하지 않습니다.
+
+TS editor-area.tsx의 터미널 정책도 대조했습니다. 주 선택이 비어 있지 않으면 범위 텍스트, 아니면 현재 줄이며 끝에 줄바꿈을 붙입니다. 현재 pane의 resolveRunTargetTerminalTab 결과가 있으면 활성화/쓰기, 없으면 같은 pane에 terminal을 연 뒤 씁니다. 실제 native 소비는 c9c에 남깁니다. OS 클립보드/키·앱 데이터·동결 source/manifest/lock/vendor·의존성 변경은 없습니다.
