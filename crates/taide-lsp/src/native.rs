@@ -225,6 +225,17 @@ impl LspCoordinator {
         self.document_options(uri, "completionProvider", "textDocument/completion")
     }
 
+    pub(crate) fn on_type_formatting_options(
+        &self,
+        uri: &str,
+    ) -> Vec<lsp_types::DocumentOnTypeFormattingOptions> {
+        self.document_options(
+            uri,
+            "documentOnTypeFormattingProvider",
+            "textDocument/onTypeFormatting",
+        )
+    }
+
     fn document_options<T: DeserializeOwned>(
         &self,
         uri: &str,

@@ -13,6 +13,194 @@ const HISTORY_LIMIT: usize = 8;
 const INDENT_SIZE: u32 = 4;
 const DISPLAY_SIZE: u32 = 8;
 
+#[test]
+fn 포맷은_주_커서가_같아도_선택_범위가_바뀌면_취소한다() {
+    for automatic in [true, false] {
+        let mut fixture = Fixture::new("abc", false, false);
+        let request = if automatic {
+            let snapshot = fixture
+                .store
+                .documents()
+                .snapshot(fixture.document)
+                .unwrap();
+            let input = taide_native_ui::editor_formatting_input::Input {
+                document: snapshot.id,
+                revision: snapshot.revision,
+                kind: taide_native_ui::editor_formatting_input::Kind::Paste {
+                    range: LspRange::default(),
+                },
+            };
+            fixture
+                .state
+                .begin_automatic(
+                    &fixture.store,
+                    fixture.project.clone(),
+                    fixture.source,
+                    fixture.owner,
+                    &input,
+                    IndentOptions {
+                        tab_size: INDENT_SIZE,
+                        insert_spaces: true,
+                    },
+                    fixture.providers(),
+                )
+                .unwrap()
+                .unwrap()
+        } else {
+            fixture.begin().unwrap().unwrap()
+        };
+        fixture
+            .store
+            .set_view_state(
+                fixture.source,
+                SelectionSet {
+                    primary: 0,
+                    selections: vec![Selection { anchor: 1, head: 0 }],
+                },
+                Default::default(),
+                Vec::new(),
+            )
+            .unwrap();
+        let providers = fixture.providers();
+        fixture
+            .state
+            .reconcile(&fixture.store, |_| providers.clone());
+        assert!(request.is_cancelled(), "automatic={automatic}");
+    }
+}
+
+#[test]
+fn 자동_포맷은_입력과_현재_위치_범위_설정을_보존하고_입력과_분리하여_undo한다() {
+    use taide_native_ui::editor_formatting_input::{Input, Kind as InputKind};
+    let mut fixture = Fixture::new("", false, true);
+    taide_native_editor::editing::type_text(&mut fixture.store, fixture.source, "a;").unwrap();
+    let snapshot = fixture
+        .store
+        .documents()
+        .snapshot(fixture.document)
+        .unwrap();
+    let input = Input {
+        document: snapshot.id,
+        revision: snapshot.revision,
+        kind: InputKind::Type {
+            character: ';',
+            position: Position::new(0, 2),
+        },
+    };
+    let request = fixture
+        .state
+        .begin_automatic(
+            &fixture.store,
+            fixture.project.clone(),
+            fixture.source,
+            fixture.owner,
+            &input,
+            IndentOptions {
+                tab_size: INDENT_SIZE,
+                insert_spaces: true,
+            },
+            fixture.providers(),
+        )
+        .unwrap()
+        .unwrap();
+    assert!(request.automatic);
+    assert!(
+        matches!(request.kind, Kind::OnType { character: ';', position } if position == Position::new(0, 2))
+    );
+    let mut settings = taide_model::settings::Settings::default();
+    assert!(!request.enabled(&settings));
+    settings.editor_format_on_type = true;
+    assert!(request.enabled(&settings));
+    let response = fixture.response(&request, "a ;");
+    let providers = fixture.providers();
+    assert!(
+        fixture
+            .state
+            .accept(&mut fixture.store, &request, providers, response)
+            .unwrap()
+    );
+    assert!(fixture.store.undo(fixture.document).unwrap());
+    assert_eq!(
+        fixture
+            .store
+            .documents()
+            .snapshot(fixture.document)
+            .unwrap()
+            .rope
+            .to_string(),
+        "a;"
+    );
+    assert!(fixture.store.undo(fixture.document).unwrap());
+    assert_eq!(
+        fixture
+            .store
+            .documents()
+            .snapshot(fixture.document)
+            .unwrap()
+            .rope
+            .to_string(),
+        ""
+    );
+    let current = fixture
+        .store
+        .documents()
+        .snapshot(fixture.document)
+        .unwrap();
+    let range = LspRange::new(Position::default(), Position::default());
+    let paste = Input {
+        document: current.id,
+        revision: current.revision,
+        kind: InputKind::Paste { range },
+    };
+    let request = fixture
+        .state
+        .begin_automatic(
+            &fixture.store,
+            fixture.project.clone(),
+            fixture.source,
+            fixture.owner,
+            &paste,
+            IndentOptions {
+                tab_size: INDENT_SIZE,
+                insert_spaces: true,
+            },
+            fixture.providers(),
+        )
+        .unwrap()
+        .unwrap();
+    assert!(matches!(request.kind, Kind::Ranges(ref ranges) if ranges == &[range]));
+    assert!(!request.enabled(&settings));
+    settings.editor_format_on_paste = true;
+    assert!(request.enabled(&settings));
+    let providers = fixture.providers();
+    fixture.state.reconcile(&fixture.store, |request| {
+        if request.enabled(&taide_model::settings::Settings::default()) {
+            providers.clone()
+        } else {
+            HashSet::new()
+        }
+    });
+    assert!(request.is_cancelled());
+    assert!(
+        fixture
+            .state
+            .begin_automatic(
+                &fixture.store,
+                fixture.project.clone(),
+                fixture.source,
+                fixture.owner,
+                &input,
+                IndentOptions {
+                    tab_size: INDENT_SIZE,
+                    insert_spaces: true
+                },
+                fixture.providers()
+            )
+            .unwrap()
+            .is_none()
+    );
+}
+
 struct Fixture {
     store: EditorStore,
     source: ViewId,

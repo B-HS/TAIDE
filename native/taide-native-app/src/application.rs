@@ -1814,6 +1814,15 @@ impl NativeApplication {
     }
 
     fn submit(&mut self, command: HostCommand) -> bool {
+        if let HostCommand::FormatEditorInput {
+            project,
+            source,
+            owner,
+            input,
+        } = command
+        {
+            return self.request_editor_input_formatting(project, source, owner, input);
+        }
         if let HostCommand::SnippetEdit(request) = &command
             && matches!(request.kind(), taide_native_ui::snippet_edit::Kind::List)
         {
@@ -3178,6 +3187,101 @@ impl NativeApplication {
         }
     }
 
+    fn request_editor_input_formatting(
+        &mut self,
+        project: ProjectId,
+        source: ViewId,
+        owner: ViewId,
+        input: taide_native_ui::editor_formatting_input::Input,
+    ) -> bool {
+        if self.closing.is_some()
+            || self.services.state.is_shutting_down()
+            || (source != owner && self.editor_locations.preview_owner(source) != Some(owner))
+        {
+            return false;
+        }
+        let Some(owner_view) = self.store.views().get(owner) else {
+            return false;
+        };
+        let shell = self.controller.snapshot();
+        let valid_owner = shell.layouts.get(&project).is_some_and(|layout| {
+            taide_layout::service::all_roots(layout).any(|root| {
+                crate::tabs::tabs_in(root).iter().any(|tab| {
+                    tab.id == owner_view.key.tab && matches!(tab.kind, TabKind::File { .. })
+                })
+            })
+        });
+        if !valid_owner {
+            return false;
+        }
+        if !self.store.views().get(source).is_some_and(|source| {
+            source.document == input.document
+                && self
+                    .store
+                    .documents()
+                    .snapshot(input.document)
+                    .is_ok_and(|snapshot| snapshot.revision == input.revision)
+        }) {
+            return false;
+        }
+        let settings = self.services.state.settings.read();
+        let enabled = match input.kind {
+            taide_native_ui::editor_formatting_input::Kind::Type { .. } => {
+                settings.editor_format_on_type
+            }
+            taide_native_ui::editor_formatting_input::Kind::Paste { .. } => {
+                settings.editor_format_on_paste
+            }
+        };
+        let configuration = crate::presentation_refresh::indent_configuration(&settings);
+        drop(settings);
+        if !enabled {
+            return false;
+        }
+        let Ok(fallback) = self
+            .store
+            .configure_indentation(input.document, configuration)
+        else {
+            return false;
+        };
+        self.reconcile_lsp();
+        let providers = self
+            .store
+            .documents()
+            .snapshot(input.document)
+            .ok()
+            .and_then(|snapshot| {
+                self.lsp
+                    .as_ref()
+                    .map(|lsp| lsp.automatic_formatting_providers(&project, &snapshot, &input.kind))
+            })
+            .unwrap_or_default();
+        match self.editor_formatting.begin_automatic(
+            &self.store,
+            project,
+            source,
+            owner,
+            &input,
+            fallback,
+            providers,
+        ) {
+            Ok(Some(request)) => {
+                if let Some(lsp) = &self.lsp {
+                    if lsp.format_editor(request.clone()).is_ok() {
+                        return true;
+                    }
+                    self.editor_formatting.reject(&request);
+                }
+                false
+            }
+            Ok(None) | Err(taide_native_editor::document::EditorError::ReadOnly) => false,
+            Err(error) => {
+                log::warn!("native input formatter request refused: {error:?}");
+                false
+            }
+        }
+    }
+
     fn reconcile_lsp(&mut self) {
         if self.closing.is_some() || self.services.state.is_shutting_down() {
             self.editor_formatting.clear();
@@ -3197,7 +3301,10 @@ impl NativeApplication {
             return;
         };
         self.editor_formatting.reconcile(&self.store, |request| {
-            lsp.formatting_providers(&request.project, &request.snapshot, request.command)
+            if !request.enabled(&self.services.state.settings.read()) {
+                return HashSet::new();
+            }
+            lsp.formatting_request_providers(request)
         });
         if let Err(error) = lsp.reconcile_models(&mut self.store) {
             self.status = Some(error.to_string());
@@ -4018,13 +4125,8 @@ impl NativeApplication {
                     let providers = self
                         .lsp
                         .as_ref()
-                        .map(|lsp| {
-                            lsp.formatting_providers(
-                                &request.project,
-                                &request.snapshot,
-                                request.command,
-                            )
-                        })
+                        .filter(|_| request.enabled(&self.services.state.settings.read()))
+                        .map(|lsp| lsp.formatting_request_providers(&request))
                         .unwrap_or_default();
                     match self.editor_formatting.accept(
                         &mut self.store,
@@ -7474,6 +7576,9 @@ impl AppSurfaces<'_> {
                 self.commands.append(&mut location_commands);
                 self.commands.append(&mut documentation_host_commands);
                 self.commands.append(&mut completion_host_commands);
+                if matches!(tab.kind, TabKind::File { .. }) && let Some(project) = editor_project {
+                    self.commands.extend(output.formatting_inputs.into_iter().map(|input| HostCommand::FormatEditorInput { project: project.clone(), source: view, owner: view, input }));
+                }
                 if let Some(display) = &document_highlights { display.paint(ui, &output.geometry); }
                 if output.response.has_focus() || ui.memory(|memory| output.focus_ids.iter().any(|id| {
                     memory.has_focus(*id) && !preview_focus_targets.iter().any(|(target, _)| target == id)

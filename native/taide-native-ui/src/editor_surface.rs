@@ -686,6 +686,8 @@ pub struct EditorOutput {
     #[cfg(feature = "native-host")]
     pub focus_ids: Vec<Id>,
     #[cfg(feature = "native-host")]
+    pub formatting_inputs: Vec<crate::editor_formatting_input::Input>,
+    #[cfg(feature = "native-host")]
     pub toggle_sticky_scroll: bool,
     #[cfg(all(feature = "native-host", feature = "inspection"))]
     pub documentation_geometry: crate::editor_documentation::Geometry,
@@ -697,6 +699,8 @@ pub struct EditorOutput {
 struct InputOutput {
     copied: Option<ClipboardText>,
     errors: Vec<EditorError>,
+    #[cfg(feature = "native-host")]
+    formatting_inputs: Vec<crate::editor_formatting_input::Input>,
 }
 
 enum KeyAction {
@@ -1785,6 +1789,15 @@ impl NativeEditor {
                 }
                 #[cfg(feature = "native-host")]
                 if let Some(provider) = completion.as_deref_mut() {
+                    let typed_before = if matches!(event, Event::Text(_)) {
+                        let current = store.views().get(view).ok_or(EditorError::NotFound)?;
+                        Some((
+                            current.selection.clone(),
+                            store.documents().snapshot(current.document)?.revision,
+                        ))
+                    } else {
+                        None
+                    };
                     match input_state
                         .completion
                         .event(ui, store, view, id, provider, &event, raw_index, composing)
@@ -1792,6 +1805,22 @@ impl NativeEditor {
                         Ok(true) => {
                             if let Err(error) = provider.after_event(store, view, &event) {
                                 output.errors.push(error);
+                            }
+                            if let Event::Text(text) = &event
+                                && let Some((selection, revision)) = typed_before
+                            {
+                                let current =
+                                    store.views().get(view).ok_or(EditorError::NotFound)?;
+                                if current.selection != selection
+                                    || store.documents().snapshot(current.document)?.revision
+                                        != revision
+                                {
+                                    output.formatting_inputs.extend(
+                                        crate::editor_formatting_input::Input::typed(
+                                            store, view, text,
+                                        )?,
+                                    );
+                                }
                             }
                             last_editor_event = Some(raw_index);
                             continue;
@@ -3408,6 +3437,8 @@ impl NativeEditor {
             #[cfg(feature = "native-host")]
             focus_ids,
             #[cfg(feature = "native-host")]
+            formatting_inputs: output.formatting_inputs,
+            #[cfg(feature = "native-host")]
             toggle_sticky_scroll,
             #[cfg(all(feature = "native-host", feature = "inspection"))]
             documentation_geometry,
@@ -3459,9 +3490,28 @@ impl NativeEditor {
                     .or(context.clipboard.as_ref())
                     .filter(|copied| is_same_clipboard_text(&copied.text, text));
                 paste(store, view, text, source)?;
+                #[cfg(feature = "native-host")]
+                {
+                    let selection = current.selection.selections[current.selection.primary];
+                    let start = taide_native_editor::lsp::byte_to_position(
+                        &document,
+                        selection.anchor.min(selection.head),
+                    )?;
+                    output
+                        .formatting_inputs
+                        .extend(crate::editor_formatting_input::Input::pasted(
+                            store, view, start,
+                        )?);
+                }
             }
             Event::Text(text) if current.composition.is_none() => {
                 type_text(store, view, text, &mut typing)?;
+                #[cfg(feature = "native-host")]
+                output
+                    .formatting_inputs
+                    .extend(crate::editor_formatting_input::Input::typed(
+                        store, view, text,
+                    )?);
             }
             Event::Text(_) => {}
             Event::Ime(ImeEvent::Preedit { text, .. }) => {
@@ -3569,6 +3619,10 @@ impl NativeEditor {
                     }
                     KeyAction::LineBreak => {
                         insert_line_break(store, view, &mut typing)?;
+                        #[cfg(feature = "native-host")]
+                        output.formatting_inputs.extend(
+                            crate::editor_formatting_input::Input::typed(store, view, "\n")?,
+                        );
                     }
                     KeyAction::Tab => {
                         tab_with_language(store, view, context.indent, context.language)?;

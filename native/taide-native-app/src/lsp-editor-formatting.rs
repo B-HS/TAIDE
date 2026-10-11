@@ -7,6 +7,7 @@ use taide_native_editor::lsp::byte_to_position;
 
 const DOCUMENT_METHOD: &str = "textDocument/formatting";
 const RANGE_METHOD: &str = "textDocument/rangeFormatting";
+const TYPE_METHOD: &str = "textDocument/onTypeFormatting";
 
 pub(super) async fn request(
     sessions: &HashMap<SessionKey, Session>,
@@ -56,6 +57,15 @@ pub(super) async fn request(
                     .supports_document(&document.uri, RANGE_METHOD)
             })
             .map(|candidate| (*candidate, RANGE_METHOD)),
+        Kind::OnType { .. } => candidates
+            .iter()
+            .find(|(session, document)| {
+                session
+                    .client
+                    .snapshot()
+                    .supports_document(&document.uri, TYPE_METHOD)
+            })
+            .map(|candidate| (*candidate, TYPE_METHOD)),
     };
     let Some(((session, document), method)) = selected else {
         return Err(Failure::UnsupportedCapability);
@@ -68,7 +78,44 @@ pub(super) async fn request(
         .uri
         .parse()
         .map_err(|_| Failure::MalformedRequest)?;
-    let edits = if method == DOCUMENT_METHOD {
+    let edits = if let Kind::OnType {
+        position,
+        character,
+    } = &request.kind
+    {
+        let character = character.to_string();
+        let matches = before
+            .document_on_type_formatting_options
+            .get(&document.uri)
+            .is_some_and(|options| {
+                options.iter().any(|option| {
+                    option.first_trigger_character == character
+                        || option
+                            .more_trigger_character
+                            .as_ref()
+                            .is_some_and(|others| others.contains(&character))
+                })
+            });
+        if !matches {
+            return Err(Failure::UnsupportedCapability);
+        }
+        session
+            .client
+            .request_typed::<lsp_types::request::OnTypeFormatting>(
+                lsp_types::DocumentOnTypeFormattingParams {
+                    text_document_position: lsp_types::TextDocumentPositionParams {
+                        text_document: lsp_types::TextDocumentIdentifier { uri },
+                        position: *position,
+                    },
+                    ch: character,
+                    options: request.options.clone(),
+                },
+                Some((document.uri.clone(), document.protocol_revision)),
+            )
+            .await?
+            .value
+            .unwrap_or_default()
+    } else if method == DOCUMENT_METHOD {
         session
             .client
             .request_typed::<lsp_types::request::Formatting>(
@@ -90,6 +137,7 @@ pub(super) async fn request(
                 byte_to_position(&request.snapshot, request.snapshot.rope.len_bytes())
                     .map_err(|_| Failure::MalformedRequest)?,
             )],
+            Kind::OnType { .. } => unreachable!(),
         };
         let mut groups = Vec::new();
         for range in ranges {

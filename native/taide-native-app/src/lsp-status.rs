@@ -127,6 +127,7 @@ mod tests {
             document_methods: Default::default(),
             document_signature_options: Default::default(),
             document_completion_options: Default::default(),
+            document_on_type_formatting_options: Default::default(),
             pid: None,
             failure: None,
         }

@@ -44,6 +44,7 @@ const HORIZONTAL_SCREEN_MARGIN: f32 = 14.0;
 const SWATCH_CONTENT_EM: f32 = 0.7;
 const SWATCH_BORDER_EM: f32 = 0.1;
 const GEOMETRY_EPSILON: f32 = 0.01;
+const FORMATTING_DETAILS_TIMES: [f64; 4] = [0.3, 0.4, 0.5, 0.6];
 
 fn limits() -> ParseLimits {
     ParseLimits {
@@ -325,6 +326,7 @@ struct Fixture {
     editor_geometry: Option<taide_native_ui::editor_geometry::EditorGeometry>,
     preview_colors: taide_native_ui::editor_completion::PreviewColors,
     top_padding: f32,
+    formatting_inputs: Vec<taide_native_ui::editor_formatting_input::Input>,
 }
 
 impl Fixture {
@@ -401,6 +403,7 @@ impl Fixture {
             preview_colors: taide_native_ui::editor_completion::PreviewColors::for_dark_mode(true),
             editor_geometry: None,
             top_padding: 0.0,
+            formatting_inputs: Vec::new(),
         }
     }
 
@@ -486,6 +489,7 @@ impl Fixture {
         self.body = Some(rendered.response.id);
         self.editor_geometry = Some(rendered.geometry.clone());
         self.geometry = rendered.completion_geometry;
+        self.formatting_inputs = rendered.formatting_inputs;
         rendered.changed
     }
 
@@ -1242,6 +1246,38 @@ fn manual_loading_and_empty_state_follow_original_delay() {
         &[],
     );
     assert_eq!(fixture.text(), "fo!");
+}
+
+#[test]
+fn 완성_상세창이_소비한_텍스트는_포맷을_시작하지_않고_escape_뒤_본문_입력만_전달한다() {
+    let [focus_time, settled_time, consumed_time, body_time] = FORMATTING_DETAILS_TIMES;
+    let mut fixture = Fixture::new();
+    fixture.open();
+    fixture.frame(
+        focus_time,
+        vec![key(Key::Space, Modifiers::CTRL | Modifiers::ALT)],
+        &[],
+    );
+    fixture.frame(settled_time, Vec::new(), &[]);
+    assert_eq!(
+        fixture.context.memory(|memory| memory.focused()),
+        Some(fixture.body.unwrap().with("completion-details"))
+    );
+    fixture.frame(consumed_time, vec![Event::Text(";".into())], &[]);
+    assert_eq!(fixture.text(), "fo");
+    assert!(fixture.formatting_inputs.is_empty());
+    fixture.frame(
+        body_time,
+        vec![key(Key::Escape, Modifiers::NONE), Event::Text(";".into())],
+        &[],
+    );
+    assert_eq!(fixture.text(), "fo;");
+    assert_eq!(fixture.formatting_inputs.len(), 1);
+    assert!(matches!(
+        fixture.formatting_inputs[0].kind,
+        taide_native_ui::editor_formatting_input::Kind::Type { character: ';', position }
+            if position == Position::new(0, 3)
+    ));
 }
 
 #[test]

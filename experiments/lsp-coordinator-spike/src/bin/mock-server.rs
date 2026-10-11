@@ -34,6 +34,7 @@ struct MockServer {
     should_format_documents: bool,
     should_echo_format_options: bool,
     should_format_ranges: bool,
+    should_format_on_type: bool,
     should_expand_format_ranges: bool,
     should_wait_formatting: bool,
     held_formatting: BTreeMap<u64, Value>,
@@ -354,6 +355,10 @@ impl MockServer {
             }
             if self.should_format_ranges {
                 capabilities["documentRangeFormattingProvider"] = json!(true);
+            }
+            if self.should_format_on_type {
+                capabilities["documentOnTypeFormattingProvider"] =
+                    json!({"firstTriggerCharacter":";","moreTriggerCharacter":["\n"]});
             }
             if self.document_symbols.is_some() {
                 if params["capabilities"]["textDocument"]["documentSymbol"]["hierarchicalDocumentSymbolSupport"]
@@ -1329,6 +1334,38 @@ impl MockServer {
                     }]),
                 )?;
             }
+            "textDocument/onTypeFormatting" => {
+                if !self.should_format_on_type {
+                    return Err(invalid("on type formatter fixture is disabled"));
+                }
+                let current = self
+                    .documents
+                    .get(uri)
+                    .ok_or_else(|| invalid("on type format requires mirror"))?;
+                let text = current["text"]
+                    .as_str()
+                    .ok_or_else(|| invalid("on type format requires text"))?;
+                let position_byte = position_byte(text, &params["position"])?;
+                let character = params["ch"]
+                    .as_str()
+                    .filter(|character| [";", "\n"].contains(character))
+                    .ok_or_else(|| invalid("on type format requires trigger"))?;
+                if !text[..position_byte].ends_with(character) {
+                    return Err(invalid("on type format requires latest trigger position"));
+                }
+                let size = params["options"]["tabSize"]
+                    .as_u64()
+                    .ok_or_else(|| invalid("on type format requires tabSize"))?;
+                let spaces = params["options"]["insertSpaces"]
+                    .as_bool()
+                    .ok_or_else(|| invalid("on type format requires insertSpaces"))?;
+                let position = &params["position"];
+                write_response(
+                    output,
+                    id.ok_or_else(|| invalid("on type format requires ID"))?,
+                    json!([{"range":{"start":position,"end":position},"newText":format!("type:{size}:{spaces}:{character}")}]),
+                )?;
+            }
             "textDocument/rangeFormatting" => {
                 if !self.should_format_ranges {
                     return Err(invalid("range formatter fixture is disabled"));
@@ -1562,6 +1599,7 @@ fn main() -> io::Result<ExitCode> {
             server.should_format_documents = true;
             server.should_echo_format_options = true;
             server.should_format_ranges = true;
+            server.should_format_on_type = true;
         }
         Some(
             mode @ ("--native-format-range-only"

@@ -19,6 +19,12 @@ pub type ClipboardWriter = Arc<dyn Fn(&str) -> AppResult<()> + Send + Sync>;
 pub type ClipboardReader = Arc<dyn Fn() -> AppResult<String> + Send + Sync>;
 
 pub enum HostCommand {
+    FormatEditorInput {
+        project: ProjectId,
+        source: taide_native_editor::view::ViewId,
+        owner: taide_native_editor::view::ViewId,
+        input: taide_native_ui::editor_formatting_input::Input,
+    },
     OpenDocumentationFile(crate::editor_documentation::FileRequest),
     OpenSymbolLocation(crate::symbol_location_host::Request),
     ReadPeekModels {
@@ -621,6 +627,7 @@ async fn dispatch(
     let terminals = integrations.terminals.as_ref();
     let reconcile = &integrations.reconcile;
     match command {
+        HostCommand::FormatEditorInput { .. } => None,
         HostCommand::OpenDocumentationFile(request) => Some(HostReply::DocumentationFileOpened {
             result: request.open(services).await,
         }),

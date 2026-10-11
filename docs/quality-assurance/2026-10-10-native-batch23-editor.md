@@ -464,3 +464,51 @@ Core는 최소 편집이 raw 전체 범위 교체로 대체될 때에만 기존 
 시간 상한 확대·검사 생략·OS 설정 변경·프로세스 재시작으로 우회하지 않았습니다. 같은 가정의 반복 검사는 종료하고 실제 감시 등록/실행 환경·soak 신뢰성 위험을 기존 이미지/watcher와 독립 실험 lock/fmt 부채와 함께 배치 31에 유지합니다. 보호 앱/실제 데이터/클립보드/Keychain/Trash를 건드리지 않았으며 빌드 정리를 하지 않았습니다.
 
 외부 포맷 공통 경로 c2와 선택/상대 위치 c2s를 닫습니다. editor-49는 내장 공급자(editor-57)가 남아 partial이고 editor-32의 입력/붙여넣기는 missing, 배치 23 전체와 실기/성능/출시는 미완료입니다. 요구사항 588대상/289완료/299미완료·배치 23/최종 33을 유지하며 전체 전환율·잔여 시간은 미산정입니다.
+
+## 입력·붙여넣기 포맷의 원본 경계 (2026-10-11, 진행 중)
+
+기준은 965401bd입니다. TS code-editor.tsx:299의 옵션 전달과 editor-pane.tsx:425~~426의 현재 설정, untitled-pane.tsx:202~~203/app-file-pane.tsx:167~168의 false, LSP formatting.ts:47 이후의 first/more 트리거·UTF-16 position/options와 설치 Monaco formatActions.js/format.js/codeEditorWidget.js를 직접 읽었습니다.
+
+입력은 실제 onDidType의 마지막 문자, 최신 onType 공급자, 단일 빈 선택과 현재 모델의 편집 폭/방식을 사용합니다. 일반 텍스트/Enter의 keyboard type 이벤트와 IME의 compositionType 경로를 구분하며 compositionType 자체는 onDidType을 발행하지 않습니다. 자동 닫기 overtype처럼 문서 revision이 같아도 실제 type 이벤트와 변경된 커서가 있으면 요청 후보입니다. 원본의 UTF-16 반쪽 단위가 만드는 잘못된 문자열을 재현하지 않고 native의 유효한 마지막 Unicode 문자로 전달합니다.
+
+붙여넣기는 범위 공급자만 사용하며 document formatter로 대체하지 않습니다. 실제 keyboard paste 전 선택 시작부터 후 선택 시작까지의 UTF-16 범위와 단일 커서를 사용합니다. Peek의 EmbeddedCodeEditorWidget은 부모 getRawOptions를 상속하고 referencesWidget은 자동 포맷 옵션을 덮어쓰지 않습니다. native 앱은 본문 파일 탭과 그 peek만 연결하며 untitled/app-file owner의 자동 요청은 시작하지 않습니다. 두 자동 경로 모두 FormattingEdit.execute의 addUndoStops=true를 사용하므로 공통 포맷의 앞/뒤 undo stop을 유지합니다.
+
+현재 UI의 실제 Text/Enter/Paste를 출력하는 검사 1건은 실패→수정→통과했습니다. /private/tmp/taide-batch23-auto-format-input-repro.log의 첫 필터는 0건 실행이므로 성공 근거에서 제외합니다. input-repro-final.log의 실제 1건은 typed 입력 출력이 0개로 실패했고 input-related.log의 해당 1건은 5.23초 컴파일 뒤 통과했습니다. SDK의 onType 옵션·앱/peek 요청 연결은 구현 후 --tests/inspection 컴파일을 진행 중이며 실제 서버/앱과 취소/undo·변경 크레이트 전체·동결 컴파일은 아직 실행하지 않았습니다. editor-32와 c3/c3a/c3b는 미완료를 유지합니다.
+
+후속 구현은 SDK SessionSnapshot에 문서별 정적/동적 onType 옵션과 기존 캐시/회수 경계를 더하고 typed OnTypeFormatting을 최신 공급자의 트리거에서만 요청합니다. Paste는 실제 범위의 RangeFormatting만 사용합니다. native-host 출력은 소유 파일 본문/peek의 로컬 명령으로 전달하며 현재 문서/revision·단일 커서/IME·프로젝트/owner·설정 변경과 종료를 확인합니다. 앱의 기존 manual/save와 같은 최소 편집·선택/상대 scroll·앞/뒤 undo stop 경계를 재사용합니다. 새 엔진/의존성/기본 키나 원본 버그를 추가하지 않았습니다.
+
+auto-format-compile.log의 --tests/inspection은 기존 lsp-status/recovery의 SessionSnapshot 준비 두 곳의 새 필드 누락으로 컴파일 전 exit 101입니다. 두 준비만 기본 빈 옵션으로 갱신했습니다. state-repro.log는 6건 중 5통과/1실패·exit 101이며 자동 포맷의 현재 위치/범위/옵션·입력과 분리한 undo는 통과했습니다. 실패는 paste 포맷 대기 중 selection anchor만 바꿔도 head가 같으면 요청을 유지하는 문제입니다. 요청에서 전체 SelectionSet을 캡처·비교해 anchor/주 선택/다중 선택 변경도 회수하도록 수정했습니다. 영향 6건과 실제 본문/peek의 Type/Paste·서버의 현재 UTF-16 위치/트리거/옵션·분리된 undo를 검사 중이며 아직 결과를 완료로 처리하지 않습니다.
+
+mock-build.log는 App example native-lsp-mock의 --locked --offline 빌드 22.24초·exit 0입니다. 기존 포맷 옵션 모드에 onType 광고와 현재 mirror의 실제 trigger 위치/FormattingOptions 검사·typed 응답만 추가했습니다. 독립 실험 lock/fmt 부채는 고치거나 반복 실행하지 않았습니다. 현재 소유 Cargo 세션은 SDK 전체→상태 영향→실제 앱 순서이며 실행 중 Rust/포함 리소스를 수정하지 않습니다.
+
+### 입력 포맷의 현재 직접 검사
+
+sdk-all.log는 SDK 전체 --all-targets --no-fail-fast의 87통과/0실패·exit 0입니다. 정적 first/more 트리거와 Rust 문서만의 동적 옵션·텍스트 변경 시 Arc 재사용·해제/닫힘/runner 종료 회수를 확인했습니다. state-final.log는 전체 선택 비교 수정 뒤 관련 6통과/0실패·exit 0이며 paste anchor만의 변경·현재 옵션/설정/입력 revision·readonly owner의 writable peek·분리된 undo와 취소/늦은 응답을 포함합니다. 같은 SDK/상태 성공을 실제 앱 준비 변경 때문에 반복하지 않습니다.
+
+app-actual.log는 실제 앱 1실패·17.17초로 미리보기 Type 단계에서 timeout입니다. app-actual-diagnostic.log와 app-focus-diagnostic-final.log는 실제 미리보기 텍스트가 소비되지 않는 1실패씩입니다. app-focus-diagnostic.log는 짧은 이름에 --exact를 잘못 적용해 0건 실행했으므로 검증에서 제외합니다. code-editor 포커스와 egui 모달의 이전/현재 프레임 소유, 팔레트의 is_modal=false 닫힘을 대조했습니다. 검사 helper의 wait_for는 logic만 진행하므로 팔레트 닫힘 뒤 통상 UI 프레임을 그리기 전에 다음 입력을 보냈습니다.
+
+정상 닫힘 프레임을 추가한 app-actual-final.log는 미리보기 Type/Paste와 두 단계 undo를 모두 지난 뒤 부모 readonly 단언에서 1실패·12.63초입니다. 관찰값은 부모 텍스트/revision/dirty 동일, readonly만 true→false입니다. 실제 file service는 해당 정상 크기·정상 인코딩 파일을 writable로 반환하며 검사에서만 주입한 readonly와 모순됩니다. 외부 파일 관측을 멈추거나 플래그를 강제로 재설정하지 않았습니다. 실제 파일 상태의 자동 포맷을 먼저 검사하고, 기존 manual peek의 readonly owner 준비는 그 검사 직전에 주입하도록 분리했습니다. actual 자동 peek의 readonly owner까지 검사했다고 확대하지 않으며 요청 상태 검사에서 별도로 확인한 범위를 유지합니다.
+
+app-actual-owner-final.log는 최종 전체 이름 exact 1통과/0실패·exit 0, 컴파일 9.13초/검사 6.78초입니다. 실제 본문과 순수 peek의 Type/Paste·UTF-16/현재 트리거/편집 폭/방식·포맷만 undo한 뒤 입력 undo·부모 내용/revision/dirty/실제 metadata·디스크 보존, 기존 문서/선택/readonly owner peek 팔레트/저장 포맷을 포함합니다. 닫힘 후 정상 프레임에서도 같은 preview 소유를 유지합니다. 제품의 입력 상태나 대기 키를 직접 초기화하거나 실제 OS 입력·클립보드를 사용하지 않았습니다. UI/App 전체·동결 컴파일/형식·feature 판정·선별 Git은 진행 중이며 아직 전체 성공으로 처리하지 않습니다.
+
+같은 시점에 JSON을 직접 재집계해 599행/10제외/1동결/588대상, complete 289·partial 92·unwired 112·missing 95·미완료 299를 확인했습니다. 최종 batch 33·batch 23 최초 33/미완료 32, 잔여 배정 누락/중복 0입니다. 프로세스 점검의 소유 Cargo는 UI 전체 한 개였고 종료되지 않은 이전 Monaco 조사 프로세스는 관찰하지 않았습니다. 각 실제 앱 검사는 종료했고 상한 없는 재검사를 하지 않습니다. 이 관찰을 전체 세션의 모든 루프가 종료한다는 증명이나 전체 기능 완성률로 확대하지 않습니다.
+
+ui-all.log는 native-host,inspection·test-threads=4의 전체 22대상/440통과/0실패/0ignored·exit 0입니다. app-all.log는 inspection·test-threads=1의 전체 67대상/809통과/5실패/0ignored·exit 101이며 보호 Trash 3건은 제외했습니다. actual Type/Paste·선택 anchor 취소 검사도 이 전체에서 통과했습니다. library 대상은 568통과/5실패·160.75초입니다. 실패는 projects-tests.rs:129의 기존 프로젝트 open 5초 상한, projects-tests.rs:298의 watcher/lockfile 준비 fixture 전체 상한, remote-dispatch-tests.rs:329의 실제 project/file와 pty JSON 명령 두 검사, remote-projects-tests.rs:556의 attach 진입 대기입니다. 뒤의 네 건은 이번 실행의 추가 시간 상한 실패이며 기존 FSEvents 스택을 이 실패들의 직접 원인으로 전용하지 않습니다. 앞의 동일 프로젝트 open 실패는 f1의 반복 조사를 다시 시작하지 않습니다. 추가 네 건은 해당 실행 파일/정확한 검사 이름으로 각각 한 번만 확인하고 결과/남은 위험을 기록합니다.
+
+전체 실행이 종료된 뒤 완료 전 코드 검토에서 completion.event의 상세창 Text 소비는 문서나 선택을 바꾸지 않는다는 점을 확인했습니다. details-repro.log는 실제 상세 포커스에서 본문 텍스트는 fo 그대로인데 자동 포맷 출력이 발생해 1실패·exit 101입니다. completion이 소비한 Text는 이벤트 전후 문서 revision이나 선택 변화가 있을 때에만 출력하도록 수정했습니다. overtype의 커서 변화는 보존하고 상세창이 삼킨 텍스트는 출력하지 않으며 Escape 후 같은 프레임의 실제 본문 입력은 출력합니다. UI 전체는 이 추가 변경 때문에 ui-all-final.log에서 한 번 직접 실행 중이며 App의 성공을 이 마지막 UI 변경의 전체 검사라고 표현하지 않습니다. SDK/상태/변경 없는 Core 성공은 재사용합니다.
+
+### 외부 입력 포맷 단위의 최종 결과
+
+로그 접두사는 /private/tmp/taide-batch23-auto-format-입니다. 각 전체 실행은 --locked --offline --target-dir experiments/native-shell-spike/target·--all-targets --no-fail-fast이며 마지막 의미 변경에 해당하는 영향 검사만 추가했습니다.
+
+| 범위            | 직접 확인한 결과                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SDK             | sdk-all.log: 전체 87통과/0실패·exit 0. 마지막 UI/앱 준비 변경은 SDK에 영향이 없어 재사용합니다.                                                                                                                                                                                                                                                                                                                                                                     |
+| UI              | ui-all-final.log: native-host,inspection·test-threads=4·22대상/441통과/0실패/0ignored·exit 0. 앞의 440건이나 관련 1건을 중복 합산하지 않습니다. 마지막 검사 시간 상수 hoist는 같은 네 값을 유지합니다.                                                                                                                                                                                                                                                              |
+| App             | app-all.log: inspection·test-threads=1·67대상/809통과/5timeout·exit 101. retry-projects/remote-files/remote-pty/remote-projects.log는 같은 최신 library 실행 파일을 저장소 cwd에서 exact·test-threads=1로 각각 한 번만 실행해 1통과씩·exit 0, 1.05/0.95/1.00/5.81초입니다. 추가 네 실패는 재현되지 않았지만 최초 실패를 지우거나 원인 해결로 표현하지 않습니다. 기존 프로젝트 open 실패는 단독 반복하지 않았고 미해결입니다. 현재 서로 다른 App 성공은 813건입니다. |
+| 마지막 App 영향 | app-ui-final.log: 최종 UI 의미 변경 후 기존 실제 본문/peek/저장과 Type/Paste·undo/소유 검사를 exact 1통과/0실패·exit 0, 컴파일 59.36초/검사 9.73초에 확인했습니다. 전체 App를 다시 실행한 결과가 아니며 기존 813건에 중복 합산하지 않습니다.                                                                                                                                                                                                                        |
+| 동결/형식/경계  | frozen-host.log의 --tests/inspection 14.24초, frozen-wasm.log의 --lib/wasm32-unknown-unknown/canvas,inspection 35.00초는 exit 0입니다. SDK/UI/App fmt check exit 0·frozen/manifest/lock 변경 0·디스크 503GiB/73%입니다. Core는 변경하지 않아 앞 단위의 서로 다른 294건/성능 1ignored를 재사용하며 해당 성능 검사는 실행하지 않았습니다.                                                                                                                             |
+
+Wasm 검사의 write_stdin이 아직 session_id를 반환했는데 SDK/App fmt check를 시작한 순서 이탈 1회가 있었습니다. 이후 Wasm과 App fmt의 실제 종료 exit 0을 각각 확인했습니다. 형식 검사 도중 소스를 수정하지 않았지만 전체 Cargo/fmt가 항상 직렬이었다고 보고하지 않습니다. 나머지 테스트/소스 변경은 앞 실행의 실제 종료를 확인한 뒤 처리했습니다. 성공 입력이 같은 검사를 이 순서 이탈 때문에 다시 실행하지 않았습니다. 독립 실험 lock/fmt·프로젝트 open/최초 네 timeout·기존 이미지/watcher 지연·실기/성능/출시는 배치 31에 미해결 또는 미검증으로 유지합니다.
+
+SDK/현재 트리거·range-only paste·파일 본문/peek·옵션·readonly/IME/한 커서·전체 선택 취소·분리된 undo·완성 상세창 소비의 외부 공통 단위를 닫습니다. editor-32는 missing에서 partial로 옮깁니다. editor-57 내장 공급자가 아직 없어 editor-32/49 전체를 complete로 올리지 않습니다. 599행/588대상·complete 289·partial 93·unwired 112·missing 94·미완료 299, batch 23 최초 33/미완료 32·최종 33·배정 누락/중복 0입니다. 전체 전환율/잔여 시간은 미산정이며 기능표 행 비율이나 검사 개수를 대신 제시하지 않습니다. 보호 M8 앱·실제 데이터/OS 설정/클립보드/Keychain/Trash·기존 TS/Monaco/xterm을 변경하지 않았습니다. 정상 compile 외에 frozen 소스/의존 그래프/lock을 수정하지 않았습니다.

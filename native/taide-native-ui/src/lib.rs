@@ -49,6 +49,9 @@ pub mod editor_find;
 #[cfg(feature = "native-host")]
 #[path = "editor-find-widget.rs"]
 pub mod editor_find_widget;
+#[cfg(feature = "native-host")]
+#[path = "editor-formatting-input.rs"]
+pub mod editor_formatting_input;
 #[path = "editor-geometry.rs"]
 pub mod editor_geometry;
 #[path = "editor-gutter.rs"]

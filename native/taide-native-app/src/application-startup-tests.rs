@@ -401,6 +401,102 @@ fn actual_app의_문서_선택_peek와_저장_포맷은_현재_편집_폭과_소
         saved.rope
     );
 
+    let automatic = |application: &mut NativeApplication, document, view, focus, size, spaces| {
+        {
+            let mut settings = application.services.state.settings.write();
+            settings.editor_format_on_type = true;
+            settings.editor_format_on_paste = true;
+        }
+        for event in [
+            egui::Event::Text("a;".into()),
+            egui::Event::Paste("a=1".into()),
+        ] {
+            let before = application.store.documents().snapshot(document).unwrap();
+            let head = before.rope.len_bytes();
+            application
+                .store
+                .set_view_state(
+                    view,
+                    taide_native_editor::view::SelectionSet {
+                        primary: 0,
+                        selections: vec![taide_native_editor::view::Selection {
+                            anchor: head,
+                            head,
+                        }],
+                    },
+                    Default::default(),
+                    Vec::new(),
+                )
+                .unwrap();
+            context.memory_mut(|memory| memory.request_focus(focus));
+            let (text, formatted, phase) = match &event {
+                egui::Event::Text(text) => (
+                    text.clone(),
+                    format!("{text}type:{size}:{spaces}:;"),
+                    "actual-format-type",
+                ),
+                egui::Event::Paste(text) => (
+                    text.clone(),
+                    format!("range:{size}:{spaces}:{text}"),
+                    "actual-format-paste",
+                ),
+                _ => unreachable!(),
+            };
+            paint(application, vec![event]);
+            assert_eq!(
+                application
+                    .store
+                    .documents()
+                    .snapshot(document)
+                    .unwrap()
+                    .rope
+                    .to_string(),
+                format!("{}{text}", before.rope),
+                "input phase={phase}; requested={focus:?}; focused={:?}; before={:?}; palette={}",
+                context.memory(|memory| memory.focused()),
+                context.keyboard_focus_before_events(),
+                application.palette.is_open()
+            );
+            let expected = format!("{}{formatted}", before.rope);
+            wait_for(application, &context, phase, |application| {
+                application
+                    .store
+                    .documents()
+                    .snapshot(document)
+                    .unwrap()
+                    .rope
+                    .to_string()
+                    == expected
+            });
+            assert!(application.store.undo(document).unwrap());
+            assert_eq!(
+                application
+                    .store
+                    .documents()
+                    .snapshot(document)
+                    .unwrap()
+                    .rope
+                    .to_string(),
+                format!("{}{text}", before.rope)
+            );
+            assert!(application.store.undo(document).unwrap());
+            assert_eq!(
+                application
+                    .store
+                    .documents()
+                    .snapshot(document)
+                    .unwrap()
+                    .rope,
+                before.rope
+            );
+        }
+        let mut settings = application.services.state.settings.write();
+        settings.editor_format_on_type = false;
+        settings.editor_format_on_paste = false;
+    };
+    automatic(application, document, view, focus, CHANGED_SIZE, false);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), disk);
+
     let peek_file = std::path::Path::new(&path)
         .parent()
         .unwrap()
@@ -485,14 +581,6 @@ fn actual_app의_문서_선택_peek와_저장_포맷은_현재_편집_폭과_소
             IndentationChange::DisplaySize(DISPLAY_SIZE),
         )
         .unwrap();
-    let mut readonly =
-        taide_file::service::open_file(std::path::Path::new(&path), &[], false).unwrap();
-    readonly.read_only = true;
-    application
-        .store
-        .observe_file(document, std::path::Path::new(&path), readonly)
-        .unwrap();
-    let owner_before = application.store.documents().snapshot(document).unwrap();
     wait_for(
         application,
         &context,
@@ -522,6 +610,40 @@ fn actual_app의_문서_선택_peek와_저장_포맷은_현재_편집_폭과_소
             (*viewport == egui::ViewportId::ROOT && *target == preview).then_some(*id)
         })
         .unwrap();
+    let owner_before = application.store.documents().snapshot(document).unwrap();
+    automatic(
+        application,
+        peek_document,
+        preview,
+        peek_focus,
+        EDIT_SIZE,
+        true,
+    );
+    let owner_after = application.store.documents().snapshot(document).unwrap();
+    assert_eq!(
+        (
+            owner_after.rope,
+            owner_after.revision,
+            owner_after.dirty,
+            owner_after.metadata.read_only
+        ),
+        (
+            owner_before.rope,
+            owner_before.revision,
+            owner_before.dirty,
+            owner_before.metadata.read_only
+        )
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), disk);
+    assert_eq!(std::fs::read_to_string(&peek_file).unwrap(), peek_text);
+    let mut readonly =
+        taide_file::service::open_file(std::path::Path::new(&path), &[], false).unwrap();
+    readonly.read_only = true;
+    application
+        .store
+        .observe_file(document, std::path::Path::new(&path), readonly)
+        .unwrap();
+    let owner_before = application.store.documents().snapshot(document).unwrap();
     context.memory_mut(|memory| memory.request_focus(peek_focus));
     application.palette.open(
         &context,
@@ -597,6 +719,13 @@ fn actual_app의_문서_선택_peek와_저장_포맷은_현재_편집_폭과_소
             .to_string(),
         peek_text
     );
+    paint(application, Vec::new());
+    assert_eq!(
+        application.editor_locations.current(view).unwrap().preview,
+        Some(preview)
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), disk);
+    assert_eq!(std::fs::read_to_string(&peek_file).unwrap(), peek_text);
 }
 
 #[test]

@@ -1952,6 +1952,17 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
         if output.changed || store.documents().snapshot(document)?.revision != before_find {
             self.changed.insert(document, preview);
         }
+        if let Some(project) = &self.project {
+            self.commands
+                .extend(output.formatting_inputs.into_iter().map(|input| {
+                    crate::host::HostCommand::FormatEditorInput {
+                        project: project.clone(),
+                        source: preview,
+                        owner: view,
+                        input,
+                    }
+                }));
+        }
         if let Some(colors) = colors
             && let Some(matches) =
                 matches.tracking(store.changes_since(document, matches.revision())?)

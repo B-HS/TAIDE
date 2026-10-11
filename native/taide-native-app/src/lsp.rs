@@ -650,6 +650,37 @@ impl LspBridge {
         providers
     }
 
+    pub(crate) fn automatic_formatting_providers(
+        &self,
+        project: &ProjectId,
+        snapshot: &DocumentSnapshot,
+        input: &taide_native_ui::editor_formatting_input::Kind,
+    ) -> HashSet<crate::editor_symbols::ProviderIdentity> {
+        let method = match input {
+            taide_native_ui::editor_formatting_input::Kind::Type { .. } => {
+                "textDocument/onTypeFormatting"
+            }
+            taide_native_ui::editor_formatting_input::Kind::Paste { .. } => {
+                "textDocument/rangeFormatting"
+            }
+        };
+        self.feature_providers(project, snapshot, method)
+    }
+
+    pub(crate) fn formatting_request_providers(
+        &self,
+        request: &crate::editor_formatting::Request,
+    ) -> HashSet<crate::editor_symbols::ProviderIdentity> {
+        if matches!(request.kind, crate::editor_formatting::Kind::OnType { .. }) {
+            return self.feature_providers(
+                &request.project,
+                &request.snapshot,
+                "textDocument/onTypeFormatting",
+            );
+        }
+        self.formatting_providers(&request.project, &request.snapshot, request.command)
+    }
+
     pub(crate) fn highlight_providers(
         &self,
         project: &ProjectId,

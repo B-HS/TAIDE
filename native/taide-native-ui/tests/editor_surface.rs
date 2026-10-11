@@ -121,6 +121,126 @@ const FORMATTING_FOLD_LINES: std::ops::Range<usize> = 4..8;
 
 #[cfg(feature = "native-host")]
 #[test]
+fn 자동_포맷_입력은_readonly_다중_커서_조합과_비활성_표면에서_시작하지_않는다() {
+    for case in ["readonly", "multiple", "composition", "disabled"] {
+        let (mut store, view) = fixture("abc", case == "readonly");
+        if case == "multiple" {
+            store
+                .set_view_state(
+                    view,
+                    SelectionSet {
+                        primary: 0,
+                        selections: vec![
+                            Selection { anchor: 0, head: 0 },
+                            Selection { anchor: 2, head: 2 },
+                        ],
+                    },
+                    Default::default(),
+                    Vec::new(),
+                )
+                .unwrap();
+        }
+        let events = if case == "composition" {
+            vec![
+                Event::Ime(ImeEvent::Preedit {
+                    text: ";".into(),
+                    active_range_chars: None,
+                }),
+                Event::Text(";".into()),
+                Event::Ime(ImeEvent::Commit("한;".into())),
+            ]
+        } else {
+            vec![Event::Text(";".into()), Event::Paste("more".into())]
+        };
+        let context = Context::default();
+        let mut inputs = None;
+        let mut output = context.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    pos2(0.0, 0.0),
+                    vec2(SCREEN[0], SCREEN[1]),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                if case == "disabled" {
+                    ui.disable();
+                }
+                inputs = Some(
+                    editor()
+                        .show(ui, &mut store, view, true)
+                        .unwrap()
+                        .formatting_inputs,
+                );
+            },
+        );
+        output.textures_delta.clear();
+        assert!(inputs.unwrap().is_empty(), "case={case}");
+    }
+}
+
+#[cfg(feature = "native-host")]
+#[test]
+fn 실제_text_enter와_paste는_현재_utf16_입력과_붙여넣기_범위를_출력한다() {
+    use taide_native_editor::lsp::{LspRange, Position};
+    use taide_native_ui::editor_formatting_input::Kind;
+
+    let (mut store, view) = fixture("", false);
+    let context = Context::default();
+    let mut paint = |events: Vec<Event>| {
+        let mut inputs = None;
+        let mut output = context.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    pos2(0.0, 0.0),
+                    vec2(SCREEN[0], SCREEN[1]),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                let output = editor().show(ui, &mut store, view, true).unwrap();
+                assert!(output.errors.is_empty());
+                inputs = Some(output.formatting_inputs);
+            },
+        );
+        output.textures_delta.clear();
+        inputs.unwrap()
+    };
+    assert!(paint(Vec::new()).is_empty());
+    let typed = paint(vec![Event::Text("한\u{1f600};".into())]);
+    assert_eq!(typed.len(), 1);
+    assert_eq!(
+        typed[0].kind,
+        Kind::Type {
+            character: ';',
+            position: Position::new(0, 4)
+        }
+    );
+    let newline = paint(vec![key(Key::Enter, false)]);
+    assert_eq!(newline.len(), 1);
+    assert_eq!(
+        newline[0].kind,
+        Kind::Type {
+            character: '\n',
+            position: Position::new(1, 0)
+        }
+    );
+    let pasted = paint(vec![Event::Paste("한\u{1f600}\r\nnext".into())]);
+    assert_eq!(pasted.len(), 1);
+    assert_eq!(
+        pasted[0].kind,
+        Kind::Paste {
+            range: LspRange::new(Position::new(1, 0), Position::new(2, 4))
+        }
+    );
+    assert_eq!(typed[0].document, pasted[0].document);
+    assert!(typed[0].revision < newline[0].revision && newline[0].revision < pasted[0].revision);
+}
+
+#[cfg(feature = "native-host")]
+#[test]
 fn 포맷의_줄_추가는_일반_wrap_접기와_최상단의_커서_세로_위치를_보존한다() {
     for (word_wrap, folding) in [(false, false), (true, false), (true, true)] {
         for should_scroll in [false, true] {
