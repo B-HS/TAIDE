@@ -210,6 +210,9 @@ where
             let project = arg!("projectId");
             project_actions::get_project(&state.projects.read(), &project).map_err(error_value)?;
             view_states.flush(&services).await.map_err(error_value)?;
+            crate::host::flush_layouts(&services)
+                .await
+                .map_err(error_value)?;
             let ports = create_lifecycle(services.clone());
             respond(project_actions::project_close(events, state, &ports, project).await)
         }

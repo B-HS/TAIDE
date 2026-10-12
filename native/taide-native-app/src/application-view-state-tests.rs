@@ -23,6 +23,466 @@ const NAVIGATION_LINE: u32 = 100;
 const INVALID_UTF8: u8 = 0xff;
 const IDE_TEXT: &str = "class\n  \u{1f600}method\nend";
 const FOLD_TEXT: &str = "class\n  body\nend";
+const RESTART_FOLD_START_LINE: usize = 12;
+const RESTART_FOLD_END_LINE: usize = 14;
+const RESTART_MANUAL_START_LINE: usize = 24;
+const RESTART_MANUAL_END_LINE: usize = 26;
+const AUXILIARY_SLOT: u32 = 1;
+
+#[test]
+fn 실제_프로젝트_닫힘은_위치_디스크_저장_오류에서_본문을_보존하고_재시도한다() {
+    let mut fixture = fixture_with_view_state(
+        "--native-inlay-hints",
+        false,
+        |_, _, _| true,
+        None,
+        IDE_TEXT,
+    );
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let view = body_view(application, &fixture.path, &fixture.tab);
+    let selection = SelectionSet {
+        primary: 0,
+        selections: vec![Selection {
+            anchor: ANCHOR_BYTE,
+            head: SHIFT_HEAD_BYTE,
+        }],
+    };
+    application
+        .store
+        .set_view_state(
+            view,
+            selection.clone(),
+            ScrollPosition::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    let target = application
+        .services
+        .state
+        .paths
+        .layout_file(&fixture.project);
+    if target.exists() {
+        std::fs::remove_file(&target).unwrap();
+    }
+    std::fs::create_dir_all(&target).unwrap();
+    for is_blocked in [true, false] {
+        if !is_blocked {
+            std::fs::remove_dir(&target).unwrap();
+        }
+        let services = application.services.clone();
+        let dispatch = application.application_ports.dispatch.clone();
+        let arguments = serde_json::json!({ "projectId": fixture.project });
+        let closed = application.runtime.spawn(async move {
+            let channels: crate::remote_ws::ChannelFactory =
+                Arc::new(|_| Box::new(|_| panic!("project close must not create a channel")));
+            (dispatch.json)(services, "project_close".into(), arguments, channels).await
+        });
+        wait(application, context, "project close disk failure", |_| {
+            closed.is_finished()
+        });
+        let result = application.runtime.block_on(closed).unwrap();
+        if is_blocked {
+            assert!(
+                result.is_err(),
+                "disk failure must stop project detach: {result:?}"
+            );
+            assert!(
+                application
+                    .services
+                    .state
+                    .projects
+                    .read()
+                    .contains_key(&fixture.project)
+            );
+            assert!(
+                application
+                    .services
+                    .state
+                    .layouts
+                    .read()
+                    .contains_key(&fixture.project)
+            );
+            assert!(
+                application
+                    .services
+                    .state
+                    .dirty_layouts
+                    .read()
+                    .contains(&fixture.project)
+            );
+            let current = application.store.views().get(view).unwrap();
+            assert_eq!(current.selection, selection);
+            assert_eq!(
+                application
+                    .store
+                    .documents()
+                    .snapshot(current.document)
+                    .unwrap()
+                    .rope
+                    .to_string(),
+                IDE_TEXT
+            );
+            continue;
+        }
+        assert!(result.is_ok(), "{result:?}");
+        assert!(
+            !application
+                .services
+                .state
+                .projects
+                .read()
+                .contains_key(&fixture.project)
+        );
+        assert!(
+            !application
+                .services
+                .state
+                .layouts
+                .read()
+                .contains_key(&fixture.project)
+        );
+    }
+    let layout =
+        taide_layout::service::load_layout(&application.services.state.paths, &fixture.project);
+    let tab = crate::tabs::tabs_in(&layout.root)
+        .into_iter()
+        .find(|tab| tab.id == fixture.tab)
+        .unwrap();
+    let saved: serde_json::Value =
+        serde_json::from_str(tab.view_state.as_deref().unwrap()).unwrap();
+    assert_eq!(
+        saved["cursorState"][0]["position"],
+        serde_json::json!({"lineNumber": STORED_LINE, "column": SHIFT_HEAD_COLUMN})
+    );
+    assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), IDE_TEXT);
+    eframe::App::on_exit(application);
+    assert_eq!(application.services.tasks.tracked_count(), 0);
+}
+
+#[test]
+fn 실제_일괄_닫힘은_주_보조_영역의_독립_위치와_접기를_보존한다() {
+    let text = format!(
+        "{IDE_TEXT}\n{}",
+        (0..LONG_LINE_COUNT)
+            .map(|index| format!("row {index}\n"))
+            .collect::<String>()
+    );
+    let mut fixture =
+        fixture_with_view_state("--native-inlay-hints", false, |_, _, _| true, None, &text);
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let main = body_view(application, &fixture.path, &fixture.tab);
+    let pane = PaneId::new();
+    let auxiliary_tab = TabId::new();
+    let pinned = TabId::new();
+    let mut layout = application.services.state.layouts.read()[&fixture.project].clone();
+    let PaneNode::Leaf { tabs, .. } = &mut layout.root else {
+        panic!("expected fixture leaf");
+    };
+    tabs.push(Tab {
+        id: pinned.clone(),
+        kind: TabKind::Welcome,
+        title: "pinned".into(),
+        pinned: true,
+        preview: false,
+        dirty: false,
+        view_state: None,
+    });
+    layout
+        .auxiliary_windows
+        .push(taide_model::layout::AuxWindowLayout {
+            slot: AUXILIARY_SLOT,
+            root: PaneNode::Leaf {
+                id: pane.clone(),
+                tabs: vec![Tab {
+                    id: auxiliary_tab.clone(),
+                    kind: TabKind::File {
+                        path: fixture.path.clone(),
+                    },
+                    title: "current.rs".into(),
+                    pinned: false,
+                    preview: false,
+                    dirty: false,
+                    view_state: None,
+                }],
+                active: Some(auxiliary_tab.clone()),
+            },
+            focused_pane: pane,
+        });
+    taide_runtime::layout_actions::finish_mutation(
+        application.services.events.as_ref(),
+        &application.services.state,
+        &fixture.project,
+        &mut layout,
+    );
+    application
+        .services
+        .state
+        .layouts
+        .write()
+        .insert(fixture.project.clone(), layout.clone());
+    application
+        .controller
+        .apply_layouts(HashMap::from([(fixture.project.clone(), layout)]));
+    application.shell.scope = WindowScope::Auxiliary {
+        project: fixture.project.clone(),
+        slot: AUXILIARY_SLOT,
+    };
+    paint(application, context, Vec::new());
+    let auxiliary = body_view(application, &fixture.path, &auxiliary_tab);
+    assert_ne!(auxiliary, main);
+    let document = application
+        .store
+        .documents()
+        .snapshot(application.store.views().get(main).unwrap().document)
+        .unwrap();
+    assert_eq!(
+        application.store.views().get(auxiliary).unwrap().document,
+        document.id
+    );
+    let folded = document.rope.line_to_byte(RESTART_FOLD_START_LINE)
+        ..taide_native_editor::editing::line_content_range(&document, RESTART_FOLD_END_LINE).end;
+    for (view, selection, folds) in [
+        (
+            main,
+            Selection {
+                anchor: ANCHOR_BYTE,
+                head: SHIFT_HEAD_BYTE,
+            },
+            vec![folded.clone()],
+        ),
+        (auxiliary, Selection { anchor: 0, head: 5 }, Vec::new()),
+    ] {
+        application
+            .store
+            .set_manual_folds(view, vec![folded.clone()])
+            .unwrap();
+        application
+            .store
+            .set_view_state(
+                view,
+                SelectionSet {
+                    primary: 0,
+                    selections: vec![selection],
+                },
+                ScrollPosition::default(),
+                folds,
+            )
+            .unwrap();
+    }
+    paint(application, context, Vec::new());
+    application.shell.scope = WindowScope::Main;
+    paint(application, context, Vec::new());
+    application.request_close_tabs(vec![
+        fixture.tab.clone(),
+        auxiliary_tab.clone(),
+        pinned.clone(),
+    ]);
+    wait(
+        application,
+        context,
+        "main auxiliary batch closed",
+        |application| {
+            application.pending_tab_close.is_none()
+                && application.controller.snapshot().layouts[&fixture.project]
+                    .closed_tabs
+                    .len()
+                    == 2
+        },
+    );
+    let snapshot = application.controller.snapshot();
+    let layout = &snapshot.layouts[&fixture.project];
+    assert_eq!(
+        crate::tabs::tabs_in(&layout.root)
+            .iter()
+            .map(|tab| tab.id.clone())
+            .collect::<Vec<_>>(),
+        vec![pinned]
+    );
+    assert!(application.store.views().get(main).is_none());
+    assert!(application.store.views().get(auxiliary).is_none());
+    for (tab, position, is_collapsed) in [
+        (
+            &fixture.tab,
+            serde_json::json!({"lineNumber": STORED_LINE, "column": SHIFT_HEAD_COLUMN}),
+            true,
+        ),
+        (
+            &auxiliary_tab,
+            serde_json::json!({"lineNumber": 1, "column": 6}),
+            false,
+        ),
+    ] {
+        let closed = layout
+            .closed_tabs
+            .iter()
+            .find(|closed| &closed.tab.id == tab)
+            .unwrap();
+        let saved: serde_json::Value =
+            serde_json::from_str(closed.tab.view_state.as_deref().unwrap()).unwrap();
+        assert_eq!(saved["cursorState"][0]["position"], position);
+        let region = &saved["contributionsState"]["editor.contrib.folding"]["collapsedRegions"][0];
+        assert_eq!(region["isCollapsed"], is_collapsed);
+        assert_eq!(region["source"], 1);
+        assert!(!closed.tab.dirty);
+    }
+    eframe::App::on_exit(application);
+    let persisted =
+        taide_layout::service::load_layout(&application.services.state.paths, &fixture.project);
+    assert_eq!(persisted.closed_tabs, layout.closed_tabs);
+    assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), text);
+    assert_eq!(application.services.tasks.tracked_count(), 0);
+}
+
+#[test]
+fn 실제_새_app은_디스크에서_선택_scroll과_접힌_펼친_수동_영역을_복원한다() {
+    let text = format!(
+        "{IDE_TEXT}\n{}",
+        (0..LONG_LINE_COUNT)
+            .map(|index| format!("row {index} {}\n", "wide text ".repeat(WIDE_RUNS)))
+            .collect::<String>()
+    );
+    let mut fixture =
+        fixture_with_view_state("--native-inlay-hints", false, |_, _, _| true, None, &text);
+    let mut application = fixture.application.take().unwrap();
+    let view = body_view(&application, &fixture.path, &fixture.tab);
+    let document = application
+        .store
+        .documents()
+        .snapshot(application.store.views().get(view).unwrap().document)
+        .unwrap();
+    let folded = document.rope.line_to_byte(RESTART_FOLD_START_LINE)
+        ..taide_native_editor::editing::line_content_range(&document, RESTART_FOLD_END_LINE).end;
+    let manual = document.rope.line_to_byte(RESTART_MANUAL_START_LINE)
+        ..taide_native_editor::editing::line_content_range(&document, RESTART_MANUAL_END_LINE).end;
+    application
+        .store
+        .set_manual_folds(view, vec![folded.clone(), manual.clone()])
+        .unwrap();
+    application
+        .store
+        .set_view_state(
+            view,
+            SelectionSet {
+                primary: 0,
+                selections: vec![Selection {
+                    anchor: ANCHOR_BYTE,
+                    head: SHIFT_HEAD_BYTE,
+                }],
+            },
+            ScrollPosition {
+                x: SCROLL_LEFT,
+                y: LEGACY_SCROLL_TOP,
+            },
+            vec![folded.clone()],
+        )
+        .unwrap();
+    for _ in 0..STABLE_FRAMES {
+        eframe::App::logic(
+            &mut application,
+            &fixture.context,
+            &mut eframe::Frame::_new_kittest(),
+        );
+        paint(&mut application, &fixture.context, Vec::new());
+    }
+    let expected = application.store.views().get(view).unwrap().clone();
+    assert_eq!(expected.folds, vec![folded.clone()]);
+    assert_eq!(expected.manual_folds, vec![folded.clone(), manual.clone()]);
+    let services = application.services.clone();
+    let settings = services.state.settings.read().clone();
+    taide_settings::service::save_settings(&services.state.paths, &settings).unwrap();
+    application
+        .runtime
+        .handle()
+        .clone()
+        .block_on(taide_runtime::project_actions::project_activate(
+            services.events.as_ref(),
+            &services.state,
+            fixture.project.clone(),
+        ))
+        .unwrap();
+    let helper = application.helper_executable.clone();
+    eframe::App::on_exit(&mut application);
+    assert_eq!(services.tasks.tracked_count(), 0);
+    drop(services);
+    drop(application);
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let tasks = TaskSupervisor::new(runtime.handle().clone());
+    let (state, warnings) = runtime
+        .block_on(crate::bootstrap::restore(
+            crate::bootstrap::LaunchConfig {
+                data_dir: fixture.directory.join("data"),
+            },
+            &tasks,
+        ))
+        .unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert!(state.projects.read().contains_key(&fixture.project));
+    assert_eq!(state.settings.read().clone(), settings);
+    let context = egui::Context::default();
+    context.set_os(egui::os::OperatingSystem::Mac);
+    let mut application = NativeApplication::new(
+        &eframe::CreationContext::_new_kittest(context.clone()),
+        runtime,
+        state,
+        tasks,
+        helper,
+        warnings,
+    )
+    .unwrap();
+    assert_eq!(application.store.documents().snapshots().count(), 0);
+    application
+        .runtime
+        .handle()
+        .clone()
+        .block_on(application.lsp.take().unwrap().disconnect())
+        .unwrap();
+    let repaint = context.clone();
+    application.lsp = Some(
+        crate::lsp::LspBridge::connect(
+            application.services.clone(),
+            fixture.directory.join("bin").into_os_string(),
+            Arc::new(move || repaint.request_repaint()),
+        )
+        .unwrap(),
+    );
+    paint(&mut application, &context, Vec::new());
+    wait(
+        &mut application,
+        &context,
+        "restart document",
+        |application| application.files.contains_key(&fixture.path),
+    );
+    for _ in 0..STABLE_FRAMES {
+        eframe::App::logic(
+            &mut application,
+            &context,
+            &mut eframe::Frame::_new_kittest(),
+        );
+        paint(&mut application, &context, Vec::new());
+    }
+    let view = body_view(&application, &fixture.path, &fixture.tab);
+    let current = application.store.views().get(view).unwrap();
+    assert_eq!(current.selection, expected.selection);
+    assert_eq!(current.scroll, expected.scroll);
+    assert_eq!(current.folds, vec![folded]);
+    assert_eq!(current.manual_folds, expected.manual_folds);
+    let current = application
+        .store
+        .documents()
+        .snapshot(current.document)
+        .unwrap();
+    assert_eq!(current.rope.to_string(), text);
+    assert!(!current.dirty);
+    assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), text);
+    eframe::App::on_exit(&mut application);
+    assert_eq!(application.services.tasks.tracked_count(), 0);
+}
 
 #[test]
 fn 실제_본문은_저장된_접기를_복원하고_열린_수동_접기를_종료에_보존한다() {

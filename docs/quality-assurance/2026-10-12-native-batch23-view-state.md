@@ -221,3 +221,19 @@ IDE 선행 저장 코드/검사·QA/소유 PROCESS의9경로는 `958dbf87`로 �
 현재 관련 서로 다른23건에서 새 App1/상태3만 이전 누계553에 추가하므로 성공 근거는 서로 다른557건입니다. 소유4Rust fmt는 exit0입니다. 전체 working diff 검사는 기존 사용자 `docs/architecture.md:955`의 EOF 빈 줄로 exit2이며 해당 파일은 수정하지 않았습니다. 커밋 전 소유 경로/선별 staged diff만 따로 확인합니다. 새 dependency/manifest/lock/Core/UI/frozen 변경은 없으며 editor-67 partial·298/588(50.7%)·잔여290/배치23 잔여23/최종33을 유지합니다. 실제 batch/aux와 새 App 재시작·전체App 준비 실패/실기/성능/신뢰성/출시 게이트는 미완료입니다.
 
 접기 코드/검사·QA/소유 PROCESS의6경로를 `0fdec614`로 선별 커밋했고 author/최종 메시지에 AI 트레일러가 없음을 확인했습니다. 기능표399근거 경로와 원래302 ID 배정의 누락/중복/미확인ID0·현재 미완료290·배치23~30 잔여23/52/23/64/32/39/51/6·최종33을 실제 JSON으로 확인했습니다. 기존 사용자 PROCESS 하단 두 hunk와 다른 문서는 스테이징하지 않았습니다.
+
+## 새 App의 디스크 복원과 실제 일괄 닫힘
+
+기존 App을 종료·폐기하고 기존 settings 저장/project_activate 경계로 기록한 소유 임시 data를 bootstrap::restore로 읽었습니다. 새 Runtime/TaskSupervisor/Context/NativeApplication의 EditorStore가 비어 있음을 확인한 뒤 실제 본문을 열었습니다. 같은 live Store에 새 뷰만 붙이는 이전 단위 검사와 구분합니다. 복원된 설정은 remote/IDE/agent를 비활성화하고 소유 mock LSP만 사용하며 실제 앱 data/Keychain/OS 입력을 건드리지 않았습니다. `view-state-restart.log`는 UTF-16 역방향 선택·실제 렌더 scroll·접힌 수동/펼친 수동 영역·원문/dirty/디스크·두 App 종료의 작업0이1통과·24.23초·exit0(컴파일23.69초)입니다. 실제 OS 프로세스 재실행 검사는 아닙니다.
+
+`view-state-batch-aux.log`는 실제 주/보조 WindowScope에서 같은 문서의 서로 다른 ViewId를 그린 뒤 RequestCloseTabs의 순차 Host 닫힘 경로를 실행해1통과·22.04초·exit0(컴파일23.13초)입니다. 독립 UTF-16 선택·접힌/펼친 수동 영역의 최근 닫힘/종료 디스크 기록과 고정 탭·원문/dirty·두 뷰 해제/작업0을 확인했습니다. 기존 native 보조 영역 소비의 검사이며 실제 OS 보조 창 생성/종료까지 완료한 것으로 확대하지 않습니다. 두 새 검사 성공으로 기존557건에서 서로 다른559건이며 기능표 editor-67은 마지막 디스크 오류 경계를 확인하기 전까지 partial을 유지합니다.
+
+실제 source에서 NativeProjects::await_project_flush는 실패를 로그로만 남기고 기존 ProjectLifecyclePort의 void 계약을 반환합니다. 원격 project_close는 이후 프로젝트/layout을 detach하므로 저장 실패의 최신 위치를 잃을 위험이 있습니다. 소유 임시 layout.json 위치에 디렉터리를 만들어 기존 저장 경계의 오류와 프로젝트/본문 유지·장애 제거 후 재시도를 실제 App으로 재현합니다. 기존 플랫폼 lifecycle 계약/rollback을 바꾸지 않고 native 닫힘 진입에서 검증/캡처 뒤 checked flush를 보장할 범위입니다.
+
+`view-state-project-error-red.log`는 layout.json의 소유 디렉터리 장애에도 project_close가 Ok(null)을 반환한 실제 오류에서0통과/1실패·22.39초·exit101(컴파일22.35초)입니다. native 원격 닫힘 진입에 기존 Host flush_layouts의 typed 결과를 캡처 뒤/lifecycle 생성 전에 확인하도록 연결했습니다. 실패는 프로젝트/session/layout과 최신 live 본문·dirty 위치를 유지하며 장애 제거 뒤 같은 닫힘을 재시도합니다. 원본 ProjectLifecyclePort의 void 계약/플랫폼·rollback/권한/입력 검증과 기존 await 순서는 유지합니다. 검사를 재실행 중이며 아직 후기 재시도 성공으로 집계하지 않습니다.
+
+`view-state-project-error-green.log`는 같은 실제 App 장애 검사에서1통과·34.12초·exit0(컴파일16.60초)입니다. 실패의 typed 오류/프로젝트·layout·dirty 위치·live 선택/본문 유지와 장애 제거 후 성공/실제 detach·최신 디스크 위치·원문/작업0을 확인했습니다. `view-state-project-error-remote.log`는 기존 원격 프로젝트 전체5통과·0.72초·exit0이며23명령·입력/권한/검증·캡처 실패·열기 작업 취소/종료와 닫힘 flush 취소를 보존했습니다. 기존 실제 App 원격 파일/닫힘·프로젝트 종료 검사의 실패 영향 한 건을 확인 중이며 동일 성공을 누계에 추가하지 않습니다.
+
+`view-state-project-error-app-regression.log`는 기존 실제 원격 탭/프로젝트 종료1통과·33.57초·exit0입니다. 이번 새 App 재시작/주·보조 영역 batch/디스크 오류3건과 원격 프로젝트5/기존 실제 App1의 서로 다른9건·소유2Rust fmt/diff가 통과했습니다. 이전557건에서 반복한 원격5/실제App1을 제외한551건을 재사용하므로 서로 다른560건입니다. 같은 성공을 누계에 추가하지 않습니다.
+
+editor-67의 원본 요구사항인 뷰 상태 저장/새 App 재시작 복원은 실제 본문 경로와 자동 근거로 complete입니다. 최초 복원·현재 위치/geometry·UTF-16·잘못된 값·readonly/mirror·최근 닫힘/preview·셸/Host/IDE/remote·project/slot·기존 주/보조 영역 batch·접기/본문 검증·앱 종료와 저장 오류/재시도를 완료했습니다. 물리 OS 보조 창 생성/닫힘과 독립 OS 프로세스 재실행·전체App 준비 실패/성능/접근성/출시 성공을 뜻하지 않습니다. 이 기능과 별도인 배치24/31~33 게이트를 유지합니다. 분류는 complete299/partial92/unwired110/missing87·588대상·미완료289·기능 체크리스트50.9%·배치23 잔여22/최종33이며 전체전환율/잔여시간은 미산정입니다.
