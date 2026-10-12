@@ -137,3 +137,9 @@ c9c2b에서 실제 readonly/tier/lossy 항목·복사와 본문/peek 팔레트·
 구현0fdec614에서 실제 본문의 접기 복원 실패를 수정했습니다. 펼친 수동 영역·설치 Monaco UTF-16 signed checksum/legacy·전체 본문 hash·중간 변경 거절/영역 밖 및 CRLF/LF 허용·readonly/독립 mirror·잘못된 값·unknown contribution/같은 객체의 future 필드 보존을 확인했습니다. App12/상태9/종료2의 서로 다른23건·소유4Rust fmt/staged diff와 이전 성공 재사용으로557건이 통과했습니다. 단독/mirror 재검사는 중복 집계하지 않습니다.
 
 현재599행/399근거 경로·588대상·complete298/partial93/unwired110/missing87·미완료290·기능 체크리스트50.7%입니다. 원래302 ID 배정의 누락/중복/미확인ID는0이며 배치23~30 잔여23/52/23/64/32/39/51/6·최종33을 유지합니다. editor-67 partial이며 실제batch/aux와 새 App 재시작·전체App 준비/실기/성능/신뢰성/출시·전환·제거 게이트는 남습니다. 전체 전환율/잔여시간은 미산정입니다.
+
+## 뷰 상태 저장과 새 App 복원 완료 (2026-10-12)
+
+제품feeeaf6c에서 editor-67을 complete로 닫았습니다. 실제 새 Runtime/빈 EditorStore/App의 bootstrap 디스크 복원·주/보조 영역 batch의 독립 선택/접기/최근 닫힘 기록·고정 탭/뷰 해제와 프로젝트 저장 장애의 본문 유지/재시도를 확인했습니다. 새3건/원격5/기존 실제App1의 서로 다른9통과·소유2Rust fmt/diff와 이전551건 재사용으로560건이며 같은 성공을 중복 집계하지 않습니다. 기존 플랫폼 lifecycle 계약/rollback·검증/권한과 dependency/manifest/lock/Core/UI/frozen은 유지합니다. 실제 OS 보조 창과 독립 OS 프로세스 재실행·전체App 준비/실기/성능/신뢰성/출시 게이트는 배치24/31~33에 남습니다.
+
+현재599행/399근거 경로·588대상·complete299/partial92/unwired110/missing87·미완료289·기능 체크리스트50.9%입니다. 원래302 ID 배정의 누락/중복/미확인ID는0이며 배치23~30 잔여22/52/23/64/32/39/51/6·최종33을 유지합니다. 전체 전환율/잔여시간은 미산정입니다. 다음은 같은 배치의 파일 로딩/오류·삭제 draft 소비 경계입니다.
