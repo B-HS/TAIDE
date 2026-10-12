@@ -1,6 +1,6 @@
 {
     "date": "2026-10-12",
-    "baseline": "c0f4fd83",
+    "baseline": "497d5d43",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1147,7 +1147,8 @@
                 "crates/taide-locale/resources/locales/ja.json",
                 "native/taide-native-ui/src/editor-markup-preview.rs",
                 "native/taide-native-ui/src/presentation.rs",
-                "native/taide-native-app/src/presentation-refresh.rs"
+                "native/taide-native-app/src/presentation-refresh.rs",
+                "native/taide-native-editor/src/documentation.rs"
             ],
             "tests": [
                 "native/taide-native-app/src/application-markdown-tests.rs",
@@ -1159,10 +1160,11 @@
                 "crates/taide-locale/src/service.rs",
                 "native/taide-native-ui/tests/editor-markup-preview.rs",
                 "native/taide-native-ui/tests/editor-documentation.rs",
-                "native/taide-native-ui/tests/theme-portable.rs"
+                "native/taide-native-ui/tests/theme-portable.rs",
+                "native/taide-native-editor/tests/documentation.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-12-native-batch23-markdown.md"],
-            "limitation": "실제 App 분할/입력/문서 수명·기본 HTML/경로/이미지·localized 오류/복구의 이전29건에 원본 preview 전용 크기/간격·quote/table border·inline code/link·pre horizontal scroll·app 테마 역할/두 갱신 소비를 연결했습니다. 실제 App의 theme/editor font 변경→오른쪽 preview font/colour·이미지/입력/복구/닫힘/원문/task0과 preview3/일반 hover13/theme3/App1의 서로 다른20통과·소유9Rust fmt/diff입니다. 최초 제목 차이와 MouseWheel 작성 실패는 QA에 보존하며 중복 성공을 합산하지 않습니다. full HTML CSS/SVG/MathML/media/details/anchor·음수 목록/표 병합/전체 cell 크기와 readonly/mirror/독립 scroll/추가 뷰·전체App/실기/성능/출시는 남아 partial입니다."
+            "limitation": "실제 App/기본 HTML/경로/이미지·오류 복구와 preview 전용 표시/테마에 표 row/column 경계 정규화·공유 edge1회와 signed start/HTML 정수 prefix/기본값·overflow-safe 두 UI 번호를 연결했습니다. 실제 같은 행48/88 경계와 음수→1 실패를 재현했으며 UI18/App1/parser5/Core7/LSP parser8/portable2의 서로 다른41통과·소유10Rust fmt/diff·frozen host tests 포함/Wasm canvas lib compile이 통과했습니다. 최초 native-host theme helper 경계 E0433은 같은 cfg로 수정했고 기능 강제 활성화로 우회하지 않았습니다. 전체 표 data/viewport/이미지/span·HTML reversed/value/type/CSS/SVG/MathML/media/details/anchor·readonly/mirror/독립 scroll/추가 뷰와 전체App/실기/성능/출시는 남아 partial입니다."
         }
     },
     "rows": [
@@ -3045,7 +3047,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-markdown",
-            "note": "기본 HTML/경로/이미지/오류 복구와 stable 분할/본문/문서 수명에 preview 전용 font/spacing·quote/table border·inline code/link·pre horizontal scroll·app theme/갱신을 연결했습니다. 실제 theme/editor font 변경의 오른쪽 preview와 preview3/hover13/theme3/App1의20통과입니다. full HTML·전체 표 cell 크기/병합/음수 목록·readonly/mirror/독립 scroll/추가 뷰 검증은 남아 전체 완료로 올리지 않습니다."
+            "note": "stable 분할/본문/문서 수명·기본 HTML/경로/이미지/오류 복구·원본 표시/테마에 표 경계/공유 edge와 signed start/정수 파싱/안전한 번호 표시를 연결했습니다. 실제 App/preview와 UI18/App1/parser5/Core7/LSP parser8/portable2의41통과·frozen host/Wasm compile입니다. 전체 table data/viewport/span·HTML reversed/value/type/full CSS 등과 추가 readonly/mirror/scroll/뷰는 미완료라 전체 완료로 올리지 않습니다."
         },
         {
             "id": "editor-73",

@@ -173,3 +173,9 @@ c9c2b에서 실제 readonly/tier/lossy 항목·복사와 본문/peek 팔레트·
 제품c0f4fd83에서 preview 전용 제목/본문 크기·line-height/여백·인용 opacity/border·셀 border/padding·인라인 코드 rounded/link·독립 pre horizontal scroll과 원본 app 테마 역할/두 갱신 소비를 연결했습니다. 실제 App의 theme/editor font 변경→오른쪽 preview font/colour와 기존 HTML/이미지/입력/오류/복구/닫힘/원문/task0, preview3/일반 hover13/theme3/App1의 서로 다른20통과·소유9Rust fmt/diff·manifest/lock 변경0입니다. 최초 제목 불일치/새 MouseWheel 작성 실패와 중복 성공을 QA에 구분하고 일반 호버는 유지합니다.
 
 현재599행/419근거 경로·588대상·complete302/partial90/unwired110/missing86·미완료286·기능 체크리스트51.4%입니다. 원래302 ID 배정의 누락/중복/미확인ID0·배치23~30 잔여19/52/23/64/32/39/51/6·최종33을 확인했습니다. full HTML과 전체 표 cell 크기·병합/음수 목록, readonly/mirror/독립 scroll/추가 뷰 및 전체 게이트는 아직 미완료이므로 editor-72 partial/전체 목표를 유지합니다. 전체전환율/잔여시간은 미산정이며 같은 Markdown 범위를 계속합니다.
+
+## Markdown 표 공유 경계와 signed start의 부분 구현 (2026-10-12)
+
+제품497d5d43에서 같은 표 행의 cell bottom48/88과 음수 ol start→1의 실제 실패를 수정했습니다. Grid 배치 후 행/열 경계 정규화·공유 edge1회와 공통 signed start/HTML 정수 prefix·기본값·overflow-safe 번호를 두 UI에 연결했습니다. 실제 preview/App·UI18/App1/parser5/Core7/LSP parser8/portable2의 서로 다른41통과·소유10Rust fmt/diff·frozen host tests 포함/Wasm canvas lib compile입니다. 이전 Markdown theme helper의 native-host 경계 누락 E0433도 발견해 동일 cfg로 수정했고 최초 실패를 QA에 보존했습니다.
+
+현재599행/419근거 경로·588대상·complete302/partial90/unwired110/missing86·미완료286·기능 체크리스트51.4%입니다. 원래302 ID 배정의 누락/중복/미확인ID0·배치23~30 잔여19/52/23/64/32/39/51/6·최종33을 확인했습니다. 전체 표 data/viewport/이미지/span·HTML reversed/value/type/full CSS 등과 readonly/mirror/독립 scroll/추가 뷰 및 전체 게이트는 아직 미완료이므로 editor-72 partial/전체 목표를 유지합니다. 전체전환율/잔여시간은 미산정이며 같은 범위를 계속합니다.
