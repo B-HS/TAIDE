@@ -203,3 +203,5 @@ IDE 선행 저장 코드/검사·QA/소유 PROCESS의9경로는 `958dbf87`로 �
 `view-state-remote-project-core-workspace.log`는 실제 기존 workspace의 프로젝트서비스/그룹/슬롯 전체98통과·0.51초·exit0(컴파일2분01초)입니다. localized missing root·디렉터리/홈 경로·재열기/복원·프로젝트와 슬롯/그룹 저장/수명을 확인했습니다. `view-state-remote-ports.log`는 조립/dispatch/persist/event/lazy ports·소유 agent 회수2통과·0.10초·exit0, 소유 loopback 허용의 `view-state-remote-exit.log`는 실제 종료 저장/오류·서버/세션/pending/lockfile·감독 회수2통과·0.05초·exit0입니다.
 
 현재 실제 App2·원격레이아웃5/프로젝트5/dispatch3·넓은 필터의 불변4·Host9/포트2/종료2·프로젝트서비스98은 로그의 package/test 이름을 합쳐 서로 다른130건입니다. 기존436건에서 다시 실행한Host9/포트2/종료2를 제외한423건을 재사용해 서로 다른553건이며 같은 성공을 추가 합산하지 않습니다. 소유12Rust fmt/diff는 exit0이고 manifest/lock/UI renderer/Core editor/engine/frozen은 변경하지 않았습니다. 런타임의 파일 검증 함수 공개와 프로젝트 검증 함수의 제한된 재노출은 기존 서비스 경계를 재사용하며 새 의존성/RPC가 없습니다. editor-67 partial·complete298/partial93/unwired110/missing87·미완료290·배치23 잔여23/최종33·전체율/잔여시간 미산정을 유지합니다. 실제 batch/aux·folding contribution/전체App 재시작과 전체App/실기/신뢰성/출시 게이트는 아직 남습니다.
+
+원격 선행 저장 코드/검사·QA/소유 PROCESS의14경로는 `fe9cf0fc`로 선별 커밋했습니다. 기능표의 상태와 전체 배치 ID 배정을 실제 JSON으로 대조했고 미완료290·배정누락/중복/미확인ID0·최종33을 유지합니다. 다음은 실제batch/aux의 나머지 경로와 folding contribution·디스크에서 새 App으로 재시작하는 복원입니다.

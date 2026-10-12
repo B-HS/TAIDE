@@ -1,6 +1,6 @@
 {
     "date": "2026-10-12",
-    "baseline": "958dbf87",
+    "baseline": "fe9cf0fc",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -137,7 +137,12 @@
                 "native/taide-native-app/src/host.rs",
                 "native/taide-native-ui/src/controller.rs",
                 "native/taide-native-app/src/ide-tools.rs",
-                "native/taide-native-app/src/ide-server.rs"
+                "native/taide-native-app/src/ide-server.rs",
+                "crates/taide-runtime/src/project_actions.rs",
+                "crates/taide-project/src/service.rs",
+                "native/taide-native-app/src/remote-layout.rs",
+                "native/taide-native-app/src/remote-projects.rs",
+                "native/taide-native-app/src/remote-dispatch.rs"
             ],
             "tests": [
                 "native/taide-native-app/tests/persistence.rs",
@@ -151,13 +156,16 @@
                 "native/taide-native-ui/tests/controller.rs",
                 "native/taide-native-app/src/ide-tools-tests.rs",
                 "native/taide-native-app/src/ide-server-tests.rs",
-                "native/taide-native-app/src/application-ports-tests.rs"
+                "native/taide-native-app/src/application-ports-tests.rs",
+                "native/taide-native-app/src/remote-layout-tests.rs",
+                "native/taide-native-app/src/remote-projects-tests.rs",
+                "native/taide-native-app/src/remote-dispatch-tests.rs"
             ],
             "reports": [
                 "docs/quality-assurance/2026-10-09-native-completion-evidence.md",
                 "docs/quality-assurance/2026-10-12-native-batch23-view-state.md"
             ],
-            "limitation": "초기/앱 종료·탭 닫힘/셸/Host 선행 캡처·preview 모델 재열기와 IDE openFile/close_tab/일괄diff닫힘의 최신 위치를 연결했습니다. 입력 검증 뒤 캡처·실패 시 mutation/이벤트 억제와 실제App1/IDE도구5/서버4/포트2, 변경 없는App·상태·sync16/종료2/Host9/controller3/Core306/UI88의 서로 다른436건이 통과했습니다. remote·project/slot/aux·batch·folding contribution/전체 재시작은 남아 partial을 유지합니다."
+            "limitation": "초기/종료·탭/셸/Host/IDE/원격의 최신 캡처·preview 재열기를 연결했습니다. 실제 원격 파일 열기/닫힘·프로젝트 detach 전 디스크 저장과 슬롯 focus/close/activate·Host 프로젝트 열기, 검증/권한·캡처 실패 억제·접수한 열기 작업의 취소/종료 수명을 확인했습니다. 이번130건과 변경 없는423건을 재사용한553건·12Rust fmt/diff가 통과했습니다. 실제 batch/aux·folding contribution/전체App 재시작은 남아 partial을 유지합니다."
         },
         "editor-snippet": {
             "sources": [
@@ -7698,5 +7706,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "제품958dbf87의 실제 IDE openFile 뒤 이전 Tab.view_state None을 재현해 App 조립 포트에 동일 공유 캡처를 연결했습니다. 파일 경계 검증 뒤 openFile과 대상이 있는close_tab/closeAllDiffTabs 전에 적용하고 캡처 실패는ToolError로 반환해 mutation/닫힘 이벤트를 막습니다. 잘못된 입력/읽기/대상없음은 캡처 요청0·기존 headless/RPC/서버 인증과 종료 회수를 보존합니다. 실제App1/IDE도구5/서버4/조립포트2·exit0와 변경 없는App·상태·sync16/종료2/Host9/controller3/Core306/UI88을 재사용한 서로 다른436건·소유7Rust fmt/diff입니다. authored text 인자 누락의 실행0건과 실제 실패/수정을 QA에 기록했고 같은 성공은 중복 합산하지 않습니다. manifest/lock/renderer/Core/engine/frozen과 사용자 기존 문서/PROCESS 하단 두 hunk를 보존합니다. editor-67 partial·complete298/partial93/unwired110/missing87·미완료290·배치23 잔여23/최종33을 유지합니다. remote·project/slot/aux/batch·folding contribution/전체재시작과 전체App/실기는 미완료입니다. 직전App전체877통과/22준비실패·보호3제외·exit101·최초준비원인미확정·Core성능ignored1·Wasmtests시간API불일치7·실기/성능/신뢰성/출시·전환·제거를 보존하며 전체전환율/잔여시간은 미산정입니다."
+    "validation": "제품fe9cf0fc의 실제 원격 파일 열기에서 이전 Tab.view_state None을 재현해 같은 공유 캡처를 원격 레이아웃/프로젝트·Host OpenProject에 연결했습니다. typed/파일·프로젝트 root/슬롯·권한 검증 뒤 적용하고 캡처 실패는 mutation/이벤트/lifecycle 생성을 막습니다. 명시viewState/metadata/읽기/resize와 기존headless/outer policy를 보존합니다. 열기3진입점은 기존nonabortable 작업 안에서 검증/캡처를 수행해 종료Forbidden 우선순위와 캡처 대기 중 요청 취소 뒤 접수 작업 완료를 유지합니다. 실제App2·레이아웃5/프로젝트5/dispatch3·불변4·Host9/포트2/종료2·프로젝트서비스98의 package/test별 서로 다른130통과·12Rust fmt/diff·exit0와 변경 없는423건을 재사용한553건입니다. 작성한태그/import/직접의존성 오류·workspace 선택의 실행0건과 실제 실패/종료오류순서 회귀/수정을 QA에 보존하고 같은 성공을 중복 합산하지 않습니다. manifest/lock/UI renderer/Core editor/engine/frozen과 사용자 기존 문서/PROCESS 하단 두 hunk를 보존합니다. editor-67 partial·complete298/partial93/unwired110/missing87·미완료290·배치23 잔여23/최종33을 유지합니다. 실제batch/aux·folding contribution/전체App 재시작과 전체App/실기는 미완료입니다. 이전App전체877통과/22준비실패·보호3제외·exit101·최초준비원인미확정·Core성능ignored1·Wasmtests시간API불일치7·실기/성능/신뢰성/출시·전환·제거를 보존하며 전체전환율/잔여시간은 미산정입니다."
 }
