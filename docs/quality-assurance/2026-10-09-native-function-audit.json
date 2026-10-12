@@ -1,6 +1,6 @@
 {
     "date": "2026-10-12",
-    "baseline": "6fe9eed6",
+    "baseline": "fc732905",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -56,7 +56,9 @@
                 "native/taide-native-app/src/events.rs",
                 "crates/taide-runtime/src/native_file_actions.rs",
                 "crates/taide-file/src/service.rs",
-                "native/taide-native-editor/src/store.rs"
+                "native/taide-native-editor/src/store.rs",
+                "native/taide-native-app/src/missing_draft.rs",
+                "native/taide-native-app/src/file-dialogs.rs"
             ],
             "tests": [
                 "native/taide-native-ui/tests/document_admission.rs",
@@ -66,13 +68,15 @@
                 "native/taide-native-app/src/file-loading.rs",
                 "native/taide-native-app/tests/explorer-system.rs",
                 "native/taide-native-app/tests/host.rs",
-                "native/taide-native-app/src/application-view-state-tests.rs"
+                "native/taide-native-app/src/application-view-state-tests.rs",
+                "native/taide-native-app/src/application-missing-draft-tests.rs"
             ],
             "reports": [
                 "docs/quality-assurance/2026-10-09-native-completion-evidence.md",
-                "docs/quality-assurance/2026-10-12-native-batch23-file-loading.md"
+                "docs/quality-assurance/2026-10-12-native-batch23-file-loading.md",
+                "docs/quality-assurance/2026-10-12-native-batch23-missing-draft.md"
             ],
-            "limitation": "editor-19/59의 실제 로딩/tier/원본 거절 안내/외부 열기 명령/오류 복구는 App4·버튼1·admission4·Host9/system2·기존 본문 App15의 서로 다른35통과와6Rust fmt/diff로 완료했습니다. import/조기 단언/출력 texture/필터 오류·원래 App의 재현/수정·u32 포화 metadata 오류를 QA에 구분합니다. 실제 OS opener는 주입 포트로 확인하며 삭제 draft의 전체 App/editor-64와 기존 전체App 준비/성능/출시는 미완료입니다."
+            "limitation": "editor-19/59는 이전 실제 로딩/tier/거절 안내/오류 복구35건, editor-64는 현재 readonly 삭제 source/Save As·현재 창/기존 대상·취소/오류·동일 경로/다른 경로·최신 초안 재조회/재시도·본문/재열기·원문/소유의 App4/missing_draft5/untitled3의12건·6Rust fmt/diff로 완료했습니다. 같은 성공/준비 실패/0건은 합산하지 않습니다. 두 picker의 원래 OS 부모/요청 설정/default rfd는 유지하고 실제 OS chooser는 주입 포트로 대신했으며 전체App 준비/접근성/성능/출시는 미완료입니다."
         },
         "editor-fold": {
             "sources": [
@@ -2919,9 +2923,9 @@
             "ts": "`editor-pane.tsx:202-220, 382-395`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:140",
             "domain": "editor",
-            "status": "partial",
+            "status": "complete",
             "proof": "editor-load",
-            "note": "mirror draft와 Save As 구제는 연결됐으나 원본과 같은 삭제 파일의 편집 표면 전체 상호작용을 아직 입증하지 못했습니다."
+            "note": "실제 readonly 삭제 source mirror 표면·Save As 버튼/취소·dirty/root/IO/변경 mirror 보호·동일 canonical source/다른 경로 저장·원래 탭/원문 유지·현재 창/기존 대상 재사용·본문/닫힘/재열기·최신 초안 재조회/재시도와 소유 회수를 연결했습니다. App4/missing_draft5/untitled3의 서로 다른12통과·6Rust fmt/diff입니다. 실제 OS picker/전체App 준비/접근성/성능/출시는 별도입니다."
         },
         {
             "id": "editor-65",
@@ -7720,5 +7724,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "제품6fe9eed6에서 응답 완료 뒤 원래 App의 Refused 안내/마지막 실패 탭 캐시 두 누락을 재현해 typed Document/Refused 소비·원본 locale/기존 OpenPath·localized 오류와 파일 변경/live 소비자/마지막 닫힘/프로젝트 제거의 상태 수명을 연결했습니다. 실제 2MiB Large/20MiB ReadOnly 입력·NUL/50MiB/4GiB sparse 거절·보조 mirror/FsChanged 복구/프로젝트 종료·모델0/원문/dirty/디스크/작업0을 확인했습니다. 기존 DTO의 u32 포화 크기와 metadata 대조의 실제 실패도 수정하고 원래 mtime/소유/guard 검증·commit/observation/disk-choice 계약을 보존했습니다. App4/버튼1/admission4/Host9/system2/기존 저장·복원App15의 서로 다른35통과·6Rust fmt/diff·exit0이며 같은 test의 재검사/0건 결과를 합산하지 않습니다. manifest/lock/Core/engine/frozen source와 사용자 기존 문서/PROCESS 하단 두 hunk는 보존합니다. editor-19/59 complete·complete301/partial90/unwired110/missing87·미완료287·배치23 잔여20/최종33입니다. editor-64 삭제 source draft/Save As 전체 App 흐름과 기존 전체App877통과/22준비실패·보호3제외·exit101·준비 원인 미확정·Core성능ignored1·Wasmtests시간API불일치7·실제 OS/접근성/성능/신뢰성/출시·전환·제거를 보존하며 전체전환율/잔여시간은 미산정입니다."
+    "validation": "제품fc732905에서 실제 보조 창 Save As의 주 창 열기 오류와 바뀐 mirror 거절 뒤 오래된 readonly 내용의 복구 누락을 재현했습니다. source 창의 기존 canonical 목적지/tab을 재사용·활성화하고 같은 source 경로는 원래 탭을 복구하며 실패 뒤 기존 OpenDocument로 최신 초안을 다시 읽고 재조회 중 picker를 막습니다. 두 기존 Save As는 부모 frame/디렉터리/이름/title/default rfd 호출을 유지하는 private 주입 포트를 사용합니다. 실제 버튼 취소/dirty·root·IO·변경 mirror 보호/최신 재시도/동일·다른 경로/본문·닫힘·재열기/원문/소유와 untitled 공유 picker를 App4/missing_draft5/untitled3의 서로 다른12통과·6Rust fmt/diff·exit0으로 확인했습니다. canonical fixture/pane 작성 오류·미실행 target·포커스 실패/수정은 QA에 구분하고 같은 성공을 중복 합산하지 않습니다. 이전 로딩/tier/오류35건과 뷰 상태/다른 변경 없는 성공은 재사용하며 manifest/lock/Core/engine/frozen source와 사용자 기존 문서/PROCESS 하단 두 hunk를 보존합니다. editor-64 complete·complete302/partial89/unwired110/missing87·미완료286·배치23 잔여19/최종33입니다. 컴파일6분29초 중 dlopen→dyld mapSegments/fcntl 스택은 관찰했으나 OS/캐시/기한 변경 없이 동일 작업 종료를 기다렸고 원인 해결로 보고하지 않습니다. 기존 전체App877통과/22준비실패·보호3제외·exit101·준비 원인 미확정·Core성능ignored1·Wasmtests시간API불일치7·실제 OS picker/접근성/성능/신뢰성/출시·전환·제거와 남은 목표 전체를 보존하며 전체전환율/잔여시간은 미산정입니다."
 }

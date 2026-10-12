@@ -7,7 +7,7 @@
 - [x] 실제 소비/남은 차이 — App은 MissingDraft를 raw readonly 내용·sourceDeleted/saveDraftAs로 그립니다. save_missing_draft는 OS picker를 직접 열고 target live dirty 모델/소유/UTF-8·flush를 검증한 뒤 Host를 호출합니다. save 성공은 source missing 캐시를 정리하고 source 탭을 유지합니다. backend의 새 대상은 layout.focused_pane(주 영역)에 열리며 source 탭의 보조 창/기존 destination 탭과 같은 canonical 경로를 제대로 구분하는지 실제 재현이 필요합니다.
 - [x] 실제 실패/표면 — 임시 프로젝트에 mirror를 저장하고 source만 삭제해 실제 App의 보조 영역 읽기 전용 표면·Host 저장 결과의 대상 pane을 확인합니다. 실제 source/사용자 데이터/OS 대화상자/클립보드/Keychain/Trash를 건드리지 않습니다.
 - [x] picker/취소·오류/성공 — 두 기존 저장 호출의 동일한 picker 요청을 주입 가능하게 연결하고 실제 egui 버튼/취소·dirty destination·root 거절/변경 mirror·정상/동일 source 복구·기존 대상 재사용을 확인합니다. 기존 OS 호출의 부모/경로/이름/title 설정과 저장 검증을 유지합니다.
-- [ ] 관련 검증·완료 기록 — 현재 App/Host/missing_draft·untitled 및 필요 범위의 위험 비례 검사를 실행하고 같은 성공을 재사용합니다. 실제 기능이 닫힌 경우만 editor-64/배치 잔여를 갱신하고 선별 커밋/일반 푸시합니다. 전체 OS/접근성/성능/출시 게이트는 유지합니다.
+- [x] 관련 검증·완료 기록 — 현재 App/Host/missing_draft·untitled 및 필요 범위의 위험 비례 검사를 실행하고 같은 성공을 재사용합니다. 실제 기능이 닫힌 경우만 editor-64/배치 잔여를 갱신하고 선별 커밋/일반 푸시합니다. 전체 OS/접근성/성능/출시 게이트는 유지합니다.
 
 첫 missing-draft-red.log는 컴파일6분29초 뒤 missing source draft 준비에서0통과/1실패·43.66초·exit101입니다. fixture가 helper 실행 경로에서 raw temp 경로를 재구성해 실제 canonical peek 경로와 다른 캐시 키를 사용한 가능성을 확인하고, 전달받은 canonical current 파일의 sibling 경로를 사용하도록 수정했습니다. 저장 대상 pane 단언에는 도달하지 않았으므로 제품의 창 누락 재현으로 세지 않습니다. 컴파일 중 소유 Cargo/rustc가 실제 살아 있고 elapsed4분47초/CPU2.06초인 상태를 읽었으며 재시작/OS 변경/캐시 수정은 하지 않았습니다. 짧은 rustc sample은 symbols 처리 단계에서 아직 완료되지 않아 원인 증명으로 사용하지 않습니다.
 
@@ -28,3 +28,5 @@ services.log는 기존 missing_draft4통과/새 기존 대상 재사용1실패·
 reuse-fixed.log는 canonical 동일 source 경로와 현재 창의 기존 목적지 탭 재사용/활성화·id/pin/view_state/중복0/원문·mirror 정리/작업0이1통과·0.04초·exit0(컴파일19.04초)입니다. 기존 missing_draft4성공은 변경 없는 실패 경계를 재사용합니다. untitled-service.log는 이전 target 실패 때문에 미실행이었던 기존 새 문서 전체3통과·0.06초·exit0(컴파일4.93초)입니다. 현재 실제 App4/missing_draft5/untitled3의 서로 다른12건·소유6Rust fmt/diff가 통과했습니다. 같은 검사/재검사/준비 실패/0건 결과를 중복 집계하지 않습니다.
 
 editor-64의 원본 readonly 삭제 source 표면과 Save As 취소/오류·현재 창/기존 대상·동일 canonical source 복구·원래 탭/원문 유지·성공 mirror 정리·최신 draft 재조회/재시도·본문/닫힘/재열기·소유 회수는 실제 App/서비스 근거로 complete입니다. 두 기존 picker의 OS 부모/요청 설정/default rfd는 보존하고 실제 OS 대화상자는 주입 포트로 대신했습니다. 물리 OS picker·전체App 준비 실패/접근성/성능/신뢰성/출시와 나머지 목표는 미완료입니다. 기능표 반영 뒤 complete302/partial89/unwired110/missing87·588대상·미완료286·기능 체크리스트51.4%·배치23 잔여19/최종33이며 전체전환율/신뢰할 잔여시간은 미산정입니다.
+
+삭제 초안 코드/검사·QA/소유 PROCESS의8경로를 `fc732905`로 선별 커밋했고 author/최종 메시지에 AI 트레일러가 없음을 확인했습니다. 기능표599행/409근거 경로·302완료/286미완료·원래302 ID 배정의 누락/중복/미확인ID0·배치23~30 잔여19/52/23/64/32/39/51/6·최종33을 실제 JSON으로 대조했습니다. 소유 staged diff exit0이며 사용자 기존 문서와 PROCESS 하단 두 hunk는 스테이징하지 않았습니다. 남은 목표 전체와 기존 준비/실기/출시 게이트는 유지합니다.

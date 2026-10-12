@@ -149,3 +149,9 @@ c9c2b에서 실제 readonly/tier/lossy 항목·복사와 본문/peek 팔레트·
 제품6fe9eed6에서 editor-19/59를 complete로 닫았습니다. 실제 loading/닫힘 응답 후 원래 App의 전용 안내/실패 캐시 두 누락을 재현해 typed Refused·원본 locale/기존 외부 열기·localized 오류와 마지막 닫힘/파일 변경/보조 mirror/프로젝트 제거의 수명을 연결했습니다. 실제 2MiB Large/20MiB ReadOnly 입력·NUL/50MiB/4GiB sparse 거절과 u32 포화 metadata 표현·모델0/원문/소유 회수를 App4/버튼1/admission4/Host9/system2/기존 저장·복원App15의 서로 다른35건·6Rust fmt/diff로 확인했습니다. 작성한 import/타이밍/texture 출력/필터 오류는 QA에 구분하고 같은 성공을 중복 합산하지 않습니다. 기존 commit/observation/disk-choice·검증/권한·manifest/lock/Core/engine/frozen source는 보존하며 실제 OS opener는 주입 포트로 확인합니다.
 
 현재599행/405근거 경로·588대상·complete301/partial90/unwired110/missing87·미완료287·기능 체크리스트51.2%입니다. 원래302 ID 배정의 누락/중복/미확인ID는0이며 배치23~30 잔여20/52/23/64/32/39/51/6·최종33을 유지합니다. editor-64 삭제 source draft/Save As 전체 실제 App 흐름과 전체App 준비/OS/접근성/성능/신뢰성/출시·전환·제거 게이트는 미완료이며 전체전환율/잔여시간은 미산정입니다. 다음은 같은 배치의 삭제 draft 구제 경계입니다.
+
+## 삭제 source 초안 구제 완료 (2026-10-12)
+
+제품fc732905에서 editor-64를 complete로 닫았습니다. 실제 보조 창 저장의 주 창 대상 오류와 변경된 mirror 거절 뒤 오래된 readonly 내용 유지의 복구 누락을 수정했습니다. 현재 창의 기존 canonical 대상/tab 재사용·활성화·동일 source 복구·기존 탭/원문 유지와 실패 후 최신 초안 재조회/재시도를 연결했습니다. 두 기존 picker의 OS 부모/요청/default rfd를 유지하며 실제 버튼 취소/dirty/root/IO/변경 mirror 보호·동일/다른 경로 저장/본문/닫힘/재열기·untitled 공유 입력·원문/소유 회수를 App4/missing_draft5/untitled3의 서로 다른12통과·6Rust fmt/diff로 확인했습니다. fixture canonical/pane 작성 오류·미실행 target·포커스 실패/수정은 QA에 구분하고 같은 성공을 중복 합산하지 않습니다.
+
+현재599행/409근거 경로·588대상·complete302/partial89/unwired110/missing87·미완료286·기능 체크리스트51.4%입니다. 원래302 ID 배정의 누락/중복/미확인ID는0이며 배치23~30 잔여19/52/23/64/32/39/51/6·최종33을 유지합니다. 전체App 준비/실제 OS chooser/접근성/성능/신뢰성/출시·전환·제거 게이트와 나머지 목표 전체는 유지하고 전체전환율/잔여시간은 미산정입니다. 다음은 같은 배치의 Markdown 미리보기 분할(editor-72)입니다.
