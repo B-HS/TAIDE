@@ -119,3 +119,9 @@ c9c2b에서 실제 readonly/tier/lossy 항목·복사와 본문/peek 팔레트·
 구현1874334e에서 실제 셸 ActivateTab과 Host 새 preview 파일 열기의 이전 view_state None을 재현해 선행 저장을 연결했습니다. optional async controller 포트는 AppState/EventSink·std Future 계약으로 mutation guard 전에 캡처를 적용하고 실패 시 기존 errors로 반환합니다. Host 파일/팔레트/옆 열기/새 untitled도 typed 결과 안에서 같은 캡처를 적용합니다. App14/Host9/종료2·controller3과 변경 없는Core306/UI본문·geometry88의 서로 다른422건·7Rust fmt/diff가 통과했습니다. 실제 body/디스크·실패 때 전환 억제/guard 밖 적용/focus-only 생략·worker/lease 회수를 확인했고 native-host cfg 내부 변경의 frozen 성공은 재사용합니다.
 
 현재599행/393근거 경로·588대상·complete298/partial93/unwired110/missing87·미완료290·기능 체크리스트50.7%·배치23 잔여23/최종33을 유지합니다. editor-67 partial이며 제거되는 preview 모델 캐시·batch close/project/slot/aux·IDE/remote·folding contribution/전체 재시작과 전체App/실기/출시·전환·제거는 남습니다. 다음은 d3b2b2의 제거/종료·외부 포트 소유이며 전체 전환율/잔여 시간은 미산정입니다.
+
+## preview 재열기와 IDE 최신 위치 저장 (2026-10-12)
+
+구현 b05c1c2d에서 실제 preview 교체 뒤 같은 문서 모델의 새 탭 선택이 초기화되는 실패를 수정했습니다. 창/pane/document별 메모리 위치·유효한 저장값 우선/잘못된 값 fallback·같은 revision/명시 disposal을 관련16·종료2건에서 확인했습니다. 구현958dbf87에서는 실제 IDE openFile의 이전 위치 None을 재현해 App 조립 포트의 파일 열기/닫힘/일괄diff닫힘 전에 같은 캡처를 연결했습니다. 입력 검증 뒤 적용·캡처 오류의 mutation/이벤트 억제·읽기/대상없음·headless와 실제App1/IDE도구5/인증·RPC 서버4/조립포트2가 통과했습니다. 변경 없는 성공을 재사용한 서로 다른436건이며 단독 성공은 중복 합산하지 않습니다.
+
+현재599행/393근거 경로·588대상·complete298/partial93/unwired110/missing87·미완료290·기능 체크리스트50.7%입니다. 원래302 ID 배정의 누락/중복/알 수 없는 ID는0이고 배치23~30 잔여23/52/23/64/32/39/51/6·최종33을 유지합니다. editor-67 partial이며 remote/project/slot/aux/batch 종료·folding contribution/전체App 재시작과 준비/실기/성능/신뢰성/출시·전환·제거는 남습니다. 전체 전환율/잔여 시간은 미산정입니다. 네 커밋의 일반 push를 확인했고 다음은 remote 명령의 기존 입력/권한 경계 뒤 최신 캡처 누락을 실제 경로별로 확인합니다.
