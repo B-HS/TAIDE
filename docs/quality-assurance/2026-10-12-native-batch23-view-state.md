@@ -1,12 +1,13 @@
 # 배치 23 커서·스크롤 상태 복원
 
-현재 상태: 기본 Host 탭 닫힘 전에 최신 캡처를 적용해 최근 닫힘/재열기의 선택/scroll을 보존했습니다. 실제 None 실패와 수정 뒤 App/상태/sync 13·전체 Host 9·종료 2건이 통과했습니다. 변경 없는 Core 306/UI 88을 재사용한 서로 다른 418건과 소유 fmt/diff를 확인했습니다. 다른 Host/셸·창/프로젝트/IDE/remote의 fresh capture와 folding contribution·전체 재시작은 남아 editor-67 partial을 유지합니다. 기능 체크리스트는 298/588(50.7%)·미완료 290이고 전체 전환율/잔여 시간은 미산정입니다. workflow/서브에이전트 없이 메인이 진행합니다.
+현재 상태: 실제 셸 전환과 Host 새 preview 파일 열기의 이전 위치 None을 재현해 선행 저장을 연결했습니다. 기존 닫힘/재열기·초기/종료 복원과 현재 App14/Host9/종료2·controller3이 통과했습니다. 변경 없는 Core306/UI88을 재사용한 서로 다른422건과 소유 fmt/diff를 확인했습니다. 실제 preview 제거의 모델 캐시와 project/slot/aux·batch close/IDE/remote·folding contribution·전체 재시작은 남아 editor-67 partial을 유지합니다. 기능 체크리스트는 298/588(50.7%)·미완료 290이고 전체 전환율/잔여 시간은 미산정입니다. workflow/서브에이전트 없이 메인이 진행합니다.
 
 - [x] a. 원본 저장 형식·native 모델/표시·facade/종료 경계 대조
 - [x] b. 임시 App의 초기 복원 실패 재현·검증된 저장 형식과 복원 연결
 - [ ] c. 탭/뷰 전환·닫힘·창/프로젝트/앱 종료의 최신 상태 저장 연결
 - [x] c1. 실제 geometry/live 선택 캡처·정상/직접 앱 종료의 layout 저장과 본문 우선 오류 처리
 - [x] c2. 기본 Host typed CloseTab의 최신 캡처 선행 적용·실제 최근 닫힘/재열기와 요청 수명 검증
+- [x] c3. 셸 optional 포트와 Host 파일 열기의 선행 캡처·실제 두 전환과 typed 실패/guard·관련 회귀
 - [ ] d. 실제 App/재시작·Unicode/scroll/mirror/readonly·잘못된 값/소유 수명 검증
 - [ ] e. 관련 회귀/형식/경계·기능표/PROCESS·선별 Git 저장
 - [x] e1. 초기 복원 단위의 실제 App/상태·Core 전체·UI 회귀·frozen 제품 compile·소유 fmt 확인
@@ -124,3 +125,23 @@ UI의 최신 Store를 요청하는 oneshot 경계를 App 포트가 공유하고 
 `view-state-tab-close-exit.log`는 권한 허용의 소유 종료 2건·exit 0입니다. 위치 캡처 실패의 실제 draft mirror/오류 반환·작업 회수와 서버/세션/pending/lockfile 종료를 확인했습니다. 현재 App 13/Host 9/종료 2와 변경 없는 Core 306/UI 88의 서로 다른 418건을 유지하며 기존 같은 성공을 추가 합산하지 않습니다. 소유 9Rust fmt/diff는 exit 0이고 manifest/lock/Core/UI/Syntax/엔진/frozen 변경은 없습니다. 기본 Host CloseTab만 연결했으며 셸/IDE/remote·프로젝트/slot/aux·새 파일/preview·folding contribution/전체 재시작과 전체 배치 게이트는 남습니다.
 
 기본 Host 선행 저장과 요청 수명 코드/검사·QA/현재 PROCESS의 11경로는 `056ad927`로 선별 커밋했습니다. 기능표는 599행·393근거 경로·588대상·complete298/partial93/unwired110/missing87이며 editor-67 partial·미완료290·배치23 잔여23/최종33을 유지합니다. 다음은 셸 탭/프로젝트/창 전환과 나머지 Host/IDE/remote의 동일한 선행 저장입니다. 사용자 기존 문서와 PROCESS 하단 두 hunk는 보존합니다.
+
+## 셸 전환과 Host 파일 열기
+
+이전 turn은 기본 탭 닫힘의 코드/실제 검증/일반 push로 진척했습니다. 현재 056ad927/97035bb3와 실제 포트/셸 controller를 대조했습니다. 공유 캡처는 Host CloseTab에만 공급되고 셸 mutation과 Host OpenFileTab에는 없습니다. 실제 원본 hook은 editor/tab 전환의 layout cleanup에 위치를 저장하므로 전환 전에 같은 live 캡처가 필요합니다. 추가 앱 검사는 영구 본문에서 다른 셸 탭 또는 Host의 새 preview 파일로 이동한 뒤 이전 본문 Tab.view_state의 마지막 UTF-16 선택을 단언합니다. 기존 preview 슬롯 교체의 제거된 탭/모델 캐시는 별도 대조가 필요하며 이 검사를 해당 경계의 완료로 확대하지 않습니다.
+
+첫 `view-state-transition-red.log`는 authored 검사에서 PaneNode import 누락과 연쇄 pattern 타입 오류로 E0433 2/E0277 1·exit101의 컴파일 실패입니다. 실제 모델의 PaneNode를 import하고 같은 재현을 확인합니다. 실행 0건을 기능 실패나 성공으로 세지 않습니다.
+
+`view-state-transition-red-fixed.log`는 실제 셸 ActivateTab 완료 뒤 이전 본문의 view_state None에서 0통과/1실패·21.18초·exit101(컴파일20.68초)입니다. Host preview 사례는 앞선 실패 때문에 아직 도달하지 않았습니다. UI controller의 optional async port를 실제 App의 공유 캡처에 연결했습니다. 탭/프로젝트/slot 전환·닫힘/이동/분할만 캡처하며 focus-only·resize 등 뷰를 교체하지 않는 작업은 기존 경로를 사용합니다. mutation guard 전에 요청/적용을 마치고 실패하면 기존 errors 경계로 반환하며 해당 mutation은 실행하지 않습니다. App 전용 소비자가 UI crate에 역참조되지 않도록 AppState/EventSink·std Future 타입 계약을 사용합니다.
+
+`view-state-transition-shell-fixed.log`는 이전 셸 사례를 지나갔지만 같은 실패 단언에 mode가 없어 어느 사례인지 명확히 구분하지 못했습니다. 진단에 is_host를 추가한 `view-state-transition-mode.log`는 is_host=true의 view_state None으로 0통과/1실패·21.34초·exit101(컴파일15.88초)입니다. 셸 저장 단언을 통과한 뒤 Host OpenFileTab의 실제 누락에 도달했습니다. 두 사례를 한 검사에 묶어 통과한 셸 사례를 재실행한 한계도 보존하며 새로운 성공으로 중복 집계하지 않습니다. Host OpenFileTab/팔레트/옆 열기/새 untitled를 기존 typed 결과의 async 경계에서 같은 선행 캡처에 연결했습니다. 읽기 전용 문서 load는 캡처를 기다리지 않아 PreparedDocument reply의 회수 경계를 유지합니다.
+
+`view-state-transition-green.log`는 실제 셸 전환과 Host의 새 preview 파일 열기 두 사례가 1통과·21.62초·exit0(컴파일23.45초)입니다. 이전 영구 본문의 마지막 UTF-16 anchor/head가 Tab.view_state에 도달하고 원문/디스크를 보존했습니다. 제거되는 기존 preview 탭의 모델 캐시나 project/slot/aux·IDE/remote·전체 재시작까지 완료한 것으로 확대하지 않습니다. generic controller의 capture 실패/guard 밖 적용/focus-only·기존 controller 회귀와 현재 App/Host 소비를 확인합니다.
+
+`view-state-transition-controller.log`는 전체 controller 3통과·0.00초·exit0(컴파일10.28초)입니다. 선행 캡처 실패 때 ActivateTab이 실행되지 않고 errors 경계로 전달됨, 성공한 캡처 안의 기존 mutation guard 획득/저장이 완료된 뒤 전환됨, focus-only의 캡처 생략과 정상 worker 회수·기존 외부 이벤트/snapshot/revision/닫힌 프로젝트를 확인했습니다. authored 검사에서 read guard의 수명을 다음 쓰기까지 늘리지 않도록 비교 대상 layout을 clone한 뒤 read guard를 즉시 회수했고 실행 전 정리한 내용은 실패 재현으로 세지 않습니다.
+
+`view-state-transition-related.log`는 actual App 7/상태 5/sync 2의 서로 다른 14통과/0실패·20.80초·exit0입니다. 새 셸/Host 전환과 기존 실제 탭 닫힘/재열기·초기/정상·직접 종료 복원·readonly·잘못된 상태/metadata·명시 이동·동시 요청/취소/최종 오류/live 재개를 확인했습니다. 초기에 따로 통과한 동일 검사나 이전 13건을 추가 합산하지 않습니다. 현재 Host와 종료 회귀를 확인하고 변경이 native-host controller에 한정된 frozen과 변경 없는 Core/UI 본문 성공은 재사용합니다.
+
+`view-state-transition-host.log`는 전체 Host 9통과·0.13초·exit0입니다. 변경한 파일/팔레트/옆 열기의 결과와 기존 document lease·mirror/저장/retarget symlink·종료 flush·watcher 회귀를 확인했습니다. 기존 생성 포트/헤드리스 경로와 요청/실패 결과를 보존하며 새 공개 RPC/의존성은 없습니다.
+
+`view-state-transition-exit.log`는 소유 loopback 서버 권한 허용의 종료 2건·exit0입니다. AppState/EventSink로 분리한 동일 mutation 적용과 기존 draft 우선 오류 처리·서버/세션/pending/lockfile·작업 회수를 확인했습니다. 현재 App14/Host9/종료2/UI controller3과 변경 없는 Core306/UI본문·geometry88의 서로 다른422건입니다. 소유7Rust fmt/diff·manifest/lock/Core/구문/엔진/frozen 불변을 확인했고 controller는 기존 native-host cfg 내부이므로 frozen 성공을 재사용합니다. 본문/geometry renderer도 변경하지 않았습니다. 전체 App/OS/배치 통과나 editor-67 전체 완료로 올리지 않습니다.

@@ -437,6 +437,15 @@ struct HostIntegrations {
     reconcile: Option<crate::remote_preferences::Reconcile>,
 }
 
+impl HostIntegrations {
+    async fn flush_view_states(&self, services: &AppServices) -> AppResult<()> {
+        if let Some(view_states) = &self.view_states {
+            view_states.flush(services).await?;
+        }
+        Ok(())
+    }
+}
+
 impl HostBridge {
     pub fn connect(
         services: Arc<AppServices>,
@@ -1373,17 +1382,23 @@ async fn dispatch(
             Ok(()) => None,
             Err(error) => Some(HostReply::Failed(error)),
         },
-        HostCommand::NewUntitled { project, pane } => match layout_actions::layout_open_untitled(
-            services.events.as_ref(),
-            &services.state,
-            project,
-            Some(pane),
-        )
-        .await
-        {
-            Ok(_) => None,
-            Err(error) => Some(HostReply::Failed(error)),
-        },
+        HostCommand::NewUntitled { project, pane } => {
+            let result = async {
+                integrations.flush_view_states(services).await?;
+                layout_actions::layout_open_untitled(
+                    services.events.as_ref(),
+                    &services.state,
+                    project,
+                    Some(pane),
+                )
+                .await
+            }
+            .await;
+            match result {
+                Ok(_) => None,
+                Err(error) => Some(HostReply::Failed(error)),
+            }
+        }
         HostCommand::OpenUntitled(tab) => {
             let result = crate::untitled::prepare(services, tab.clone()).await;
             Some(HostReply::UntitledOpened { tab, result })
@@ -1417,9 +1432,7 @@ async fn dispatch(
         }
         HostCommand::CloseTab { tab, discard } => {
             let result = async {
-                if let Some(view_states) = &integrations.view_states {
-                    view_states.flush(services).await?;
-                }
+                integrations.flush_view_states(services).await?;
                 let closed = crate::tabs::close(services, tab.clone(), discard).await?;
                 if let TabKind::Terminal { session_id, .. } = &closed.tab.kind
                     && let Some(terminals) = terminals
@@ -1602,10 +1615,14 @@ async fn dispatch(
             pane,
             path,
             preview,
-        } => open_file_tab(services, project, pane, path, preview)
-            .await
-            .err()
-            .map(HostReply::Failed),
+        } => {
+            let result = async {
+                integrations.flush_view_states(services).await?;
+                open_file_tab(services, project, pane, path, preview).await
+            }
+            .await;
+            result.err().map(HostReply::Failed)
+        }
         HostCommand::ListProjectFiles(project) => {
             let result = taide_runtime::search_actions::search_list_files(
                 &services.state,
@@ -1620,17 +1637,25 @@ async fn dispatch(
             pane,
             path,
         } => {
-            let result = open_file_tab(services, project.clone(), pane, path, true).await;
+            let result = async {
+                integrations.flush_view_states(services).await?;
+                open_file_tab(services, project.clone(), pane, path, true).await
+            }
+            .await;
             Some(HostReply::PaletteFileOpened { project, result })
         }
         HostCommand::OpenFileToSide(request) => {
-            match layout_actions::layout_open_tab_in_split(
-                services.events.as_ref(),
-                &services.state,
-                request,
-            )
-            .await
-            {
+            let result = async {
+                integrations.flush_view_states(services).await?;
+                layout_actions::layout_open_tab_in_split(
+                    services.events.as_ref(),
+                    &services.state,
+                    request,
+                )
+                .await
+            }
+            .await;
+            match result {
                 Ok(_) => None,
                 Err(error) => Some(HostReply::Failed(error)),
             }

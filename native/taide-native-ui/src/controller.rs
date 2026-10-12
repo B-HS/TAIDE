@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use taide_model::app_event::AppEvent;
@@ -14,6 +16,12 @@ use crate::snapshot::ShellSnapshot;
 
 pub const SHELL_COMMAND_CAPACITY: usize = 64;
 
+pub type BeforeMutation = Arc<
+    dyn Fn(AppState, Arc<dyn EventSink>) -> Pin<Box<dyn Future<Output = AppResult<()>> + Send>>
+        + Send
+        + Sync,
+>;
+
 pub struct NativeShellEvents {
     forward: Arc<dyn EventSink>,
     refresh: Arc<Notify>,
@@ -27,6 +35,7 @@ impl EventSink for NativeShellEvents {
 }
 
 pub struct ShellController {
+    before_mutation: Arc<Mutex<Option<BeforeMutation>>>,
     commands: mpsc::Sender<ShellMutation>,
     snapshots: watch::Receiver<Arc<ShellSnapshot>>,
     errors: watch::Receiver<Option<Arc<AppError>>>,
@@ -55,6 +64,8 @@ impl ShellController {
             refresh: Arc::new(Notify::new()),
         });
         let worker_events = events.clone();
+        let before_mutation = Arc::new(Mutex::new(None::<BeforeMutation>));
+        let before = before_mutation.clone();
         let worker = tasks
             .spawn_transient_handle("native-shell-controller", async move {
                 loop {
@@ -62,7 +73,13 @@ impl ShellController {
                         biased;
                         command = receiver.recv() => {
                             let Some(command) = command else { break; };
-                            let result = dispatch(worker_events.as_ref(), &state, command).await;
+                            let result = async {
+                                if matches!(&command, ShellMutation::ActivateProject(_) | ShellMutation::FocusSlot(_) | ShellMutation::CloseSlot(_) | ShellMutation::ActivateTab(_) | ShellMutation::ReopenClosed(_) | ShellMutation::MoveTab { .. } | ShellMutation::SplitTab { .. }) {
+                                    let capture = before.lock().unwrap_or_else(|error| error.into_inner()).clone();
+                                    if let Some(capture) = capture { capture(state.clone(), worker_events.clone()).await?; }
+                                }
+                                dispatch(worker_events.as_ref(), &state, command).await
+                            }.await;
                             if let Err(error) = result {
                                 error_sender.send_replace(Some(Arc::new(error)));
                             }
@@ -76,6 +93,7 @@ impl ShellController {
             .ok_or_else(|| AppError::Internal("native shell task admission is closed".into()))?;
         Ok(ShellConnection {
             controller: Self {
+                before_mutation,
                 commands,
                 snapshots,
                 errors,
@@ -97,6 +115,13 @@ impl ShellController {
                     AppError::Internal("native shell command queue is closed".into())
                 }
             })
+    }
+
+    pub fn set_before_mutation(&self, capture: BeforeMutation) {
+        *self
+            .before_mutation
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(capture);
     }
 
     pub fn snapshot(&self) -> Arc<ShellSnapshot> {

@@ -3,14 +3,123 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use taide_model::app_event::AppEvent;
+use taide_model::error::AppError;
 use taide_model::ids::{ProjectId, TabId};
-use taide_model::layout::PaneNode;
+use taide_model::layout::{PaneNode, Tab, TabKind};
 use taide_model::paths::AppPaths;
 use taide_native_ui::commands::ShellMutation;
 use taide_native_ui::controller::ShellController;
 use taide_runtime::{AppState, EventSink, TaskSupervisor};
 
 const DEADLINE: Duration = Duration::from_secs(3);
+
+#[tokio::test]
+async fn 선행_캡처_실패는_전환을_막고_성공은_guard_밖에서_적용되며_focus는_캡처하지_않는다() {
+    let project = ProjectId::new();
+    let state = AppState::new(AppPaths::new(
+        std::env::temp_dir().join(format!("taide-native-controller-capture-{project}")),
+    ));
+    let mut layout = taide_layout::service::default_layout();
+    let PaneNode::Leaf { id, tabs, .. } = &mut layout.root else {
+        panic!("expected leaf");
+    };
+    let pane = id.clone();
+    let original = tabs[0].id.clone();
+    let next = TabId::new();
+    tabs.push(Tab {
+        id: next.clone(),
+        kind: TabKind::Settings,
+        title: "other".into(),
+        pinned: false,
+        preview: false,
+        dirty: false,
+        view_state: None,
+    });
+    state.layouts.write().insert(project.clone(), layout);
+    let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+    let connection =
+        ShellController::connect(state.clone(), &tasks, Arc::new(Sink), Arc::new(|| {}))
+            .await
+            .unwrap();
+    let mut controller = connection.controller;
+    controller.set_before_mutation(Arc::new(|_, _| {
+        Box::pin(async {
+            Err(AppError::InvalidArgument(
+                "synthetic capture failure".into(),
+            ))
+        })
+    }));
+    controller
+        .submit(ShellMutation::ActivateTab(next.clone()))
+        .unwrap();
+    tokio::time::timeout(DEADLINE, controller.changed())
+        .await
+        .unwrap()
+        .unwrap();
+    let unchanged = state.layouts.read()[&project].clone();
+    let PaneNode::Leaf { active, .. } = &unchanged.root else {
+        panic!("expected leaf");
+    };
+    assert_eq!(active.as_ref(), Some(&original));
+    assert!(matches!(
+        controller.take_error().unwrap().as_ref(),
+        AppError::InvalidArgument(_)
+    ));
+    let count = Arc::new(AtomicUsize::new(0));
+    let captures = count.clone();
+    let source = original.clone();
+    let owner = project.clone();
+    controller.set_before_mutation(Arc::new(move |state, _| {
+        let captures = captures.clone();
+        let source = source.clone();
+        let owner = owner.clone();
+        Box::pin(async move {
+            let _guard = state.begin_mutation().await;
+            let mut layouts = state.layouts.write();
+            taide_layout::service::set_view_state(
+                layouts.get_mut(&owner).unwrap(),
+                &source,
+                Some("synthetic captured state".into()),
+            )?;
+            captures.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        })
+    }));
+    controller
+        .submit(ShellMutation::ActivateTab(next.clone()))
+        .unwrap();
+    tokio::time::timeout(DEADLINE, controller.changed())
+        .await
+        .unwrap()
+        .unwrap();
+    let updated = state.layouts.read()[&project].clone();
+    let PaneNode::Leaf { tabs, active, .. } = &updated.root else {
+        panic!("expected leaf");
+    };
+    assert_eq!(active.as_ref(), Some(&next));
+    assert_eq!(
+        tabs.iter()
+            .find(|tab| tab.id == original)
+            .unwrap()
+            .view_state
+            .as_deref(),
+        Some("synthetic captured state")
+    );
+    assert_eq!(count.load(Ordering::SeqCst), 1);
+    controller.submit(ShellMutation::FocusPane(pane)).unwrap();
+    tokio::time::timeout(DEADLINE, controller.changed())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(count.load(Ordering::SeqCst), 1);
+    drop(controller);
+    tokio::time::timeout(DEADLINE, connection.worker)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(tasks.tracked_count(), 0);
+    assert!(!state.paths.data_dir.exists());
+}
 
 #[tokio::test]
 async fn 완료_layout은_비동기_snapshot보다_먼저_반영되고_이전_revision과_닫힌_프로젝트를_복원하지_않는다()

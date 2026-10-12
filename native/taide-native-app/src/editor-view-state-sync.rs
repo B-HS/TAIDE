@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use taide_model::error::{AppError, AppResult};
-use taide_runtime::AppServices;
+use taide_runtime::{AppServices, AppState, EventSink};
 use tokio::sync::oneshot;
 
 use crate::editor_view_state::Captured;
@@ -98,6 +98,15 @@ impl Shared {
     pub(crate) async fn flush(&self, services: &AppServices) -> AppResult<()> {
         let captures = self.request().await?;
         crate::editor_view_state::apply(services, &captures).await
+    }
+
+    pub(crate) async fn flush_state(
+        &self,
+        state: &AppState,
+        events: &dyn EventSink,
+    ) -> AppResult<()> {
+        let captures = self.request().await?;
+        crate::editor_view_state::apply_to(state, events, &captures).await
     }
 }
 

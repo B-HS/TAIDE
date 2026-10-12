@@ -365,6 +365,13 @@ impl NativeApplication {
         ));
         let view_state_flush = application_ports.view_states.clone();
         view_state_flush.bind(repaint.clone());
+        let before_mutation = view_state_flush.clone();
+        connection
+            .controller
+            .set_before_mutation(Arc::new(move |state, events| {
+                let capture = before_mutation.clone();
+                Box::pin(async move { capture.flush_state(&state, events.as_ref()).await })
+            }));
         let host = HostBridge::connect_with_application_ports(
             services.clone(),
             repaint.clone(),

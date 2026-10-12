@@ -10,7 +10,7 @@ use taide_native_editor::lsp::byte_to_position;
 use taide_native_editor::store::EditorStore;
 use taide_native_editor::view::{ScrollPosition, Selection, SelectionSet, ViewId, ViewKey};
 use taide_native_ui::editor_geometry::EditorGeometry;
-use taide_runtime::AppServices;
+use taide_runtime::{AppServices, AppState, EventSink};
 
 const MAX_RESTORED_CURSORS: usize = 10_000;
 
@@ -113,13 +113,21 @@ pub(crate) struct Captured {
 }
 
 pub(crate) async fn apply(services: &AppServices, captured: &[Captured]) -> AppResult<()> {
+    apply_to(&services.state, services.events.as_ref(), captured).await
+}
+
+pub(crate) async fn apply_to(
+    state: &AppState,
+    events: &dyn EventSink,
+    captured: &[Captured],
+) -> AppResult<()> {
     if captured.is_empty() {
         return Ok(());
     }
-    let _guard = services.state.begin_mutation().await;
-    let mut layouts = services.state.layouts.read().clone();
+    let _guard = state.begin_mutation().await;
+    let mut layouts = state.layouts.read().clone();
     for (project, layout) in &mut layouts {
-        if !services.state.projects.read().contains_key(project) {
+        if !state.projects.read().contains_key(project) {
             continue;
         }
         let mut changed = false;
@@ -148,15 +156,10 @@ pub(crate) async fn apply(services: &AppServices, captured: &[Captured]) -> AppR
             changed = true;
         }
         if changed {
-            taide_runtime::layout_actions::finish_mutation(
-                services.events.as_ref(),
-                &services.state,
-                project,
-                layout,
-            );
+            taide_runtime::layout_actions::finish_mutation(events, state, project, layout);
         }
     }
-    *services.state.layouts.write() = layouts;
+    *state.layouts.write() = layouts;
     Ok(())
 }
 

@@ -2,6 +2,7 @@ use super::inlay_hints_tests::{
     body_view, fixture_with_view_state, fixture_with_view_state_and_setup, key, paint, wait,
 };
 use super::*;
+use taide_model::layout::PaneNode;
 use taide_native_editor::view::{ScrollPosition, Selection, SelectionSet};
 
 const ANCHOR_COLUMN: u32 = 11;
@@ -20,6 +21,141 @@ const SCROLL_DELTA_TOP: f32 = -7.0;
 const LEGACY_SCROLL_TOP: f32 = 320.0;
 const NAVIGATION_LINE: u32 = 100;
 const INVALID_UTF8: u8 = 0xff;
+
+#[test]
+fn 실제_셸_탭_전환과_host_preview_열기는_이전_본문의_최신_위치를_저장한다() {
+    let text = format!(
+        "class\n  \u{1f600}method\n{}",
+        (0..LONG_LINE_COUNT)
+            .map(|index| format!("row {index}\n"))
+            .collect::<String>()
+    );
+    for is_host in [false, true] {
+        let other = TabId::new();
+        let mut fixture = fixture_with_view_state_and_setup(
+            "--native-inlay-hints",
+            false,
+            |_, _, _| true,
+            None,
+            &text,
+            |application, _, project, _| {
+                if is_host {
+                    return;
+                }
+                let mut layouts = application.services.state.layouts.write();
+                let PaneNode::Leaf { tabs, .. } = &mut layouts.get_mut(project).unwrap().root
+                else {
+                    panic!("expected fixture leaf");
+                };
+                tabs.push(Tab {
+                    id: other.clone(),
+                    kind: TabKind::Welcome,
+                    title: "other".into(),
+                    pinned: false,
+                    preview: false,
+                    dirty: false,
+                    view_state: None,
+                });
+            },
+        );
+        let application = fixture.application.as_mut().unwrap();
+        let context = &fixture.context;
+        let view = body_view(application, &fixture.path, &fixture.tab);
+        application
+            .store
+            .set_view_state(
+                view,
+                SelectionSet {
+                    primary: 0,
+                    selections: vec![Selection {
+                        anchor: ANCHOR_BYTE,
+                        head: HEAD_BYTE,
+                    }],
+                },
+                ScrollPosition {
+                    x: 0.0,
+                    y: LEGACY_SCROLL_TOP,
+                },
+                Vec::new(),
+            )
+            .unwrap();
+        let focus = crate::editor_context_menu::body(context, view).unwrap();
+        context.memory_mut(|memory| memory.request_focus(focus));
+        paint(
+            application,
+            context,
+            key(
+                egui::Key::ArrowRight,
+                egui::Modifiers {
+                    shift: true,
+                    ..egui::Modifiers::NONE
+                },
+            ),
+        );
+        for _ in 0..STABLE_FRAMES {
+            eframe::App::logic(application, context, &mut eframe::Frame::_new_kittest());
+            paint(application, context, Vec::new());
+        }
+        let pane = application
+            .store
+            .views()
+            .get(view)
+            .unwrap()
+            .key
+            .pane
+            .clone();
+        if is_host {
+            assert!(application.submit(HostCommand::OpenFileTab {
+                project: fixture.project.clone(),
+                pane: Some(pane),
+                path: fixture.peek_path.clone(),
+                preview: true
+            }));
+        } else {
+            application
+                .controller
+                .submit(ShellMutation::ActivateTab(other.clone()))
+                .unwrap();
+        }
+        wait(
+            application,
+            context,
+            "transition view state",
+            |application| {
+                let snapshot = application.controller.snapshot();
+                let PaneNode::Leaf { tabs, active, .. } = &snapshot.layouts[&fixture.project].root
+                else {
+                    return false;
+                };
+                if !is_host {
+                    return active.as_ref() == Some(&other);
+                }
+                tabs.iter().any(|tab| {
+                    matches!(&tab.kind, TabKind::File { path } if path == &fixture.peek_path)
+                        && active.as_ref() == Some(&tab.id)
+                }) && application.files.contains_key(&fixture.peek_path)
+            },
+        );
+        let snapshot = application.controller.snapshot();
+        let previous = crate::tabs::tabs_in(&snapshot.layouts[&fixture.project].root)
+            .into_iter()
+            .find(|tab| tab.id == fixture.tab)
+            .unwrap();
+        let saved = previous.view_state.as_deref().unwrap_or_else(|| {
+            panic!("latest position must be saved before leaving the body; is_host={is_host}")
+        });
+        let saved: serde_json::Value = serde_json::from_str(saved).unwrap();
+        assert_eq!(
+            saved["cursorState"][0]["selectionStart"],
+            serde_json::json!({"lineNumber": STORED_LINE, "column": ANCHOR_COLUMN})
+        );
+        assert_eq!(
+            saved["cursorState"][0]["position"],
+            serde_json::json!({"lineNumber": STORED_LINE, "column": SHIFT_HEAD_COLUMN})
+        );
+        assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), text);
+    }
+}
 
 #[test]
 fn 실제_탭_닫힘은_최신_선택과_scroll을_최근_닫힘에_보존하고_다시_열때_복원한다() {
