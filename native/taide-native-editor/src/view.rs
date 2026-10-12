@@ -194,6 +194,13 @@ pub struct ScrollPosition {
 }
 
 #[derive(Debug, Clone)]
+pub struct ScrollRestore {
+    pub revision: u64,
+    pub byte: Option<usize>,
+    pub delta_top: f32,
+}
+
+#[derive(Debug, Clone)]
 pub struct FormattingScroll {
     pub document: DocumentId,
     pub key: ViewKey,
@@ -265,6 +272,7 @@ pub struct ViewState {
     pub(crate) cursor_memory: crate::cursor_commands::CursorMemory,
     pub(crate) selection_reveal: Option<SelectionReveal>,
     pub(crate) formatting_scroll: Option<FormattingScroll>,
+    pub(crate) scroll_restore: Option<ScrollRestore>,
 }
 
 impl ViewState {

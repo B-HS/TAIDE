@@ -131,6 +131,34 @@ pub(super) fn fixture_with_provider(
     is_suggest_preview_enabled: bool,
     provider_ready: impl Fn(&NativeApplication, &ProjectId, DocumentId) -> bool,
 ) -> Fixture {
+    fixture_with_view_state(mode, is_suggest_preview_enabled, provider_ready, None, TEXT)
+}
+
+pub(super) fn fixture_with_view_state(
+    mode: &str,
+    is_suggest_preview_enabled: bool,
+    provider_ready: impl Fn(&NativeApplication, &ProjectId, DocumentId) -> bool,
+    view_state: Option<String>,
+    text: &str,
+) -> Fixture {
+    fixture_with_view_state_and_setup(
+        mode,
+        is_suggest_preview_enabled,
+        provider_ready,
+        view_state,
+        text,
+        |_, _, _, _| {},
+    )
+}
+
+pub(super) fn fixture_with_view_state_and_setup(
+    mode: &str,
+    is_suggest_preview_enabled: bool,
+    provider_ready: impl Fn(&NativeApplication, &ProjectId, DocumentId) -> bool,
+    view_state: Option<String>,
+    text: &str,
+    setup: impl FnOnce(&mut NativeApplication, &str, &ProjectId, &TabId),
+) -> Fixture {
     let directory =
         std::env::temp_dir().join(format!("taide-native-inlay-hints-app-{}", ProjectId::new()));
     let data = directory.join("data");
@@ -141,7 +169,7 @@ pub(super) fn fixture_with_provider(
     }
     let file = root.join("current.rs");
     let peek = root.join("peek.rs");
-    std::fs::write(&file, TEXT).unwrap();
+    std::fs::write(&file, text).unwrap();
     std::fs::write(&peek, TEXT).unwrap();
     let path = file.canonicalize().unwrap().to_str().unwrap().to_owned();
     let peek_path = peek.canonicalize().unwrap().to_str().unwrap().to_owned();
@@ -181,7 +209,7 @@ pub(super) fn fixture_with_provider(
             pinned: false,
             preview: false,
             dirty: false,
-            view_state: None,
+            view_state,
         }],
         active: Some(tab.clone()),
     };
@@ -229,6 +257,7 @@ pub(super) fn fixture_with_provider(
         application: Some(application),
     };
     let application = fixture.application.as_mut().unwrap();
+    setup(application, &fixture.path, &fixture.project, &fixture.tab);
     paint(application, &fixture.context, Vec::new());
     wait(application, &fixture.context, "document", |application| {
         application.files.contains_key(&fixture.path)

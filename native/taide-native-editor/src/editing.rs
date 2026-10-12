@@ -994,6 +994,7 @@ pub fn reveal_position(
         current.scroll,
         current.folds,
     )?;
+    store.take_scroll_restore(view)?;
     Ok(byte)
 }
 

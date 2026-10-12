@@ -16,8 +16,8 @@ use crate::document::{
 use crate::folding::tracked_folds;
 use crate::indent::{IndentConfiguration, IndentOptions};
 use crate::view::{
-    Composition, EditRun, GoalColumns, ScrollPosition, SelectionSet, ViewId, ViewKey, ViewState,
-    WrapAffinities,
+    Composition, EditRun, GoalColumns, ScrollPosition, ScrollRestore, SelectionSet, ViewId,
+    ViewKey, ViewState, WrapAffinities,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -1251,6 +1251,7 @@ impl EditorStore {
                 cursor_memory: Default::default(),
                 selection_reveal: None,
                 formatting_scroll: None,
+                scroll_restore: None,
             },
         );
         self.views.by_key.insert(key, id);
@@ -1297,6 +1298,50 @@ impl EditorStore {
         current.scroll = scroll;
         current.folds = folds;
         Ok(())
+    }
+
+    pub fn request_scroll_restore(
+        &mut self,
+        view: ViewId,
+        byte: Option<usize>,
+        delta_top: f32,
+    ) -> Result<(), EditorError> {
+        let current = self.views.views.get(&view).ok_or(EditorError::NotFound)?;
+        let document = self
+            .documents
+            .documents
+            .get(&current.document)
+            .ok_or(EditorError::NotFound)?;
+        if let Some(byte) = byte {
+            byte_to_char(&document.rope, byte)?;
+        }
+        if !delta_top.is_finite() {
+            return Err(EditorError::InvalidBoundary);
+        }
+        let anchor = ScrollRestore {
+            revision: document.revision,
+            byte,
+            delta_top,
+        };
+        self.views
+            .views
+            .get_mut(&view)
+            .ok_or(EditorError::NotFound)?
+            .scroll_restore = Some(anchor);
+        Ok(())
+    }
+
+    pub fn take_scroll_restore(
+        &mut self,
+        view: ViewId,
+    ) -> Result<Option<ScrollRestore>, EditorError> {
+        Ok(self
+            .views
+            .views
+            .get_mut(&view)
+            .ok_or(EditorError::NotFound)?
+            .scroll_restore
+            .take())
     }
 
     pub fn set_manual_folds(
@@ -1354,11 +1399,13 @@ impl EditorStore {
         }
         byte_to_char(&document.rope, bytes.start)?;
         byte_to_char(&document.rope, bytes.end)?;
-        self.views
+        let current = self
+            .views
             .views
             .get_mut(&view)
-            .ok_or(EditorError::NotFound)?
-            .selection_reveal = Some(crate::view::SelectionReveal {
+            .ok_or(EditorError::NotFound)?;
+        current.scroll_restore = None;
+        current.selection_reveal = Some(crate::view::SelectionReveal {
             bytes,
             center_if_outside,
             near_top_if_outside: false,

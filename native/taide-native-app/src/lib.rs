@@ -80,6 +80,8 @@ mod editor_selection_ranges;
 mod editor_symbols;
 #[path = "editor-syntax.rs"]
 pub mod editor_syntax;
+#[path = "editor-view-state.rs"]
+mod editor_view_state;
 #[path = "event-relay.rs"]
 pub mod event_relay;
 pub mod events;

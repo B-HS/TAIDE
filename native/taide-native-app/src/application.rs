@@ -135,6 +135,7 @@ pub struct NativeApplication {
     editor_code_lenses: crate::editor_code_lenses::State,
     editor_selection_ranges: crate::editor_selection_ranges::State,
     editor_ide_selection: crate::editor_ide_selection::State,
+    editor_view_state: crate::editor_view_state::State,
     editor_clipboard: crate::editor_context_menu::Clipboard,
     editor_menu_changes: HashMap<DocumentId, ViewId>,
     editor_terminal_writes: Vec<crate::editor_context_menu::TerminalDelivery>,
@@ -455,6 +456,7 @@ impl NativeApplication {
             editor_code_lenses: crate::editor_code_lenses::State::default(),
             editor_selection_ranges: crate::editor_selection_ranges::State::default(),
             editor_ide_selection: crate::editor_ide_selection::State::default(),
+            editor_view_state: crate::editor_view_state::State::default(),
             editor_clipboard: crate::editor_context_menu::Clipboard::default(),
             editor_menu_changes: HashMap::new(),
             editor_terminal_writes: Vec::new(),
@@ -5978,6 +5980,7 @@ impl eframe::App for NativeApplication {
         let snapshot = self.controller.snapshot();
         self.editor_ide_selection
             .begin_frame(self.services.ide.is_running());
+        self.editor_view_state.begin_frame(&self.store);
         self.breadcrumbs.reconcile(
             &context,
             &snapshot.layouts,
@@ -6564,6 +6567,7 @@ impl eframe::App for NativeApplication {
             editor_code_lenses: &mut self.editor_code_lenses,
             editor_selection_ranges: &mut self.editor_selection_ranges,
             editor_ide_selection: &mut self.editor_ide_selection,
+            editor_view_state: &mut self.editor_view_state,
             peek_models: &self.peek_models,
             lsp: self.lsp.as_ref(),
             find_history: &mut self.find_history,
@@ -7538,6 +7542,7 @@ struct AppSurfaces<'a> {
     editor_code_lenses: &'a mut crate::editor_code_lenses::State,
     editor_selection_ranges: &'a mut crate::editor_selection_ranges::State,
     editor_ide_selection: &'a mut crate::editor_ide_selection::State,
+    editor_view_state: &'a mut crate::editor_view_state::State,
     peek_models: &'a crate::peek_models::Models,
     lsp: Option<&'a crate::lsp::LspBridge>,
     find_history: &'a mut taide_native_ui::editor_find_widget::FindHistory,
@@ -8451,6 +8456,7 @@ impl AppSurfaces<'_> {
             .attach_view(key, document)
             .map_err(editor_error)
             .and_then(|view| {
+                self.editor_view_state.restore(self.store, view, tab.view_state.as_deref()).map_err(editor_error)?;
                 let indent_configuration = crate::presentation_refresh::indent_configuration(
                     &self.services.state.settings.read(),
                 );
@@ -9083,6 +9089,9 @@ mod ide_selection_tests;
 #[cfg(all(test, unix))]
 #[path = "application-startup-tests.rs"]
 mod startup_tests;
+#[cfg(all(test, unix))]
+#[path = "application-view-state-tests.rs"]
+mod view_state_tests;
 
 #[cfg(test)]
 mod close_all_tests {

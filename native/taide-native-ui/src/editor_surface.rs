@@ -2371,7 +2371,22 @@ impl NativeEditor {
             });
         #[cfg(not(feature = "native-host"))]
         let formatting_scroll_top = None;
-        state.scroll.y = formatting_scroll_top
+        #[cfg(feature = "native-host")]
+        let restored_scroll_top = store
+            .take_scroll_restore(view)?
+            .filter(|anchor| anchor.revision == document.revision)
+            .map(|anchor| {
+                anchor
+                    .byte
+                    .map_or(state.scroll.y, |byte| {
+                        layout.row_top(display.row_of_byte(&document, byte)) - anchor.delta_top
+                    })
+                    .clamp(0.0, scroll_max)
+            });
+        #[cfg(not(feature = "native-host"))]
+        let restored_scroll_top = None;
+        state.scroll.y = restored_scroll_top
+            .or(formatting_scroll_top)
             .or(stable_scroll_top)
             .unwrap_or(state.scroll.y)
             .min(scroll_max);
@@ -2410,7 +2425,10 @@ impl NativeEditor {
         let reveal_row = requested_reveal
             .as_ref()
             .map_or(caret_row, |_| display.row_of_byte(&document, reveal_byte));
-        if moved && formatting_scroll_top.is_none() {
+        let can_reveal_after_restore = restored_scroll_top.is_none() || requested_reveal.is_some();
+        #[cfg(feature = "native-host")]
+        let can_reveal_after_restore = can_reveal_after_restore || last_editor_event.is_some();
+        if moved && formatting_scroll_top.is_none() && can_reveal_after_restore {
             let top = layout.row_top(reveal_row);
             if requested_reveal
                 .as_ref()
@@ -2531,7 +2549,8 @@ impl NativeEditor {
                 if wheel.y != 0.0 {
                     return Some(input_state.scroll.y.future(state.scroll.y) - wheel.y);
                 }
-                (moved || did_fold_reveal).then_some(state.scroll.y)
+                (moved || did_fold_reveal || restored_scroll_top.is_some())
+                    .then_some(state.scroll.y)
             });
         #[cfg(not(feature = "native-host"))]
         {
@@ -2572,7 +2591,8 @@ impl NativeEditor {
                 requested_scroll_y.or_else(|| {
                     (external_scroll
                         || stable_scroll_top.is_some()
-                        || formatting_scroll_top.is_some())
+                        || formatting_scroll_top.is_some()
+                        || restored_scroll_top.is_some())
                     .then_some(state.scroll.y)
                 })
             };
@@ -2593,7 +2613,8 @@ impl NativeEditor {
                     })
                     || (external_scroll && reveal_from.is_none())
                     || stable_scroll_top.is_some()
-                    || formatting_scroll_top.is_some(),
+                    || formatting_scroll_top.is_some()
+                    || restored_scroll_top.is_some(),
             );
         }
         let visible = layout.visible_rows(state.scroll.y, rect.height(), ROW_OVERSCAN);
@@ -2678,7 +2699,10 @@ impl NativeEditor {
         {
             state.scroll.x -= wheel.x;
         }
-        if moved && let Some(row) = rows.iter().find(|row| row.index == reveal_row) {
+        if moved
+            && can_reveal_after_restore
+            && let Some(row) = rows.iter().find(|row| row.index == reveal_row)
+        {
             state.scroll.x = scroll_x_revealing(
                 state.scroll.x,
                 row.caret(reveal_byte.min(row.segment.bytes.end)),
@@ -2737,7 +2761,7 @@ impl NativeEditor {
                 }
                 let dragging = input_state.scrollbar_drag.is_some();
                 let reveal_from = input_state.scroll.reveal_from;
-                let target = if dragging || reveal_from.is_some() {
+                let target = if dragging || reveal_from.is_some() || restored_scroll_top.is_some() {
                     Some(state.scroll.y)
                 } else {
                     requested_scroll_y
@@ -2752,7 +2776,8 @@ impl NativeEditor {
                         || precise_wheel
                         || dragging
                         || (external_scroll && reveal_from.is_none())
-                        || stable_scroll_top.is_some(),
+                        || stable_scroll_top.is_some()
+                        || restored_scroll_top.is_some(),
                 );
                 for row in &mut rows {
                     row.origin.y += previous_y - state.scroll.y;
@@ -2768,7 +2793,10 @@ impl NativeEditor {
                 Some(state.scroll.x)
             } else {
                 wheel_target_x.or_else(|| {
-                    (external_scroll || stable_scroll_top.is_some()).then_some(state.scroll.x)
+                    (external_scroll
+                        || stable_scroll_top.is_some()
+                        || restored_scroll_top.is_some())
+                    .then_some(state.scroll.x)
                 })
             };
             let from = reveal_from.map_or(current.scroll.x, |scroll| scroll.x);
@@ -2782,7 +2810,8 @@ impl NativeEditor {
                     || precise_wheel
                     || dragging
                     || (external_scroll && reveal_from.is_none())
-                    || stable_scroll_top.is_some(),
+                    || stable_scroll_top.is_some()
+                    || restored_scroll_top.is_some(),
             );
             input_state
                 .scroll
