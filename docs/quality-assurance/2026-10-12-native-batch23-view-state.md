@@ -101,3 +101,5 @@ raw legacy scroll도 초기 커서 reveal에 덮이지 않도록 Core 요청에 
 `view-state-exit-error-fixed.log`는 1통과/1실패·0.05초·exit 101(컴파일 20.48초)입니다. 새 위치 오류/draft mirror/오류 반환/작업 0 검사는 통과했습니다. 기존 서버 종료 검사는 IDE 서버 포트를 열 때 Operation not permitted로 실패했으며 종료 동작까지 도달하지 않았습니다. 소유 임시 데이터와 자체 loopback 서버의 실패 한 건만 권한 허용으로 실행하고 성공한 새 검사는 반복하지 않습니다.
 
 `view-state-exit-server-permitted.log`의 실패 한 건은 권한 허용·exit 0으로 통과했습니다. 원래 서버/세션/pending/lockfile·감독 종료와 직접 오류 drain을 확인했습니다. 관련 종료 2건을 포함한 서로 다른 성공은 총 406건입니다. API/타입이 같은 private shutdown 내부의 본문 우선 순서만 바뀌었으므로 App tests 포함 compile 성공을 재사용하고 변경한 함수의 두 검사를 직접 확인했습니다. 마지막 소유 7Rust fmt/diff는 exit 0이고 변경하지 않은 Core/UI 본문·native-host 외의 frozen 성공은 재사용합니다. 전체 App/실기/전체 재시작이나 editor-67 전체 완료를 뜻하지 않습니다.
+
+종료 저장 코드/검사·QA/현재 PROCESS의 9경로는 `f1805287`로 선별 커밋했습니다. 현재 기능표는 599행·392근거 경로·588대상·complete 298/partial 93/unwired 110/missing 87입니다. editor-67 partial·미완료 290·배치 23 잔여 23/최종 33을 유지합니다. 이전 사용자 문서/PROCESS 하단 변경은 보존하고 다음은 d3b2의 실제 탭 닫힘/최근 닫힘과 fresh capture 순서입니다.

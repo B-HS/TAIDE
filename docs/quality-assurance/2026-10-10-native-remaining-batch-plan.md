@@ -101,3 +101,9 @@ c9c2b에서 실제 readonly/tier/lossy 항목·복사와 본문/peek 팔레트·
 구현 2ee11a21에서 실제 본문 최초 live 모델에 UTF-16 역방향 선택·첫 가시 모델 위치/delta·legacy scroll을 연결했습니다. 명시 이동 scroll 덮임·누락 selectionStart 축·frozen cfg 참조 오류를 실제 실패 뒤 수정했고 App 4/상태 3/Core 전체 306/UI editor_surface 87의 서로 다른 400건과 frozen host/Wasm 제품 compile·소유 fmt/diff를 확인했습니다. editor-67은 unwired→partial이며 최신 상태 저장/탭·뷰 전환·닫힘·창/프로젝트/앱 종료 flush·실제 저장/재시작과 folding contribution은 남아 있습니다.
 
 현재 599행/대상 588 중 complete 298·partial 93·unwired 110·missing 87·미완료 290입니다. 기능 체크리스트 298/588(50.7%)·배치 23~30 잔여 23/52/23/64/32/39/51/6·최종 33을 유지합니다. 전체 전환율/잔여 시간은 미산정이며 이전 App 준비 실패·보호/실기/성능/신뢰성/출시·전환·제거 게이트는 그대로 남습니다. 다음은 d3b1의 실제 종료 저장 실패와 최신 위치 캡처입니다.
+
+## 앱 종료의 최신 위치 저장 연결 (2026-10-12)
+
+구현 f1805287에서 정상/직접 앱 종료의 live 선택·실제 geometry 모델 anchor/legacy scroll을 디스크 layout에 저장하고 새 ViewId roundtrip을 확인했습니다. 위치 캡처 오류로 본문 mirror가 0개인 실패도 재현해 본문/기존 layout을 먼저 저장하고 원래 오류를 반환합니다. 관련 App/상태 10·종료 2·UI geometry 1과 기존 Core 전체 306/UI 본문 87의 서로 다른 406건, App tests compile·소유 fmt/diff가 통과했습니다. 포트 권한 실패 한 건은 소유 loopback 서버만 허용해 확인했고 이전 성공은 재사용했습니다.
+
+기능표는 599행/392근거 경로·588대상·complete 298/partial 93/unwired 110/missing 87입니다. editor-67 partial·미완료 290·기능 체크리스트 50.7%·배치 23 잔여 23/최종 33을 유지하며 전체 전환율/잔여 시간은 미산정입니다. 전환/탭·창·프로젝트/원격의 fresh capture·folding contribution/전체 App 재시작과 전체 통합/실기/출시는 남아 있습니다. 다음은 같은 배치의 d3b2 실제 탭 닫힘/최근 닫힘과 최신 위치 전달입니다.
