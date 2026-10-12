@@ -1,6 +1,6 @@
 {
-    "date": "2026-10-12",
-    "baseline": "aa5f8b8d",
+    "date": "2026-10-13",
+    "baseline": "22798293",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1164,7 +1164,7 @@
                 "native/taide-native-editor/tests/documentation.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-12-native-batch23-markdown.md"],
-            "limitation": "stable 분할/readonly·두 뷰/독립 scroll·mirror/닫힘과 viewport 상태 회수, 기본 HTML/이미지/표시/테마·표 공유 경계·signed start에 reversed 시작/방향·li value 후속 번호·중첩/hidden/비순서 범위와 optional 항목 ordinal을 두 UI에 연결했습니다. 역순 시작3→1 실패를 재현했고 최신 parser7/UI19/App1/LSP8의35통과·소유9Rust fmt/diff·frozen host tests/inspection/Wasm canvas lib compile입니다. d6b 기능 수명은 완료하며 표 data/viewport/이미지/span·list type/CSS ownership/범위 밖 번호·전체 CSS/SVG/MathML/media/details/anchor·물리 OS/전체App/실기/성능/출시는 미완료라 partial입니다."
+            "limitation": "분할/readonly·두 뷰/독립 scroll·mirror/닫힘·viewport 회수와 기본 HTML/이미지/표시/테마·목록 번호에 표의 최초/내용/행 수/viewport/이미지 변경 배치를 연결했습니다. 두 열 경계4/3과 넓은 화면18/1줄 실패를 재현해 고정 Grid/위젯 ID·현재 입력의 너비/높이 측정·배정된 셀 경계·최소/자연 너비·read-only 이미지 크기를 연결했습니다. 최신 preview10/hover13/cache4/App1의28통과·소유8Rust fmt/diff·frozen host tests/inspection/Wasm canvas lib compile입니다. 셀 병합/caption/행·열 스타일/전체 CSS·list type/CSS ownership/범위 밖 번호·SVG/MathML/media/details/anchor·CLI 소유 경계 대조/물리 OS/전체App/실기/성능/출시는 미완료라 partial입니다."
         }
     },
     "rows": [
@@ -3047,7 +3047,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-markdown",
-            "note": "분할/readonly·두 뷰/독립 scroll/mirror·닫힘·viewport 회수와 기본 HTML/이미지/표시/테마·표 공유 경계·signed start에 reversed/항목 value와 후속 번호·중첩/hidden 범위를 두 UI/실제 App에 연결했습니다. 최신 parser7/UI19/App1/LSP8의35통과·frozen host/Wasm compile입니다. 전체 table data/viewport/span·list type/CSS ownership/범위 밖 번호/full CSS 등과 물리 OS/전체 게이트는 미완료입니다."
+            "note": "stable 분할/readonly·두 뷰/독립 scroll/mirror·닫힘·viewport 회수와 기본 HTML/표시/테마·signed/reversed/value 번호에 현재 입력의 표 배치·최소/자연 너비·이미지 준비/높이/링크/캐시 크기를 연결했습니다. preview10/hover13/cache4/실제App1의28통과·frozen host/Wasm compile입니다. 셀 병합/caption/행·열 스타일/전체 CSS·list type·추가 HTML/CLI 소유 경계/물리 OS/전체 게이트는 미완료입니다."
         },
         {
             "id": "editor-73",
@@ -7758,5 +7758,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "제품aa5f8b8d에서 HTML 역순 목록이 항목 수3 대신1로 시작하는 실패를 재현했습니다. 기존 i64 번호 경계의 optional 항목 ordinal·reversed 시작/방향·명시 start/li value 후속 번호·중첩/hidden/비순서 범위와 두 UI 소비를 연결했고 기존 LSP는 None으로 같은 start/index 표시를 유지합니다. 최신 parser7/UI19/실제App1/LSP8의 서로 다른35통과·소유9Rust fmt/diff·frozen host tests/inspection check26.52초/Wasm canvas lib check12.65초·exit0입니다. 실제 오른쪽 preview의3/-4/-5·signed -1/0와 theme/HTML/PNG·입력/undo/오류 복구/문서 교체/닫힘/원문/task0을 확인했습니다. 앞선 제품4939d891의 readonly/두 뷰/독립 scroll·mirror/닫힘/viewport 회수 검사6건 중 입력이 같은 성공은 재사용하며 중복 합산하지 않습니다. d6b 기능 수명과 현재 번호 하위 범위는 완료하지만 editor-72 partial·complete302/partial90/unwired110/missing86·미완료286·배치23 잔여19/최종33입니다. 의존성/manifest/lock/frozen source와 사용자 기존 문서/PROCESS 하단 두 hunk를 보존했습니다. 전체 표 data/viewport/이미지/span·list type/CSS ownership/범위 밖 번호/전체 CSS/SVG/MathML/media/details/anchor·전체App877통과/22준비실패/보호3제외/exit101·준비 원인 미확정·Core성능ignored1·Wasmtests시간API불일치7·물리 OS 창/picker·접근성/성능/신뢰성/출시/전환/제거와 남은 전체 목표를 유지합니다. 전체전환율/잔여시간은 미산정입니다."
+    "validation": "제품22798293에서 변경 프레임의 두 열 경계4/3·x44.84375/45.1875와 넓은 화면18/1줄 실패를 재현했습니다. 고정 Grid/위젯 ID·입력 fingerprint·현재 너비/높이 측정·배정된 cursor 셀 경계·최소/자연 너비·준비된 이미지의 read-only 크기를 연결했습니다. 최초/내용/행 수/viewport·이미지 준비/높이/링크/캐시 크기·긴 단어/한중일·일반 도움말과 실제 App PNG 표 셀/원문/입력/undo/오류 복구/전환/닫힘/task0이 preview10/hover13/cache4/App1의 서로 다른28통과·소유8Rust fmt/diff·frozen host tests/inspection check27.54초/Wasm canvas lib check13.65초·exit0입니다. 캐시 ID만 바꾼 실패·rect EPS 정밀도/closure 작성 오류는 QA에 보존하며 이전 성공을 재사용하고 중복 합산하지 않습니다. editor-72 partial·complete302/partial90/unwired110/missing86·미완료286·배치23 잔여19/최종33입니다. 의존성/manifest/lock/frozen source와 사용자 기존 문서/PROCESS 하단 두 hunk를 보존했습니다. 셀 병합/caption/행·열 스타일/전체 CSS·list type/CSS ownership/범위 밖 번호/추가 SVG/MathML/media/details/anchor·CLI 소유 경계 대조·전체App877통과/22준비실패/보호3제외/exit101·준비 원인 미확정·Core성능ignored1·Wasmtests시간API불일치7·물리 OS 창/picker·접근성/성능/신뢰성/출시/전환/제거와 남은 전체 목표를 유지합니다. 전체전환율/잔여시간은 미산정입니다."
 }
