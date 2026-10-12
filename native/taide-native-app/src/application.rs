@@ -137,6 +137,7 @@ pub struct NativeApplication {
     editor_selection_ranges: crate::editor_selection_ranges::State,
     editor_ide_selection: crate::editor_ide_selection::State,
     editor_view_state: crate::editor_view_state::State,
+    editor_markdown: crate::editor_markdown::State,
     view_state_flush: Arc<crate::editor_view_state_sync::Shared>,
     editor_clipboard: crate::editor_context_menu::Clipboard,
     editor_menu_changes: HashMap<DocumentId, ViewId>,
@@ -470,6 +471,7 @@ impl NativeApplication {
             editor_selection_ranges: crate::editor_selection_ranges::State::default(),
             editor_ide_selection: crate::editor_ide_selection::State::default(),
             editor_view_state: crate::editor_view_state::State::default(),
+            editor_markdown: crate::editor_markdown::State::default(),
             view_state_flush,
             editor_clipboard: crate::editor_context_menu::Clipboard::default(),
             editor_menu_changes: HashMap::new(),
@@ -6071,6 +6073,8 @@ impl eframe::App for NativeApplication {
         self.editor_ide_selection
             .begin_frame(self.services.ide.is_running());
         self.editor_view_state.begin_frame(&self.store);
+        self.editor_markdown
+            .reconcile(&snapshot.layouts, &self.store);
         self.breadcrumbs.reconcile(
             &context,
             &snapshot.layouts,
@@ -6658,6 +6662,7 @@ impl eframe::App for NativeApplication {
             editor_selection_ranges: &mut self.editor_selection_ranges,
             editor_ide_selection: &mut self.editor_ide_selection,
             editor_view_state: &mut self.editor_view_state,
+            editor_markdown: &mut self.editor_markdown,
             peek_models: &self.peek_models,
             lsp: self.lsp.as_ref(),
             find_history: &mut self.find_history,
@@ -7643,6 +7648,7 @@ struct AppSurfaces<'a> {
     editor_selection_ranges: &'a mut crate::editor_selection_ranges::State,
     editor_ide_selection: &'a mut crate::editor_ide_selection::State,
     editor_view_state: &'a mut crate::editor_view_state::State,
+    editor_markdown: &'a mut crate::editor_markdown::State,
     peek_models: &'a crate::peek_models::Models,
     lsp: Option<&'a crate::lsp::LspBridge>,
     find_history: &'a mut taide_native_ui::editor_find_widget::FindHistory,
@@ -8619,6 +8625,16 @@ impl AppSurfaces<'_> {
                         }
                     }
                 }
+                self.editor_markdown.toolbar(ui, pane, &snapshot.metadata.language_id,
+                    &presentation::message(self.locale, "editor.toggleMarkdownPreview", &[]));
+                let (editor_rect, _) = self.editor_markdown.regions(ui, pane,
+                    &snapshot.metadata.language_id,
+                    self.services.state.settings.read().resizer_thickness as f32,
+                    self.editor_documentation_colors.border);
+                let parent_ui = ui;
+                let mut editor_ui = parent_ui.new_child(egui::UiBuilder::new().id(parent_ui.id()).max_rect(editor_rect));
+                editor_ui.set_clip_rect(editor_rect.intersect(parent_ui.clip_rect()));
+                let ui = &mut editor_ui;
                 let settings = self.services.state.settings.read();
                 let mut editor_presentation =
                     crate::presentation_refresh::editor_presentation(&settings);
@@ -9129,6 +9145,10 @@ impl AppSurfaces<'_> {
                 for error in output.errors {
                     *self.status = Some(format!("native editor: {error:?}"));
                 }
+                let latest = self.store.documents().snapshot(document).map_err(editor_error)?;
+                let owner = &self.store.views().get(view).ok_or_else(|| editor_error(taide_native_editor::document::EditorError::NotFound))?.key;
+                self.editor_markdown.show(parent_ui, pane, owner, editor_project, &latest,
+                    &editor.appearance, self.editor_documentation_colors, self.services, self.commands);
                 Ok(())
             });
         if let Err(error) = result {
@@ -9218,6 +9238,10 @@ mod file_loading_tests;
 #[cfg(all(test, unix))]
 #[path = "application-missing-draft-tests.rs"]
 mod missing_draft_tests;
+
+#[cfg(all(test, unix))]
+#[path = "application-markdown-tests.rs"]
+mod markdown_tests;
 
 #[cfg(test)]
 mod close_all_tests {

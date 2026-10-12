@@ -55,7 +55,7 @@ impl<T: crate::editor_documentation::Provider + ?Sized> Provider for T {
     }
 }
 
-pub(crate) fn show(
+pub fn show(
     ui: &mut Ui,
     document: &RichDocument,
     appearance: &EditorAppearance,
