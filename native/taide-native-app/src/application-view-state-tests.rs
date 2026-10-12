@@ -21,6 +21,127 @@ const SCROLL_DELTA_TOP: f32 = -7.0;
 const LEGACY_SCROLL_TOP: f32 = 320.0;
 const NAVIGATION_LINE: u32 = 100;
 const INVALID_UTF8: u8 = 0xff;
+const IDE_TEXT: &str = "class\n  \u{1f600}method\nend";
+
+#[test]
+fn 실제_ide_파일_열기와_닫힘은_본문의_최신_위치를_저장한다() {
+    let mut fixture = fixture_with_view_state(
+        "--native-inlay-hints",
+        false,
+        |_, _, _| true,
+        None,
+        IDE_TEXT,
+    );
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let view = body_view(application, &fixture.path, &fixture.tab);
+    let selection = SelectionSet {
+        primary: 0,
+        selections: vec![Selection {
+            anchor: ANCHOR_BYTE,
+            head: HEAD_BYTE,
+        }],
+    };
+    application
+        .store
+        .set_view_state(
+            view,
+            selection.clone(),
+            ScrollPosition::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    let focus = crate::editor_context_menu::body(context, view).unwrap();
+    context.memory_mut(|memory| memory.request_focus(focus));
+    paint(
+        application,
+        context,
+        key(
+            egui::Key::ArrowRight,
+            egui::Modifiers {
+                shift: true,
+                ..egui::Modifiers::NONE
+            },
+        ),
+    );
+    let services = application.services.clone();
+    let actions = application.application_ports.ide.actions.clone();
+    let arguments = serde_json::json!({ "filePath": fixture.peek_path, "preview": true });
+    let opened = application.runtime.spawn(async move {
+        crate::ide_tools::dispatch(services, &actions, "openFile", &arguments).await
+    });
+    wait(application, context, "IDE file open", |_| {
+        opened.is_finished()
+    });
+    assert!(application.runtime.block_on(opened).unwrap().is_ok());
+    let layout = application.services.state.layouts.read()[&fixture.project].clone();
+    let tab = crate::tabs::tabs_in(&layout.root)
+        .into_iter()
+        .find(|tab| tab.id == fixture.tab)
+        .unwrap();
+    let saved: serde_json::Value = serde_json::from_str(
+        tab.view_state
+            .as_deref()
+            .expect("IDE open must capture the previous view"),
+    )
+    .unwrap();
+    assert_eq!(
+        saved["cursorState"][0]["selectionStart"],
+        serde_json::json!({ "lineNumber": STORED_LINE, "column": ANCHOR_COLUMN })
+    );
+    assert_eq!(
+        saved["cursorState"][0]["position"],
+        serde_json::json!({ "lineNumber": STORED_LINE, "column": SHIFT_HEAD_COLUMN })
+    );
+    application
+        .store
+        .set_view_state(
+            view,
+            selection.clone(),
+            ScrollPosition::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    let services = application.services.clone();
+    let actions = application.application_ports.ide.actions.clone();
+    let arguments = serde_json::json!({ "tab_name": tab.title });
+    let closed = application.runtime.spawn(async move {
+        crate::ide_tools::dispatch(services, &actions, "close_tab", &arguments).await
+    });
+    wait(application, context, "IDE file close", |_| {
+        closed.is_finished()
+    });
+    assert!(application.runtime.block_on(closed).unwrap().is_ok());
+    let layout = application.services.state.layouts.read()[&fixture.project].clone();
+    let closed = layout
+        .closed_tabs
+        .iter()
+        .find(|closed| closed.tab.id == fixture.tab)
+        .unwrap();
+    let saved: serde_json::Value = serde_json::from_str(
+        closed
+            .tab
+            .view_state
+            .as_deref()
+            .expect("IDE close must capture the latest inactive view"),
+    )
+    .unwrap();
+    assert_eq!(
+        saved["cursorState"][0]["position"],
+        serde_json::json!({ "lineNumber": STORED_LINE, "column": HEAD_COLUMN })
+    );
+    assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), IDE_TEXT);
+    let document = application
+        .store
+        .documents()
+        .snapshot(application.store.views().get(view).unwrap().document)
+        .unwrap();
+    assert_eq!(
+        document.rope.to_string(),
+        std::fs::read_to_string(&fixture.path).unwrap()
+    );
+    assert!(!document.dirty);
+}
 
 #[test]
 fn 실제_preview_교체_뒤_같은_메모리_모델을_다시_열면_마지막_선택과_scroll이_복원된다() {

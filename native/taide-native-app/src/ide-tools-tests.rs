@@ -290,6 +290,7 @@ impl Drop for Fixture {
 
 fn actions() -> LayoutActions {
     LayoutActions {
+        view_states: Arc::default(),
         open_file_tab: |services, project, path, title, preview| {
             Box::pin(async move {
                 layout_actions::layout_open_tab(
@@ -322,6 +323,97 @@ fn actions() -> LayoutActions {
 
 fn decoded(result: Value) -> Value {
     serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap()
+}
+
+#[tokio::test]
+async fn ide_위치_저장은_입력_검증_뒤에만_실행하고_실패한_캡처에서_변경과_이벤트를_막는다() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use taide_model::error::AppError;
+
+    tokio::time::timeout(DEADLINE, async {
+        let fixture = Fixture::new();
+        fixture
+            .call("openFile", json!({"filePath": fixture.file}))
+            .await;
+        layout_actions::layout_open_tab(
+            fixture.services.events.as_ref(),
+            &fixture.services.state,
+            fixture.project.clone(),
+            TabKind::ClaudeDiff {
+                request_id: "synthetic-view-state-diff".into(),
+                path: fixture.file.clone(),
+            },
+            "synthetic diff".into(),
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+        let shared = Arc::new(crate::editor_view_state_sync::Shared::default());
+        let requests = Arc::new(AtomicUsize::new(0));
+        let observed = requests.clone();
+        shared.bind(Arc::new(move || {
+            observed.fetch_add(1, Ordering::SeqCst);
+        }));
+        let actions = actions().with_view_states(shared.clone());
+        for (name, arguments) in [
+            ("openFile", json!({})),
+            (
+                "openFile",
+                json!({"filePath": fixture.directory.join("outside.cs")}),
+            ),
+            ("close_tab", json!({})),
+        ] {
+            let error = dispatch(fixture.services.clone(), &actions, name, &arguments)
+                .await
+                .err()
+                .unwrap();
+            assert_eq!(error.code, RPC_INVALID_PARAMS);
+        }
+        assert!(
+            dispatch(
+                fixture.services.clone(),
+                &actions,
+                "close_tab",
+                &json!({"tab_name": "absent"})
+            )
+            .await
+            .is_ok()
+        );
+        assert!(
+            dispatch(
+                fixture.services.clone(),
+                &actions,
+                "getCurrentSelection",
+                &json!({})
+            )
+            .await
+            .is_ok()
+        );
+        assert_eq!(requests.load(Ordering::SeqCst), 0);
+        assert!(!shared.has_pending());
+        shared.finish(Err(AppError::Internal("synthetic capture failure".into())));
+        let original = fixture.services.state.layouts.read().clone();
+        fixture.sink.0.lock().unwrap().clear();
+        for (name, arguments) in [
+            ("openFile", json!({"filePath": fixture.file})),
+            ("close_tab", json!({"tab_name": "synthetic.cs"})),
+            ("closeAllDiffTabs", json!({})),
+        ] {
+            let error = dispatch(fixture.services.clone(), &actions, name, &arguments)
+                .await
+                .err()
+                .unwrap();
+            assert_eq!(error.code, RPC_INVALID_PARAMS);
+            assert!(error.message.contains("synthetic capture failure"));
+            assert_eq!(*fixture.services.state.layouts.read(), original, "{name}");
+            assert!(fixture.sink.0.lock().unwrap().is_empty(), "{name}");
+        }
+        assert!(!shared.has_pending());
+        fixture.finish().await;
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]

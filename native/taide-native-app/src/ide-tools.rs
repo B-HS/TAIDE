@@ -35,11 +35,13 @@ pub type CloseTabAction =
 pub struct LayoutActions {
     pub open_file_tab: OpenFileTabAction,
     pub close_tab: CloseTabAction,
+    pub(crate) view_states: Arc<crate::editor_view_state_sync::Shared>,
 }
 
 impl LayoutActions {
     pub fn new(terminals: Arc<crate::terminal_host::Hub>) -> Self {
         Self {
+            view_states: Arc::default(),
             open_file_tab: |services, project, path, title, preview| {
                 Box::pin(async move {
                     layout_actions::open_tab_and_finish(
@@ -75,6 +77,21 @@ impl LayoutActions {
                 })
             }),
         }
+    }
+
+    pub(crate) fn with_view_states(
+        mut self,
+        view_states: Arc<crate::editor_view_state_sync::Shared>,
+    ) -> Self {
+        self.view_states = view_states;
+        self
+    }
+
+    async fn flush_view_states(&self, services: &AppServices) -> Result<(), ToolError> {
+        self.view_states
+            .flush(services)
+            .await
+            .map_err(|error| tool_error(RPC_INVALID_PARAMS, error.to_string()))
     }
 }
 
@@ -127,6 +144,7 @@ async fn open_file(
         .and_then(|name| name.to_str())
         .unwrap_or(&path)
         .to_string();
+    actions.flush_view_states(&services).await?;
     (actions.open_file_tab)(services.clone(), project, path.clone(), title, preview)
         .await
         .map_err(|error| tool_error(RPC_INVALID_PARAMS, error.to_string()))?;
@@ -298,6 +316,9 @@ async fn close_tab(
                 .find_map(|root| layout_service::find_tab_by_title(root, title))
         })
     };
+    if tab.is_some() {
+        actions.flush_view_states(&services).await?;
+    }
     if let Some(tab) = tab
         && let Ok(closed) = (actions.close_tab)(services.clone(), tab).await
     {
@@ -365,18 +386,22 @@ pub async fn dispatch(
         "close_tab" => close_tab(services, actions, arguments).await,
         "closeAllDiffTabs" => {
             let layouts = services.state.layouts.read().clone();
+            let tabs = layouts
+                .values()
+                .flat_map(layout_service::all_roots)
+                .flat_map(layout_service::collect_claude_diff_tab_ids)
+                .collect::<Vec<_>>();
+            if !tabs.is_empty() {
+                actions.flush_view_states(&services).await?;
+            }
             let mut closed_count = 0u32;
-            for layout in layouts.values() {
-                for tab in layout_service::all_roots(layout)
-                    .flat_map(layout_service::collect_claude_diff_tab_ids)
-                {
-                    if let Ok(closed) = (actions.close_tab)(services.clone(), tab).await {
-                        closed_count += 1;
-                        services.events.publish(AppEvent::IdeCloseTabRequested {
-                            tab_name: closed.title.clone(),
-                            request_id: layout_service::claude_diff_request_id(&closed),
-                        });
-                    }
+            for tab in tabs {
+                if let Ok(closed) = (actions.close_tab)(services.clone(), tab).await {
+                    closed_count += 1;
+                    services.events.publish(AppEvent::IdeCloseTabRequested {
+                        tab_name: closed.title.clone(),
+                        request_id: layout_service::claude_diff_request_id(&closed),
+                    });
                 }
             }
             Ok(text_content(format!("CLOSED_{closed_count}_DIFF_TABS")))

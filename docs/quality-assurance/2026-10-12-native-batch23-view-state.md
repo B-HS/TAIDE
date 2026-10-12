@@ -161,3 +161,15 @@ UI의 최신 Store를 요청하는 oneshot 경계를 App 포트가 공유하고 
 `view-state-preview-related.log`는 실제 App8/상태6/sync2의 서로 다른16통과/0실패·26.39초·exit0(컴파일19.07초)입니다. 새 재열기와 분리된 뷰/창·pane 격리·정상 저장값 우선/잘못된 값 fallback·같은 revision/명시 disposal, 기존 초기/전환/닫힘/정상·직접 종료·UTF-16/readonly/명시 이동·공유 요청 수명을 확인했습니다. 앞선 단독 성공이나 기존14건은 중복 합산하지 않습니다. `view-state-preview-exit.log`는 소유 loopback 허용의 기존 종료2건·0.06초·exit0입니다. 변경 없는Host9/controller3/Core306/UI88을 재사용한 서로 다른424건입니다. 소유4Rust fmt/diff가 통과했고 manifest/lock/renderer/Core/engine/frozen은 변경하지 않았습니다. 전체 diff의 사용자 architecture 말미 공백 경고는 기존 변경으로 보존하고 소유 경로 diff는 통과했습니다. 전체App/실기/재시작·외부 포트/종료·folding과 editor-67 전체 완료로 확대하지 않습니다.
 
 preview 재열기 코드/검사·QA/소유 PROCESS의6경로는 `b05c1c2d`로 선별 커밋했습니다. 기능표는599행/393근거 경로·588대상·complete298/partial93/unwired110/missing87·미완료290이며 editor-67 partial·배치23 잔여23/최종33을 유지합니다. 다음은 IDE/remote와 project/slot/aux 종료의 동일한 선행 캡처/소유 수명입니다.
+
+## IDE 명령의 최신 위치
+
+실제 App의 application ports는 IDE LayoutActions를 구성하지만 같은 view_states 공유 포트를 전달하지 않습니다. IDE openFile은 경로/열린 프로젝트/실제 파일 검증 뒤 직접 layout을 변경하고 close_tab/closeAllDiffTabs도 직접 닫습니다. 기존 Headless LayoutActions와 RPC 입력/응답·서버 인증 경계는 보존합니다. 실제 App 검사에서 조립된 IDE action을 사용해 입력 직후 openFile/close_tab의 이전 탭과 최근 닫힘 위치를 확인합니다.
+
+첫 `view-state-ide-red.log`는 작성한 검사에서 fixture_with_view_state의 필수 text 인자를 누락해 E0061 1건·exit101로 컴파일 실패했습니다. 실제 시그니처의 text를 공급했으며 실행 0건을 제품 실패/성공으로 세지 않습니다.
+
+`view-state-ide-red-fixed.log`는 실제 App 조립 포트의 IDE openFile이 완료된 뒤 이전 Tab.view_state None에서 0통과/1실패·27.95초·exit101(컴파일33.43초)입니다. 뒤의 IDE 닫힘 단언에는 아직 도달하지 않았습니다. 같은 공유 포트를 App constructor가 IDE LayoutActions에 전달하며 openFile의 파일 경계 검증 뒤, 실제 닫힘 대상이 있는 close_tab/closeAllDiffTabs 앞에서 최신 캡처를 적용합니다. 캡처 오류는 기존 ToolError로 반환하고 해당 mutation/닫힘 이벤트를 실행하지 않습니다. 잘못된 입력/읽기 도구/닫힐 대상 없음은 캡처를 기다리지 않습니다. 기존 headless 포트는 unbound 공유 포트를 사용하고 기존 fn pointer/open·close 동작/RPC·서버 인증은 유지합니다.
+
+`view-state-ide-green.log`의 실제 App은1통과/0실패·20.30초·exit0(컴파일32.54초)입니다. 입력 직후 openFile 이전 탭의 UTF-16 역방향 선택과 비활성 본문의 추가 이동 직후 close_tab 최근 닫힘 위치·원문/dirty/디스크 보존을 확인했습니다. `view-state-ide-tools.log`는 새 실패 경계와 기존 IDE 도구/RPC/실제 responder·소유 PTY의5통과·0.05초·exit0(컴파일18.64초)입니다. 필수 값/경계 밖 입력·읽기/대상 없음은 캡처 요청0, 캡처 실패 때 open/close/일괄 diff close 모두 동일 layout/이벤트0·대기0·작업 회수를 확인했습니다.
+
+`view-state-ide-server.log`는 소유 loopback 허용의 기존 인증/MCP/RPC/동기 알림·pending/lockfile·지연 owner 회수4통과·0.07초·exit0입니다. `view-state-ide-ports.log`는 실제 조립/dispatch/persist/event/lazy ports·소유 PTY agent 회수2통과·0.05초·exit0입니다. 변경 없는App/상태/sync16·종료2·Host9/controller3/Core306/UI88을 재사용한 서로 다른436건이며 이전 단독 성공을 추가 합산하지 않습니다. 소유7Rust fmt/diff는 exit0이고 manifest/lock/renderer/Core/engine/frozen 불변과 사용자 기존 변경을 보존합니다. 전체App/실기·remote/project/slot/aux/batch·folding/전체 재시작과 editor-67 전체 완료는 별도 미완료입니다.

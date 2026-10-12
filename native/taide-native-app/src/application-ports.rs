@@ -98,8 +98,10 @@ impl Ports {
         info: AppInfo,
         loading_assets: Option<Arc<crate::remote_assets::Catalog>>,
     ) -> Self {
+        let view_states = Arc::new(crate::editor_view_state_sync::Shared::default());
         let ide = Arc::new(crate::ide_server::Ports::new(
-            crate::ide_tools::LayoutActions::new(terminal.terminals.clone()),
+            crate::ide_tools::LayoutActions::new(terminal.terminals.clone())
+                .with_view_states(view_states.clone()),
             info.version.clone(),
         ));
         let mut connections = None;
@@ -137,7 +139,7 @@ impl Ports {
         });
         let (reconcile, dispatch) = connections.expect("remote ports constructor initialized");
         Self {
-            view_states: Arc::default(),
+            view_states,
             ide,
             remote,
             dispatch,

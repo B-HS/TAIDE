@@ -29,7 +29,7 @@ const AUTH_HEADER: &str = "X-Claude-Code-Ide-Authorization";
 const MCP_SUBPROTOCOL: &str = "mcp";
 
 pub struct Ports {
-    actions: Arc<LayoutActions>,
+    pub(crate) actions: Arc<LayoutActions>,
     version: String,
     resolve_directory: fn(&AppServices) -> AppResult<PathBuf>,
 }
