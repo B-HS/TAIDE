@@ -167,3 +167,9 @@ c9c2b에서 실제 readonly/tier/lossy 항목·복사와 본문/peek 팔레트·
 제품40de51de에서 기본 HTML 제목/강조/코드/인용/목록/표와 파일 기준 상대 링크/이미지·max-width/비율·localized 오류/본문 보존/undo 복구를 연결했습니다. 실제 오른쪽 preview rect/clip의 제목·오류/복구와 임시 PNG 로딩/폭·비율·기존 입력/전환/닫힘/원문/task0, parser4/images4/locale20과 App1의 서로 다른29통과·소유Rust/locale fmt·JSON/diff를 확인했습니다. 초기 HTML 부재/DOM fragment 루트 평탄화의 실패와 수정·검사 강화/중복 성공은 QA에 구분합니다.
 
 기능표599행/416근거 경로·588대상·complete302/partial90/unwired110/missing86·미완료286·기능 체크리스트51.4%이며 원래302 ID 배정의 누락/중복/미확인ID0·배치23~30 잔여19/52/23/64/32/39/51/6·최종33입니다. DOMPurify의 원본 허용 CSS/SVG/MathML/미디어/details/anchor·음수 목록/표 병합과 원본 표시·추가 readonly/mirror/독립 scroll/뷰는 아직 구현/검증이 필요하므로 editor-72 partial과 전체 게이트를 유지합니다. 전체전환율/잔여시간은 미산정이며 남은 Markdown 범위를 계속합니다.
+
+## Markdown 원본 표시·테마/글꼴 갱신의 부분 구현 (2026-10-12)
+
+제품c0f4fd83에서 preview 전용 제목/본문 크기·line-height/여백·인용 opacity/border·셀 border/padding·인라인 코드 rounded/link·독립 pre horizontal scroll과 원본 app 테마 역할/두 갱신 소비를 연결했습니다. 실제 App의 theme/editor font 변경→오른쪽 preview font/colour와 기존 HTML/이미지/입력/오류/복구/닫힘/원문/task0, preview3/일반 hover13/theme3/App1의 서로 다른20통과·소유9Rust fmt/diff·manifest/lock 변경0입니다. 최초 제목 불일치/새 MouseWheel 작성 실패와 중복 성공을 QA에 구분하고 일반 호버는 유지합니다.
+
+현재599행/419근거 경로·588대상·complete302/partial90/unwired110/missing86·미완료286·기능 체크리스트51.4%입니다. 원래302 ID 배정의 누락/중복/미확인ID0·배치23~30 잔여19/52/23/64/32/39/51/6·최종33을 확인했습니다. full HTML과 전체 표 cell 크기·병합/음수 목록, readonly/mirror/독립 scroll/추가 뷰 및 전체 게이트는 아직 미완료이므로 editor-72 partial/전체 목표를 유지합니다. 전체전환율/잔여시간은 미산정이며 같은 Markdown 범위를 계속합니다.

@@ -1,6 +1,6 @@
 {
     "date": "2026-10-12",
-    "baseline": "40de51de",
+    "baseline": "c0f4fd83",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1144,7 +1144,10 @@
                 "crates/taide-locale/src/service.rs",
                 "crates/taide-locale/resources/locales/en.json",
                 "crates/taide-locale/resources/locales/ko.json",
-                "crates/taide-locale/resources/locales/ja.json"
+                "crates/taide-locale/resources/locales/ja.json",
+                "native/taide-native-ui/src/editor-markup-preview.rs",
+                "native/taide-native-ui/src/presentation.rs",
+                "native/taide-native-app/src/presentation-refresh.rs"
             ],
             "tests": [
                 "native/taide-native-app/src/application-markdown-tests.rs",
@@ -1153,10 +1156,13 @@
                 "native/taide-native-app/src/application-view-state-tests.rs",
                 "native/taide-native-app/src/editor-markdown-parse-tests.rs",
                 "native/taide-native-app/src/editor-documentation-images-tests.rs",
-                "crates/taide-locale/src/service.rs"
+                "crates/taide-locale/src/service.rs",
+                "native/taide-native-ui/tests/editor-markup-preview.rs",
+                "native/taide-native-ui/tests/editor-documentation.rs",
+                "native/taide-native-ui/tests/theme-portable.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-12-native-batch23-markdown.md"],
-            "limitation": "실제 App의 분할·동일 편집기 ID/선택·입력/Paste/undo/최신 본문·문서 전환/닫힘/승인 revision/원문/task0에 HTML 제목/강조/코드/인용/목록/표·상대 링크/PNG/폭·비율·localized 오류/본문 보존/undo 복구를 연결했습니다. 오른쪽 preview rect/clip의 실제 제목·오류/복구, parser/HTML/위험 URI/hidden/상한4·이미지/파일/HTTP 소유·취소4·locale 전체20과 actual App1의 서로 다른29통과이며 이전 성공/준비/작성 실패와 중복은 합산하지 않습니다. CSS/SVG/MathML/미디어/details/anchor·표 병합/음수 목록·원본 표시와 Markdown readonly/mirror/독립 스크롤/추가 뷰 및 전체App/실기/성능/출시는 남아 partial입니다."
+            "limitation": "실제 App 분할/입력/문서 수명·기본 HTML/경로/이미지·localized 오류/복구의 이전29건에 원본 preview 전용 크기/간격·quote/table border·inline code/link·pre horizontal scroll·app 테마 역할/두 갱신 소비를 연결했습니다. 실제 App의 theme/editor font 변경→오른쪽 preview font/colour·이미지/입력/복구/닫힘/원문/task0과 preview3/일반 hover13/theme3/App1의 서로 다른20통과·소유9Rust fmt/diff입니다. 최초 제목 차이와 MouseWheel 작성 실패는 QA에 보존하며 중복 성공을 합산하지 않습니다. full HTML CSS/SVG/MathML/media/details/anchor·음수 목록/표 병합/전체 cell 크기와 readonly/mirror/독립 scroll/추가 뷰·전체App/실기/성능/출시는 남아 partial입니다."
         }
     },
     "rows": [
@@ -3039,7 +3045,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-markdown",
-            "note": "Markdown 토글·stable 편집기·분할·최신 본문·문서 전환/닫힘에 기본 HTML 구조·파일 기준 상대 링크/이미지·max-width와 localized 오류/본문 보존/undo 복구를 실제로 연결했습니다. preview rect/clip 실제 표시와 App1/parser4/images4/locale20의29통과입니다. 원본 CSS/SVG/MathML/미디어/details/anchor·표 병합/음수 목록·표시와 추가 readonly/mirror/독립 스크롤/뷰 검증이 남아 전체 완료로 올리지 않습니다."
+            "note": "기본 HTML/경로/이미지/오류 복구와 stable 분할/본문/문서 수명에 preview 전용 font/spacing·quote/table border·inline code/link·pre horizontal scroll·app theme/갱신을 연결했습니다. 실제 theme/editor font 변경의 오른쪽 preview와 preview3/hover13/theme3/App1의20통과입니다. full HTML·전체 표 cell 크기/병합/음수 목록·readonly/mirror/독립 scroll/추가 뷰 검증은 남아 전체 완료로 올리지 않습니다."
         },
         {
             "id": "editor-73",

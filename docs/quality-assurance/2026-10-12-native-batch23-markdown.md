@@ -53,3 +53,5 @@ HTML/이미지/오류 코드·카탈로그/검사/QA와 소유 PROCESS의16경�
 실제 display-app.log는 임시 settings의 editor font30/기존 vscode-light-modern theme 전환을 기존 presentation request/reply로 소비하고 실제 오른쪽 preview heading24·현재 foreground·palette 갱신을 확인했습니다. 기존 Markdown/HTML/PNG 폭·비율·입력/Paste/undo/오류·복구/문서 전환/승인 revision 닫힘·원문/task0도1통과·31.94초·exit0(컴파일32.10초)입니다. 실제 사용자 설정/OS/보호 앱/클립보드는 접근하지 않았습니다. 소유9Rust fmt·diff와 manifest/lock 변경0을 확인했습니다.
 
 full HTML의 CSS/SVG/MathML/media/details/anchor·음수 목록/표 병합, 표의 모든 cell 경계/크기·추가 readonly/mirror/독립 scroll/뷰·실제 OS/pixel/접근성/성능/출시는 계속 미완료입니다. 현재 native 기본 표시를 이 전체 범위의 완료로 확대하지 않습니다. editor-72 partial·302/588(51.4%)·미완료286·배치23 잔여19/최종33·전체 목표를 유지하고 전체전환율/신뢰할 잔여 시간은 미산정입니다.
+
+표시/테마 코드·검사/QA와 소유 PROCESS의11경로를c0f4fd83으로 선별 커밋했습니다. author/최종 메시지에 AI 트레일러가 없고 사용자 문서/PROCESS 하단 두 hunk를 제외했습니다. 기능표599행/419근거 경로·302완료/90부분/110미연결/86미구현·588대상과 원래302 ID 배정의 누락/중복/미확인ID0·잔여19/52/23/64/32/39/51/6·최종33을 실제 JSON으로 대조했습니다.
