@@ -328,6 +328,99 @@ fn 캡처는_readonly의_최신_선택_primary와_raw_scroll을_보존하고_교
     );
 }
 
+#[test]
+fn preview_메모리는_분리된_뷰를_복원하고_저장값_우선순위와_소유_수명을_보존한다() {
+    for case in [
+        "cached",
+        "malformed",
+        "persisted",
+        "pane",
+        "window",
+        "stale",
+        "disposed",
+    ] {
+        let (mut store, view) = fixture();
+        let current = store.views().get(view).unwrap().clone();
+        let document = store.documents().snapshot(current.document).unwrap();
+        let cached = serde_json::json!({
+            "cursorState": [{
+                "selectionStart": {"lineNumber": 2, "column": EMOJI_COLUMN},
+                "position": {"lineNumber": 2, "column": 3}
+            }],
+            "viewState": {"scrollLeft": PREVIOUS_X, "scrollTopWithoutViewZones": PREVIOUS_Y}
+        })
+        .to_string();
+        let mut state = State::default();
+        state.preview_models.insert(
+            ModelViewKey {
+                window: current.key.window.clone(),
+                pane: current.key.pane.clone(),
+                document: current.document,
+            },
+            CachedModelView {
+                revision: document.revision + u64::from(case == "stale"),
+                saved: PersistedViewState::parse(&cached).unwrap(),
+            },
+        );
+        store.detach_view(view).unwrap();
+        if case == "disposed" {
+            store.release_document(current.document).unwrap();
+            state.begin_frame(&store);
+            assert!(state.preview_models.is_empty());
+            continue;
+        }
+        state.begin_frame(&store);
+        let mut key = current.key;
+        key.tab = TabId::new();
+        if case == "pane" {
+            key.pane = PaneId::new();
+        }
+        if case == "window" {
+            key.window = "other".into();
+        }
+        let reopened = store.attach_view(key, current.document).unwrap();
+        let persisted = serde_json::json!({
+            "cursorState": [{"position": {"lineNumber": 1, "column": 2}}],
+            "viewState": {}
+        })
+        .to_string();
+        let saved = match case {
+            "malformed" => Some("{"),
+            "persisted" => Some(persisted.as_str()),
+            _ => None,
+        };
+        state.restore(&mut store, reopened, saved).unwrap();
+        let expected = match case {
+            "cached" | "malformed" => Selection {
+                anchor: EMOJI_END,
+                head: EMOJI_START,
+            },
+            "persisted" => Selection { anchor: 1, head: 1 },
+            _ => Selection { anchor: 0, head: 0 },
+        };
+        assert_eq!(
+            store.views().get(reopened).unwrap().selection.selections,
+            vec![expected],
+            "{case}"
+        );
+        if matches!(case, "cached" | "malformed") {
+            assert_eq!(
+                store.views().get(reopened).unwrap().scroll,
+                ScrollPosition {
+                    x: PREVIOUS_X,
+                    y: PREVIOUS_Y
+                }
+            );
+            assert!(state.preview_models.is_empty());
+        }
+        let current = store.documents().snapshot(current.document).unwrap();
+        assert_eq!(current.rope.to_string(), TEXT);
+        assert_eq!(current.revision, document.revision);
+        assert_eq!(current.dirty, document.dirty);
+        assert!(current.metadata.read_only);
+    }
+}
+
 #[derive(Default)]
 struct ApplyEvents(AtomicUsize);
 

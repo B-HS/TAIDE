@@ -2528,7 +2528,7 @@ impl NativeApplication {
         })
     }
 
-    fn capture_view_states(&self) -> crate::editor_view_state_sync::Captures {
+    fn capture_view_states(&mut self) -> crate::editor_view_state_sync::Captures {
         self.editor_view_state
             .capture(
                 &self.store,
@@ -2539,9 +2539,10 @@ impl NativeApplication {
             .map_err(editor_error)
     }
 
-    fn fulfill_view_states(&self) {
+    fn fulfill_view_states(&mut self) {
         if self.view_state_flush.has_pending() {
-            self.view_state_flush.publish(self.capture_view_states());
+            let captured = self.capture_view_states();
+            self.view_state_flush.publish(captured);
         }
     }
 

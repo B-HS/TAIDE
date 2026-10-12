@@ -147,3 +147,15 @@ UI의 최신 Store를 요청하는 oneshot 경계를 App 포트가 공유하고 
 `view-state-transition-exit.log`는 소유 loopback 서버 권한 허용의 종료 2건·exit0입니다. AppState/EventSink로 분리한 동일 mutation 적용과 기존 draft 우선 오류 처리·서버/세션/pending/lockfile·작업 회수를 확인했습니다. 현재 App14/Host9/종료2/UI controller3과 변경 없는 Core306/UI본문·geometry88의 서로 다른422건입니다. 소유7Rust fmt/diff·manifest/lock/Core/구문/엔진/frozen 불변을 확인했고 controller는 기존 native-host cfg 내부이므로 frozen 성공을 재사용합니다. 본문/geometry renderer도 변경하지 않았습니다. 전체 App/OS/배치 통과나 editor-67 전체 완료로 올리지 않습니다.
 
 셸/Host 전환 코드·검사와 QA/현재 PROCESS의 9경로는 `1874334e`로 선별 커밋했습니다. 기능표는 599행/393근거 경로·588대상·complete298/partial93/unwired110/missing87·미완료290이며 editor-67 partial·배치23 잔여23/최종33을 유지합니다. 다음은 제거되는 preview 모델 캐시·batch close·project/slot/aux·IDE/remote의 같은 선행 저장과 소유 수명입니다. 사용자 기존 변경과 PROCESS 하단 두 hunk는 보존합니다.
+
+## 교체된 preview 모델의 메모리 위치
+
+실제 TS `model-registry.ts`는 경로별 모델과 viewState를 보관하고 `code-editor.tsx`는 모델 교체 때 이전 위치를 저장한 뒤 같은 모델을 다시 붙일 때 복원합니다. 명시적 닫힘의 모델 disposal과 달리 layout 서비스의 preview 교체는 이전 TabId를 새 TabId로 대체하며 최근 닫힘 이력도 만들지 않습니다. native는 문서 모델을 보관하지만 새 ViewId의 위치가 기본값이라 복원이 누락됐습니다.
+
+`view-state-preview-reopen-red.log`는 실제 Shift+Right와 preview 교체 두 번 뒤 같은 DocumentId임을 확인하고 선택 비교에서 실패했습니다. 관찰값은 anchor/head 0/0, 기대값은 18/12입니다. 0통과/1실패·20.99초·exit101(컴파일20.98초)이며 후기 scroll/원문/디스크 단언은 실패 단계의 성공으로 세지 않습니다.
+
+기존 선행 캡처에서 preview의 typed 위치를 창/pane/document별로 보관합니다. 새 탭의 유효한 저장값을 우선하고 누락/잘못된 값에만 같은 revision의 메모리 위치를 한 번 소비합니다. 문서 revision 변경/명시 disposal 또는 캡처 때 제거된 pane은 캐시를 회수합니다. 분리된 mirror 위치가 섞이지 않도록 pane을 구분하며 원본의 전역 경로 캐시를 새 pane에 그대로 복제하지 않습니다. 기존 복원/실제 geometry 앵커 경계를 재사용하며 새 의존성이나 모델 복제는 없습니다.
+
+`view-state-preview-reopen-green.log`의 같은 실제 App은 1통과/0실패·20.46초·exit0(컴파일29.88초)입니다. 새 TabId와 같은 DocumentId, 마지막 역방향 선택과 실제 scroll, 원문/revision/dirty/디스크 보존을 확인했습니다. 캐시 수명/우선순위와 기존 App/상태/sync 회귀는 현재 관련 검사에서 확인 중입니다. project/slot/aux·batch/IDE/remote와 folding/전체 재시작, editor-67 전체 완료는 아직 남습니다.
+
+`view-state-preview-related.log`는 실제 App8/상태6/sync2의 서로 다른16통과/0실패·26.39초·exit0(컴파일19.07초)입니다. 새 재열기와 분리된 뷰/창·pane 격리·정상 저장값 우선/잘못된 값 fallback·같은 revision/명시 disposal, 기존 초기/전환/닫힘/정상·직접 종료·UTF-16/readonly/명시 이동·공유 요청 수명을 확인했습니다. 앞선 단독 성공이나 기존14건은 중복 합산하지 않습니다. `view-state-preview-exit.log`는 소유 loopback 허용의 기존 종료2건·0.06초·exit0입니다. 변경 없는Host9/controller3/Core306/UI88을 재사용한 서로 다른424건입니다. 소유4Rust fmt/diff가 통과했고 manifest/lock/renderer/Core/engine/frozen은 변경하지 않았습니다. 전체 diff의 사용자 architecture 말미 공백 경고는 기존 변경으로 보존하고 소유 경로 diff는 통과했습니다. 전체App/실기/재시작·외부 포트/종료·folding과 editor-67 전체 완료로 확대하지 않습니다.

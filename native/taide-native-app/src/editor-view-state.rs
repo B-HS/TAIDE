@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use taide_model::error::AppResult;
-use taide_model::ids::{ProjectId, TabId};
+use taide_model::ids::{PaneId, ProjectId, TabId};
 use taide_model::layout::{ProjectLayout, TabKind};
 use taide_native_editor::document::{DocumentId, DocumentSnapshot, EditorError};
 use taide_native_editor::editing::line_content_range;
@@ -105,6 +105,18 @@ struct Observed {
     anchor: Option<ScrollAnchor>,
 }
 
+#[derive(PartialEq, Eq, Hash)]
+struct ModelViewKey {
+    window: String,
+    pane: PaneId,
+    document: DocumentId,
+}
+
+struct CachedModelView {
+    revision: u64,
+    saved: PersistedViewState,
+}
+
 pub(crate) struct Captured {
     project: ProjectId,
     tab: TabId,
@@ -167,6 +179,7 @@ pub(crate) async fn apply_to(
 pub(crate) struct State {
     restored: HashMap<ViewId, DocumentId>,
     observed: HashMap<ViewId, Observed>,
+    preview_models: HashMap<ModelViewKey, CachedModelView>,
 }
 
 impl State {
@@ -182,6 +195,12 @@ impl State {
                 .views()
                 .get(*view)
                 .is_some_and(|current| current.document == observed.document)
+        });
+        self.preview_models.retain(|key, cached| {
+            store
+                .documents()
+                .snapshot(key.document)
+                .is_ok_and(|document| document.revision == cached.revision)
         });
     }
 
@@ -223,12 +242,13 @@ impl State {
     }
 
     pub(crate) fn capture(
-        &self,
+        &mut self,
         store: &EditorStore,
         layouts: &HashMap<ProjectId, ProjectLayout>,
         window: &str,
     ) -> Result<Vec<Captured>, EditorError> {
         let mut captured = Vec::new();
+        let mut preview_models = Vec::new();
         for (project, layout) in layouts {
             for root in taide_layout::service::all_roots(layout) {
                 for tab in crate::tabs::tabs_in(root) {
@@ -294,7 +314,7 @@ impl State {
                         },
                     };
                     let serde_json::Value::Object(fields) =
-                        serde_json::to_value(saved).map_err(|_| EditorError::InvalidBoundary)?
+                        serde_json::to_value(&saved).map_err(|_| EditorError::InvalidBoundary)?
                     else {
                         return Err(EditorError::InvalidBoundary);
                     };
@@ -304,9 +324,29 @@ impl State {
                         kind: tab.kind.clone(),
                         fields,
                     });
+                    if tab.preview {
+                        preview_models.push((
+                            ModelViewKey {
+                                window: window.into(),
+                                pane: pane.clone(),
+                                document: current.document,
+                            },
+                            CachedModelView {
+                                revision: document.revision,
+                                saved,
+                            },
+                        ));
+                    }
                 }
             }
         }
+        self.preview_models.retain(|key, _| {
+            layouts.values().any(|layout| {
+                taide_layout::service::all_roots(layout)
+                    .any(|root| taide_layout::service::contains_pane(root, &key.pane))
+            })
+        });
+        self.preview_models.extend(preview_models);
         Ok(captured)
     }
 
@@ -326,7 +366,17 @@ impl State {
         }
         let document = store.documents().snapshot(current.document)?;
         self.restored.insert(view, current.document);
-        let Some(saved) = saved.and_then(PersistedViewState::parse) else {
+        let key = ModelViewKey {
+            window: current.key.window.clone(),
+            pane: current.key.pane.clone(),
+            document: current.document,
+        };
+        let Some(saved) = saved.and_then(PersistedViewState::parse).or_else(|| {
+            self.preview_models
+                .remove(&key)
+                .filter(|cached| cached.revision == document.revision)
+                .map(|cached| cached.saved)
+        }) else {
             return Ok(());
         };
         let selections = saved

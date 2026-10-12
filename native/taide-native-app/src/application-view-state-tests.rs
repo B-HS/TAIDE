@@ -23,6 +23,145 @@ const NAVIGATION_LINE: u32 = 100;
 const INVALID_UTF8: u8 = 0xff;
 
 #[test]
+fn 실제_preview_교체_뒤_같은_메모리_모델을_다시_열면_마지막_선택과_scroll이_복원된다() {
+    let text = format!(
+        "class\n  \u{1f600}method\n{}",
+        (0..LONG_LINE_COUNT)
+            .map(|index| format!("row {index}\n"))
+            .collect::<String>()
+    );
+    let mut fixture = fixture_with_view_state_and_setup(
+        "--native-inlay-hints",
+        false,
+        |_, _, _| true,
+        None,
+        &text,
+        |application, _, project, tab| {
+            let mut layouts = application.services.state.layouts.write();
+            let PaneNode::Leaf { tabs, .. } = &mut layouts.get_mut(project).unwrap().root else {
+                panic!("expected leaf");
+            };
+            tabs.iter_mut()
+                .find(|candidate| &candidate.id == tab)
+                .unwrap()
+                .preview = true;
+        },
+    );
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let view = body_view(application, &fixture.path, &fixture.tab);
+    application
+        .store
+        .set_view_state(
+            view,
+            SelectionSet {
+                primary: 0,
+                selections: vec![Selection {
+                    anchor: ANCHOR_BYTE,
+                    head: HEAD_BYTE,
+                }],
+            },
+            ScrollPosition {
+                x: 0.0,
+                y: LEGACY_SCROLL_TOP,
+            },
+            Vec::new(),
+        )
+        .unwrap();
+    let focus = crate::editor_context_menu::body(context, view).unwrap();
+    context.memory_mut(|memory| memory.request_focus(focus));
+    paint(
+        application,
+        context,
+        key(
+            egui::Key::ArrowRight,
+            egui::Modifiers {
+                shift: true,
+                ..egui::Modifiers::NONE
+            },
+        ),
+    );
+    for _ in 0..STABLE_FRAMES {
+        eframe::App::logic(application, context, &mut eframe::Frame::_new_kittest());
+        paint(application, context, Vec::new());
+    }
+    let previous = application.store.views().get(view).unwrap();
+    let scroll = previous.scroll.clone();
+    let original = application
+        .store
+        .documents()
+        .snapshot(previous.document)
+        .unwrap();
+    let pane = previous.key.pane.clone();
+    assert!(application.submit(HostCommand::OpenFileTab {
+        project: fixture.project.clone(),
+        pane: Some(pane.clone()),
+        path: fixture.peek_path.clone(),
+        preview: true
+    }));
+    wait(application, context, "preview replaced", |application| {
+        let snapshot = application.controller.snapshot();
+        !crate::tabs::tabs_in(&snapshot.layouts[&fixture.project].root)
+            .iter()
+            .any(|tab| tab.id == fixture.tab)
+            && application.files.contains_key(&fixture.peek_path)
+    });
+    assert!(application.submit(HostCommand::OpenFileTab {
+        project: fixture.project.clone(),
+        pane: Some(pane),
+        path: fixture.path.clone(),
+        preview: true
+    }));
+    wait(
+        application,
+        context,
+        "preview model reopened",
+        |application| {
+            let snapshot = application.controller.snapshot();
+            let tab = crate::tabs::tabs_in(&snapshot.layouts[&fixture.project].root)
+                .into_iter()
+                .find(|tab| matches!(&tab.kind, TabKind::File { path } if path == &fixture.path));
+            tab.is_some_and(|tab| {
+                application.files.get(&fixture.path).is_some_and(|file| {
+                    application
+                        .store
+                        .views()
+                        .for_document(file.id)
+                        .any(|view| view.key.tab == tab.id)
+                })
+            })
+        },
+    );
+    let snapshot = application.controller.snapshot();
+    let tab = crate::tabs::tabs_in(&snapshot.layouts[&fixture.project].root)
+        .into_iter()
+        .find(|tab| matches!(&tab.kind, TabKind::File { path } if path == &fixture.path))
+        .unwrap();
+    assert_ne!(tab.id, fixture.tab);
+    let reopened = body_view(application, &fixture.path, &tab.id);
+    let current = application.store.views().get(reopened).unwrap();
+    assert_eq!(current.document, original.id);
+    assert_eq!(
+        current.selection.selections,
+        vec![Selection {
+            anchor: ANCHOR_BYTE,
+            head: SHIFT_HEAD_BYTE
+        }],
+        "same-session model position was lost with its preview tab"
+    );
+    assert_eq!(current.scroll, scroll);
+    let document = application
+        .store
+        .documents()
+        .snapshot(current.document)
+        .unwrap();
+    assert_eq!(document.rope.to_string(), text);
+    assert_eq!(document.revision, original.revision);
+    assert!(!document.dirty);
+    assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), text);
+}
+
+#[test]
 fn 실제_셸_탭_전환과_host_preview_열기는_이전_본문의_최신_위치를_저장한다() {
     let text = format!(
         "class\n  \u{1f600}method\n{}",
