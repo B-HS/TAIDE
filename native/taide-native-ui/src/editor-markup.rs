@@ -262,7 +262,11 @@ fn blocks(
                             } else if let Some(start) = start {
                                 ui.label(format!(
                                     "{}.",
-                                    taide_native_editor::documentation::list_ordinal(*start, index)
+                                    item.ordinal.unwrap_or_else(|| {
+                                        taide_native_editor::documentation::list_ordinal(
+                                            *start, index,
+                                        )
+                                    })
                                 ));
                             } else {
                                 ui.label("\u{2022}");

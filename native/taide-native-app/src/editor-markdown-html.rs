@@ -204,6 +204,18 @@ fn checkbox(node: NodeRef<'_>) -> Option<bool> {
     None
 }
 
+fn integer(value: &str) -> Option<i64> {
+    let value = value
+        .trim_start_matches(|character| matches!(character, '\t' | '\n' | '\u{c}' | '\r' | ' '));
+    let digits = value.strip_prefix(['-', '+']).unwrap_or(value);
+    let length = digits.bytes().take_while(u8::is_ascii_digit).count();
+    if length == 0 {
+        return None;
+    }
+    let end = value.len() - digits.len() + length;
+    value.get(..end)?.parse().ok()
+}
+
 fn table_rows<'a>(node: NodeRef<'a>, rows: &mut Vec<NodeRef<'a>>) {
     for child in node.children_it(false) {
         match name(child).as_str() {
@@ -252,33 +264,49 @@ fn blocks(node: NodeRef<'_>, base: Option<&Url>) -> Vec<Block> {
                     text: code.text().to_string(),
                 });
             }
-            "ul" | "ol" => output.push(Block::List {
-                start: (tag == "ol").then(|| {
+            "ul" | "ol" => {
+                let items = child
+                    .children_it(false)
+                    .filter(|node| name(*node) == "li" && !node.has_attr("hidden"))
+                    .collect::<Vec<_>>();
+                let is_reversed = tag == "ol" && child.has_attr("reversed");
+                let start = (tag == "ol").then(|| {
                     child
                         .attr("start")
-                        .and_then(|start| {
-                            let start = start.trim_start_matches(|character| {
-                                matches!(character, '\t' | '\n' | '\u{c}' | '\r' | ' ')
-                            });
-                            let digits = start.strip_prefix(['-', '+']).unwrap_or(start);
-                            let length = digits.bytes().take_while(u8::is_ascii_digit).count();
-                            if length == 0 {
-                                return None;
+                        .and_then(|value| integer(&value))
+                        .unwrap_or_else(|| {
+                            if is_reversed {
+                                return i64::try_from(items.len()).unwrap_or(i64::MAX);
                             }
-                            let end = start.len() - digits.len() + length;
-                            start.get(..end)?.parse::<i64>().ok()
+                            1
                         })
-                        .unwrap_or(1)
-                }),
-                items: child
-                    .children_it(false)
-                    .filter(|node| name(*node) == "li")
-                    .map(|item| ListItem {
-                        checked: checkbox(item),
-                        blocks: blocks(item, base),
+                });
+                let mut ordinal = start.unwrap_or(1);
+                let items = items
+                    .into_iter()
+                    .map(|item| {
+                        let number = start.map(|_| {
+                            ordinal = item
+                                .attr("value")
+                                .and_then(|value| integer(&value))
+                                .unwrap_or(ordinal);
+                            let current = ordinal;
+                            ordinal = if is_reversed {
+                                ordinal.saturating_sub(1)
+                            } else {
+                                ordinal.saturating_add(1)
+                            };
+                            current
+                        });
+                        ListItem {
+                            checked: checkbox(item),
+                            ordinal: number,
+                            blocks: blocks(item, base),
+                        }
                     })
-                    .collect(),
-            }),
+                    .collect();
+                output.push(Block::List { start, items });
+            }
             "table" => {
                 let mut rows = Vec::new();
                 table_rows(child, &mut rows);

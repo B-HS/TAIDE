@@ -2,6 +2,74 @@ use super::*;
 use taide_native_editor::documentation::{Block, Inline};
 
 #[test]
+fn html_목록의_역순과_항목_value는_후속_번호와_중첩_범위를_보존한다() {
+    for (attributes, items, expected) in [
+        (
+            "reversed",
+            "<li>first<li value='-4'>second<li>third",
+            vec![3, -4, -5],
+        ),
+        (
+            "reversed='false' start='+7tail'",
+            "<li>first<li value='0'>second<li>third",
+            vec![7, 0, -1],
+        ),
+        (
+            "start='-2'",
+            "<li>first<li value=' +7suffix'>second<li value='bad'>third",
+            vec![-2, 7, 8],
+        ),
+        (
+            "reversed start='bad'",
+            "<li>first<li hidden>hidden<li>third",
+            vec![2, 1],
+        ),
+    ] {
+        let document = parse(&format!("<ol {attributes}>{items}</ol>"), None).unwrap();
+        let Block::List { items, .. } = &document.blocks[0] else {
+            panic!("expected list")
+        };
+        assert_eq!(
+            items
+                .iter()
+                .map(|item| item.ordinal.unwrap())
+                .collect::<Vec<_>>(),
+            expected
+        );
+    }
+    let document = parse("<ol reversed><li>outer<ol start='6'><li>nested<li value='-1'>reset</ol><li>last</ol><ul reversed><li value='7'>unordered</ul>", None).unwrap();
+    let Block::List { items, .. } = &document.blocks[0] else {
+        panic!("expected outer list")
+    };
+    assert_eq!(
+        items
+            .iter()
+            .map(|item| item.ordinal.unwrap())
+            .collect::<Vec<_>>(),
+        vec![2, 1]
+    );
+    assert!(
+        matches!(&items[0].blocks[1], Block::List { start: Some(6), items } if items.iter().map(|item| item.ordinal.unwrap()).collect::<Vec<_>>() == vec![6, -1])
+    );
+    assert!(
+        matches!(&document.blocks[1], Block::List { start: None, items } if items[0].ordinal.is_none())
+    );
+}
+
+#[test]
+fn html_역순_목록은_항목_수에서_시작한다() {
+    let document = parse(
+        "<ol reversed><li>first</li><li>second</li><li>third</li></ol>",
+        None,
+    )
+    .unwrap();
+    assert!(matches!(
+        &document.blocks[0],
+        Block::List { start: Some(3), .. }
+    ));
+}
+
+#[test]
 fn html_순서_목록은_음수와_0의_시작_값을_보존한다() {
     for start in ["-3", "0", "7"] {
         let document = parse(

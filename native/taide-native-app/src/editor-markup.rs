@@ -249,6 +249,7 @@ fn finish(frames: &mut Vec<Frame>) {
             frame.flush();
             parent.items.push(ListItem {
                 checked: frame.checked,
+                ordinal: None,
                 blocks: frame.blocks,
             });
             None

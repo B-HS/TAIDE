@@ -70,6 +70,7 @@ pub enum Block {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListItem {
     pub checked: Option<bool>,
+    pub ordinal: Option<i64>,
     pub blocks: Vec<Block>,
 }
 

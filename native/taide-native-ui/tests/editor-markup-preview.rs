@@ -1,6 +1,6 @@
 use egui::{Color32, Context, FontId, RawInput, Rect, Ui, Vec2};
 use taide_native_editor::documentation::{Block, Inline, RichDocument, Span};
-use taide_native_ui::editor_markup::{Colors, Provider, show_preview};
+use taide_native_ui::editor_markup::{Colors, Provider, show, show_preview};
 use taide_native_ui::editor_surface::EditorAppearance;
 
 const SCREEN: Vec2 = egui::vec2(400.0, 700.0);
@@ -341,14 +341,17 @@ fn 순서_목록은_음수에서_0을_거쳐_증가하고_큰_번호에서도_ov
             items: vec![
                 taide_native_editor::documentation::ListItem {
                     checked: None,
+                    ordinal: None,
                     blocks: vec![Block::Paragraph(text("first"))],
                 },
                 taide_native_editor::documentation::ListItem {
                     checked: None,
+                    ordinal: None,
                     blocks: vec![Block::Paragraph(text("second"))],
                 },
                 taide_native_editor::documentation::ListItem {
                     checked: None,
+                    ordinal: None,
                     blocks: vec![Block::Paragraph(text("third"))],
                 },
             ],
@@ -371,4 +374,43 @@ fn 순서_목록은_음수에서_0을_거쳐_증가하고_큰_번호에서도_ov
         taide_native_editor::documentation::list_ordinal(i64::MAX, 1),
         i64::MAX
     );
+}
+
+#[test]
+fn 항목별_ordinal은_미리보기와_일반_표시에서_역순과_번호_재지정을_보존한다() {
+    const ORDINALS: [i64; 3] = [3, -4, -5];
+    let document = RichDocument {
+        blocks: vec![Block::List {
+            start: Some(ORDINALS[0]),
+            items: ORDINALS
+                .into_iter()
+                .map(|ordinal| taide_native_editor::documentation::ListItem {
+                    checked: None,
+                    ordinal: Some(ordinal),
+                    blocks: vec![Block::Paragraph(text("item"))],
+                })
+                .collect(),
+        }],
+    };
+    for is_preview in [false, true] {
+        let context = Context::default();
+        let mut output = context.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, SCREEN)),
+                ..Default::default()
+            },
+            |ui| {
+                if is_preview {
+                    show_preview(ui, &document, &appearance(), colors(), &mut Preview);
+                    return;
+                }
+                show(ui, &document, &appearance(), colors(), &mut Preview);
+            },
+        );
+        output.textures_delta.clear();
+        for ordinal in ORDINALS {
+            let number = format!("{ordinal}.");
+            assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == number)));
+        }
+    }
 }

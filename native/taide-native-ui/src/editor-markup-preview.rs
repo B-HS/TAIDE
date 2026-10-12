@@ -142,9 +142,7 @@ fn blocks(
                                         ui.label(
                                             RichText::new(format!(
                                                 "{}.",
-                                                taide_native_editor::documentation::list_ordinal(
-                                                    *start, index
-                                                )
+                                                item.ordinal.unwrap_or_else(|| taide_native_editor::documentation::list_ordinal(*start, index))
                                             ))
                                             .size(FONT_SIZE),
                                         );

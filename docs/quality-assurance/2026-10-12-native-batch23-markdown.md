@@ -85,3 +85,17 @@ views-final-app.log는 회수 수정 뒤 readonly/두 뷰/기존 토글·theme·
 views-production-check.log는 inspection 없는 일반 App lib의 cfg(test) 밖 경계를 cargo check --locked --offline로 확인해2분37초·exit0입니다. 공통 공개 계약/동결 소스 변경이 없어 이전 frozen host/Wasm compile 성공은 재사용하며 관련 없는 전체 검사를 반복하지 않았습니다.
 
 d6b의 기능 수명 범위는 완료했습니다. 표 data/viewport/이미지/span·HTML reversed/value/type/CSS/SVG/MathML/media/details/anchor와 실제 OS 창/전체App 준비·접근성/성능/신뢰성/출시·전환/제거는 계속 미완료입니다. editor-72 partial·302/588(51.4%)·미완료286·배치23 잔여19/최종33이며 전체 전환율/신뢰할 잔여 시간은 미산정입니다. 전체 목표를 유지하고 이번 범위의 성공을 전체 기능 완료로 올리지 않습니다.
+
+## 역순 목록과 항목별 번호 (2026-10-12)
+
+창 상태 회수/뷰 수명과 검증 기록은4939d891/5697284b로 선별 커밋·일반 푸시했습니다. 사용자 문서와 PROCESS 하단 두 hunk는 제외했으며 현재 기능표599행/419근거·302완료/90부분/110미연결/86미구현·588대상, 미완료286의 배정 누락/중복/미확인ID0·배치23–30 잔여19/52/23/64/32/39/51/6·최종33을 확인했습니다.
+
+[WHATWG ol](https://html.spec.whatwg.org/multipage/grouping-content.html#the-ol-element)과 [li 번호](https://html.spec.whatwg.org/multipage/grouping-content.html#the-li-element), 설치된 DOMPurify attrs의 reversed/value 허용을 대조했습니다. reversed-red.log는 역순 목록이 항목 수3 대신1에서 시작하는 제품 실패0/1·0.03초·exit101(컴파일15.97초)입니다. HTML 파서에 공통 정수 prefix 처리를 재사용하고 reversed의 기본 시작/감소 방향·명시 start·li value와 후속 번호·hidden 항목 제외·중첩/비순서 목록의 분리 범위를 연결했습니다. 기존 i64 번호 경계를 유지하며 범위를 넘는 값/전체 CSS list ownership/type 의미는 전체 HTML의 잔여 범위입니다.
+
+공통 RichDocument.ListItem의 optional ordinal로 항목 번호를 표현합니다. 일반 LSP 파서는 None을 유지하며 기존 start/index 번호를 사용하고 HTML의 explicit ordinal은 일반 표시/preview 양쪽에서 소비합니다. 기존 LSP/구문 코드 캐시 fixture와 공개 타입 소비자를 실제 컴파일로 확인하며 새 의존성이나 동결 기능 변경은 추가하지 않았습니다. hidden을 제외한 직접 li 소유 범위와 중첩 분리의 native 구조이며 전체 CSS의 display:list-item/ownership 지원까지 완료한 것으로 확대하지 않습니다.
+
+reversed-parser.log는 기존 기본 HTML/GFM/보안/상한·signed prefix와 새 reversed/boolean presence·start/value reset·음수/0·무효값·nested/hidden/비순서의7통과·0.02초·exit0(컴파일33.26초)입니다. reversed-ui.log는 일반 도움말13/preview6의19통과·0.20/0.07초·exit0(컴파일15.02초)이며 실제 shape의3/-4/-5를 두 renderer에서 확인했습니다. 기존 최소폭/표/코드/링크·IME/focus/readonly/mirror/provider/이미지 소비도 유지합니다.
+
+reversed-app.log는 실제 임시 Markdown의 역순/value 번호3/-4/-5와 기존 signed -1/0, theme/preview 영역·HTML/PNG·원문/입력/undo/오류 복구/전환/닫힘/작업0의1통과·24.34초·exit0(컴파일0.27초)입니다. 원본 문자열이 아니라 오른쪽 preview의 실제 galley label을 단언했습니다. reversed-lsp.log는 기존 plain/code/GFM/목록/표/안전한 링크/이미지/비신뢰 HTML 제외의8통과·0.00초·exit0입니다. 현재 parser7/UI19/App1/LSP8의 서로 다른35통과이며 이전 readonly/두 뷰의 입력이 같은 성공은 재사용하고 중복 집계하지 않습니다. 소유9Rust fmt/diff도 통과했습니다.
+
+공통 모델 변경의 frozen host는 reversed-frozen-host.log의 tests/inspection 포함 check26.52초·exit0, 실제 Wasm canvas lib는 reversed-frozen-wasm.log의 wasm32-unknown-unknown check12.65초·exit0으로 확인했습니다. 기존 전체App 준비 실패/성능 ignored/Wasm 시간 API 검사 부채·실제 OS/접근성/성능/신뢰성/출시·cutover/제거는 그대로 남겨두며 기능 강제 활성화/검사 생략/OS 변경으로 우회하지 않습니다. 의존성/manifest/lock/frozen source와 사용자 문서/PROCESS 하단 두 hunk를 보존했습니다. 표 data/viewport/이미지/span·list type/CSS ownership/범위 밖 번호·전체 CSS/SVG/MathML/media/details/anchor는 미완료이고 editor-72 partial·302/588(51.4%)·배치23 잔여19/최종33·전체 목표/예상 시간 미산정을 유지합니다.
