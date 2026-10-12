@@ -1,6 +1,6 @@
 # 배치 23 선택 텍스트의 터미널 실행 진입
 
-현재 상태: editor-82의 메뉴 경로에 두 팔레트/재지정 키 진입을 연결했습니다. 실제 앱의 네 경우와 기존 명령 분기/등록 검사 25건이 통과했습니다. 추가 문서 종류·본문/peek 소유·보조 창에서 두 명령의 실제 실행은 후속으로 남아 partial이며 배치 23과 전체 전환은 미완료입니다.
+현재 상태: editor-82의 메뉴·두 팔레트/재지정 키와 추가 문서 종류·본문/peek 소유·보조 창을 연결·검증했습니다. 보조 창의 실행 대상이 메인 탭에서 결정되는 실패를 재현해 현재 창의 본문 ViewKey를 dispatcher에 전달했고 실제 App 3건이 통과했습니다. 해당 기능의 구현·자동 검사 근거를 완료로 갱신하며 배치 23 전체/실기/성능/출시·전환은 미완료입니다.
 
 ## 원본과 구현
 
@@ -53,3 +53,17 @@ Engine/Editor/frozen과 모든 Cargo.toml/Cargo.lock의 작업 diff는 0이며 �
 UI의 테스트 대상 컴파일도 `cargo check --tests --features inspection`에서 39.41초·exit 0입니다. 현재 소유 Cargo 핸들은 모두 종료했습니다. 전체 대상 실행이나 OS 실기 통과로 확대하지 않습니다.
 
 검증한 소유 8경로와 PROCESS 상단을 `6d7532cc`로 선별 저장했습니다. 제품 기능표의 코드 기준은 이 커밋으로 고정하며 이후 문서 전용 커밋으로 바꾸지 않습니다. 작업 PROCESS 하단의 기존 사용자 변경 SHA-256은 `7b26f85e8fdcbd03592f4c6722e88350d490341515c9175d0725ece101c1a4ed`를 보존했습니다.
+
+## 2026-10-12 재개: 추가 문서·창 경계
+
+workflow 사용하지 않음 선택에 따라 메인이 미커밋 d1b 검사를 이어갑니다. 설정/untitled의 일반 명령과 file 전용 Monaco 액션의 비활성, 정상 readonly·역방향 Unicode 선택·원문/디스크 보존, peek 선택 대신 원래 본문 선택, 보조 창의 같은 pane/세션 재사용을 실제 앱과 소유 `/bin/cat` PTY로 확인합니다. 원본은 `terminal.commands.ts`, `editor-area.tsx`, `focused-editor-tab.ts`, `editor-pane.tsx`, `editor-selection.ts`이며 검사 실행 계약은 [Rust 공식 문서](https://doc.rust-lang.org/book/ch11-02-running-tests.html)를 확인했습니다.
+
+최초 추가 2건은 0통과/2실패·32.75초·exit 101입니다(`terminal-extra-resume.log`). 보조 창은 `terminal auxiliary pane delivery`에서 실패했고 추가 문서 검사는 전달 이전 공용 fixture의 `document` 준비에서 시간 초과했습니다. 문서 검사만 변경 없이 정확히 재실행한 `terminal-document-impact.log`는 1통과/0실패·24.63초·exit 0입니다. 기존 f1의 준비 지연 근본 원인을 해결한 것으로 보고하지 않습니다.
+
+보조 창은 명령 활성 조건을 현재 창으로 계산하더라도 `shell_keymap::intent`가 메인 root의 활성 탭을 사용했습니다. 현재 창의 본문 ViewKey를 `command_dispatch::intent_with_editor`에 전달해 `RunSelectedText`의 typed intent를 만들고 기존 원본/pane 요청을 재사용합니다. 다른 명령은 기존 intent 경로를 유지하며 UI/Editor/engine/frozen과 manifest/lock은 변경하지 않습니다.
+
+첫 수정본 컴파일은 CPU 사용 없이 대기해 소유 Cargo/rustc만 TERM으로 종료했고 exit 143을 보존합니다(`terminal-window-impact.log`). ViewKey 소유권을 명시적으로 복제한 최종 컴파일은 2분 38초 뒤 종료했습니다. 수정 뒤 실제 보조 창 전달을 통과한 검사에서는 메인 출력의 기존 `class`가 7회에서 8회로 늦게 늘어나 전체 grid 문자열 동일성 단언만 실패했습니다(`terminal-window-final.log`, 34.26초·exit 101). 출력은 두 값 모두 `class`뿐이었고 `method`는 없었습니다. 최종 검사는 메인에 기존 `class`가 남고 다른 단어가 섞이지 않는지, 보조 창에만 Unicode `method`가 도착하며 원래 본문/세션/pane이 유지되는지 확인합니다. 제한 확대나 제품 전달 우회는 하지 않았습니다.
+
+이 절의 로그 접두사는 `/private/tmp/taide-batch23-`입니다. `terminal-window-green.log`의 추가 peek/보조 창 검사 1건은 1통과/0실패·17.45초·exit 0(컴파일 18.44초)입니다. `terminal-body-final.log`의 본문 진입/추가 문서 검사 2건도 2통과/0실패·27.49초·exit 0(컴파일 0.27초)입니다. 성공한 창 검사는 이 두 번째 실행에서 제외해 반복하지 않았습니다. 현재 제품의 직접 App 근거는 서로 다른 3건이며 수정 전 문서 검사 1건이나 최초 25건의 App 1건을 추가 합산하지 않습니다. 불변인 기존 명령 분기 9/UI 등록 15를 함께 참조하면 해당 기능의 서로 다른 검사 근거는 27건입니다.
+
+소유 `application.rs`·`command-dispatch.rs`·`application-context-menu-tests.rs`의 rustfmt check와 소유 diff check는 exit 0입니다. UI/Editor/syntax/remote-web 및 모든 manifest/lock의 변경은 0이며 App에 의존하지 않는 frozen의 앞선 host/Wasm 제품 컴파일을 재사용합니다. 전체 대상 실행·Wasm tests·OS 실기 성공으로 확대하지 않습니다. 이번 단위의 Cargo 핸들은 모두 종료했습니다. 기존 사용자 문서 변경은 커밋에서 제외하고 해당 코드/검사/QA와 PROCESS 상단만 선별 저장합니다.

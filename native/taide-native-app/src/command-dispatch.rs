@@ -81,6 +81,24 @@ pub(crate) fn intent(
     crate::shell_keymap::intent(command_run(id, context)?, snapshot)
 }
 
+pub(crate) fn intent_with_editor(
+    id: &str,
+    context: &CommandContext,
+    snapshot: &ShellSnapshot,
+    focused_view: Option<&ViewKey>,
+) -> Option<ShellIntent> {
+    if matches!(
+        command_run(id, context),
+        Some(Run::EditDocument(DocumentEdit::RunSelectedText))
+    ) {
+        return Some(ShellIntent::EditDocument {
+            tab: focused_view?.tab.clone(),
+            edit: DocumentEdit::RunSelectedText,
+        });
+    }
+    intent(id, context, snapshot)
+}
+
 pub(crate) fn take_fold_commands(
     tab: &TabId,
     pending: &mut Vec<(TabId, FoldCommand)>,

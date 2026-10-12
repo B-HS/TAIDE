@@ -602,6 +602,73 @@ fn 실제_메뉴의_현재줄과_선택은_준비된_동일_터미널에_raw로_
     assert!(terminal_text(application, &fixture.project).is_some_and(|text| !text.contains("end")));
 }
 
+fn run_terminal_command(
+    application: &mut NativeApplication,
+    context: &egui::Context,
+    command: &str,
+    palette: bool,
+) {
+    if !palette {
+        application.services.state.settings.write().keymap_overrides = Some(format!(
+            r#"[{{"actionId":"{command}","key":"r","mods":["mod"]}}]"#
+        ));
+        paint(application, context, key(egui::Key::R, COMMAND));
+        return;
+    }
+    application
+        .palette
+        .open(context, crate::command_registry::PaletteEntry::Commands);
+    paint(application, context, Vec::new());
+    paint(application, context, Vec::new());
+    let label = crate::command_registry::registry()
+        .unwrap()
+        .command(command)
+        .unwrap()
+        .label(&application.locale);
+    paint(application, context, vec![egui::Event::Text(label)]);
+    let rows = &application.palette.inspection().rows;
+    let target = rows
+        .iter()
+        .position(|row| row.key == command && row.is_enabled)
+        .unwrap();
+    let current = rows.iter().position(|row| row.is_selected).unwrap();
+    let direction = if target > current {
+        egui::Key::ArrowDown
+    } else {
+        egui::Key::ArrowUp
+    };
+    for _ in 0..target.abs_diff(current) {
+        paint(application, context, key(direction, EMPTY));
+    }
+    assert!(
+        application
+            .palette
+            .inspection()
+            .rows
+            .iter()
+            .any(|row| row.key == command && row.is_enabled && row.is_selected)
+    );
+    paint(application, context, key(egui::Key::Enter, EMPTY));
+}
+
+fn activate_terminal_source(
+    application: &mut NativeApplication,
+    context: &egui::Context,
+    tab: &TabId,
+) {
+    application
+        .runtime
+        .handle()
+        .clone()
+        .block_on(taide_runtime::layout_actions::layout_activate_tab(
+            application.services.events.as_ref(),
+            &application.services.state,
+            tab.clone(),
+        ))
+        .unwrap();
+    paint(application, context, Vec::new());
+}
+
 #[test]
 fn 실제_터미널_실행의_팔레트와_재지정_키는_현재줄과_선택을_같은_세션에_전달한다() {
     let mut fixture = fixture();
@@ -643,55 +710,7 @@ fn 실제_터미널_실행의_팔레트와_재지정_키는_현재줄과_선택�
         let before = application.store.documents().snapshot(document).unwrap();
         let count = terminal_text(application, &fixture.project)
             .map_or(0, |text| text.matches(expected).count());
-        if palette {
-            application
-                .palette
-                .open(context, crate::command_registry::PaletteEntry::Commands);
-            paint(application, context, Vec::new());
-            paint(application, context, Vec::new());
-            let label = crate::command_registry::registry()
-                .unwrap()
-                .command(command)
-                .unwrap()
-                .label(&application.locale);
-            paint(application, context, vec![egui::Event::Text(label)]);
-            let rows = &application.palette.inspection().rows;
-            let target = rows
-                .iter()
-                .position(|row| row.key == command && row.is_enabled)
-                .unwrap();
-            let current = rows.iter().position(|row| row.is_selected).unwrap();
-            let key = if target > current {
-                egui::Key::ArrowDown
-            } else {
-                egui::Key::ArrowUp
-            };
-            for _ in 0..target.abs_diff(current) {
-                paint(
-                    application,
-                    context,
-                    super::inlay_hints_tests::key(key, EMPTY),
-                );
-            }
-            assert!(
-                application
-                    .palette
-                    .inspection()
-                    .rows
-                    .iter()
-                    .any(|row| row.key == command && row.is_enabled && row.is_selected)
-            );
-            paint(
-                application,
-                context,
-                super::inlay_hints_tests::key(egui::Key::Enter, EMPTY),
-            );
-        } else {
-            application.services.state.settings.write().keymap_overrides = Some(format!(
-                r#"[{{"actionId":"{command}","key":"r","mods":["mod"]}}]"#
-            ));
-            paint(application, context, key(egui::Key::R, COMMAND));
-        }
+        run_terminal_command(application, context, command, palette);
         wait(
             application,
             context,
@@ -727,6 +746,417 @@ fn 실제_터미널_실행의_팔레트와_재지정_키는_현재줄과_선택�
         assert!(application.editor_terminal_writes.is_empty());
         assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), TEXT);
     }
+}
+
+#[test]
+fn 실제_터미널_실행의_추가_문서종류와_readonly는_내용을_보존한다() {
+    use taide_model::app::AppFileTarget;
+    use taide_native_editor::document::DocumentKey;
+    let mut fixture = fixture();
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    application.services.state.settings.write().shell_override = Some("/bin/cat".into());
+    let owner = body_view(application, &fixture.path, &fixture.tab);
+    let pane = application
+        .store
+        .views()
+        .get(owner)
+        .unwrap()
+        .key
+        .pane
+        .clone();
+    let file_document = application.store.views().get(owner).unwrap().document;
+    let mut file =
+        taide_file::service::open_file(std::path::Path::new(&fixture.path), &[], false).unwrap();
+    file.read_only = true;
+    application
+        .store
+        .observe_file(file_document, std::path::Path::new(&fixture.path), file)
+        .unwrap();
+    let settings_path = application.services.state.paths.settings_file();
+    std::fs::write(&settings_path, "{\n  \"editorFontSize\": 14\n}\n").unwrap();
+    let settings_before = std::fs::read(&settings_path).unwrap();
+    let mut session = None;
+    for (kind, expected) in [
+        (
+            TabKind::File {
+                path: fixture.path.clone(),
+            },
+            "\u{1f600}method",
+        ),
+        (
+            TabKind::AppFile {
+                target: AppFileTarget::Settings,
+            },
+            "{",
+        ),
+        (TabKind::Untitled { index: 1 }, "scratch"),
+    ] {
+        let tab = match kind {
+            TabKind::File { .. } => fixture.tab.clone(),
+            TabKind::AppFile { target } => {
+                assert!(application.submit(HostCommand::OpenAppFile {
+                    project: fixture.project.clone(),
+                    pane: pane.clone(),
+                    target,
+                    title: "settings.json".into(),
+                }));
+                wait(
+                    application,
+                    context,
+                    "terminal app file body",
+                    |application| {
+                        application
+                            .store
+                            .documents()
+                            .find(&DocumentKey::AppFile(target))
+                            .is_some()
+                            && crate::tabs::tabs_in(
+                                &application.services.state.layouts.read()[&fixture.project].root,
+                            )
+                            .iter()
+                            .any(|tab| matches!(tab.kind, TabKind::AppFile { .. }))
+                    },
+                );
+                crate::tabs::tabs_in(
+                    &application.services.state.layouts.read()[&fixture.project].root,
+                )
+                .into_iter()
+                .find(|tab| matches!(tab.kind, TabKind::AppFile { .. }))
+                .unwrap()
+                .id
+                .clone()
+            }
+            TabKind::Untitled { .. } => {
+                assert!(application.submit(HostCommand::NewUntitled {
+                    project: fixture.project.clone(),
+                    pane: pane.clone(),
+                }));
+                wait(
+                    application,
+                    context,
+                    "terminal untitled body",
+                    |application| !application.untitled.is_empty(),
+                );
+                application.untitled.keys().next().unwrap().clone()
+            }
+            _ => unreachable!(),
+        };
+        activate_terminal_source(application, context, &tab);
+        let view = application
+            .store
+            .views()
+            .find(&taide_native_editor::view::ViewKey {
+                window: WINDOW_LABEL.into(),
+                pane: pane.clone(),
+                tab: tab.clone(),
+            })
+            .unwrap();
+        let document = application.store.views().get(view).unwrap().document;
+        if matches!(kind, TabKind::Untitled { .. }) {
+            focus(application, context, view);
+            paint(
+                application,
+                context,
+                vec![egui::Event::Text(expected.into())],
+            );
+        }
+        for command in [
+            "terminal.runSelectedText",
+            "monaco.taide.runSelectedTextInTerminal",
+        ] {
+            if command.starts_with("monaco.") && !matches!(kind, TabKind::File { .. }) {
+                focus(application, context, view);
+                application
+                    .palette
+                    .open(context, crate::command_registry::PaletteEntry::Commands);
+                paint(application, context, Vec::new());
+                paint(application, context, Vec::new());
+                let label = crate::command_registry::registry()
+                    .unwrap()
+                    .command(command)
+                    .unwrap()
+                    .label(&application.locale);
+                paint(application, context, vec![egui::Event::Text(label)]);
+                assert!(
+                    application
+                        .palette
+                        .inspection()
+                        .rows
+                        .iter()
+                        .any(|row| row.key == command && !row.is_enabled)
+                );
+                paint(application, context, key(egui::Key::Escape, EMPTY));
+                continue;
+            }
+            for palette in [true, false] {
+                activate_terminal_source(application, context, &tab);
+                if matches!(kind, TabKind::File { .. }) {
+                    select(application, view, 18, 8);
+                } else {
+                    select(application, view, 0, 0);
+                }
+                focus(application, context, view);
+                let before = application.store.documents().snapshot(document).unwrap();
+                let selection = application
+                    .store
+                    .views()
+                    .get(view)
+                    .unwrap()
+                    .selection
+                    .clone();
+                let count = terminal_text(application, &fixture.project)
+                    .map_or(0, |text| text.matches(expected).count());
+                run_terminal_command(application, context, command, palette);
+                wait(
+                    application,
+                    context,
+                    "terminal document kind delivery",
+                    |application| {
+                        terminal_text(application, &fixture.project)
+                            .is_some_and(|text| text.matches(expected).count() > count)
+                    },
+                );
+                let sessions = application
+                    .services
+                    .terminal
+                    .sessions_for_project(&fixture.project);
+                assert_eq!(sessions.len(), 1);
+                if let Some(previous) = &session {
+                    assert_eq!(&sessions[0].id, previous);
+                }
+                session = Some(sessions[0].id.clone());
+                let after = application.store.documents().snapshot(document).unwrap();
+                assert_eq!(
+                    (
+                        after.rope.to_string(),
+                        after.revision,
+                        after.dirty,
+                        after.metadata.read_only
+                    ),
+                    (
+                        before.rope.to_string(),
+                        before.revision,
+                        before.dirty,
+                        before.metadata.read_only
+                    )
+                );
+                assert_eq!(
+                    application
+                        .store
+                        .views()
+                        .get(view)
+                        .unwrap()
+                        .selection
+                        .selections,
+                    selection.selections
+                );
+                assert!(application.editor_terminal_writes.is_empty());
+            }
+        }
+    }
+    assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), TEXT);
+    assert_eq!(std::fs::read(&settings_path).unwrap(), settings_before);
+}
+
+#[test]
+fn 실제_터미널_실행의_추가_peek와_보조창은_원래_본문과_pane을_보존한다() {
+    use taide_model::layout::{AuxWindowLayout, PaneNode};
+    let mut fixture = fixture();
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    application.services.state.settings.write().shell_override = Some("/bin/cat".into());
+    let owner = body_view(application, &fixture.path, &fixture.tab);
+    select(application, owner, 0, 5);
+    for command in [
+        "terminal.runSelectedText",
+        "monaco.taide.runSelectedTextInTerminal",
+    ] {
+        for palette in [true, false] {
+            activate_terminal_source(application, context, &fixture.tab);
+            focus(application, context, owner);
+            wait(
+                application,
+                context,
+                &format!("terminal source provider {command}/{palette}"),
+                |application| {
+                    !application
+                        .lsp
+                        .as_ref()
+                        .unwrap()
+                        .location_providers(
+                            &fixture.project,
+                            &application
+                                .store
+                                .documents()
+                                .snapshot(application.store.views().get(owner).unwrap().document)
+                                .unwrap(),
+                            taide_native_editor::symbol_locations::Kind::Definition,
+                        )
+                        .is_empty()
+                },
+            );
+            run_palette(application, context, "monaco.editor.action.peekDefinition");
+            wait(
+                application,
+                context,
+                "terminal body selection with peek",
+                |application| {
+                    application
+                        .editor_locations
+                        .current(owner)
+                        .is_some_and(|session| session.preview.is_some())
+                },
+            );
+            let preview = application
+                .editor_locations
+                .current(owner)
+                .unwrap()
+                .preview
+                .unwrap();
+            select(application, preview, 8, 18);
+            focus(application, context, preview);
+            let count = terminal_text(application, &fixture.project)
+                .map_or(0, |text| text.matches("class").count());
+            run_terminal_command(application, context, command, palette);
+            wait(
+                application,
+                context,
+                "terminal peek uses body",
+                |application| {
+                    terminal_text(application, &fixture.project)
+                        .is_some_and(|text| text.matches("class").count() > count)
+                },
+            );
+            assert_eq!(
+                application
+                    .store
+                    .views()
+                    .get(owner)
+                    .unwrap()
+                    .selection
+                    .selections,
+                vec![Selection { anchor: 0, head: 5 }]
+            );
+            assert!(application.editor_locations.current(owner).is_none());
+            assert!(application.store.views().get(preview).is_none());
+        }
+    }
+    let main_text = terminal_text(application, &fixture.project).unwrap();
+    assert!(main_text.contains("class"));
+    assert!(main_text.split_whitespace().all(|word| word == "class"));
+    let pane = PaneId::new();
+    let auxiliary_tab = TabId::new();
+    let mut layout = application.services.state.layouts.read()[&fixture.project].clone();
+    layout.auxiliary_windows.push(AuxWindowLayout {
+        slot: AUXILIARY_SLOT,
+        root: PaneNode::Leaf {
+            id: pane.clone(),
+            tabs: vec![Tab {
+                id: auxiliary_tab.clone(),
+                kind: TabKind::File {
+                    path: fixture.path.clone(),
+                },
+                title: "current.rs".into(),
+                pinned: false,
+                preview: false,
+                dirty: false,
+                view_state: None,
+            }],
+            active: Some(auxiliary_tab.clone()),
+        },
+        focused_pane: pane,
+    });
+    taide_runtime::layout_actions::finish_mutation(
+        application.services.events.as_ref(),
+        &application.services.state,
+        &fixture.project,
+        &mut layout,
+    );
+    application
+        .services
+        .state
+        .layouts
+        .write()
+        .insert(fixture.project.clone(), layout.clone());
+    application
+        .controller
+        .apply_layouts(HashMap::from([(fixture.project.clone(), layout)]));
+    let scope = WindowScope::Auxiliary {
+        project: fixture.project.clone(),
+        slot: AUXILIARY_SLOT,
+    };
+    application.shell.scope = scope.clone();
+    paint(application, context, Vec::new());
+    let auxiliary = body_view(application, &fixture.path, &auxiliary_tab);
+    let mut auxiliary_session = None;
+    for command in [
+        "terminal.runSelectedText",
+        "monaco.taide.runSelectedTextInTerminal",
+    ] {
+        for palette in [true, false] {
+            activate_terminal_source(application, context, &auxiliary_tab);
+            select(application, auxiliary, 8, 18);
+            focus(application, context, auxiliary);
+            let count = terminal_text_in_scope(application, &fixture.project, &scope)
+                .map_or(0, |text| text.matches("\u{1f600}method").count());
+            run_terminal_command(application, context, command, palette);
+            wait(
+                application,
+                context,
+                "terminal auxiliary pane delivery",
+                |application| {
+                    terminal_text_in_scope(application, &fixture.project, &scope)
+                        .is_some_and(|text| text.matches("\u{1f600}method").count() > count)
+                },
+            );
+            let layouts = application.services.state.layouts.read();
+            let (root, _) = crate::symbol_sidebar::window_tree(
+                &fixture.project,
+                &layouts[&fixture.project],
+                &scope,
+            )
+            .unwrap();
+            let session = crate::tabs::tabs_in(root)
+                .iter()
+                .find_map(|tab| {
+                    if let TabKind::Terminal { session_id, .. } = &tab.kind {
+                        Some(session_id.clone())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap();
+            if let Some(previous) = &auxiliary_session {
+                assert_eq!(&session, previous);
+            }
+            auxiliary_session = Some(session);
+            drop(layouts);
+            let main_text = terminal_text(application, &fixture.project).unwrap();
+            assert!(main_text.contains("class"));
+            assert!(main_text.split_whitespace().all(|word| word == "class"));
+            assert_eq!(
+                application
+                    .store
+                    .views()
+                    .get(owner)
+                    .unwrap()
+                    .selection
+                    .selections,
+                vec![Selection { anchor: 0, head: 5 }]
+            );
+            assert!(application.editor_terminal_writes.is_empty());
+        }
+    }
+    assert_eq!(
+        application
+            .services
+            .terminal
+            .sessions_for_project(&fixture.project)
+            .len(),
+        2
+    );
+    assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), TEXT);
 }
 
 #[test]

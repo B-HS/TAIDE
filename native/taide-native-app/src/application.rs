@@ -6521,7 +6521,7 @@ impl eframe::App for NativeApplication {
             status_editor_appearance: &self.status_editor_appearance,
             status_ide_appearance: &self.status_ide_appearance,
             status_ide_icons: &mut self.status_ide_icons,
-            status_view: focused_view,
+            status_view: focused_view.clone(),
             command_context: &command_context,
             document_edits: &mut document_edits,
             fold_commands: &mut fold_commands,
@@ -6725,7 +6725,12 @@ impl eframe::App for NativeApplication {
             }
             keymap_actions.append(&mut self.palette_commands);
             intents.extend(keymap_actions.into_iter().filter_map(|action| {
-                crate::command_dispatch::intent(&action, &command_context, &snapshot)
+                crate::command_dispatch::intent_with_editor(
+                    &action,
+                    &command_context,
+                    &snapshot,
+                    focused_view.as_ref(),
+                )
             }));
             let now = Instant::now();
             for (document, view) in changed_documents {
