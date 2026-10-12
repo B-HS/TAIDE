@@ -1,6 +1,6 @@
 {
     "date": "2026-10-12",
-    "baseline": "b05c1c2d",
+    "baseline": "958dbf87",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -135,7 +135,9 @@
                 "native/taide-native-app/src/editor-view-state-sync.rs",
                 "native/taide-native-app/src/application-ports.rs",
                 "native/taide-native-app/src/host.rs",
-                "native/taide-native-ui/src/controller.rs"
+                "native/taide-native-ui/src/controller.rs",
+                "native/taide-native-app/src/ide-tools.rs",
+                "native/taide-native-app/src/ide-server.rs"
             ],
             "tests": [
                 "native/taide-native-app/tests/persistence.rs",
@@ -146,13 +148,16 @@
                 "native/taide-native-ui/tests/editor-completion.rs",
                 "native/taide-native-app/src/editor-view-state-sync.rs",
                 "native/taide-native-app/tests/host.rs",
-                "native/taide-native-ui/tests/controller.rs"
+                "native/taide-native-ui/tests/controller.rs",
+                "native/taide-native-app/src/ide-tools-tests.rs",
+                "native/taide-native-app/src/ide-server-tests.rs",
+                "native/taide-native-app/src/application-ports-tests.rs"
             ],
             "reports": [
                 "docs/quality-assurance/2026-10-09-native-completion-evidence.md",
                 "docs/quality-assurance/2026-10-12-native-batch23-view-state.md"
             ],
-            "limitation": "초기/앱 종료 저장·탭 닫힘/셸/Host 선행 캡처와 교체된 preview 모델의 같은 창/pane/document 재열기를 연결했습니다. 정상 저장값 우선/잘못된 값 fallback·같은 revision/명시 disposal과 App/상태/sync16·종료2, 변경 없는Host9/controller3/Core306/UI88의 서로 다른424건이 통과했습니다. project/slot/aux·batch/IDE/remote·folding contribution/전체 재시작은 남아 partial을 유지합니다."
+            "limitation": "초기/앱 종료·탭 닫힘/셸/Host 선행 캡처·preview 모델 재열기와 IDE openFile/close_tab/일괄diff닫힘의 최신 위치를 연결했습니다. 입력 검증 뒤 캡처·실패 시 mutation/이벤트 억제와 실제App1/IDE도구5/서버4/포트2, 변경 없는App·상태·sync16/종료2/Host9/controller3/Core306/UI88의 서로 다른436건이 통과했습니다. remote·project/slot/aux·batch·folding contribution/전체 재시작은 남아 partial을 유지합니다."
         },
         "editor-snippet": {
             "sources": [
@@ -7693,5 +7698,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "제품b05c1c2d에서 실제 preview 교체 뒤 같은 DocumentId의 선택0/0 초기화를 재현해 창/pane/document별 메모리 위치를 연결했습니다. 같은 revision만 한 번 복원하고 정상 저장값 우선·잘못된 값 fallback·독립 창/pane·문서 disposal/제거 pane 회수를 보존합니다. 실제 재열기의 마지막 선택/scroll·내용/revision/dirty/디스크와 기존 회귀는 App/상태/sync16·종료2에서 통과했습니다. 변경 없는Host9/controller3/Core306/UI88을 재사용한 서로 다른424건·소유4Rust fmt/diff·exit0이며 단독 성공을 중복 합산하지 않습니다. manifest/lock/renderer/Core/engine/frozen은 변경하지 않았고 사용자 기존 문서/PROCESS 하단 두 hunk를 보존합니다. editor-67 partial·complete298/partial93/unwired110/missing87·미완료290·배치23 잔여23/최종33을 유지합니다. project/slot/aux/batch·IDE/remote·folding contribution/전체재시작과 전체App/실기는 미완료입니다. 직전App전체877통과/22준비실패·보호3제외·exit101·최초준비원인미확정·Core성능ignored1·Wasmtests시간API불일치7·실기/성능/신뢰성/출시·전환·제거를 보존하며 전체전환율/잔여시간은 미산정입니다."
+    "validation": "제품958dbf87의 실제 IDE openFile 뒤 이전 Tab.view_state None을 재현해 App 조립 포트에 동일 공유 캡처를 연결했습니다. 파일 경계 검증 뒤 openFile과 대상이 있는close_tab/closeAllDiffTabs 전에 적용하고 캡처 실패는ToolError로 반환해 mutation/닫힘 이벤트를 막습니다. 잘못된 입력/읽기/대상없음은 캡처 요청0·기존 headless/RPC/서버 인증과 종료 회수를 보존합니다. 실제App1/IDE도구5/서버4/조립포트2·exit0와 변경 없는App·상태·sync16/종료2/Host9/controller3/Core306/UI88을 재사용한 서로 다른436건·소유7Rust fmt/diff입니다. authored text 인자 누락의 실행0건과 실제 실패/수정을 QA에 기록했고 같은 성공은 중복 합산하지 않습니다. manifest/lock/renderer/Core/engine/frozen과 사용자 기존 문서/PROCESS 하단 두 hunk를 보존합니다. editor-67 partial·complete298/partial93/unwired110/missing87·미완료290·배치23 잔여23/최종33을 유지합니다. remote·project/slot/aux/batch·folding contribution/전체재시작과 전체App/실기는 미완료입니다. 직전App전체877통과/22준비실패·보호3제외·exit101·최초준비원인미확정·Core성능ignored1·Wasmtests시간API불일치7·실기/성능/신뢰성/출시·전환·제거를 보존하며 전체전환율/잔여시간은 미산정입니다."
 }

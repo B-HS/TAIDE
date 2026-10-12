@@ -173,3 +173,5 @@ preview 재열기 코드/검사·QA/소유 PROCESS의6경로는 `b05c1c2d`로 �
 `view-state-ide-green.log`의 실제 App은1통과/0실패·20.30초·exit0(컴파일32.54초)입니다. 입력 직후 openFile 이전 탭의 UTF-16 역방향 선택과 비활성 본문의 추가 이동 직후 close_tab 최근 닫힘 위치·원문/dirty/디스크 보존을 확인했습니다. `view-state-ide-tools.log`는 새 실패 경계와 기존 IDE 도구/RPC/실제 responder·소유 PTY의5통과·0.05초·exit0(컴파일18.64초)입니다. 필수 값/경계 밖 입력·읽기/대상 없음은 캡처 요청0, 캡처 실패 때 open/close/일괄 diff close 모두 동일 layout/이벤트0·대기0·작업 회수를 확인했습니다.
 
 `view-state-ide-server.log`는 소유 loopback 허용의 기존 인증/MCP/RPC/동기 알림·pending/lockfile·지연 owner 회수4통과·0.07초·exit0입니다. `view-state-ide-ports.log`는 실제 조립/dispatch/persist/event/lazy ports·소유 PTY agent 회수2통과·0.05초·exit0입니다. 변경 없는App/상태/sync16·종료2·Host9/controller3/Core306/UI88을 재사용한 서로 다른436건이며 이전 단독 성공을 추가 합산하지 않습니다. 소유7Rust fmt/diff는 exit0이고 manifest/lock/renderer/Core/engine/frozen 불변과 사용자 기존 변경을 보존합니다. 전체App/실기·remote/project/slot/aux/batch·folding/전체 재시작과 editor-67 전체 완료는 별도 미완료입니다.
+
+IDE 선행 저장 코드/검사·QA/소유 PROCESS의9경로는 `958dbf87`로 선별 커밋했습니다. 기능표는588대상·complete298/partial93/unwired110/missing87·미완료290이며 editor-67 partial·배치23 잔여23/최종33을 유지합니다. 다음은 remote 명령과 project/slot/aux·batch 종료에서 최신 위치가 누락되지 않는지 실제 경로별 대조/재현입니다.
