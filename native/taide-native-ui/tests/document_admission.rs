@@ -159,3 +159,81 @@ async fn 실제_파일_admission은_닫힌_root_외부_변경과_shutdown을_거
     assert!(store.documents().is_empty());
     assert_eq!(tasks.tracked_count(), 0);
 }
+
+#[tokio::test]
+async fn 거절_파일의_typed_commit은_모델_없이_소유를_회수하고_shutdown을_거절한다() {
+    for mode in ["binary", "large", "shutdown"] {
+        let fixture = Fixture::new();
+        if mode == "large" {
+            std::fs::File::create(&fixture.file)
+                .unwrap()
+                .set_len(REFUSED_FILE_BYTES)
+                .unwrap();
+        } else {
+            std::fs::write(&fixture.file, b"synthetic\0binary").unwrap();
+        }
+        let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+        let prepared =
+            prepare_opened_document(&fixture.state, &tasks, fixture.opened(&tasks).await)
+                .await
+                .unwrap();
+        let mut waiting = Box::pin(fixture.state.begin_mutation());
+        let mut context = Context::from_waker(Waker::noop());
+        assert!(matches!(waiting.as_mut().poll(&mut context), Poll::Pending));
+        assert!(tasks.tracked_count() > 0);
+        if mode == "shutdown" {
+            fixture.state.begin_shutdown();
+        }
+        let mut store = store();
+        let result = prepared.commit_file(&mut store);
+        if mode == "shutdown" {
+            assert!(result.is_err());
+        } else {
+            assert!(matches!(
+                result,
+                Ok(taide_native_ui::document_admission::CommittedFile::Refused)
+            ));
+        }
+        assert!(store.documents().is_empty());
+        assert!(matches!(
+            waiting.as_mut().poll(&mut context),
+            Poll::Ready(_)
+        ));
+        assert_eq!(tasks.tracked_count(), 0);
+        if mode == "large" {
+            assert_eq!(
+                std::fs::metadata(&fixture.file).unwrap().len(),
+                REFUSED_FILE_BYTES
+            );
+        } else {
+            assert_eq!(std::fs::read(&fixture.file).unwrap(), b"synthetic\0binary");
+        }
+    }
+}
+
+#[tokio::test]
+async fn u32_표시_범위를_넘은_거절_파일도_정상적으로_admission을_회수한다() {
+    let fixture = Fixture::new();
+    let bytes = u64::from(u32::MAX) + 1;
+    std::fs::File::create(&fixture.file)
+        .unwrap()
+        .set_len(bytes)
+        .unwrap();
+    let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+    let opened = fixture.opened(&tasks).await;
+    assert_eq!(opened.file.byte_size, u32::MAX);
+    assert_eq!(opened.file.tier, taide_model::file::FileSizeTier::Refused);
+    let prepared = prepare_opened_document(&fixture.state, &tasks, opened).await;
+    assert!(
+        prepared.is_ok(),
+        "saturated refused metadata must remain admissible"
+    );
+    let mut store = store();
+    assert!(matches!(
+        prepared.unwrap().commit_file(&mut store),
+        Ok(taide_native_ui::document_admission::CommittedFile::Refused)
+    ));
+    assert!(store.documents().is_empty());
+    assert_eq!(tasks.tracked_count(), 0);
+    assert_eq!(std::fs::metadata(&fixture.file).unwrap().len(), bytes);
+}

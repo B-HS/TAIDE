@@ -230,6 +230,7 @@ pub struct NativeApplication {
     saving_missing_draft: Option<TabId>,
     loading: HashSet<String>,
     failed: HashMap<String, AppError>,
+    refused: HashSet<String>,
     trees: HashMap<ProjectId, TreeRowPage>,
     explorers: HashMap<ProjectId, crate::explorer::Explorer>,
     explorer_clipboards: crate::explorer_clipboard_owners::ClipboardOwners,
@@ -564,6 +565,7 @@ impl NativeApplication {
             saving_missing_draft: None,
             loading: HashSet::new(),
             failed: HashMap::new(),
+            refused: HashSet::new(),
             trees: HashMap::new(),
             explorers: HashMap::new(),
             explorer_clipboards: crate::explorer_clipboard_owners::ClipboardOwners::new(
@@ -1535,8 +1537,12 @@ impl NativeApplication {
                 } => {
                     self.loading.remove(&path);
                     let source_tab = self.loading_file_tabs.remove(&path);
-                    match result.and_then(|prepared| prepared.commit_with_notice(&mut self.store)) {
-                        Ok(committed) => {
+                    match result.and_then(|prepared| prepared.commit_file(&mut self.store)) {
+                        Ok(taide_native_ui::document_admission::CommittedFile::Document(
+                            committed,
+                        )) => {
+                            self.failed.remove(&path);
+                            self.refused.remove(&path);
                             self.peek_models.adopt(committed.document);
                             self.missing_drafts.remove(&path);
                             if let Some(conflict) = committed.restored_conflict
@@ -1571,7 +1577,13 @@ impl NativeApplication {
                                 self.submit(HostCommand::SetDirty { tab, dirty });
                             }
                         }
+                        Ok(taide_native_ui::document_admission::CommittedFile::Refused) => {
+                            self.failed.remove(&path);
+                            self.missing_drafts.remove(&path);
+                            self.refused.insert(path);
+                        }
                         Err(error) => {
+                            self.refused.remove(&path);
                             self.failed.insert(path, error);
                         }
                     }
@@ -2845,6 +2857,10 @@ impl NativeApplication {
             }
         }
         let Some(file) = self.files.get(path) else {
+            if !closed.has_remaining_file {
+                self.failed.remove(path);
+                self.refused.remove(path);
+            }
             return Ok(());
         };
         let document = file.id;
@@ -5118,6 +5134,8 @@ impl NativeApplication {
     fn reconcile_previews(&mut self) {
         let invalidation = self.tree_changes.take_previews();
         if invalidation.all {
+            self.failed.clear();
+            self.refused.clear();
             self.cancel_web(None);
             self.previews.invalidate_all();
             self.hwp_previews.invalidate_all();
@@ -5127,6 +5145,8 @@ impl NativeApplication {
             self.web_previews.invalidate_all();
         } else {
             for path in invalidation.paths {
+                self.failed.remove(&path);
+                self.refused.remove(&path);
                 self.cancel_web(Some(std::path::Path::new(&path)));
                 self.previews.invalidate(&path);
                 self.hwp_previews.invalidate(&path);
@@ -5138,6 +5158,10 @@ impl NativeApplication {
             let projects = self.services.state.projects.read();
             for project in invalidation.projects {
                 if let Some(project) = projects.get(&project) {
+                    self.failed
+                        .retain(|path, _| !std::path::Path::new(path).starts_with(&project.root));
+                    self.refused
+                        .retain(|path| !std::path::Path::new(path).starts_with(&project.root));
                     self.cancel_web(Some(std::path::Path::new(&project.root)));
                     self.previews.invalidate_root(&project.root);
                     self.hwp_previews.invalidate_root(&project.root);
@@ -5149,6 +5173,19 @@ impl NativeApplication {
             }
         }
         let layouts = self.services.state.layouts.read().clone();
+        if !self.failed.is_empty() || !self.refused.is_empty() {
+            let live = layouts
+                .values()
+                .flat_map(taide_layout::service::all_roots)
+                .flat_map(crate::tabs::tabs_in)
+                .filter_map(|tab| match &tab.kind {
+                    TabKind::File { path } => Some(path),
+                    _ => None,
+                })
+                .collect::<HashSet<_>>();
+            self.failed.retain(|path, _| live.contains(path));
+            self.refused.retain(|path| live.contains(path));
+        }
         self.open_with.reconcile(&layouts);
         let projects = self.services.state.projects.read();
         let paths = layouts
@@ -6657,6 +6694,7 @@ impl eframe::App for NativeApplication {
             save_missing_drafts: &mut save_missing_drafts,
             loading: &self.loading,
             failed: &self.failed,
+            refused: &self.refused,
             trees: &self.trees,
             tree_loading: &self.tree_loading,
             explorers: &mut self.explorers,
@@ -7635,6 +7673,7 @@ struct AppSurfaces<'a> {
     save_missing_drafts: &'a mut Vec<TabId>,
     loading: &'a HashSet<String>,
     failed: &'a HashMap<String, AppError>,
+    refused: &'a HashSet<String>,
     trees: &'a HashMap<ProjectId, TreeRowPage>,
     tree_loading: &'a HashSet<ProjectId>,
     explorers: &'a mut HashMap<ProjectId, crate::explorer::Explorer>,
@@ -8261,8 +8300,24 @@ impl ShellSurfaces for AppSurfaces<'_> {
                 });
             return;
         }
+        if self.refused.contains(path) {
+            let (_, command) = crate::file_loading::show_refused(ui, self.locale, path);
+            if let Some(command) = command {
+                self.commands.push(command);
+            }
+            return;
+        }
         if let Some(error) = self.failed.get(path) {
-            ui.label(error.to_string());
+            ui.allocate_ui_with_layout(
+                ui.available_size(),
+                egui::Layout::top_down(egui::Align::Center).with_main_align(egui::Align::Center),
+                |ui| {
+                    ui.colored_label(
+                        ui.visuals().error_fg_color,
+                        crate::toast::describe_error(self.locale, error),
+                    );
+                },
+            );
             return;
         }
         let Some(document) = self.files.get(path) else {
@@ -9135,6 +9190,10 @@ mod startup_tests;
 #[cfg(all(test, unix))]
 #[path = "application-view-state-tests.rs"]
 mod view_state_tests;
+
+#[cfg(all(test, unix))]
+#[path = "application-file-loading-tests.rs"]
+mod file_loading_tests;
 
 #[cfg(test)]
 mod close_all_tests {

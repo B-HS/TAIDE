@@ -21,6 +21,11 @@ pub struct CommittedDocument {
     pub restored_conflict: Option<bool>,
 }
 
+pub enum CommittedFile {
+    Document(CommittedDocument),
+    Refused,
+}
+
 pub struct CommittedDiskChoice {
     pub document: DocumentId,
     pub canonical: std::path::PathBuf,
@@ -30,6 +35,18 @@ pub struct CommittedDiskChoice {
 }
 
 impl PreparedDocument {
+    pub fn commit_file(self, store: &mut EditorStore) -> AppResult<CommittedFile> {
+        if self.opened.file.tier != taide_model::file::FileSizeTier::Refused {
+            return self.commit_with_notice(store).map(CommittedFile::Document);
+        }
+        let _operation = self.operation;
+        let _guard = self.guard;
+        if self.state.is_shutting_down() {
+            return Err(admission_stopped());
+        }
+        Ok(CommittedFile::Refused)
+    }
+
     pub fn commit_observation(
         self,
         store: &mut EditorStore,
@@ -175,7 +192,7 @@ pub async fn prepare_opened_document(
                 .map_err(|error| AppError::Io(error.to_string()))?
                 .as_secs_f64()
                 * taide_infra::clock::MS_PER_SECOND;
-            if metadata.len() != u64::from(opened.file.byte_size)
+            if metadata.len().min(u64::from(u32::MAX)) != u64::from(opened.file.byte_size)
                 || modified != opened.file.modified_ms
             {
                 return Err(AppError::Forbidden(

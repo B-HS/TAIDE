@@ -94,6 +94,8 @@ pub mod explorer_delete;
 pub mod explorer_move;
 pub mod explorer_source_missing;
 pub mod explorer_toolbar;
+#[path = "file-loading.rs"]
+mod file_loading;
 pub mod file_sync;
 #[path = "font-preview.rs"]
 mod font_preview;
