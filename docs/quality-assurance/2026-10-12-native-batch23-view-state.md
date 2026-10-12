@@ -72,3 +72,5 @@ raw legacy scroll도 초기 커서 reveal에 덮이지 않도록 Core 요청에 
 `view-state-missing-axis-red.log`는 빈 selectionStart에서 anchor 0/head 9를 만들고 기대한 빈 선택 9/9와 달라 실제 실패했습니다. 0통과/1실패·0.03초·exit 101(컴파일 1분 15초)입니다. selectionStart의 누락 축만 저장된 position의 같은 축으로 보완했습니다. 명시 좌표/범위 clamp·readonly/scroll은 보존하며 이 경로가 바뀐 상태 검사 3건을 선별 확인합니다. 모델 내용/화면 경계가 변하지 않은 기존 성공은 반복하지 않습니다.
 
 `view-state-missing-axis-fixed.log`의 상태 3건은 3통과/0실패·0.00초·exit 0(컴파일 15.85초)입니다. 빈/줄만/열만 selectionStart와 기존 CRLF/UTF-16 clamp·잘못된 형식/readonly/mirror를 확인했습니다. native reveal 조건은 cfg 분리 전과 같고 App parser 변경이 frozen 제품에는 의존하지 않으므로 이전 App 4/Core 306/UI 87·frozen 성공을 재사용합니다. 서로 다른 400건이며 마지막 소유 10Rust fmt check·관련 diff check는 exit 0입니다. 기존 Wry 17경고와 App linker의 unwind-table 크기 경고는 검사 실패로 바꾸거나 제거하지 않았습니다.
+
+초기 복원 코드/검사·QA/PROCESS 상단의 12경로는 `2ee11a21`로 선별 커밋했습니다. PROCESS 하단의 기존 두 hunk와 HANDOFF/architecture/이전 결정/피드백·memory 변경은 스테이징하지 않았습니다. 기능표는 599행·391근거 경로 정합성을 확인하며 editor-67만 partial로 정정합니다. 완료 298/미완료 290·배치 23 잔여 23/최종 33과 전체 목표를 유지하고 다음은 실제 종료의 최신 위치 저장 실패입니다.

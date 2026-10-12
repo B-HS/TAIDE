@@ -99,7 +99,7 @@
 - [x] d3a. 원본 형식·실제 소비 경계 조사 — 초기 Tab.viewState 소비와 종료 커서 캡처가 없는 현재 경계를 확인했습니다. Monaco의 UTF-16 선택/모델 위치와 첫 가시 위치·scroll delta/legacy fallback을 읽었으며 native display의 wrap/접기·추가 zone과 별도 셸/Host 큐를 대조했습니다. 저장 원자성/소유 경계와 실제 App 재현의 완료 조건을 d3 QA에 기록했고 기능 구현/완료로 올리지 않습니다.
 - [x] d3a1. 실제 초기 선택 실패 — 첫 본문 생성 전에 저장한 Monaco (2:11→2:3)가 native byte (18→8)로 복원되지 않고 (0→0)으로 열리는 실제 App 실패를 확인했습니다. 0통과/1실패·24.76초·exit 101이며 연결 뒤 같은 App 1통과·25.53초·exit 0입니다. 공용 fixture의 기존 None/원문 호출과 기한은 유지했고 후속 성공에 중복 합산하지 않습니다.
 - [x] d3a2. 저장 형식과 표시 준비 뒤 복원 — JSON 객체/배열 경계·live ViewId/DocumentId 최초 복원·Ropey UTF-16 문자 경계/CRLF·두 scroll 형식과 명시 이동 우선순위를 연결했습니다. 실제 lossy/readonly 새 뷰의 선택/편집 거절·원문/디스크 보존과 독립 mirror/잘못된 값/해제까지 App 4·상태 2의 서로 다른 6건이 통과했습니다. authored test 잠금 실패와 수정 뒤 5성공의 불필요한 재검사는 QA에 구분하며 저장/종료·전체 게이트 완료로 올리지 않습니다.
-- [ ] d3a3. 복원 단위의 회귀/호환성·선별 저장 — Core 전체 306·UI editor_surface 87건과 frozen host/Wasm compile을 확인했습니다. 웹 cfg의 공통 reveal 참조 오류를 수정했으며 native 조건의 동일한 성공은 재사용합니다. 원본 selectionStart의 누락 축을 position으로 보완하는 상태 검사를 확인하고 소유 fmt/diff·QA/기능표 partial 판정·선별 Git으로 복원 단위를 저장합니다.
+- [x] d3a3. 복원 단위의 회귀/호환성·선별 저장 — 실제 App 4·상태 3/Core 전체 306/UI editor_surface 87의 서로 다른 400건과 frozen host/Wasm compile을 확인했습니다. 웹 cfg의 공통 reveal 참조 오류와 원본 selectionStart 누락 축을 실제 실패 뒤 수정했습니다. 소유 10Rust fmt/diff·QA를 확인하고 구현 12경로를 2ee11a21로 선별 커밋했습니다. editor-67은 partial이며 최신 상태 저장/종료·folding contribution/전체 게이트는 남아 있습니다.
 - [ ] d3b. 최신 위치 저장/종료 연결 — 기존 typed facade와 mutation/flush 경계에서 탭 전환/닫힘·보조 창/프로젝트/앱 종료의 최신 상태 순서를 보장하고 닫힌 뷰/잘못된 JSON/metadata 갱신의 재복원·내용 변경을 막습니다. 연결 뒤 관련 검사와 실제 재시작/디스크·mirror/readonly 회귀를 확인합니다. 원본 folding contribution의 유효 범위/본문 확인도 함께 대조합니다.
 - [ ] d3b1. 실제 종료 저장 실패와 캡처 — 임시 App의 실제 선택/scroll을 이동한 뒤 정상/직접 종료에서 layout 디스크 저장 실패를 재현합니다. 실제 renderer의 첫 모델 위치/delta와 live 모델의 UTF-16 선택을 캡처하고 원문/revision/dirty를 보존합니다. 종료 캡처와 기존 layout flush의 순서를 연결하며 전체 c/d3b 완료로 확대하지 않습니다.
 - [ ] e. AI·Emmet — editor-77/78/80의 인라인 완성/편집과 Emmet을 원본 명령·표시·수락/거절/취소/오래된 응답에 맞게 연결합니다. 실제 키/개인 데이터 대신 주입 포트·임시 데이터로 검증합니다.
@@ -107,7 +107,7 @@
 - [x] f1. 프로젝트 열기 지연 위치 조사·배치 31 이관 — 전체 App 811통과/프로젝트 open 5초 초과 1실패와 Cargo 단독 동일 실패를 보존했습니다. 같은 실행 파일의 직접 검사는 저장소/크레이트 cwd에서 3.81/3.23초에 통과했습니다. 성공한 두 번째 검사 중 start_watch→notify runloop 준비 대기와 FSEventStreamStart→등록 RPC의 실제 스택을 확인했습니다. 실패 시점의 스택이나 지연 변동의 근본 원인은 확인하지 않았으며 해결/전체 exit 0으로 보고하지 않습니다. 제한 확대·검사 생략·OS 변경 없이 반복 조사를 종료하고 배치 31의 실행 환경/신뢰성 게이트에 미해결 위험을 유지합니다.
 - [ ] g. 완료 근거·선별 Git — 실제 닫힌 ID만 QA/기능표/PROCESS에 반영하고 논리 단위 선별 커밋·일반 푸시합니다. 배치 24를 기존 계획 안에서 이어가며 배치 번호를 세부 수정마다 늘리지 않습니다.
 
-다음 행동: 현재 UI 편집기 회귀가 종료하면 frozen 제품 컴파일을 직렬로 확인하고 검증한 복원 단위를 저장합니다. 이어서 d3b의 최신 위치 저장/닫힘·종료 순서를 기존 facade/flush 경계에 연결합니다. 이전 준비 실패와 frozen Wasm tests의 std/web Instant 불일치는 신뢰성 게이트에 보존하며 같은 성공은 반복하지 않습니다.
+다음 행동: 복원 단위의 기능표/진척 기록을 일반 푸시한 뒤 d3b1의 실제 앱 종료 저장 실패를 재현하고 최신 위치 캡처와 기존 layout flush를 연결합니다. 이전 준비 실패와 frozen Wasm tests의 std/web Instant 불일치는 신뢰성 게이트에 보존하며 같은 성공은 반복하지 않습니다.
 
 ## 완료: 배치 22 — 자동완성과 사용자 스니펫 소비 (2026-10-10)
 
