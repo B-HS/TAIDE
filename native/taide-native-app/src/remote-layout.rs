@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use taide_model::error::AppError;
-use taide_model::layout::TabKind;
+use taide_model::layout::{OpenTabInSplitRequest, TabKind};
 use taide_runtime::{AppServices, layout_actions};
 
 use crate::remote_gateway::{argument, error_value, respond};
@@ -32,13 +32,23 @@ pub const COMMANDS: &[&str] = &[
 
 pub struct Ports {
     pub discard_terminal: Arc<dyn Fn(&str) + Send + Sync>,
+    pub(crate) view_states: Arc<crate::editor_view_state_sync::Shared>,
 }
 
 impl Ports {
     pub fn new(terminals: Arc<crate::terminal_host::Hub>) -> Self {
         Self {
             discard_terminal: Arc::new(move |id| terminals.discard(id)),
+            view_states: Arc::default(),
         }
+    }
+
+    pub(crate) fn with_view_states(
+        mut self,
+        view_states: Arc<crate::editor_view_state_sync::Shared>,
+    ) -> Self {
+        self.view_states = view_states;
+        self
     }
 }
 
@@ -71,24 +81,46 @@ async fn dispatch(
             argument(args, $key).map_err(error_value)?
         };
     }
+    macro_rules! mutate {
+        ($mutation:expr) => {{
+            let mutation = $mutation;
+            ports
+                .view_states
+                .flush(services)
+                .await
+                .map_err(error_value)?;
+            respond(mutation.await)
+        }};
+    }
     let state = &services.state;
     let events = services.events.as_ref();
     match name {
         "layout_get" => respond(layout_actions::layout_get(state, arg!("projectId")).await),
-        "layout_open_tab" => respond(
-            layout_actions::layout_open_tab(
-                events,
-                state,
-                arg!("projectId"),
-                arg!("kind"),
-                arg!("title"),
-                arg!("target"),
-                arg!("preview"),
+        "layout_open_tab" => {
+            let project = arg!("projectId");
+            let kind = arg!("kind");
+            let title = arg!("title");
+            let target = arg!("target");
+            let preview = arg!("preview");
+            layout_actions::ensure_file_tab_target_exists(
+                &state.projects.read(),
+                &state.cli_opened_paths.read(),
+                &kind,
             )
-            .await,
-        ),
+            .map_err(error_value)?;
+            mutate!(layout_actions::layout_open_tab(
+                events, state, project, kind, title, target, preview
+            ))
+        }
         "layout_close_tab" => {
             let id = arg!("tabId");
+            taide_layout::service::locate_project_with_tab(&state.layouts.read(), &id)
+                .map_err(error_value)?;
+            ports
+                .view_states
+                .flush(services)
+                .await
+                .map_err(error_value)?;
             let result = layout_actions::close_tab_and_finish(events, state, &id, |tab| {
                 services.ide.reconcile_closed_tab(tab);
                 if let TabKind::Terminal { session_id, .. } = &tab.kind {
@@ -101,30 +133,37 @@ async fn dispatch(
             respond(result)
         }
         "layout_activate_tab" => {
-            respond(layout_actions::layout_activate_tab(events, state, arg!("tabId")).await)
+            mutate!(layout_actions::layout_activate_tab(
+                events,
+                state,
+                arg!("tabId")
+            ))
         }
-        "layout_move_tab" => respond(
-            layout_actions::layout_move_tab(
-                events,
-                state,
-                arg!("tabId"),
-                arg!("paneId"),
-                arg!("index"),
-            )
-            .await,
-        ),
-        "layout_split" => respond(
-            layout_actions::layout_split(
-                events,
-                state,
-                arg!("paneId"),
-                arg!("edge"),
-                arg!("tabId"),
-            )
-            .await,
-        ),
+        "layout_move_tab" => mutate!(layout_actions::layout_move_tab(
+            events,
+            state,
+            arg!("tabId"),
+            arg!("paneId"),
+            arg!("index"),
+        )),
+        "layout_split" => mutate!(layout_actions::layout_split(
+            events,
+            state,
+            arg!("paneId"),
+            arg!("edge"),
+            arg!("tabId"),
+        )),
         "layout_open_tab_in_split" => {
-            respond(layout_actions::layout_open_tab_in_split(events, state, arg!("request")).await)
+            let request: OpenTabInSplitRequest = arg!("request");
+            layout_actions::ensure_file_tab_target_exists(
+                &state.projects.read(),
+                &state.cli_opened_paths.read(),
+                &request.kind,
+            )
+            .map_err(error_value)?;
+            mutate!(layout_actions::layout_open_tab_in_split(
+                events, state, request
+            ))
         }
         "layout_resize" => respond(
             layout_actions::layout_resize(events, state, arg!("paneId"), arg!("sizes")).await,
@@ -139,7 +178,11 @@ async fn dispatch(
             layout_actions::layout_set_preview(events, state, arg!("tabId"), arg!("preview")).await,
         ),
         "layout_reopen_closed" => {
-            respond(layout_actions::layout_reopen_closed(events, state, arg!("projectId")).await)
+            mutate!(layout_actions::layout_reopen_closed(
+                events,
+                state,
+                arg!("projectId")
+            ))
         }
         "layout_set_view_state" => respond(
             layout_actions::layout_set_view_state(events, state, arg!("tabId"), arg!("viewState"))
@@ -157,23 +200,24 @@ async fn dispatch(
             )
             .await,
         ),
-        "layout_open_untitled" => respond(
-            layout_actions::layout_open_untitled(events, state, arg!("projectId"), arg!("target"))
-                .await,
-        ),
-        "layout_convert_untitled" => respond(
-            layout_actions::layout_convert_untitled(events, state, arg!("tabId"), arg!("path"))
-                .await,
-        ),
-        "layout_apply_path_change" => respond(
-            layout_actions::layout_apply_path_change(
-                events,
-                state,
-                arg!("projectId"),
-                arg!("change"),
-            )
-            .await,
-        ),
+        "layout_open_untitled" => mutate!(layout_actions::layout_open_untitled(
+            events,
+            state,
+            arg!("projectId"),
+            arg!("target")
+        )),
+        "layout_convert_untitled" => mutate!(layout_actions::layout_convert_untitled(
+            events,
+            state,
+            arg!("tabId"),
+            arg!("path")
+        )),
+        "layout_apply_path_change" => mutate!(layout_actions::layout_apply_path_change(
+            events,
+            state,
+            arg!("projectId"),
+            arg!("change"),
+        )),
         "layout_set_shell_view" => respond(
             layout_actions::layout_set_shell_view(events, state, arg!("projectId"), arg!("patch"))
                 .await,

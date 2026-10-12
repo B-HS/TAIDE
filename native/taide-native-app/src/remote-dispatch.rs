@@ -14,6 +14,7 @@ use crate::{
 };
 
 pub struct Ports<G> {
+    pub(crate) view_states: Arc<crate::editor_view_state_sync::Shared>,
     pub preferences: remote_preferences::Ports,
     pub agents: remote_agents::Ports,
     pub git: remote_git::Ports,
@@ -29,7 +30,8 @@ where
     F: Fn(Arc<AppServices>) -> P + Send + Sync + 'static,
     G: SyncGistPort + 'static,
 {
-    let layout = remote_layout::Ports::new(ports.terminal.terminals.clone());
+    let layout = remote_layout::Ports::new(ports.terminal.terminals.clone())
+        .with_view_states(ports.view_states.clone());
     let sync = remote_sync::Ports {
         create_client: ports.create_gist_client,
         reconcile: ports.preferences.reconcile.clone(),
@@ -59,7 +61,11 @@ where
     let backend = remote_git::extend_backend(ports.git, backend);
     let backend = remote_plugins::extend_backend(backend);
     let backend = remote_search::extend_backend(backend);
-    let backend = remote_projects::extend_backend(create_lifecycle, backend);
+    let backend = remote_projects::extend_backend_with_view_states(
+        create_lifecycle,
+        ports.view_states,
+        backend,
+    );
     let backend = remote_layout::extend_backend(layout, backend);
     let backend = remote_files::extend_backend(backend);
     let backend = remote_ide::extend_backend(backend);

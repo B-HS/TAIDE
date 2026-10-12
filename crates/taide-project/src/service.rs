@@ -410,6 +410,31 @@ pub fn find_open_project_by_root(projects: &HashMap<ProjectId, Project>, root: &
         .map(|project| project.id.clone())
 }
 
+/// Resolves a readable project directory using the existing localized open-path errors.
+pub fn validate_open_root(root: &Path) -> AppResult<PathBuf> {
+    let requested = resolve_open_root(root);
+    let canonical = std::fs::canonicalize(&requested).map_err(|error| match error.kind() {
+        std::io::ErrorKind::NotFound => AppError::localized(
+            AppErrorKind::NotFound,
+            "error.project.pathNotFound",
+            format!("path not found: {}", requested.display()),
+        )
+        .with_arg("path", requested.display()),
+        _ => AppError::from(error),
+    })?;
+    let metadata = std::fs::metadata(&canonical)?;
+    if !metadata.is_dir() {
+        return Err(AppError::localized(
+            AppErrorKind::InvalidArgument,
+            "error.project.pathNotDirectory",
+            format!("path is not a directory: {}", canonical.display()),
+        )
+        .with_arg("path", canonical.display()));
+    }
+    std::fs::read_dir(&canonical)?;
+    Ok(canonical)
+}
+
 /// Opens (or re-activates) the project at `root`. `detect_capabilities` is called once with the
 /// canonicalized root on a fresh open and its result is recorded verbatim as
 /// `Project.capabilities` — `project_open` injects the capability registry's `detected_kinds`, so
@@ -445,26 +470,7 @@ pub fn open_project(
     activate: bool,
     detect_capabilities: impl FnOnce(&Path) -> Vec<CapabilityKind>,
 ) -> AppResult<ProjectOpenResult> {
-    let requested = resolve_open_root(root);
-    let canonical = std::fs::canonicalize(&requested).map_err(|error| match error.kind() {
-        std::io::ErrorKind::NotFound => AppError::localized(
-            AppErrorKind::NotFound,
-            "error.project.pathNotFound",
-            format!("path not found: {}", requested.display()),
-        )
-        .with_arg("path", requested.display()),
-        _ => AppError::from(error),
-    })?;
-    let metadata = std::fs::metadata(&canonical)?;
-    if !metadata.is_dir() {
-        return Err(AppError::localized(
-            AppErrorKind::InvalidArgument,
-            "error.project.pathNotDirectory",
-            format!("path is not a directory: {}", canonical.display()),
-        )
-        .with_arg("path", canonical.display()));
-    }
-    std::fs::read_dir(&canonical)?;
+    let canonical = validate_open_root(root)?;
 
     let root_str = canonical.to_string_lossy().to_string();
 

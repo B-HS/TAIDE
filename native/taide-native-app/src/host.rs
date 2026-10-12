@@ -1512,10 +1512,15 @@ async fn dispatch(
             })
         }
         HostCommand::OpenProject(path) => {
-            match crate::projects::NativeProjects::new(services.clone())
-                .open(path)
-                .await
-            {
+            let result = async {
+                taide_runtime::project_actions::validate_open_root(std::path::Path::new(&path))?;
+                integrations.flush_view_states(services).await?;
+                crate::projects::NativeProjects::new(services.clone())
+                    .open(path)
+                    .await
+            }
+            .await;
+            match result {
                 Ok(_) => None,
                 Err(error) => Some(HostReply::Failed(error)),
             }

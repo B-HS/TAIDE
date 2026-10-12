@@ -1,10 +1,13 @@
+use std::path::Path;
 use std::sync::Arc;
 
 use serde_json::Value;
 use taide_infra::perf::{self, SpanSlot};
-use taide_model::error::AppError;
+use taide_model::error::{AppError, AppResult};
+use taide_model::ids::ShellSlotId;
+use taide_model::project::OpenProjectInSlotRequest;
 use taide_runtime::project_actions::ProjectLifecyclePort;
-use taide_runtime::{AppServices, project_actions};
+use taide_runtime::{AppServices, AppState, project_actions};
 
 use crate::remote_gateway::{argument, error_value, respond};
 use crate::remote_ws::Dispatch;
@@ -40,15 +43,28 @@ where
     P: ProjectLifecyclePort + 'static,
     F: Fn(Arc<AppServices>) -> P + Send + Sync + 'static,
 {
+    extend_backend_with_view_states(create_lifecycle, Arc::default(), remaining)
+}
+
+pub(crate) fn extend_backend_with_view_states<P, F>(
+    create_lifecycle: F,
+    view_states: Arc<crate::editor_view_state_sync::Shared>,
+    remaining: Dispatch,
+) -> Dispatch
+where
+    P: ProjectLifecyclePort + 'static,
+    F: Fn(Arc<AppServices>) -> P + Send + Sync + 'static,
+{
     let create_lifecycle = Arc::new(create_lifecycle);
     let remaining_json = remaining.json;
     Dispatch {
         json: Arc::new(move |services, name, args, channels| {
             let create_lifecycle = create_lifecycle.clone();
+            let view_states = view_states.clone();
             let remaining = remaining_json.clone();
             Box::pin(async move {
                 if COMMANDS.contains(&name.as_str()) {
-                    return dispatch(services, create_lifecycle, &name, &args).await;
+                    return dispatch(services, create_lifecycle, view_states, &name, &args).await;
                 }
                 remaining(services, name, args, channels).await
             })
@@ -57,9 +73,25 @@ where
     }
 }
 
+fn validate_slot(state: &AppState, slot: &ShellSlotId, is_closing: bool) -> AppResult<()> {
+    let session = state.session.read();
+    let tree = session
+        .shell_slots
+        .as_ref()
+        .filter(|tree| project_actions::contains_slot(tree, slot))
+        .ok_or_else(|| AppError::NotFound(format!("shell slot not found: {slot}")))?;
+    if is_closing && project_actions::leaf_count(tree) <= 1 {
+        return Err(AppError::InvalidArgument(
+            "cannot close the last shell slot".into(),
+        ));
+    }
+    Ok(())
+}
+
 async fn dispatch<P, F>(
     services: Arc<AppServices>,
     create_lifecycle: Arc<F>,
+    view_states: Arc<crate::editor_view_state_sync::Shared>,
     name: &str,
     args: &Value,
 ) -> Result<String, Value>
@@ -72,6 +104,13 @@ where
             argument(args, $key).map_err(error_value)?
         };
     }
+    macro_rules! mutate {
+        ($mutation:expr) => {{
+            let mutation = $mutation;
+            view_states.flush(&services).await.map_err(error_value)?;
+            respond(mutation.await)
+        }};
+    }
     let state = &services.state;
     let events = services.events.as_ref();
     match name {
@@ -79,13 +118,15 @@ where
         "project_get" => respond(project_actions::project_get(state, arg!("projectId")).await),
         "project_get_active" => respond(project_actions::project_get_active(state).await),
         "project_open" => {
-            let path = arg!("path");
+            let path: String = arg!("path");
             let worker = services.clone();
             respond(
                 services
                     .tasks
                     .run_nonabortable_result("native-remote-project-open", async move {
                         let _span = perf::span(SpanSlot::ProjectOpen);
+                        project_actions::validate_open_root(Path::new(&path))?;
+                        view_states.flush(&worker).await?;
                         let ports = create_lifecycle(worker.clone());
                         project_actions::project_open(
                             worker.events.as_ref(),
@@ -99,13 +140,39 @@ where
             )
         }
         "project_open_in_slot" => {
-            let request = arg!("request");
+            let request: OpenProjectInSlotRequest = arg!("request");
             let worker = services.clone();
             respond(
                 services
                     .tasks
                     .run_nonabortable_result("native-remote-project-open-in-slot", async move {
                         let _span = perf::span(SpanSlot::ProjectOpen);
+                        let projects = worker.state.projects.read().clone();
+                        let existing =
+                            match (&request.path, &request.project_id) {
+                                (Some(path), None) => {
+                                    project_actions::validate_open_root(Path::new(path))?;
+                                    project_actions::find_open_project_by_root(
+                                        &projects,
+                                        Path::new(path),
+                                    )
+                                }
+                                (None, Some(project)) => {
+                                    project_actions::get_project(&projects, project)?;
+                                    Some(project.clone())
+                                }
+                                _ => return Err(AppError::InvalidArgument(
+                                    "project_open_in_slot needs exactly one of path or projectId"
+                                        .into(),
+                                )),
+                            };
+                        project_actions::ensure_slot_placement_allowed(
+                            &worker.state.session.read(),
+                            existing.as_ref(),
+                            &request.target_slot,
+                            request.edge,
+                        )?;
+                        view_states.flush(&worker).await?;
                         let ports = create_lifecycle(worker.clone());
                         project_actions::project_open_in_slot(
                             worker.events.as_ref(),
@@ -125,6 +192,8 @@ where
                 services
                     .tasks
                     .run_nonabortable_result("native-remote-project-group-open", async move {
+                        project_actions::group_members(&worker.state.session.read(), &group)?;
+                        view_states.flush(&worker).await?;
                         let ports = create_lifecycle(worker.clone());
                         project_actions::project_group_open(
                             worker.events.as_ref(),
@@ -139,11 +208,15 @@ where
         }
         "project_close" => {
             let project = arg!("projectId");
+            project_actions::get_project(&state.projects.read(), &project).map_err(error_value)?;
+            view_states.flush(&services).await.map_err(error_value)?;
             let ports = create_lifecycle(services.clone());
             respond(project_actions::project_close(events, state, &ports, project).await)
         }
         "project_activate" => {
-            respond(project_actions::project_activate(events, state, arg!("projectId")).await)
+            let project = arg!("projectId");
+            project_actions::get_project(&state.projects.read(), &project).map_err(error_value)?;
+            mutate!(project_actions::project_activate(events, state, project))
         }
         "project_reorder" => {
             respond(project_actions::project_reorder(events, state, arg!("ids")).await)
@@ -196,11 +269,17 @@ where
             respond(project_actions::project_group_reorder(events, state, arg!("ids")).await)
         }
         "shell_slot_close" => {
-            respond(project_actions::shell_slot_close(events, state, arg!("slotId")).await)
+            let slot = arg!("slotId");
+            validate_slot(state, &slot, true).map_err(error_value)?;
+            mutate!(project_actions::shell_slot_close(events, state, slot))
         }
         "session_get_shell_state" => respond(project_actions::session_get_shell_state(state).await),
         "session_focus_shell_slot" => {
-            respond(project_actions::session_focus_shell_slot(events, state, arg!("slotId")).await)
+            let slot = arg!("slotId");
+            validate_slot(state, &slot, false).map_err(error_value)?;
+            mutate!(project_actions::session_focus_shell_slot(
+                events, state, slot
+            ))
         }
         "session_set_shell_slot_sizes" => respond(
             project_actions::session_set_shell_slot_sizes(

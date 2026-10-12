@@ -104,6 +104,10 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        Self::with_view_states(Arc::default())
+    }
+
+    fn with_view_states(view_states: Arc<crate::editor_view_state_sync::Shared>) -> Self {
         let directory =
             std::env::temp_dir().join(format!("taide-native-remote-projects-{}", ProjectId::new()));
         for name in ["first", "second", "third"] {
@@ -137,7 +141,7 @@ impl Fixture {
                 })
             }),
         };
-        let backend = remote_gateway::with_policy(extend_backend(
+        let backend = remote_gateway::with_policy(extend_backend_with_view_states(
             move |services: Arc<AppServices>| {
                 recorded.calls.fetch_add(1, Ordering::AcqRel);
                 Lifecycle {
@@ -146,6 +150,7 @@ impl Fixture {
                     control: recorded.clone(),
                 }
             },
+            view_states,
             remaining,
         ));
         Self {
@@ -205,6 +210,150 @@ impl Drop for Fixture {
         self.services.tasks.stop_all();
         std::fs::remove_dir_all(&self.directory).unwrap();
     }
+}
+
+#[tokio::test]
+async fn 원격_프로젝트는_검증_뒤에만_캡처하고_저장_실패에서_세션과_수명을_보존한다() {
+    use taide_model::ids::ShellSlotId;
+    use taide_model::layout::SplitDir;
+    use taide_model::project::ProjectGroup;
+
+    tokio::time::timeout(DEADLINE, async {
+        let shared = Arc::new(crate::editor_view_state_sync::Shared::default());
+        let fixture = Fixture::with_view_states(shared.clone());
+        let first = ProjectId::new();
+        let second = ProjectId::new();
+        for (id, name) in [(first.clone(), "first"), (second.clone(), "second")] {
+            fixture.services.state.projects.write().insert(id.clone(), Project {
+                id,
+                root: fixture.directory.join(name).to_str().unwrap().into(),
+                name: name.into(),
+                capabilities: Vec::new(),
+                root_missing: false,
+                last_opened_at: 0.0,
+                display: Default::default(),
+            });
+        }
+        let first_slot = ShellSlotId::new();
+        let second_slot = ShellSlotId::new();
+        let group = ProjectGroupId::new();
+        {
+            let mut session = fixture.services.state.session.write();
+            session.active_project = Some(first.clone());
+            session.focused_shell_slot = Some(first_slot.clone());
+            session.shell_slots = Some(ShellSlotTree::Split {
+                dir: SplitDir::Horizontal,
+                children: vec![ShellSlotTree::Leaf { slot_id: first_slot.clone(), project_id: first.clone() }, ShellSlotTree::Leaf { slot_id: second_slot.clone(), project_id: second.clone() }],
+                sizes: vec![FIRST_SIZE, SECOND_SIZE],
+            });
+            session.groups.push(ProjectGroup { id: group.clone(), name: "synthetic".into(), color: None, members: vec![first.clone()], collapsed: false });
+        }
+        let requests = Arc::new(AtomicUsize::new(0));
+        let observed = requests.clone();
+        shared.bind(Arc::new(move || { observed.fetch_add(1, Ordering::SeqCst); }));
+        for (name, arguments) in [
+            ("project_open", json!({"path": false})),
+            ("project_open", json!({"path": fixture.directory.join("missing")})),
+            ("project_close", json!({"projectId": ProjectId::new()})),
+            ("project_activate", json!({"projectId": false})),
+            ("project_group_open", json!({"groupId": ProjectGroupId::new()})),
+            ("project_open_in_slot", json!({"request": {"path": fixture.directory.join("third"), "projectId": first, "targetSlot": first_slot, "edge": "right"}})),
+            ("project_open_in_slot", json!({"request": {"projectId": second, "targetSlot": first_slot, "edge": "right"}})),
+            ("shell_slot_close", json!({"slotId": ShellSlotId::new()})),
+            ("session_focus_shell_slot", json!({"slotId": false})),
+            ("layout_move_tab_to_window", json!({})),
+        ] {
+            assert!(fixture.call(name, arguments).await.is_err(), "{name}");
+        }
+        fixture.ok("project_get_active", Value::Null).await;
+        fixture.ok("session_get_shell_state", Value::Null).await;
+        assert_eq!(requests.load(Ordering::SeqCst), 0);
+        assert!(!shared.has_pending());
+        let original = fixture.services.state.session.read().clone();
+        let projects = fixture.services.state.projects.read().clone();
+        fixture.sink.0.lock().unwrap().clear();
+        shared.finish(Err(AppError::Internal("synthetic capture failure".into())));
+        for (name, arguments) in [
+            ("project_open", json!({"path": fixture.directory.join("third")})),
+            ("project_close", json!({"projectId": first})),
+            ("project_activate", json!({"projectId": second})),
+            ("project_group_open", json!({"groupId": group})),
+            ("project_open_in_slot", json!({"request": {"path": fixture.directory.join("third"), "targetSlot": first_slot, "edge": "right"}})),
+            ("shell_slot_close", json!({"slotId": first_slot})),
+            ("session_focus_shell_slot", json!({"slotId": second_slot})),
+        ] {
+            let error = fixture.call(name, arguments).await.unwrap_err();
+            assert!(error.to_string().contains("synthetic capture failure"), "{name}: {error}");
+            assert_eq!(*fixture.services.state.session.read(), original, "{name}");
+            assert_eq!(*fixture.services.state.projects.read(), projects, "{name}");
+            assert!(fixture.sink.0.lock().unwrap().is_empty(), "{name}");
+        }
+        assert_eq!(fixture.control.calls.load(Ordering::SeqCst), 0);
+        assert!(fixture.control.trace.lock().unwrap().is_empty());
+        assert!(!shared.has_pending());
+        fixture.services.tasks.shutdown().await;
+        assert_eq!(fixture.services.tasks.tracked_count(), 0);
+    }).await.unwrap();
+}
+
+#[tokio::test]
+async fn 원격_열기는_캡처_대기중_요청이_취소되어도_승인된_작업을_완료한다() {
+    tokio::time::timeout(DEADLINE, async {
+        let _os_watch_registration = NativeProjects::exclusive_os_watch_registration().await;
+        let shared = Arc::new(crate::editor_view_state_sync::Shared::default());
+        let fixture = Fixture::with_view_states(shared.clone());
+        shared.bind(Arc::new(|| {}));
+        let services = fixture.services.clone();
+        let dispatch = fixture.backend.json.clone();
+        let root = fixture.directory.join("first");
+        let arguments = json!({"path": root});
+        let caller = tokio::spawn(async move {
+            let channels: ChannelFactory =
+                Arc::new(|_| Box::new(|_| panic!("project open has no channels")));
+            dispatch(services, "project_open".into(), arguments, channels).await
+        });
+        while !shared.has_pending() {
+            tokio::task::yield_now().await;
+        }
+        assert!(fixture.services.state.projects.read().is_empty());
+        caller.abort();
+        assert!(caller.await.unwrap_err().is_cancelled());
+        assert!(fixture.services.tasks.tracked_count() > 0);
+        shared.publish(Ok(Arc::<[crate::editor_view_state::Captured]>::from([])));
+        while fixture.control.trace.lock().unwrap().is_empty() {
+            tokio::task::yield_now().await;
+        }
+        let project = fixture
+            .services
+            .state
+            .projects
+            .read()
+            .values()
+            .find(|project| Path::new(&project.root) == root)
+            .unwrap()
+            .clone();
+        assert!(
+            fixture
+                .services
+                .state
+                .watchers
+                .read()
+                .contains_key(&project.id)
+        );
+        assert!(
+            fixture
+                .services
+                .state
+                .layouts
+                .read()
+                .contains_key(&project.id)
+        );
+        assert_eq!(fixture.control.calls.load(Ordering::SeqCst), 1);
+        assert!(!shared.has_pending());
+        fixture.finish().await;
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]

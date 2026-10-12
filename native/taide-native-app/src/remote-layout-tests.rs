@@ -38,7 +38,6 @@ const QUEUE_VISITS: usize = 4096;
 const CELL_WIDTH: u16 = 8;
 #[cfg(unix)]
 const CELL_HEIGHT: u16 = 16;
-#[cfg(unix)]
 const DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
 
 #[derive(Default)]
@@ -63,6 +62,10 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        Self::with_view_states(Arc::default())
+    }
+
+    fn with_view_states(view_states: Arc<crate::editor_view_state_sync::Shared>) -> Self {
         let directory =
             std::env::temp_dir().join(format!("taide-native-remote-layout-{}", ProjectId::new()));
         std::fs::create_dir_all(directory.join("project")).unwrap();
@@ -97,6 +100,7 @@ impl Fixture {
         let observed_services = services.clone();
         let observed_project = project.clone();
         let ports = Ports {
+            view_states,
             discard_terminal: Arc::new(move |id| {
                 let layouts = observed_services.state.layouts.read();
                 assert!(!crate::tabs::tabs_in(&layouts[&observed_project].root).iter()
@@ -277,6 +281,64 @@ fn tab(layout: &ProjectLayout, id: &TabId) -> Tab {
         .find(|tab| &tab.id == id)
         .unwrap()
         .clone()
+}
+
+#[tokio::test]
+async fn 원격_레이아웃은_policy와_입력_경계_뒤에만_캡처하고_저장_실패의_변경을_막는다() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use taide_model::layout::TabPathChange;
+
+    tokio::time::timeout(DEADLINE, async {
+        let shared = Arc::new(crate::editor_view_state_sync::Shared::default());
+        let fixture = Fixture::with_view_states(shared.clone());
+        let file = fixture.root.join("current.txt");
+        std::fs::write(&file, "synthetic view state").unwrap();
+        let tab = fixture.open(json!(TabKind::File { path: file.to_str().unwrap().into() }), "current").await;
+        let untitled = fixture.open(json!(TabKind::Untitled { index: 1 }), "untitled").await;
+        let requests = Arc::new(AtomicUsize::new(0));
+        let observed = requests.clone();
+        shared.bind(Arc::new(move || { observed.fetch_add(1, Ordering::SeqCst); }));
+        for (name, arguments) in [
+            ("layout_move_tab_to_window", json!({})),
+            ("layout_activate_tab", json!({"tabId": false})),
+            ("layout_move_tab", json!({"tabId": tab, "paneId": fixture.pane, "index": "invalid"})),
+            ("layout_open_tab", json!({"projectId": fixture.project, "kind": TabKind::Settings, "title": "invalid", "preview": "invalid"})),
+            ("layout_open_tab", json!({"projectId": fixture.project, "kind": TabKind::File { path: fixture.directory.join("outside.txt").to_str().unwrap().into() }, "title": "invalid", "preview": true})),
+            ("layout_open_tab_in_split", json!({"request": {"projectId": fixture.project, "targetPane": fixture.pane, "edge": "right", "kind": TabKind::File { path: fixture.root.join("missing.txt").to_str().unwrap().into() }, "title": "invalid"}})),
+            ("layout_close_tab", json!({"tabId": TabId::new()})),
+        ] {
+            assert!(fixture.call(name, arguments).await.is_err(), "{name}");
+        }
+        fixture.ok("layout_get", json!({"projectId": fixture.project})).await;
+        fixture.ok("layout_focus_pane", json!({"paneId": fixture.pane})).await;
+        fixture.ok("layout_set_view_state", json!({"tabId": tab, "viewState": VIEW_STATE})).await;
+        assert_eq!(requests.load(Ordering::SeqCst), 0);
+        assert!(!shared.has_pending());
+        let original = fixture.current();
+        fixture.sink.0.lock().unwrap().clear();
+        shared.finish(Err(AppError::Internal("synthetic capture failure".into())));
+        for (name, arguments) in [
+            ("layout_open_tab", json!({"projectId": fixture.project, "kind": TabKind::File { path: file.to_str().unwrap().into() }, "title": "peer", "preview": true})),
+            ("layout_close_tab", json!({"tabId": tab})),
+            ("layout_activate_tab", json!({"tabId": tab})),
+            ("layout_move_tab", json!({"tabId": tab, "paneId": fixture.pane, "index": 0})),
+            ("layout_split", json!({"tabId": tab, "paneId": fixture.pane, "edge": "right"})),
+            ("layout_open_tab_in_split", json!({"request": {"projectId": fixture.project, "targetPane": fixture.pane, "edge": "right", "kind": TabKind::Settings, "title": "peer"}})),
+            ("layout_reopen_closed", json!({"projectId": fixture.project})),
+            ("layout_open_untitled", json!({"projectId": fixture.project})),
+            ("layout_convert_untitled", json!({"tabId": untitled, "path": file})),
+            ("layout_apply_path_change", json!({"projectId": fixture.project, "change": TabPathChange::Deleted { path: file.to_str().unwrap().into() }})),
+        ] {
+            let error = fixture.call(name, arguments).await.unwrap_err();
+            assert!(error.to_string().contains("synthetic capture failure"), "{name}: {error}");
+            assert_eq!(fixture.current(), original, "{name}");
+            assert!(fixture.sink.0.lock().unwrap().is_empty(), "{name}");
+        }
+        assert!(fixture.discarded.lock().unwrap().is_empty());
+        assert!(!shared.has_pending());
+        fixture.services.tasks.shutdown().await;
+        assert_eq!(fixture.services.tasks.tracked_count(), 0);
+    }).await.unwrap();
 }
 
 #[tokio::test]

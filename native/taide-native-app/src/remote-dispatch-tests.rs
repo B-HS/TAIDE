@@ -241,6 +241,7 @@ impl Fixture {
             }),
         };
         let ports = Ports {
+            view_states: Arc::default(),
             preferences,
             agents: remote_agents::Ports {
                 foreground_pids: Arc::new(|_, _| panic!("probe is outside this integration")),

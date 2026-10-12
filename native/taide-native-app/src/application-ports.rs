@@ -115,6 +115,7 @@ impl Ports {
             let terminals = terminal.terminals.clone();
             let dispatch = Arc::new(crate::remote_dispatch::create_dispatch(
                 crate::remote_dispatch::Ports {
+                    view_states: view_states.clone(),
                     preferences: crate::remote_preferences::Ports {
                         info,
                         reconcile: reconcile.clone(),

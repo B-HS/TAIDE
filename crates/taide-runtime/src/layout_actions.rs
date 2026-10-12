@@ -234,7 +234,8 @@ pub async fn layout_get(state: &AppState, project_id: ProjectId) -> AppResult<Pr
         .ok_or_else(|| AppError::NotFound(format!("layout not found: {project_id}")))
 }
 
-fn ensure_file_tab_target_exists(
+/// Validates file tab targets against the open-project or CLI path boundary.
+pub fn ensure_file_tab_target_exists(
     projects: &HashMap<ProjectId, Project>,
     cli_opened_paths: &HashSet<PathBuf>,
     kind: &TabKind,

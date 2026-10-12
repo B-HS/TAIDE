@@ -12,6 +12,10 @@ use taide_model::project::{
 };
 use taide_project::groups;
 use taide_project::service;
+pub use taide_project::service::{
+    ensure_slot_placement_allowed, find_open_project_by_root, get_project, group_members, validate_open_root,
+};
+pub use taide_project::shell_slots::{contains_slot, leaf_count};
 
 use crate::{AppState, EventSink};
 

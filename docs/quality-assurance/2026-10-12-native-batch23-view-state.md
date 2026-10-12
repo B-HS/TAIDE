@@ -175,3 +175,31 @@ preview 재열기 코드/검사·QA/소유 PROCESS의6경로는 `b05c1c2d`로 �
 `view-state-ide-server.log`는 소유 loopback 허용의 기존 인증/MCP/RPC/동기 알림·pending/lockfile·지연 owner 회수4통과·0.07초·exit0입니다. `view-state-ide-ports.log`는 실제 조립/dispatch/persist/event/lazy ports·소유 PTY agent 회수2통과·0.05초·exit0입니다. 변경 없는App/상태/sync16·종료2·Host9/controller3/Core306/UI88을 재사용한 서로 다른436건이며 이전 단독 성공을 추가 합산하지 않습니다. 소유7Rust fmt/diff는 exit0이고 manifest/lock/renderer/Core/engine/frozen 불변과 사용자 기존 변경을 보존합니다. 전체App/실기·remote/project/slot/aux/batch·folding/전체 재시작과 editor-67 전체 완료는 별도 미완료입니다.
 
 IDE 선행 저장 코드/검사·QA/소유 PROCESS의9경로는 `958dbf87`로 선별 커밋했습니다. 기능표는588대상·complete298/partial93/unwired110/missing87·미완료290이며 editor-67 partial·배치23 잔여23/최종33을 유지합니다. 다음은 remote 명령과 project/slot/aux·batch 종료에서 최신 위치가 누락되지 않는지 실제 경로별 대조/재현입니다.
+
+## 원격 레이아웃과 프로젝트의 최신 위치
+
+이전 turn은 preview 메모리 재열기와 IDE 최신 위치의 구현/실제 검사·문서/배치 갱신·일반 push로 진척했습니다. 현재6906347b/958dbf87의 실제 원격 조립을 확인했고 remote_layout/remote_projects에는 동일 캡처 포트가 없습니다. 기존 outer command policy 뒤 typed argument와 파일/프로젝트 경계 검증을 유지하며 탭 열기/닫힘·전환/분할·프로젝트/슬롯 수명 앞에서 선행 저장합니다. metadata/명시 viewState/읽기/resize 등은 기존 경로를 유지합니다. 실제 App 조립 dispatch로 이전 본문 위치/최근 닫힘과 프로젝트 detach 전 디스크 layout을 검증합니다.
+
+첫 `view-state-remote-red.log`는 작성한 fixture의 TabKind 태그를 실제 `kind` 대신 `type`으로 지정해 열기 결과 오류에서0통과/1실패·18.71초·exit101(컴파일23.87초)입니다. 실제 모델의 serde 계약을 읽고 TabKind 자체를 직렬화하도록 수정했습니다. 입력 오류를 제품의 위치 실패로 세지 않으며, 후기 위치/닫힘/프로젝트 종료 단언에는 도달하지 않았습니다.
+
+`view-state-remote-red-fixed.log`는 실제 원격 파일 열기가 끝난 뒤 이전 Tab.view_state None에서0통과/1실패·20.79초·exit101(컴파일30.26초)입니다. App 조립 dispatch가 같은 공유 캡처를 remote layout/project 포트에 전달하도록 연결했습니다. mutation future를 만들 때 typed 인자를 먼저 검증하며 실제 mutation을 poll하기 전에 캡처를 적용합니다. 파일 열기의 기존 root guard와 프로젝트 root/슬롯 검증도 캡처 전에 수행하며 원래 서비스는 실제 변경 시 다시 검증합니다. 명시 viewState/metadata/읽기/resize는 캡처하지 않고 기존 outer policy·typed 오류/async 작업·close flush 순서를 유지합니다.
+
+첫 `view-state-remote-green.log`는 native App의 직접 의존성에 taide-project가 없는데 직접 import한 작성 오류로 E0432/E0433·실행0건·exit101입니다. 실제 manifest를 확인하고 기존 taide-runtime project_actions 경계가 필요한 원본 검증 함수만 재노출하도록 수정했습니다. 새 의존성/lock 변경은 없으며 프로젝트 경로 검증은 기존 localized 오류/홈 경로/읽기 가능 디렉터리 확인을 동일 함수로 공유합니다. Host OpenProject도 같은 경계 뒤 선행 저장하며 실제 앱 검사와 관련 포트/서비스 회귀를 확인 중입니다.
+
+`view-state-remote-green-fixed.log`의 실제 App은1통과/0실패·22.02초·exit0(컴파일39.34초)입니다. 원격 파일 열기 전 마지막 선택·비활성 본문 추가 이동 뒤 최근 닫힘·프로젝트 종료 직전 peer 위치가 디스크 layout에 도달한 뒤 실제 project/layout detach가 완료되는 순서와 원문/디스크 보존을 확인했습니다. 이후 프로젝트 닫힘의 lifecycle factory 생성도 캡처 성공 뒤로 옮겨 실패 때 생성/부수 효과를 막았습니다. 성공 경로는 동일하며 새 오류 경계 검사가 이를 직접 확인합니다.
+
+`view-state-remote-boundaries.log`는7통과·0.10초·exit0(컴파일23.12초)입니다. 새 레이아웃/프로젝트 두 경계는 typed 값·파일/프로젝트 root·슬롯 중복/존재/권한 거절과 읽기/명시 viewState의 캡처 요청0, 캡처 실패의 레이아웃10/프로젝트7 명령의 mutation/이벤트0·lifecycle 생성/trace0·대기/작업 회수를 확인했습니다. 넓은 한국어 필터로 원격 URI·설정 보호·테마 owner·터미널 query의 불변4건도 실행한 한계를 기록하고 반복하지 않습니다. 기존 소유 PTY 닫힘1건의 성공은 뒤의 모듈 검사에서 제외해 재사용했습니다.
+
+`view-state-remote-layout.log`는 이전 성공2건을 제외한 나머지 레이아웃3통과·0.01초·exit0입니다. `view-state-remote-projects.log`는2통과/1실패·0.66초·exit101입니다. 새 사전 검증이 작업 감독 종료의 Forbidden보다 먼저 슬롯/그룹 NotFound를 반환하는 회귀를 확인했습니다. 열기3진입점은 typed parsing 뒤 기존 nonabortable 작업을 접수하고 그 작업 안에서 경계 검증/캡처/서비스를 수행하도록 수정했습니다. 캡처 대기 중 호출자가 취소돼도 접수한 작업의 소유가 유지되며, 종료 거절/파일·슬롯 검증과 캡처 실패의 mutation 억제를 함께 보존합니다. `view-state-remote-projects-fixed.log`는 관련 프로젝트4통과·0.65초·exit0(컴파일14.53초)입니다. 변경된 성공2건과 실패 영향/new 경계를 확인한 재검사는 중복 집계하지 않습니다.
+
+`view-state-remote-cancel.log`는 캡처 대기 중 원격 호출자를 취소하고 같은 요청에 빈 합성 캡처를 전달한 뒤 실제 프로젝트 등록/레이아웃/소유 watcher와 작업0 회수를 확인한 새1통과·0.19초·exit0(컴파일23.28초)입니다. 위치 데이터 자체는 앞선 실제 App으로 검증하며 이 검사는 요청/감독 수명 경계의 근거입니다. `view-state-remote-dispatch.log`는 전체177명령 routing/default deny·동일 services/파일/raw/search/설정·소유 PTY의3통과·0.16초·exit0입니다. `view-state-remote-host.log`는 전체Host9통과·0.06초·exit0이며 기존 미소비 문서 lease·mirror/저장·초기 watcher 대기·실제 종료 flush 오류를 확인했습니다.
+
+추가 실제 App 검사에서는 두 프로젝트/슬롯의 원격 focus/close/activate와 Host OpenProject의 최신 위치·본문/디스크 보존을 확인합니다. 첫 `view-state-remote-slots.log`는 작성한 검사에서 Path import 누락으로 E0433 1건·실행0건·exit101입니다. std::path::Path를 import하고 같은 검사를 확인 중이며, 미실행 후기 단언을 성공으로 세지 않습니다.
+
+`view-state-remote-slots-fixed.log`는 실제 원격 슬롯 focus/close·project_activate와 Host OpenProject의 네 전환에서 본문 최신 위치·원문/dirty/디스크 보존이1통과·77.12초·exit0(컴파일26.19초)입니다. 두 프로젝트/슬롯과 실제 본문 Shift+Right 뒤 위치를 사용하며 headless mutation 성공이나 단순 코드 연결을 실제 App 검증으로 대체하지 않습니다. 현재 compile/준비 시간 변동의 원인을 이 성공만으로 해결했다고 보고하지 않습니다.
+
+첫 `view-state-remote-project-core.log`는 native 독립 workspace의 dependency package가 dev-dependency를 가진 taide-project 검사를 허용하지 않아 실행0건·exit101입니다. 실제 taide-project가 속한 기존 root workspace manifest와 lock을 사용해 동일 소유 target에서 기존 프로젝트 서비스 전체를 확인합니다. 프로젝트 원본 함수의 본문과 localized 오류/홈 확장·읽기 가능 디렉터리 규칙은 그대로이며 별도 검증 명령을 임의 통과로 대체하지 않습니다.
+
+`view-state-remote-project-core-workspace.log`는 실제 기존 workspace의 프로젝트서비스/그룹/슬롯 전체98통과·0.51초·exit0(컴파일2분01초)입니다. localized missing root·디렉터리/홈 경로·재열기/복원·프로젝트와 슬롯/그룹 저장/수명을 확인했습니다. `view-state-remote-ports.log`는 조립/dispatch/persist/event/lazy ports·소유 agent 회수2통과·0.10초·exit0, 소유 loopback 허용의 `view-state-remote-exit.log`는 실제 종료 저장/오류·서버/세션/pending/lockfile·감독 회수2통과·0.05초·exit0입니다.
+
+현재 실제 App2·원격레이아웃5/프로젝트5/dispatch3·넓은 필터의 불변4·Host9/포트2/종료2·프로젝트서비스98은 로그의 package/test 이름을 합쳐 서로 다른130건입니다. 기존436건에서 다시 실행한Host9/포트2/종료2를 제외한423건을 재사용해 서로 다른553건이며 같은 성공을 추가 합산하지 않습니다. 소유12Rust fmt/diff는 exit0이고 manifest/lock/UI renderer/Core editor/engine/frozen은 변경하지 않았습니다. 런타임의 파일 검증 함수 공개와 프로젝트 검증 함수의 제한된 재노출은 기존 서비스 경계를 재사용하며 새 의존성/RPC가 없습니다. editor-67 partial·complete298/partial93/unwired110/missing87·미완료290·배치23 잔여23/최종33·전체율/잔여시간 미산정을 유지합니다. 실제 batch/aux·folding contribution/전체App 재시작과 전체App/실기/신뢰성/출시 게이트는 아직 남습니다.

@@ -144,6 +144,410 @@ fn 실제_ide_파일_열기와_닫힘은_본문의_최신_위치를_저장한다
 }
 
 #[test]
+fn 실제_remote_탭_명령과_프로젝트_종료는_최신_본문_위치를_보존한다() {
+    let mut fixture = fixture_with_view_state(
+        "--native-inlay-hints",
+        false,
+        |_, _, _| true,
+        None,
+        IDE_TEXT,
+    );
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let view = body_view(application, &fixture.path, &fixture.tab);
+    let selection = SelectionSet {
+        primary: 0,
+        selections: vec![Selection {
+            anchor: ANCHOR_BYTE,
+            head: HEAD_BYTE,
+        }],
+    };
+    application
+        .store
+        .set_view_state(
+            view,
+            selection.clone(),
+            ScrollPosition::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    let focus = crate::editor_context_menu::body(context, view).unwrap();
+    context.memory_mut(|memory| memory.request_focus(focus));
+    paint(
+        application,
+        context,
+        key(
+            egui::Key::ArrowRight,
+            egui::Modifiers {
+                shift: true,
+                ..egui::Modifiers::NONE
+            },
+        ),
+    );
+    let services = application.services.clone();
+    let dispatch = application.application_ports.dispatch.clone();
+    let arguments = serde_json::json!({ "projectId": fixture.project, "kind": TabKind::File { path: fixture.peek_path.clone() }, "title": "remote peer", "preview": true });
+    let opened = application.runtime.spawn(async move {
+        let channels: crate::remote_ws::ChannelFactory =
+            Arc::new(|_| Box::new(|_| panic!("layout command must not create a channel")));
+        (dispatch.json)(services, "layout_open_tab".into(), arguments, channels).await
+    });
+    wait(application, context, "remote file open", |_| {
+        opened.is_finished()
+    });
+    let opened = application.runtime.block_on(opened).unwrap();
+    assert!(opened.is_ok(), "{opened:?}");
+    let layout = application.services.state.layouts.read()[&fixture.project].clone();
+    let tab = crate::tabs::tabs_in(&layout.root)
+        .into_iter()
+        .find(|tab| tab.id == fixture.tab)
+        .unwrap();
+    let saved: serde_json::Value = serde_json::from_str(
+        tab.view_state
+            .as_deref()
+            .expect("remote open must capture the previous view"),
+    )
+    .unwrap();
+    assert_eq!(
+        saved["cursorState"][0]["position"],
+        serde_json::json!({ "lineNumber": STORED_LINE, "column": SHIFT_HEAD_COLUMN })
+    );
+    application
+        .store
+        .set_view_state(view, selection, ScrollPosition::default(), Vec::new())
+        .unwrap();
+    let services = application.services.clone();
+    let dispatch = application.application_ports.dispatch.clone();
+    let arguments = serde_json::json!({ "tabId": fixture.tab });
+    let closed = application.runtime.spawn(async move {
+        let channels: crate::remote_ws::ChannelFactory =
+            Arc::new(|_| Box::new(|_| panic!("layout command must not create a channel")));
+        (dispatch.json)(services, "layout_close_tab".into(), arguments, channels).await
+    });
+    wait(application, context, "remote file close", |_| {
+        closed.is_finished()
+    });
+    assert!(application.runtime.block_on(closed).unwrap().is_ok());
+    let layout = application.services.state.layouts.read()[&fixture.project].clone();
+    let closed = layout
+        .closed_tabs
+        .iter()
+        .find(|closed| closed.tab.id == fixture.tab)
+        .unwrap();
+    let saved: serde_json::Value =
+        serde_json::from_str(closed.tab.view_state.as_deref().unwrap()).unwrap();
+    assert_eq!(
+        saved["cursorState"][0]["position"],
+        serde_json::json!({ "lineNumber": STORED_LINE, "column": HEAD_COLUMN })
+    );
+    let peer = crate::tabs::tabs_in(&layout.root)
+        .into_iter()
+        .find(|tab| matches!(&tab.kind, TabKind::File { path } if path == &fixture.peek_path))
+        .unwrap()
+        .id
+        .clone();
+    wait(application, context, "remote peer view", |application| {
+        application
+            .files
+            .get(&fixture.peek_path)
+            .is_some_and(|file| {
+                application
+                    .store
+                    .views()
+                    .for_document(file.id)
+                    .any(|view| view.key.tab == peer)
+            })
+    });
+    let peer_view = body_view(application, &fixture.peek_path, &peer);
+    application
+        .store
+        .set_view_state(
+            peer_view,
+            SelectionSet {
+                primary: 0,
+                selections: vec![Selection { anchor: 1, head: 1 }],
+            },
+            ScrollPosition::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    let services = application.services.clone();
+    let dispatch = application.application_ports.dispatch.clone();
+    let arguments = serde_json::json!({ "projectId": fixture.project });
+    let project_closed = application.runtime.spawn(async move {
+        let channels: crate::remote_ws::ChannelFactory =
+            Arc::new(|_| Box::new(|_| panic!("project command must not create a channel")));
+        (dispatch.json)(services, "project_close".into(), arguments, channels).await
+    });
+    wait(application, context, "remote project close", |_| {
+        project_closed.is_finished()
+    });
+    assert!(
+        application
+            .runtime
+            .block_on(project_closed)
+            .unwrap()
+            .is_ok()
+    );
+    assert!(
+        !application
+            .services
+            .state
+            .projects
+            .read()
+            .contains_key(&fixture.project)
+    );
+    assert!(
+        !application
+            .services
+            .state
+            .layouts
+            .read()
+            .contains_key(&fixture.project)
+    );
+    let persisted =
+        taide_layout::service::load_layout(&application.services.state.paths, &fixture.project);
+    let peer = crate::tabs::tabs_in(&persisted.root)
+        .into_iter()
+        .find(|tab| tab.id == peer)
+        .unwrap();
+    let saved: serde_json::Value = serde_json::from_str(
+        peer.view_state
+            .as_deref()
+            .expect("project close must flush the latest peer position before detach"),
+    )
+    .unwrap();
+    assert_eq!(
+        saved["cursorState"][0]["position"],
+        serde_json::json!({ "lineNumber": 1, "column": 2 })
+    );
+    assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), IDE_TEXT);
+}
+
+#[test]
+fn 실제_remote_슬롯_전환_닫힘과_host_프로젝트_열기는_최신_위치를_저장한다() {
+    use std::path::Path;
+    use taide_model::ids::ShellSlotId;
+    use taide_model::layout::SplitDir;
+    use taide_model::project::{Project, ProjectRef, ShellSlotTree};
+
+    let second = ProjectId::new();
+    let second_slot = ShellSlotId::new();
+    let mut fixture = fixture_with_view_state_and_setup(
+        "--native-inlay-hints",
+        false,
+        |_, _, _| true,
+        None,
+        IDE_TEXT,
+        |application, _, project, _| {
+            let first_root = application.services.state.projects.read()[project]
+                .root
+                .clone();
+            let second_root = Path::new(&first_root)
+                .parent()
+                .unwrap()
+                .join("second-project");
+            std::fs::create_dir_all(&second_root).unwrap();
+            let second_root = second_root.to_str().unwrap().to_owned();
+            application.services.state.projects.write().insert(
+                second.clone(),
+                Project {
+                    id: second.clone(),
+                    root: second_root.clone(),
+                    name: "second".into(),
+                    capabilities: Vec::new(),
+                    root_missing: false,
+                    last_opened_at: 0.0,
+                    display: Default::default(),
+                },
+            );
+            application
+                .services
+                .state
+                .layouts
+                .write()
+                .insert(second.clone(), taide_layout::service::default_layout());
+            let mut session = application.services.state.session.write();
+            session.projects.push(ProjectRef {
+                id: second.clone(),
+                root: second_root,
+                name: "second".into(),
+                display: Default::default(),
+                root_missing: false,
+            });
+            let first_slot = session.shell_slots.take().unwrap();
+            session.shell_slots = Some(ShellSlotTree::Split {
+                dir: SplitDir::Horizontal,
+                children: vec![
+                    first_slot,
+                    ShellSlotTree::Leaf {
+                        slot_id: second_slot.clone(),
+                        project_id: second.clone(),
+                    },
+                ],
+                sizes: vec![1.0, 1.0],
+            });
+        },
+    );
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let first_slot = application
+        .services
+        .state
+        .session
+        .read()
+        .focused_shell_slot
+        .clone()
+        .unwrap();
+    let view = body_view(application, &fixture.path, &fixture.tab);
+    let document = application.store.views().get(view).unwrap().document;
+    application
+        .store
+        .set_view_state(
+            view,
+            SelectionSet {
+                primary: 0,
+                selections: vec![Selection {
+                    anchor: ANCHOR_BYTE,
+                    head: HEAD_BYTE,
+                }],
+            },
+            ScrollPosition::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    let focus = crate::editor_context_menu::body(context, view).unwrap();
+    context.memory_mut(|memory| memory.request_focus(focus));
+    paint(
+        application,
+        context,
+        key(
+            egui::Key::ArrowRight,
+            egui::Modifiers {
+                shift: true,
+                ..egui::Modifiers::NONE
+            },
+        ),
+    );
+    assert_eq!(
+        application
+            .store
+            .views()
+            .get(view)
+            .unwrap()
+            .selection
+            .selections[0]
+            .head,
+        SHIFT_HEAD_BYTE
+    );
+    for (name, arguments, selection, line, column) in [
+        (
+            "session_focus_shell_slot",
+            serde_json::json!({"slotId": second_slot}),
+            Selection {
+                anchor: ANCHOR_BYTE,
+                head: SHIFT_HEAD_BYTE,
+            },
+            STORED_LINE,
+            SHIFT_HEAD_COLUMN,
+        ),
+        (
+            "shell_slot_close",
+            serde_json::json!({"slotId": first_slot}),
+            Selection {
+                anchor: ANCHOR_BYTE,
+                head: HEAD_BYTE,
+            },
+            STORED_LINE,
+            HEAD_COLUMN,
+        ),
+        (
+            "project_activate",
+            serde_json::json!({"projectId": fixture.project}),
+            Selection { anchor: 1, head: 1 },
+            1,
+            2,
+        ),
+    ] {
+        application
+            .store
+            .set_view_state(
+                view,
+                SelectionSet {
+                    primary: 0,
+                    selections: vec![selection],
+                },
+                ScrollPosition::default(),
+                Vec::new(),
+            )
+            .unwrap();
+        let services = application.services.clone();
+        let dispatch = application.application_ports.dispatch.clone();
+        let command = name.to_owned();
+        let result = application.runtime.spawn(async move {
+            let channels: crate::remote_ws::ChannelFactory =
+                Arc::new(|_| Box::new(|_| panic!("project command has no channels")));
+            (dispatch.json)(services, command, arguments, channels).await
+        });
+        wait(application, context, name, |_| result.is_finished());
+        let result = application.runtime.block_on(result).unwrap();
+        assert!(result.is_ok(), "{name}: {result:?}");
+        let layouts = application.services.state.layouts.read();
+        let tab = crate::tabs::tabs_in(&layouts[&fixture.project].root)
+            .into_iter()
+            .find(|tab| tab.id == fixture.tab)
+            .unwrap();
+        let saved: serde_json::Value =
+            serde_json::from_str(tab.view_state.as_deref().unwrap()).unwrap();
+        assert_eq!(
+            saved["cursorState"][0]["position"],
+            serde_json::json!({"lineNumber": line, "column": column}),
+            "{name}"
+        );
+    }
+    application
+        .store
+        .set_view_state(
+            view,
+            SelectionSet {
+                primary: 0,
+                selections: vec![Selection {
+                    anchor: ANCHOR_BYTE,
+                    head: HEAD_BYTE,
+                }],
+            },
+            ScrollPosition::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    let root = application.services.state.projects.read()[&fixture.project]
+        .root
+        .clone();
+    assert!(application.submit(HostCommand::OpenProject(root)));
+    wait(
+        application,
+        context,
+        "host project location",
+        |application| {
+            let layouts = application.services.state.layouts.read();
+            crate::tabs::tabs_in(&layouts[&fixture.project].root)
+                .into_iter()
+                .find(|tab| tab.id == fixture.tab)
+                .and_then(|tab| tab.view_state.as_deref())
+                .and_then(|saved| serde_json::from_str::<serde_json::Value>(saved).ok())
+                .is_some_and(|saved| {
+                    saved["cursorState"][0]["position"]
+                        == serde_json::json!({"lineNumber": STORED_LINE, "column": HEAD_COLUMN})
+                })
+        },
+    );
+    let current = application.store.documents().snapshot(document).unwrap();
+    assert_eq!(current.rope.to_string(), IDE_TEXT);
+    assert!(!current.dirty);
+    assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), IDE_TEXT);
+}
+
+#[test]
 fn 실제_preview_교체_뒤_같은_메모리_모델을_다시_열면_마지막_선택과_scroll이_복원된다() {
     let text = format!(
         "class\n  \u{1f600}method\n{}",
