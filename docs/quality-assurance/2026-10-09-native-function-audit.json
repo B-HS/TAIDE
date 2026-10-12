@@ -1,6 +1,6 @@
 {
     "date": "2026-10-12",
-    "baseline": "fe9cf0fc",
+    "baseline": "0fdec614",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -142,7 +142,8 @@
                 "crates/taide-project/src/service.rs",
                 "native/taide-native-app/src/remote-layout.rs",
                 "native/taide-native-app/src/remote-projects.rs",
-                "native/taide-native-app/src/remote-dispatch.rs"
+                "native/taide-native-app/src/remote-dispatch.rs",
+                "native/taide-native-app/src/editor-view-state-folding.rs"
             ],
             "tests": [
                 "native/taide-native-app/tests/persistence.rs",
@@ -165,7 +166,7 @@
                 "docs/quality-assurance/2026-10-09-native-completion-evidence.md",
                 "docs/quality-assurance/2026-10-12-native-batch23-view-state.md"
             ],
-            "limitation": "초기/종료·탭/셸/Host/IDE/원격의 최신 캡처·preview 재열기를 연결했습니다. 실제 원격 파일 열기/닫힘·프로젝트 detach 전 디스크 저장과 슬롯 focus/close/activate·Host 프로젝트 열기, 검증/권한·캡처 실패 억제·접수한 열기 작업의 취소/종료 수명을 확인했습니다. 이번130건과 변경 없는423건을 재사용한553건·12Rust fmt/diff가 통과했습니다. 실제 batch/aux·folding contribution/전체App 재시작은 남아 partial을 유지합니다."
+            "limitation": "초기/종료·탭/셸/Host/IDE/원격의 최신 캡처·preview 재열기를 연결했습니다. 접기 contribution의 실제 본문 복원·펼친 수동 영역 저장, 설치 Monaco UTF-16 signed checksum·중간 본문 변경 거절·CRLF/LF·readonly/독립 mirror·잘못된 값·unknown 필드를 확인했습니다. 현재 App12/상태9/종료2의 서로 다른23건·소유4Rust fmt/diff와 이전 성공 재사용으로557건입니다. 실제 batch/aux와 전체App 재시작은 남아 partial을 유지합니다."
         },
         "editor-snippet": {
             "sources": [
@@ -2940,7 +2941,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-state",
-            "note": "초기 위치/앱 종료 저장·최근 닫힘/재열기와 실제 셸 탭 전환/Host 새 preview 파일 열기의 이전 위치 저장을 연결했습니다. optional controller 포트는 AppState/EventSink로 guard 전 캡처를 적용하고 실패 시 원래 mutation을 실행하지 않습니다. 실제 preview 제거의 모델 캐시·project/slot/aux/batch·IDE/remote·folding contribution/전체 재시작은 남습니다."
+            "note": "초기 위치/종료·최근 닫힘/재열기·셸/Host/IDE/원격 전환·project/slot·preview 모델 캐시와 접기 contribution을 연결했습니다. 최신 캡처는 기존 검증 뒤 guard/실제 변경 전에 적용하며 실패 때 mutation을 억제합니다. 접기/펼친 수동·본문 변화·readonly/독립 mirror·unknown 필드 보존을 확인했습니다. 실제 batch/aux와 새 App 재시작은 남습니다."
         },
         {
             "id": "editor-68",
@@ -7706,5 +7707,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "제품fe9cf0fc의 실제 원격 파일 열기에서 이전 Tab.view_state None을 재현해 같은 공유 캡처를 원격 레이아웃/프로젝트·Host OpenProject에 연결했습니다. typed/파일·프로젝트 root/슬롯·권한 검증 뒤 적용하고 캡처 실패는 mutation/이벤트/lifecycle 생성을 막습니다. 명시viewState/metadata/읽기/resize와 기존headless/outer policy를 보존합니다. 열기3진입점은 기존nonabortable 작업 안에서 검증/캡처를 수행해 종료Forbidden 우선순위와 캡처 대기 중 요청 취소 뒤 접수 작업 완료를 유지합니다. 실제App2·레이아웃5/프로젝트5/dispatch3·불변4·Host9/포트2/종료2·프로젝트서비스98의 package/test별 서로 다른130통과·12Rust fmt/diff·exit0와 변경 없는423건을 재사용한553건입니다. 작성한태그/import/직접의존성 오류·workspace 선택의 실행0건과 실제 실패/종료오류순서 회귀/수정을 QA에 보존하고 같은 성공을 중복 합산하지 않습니다. manifest/lock/UI renderer/Core editor/engine/frozen과 사용자 기존 문서/PROCESS 하단 두 hunk를 보존합니다. editor-67 partial·complete298/partial93/unwired110/missing87·미완료290·배치23 잔여23/최종33을 유지합니다. 실제batch/aux·folding contribution/전체App 재시작과 전체App/실기는 미완료입니다. 이전App전체877통과/22준비실패·보호3제외·exit101·최초준비원인미확정·Core성능ignored1·Wasmtests시간API불일치7·실기/성능/신뢰성/출시·전환·제거를 보존하며 전체전환율/잔여시간은 미산정입니다."
+    "validation": "제품0fdec614의 실제 접기 복원 folds 빈 배열을 재현해 private folding adapter를 기존 위치 저장/복원에 연결했습니다. Monaco UTF-16 signed checksum/legacy·전체 접기 본문의 versioned hash·중간 변경 거절/영역 밖 및 CRLF/LF 허용·일반/수동/펼친 수동·readonly/독립 mirror·malformed 값·다른 contribution/같은 folding 객체의 unknown 필드를 보존합니다. App12/상태9/종료2의 서로 다른23통과·소유4Rust fmt/diff·exit0와 이전 성공 재사용으로557건입니다. 추가 mirror 재검사는 기존 상태9건에 포함되어 중복 합산하지 않습니다. 전체 working diff의 사용자 docs/architecture.md EOF 빈 줄은 그대로 보존하고 소유/staged diff는 exit0입니다. 이전 원격/Host/IDE/preview·검증/권한·감독 취소/종료 근거를 재사용하며 새 dependency/manifest/lock/Core/UI/frozen 변경은 없습니다. editor-67 partial·complete298/partial93/unwired110/missing87·미완료290·배치23 잔여23/최종33을 유지합니다. 실제batch/aux·전체App 재시작과 전체App/실기는 미완료입니다. 이전App전체877통과/22준비실패·보호3제외·exit101·최초준비원인미확정·Core성능ignored1·Wasmtests시간API불일치7·실기/성능/신뢰성/출시·전환·제거를 보존하며 전체전환율/잔여시간은 미산정입니다."
 }

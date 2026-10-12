@@ -219,3 +219,5 @@ IDE 선행 저장 코드/검사·QA/소유 PROCESS의9경로는 `958dbf87`로 �
 `view-state-folding-app.log`는 실제 본문 위치 관련 전체12통과·39.07초·exit0(컴파일19.06초)입니다. 추가한 같은 folding 객체의 futureField 보존도 확인했습니다. `view-state-folding-exit.log`는 기존 종료/저장 오류·본문 mirror 보존·서버/세션/감독 회수2통과·0.05초·exit0입니다. checksum 검사에 같은 문서의 다른 창/뷰를 추가해 접힌 일반 영역과 펼친 수동 영역이 서로 덮어쓰지 않는 실제 State 복원을 확인했고 `view-state-folding-mirror.log`는1통과·0.01초·exit0(컴파일16.24초)입니다. 이 한 건은 상태9건에 이미 포함되어 중복 집계하지 않습니다.
 
 현재 관련 서로 다른23건에서 새 App1/상태3만 이전 누계553에 추가하므로 성공 근거는 서로 다른557건입니다. 소유4Rust fmt는 exit0입니다. 전체 working diff 검사는 기존 사용자 `docs/architecture.md:955`의 EOF 빈 줄로 exit2이며 해당 파일은 수정하지 않았습니다. 커밋 전 소유 경로/선별 staged diff만 따로 확인합니다. 새 dependency/manifest/lock/Core/UI/frozen 변경은 없으며 editor-67 partial·298/588(50.7%)·잔여290/배치23 잔여23/최종33을 유지합니다. 실제 batch/aux와 새 App 재시작·전체App 준비 실패/실기/성능/신뢰성/출시 게이트는 미완료입니다.
+
+접기 코드/검사·QA/소유 PROCESS의6경로를 `0fdec614`로 선별 커밋했고 author/최종 메시지에 AI 트레일러가 없음을 확인했습니다. 기능표399근거 경로와 원래302 ID 배정의 누락/중복/미확인ID0·현재 미완료290·배치23~30 잔여23/52/23/64/32/39/51/6·최종33을 실제 JSON으로 확인했습니다. 기존 사용자 PROCESS 하단 두 hunk와 다른 문서는 스테이징하지 않았습니다.
