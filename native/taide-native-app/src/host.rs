@@ -1492,12 +1492,24 @@ async fn dispatch(
             }
         }
         HostCommand::RestoreWatchers => {
-            match crate::projects::NativeProjects::new(services.clone())
-                .restore_watchers()
-                .await
+            let pending_services = services.clone();
+            let sender = sender.clone();
+            let repaint = repaint.clone();
+            if services
+                .tasks
+                .spawn_transient("native-watcher-restore", async move {
+                    if let Err(error) = crate::projects::NativeProjects::new(pending_services)
+                        .restore_watchers()
+                        .await
+                    {
+                        let _ = sender.send(HostReply::Failed(error)).await;
+                    }
+                    repaint();
+                })
             {
-                Ok(()) => None,
-                Err(error) => Some(HostReply::Failed(error)),
+                None
+            } else {
+                Some(HostReply::Failed(stopped()))
             }
         }
         HostCommand::OpenProblem {

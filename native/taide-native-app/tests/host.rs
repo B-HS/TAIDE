@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use taide_model::app_event::AppEvent;
@@ -79,6 +79,59 @@ async fn reply(bridge: &mut HostBridge, ready: &Notify) -> HostReply {
     })
     .await
     .unwrap()
+}
+
+#[tokio::test]
+async fn 초기_watcher_복원의_등록_대기는_후속_host_요청을_막지_않는다() {
+    let fixture = Fixture::new();
+    let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+    let services = services(fixture.state.clone(), tasks.clone(), Arc::new(Sink));
+    fixture.state.layouts.write().insert(
+        fixture.project.clone(),
+        taide_layout::service::default_layout(),
+    );
+    let ready = Arc::new(Notify::new());
+    let signal = ready.clone();
+    let writes = Arc::new(Mutex::new(Vec::new()));
+    let captured = writes.clone();
+    let mut host = HostBridge::connect_with_clipboard_ports(
+        services.clone(),
+        Arc::new(move || signal.notify_one()),
+        Arc::new(move |text| {
+            captured.lock().unwrap().push(text.to_owned());
+            Ok(())
+        }),
+        Arc::new(|| panic!("clipboard read is forbidden")),
+        None,
+    )
+    .unwrap();
+    let guard = fixture.state.begin_mutation().await;
+    host.submit(HostCommand::RestoreWatchers).unwrap();
+    host.submit(HostCommand::CopyText("synthetic queued request".into()))
+        .unwrap();
+    let delivered = tokio::time::timeout(TIMEOUT, async {
+        loop {
+            if let Some(HostReply::CopiedText { result }) = host.poll() {
+                return result;
+            }
+            ready.notified().await;
+        }
+    })
+    .await;
+    drop(guard);
+    fixture.state.begin_shutdown();
+    host.disconnect().await.unwrap();
+    tasks.shutdown().await;
+    fixture.state.watchers.write().clear();
+    fixture.state.git_watchers.write().clear();
+    fixture.state.watcher_stops.wait_for_idle().await;
+    assert!(
+        delivered.is_ok(),
+        "watcher registration held the Host queue"
+    );
+    delivered.unwrap().unwrap();
+    assert_eq!(*writes.lock().unwrap(), vec!["synthetic queued request"]);
+    assert_eq!(tasks.tracked_count(), 0);
 }
 
 #[tokio::test]

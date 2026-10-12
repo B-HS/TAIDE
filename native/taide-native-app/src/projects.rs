@@ -71,11 +71,18 @@ impl NativeProjects {
         let mut first_error = None;
         for (id, _) in pending {
             let project = self.services.state.projects.read().get(&id).cloned();
-            if let Some(project) = project
-                && let Err(error) = self.attach(&project).await
-                && first_error.is_none()
-            {
-                first_error = Some(error);
+            let Some(project) = project else {
+                continue;
+            };
+            match self.attach(&project).await {
+                Ok(()) => {
+                    self.services.git.invalidate_status(&id);
+                    self.services
+                        .events
+                        .publish(AppEvent::FsRescanRequired { project_id: id });
+                }
+                Err(error) if first_error.is_none() => first_error = Some(error),
+                Err(_) => {}
             }
         }
         first_error.map_or(Ok(()), Err)
