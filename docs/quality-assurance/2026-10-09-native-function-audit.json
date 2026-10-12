@@ -1,6 +1,6 @@
 {
     "date": "2026-10-12",
-    "baseline": "0c2b26e3",
+    "baseline": "40de51de",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1138,16 +1138,25 @@
                 "native/taide-native-app/src/editor-markdown.rs",
                 "native/taide-native-app/src/editor-markup.rs",
                 "native/taide-native-app/src/editor-documentation-images.rs",
-                "native/taide-native-ui/src/editor-markup.rs"
+                "native/taide-native-ui/src/editor-markup.rs",
+                "native/taide-native-app/src/editor-markdown-parse.rs",
+                "native/taide-native-app/src/editor-markdown-html.rs",
+                "crates/taide-locale/src/service.rs",
+                "crates/taide-locale/resources/locales/en.json",
+                "crates/taide-locale/resources/locales/ko.json",
+                "crates/taide-locale/resources/locales/ja.json"
             ],
             "tests": [
                 "native/taide-native-app/src/application-markdown-tests.rs",
                 "native/taide-native-app/src/editor-markdown-tests.rs",
                 "native/taide-native-app/src/editor-markup-tests.rs",
-                "native/taide-native-app/src/application-view-state-tests.rs"
+                "native/taide-native-app/src/application-view-state-tests.rs",
+                "native/taide-native-app/src/editor-markdown-parse-tests.rs",
+                "native/taide-native-app/src/editor-documentation-images-tests.rs",
+                "crates/taide-locale/src/service.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-12-native-batch23-markdown.md"],
-            "limitation": "실제 App Markdown 토글/분할·동일 ViewId/입력 ID/선택·본문 입력/Paste/undo/최신 본문·다른 Markdown 전환/닫힘·기존 앱 승인 revision의 source 회수/원문/task0과 실제 최소폭 드래그/키보드·언어/폭/상태 UI 및 일반 lossy/readonly 위치 회귀가 App2/UI2/기존 parser1의 서로 다른5통과입니다. 타입/texture·Text undo 묶음/dirty와 raw discard 승인 fixture 오류는 QA에 구분합니다. 원본 raw HTML·상대 URL/이미지 max-width/표시·Markdown readonly/mirror/독립 스크롤/추가 뷰 검증과 전체App/실기/성능/출시는 남아 partial입니다."
+            "limitation": "실제 App의 분할·동일 편집기 ID/선택·입력/Paste/undo/최신 본문·문서 전환/닫힘/승인 revision/원문/task0에 HTML 제목/강조/코드/인용/목록/표·상대 링크/PNG/폭·비율·localized 오류/본문 보존/undo 복구를 연결했습니다. 오른쪽 preview rect/clip의 실제 제목·오류/복구, parser/HTML/위험 URI/hidden/상한4·이미지/파일/HTTP 소유·취소4·locale 전체20과 actual App1의 서로 다른29통과이며 이전 성공/준비/작성 실패와 중복은 합산하지 않습니다. CSS/SVG/MathML/미디어/details/anchor·표 병합/음수 목록·원본 표시와 Markdown readonly/mirror/독립 스크롤/추가 뷰 및 전체App/실기/성능/출시는 남아 partial입니다."
         }
     },
     "rows": [
@@ -3030,7 +3039,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-markdown",
-            "note": "언어별 Columns2 토글·stable 편집기/선택·20% 최소폭 분할·독립 ScrollArea·200ms 최신 본문 갱신·문서 즉시 전환/닫힘/원문 보존을 실제 앱에 연결했습니다. App2/UI2/기존 parser1의5통과이며 원본 raw HTML·상대 URL/이미지/표시와 추가 readonly/mirror/독립 스크롤/다중 뷰 검증이 남습니다. 전체 기능 완료로 올리지 않습니다."
+            "note": "Markdown 토글·stable 편집기·분할·최신 본문·문서 전환/닫힘에 기본 HTML 구조·파일 기준 상대 링크/이미지·max-width와 localized 오류/본문 보존/undo 복구를 실제로 연결했습니다. preview rect/clip 실제 표시와 App1/parser4/images4/locale20의29통과입니다. 원본 CSS/SVG/MathML/미디어/details/anchor·표 병합/음수 목록·표시와 추가 readonly/mirror/독립 스크롤/뷰 검증이 남아 전체 완료로 올리지 않습니다."
         },
         {
             "id": "editor-73",

@@ -161,3 +161,9 @@ c9c2b에서 실제 readonly/tier/lossy 항목·복사와 본문/peek 팔레트·
 제품0c2b26e3에서 editor-72의 Markdown 전용 토글·stable 편집기/선택·20% 최소폭 분할/드래그/키보드·200ms 최신 본문/Paste/undo·다른 Markdown 즉시 전환/닫힘·기존 앱 승인 revision의 source 회수/원문/task0을 연결했습니다. 일반 lossy/readonly 본문 위치 회귀를 포함한 실제App2/UI2/기존 parser1의 서로 다른5건과 소유6Rust fmt/diff가 통과했습니다. 원본 raw HTML·상대 URL/이미지 max-width/표시와 추가 Markdown readonly/mirror/독립 스크롤/뷰 검증이 남아 partial입니다. 검사 작성의 타입/texture/undo 묶음/dirty·raw discard 승인 오류를 QA에 구분하며 기존 보호를 유지합니다.
 
 현재599행/413근거 경로·588대상·complete302/partial90/unwired110/missing86·미완료286·기능 체크리스트51.4%입니다. 원래302 ID 배정의 누락/중복/미확인ID는0이며 배치23~30 잔여19/52/23/64/32/39/51/6·최종33입니다. 해당 행을 전체 완료로 올리지 않으며 전체App 준비/실제 OS/접근성/성능/신뢰성/출시·전환·제거와 나머지 목표를 유지합니다. 전체전환율/잔여시간은 미산정이며 같은 배치의 Markdown 표시/추가 뷰 구현을 이어갑니다.
+
+## Markdown HTML·원본 경로/이미지와 오류 복구의 부분 구현 (2026-10-12)
+
+제품40de51de에서 기본 HTML 제목/강조/코드/인용/목록/표와 파일 기준 상대 링크/이미지·max-width/비율·localized 오류/본문 보존/undo 복구를 연결했습니다. 실제 오른쪽 preview rect/clip의 제목·오류/복구와 임시 PNG 로딩/폭·비율·기존 입력/전환/닫힘/원문/task0, parser4/images4/locale20과 App1의 서로 다른29통과·소유Rust/locale fmt·JSON/diff를 확인했습니다. 초기 HTML 부재/DOM fragment 루트 평탄화의 실패와 수정·검사 강화/중복 성공은 QA에 구분합니다.
+
+기능표599행/416근거 경로·588대상·complete302/partial90/unwired110/missing86·미완료286·기능 체크리스트51.4%이며 원래302 ID 배정의 누락/중복/미확인ID0·배치23~30 잔여19/52/23/64/32/39/51/6·최종33입니다. DOMPurify의 원본 허용 CSS/SVG/MathML/미디어/details/anchor·음수 목록/표 병합과 원본 표시·추가 readonly/mirror/독립 scroll/뷰는 아직 구현/검증이 필요하므로 editor-72 partial과 전체 게이트를 유지합니다. 전체전환율/잔여시간은 미산정이며 남은 Markdown 범위를 계속합니다.

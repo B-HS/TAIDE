@@ -37,3 +37,5 @@ html-app.log1통과·31.84초·exit0(컴파일25.19초)은 실제 임시 MD/PNG�
 image-regression.log는 기존 도움말의 data/base64/percent SVG·width/height·root 격리/중복·HTTP pixel/닫힌 대기 취소·GIF/전체 texture 예산·project/task 회수의4통과·0.21초·exit0입니다. locale.log는 키 집합/required key/보간·세 언어·외부 파일/사용자 팩/캐시/경로 보호의 전체20통과·0.04초·exit0입니다. 현재 App1/parser4/images4/locale20의 서로 다른29건이며 이전 UI/readonly와 해당 시점의 실패/중복은 이 수에 더하지 않습니다. 소유10Rust fmt와 locale fmt/diff는 exit0입니다.
 
 원본 DOMPurify의 설치된 tags.ts에는 details/summary·style·SVG·MathML·audio/video가 허용되어 있습니다. 현재 native 변환기의 일반 HTML 텍스트/구조 지원만으로 이를 완료로 볼 수 없습니다. CSS·SVG/MathML/미디어·details/anchor·음수 ordered start/표 병합 등 추가 raw HTML 의미와 원본 paragraph/heading/quote/table/code/scroll 표시·readonly/mirror/추가 뷰를 d6c/d6b의 미완료 범위로 유지합니다. HTML/media의 제한된 Rust 소유 WebView 경계와 플랫폼/구조·cutover 미결은 기존 합의를 보존하며 임의로 제거·확정하지 않습니다. editor-72 partial·302/588(51.4%)·미완료286·배치23 잔여19/최종33·전체App/실기/성능/출시와 전체 목표는 유지합니다. 전체전환율/신뢰할 잔여 시간은 미산정입니다.
+
+HTML/이미지/오류 코드·카탈로그/검사/QA와 소유 PROCESS의16경로를40de51de로 선별 커밋했습니다. 최종 메시지/author에 AI 트레일러가 없고 사용자 문서와 PROCESS 하단 두 hunk를 제외했습니다. 현재 기능표599행/416근거 경로·302완료/90부분/110미연결/86미구현·588대상과 원래302 ID 배정의 누락/중복/미확인ID0·잔여19/52/23/64/32/39/51/6·최종33을 실제 JSON으로 확인했습니다.
