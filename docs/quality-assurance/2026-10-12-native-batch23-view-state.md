@@ -122,3 +122,5 @@ UI의 최신 Store를 요청하는 oneshot 경계를 App 포트가 공유하고 
 `view-state-tab-close-host.log`는 전체 Host 9통과/0실패·0.13초·exit 0입니다. 기존 공개 연결 포트·파일/프로젝트 결과·PreparedDocument 미소비 회수·실제 mirror/저장·종료 layout flush·watcher 선행 대기 회귀를 확인했습니다. `connect_with_application_ports`만 공유 캡처를 공급하며 기존 headless 연결 경로는 기존 동작을 보존합니다. 소유자 없는 공유 포트도 UI 대기를 만들지 않습니다.
 
 `view-state-tab-close-exit.log`는 권한 허용의 소유 종료 2건·exit 0입니다. 위치 캡처 실패의 실제 draft mirror/오류 반환·작업 회수와 서버/세션/pending/lockfile 종료를 확인했습니다. 현재 App 13/Host 9/종료 2와 변경 없는 Core 306/UI 88의 서로 다른 418건을 유지하며 기존 같은 성공을 추가 합산하지 않습니다. 소유 9Rust fmt/diff는 exit 0이고 manifest/lock/Core/UI/Syntax/엔진/frozen 변경은 없습니다. 기본 Host CloseTab만 연결했으며 셸/IDE/remote·프로젝트/slot/aux·새 파일/preview·folding contribution/전체 재시작과 전체 배치 게이트는 남습니다.
+
+기본 Host 선행 저장과 요청 수명 코드/검사·QA/현재 PROCESS의 11경로는 `056ad927`로 선별 커밋했습니다. 기능표는 599행·393근거 경로·588대상·complete298/partial93/unwired110/missing87이며 editor-67 partial·미완료290·배치23 잔여23/최종33을 유지합니다. 다음은 셸 탭/프로젝트/창 전환과 나머지 Host/IDE/remote의 동일한 선행 저장입니다. 사용자 기존 문서와 PROCESS 하단 두 hunk는 보존합니다.

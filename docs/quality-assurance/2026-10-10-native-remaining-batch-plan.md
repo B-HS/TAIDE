@@ -107,3 +107,9 @@ c9c2b에서 실제 readonly/tier/lossy 항목·복사와 본문/peek 팔레트·
 구현 f1805287에서 정상/직접 앱 종료의 live 선택·실제 geometry 모델 anchor/legacy scroll을 디스크 layout에 저장하고 새 ViewId roundtrip을 확인했습니다. 위치 캡처 오류로 본문 mirror가 0개인 실패도 재현해 본문/기존 layout을 먼저 저장하고 원래 오류를 반환합니다. 관련 App/상태 10·종료 2·UI geometry 1과 기존 Core 전체 306/UI 본문 87의 서로 다른 406건, App tests compile·소유 fmt/diff가 통과했습니다. 포트 권한 실패 한 건은 소유 loopback 서버만 허용해 확인했고 이전 성공은 재사용했습니다.
 
 기능표는 599행/392근거 경로·588대상·complete 298/partial 93/unwired 110/missing 87입니다. editor-67 partial·미완료 290·기능 체크리스트 50.7%·배치 23 잔여 23/최종 33을 유지하며 전체 전환율/잔여 시간은 미산정입니다. 전환/탭·창·프로젝트/원격의 fresh capture·folding contribution/전체 App 재시작과 전체 통합/실기/출시는 남아 있습니다. 다음은 같은 배치의 d3b2 실제 탭 닫힘/최근 닫힘과 최신 위치 전달입니다.
+
+## 기본 탭 닫힘의 최신 캡처 (2026-10-12)
+
+구현 056ad927에서 실제 최근 닫힘의 위치 None을 재현하고 App 포트의 oneshot/Arc 캡처를 Host typed CloseTab 전에 적용했습니다. UI poll 뒤 최신 Store를 전달하고 종료 최종 캡처/실패 뒤 live 재개를 연결했습니다. 실제 최근 닫힘/재열기의 선택/scroll·본문/디스크, headless/동시 요청/취소/최종 오류와 기존 App/상태 13·전체 Host 9·종료 2건이 통과했습니다. 변경 없는 Core 306/UI 88을 재사용한 서로 다른 418건이며 기존 성공은 중복 합산하지 않습니다.
+
+현재 599행/393근거 경로·588대상·complete298/partial93/unwired110/missing87·미완료290·기능 체크리스트50.7%·배치23 잔여23/최종33을 유지합니다. editor-67 partial이며 셸/IDE/remote·나머지 Host/project/slot/aux·새 파일/preview·folding contribution/전체 App 재시작과 전체 통합/실기/출시는 남습니다. 다음은 d3b2b의 다른 소비자 선행 저장이며 전체 전환율/잔여 시간은 미산정입니다.
