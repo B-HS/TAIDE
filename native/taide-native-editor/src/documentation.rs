@@ -78,7 +78,7 @@ pub fn list_ordinal(start: i64, index: usize) -> i64 {
     start.saturating_add(i64::try_from(index).unwrap_or(i64::MAX))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Alignment {
     Default,
     Left,
@@ -86,7 +86,7 @@ pub enum Alignment {
     Right,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Inline {
     Text(Span),
     Image {
@@ -99,20 +99,20 @@ pub enum Inline {
     Break,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct ImageDimensions {
     pub width: Option<u32>,
     pub height: Option<u32>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct Span {
     pub text: String,
     pub style: Style,
     pub link: Option<Link>,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Style {
     pub bold: bool,
     pub italic: bool,
@@ -120,7 +120,7 @@ pub struct Style {
     pub code: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Link {
     pub target: String,
     pub title: String,

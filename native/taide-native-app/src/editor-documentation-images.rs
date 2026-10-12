@@ -55,6 +55,22 @@ pub(crate) struct Cache {
 }
 
 impl Cache {
+    pub(crate) fn size(
+        &self,
+        project: &ProjectId,
+        source: &str,
+        dimensions: taide_native_editor::documentation::ImageDimensions,
+    ) -> Option<egui::Vec2> {
+        self.entries.iter().find_map(|(key, entry)| {
+            if &key.project != project || key.source != source {
+                return None;
+            }
+            let Entry::Ready { texture, .. } = entry else {
+                return None;
+            };
+            Some(displayed_size(texture.size_vec2(), dimensions))
+        })
+    }
     pub(crate) fn retain_documents<'a>(
         &mut self,
         documents: impl Iterator<Item = (&'a ProjectId, &'a RichDocument)>,
@@ -210,13 +226,7 @@ impl Cache {
                 ui.ctx().request_repaint_after(delay);
             }
         }
-        let natural = texture.size_vec2();
-        let size = match (dimensions.width, dimensions.height) {
-            (Some(width), Some(height)) => egui::vec2(width as f32, height as f32),
-            (Some(width), None) => natural * (width as f32 / natural.x),
-            (None, Some(height)) => natural * (height as f32 / natural.y),
-            (None, None) => natural,
-        };
+        let size = displayed_size(texture.size_vec2(), dimensions);
         let size = match max_width.filter(|width| width.is_finite() && *width >= 0.0) {
             Some(width) if size.x > width => size * (width / size.x),
             _ => size,
@@ -230,6 +240,18 @@ impl Cache {
                     .sense(egui::Sense::click()),
             ),
         )
+    }
+}
+
+fn displayed_size(
+    natural: egui::Vec2,
+    dimensions: taide_native_editor::documentation::ImageDimensions,
+) -> egui::Vec2 {
+    match (dimensions.width, dimensions.height) {
+        (Some(width), Some(height)) => egui::vec2(width as f32, height as f32),
+        (Some(width), None) => natural * (width as f32 / natural.x),
+        (None, Some(height)) => natural * (height as f32 / natural.y),
+        (None, None) => natural,
     }
 }
 

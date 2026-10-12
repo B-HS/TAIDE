@@ -99,3 +99,23 @@ reversed-parser.log는 기존 기본 HTML/GFM/보안/상한·signed prefix와 �
 reversed-app.log는 실제 임시 Markdown의 역순/value 번호3/-4/-5와 기존 signed -1/0, theme/preview 영역·HTML/PNG·원문/입력/undo/오류 복구/전환/닫힘/작업0의1통과·24.34초·exit0(컴파일0.27초)입니다. 원본 문자열이 아니라 오른쪽 preview의 실제 galley label을 단언했습니다. reversed-lsp.log는 기존 plain/code/GFM/목록/표/안전한 링크/이미지/비신뢰 HTML 제외의8통과·0.00초·exit0입니다. 현재 parser7/UI19/App1/LSP8의 서로 다른35통과이며 이전 readonly/두 뷰의 입력이 같은 성공은 재사용하고 중복 집계하지 않습니다. 소유9Rust fmt/diff도 통과했습니다.
 
 공통 모델 변경의 frozen host는 reversed-frozen-host.log의 tests/inspection 포함 check26.52초·exit0, 실제 Wasm canvas lib는 reversed-frozen-wasm.log의 wasm32-unknown-unknown check12.65초·exit0으로 확인했습니다. 기존 전체App 준비 실패/성능 ignored/Wasm 시간 API 검사 부채·실제 OS/접근성/성능/신뢰성/출시·cutover/제거는 그대로 남겨두며 기능 강제 활성화/검사 생략/OS 변경으로 우회하지 않습니다. 의존성/manifest/lock/frozen source와 사용자 문서/PROCESS 하단 두 hunk를 보존했습니다. 표 data/viewport/이미지/span·list type/CSS ownership/범위 밖 번호·전체 CSS/SVG/MathML/media/details/anchor는 미완료이고 editor-72 partial·302/588(51.4%)·배치23 잔여19/최종33·전체 목표/예상 시간 미산정을 유지합니다.
+
+## 표의 변경 프레임·자동 너비·이미지 배치 (2026-10-13)
+
+이전 골 턴은 readonly/두 뷰/viewport 회수와 역순/value 번호를4939d891/5697284b/aa5f8b8d/4e801f0c로 구현·검증·일반 푸시한 progress입니다. 현재 요청도 전체 마이그레이션과 workflow/서브에이전트 사용하지 않음을 유지합니다. 원본 CSS table:auto/border-collapse 및 [CSS 2.2 자동 표 배치](https://www.w3.org/TR/CSS22/tables.html#auto-table-layout), 설치 egui Grid/UiBuilder/폰트 galley 계약을 읽고 최초/내용·행 수/viewport/이미지의 변경 프레임을 확인했습니다.
+
+table-first.log는 기존 경계 검사에서 warmup3을 실제 첫 프레임1로 줄인1통과·0.01초·exit0(컴파일4.44초)입니다. table-change-red.log는 내용/행 수/좁힘·넓힘에서 두 열의 경계가3개 대신4개로 갈라지는 실패0/1·0.02초·exit101입니다. 변경 입력으로 새 Grid ID를 만드는 첫 수정의 change-fixed.log도 같은4/3 실패0/1·0.03초·exit101(컴파일16.98초)이고 coordinates.log는 x좌표0/44.84375/45.1875/88.09375·y0/88/436을 확인했습니다. Frame의 실제 글자 영역과 Grid가 배정한 셀 영역이 달랐으므로 cache key만 바꾸는 접근을 폐기했습니다.
+
+표의 상태 ID를 고정하고 입력 fingerprint 하나를 저장합니다. 본문/스타일/정렬·화면 폭/scale·폰트 너비/이미지 준비·표시 크기가 바뀌면 기존 Grid 계약의 보이지 않는 너비/높이 측정으로 현재 배치를 준비한 뒤 표시합니다. 측정/표시 child의 explicit ID와 서로 다른 내부 pass ID로 표시 위젯의 선택·링크 ID를 유지하고 입력은 보이지 않는 측정에서 비활성입니다. 셀 경계는 글자 Frame이 아니라 실제 배정한 cursor 영역을 사용하며 공유 edge를 한 번만 그립니다. 새 내용마다 Grid 상태를 쌓거나 타이머/프레임 수를 늘리는 방식으로 우회하지 않습니다.
+
+table-layout.log는 작성한 metrics closure가 mutable Ui를 move한 E0507/E0382 두 오류·exit101·0검사입니다. 즉시 수집하는 borrow로 수정한 layout-fixed.log는 내용/행 수/viewport·모든 경계와 실제 galley가 셀 안에 배치되는1통과·0.02초·exit0(컴파일11.73초)입니다. surface.log의 일반 도움말13/preview7 성공과 image1 실패는 bitmap 비율에 f32::EPSILON을 강제한 검사 정밀도 오류였습니다. 픽셀 정렬된 Response rect의1point 기준으로 확인한 image-pixels.log는 이미지 준비 None→작은 이미지→높은 이미지→작은 이미지, 경계/비율·행 높이 복원·변경 뒤 동일 상태 개수/실제 pointer press/release 링크1통과·0.01초·exit0입니다. 새 검사 이름의 대문자 ID warning도 snake case로 수정했습니다.
+
+너비 비교의 table-width-red.log는560point 화면에서 한 줄로 표시할 문장을18줄로 접는 실제 실패0/1·0.01초·exit101(컴파일4.47초)입니다. 원본은 내용의 자연 너비를 사용하고 공간이 부족할 때 줄을 나눕니다. 공유 폰트 job 생성은 그대로 재사용하고 preview의 glyph/단어·공백/한중일 break와 이미지·inline code/cell padding에서 최소/자연 너비를 계산해 열에 배분합니다. 최대 너비가 들어가면 그대로 사용하고, 들어가지 않을 때는 최소 너비를 보존하며 축소합니다. 최소보다 좁으면 기존 양방향 ScrollArea가 가로 넘침을 처리합니다. 전체 CSS의 line-break/white-space/column/style/셀 병합과 UA 간 모든 배치를 구현한 것으로 확대하지 않습니다.
+
+table-auto-width.log는 기존 표시/인용/코드/링크/표/목록과 새 변경 프레임/이미지/자연 너비의9통과·0.11초·exit0(컴파일10.01초)입니다. 뒤의 table-language.log는 공백 없는 긴 단어의1줄·가로 넘침과 한중일 문장의 좁은 영역 줄바꿈을 실제 galley/경계로 확인한1통과·0.04초·exit0입니다. 현재 preview10건이며 default egui 폰트의 구조/배치 검사로 실제 OS 글꼴·픽셀 게이트와 구분합니다. 이전 성공은 중복 합산하지 않습니다.
+
+Provider의 기본 image_size는 None이고 실제 Markdown은 기존 Cache의 준비된 texture/승인된 project/source와 동일 displayed_size를 읽습니다. 조회는 로딩·playback·입력을 변경하지 않습니다. table-cache.log의4통과·0.21초·exit0은 자연/폭만/높이만/두 크기의 read-only 계산과 다른 project 거절, 기존 PNG 실제 픽셀·root/중복/회수·HTTP/취소·data URI/SVG/애니메이션/용량을 포함합니다. table-hover.log는 공유 font job 추출 뒤 기존 일반 도움말13통과·0.20초·exit0입니다. 기존 표시/입력/IME·readonly/mirror/provider/focus·링크/이미지/크기 조절을 유지합니다.
+
+table-app.log는 소유 임시 PNG를 실제 HTML 표 셀과 본문에 함께 표시한 App1통과·34.06초·exit0(컴파일53.63초)입니다. 미리보기 geometry와 실제 이미지 response 두 개·폭/비율, 기존 theme/font·signed/reversed/value 번호·HTML·최신 입력/Paste/undo/오류 복구/문서 전환/승인 revision 닫힘/원문/task0을 확인했습니다. cfg(test)의 image rect 기록도 보이는 실제 표시만 포함해 측정을 관찰 결과에 섞지 않습니다. 현재 preview10/일반 도움말13/cache4/App1의 서로 다른28통과·소유8Rust fmt/diff입니다.
+
+공개 Hash/Provider 기본 method 경계의 table-frozen-host.log는 tests/inspection 포함 check27.54초·exit0, table-frozen-wasm.log의 실제 Wasm canvas lib는13.65초·exit0입니다. 새 의존성/manifest/lock/frozen source·실제 사용자 설정/OS/클립보드/보호 M8 앱을 변경하지 않았으며 사용자 문서/PROCESS 하단 두 hunk를 보존합니다. 셀 병합·caption/thead/tfoot/열 스타일/전체 CSS·list type·SVG/MathML/media/details/anchor·CLI 이미지의 별도 소유 경계 대조와 실제 OS/전체App 준비/접근성/성능/신뢰성/출시·전환·제거는 미완료입니다. editor-72 partial·302/588(51.4%)·미완료286·배치23 잔여19/최종33·전체 목표/예상 시간 미산정을 유지합니다.

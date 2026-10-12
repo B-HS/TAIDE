@@ -405,6 +405,13 @@ struct PreviewProvider<'a> {
 }
 
 impl Provider for PreviewProvider<'_> {
+    fn image_size(
+        &self,
+        source: &str,
+        dimensions: taide_native_editor::documentation::ImageDimensions,
+    ) -> Option<egui::Vec2> {
+        self.images.size(self.project?, source, dimensions)
+    }
     fn open_link(&mut self, ui: &Ui, target: &str) -> bool {
         crate::editor_documentation::open_link(
             ui,
@@ -432,7 +439,9 @@ impl Provider for PreviewProvider<'_> {
             Some(ui.available_width().max(0.0)),
         )?;
         #[cfg(test)]
-        self.rendered_images.push(response.rect);
+        if ui.is_visible() {
+            self.rendered_images.push(response.rect);
+        }
         Some(response)
     }
 }

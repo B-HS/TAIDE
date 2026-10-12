@@ -24,6 +24,13 @@ pub struct Colors {
 
 pub trait Provider {
     fn open_link(&mut self, ui: &Ui, target: &str) -> bool;
+    fn image_size(
+        &self,
+        _source: &str,
+        _dimensions: taide_native_editor::documentation::ImageDimensions,
+    ) -> Option<egui::Vec2> {
+        None
+    }
     fn code(&mut self, _ui: &Ui, _language: &str, _text: &str) -> Option<egui::text::LayoutJob> {
         None
     }
@@ -109,13 +116,13 @@ fn inline_font(
     FontId::new(size, family)
 }
 
-fn inline_width(
+fn inline_job(
     ui: &Ui,
     contents: &[Inline],
     appearance: &EditorAppearance,
     size: f32,
     heading: bool,
-) -> f32 {
+) -> (egui::text::LayoutJob, f32) {
     let mut job = egui::text::LayoutJob::default();
     let mut images = 0.0;
     for inline in contents {
@@ -135,6 +142,17 @@ fn inline_width(
             }
         }
     }
+    (job, images)
+}
+
+fn inline_width(
+    ui: &Ui,
+    contents: &[Inline],
+    appearance: &EditorAppearance,
+    size: f32,
+    heading: bool,
+) -> f32 {
+    let (job, images) = inline_job(ui, contents, appearance, size, heading);
     ui.fonts_mut(|fonts| fonts.layout_job(job).size().x) + images
 }
 

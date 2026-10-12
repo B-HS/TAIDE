@@ -3,7 +3,7 @@ use super::inlay_hints_tests::{
 };
 use super::*;
 
-const ORIGINAL: &str = "# Markdown heading\n\n**live preview** and `code`\n\n- first item\n\n<h2>HTML preview heading</h2>\n\n<ol start='-1'><li>first ordered</li><li>second ordered</li></ol>\n\n<ol reversed><li>reverse first</li><li value='-4'>reset</li><li>reverse last</li></ol>\n\n<table><tr><th>short</th><th>header two</th></tr><tr><td>longer content</td><td>first<br>second</td></tr></table>\n\n<img src='./diagram.png' width='800' height='400' alt='owned image'>\n";
+const ORIGINAL: &str = "# Markdown heading\n\n**live preview** and `code`\n\n- first item\n\n<h2>HTML preview heading</h2>\n\n<ol start='-1'><li>first ordered</li><li>second ordered</li></ol>\n\n<ol reversed><li>reverse first</li><li value='-4'>reset</li><li>reverse last</li></ol>\n\n<table><tr><th>short</th><th>header two</th></tr><tr><td>longer content<img src='./diagram.png' width='80' height='40' alt='table image'></td><td>first<br>second</td></tr></table>\n\n<img src='./diagram.png' width='800' height='400' alt='owned image'>\n";
 const UPDATED: &str = "# Updated heading\n\nchanged body";
 const IMAGE_SIZE: [u32; 2] = [2, 1];
 const IMAGE_PIXELS: &[u8] = &[255, 0, 0, 255, 0, 255, 0, 255];
@@ -239,6 +239,13 @@ fn 실제_markdown_토글은_편집기_식별자와_입력_undo_최신_본문을
     let image = application
         .editor_markdown
         .image_rects(context.viewport_id(), &pane)[0];
+    assert!(
+        application
+            .editor_markdown
+            .image_rects(context.viewport_id(), &pane)
+            .len()
+            > 1
+    );
     assert!(image.width() <= preview.width());
     assert!(image.width() > 0.0);
     assert!(

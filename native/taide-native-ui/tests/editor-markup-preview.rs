@@ -81,6 +81,48 @@ fn table_edges(output: &egui::FullOutput) -> Vec<[egui::Pos2; 2]> {
         .collect()
 }
 
+fn table_bounds(
+    edges: &[[egui::Pos2; 2]],
+    column_count: usize,
+    row_count: usize,
+) -> (Vec<f32>, Vec<f32>) {
+    let mut columns = edges
+        .iter()
+        .filter_map(|points| (points[0].x == points[1].x).then_some(points[0].x))
+        .collect::<Vec<_>>();
+    let mut rows = edges
+        .iter()
+        .filter_map(|points| (points[0].y == points[1].y).then_some(points[0].y))
+        .collect::<Vec<_>>();
+    columns.sort_by(f32::total_cmp);
+    columns.dedup();
+    rows.sort_by(f32::total_cmp);
+    rows.dedup();
+    assert_eq!(
+        columns.len(),
+        column_count + 1,
+        "columns={columns:?}; rows={rows:?}"
+    );
+    assert_eq!(
+        rows.len(),
+        row_count + 1,
+        "columns={columns:?}; rows={rows:?}"
+    );
+    for column in columns.windows(2) {
+        for row in rows.windows(2) {
+            for points in [
+                [egui::pos2(column[0], row[0]), egui::pos2(column[1], row[0])],
+                [egui::pos2(column[0], row[1]), egui::pos2(column[1], row[1])],
+                [egui::pos2(column[0], row[0]), egui::pos2(column[0], row[1])],
+                [egui::pos2(column[1], row[0]), egui::pos2(column[1], row[1])],
+            ] {
+                assert_eq!(edges.iter().filter(|edge| **edge == points).count(), 1);
+            }
+        }
+    }
+    (columns, rows)
+}
+
 #[test]
 fn 미리보기_제목과_본문은_편집기_글꼴_크기와_별개의_원본_크기를_사용한다() {
     let context = Context::default();
@@ -262,7 +304,7 @@ fn 인라인_코드_프레임은_원본_둥근_배경과_링크_클릭을_보존
 
 #[test]
 fn 표의_서로_다른_본문_폭과_높이에서도_모든_셀_경계는_같은_열과_행에_맞는다() {
-    const WARMUP_FRAMES: usize = 3;
+    const WARMUP_FRAMES: usize = 1;
     const COLUMN_COUNT: usize = 2;
     const ROW_COUNT: usize = 3;
     let context = Context::default();
@@ -303,30 +345,315 @@ fn 표의_서로_다른_본문_폭과_높이에서도_모든_셀_경계는_같�
         output.textures_delta.clear();
         edges = table_edges(&output);
     }
-    let mut columns = edges
-        .iter()
-        .filter_map(|points| (points[0].x == points[1].x).then_some(points[0].x))
-        .collect::<Vec<_>>();
-    let mut rows = edges
-        .iter()
-        .filter_map(|points| (points[0].y == points[1].y).then_some(points[0].y))
-        .collect::<Vec<_>>();
-    columns.sort_by(f32::total_cmp);
-    columns.dedup();
-    rows.sort_by(f32::total_cmp);
-    rows.dedup();
-    assert_eq!(columns.len(), COLUMN_COUNT + 1);
-    assert_eq!(rows.len(), ROW_COUNT + 1);
-    for column in columns.windows(2) {
-        for row in rows.windows(2) {
-            for points in [
-                [egui::pos2(column[0], row[0]), egui::pos2(column[1], row[0])],
-                [egui::pos2(column[0], row[1]), egui::pos2(column[1], row[1])],
-                [egui::pos2(column[0], row[0]), egui::pos2(column[0], row[1])],
-                [egui::pos2(column[1], row[0]), egui::pos2(column[1], row[1])],
-            ] {
-                assert_eq!(edges.iter().filter(|edge| **edge == points).count(), 1);
+    table_bounds(&edges, COLUMN_COUNT, ROW_COUNT);
+}
+
+#[test]
+fn 표의_내용과_viewport_변경은_첫_프레임부터_본문과_경계를_일치시킨다() {
+    const NARROW_WIDTH: f32 = 240.0;
+    const WIDE_WIDTH: f32 = 560.0;
+    const TOLERANCE: f32 = 1.0;
+    let context = Context::default();
+    for (width, labels) in [
+        (
+            SCREEN.x,
+            vec![
+                vec!["first header is wider", "right header"],
+                vec!["left body", "right body"],
+            ],
+        ),
+        (
+            SCREEN.x,
+            vec![
+                vec!["left", "right"],
+                vec!["a", "b"],
+                vec!["last left", "last right"],
+            ],
+        ),
+        (
+            NARROW_WIDTH,
+            vec![
+                vec!["narrow header", "other header"],
+                vec![
+                    "many words that wrap in a narrow viewport and remain readable",
+                    "a shorter paragraph",
+                ],
+            ],
+        ),
+        (
+            WIDE_WIDTH,
+            vec![
+                vec!["wide header", "final header"],
+                vec!["changed body becomes wider again", "final paragraph"],
+            ],
+        ),
+    ] {
+        let document = RichDocument {
+            blocks: vec![Block::Table {
+                columns: vec![],
+                header: labels[0].iter().map(|label| text(label)).collect(),
+                rows: labels
+                    .iter()
+                    .skip(1)
+                    .map(|row| row.iter().map(|label| text(label)).collect())
+                    .collect(),
+            }],
+        };
+        let mut output = context.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(width, SCREEN.y),
+                )),
+                ..Default::default()
+            },
+            |ui| show_preview(ui, &document, &appearance(), colors(), &mut Preview),
+        );
+        output.textures_delta.clear();
+        let (columns, rows) = table_bounds(&table_edges(&output), labels[0].len(), labels.len());
+        for (row, labels) in labels.iter().enumerate() {
+            for (column, label) in labels.iter().enumerate() {
+                let text = output
+                    .shapes
+                    .iter()
+                    .find_map(|shape| match &shape.shape {
+                        egui::Shape::Text(text) if text.galley.job.text == *label => Some(text),
+                        _ => None,
+                    })
+                    .unwrap();
+                let rect = Rect::from_min_size(text.pos, text.galley.size());
+                assert!(
+                    rect.left() + TOLERANCE >= columns[column],
+                    "left boundary: {label}"
+                );
+                assert!(
+                    rect.right() <= columns[column + 1] + TOLERANCE,
+                    "right boundary: {label}"
+                );
+                assert!(rect.top() + TOLERANCE >= rows[row], "top boundary: {label}");
+                assert!(
+                    rect.bottom() <= rows[row + 1] + TOLERANCE,
+                    "bottom boundary: {label}"
+                );
             }
+        }
+    }
+}
+
+#[test]
+fn 표의_이미지_준비와_높이_변경은_경계와_링크_id_캐시_크기를_보존한다() {
+    const INITIAL_SIZE: Vec2 = egui::vec2(40.0, 20.0);
+    const TALL_SIZE: Vec2 = egui::vec2(40.0, 100.0);
+    const TALL_INDEX: usize = 2;
+    const TARGET: &str = "https://example.com/table-image";
+    const TOLERANCE: f32 = 1.0;
+    struct Images {
+        size: Option<Vec2>,
+        rects: Vec<Rect>,
+        opened: Vec<String>,
+    }
+    impl Provider for Images {
+        fn open_link(&mut self, _: &Ui, target: &str) -> bool {
+            self.opened.push(target.into());
+            true
+        }
+        fn image_size(
+            &self,
+            _: &str,
+            _: taide_native_editor::documentation::ImageDimensions,
+        ) -> Option<Vec2> {
+            self.size
+        }
+        fn image(
+            &mut self,
+            ui: &mut Ui,
+            _: &str,
+            _: &str,
+            _: taide_native_editor::documentation::ImageDimensions,
+        ) -> Option<egui::Response> {
+            let size = self.size?;
+            let size = size * (ui.available_width().max(0.0) / size.x).min(1.0);
+            let response = ui.allocate_exact_size(size, egui::Sense::click()).1;
+            if ui.is_visible() {
+                self.rects.push(response.rect)
+            }
+            Some(response)
+        }
+    }
+    let context = Context::default();
+    let document = RichDocument {
+        blocks: vec![Block::Table {
+            columns: vec![],
+            header: vec![text("label"), text("picture")],
+            rows: vec![vec![
+                text("content"),
+                vec![Inline::Image {
+                    source: "synthetic-image".into(),
+                    title: String::new(),
+                    alt: "waiting image".into(),
+                    link: Some(taide_native_editor::documentation::Link {
+                        target: TARGET.into(),
+                        title: String::new(),
+                    }),
+                    dimensions: Default::default(),
+                }],
+            ]],
+        }],
+    };
+    let mut provider = Images {
+        size: None,
+        rects: Vec::new(),
+        opened: Vec::new(),
+    };
+    let paint = |provider: &mut Images, events| {
+        provider.rects.clear();
+        let mut output = context.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, SCREEN)),
+                events,
+                ..Default::default()
+            },
+            |ui| show_preview(ui, &document, &appearance(), colors(), provider),
+        );
+        output.textures_delta.clear();
+        output
+    };
+    let mut heights = Vec::new();
+    let mut memory = None;
+    for (index, size) in [
+        None,
+        Some(INITIAL_SIZE),
+        Some(TALL_SIZE),
+        Some(INITIAL_SIZE),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        provider.size = size;
+        let output = paint(&mut provider, Vec::new());
+        let (columns, rows) = table_bounds(&table_edges(&output), 2, 2);
+        heights.push(rows.last().unwrap() - rows[1]);
+        if let Some(size) = size {
+            assert_eq!(provider.rects.len(), 1);
+            let rect = provider.rects[0];
+            assert!(
+                (rect.width() - rect.height() * size.x / size.y).abs() <= TOLERANCE,
+                "image rect={rect:?}; requested={size:?}"
+            );
+            assert!(rect.left() + TOLERANCE >= columns[1]);
+            assert!(rect.right() <= columns.last().unwrap() + TOLERANCE);
+            assert!(rect.top() + TOLERANCE >= rows[1]);
+            assert!(rect.bottom() <= rows.last().unwrap() + TOLERANCE);
+        }
+        if index == 1 {
+            memory = Some(context.data(|data| data.len()))
+        }
+    }
+    assert!(heights[TALL_INDEX] > heights[1]);
+    assert_eq!(heights.last().unwrap(), &heights[1]);
+    assert_eq!(memory.unwrap(), context.data(|data| data.len()));
+    let position = provider.rects[0].center();
+    for pressed in [true, false] {
+        paint(
+            &mut provider,
+            vec![
+                egui::Event::PointerMoved(position),
+                egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+    }
+    assert_eq!(provider.opened, [TARGET]);
+}
+
+#[test]
+fn 표는_내용의_자연_너비를_쓰고_공간이_부족할_때만_단어를_줄바꿈한다() {
+    const NARROW_WIDTH: f32 = 240.0;
+    const WIDE_WIDTH: f32 = 560.0;
+    const BODY: &str = "many words remain on one line in a wide viewport";
+    let context = Context::default();
+    let document = RichDocument {
+        blocks: vec![Block::Table {
+            columns: vec![],
+            header: vec![text("body"), text("state")],
+            rows: vec![vec![text(BODY), text("ready")]],
+        }],
+    };
+    for width in [WIDE_WIDTH, NARROW_WIDTH, WIDE_WIDTH] {
+        let mut output = context.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(width, SCREEN.y),
+                )),
+                ..Default::default()
+            },
+            |ui| show_preview(ui, &document, &appearance(), colors(), &mut Preview),
+        );
+        output.textures_delta.clear();
+        let galley = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == BODY => Some(&text.galley),
+                _ => None,
+            })
+            .unwrap();
+        if width == WIDE_WIDTH {
+            assert_eq!(galley.rows.len(), 1);
+        } else {
+            assert!(galley.rows.len() > 1);
+        }
+    }
+}
+
+#[test]
+fn 표의_최소_너비는_공백없는_단어를_보존하고_한중일_문장을_줄바꿈한다() {
+    const NARROW_WIDTH: f32 = 240.0;
+    const WORD_REPEAT: usize = 40;
+    const CJK_REPEAT: usize = 8;
+    let long_word = "unbroken".repeat(WORD_REPEAT);
+    for (body, should_wrap) in [
+        (long_word, false),
+        ("한글문장".repeat(CJK_REPEAT), true),
+        ("日本語文".repeat(CJK_REPEAT), true),
+        ("汉字句子".repeat(CJK_REPEAT), true),
+    ] {
+        let context = Context::default();
+        let document = RichDocument {
+            blocks: vec![Block::Table {
+                columns: vec![],
+                header: vec![text("body"), text("state")],
+                rows: vec![vec![text(&body), text("ready")]],
+            }],
+        };
+        let mut output = context.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(NARROW_WIDTH, SCREEN.y),
+                )),
+                ..Default::default()
+            },
+            |ui| show_preview(ui, &document, &appearance(), colors(), &mut Preview),
+        );
+        output.textures_delta.clear();
+        let galley = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == body => Some(&text.galley),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(galley.rows.len() > 1, should_wrap, "body={body}");
+        if !should_wrap {
+            let edges = table_edges(&output);
+            assert!(edges.iter().any(|points| points[0].x > NARROW_WIDTH));
         }
     }
 }

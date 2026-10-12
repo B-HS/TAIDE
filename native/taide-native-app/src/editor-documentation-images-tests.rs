@@ -11,6 +11,7 @@ const MAX_SIDE: usize = 64;
 const WIDTH: f32 = 40.0;
 const HEIGHT: f32 = 20.0;
 const PIXELS: [u8; 8] = [255, 0, 0, 255, 0, 255, 0, 128];
+const NATURAL_SIZE: egui::Vec2 = egui::vec2(2.0, 1.0);
 const BYTE_LIMIT: usize = 4096;
 
 struct Sink;
@@ -168,6 +169,40 @@ async fn 실제_도움말_이미지는_root_격리와_중복_표시_닫힘_및_p
     let mut cache = Cache::default();
     settle(&mut cache, &context, &fixture, &document).await;
     assert_eq!(cache.entries.len(), 1);
+    for (dimensions, expected) in [
+        (ImageDimensions::default(), NATURAL_SIZE),
+        (
+            ImageDimensions {
+                width: Some(WIDTH as u32),
+                height: None,
+            },
+            egui::vec2(WIDTH, HEIGHT),
+        ),
+        (
+            ImageDimensions {
+                width: None,
+                height: Some(HEIGHT as u32),
+            },
+            egui::vec2(WIDTH, HEIGHT),
+        ),
+        (
+            ImageDimensions {
+                width: Some(WIDTH as u32),
+                height: Some(HEIGHT as u32),
+            },
+            egui::vec2(WIDTH, HEIGHT),
+        ),
+    ] {
+        assert_eq!(
+            cache.size(&fixture.project, &source, dimensions),
+            Some(expected)
+        );
+    }
+    assert!(
+        cache
+            .size(&ProjectId::new(), &source, ImageDimensions::default())
+            .is_none()
+    );
     let Entry::Ready { texture, .. } = cache.entries.values().next().unwrap() else {
         panic!()
     };
