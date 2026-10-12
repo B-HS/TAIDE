@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use egui::{Id, Rect, Ui};
-use taide_native_editor::documentation::{Alignment, Inline, TableLayout};
+use taide_native_editor::documentation::{Alignment, Block, Inline, TableLayout};
 
 use super::{CELL_BORDER, CELL_PADDING, FONT_SIZE, LINE_HEIGHT, cell_widths, inline_contents};
 use crate::editor_markup::{Colors, Provider};
@@ -72,11 +72,86 @@ fn offsets(tracks: &[f32]) -> Vec<f32> {
         .collect()
 }
 
+fn cell_sizes(
+    ui: &Ui,
+    values: &[Inline],
+    blocks: Option<&[Block]>,
+    appearance: &EditorAppearance,
+    provider: &(impl Provider + ?Sized),
+) -> (f32, f32) {
+    if let Some(blocks) = blocks {
+        let padding = f32::from(CELL_PADDING.left) + f32::from(CELL_PADDING.right);
+        let (min, max) = super::block_widths(ui, blocks, appearance, provider);
+        return (min + padding, max + padding);
+    }
+    cell_widths(ui, values, appearance, provider, false)
+}
+
+fn inline_image_metrics(
+    contents: &[Inline],
+    provider: &(impl Provider + ?Sized),
+    sizes: &mut Vec<Option<[u32; 2]>>,
+) {
+    for value in contents {
+        if let Inline::Image {
+            source, dimensions, ..
+        } = value
+        {
+            sizes.push(
+                provider
+                    .image_size(source, *dimensions)
+                    .map(|size| [size.x.to_bits(), size.y.to_bits()]),
+            );
+        }
+    }
+}
+
+fn block_image_metrics(
+    contents: &[Block],
+    provider: &(impl Provider + ?Sized),
+    sizes: &mut Vec<Option<[u32; 2]>>,
+) {
+    for block in contents {
+        match block {
+            Block::Paragraph(values)
+            | Block::Heading {
+                contents: values, ..
+            } => inline_image_metrics(values, provider, sizes),
+            Block::Quote(values) => block_image_metrics(values, provider, sizes),
+            Block::List { items, .. } => {
+                for item in items {
+                    block_image_metrics(&item.blocks, provider, sizes)
+                }
+            }
+            Block::Table {
+                header,
+                rows,
+                layout,
+                ..
+            } => {
+                for values in header.iter().chain(rows.iter().flatten()) {
+                    inline_image_metrics(values, provider, sizes)
+                }
+                if let Some(layout) = layout {
+                    inline_image_metrics(&layout.caption, provider, sizes);
+                    for cell in layout.cells.iter().flatten() {
+                        if let Some(blocks) = &cell.blocks {
+                            block_image_metrics(blocks, provider, sizes)
+                        }
+                    }
+                }
+            }
+            Block::Code { .. } | Block::Rule => {}
+        }
+    }
+}
+
 fn contents(
     ui: &mut Ui,
     id: Id,
     rect: Rect,
     values: &[Inline],
+    blocks: Option<&[Block]>,
     alignment: Alignment,
     appearance: &EditorAppearance,
     colors: Colors,
@@ -85,7 +160,7 @@ fn contents(
     measured: bool,
 ) -> f32 {
     let padding = f32::from(CELL_PADDING.left) + f32::from(CELL_PADDING.right);
-    let (_, preferred) = cell_widths(ui, values, appearance, provider, false);
+    let (_, preferred) = cell_sizes(ui, values, blocks, appearance, provider);
     let available = (rect.width() - f32::from(margin.left) - f32::from(margin.right)).max(0.0);
     let width = (preferred - padding).min(available).max(0.0);
     let offset = match alignment {
@@ -111,6 +186,10 @@ fn contents(
         .inner_margin(margin)
         .show(&mut child, |ui| {
             ui.set_width(width);
+            if let Some(blocks) = blocks {
+                super::blocks(ui, blocks, appearance, colors, provider);
+                return;
+            }
             inline_contents(
                 ui,
                 values,
@@ -125,24 +204,21 @@ fn contents(
     output.response.rect.height()
 }
 
-pub(super) fn show(
-    ui: &mut Ui,
+pub(super) fn intrinsic_widths(
+    ui: &Ui,
     rows: &[Vec<Vec<Inline>>],
     layout: &TableLayout,
     appearance: &EditorAppearance,
-    colors: Colors,
-    provider: &mut (impl Provider + ?Sized),
-) {
+    provider: &(impl Provider + ?Sized),
+) -> Option<(Vec<f32>, Vec<f32>)> {
     if layout.cells.len() != rows.len() || layout.row_count != rows.len() {
-        return;
+        return None;
     }
     let mut minimum = vec![0.0f32; layout.column_count];
     let mut preferred = minimum.clone();
-    let mut metrics = Vec::new();
-    let mut image_sizes = Vec::new();
     for (row, cells) in rows.iter().zip(&layout.cells) {
         if row.len() != cells.len() {
-            return;
+            return None;
         }
         for (values, cell) in row.iter().zip(cells) {
             if cell.column_span == 0
@@ -152,25 +228,12 @@ pub(super) fn show(
                     .checked_add(cell.column_span)
                     .is_none_or(|end| end > layout.column_count)
             {
-                return;
+                return None;
             }
-            let sizes = cell_widths(ui, values, appearance, provider, false);
-            metrics.push([sizes.0.to_bits(), sizes.1.to_bits()]);
+            let sizes = cell_sizes(ui, values, cell.blocks.as_deref(), appearance, provider);
             if cell.column_span == 1 {
                 minimum[cell.column] = minimum[cell.column].max(sizes.0);
                 preferred[cell.column] = preferred[cell.column].max(sizes.1);
-            }
-            for value in values {
-                if let Inline::Image {
-                    source, dimensions, ..
-                } = value
-                {
-                    image_sizes.push(
-                        provider
-                            .image_size(source, *dimensions)
-                            .map(|size| [size.x.to_bits(), size.y.to_bits()]),
-                    );
-                }
             }
         }
     }
@@ -180,10 +243,10 @@ pub(super) fn show(
                 .checked_add(cell.row_span)
                 .is_none_or(|end| end > layout.row_count)
             {
-                return;
+                return None;
             }
             if cell.column_span > 1 {
-                let sizes = cell_widths(ui, values, appearance, provider, false);
+                let sizes = cell_sizes(ui, values, cell.blocks.as_deref(), appearance, provider);
                 grow(
                     &mut minimum[cell.column..cell.column + cell.column_span],
                     sizes.0,
@@ -196,21 +259,39 @@ pub(super) fn show(
         }
     }
     let caption = cell_widths(ui, &layout.caption, appearance, provider, false);
-    for value in &layout.caption {
-        if let Inline::Image {
-            source, dimensions, ..
-        } = value
-        {
-            image_sizes.push(
-                provider
-                    .image_size(source, *dimensions)
-                    .map(|size| [size.x.to_bits(), size.y.to_bits()]),
-            );
-        }
-    }
     let padding = f32::from(CELL_PADDING.left) + f32::from(CELL_PADDING.right);
     grow(&mut minimum, (caption.0 - padding).max(0.0));
     grow(&mut preferred, (caption.1 - padding).max(0.0));
+    Some((minimum, preferred))
+}
+
+pub(super) fn show(
+    ui: &mut Ui,
+    rows: &[Vec<Vec<Inline>>],
+    layout: &TableLayout,
+    appearance: &EditorAppearance,
+    colors: Colors,
+    provider: &mut (impl Provider + ?Sized),
+) {
+    let Some((minimum, preferred)) = intrinsic_widths(ui, rows, layout, appearance, provider)
+    else {
+        return;
+    };
+    let caption = cell_widths(ui, &layout.caption, appearance, provider, false);
+    let padding = f32::from(CELL_PADDING.left) + f32::from(CELL_PADDING.right);
+    let mut metrics = Vec::new();
+    let mut image_sizes = Vec::new();
+    for (row, cells) in rows.iter().zip(&layout.cells) {
+        for (values, cell) in row.iter().zip(cells) {
+            let sizes = cell_sizes(ui, values, cell.blocks.as_deref(), appearance, provider);
+            metrics.push([sizes.0.to_bits(), sizes.1.to_bits()]);
+            inline_image_metrics(values, provider, &mut image_sizes);
+            if let Some(blocks) = &cell.blocks {
+                block_image_metrics(blocks, provider, &mut image_sizes)
+            }
+        }
+    }
+    inline_image_metrics(&layout.caption, provider, &mut image_sizes);
     let min = minimum.iter().sum::<f32>();
     let max = preferred.iter().sum::<f32>();
     let available = ui.available_width();
@@ -257,6 +338,7 @@ pub(super) fn show(
                     owner.with(("measure", row_index, index)),
                     rect,
                     values,
+                    cell.blocks.as_deref(),
                     cell.alignment,
                     appearance,
                     colors,
@@ -292,6 +374,7 @@ pub(super) fn show(
                 owner.with("caption-measure"),
                 Rect::from_min_size(origin, egui::vec2(width, f32::INFINITY)),
                 &layout.caption,
+                None,
                 Alignment::Center,
                 appearance,
                 colors,
@@ -319,6 +402,7 @@ pub(super) fn show(
             owner.with("caption"),
             Rect::from_min_size(origin, egui::vec2(width, geometry.caption_height)),
             &layout.caption,
+            None,
             Alignment::Center,
             appearance,
             colors,
@@ -346,6 +430,7 @@ pub(super) fn show(
                 owner.with(("contents", row_index, index)),
                 content_rect,
                 values,
+                cell.blocks.as_deref(),
                 cell.alignment,
                 appearance,
                 colors,

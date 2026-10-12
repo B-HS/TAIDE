@@ -2,6 +2,67 @@ use super::*;
 use taide_native_editor::documentation::{Block, Inline};
 
 #[test]
+fn 표_셀의_flow_구조는_문단_코드_목록_중첩_표와_상대_이미지를_보존한다() {
+    let document = parse("<table><tr><th><p>first</p><p>second</p><h3>heading</h3><ol start='-1'><li>item</li></ol><pre><code class='language-rust'>let cell = 1;\nnext line</code></pre><blockquote><p><a href='https://example.com'>linked</a><img src='./nested.png'></p></blockquote><table><tr><td><p>https://example.com/nested</p></td></tr></table></th><td>plain <em>inline</em></td></tr></table>", Some(std::path::Path::new("/workspace/cell.md"))).unwrap();
+    let Block::Table {
+        rows,
+        layout: Some(layout),
+        ..
+    } = &document.blocks[0]
+    else {
+        panic!("expected table")
+    };
+    assert!(rows[0][0].is_empty());
+    assert!(layout.cells[0][1].blocks.is_none());
+    assert!(
+        matches!(&rows[0][1][1], Inline::Text(span) if span.text == "inline" && span.style.italic)
+    );
+    let blocks = layout.cells[0][0].blocks.as_ref().unwrap();
+    assert!(
+        matches!(&blocks[0], Block::Paragraph(values) if matches!(&values[0], Inline::Text(span) if span.text == "first" && span.style.bold))
+    );
+    assert!(
+        matches!(&blocks[1], Block::Paragraph(values) if matches!(&values[0], Inline::Text(span) if span.text == "second" && span.style.bold))
+    );
+    assert!(matches!(&blocks[2], Block::Heading { level: 3, .. }));
+    assert!(matches!(
+        &blocks[3],
+        Block::List {
+            start: Some(-1),
+            ..
+        }
+    ));
+    assert!(
+        matches!(&blocks[4], Block::Code { language, text } if language == "rust" && text == "let cell = 1;\nnext line")
+    );
+    let Block::Quote(quote) = &blocks[5] else {
+        panic!("expected quote")
+    };
+    let Block::Paragraph(values) = &quote[0] else {
+        panic!("expected paragraph")
+    };
+    assert!(
+        matches!(&values[0], Inline::Text(span) if span.link.as_ref().is_some_and(|link| link.target == "https://example.com/"))
+    );
+    assert!(
+        matches!(&values[1], Inline::Image { source, .. } if source == "file:///workspace/nested.png")
+    );
+    let Block::Table {
+        layout: Some(nested),
+        ..
+    } = &blocks[6]
+    else {
+        panic!("expected nested table")
+    };
+    let Block::Paragraph(values) = &nested.cells[0][0].blocks.as_ref().unwrap()[0] else {
+        panic!("expected nested paragraph")
+    };
+    assert!(
+        matches!(&values[0], Inline::Text(span) if span.link.as_ref().is_some_and(|link| link.target == "https://example.com/nested"))
+    );
+}
+
+#[test]
 fn html_목록은_원본_parent_css와_개별_type_정화_우선순위를_보존한다() {
     for tag in ["ol", "ul"] {
         for (kind, expected) in [

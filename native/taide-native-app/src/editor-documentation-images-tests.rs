@@ -220,6 +220,19 @@ async fn 실제_도움말_이미지는_root_격리와_중복_표시_닫힘_및_p
     assert!(
         matches!(cache.entries.values().next(), Some(Entry::Ready { texture, .. }) if texture.id() == texture_id)
     );
+    let nested = crate::editor_markdown_parse::parse(
+        "<table><tr><td><blockquote><p><img src='./synthetic.png' alt='nested image'></p></blockquote><table><tr><td><p><img src='./synthetic.png'></p></td></tr></table></td></tr></table>",
+        Some(&fixture.root.join("cell.md")),
+    ).unwrap();
+    cache.prepare(
+        &context,
+        &fixture.services,
+        std::iter::once((&fixture.project, &nested)),
+    );
+    assert_eq!(cache.entries.len(), 1);
+    assert!(
+        matches!(cache.entries.values().next(), Some(Entry::Ready { texture, .. }) if texture.id() == texture_id)
+    );
     cache.prepare(
         &context,
         &fixture.services,

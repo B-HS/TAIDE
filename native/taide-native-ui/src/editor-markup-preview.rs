@@ -66,16 +66,16 @@ fn text_widths(ui: &Ui, job: egui::text::LayoutJob) -> (f32, f32) {
     (minimum, galley.size().x)
 }
 
-fn cell_widths(
+fn inline_widths(
     ui: &Ui,
     cell: &[Inline],
     appearance: &EditorAppearance,
     provider: &(impl Provider + ?Sized),
+    font_size: f32,
     bold: bool,
 ) -> (f32, f32) {
-    let padding = f32::from(CELL_PADDING.left) + f32::from(CELL_PADDING.right);
     let code_padding = f32::from(INLINE_CODE_PADDING.left) + f32::from(INLINE_CODE_PADDING.right);
-    let (job, _) = super::inline_job(ui, cell, appearance, FONT_SIZE, bold);
+    let (job, _) = super::inline_job(ui, cell, appearance, font_size, bold);
     let (mut min, mut max) = text_widths(ui, job);
     for inline in cell {
         match inline {
@@ -93,7 +93,7 @@ fn cell_widths(
                             ui,
                             egui::text::LayoutJob::simple(
                                 alt.clone(),
-                                egui::FontId::proportional(FONT_SIZE),
+                                egui::FontId::proportional(font_size),
                                 ui.visuals().text_color(),
                                 f32::INFINITY,
                             ),
@@ -109,7 +109,137 @@ fn cell_widths(
             _ => {}
         }
     }
+    (min, max)
+}
+
+fn cell_widths(
+    ui: &Ui,
+    cell: &[Inline],
+    appearance: &EditorAppearance,
+    provider: &(impl Provider + ?Sized),
+    bold: bool,
+) -> (f32, f32) {
+    let padding = f32::from(CELL_PADDING.left) + f32::from(CELL_PADDING.right);
+    let (min, max) = inline_widths(ui, cell, appearance, provider, FONT_SIZE, bold);
     (min + padding, max + padding)
+}
+
+fn block_widths(
+    ui: &Ui,
+    contents: &[Block],
+    appearance: &EditorAppearance,
+    provider: &(impl Provider + ?Sized),
+) -> (f32, f32) {
+    contents
+        .iter()
+        .map(|block| match block {
+            Block::Paragraph(values) => {
+                inline_widths(ui, values, appearance, provider, FONT_SIZE, false)
+            }
+            Block::Heading { level, contents } => {
+                let index = usize::from(level.saturating_sub(1));
+                inline_widths(
+                    ui,
+                    contents,
+                    appearance,
+                    provider,
+                    HEADING_SIZES.get(index).copied().unwrap_or(FONT_SIZE),
+                    HEADING_SIZES.get(index).is_some(),
+                )
+            }
+            Block::Quote(contents) => {
+                let (min, max) = block_widths(ui, contents, appearance, provider);
+                (min + f32::from(QUOTE_INDENT), max + f32::from(QUOTE_INDENT))
+            }
+            Block::List { start, items } => items
+                .iter()
+                .enumerate()
+                .map(|(index, item)| {
+                    let (min, max) = block_widths(ui, &item.blocks, appearance, provider);
+                    let marker = if item.checked.is_some() {
+                        ui.spacing().icon_width.max(ui.spacing().interact_size.y)
+                    } else {
+                        item.marker(*start, index)
+                            .map(|marker| {
+                                text_widths(
+                                    ui,
+                                    egui::text::LayoutJob::simple(
+                                        marker,
+                                        egui::FontId::proportional(FONT_SIZE),
+                                        ui.visuals().text_color(),
+                                        f32::INFINITY,
+                                    ),
+                                )
+                                .1
+                            })
+                            .unwrap_or_default()
+                    };
+                    let spacing = if marker > 0.0 {
+                        ui.spacing().item_spacing.x
+                    } else {
+                        0.0
+                    };
+                    let indent = f32::from(LIST_INDENT) + marker + spacing;
+                    (min + indent, max + indent)
+                })
+                .fold((0.0f32, 0.0f32), |(min, max), (next_min, next_max)| {
+                    (min.max(next_min), max.max(next_max))
+                }),
+            Block::Code { text, .. } => {
+                let width = text_widths(
+                    ui,
+                    egui::text::LayoutJob::simple(
+                        text.clone(),
+                        egui::FontId::new(FONT_SIZE, FontFamily::Monospace),
+                        ui.visuals().text_color(),
+                        f32::INFINITY,
+                    ),
+                )
+                .1 + f32::from(CODE_PADDING) * 2.0;
+                (width, width)
+            }
+            Block::Table {
+                header,
+                rows,
+                layout,
+                ..
+            } => {
+                if let Some(layout) = layout {
+                    if layout.column_count == 0 {
+                        return inline_widths(
+                            ui,
+                            &layout.caption,
+                            appearance,
+                            provider,
+                            FONT_SIZE,
+                            false,
+                        );
+                    }
+                    return table::intrinsic_widths(ui, rows, layout, appearance, provider)
+                        .map(|(minimum, preferred)| (minimum.iter().sum(), preferred.iter().sum()))
+                        .unwrap_or_default();
+                }
+                let count = std::iter::once(header)
+                    .chain(rows)
+                    .map(Vec::len)
+                    .max()
+                    .unwrap_or_default();
+                let mut minimum = vec![0.0f32; count];
+                let mut preferred = minimum.clone();
+                for (index, row) in std::iter::once(header).chain(rows).enumerate() {
+                    for (column, values) in row.iter().enumerate() {
+                        let (min, max) = cell_widths(ui, values, appearance, provider, index == 0);
+                        minimum[column] = minimum[column].max(min);
+                        preferred[column] = preferred[column].max(max);
+                    }
+                }
+                (minimum.iter().sum(), preferred.iter().sum())
+            }
+            Block::Rule => (0.0, 0.0),
+        })
+        .fold((0.0f32, 0.0f32), |(min, max), (next_min, next_max)| {
+            (min.max(next_min), max.max(next_max))
+        })
 }
 
 fn table_widths(

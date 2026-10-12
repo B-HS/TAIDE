@@ -124,6 +124,262 @@ fn table_bounds(
 }
 
 #[test]
+fn 복합_셀의_블록과_중첩_표는_병합_영역과_현재_너비에_맞게_배치된다() {
+    use taide_native_editor::documentation::{Alignment, ListItem, TableCell, TableLayout};
+    const COLUMN_COUNT: usize = 2;
+    const ROW_COUNT: usize = 2;
+    const TOLERANCE: f32 = 1.0;
+    const WIDTHS: [f32; 4] = [240.0, 520.0, 240.0, 520.0];
+    const FIRST: &str = "first paragraph with enough words to wrap within the cell";
+    let nested = Block::Table {
+        columns: vec![],
+        header: vec![],
+        rows: vec![vec![text("nested table")]],
+        layout: Some(TableLayout {
+            caption: vec![],
+            column_count: 1,
+            row_count: 1,
+            cells: vec![vec![TableCell {
+                column: 0,
+                column_span: 1,
+                row_span: 1,
+                alignment: Alignment::Default,
+                blocks: None,
+            }]],
+        }),
+    };
+    let body = vec![
+        Block::Paragraph(text(FIRST)),
+        Block::Paragraph(text("second paragraph")),
+        Block::Heading {
+            level: 1,
+            contents: text("cell heading"),
+        },
+        Block::List {
+            start: Some(-1),
+            items: vec![ListItem {
+                checked: None,
+                ordinal: None,
+                marker_style: None,
+                blocks: vec![Block::Paragraph(text("list item"))],
+            }],
+        },
+        Block::Code {
+            language: String::new(),
+            text: "let cell = 1;\nnext line".into(),
+        },
+        nested,
+    ];
+    let mut document = RichDocument {
+        blocks: vec![Block::Table {
+            columns: vec![],
+            header: vec![],
+            rows: vec![
+                vec![vec![], text("neighbor")],
+                vec![text("bottom neighbor")],
+            ],
+            layout: Some(TableLayout {
+                caption: vec![],
+                column_count: COLUMN_COUNT,
+                row_count: ROW_COUNT,
+                cells: vec![
+                    vec![
+                        TableCell {
+                            column: 0,
+                            column_span: 1,
+                            row_span: ROW_COUNT,
+                            alignment: Alignment::Default,
+                            blocks: Some(body),
+                        },
+                        TableCell {
+                            column: 1,
+                            column_span: 1,
+                            row_span: 1,
+                            alignment: Alignment::Default,
+                            blocks: None,
+                        },
+                    ],
+                    vec![TableCell {
+                        column: 1,
+                        column_span: 1,
+                        row_span: 1,
+                        alignment: Alignment::Default,
+                        blocks: None,
+                    }],
+                ],
+            }),
+        }],
+    };
+    let context = Context::default();
+    let mut state_count = None;
+    let mut paragraph_rows = Vec::new();
+    let mut previous_height = 0.0;
+    for width in WIDTHS {
+        let mut output = context.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(width, SCREEN.y),
+                )),
+                ..Default::default()
+            },
+            |ui| show_preview(ui, &document, &appearance(), colors(), &mut Preview),
+        );
+        output.textures_delta.clear();
+        let edges = table_edges(&output);
+        let bounds = edges
+            .iter()
+            .map(|points| Rect::from_two_pos(points[0], points[1]))
+            .reduce(|left, right| left.union(right))
+            .unwrap()
+            .expand(TOLERANCE);
+        previous_height = bounds.height();
+        let mut previous_bottom = bounds.top();
+        for label in [
+            FIRST,
+            "second paragraph",
+            "cell heading",
+            "list item",
+            "let cell = 1;\nnext line",
+            "nested table",
+        ] {
+            let text = output
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) if text.galley.job.text == label => Some(text),
+                    _ => None,
+                })
+                .unwrap();
+            let rect = Rect::from_min_size(text.pos, text.galley.size());
+            assert!(bounds.contains_rect(rect), "outside table {label}");
+            assert!(
+                rect.top() + TOLERANCE >= previous_bottom,
+                "overlapping block {label}"
+            );
+            previous_bottom = rect.bottom();
+            if label == FIRST {
+                paragraph_rows.push(text.galley.rows.len())
+            }
+            if label == "cell heading" {
+                assert!(
+                    text.galley
+                        .job
+                        .sections
+                        .iter()
+                        .all(|section| section.format.font_id.size == HEADING_SIZES[0])
+                )
+            }
+        }
+        for label in ["-1.", "neighbor", "bottom neighbor"] {
+            assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == label)));
+        }
+        let count = context.data(|data| data.len());
+        if let Some(previous) = state_count {
+            assert_eq!(count, previous)
+        }
+        state_count = Some(count);
+    }
+    assert!(paragraph_rows[0] > paragraph_rows[1]);
+    assert_eq!(paragraph_rows[0], paragraph_rows[2]);
+    assert_eq!(paragraph_rows[1], paragraph_rows[3]);
+    for is_added in [true, false] {
+        let Block::Table {
+            layout: Some(layout),
+            ..
+        } = &mut document.blocks[0]
+        else {
+            panic!("expected table")
+        };
+        let blocks = layout.cells[0][0].blocks.as_mut().unwrap();
+        if is_added {
+            blocks.push(Block::Paragraph(text("inserted block")))
+        } else {
+            blocks.pop();
+        }
+        let mut output = context.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(WIDTHS[1], SCREEN.y),
+                )),
+                ..Default::default()
+            },
+            |ui| show_preview(ui, &document, &appearance(), colors(), &mut Preview),
+        );
+        output.textures_delta.clear();
+        let edges = table_edges(&output);
+        let bounds = edges
+            .iter()
+            .map(|points| Rect::from_two_pos(points[0], points[1]))
+            .reduce(|left, right| left.union(right))
+            .unwrap()
+            .expand(TOLERANCE);
+        assert_eq!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == "inserted block")), is_added);
+        if is_added {
+            assert!(bounds.height() > previous_height)
+        } else {
+            assert!((bounds.height() - previous_height).abs() <= TOLERANCE)
+        }
+    }
+    const CHECKBOX_INTERACT_SIZE: f32 = 60.0;
+    let Block::Table {
+        layout: Some(layout),
+        ..
+    } = &mut document.blocks[0]
+    else {
+        panic!("expected table")
+    };
+    layout.cells[0][0].blocks = Some(vec![Block::List {
+        start: None,
+        items: vec![ListItem {
+            checked: Some(true),
+            ordinal: None,
+            marker_style: None,
+            blocks: vec![Block::Paragraph(text("task item"))],
+        }],
+    }]);
+    let mut output = context.run_ui(
+        RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(WIDTHS[1], SCREEN.y),
+            )),
+            ..Default::default()
+        },
+        |ui| {
+            ui.spacing_mut().interact_size.y = CHECKBOX_INTERACT_SIZE;
+            show_preview(ui, &document, &appearance(), colors(), &mut Preview);
+        },
+    );
+    output.textures_delta.clear();
+    let mut columns = table_edges(&output)
+        .iter()
+        .filter_map(|points| (points[0].x == points[1].x).then_some(points[0].x))
+        .collect::<Vec<_>>();
+    columns.sort_by(f32::total_cmp);
+    columns.dedup();
+    assert_eq!(columns.len(), COLUMN_COUNT + 1);
+    let text = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.job.text == "task item" => Some(text),
+            _ => None,
+        })
+        .unwrap();
+    assert!(
+        text.pos.x + text.galley.size().x <= columns[1] + TOLERANCE,
+        "checkbox item exceeds cell"
+    );
+    assert_eq!(
+        text.galley.rows.len(),
+        1,
+        "checkbox squeezes a naturally fitting item"
+    );
+}
+
+#[test]
 fn 미리보기_제목과_본문은_편집기_글꼴_크기와_별개의_원본_크기를_사용한다() {
     let context = Context::default();
     let document = RichDocument {
@@ -483,7 +739,7 @@ fn 표의_이미지_준비와_높이_변경은_경계와_링크_id_캐시_크기
             Some(response)
         }
     }
-    for is_html in [false, true] {
+    for (is_html, has_blocks) in [(false, false), (true, false), (true, true)] {
         let context = Context::default();
         let mut document = RichDocument {
             blocks: vec![Block::Table {
@@ -532,12 +788,19 @@ fn 표의_이미지_준비와_높이_변경은_경계와_링크_id_캐시_크기
                                     row_span: 1,
                                     alignment:
                                         taide_native_editor::documentation::Alignment::Default,
+                                    blocks: None,
                                 },
                             )
                             .collect()
                     })
                     .collect(),
             });
+            if has_blocks {
+                layout.as_mut().unwrap().cells[1][1].blocks =
+                    Some(vec![Block::Quote(vec![Block::Paragraph(std::mem::take(
+                        &mut rows[1][1],
+                    ))])]);
+            }
         }
         let mut provider = Images {
             size: None,
@@ -748,12 +1011,14 @@ fn 병합_셀의_내부_경계는_없고_제목과_본문은_병합_영역에_�
                             column_span: MERGED_SPAN,
                             row_span: 1,
                             alignment: Alignment::Center,
+                            blocks: None,
                         },
                         TableCell {
                             column: MERGED_SPAN,
                             column_span: 1,
                             row_span: MERGED_SPAN,
                             alignment: Alignment::Default,
+                            blocks: None,
                         },
                     ],
                     vec![
@@ -762,12 +1027,14 @@ fn 병합_셀의_내부_경계는_없고_제목과_본문은_병합_영역에_�
                             column_span: 1,
                             row_span: 1,
                             alignment: Alignment::Default,
+                            blocks: None,
                         },
                         TableCell {
                             column: 1,
                             column_span: 1,
                             row_span: 1,
                             alignment: Alignment::Default,
+                            blocks: None,
                         },
                     ],
                 ],

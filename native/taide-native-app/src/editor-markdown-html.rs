@@ -247,7 +247,7 @@ fn marker_style(value: &str) -> Option<ListMarkerStyle> {
     }
 }
 
-fn blocks(node: NodeRef<'_>, base: Option<&Url>) -> AppResult<Vec<Block>> {
+fn blocks(node: NodeRef<'_>, base: Option<&Url>, bold: bool) -> AppResult<Vec<Block>> {
     let mut output = Vec::new();
     let mut pending = Vec::new();
     for child in node.children_it(false) {
@@ -256,17 +256,26 @@ fn blocks(node: NodeRef<'_>, base: Option<&Url>) -> AppResult<Vec<Block>> {
             continue;
         }
         if !BLOCK_TAGS.contains(&tag.as_str()) {
-            inlines(child, base, Style::default(), None, &mut pending);
+            inlines(
+                child,
+                base,
+                Style {
+                    bold,
+                    ..Default::default()
+                },
+                None,
+                &mut pending,
+            );
             continue;
         }
         flush(&mut output, &mut pending);
         match tag.as_str() {
             "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => output.push(Block::Heading {
                 level: tag.as_bytes()[1] - b'0',
-                contents: contents(child, base, false),
+                contents: contents(child, base, bold),
             }),
-            "p" => output.push(Block::Paragraph(contents(child, base, false))),
-            "blockquote" => output.push(Block::Quote(blocks(child, base)?)),
+            "p" => output.push(Block::Paragraph(contents(child, base, bold))),
+            "blockquote" => output.push(Block::Quote(blocks(child, base, bold)?)),
             "pre" => {
                 let code = child
                     .first_element_child()
@@ -321,15 +330,15 @@ fn blocks(node: NodeRef<'_>, base: Option<&Url>) -> AppResult<Vec<Block>> {
                             checked: checkbox(item),
                             ordinal: number,
                             marker_style,
-                            blocks: blocks(item, base)?,
+                            blocks: blocks(item, base, bold)?,
                         })
                     })
                     .collect::<AppResult<_>>()?;
                 output.push(Block::List { start, items });
             }
-            "table" => output.push(table::parse(child, base)?),
+            "table" => output.push(table::parse(child, base, bold)?),
             "hr" => output.push(Block::Rule),
-            _ => output.extend(blocks(child, base)?),
+            _ => output.extend(blocks(child, base, bold)?),
         }
     }
     flush(&mut output, &mut pending);
@@ -345,7 +354,7 @@ pub(super) fn parse(source: &str, base: Option<&Url>) -> AppResult<RichDocument>
         }
         pending.extend(node.children_it(false).map(|child| (child, depth + 1)));
     }
-    let mut blocks = blocks(document.root(), base)?;
+    let mut blocks = blocks(document.root(), base, false)?;
     crate::editor_markup::autolinks::apply(&mut blocks);
     Ok(RichDocument { blocks })
 }

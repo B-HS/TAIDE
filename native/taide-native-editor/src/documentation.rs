@@ -43,7 +43,7 @@ pub struct RichDocument {
     pub blocks: Vec<Block>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Block {
     Paragraph(Vec<Inline>),
     Heading {
@@ -82,9 +82,10 @@ pub struct TableCell {
     pub column_span: usize,
     pub row_span: usize,
     pub alignment: Alignment,
+    pub blocks: Option<Vec<Block>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ListItem {
     pub checked: Option<bool>,
     pub ordinal: Option<i64>,
@@ -107,7 +108,7 @@ impl ListItem {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ListMarkerStyle {
     Decimal,
     LowerAlpha,

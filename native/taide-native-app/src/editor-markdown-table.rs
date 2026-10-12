@@ -5,7 +5,7 @@ use taide_model::error::AppResult;
 use taide_native_editor::documentation::{Alignment, Block, Inline, TableCell, TableLayout};
 use url::Url;
 
-use super::{contents, name};
+use super::{BLOCK_TAGS, blocks, contents, name};
 
 const MAX_COLUMN_SPAN: usize = 1000;
 const MAX_ROW_SPAN: usize = 65534;
@@ -50,11 +50,11 @@ fn budget(rows: usize, columns: usize, cells: usize) -> AppResult<()> {
     Ok(())
 }
 
-pub(super) fn parse(node: NodeRef<'_>, base: Option<&Url>) -> AppResult<Block> {
+pub(super) fn parse(node: NodeRef<'_>, base: Option<&Url>, bold: bool) -> AppResult<Block> {
     let caption = node
         .children_it(false)
         .find(|child| name(*child) == "caption" && !child.has_attr("hidden"))
-        .map(|caption| contents(caption, base, false))
+        .map(|caption| contents(caption, base, bold))
         .unwrap_or_default();
     let mut head = Vec::new();
     let mut body = Vec::new();
@@ -134,12 +134,24 @@ pub(super) fn parse(node: NodeRef<'_>, base: Option<&Url>) -> AppResult<Block> {
                         *entry = alignment
                     }
                 }
-                row_contents.push(contents(cell, base, name(cell) == "th"));
+                let bold = bold || name(cell) == "th";
+                let body = cell
+                    .children_it(false)
+                    .any(|child| BLOCK_TAGS.contains(&name(child).as_str()))
+                    .then(|| blocks(cell, base, bold))
+                    .transpose()?;
+                let inlines = if body.is_some() {
+                    Vec::new()
+                } else {
+                    contents(cell, base, bold)
+                };
+                row_contents.push(inlines);
                 row_cells.push(TableCell {
                     column,
                     column_span,
                     row_span,
                     alignment,
+                    blocks: body,
                 });
                 column = column_end;
             }

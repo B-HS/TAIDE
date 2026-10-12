@@ -79,6 +79,122 @@ fn preview_text_contains(
 }
 
 #[test]
+fn 실제_markdown_표_셀은_문단_목록_코드와_중첩_표를_분리해_표시한다() {
+    const CONTENT: &str = "<table><tr><td><p>first paragraph</p><p>second paragraph</p><ol><li>list item</li></ol><pre><code>let cell = 1;\nnext line</code></pre><blockquote><p>linked paragraph<a href='https://example.com'>safe link</a><img src='./cell.png' width='80' height='40'></p></blockquote><table><tr><td>nested table</td></tr></table></td><td>neighbor</td></tr></table>";
+    const CELL_IMAGE_SIZE: egui::Vec2 = egui::vec2(80.0, 40.0);
+    let mut fixture = fixture_with_view_state(
+        "--native-inlay-hints",
+        false,
+        |_, _, _| true,
+        None,
+        "original rust",
+    );
+    let path = PathBuf::from(&fixture.path).with_file_name("cell-blocks.md");
+    let image = path.with_file_name("cell.png");
+    let mut png = png::Encoder::new(
+        std::fs::File::create(&image).unwrap(),
+        IMAGE_SIZE[0],
+        IMAGE_SIZE[1],
+    );
+    png.set_color(png::ColorType::Rgba);
+    png.set_depth(png::BitDepth::Eight);
+    png.write_header()
+        .unwrap()
+        .write_image_data(IMAGE_PIXELS)
+        .unwrap();
+    let image_bytes = std::fs::read(&image).unwrap();
+    std::fs::write(&path, CONTENT).unwrap();
+    let path = path.to_str().unwrap().to_owned();
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    assert!(application.submit(HostCommand::OpenFileTab {
+        project: fixture.project.clone(),
+        pane: None,
+        path: path.clone(),
+        preview: false,
+    }));
+    wait(
+        application,
+        context,
+        "table blocks live view",
+        |application| {
+            application.files.get(&path).is_some_and(|document| {
+                application
+                    .store
+                    .views()
+                    .for_document(document.id)
+                    .next()
+                    .is_some()
+            })
+        },
+    );
+    let document = application.files[&path].id;
+    let key = application
+        .store
+        .views()
+        .for_document(document)
+        .next()
+        .unwrap()
+        .key
+        .clone();
+    paint(application, context, Vec::new());
+    toggle_preview(application, context, &key.pane);
+    wait(
+        application,
+        context,
+        "table block image visible",
+        |application| {
+            application
+                .editor_markdown
+                .image_rects(context.viewport_id(), &key.pane)
+                .len()
+                == 1
+        },
+    );
+    let output = paint(application, context, Vec::new());
+    for label in [
+        "first paragraph",
+        "second paragraph",
+        "1.",
+        "list item",
+        "let cell = 1;\nnext line",
+        "nested table",
+        "neighbor",
+    ] {
+        assert!(
+            preview_text_contains(application, context, &key.pane, &output, label),
+            "missing table block {label}"
+        );
+    }
+    let images = application
+        .editor_markdown
+        .image_rects(context.viewport_id(), &key.pane);
+    assert_eq!(images.len(), 1);
+    assert_eq!(images[0].size(), CELL_IMAGE_SIZE);
+    assert_eq!(std::fs::read(&image).unwrap(), image_bytes);
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        CONTENT
+    );
+    assert!(application.submit(HostCommand::CloseTab {
+        tab: key.tab,
+        discard: false
+    }));
+    wait(application, context, "table blocks closed", |application| {
+        !application.files.contains_key(&path)
+    });
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), CONTENT);
+    eframe::App::on_exit(application);
+    assert_eq!(application.services.tasks.tracked_count(), 0);
+}
+
+#[test]
 fn 실제_markdown_토글은_편집기_식별자와_입력_undo_최신_본문을_보존한다() {
     let mut fixture = fixture_with_view_state(
         "--native-inlay-hints",

@@ -306,7 +306,12 @@ fn collect<'a>(blocks: &'a [Block], sources: &mut HashSet<&'a str>) {
                 ..
             } => {
                 if let Some(layout) = layout {
-                    collect_inline(&layout.caption, sources)
+                    collect_inline(&layout.caption, sources);
+                    for cell in layout.cells.iter().flatten() {
+                        if let Some(blocks) = &cell.blocks {
+                            collect(blocks, sources)
+                        }
+                    }
                 }
                 for row in std::iter::once(header).chain(rows) {
                     for cell in row {
