@@ -155,3 +155,9 @@ c9c2b에서 실제 readonly/tier/lossy 항목·복사와 본문/peek 팔레트·
 제품fc732905에서 editor-64를 complete로 닫았습니다. 실제 보조 창 저장의 주 창 대상 오류와 변경된 mirror 거절 뒤 오래된 readonly 내용 유지의 복구 누락을 수정했습니다. 현재 창의 기존 canonical 대상/tab 재사용·활성화·동일 source 복구·기존 탭/원문 유지와 실패 후 최신 초안 재조회/재시도를 연결했습니다. 두 기존 picker의 OS 부모/요청/default rfd를 유지하며 실제 버튼 취소/dirty/root/IO/변경 mirror 보호·동일/다른 경로 저장/본문/닫힘/재열기·untitled 공유 입력·원문/소유 회수를 App4/missing_draft5/untitled3의 서로 다른12통과·6Rust fmt/diff로 확인했습니다. fixture canonical/pane 작성 오류·미실행 target·포커스 실패/수정은 QA에 구분하고 같은 성공을 중복 합산하지 않습니다.
 
 현재599행/409근거 경로·588대상·complete302/partial89/unwired110/missing87·미완료286·기능 체크리스트51.4%입니다. 원래302 ID 배정의 누락/중복/미확인ID는0이며 배치23~30 잔여19/52/23/64/32/39/51/6·최종33을 유지합니다. 전체App 준비/실제 OS chooser/접근성/성능/신뢰성/출시·전환·제거 게이트와 나머지 목표 전체는 유지하고 전체전환율/잔여시간은 미산정입니다. 다음은 같은 배치의 Markdown 미리보기 분할(editor-72)입니다.
+
+## Markdown 분할의 실제 앱 연결과 부분 판정 (2026-10-12)
+
+제품0c2b26e3에서 editor-72의 Markdown 전용 토글·stable 편집기/선택·20% 최소폭 분할/드래그/키보드·200ms 최신 본문/Paste/undo·다른 Markdown 즉시 전환/닫힘·기존 앱 승인 revision의 source 회수/원문/task0을 연결했습니다. 일반 lossy/readonly 본문 위치 회귀를 포함한 실제App2/UI2/기존 parser1의 서로 다른5건과 소유6Rust fmt/diff가 통과했습니다. 원본 raw HTML·상대 URL/이미지 max-width/표시와 추가 Markdown readonly/mirror/독립 스크롤/뷰 검증이 남아 partial입니다. 검사 작성의 타입/texture/undo 묶음/dirty·raw discard 승인 오류를 QA에 구분하며 기존 보호를 유지합니다.
+
+현재599행/413근거 경로·588대상·complete302/partial90/unwired110/missing86·미완료286·기능 체크리스트51.4%입니다. 원래302 ID 배정의 누락/중복/미확인ID는0이며 배치23~30 잔여19/52/23/64/32/39/51/6·최종33입니다. 해당 행을 전체 완료로 올리지 않으며 전체App 준비/실제 OS/접근성/성능/신뢰성/출시·전환·제거와 나머지 목표를 유지합니다. 전체전환율/잔여시간은 미산정이며 같은 배치의 Markdown 표시/추가 뷰 구현을 이어갑니다.

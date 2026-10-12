@@ -19,3 +19,5 @@ app-close-fixed.log는 undo 후 dirty false라는 검사 가정이 44.81초·0�
 app-close-dialog.log는 최종 actual App1통과·41.79초·exit0(컴파일9.07초)입니다. 실제 Markdown 토글·동일 ViewId/입력 ID/선택·본문 입력/Paste/undo/최신 본문·다른 Markdown 즉시 전환/닫힘과 기존 앱 닫힘 절차의 주입 선택→현재 revision 승인→source/model 회수·원문/정상 종료 task0이 통과했습니다. 수정하지 않은 UI2/기존 parser1의 성공을 재사용한 서로 다른4건이며 준비/작성 실패와 이전 중복 App 성공은 합산하지 않습니다. readonly-regression.log의 기존 lossy/readonly 새 뷰 위치 복원·선택만 이동·본문/소유 보존이1통과·36.53초·exit0(컴파일0.26초)입니다. 현재 서로 다른 실제 App2/UI2/기존 parser1의5건이 통과했습니다. Markdown readonly/mirror·추가 뷰/독립 스크롤과 전체App 게이트의 완료로 확대하지 않습니다. 소유6Rust fmt와 관련 diff는 exit0입니다.
 
 editor-72 전체는 아직 완료가 아닙니다. 기존 parser가 생략하는 raw HTML, 상대 URL/이미지·프리뷰 이미지 max-width, 원본 표/인용/코드 블록 표시와 추가 readonly/mirror/독립 스크롤/실제 divider 검증을 이어갑니다. 해당 기능은 partial이며 전체App 준비 실패·실제 OS/다중 창/접근성/성능/신뢰성/출시 게이트를 유지합니다. 현재 기능 완료 302/588(51.4%)·미완료286·배치23 잔여19/최종33이며 전체 전환율/신뢰할 잔여 시간은 미산정입니다.
+
+제품/검사/QA와 PROCESS 상단 두 소유 hunk의8경로를0c2b26e3으로 선별 커밋했습니다. author/최종 메시지에 AI 트레일러가 없고 사용자 문서/PROCESS 하단 두 hunk를 제외했습니다. 기능표599행/413근거 경로·302완료/90부분/110미연결/86미구현·588대상과 원래302 ID 배정의 누락/중복/미확인ID0·잔여19/52/23/64/32/39/51/6·최종33을 실제 JSON으로 확인했습니다.

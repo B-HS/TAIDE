@@ -1,6 +1,6 @@
 {
     "date": "2026-10-12",
-    "baseline": "fc732905",
+    "baseline": "0c2b26e3",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1131,6 +1131,23 @@
                 "docs/quality-assurance/2026-10-12-native-watcher-restore-queue.md"
             ],
             "limitation": "실제 OS 다중 창/Claude 클라이언트 실기와 최초 준비 실패의 원인 미확정은 배치 31 신뢰성 게이트에 유지합니다."
+        },
+        "editor-markdown": {
+            "sources": [
+                "native/taide-native-app/src/application.rs",
+                "native/taide-native-app/src/editor-markdown.rs",
+                "native/taide-native-app/src/editor-markup.rs",
+                "native/taide-native-app/src/editor-documentation-images.rs",
+                "native/taide-native-ui/src/editor-markup.rs"
+            ],
+            "tests": [
+                "native/taide-native-app/src/application-markdown-tests.rs",
+                "native/taide-native-app/src/editor-markdown-tests.rs",
+                "native/taide-native-app/src/editor-markup-tests.rs",
+                "native/taide-native-app/src/application-view-state-tests.rs"
+            ],
+            "reports": ["docs/quality-assurance/2026-10-12-native-batch23-markdown.md"],
+            "limitation": "실제 App Markdown 토글/분할·동일 ViewId/입력 ID/선택·본문 입력/Paste/undo/최신 본문·다른 Markdown 전환/닫힘·기존 앱 승인 revision의 source 회수/원문/task0과 실제 최소폭 드래그/키보드·언어/폭/상태 UI 및 일반 lossy/readonly 위치 회귀가 App2/UI2/기존 parser1의 서로 다른5통과입니다. 타입/texture·Text undo 묶음/dirty와 raw discard 승인 fixture 오류는 QA에 구분합니다. 원본 raw HTML·상대 URL/이미지 max-width/표시·Markdown readonly/mirror/독립 스크롤/추가 뷰 검증과 전체App/실기/성능/출시는 남아 partial입니다."
         }
     },
     "rows": [
@@ -3011,9 +3028,9 @@
             "ts": "`editor-pane.tsx:494-510, 548-564`, `markdown-preview.tsx`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:153",
             "domain": "editor",
-            "status": "missing",
-            "proof": "editor-missing",
-            "note": "해당 사용자 동작의 실제 native 편집기/앱 소비 경로가 없습니다. 프로토콜·설정·backend만으로 완료 처리하지 않습니다."
+            "status": "partial",
+            "proof": "editor-markdown",
+            "note": "언어별 Columns2 토글·stable 편집기/선택·20% 최소폭 분할·독립 ScrollArea·200ms 최신 본문 갱신·문서 즉시 전환/닫힘/원문 보존을 실제 앱에 연결했습니다. App2/UI2/기존 parser1의5통과이며 원본 raw HTML·상대 URL/이미지/표시와 추가 readonly/mirror/독립 스크롤/다중 뷰 검증이 남습니다. 전체 기능 완료로 올리지 않습니다."
         },
         {
             "id": "editor-73",
