@@ -49,6 +49,34 @@ fn catalog() -> Vec<ThemeSummary> {
 }
 
 #[test]
+fn markdown_미리보기는_호버_대신_원본_앱_테두리_강조_코드_배경색을_사용한다() {
+    let mut theme = theme("synthetic-preview");
+    for (key, value) in [
+        ("editor.background", "#000000"),
+        ("editor.foreground", "#FFFFFF"),
+        ("app.border", "#00FF00"),
+        ("app.accent", "#FF0000"),
+        ("appSidebar.itemHover", "#112233"),
+        ("app.shadow", "#000000"),
+        ("editor.hoverBackground", "#FFFF00"),
+        ("editor.widgetBorder", "#FF00FF"),
+        ("terminal.linkForeground", "#00FFFF"),
+        ("panel.background", "#333333"),
+    ] {
+        theme.colors.insert(key.into(), value.into());
+    }
+    let preview = taide_native_ui::presentation::editor_markdown_colors(&theme).unwrap();
+    let hover = taide_native_ui::presentation::editor_documentation_colors(&theme).unwrap();
+    assert_eq!(preview.foreground, egui::Color32::WHITE);
+    assert_eq!(preview.background, egui::Color32::BLACK);
+    assert_eq!(preview.border, egui::Color32::GREEN);
+    assert_eq!(preview.link, egui::Color32::RED);
+    assert_ne!(preview.border, hover.border);
+    assert_ne!(preview.link, hover.link);
+    assert_ne!(preview.code_background, hover.code_background);
+}
+
+#[test]
 fn 공용_테마초안은_조회출처_최소변경_복제와_검증을_보존한다() {
     let catalog = catalog();
     let mut draft = Draft::from_resolved(

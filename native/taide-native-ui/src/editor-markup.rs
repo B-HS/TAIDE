@@ -3,6 +3,9 @@ use taide_native_editor::documentation::{Alignment, Block, Inline, RichDocument}
 
 use crate::editor_surface::EditorAppearance;
 
+#[path = "editor-markup-preview.rs"]
+mod preview;
+
 const LIST_INDENT: f32 = 20.0;
 const CODE_PADDING: i8 = 5;
 const HEADING_SCALE: [f32; 6] = [2.0, 1.5, 1.17, 1.0, 0.83, 0.67];
@@ -63,6 +66,16 @@ pub fn show(
     provider: &mut (impl Provider + ?Sized),
 ) {
     blocks(ui, &document.blocks, appearance, colors, provider);
+}
+
+pub fn show_preview(
+    ui: &mut Ui,
+    document: &RichDocument,
+    appearance: &EditorAppearance,
+    colors: Colors,
+    provider: &mut (impl Provider + ?Sized),
+) {
+    preview::show(ui, document, appearance, colors, provider);
 }
 
 pub(crate) fn unwrapped_width(
@@ -212,6 +225,7 @@ fn blocks(
                 provider,
                 appearance.font.size,
                 false,
+                false,
             ),
             Block::Heading { level, contents } => inlines(
                 ui,
@@ -225,6 +239,7 @@ fn blocks(
                         .copied()
                         .unwrap_or(1.0),
                 true,
+                false,
             ),
             Block::Quote(contents) => {
                 egui::Frame::new()
@@ -298,6 +313,7 @@ fn blocks(
                                     provider,
                                     appearance.font.size,
                                     row_index == 0,
+                                    false,
                                 )
                             });
                         }
@@ -320,6 +336,7 @@ fn inlines(
     provider: &mut (impl Provider + ?Sized),
     size: f32,
     heading: bool,
+    code_frame: bool,
 ) {
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
@@ -340,15 +357,26 @@ fn inlines(
                     if span.style.strike {
                         text = text.strikethrough();
                     }
-                    if span.style.code {
+                    if span.style.code && !code_frame {
                         text = text.background_color(colors.code_background);
                     }
+                    let label = match &span.link {
+                        Some(_) => egui::Label::new(text.color(colors.link).underline())
+                            .selectable(true)
+                            .sense(egui::Sense::click()),
+                        None => egui::Label::new(text).selectable(true),
+                    };
+                    let response = if span.style.code && code_frame {
+                        egui::Frame::new()
+                            .fill(colors.code_background)
+                            .corner_radius(preview::CORNER_RADIUS)
+                            .inner_margin(preview::INLINE_CODE_PADDING)
+                            .show(ui, |ui| ui.add(label))
+                            .inner
+                    } else {
+                        ui.add(label)
+                    };
                     if let Some(link) = &span.link {
-                        let response = ui.add(
-                            egui::Label::new(text.color(colors.link).underline())
-                                .selectable(true)
-                                .sense(egui::Sense::click()),
-                        );
                         ui.ctx()
                             .register_pointer_preserves_keyboard_focus(response.id);
                         if response.clicked() {
@@ -357,8 +385,6 @@ fn inlines(
                         if !link.title.is_empty() {
                             response.on_hover_text(&link.title);
                         }
-                    } else {
-                        ui.add(egui::Label::new(text).selectable(true));
                     }
                 }
                 Inline::Image {

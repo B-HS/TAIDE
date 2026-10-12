@@ -173,6 +173,7 @@ pub(crate) struct Appearances {
     pub(crate) editor_problems: taide_native_ui::editor_problems::Colors,
     pub(crate) editor_locations: taide_native_ui::editor_locations::Colors,
     pub(crate) editor_documentation: taide_native_ui::editor_documentation::Colors,
+    pub(crate) editor_markdown: taide_native_ui::editor_markup::Colors,
     pub(crate) editor_completion: taide_native_ui::editor_completion::Colors,
     pub(crate) editor_highlights: crate::editor_highlights::Colors,
     pub(crate) editor_code_actions: taide_native_ui::editor_code_actions::Colors,
@@ -241,6 +242,7 @@ impl Appearances {
             editor_documentation: taide_native_ui::presentation::editor_documentation_colors(
                 theme,
             )?,
+            editor_markdown: taide_native_ui::presentation::editor_markdown_colors(theme)?,
             editor_completion: taide_native_ui::presentation::editor_completion_colors(theme)?,
             editor_highlights: crate::editor_highlights::Colors::from_theme(theme)?,
             editor_code_actions: crate::editor_code_actions_controller::colors(theme)?,

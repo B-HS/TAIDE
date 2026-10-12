@@ -8,6 +8,9 @@ const UPDATED: &str = "# Updated heading\n\nchanged body";
 const IMAGE_SIZE: [u32; 2] = [2, 1];
 const IMAGE_PIXELS: &[u8] = &[255, 0, 0, 255, 0, 255, 0, 255];
 const EXCESSIVE_NESTING: usize = 256;
+const CHANGED_EDITOR_FONT_SIZE: u32 = 30;
+const PREVIEW_HEADING_SIZE: f32 = 24.0;
+const CHANGED_THEME: &str = "vscode-light-modern";
 
 fn preview_text_contains(
     application: &NativeApplication,
@@ -86,6 +89,29 @@ fn 실제_markdown_토글은_편집기_식별자와_입력_undo_최신_본문을
         .unwrap()
         .selection
         .clone();
+    {
+        let mut settings = application.services.state.settings.write();
+        settings.editor_font_size = CHANGED_EDITOR_FONT_SIZE;
+        settings.theme_id = CHANGED_THEME.into();
+    }
+    application
+        .presentation_changes
+        .record(&AppEvent::ThemeChanged {
+            theme_id: CHANGED_THEME.into(),
+        });
+    wait(
+        application,
+        context,
+        "markdown theme and editor font changed",
+        |application| {
+            application.resolved_theme.id == CHANGED_THEME
+                && application.editor.appearance.font.size == CHANGED_EDITOR_FONT_SIZE as f32
+        },
+    );
+    assert_eq!(
+        application.editor_markdown_colors,
+        taide_native_ui::presentation::editor_markdown_colors(&application.resolved_theme).unwrap()
+    );
     paint(application, context, Vec::new());
     assert!(
         application
@@ -123,6 +149,12 @@ fn 실제_markdown_토글은_편집기_식별자와_입력_undo_최신_본문을
             .is_some()
     );
     assert!(text_contains(&output, "Markdown heading"));
+    let preview_rect = application
+        .editor_markdown
+        .geometry(context.viewport_id(), &pane)
+        .2
+        .unwrap();
+    assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.pos.x >= preview_rect.left() && shape.clip_rect.intersects(preview_rect) && text.galley.job.text == "Markdown heading" && text.galley.job.sections.iter().all(|section| section.format.font_id.size == PREVIEW_HEADING_SIZE && section.format.color == application.editor_markdown_colors.foreground))));
     assert!(preview_text_contains(
         application,
         context,

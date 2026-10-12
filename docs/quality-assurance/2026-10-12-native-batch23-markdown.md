@@ -39,3 +39,17 @@ image-regression.log는 기존 도움말의 data/base64/percent SVG·width/heigh
 원본 DOMPurify의 설치된 tags.ts에는 details/summary·style·SVG·MathML·audio/video가 허용되어 있습니다. 현재 native 변환기의 일반 HTML 텍스트/구조 지원만으로 이를 완료로 볼 수 없습니다. CSS·SVG/MathML/미디어·details/anchor·음수 ordered start/표 병합 등 추가 raw HTML 의미와 원본 paragraph/heading/quote/table/code/scroll 표시·readonly/mirror/추가 뷰를 d6c/d6b의 미완료 범위로 유지합니다. HTML/media의 제한된 Rust 소유 WebView 경계와 플랫폼/구조·cutover 미결은 기존 합의를 보존하며 임의로 제거·확정하지 않습니다. editor-72 partial·302/588(51.4%)·미완료286·배치23 잔여19/최종33·전체App/실기/성능/출시와 전체 목표는 유지합니다. 전체전환율/신뢰할 잔여 시간은 미산정입니다.
 
 HTML/이미지/오류 코드·카탈로그/검사/QA와 소유 PROCESS의16경로를40de51de로 선별 커밋했습니다. 최종 메시지/author에 AI 트레일러가 없고 사용자 문서와 PROCESS 하단 두 hunk를 제외했습니다. 현재 기능표599행/416근거 경로·302완료/90부분/110미연결/86미구현·588대상과 원래302 ID 배정의 누락/중복/미확인ID0·잔여19/52/23/64/32/39/51/6·최종33을 실제 JSON으로 확인했습니다.
+
+## 원본 표시와 앱 테마/글꼴 갱신 (2026-10-12)
+
+이전 골 턴은 기본 HTML/경로/이미지·오류 복구와29건 검증·선별 Git으로 권위 상태를 바꾼 progress입니다. 현재 원본 markdown-preview.tsx와 설치된 Tailwind theme.css의 rem 크기/line-height/leading-relaxed, global.css의 font·원본 CSS spacing/색상을 대조했습니다. 프로젝트/환경/스택을 바꾸지 않고 현재 egui 소스로 Frame/ScrollArea/Label/WidgetInfo와 MouseWheel의 TouchPhase::Move를 확인했습니다.
+
+기존 일반 호버 renderer는 편집기 글꼴의 배율로 제목을 그려 원본 Markdown의 독립 제목/본문 크기와 달랐습니다. display-red.log는 편집기20 크기의 제목을 원본24/20/18로 그리는 실제 UI 실패0/1·0.02초·exit101(컴파일36.75초)입니다. preview 전용 editor-markup-preview.rs와 show_preview를 추가하고 inline renderer만 재사용했습니다. 일반 hover show의 배율/여백/코드/표 계약은 유지하며 preview의 고정 본문/제목·leading-relaxed·문단/제목/규칙 여백·인용 left border/opacity·셀 border/padding·인라인 코드 rounded padding·줄바꿈 없는 pre의 독립 horizontal ScrollArea를 연결했습니다. Markdown 바깥 margin은 원본 px6/py4입니다.
+
+별도의 editor_markdown_colors는 editor background/foreground와 app.border/app.accent/appSidebar.itemHover를 사용합니다. 이전 hover/widgetBorder/terminal.linkForeground/panel 색상을 그대로 사용하는 차이를 제거하고 Appearances/초기 생성/설정·theme reload/preview theme 두 갱신 소비에 연결했습니다. 실제 Markdown 미리보기 font는 편집기 font size/mono 설정과 분리하며 코드는 기본 Monospace를 사용합니다.
+
+첫 green.log의 제목1통과·0.02초·exit0 이후 surface.log/surface-fixed.log는 새 검사 작성에서 MouseWheel.phase 누락/없는 Moved variant 때문에 각각 컴파일 exit101·0검사였습니다. 설치된 Event/TouchPhase 소스의 필수 Move를 사용했습니다. surface-phase.log는 일반 문서 UI13/preview2/theme3의18통과입니다. 인라인 코드 padding을 공유 leaf에 추가한 뒤 display-inline.log의 UI13/preview2가 통과했고 theme3의 변하지 않은 성공은 재사용합니다. 일반 hover/서명·IME/readonly/mirror·provider/focus/포인터·이미지 링크/크기 조절을13건에서 확인했습니다. display-code-link.log는 실제 둥근 인라인 코드 배경/링크 버튼의 pointer press/release→검증된 target 전달1통과·0.01초·exit0(컴파일4.45초)입니다. 현재 UI13/preview3/theme3/App1의 서로 다른20건이며 앞선2건/반복 성공/작성 실패는 중복 합산하지 않습니다.
+
+실제 display-app.log는 임시 settings의 editor font30/기존 vscode-light-modern theme 전환을 기존 presentation request/reply로 소비하고 실제 오른쪽 preview heading24·현재 foreground·palette 갱신을 확인했습니다. 기존 Markdown/HTML/PNG 폭·비율·입력/Paste/undo/오류·복구/문서 전환/승인 revision 닫힘·원문/task0도1통과·31.94초·exit0(컴파일32.10초)입니다. 실제 사용자 설정/OS/보호 앱/클립보드는 접근하지 않았습니다. 소유9Rust fmt·diff와 manifest/lock 변경0을 확인했습니다.
+
+full HTML의 CSS/SVG/MathML/media/details/anchor·음수 목록/표 병합, 표의 모든 cell 경계/크기·추가 readonly/mirror/독립 scroll/뷰·실제 OS/pixel/접근성/성능/출시는 계속 미완료입니다. 현재 native 기본 표시를 이 전체 범위의 완료로 확대하지 않습니다. editor-72 partial·302/588(51.4%)·미완료286·배치23 잔여19/최종33·전체 목표를 유지하고 전체전환율/신뢰할 잔여 시간은 미산정입니다.

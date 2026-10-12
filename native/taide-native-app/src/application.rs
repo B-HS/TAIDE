@@ -198,6 +198,7 @@ pub struct NativeApplication {
     editor_problem_colors: taide_native_ui::editor_problems::Colors,
     editor_location_colors: taide_native_ui::editor_locations::Colors,
     editor_documentation_colors: taide_native_ui::editor_documentation::Colors,
+    editor_markdown_colors: taide_native_ui::editor_markup::Colors,
     editor_completion_colors: taide_native_ui::editor_completion::Colors,
     editor_highlight_colors: crate::editor_highlights::Colors,
     editor_code_action_colors: taide_native_ui::editor_code_actions::Colors,
@@ -535,6 +536,7 @@ impl NativeApplication {
             editor_problem_colors: appearances.editor_problems,
             editor_location_colors: appearances.editor_locations,
             editor_documentation_colors: appearances.editor_documentation,
+            editor_markdown_colors: appearances.editor_markdown,
             editor_completion_colors: appearances.editor_completion,
             editor_highlight_colors: appearances.editor_highlights,
             editor_code_action_colors: appearances.editor_code_actions,
@@ -815,6 +817,7 @@ impl NativeApplication {
                                         self.editor_location_colors = appearances.editor_locations;
                                         self.editor_documentation_colors =
                                             appearances.editor_documentation;
+                                        self.editor_markdown_colors = appearances.editor_markdown;
                                         self.editor_completion_colors =
                                             appearances.editor_completion;
                                         self.editor_highlight_colors =
@@ -5702,6 +5705,7 @@ impl NativeApplication {
                 self.editor_problem_colors = appearances.editor_problems;
                 self.editor_location_colors = appearances.editor_locations;
                 self.editor_documentation_colors = appearances.editor_documentation;
+                self.editor_markdown_colors = appearances.editor_markdown;
                 self.editor_completion_colors = appearances.editor_completion;
                 self.editor_highlight_colors = appearances.editor_highlights;
                 self.editor_code_action_colors = appearances.editor_code_actions;
@@ -6676,6 +6680,7 @@ impl eframe::App for NativeApplication {
             editor_problem_colors: self.editor_problem_colors,
             editor_location_colors: self.editor_location_colors,
             editor_documentation_colors: self.editor_documentation_colors,
+            editor_markdown_colors: self.editor_markdown_colors,
             editor_completion_colors: self.editor_completion_colors,
             editor_highlight_colors: self.editor_highlight_colors,
             editor_code_action_colors: self.editor_code_action_colors,
@@ -7662,6 +7667,7 @@ struct AppSurfaces<'a> {
     editor_problem_colors: taide_native_ui::editor_problems::Colors,
     editor_location_colors: taide_native_ui::editor_locations::Colors,
     editor_documentation_colors: taide_native_ui::editor_documentation::Colors,
+    editor_markdown_colors: taide_native_ui::editor_markup::Colors,
     editor_completion_colors: taide_native_ui::editor_completion::Colors,
     editor_highlight_colors: crate::editor_highlights::Colors,
     editor_code_action_colors: taide_native_ui::editor_code_actions::Colors,
@@ -8630,7 +8636,7 @@ impl AppSurfaces<'_> {
                 let (editor_rect, _) = self.editor_markdown.regions(ui, pane,
                     &snapshot.metadata.language_id,
                     self.services.state.settings.read().resizer_thickness as f32,
-                    self.editor_documentation_colors.border);
+                    self.editor_markdown_colors.border);
                 let parent_ui = ui;
                 let mut editor_ui = parent_ui.new_child(egui::UiBuilder::new().id(parent_ui.id()).max_rect(editor_rect));
                 editor_ui.set_clip_rect(editor_rect.intersect(parent_ui.clip_rect()));
@@ -9148,7 +9154,7 @@ impl AppSurfaces<'_> {
                 let latest = self.store.documents().snapshot(document).map_err(editor_error)?;
                 let owner = &self.store.views().get(view).ok_or_else(|| editor_error(taide_native_editor::document::EditorError::NotFound))?.key;
                 self.editor_markdown.show(parent_ui, pane, owner, editor_project, &latest,
-                    &editor.appearance, self.editor_documentation_colors, self.locale, self.services, self.commands);
+                    &editor.appearance, self.editor_markdown_colors, self.locale, self.services, self.commands);
                 Ok(())
             });
         if let Err(error) = result {

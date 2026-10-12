@@ -459,6 +459,18 @@ pub fn editor_documentation_colors(
     })
 }
 
+pub fn editor_markdown_colors(theme: &ResolvedTheme) -> AppResult<crate::editor_markup::Colors> {
+    Ok(crate::editor_markup::Colors {
+        background: color(theme, "editor.background")?,
+        foreground: color(theme, "editor.foreground")?,
+        border: color(theme, "app.border")?,
+        highlight: color(theme, "app.accent")?,
+        link: color(theme, "app.accent")?,
+        code_background: color(theme, "appSidebar.itemHover")?,
+        shadow: color(theme, "app.shadow")?,
+    })
+}
+
 pub fn banner_appearance(theme: &ResolvedTheme) -> AppResult<BannerAppearance> {
     Ok(BannerAppearance {
         error: color(theme, "statusIndicator.error")?,

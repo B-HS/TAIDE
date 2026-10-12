@@ -19,7 +19,7 @@ const INITIAL_FRACTION: f32 = 0.5;
 const MIN_FRACTION: f32 = 0.2;
 const MAX_FRACTION: f32 = 1.0 - MIN_FRACTION;
 const TOOLBAR_HEIGHT: f32 = 32.0;
-const PREVIEW_PADDING: i8 = 16;
+const PREVIEW_PADDING: egui::Margin = egui::Margin::symmetric(24, 16);
 const PREVIEW_FONT_SIZE: f32 = 14.0;
 const BUTTON_SIZE: f32 = 24.0;
 const ICON_SIZE: f32 = 16.0;
@@ -337,6 +337,7 @@ impl State {
             .rect_filled(rect, egui::CornerRadius::ZERO, appearance.background);
         let mut preview_appearance = appearance.clone();
         preview_appearance.font.size = PREVIEW_FONT_SIZE;
+        preview_appearance.font.family = egui::FontFamily::Monospace;
         let colors = Colors {
             background: appearance.background,
             foreground: appearance.foreground,
@@ -365,7 +366,7 @@ impl State {
                             );
                             return;
                         }
-                        taide_native_ui::editor_markup::show(
+                        taide_native_ui::editor_markup::show_preview(
                             ui,
                             &source.rendered,
                             &preview_appearance,
