@@ -76,6 +76,7 @@
     "editor.saveDraftAs": "Save Draft As…",
     "editor.sourceDeleted": "The original file was deleted. Only this unsaved draft is left.",
     "editor.toggleMarkdownPreview": "Toggle Markdown Preview",
+    "editor.markdownPreviewError": "Couldn't display the Markdown preview. Try simplifying the document.",
     "editor.toggleMinimap": "Toggle Minimap",
     "editor.viewDiskContent": "View Disk Content",
     "editor.workspaceEditApplyFailed": "Failed to apply the edit",

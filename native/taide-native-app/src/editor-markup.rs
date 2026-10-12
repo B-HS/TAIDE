@@ -4,7 +4,7 @@ use taide_native_editor::documentation::{
 };
 
 #[path = "editor-markup-autolinks.rs"]
-mod autolinks;
+pub(crate) mod autolinks;
 
 enum Kind {
     Root,

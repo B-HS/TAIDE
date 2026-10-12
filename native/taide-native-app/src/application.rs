@@ -9148,7 +9148,7 @@ impl AppSurfaces<'_> {
                 let latest = self.store.documents().snapshot(document).map_err(editor_error)?;
                 let owner = &self.store.views().get(view).ok_or_else(|| editor_error(taide_native_editor::document::EditorError::NotFound))?.key;
                 self.editor_markdown.show(parent_ui, pane, owner, editor_project, &latest,
-                    &editor.appearance, self.editor_documentation_colors, self.services, self.commands);
+                    &editor.appearance, self.editor_documentation_colors, self.locale, self.services, self.commands);
                 Ok(())
             });
         if let Err(error) = result {

@@ -127,6 +127,6 @@ impl Autolinks {
 
 thread_local! { static AUTOLINKS: Autolinks = Autolinks::new(); }
 
-pub(super) fn apply(blocks: &mut [Block]) {
+pub(crate) fn apply(blocks: &mut [Block]) {
     AUTOLINKS.with(|autolinks| autolinks.blocks(blocks));
 }

@@ -76,6 +76,7 @@
     "editor.saveDraftAs": "下書きに名前を付けて保存…",
     "editor.sourceDeleted": "元のファイルが削除されました。未保存の下書きだけが残っています。",
     "editor.toggleMarkdownPreview": "マークダウンプレビューの切り替え",
+    "editor.markdownPreviewError": "マークダウンプレビューを表示できません。文書の構成を簡素にして再度お試しください。",
     "editor.toggleMinimap": "ミニマップの切り替え",
     "editor.viewDiskContent": "ディスクの内容を表示",
     "editor.workspaceEditApplyFailed": "編集の適用に失敗しました",

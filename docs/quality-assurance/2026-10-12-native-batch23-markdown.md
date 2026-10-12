@@ -21,3 +21,19 @@ app-close-dialog.log는 최종 actual App1통과·41.79초·exit0(컴파일9.07�
 editor-72 전체는 아직 완료가 아닙니다. 기존 parser가 생략하는 raw HTML, 상대 URL/이미지·프리뷰 이미지 max-width, 원본 표/인용/코드 블록 표시와 추가 readonly/mirror/독립 스크롤/실제 divider 검증을 이어갑니다. 해당 기능은 partial이며 전체App 준비 실패·실제 OS/다중 창/접근성/성능/신뢰성/출시 게이트를 유지합니다. 현재 기능 완료 302/588(51.4%)·미완료286·배치23 잔여19/최종33이며 전체 전환율/신뢰할 잔여 시간은 미산정입니다.
 
 제품/검사/QA와 PROCESS 상단 두 소유 hunk의8경로를0c2b26e3으로 선별 커밋했습니다. author/최종 메시지에 AI 트레일러가 없고 사용자 문서/PROCESS 하단 두 hunk를 제외했습니다. 기능표599행/413근거 경로·302완료/90부분/110미연결/86미구현·588대상과 원래302 ID 배정의 누락/중복/미확인ID0·잔여19/52/23/64/32/39/51/6·최종33을 실제 JSON으로 확인했습니다.
+
+## HTML 구조·원본 경로/이미지와 오류 복구 (2026-10-12)
+
+이전 골 턴은 분할 코드/검사/문서의 권위 상태를 변경하고 선별 커밋·일반 푸시한 progress입니다. 현재 editor-72의 전체 요구사항을 유지하고 남아 있던 HTML/상대 경로·이미지 폭을 구현했습니다. 기존 pulldown-cmark/dom_query/RichDocument와 이미지/링크 포트를 재사용하며 새 dependency/manifest/lock/engine/frozen 변경은 없습니다.
+
+새 editor-markdown-parse.rs는 CommonMark/GFM의 HTML 출력을 기존 HTML preview 문서 예산 안에서 구성하고 editor-markdown-html.rs는 문서 요소를 native 구조로 변환합니다. HTML 제목/strong/em/del/code·인용/중첩 순서·체크 목록/표/이미지·링크와 파일의 canonical URI 기준 상대 경로를 보존합니다. 실행 요소·위험 URI·hidden 요소를 native 구조에서 제외하고 일반 text/속성은 HTML escaping과 기존 DOM 파서로 처리합니다. 이미지 fetch/open file는 새 권한을 만들지 않고 기존 프로젝트/경로/용량/취소 경계로 소비합니다. LSP parser는 동작을 바꾸지 않고 GFM autolinks만 같은 구현을 재사용합니다.
+
+HTML 출력/할당의 기존64MiB와 DOM 중첩 예산을 초과하면 부분 출력이나 panic 대신 typed localized 오류를 반환합니다. 미리보기의 이전 image 요청/출력은 정리하며 편집기 본문을 유지합니다. editor.markdownPreviewError를 기존 en/ko/ja와 required key registry에 추가해 구현 오류 문구가 사용자 화면에 나오지 않게 했습니다. 다음 편집/undo의 정상 내용은 원래 debounce/문서 수명으로 복구합니다. 이미지 캐시의 기존 show는 폭 제한 없이 유지하고 Markdown만 available width에 맞춰 종횡비를 보존합니다.
+
+html-red.log는 기존 parser에서 HTML 제목 부재를0통과/1실패·0.04초·exit101(컴파일20.15초)로 재현했습니다. html-green.log는 새 DOM 루트 html 요소를 인라인으로 처리해 구조가 평탄화되는 제품 구현 실패0/1·0.03초·exit101(컴파일40.43초)이며 fragment 루트를 블록 컨테이너로 처리해 수정했습니다. html-fixed.log는 기본 HTML/경로·GFM/표/코드/체크 목록·위험 URI/hidden/escaping·중첩/출력 상한4통과·0.01초·exit0(컴파일21.22초)입니다. 이후 localized 오류/검사 이름/문구 상태의 final-parser.log4통과를 최종 근거로 사용하며 같은 성공을 중복 합산하지 않습니다.
+
+html-app.log1통과·31.84초·exit0(컴파일25.19초)은 실제 임시 MD/PNG의 HTML 제목·relative PNG 로딩·실제 image rect의 폭/비율과 기존 입력/Paste/undo·즉시 문서 전환/닫힘/원문/task0입니다. app-error-recovery.log1통과·30.14초·exit0(컴파일39.13초)에 깊은 HTML의 localized 오류·본문 보존·undo 복구를 추가했습니다. 원문 영역도 같은 제목을 포함하므로 마지막 app-preview-surface.log에서는 오른쪽 preview rect/clip 안의 정확한 galley text만 검사하여 실제 HTML 제목·오류/복구를 입증했습니다. 최종1통과·30.16초·exit0(컴파일14.62초)이며 앞선 App 중복 성공은 합산하지 않습니다. 실제 OS/보호 앱/클립보드는 접근하지 않았습니다.
+
+image-regression.log는 기존 도움말의 data/base64/percent SVG·width/height·root 격리/중복·HTTP pixel/닫힌 대기 취소·GIF/전체 texture 예산·project/task 회수의4통과·0.21초·exit0입니다. locale.log는 키 집합/required key/보간·세 언어·외부 파일/사용자 팩/캐시/경로 보호의 전체20통과·0.04초·exit0입니다. 현재 App1/parser4/images4/locale20의 서로 다른29건이며 이전 UI/readonly와 해당 시점의 실패/중복은 이 수에 더하지 않습니다. 소유10Rust fmt와 locale fmt/diff는 exit0입니다.
+
+원본 DOMPurify의 설치된 tags.ts에는 details/summary·style·SVG·MathML·audio/video가 허용되어 있습니다. 현재 native 변환기의 일반 HTML 텍스트/구조 지원만으로 이를 완료로 볼 수 없습니다. CSS·SVG/MathML/미디어·details/anchor·음수 ordered start/표 병합 등 추가 raw HTML 의미와 원본 paragraph/heading/quote/table/code/scroll 표시·readonly/mirror/추가 뷰를 d6c/d6b의 미완료 범위로 유지합니다. HTML/media의 제한된 Rust 소유 WebView 경계와 플랫폼/구조·cutover 미결은 기존 합의를 보존하며 임의로 제거·확정하지 않습니다. editor-72 partial·302/588(51.4%)·미완료286·배치23 잔여19/최종33·전체App/실기/성능/출시와 전체 목표는 유지합니다. 전체전환율/신뢰할 잔여 시간은 미산정입니다.

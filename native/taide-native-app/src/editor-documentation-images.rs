@@ -172,6 +172,18 @@ impl Cache {
         alt: &str,
         dimensions: taide_native_editor::documentation::ImageDimensions,
     ) -> Option<egui::Response> {
+        self.show_with_max_width(ui, project, source, alt, dimensions, None)
+    }
+
+    pub(crate) fn show_with_max_width(
+        &mut self,
+        ui: &mut Ui,
+        project: &ProjectId,
+        source: &str,
+        alt: &str,
+        dimensions: taide_native_editor::documentation::ImageDimensions,
+        max_width: Option<f32>,
+    ) -> Option<egui::Response> {
         let entry = self.entries.iter_mut().find_map(|(key, entry)| {
             (&key.project == project && key.source == source).then_some(entry)
         })?;
@@ -204,6 +216,10 @@ impl Cache {
             (Some(width), None) => natural * (width as f32 / natural.x),
             (None, Some(height)) => natural * (height as f32 / natural.y),
             (None, None) => natural,
+        };
+        let size = match max_width.filter(|width| width.is_finite() && *width >= 0.0) {
+            Some(width) if size.x > width => size * (width / size.x),
+            _ => size,
         };
         Some(
             ui.add(

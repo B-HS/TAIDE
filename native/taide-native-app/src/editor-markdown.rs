@@ -2,10 +2,12 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Rect, Ui};
+use taide_model::error::AppError;
 use taide_model::ids::{PaneId, ProjectId};
 use taide_model::layout::ProjectLayout;
-use taide_native_editor::document::{DocumentId, DocumentSnapshot};
-use taide_native_editor::documentation::{Content, RichDocument};
+use taide_model::locale::ResolvedLocale;
+use taide_native_editor::document::{DocumentId, DocumentKey, DocumentSnapshot};
+use taide_native_editor::documentation::RichDocument;
 use taide_native_editor::store::EditorStore;
 use taide_native_editor::view::ViewKey;
 use taide_native_ui::editor_markup::{Colors, Provider};
@@ -32,9 +34,23 @@ struct Source {
     observed: Instant,
     pending: Option<DocumentSnapshot>,
     rendered: RichDocument,
+    error: Option<AppError>,
+}
+
+fn render(snapshot: &DocumentSnapshot) -> (RichDocument, Option<AppError>) {
+    let path = match &snapshot.key {
+        DocumentKey::File(path) => Some(path.as_path()),
+        _ => None,
+    };
+    match crate::editor_markdown_parse::parse(&snapshot.rope.to_string(), path) {
+        Ok(document) => (document, None),
+        Err(error) => (RichDocument::default(), Some(error)),
+    }
 }
 
 struct Entry {
+    #[cfg(test)]
+    images: Vec<Rect>,
     enabled: bool,
     fraction: f32,
     source: Option<Source>,
@@ -47,6 +63,8 @@ struct Entry {
 impl Default for Entry {
     fn default() -> Self {
         Self {
+            #[cfg(test)]
+            images: Vec::new(),
             enabled: false,
             fraction: INITIAL_FRACTION,
             source: None,
@@ -65,6 +83,10 @@ pub(crate) struct State {
 }
 
 impl State {
+    #[cfg(test)]
+    pub(crate) fn image_rects(&self, viewport: egui::ViewportId, pane: &PaneId) -> &[Rect] {
+        &self.entries[&(viewport, pane.clone())].images
+    }
     #[cfg(test)]
     pub(crate) fn geometry(
         &self,
@@ -241,6 +263,7 @@ impl State {
         snapshot: &DocumentSnapshot,
         appearance: &EditorAppearance,
         colors: Colors,
+        locale: &ResolvedLocale,
         services: &AppServices,
         commands: &mut Vec<crate::host::HostCommand>,
     ) {
@@ -256,14 +279,14 @@ impl State {
             .as_ref()
             .is_none_or(|source| source.document != snapshot.id)
         {
+            let (rendered, error) = render(snapshot);
             entry.source = Some(Source {
                 document: snapshot.id,
                 revision: snapshot.revision,
                 observed: now,
                 pending: None,
-                rendered: crate::editor_markup::parse(&Content::Markdown(
-                    snapshot.rope.to_string(),
-                )),
+                rendered,
+                error,
             });
         }
         let source = entry
@@ -278,8 +301,9 @@ impl State {
         if let Some(pending) = &source.pending {
             let elapsed = now.saturating_duration_since(source.observed);
             if elapsed >= UPDATE_DELAY {
-                source.rendered =
-                    crate::editor_markup::parse(&Content::Markdown(pending.rope.to_string()));
+                let (rendered, error) = render(pending);
+                source.rendered = rendered;
+                source.error = error;
                 source.pending = None;
             } else {
                 ui.ctx().request_repaint_after(UPDATE_DELAY - elapsed);
@@ -292,7 +316,12 @@ impl State {
                 Some((entry.project.as_ref()?, &entry.source.as_ref()?.rendered))
             }),
         );
-        let entry = &self.entries[&key];
+        let entry = self
+            .entries
+            .get_mut(&key)
+            .expect("preview pane remains present");
+        #[cfg(test)]
+        entry.images.clear();
         let source = entry
             .source
             .as_ref()
@@ -314,6 +343,8 @@ impl State {
             ..colors
         };
         let mut provider = PreviewProvider {
+            #[cfg(test)]
+            rendered_images: &mut entry.images,
             images: &mut self.images,
             project,
             owner,
@@ -327,6 +358,13 @@ impl State {
                     .id_salt(("markdown-scroll", &key))
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
+                        if let Some(error) = &source.error {
+                            ui.colored_label(
+                                ui.visuals().error_fg_color,
+                                crate::toast::describe_error(locale, error),
+                            );
+                            return;
+                        }
                         taide_native_ui::editor_markup::show(
                             ui,
                             &source.rendered,
@@ -340,6 +378,8 @@ impl State {
 }
 
 struct PreviewProvider<'a> {
+    #[cfg(test)]
+    rendered_images: &'a mut Vec<Rect>,
     images: &'a mut crate::editor_documentation_images::Cache,
     project: Option<&'a ProjectId>,
     owner: &'a ViewKey,
@@ -366,7 +406,17 @@ impl Provider for PreviewProvider<'_> {
         alt: &str,
         dimensions: taide_native_editor::documentation::ImageDimensions,
     ) -> Option<egui::Response> {
-        self.images.show(ui, self.project?, source, alt, dimensions)
+        let response = self.images.show_with_max_width(
+            ui,
+            self.project?,
+            source,
+            alt,
+            dimensions,
+            Some(ui.available_width().max(0.0)),
+        )?;
+        #[cfg(test)]
+        self.rendered_images.push(response.rect);
+        Some(response)
     }
 }
 

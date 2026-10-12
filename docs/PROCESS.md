@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: d6a 원본/공식 소스 대조와 d6b1 Markdown 분할 토글·안정된 편집기 ID/선택·실제 입력/Paste/undo·최신 본문/다른 Markdown 즉시 전환·앱 닫힘/원문 보존을 연결했습니다. 실제 App1·버튼/최소폭 드래그/키보드와 언어/폭/상태 UI2·기존 parser1의 서로 다른4통과와 기존 lossy/readonly 본문 위치/선택/원문 회귀1통과, 총5건을 확인했습니다. editor-72는 HTML/상대 URL·이미지 max-width/표시와 추가 readonly/mirror/독립 스크롤 검증이 남아 partial입니다. 기능 체크리스트302/588(51.4%)·미완료286·부분90/미연결110/미구현86·배치23 잔여19/최종33이며 전체전환율/잔여시간은 미산정입니다. 검사 작성의 타입/texture/undo 묶음/dirty와 raw discard 승인 계약 오류는 QA에 구분하고 보호·전체App 준비/실제 OS/접근성/성능/출시·사용자 문서 변경은 유지합니다.
+현재 상태: d6c1의 HTML 제목/강조/코드/인용/목록/표·파일 기준 상대 링크/이미지와 예산/위험 URI/hidden 보호·localized 오류/본문 유지/undo 복구를 실제 App에 연결했습니다. 오른쪽 preview rect/clip의 실제 제목·오류/복구와 PNG 로딩/폭·비율/원문/task0, parser4/images4/locale20을 App1과 합쳐 서로 다른29통과로 확인했습니다. 이미지 max-width는 d6c2의 일부이며 원본 CSS/SVG/MathML/미디어/details/anchor·표 병합/음수 목록과 표시·readonly/mirror/추가 뷰는 남아 editor-72 partial입니다. 기능 체크리스트302/588(51.4%)·미완료286·부분90/미연결110/미구현86·배치23 잔여19/최종33·전체전환율/잔여시간 미산정입니다. 기존 원본/승인/OS/전체App 준비/접근성/성능/출시와 사용자 문서 변경은 유지합니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 
@@ -125,12 +125,14 @@
 - [ ] d6b. 실제 분할과 문서 수명 — 언어별 버튼·stable editor/분할 조절·독립 scroll·편집/undo/문서 전환/닫힘·readonly/다중 뷰를 연결하고 직접 App 검증을 수행합니다.
 - [x] d6b1. 실제 토글/입력/수명 — 실제 App의 파일 열기→버튼→분할/제목·동일 ViewId/입력 ID/선택→입력/Paste/undo/최신 본문→다른 Markdown 즉시 전환/닫힘→기존 앱 승인 revision의 source 닫힘/원문·task0과 실제 20% 최소폭 드래그/키보드·언어/폭/상태 UI 및 기존 parser의 서로 다른4건이 통과했습니다. 전체 readonly/mirror/독립 스크롤·원본 HTML/표시 기능은 d6b/d6c에 유지합니다.
 - [ ] d6c. 표시·보안과 완료 판정 — 제목/강조/코드/표/목록/이미지/링크·sanitized HTML의 원본 기능 차이를 확인하고 부족한 부분을 구현합니다. 검증된 범위만 기능표에 반영하며 전체 게이트를 유지합니다.
+- [x] d6c1. HTML/경로 실제 파서 — 기존 pulldown-cmark/dom_query와 RichDocument 계약으로 Markdown/GFM·raw HTML의 제목/강조/코드/인용/목록/표/이미지와 상대 URL을 안전한 native 구조로 변환합니다. LSP 파서·의존성·manifest/lock/engine/frozen 경계를 유지하며 HTML/위험 URL/본문·필터 실패를 재현하고 실제 App 소비를 검증합니다.
+- [ ] d6c2. 미리보기 표시 — 원본 padding/제목/본문 줄 간격·인용 border/표 border·코드 가로 스크롤과 이미지 max-width를 일반 호버 표시와 분리해 연결합니다. 실제 자산/스케일/링크·독립 scroll/뷰/readonly와 미지원 HTML의 잔여를 근거로 판정합니다.
 - [ ] e. AI·Emmet — editor-77/78/80의 인라인 완성/편집과 Emmet을 원본 명령·표시·수락/거절/취소/오래된 응답에 맞게 연결합니다. 실제 키/개인 데이터 대신 주입 포트·임시 데이터로 검증합니다.
 - [ ] f. 실제 앱·전체 게이트 — 닫을 기능의 실제 앱/child/mirror·readonly/tier/다중 커서/IME·정상 종료/회귀를 확인하고 변경 크레이트 전체 대상을 --no-fail-fast로 직접 1회 실행합니다. 성공 결과는 재사용하고 실패 영향만 재검사합니다. frozen host/Wasm compile·fmt/diff·manifest/lock/engine/보호 경계·디스크와 배치 31 실기/성능/신뢰성 부채를 구분합니다.
 - [x] f1. 프로젝트 열기 지연 위치 조사·배치 31 이관 — 전체 App 811통과/프로젝트 open 5초 초과 1실패와 Cargo 단독 동일 실패를 보존했습니다. 같은 실행 파일의 직접 검사는 저장소/크레이트 cwd에서 3.81/3.23초에 통과했습니다. 성공한 두 번째 검사 중 start_watch→notify runloop 준비 대기와 FSEventStreamStart→등록 RPC의 실제 스택을 확인했습니다. 실패 시점의 스택이나 지연 변동의 근본 원인은 확인하지 않았으며 해결/전체 exit 0으로 보고하지 않습니다. 제한 확대·검사 생략·OS 변경 없이 반복 조사를 종료하고 배치 31의 실행 환경/신뢰성 게이트에 미해결 위험을 유지합니다.
 - [ ] g. 완료 근거·선별 Git — 실제 닫힌 ID만 QA/기능표/PROCESS에 반영하고 논리 단위 선별 커밋·일반 푸시합니다. 배치 24를 기존 계획 안에서 이어가며 배치 번호를 세부 수정마다 늘리지 않습니다.
 
-다음 행동: d6c의 원본 HTML·상대 URL/이미지와 Markdown 표시 차이를 구현하고 d6b의 추가 readonly/mirror/독립 스크롤/뷰 검증을 이어갑니다. editor-72 partial과 전체App 준비/실제 OS/성능/출시 게이트를 유지합니다.
+다음 행동: d6c1의 실제29건/소유 QA·기능표를 선별 커밋·일반 푸시하고 원본 추가 HTML 의미/표시와 d6b의 readonly/mirror/독립 스크롤/뷰 검증을 이어갑니다. editor-72 partial과 전체 게이트를 유지합니다.
 
 ## 완료: 배치 22 — 자동완성과 사용자 스니펫 소비 (2026-10-10)
 

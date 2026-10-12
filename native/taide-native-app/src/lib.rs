@@ -67,6 +67,8 @@ mod editor_inlay_hints;
 mod editor_locations;
 #[path = "editor-markdown.rs"]
 mod editor_markdown;
+#[path = "editor-markdown-parse.rs"]
+mod editor_markdown_parse;
 #[path = "editor-markup.rs"]
 mod editor_markup;
 #[path = "editor-problems.rs"]

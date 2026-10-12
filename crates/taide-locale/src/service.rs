@@ -250,6 +250,7 @@ const MESSAGE_NAMESPACES: &[(&str, &[&str])] = &[
             "renameUnavailable",
             "diffLoadFailed",
             "toggleMarkdownPreview",
+            "markdownPreviewError",
             "toggleMinimap",
             "openExternally",
             "cursorPosition",

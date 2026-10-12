@@ -3,8 +3,28 @@ use super::inlay_hints_tests::{
 };
 use super::*;
 
-const ORIGINAL: &str = "# Markdown heading\n\n**live preview** and `code`\n\n- first item\n";
+const ORIGINAL: &str = "# Markdown heading\n\n**live preview** and `code`\n\n- first item\n\n<h2>HTML preview heading</h2>\n\n<img src='./diagram.png' width='800' height='400' alt='owned image'>\n";
 const UPDATED: &str = "# Updated heading\n\nchanged body";
+const IMAGE_SIZE: [u32; 2] = [2, 1];
+const IMAGE_PIXELS: &[u8] = &[255, 0, 0, 255, 0, 255, 0, 255];
+const EXCESSIVE_NESTING: usize = 256;
+
+fn preview_text_contains(
+    application: &NativeApplication,
+    context: &egui::Context,
+    pane: &PaneId,
+    output: &egui::FullOutput,
+    label: &str,
+) -> bool {
+    let Some(rect) = application
+        .editor_markdown
+        .geometry(context.viewport_id(), pane)
+        .2
+    else {
+        return false;
+    };
+    output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.pos.x >= rect.left() && shape.clip_rect.intersects(rect) && text.galley.job.text == label))
+}
 
 #[test]
 fn 실제_markdown_토글은_편집기_식별자와_입력_undo_최신_본문을_보존한다() {
@@ -16,6 +36,18 @@ fn 실제_markdown_토글은_편집기_식별자와_입력_undo_최신_본문을
         "original rust",
     );
     let path = PathBuf::from(&fixture.path).with_file_name("preview.md");
+    let image = path.with_file_name("diagram.png");
+    let mut png = png::Encoder::new(
+        std::fs::File::create(&image).unwrap(),
+        IMAGE_SIZE[0],
+        IMAGE_SIZE[1],
+    );
+    png.set_color(png::ColorType::Rgba);
+    png.set_depth(png::BitDepth::Eight);
+    png.write_header()
+        .unwrap()
+        .write_image_data(IMAGE_PIXELS)
+        .unwrap();
     std::fs::write(&path, ORIGINAL).unwrap();
     let path = path.to_str().unwrap().to_owned();
     let application = fixture.application.as_mut().unwrap();
@@ -91,6 +123,38 @@ fn 실제_markdown_토글은_편집기_식별자와_입력_undo_최신_본문을
             .is_some()
     );
     assert!(text_contains(&output, "Markdown heading"));
+    assert!(preview_text_contains(
+        application,
+        context,
+        &pane,
+        &output,
+        "HTML preview heading"
+    ));
+    wait(
+        application,
+        context,
+        "relative image loaded",
+        |application| {
+            !application
+                .editor_markdown
+                .image_rects(context.viewport_id(), &pane)
+                .is_empty()
+        },
+    );
+    let preview = application
+        .editor_markdown
+        .geometry(context.viewport_id(), &pane)
+        .2
+        .unwrap();
+    let image = application
+        .editor_markdown
+        .image_rects(context.viewport_id(), &pane)[0];
+    assert!(image.width() <= preview.width());
+    assert!(image.width() > 0.0);
+    assert!(
+        (image.width() / image.height() - IMAGE_SIZE[0] as f32 / IMAGE_SIZE[1] as f32).abs()
+            < f32::EPSILON
+    );
     assert_eq!(body_view(application, &path, &tab), view);
     assert_eq!(
         crate::editor_context_menu::body(context, view).unwrap(),
@@ -117,6 +181,65 @@ fn 실제_markdown_토글은_편집기_식별자와_입력_undo_최신_본문을
             Vec::new(),
         )
         .unwrap();
+    context.memory_mut(|memory| memory.request_focus(body));
+    let excessive = format!(
+        "{}safe{}",
+        "<div>".repeat(EXCESSIVE_NESTING),
+        "</div>".repeat(EXCESSIVE_NESTING)
+    );
+    paint(
+        application,
+        context,
+        vec![egui::Event::Paste(excessive.clone())],
+    );
+    application
+        .editor_markdown
+        .expire_update(context.viewport_id(), &pane);
+    let output = paint(application, context, Vec::new());
+    assert!(preview_text_contains(
+        application,
+        context,
+        &pane,
+        &output,
+        &presentation::message(&application.locale, "editor.markdownPreviewError", &[])
+    ));
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        excessive
+    );
+    context.memory_mut(|memory| memory.request_focus(body));
+    paint(
+        application,
+        context,
+        key(
+            egui::Key::Z,
+            egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND,
+        ),
+    );
+    application
+        .editor_markdown
+        .expire_update(context.viewport_id(), &pane);
+    let output = paint(application, context, Vec::new());
+    assert!(preview_text_contains(
+        application,
+        context,
+        &pane,
+        &output,
+        "HTML preview heading"
+    ));
+    assert!(!preview_text_contains(
+        application,
+        context,
+        &pane,
+        &output,
+        &presentation::message(&application.locale, "editor.markdownPreviewError", &[])
+    ));
     context.memory_mut(|memory| memory.request_focus(body));
     paint(
         application,
