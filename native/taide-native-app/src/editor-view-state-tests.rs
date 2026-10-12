@@ -21,8 +21,124 @@ const EMOJI_END: usize = 9;
 const EMOJI_COLUMN: u64 = 5;
 const PREVIOUS_X: f32 = 24.0;
 const PREVIOUS_Y: f32 = 12.0;
+const MONACO_EMOJI_CHECKSUM: i32 = -646_167;
+const FOLD_BODY_TEXT: &str = "header\r\n  alpha\r\n  middle\r\n  omega\r\nend";
+const FOLD_BODY_END_LINE: usize = 3;
+
+#[test]
+fn 접기_checksum은_설치_monaco의_utf16_signed_값과_호환되고_수동_열림을_복원한다() {
+    let (mut store, view) = fixture();
+    let document = store
+        .documents()
+        .snapshot(store.views().get(view).unwrap().document)
+        .unwrap();
+    let range = document.rope.line_to_byte(1)..line_content_range(&document, 1).end;
+    store.set_manual_folds(view, vec![range.clone()]).unwrap();
+    let captured = folding::capture(&document, store.views().get(view).unwrap());
+    let region = &captured["editor.contrib.folding"]["collapsedRegions"][0];
+    assert_eq!(region["checksum"], MONACO_EMOJI_CHECKSUM);
+    assert_eq!(region["isCollapsed"], false);
+    assert_eq!(region["source"], 1);
+    let restored = folding::restore(&document, Some(&captured)).unwrap();
+    assert!(restored.0.is_empty());
+    assert_eq!(restored.1, vec![range.clone()]);
+    let legacy = serde_json::json!({"editor.contrib.folding": {"collapsedRegions": [{"startLineNumber": 1, "endLineNumber": 2, "checksum": MONACO_EMOJI_CHECKSUM}]}}).as_object().unwrap().clone();
+    let restored = folding::restore(&document, Some(&legacy)).unwrap();
+    assert_eq!(restored.0, vec![range.clone()]);
+    assert!(restored.1.is_empty());
+    let mirror = store
+        .attach_view(
+            ViewKey {
+                window: "other".into(),
+                pane: PaneId::new(),
+                tab: TabId::new(),
+            },
+            document.id,
+        )
+        .unwrap();
+    let mut state = State::default();
+    let saved =
+        serde_json::json!({"cursorState": [], "viewState": {}, "contributionsState": legacy})
+            .to_string();
+    state.restore(&mut store, view, Some(&saved)).unwrap();
+    let saved =
+        serde_json::json!({"cursorState": [], "viewState": {}, "contributionsState": captured})
+            .to_string();
+    state.restore(&mut store, mirror, Some(&saved)).unwrap();
+    assert_eq!(store.views().get(view).unwrap().folds, vec![range.clone()]);
+    assert!(store.views().get(view).unwrap().manual_folds.is_empty());
+    assert!(store.views().get(mirror).unwrap().folds.is_empty());
+    assert_eq!(store.views().get(mirror).unwrap().manual_folds, vec![range]);
+    assert_eq!(document.rope.to_string(), TEXT);
+    assert!(document.metadata.read_only);
+}
+
+#[test]
+fn 접기_본문_hash는_중간_변경만_거절하고_영역_밖_변경과_crlf_변환을_허용한다() {
+    let (mut store, view) = fixture_with_text(FOLD_BODY_TEXT);
+    let document = store
+        .documents()
+        .snapshot(store.views().get(view).unwrap().document)
+        .unwrap();
+    let range =
+        document.rope.line_to_byte(1)..line_content_range(&document, FOLD_BODY_END_LINE).end;
+    store
+        .set_view_state(
+            view,
+            SelectionSet::default(),
+            ScrollPosition::default(),
+            vec![range],
+        )
+        .unwrap();
+    let captured = folding::capture(&document, store.views().get(view).unwrap());
+    for (text, is_restored) in [
+        (FOLD_BODY_TEXT.to_owned(), true),
+        (FOLD_BODY_TEXT.replace("middle", "changed"), false),
+        (format!("{FOLD_BODY_TEXT}\r\noutside"), true),
+        (FOLD_BODY_TEXT.replace("\r\n", "\n"), true),
+    ] {
+        let (store, view) = fixture_with_text(&text);
+        let current = store
+            .documents()
+            .snapshot(store.views().get(view).unwrap().document)
+            .unwrap();
+        let restored = folding::restore(&current, Some(&captured)).unwrap();
+        assert_eq!(!restored.0.is_empty(), is_restored);
+        assert!(restored.1.is_empty());
+        assert_eq!(current.rope.to_string(), text);
+        assert!(!current.dirty);
+    }
+}
+
+#[test]
+fn 잘못된_접기_contribution과_영역은_커서_scroll_복원을_막지_않는다() {
+    for folding in [
+        serde_json::Value::Null,
+        serde_json::json!([]),
+        serde_json::json!({"collapsedRegions": true}),
+        serde_json::json!({"collapsedRegions": [null, [], {"startLineNumber": 0, "endLineNumber": 2}, {"startLineNumber": 2, "endLineNumber": 1}, {"startLineNumber": 1, "endLineNumber": u64::MAX}, {"startLineNumber": 1, "endLineNumber": 2, "source": false}, {"startLineNumber": 1, "endLineNumber": 2, "checksum": "invalid"}]}),
+    ] {
+        let (mut store, view) = fixture();
+        let saved = serde_json::json!({"cursorState": [{"position": {"lineNumber": 1, "column": 2}}], "viewState": {"scrollLeft": PREVIOUS_X}, "contributionsState": {"editor.contrib.folding": folding}}).to_string();
+        State::default()
+            .restore(&mut store, view, Some(&saved))
+            .unwrap();
+        let current = store.views().get(view).unwrap();
+        assert_eq!(
+            current.selection.selections,
+            vec![Selection { anchor: 1, head: 1 }]
+        );
+        assert_eq!(current.scroll.x, PREVIOUS_X);
+        assert!(current.folds.is_empty());
+        assert!(current.manual_folds.is_empty());
+    }
+}
 
 fn fixture() -> (EditorStore, ViewId) {
+    fixture_with_text(TEXT)
+}
+
+fn fixture_with_text(text: &str) -> (EditorStore, ViewId) {
     let mut store = EditorStore::new(EditorLimits {
         max_documents: DOCUMENT_LIMIT,
         max_views: VIEW_LIMIT,
@@ -35,10 +151,10 @@ fn fixture() -> (EditorStore, ViewId) {
             "/synthetic/view-state.txt".into(),
             OpenedFile {
                 path: "/synthetic/view-state.txt".into(),
-                content: TEXT.into(),
+                content: text.into(),
                 language_id: "plaintext".into(),
-                byte_size: TEXT.len().try_into().unwrap(),
-                line_count: TEXT.lines().count().try_into().unwrap(),
+                byte_size: text.len().try_into().unwrap(),
+                line_count: text.lines().count().try_into().unwrap(),
                 tier: FileSizeTier::Normal,
                 read_only: true,
                 encoding_lossy: false,

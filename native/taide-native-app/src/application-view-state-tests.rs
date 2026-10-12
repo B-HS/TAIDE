@@ -22,6 +22,119 @@ const LEGACY_SCROLL_TOP: f32 = 320.0;
 const NAVIGATION_LINE: u32 = 100;
 const INVALID_UTF8: u8 = 0xff;
 const IDE_TEXT: &str = "class\n  \u{1f600}method\nend";
+const FOLD_TEXT: &str = "class\n  body\nend";
+
+#[test]
+fn 실제_본문은_저장된_접기를_복원하고_열린_수동_접기를_종료에_보존한다() {
+    let saved = serde_json::json!({
+        "cursorState": [{"position": {"lineNumber": 1, "column": 1}}],
+        "viewState": {},
+        "contributionsState": {"editor.contrib.folding": {"collapsedRegions": [{"startLineNumber": 1, "endLineNumber": STORED_LINE, "isCollapsed": true, "source": 0}], "futureField": true}, "future.contrib": {"preserve": true}}
+    }).to_string();
+    let mut fixture = fixture_with_view_state(
+        "--native-inlay-hints",
+        false,
+        |_, _, _| true,
+        Some(saved),
+        FOLD_TEXT,
+    );
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let view = body_view(application, &fixture.path, &fixture.tab);
+    let snapshot = application
+        .store
+        .documents()
+        .snapshot(application.store.views().get(view).unwrap().document)
+        .unwrap();
+    let folded = snapshot.rope.line_to_byte(1)
+        ..snapshot
+            .rope
+            .line_to_byte(usize::try_from(STORED_LINE).unwrap())
+            - 1;
+    assert_eq!(
+        application.store.views().get(view).unwrap().folds,
+        vec![folded.clone()],
+        "stored folding contribution must reach the actual body"
+    );
+    let output = paint(application, context, Vec::new());
+    assert!(!output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text.contains("  body"))));
+    application
+        .fold_commands
+        .push((fixture.tab.clone(), FoldCommand::UnfoldAll));
+    paint(application, context, Vec::new());
+    assert!(
+        application
+            .store
+            .views()
+            .get(view)
+            .unwrap()
+            .folds
+            .is_empty()
+    );
+    application
+        .store
+        .set_view_state(
+            view,
+            SelectionSet {
+                primary: 0,
+                selections: vec![Selection {
+                    anchor: 0,
+                    head: folded.end,
+                }],
+            },
+            ScrollPosition::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    application
+        .fold_commands
+        .push((fixture.tab.clone(), FoldCommand::CreateFromSelection));
+    paint(application, context, Vec::new());
+    assert_eq!(
+        application.store.views().get(view).unwrap().manual_folds,
+        vec![folded.clone()]
+    );
+    application
+        .fold_commands
+        .push((fixture.tab.clone(), FoldCommand::UnfoldAll));
+    paint(application, context, Vec::new());
+    assert!(
+        application
+            .store
+            .views()
+            .get(view)
+            .unwrap()
+            .folds
+            .is_empty()
+    );
+    eframe::App::on_exit(application);
+    let layout =
+        taide_layout::service::load_layout(&application.services.state.paths, &fixture.project);
+    let tab = crate::tabs::tabs_in(&layout.root)
+        .into_iter()
+        .find(|tab| tab.id == fixture.tab)
+        .unwrap();
+    let saved: serde_json::Value =
+        serde_json::from_str(tab.view_state.as_deref().unwrap()).unwrap();
+    let region = &saved["contributionsState"]["editor.contrib.folding"]["collapsedRegions"][0];
+    assert_eq!(region["startLineNumber"], 1);
+    assert_eq!(region["endLineNumber"], STORED_LINE);
+    assert_eq!(region["isCollapsed"], false);
+    assert_eq!(region["source"], 1);
+    assert_eq!(
+        saved["contributionsState"]["editor.contrib.folding"]["futureField"],
+        true
+    );
+    assert_eq!(
+        saved["contributionsState"]["future.contrib"],
+        serde_json::json!({"preserve": true})
+    );
+    let document = application.store.documents().snapshot(snapshot.id).unwrap();
+    assert_eq!(document.revision, snapshot.revision);
+    assert_eq!(document.rope.to_string(), FOLD_TEXT);
+    assert!(!document.dirty);
+    assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), FOLD_TEXT);
+}
 
 #[test]
 fn 실제_ide_파일_열기와_닫힘은_본문의_최신_위치를_저장한다() {

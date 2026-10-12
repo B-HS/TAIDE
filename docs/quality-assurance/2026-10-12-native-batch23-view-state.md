@@ -205,3 +205,17 @@ IDE 선행 저장 코드/검사·QA/소유 PROCESS의9경로는 `958dbf87`로 �
 현재 실제 App2·원격레이아웃5/프로젝트5/dispatch3·넓은 필터의 불변4·Host9/포트2/종료2·프로젝트서비스98은 로그의 package/test 이름을 합쳐 서로 다른130건입니다. 기존436건에서 다시 실행한Host9/포트2/종료2를 제외한423건을 재사용해 서로 다른553건이며 같은 성공을 추가 합산하지 않습니다. 소유12Rust fmt/diff는 exit0이고 manifest/lock/UI renderer/Core editor/engine/frozen은 변경하지 않았습니다. 런타임의 파일 검증 함수 공개와 프로젝트 검증 함수의 제한된 재노출은 기존 서비스 경계를 재사용하며 새 의존성/RPC가 없습니다. editor-67 partial·complete298/partial93/unwired110/missing87·미완료290·배치23 잔여23/최종33·전체율/잔여시간 미산정을 유지합니다. 실제 batch/aux·folding contribution/전체App 재시작과 전체App/실기/신뢰성/출시 게이트는 아직 남습니다.
 
 원격 선행 저장 코드/검사·QA/소유 PROCESS의14경로는 `fe9cf0fc`로 선별 커밋했습니다. 기능표의 상태와 전체 배치 ID 배정을 실제 JSON으로 대조했고 미완료290·배정누락/중복/미확인ID0·최종33을 유지합니다. 다음은 실제batch/aux의 나머지 경로와 folding contribution·디스크에서 새 App으로 재시작하는 복원입니다.
+
+## 접기 contribution 저장과 복원
+
+이전 turn은 원격 탭/프로젝트/슬롯의 실제 저장·요청/감독 수명 구현과 관련130건·선별 커밋/일반 push로 진척했습니다. 현재 실제 파일을 대조했고 editor-67은 partial입니다. 원본 Monaco folding controller/model은 collapsedRegions의 start/endLineNumber·isCollapsed·source·UTF-16 signed checksum과 lineCount/provider를 저장합니다. provider가 아직 준비되지 않아도 저장 영역을 복원하며 source가 provider 이외면 펼친 수동 영역도 보관합니다. native ViewState의 folds/manual_folds는 있으나 기존 위치 복원이 contribution을 소비하지 않았습니다.
+
+`view-state-folding-red.log`는 실제 본문 최초 복원에서 folds가 빈 배열이고 기대값6..12라0통과/1실패·24.55초·exit101(컴파일27.08초)입니다. 후기 수동 명령/종료 저장은 아직 성공으로 세지 않습니다. private 접기 adapter를 기존 위치 저장/복원에 연결했습니다. malformed contribution/개별 영역을 cursor/scroll과 독립적으로 좁히고 원본 signed checksum/UTF-16·CRLF를 지원하며 범위/source·기존5000영역 상한과 native tier 게이트를 적용합니다. 기존 folding 모델이 중복/교차 영역을 정리하고 수동/펼친 수동 영역을 보존합니다.
+
+새 native 저장에는 전체 접기 본문의 versioned hash를 추가해 첫/끝 줄이 같은 중간 변경도 거절합니다. 문서의 UTF-16 줄 hash/prefix를 한 번 계산해 각 영역의 검증은 일정 비용이고 CRLF/LF 변환과 영역 밖 변경은 허용합니다. 기존 Monaco checksum이 있는 legacy 값은 해당 계약으로 대조하며 hash가 없는 원본 상태도 읽습니다. 기본 checksum의 약한 중간 검증을 새 native 저장에 강제 복제하지 않습니다. unknown contribution과 같은 folding 객체의 unknown 필드는 nested merge로 보존하며 별도 라이브러리/공개 RPC는 없습니다.
+
+`view-state-folding-green.log`는 같은 실제 App의 복원·숨긴 본문 표시·UnfoldAll/CreateFromSelection·펼친 수동 영역 종료 저장·원문/revision/dirty/디스크·future contribution 보존이1통과·30.15초·exit0(컴파일35.01초)입니다. 설치 Monaco hash.js를 직접 실행해 Unicode/CRLF 샘플의 signed checksum -646167을 확인했고 `view-state-folding-state.log`는 이 값의 호환성과 열린 수동/legacy 기본값·중간 변경 거절/영역 밖 및 EOL 변경 허용·잘못된 contribution/범위·readonly/기존 상태 회귀9통과·0.01초·exit0입니다. 단독 성공을 중복 합산하지 않습니다. 추가 실제 App 회귀와 nested future 필드 보존을 확인 중이며 실제batch/aux와 새 App 재시작은 별도 미완료입니다.
+
+`view-state-folding-app.log`는 실제 본문 위치 관련 전체12통과·39.07초·exit0(컴파일19.06초)입니다. 추가한 같은 folding 객체의 futureField 보존도 확인했습니다. `view-state-folding-exit.log`는 기존 종료/저장 오류·본문 mirror 보존·서버/세션/감독 회수2통과·0.05초·exit0입니다. checksum 검사에 같은 문서의 다른 창/뷰를 추가해 접힌 일반 영역과 펼친 수동 영역이 서로 덮어쓰지 않는 실제 State 복원을 확인했고 `view-state-folding-mirror.log`는1통과·0.01초·exit0(컴파일16.24초)입니다. 이 한 건은 상태9건에 이미 포함되어 중복 집계하지 않습니다.
+
+현재 관련 서로 다른23건에서 새 App1/상태3만 이전 누계553에 추가하므로 성공 근거는 서로 다른557건입니다. 소유4Rust fmt는 exit0입니다. 전체 working diff 검사는 기존 사용자 `docs/architecture.md:955`의 EOF 빈 줄로 exit2이며 해당 파일은 수정하지 않았습니다. 커밋 전 소유 경로/선별 staged diff만 따로 확인합니다. 새 dependency/manifest/lock/Core/UI/frozen 변경은 없으며 editor-67 partial·298/588(50.7%)·잔여290/배치23 잔여23/최종33을 유지합니다. 실제 batch/aux와 새 App 재시작·전체App 준비 실패/실기/성능/신뢰성/출시 게이트는 미완료입니다.

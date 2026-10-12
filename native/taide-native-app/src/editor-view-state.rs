@@ -14,6 +14,9 @@ use taide_runtime::{AppServices, AppState, EventSink};
 
 const MAX_RESTORED_CURSORS: usize = 10_000;
 
+#[path = "editor-view-state-folding.rs"]
+mod folding;
+
 #[derive(Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ModelPosition {
@@ -67,6 +70,8 @@ struct ScrollState {
 struct PersistedViewState {
     cursor_state: Vec<CursorState>,
     view_state: ScrollState,
+    #[serde(skip_deserializing, skip_serializing_if = "Option::is_none")]
+    contributions_state: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 impl PersistedViewState {
@@ -88,7 +93,13 @@ impl PersistedViewState {
         {
             return None;
         }
-        serde_json::from_value(value).ok()
+        let contributions = fields
+            .get("contributionsState")
+            .and_then(serde_json::Value::as_object)
+            .cloned();
+        let mut saved: Self = serde_json::from_value(value).ok()?;
+        saved.contributions_state = contributions;
+        Some(saved)
     }
 }
 
@@ -159,7 +170,30 @@ pub(crate) async fn apply_to(
                 .and_then(|saved| serde_json::from_str::<serde_json::Value>(saved).ok())
                 .and_then(|saved| saved.as_object().cloned())
                 .unwrap_or_default();
-            saved.extend(current.fields.clone());
+            let mut fields = current.fields.clone();
+            if let Some(serde_json::Value::Object(incoming)) = fields.remove("contributionsState") {
+                let mut contributions = saved
+                    .get("contributionsState")
+                    .and_then(serde_json::Value::as_object)
+                    .cloned()
+                    .unwrap_or_default();
+                for (id, value) in incoming {
+                    let mut previous = contributions
+                        .get(&id)
+                        .and_then(serde_json::Value::as_object)
+                        .cloned()
+                        .unwrap_or_default();
+                    if let serde_json::Value::Object(value) = value {
+                        previous.extend(value);
+                        contributions.insert(id, serde_json::Value::Object(previous));
+                    }
+                }
+                fields.insert(
+                    "contributionsState".into(),
+                    serde_json::Value::Object(contributions),
+                );
+            }
+            saved.extend(fields);
             let saved = serde_json::to_string(&saved)?;
             if tab.view_state.as_deref() == Some(saved.as_str()) {
                 continue;
@@ -304,6 +338,7 @@ impl State {
                         .transpose()?;
                     let saved = PersistedViewState {
                         cursor_state,
+                        contributions_state: Some(folding::capture(&document, current)),
                         view_state: ScrollState {
                             scroll_left: Some(current.scroll.x),
                             first_position,
@@ -418,7 +453,14 @@ impl State {
                 .unwrap_or(0.0)
                 .max(0.0),
         };
-        store.set_view_state(view, selection, scroll, current.folds)?;
+        let folds = match folding::restore(&document, saved.contributions_state.as_ref()) {
+            Some((folds, manual)) => {
+                store.set_manual_folds(view, manual)?;
+                folds
+            }
+            None => current.folds,
+        };
+        store.set_view_state(view, selection, scroll, folds)?;
         let position = saved
             .view_state
             .first_position
