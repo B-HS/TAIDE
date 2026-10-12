@@ -1,6 +1,6 @@
 {
     "date": "2026-10-12",
-    "baseline": "6d7532cc",
+    "baseline": "8fa57ad2",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1059,7 +1059,7 @@
                 "native/taide-native-ui/src/command-registry.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-12-native-batch23-terminal-run.md"],
-            "limitation": "일반 file의 실제 두 팔레트/재지정 키 4경우를 App 1·분기 9·UI 등록 15, 총 25건에서 확인했습니다. 원본의 본문/pane 소유와 file 전용 커스텀 액션을 유지했습니다. 추가 실제 모델/창/readonly/peek 진입과 전체/실기는 미완료입니다. 검사 wide-cell/한 프레임 큐 전제 오류와 컴파일 실패를 교정했으며 frozen Wasm tests의 std/web Instant 7불일치는 배치 31 부채입니다. frozen 제품 host/Wasm과 App/UI tests compile만 통과했고 전체 실행 성공으로 확대하지 않습니다."
+            "limitation": "8fa57ad2에서 실제 두 팔레트/재지정 키와 file/appFile/untitled/readonly·본문/peek·보조 창의 전달을 App 3건에서 확인했습니다. 보조 창이 메인 탭을 고르는 실패를 수정하고 원본 본문/pane·file 전용 커스텀 액션·Unicode/원문/디스크/동일 세션을 보존했습니다. 불변 분기 9/UI 등록 15를 합친 서로 다른 기능 검사 근거는 27건입니다. 최초 문서 준비 시간 초과와 메인 class의 비동기 출력 단언 오류·컴파일 중단을 구분해 기록했으며 전체/실기/성능/출시는 미완료입니다. frozen 제품 host/Wasm의 불변 성공을 재사용하고 Wasm tests의 기존 시간 API 7불일치는 배치 31에 보존합니다."
         }
     },
     "rows": [
@@ -3050,9 +3050,9 @@
             "ts": "`editor-pane.tsx:288-300`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:163",
             "domain": "editor",
-            "status": "partial",
+            "status": "complete",
             "proof": "editor-terminal-run",
-            "note": "이미 연결된 메뉴/PTY 경로의 missing 오판을 정정했습니다. 두 팔레트와 재지정 키의 네 실제 앱 경우에서 선택/현재 줄·동일 세션·문서/디스크 보존을 확인했습니다. named 명령의 appFile/untitled·readonly, peek 본문 소유·보조 창의 새 진입 실행과 전체/실기 게이트는 d1b/f에 남아 partial입니다."
+            "note": "메뉴·두 팔레트/재지정 키와 file/appFile/untitled/readonly·peek의 본문 선택·보조 창의 같은 pane/세션을 연결·검증했습니다. 메인 탭을 고르는 보조 창 실패를 수정했고 실제 App 3건에서 Unicode/역방향 선택·현재 줄·원문/디스크 보존이 통과했습니다. file 전용 커스텀 액션 조건을 유지하며 전체 배치/OS 실기/성능/출시는 별도 게이트입니다."
         },
         {
             "id": "editor-83",
