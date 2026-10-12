@@ -114,7 +114,15 @@ impl Autolinks {
                         self.blocks(&mut item.blocks);
                     }
                 }
-                Block::Table { header, rows, .. } => {
+                Block::Table {
+                    header,
+                    rows,
+                    layout,
+                    ..
+                } => {
+                    if let Some(layout) = layout {
+                        self.inlines(&mut layout.caption)
+                    }
                     for cell in header.iter_mut().chain(rows.iter_mut().flatten()) {
                         self.inlines(cell);
                     }

@@ -2,6 +2,87 @@ use super::*;
 use taide_native_editor::documentation::{Block, Inline};
 
 #[test]
+fn html_표는_제목_머리_본문_꼬리와_행_그룹_병합을_보존한다() {
+    const ROW_COUNT: usize = 4;
+    const COLUMN_COUNT: usize = 2;
+    const BODY_SECOND: usize = 2;
+    const FOOT_ROW: usize = 3;
+    let document = parse("<table><caption><strong>caption</strong> <a href='../next.md'>next</a></caption><tfoot><tr><td>footer</td></tr></tfoot><tbody><tr><td rowspan='0'>span</td><td>body first</td></tr><tr><td>body second</td></tr></tbody><thead><tr><th colspan='2'>head</th></tr></thead></table>", Some(Path::new("/synthetic/docs/readme.md"))).unwrap();
+    let Block::Table {
+        rows,
+        layout: Some(layout),
+        ..
+    } = &document.blocks[0]
+    else {
+        panic!("expected table")
+    };
+    assert_eq!(
+        (layout.row_count, layout.column_count),
+        (ROW_COUNT, COLUMN_COUNT)
+    );
+    assert_eq!(layout.cells[0][0].column_span, COLUMN_COUNT);
+    assert_eq!(layout.cells[1][0].row_span, COLUMN_COUNT);
+    assert_eq!(layout.cells[BODY_SECOND][0].column, 1);
+    assert_eq!(layout.cells[FOOT_ROW][0].column, 0);
+    for (row, expected) in [
+        (0, "head"),
+        (1, "span"),
+        (BODY_SECOND, "body second"),
+        (FOOT_ROW, "footer"),
+    ] {
+        assert!(matches!(&rows[row][0][0], Inline::Text(span) if span.text == expected));
+    }
+    assert!(layout.caption.iter().any(
+        |inline| matches!(inline, Inline::Text(span) if span.style.bold && span.text == "caption")
+    ));
+    assert!(layout.caption.iter().any(|inline| matches!(inline, Inline::Text(span) if span.link.as_ref().is_some_and(|link| link.target == "file:///synthetic/next.md"))));
+}
+
+#[test]
+fn html_병합_속성은_0_무효값_상한과_암시된_행을_처리한다() {
+    const COLUMN_MAX: usize = 1000;
+    const ROW_MAX: usize = 65534;
+    for (value, expected) in [
+        ("0", 1),
+        ("bad", 1),
+        ("-2", 1),
+        (" \t+2tail", 2),
+        ("999999999999999999999999999", COLUMN_MAX),
+    ] {
+        let document = parse(
+            &format!("<table><tr><td colspan='{value}'>cell</td></tr></table>"),
+            None,
+        )
+        .unwrap();
+        assert!(
+            matches!(&document.blocks[0], Block::Table { layout: Some(layout), .. } if layout.cells[0][0].column_span == expected && layout.column_count == expected)
+        );
+    }
+    let document = parse("<table><tbody><tr><td rowspan='999999999999999999999'>cell</td></tr></tbody><tbody><tr><td>next group</td></tr></tbody></table>", None).unwrap();
+    let Block::Table {
+        rows,
+        layout: Some(layout),
+        ..
+    } = &document.blocks[0]
+    else {
+        panic!("expected table")
+    };
+    assert_eq!(layout.cells[0][0].row_span, ROW_MAX);
+    assert_eq!(layout.row_count, ROW_MAX + 1);
+    assert!(matches!(&rows[ROW_MAX][0][0], Inline::Text(span) if span.text == "next group"));
+    assert_eq!(layout.cells[ROW_MAX][0].column, 0);
+}
+
+#[test]
+fn html_열_병합은_실제_열_수를_보존한다() {
+    const COLUMN_COUNT: usize = 3;
+    let document = parse("<table><tr><td colspan='2'>wide</td><td rowspan='2'>tall</td></tr><tr><td>a</td><td>b</td></tr></table>", None).unwrap();
+    assert!(
+        matches!(&document.blocks[0], Block::Table { columns, .. } if columns.len() == COLUMN_COUNT)
+    );
+}
+
+#[test]
 fn html_목록의_역순과_항목_value는_후속_번호와_중첩_범위를_보존한다() {
     for (attributes, items, expected) in [
         (

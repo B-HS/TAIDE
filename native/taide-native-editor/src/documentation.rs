@@ -63,8 +63,25 @@ pub enum Block {
         columns: Vec<Alignment>,
         header: Vec<Vec<Inline>>,
         rows: Vec<Vec<Vec<Inline>>>,
+        layout: Option<TableLayout>,
     },
     Rule,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TableLayout {
+    pub caption: Vec<Inline>,
+    pub cells: Vec<Vec<TableCell>>,
+    pub column_count: usize,
+    pub row_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TableCell {
+    pub column: usize,
+    pub column_span: usize,
+    pub row_span: usize,
+    pub alignment: Alignment,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

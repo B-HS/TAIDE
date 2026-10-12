@@ -262,6 +262,7 @@ fn finish(frames: &mut Vec<Frame>) {
             columns,
             header: frame.header,
             rows: frame.rows,
+            layout: None,
         }),
         Kind::TableHead => {
             parent.header = frame.cells;

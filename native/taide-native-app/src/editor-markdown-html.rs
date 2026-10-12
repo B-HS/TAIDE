@@ -1,9 +1,12 @@
 use dom_query::{Document, NodeRef};
 use taide_model::error::AppResult;
 use taide_native_editor::documentation::{
-    Alignment, Block, ImageDimensions, Inline, Link, ListItem, RichDocument, Span, Style,
+    Block, ImageDimensions, Inline, Link, ListItem, RichDocument, Span, Style,
 };
 use url::Url;
+
+#[path = "editor-markdown-table.rs"]
+mod table;
 
 const MAX_DEPTH: usize = 128;
 const BLOCK_TAGS: &[&str] = &[
@@ -216,17 +219,7 @@ fn integer(value: &str) -> Option<i64> {
     value.get(..end)?.parse().ok()
 }
 
-fn table_rows<'a>(node: NodeRef<'a>, rows: &mut Vec<NodeRef<'a>>) {
-    for child in node.children_it(false) {
-        match name(child).as_str() {
-            "tr" => rows.push(child),
-            "thead" | "tbody" | "tfoot" => table_rows(child, rows),
-            _ => {}
-        }
-    }
-}
-
-fn blocks(node: NodeRef<'_>, base: Option<&Url>) -> Vec<Block> {
+fn blocks(node: NodeRef<'_>, base: Option<&Url>) -> AppResult<Vec<Block>> {
     let mut output = Vec::new();
     let mut pending = Vec::new();
     for child in node.children_it(false) {
@@ -245,7 +238,7 @@ fn blocks(node: NodeRef<'_>, base: Option<&Url>) -> Vec<Block> {
                 contents: contents(child, base, false),
             }),
             "p" => output.push(Block::Paragraph(contents(child, base, false))),
-            "blockquote" => output.push(Block::Quote(blocks(child, base))),
+            "blockquote" => output.push(Block::Quote(blocks(child, base)?)),
             "pre" => {
                 let code = child
                     .first_element_child()
@@ -298,52 +291,22 @@ fn blocks(node: NodeRef<'_>, base: Option<&Url>) -> Vec<Block> {
                             };
                             current
                         });
-                        ListItem {
+                        Ok(ListItem {
                             checked: checkbox(item),
                             ordinal: number,
-                            blocks: blocks(item, base),
-                        }
+                            blocks: blocks(item, base)?,
+                        })
                     })
-                    .collect();
+                    .collect::<AppResult<_>>()?;
                 output.push(Block::List { start, items });
             }
-            "table" => {
-                let mut rows = Vec::new();
-                table_rows(child, &mut rows);
-                let columns = rows
-                    .first()
-                    .map(|row| {
-                        row.children_it(false)
-                            .filter(|node| matches!(name(*node).as_str(), "td" | "th"))
-                            .map(|cell| match cell.attr("align").as_deref() {
-                                Some("center") => Alignment::Center,
-                                Some("right") => Alignment::Right,
-                                Some("left") => Alignment::Left,
-                                _ => Alignment::Default,
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                output.push(Block::Table {
-                    columns,
-                    header: Vec::new(),
-                    rows: rows
-                        .into_iter()
-                        .map(|row| {
-                            row.children_it(false)
-                                .filter(|node| matches!(name(*node).as_str(), "td" | "th"))
-                                .map(|cell| contents(cell, base, name(cell) == "th"))
-                                .collect()
-                        })
-                        .collect(),
-                });
-            }
+            "table" => output.push(table::parse(child, base)?),
             "hr" => output.push(Block::Rule),
-            _ => output.extend(blocks(child, base)),
+            _ => output.extend(blocks(child, base)?),
         }
     }
     flush(&mut output, &mut pending);
-    output
+    Ok(output)
 }
 
 pub(super) fn parse(source: &str, base: Option<&Url>) -> AppResult<RichDocument> {
@@ -355,7 +318,7 @@ pub(super) fn parse(source: &str, base: Option<&Url>) -> AppResult<RichDocument>
         }
         pending.extend(node.children_it(false).map(|child| (child, depth + 1)));
     }
-    let mut blocks = blocks(document.root(), base);
+    let mut blocks = blocks(document.root(), base)?;
     crate::editor_markup::autolinks::apply(&mut blocks);
     Ok(RichDocument { blocks })
 }

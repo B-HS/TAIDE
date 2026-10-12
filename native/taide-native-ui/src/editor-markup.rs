@@ -320,6 +320,7 @@ fn blocks(
                 columns,
                 header,
                 rows,
+                ..
             } => {
                 egui::Grid::new("table").striped(false).show(ui, |ui| {
                     for (row_index, row) in std::iter::once(header).chain(rows.iter()).enumerate() {

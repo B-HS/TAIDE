@@ -70,6 +70,7 @@ fn 표는_열정렬_머리글과_각_행의_inline_강조를_보존한다() {
         columns,
         header,
         rows,
+        ..
     } = &document.blocks[0]
     else {
         panic!("expected table")

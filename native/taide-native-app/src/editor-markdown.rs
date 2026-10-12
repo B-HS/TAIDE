@@ -35,6 +35,7 @@ struct Source {
     pending: Option<DocumentSnapshot>,
     rendered: RichDocument,
     error: Option<AppError>,
+    should_reset_scroll: bool,
 }
 
 fn render(snapshot: &DocumentSnapshot) -> (RichDocument, Option<AppError>) {
@@ -292,6 +293,7 @@ impl State {
             .is_none_or(|source| source.document != snapshot.id)
         {
             let (rendered, error) = render(snapshot);
+            let should_reset_scroll = error.is_some();
             entry.source = Some(Source {
                 document: snapshot.id,
                 revision: snapshot.revision,
@@ -299,6 +301,7 @@ impl State {
                 pending: None,
                 rendered,
                 error,
+                should_reset_scroll,
             });
         }
         let source = entry
@@ -316,6 +319,7 @@ impl State {
                 let (rendered, error) = render(pending);
                 source.rendered = rendered;
                 source.error = error;
+                source.should_reset_scroll = source.error.is_some();
                 source.pending = None;
             } else {
                 ui.ctx().request_repaint_after(UPDATE_DELAY - elapsed);
@@ -336,8 +340,9 @@ impl State {
         entry.images.clear();
         let source = entry
             .source
-            .as_ref()
+            .as_mut()
             .expect("preview source remains initialized");
+        let should_reset_scroll = std::mem::take(&mut source.should_reset_scroll);
         let mut preview_ui = ui.new_child(
             egui::UiBuilder::new()
                 .id_salt(("markdown-preview", &key))
@@ -367,25 +372,30 @@ impl State {
         egui::Frame::new()
             .inner_margin(PREVIEW_PADDING)
             .show(&mut preview_ui, |ui| {
-                let _output = egui::ScrollArea::both()
+                let scroll = egui::ScrollArea::both()
                     .id_salt(("markdown-scroll", &key))
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        if let Some(error) = &source.error {
-                            ui.colored_label(
-                                ui.visuals().error_fg_color,
-                                crate::toast::describe_error(locale, error),
-                            );
-                            return;
-                        }
-                        taide_native_ui::editor_markup::show_preview(
-                            ui,
-                            &source.rendered,
-                            &preview_appearance,
-                            colors,
-                            &mut provider,
+                    .auto_shrink([false, false]);
+                let scroll = if should_reset_scroll {
+                    scroll.scroll_offset(egui::Vec2::ZERO)
+                } else {
+                    scroll
+                };
+                let _output = scroll.show(ui, |ui| {
+                    if let Some(error) = &source.error {
+                        ui.colored_label(
+                            ui.visuals().error_fg_color,
+                            crate::toast::describe_error(locale, error),
                         );
-                    });
+                        return;
+                    }
+                    taide_native_ui::editor_markup::show_preview(
+                        ui,
+                        &source.rendered,
+                        &preview_appearance,
+                        colors,
+                        &mut provider,
+                    );
+                });
                 #[cfg(test)]
                 {
                     entry.scroll = Some((_output.state.offset, _output.inner_rect));

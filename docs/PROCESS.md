@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: d6c3c의 두 열 경계4/3·x44.84375/45.1875와 넓은 화면18줄/1줄 실패를 재현했습니다. 고정 Grid/위젯 ID와 입력 fingerprint·현재 너비/높이 측정·배정된 cursor 셀 경계, 내용의 최소/자연 너비와 이미지 크기 조회를 연결했습니다. 최초/내용/행 수/viewport·이미지 준비/높이/링크/캐시 크기·긴 단어/한중일·기존 도움말과 실제 App PNG/입력/undo/닫힘을 preview10/hover13/cache4/App1의 서로 다른28통과로 확인했습니다. 소유8Rust fmt/diff·frozen host tests/inspection check27.54초/Wasm canvas lib check13.65초·exit0입니다. 셀 병합/caption/행·열 스타일/전체 CSS·list type/범위 밖 번호·SVG/MathML/media/details/anchor/CLI 소유 경계 대조/물리 OS 및 전체 게이트는 미완료입니다. editor-72 partial·기능 체크리스트302/588(51.4%)·미완료286·부분90/미연결110/미구현86·배치23 잔여19/최종33·전체전환율/잔여시간 미산정이며 사용자 문서·보호 경계를 유지합니다.
+현재 상태: d6c3d의 colspan2/rowspan2 표3열→2열 실패와 실제 wheel 뒤 오류 문구 누락을 재현했습니다. optional TableLayout/셀 좌표·두 span/행 그룹·caption/thead/tfoot/정렬/현재 geometry·병합 perimeter와 caption 이미지/링크, 새 오류의 미리보기 scroll1회 초기화를 연결했습니다. parser10/상태3/예산1/UI25/App3/cache4/LSP8의 서로 다른54통과·소유15Rust fmt/diff·frozen host tests/inspection check27.77초/Wasm canvas lib check13.60초·exit0입니다. 기존 LSP는 metadata None이며 생성 계약/표시를 보존합니다. 전체 CSS/행·열 스타일/임의 블록 cell/접근성 표 의미·list type/범위 밖 번호·SVG/MathML/media/details/anchor/CLI 소유 경계 대조/물리 OS 및 전체 게이트는 미완료입니다. editor-72 partial·기능 체크리스트302/588(51.4%)·미완료286·부분90/미연결110/미구현86·배치23 잔여19/최종33·전체전환율/잔여시간 미산정이며 사용자 문서·보호 경계를 유지합니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 
@@ -135,12 +135,13 @@
 - [x] d6c3a. 표 공유 경계/부호 시작 — 실제 같은 행의 cell bottom48/88 실패와 ol 음수 start→1 실패를 재현했습니다. 배치 뒤 행/열 경계 정규화·공유 edge1회와 signed start/정수 prefix/기본값·두 UI의 overflow-safe 공통 ordinal을 연결하고 UI18/parser5/실제 App1/Core7/LSP parser8의 서로 다른39건과 portable2의41건·frozen host/Wasm compile을 확인했습니다. 공통 타입과 native-host helper 경계는 동결 host tests 포함/Wasm canvas lib compile을 통과했으며 표 모든 data/viewport/이미지/span·HTML reversed/value/type 및 부모 범위는 미완료입니다.
 - [x] d6c3b. 역순/항목별 목록 번호 — 원본 DOMPurify attrs/WHATWG와 대조하고 역순 시작3→1 실패를 재현했습니다. 기존 i64 번호 범위의 optional 항목 ordinal·start/방향/value 후속 번호·중첩/hidden/비순서와 두 UI 소비를 연결했고 parser7/UI19/실제App1/LSP8의35통과·frozen host tests/inspection 및 Wasm canvas lib compile·소유9Rust fmt/diff를 확인했습니다. 기존 LSP는 None으로 같은 start/index를 유지하며 list type/CSS ownership/범위 밖 번호/전체 HTML·표/OS·게이트는 남깁니다.
 - [x] d6c3c. 표의 최초/변경 프레임 — 두 열 경계4/3·x44.84375/45.1875와 넓은 화면18/1줄 실패를 재현해 현재 입력의 최소/자연 너비·너비/높이 측정·배정된 cursor 셀 경계와 고정 상태/위젯 ID를 연결했습니다. 이미지 준비/높이·링크/캐시 크기·첫/내용/행 수/viewport·긴 단어/한중일·기존 도움말과 실제 PNG 표 셀/원문/입력/undo/닫힘이 preview10/hover13/cache4/App1의28통과·소유8Rust fmt/diff·frozen host/Wasm compile입니다. cache key만 교체/rect의 EPS 강제/closure 작성 오류는 QA에 구분하며 셀 병합·전체 HTML/OS·게이트는 남깁니다.
+- [x] d6c3d. 표 셀 병합/그룹/제목 — 3열→2열 실패를 재현해 optional metadata의 셀 위치/두 span·0/무효/상한/큰 정수·그룹/암시된 행·caption/thead/tfoot/정렬/예산·병합 geometry/perimeter와 제목 이미지/링크를 연결했습니다. wheel 뒤 오류 문구 누락은 새 오류에서 preview scroll만1회 초기화해 수정했습니다. parser10/상태3/예산1/UI25/App3/cache4/LSP8의54통과·소유15Rust fmt/diff·frozen host/Wasm compile이며 기존 LSP None/입력·독립 뷰/원문/작업0을 보존합니다. 전체 CSS/행·열 스타일/임의 블록 cell/접근성 표 의미·추가 HTML/OS·게이트는 남깁니다.
 - [ ] e. AI·Emmet — editor-77/78/80의 인라인 완성/편집과 Emmet을 원본 명령·표시·수락/거절/취소/오래된 응답에 맞게 연결합니다. 실제 키/개인 데이터 대신 주입 포트·임시 데이터로 검증합니다.
 - [ ] f. 실제 앱·전체 게이트 — 닫을 기능의 실제 앱/child/mirror·readonly/tier/다중 커서/IME·정상 종료/회귀를 확인하고 변경 크레이트 전체 대상을 --no-fail-fast로 직접 1회 실행합니다. 성공 결과는 재사용하고 실패 영향만 재검사합니다. frozen host/Wasm compile·fmt/diff·manifest/lock/engine/보호 경계·디스크와 배치 31 실기/성능/신뢰성 부채를 구분합니다.
 - [x] f1. 프로젝트 열기 지연 위치 조사·배치 31 이관 — 전체 App 811통과/프로젝트 open 5초 초과 1실패와 Cargo 단독 동일 실패를 보존했습니다. 같은 실행 파일의 직접 검사는 저장소/크레이트 cwd에서 3.81/3.23초에 통과했습니다. 성공한 두 번째 검사 중 start_watch→notify runloop 준비 대기와 FSEventStreamStart→등록 RPC의 실제 스택을 확인했습니다. 실패 시점의 스택이나 지연 변동의 근본 원인은 확인하지 않았으며 해결/전체 exit 0으로 보고하지 않습니다. 제한 확대·검사 생략·OS 변경 없이 반복 조사를 종료하고 배치 31의 실행 환경/신뢰성 게이트에 미해결 위험을 유지합니다.
 - [ ] g. 완료 근거·선별 Git — 실제 닫힌 ID만 QA/기능표/PROCESS에 반영하고 논리 단위 선별 커밋·일반 푸시합니다. 배치 24를 기존 계획 안에서 이어가며 배치 번호를 세부 수정마다 늘리지 않습니다.
 
-다음 행동: d6c3의 셀 병합·caption/thead/tfoot/열 스타일과 list type/전체 HTML 표시의 나머지 의미를 구현·검증합니다. editor-72 partial·전체 HTML/게이트와 최종 배치33을 유지합니다.
+다음 행동: d6c3의 행·열 스타일/임의 블록 cell와 list type/전체 HTML 표시의 나머지 의미를 구현·검증합니다. editor-72 partial·전체 HTML/접근성·OS·게이트와 최종 배치33을 유지합니다.
 
 ## 완료: 배치 22 — 자동완성과 사용자 스니펫 소비 (2026-10-10)
 

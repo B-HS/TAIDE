@@ -119,3 +119,21 @@ Provider의 기본 image_size는 None이고 실제 Markdown은 기존 Cache의 �
 table-app.log는 소유 임시 PNG를 실제 HTML 표 셀과 본문에 함께 표시한 App1통과·34.06초·exit0(컴파일53.63초)입니다. 미리보기 geometry와 실제 이미지 response 두 개·폭/비율, 기존 theme/font·signed/reversed/value 번호·HTML·최신 입력/Paste/undo/오류 복구/문서 전환/승인 revision 닫힘/원문/task0을 확인했습니다. cfg(test)의 image rect 기록도 보이는 실제 표시만 포함해 측정을 관찰 결과에 섞지 않습니다. 현재 preview10/일반 도움말13/cache4/App1의 서로 다른28통과·소유8Rust fmt/diff입니다.
 
 공개 Hash/Provider 기본 method 경계의 table-frozen-host.log는 tests/inspection 포함 check27.54초·exit0, table-frozen-wasm.log의 실제 Wasm canvas lib는13.65초·exit0입니다. 새 의존성/manifest/lock/frozen source·실제 사용자 설정/OS/클립보드/보호 M8 앱을 변경하지 않았으며 사용자 문서/PROCESS 하단 두 hunk를 보존합니다. 셀 병합·caption/thead/tfoot/열 스타일/전체 CSS·list type·SVG/MathML/media/details/anchor·CLI 이미지의 별도 소유 경계 대조와 실제 OS/전체App 준비/접근성/성능/신뢰성/출시·전환·제거는 미완료입니다. editor-72 partial·302/588(51.4%)·미완료286·배치23 잔여19/최종33·전체 목표/예상 시간 미산정을 유지합니다.
+
+## 표 셀 병합·행 그룹·제목과 오류 위치 (2026-10-13)
+
+이전 골 턴은 표의 변경 배치/자동 너비를22798293/5c21f4ac로 구현·검증·일반 푸시한 progress입니다. 전체 목표/workflow·서브에이전트 사용하지 않음을 유지합니다. [WHATWG 표 모델](https://html.spec.whatwg.org/multipage/tables.html#processing-model)과 [셀 속성](https://html.spec.whatwg.org/multipage/tables.html#attributes-common-to-td-and-th-elements), 원본 sanitized HTML과 기존 rich document 소비자를 대조했습니다. span-red.log는 colspan2/rowspan2 표의 실제3열을2열로 처리하는 실패0/1·0.03초·exit101(컴파일16.46초)입니다.
+
+Block.Table의 optional TableLayout과 TableCell은 실제 시작 열·두 병합 범위·셀 정렬·caption/행·열 수를 보존합니다. 기존 LSP 파서는 None을 유지하고 기존 header/rows와 동일 표시 계약을 사용합니다. HTML은 머리/본문/꼬리 그룹, rowspan0의 남은 그룹·양수 span의 암시된 행과 다음 그룹 분리, colspan0/무효값/양수 prefix와1000/65534 상한·큰 정수 clamp를 처리합니다. 표 메타데이터/track 표현 예산과 checked 크기 연산의 오류는 전체 blocks/ListItem 재귀 경계에서 기존 localized preview 오류로 전달하며 부분 출력/panic으로 대체하지 않습니다.
+
+editor-markdown-table.rs는 실제 DOM의 셀 위치를 계산하고 editor-markup-table.rs는 현재 내용의 최소/자연 너비를 공유해 병합 열의 너비·행 높이를 배분합니다. 병합 셀을 한 번 표시하고 공유 경계 구간을 합쳐 내부 가짜 경계/중복 stroke를 없앱니다. span65534의 모든 빈 슬롯마다 선을 그리는 방식 대신 실제 셀 perimeter만 처리합니다. 기본 th/명시 align과 셀 수직 가운데·caption 가운데/여백을 연결합니다. geometry Arc는 소유 표 ID별 하나를 교체하며 입력·scale/폰트·이미지 준비/표시 크기 변경에 따라 갱신합니다. 렌더링/측정 ID를 구분하고 실제 표시 링크 ID는 유지합니다.
+
+span-parser-initial.log는 기존/새 기본 파서8통과·0.03초·exit0(컴파일45.95초)입니다. 이후 group/제목/정렬·rowspan0/상한/암시된 행·다음 그룹/예산 overflow 사례를 추가한 span-parser-final.log는 parser10/상태3/표 예산1의14통과·0.05초·exit0(컴파일24.62초)입니다. UI 기존 생성자의6개를8개로 잘못 단언한 보조 스크립트와 포맷 이후 patch context 불일치는 파일 확인 후 수정했고 검사 통과로 집계하지 않습니다.
+
+span-geometry.log는 최초/좁힘/넓힘·colspan/rowspan의7개 실제 perimeter, 없는 내부 경계·한 번만 있는 공유 경계·제목/수평 정렬/수직 가운데·셀 안의 실제 galley와 변경 뒤 같은 상태 개수1통과·0.01초·exit0(컴파일9.85초)입니다. span-ui-final.log는 preview12/일반 도움말13의25통과·0.15/0.20초·exit0(컴파일5.34초)입니다. caption만 있는 빈 표와 실제 pointer 링크, 기존 제목/코드/표/목록/링크·IME/focus/readonly/mirror/provider/이미지 소비를 확인합니다. 기존 이미지 준비/높이/링크/캐시 검사에 metadata와 legacy 양쪽 입력을 추가한 span-image-ui.log1통과·0.03초·exit0의 최신 성공을 사용하고 중복 합산하지 않습니다.
+
+span-app.log는 실제 PNG 병합 표·caption/thead/tfoot 표시와 wheel 뒤 오류 문구가 첫 프레임에 보이지 않는 제품 실패0/1·33.59초·exit101(컴파일14.02초)입니다. 새 오류가 표시될 때 미리보기 scroll만1회0으로 초기화하고 이후 스크롤/본문/독립 뷰는 유지합니다. 같은 앱의 source 수정/undo/오류 복구·원문/PNG·실제 미리보기 제목/머리/꼬리·승인 revision 닫힘·작업0과 readonly/두 뷰 회귀를 span-app-fixed.log의3통과·49.33초·exit0(컴파일24.01초)으로 확인했습니다. 본문 대신 문자열을 검사하지 않고 오른쪽 preview의 실제 galley label을 확인합니다.
+
+span-cache.log는 caption만 참조하는 소유 PNG의 동일 승인 texture 유지와 기존 실제 픽셀/root/중복/회수·HTTP/취소·data/SVG/애니메이션/용량의4통과·0.21초·exit0입니다. caption의 이미지 수집/자동 링크도 기존 보안 경계를 사용합니다. span-lsp.log는 기존 plain/code/GFM/목록/표/안전한 링크/이미지/비신뢰 HTML 제외의8통과·0.00초·exit0입니다. 현재 parser10/상태3/예산1/UI25/App3/cache4/LSP8의 서로 다른54통과·소유15Rust fmt/diff입니다. 작성 오류/앞선 성공/입력이 같은 반복 결과는 추가 합산하지 않습니다.
+
+공통 모델의 span-frozen-host.log는 tests/inspection 포함 check27.77초·exit0, span-frozen-wasm.log의 실제 Wasm canvas lib는13.60초·exit0입니다. 의존성/manifest/lock/frozen source·실제 사용자 설정/OS/클립보드/보호 M8 앱과 사용자 문서/PROCESS 하단 두 hunk를 보존합니다. 전체 CSS/열·행 스타일/임의 블록 cell 내용·접근성 표 의미·list type/추가 HTML/SVG/MathML/media/details/anchor·CLI 소유 경계·실기/성능/전체App 준비/신뢰성/출시/전환/제거는 남습니다. editor-72 partial·302/588(51.4%)·미완료286·배치23 잔여19/최종33·전체 목표/잔여시간 미산정을 유지합니다.

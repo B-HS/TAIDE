@@ -173,6 +173,7 @@ fn 인용과_표는_원본_테두리를_사용하고_긴_코드는_줄바꿈하�
         blocks: vec![
             Block::Quote(vec![Block::Paragraph(text("quote"))]),
             Block::Table {
+                layout: None,
                 columns: vec![],
                 header: vec![text("header")],
                 rows: vec![vec![text("value")]],
@@ -310,6 +311,7 @@ fn 표의_서로_다른_본문_폭과_높이에서도_모든_셀_경계는_같�
     let context = Context::default();
     let document = RichDocument {
         blocks: vec![Block::Table {
+            layout: None,
             columns: vec![],
             header: vec![text("short"), text("header-two")],
             rows: vec![
@@ -390,6 +392,7 @@ fn 표의_내용과_viewport_변경은_첫_프레임부터_본문과_경계를_�
     ] {
         let document = RichDocument {
             blocks: vec![Block::Table {
+                layout: None,
                 columns: vec![],
                 header: labels[0].iter().map(|label| text(label)).collect(),
                 rows: labels
@@ -480,94 +483,148 @@ fn 표의_이미지_준비와_높이_변경은_경계와_링크_id_캐시_크기
             Some(response)
         }
     }
-    let context = Context::default();
-    let document = RichDocument {
-        blocks: vec![Block::Table {
-            columns: vec![],
-            header: vec![text("label"), text("picture")],
-            rows: vec![vec![
-                text("content"),
-                vec![Inline::Image {
-                    source: "synthetic-image".into(),
-                    title: String::new(),
-                    alt: "waiting image".into(),
-                    link: Some(taide_native_editor::documentation::Link {
-                        target: TARGET.into(),
+    for is_html in [false, true] {
+        let context = Context::default();
+        let mut document = RichDocument {
+            blocks: vec![Block::Table {
+                layout: None,
+                columns: vec![],
+                header: vec![text("label"), text("picture")],
+                rows: vec![vec![
+                    text("content"),
+                    vec![Inline::Image {
+                        source: "synthetic-image".into(),
                         title: String::new(),
-                    }),
-                    dimensions: Default::default(),
-                }],
-            ]],
-        }],
-    };
-    let mut provider = Images {
-        size: None,
-        rects: Vec::new(),
-        opened: Vec::new(),
-    };
-    let paint = |provider: &mut Images, events| {
-        provider.rects.clear();
-        let mut output = context.run_ui(
-            RawInput {
-                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, SCREEN)),
-                events,
-                ..Default::default()
-            },
-            |ui| show_preview(ui, &document, &appearance(), colors(), provider),
-        );
-        output.textures_delta.clear();
-        output
-    };
-    let mut heights = Vec::new();
-    let mut memory = None;
-    for (index, size) in [
-        None,
-        Some(INITIAL_SIZE),
-        Some(TALL_SIZE),
-        Some(INITIAL_SIZE),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        provider.size = size;
-        let output = paint(&mut provider, Vec::new());
-        let (columns, rows) = table_bounds(&table_edges(&output), 2, 2);
-        heights.push(rows.last().unwrap() - rows[1]);
-        if let Some(size) = size {
-            assert_eq!(provider.rects.len(), 1);
-            let rect = provider.rects[0];
-            assert!(
-                (rect.width() - rect.height() * size.x / size.y).abs() <= TOLERANCE,
-                "image rect={rect:?}; requested={size:?}"
-            );
-            assert!(rect.left() + TOLERANCE >= columns[1]);
-            assert!(rect.right() <= columns.last().unwrap() + TOLERANCE);
-            assert!(rect.top() + TOLERANCE >= rows[1]);
-            assert!(rect.bottom() <= rows.last().unwrap() + TOLERANCE);
+                        alt: "waiting image".into(),
+                        link: Some(taide_native_editor::documentation::Link {
+                            target: TARGET.into(),
+                            title: String::new(),
+                        }),
+                        dimensions: Default::default(),
+                    }],
+                ]],
+            }],
+        };
+        if is_html {
+            let Block::Table {
+                header,
+                rows,
+                layout,
+                ..
+            } = &mut document.blocks[0]
+            else {
+                panic!("expected table")
+            };
+            rows.insert(0, std::mem::take(header));
+            *layout = Some(taide_native_editor::documentation::TableLayout {
+                caption: Vec::new(),
+                column_count: rows[0].len(),
+                row_count: rows.len(),
+                cells: rows
+                    .iter()
+                    .map(|row| {
+                        row.iter()
+                            .enumerate()
+                            .map(
+                                |(column, _)| taide_native_editor::documentation::TableCell {
+                                    column,
+                                    column_span: 1,
+                                    row_span: 1,
+                                    alignment:
+                                        taide_native_editor::documentation::Alignment::Default,
+                                },
+                            )
+                            .collect()
+                    })
+                    .collect(),
+            });
         }
-        if index == 1 {
-            memory = Some(context.data(|data| data.len()))
-        }
-    }
-    assert!(heights[TALL_INDEX] > heights[1]);
-    assert_eq!(heights.last().unwrap(), &heights[1]);
-    assert_eq!(memory.unwrap(), context.data(|data| data.len()));
-    let position = provider.rects[0].center();
-    for pressed in [true, false] {
-        paint(
-            &mut provider,
-            vec![
-                egui::Event::PointerMoved(position),
-                egui::Event::PointerButton {
-                    pos: position,
-                    button: egui::PointerButton::Primary,
-                    pressed,
-                    modifiers: egui::Modifiers::NONE,
+        let mut provider = Images {
+            size: None,
+            rects: Vec::new(),
+            opened: Vec::new(),
+        };
+        let paint = |provider: &mut Images, events| {
+            provider.rects.clear();
+            let mut output = context.run_ui(
+                RawInput {
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, SCREEN)),
+                    events,
+                    ..Default::default()
                 },
-            ],
-        );
+                |ui| show_preview(ui, &document, &appearance(), colors(), provider),
+            );
+            output.textures_delta.clear();
+            output
+        };
+        let mut heights = Vec::new();
+        let mut memory = None;
+        for (index, size) in [
+            None,
+            Some(INITIAL_SIZE),
+            Some(TALL_SIZE),
+            Some(INITIAL_SIZE),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            provider.size = size;
+            let output = paint(&mut provider, Vec::new());
+            let edges = table_edges(&output);
+            let (columns, rows) = if is_html {
+                let mut columns = edges
+                    .iter()
+                    .filter_map(|points| (points[0].x == points[1].x).then_some(points[0].x))
+                    .collect::<Vec<_>>();
+                let mut rows = edges
+                    .iter()
+                    .filter_map(|points| (points[0].y == points[1].y).then_some(points[0].y))
+                    .collect::<Vec<_>>();
+                columns.sort_by(f32::total_cmp);
+                columns.dedup();
+                rows.sort_by(f32::total_cmp);
+                rows.dedup();
+                (columns, rows)
+            } else {
+                table_bounds(&edges, 2, 2)
+            };
+            heights.push(rows.last().unwrap() - rows[1]);
+            if let Some(size) = size {
+                assert_eq!(provider.rects.len(), 1);
+                let rect = provider.rects[0];
+                assert!(
+                    (rect.width() - rect.height() * size.x / size.y).abs() <= TOLERANCE,
+                    "image rect={rect:?}; requested={size:?}"
+                );
+                assert!(rect.left() + TOLERANCE >= columns[1]);
+                assert!(rect.right() <= columns.last().unwrap() + TOLERANCE);
+                assert!(rect.top() + TOLERANCE >= rows[1]);
+                assert!(rect.bottom() <= rows.last().unwrap() + TOLERANCE);
+            }
+            if index == 1 {
+                memory = Some(context.data(|data| data.len()))
+            }
+        }
+        assert!(heights[TALL_INDEX] > heights[1]);
+        assert_eq!(heights.last().unwrap(), &heights[1]);
+        assert_eq!(memory.unwrap(), context.data(|data| data.len()));
+        let position = provider.rects[0].center();
+        for pressed in [true, false] {
+            paint(
+                &mut provider,
+                vec![
+                    egui::Event::PointerMoved(position),
+                    egui::Event::PointerButton {
+                        pos: position,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+        assert_eq!(provider.opened, [TARGET]);
     }
-    assert_eq!(provider.opened, [TARGET]);
 }
 
 #[test]
@@ -578,6 +635,7 @@ fn 표는_내용의_자연_너비를_쓰고_공간이_부족할_때만_단어를
     let context = Context::default();
     let document = RichDocument {
         blocks: vec![Block::Table {
+            layout: None,
             columns: vec![],
             header: vec![text("body"), text("state")],
             rows: vec![vec![text(BODY), text("ready")]],
@@ -626,6 +684,7 @@ fn 표의_최소_너비는_공백없는_단어를_보존하고_한중일_문장�
         let context = Context::default();
         let document = RichDocument {
             blocks: vec![Block::Table {
+                layout: None,
                 columns: vec![],
                 header: vec![text("body"), text("state")],
                 rows: vec![vec![text(&body), text("ready")]],
@@ -656,6 +715,231 @@ fn 표의_최소_너비는_공백없는_단어를_보존하고_한중일_문장�
             assert!(edges.iter().any(|points| points[0].x > NARROW_WIDTH));
         }
     }
+}
+
+#[test]
+fn 병합_셀의_내부_경계는_없고_제목과_본문은_병합_영역에_배치된다() {
+    use taide_native_editor::documentation::{Alignment, TableCell, TableLayout};
+    const COLUMN_COUNT: usize = 3;
+    const ROW_COUNT: usize = 2;
+    const MERGED_SPAN: usize = 2;
+    const EDGE_COUNT: usize = 7;
+    const TOLERANCE: f32 = 1.0;
+    const NARROW_WIDTH: f32 = 180.0;
+    const WIDE_WIDTH: f32 = 600.0;
+    const CENTER_FRACTION: f32 = 0.5;
+    let context = Context::default();
+    let document = RichDocument {
+        blocks: vec![Block::Table {
+            columns: vec![],
+            header: vec![],
+            rows: vec![
+                vec![text("wide"), text("tall")],
+                vec![text("first"), text("second")],
+            ],
+            layout: Some(TableLayout {
+                caption: text("table caption"),
+                column_count: COLUMN_COUNT,
+                row_count: ROW_COUNT,
+                cells: vec![
+                    vec![
+                        TableCell {
+                            column: 0,
+                            column_span: MERGED_SPAN,
+                            row_span: 1,
+                            alignment: Alignment::Center,
+                        },
+                        TableCell {
+                            column: MERGED_SPAN,
+                            column_span: 1,
+                            row_span: MERGED_SPAN,
+                            alignment: Alignment::Default,
+                        },
+                    ],
+                    vec![
+                        TableCell {
+                            column: 0,
+                            column_span: 1,
+                            row_span: 1,
+                            alignment: Alignment::Default,
+                        },
+                        TableCell {
+                            column: 1,
+                            column_span: 1,
+                            row_span: 1,
+                            alignment: Alignment::Default,
+                        },
+                    ],
+                ],
+            }),
+        }],
+    };
+    let mut memory = None;
+    for width in [SCREEN.x, NARROW_WIDTH, WIDE_WIDTH, SCREEN.x] {
+        let mut output = context.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(width, SCREEN.y),
+                )),
+                ..Default::default()
+            },
+            |ui| show_preview(ui, &document, &appearance(), colors(), &mut Preview),
+        );
+        output.textures_delta.clear();
+        let edges = table_edges(&output);
+        assert_eq!(edges.len(), EDGE_COUNT, "edges={edges:?}");
+        let mut columns = edges
+            .iter()
+            .filter_map(|points| (points[0].x == points[1].x).then_some(points[0].x))
+            .collect::<Vec<_>>();
+        let mut rows = edges
+            .iter()
+            .filter_map(|points| (points[0].y == points[1].y).then_some(points[0].y))
+            .collect::<Vec<_>>();
+        columns.sort_by(f32::total_cmp);
+        columns.dedup();
+        rows.sort_by(f32::total_cmp);
+        rows.dedup();
+        assert_eq!(columns.len(), COLUMN_COUNT + 1);
+        assert_eq!(rows.len(), ROW_COUNT + 1);
+        for points in [
+            [
+                egui::pos2(columns[0], rows[0]),
+                egui::pos2(columns[COLUMN_COUNT], rows[0]),
+            ],
+            [
+                egui::pos2(columns[0], rows[1]),
+                egui::pos2(columns[MERGED_SPAN], rows[1]),
+            ],
+            [
+                egui::pos2(columns[0], rows[ROW_COUNT]),
+                egui::pos2(columns[COLUMN_COUNT], rows[ROW_COUNT]),
+            ],
+            [
+                egui::pos2(columns[1], rows[1]),
+                egui::pos2(columns[1], rows[ROW_COUNT]),
+            ],
+        ] {
+            assert_eq!(edges.iter().filter(|edge| **edge == points).count(), 1)
+        }
+        let bounds = |label: &str| {
+            output
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) if text.galley.job.text == label => {
+                        Some(Rect::from_min_size(text.pos, text.galley.size()))
+                    }
+                    _ => None,
+                })
+                .unwrap()
+        };
+        let caption = bounds("table caption");
+        assert!(caption.bottom() <= rows[0] + TOLERANCE);
+        assert!(
+            (caption.center().x - (columns[0] + columns[COLUMN_COUNT]) * CENTER_FRACTION).abs()
+                <= TOLERANCE
+        );
+        let wide = bounds("wide");
+        assert!(
+            (wide.center().x - (columns[0] + columns[MERGED_SPAN]) * CENTER_FRACTION).abs()
+                <= TOLERANCE
+        );
+        let tall = bounds("tall");
+        assert!(
+            (tall.center().y - (rows[0] + rows[ROW_COUNT]) * CENTER_FRACTION).abs() <= TOLERANCE
+        );
+        for (label, column) in [("first", 0), ("second", 1)] {
+            let rect = bounds(label);
+            assert!(
+                rect.left() + TOLERANCE >= columns[column]
+                    && rect.right() <= columns[column + 1] + TOLERANCE
+            );
+            assert!(
+                rect.top() + TOLERANCE >= rows[1] && rect.bottom() <= rows[ROW_COUNT] + TOLERANCE
+            );
+        }
+        let count = context.data(|data| data.len());
+        if let Some(memory) = memory {
+            assert_eq!(count, memory)
+        }
+        memory = Some(count);
+    }
+}
+
+#[test]
+fn 셀이_없는_표의_제목도_표시하고_링크_id를_유지한다() {
+    const TARGET: &str = "https://example.com/caption";
+    const CAPTION: &str = "caption without cells";
+    struct Links(Vec<String>);
+    impl Provider for Links {
+        fn open_link(&mut self, _: &Ui, target: &str) -> bool {
+            self.0.push(target.into());
+            true
+        }
+    }
+    let context = Context::default();
+    let document = RichDocument {
+        blocks: vec![Block::Table {
+            columns: vec![],
+            header: vec![],
+            rows: vec![],
+            layout: Some(taide_native_editor::documentation::TableLayout {
+                caption: vec![Inline::Text(Span {
+                    text: CAPTION.into(),
+                    link: Some(taide_native_editor::documentation::Link {
+                        target: TARGET.into(),
+                        title: String::new(),
+                    }),
+                    ..Default::default()
+                })],
+                cells: vec![],
+                column_count: 0,
+                row_count: 0,
+            }),
+        }],
+    };
+    let mut links = Links(Vec::new());
+    let paint = |links: &mut Links, events| {
+        let mut output = context.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, SCREEN)),
+                events,
+                ..Default::default()
+            },
+            |ui| show_preview(ui, &document, &appearance(), colors(), links),
+        );
+        output.textures_delta.clear();
+        output
+    };
+    let output = paint(&mut links, Vec::new());
+    let position = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.job.text == CAPTION => {
+                Some(Rect::from_min_size(text.pos, text.galley.size()).center())
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert!(table_edges(&output).is_empty());
+    for pressed in [true, false] {
+        paint(
+            &mut links,
+            vec![
+                egui::Event::PointerMoved(position),
+                egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+    }
+    assert_eq!(links.0, [TARGET]);
 }
 
 #[test]

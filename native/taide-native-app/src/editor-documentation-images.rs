@@ -299,7 +299,15 @@ fn collect<'a>(blocks: &'a [Block], sources: &mut HashSet<&'a str>) {
                     collect(&item.blocks, sources);
                 }
             }
-            Block::Table { header, rows, .. } => {
+            Block::Table {
+                header,
+                rows,
+                layout,
+                ..
+            } => {
+                if let Some(layout) = layout {
+                    collect_inline(&layout.caption, sources)
+                }
                 for row in std::iter::once(header).chain(rows) {
                     for cell in row {
                         collect_inline(cell, sources);

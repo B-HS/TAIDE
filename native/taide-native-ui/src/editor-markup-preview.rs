@@ -6,6 +6,9 @@ use taide_native_editor::documentation::{Alignment, Block, Inline, RichDocument}
 use super::{Colors, Provider, inlines};
 use crate::editor_surface::EditorAppearance;
 
+#[path = "editor-markup-table.rs"]
+mod table;
+
 const FONT_SIZE: f32 = 14.0;
 const LINE_HEIGHT: f32 = 20.0;
 const PARAGRAPH_LINE_HEIGHT: f32 = FONT_SIZE * 1.625;
@@ -63,6 +66,52 @@ fn text_widths(ui: &Ui, job: egui::text::LayoutJob) -> (f32, f32) {
     (minimum, galley.size().x)
 }
 
+fn cell_widths(
+    ui: &Ui,
+    cell: &[Inline],
+    appearance: &EditorAppearance,
+    provider: &(impl Provider + ?Sized),
+    bold: bool,
+) -> (f32, f32) {
+    let padding = f32::from(CELL_PADDING.left) + f32::from(CELL_PADDING.right);
+    let code_padding = f32::from(INLINE_CODE_PADDING.left) + f32::from(INLINE_CODE_PADDING.right);
+    let (job, _) = super::inline_job(ui, cell, appearance, FONT_SIZE, bold);
+    let (mut min, mut max) = text_widths(ui, job);
+    for inline in cell {
+        match inline {
+            Inline::Image {
+                source,
+                alt,
+                dimensions,
+                ..
+            } => {
+                let (image_min, image_max) = provider
+                    .image_size(source, *dimensions)
+                    .map(|size| (size.x, size.x))
+                    .unwrap_or_else(|| {
+                        text_widths(
+                            ui,
+                            egui::text::LayoutJob::simple(
+                                alt.clone(),
+                                egui::FontId::proportional(FONT_SIZE),
+                                ui.visuals().text_color(),
+                                f32::INFINITY,
+                            ),
+                        )
+                    });
+                min = min.max(image_min);
+                max += image_max;
+            }
+            Inline::Text(span) if span.style.code => {
+                min += code_padding;
+                max += code_padding;
+            }
+            _ => {}
+        }
+    }
+    (min + padding, max + padding)
+}
+
 fn table_widths(
     ui: &Ui,
     header: &[Vec<Inline>],
@@ -77,55 +126,20 @@ fn table_widths(
         .unwrap_or_default();
     let mut minimum = vec![0.0f32; count];
     let mut preferred = minimum.clone();
-    let padding = f32::from(CELL_PADDING.left) + f32::from(CELL_PADDING.right);
-    let code_padding = f32::from(INLINE_CODE_PADDING.left) + f32::from(INLINE_CODE_PADDING.right);
     for (row_index, row) in std::iter::once(header)
         .chain(rows.iter().map(Vec::as_slice))
         .enumerate()
     {
         for (column, cell) in row.iter().enumerate() {
-            let (job, _) = super::inline_job(
+            let (min, max) = cell_widths(
                 ui,
                 cell,
                 appearance,
-                FONT_SIZE,
+                provider,
                 !header.is_empty() && row_index == 0,
             );
-            let (mut min, mut max) = text_widths(ui, job);
-            for inline in cell {
-                match inline {
-                    Inline::Image {
-                        source,
-                        alt,
-                        dimensions,
-                        ..
-                    } => {
-                        let (image_min, image_max) = provider
-                            .image_size(source, *dimensions)
-                            .map(|size| (size.x, size.x))
-                            .unwrap_or_else(|| {
-                                text_widths(
-                                    ui,
-                                    egui::text::LayoutJob::simple(
-                                        alt.clone(),
-                                        egui::FontId::proportional(FONT_SIZE),
-                                        ui.visuals().text_color(),
-                                        f32::INFINITY,
-                                    ),
-                                )
-                            });
-                        min = min.max(image_min);
-                        max += image_max;
-                    }
-                    Inline::Text(span) if span.style.code => {
-                        min += code_padding;
-                        max += code_padding;
-                    }
-                    _ => {}
-                }
-            }
-            minimum[column] = minimum[column].max(min + padding);
-            preferred[column] = preferred[column].max(max + padding);
+            minimum[column] = minimum[column].max(min);
+            preferred[column] = preferred[column].max(max);
         }
     }
     let min = minimum.iter().sum::<f32>();
@@ -378,7 +392,12 @@ fn blocks(
                 columns,
                 header,
                 rows,
+                layout,
             } => {
+                if let Some(layout) = layout {
+                    table::show(ui, rows, layout, appearance, colors, provider);
+                    return;
+                }
                 ui.scope(|ui| {
                     ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
                     let image_sizes = std::iter::once(header).chain(rows).flatten().flatten().filter_map(|inline| {
