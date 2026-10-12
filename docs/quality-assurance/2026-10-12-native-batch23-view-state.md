@@ -159,3 +159,5 @@ UI의 최신 Store를 요청하는 oneshot 경계를 App 포트가 공유하고 
 `view-state-preview-reopen-green.log`의 같은 실제 App은 1통과/0실패·20.46초·exit0(컴파일29.88초)입니다. 새 TabId와 같은 DocumentId, 마지막 역방향 선택과 실제 scroll, 원문/revision/dirty/디스크 보존을 확인했습니다. 캐시 수명/우선순위와 기존 App/상태/sync 회귀는 현재 관련 검사에서 확인 중입니다. project/slot/aux·batch/IDE/remote와 folding/전체 재시작, editor-67 전체 완료는 아직 남습니다.
 
 `view-state-preview-related.log`는 실제 App8/상태6/sync2의 서로 다른16통과/0실패·26.39초·exit0(컴파일19.07초)입니다. 새 재열기와 분리된 뷰/창·pane 격리·정상 저장값 우선/잘못된 값 fallback·같은 revision/명시 disposal, 기존 초기/전환/닫힘/정상·직접 종료·UTF-16/readonly/명시 이동·공유 요청 수명을 확인했습니다. 앞선 단독 성공이나 기존14건은 중복 합산하지 않습니다. `view-state-preview-exit.log`는 소유 loopback 허용의 기존 종료2건·0.06초·exit0입니다. 변경 없는Host9/controller3/Core306/UI88을 재사용한 서로 다른424건입니다. 소유4Rust fmt/diff가 통과했고 manifest/lock/renderer/Core/engine/frozen은 변경하지 않았습니다. 전체 diff의 사용자 architecture 말미 공백 경고는 기존 변경으로 보존하고 소유 경로 diff는 통과했습니다. 전체App/실기/재시작·외부 포트/종료·folding과 editor-67 전체 완료로 확대하지 않습니다.
+
+preview 재열기 코드/검사·QA/소유 PROCESS의6경로는 `b05c1c2d`로 선별 커밋했습니다. 기능표는599행/393근거 경로·588대상·complete298/partial93/unwired110/missing87·미완료290이며 editor-67 partial·배치23 잔여23/최종33을 유지합니다. 다음은 IDE/remote와 project/slot/aux 종료의 동일한 선행 캡처/소유 수명입니다.
