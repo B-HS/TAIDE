@@ -113,3 +113,9 @@ c9c2b에서 실제 readonly/tier/lossy 항목·복사와 본문/peek 팔레트·
 구현 056ad927에서 실제 최근 닫힘의 위치 None을 재현하고 App 포트의 oneshot/Arc 캡처를 Host typed CloseTab 전에 적용했습니다. UI poll 뒤 최신 Store를 전달하고 종료 최종 캡처/실패 뒤 live 재개를 연결했습니다. 실제 최근 닫힘/재열기의 선택/scroll·본문/디스크, headless/동시 요청/취소/최종 오류와 기존 App/상태 13·전체 Host 9·종료 2건이 통과했습니다. 변경 없는 Core 306/UI 88을 재사용한 서로 다른 418건이며 기존 성공은 중복 합산하지 않습니다.
 
 현재 599행/393근거 경로·588대상·complete298/partial93/unwired110/missing87·미완료290·기능 체크리스트50.7%·배치23 잔여23/최종33을 유지합니다. editor-67 partial이며 셸/IDE/remote·나머지 Host/project/slot/aux·새 파일/preview·folding contribution/전체 App 재시작과 전체 통합/실기/출시는 남습니다. 다음은 d3b2b의 다른 소비자 선행 저장이며 전체 전환율/잔여 시간은 미산정입니다.
+
+## 셸 전환과 Host 파일 열기의 선행 저장 (2026-10-12)
+
+구현1874334e에서 실제 셸 ActivateTab과 Host 새 preview 파일 열기의 이전 view_state None을 재현해 선행 저장을 연결했습니다. optional async controller 포트는 AppState/EventSink·std Future 계약으로 mutation guard 전에 캡처를 적용하고 실패 시 기존 errors로 반환합니다. Host 파일/팔레트/옆 열기/새 untitled도 typed 결과 안에서 같은 캡처를 적용합니다. App14/Host9/종료2·controller3과 변경 없는Core306/UI본문·geometry88의 서로 다른422건·7Rust fmt/diff가 통과했습니다. 실제 body/디스크·실패 때 전환 억제/guard 밖 적용/focus-only 생략·worker/lease 회수를 확인했고 native-host cfg 내부 변경의 frozen 성공은 재사용합니다.
+
+현재599행/393근거 경로·588대상·complete298/partial93/unwired110/missing87·미완료290·기능 체크리스트50.7%·배치23 잔여23/최종33을 유지합니다. editor-67 partial이며 제거되는 preview 모델 캐시·batch close/project/slot/aux·IDE/remote·folding contribution/전체 재시작과 전체App/실기/출시·전환·제거는 남습니다. 다음은 d3b2b2의 제거/종료·외부 포트 소유이며 전체 전환율/잔여 시간은 미산정입니다.

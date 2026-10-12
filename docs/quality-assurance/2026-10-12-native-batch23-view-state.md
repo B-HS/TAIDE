@@ -145,3 +145,5 @@ UI의 최신 Store를 요청하는 oneshot 경계를 App 포트가 공유하고 
 `view-state-transition-host.log`는 전체 Host 9통과·0.13초·exit0입니다. 변경한 파일/팔레트/옆 열기의 결과와 기존 document lease·mirror/저장/retarget symlink·종료 flush·watcher 회귀를 확인했습니다. 기존 생성 포트/헤드리스 경로와 요청/실패 결과를 보존하며 새 공개 RPC/의존성은 없습니다.
 
 `view-state-transition-exit.log`는 소유 loopback 서버 권한 허용의 종료 2건·exit0입니다. AppState/EventSink로 분리한 동일 mutation 적용과 기존 draft 우선 오류 처리·서버/세션/pending/lockfile·작업 회수를 확인했습니다. 현재 App14/Host9/종료2/UI controller3과 변경 없는 Core306/UI본문·geometry88의 서로 다른422건입니다. 소유7Rust fmt/diff·manifest/lock/Core/구문/엔진/frozen 불변을 확인했고 controller는 기존 native-host cfg 내부이므로 frozen 성공을 재사용합니다. 본문/geometry renderer도 변경하지 않았습니다. 전체 App/OS/배치 통과나 editor-67 전체 완료로 올리지 않습니다.
+
+셸/Host 전환 코드·검사와 QA/현재 PROCESS의 9경로는 `1874334e`로 선별 커밋했습니다. 기능표는 599행/393근거 경로·588대상·complete298/partial93/unwired110/missing87·미완료290이며 editor-67 partial·배치23 잔여23/최종33을 유지합니다. 다음은 제거되는 preview 모델 캐시·batch close·project/slot/aux·IDE/remote의 같은 선행 저장과 소유 수명입니다. 사용자 기존 변경과 PROCESS 하단 두 hunk는 보존합니다.

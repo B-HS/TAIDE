@@ -1,6 +1,6 @@
 {
     "date": "2026-10-12",
-    "baseline": "056ad927",
+    "baseline": "1874334e",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -134,7 +134,8 @@
                 "native/taide-native-ui/src/editor-geometry.rs",
                 "native/taide-native-app/src/editor-view-state-sync.rs",
                 "native/taide-native-app/src/application-ports.rs",
-                "native/taide-native-app/src/host.rs"
+                "native/taide-native-app/src/host.rs",
+                "native/taide-native-ui/src/controller.rs"
             ],
             "tests": [
                 "native/taide-native-app/tests/persistence.rs",
@@ -144,13 +145,14 @@
                 "native/taide-native-app/src/application-exit-tests.rs",
                 "native/taide-native-ui/tests/editor-completion.rs",
                 "native/taide-native-app/src/editor-view-state-sync.rs",
-                "native/taide-native-app/tests/host.rs"
+                "native/taide-native-app/tests/host.rs",
+                "native/taide-native-ui/tests/controller.rs"
             ],
             "reports": [
                 "docs/quality-assurance/2026-10-09-native-completion-evidence.md",
                 "docs/quality-assurance/2026-10-12-native-batch23-view-state.md"
             ],
-            "limitation": "실제 초기/앱 종료 저장과 기본 Host typed 탭 닫힘의 선행 캡처·최근 닫힘/재열기를 연결했습니다. 현재 App13/Host9/종료2와 변경 없는 Core306/UI88의 서로 다른418건이 통과했습니다. 셸/IDE/remote·나머지 Host/project/slot/aux·새 파일/preview와 folding contribution/전체 재시작은 남아 partial을 유지합니다."
+            "limitation": "초기/앱 종료 저장·기본 탭 닫힘과 셸/Host 파일 열기의 선행 캡처를 연결했습니다. 실제 두 전환과 실패 때 mutation 억제/guard 밖 적용, App14/Host9/종료2·controller3 및 기존 Core306/UI88의 서로 다른422건이 통과했습니다. 제거된 preview 모델 캐시·project/slot/aux·batch/IDE/remote·folding contribution/전체 재시작은 남아 partial을 유지합니다."
         },
         "editor-snippet": {
             "sources": [
@@ -2925,7 +2927,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-state",
-            "note": "초기 위치 복원·정상/직접 앱 종료 저장과 기본 Host 탭 닫힘 전 최신 캡처를 연결했습니다. 실제 최근 닫힘/재열기의 마지막 선택/scroll·본문/디스크 보존과 동시 요청/취소/종료 회수를 확인했습니다. 셸/IDE/remote·나머지 Host/project/slot/aux/preview·folding contribution과 전체 App 재시작은 남아 있습니다."
+            "note": "초기 위치/앱 종료 저장·최근 닫힘/재열기와 실제 셸 탭 전환/Host 새 preview 파일 열기의 이전 위치 저장을 연결했습니다. optional controller 포트는 AppState/EventSink로 guard 전 캡처를 적용하고 실패 시 원래 mutation을 실행하지 않습니다. 실제 preview 제거의 모델 캐시·project/slot/aux/batch·IDE/remote·folding contribution/전체 재시작은 남습니다."
         },
         {
             "id": "editor-68",
@@ -7691,5 +7693,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "제품056ad927의 기본 Host CloseTab은 실제 최근 닫힘 view_state None을 재현해 typed 결과 안에서 App 포트의 oneshot/Arc 캡처를 먼저 적용합니다. UI poll 뒤 최신 Store를 전달하고 정상/직접 종료의 최종 캡처와 실패 뒤 live 재개를 연결했습니다. App/상태/sync13·전체Host9·종료2와 변경 없는Core306/UI88의 서로 다른418건·exit0입니다. authored 빈 Arc 추론 오류는 타입을 좁혀 수정한 뒤 관련13건이 통과했으며 실행0건을 성공으로 세지 않습니다. 소유9Rust fmt/diff·manifest/lock/Core/UI/Syntax/엔진/frozen 불변을 확인하고 기존 성공을 재사용합니다. editor-67 partial·complete298/partial93/unwired110/missing87·미완료290·배치23 잔여23/최종33을 유지합니다. 셸/IDE/remote·나머지Host/project/slot/aux/preview·folding contribution/전체재시작은 미완료입니다. 직전App전체67대상/877통과/22실패·보호3제외·exit101과 provider준비16/프로젝트준비6의 최초원인미확정은 현재전체성공으로 바꾸지 않습니다. Core성능ignored1·Wasmtests시간API불일치7·실기/성능/신뢰성/출시·전환·제거를 보존하며 전체전환율/잔여시간은 미산정입니다."
+    "validation": "제품1874334e의 실제 셸 ActivateTab/Host 새 preview 파일 열기에서 이전 view_state None을 재현해 선행 저장을 연결했습니다. controller optional async port는 AppState/EventSink·std Future 계약을 사용하며 App 역참조/새 RPC/의존성은 없습니다. Host 파일/팔레트/옆 열기/새 untitled는 typed 결과 안에서 같은 캡처를 적용하고 문서 load는 기존 lease 회수를 유지합니다. App14/Host9/종료2·controller3 및 변경 없는Core306/UI본문·geometry88의 서로 다른422건·exit0입니다. authored PaneNode import 오류와 두 사례의 mode 진단 부족/통과한 사례 재실행을 QA에 보존하고 실행0건/같은 성공을 중복 집계하지 않습니다. 소유7Rust fmt/diff·manifest/lock/Core/구문/엔진/frozen 불변을 확인했고 controller는 native-host cfg여서 frozen 성공을 재사용합니다. editor-67 partial·complete298/partial93/unwired110/missing87·미완료290·배치23 잔여23/최종33을 유지합니다. 실제 preview 제거·project/slot/aux/batch·IDE/remote·folding contribution/전체재시작과 전체App/실기는 미완료입니다. 직전App전체877통과/22준비실패·보호3제외·exit101·최초준비원인미확정·Core성능ignored1·Wasmtests시간API불일치7·실기/성능/신뢰성/출시·전환·제거를 보존하며 전체전환율/잔여시간은 미산정입니다."
 }
