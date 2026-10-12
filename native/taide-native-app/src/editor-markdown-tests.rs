@@ -144,6 +144,66 @@ fn 분할_토글은_언어별로_표시하고_기존_폭과_비활성_상태를_
         max_document_bytes: 1,
     })
     .unwrap();
-    state.reconcile(&HashMap::new(), &store);
+    state.reconcile(&context, &HashMap::new(), &store);
     assert!(state.entries.is_empty());
+}
+
+#[test]
+fn 사라진_viewport의_분할_상태는_같은_pane이_남아도_회수한다() {
+    let context = egui::Context::default();
+    let mut state = State::default();
+    let project = ProjectId::new();
+    let layout = taide_layout::service::default_layout();
+    let pane = layout.focused_pane.clone();
+    let layouts = HashMap::from([(project, layout)]);
+    let store = EditorStore::new(taide_native_editor::store::EditorLimits {
+        max_documents: 1,
+        max_views: 1,
+        max_undo_groups: 1,
+        max_document_bytes: 1,
+    })
+    .unwrap();
+    let root = egui::ViewportId::ROOT;
+    let child = egui::ViewportId::from_hash_of("markdown child");
+    for viewport in [root, child] {
+        let mut output = context.run_ui(
+            egui::RawInput {
+                viewport_id: viewport,
+                viewports: [root, child]
+                    .into_iter()
+                    .map(|id| {
+                        (
+                            id,
+                            egui::ViewportInfo {
+                                parent: (id != root).then_some(root),
+                                ..Default::default()
+                            },
+                        )
+                    })
+                    .collect(),
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, SCREEN)),
+                ..Default::default()
+            },
+            |ui| {
+                state.toolbar(ui, &pane, "markdown", "Preview");
+                state
+                    .entries
+                    .get_mut(&(viewport, pane.clone()))
+                    .unwrap()
+                    .enabled = viewport == child;
+            },
+        );
+        output.textures_delta.clear();
+    }
+    let mut output = context.run_ui(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, SCREEN)),
+            ..Default::default()
+        },
+        |_| state.reconcile(&context, &layouts, &store),
+    );
+    output.textures_delta.clear();
+    assert!(!state.entries.contains_key(&(child, pane.clone())));
+    assert!(!state.entries[&(root, pane.clone())].enabled);
+    assert_eq!(state.entries.len(), 1);
 }

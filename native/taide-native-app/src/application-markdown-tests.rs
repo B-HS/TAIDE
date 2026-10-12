@@ -11,6 +11,55 @@ const EXCESSIVE_NESTING: usize = 256;
 const CHANGED_EDITOR_FONT_SIZE: u32 = 30;
 const PREVIEW_HEADING_SIZE: f32 = 24.0;
 const CHANGED_THEME: &str = "vscode-light-modern";
+const SCROLL_PARAGRAPHS: usize = 80;
+const SCROLL_DELTA: f32 = 180.0;
+const SETTLE_FRAMES: usize = 16;
+const INVALID_UTF8: u8 = 0xff;
+
+fn toggle_preview(application: &mut NativeApplication, context: &egui::Context, pane: &PaneId) {
+    let position = application
+        .editor_markdown
+        .geometry(context.viewport_id(), pane)
+        .0
+        .center();
+    for pressed in [true, false] {
+        paint(
+            application,
+            context,
+            vec![
+                egui::Event::PointerMoved(position),
+                egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+    }
+    paint(application, context, Vec::new());
+}
+
+fn scroll_at(application: &mut NativeApplication, context: &egui::Context, position: egui::Pos2) {
+    paint(
+        application,
+        context,
+        vec![egui::Event::PointerMoved(position)],
+    );
+    paint(
+        application,
+        context,
+        vec![egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -SCROLL_DELTA),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    for _ in 0..SETTLE_FRAMES {
+        paint(application, context, Vec::new());
+    }
+}
 
 fn preview_text_contains(
     application: &NativeApplication,
@@ -403,6 +452,398 @@ fn 실제_markdown_토글은_편집기_식별자와_입력_undo_최신_본문을
             .is_none()
     );
     assert_eq!(std::fs::read_to_string(&path).unwrap(), ORIGINAL);
+    eframe::App::on_exit(application);
+    assert_eq!(application.services.tasks.tracked_count(), 0);
+}
+
+#[test]
+fn 실제_markdown_두_뷰는_토글과_본문_미리보기_scroll을_분리하고_mirror_undo를_공유한다() {
+    let text = (0..SCROLL_PARAGRAPHS)
+        .map(|index| format!("Paragraph {index}\n\n"))
+        .collect::<String>();
+    let mut fixture = fixture_with_view_state(
+        "--native-inlay-hints",
+        false,
+        |_, _, _| true,
+        None,
+        "original rust",
+    );
+    let path = PathBuf::from(&fixture.path).with_file_name("scroll.md");
+    std::fs::write(&path, &text).unwrap();
+    let path = path.to_str().unwrap().to_owned();
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    assert!(application.submit(HostCommand::OpenFileTab {
+        project: fixture.project.clone(),
+        pane: None,
+        path: path.clone(),
+        preview: false,
+    }));
+    wait(application, context, "markdown main view", |application| {
+        application.files.get(&path).is_some_and(|document| {
+            application
+                .store
+                .views()
+                .for_document(document.id)
+                .next()
+                .is_some()
+        })
+    });
+    let document = application.files[&path].id;
+    let main = application
+        .store
+        .views()
+        .for_document(document)
+        .next()
+        .unwrap()
+        .clone();
+    let main_body = crate::editor_context_menu::body(context, main.id).unwrap();
+    assert!(application.submit(HostCommand::OpenFileToSide(
+        taide_model::layout::OpenTabInSplitRequest {
+            project_id: fixture.project.clone(),
+            target_pane: main.key.pane.clone(),
+            edge: taide_model::layout::DropEdge::Right,
+            kind: TabKind::File { path: path.clone() },
+            title: "scroll.md".into(),
+            preview: false,
+        },
+    )));
+    wait(
+        application,
+        context,
+        "markdown mirror view",
+        |application| application.store.views().for_document(document).count() > 1,
+    );
+    let mirror = application
+        .store
+        .views()
+        .for_document(document)
+        .find(|view| view.id != main.id)
+        .unwrap()
+        .clone();
+    toggle_preview(application, context, &main.key.pane);
+    assert!(
+        application
+            .editor_markdown
+            .geometry(context.viewport_id(), &mirror.key.pane)
+            .2
+            .is_none()
+    );
+    toggle_preview(application, context, &mirror.key.pane);
+    assert_eq!(
+        crate::editor_context_menu::body(context, main.id).unwrap(),
+        main_body
+    );
+    context.memory_mut(|memory| memory.request_focus(main_body));
+    paint(
+        application,
+        context,
+        key(egui::Key::ArrowRight, egui::Modifiers::NONE),
+    );
+    assert_eq!(
+        application
+            .store
+            .views()
+            .get(main.id)
+            .unwrap()
+            .selection
+            .selections[0]
+            .head,
+        1
+    );
+    assert_eq!(
+        application
+            .store
+            .views()
+            .get(mirror.id)
+            .unwrap()
+            .selection
+            .selections[0]
+            .head,
+        0
+    );
+    let main_before = application.store.views().get(main.id).unwrap().clone();
+    let mirror_before = application.store.views().get(mirror.id).unwrap().clone();
+    let preview = application
+        .editor_markdown
+        .scroll(context.viewport_id(), &main.key.pane)
+        .1;
+    scroll_at(application, context, preview.center());
+    let preview_offset = application
+        .editor_markdown
+        .scroll(context.viewport_id(), &main.key.pane)
+        .0;
+    assert!(preview_offset.y > 0.0);
+    assert_eq!(
+        application
+            .editor_markdown
+            .scroll(context.viewport_id(), &mirror.key.pane)
+            .0,
+        egui::Vec2::ZERO
+    );
+    assert_eq!(
+        application.store.views().get(main.id).unwrap().scroll,
+        main_before.scroll
+    );
+    assert_eq!(
+        application.store.views().get(mirror.id).unwrap().scroll,
+        mirror_before.scroll
+    );
+    let editor = application
+        .editor_markdown
+        .geometry(context.viewport_id(), &main.key.pane)
+        .1;
+    scroll_at(application, context, editor.center());
+    assert!(application.store.views().get(main.id).unwrap().scroll.y > main_before.scroll.y);
+    assert_eq!(
+        application
+            .editor_markdown
+            .scroll(context.viewport_id(), &main.key.pane)
+            .0,
+        preview_offset
+    );
+    assert_eq!(
+        application.store.views().get(mirror.id).unwrap().scroll,
+        mirror_before.scroll
+    );
+    let mirror_body = crate::editor_context_menu::body(context, mirror.id).unwrap();
+    context.memory_mut(|memory| memory.request_focus(mirror_body));
+    paint(
+        application,
+        context,
+        vec![egui::Event::Paste("# Mirror update\n\n".into())],
+    );
+    paint(application, context, Vec::new());
+    for pane in [&main.key.pane, &mirror.key.pane] {
+        application
+            .editor_markdown
+            .expire_update(context.viewport_id(), pane);
+    }
+    let output = paint(application, context, Vec::new());
+    assert!(preview_text_contains(
+        application,
+        context,
+        &mirror.key.pane,
+        &output,
+        "Mirror update"
+    ));
+    assert!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string()
+            .starts_with("# Mirror update")
+    );
+    assert_eq!(
+        application
+            .store
+            .views()
+            .get(main.id)
+            .unwrap()
+            .selection
+            .selections[0]
+            .head,
+        "# Mirror update\n\n".len() + 1
+    );
+    context.memory_mut(|memory| memory.request_focus(mirror_body));
+    paint(
+        application,
+        context,
+        key(
+            egui::Key::Z,
+            egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND,
+        ),
+    );
+    paint(application, context, Vec::new());
+    for pane in [&main.key.pane, &mirror.key.pane] {
+        application
+            .editor_markdown
+            .expire_update(context.viewport_id(), pane);
+    }
+    paint(application, context, Vec::new());
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        text
+    );
+    toggle_preview(application, context, &main.key.pane);
+    assert!(
+        application
+            .editor_markdown
+            .geometry(context.viewport_id(), &main.key.pane)
+            .2
+            .is_none()
+    );
+    assert!(
+        application
+            .editor_markdown
+            .geometry(context.viewport_id(), &mirror.key.pane)
+            .2
+            .is_some()
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+    application.request_tab_close(mirror.key.tab.clone());
+    if let Some(pending) = &mut application.pending_tab_close {
+        pending.automatic_choice = Some(crate::close_dialog::CloseChoice::Discard);
+    }
+    wait(
+        application,
+        context,
+        "markdown mirror closed",
+        |application| application.store.views().get(mirror.id).is_none(),
+    );
+    assert_eq!(
+        application.store.views().get(main.id).unwrap().document,
+        document
+    );
+    assert_eq!(application.files[&path].id, document);
+    application.request_tab_close(main.key.tab.clone());
+    if let Some(pending) = &mut application.pending_tab_close {
+        pending.automatic_choice = Some(crate::close_dialog::CloseChoice::Discard);
+    }
+    wait(
+        application,
+        context,
+        "markdown main closed",
+        |application| !application.files.contains_key(&path),
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+    eframe::App::on_exit(application);
+    assert_eq!(application.services.tasks.tracked_count(), 0);
+}
+
+#[test]
+fn 실제_markdown_lossy_readonly는_미리보기_scroll과_선택을_허용하고_입력을_거절한다() {
+    let text = (0..SCROLL_PARAGRAPHS)
+        .map(|index| format!("Readonly paragraph {index}\n\n"))
+        .collect::<String>();
+    let bytes = [text.as_bytes(), &[INVALID_UTF8]].concat();
+    let mut fixture = fixture_with_view_state(
+        "--native-inlay-hints",
+        false,
+        |_, _, _| true,
+        None,
+        "original rust",
+    );
+    let path = PathBuf::from(&fixture.path).with_file_name("readonly.md");
+    std::fs::write(&path, &bytes).unwrap();
+    let path = path.to_str().unwrap().to_owned();
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    assert!(application.submit(HostCommand::OpenFileTab {
+        project: fixture.project.clone(),
+        pane: None,
+        path: path.clone(),
+        preview: false,
+    }));
+    wait(
+        application,
+        context,
+        "readonly markdown view",
+        |application| {
+            application.files.get(&path).is_some_and(|document| {
+                application
+                    .store
+                    .views()
+                    .for_document(document.id)
+                    .next()
+                    .is_some()
+            })
+        },
+    );
+    let document = application.files[&path].id;
+    let view = application
+        .store
+        .views()
+        .for_document(document)
+        .next()
+        .unwrap()
+        .clone();
+    let before = application.store.documents().snapshot(document).unwrap();
+    assert!(before.metadata.read_only && before.metadata.lossy);
+    toggle_preview(application, context, &view.key.pane);
+    let output = paint(application, context, Vec::new());
+    assert!(preview_text_contains(
+        application,
+        context,
+        &view.key.pane,
+        &output,
+        "Readonly paragraph 0"
+    ));
+    let body = crate::editor_context_menu::body(context, view.id).unwrap();
+    context.memory_mut(|memory| memory.request_focus(body));
+    paint(
+        application,
+        context,
+        key(egui::Key::ArrowRight, egui::Modifiers::NONE),
+    );
+    assert_eq!(
+        application
+            .store
+            .views()
+            .get(view.id)
+            .unwrap()
+            .selection
+            .selections[0]
+            .head,
+        1
+    );
+    paint(
+        application,
+        context,
+        vec![
+            egui::Event::Paste("changed".into()),
+            egui::Event::Text("changed".into()),
+        ],
+    );
+    let preview = application
+        .editor_markdown
+        .scroll(context.viewport_id(), &view.key.pane)
+        .1;
+    let editor_before = application
+        .store
+        .views()
+        .get(view.id)
+        .unwrap()
+        .scroll
+        .clone();
+    scroll_at(application, context, preview.center());
+    assert!(
+        application
+            .editor_markdown
+            .scroll(context.viewport_id(), &view.key.pane)
+            .0
+            .y
+            > 0.0
+    );
+    assert_eq!(
+        application.store.views().get(view.id).unwrap().scroll,
+        editor_before
+    );
+    let after = application.store.documents().snapshot(document).unwrap();
+    assert_eq!(after.revision, before.revision);
+    assert_eq!(after.rope.to_string(), before.rope.to_string());
+    assert_eq!(after.dirty, before.dirty);
+    assert!(after.metadata.read_only && after.metadata.lossy);
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    assert!(application.submit(HostCommand::CloseTab {
+        tab: view.key.tab.clone(),
+        discard: false
+    }));
+    wait(
+        application,
+        context,
+        "readonly markdown closed",
+        |application| !application.files.contains_key(&path),
+    );
     eframe::App::on_exit(application);
     assert_eq!(application.services.tasks.tracked_count(), 0);
 }

@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: d6c3a의 실제 표 행 경계 bottom48/88과 음수 목록 start→1 실패를 재현해 행/열 정규화·공유 edge1회와 signed start/정수 prefix/기본값·overflow-safe 두 UI 표시를 연결했습니다. UI18/parser5/실제 App1/Core7/LSP parser8의 서로 다른39통과와 portable2통과의41건이며 동결 host check에서 이전 Markdown theme helper의 native-host 경계 누락을 발견해 기존 cfg 경계로 수정해 frozen host tests 포함/Wasm canvas lib check를 통과했습니다. 전체 표 data/viewport/이미지/span·HTML reversed/value/type/CSS/SVG/MathML/media/details/anchor·readonly/mirror/독립 scroll/뷰 및 전체 게이트는 미완료이고 editor-72 partial입니다. 기능 체크리스트302/588(51.4%)·미완료286·부분90/미연결110/미구현86·배치23 잔여19/최종33·전체전환율/잔여시간 미산정입니다. 사용자 문서·보호 경계를 유지합니다.
+현재 상태: d6b2의 실제 Host 옆 열기/두 ViewId·선택/토글/본문과 preview scroll 분리·mirror 수정/undo·한 뷰 닫힘 뒤 남은 뷰 보존/최종 닫힘과 lossy readonly 입력 거절을 App3통과·46.49초·exit0으로 확인했습니다. 같은 pane이 남을 때 사라진 viewport 상태가 잔류하는 실패를 재현해 현재 live viewport로 회수하며 상태3통과·0.03초·exit0입니다. d6b 기능 수명 범위는 완료하고 실제 OS 창/전체 HTML·표 data/viewport/이미지/span·reversed/value/type/CSS/SVG/MathML/media/details/anchor 및 전체 게이트는 미완료입니다. editor-72 partial·기능 체크리스트302/588(51.4%)·미완료286·부분90/미연결110/미구현86·배치23 잔여19/최종33·전체전환율/잔여시간 미산정이며 사용자 문서·보호 경계를 유지합니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 
@@ -122,8 +122,10 @@
 - [x] d5b. 실제 App 재현/입력 포트 — actual Aux Save As의 대상 창 오류와 stale mirror 거절 뒤 오래된 내용을 실제 실패로 확인했습니다. source 창의 canonical 대상/기존 tab을 재사용·활성화하고 오류 뒤 기존 OpenDocument로 초안을 다시 읽으며 재조회 중 picker를 막습니다. 실제 버튼/취소/dirty·root·IO·바뀐 mirror/최신 재시도/동일·다른 경로/재열기·untitled picker 요청과 backend 보호12건이 통과했습니다. fixture canonical 경로/typed pane 오류·컴파일 대기는 QA에 구분하고 OS 동작은 주입했습니다.
 - [ ] d6. Markdown 미리보기 분할 — editor-72의 언어별 토글·안정된 편집기·분할 폭·독립 스크롤과 최신 본문/취소/다중 창 수명을 실제 App에 연결합니다. 기존 Markdown/GFM 렌더러·이미지/링크 보안을 재사용하고 원본 HTML 표시와 렌더 차이는 실제 근거로 판정합니다. 관련 최소 검사·QA/기능표/PROCESS와 선별 Git을 수행합니다.
 - [x] d6a. 원본과 기존 렌더 경계 — 원본 훅/패널/200ms 갱신·safe HTML과 기존 parser/풍부한 문서/이미지·링크·native editor ID 및 egui 공식 소스를 확인합니다.
-- [ ] d6b. 실제 분할과 문서 수명 — 언어별 버튼·stable editor/분할 조절·독립 scroll·편집/undo/문서 전환/닫힘·readonly/다중 뷰를 연결하고 직접 App 검증을 수행합니다.
+- [x] d6b. 실제 분할과 문서 수명 — 언어별 버튼·stable editor/분할 조절·독립 scroll·편집/undo/문서 전환/닫힘·readonly/다중 뷰를 연결하고 실제 App/egui 검증을 수행했습니다. d6b1/2/3의 기능 수명 범위이며 물리 OS 보조 창/전체 HTML·게이트는 별도입니다.
 - [x] d6b1. 실제 토글/입력/수명 — 실제 App의 파일 열기→버튼→분할/제목·동일 ViewId/입력 ID/선택→입력/Paste/undo/최신 본문→다른 Markdown 즉시 전환/닫힘→기존 앱 승인 revision의 source 닫힘/원문·task0과 실제 20% 최소폭 드래그/키보드·언어/폭/상태 UI 및 기존 parser의 서로 다른4건이 통과했습니다. 전체 readonly/mirror/독립 스크롤·원본 HTML/표시 기능은 d6b/d6c에 유지합니다.
+- [x] d6b2. readonly·동일 문서 두 뷰·독립 scroll — 실제 Host 열기/옆 열기의 두 ViewId·독립 선택/토글·preview/body wheel·mirror 수정/undo·한 뷰 닫힘 뒤 남은 문서/뷰와 최종 닫힘, lossy readonly의 선택/preview scroll·Paste/Text 거절·메타데이터/revision/원문/작업0을 확인했습니다. 실제 App3통과·46.49초·exit0이며 검사 작성의 필드/소유 오류와 다음 프레임 revision 관찰 누락은 QA에 구분했습니다. 물리 OS 보조 창과 전체 HTML/게이트는 별도입니다.
+- [x] d6b3. viewport 회수 — 같은 pane이 남을 때 사라진 viewport의 분할 상태 잔류를 실제 egui viewport 목록으로 재현했습니다. 현재 live viewport로 상태를 먼저 회수하고 기존 retain_documents를 통해 이미지 demand도 회수합니다. 관련 상태3통과·0.03초·exit0과 수정 뒤 실제 App3통과이며 물리 OS 보조 창 게이트는 그대로 유지합니다.
 - [ ] d6c. 표시·보안과 완료 판정 — 제목/강조/코드/표/목록/이미지/링크·sanitized HTML의 원본 기능 차이를 확인하고 부족한 부분을 구현합니다. 검증된 범위만 기능표에 반영하며 전체 게이트를 유지합니다.
 - [x] d6c1. HTML/경로 실제 파서 — 기존 pulldown-cmark/dom_query와 RichDocument 계약으로 Markdown/GFM·raw HTML의 제목/강조/코드/인용/목록/표/이미지와 상대 URL을 안전한 native 구조로 변환합니다. LSP 파서·의존성·manifest/lock/engine/frozen 경계를 유지하며 HTML/위험 URL/본문·필터 실패를 재현하고 실제 App 소비를 검증합니다.
 - [ ] d6c2. 미리보기 표시 — 원본 padding/제목/본문 줄 간격·인용 border/표 border·코드 가로 스크롤과 이미지 max-width를 일반 호버 표시와 분리해 연결합니다. 실제 자산/스케일/링크·독립 scroll/뷰/readonly와 미지원 HTML의 잔여를 근거로 판정합니다.
@@ -136,7 +138,7 @@
 - [x] f1. 프로젝트 열기 지연 위치 조사·배치 31 이관 — 전체 App 811통과/프로젝트 open 5초 초과 1실패와 Cargo 단독 동일 실패를 보존했습니다. 같은 실행 파일의 직접 검사는 저장소/크레이트 cwd에서 3.81/3.23초에 통과했습니다. 성공한 두 번째 검사 중 start_watch→notify runloop 준비 대기와 FSEventStreamStart→등록 RPC의 실제 스택을 확인했습니다. 실패 시점의 스택이나 지연 변동의 근본 원인은 확인하지 않았으며 해결/전체 exit 0으로 보고하지 않습니다. 제한 확대·검사 생략·OS 변경 없이 반복 조사를 종료하고 배치 31의 실행 환경/신뢰성 게이트에 미해결 위험을 유지합니다.
 - [ ] g. 완료 근거·선별 Git — 실제 닫힌 ID만 QA/기능표/PROCESS에 반영하고 논리 단위 선별 커밋·일반 푸시합니다. 배치 24를 기존 계획 안에서 이어가며 배치 번호를 세부 수정마다 늘리지 않습니다.
 
-다음 행동: d6c3의 표 data/viewport/이미지/span·HTML reversed/value/type 등 나머지 의미와 d6b의 readonly/mirror/독립 scroll/추가 뷰를 구현·검증합니다. editor-72 partial·전체 기능/게이트와 최종 배치33을 유지합니다.
+다음 행동: d6c3의 표 data/viewport/이미지/span·HTML reversed/value/type 등 나머지 의미를 구현·검증합니다. editor-72 partial·전체 HTML/게이트와 최종 배치33을 유지합니다.
 
 ## 완료: 배치 22 — 자동완성과 사용자 스니펫 소비 (2026-10-10)
 

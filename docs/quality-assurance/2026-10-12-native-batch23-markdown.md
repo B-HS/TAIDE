@@ -69,3 +69,19 @@ ordered-app.log는 실제 임시 Markdown의 signed -1/0 목록과 다중 높이
 공통 start 타입 변경의 동결 host tests 포함 check에서 이전 표시 변경의 editor_markdown_colors가 native-host 모듈을 무조건 참조하는 E0433 두 오류·exit101을 발견했습니다. 기존 editor_documentation_colors와 같은 cfg native-host 경계를 helper/해당 native 검사에 적용했습니다. 동결 feature 강제 활성화나 module 경계 완화로 우회하지 않으며 host-fixed.log는 tests 포함22.39초·exit0이며 frozen-wasm.log는 canvas feature의 wasm32-unknown-unknown lib1분27초·exit0입니다. Wasm tests의 기존 std/web Instant 불일치 부채는 실행하거나 완료로 바꾸지 않았습니다. portable-theme.log는 UI no-default-features의 기존2통과·0.00초·exit0(컴파일40.06초)입니다. 현재 UI18/App1/parser5/Core7/LSP parser8/portable2의 서로 다른41건과 frozen host/Wasm compile이 통과했습니다. 최초 E0433/단위 실패와 변경 없는 성공/중복을 따로 보존합니다. 소유10Rust fmt/diff·manifest/lock 변경0을 확인했습니다. 실제 OS/보호 앱/사용자 설정/클립보드는 접근하지 않았습니다. 표의 모든 data/viewport/이미지·cell span/column sizing·HTML reversed/value/type/CSS/SVG/MathML/media/details/anchor·추가 readonly/mirror/독립 scroll/뷰와 전체App/실기/접근성/성능/출시는 미완료입니다. editor-72 partial·302/588(51.4%)·미완료286·배치23 잔여19/최종33·전체 목표를 유지하고 전체전환율/신뢰할 잔여 시간은 미산정입니다.
 
 표/목록/feature 경계 코드·검사/QA와 소유 PROCESS의12경로를497d5d43으로 선별 커밋했습니다. author/최종 메시지에 AI 트레일러가 없고 사용자 문서/PROCESS 하단 두 hunk를 제외했습니다. 기능표599행/419근거 경로·302완료/90부분/110미연결/86미구현·588대상과 원래302 ID 배정의 누락/중복/미확인ID0·잔여19/52/23/64/32/39/51/6·최종33을 실제 JSON으로 확인했습니다.
+
+## 읽기 전용·동일 문서 두 뷰·독립 스크롤과 창 상태 회수 (2026-10-12)
+
+원본 MarkdownPreview의 독립 overflow 영역과 pane별 토글 수명, 실제 Host OpenFileTab/OpenFileToSide 및 설치된 egui ScrollAreaOutput/RawInput.viewports 계약을 대조했습니다. App 검사는 소유 임시 Markdown을 실제 Host로 두 영역에 열어 같은 DocumentId와 서로 다른 ViewId를 만들었습니다. 실제 버튼·키·wheel/Paste/undo와 승인 revision 닫힘 경로를 사용하며, preview scroll 관찰은 cfg(test)에서 실제 ScrollAreaOutput의 offset/inner_rect를 저장합니다. 입력 동작을 대체하거나 제품 대기 시간/검사를 늘리지 않았습니다.
+
+두 뷰의 독립 토글/선택, preview wheel이 두 본문/다른 preview를 움직이지 않음, 본문 wheel이 두 preview/다른 본문을 움직이지 않음, mirror Paste/문서 변경과 undo의 공유를 확인했습니다. 먼저 그려진 뷰는 다음 프레임에 새 revision을 관찰하므로 그 뒤 quiet period를 만료시킵니다. 한 뷰를 닫아도 같은 DocumentId의 남은 뷰가 유지되고 최종 닫힘/디스크 원문/작업0도 확인합니다. 별도 invalid UTF-8 Markdown은 실제 파일 admission의 lossy/read_only로 열고 preview 표시/선택 이동/독립 scroll을 허용하면서 Paste/Text 입력·revision/dirty/메타데이터/원문 bytes를 보존합니다.
+
+검사 작성의 views-initial.log는 DocumentSnapshot의 실제 metadata/dirty 필드 대신 존재하지 않는 직접 필드를 사용해 E0609 6오류·exit101·0검사였습니다. views-app.log는 공유 ScrollPosition의 clone 누락 E0507·exit101·0검사이며 실제 타입 정의로 수정했습니다. views-runtime.log는 readonly/기존 App2통과·두 뷰1실패·47.63초·exit101(컴파일25.65초)입니다. 제품 실패가 아니라 다음 프레임 이전에 pending snapshot을 가정한 검사 순서 오류이며 다음 관찰 프레임을 추가한 views-observed.log는 두 뷰1통과·32.30초·exit0(컴파일14.08초)입니다. 이 성공과 반복 결과는 중복 합산하지 않습니다.
+
+viewport-red.log는 같은 pane을 유지한 채 egui child viewport가 사라져도 State.entries가 남는 제품 실패0/1·0.03초·exit101(컴파일17.55초)입니다. 기존 reconcile은 pane 존재만 확인했습니다. 현재 raw.viewports에 없는 소유자를 먼저 회수하고 기존 이미지 retain_documents를 이어 사용하여 살아 있는 preview의 자산만 유지합니다. App 호출도 현재 Context를 전달합니다. viewport-fixed.log는 기존 최소폭 drag/keyboard·언어/폭/상태와 새 viewport 회수의3통과·0.03초·exit0(컴파일21.08초)입니다. root의 독립 상태를 유지하며 사라진 child의 상태를 회수합니다. 이 검사는 실제 egui viewport 목록/프레임을 사용한 상태 검사이며 물리 OS 창의 생성/종료 검증과 구분합니다.
+
+views-final-app.log는 회수 수정 뒤 readonly/두 뷰/기존 토글·theme·HTML/PNG·최신 입력/undo·오류 복구/문서 교체/닫힘의 실제 App3통과·46.49초·exit0(컴파일20.39초)입니다. 두 뷰의 실제 선택 분리·닫힘을 추가해 최신 입력으로 확인했습니다. 현재 관련 상태3/App3의 서로 다른6통과이며 이전 성공/작성 실패를 추가 합산하지 않습니다. 소유4Rust fmt·diff는 통과했습니다. 실제 사용자 설정/OS/보호 앱/클립보드/시크릿은 접근하지 않았고 의존성/manifest/lock/Core/engine/frozen source를 변경하지 않았습니다.
+
+views-production-check.log는 inspection 없는 일반 App lib의 cfg(test) 밖 경계를 cargo check --locked --offline로 확인해2분37초·exit0입니다. 공통 공개 계약/동결 소스 변경이 없어 이전 frozen host/Wasm compile 성공은 재사용하며 관련 없는 전체 검사를 반복하지 않았습니다.
+
+d6b의 기능 수명 범위는 완료했습니다. 표 data/viewport/이미지/span·HTML reversed/value/type/CSS/SVG/MathML/media/details/anchor와 실제 OS 창/전체App 준비·접근성/성능/신뢰성/출시·전환/제거는 계속 미완료입니다. editor-72 partial·302/588(51.4%)·미완료286·배치23 잔여19/최종33이며 전체 전환율/신뢰할 잔여 시간은 미산정입니다. 전체 목표를 유지하고 이번 범위의 성공을 전체 기능 완료로 올리지 않습니다.

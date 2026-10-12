@@ -6078,7 +6078,7 @@ impl eframe::App for NativeApplication {
             .begin_frame(self.services.ide.is_running());
         self.editor_view_state.begin_frame(&self.store);
         self.editor_markdown
-            .reconcile(&snapshot.layouts, &self.store);
+            .reconcile(&context, &snapshot.layouts, &self.store);
         self.breadcrumbs.reconcile(
             &context,
             &snapshot.layouts,

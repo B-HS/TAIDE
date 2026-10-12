@@ -51,6 +51,8 @@ fn render(snapshot: &DocumentSnapshot) -> (RichDocument, Option<AppError>) {
 struct Entry {
     #[cfg(test)]
     images: Vec<Rect>,
+    #[cfg(test)]
+    scroll: Option<(egui::Vec2, Rect)>,
     enabled: bool,
     fraction: f32,
     source: Option<Source>,
@@ -65,6 +67,8 @@ impl Default for Entry {
         Self {
             #[cfg(test)]
             images: Vec::new(),
+            #[cfg(test)]
+            scroll: None,
             enabled: false,
             fraction: INITIAL_FRACTION,
             source: None,
@@ -83,6 +87,10 @@ pub(crate) struct State {
 }
 
 impl State {
+    #[cfg(test)]
+    pub(crate) fn scroll(&self, viewport: egui::ViewportId, pane: &PaneId) -> (egui::Vec2, Rect) {
+        self.entries[&(viewport, pane.clone())].scroll.unwrap()
+    }
     #[cfg(test)]
     pub(crate) fn image_rects(&self, viewport: egui::ViewportId, pane: &PaneId) -> &[Rect] {
         &self.entries[&(viewport, pane.clone())].images
@@ -112,10 +120,14 @@ impl State {
 
     pub(crate) fn reconcile(
         &mut self,
+        context: &egui::Context,
         layouts: &HashMap<ProjectId, ProjectLayout>,
         store: &EditorStore,
     ) {
-        self.entries.retain(|(_, pane), entry| {
+        self.entries.retain(|(viewport, pane), entry| {
+            if !context.input(|input| input.raw.viewports.contains_key(viewport)) {
+                return false;
+            }
             let has_pane = layouts.values().any(|layout| {
                 taide_layout::service::all_roots(layout)
                     .any(|root| taide_layout::service::find_leaf(root, pane).is_some())
@@ -355,7 +367,7 @@ impl State {
         egui::Frame::new()
             .inner_margin(PREVIEW_PADDING)
             .show(&mut preview_ui, |ui| {
-                egui::ScrollArea::both()
+                let _output = egui::ScrollArea::both()
                     .id_salt(("markdown-scroll", &key))
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
@@ -374,6 +386,10 @@ impl State {
                             &mut provider,
                         );
                     });
+                #[cfg(test)]
+                {
+                    entry.scroll = Some((_output.state.offset, _output.inner_rect));
+                }
             });
     }
 }
