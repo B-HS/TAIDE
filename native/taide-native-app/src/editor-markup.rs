@@ -250,6 +250,7 @@ fn finish(frames: &mut Vec<Frame>) {
             parent.items.push(ListItem {
                 checked: frame.checked,
                 ordinal: None,
+                marker_style: None,
                 blocks: frame.blocks,
             });
             None

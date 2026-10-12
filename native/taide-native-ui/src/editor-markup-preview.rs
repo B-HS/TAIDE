@@ -341,16 +341,8 @@ fn blocks(
                                             false,
                                             egui::Checkbox::without_text(&mut checked.clone()),
                                         );
-                                    } else if let Some(start) = start {
-                                        ui.label(
-                                            RichText::new(format!(
-                                                "{}.",
-                                                item.ordinal.unwrap_or_else(|| taide_native_editor::documentation::list_ordinal(*start, index))
-                                            ))
-                                            .size(FONT_SIZE),
-                                        );
-                                    } else {
-                                        ui.label(RichText::new("\u{2022}").size(FONT_SIZE));
+                                    } else if let Some(marker) = item.marker(*start, index) {
+                                        ui.label(RichText::new(marker).size(FONT_SIZE));
                                     }
                                     ui.vertical(|ui| {
                                         blocks(ui, &item.blocks, appearance, colors, provider)
@@ -400,12 +392,29 @@ fn blocks(
                 }
                 ui.scope(|ui| {
                     ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
-                    let image_sizes = std::iter::once(header).chain(rows).flatten().flatten().filter_map(|inline| {
-                        let Inline::Image { source, dimensions, .. } = inline else { return None };
-                        Some(provider.image_size(source, *dimensions).map(|size| [size.x.to_bits(), size.y.to_bits()]))
-                    }).collect::<Vec<_>>();
+                    let image_sizes = std::iter::once(header)
+                        .chain(rows)
+                        .flatten()
+                        .flatten()
+                        .filter_map(|inline| {
+                            let Inline::Image {
+                                source, dimensions, ..
+                            } = inline
+                            else {
+                                return None;
+                            };
+                            Some(
+                                provider
+                                    .image_size(source, *dimensions)
+                                    .map(|size| [size.x.to_bits(), size.y.to_bits()]),
+                            )
+                        })
+                        .collect::<Vec<_>>();
                     let widths = table_widths(ui, header, rows, appearance, provider);
-                    let metrics = widths.iter().map(|width| width.to_bits()).collect::<Vec<_>>();
+                    let metrics = widths
+                        .iter()
+                        .map(|width| width.to_bits())
+                        .collect::<Vec<_>>();
                     let input = egui::Id::new((
                         columns,
                         header,
@@ -424,13 +433,58 @@ fn blocks(
                         changed
                     });
                     if changed {
-                        let mut measurement = ui.new_child(egui::UiBuilder::new().id(ui.id()).max_rect(ui.available_rect_before_wrap()).sizing_pass().invisible());
-                        table_cells(&mut measurement, columns, header, rows, &widths, appearance, colors, provider, "measure-width");
-                        let mut measurement = ui.new_child(egui::UiBuilder::new().id(ui.id()).max_rect(ui.available_rect_before_wrap()).invisible());
-                        table_cells(&mut measurement, columns, header, rows, &widths, appearance, colors, provider, "measure-height");
+                        let mut measurement = ui.new_child(
+                            egui::UiBuilder::new()
+                                .id(ui.id())
+                                .max_rect(ui.available_rect_before_wrap())
+                                .sizing_pass()
+                                .invisible(),
+                        );
+                        table_cells(
+                            &mut measurement,
+                            columns,
+                            header,
+                            rows,
+                            &widths,
+                            appearance,
+                            colors,
+                            provider,
+                            "measure-width",
+                        );
+                        let mut measurement = ui.new_child(
+                            egui::UiBuilder::new()
+                                .id(ui.id())
+                                .max_rect(ui.available_rect_before_wrap())
+                                .invisible(),
+                        );
+                        table_cells(
+                            &mut measurement,
+                            columns,
+                            header,
+                            rows,
+                            &widths,
+                            appearance,
+                            colors,
+                            provider,
+                            "measure-height",
+                        );
                     }
-                    let mut table_ui = ui.new_child(egui::UiBuilder::new().id(ui.id()).max_rect(ui.available_rect_before_wrap()));
-                    let cells = table_cells(&mut table_ui, columns, header, rows, &widths, appearance, colors, provider, "contents");
+                    let mut table_ui = ui.new_child(
+                        egui::UiBuilder::new()
+                            .id(ui.id())
+                            .max_rect(ui.available_rect_before_wrap()),
+                    );
+                    let cells = table_cells(
+                        &mut table_ui,
+                        columns,
+                        header,
+                        rows,
+                        &widths,
+                        appearance,
+                        colors,
+                        provider,
+                        "contents",
+                    );
                     ui.advance_cursor_after_rect(table_ui.min_rect());
                     let count = cells.iter().map(Vec::len).max().unwrap_or_default();
                     let columns = (0..count)

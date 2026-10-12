@@ -88,7 +88,96 @@ pub struct TableCell {
 pub struct ListItem {
     pub checked: Option<bool>,
     pub ordinal: Option<i64>,
+    pub marker_style: Option<ListMarkerStyle>,
     pub blocks: Vec<Block>,
+}
+
+impl ListItem {
+    pub fn marker(&self, start: Option<i64>, index: usize) -> Option<String> {
+        let style = self.marker_style.unwrap_or_else(|| {
+            if start.is_some() {
+                return ListMarkerStyle::Decimal;
+            }
+            ListMarkerStyle::Disc
+        });
+        style.format(
+            self.ordinal
+                .unwrap_or_else(|| list_ordinal(start.unwrap_or(1), index)),
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListMarkerStyle {
+    Decimal,
+    LowerAlpha,
+    UpperAlpha,
+    LowerRoman,
+    UpperRoman,
+    Disc,
+    Circle,
+    Square,
+    None,
+}
+
+const ALPHABET_SIZE: i64 = 26;
+const ROMAN_MAX: i64 = 3999;
+const ROMAN_DIGITS: &[(i64, &str)] = &[
+    (1000, "M"),
+    (900, "CM"),
+    (500, "D"),
+    (400, "CD"),
+    (100, "C"),
+    (90, "XC"),
+    (50, "L"),
+    (40, "XL"),
+    (10, "X"),
+    (9, "IX"),
+    (5, "V"),
+    (4, "IV"),
+    (1, "I"),
+];
+
+impl ListMarkerStyle {
+    pub fn format(self, ordinal: i64) -> Option<String> {
+        match self {
+            Self::None => return None,
+            Self::Disc => return Some("\u{2022}".into()),
+            Self::Circle => return Some("\u{25e6}".into()),
+            Self::Square => return Some("\u{25aa}".into()),
+            _ => {}
+        }
+        let mut number = ordinal;
+        let mut output = String::new();
+        match self {
+            Self::LowerAlpha | Self::UpperAlpha if number > 0 => {
+                let mut digits = Vec::new();
+                let first = if self == Self::UpperAlpha { b'A' } else { b'a' };
+                while number > 0 {
+                    number -= 1;
+                    let digit =
+                        u8::try_from(number % ALPHABET_SIZE).expect("alphabet digit is in range");
+                    digits.push(char::from(first + digit));
+                    number /= ALPHABET_SIZE;
+                }
+                output.extend(digits.into_iter().rev());
+            }
+            Self::LowerRoman | Self::UpperRoman if (1..=ROMAN_MAX).contains(&number) => {
+                for &(value, digits) in ROMAN_DIGITS {
+                    while number >= value {
+                        output.push_str(digits);
+                        number -= value;
+                    }
+                }
+                if self == Self::LowerRoman {
+                    output.make_ascii_lowercase();
+                }
+            }
+            _ => output = ordinal.to_string(),
+        }
+        output.push('.');
+        Some(output)
+    }
 }
 
 pub fn list_ordinal(start: i64, index: usize) -> i64 {

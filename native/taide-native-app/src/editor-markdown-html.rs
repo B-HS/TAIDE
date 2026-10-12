@@ -1,7 +1,7 @@
 use dom_query::{Document, NodeRef};
 use taide_model::error::AppResult;
 use taide_native_editor::documentation::{
-    Block, ImageDimensions, Inline, Link, ListItem, RichDocument, Span, Style,
+    Block, ImageDimensions, Inline, Link, ListItem, ListMarkerStyle, RichDocument, Span, Style,
 };
 use url::Url;
 
@@ -219,6 +219,34 @@ fn integer(value: &str) -> Option<i64> {
     value.get(..end)?.parse().ok()
 }
 
+fn marker_style(value: &str) -> Option<ListMarkerStyle> {
+    let value = value.trim_matches(|character| {
+        matches!(
+            character,
+            '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
+                ..='\u{200a}'
+                    | '\u{2028}'
+                    | '\u{2029}'
+                    | '\u{202f}'
+                    | '\u{205f}'
+                    | '\u{3000}'
+                    | '\u{feff}'
+        )
+    });
+    match value {
+        "1" => Some(ListMarkerStyle::Decimal),
+        "a" => Some(ListMarkerStyle::LowerAlpha),
+        "A" => Some(ListMarkerStyle::UpperAlpha),
+        "i" => Some(ListMarkerStyle::LowerRoman),
+        "I" => Some(ListMarkerStyle::UpperRoman),
+        value if value.eq_ignore_ascii_case("disc") => Some(ListMarkerStyle::Disc),
+        value if value.eq_ignore_ascii_case("circle") => Some(ListMarkerStyle::Circle),
+        value if value.eq_ignore_ascii_case("square") => Some(ListMarkerStyle::Square),
+        value if value.eq_ignore_ascii_case("none") => Some(ListMarkerStyle::None),
+        _ => None,
+    }
+}
+
 fn blocks(node: NodeRef<'_>, base: Option<&Url>) -> AppResult<Vec<Block>> {
     let mut output = Vec::new();
     let mut pending = Vec::new();
@@ -278,22 +306,21 @@ fn blocks(node: NodeRef<'_>, base: Option<&Url>) -> AppResult<Vec<Block>> {
                 let items = items
                     .into_iter()
                     .map(|item| {
-                        let number = start.map(|_| {
-                            ordinal = item
-                                .attr("value")
-                                .and_then(|value| integer(&value))
-                                .unwrap_or(ordinal);
-                            let current = ordinal;
-                            ordinal = if is_reversed {
-                                ordinal.saturating_sub(1)
-                            } else {
-                                ordinal.saturating_add(1)
-                            };
-                            current
-                        });
+                        let marker_style = item.attr("type").and_then(|value| marker_style(&value));
+                        ordinal = item
+                            .attr("value")
+                            .and_then(|value| integer(&value))
+                            .unwrap_or(ordinal);
+                        let number = (start.is_some() || marker_style.is_some()).then_some(ordinal);
+                        ordinal = if is_reversed {
+                            ordinal.saturating_sub(1)
+                        } else {
+                            ordinal.saturating_add(1)
+                        };
                         Ok(ListItem {
                             checked: checkbox(item),
                             ordinal: number,
+                            marker_style,
                             blocks: blocks(item, base)?,
                         })
                     })

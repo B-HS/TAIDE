@@ -953,16 +953,19 @@ fn 순서_목록은_음수에서_0을_거쳐_증가하고_큰_번호에서도_ov
                 taide_native_editor::documentation::ListItem {
                     checked: None,
                     ordinal: None,
+                    marker_style: None,
                     blocks: vec![Block::Paragraph(text("first"))],
                 },
                 taide_native_editor::documentation::ListItem {
                     checked: None,
                     ordinal: None,
+                    marker_style: None,
                     blocks: vec![Block::Paragraph(text("second"))],
                 },
                 taide_native_editor::documentation::ListItem {
                     checked: None,
                     ordinal: None,
+                    marker_style: None,
                     blocks: vec![Block::Paragraph(text("third"))],
                 },
             ],
@@ -998,6 +1001,7 @@ fn 항목별_ordinal은_미리보기와_일반_표시에서_역순과_번호_재
                 .map(|ordinal| taide_native_editor::documentation::ListItem {
                     checked: None,
                     ordinal: Some(ordinal),
+                    marker_style: None,
                     blocks: vec![Block::Paragraph(text("item"))],
                 })
                 .collect(),
@@ -1022,6 +1026,63 @@ fn 항목별_ordinal은_미리보기와_일반_표시에서_역순과_번호_재
         for ordinal in ORDINALS {
             let number = format!("{ordinal}.");
             assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == number)));
+        }
+    }
+}
+
+#[test]
+fn 항목별_type은_두_표시에서_번호_도형_생략을_그린다() {
+    use taide_native_editor::documentation::{ListItem, ListMarkerStyle};
+    const ORDINAL: i64 = 27;
+    let styles = [
+        (ListMarkerStyle::UpperAlpha, Some("AA.")),
+        (ListMarkerStyle::LowerRoman, Some("xxvii.")),
+        (ListMarkerStyle::Circle, Some("\u{25e6}")),
+        (ListMarkerStyle::Square, Some("\u{25aa}")),
+        (ListMarkerStyle::None, None),
+    ];
+    for is_preview in [false, true] {
+        for (style, marker) in styles {
+            let document = RichDocument {
+                blocks: vec![Block::List {
+                    start: None,
+                    items: vec![ListItem {
+                        checked: None,
+                        ordinal: Some(ORDINAL),
+                        marker_style: Some(style),
+                        blocks: vec![Block::Paragraph(text("typed item"))],
+                    }],
+                }],
+            };
+            let context = Context::default();
+            let mut output = context.run_ui(
+                RawInput {
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, SCREEN)),
+                    ..Default::default()
+                },
+                |ui| {
+                    if is_preview {
+                        show_preview(ui, &document, &appearance(), colors(), &mut Preview);
+                        return;
+                    }
+                    show(ui, &document, &appearance(), colors(), &mut Preview);
+                },
+            );
+            output.textures_delta.clear();
+            let labels = output
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) => Some(text.galley.job.text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            assert!(labels.contains(&"typed item"));
+            if let Some(marker) = marker {
+                assert!(labels.contains(&marker));
+            } else {
+                assert_eq!(labels, vec!["typed item"]);
+            }
         }
     }
 }

@@ -3,7 +3,7 @@ use super::inlay_hints_tests::{
 };
 use super::*;
 
-const ORIGINAL: &str = "# Markdown heading\n\n**live preview** and `code`\n\n- first item\n\n<h2>HTML preview heading</h2>\n\n<ol start='-1'><li>first ordered</li><li>second ordered</li></ol>\n\n<ol reversed><li>reverse first</li><li value='-4'>reset</li><li>reverse last</li></ol>\n\n<table><caption>Spanning caption</caption><tfoot><tr><td colspan='3'>footer data</td></tr></tfoot><thead><tr><th colspan='3'>group head</th></tr></thead><tbody><tr><td colspan='2'>longer content<img src='./diagram.png' width='80' height='40' alt='table image'></td><td rowspan='2'>tall data</td></tr><tr><td>first</td><td>second</td></tr></tbody></table>\n\n<img src='./diagram.png' width='800' height='400' alt='owned image'>\n";
+const ORIGINAL: &str = "# Markdown heading\n\n**live preview** and `code`\n\n<ul><li type='A' value='27'>first item</li></ul>\n\n<h2>HTML preview heading</h2>\n\n<ol start='-1'><li>first ordered</li><li>second ordered</li></ol>\n\n<ol reversed type='a'><li type='A'>reverse first</li><li type='i' value='-4'>reset</li><li type='I'>reverse last</li></ol>\n\n<table><caption>Spanning caption</caption><tfoot><tr><td colspan='3'>footer data</td></tr></tfoot><thead><tr><th colspan='3'>group head</th></tr></thead><tbody><tr><td colspan='2'>longer content<img src='./diagram.png' width='80' height='40' alt='table image'></td><td rowspan='2'>tall data</td></tr><tr><td>first</td><td>second</td></tr></tbody></table>\n\n<img src='./diagram.png' width='800' height='400' alt='owned image'>\n";
 const UPDATED: &str = "# Updated heading\n\nchanged body";
 const IMAGE_SIZE: [u32; 2] = [2, 1];
 const IMAGE_PIXELS: &[u8] = &[255, 0, 0, 255, 0, 255, 0, 255];
@@ -211,7 +211,7 @@ fn 실제_markdown_토글은_편집기_식별자와_입력_undo_최신_본문을
         &output,
         "HTML preview heading"
     ));
-    for number in ["-1.", "0.", "3.", "-4.", "-5."] {
+    for number in ["AA.", "-1.", "0.", "C.", "-4.", "-5."] {
         assert!(preview_text_contains(
             application,
             context,

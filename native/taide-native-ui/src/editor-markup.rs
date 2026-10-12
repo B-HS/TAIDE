@@ -277,17 +277,8 @@ fn blocks(
                                     false,
                                     egui::Checkbox::without_text(&mut checked.clone()),
                                 );
-                            } else if let Some(start) = start {
-                                ui.label(format!(
-                                    "{}.",
-                                    item.ordinal.unwrap_or_else(|| {
-                                        taide_native_editor::documentation::list_ordinal(
-                                            *start, index,
-                                        )
-                                    })
-                                ));
-                            } else {
-                                ui.label("\u{2022}");
+                            } else if let Some(marker) = item.marker(*start, index) {
+                                ui.label(marker);
                             }
                             ui.vertical(|ui| {
                                 ui.set_max_width((ui.available_width() - LIST_INDENT).max(0.0));

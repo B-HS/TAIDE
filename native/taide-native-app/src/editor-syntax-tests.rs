@@ -487,6 +487,7 @@ fn 문서_도움말_코드는_본문_textmate와_테마를_쓰고_닫힌_소스�
                 items: vec![ListItem {
                     checked: None,
                     ordinal: None,
+                    marker_style: None,
                     blocks: vec![Block::Code {
                         language: String::new(),
                         text: RUST_SOURCE.into(),

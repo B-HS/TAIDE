@@ -2,6 +2,67 @@ use super::*;
 use taide_native_editor::documentation::{Block, Inline};
 
 #[test]
+fn html_목록은_원본_parent_css와_개별_type_정화_우선순위를_보존한다() {
+    for tag in ["ol", "ul"] {
+        for (kind, expected) in [
+            ("a", Some("aa.")),
+            ("A", Some("AA.")),
+            ("i", Some("xxvii.")),
+            ("I", Some("XXVII.")),
+            ("1", Some("27.")),
+            ("disc", Some("\u{2022}")),
+            ("CiRcLe", Some("\u{25e6}")),
+            ("SQUARE", Some("\u{25aa}")),
+            ("NONE", None),
+            (" a ", Some("aa.")),
+            ("\u{feff}\u{a0}a\u{feff}", Some("aa.")),
+        ] {
+            let document = parse(
+                &format!("<{tag} type='A'><li type='{kind}' value='27'>item</li></{tag}>"),
+                None,
+            )
+            .unwrap();
+            let Block::List { start, items } = &document.blocks[0] else {
+                panic!("expected list")
+            };
+            assert_eq!(items[0].marker(*start, 0).as_deref(), expected);
+        }
+        for kind in ["invalid", "aA", "", "\u{85}a\u{85}"] {
+            let document = parse(
+                &format!("<{tag} type='A'><li type='{kind}'>item</li></{tag}>"),
+                None,
+            )
+            .unwrap();
+            let Block::List { start, items } = &document.blocks[0] else {
+                panic!("expected list")
+            };
+            let expected = if tag == "ol" { "1." } else { "\u{2022}" };
+            assert_eq!(items[0].marker(*start, 0).as_deref(), Some(expected));
+        }
+    }
+    let document = parse("<ul><li value='27'>plain<li type='A'>alpha<li type='I' value='4'>roman<li type='none'>none<li type='a'>last</ul><ol reversed type='A'><li type='A'>first<li type='none'>hidden marker<li type='a'>last</ol>", None).unwrap();
+    for (block, expected) in document.blocks.iter().zip([
+        vec![Some("\u{2022}"), Some("AB."), Some("IV."), None, Some("f.")],
+        vec![Some("C."), None, Some("a.")],
+    ]) {
+        let Block::List { start, items } = block else {
+            panic!("expected list")
+        };
+        assert_eq!(
+            items
+                .iter()
+                .enumerate()
+                .map(|(index, item)| item.marker(*start, index))
+                .collect::<Vec<_>>(),
+            expected
+                .into_iter()
+                .map(|value| value.map(str::to_owned))
+                .collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
 fn html_표는_제목_머리_본문_꼬리와_행_그룹_병합을_보존한다() {
     const ROW_COUNT: usize = 4;
     const COLUMN_COUNT: usize = 2;

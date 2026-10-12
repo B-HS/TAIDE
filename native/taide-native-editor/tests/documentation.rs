@@ -11,6 +11,46 @@ fn range(start: u32, end: u32) -> Range {
 }
 
 #[test]
+fn 목록_표시는_알파벳_자리수와_로마_범위_음수_대체를_보존한다() {
+    use taide_native_editor::documentation::ListMarkerStyle;
+    for (style, number, expected) in [
+        (ListMarkerStyle::LowerAlpha, 1, "a."),
+        (ListMarkerStyle::UpperAlpha, 26, "Z."),
+        (ListMarkerStyle::UpperAlpha, 27, "AA."),
+        (ListMarkerStyle::LowerAlpha, 52, "az."),
+        (ListMarkerStyle::LowerAlpha, 53, "ba."),
+        (ListMarkerStyle::LowerAlpha, 0, "0."),
+        (ListMarkerStyle::UpperAlpha, -1, "-1."),
+        (ListMarkerStyle::LowerRoman, 4, "iv."),
+        (ListMarkerStyle::UpperRoman, 9, "IX."),
+        (ListMarkerStyle::UpperRoman, 49, "XLIX."),
+        (ListMarkerStyle::UpperRoman, 3999, "MMMCMXCIX."),
+        (ListMarkerStyle::LowerRoman, 4000, "4000."),
+        (ListMarkerStyle::UpperRoman, 0, "0."),
+        (
+            ListMarkerStyle::LowerRoman,
+            i64::MIN,
+            "-9223372036854775808.",
+        ),
+        (ListMarkerStyle::Decimal, i64::MAX, "9223372036854775807."),
+        (ListMarkerStyle::Circle, -1, "\u{25e6}"),
+        (ListMarkerStyle::Square, 0, "\u{25aa}"),
+        (ListMarkerStyle::Disc, 1, "\u{2022}"),
+    ] {
+        assert_eq!(style.format(number).as_deref(), Some(expected));
+    }
+    assert_eq!(ListMarkerStyle::None.format(1), None);
+    let large = ListMarkerStyle::UpperAlpha.format(i64::MAX).unwrap();
+    assert!(large.ends_with('.'));
+    assert!(
+        large
+            .trim_end_matches('.')
+            .chars()
+            .all(|character| character.is_ascii_uppercase())
+    );
+}
+
+#[test]
 fn 호버는_언어코드와_markdown_plaintext_종류_배열_순서를_보존한다() {
     let hover = Hover {
         contents: HoverContents::Array(vec![
