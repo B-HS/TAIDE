@@ -1,14 +1,20 @@
 use std::collections::HashMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use taide_model::error::AppResult;
+use taide_model::ids::{ProjectId, TabId};
+use taide_model::layout::{ProjectLayout, TabKind};
 use taide_native_editor::document::{DocumentId, DocumentSnapshot, EditorError};
 use taide_native_editor::editing::line_content_range;
+use taide_native_editor::lsp::byte_to_position;
 use taide_native_editor::store::EditorStore;
-use taide_native_editor::view::{ScrollPosition, Selection, SelectionSet, ViewId};
+use taide_native_editor::view::{ScrollPosition, Selection, SelectionSet, ViewId, ViewKey};
+use taide_native_ui::editor_geometry::EditorGeometry;
+use taide_runtime::AppServices;
 
 const MAX_RESTORED_CURSORS: usize = 10_000;
 
-#[derive(Default, Deserialize)]
+#[derive(Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ModelPosition {
     line_number: Option<u64>,
@@ -16,6 +22,14 @@ struct ModelPosition {
 }
 
 impl ModelPosition {
+    fn from_byte(document: &DocumentSnapshot, byte: usize) -> Result<Self, EditorError> {
+        let position = byte_to_position(document, byte)?;
+        Ok(Self {
+            line_number: Some(u64::from(position.line) + 1),
+            column: Some(u64::from(position.character) + 1),
+        })
+    }
+
     fn byte(&self, document: &DocumentSnapshot) -> usize {
         let last_line = document.rope.len_lines().saturating_sub(1);
         let line = usize::try_from(self.line_number.unwrap_or(1).saturating_sub(1))
@@ -30,14 +44,16 @@ impl ModelPosition {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CursorState {
+    #[serde(skip_deserializing, skip_serializing_if = "Option::is_none")]
+    in_selection_mode: Option<bool>,
     selection_start: Option<ModelPosition>,
     position: Option<ModelPosition>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ScrollState {
     scroll_left: Option<f32>,
@@ -46,7 +62,7 @@ struct ScrollState {
     scroll_top_without_view_zones: Option<f32>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PersistedViewState {
     cursor_state: Vec<CursorState>,
@@ -76,9 +92,78 @@ impl PersistedViewState {
     }
 }
 
+struct ScrollAnchor {
+    revision: u64,
+    scroll: ScrollPosition,
+    byte: usize,
+    delta_top: f32,
+}
+
+struct Observed {
+    document: DocumentId,
+    kind: TabKind,
+    anchor: Option<ScrollAnchor>,
+}
+
+pub(crate) struct Captured {
+    project: ProjectId,
+    tab: TabId,
+    kind: TabKind,
+    fields: serde_json::Map<String, serde_json::Value>,
+}
+
+pub(crate) async fn apply(services: &AppServices, captured: Vec<Captured>) -> AppResult<()> {
+    if captured.is_empty() {
+        return Ok(());
+    }
+    let _guard = services.state.begin_mutation().await;
+    let mut layouts = services.state.layouts.read().clone();
+    for (project, layout) in &mut layouts {
+        if !services.state.projects.read().contains_key(project) {
+            continue;
+        }
+        let mut changed = false;
+        for current in captured
+            .iter()
+            .filter(|current| &current.project == project)
+        {
+            let Some(tab) = taide_layout::service::all_roots(layout)
+                .flat_map(crate::tabs::tabs_in)
+                .find(|tab| tab.id == current.tab && tab.kind == current.kind)
+            else {
+                continue;
+            };
+            let mut saved = tab
+                .view_state
+                .as_deref()
+                .and_then(|saved| serde_json::from_str::<serde_json::Value>(saved).ok())
+                .and_then(|saved| saved.as_object().cloned())
+                .unwrap_or_default();
+            saved.extend(current.fields.clone());
+            let saved = serde_json::to_string(&saved)?;
+            if tab.view_state.as_deref() == Some(saved.as_str()) {
+                continue;
+            }
+            taide_layout::service::set_view_state(layout, &current.tab, Some(saved))?;
+            changed = true;
+        }
+        if changed {
+            taide_runtime::layout_actions::finish_mutation(
+                services.events.as_ref(),
+                &services.state,
+                project,
+                layout,
+            );
+        }
+    }
+    *services.state.layouts.write() = layouts;
+    Ok(())
+}
+
 #[derive(Default)]
 pub(crate) struct State {
     restored: HashMap<ViewId, DocumentId>,
+    observed: HashMap<ViewId, Observed>,
 }
 
 impl State {
@@ -89,6 +174,137 @@ impl State {
                 .get(*view)
                 .is_some_and(|current| current.document == *document)
         });
+        self.observed.retain(|view, observed| {
+            store
+                .views()
+                .get(*view)
+                .is_some_and(|current| current.document == observed.document)
+        });
+    }
+
+    pub(crate) fn observe(
+        &mut self,
+        store: &EditorStore,
+        view: ViewId,
+        kind: &TabKind,
+        geometry: &EditorGeometry,
+    ) {
+        let Some(current) = store.views().get(view) else {
+            return;
+        };
+        let Ok(document) = store.documents().snapshot(current.document) else {
+            return;
+        };
+        let anchor = current
+            .display
+            .as_ref()
+            .filter(|display| display.revision() == document.revision)
+            .filter(|_| {
+                current.scroll.x == geometry.scroll.x && current.scroll.y == geometry.scroll.y
+            })
+            .and_then(|_| geometry.scroll_anchor())
+            .map(|(byte, delta_top)| ScrollAnchor {
+                revision: document.revision,
+                scroll: current.scroll.clone(),
+                byte,
+                delta_top,
+            });
+        self.observed.insert(
+            view,
+            Observed {
+                document: document.id,
+                kind: kind.clone(),
+                anchor,
+            },
+        );
+    }
+
+    pub(crate) fn capture(
+        &self,
+        store: &EditorStore,
+        layouts: &HashMap<ProjectId, ProjectLayout>,
+        window: &str,
+    ) -> Result<Vec<Captured>, EditorError> {
+        let mut captured = Vec::new();
+        for (project, layout) in layouts {
+            for root in taide_layout::service::all_roots(layout) {
+                for tab in crate::tabs::tabs_in(root) {
+                    let Some((pane, _)) = taide_layout::service::find_tab(root, &tab.id) else {
+                        continue;
+                    };
+                    let Some(view) = store.views().find(&ViewKey {
+                        window: window.into(),
+                        pane: pane.clone(),
+                        tab: tab.id.clone(),
+                    }) else {
+                        continue;
+                    };
+                    let Some(current) = store.views().get(view) else {
+                        continue;
+                    };
+                    let Some(observed) = self.observed.get(&view).filter(|observed| {
+                        observed.document == current.document && observed.kind == tab.kind
+                    }) else {
+                        continue;
+                    };
+                    let document = store.documents().snapshot(current.document)?;
+                    let primary = current.selection.primary;
+                    let cursor_state = std::iter::once(&current.selection.selections[primary])
+                        .chain(
+                            current
+                                .selection
+                                .selections
+                                .iter()
+                                .enumerate()
+                                .filter(|(index, _)| *index != primary)
+                                .map(|(_, selection)| selection),
+                        )
+                        .map(|selection| {
+                            Ok(CursorState {
+                                in_selection_mode: Some(selection.anchor != selection.head),
+                                selection_start: Some(ModelPosition::from_byte(
+                                    &document,
+                                    selection.anchor,
+                                )?),
+                                position: Some(ModelPosition::from_byte(
+                                    &document,
+                                    selection.head,
+                                )?),
+                            })
+                        })
+                        .collect::<Result<Vec<_>, EditorError>>()?;
+                    let anchor = observed.anchor.as_ref().filter(|anchor| {
+                        anchor.revision == document.revision && anchor.scroll == current.scroll
+                    });
+                    let first_position = anchor
+                        .map(|anchor| ModelPosition::from_byte(&document, anchor.byte))
+                        .transpose()?;
+                    let saved = PersistedViewState {
+                        cursor_state,
+                        view_state: ScrollState {
+                            scroll_left: Some(current.scroll.x),
+                            first_position,
+                            first_position_delta_top: anchor.map(|anchor| anchor.delta_top),
+                            scroll_top_without_view_zones: anchor
+                                .is_none()
+                                .then_some(current.scroll.y),
+                        },
+                    };
+                    let serde_json::Value::Object(fields) =
+                        serde_json::to_value(saved).map_err(|_| EditorError::InvalidBoundary)?
+                    else {
+                        return Err(EditorError::InvalidBoundary);
+                    };
+                    captured.push(Captured {
+                        project: project.clone(),
+                        tab: tab.id.clone(),
+                        kind: tab.kind.clone(),
+                        fields,
+                    });
+                }
+            }
+        }
+        Ok(captured)
     }
 
     pub(crate) fn restore(

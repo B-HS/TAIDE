@@ -4,11 +4,14 @@ use std::time::Duration;
 use taide_ide::store::{PendingDiff, PendingSave};
 use taide_model::ide::IdeDiffOutcome;
 use taide_model::paths::AppPaths;
+use taide_model::project::Project;
 use tokio::net::TcpStream;
 
 use super::*;
 
 const DEADLINE: Duration = Duration::from_secs(5);
+const VIEW_STATE_FAILURE: &str = "synthetic view state failure";
+const DRAFT_CONTENT: &str = "unsaved content";
 
 struct Sink;
 
@@ -20,6 +23,64 @@ struct Fixture {
     directory: PathBuf,
     marker: PathBuf,
     services: Arc<AppServices>,
+}
+
+#[tokio::test]
+async fn 위치_캡처_오류가_있어도_미저장_본문을_mirror에_보존하고_종료_오류를_보고한다() {
+    let project = ProjectId::new();
+    let tab = TabId::new();
+    let directory =
+        std::env::temp_dir().join(format!("taide-native-view-state-exit-error-{project}"));
+    std::fs::create_dir_all(&directory).unwrap();
+    let fixture = Fixture {
+        marker: directory.join("unused-marker"),
+        services: bootstrap::services(
+            AppState::new(AppPaths::new(directory.clone())),
+            TaskSupervisor::new(tokio::runtime::Handle::current()),
+            Arc::new(Sink),
+        ),
+        directory,
+    };
+    let services = &fixture.services;
+    services.state.projects.write().insert(
+        project.clone(),
+        Project {
+            id: project.clone(),
+            root: fixture.directory.to_str().unwrap().to_owned(),
+            name: "synthetic".into(),
+            capabilities: Vec::new(),
+            root_missing: false,
+            last_opened_at: 0.0,
+            display: Default::default(),
+        },
+    );
+    let result = shutdown(
+        services.clone(),
+        None,
+        None,
+        None,
+        Ok(vec![Draft {
+            project: project.clone(),
+            target: DraftTarget::Untitled(tab.clone()),
+            content: DRAFT_CONTENT.into(),
+        }]),
+        Err(AppError::InvalidArgument(VIEW_STATE_FAILURE.into())),
+    )
+    .await;
+    assert!(
+        matches!(finish_direct_exit(services, result).await, Err(AppError::InvalidArgument(message)) if message == VIEW_STATE_FAILURE)
+    );
+    let mirrors =
+        taide_file::service::list_untitled_mirrors(&services.state.paths, &project).unwrap();
+    assert_eq!(
+        mirrors.len(),
+        1,
+        "view state failure must not discard the draft"
+    );
+    assert_eq!(mirrors[0].tab_id, tab);
+    assert_eq!(mirrors[0].content, DRAFT_CONTENT);
+    assert!(services.state.is_shutting_down());
+    assert_eq!(services.tasks.tracked_count(), 0);
 }
 
 impl Drop for Fixture {
@@ -110,6 +171,7 @@ async fn 실제_app_exit는_서버_세션_pending_lockfile과_감독_소유권�
                     None,
                     None,
                     Err(AppError::InvalidArgument("synthetic draft failure".into())),
+                    Ok(Vec::new()),
                 )
                 .await;
                 assert!(matches!(
@@ -117,7 +179,15 @@ async fn 실제_app_exit는_서버_세션_pending_lockfile과_감독_소유권�
                     Err(AppError::InvalidArgument(message)) if message == "synthetic draft failure"
                 ));
             } else {
-                let result = shutdown(services.clone(), None, None, None, Ok(Vec::new())).await;
+                let result = shutdown(
+                    services.clone(),
+                    None,
+                    None,
+                    None,
+                    Ok(Vec::new()),
+                    Ok(Vec::new()),
+                )
+                .await;
                 finish_direct_exit(services, result).await.unwrap();
             }
             assert!(services.state.is_shutting_down());

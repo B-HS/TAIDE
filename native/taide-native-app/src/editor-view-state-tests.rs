@@ -1,8 +1,15 @@
 use super::*;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use taide_model::file::{EditorConfigOptions, FileSizeTier, OpenedFile};
 use taide_model::ids::{PaneId, TabId};
+use taide_model::layout::{PaneNode, Tab};
+use taide_model::paths::AppPaths;
+use taide_model::project::Project;
 use taide_native_editor::store::EditorLimits;
 use taide_native_editor::view::ViewKey;
+use taide_runtime::{AppState, EventSink, TaskSupervisor};
 
 const TEXT: &str = "a\r\n  \u{1f600}end\r\n";
 const DOCUMENT_LIMIT: usize = 2;
@@ -204,4 +211,262 @@ fn 선택_시작의_누락된_축은_저장된_head의_같은_축을_사용한�
             }]
         );
     }
+}
+
+#[test]
+fn 캡처는_readonly의_최신_선택_primary와_raw_scroll을_보존하고_교체된_소유를_제외한다() {
+    let (mut store, view) = fixture();
+    let key = store.views().get(view).unwrap().key.clone();
+    let document = store.views().get(view).unwrap().document;
+    let original = store.documents().snapshot(document).unwrap();
+    let kind = TabKind::File {
+        path: "/synthetic/view-state.txt".into(),
+    };
+    let project = ProjectId::new();
+    let mut layout = taide_layout::service::default_layout();
+    layout.root = PaneNode::Leaf {
+        id: key.pane.clone(),
+        tabs: vec![Tab {
+            id: key.tab.clone(),
+            kind: kind.clone(),
+            title: "synthetic".into(),
+            pinned: false,
+            preview: false,
+            dirty: false,
+            view_state: None,
+        }],
+        active: Some(key.tab.clone()),
+    };
+    layout.focused_pane = key.pane.clone();
+    let mut layouts = HashMap::from([(project.clone(), layout)]);
+    store
+        .set_view_state(
+            view,
+            SelectionSet {
+                primary: 1,
+                selections: vec![
+                    Selection { anchor: 0, head: 0 },
+                    Selection {
+                        anchor: EMOJI_END,
+                        head: EMOJI_END,
+                    },
+                ],
+            },
+            ScrollPosition {
+                x: PREVIOUS_X,
+                y: PREVIOUS_Y,
+            },
+            Vec::new(),
+        )
+        .unwrap();
+    let mut state = State::default();
+    state.observed.insert(
+        view,
+        Observed {
+            document,
+            kind,
+            anchor: None,
+        },
+    );
+    let captured = state.capture(&store, &layouts, &key.window).unwrap();
+    assert_eq!(captured.len(), 1);
+    let saved = serde_json::Value::Object(captured[0].fields.clone());
+    assert_eq!(
+        saved["cursorState"][0]["position"],
+        serde_json::json!({"lineNumber": 2, "column": EMOJI_COLUMN})
+    );
+    assert_eq!(
+        saved["cursorState"][1]["position"],
+        serde_json::json!({"lineNumber": 1, "column": 1})
+    );
+    assert_eq!(
+        saved["viewState"]["scrollTopWithoutViewZones"],
+        serde_json::json!(PREVIOUS_Y)
+    );
+    let mut selection = store.views().get(view).unwrap().selection.clone();
+    selection.selections[1] = Selection {
+        anchor: EMOJI_START,
+        head: EMOJI_START,
+    };
+    store
+        .set_view_state(
+            view,
+            selection,
+            ScrollPosition {
+                x: PREVIOUS_X,
+                y: PREVIOUS_Y,
+            },
+            Vec::new(),
+        )
+        .unwrap();
+    let latest = state.capture(&store, &layouts, &key.window).unwrap();
+    assert_eq!(
+        latest[0].fields["cursorState"][0]["position"],
+        serde_json::json!({"lineNumber": 2, "column": 3})
+    );
+    let current = store.documents().snapshot(document).unwrap();
+    assert_eq!(current.rope.to_string(), original.rope.to_string());
+    assert_eq!(current.revision, original.revision);
+    assert_eq!(current.dirty, original.dirty);
+    if let PaneNode::Leaf { tabs, .. } = &mut layouts.get_mut(&project).unwrap().root {
+        tabs[0].kind = TabKind::Untitled { index: 1 };
+    }
+    assert!(
+        state
+            .capture(&store, &layouts, &key.window)
+            .unwrap()
+            .is_empty()
+    );
+    store.detach_view(view).unwrap();
+    state.begin_frame(&store);
+    assert!(state.observed.is_empty());
+    assert!(
+        state
+            .capture(&store, &layouts, &key.window)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[derive(Default)]
+struct ApplyEvents(AtomicUsize);
+
+impl EventSink for ApplyEvents {
+    fn publish(&self, event: taide_model::app_event::AppEvent) {
+        if matches!(
+            event,
+            taide_model::app_event::AppEvent::LayoutChanged { .. }
+        ) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+}
+
+struct ApplyFixture {
+    directory: PathBuf,
+    services: Arc<AppServices>,
+}
+
+impl Drop for ApplyFixture {
+    fn drop(&mut self) {
+        self.services.tasks.stop_all();
+        let _ = std::fs::remove_dir_all(&self.directory);
+    }
+}
+
+#[tokio::test]
+async fn 캡처_저장은_미지의_필드와_contribution을_보존하고_중복과_닫힌_소유를_무시한다() {
+    let project = ProjectId::new();
+    let pane = PaneId::new();
+    let tab = TabId::new();
+    let directory = std::env::temp_dir().join(format!("taide-native-view-state-{project}"));
+    std::fs::create_dir_all(&directory).unwrap();
+    let events = Arc::new(ApplyEvents::default());
+    let fixture = ApplyFixture {
+        services: crate::bootstrap::services(
+            AppState::new(AppPaths::new(directory.clone())),
+            TaskSupervisor::new(tokio::runtime::Handle::current()),
+            events.clone(),
+        ),
+        directory,
+    };
+    let state = &fixture.services.state;
+    state.projects.write().insert(
+        project.clone(),
+        Project {
+            id: project.clone(),
+            root: fixture.directory.to_str().unwrap().to_owned(),
+            name: "synthetic".into(),
+            capabilities: Vec::new(),
+            root_missing: false,
+            last_opened_at: 0.0,
+            display: Default::default(),
+        },
+    );
+    let kind = TabKind::File {
+        path: "/synthetic/view-state.txt".into(),
+    };
+    let contribution = serde_json::json!({"editor.contrib.folding": {"collapsedRegions": [{"startLineNumber": 1, "endLineNumber": 2}]}});
+    let previous = serde_json::json!({"future": {"preserve": true}, "contributionsState": contribution, "cursorState": [], "viewState": {}}).to_string();
+    let mut layout = taide_layout::service::default_layout();
+    layout.root = PaneNode::Leaf {
+        id: pane.clone(),
+        tabs: vec![Tab {
+            id: tab.clone(),
+            kind: kind.clone(),
+            title: "synthetic".into(),
+            pinned: false,
+            preview: false,
+            dirty: false,
+            view_state: Some(previous),
+        }],
+        active: Some(tab.clone()),
+    };
+    layout.focused_pane = pane;
+    let initial = layout.revision;
+    state.layouts.write().insert(project.clone(), layout);
+    let captured = || {
+        Captured {
+        project: project.clone(), tab: tab.clone(), kind: kind.clone(),
+        fields: serde_json::json!({"cursorState": [{"position": {"lineNumber": 2, "column": EMOJI_COLUMN}}], "viewState": {"scrollLeft": PREVIOUS_X, "scrollTopWithoutViewZones": PREVIOUS_Y}}).as_object().unwrap().clone(),
+    }
+    };
+    apply(&fixture.services, vec![captured()]).await.unwrap();
+    let updated = state.layouts.read()[&project].clone();
+    assert_eq!(updated.revision, initial + 1);
+    assert_eq!(events.0.load(Ordering::SeqCst), 1);
+    let saved = crate::tabs::tabs_in(&updated.root)[0]
+        .view_state
+        .as_deref()
+        .unwrap();
+    let saved: serde_json::Value = serde_json::from_str(saved).unwrap();
+    assert_eq!(saved["future"], serde_json::json!({"preserve": true}));
+    assert_eq!(saved["contributionsState"], contribution);
+    state.dirty_layouts.write().clear();
+    apply(&fixture.services, vec![captured()]).await.unwrap();
+    assert!(state.dirty_layouts.read().is_empty());
+    assert_eq!(state.layouts.read()[&project].revision, updated.revision);
+    assert_eq!(events.0.load(Ordering::SeqCst), 1);
+    state.projects.write().remove(&project);
+    apply(
+        &fixture.services,
+        vec![Captured {
+            fields: serde_json::json!({"cursorState": []})
+                .as_object()
+                .unwrap()
+                .clone(),
+            ..captured()
+        }],
+    )
+    .await
+    .unwrap();
+    assert_eq!(state.layouts.read()[&project], updated);
+    state.projects.write().insert(
+        project.clone(),
+        Project {
+            id: project.clone(),
+            root: fixture.directory.to_str().unwrap().to_owned(),
+            name: "synthetic".into(),
+            capabilities: Vec::new(),
+            root_missing: false,
+            last_opened_at: 0.0,
+            display: Default::default(),
+        },
+    );
+    if let PaneNode::Leaf { tabs, .. } = &mut state.layouts.write().get_mut(&project).unwrap().root
+    {
+        tabs[0].kind = TabKind::Untitled { index: 1 };
+    }
+    let replaced = state.layouts.read()[&project].clone();
+    apply(&fixture.services, vec![captured()]).await.unwrap();
+    assert_eq!(state.layouts.read()[&project], replaced);
+    let mut closed = replaced;
+    taide_layout::service::close_tab(&mut closed, &tab).unwrap();
+    state
+        .layouts
+        .write()
+        .insert(project.clone(), closed.clone());
+    apply(&fixture.services, vec![captured()]).await.unwrap();
+    assert_eq!(state.layouts.read()[&project], closed);
+    assert_eq!(fixture.services.tasks.tracked_count(), 0);
 }

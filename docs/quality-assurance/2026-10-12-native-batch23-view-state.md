@@ -1,10 +1,11 @@
 # 배치 23 커서·스크롤 상태 복원
 
-현재 상태: 실제 App의 초기 선택 미복원·명시 이동의 scroll 덮임·누락된 선택 시작 축 오류를 재현해 수정했습니다. 실제 App 4·상태 3건, Core 전체 306·UI editor_surface 87의 서로 다른 400건과 frozen host/Wasm 제품 compile·소유 Rust fmt가 통과했습니다. 최신 상태 저장/닫힘/종료 소비는 아직 미연결이며 editor-67은 partial로 정정하고 전체 완료로 올리지 않습니다. 기능 체크리스트는 298/588(50.7%)·미완료 290이고 전체 전환율/잔여 시간은 미산정입니다. workflow/서브에이전트 없이 메인이 진행합니다.
+현재 상태: 실제 초기 복원·누락 축/종료 저장 실패와 위치 오류의 draft 저장 누락을 재현해 수정했습니다. 정상/직접 앱 종료의 최신 선택·scroll 캡처/layout flush와 본문 우선 오류 처리를 연결했습니다. 관련 App/상태 10·종료 2·UI geometry 1건, 기존 Core 전체 306/UI 본문 87의 서로 다른 406건과 App tests compile·소유 fmt/diff가 통과했습니다. 전환·탭/창/프로젝트 닫힘·원격 요청의 fresh capture와 folding contribution·전체 재시작은 남아 editor-67 partial을 유지합니다. 기능 체크리스트는 298/588(50.7%)·미완료 290이고 전체 전환율/잔여 시간은 미산정입니다. workflow/서브에이전트 없이 메인이 진행합니다.
 
 - [x] a. 원본 저장 형식·native 모델/표시·facade/종료 경계 대조
 - [x] b. 임시 App의 초기 복원 실패 재현·검증된 저장 형식과 복원 연결
 - [ ] c. 탭/뷰 전환·닫힘·창/프로젝트/앱 종료의 최신 상태 저장 연결
+- [x] c1. 실제 geometry/live 선택 캡처·정상/직접 앱 종료의 layout 저장과 본문 우선 오류 처리
 - [ ] d. 실제 App/재시작·Unicode/scroll/mirror/readonly·잘못된 값/소유 수명 검증
 - [ ] e. 관련 회귀/형식/경계·기능표/PROCESS·선별 Git 저장
 - [x] e1. 초기 복원 단위의 실제 App/상태·Core 전체·UI 회귀·frozen 제품 compile·소유 fmt 확인
@@ -74,3 +75,29 @@ raw legacy scroll도 초기 커서 reveal에 덮이지 않도록 Core 요청에 
 `view-state-missing-axis-fixed.log`의 상태 3건은 3통과/0실패·0.00초·exit 0(컴파일 15.85초)입니다. 빈/줄만/열만 selectionStart와 기존 CRLF/UTF-16 clamp·잘못된 형식/readonly/mirror를 확인했습니다. native reveal 조건은 cfg 분리 전과 같고 App parser 변경이 frozen 제품에는 의존하지 않으므로 이전 App 4/Core 306/UI 87·frozen 성공을 재사용합니다. 서로 다른 400건이며 마지막 소유 10Rust fmt check·관련 diff check는 exit 0입니다. 기존 Wry 17경고와 App linker의 unwind-table 크기 경고는 검사 실패로 바꾸거나 제거하지 않았습니다.
 
 초기 복원 코드/검사·QA/PROCESS 상단의 12경로는 `2ee11a21`로 선별 커밋했습니다. PROCESS 하단의 기존 두 hunk와 HANDOFF/architecture/이전 결정/피드백·memory 변경은 스테이징하지 않았습니다. 기능표는 599행·391근거 경로 정합성을 확인하며 editor-67만 partial로 정정합니다. 완료 298/미완료 290·배치 23 잔여 23/최종 33과 전체 목표를 유지하고 다음은 실제 종료의 최신 위치 저장 실패입니다.
+
+## 종료 직전 최신 위치 저장
+
+`2ee11a21`과 판정 기록 `339fc46a`는 일반 push·upstream 0/0을 확인했습니다. 실제 종료 검사는 소유 임시 App의 Unicode 역방향 선택을 실제 Shift+Right로 움직인 뒤 on_exit와 정상 close를 각각 확인합니다. 첫 `view-state-exit-red.log`는 직접 종료 후 디스크 layout의 Tab.view_state가 None이라 실패했습니다. 0통과/1실패·21.10초·exit 101(컴파일 21.00초)이며 정상 close 사례는 아직 도달하지 않았습니다. 원문/revision/dirty/디스크/작업 회수의 후기 단언은 통과로 세지 않습니다.
+
+기존 실제 EditorGeometry의 첫 가시 표시 행과 원점은 wrap/접기·추가 zone이 반영돼 있습니다. 모델 byte와 화면 위쪽 대비 delta를 이 geometry에서 얻고 live ViewState의 UTF-16 선택과 함께 캡처합니다. display/document revision·scroll이 맞지 않으면 첫 모델 위치를 추측하지 않고 검증된 raw scroll 형식을 사용합니다. 닫힌 탭/프로젝트나 교체된 문서/TabKind는 저장하지 않으며 기존 contribution/알 수 없는 최상위 JSON 필드는 보존합니다. 종료에서는 Host reply의 PreparedDocument guard가 회수된 뒤 기존 mutation/dirty-layout flush 순서에 캡처를 연결합니다. 전환/닫힘/원격 요청의 fresh capture와 folding contribution 소비·실제 전체 재시작은 별도 미완료입니다.
+
+첫 연결의 `view-state-exit-green.log`는 실제 App 1건의 정상/직접 종료 두 사례가 1통과·20.90초·exit 0(컴파일 34.43초)입니다. 실제 Shift+Right의 마지막 Unicode 역방향 선택과 가로 scroll이 디스크 layout에 도달하고 원문/revision/dirty/디스크 원문·작업 0을 보존했습니다. 이어서 디스크 값을 새 ViewId에 복원하고 실제 첫 모델 anchor/delta가 같은 세로 scroll을 만드는 단언과 순수 상태의 primary/readonly·최신 선택/소유 교체 및 async 저장의 중복/contribution/닫힌 프로젝트·탭 검사를 추가했습니다. 전체 App 재시작이나 전체 editor-67 완료로 확대하지 않습니다.
+
+첫 관련 `view-state-exit-related.log`는 authored async fixture의 Project.root에 PathBuf를 넣어 E0308 2건·exit 101로 컴파일 실패했습니다. 실제 모델의 String 타입에 맞춰 소유 임시 경로를 변환했습니다. 검사 실행 0건을 성공으로 세지 않으며 같은 관련 10건을 선별 실행합니다. 원본이 읽지 않는 inSelectionMode는 Deserialize에서 소비하지 않고 live 선택 저장에서만 정확한 Boolean으로 작성합니다.
+
+`view-state-exit-related-fixed.log`는 실제 App 5/상태 5의 서로 다른 10통과/0실패·23.69초·exit 0(컴파일 26.52초)입니다. 기존 7건을 중복 합산하지 않으며 최초 복원 단위의 Core 306/UI 87을 합치면 서로 다른 403건입니다. 정상/직접 종료 두 사례의 디스크 layout 값→새 ViewId 선택/실제 모델 anchor·세로 scroll roundtrip과 원문/revision/dirty/디스크·작업 0, readonly raw scroll/primary 우선·observe 뒤 최신 선택·교체된 문서 종류/해제, 알 수 없는 최상위 필드/contribution 보존·중복 revision/event/dirty 억제·닫힌 프로젝트/탭과 종류 교체를 확인했습니다. 새 ViewId roundtrip은 전체 App/process 재시작 게이트를 대신하지 않습니다.
+
+직전 전체 로그 `taide-batch23-ide-selection-app-all-targets.log:165`의 기존 application::exit_tests는 통과했습니다. 그 경로는 빈 캡처의 apply가 즉시 반환하고 기존 draft/종료 순서가 같으며 호출의 새 인자만 Ok(Vec::new())입니다. 기존 성공을 재사용하고 마지막 제품의 App 전체 성공으로 바꾸지 않습니다. 추가 geometry API는 native-host에만 컴파일되고 App 저장은 frozen에 의존하지 않으므로 기존 frozen host/Wasm 성공도 재사용합니다.
+
+`view-state-virtual-anchor-check.log`의 UI 1건은 1통과·0.02초·exit 0(컴파일 9.70초)입니다. 실제 다중 줄 completion preview를 그린 geometry의 모델 행에서는 anchor가 있고 가상 행만 남는 clipping에서는 None입니다. 우려한 가상 행의 잘못된 anchor는 재현되지 않았으며 검사만 추가하고 제품 경계를 더 바꾸지 않았습니다. 실제 preview 원문도 보존합니다. App 10 + Core 306 + UI 87/새 geometry 1의 서로 다른 404건이며 이전 App 종료 1·초기 App/상태 7을 다시 합산하지 않습니다.
+
+`view-state-exit-app-check.log`는 App tests 포함 check·8분 49초·exit 0입니다. 기존 Wry 경고와 editor-code-actions의 test-only is_applying에 대한 lib dead_code 경고를 보존합니다. 검사 중 오래 살아 있던 Cargo와 최근 시작된 rustc를 읽었고 정상 종료·성공을 확인했습니다. 별도 Cargo 프로세스는 조작하지 않았으며 완료 시간/CPU 대기를 앱 동작 실패의 근거로 바꾸지 않습니다.
+
+위치 캡처 실패가 유효한 본문 draft의 mirror까지 건너뛰지 않는지 종료 오류 경계를 확인합니다. 기존 소유 fixture와 실제 untitled mirror 서비스에 유효한 draft와 위치 오류를 함께 전달하고 직접 종료의 원래 오류·저장된 draft·작업 회수를 단언합니다. 검사 입력은 소유 임시 데이터뿐이며 다른 종료 실패나 원본 버그의 강제 재현으로 범위를 넓히지 않습니다.
+
+`view-state-exit-error-red.log`는 위치 오류를 보고했지만 유효한 draft의 mirror가 0개라 기대한 1개와 달라 실패했습니다. 0통과/1실패·0.03초·exit 101입니다. 위치 저장을 본문 mirror 뒤로 옮기고 위치 결과와 기존 layout flush를 분리했습니다. 위치 캡처/apply가 실패해도 유효한 본문과 기존 layout을 먼저 저장하며 위치 오류는 그대로 반환합니다. 정상 닫기는 기존 실패 처리로 돌아가고 직접 종료는 기존 drain 경계에서 작업을 회수합니다. 오류를 무시하거나 성공으로 바꾸지 않으며 변경한 종료 함수의 관련 두 검사만 확인합니다.
+
+`view-state-exit-error-fixed.log`는 1통과/1실패·0.05초·exit 101(컴파일 20.48초)입니다. 새 위치 오류/draft mirror/오류 반환/작업 0 검사는 통과했습니다. 기존 서버 종료 검사는 IDE 서버 포트를 열 때 Operation not permitted로 실패했으며 종료 동작까지 도달하지 않았습니다. 소유 임시 데이터와 자체 loopback 서버의 실패 한 건만 권한 허용으로 실행하고 성공한 새 검사는 반복하지 않습니다.
+
+`view-state-exit-server-permitted.log`의 실패 한 건은 권한 허용·exit 0으로 통과했습니다. 원래 서버/세션/pending/lockfile·감독 종료와 직접 오류 drain을 확인했습니다. 관련 종료 2건을 포함한 서로 다른 성공은 총 406건입니다. API/타입이 같은 private shutdown 내부의 본문 우선 순서만 바뀌었으므로 App tests 포함 compile 성공을 재사용하고 변경한 함수의 두 검사를 직접 확인했습니다. 마지막 소유 7Rust fmt/diff는 exit 0이고 변경하지 않은 Core/UI 본문·native-host 외의 frozen 성공은 재사용합니다. 전체 App/실기/전체 재시작이나 editor-67 전체 완료를 뜻하지 않습니다.

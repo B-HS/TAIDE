@@ -64,6 +64,13 @@ impl EditorGeometry {
         })
     }
 
+    #[cfg(feature = "native-host")]
+    pub fn scroll_anchor(&self) -> Option<(usize, f32)> {
+        self.shown_rows()
+            .next()
+            .map(|row| (row.segment.bytes.start, row.origin.y - self.rect.top()))
+    }
+
     pub fn caret_rect(&self, byte: usize) -> Option<Rect> {
         caret_rect(&self.rows, self.rect, self.line_height, byte)
     }

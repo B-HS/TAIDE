@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: 배치 23 d3의 저장된 선택/scroll 복원을 실제 본문에 연결했습니다. 초기 (18→8) 선택 미복원과 명시 줄 이동의 scroll 887 덮임을 실제 실패로 재현해 수정했습니다. actual App 4건·상태 2건의 서로 다른 6건과 Core 전체 39대상·306건이 통과했으며 기존 성능 ignored 1을 유지합니다. 입력/원문/revision/dirty/디스크를 보존했습니다. 작성한 readonly 검사의 중첩 egui 잠금도 수정했고 실패/불필요한 성공 재검사는 QA에 구분합니다. UI editor_surface 87건과 누락 축 수정의 상태 3건·frozen host/Wasm 제품 compile·소유 fmt도 통과했습니다. 초기 복원의 서로 다른 성공은 총 400건이며 최신 상태 저장/탭·창·프로젝트·앱 종료 연결은 남아 있습니다. 기능 체크리스트 298/588(50.7%)·미완료 290·배치 23 미완료 23행·현재 23/최종 33을 유지하고 전체 전환율/잔여 시간은 근거 부족으로 미산정입니다. 기존 App 준비 실패·frozen Wasm tests의 시간 API 불일치·전체/실기/출시와 사용자 기존 문서 변경을 보존합니다.
+현재 상태: d3b1의 정상/직접 앱 종료에 최신 선택/scroll 캡처와 layout flush를 연결했습니다. 종료 후 view_state None과 위치 오류로 draft mirror가 0개인 실패를 재현해 수정했으며 본문/기존 layout을 먼저 저장하고 위치 오류를 보고합니다. App/상태 10·종료 2·UI geometry 1과 기존 Core 306/UI 본문 87의 서로 다른 406건, App tests compile·7Rust fmt/diff가 통과했습니다. 포트 권한 실패 한 건은 소유 loopback 서버만 권한 허용으로 확인했습니다. 초기 복원 2ee11a21/판정 339fc46a의 일반 push·0/0을 유지하며 종료 단위를 선별 저장합니다. 전환/탭·창·프로젝트·원격 fresh capture·folding contribution/전체 재시작은 남아 있습니다. 기능 체크리스트 298/588(50.7%)·미완료 290·부분93/미연결110/미구현87·배치23 잔여23/최종33이고 전체 전환율/잔여 시간은 미산정입니다. 이전 App 준비 실패·frozen Wasm tests·전체/실기/출시와 사용자 기존 변경을 보존합니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 
@@ -101,13 +101,14 @@
 - [x] d3a2. 저장 형식과 표시 준비 뒤 복원 — JSON 객체/배열 경계·live ViewId/DocumentId 최초 복원·Ropey UTF-16 문자 경계/CRLF·두 scroll 형식과 명시 이동 우선순위를 연결했습니다. 실제 lossy/readonly 새 뷰의 선택/편집 거절·원문/디스크 보존과 독립 mirror/잘못된 값/해제까지 App 4·상태 2의 서로 다른 6건이 통과했습니다. authored test 잠금 실패와 수정 뒤 5성공의 불필요한 재검사는 QA에 구분하며 저장/종료·전체 게이트 완료로 올리지 않습니다.
 - [x] d3a3. 복원 단위의 회귀/호환성·선별 저장 — 실제 App 4·상태 3/Core 전체 306/UI editor_surface 87의 서로 다른 400건과 frozen host/Wasm compile을 확인했습니다. 웹 cfg의 공통 reveal 참조 오류와 원본 selectionStart 누락 축을 실제 실패 뒤 수정했습니다. 소유 10Rust fmt/diff·QA를 확인하고 구현 12경로를 2ee11a21로 선별 커밋했습니다. editor-67은 partial이며 최신 상태 저장/종료·folding contribution/전체 게이트는 남아 있습니다.
 - [ ] d3b. 최신 위치 저장/종료 연결 — 기존 typed facade와 mutation/flush 경계에서 탭 전환/닫힘·보조 창/프로젝트/앱 종료의 최신 상태 순서를 보장하고 닫힌 뷰/잘못된 JSON/metadata 갱신의 재복원·내용 변경을 막습니다. 연결 뒤 관련 검사와 실제 재시작/디스크·mirror/readonly 회귀를 확인합니다. 원본 folding contribution의 유효 범위/본문 확인도 함께 대조합니다.
-- [ ] d3b1. 실제 종료 저장 실패와 캡처 — 임시 App의 실제 선택/scroll을 이동한 뒤 정상/직접 종료에서 layout 디스크 저장 실패를 재현합니다. 실제 renderer의 첫 모델 위치/delta와 live 모델의 UTF-16 선택을 캡처하고 원문/revision/dirty를 보존합니다. 종료 캡처와 기존 layout flush의 순서를 연결하며 전체 c/d3b 완료로 확대하지 않습니다.
+- [x] d3b1. 실제 종료 저장 실패와 캡처 — 정상/직접 앱 종료의 마지막 Unicode 선택·실제 geometry anchor/delta·raw fallback과 디스크 layout→새 ViewId/scroll roundtrip을 연결했습니다. 위치 오류의 draft 저장 누락도 재현해 본문/기존 layout 우선 저장과 원래 오류 반환을 보장했습니다. App/상태 10·종료 2·UI geometry 1과 기존 Core 306/UI 87의 서로 다른 406건, App tests compile·7Rust fmt/diff가 통과했습니다. source/readonly·primary/중복/소유/해제·본문/디스크·작업 0을 확인했으며 전체 c/d3b/재시작 완료로 확대하지 않습니다.
+- [ ] d3b2. 전환/닫힘의 fresh capture — 셸 mutation·Host 파일/탭 작업·IDE/remote 소비에서 최신 live 위치를 적용한 뒤 기존 작업을 실행하도록 연결합니다. UI를 guard 대기로 막지 않고 두 큐의 순서를 보장하며 정상 종료/직접 on_exit의 대기 캡처 회수를 함께 처리합니다. 탭 닫힘/최근 닫힘·project/slot/aux 종료·새 파일/preview 교체를 실제 앱과 소유 임시 서비스에서 검증합니다.
 - [ ] e. AI·Emmet — editor-77/78/80의 인라인 완성/편집과 Emmet을 원본 명령·표시·수락/거절/취소/오래된 응답에 맞게 연결합니다. 실제 키/개인 데이터 대신 주입 포트·임시 데이터로 검증합니다.
 - [ ] f. 실제 앱·전체 게이트 — 닫을 기능의 실제 앱/child/mirror·readonly/tier/다중 커서/IME·정상 종료/회귀를 확인하고 변경 크레이트 전체 대상을 --no-fail-fast로 직접 1회 실행합니다. 성공 결과는 재사용하고 실패 영향만 재검사합니다. frozen host/Wasm compile·fmt/diff·manifest/lock/engine/보호 경계·디스크와 배치 31 실기/성능/신뢰성 부채를 구분합니다.
 - [x] f1. 프로젝트 열기 지연 위치 조사·배치 31 이관 — 전체 App 811통과/프로젝트 open 5초 초과 1실패와 Cargo 단독 동일 실패를 보존했습니다. 같은 실행 파일의 직접 검사는 저장소/크레이트 cwd에서 3.81/3.23초에 통과했습니다. 성공한 두 번째 검사 중 start_watch→notify runloop 준비 대기와 FSEventStreamStart→등록 RPC의 실제 스택을 확인했습니다. 실패 시점의 스택이나 지연 변동의 근본 원인은 확인하지 않았으며 해결/전체 exit 0으로 보고하지 않습니다. 제한 확대·검사 생략·OS 변경 없이 반복 조사를 종료하고 배치 31의 실행 환경/신뢰성 게이트에 미해결 위험을 유지합니다.
 - [ ] g. 완료 근거·선별 Git — 실제 닫힌 ID만 QA/기능표/PROCESS에 반영하고 논리 단위 선별 커밋·일반 푸시합니다. 배치 24를 기존 계획 안에서 이어가며 배치 번호를 세부 수정마다 늘리지 않습니다.
 
-다음 행동: 복원 단위의 기능표/진척 기록을 일반 푸시한 뒤 d3b1의 실제 앱 종료 저장 실패를 재현하고 최신 위치 캡처와 기존 layout flush를 연결합니다. 이전 준비 실패와 frozen Wasm tests의 std/web Instant 불일치는 신뢰성 게이트에 보존하며 같은 성공은 반복하지 않습니다.
+다음 행동: 검증한 종료 저장 단위를 일반 푸시한 뒤 d3b2의 실제 탭 닫힘에서 최신 위치가 최근 닫힘에 남는지 재현하고 fresh capture 순서를 연결합니다. 이전 준비 실패와 frozen Wasm tests의 std/web Instant 불일치는 신뢰성 게이트에 보존하며 같은 성공은 반복하지 않습니다.
 
 ## 완료: 배치 22 — 자동완성과 사용자 스니펫 소비 (2026-10-10)
 

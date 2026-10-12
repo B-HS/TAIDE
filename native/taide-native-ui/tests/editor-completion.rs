@@ -611,6 +611,24 @@ fn suggest_재입력은_first로_재선택하고_방향키와_새_요청의_선�
 }
 
 #[test]
+fn 가상_preview줄만_보이는_geometry는_모델_scroll_anchor를_만들지_않는다() {
+    let mut fixture = Fixture::new();
+    fixture.preview = true;
+    fixture.completion.preview_text = Some("foo(\nargument\n)".into());
+    fixture.open();
+    fixture.frame(0.3, Vec::new(), &[]);
+    let mut geometry = fixture.editor_geometry.as_ref().unwrap().clone();
+    assert!(geometry.scroll_anchor().is_some());
+    geometry.rect.min.y += LINE_HEIGHT;
+    let anchor = geometry.scroll_anchor();
+    assert!(
+        anchor.is_none(),
+        "virtual preview row cannot represent a model row: {anchor:?}"
+    );
+    assert_eq!(fixture.text(), "fo");
+}
+
+#[test]
 fn suggest_preview는_설정에_따라_실제_본문과_추가줄을_표시하고_취소하면_문서를_보존하며_회수한다() {
     let mut fixture = Fixture::new();
     fixture.completion.preview_text = Some("foo(\n\targument\n)".into());

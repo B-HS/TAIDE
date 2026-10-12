@@ -2,7 +2,7 @@ use super::inlay_hints_tests::{
     body_view, fixture_with_view_state, fixture_with_view_state_and_setup, key, paint, wait,
 };
 use super::*;
-use taide_native_editor::view::Selection;
+use taide_native_editor::view::{ScrollPosition, Selection, SelectionSet};
 
 const ANCHOR_COLUMN: u32 = 11;
 const STORED_LINE: u32 = 2;
@@ -10,6 +10,7 @@ const ANCHOR_BYTE: usize = 18;
 const HEAD_COLUMN: u32 = 3;
 const HEAD_BYTE: usize = 8;
 const SHIFT_HEAD_BYTE: usize = 12;
+const SHIFT_HEAD_COLUMN: u32 = 5;
 const STABLE_FRAMES: usize = 16;
 const LONG_LINE_COUNT: usize = 144;
 const WIDE_RUNS: usize = 40;
@@ -19,6 +20,164 @@ const SCROLL_DELTA_TOP: f32 = -7.0;
 const LEGACY_SCROLL_TOP: f32 = 320.0;
 const NAVIGATION_LINE: u32 = 100;
 const INVALID_UTF8: u8 = 0xff;
+
+#[test]
+fn 실제_정상과_직접_종료는_마지막_본문_선택과_scroll을_layout에_저장한다() {
+    let text = format!(
+        "class\n  \u{1f600}method\n{}",
+        (0..LONG_LINE_COUNT)
+            .map(|index| format!("row {index} {}\n", "wide text ".repeat(WIDE_RUNS)))
+            .collect::<String>()
+    );
+    for is_direct in [true, false] {
+        let mut fixture =
+            fixture_with_view_state("--native-inlay-hints", false, |_, _, _| true, None, &text);
+        let mut application = fixture.application.take().unwrap();
+        let view = body_view(&application, &fixture.path, &fixture.tab);
+        application
+            .store
+            .set_view_state(
+                view,
+                SelectionSet {
+                    primary: 0,
+                    selections: vec![Selection {
+                        anchor: ANCHOR_BYTE,
+                        head: HEAD_BYTE,
+                    }],
+                },
+                ScrollPosition {
+                    x: SCROLL_LEFT,
+                    y: LEGACY_SCROLL_TOP,
+                },
+                Vec::new(),
+            )
+            .unwrap();
+        let focus = crate::editor_context_menu::body(&fixture.context, view).unwrap();
+        fixture
+            .context
+            .memory_mut(|memory| memory.request_focus(focus));
+        paint(
+            &mut application,
+            &fixture.context,
+            key(
+                egui::Key::ArrowRight,
+                egui::Modifiers {
+                    shift: true,
+                    ..egui::Modifiers::NONE
+                },
+            ),
+        );
+        for _ in 0..STABLE_FRAMES {
+            eframe::App::logic(
+                &mut application,
+                &fixture.context,
+                &mut eframe::Frame::_new_kittest(),
+            );
+            paint(&mut application, &fixture.context, Vec::new());
+        }
+        let current = application.store.views().get(view).unwrap();
+        assert_eq!(
+            current.selection.selections,
+            vec![Selection {
+                anchor: ANCHOR_BYTE,
+                head: SHIFT_HEAD_BYTE
+            }]
+        );
+        let scroll = current.scroll.clone();
+        let display = current.display.clone().unwrap();
+        let line_height = application.editor.appearance.line_height;
+        let original = application
+            .store
+            .documents()
+            .snapshot(current.document)
+            .unwrap();
+        if is_direct {
+            eframe::App::on_exit(&mut application);
+        } else {
+            application.close(&fixture.context);
+            wait(
+                &mut application,
+                &fixture.context,
+                "view state exit",
+                |application| application.is_exit_ready,
+            );
+        }
+        let layout =
+            taide_layout::service::load_layout(&application.services.state.paths, &fixture.project);
+        let tab = crate::tabs::tabs_in(&layout.root)
+            .into_iter()
+            .find(|tab| tab.id == fixture.tab)
+            .unwrap();
+        let serialized = tab
+            .view_state
+            .as_deref()
+            .expect("latest view state must survive app shutdown");
+        let saved: serde_json::Value = serde_json::from_str(serialized).unwrap();
+        assert_eq!(
+            saved["cursorState"][0]["selectionStart"],
+            serde_json::json!({"lineNumber": STORED_LINE, "column": ANCHOR_COLUMN})
+        );
+        assert_eq!(
+            saved["cursorState"][0]["position"],
+            serde_json::json!({"lineNumber": STORED_LINE, "column": SHIFT_HEAD_COLUMN})
+        );
+        assert_eq!(
+            saved["viewState"]["scrollLeft"].as_f64(),
+            Some(f64::from(scroll.x))
+        );
+        let restored = application
+            .store
+            .attach_view(
+                ViewKey {
+                    window: "persisted-view".into(),
+                    pane: PaneId::new(),
+                    tab: TabId::new(),
+                },
+                original.id,
+            )
+            .unwrap();
+        crate::editor_view_state::State::default()
+            .restore(&mut application.store, restored, Some(serialized))
+            .unwrap();
+        assert_eq!(
+            application
+                .store
+                .views()
+                .get(restored)
+                .unwrap()
+                .selection
+                .selections,
+            vec![Selection {
+                anchor: ANCHOR_BYTE,
+                head: SHIFT_HEAD_BYTE
+            }]
+        );
+        let anchor = application
+            .store
+            .take_scroll_restore(restored)
+            .unwrap()
+            .unwrap();
+        let restored_top = taide_native_editor::display_layout::VerticalLayout::new(
+            line_height,
+            display.row_count(),
+        )
+        .row_top(
+            display.row_of_byte(
+                &original,
+                anchor
+                    .byte
+                    .expect("rendered view must preserve its model anchor"),
+            ),
+        ) - anchor.delta_top;
+        assert_eq!(restored_top, scroll.y);
+        let current = application.store.documents().snapshot(original.id).unwrap();
+        assert_eq!(current.rope.to_string(), text);
+        assert_eq!(current.revision, original.revision);
+        assert_eq!(current.dirty, original.dirty);
+        assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), text);
+        assert_eq!(application.services.tasks.tracked_count(), 0);
+    }
+}
 
 #[test]
 fn 실제_본문은_저장된_utf16_역방향_선택을_복원하고_후속_layout에서_재복원하지_않는다() {

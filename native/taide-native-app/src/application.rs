@@ -2533,6 +2533,14 @@ impl NativeApplication {
             context.request_repaint();
             return;
         }
+        let view_states = self
+            .editor_view_state
+            .capture(
+                &self.store,
+                &self.controller.snapshot().layouts,
+                WINDOW_LABEL,
+            )
+            .map_err(editor_error);
         self.app_file_views.clear();
         self.editor_completion.clear();
         self.editor_highlights.clear();
@@ -2563,7 +2571,7 @@ impl NativeApplication {
         self.closing = Some(receiver);
         self.runtime.spawn(async move {
             let (result, ()) = tokio::join!(
-                shutdown(services, bridge, lsp, web, drafts),
+                shutdown(services, bridge, lsp, web, drafts, view_states),
                 crate::editor_syntax::finished(syntax),
             );
             drop(sender.send(result));
@@ -7330,6 +7338,14 @@ impl eframe::App for NativeApplication {
             return;
         }
         let pending_close = self.closing.take();
+        let view_states = self
+            .editor_view_state
+            .capture(
+                &self.store,
+                &self.controller.snapshot().layouts,
+                WINDOW_LABEL,
+            )
+            .map_err(editor_error);
         self.editor_completion.clear();
         self.editor_inlay_hints.clear();
         self.editor_code_lenses.clear();
@@ -7360,7 +7376,7 @@ impl eframe::App for NativeApplication {
                 })
             } else {
                 tokio::join!(
-                    shutdown(services.clone(), bridge, lsp, web, drafts),
+                    shutdown(services.clone(), bridge, lsp, web, drafts, view_states),
                     crate::editor_syntax::finished(syntax),
                 )
                 .0
@@ -7389,6 +7405,7 @@ async fn shutdown(
     lsp: Option<tokio::task::JoinHandle<()>>,
     web: Option<tokio::task::JoinHandle<()>>,
     drafts: AppResult<Vec<Draft>>,
+    view_states: AppResult<Vec<crate::editor_view_state::Captured>>,
 ) -> AppResult<()> {
     let (host_result, lsp_result, web_result) = tokio::join!(
         async {
@@ -7452,7 +7469,12 @@ async fn shutdown(
             }
         }
     }
+    let view_state_result = match view_states {
+        Ok(captured) => crate::editor_view_state::apply(&services, captured).await,
+        Err(error) => Err(error),
+    };
     crate::host::flush_layouts(&services).await?;
+    view_state_result?;
     drain_services(&services).await
 }
 
@@ -8934,6 +8956,7 @@ impl AppSurfaces<'_> {
                 }
                 if let Some(display) = &document_highlights { display.paint(ui, &output.geometry); }
                 inlay_consumer.observe(self.store, editor_project, view, view, output.rendered_lines.clone());
+                self.editor_view_state.observe(self.store, view, &tab.kind, &output.geometry);
                 code_lens_consumer.after(self.store, view, &output.code_lenses);
                 selection_range_consumer.after(self.store, view);
                 if let TabKind::File { path } = &tab.kind && let Some(project) = editor_project {
