@@ -87,13 +87,10 @@ pub(crate) fn intent_with_editor(
     snapshot: &ShellSnapshot,
     focused_view: Option<&ViewKey>,
 ) -> Option<ShellIntent> {
-    if matches!(
-        command_run(id, context),
-        Some(Run::EditDocument(DocumentEdit::RunSelectedText))
-    ) {
+    if let Some(Run::EditDocument(edit)) = command_run(id, context) {
         return Some(ShellIntent::EditDocument {
             tab: focused_view?.tab.clone(),
-            edit: DocumentEdit::RunSelectedText,
+            edit,
         });
     }
     intent(id, context, snapshot)

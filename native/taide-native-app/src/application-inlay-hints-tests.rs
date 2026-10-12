@@ -81,9 +81,30 @@ pub(super) fn wait(
     });
     assert!(
         result.is_ok(),
-        "phase={phase}; status={:?}; tasks={}",
+        "phase={phase}; status={:?}; tasks={}; lsp={:?}; documents={:?}; loading={}",
         application.status,
-        application.services.tasks.tracked_count()
+        application.services.tasks.tracked_count(),
+        application
+            .controller
+            .snapshot()
+            .projects
+            .iter()
+            .map(|project| application
+                .lsp
+                .as_ref()
+                .and_then(|lsp| lsp.summary(&project.id)))
+            .collect::<Vec<_>>(),
+        application
+            .store
+            .documents()
+            .snapshots()
+            .map(|snapshot| (
+                snapshot.metadata.language_id,
+                snapshot.metadata.tier,
+                snapshot.revision
+            ))
+            .collect::<Vec<_>>(),
+        application.loading.len()
     );
 }
 

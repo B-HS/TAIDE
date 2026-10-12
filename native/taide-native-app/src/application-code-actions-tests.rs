@@ -77,7 +77,7 @@ fn wait(
     });
     assert!(
         result.is_ok(),
-        "phase={phase}; status={:?}; tasks={}; request={:?}; applying={}; focus={:?}; source={:?}",
+        "phase={phase}; status={:?}; tasks={}; request={:?}; applying={}; focus={:?}; source={:?}; lsp={:?}; documents={:?}; loading={}",
         application.status,
         application.services.tasks.tracked_count(),
         application
@@ -100,7 +100,28 @@ fn wait(
                 .documents()
                 .snapshot(request.snapshot.id)
                 .ok())
-            .map(|snapshot| snapshot.rope.to_string())
+            .map(|snapshot| snapshot.rope.to_string()),
+        application
+            .controller
+            .snapshot()
+            .projects
+            .iter()
+            .map(|project| application
+                .lsp
+                .as_ref()
+                .and_then(|lsp| lsp.summary(&project.id)))
+            .collect::<Vec<_>>(),
+        application
+            .store
+            .documents()
+            .snapshots()
+            .map(|snapshot| (
+                snapshot.metadata.language_id,
+                snapshot.metadata.tier,
+                snapshot.revision
+            ))
+            .collect::<Vec<_>>(),
+        application.loading.len()
     );
 }
 

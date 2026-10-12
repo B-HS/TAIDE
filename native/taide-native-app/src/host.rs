@@ -19,6 +19,7 @@ pub type ClipboardWriter = Arc<dyn Fn(&str) -> AppResult<()> + Send + Sync>;
 pub type ClipboardReader = Arc<dyn Fn() -> AppResult<String> + Send + Sync>;
 
 pub enum HostCommand {
+    EditorIdeSelection(crate::editor_ide_selection::Request),
     EditorContextMenu(crate::editor_context_menu::Request),
     EditorClipboard(crate::editor_context_menu::ClipboardRequest),
     RunEditorText(crate::editor_context_menu::TerminalRequest),
@@ -649,6 +650,12 @@ async fn dispatch(
     let terminals = integrations.terminals.as_ref();
     let reconcile = &integrations.reconcile;
     match command {
+        HostCommand::EditorIdeSelection(request) => {
+            if let Err(error) = request.apply(services).await {
+                log::warn!("native IDE selection request failed: {:?}", error.kind());
+            }
+            None
+        }
         HostCommand::EditorContextMenu(_)
         | HostCommand::FormatEditorInput { .. }
         | HostCommand::RenameEditor { .. }

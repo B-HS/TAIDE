@@ -134,6 +134,7 @@ pub struct NativeApplication {
     editor_inlay_hints: crate::editor_inlay_hints::State,
     editor_code_lenses: crate::editor_code_lenses::State,
     editor_selection_ranges: crate::editor_selection_ranges::State,
+    editor_ide_selection: crate::editor_ide_selection::State,
     editor_clipboard: crate::editor_context_menu::Clipboard,
     editor_menu_changes: HashMap<DocumentId, ViewId>,
     editor_terminal_writes: Vec<crate::editor_context_menu::TerminalDelivery>,
@@ -453,6 +454,7 @@ impl NativeApplication {
             editor_inlay_hints: crate::editor_inlay_hints::State::default(),
             editor_code_lenses: crate::editor_code_lenses::State::default(),
             editor_selection_ranges: crate::editor_selection_ranges::State::default(),
+            editor_ide_selection: crate::editor_ide_selection::State::default(),
             editor_clipboard: crate::editor_context_menu::Clipboard::default(),
             editor_menu_changes: HashMap::new(),
             editor_terminal_writes: Vec::new(),
@@ -5974,6 +5976,8 @@ impl eframe::App for NativeApplication {
             self.web_previews.invalidate_media();
         }
         let snapshot = self.controller.snapshot();
+        self.editor_ide_selection
+            .begin_frame(self.services.ide.is_running());
         self.breadcrumbs.reconcile(
             &context,
             &snapshot.layouts,
@@ -6559,6 +6563,7 @@ impl eframe::App for NativeApplication {
             editor_inlay_hints: &mut self.editor_inlay_hints,
             editor_code_lenses: &mut self.editor_code_lenses,
             editor_selection_ranges: &mut self.editor_selection_ranges,
+            editor_ide_selection: &mut self.editor_ide_selection,
             peek_models: &self.peek_models,
             lsp: self.lsp.as_ref(),
             find_history: &mut self.find_history,
@@ -6642,6 +6647,20 @@ impl eframe::App for NativeApplication {
             .inner;
         self.focused = new_focus;
         self.status = status;
+        let now = Instant::now();
+        for request in self.editor_ide_selection.finish_frame(&self.store, now) {
+            match request {
+                Ok(request) => {
+                    if !self.submit(HostCommand::EditorIdeSelection(request.clone())) {
+                        self.editor_ide_selection.retry(request, now);
+                    }
+                }
+                Err(error) => self.report(&editor_error(error)),
+            }
+        }
+        if let Some(deadline) = self.editor_ide_selection.next_deadline() {
+            context.request_repaint_after(deadline.saturating_duration_since(now));
+        }
         if self.system_usage.detail_open
             && crate::system_usage_view::show_detail(
                 &context,
@@ -7518,6 +7537,7 @@ struct AppSurfaces<'a> {
     editor_inlay_hints: &'a mut crate::editor_inlay_hints::State,
     editor_code_lenses: &'a mut crate::editor_code_lenses::State,
     editor_selection_ranges: &'a mut crate::editor_selection_ranges::State,
+    editor_ide_selection: &'a mut crate::editor_ide_selection::State,
     peek_models: &'a crate::peek_models::Models,
     lsp: Option<&'a crate::lsp::LspBridge>,
     find_history: &'a mut taide_native_ui::editor_find_widget::FindHistory,
@@ -8910,6 +8930,9 @@ impl AppSurfaces<'_> {
                 inlay_consumer.observe(self.store, editor_project, view, view, output.rendered_lines.clone());
                 code_lens_consumer.after(self.store, view, &output.code_lenses);
                 selection_range_consumer.after(self.store, view);
+                if let TabKind::File { path } = &tab.kind && let Some(project) = editor_project {
+                    self.editor_ide_selection.observe(self.store, project, self.scope, view, path, Instant::now());
+                }
                 if output.response.has_focus() || ui.memory(|memory| output.focus_ids.iter().any(|id| {
                     memory.has_focus(*id) && !preview_focus_targets.iter().any(|(target, _)| target == id)
                 })) {
@@ -9054,6 +9077,9 @@ mod selection_ranges_tests;
 #[cfg(all(test, unix))]
 #[path = "application-context-menu-tests.rs"]
 mod context_menu_tests;
+#[cfg(all(test, unix))]
+#[path = "application-ide-selection-tests.rs"]
+mod ide_selection_tests;
 #[cfg(all(test, unix))]
 #[path = "application-startup-tests.rs"]
 mod startup_tests;
