@@ -459,6 +459,7 @@ pub fn editor_documentation_colors(
     })
 }
 
+#[cfg(feature = "native-host")]
 pub fn editor_markdown_colors(theme: &ResolvedTheme) -> AppResult<crate::editor_markup::Colors> {
     Ok(crate::editor_markup::Colors {
         background: color(theme, "editor.background")?,

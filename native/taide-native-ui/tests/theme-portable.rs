@@ -48,6 +48,7 @@ fn catalog() -> Vec<ThemeSummary> {
         .collect()
 }
 
+#[cfg(feature = "native-host")]
 #[test]
 fn markdown_미리보기는_호버_대신_원본_앱_테두리_강조_코드_배경색을_사용한다() {
     let mut theme = theme("synthetic-preview");

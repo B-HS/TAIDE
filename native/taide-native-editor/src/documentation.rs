@@ -52,7 +52,7 @@ pub enum Block {
     },
     Quote(Vec<Block>),
     List {
-        start: Option<u64>,
+        start: Option<i64>,
         items: Vec<ListItem>,
     },
     Code {
@@ -71,6 +71,10 @@ pub enum Block {
 pub struct ListItem {
     pub checked: Option<bool>,
     pub blocks: Vec<Block>,
+}
+
+pub fn list_ordinal(start: i64, index: usize) -> i64 {
+    start.saturating_add(i64::try_from(index).unwrap_or(i64::MAX))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

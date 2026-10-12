@@ -242,7 +242,7 @@ fn finish(frames: &mut Vec<Frame>) {
             Some(Block::Quote(frame.blocks))
         }
         Kind::List(start) => Some(Block::List {
-            start,
+            start: start.and_then(|start| i64::try_from(start).ok()),
             items: frame.items,
         }),
         Kind::Item => {

@@ -256,8 +256,18 @@ fn blocks(node: NodeRef<'_>, base: Option<&Url>) -> Vec<Block> {
                 start: (tag == "ol").then(|| {
                     child
                         .attr("start")
-                        .and_then(|start| start.parse::<u32>().ok())
-                        .map(u64::from)
+                        .and_then(|start| {
+                            let start = start.trim_start_matches(|character| {
+                                matches!(character, '\t' | '\n' | '\u{c}' | '\r' | ' ')
+                            });
+                            let digits = start.strip_prefix(['-', '+']).unwrap_or(start);
+                            let length = digits.bytes().take_while(u8::is_ascii_digit).count();
+                            if length == 0 {
+                                return None;
+                            }
+                            let end = start.len() - digits.len() + length;
+                            start.get(..end)?.parse::<i64>().ok()
+                        })
                         .unwrap_or(1)
                 }),
                 items: child

@@ -3,7 +3,7 @@ use super::inlay_hints_tests::{
 };
 use super::*;
 
-const ORIGINAL: &str = "# Markdown heading\n\n**live preview** and `code`\n\n- first item\n\n<h2>HTML preview heading</h2>\n\n<img src='./diagram.png' width='800' height='400' alt='owned image'>\n";
+const ORIGINAL: &str = "# Markdown heading\n\n**live preview** and `code`\n\n- first item\n\n<h2>HTML preview heading</h2>\n\n<ol start='-1'><li>first ordered</li><li>second ordered</li></ol>\n\n<table><tr><th>short</th><th>header two</th></tr><tr><td>longer content</td><td>first<br>second</td></tr></table>\n\n<img src='./diagram.png' width='800' height='400' alt='owned image'>\n";
 const UPDATED: &str = "# Updated heading\n\nchanged body";
 const IMAGE_SIZE: [u32; 2] = [2, 1];
 const IMAGE_PIXELS: &[u8] = &[255, 0, 0, 255, 0, 255, 0, 255];
@@ -162,6 +162,15 @@ fn 실제_markdown_토글은_편집기_식별자와_입력_undo_최신_본문을
         &output,
         "HTML preview heading"
     ));
+    for number in ["-1.", "0."] {
+        assert!(preview_text_contains(
+            application,
+            context,
+            &pane,
+            &output,
+            number
+        ));
+    }
     wait(
         application,
         context,

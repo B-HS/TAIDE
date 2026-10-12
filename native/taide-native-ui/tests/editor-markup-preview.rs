@@ -55,6 +55,32 @@ fn text(value: &str) -> Vec<Inline> {
     })]
 }
 
+fn table_edges(output: &egui::FullOutput) -> Vec<[egui::Pos2; 2]> {
+    output
+        .shapes
+        .iter()
+        .flat_map(|shape| match &shape.shape {
+            egui::Shape::LineSegment { points, stroke }
+                if stroke.width == CELL_BORDER_WIDTH && stroke.color == colors().border =>
+            {
+                vec![*points]
+            }
+            egui::Shape::Rect(rect)
+                if rect.stroke.width == CELL_BORDER_WIDTH
+                    && rect.stroke.color == colors().border =>
+            {
+                vec![
+                    [rect.rect.left_top(), rect.rect.right_top()],
+                    [rect.rect.left_bottom(), rect.rect.right_bottom()],
+                    [rect.rect.left_top(), rect.rect.left_bottom()],
+                    [rect.rect.right_top(), rect.rect.right_bottom()],
+                ]
+            }
+            _ => Vec::new(),
+        })
+        .collect()
+}
+
 #[test]
 fn 미리보기_제목과_본문은_편집기_글꼴_크기와_별개의_원본_크기를_사용한다() {
     let context = Context::default();
@@ -133,7 +159,7 @@ fn 인용과_표는_원본_테두리를_사용하고_긴_코드는_줄바꿈하�
     let _ = paint(Vec::new());
     let output = paint(Vec::new());
     assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::LineSegment { points, stroke } if points[0].x == points[1].x && stroke.width == QUOTE_BORDER_WIDTH)));
-    assert!(output.shapes.iter().filter(|shape| matches!(&shape.shape, egui::Shape::Rect(rect) if rect.stroke.width == CELL_BORDER_WIDTH && rect.stroke.color == colors().border)).count() >= TABLE_CELL_COUNT);
+    assert!(table_edges(&output).len() >= TABLE_CELL_COUNT);
     let (before, point) = output
         .shapes
         .iter()
@@ -232,4 +258,117 @@ fn 인라인_코드_프레임은_원본_둥근_배경과_링크_클릭을_보존
         ]);
     }
     assert_eq!(links.targets, [TARGET]);
+}
+
+#[test]
+fn 표의_서로_다른_본문_폭과_높이에서도_모든_셀_경계는_같은_열과_행에_맞는다() {
+    const WARMUP_FRAMES: usize = 3;
+    const COLUMN_COUNT: usize = 2;
+    const ROW_COUNT: usize = 3;
+    let context = Context::default();
+    let document = RichDocument {
+        blocks: vec![Block::Table {
+            columns: vec![],
+            header: vec![text("short"), text("header-two")],
+            rows: vec![
+                vec![
+                    text("longer content in column one"),
+                    vec![
+                        Inline::Text(Span {
+                            text: "first".into(),
+                            ..Default::default()
+                        }),
+                        Inline::Break,
+                        Inline::Text(Span {
+                            text: "second".into(),
+                            ..Default::default()
+                        }),
+                    ],
+                ],
+                vec![text("one"), text("last")],
+            ],
+        }],
+    };
+    let mut edges = Vec::new();
+    for _ in 0..WARMUP_FRAMES {
+        let mut output = context.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, SCREEN)),
+                ..Default::default()
+            },
+            |ui| {
+                show_preview(ui, &document, &appearance(), colors(), &mut Preview);
+            },
+        );
+        output.textures_delta.clear();
+        edges = table_edges(&output);
+    }
+    let mut columns = edges
+        .iter()
+        .filter_map(|points| (points[0].x == points[1].x).then_some(points[0].x))
+        .collect::<Vec<_>>();
+    let mut rows = edges
+        .iter()
+        .filter_map(|points| (points[0].y == points[1].y).then_some(points[0].y))
+        .collect::<Vec<_>>();
+    columns.sort_by(f32::total_cmp);
+    columns.dedup();
+    rows.sort_by(f32::total_cmp);
+    rows.dedup();
+    assert_eq!(columns.len(), COLUMN_COUNT + 1);
+    assert_eq!(rows.len(), ROW_COUNT + 1);
+    for column in columns.windows(2) {
+        for row in rows.windows(2) {
+            for points in [
+                [egui::pos2(column[0], row[0]), egui::pos2(column[1], row[0])],
+                [egui::pos2(column[0], row[1]), egui::pos2(column[1], row[1])],
+                [egui::pos2(column[0], row[0]), egui::pos2(column[0], row[1])],
+                [egui::pos2(column[1], row[0]), egui::pos2(column[1], row[1])],
+            ] {
+                assert_eq!(edges.iter().filter(|edge| **edge == points).count(), 1);
+            }
+        }
+    }
+}
+
+#[test]
+fn 순서_목록은_음수에서_0을_거쳐_증가하고_큰_번호에서도_overflow하지_않는다() {
+    const NEGATIVE_START: i64 = -1;
+    let context = Context::default();
+    let document = RichDocument {
+        blocks: vec![Block::List {
+            start: Some(NEGATIVE_START),
+            items: vec![
+                taide_native_editor::documentation::ListItem {
+                    checked: None,
+                    blocks: vec![Block::Paragraph(text("first"))],
+                },
+                taide_native_editor::documentation::ListItem {
+                    checked: None,
+                    blocks: vec![Block::Paragraph(text("second"))],
+                },
+                taide_native_editor::documentation::ListItem {
+                    checked: None,
+                    blocks: vec![Block::Paragraph(text("third"))],
+                },
+            ],
+        }],
+    };
+    let mut output = context.run_ui(
+        RawInput {
+            screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, SCREEN)),
+            ..Default::default()
+        },
+        |ui| {
+            show_preview(ui, &document, &appearance(), colors(), &mut Preview);
+        },
+    );
+    output.textures_delta.clear();
+    for number in ["-1.", "0.", "1."] {
+        assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == number)));
+    }
+    assert_eq!(
+        taide_native_editor::documentation::list_ordinal(i64::MAX, 1),
+        i64::MAX
+    );
 }

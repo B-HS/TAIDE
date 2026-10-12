@@ -260,7 +260,10 @@ fn blocks(
                                     egui::Checkbox::without_text(&mut checked.clone()),
                                 );
                             } else if let Some(start) = start {
-                                ui.label(format!("{}.", start + index as u64));
+                                ui.label(format!(
+                                    "{}.",
+                                    taide_native_editor::documentation::list_ordinal(*start, index)
+                                ));
                             } else {
                                 ui.label("\u{2022}");
                             }

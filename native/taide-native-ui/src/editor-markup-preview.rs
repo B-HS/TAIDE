@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use egui::{FontFamily, Margin, RichText, Stroke, Ui};
 use taide_native_editor::documentation::{Alignment, Block, Inline, RichDocument};
 
@@ -140,7 +142,9 @@ fn blocks(
                                         ui.label(
                                             RichText::new(format!(
                                                 "{}.",
-                                                start.saturating_add(index as u64)
+                                                taide_native_editor::documentation::list_ordinal(
+                                                    *start, index
+                                                )
                                             ))
                                             .size(FONT_SIZE),
                                         );
@@ -190,6 +194,7 @@ fn blocks(
             } => {
                 ui.scope(|ui| {
                     ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+                    let mut cells = Vec::new();
                     egui::Grid::new("table")
                         .spacing(egui::Vec2::ZERO)
                         .show(ui, |ui| {
@@ -198,6 +203,7 @@ fn blocks(
                                 .filter(|row| !row.is_empty())
                                 .enumerate()
                             {
+                                let mut row_cells = Vec::new();
                                 for (column, contents) in row.iter().enumerate() {
                                     let align = match columns.get(column) {
                                         Some(Alignment::Center) => egui::Align::Center,
@@ -219,17 +225,58 @@ fn blocks(
                                                     !header.is_empty() && index == 0,
                                                 );
                                             });
-                                        ui.painter().rect_stroke(
-                                            output.response.rect,
-                                            egui::CornerRadius::ZERO,
-                                            Stroke::new(CELL_BORDER, colors.border),
-                                            egui::StrokeKind::Inside,
-                                        );
+                                        row_cells.push(output.response.rect);
                                     });
                                 }
+                                cells.push(row_cells);
                                 ui.end_row();
                             }
                         });
+                    let count = cells.iter().map(Vec::len).max().unwrap_or_default();
+                    let columns = (0..count)
+                        .map(|column| {
+                            cells
+                                .iter()
+                                .filter_map(|row| row.get(column).copied())
+                                .reduce(|left, right| left.union(right))
+                        })
+                        .collect::<Vec<_>>();
+                    let mut edges = HashSet::new();
+                    for row in &cells {
+                        let Some(bounds) =
+                            row.iter().copied().reduce(|left, right| left.union(right))
+                        else {
+                            continue;
+                        };
+                        for (column, _) in row.iter().enumerate() {
+                            let Some(column) = columns[column] else {
+                                continue;
+                            };
+                            let left = column.left();
+                            let right = column.right();
+                            let top = bounds.top();
+                            let bottom = bounds.bottom();
+                            for points in [
+                                [egui::pos2(left, top), egui::pos2(right, top)],
+                                [egui::pos2(left, bottom), egui::pos2(right, bottom)],
+                                [egui::pos2(left, top), egui::pos2(left, bottom)],
+                                [egui::pos2(right, top), egui::pos2(right, bottom)],
+                            ] {
+                                let key = [
+                                    points[0].x.to_bits(),
+                                    points[0].y.to_bits(),
+                                    points[1].x.to_bits(),
+                                    points[1].y.to_bits(),
+                                ];
+                                if edges.insert(key) {
+                                    ui.painter().line_segment(
+                                        points,
+                                        Stroke::new(CELL_BORDER, colors.border),
+                                    );
+                                }
+                            }
+                        }
+                    }
                 });
             }
             Block::Rule => {

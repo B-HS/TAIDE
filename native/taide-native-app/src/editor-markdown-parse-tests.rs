@@ -2,6 +2,26 @@ use super::*;
 use taide_native_editor::documentation::{Block, Inline};
 
 #[test]
+fn html_순서_목록은_음수와_0의_시작_값을_보존한다() {
+    for start in ["-3", "0", "7"] {
+        let document = parse(
+            &format!("<ol start='{start}'><li>first</li><li>second</li></ol>"),
+            None,
+        )
+        .unwrap();
+        assert!(
+            matches!(&document.blocks[0], Block::List { start: Some(number), items } if number.to_string() == start && items.len() > 1)
+        );
+    }
+    for (value, expected) in [(" \t-3tail", -3), ("+7suffix", 7), ("bad", 1), ("-", 1)] {
+        let document = parse(&format!("<ol start='{value}'><li>first</li></ol>"), None).unwrap();
+        assert!(
+            matches!(&document.blocks[0], Block::List { start: Some(number), .. } if *number == expected)
+        );
+    }
+}
+
+#[test]
 fn gfm과_html의_인용_목록_체크박스_표와_코드는_내용과_정렬을_보존한다() {
     let document = parse(
         "> quote\n\n3. first\n   - [x] checked\n\n| left | right |\n| :--- | ---: |\n| cell | value |\n\n```rust\n<&>  code\n```\n\n<table><tr><td>plain</td><th>bold</th></tr></table>\n",
