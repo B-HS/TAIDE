@@ -1,6 +1,6 @@
 {
     "date": "2026-10-12",
-    "baseline": "497d5d43",
+    "baseline": "4939d891",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1164,7 +1164,7 @@
                 "native/taide-native-editor/tests/documentation.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-12-native-batch23-markdown.md"],
-            "limitation": "실제 App/기본 HTML/경로/이미지·오류 복구와 preview 전용 표시/테마에 표 row/column 경계 정규화·공유 edge1회와 signed start/HTML 정수 prefix/기본값·overflow-safe 두 UI 번호를 연결했습니다. 실제 같은 행48/88 경계와 음수→1 실패를 재현했으며 UI18/App1/parser5/Core7/LSP parser8/portable2의 서로 다른41통과·소유10Rust fmt/diff·frozen host tests 포함/Wasm canvas lib compile이 통과했습니다. 최초 native-host theme helper 경계 E0433은 같은 cfg로 수정했고 기능 강제 활성화로 우회하지 않았습니다. 전체 표 data/viewport/이미지/span·HTML reversed/value/type/CSS/SVG/MathML/media/details/anchor·readonly/mirror/독립 scroll/추가 뷰와 전체App/실기/성능/출시는 남아 partial입니다."
+            "limitation": "원본 분할/기본 HTML·표시/테마와 표 공유 경계·signed start에 실제 App의 동일 문서 두 ViewId·독립 선택/토글/본문-preview scroll·mirror 수정/undo·한 뷰 닫힘 뒤 남은 뷰 보존/최종 닫힘과 lossy readonly 입력 거절을 연결했습니다. 사라진 viewport 상태 잔류를 재현해 현재 live viewport로 상태/이미지 demand를 회수했습니다. 최신 상태3/App3의 서로 다른6통과·일반 App lib check·소유4Rust fmt/diff이며 이전 성공은 재사용합니다. d6b 기능 수명은 완료하고 표 data/viewport/이미지/span·HTML reversed/value/type/CSS/SVG/MathML/media/details/anchor·물리 OS 창/전체App/실기/성능/출시는 미완료라 partial입니다."
         }
     },
     "rows": [
@@ -3047,7 +3047,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-markdown",
-            "note": "stable 분할/본문/문서 수명·기본 HTML/경로/이미지/오류 복구·원본 표시/테마에 표 경계/공유 edge와 signed start/정수 파싱/안전한 번호 표시를 연결했습니다. 실제 App/preview와 UI18/App1/parser5/Core7/LSP parser8/portable2의41통과·frozen host/Wasm compile입니다. 전체 table data/viewport/span·HTML reversed/value/type/full CSS 등과 추가 readonly/mirror/scroll/뷰는 미완료라 전체 완료로 올리지 않습니다."
+            "note": "stable 분할/본문·기본 HTML/경로/이미지/오류 복구·표시/테마·표 공유 경계/signed start와 readonly·동일 문서 두 뷰/선택/토글/독립 scroll·mirror 수정/undo/닫힘을 연결했습니다. 사라진 viewport 상태 회수 실패를 수정했고 최신 상태3/App3의6통과·일반 lib check입니다. 전체 표 data/viewport/span·HTML reversed/value/type/full CSS 등과 물리 OS/전체 게이트는 미완료입니다."
         },
         {
             "id": "editor-73",
@@ -7758,5 +7758,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "제품fc732905에서 실제 보조 창 Save As의 주 창 열기 오류와 바뀐 mirror 거절 뒤 오래된 readonly 내용의 복구 누락을 재현했습니다. source 창의 기존 canonical 목적지/tab을 재사용·활성화하고 같은 source 경로는 원래 탭을 복구하며 실패 뒤 기존 OpenDocument로 최신 초안을 다시 읽고 재조회 중 picker를 막습니다. 두 기존 Save As는 부모 frame/디렉터리/이름/title/default rfd 호출을 유지하는 private 주입 포트를 사용합니다. 실제 버튼 취소/dirty·root·IO·변경 mirror 보호/최신 재시도/동일·다른 경로/본문·닫힘·재열기/원문/소유와 untitled 공유 picker를 App4/missing_draft5/untitled3의 서로 다른12통과·6Rust fmt/diff·exit0으로 확인했습니다. canonical fixture/pane 작성 오류·미실행 target·포커스 실패/수정은 QA에 구분하고 같은 성공을 중복 합산하지 않습니다. 이전 로딩/tier/오류35건과 뷰 상태/다른 변경 없는 성공은 재사용하며 manifest/lock/Core/engine/frozen source와 사용자 기존 문서/PROCESS 하단 두 hunk를 보존합니다. editor-64 complete·complete302/partial89/unwired110/missing87·미완료286·배치23 잔여19/최종33입니다. 컴파일6분29초 중 dlopen→dyld mapSegments/fcntl 스택은 관찰했으나 OS/캐시/기한 변경 없이 동일 작업 종료를 기다렸고 원인 해결로 보고하지 않습니다. 기존 전체App877통과/22준비실패·보호3제외·exit101·준비 원인 미확정·Core성능ignored1·Wasmtests시간API불일치7·실제 OS picker/접근성/성능/신뢰성/출시·전환·제거와 남은 목표 전체를 보존하며 전체전환율/잔여시간은 미산정입니다."
+    "validation": "제품4939d891에서 같은 pane이 남을 때 사라진 egui viewport 상태가 잔류하는 실패를 재현하고 현재 live viewport로 상태/기존 이미지 demand를 회수했습니다. 실제 Host 열기/옆 열기의 두 ViewId·독립 선택/토글/본문-preview scroll·mirror 수정/undo·한 뷰 닫힘 뒤 남은 문서/뷰·최종 닫힘과 lossy readonly의 선택/preview scroll·Paste/Text 거절/revision/dirty/메타데이터/원문/작업0이 최신 실제 App3통과46.49초·상태3통과0.03초·exit0입니다. inspection 없는 일반 App lib check2분37초·소유4Rust fmt/diff도 통과했습니다. 검사 작성의 필드/소유/다음 프레임 관찰 오류와 제품 실패는 QA에 구분하고 동일 성공은 재사용하며 중복 합산하지 않습니다. d6b 기능 수명은 완료하지만 editor-72 partial·complete302/partial90/unwired110/missing86·미완료286·배치23 잔여19/최종33입니다. 의존성/manifest/lock/Core/engine/frozen source와 사용자 기존 문서/PROCESS 하단 두 hunk를 보존했습니다. 기존 frozen host tests 포함/Wasm canvas lib compile 성공은 재사용하며 전체App877통과/22준비실패·보호3제외·exit101·준비 원인 미확정·Core성능ignored1·Wasmtests시간API불일치7·물리 OS 창/picker/전체 HTML·표/접근성/성능/신뢰성/출시·전환·제거와 남은 목표 전체를 유지합니다. 전체전환율/잔여시간은 미산정입니다."
 }
