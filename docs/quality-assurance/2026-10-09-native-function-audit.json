@@ -1,6 +1,6 @@
 {
     "date": "2026-10-13",
-    "baseline": "22798293",
+    "baseline": "96554e1b",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1148,7 +1148,9 @@
                 "native/taide-native-ui/src/editor-markup-preview.rs",
                 "native/taide-native-ui/src/presentation.rs",
                 "native/taide-native-app/src/presentation-refresh.rs",
-                "native/taide-native-editor/src/documentation.rs"
+                "native/taide-native-editor/src/documentation.rs",
+                "native/taide-native-app/src/editor-markdown-table.rs",
+                "native/taide-native-ui/src/editor-markup-table.rs"
             ],
             "tests": [
                 "native/taide-native-app/src/application-markdown-tests.rs",
@@ -1161,10 +1163,11 @@
                 "native/taide-native-ui/tests/editor-markup-preview.rs",
                 "native/taide-native-ui/tests/editor-documentation.rs",
                 "native/taide-native-ui/tests/theme-portable.rs",
-                "native/taide-native-editor/tests/documentation.rs"
+                "native/taide-native-editor/tests/documentation.rs",
+                "native/taide-native-app/src/editor-markdown-table.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-12-native-batch23-markdown.md"],
-            "limitation": "분할/readonly·두 뷰/독립 scroll·mirror/닫힘·viewport 회수와 기본 HTML/이미지/표시/테마·목록 번호에 표의 최초/내용/행 수/viewport/이미지 변경 배치를 연결했습니다. 두 열 경계4/3과 넓은 화면18/1줄 실패를 재현해 고정 Grid/위젯 ID·현재 입력의 너비/높이 측정·배정된 셀 경계·최소/자연 너비·read-only 이미지 크기를 연결했습니다. 최신 preview10/hover13/cache4/App1의28통과·소유8Rust fmt/diff·frozen host tests/inspection/Wasm canvas lib compile입니다. 셀 병합/caption/행·열 스타일/전체 CSS·list type/CSS ownership/범위 밖 번호·SVG/MathML/media/details/anchor·CLI 소유 경계 대조/물리 OS/전체App/실기/성능/출시는 미완료라 partial입니다."
+            "limitation": "분할/readonly·두 뷰/독립 scroll·mirror/닫힘·viewport 회수와 기본 HTML/표시/테마·목록 번호·현재 입력의 표 배치에 셀 병합/행 그룹/제목을 연결했습니다. colspan2/rowspan2의3열→2열과 wheel 뒤 오류 문구 누락을 재현해 optional TableLayout/셀 좌표·span값/그룹/암시된 행·caption/thead/tfoot/정렬/예산·현재 병합 geometry/perimeter·caption 이미지/링크와 새 오류의 scroll1회 초기화를 연결했습니다. parser10/상태3/예산1/UI25/App3/cache4/LSP8의54통과·소유15Rust fmt/diff·frozen host tests/inspection/Wasm canvas lib compile입니다. 전체 CSS/행·열 스타일/임의 블록 cell/접근성 표 의미·list type/CSS ownership/범위 밖 번호·SVG/MathML/media/details/anchor·CLI 소유 경계 대조/물리 OS/전체App/실기/성능/출시는 미완료라 partial입니다."
         }
     },
     "rows": [
@@ -3047,7 +3050,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-markdown",
-            "note": "stable 분할/readonly·두 뷰/독립 scroll/mirror·닫힘·viewport 회수와 기본 HTML/표시/테마·signed/reversed/value 번호에 현재 입력의 표 배치·최소/자연 너비·이미지 준비/높이/링크/캐시 크기를 연결했습니다. preview10/hover13/cache4/실제App1의28통과·frozen host/Wasm compile입니다. 셀 병합/caption/행·열 스타일/전체 CSS·list type·추가 HTML/CLI 소유 경계/물리 OS/전체 게이트는 미완료입니다."
+            "note": "stable 분할/readonly·두 뷰/독립 scroll/mirror·닫힘·viewport 회수와 기본 HTML/표시/테마·signed/reversed/value 번호·현재 표 배치에 colspan/rowspan·행 그룹/암시된 행/caption/thead/tfoot/정렬/예산·병합 perimeter·caption 이미지/링크와 오류 scroll1회 초기화를 연결했습니다. parser10/상태3/예산1/UI25/App3/cache4/LSP8의54통과·frozen host/Wasm compile입니다. 전체 CSS/행·열 스타일/임의 블록 cell/접근성 표 의미·list type·추가 HTML/CLI 소유 경계/물리 OS/전체 게이트는 미완료입니다."
         },
         {
             "id": "editor-73",
@@ -7758,5 +7761,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "제품22798293에서 변경 프레임의 두 열 경계4/3·x44.84375/45.1875와 넓은 화면18/1줄 실패를 재현했습니다. 고정 Grid/위젯 ID·입력 fingerprint·현재 너비/높이 측정·배정된 cursor 셀 경계·최소/자연 너비·준비된 이미지의 read-only 크기를 연결했습니다. 최초/내용/행 수/viewport·이미지 준비/높이/링크/캐시 크기·긴 단어/한중일·일반 도움말과 실제 App PNG 표 셀/원문/입력/undo/오류 복구/전환/닫힘/task0이 preview10/hover13/cache4/App1의 서로 다른28통과·소유8Rust fmt/diff·frozen host tests/inspection check27.54초/Wasm canvas lib check13.65초·exit0입니다. 캐시 ID만 바꾼 실패·rect EPS 정밀도/closure 작성 오류는 QA에 보존하며 이전 성공을 재사용하고 중복 합산하지 않습니다. editor-72 partial·complete302/partial90/unwired110/missing86·미완료286·배치23 잔여19/최종33입니다. 의존성/manifest/lock/frozen source와 사용자 기존 문서/PROCESS 하단 두 hunk를 보존했습니다. 셀 병합/caption/행·열 스타일/전체 CSS·list type/CSS ownership/범위 밖 번호/추가 SVG/MathML/media/details/anchor·CLI 소유 경계 대조·전체App877통과/22준비실패/보호3제외/exit101·준비 원인 미확정·Core성능ignored1·Wasmtests시간API불일치7·물리 OS 창/picker·접근성/성능/신뢰성/출시/전환/제거와 남은 전체 목표를 유지합니다. 전체전환율/잔여시간은 미산정입니다."
+    "validation": "제품96554e1b에서 colspan2/rowspan2의3열→2열과 실제 wheel 뒤 오류 문구 누락을 재현했습니다. optional TableLayout/셀 좌표·두 span/0/무효/상한/큰 정수·행 그룹/암시된 행·caption/thead/tfoot/정렬/예산·현재 병합 geometry/perimeter·caption 이미지/링크와 새 오류의 preview scroll1회 초기화를 연결했습니다. parser10/상태3/예산1/UI25/App3/cache4/LSP8의 서로 다른54통과·소유15Rust fmt/diff·frozen host tests/inspection check27.77초/Wasm canvas lib check13.60초·exit0입니다. 기존 LSP metadata None·본문 입력/readonly/독립 뷰·원문/디스크·작업0을 보존하며 최초 제품 실패와 작성 오류는 QA에 구분했습니다. 이전 성공은 재사용하고 중복 합산하지 않습니다. editor-72 partial·complete302/partial90/unwired110/missing86·미완료286·배치23 잔여19/최종33입니다. 의존성/manifest/lock/frozen source와 사용자 기존 문서/PROCESS 하단 두 hunk를 보존했습니다. 전체 CSS/행·열 스타일/임의 블록 cell/접근성 표 의미·list type/CSS ownership/범위 밖 번호/추가 SVG/MathML/media/details/anchor·CLI 소유 경계 대조·전체App877통과/22준비실패/보호3제외/exit101·준비 원인 미확정·Core성능ignored1·Wasmtests시간API불일치7·물리 OS 창/picker·접근성/성능/신뢰성/출시/전환/제거와 남은 전체 목표를 유지합니다. 전체전환율/잔여시간은 미산정입니다."
 }
