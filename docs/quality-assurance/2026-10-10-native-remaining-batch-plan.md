@@ -143,3 +143,9 @@ c9c2b에서 실제 readonly/tier/lossy 항목·복사와 본문/peek 팔레트·
 제품feeeaf6c에서 editor-67을 complete로 닫았습니다. 실제 새 Runtime/빈 EditorStore/App의 bootstrap 디스크 복원·주/보조 영역 batch의 독립 선택/접기/최근 닫힘 기록·고정 탭/뷰 해제와 프로젝트 저장 장애의 본문 유지/재시도를 확인했습니다. 새3건/원격5/기존 실제App1의 서로 다른9통과·소유2Rust fmt/diff와 이전551건 재사용으로560건이며 같은 성공을 중복 집계하지 않습니다. 기존 플랫폼 lifecycle 계약/rollback·검증/권한과 dependency/manifest/lock/Core/UI/frozen은 유지합니다. 실제 OS 보조 창과 독립 OS 프로세스 재실행·전체App 준비/실기/성능/신뢰성/출시 게이트는 배치24/31~33에 남습니다.
 
 현재599행/399근거 경로·588대상·complete299/partial92/unwired110/missing87·미완료289·기능 체크리스트50.9%입니다. 원래302 ID 배정의 누락/중복/미확인ID는0이며 배치23~30 잔여22/52/23/64/32/39/51/6·최종33을 유지합니다. 전체 전환율/잔여시간은 미산정입니다. 다음은 같은 배치의 파일 로딩/오류·삭제 draft 소비 경계입니다.
+
+## 파일 로딩/거절 안내와 오류 복구 완료 (2026-10-12)
+
+제품6fe9eed6에서 editor-19/59를 complete로 닫았습니다. 실제 loading/닫힘 응답 후 원래 App의 전용 안내/실패 캐시 두 누락을 재현해 typed Refused·원본 locale/기존 외부 열기·localized 오류와 마지막 닫힘/파일 변경/보조 mirror/프로젝트 제거의 수명을 연결했습니다. 실제 2MiB Large/20MiB ReadOnly 입력·NUL/50MiB/4GiB sparse 거절과 u32 포화 metadata 표현·모델0/원문/소유 회수를 App4/버튼1/admission4/Host9/system2/기존 저장·복원App15의 서로 다른35건·6Rust fmt/diff로 확인했습니다. 작성한 import/타이밍/texture 출력/필터 오류는 QA에 구분하고 같은 성공을 중복 합산하지 않습니다. 기존 commit/observation/disk-choice·검증/권한·manifest/lock/Core/engine/frozen source는 보존하며 실제 OS opener는 주입 포트로 확인합니다.
+
+현재599행/405근거 경로·588대상·complete301/partial90/unwired110/missing87·미완료287·기능 체크리스트51.2%입니다. 원래302 ID 배정의 누락/중복/미확인ID는0이며 배치23~30 잔여20/52/23/64/32/39/51/6·최종33을 유지합니다. editor-64 삭제 source draft/Save As 전체 실제 App 흐름과 전체App 준비/OS/접근성/성능/신뢰성/출시·전환·제거 게이트는 미완료이며 전체전환율/잔여시간은 미산정입니다. 다음은 같은 배치의 삭제 draft 구제 경계입니다.

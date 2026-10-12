@@ -1,6 +1,6 @@
 {
     "date": "2026-10-12",
-    "baseline": "feeeaf6c",
+    "baseline": "6fe9eed6",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -51,15 +51,28 @@
             "sources": [
                 "native/taide-native-ui/src/document_admission.rs",
                 "native/taide-native-app/src/application.rs",
-                "native/taide-native-app/src/host.rs"
+                "native/taide-native-app/src/host.rs",
+                "native/taide-native-app/src/file-loading.rs",
+                "native/taide-native-app/src/events.rs",
+                "crates/taide-runtime/src/native_file_actions.rs",
+                "crates/taide-file/src/service.rs",
+                "native/taide-native-editor/src/store.rs"
             ],
             "tests": [
                 "native/taide-native-ui/tests/document_admission.rs",
                 "native/taide-native-app/tests/missing_draft.rs",
-                "native/taide-native-app/tests/untitled.rs"
+                "native/taide-native-app/tests/untitled.rs",
+                "native/taide-native-app/src/application-file-loading-tests.rs",
+                "native/taide-native-app/src/file-loading.rs",
+                "native/taide-native-app/tests/explorer-system.rs",
+                "native/taide-native-app/tests/host.rs",
+                "native/taide-native-app/src/application-view-state-tests.rs"
             ],
-            "reports": ["docs/quality-assurance/2026-10-09-native-completion-evidence.md"],
-            "limitation": "기존 오류/소스 누락과 완전한 원본 오류·재시도 표면을 구분합니다."
+            "reports": [
+                "docs/quality-assurance/2026-10-09-native-completion-evidence.md",
+                "docs/quality-assurance/2026-10-12-native-batch23-file-loading.md"
+            ],
+            "limitation": "editor-19/59의 실제 로딩/tier/원본 거절 안내/외부 열기 명령/오류 복구는 App4·버튼1·admission4·Host9/system2·기존 본문 App15의 서로 다른35통과와6Rust fmt/diff로 완료했습니다. import/조기 단언/출력 texture/필터 오류·원래 App의 재현/수정·u32 포화 metadata 오류를 QA에 구분합니다. 실제 OS opener는 주입 포트로 확인하며 삭제 draft의 전체 App/editor-64와 기존 전체App 준비/성능/출시는 미완료입니다."
         },
         "editor-fold": {
             "sources": [
@@ -2411,9 +2424,9 @@
             "ts": "`editor-pane.tsx:422`, `code-editor.tsx:271-276`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:80",
             "domain": "editor",
-            "status": "partial",
+            "status": "complete",
             "proof": "editor-load",
-            "note": "대형 문서 tier·읽기 전용·비동기 로딩은 연결됐으나 binary/refused 전용 화면·외부 열기/오류 재시도 상호작용은 완성되지 않았습니다."
+            "note": "실제 비동기 Host 로딩·큰 편집 가능/읽기 전용 입력·NUL/threshold/포화 Refused 안내와 모델 미생성·기존 외부 열기/경로 검증·localized 오류·파일 변경 복구/마지막 실패 탭 재열기·보조 mirror/프로젝트 제거와 소유 회수를 연결했습니다. 관련35건·6Rust fmt/diff가 통과했습니다. 삭제 source draft/Save As 전체 App 흐름(editor-64)과 전체 OS/접근성/성능/출시는 별도 게이트입니다."
         },
         {
             "id": "editor-20",
@@ -2851,9 +2864,9 @@
             "ts": "`editor-pane.tsx:363-412`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:135",
             "domain": "editor",
-            "status": "partial",
+            "status": "complete",
             "proof": "editor-load",
-            "note": "대형 문서 tier·읽기 전용·비동기 로딩은 연결됐으나 binary/refused 전용 화면·외부 열기/오류 재시도 상호작용은 완성되지 않았습니다."
+            "note": "실제 비동기 Host 로딩·큰 편집 가능/읽기 전용 입력·NUL/threshold/포화 Refused 안내와 모델 미생성·기존 외부 열기/경로 검증·localized 오류·파일 변경 복구/마지막 실패 탭 재열기·보조 mirror/프로젝트 제거와 소유 회수를 연결했습니다. 관련35건·6Rust fmt/diff가 통과했습니다. 삭제 source draft/Save As 전체 App 흐름(editor-64)과 전체 OS/접근성/성능/출시는 별도 게이트입니다."
         },
         {
             "id": "editor-60",
@@ -7707,5 +7720,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "제품feeeaf6c에서 기존 App 종료/폐기 뒤 새 Runtime/Context/빈 EditorStore/NativeApplication의 bootstrap 디스크 복원, 실제 주/보조 WindowScope의 같은 문서·다른 ViewId와 RequestCloseTabs 순차 Host 경로를 확인했습니다. 선택/실제 렌더 scroll·접힌/펼친 수동 영역·원문/dirty/디스크·고정 탭/뷰 해제·작업0이 새2건에서 통과했습니다. 프로젝트 디스크 장애에도 Ok(null)로 detach하는 실제 실패를 재현해 native 진입의 기존 checked Host flush로 typed 오류·본문/dirty 위치 유지와 장애 제거 후 재시도를 새1건에서 확인했습니다. 원격 프로젝트5/기존 실제App1 실패 영향 회귀를 포함한 서로 다른9통과·2Rust fmt/diff·exit0와 이전551건 재사용으로560건이며 중복 집계하지 않습니다. 원본 lifecycle/플랫폼·rollback/권한/검증과 이전 접기/Host/IDE/preview/guard/요청 취소·종료 근거를 유지하고 새 dependency/manifest/lock/Core/UI/frozen 변경은 없습니다. editor-67 complete·complete299/partial92/unwired110/missing87·미완료289·배치23 잔여22/최종33입니다. 실제 OS 보조 창 생성/종료·독립 OS 프로세스 재실행은 별도 배치24/31~33 게이트이며 전체App/실기 완료가 아닙니다. 이전App전체877통과/22준비실패·보호3제외·exit101·최초준비원인미확정·Core성능ignored1·Wasmtests시간API불일치7·실기/성능/신뢰성/출시·전환·제거와 사용자 기존 문서를 보존하며 전체전환율/잔여시간은 미산정입니다."
+    "validation": "제품6fe9eed6에서 응답 완료 뒤 원래 App의 Refused 안내/마지막 실패 탭 캐시 두 누락을 재현해 typed Document/Refused 소비·원본 locale/기존 OpenPath·localized 오류와 파일 변경/live 소비자/마지막 닫힘/프로젝트 제거의 상태 수명을 연결했습니다. 실제 2MiB Large/20MiB ReadOnly 입력·NUL/50MiB/4GiB sparse 거절·보조 mirror/FsChanged 복구/프로젝트 종료·모델0/원문/dirty/디스크/작업0을 확인했습니다. 기존 DTO의 u32 포화 크기와 metadata 대조의 실제 실패도 수정하고 원래 mtime/소유/guard 검증·commit/observation/disk-choice 계약을 보존했습니다. App4/버튼1/admission4/Host9/system2/기존 저장·복원App15의 서로 다른35통과·6Rust fmt/diff·exit0이며 같은 test의 재검사/0건 결과를 합산하지 않습니다. manifest/lock/Core/engine/frozen source와 사용자 기존 문서/PROCESS 하단 두 hunk는 보존합니다. editor-19/59 complete·complete301/partial90/unwired110/missing87·미완료287·배치23 잔여20/최종33입니다. editor-64 삭제 source draft/Save As 전체 App 흐름과 기존 전체App877통과/22준비실패·보호3제외·exit101·준비 원인 미확정·Core성능ignored1·Wasmtests시간API불일치7·실제 OS/접근성/성능/신뢰성/출시·전환·제거를 보존하며 전체전환율/잔여시간은 미산정입니다."
 }

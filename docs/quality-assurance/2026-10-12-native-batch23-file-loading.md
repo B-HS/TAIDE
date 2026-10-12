@@ -16,7 +16,7 @@
 - [x] typed refused 소비 — validated PreparedDocument의 typed 등급을 commit 전 경계에서 구분하고 실제 Refused 상태를 본문에 전달합니다. 문서 모델/가짜 DocumentId/오류 문자열 파싱으로 정책을 우회하지 않습니다. operation lease/guard/shutdown·소유 검증과 문서 observation/disk choice 소비를 유지합니다.
 - [x] 원본 전용 안내/외부 열기 — 기존 locale/본문 배치와 OpenPath 큐를 사용하고 부수 효과는 주입 포트/기존 Host 검사로 검증합니다. 일반 오류는 기존 localized 경계와 원본 재열기/새 파일 상태 갱신을 사용합니다.
 - [x] 오류/거절 상태 수명 — 실패 모델의 실제 마지막 닫힘/정상 파일로 재열기와 동일 파일 mirror/보조 영역·프로젝트 detach/오래된 응답을 필요한 최소 검사로 확인합니다. 실패의 원문 손실/반복 열기 폭주/소유 누수를 막습니다.
-- [ ] 관련 위험 비례 검사·기록/선별 Git — 실제 실패 뒤 수정 영향 검사만 실행하고 기존 성공을 재사용합니다. 기능표/배치/PROCESS는 닫힌 기능 묶음만 갱신하며 전체 OS/성능/출시를 완료로 올리지 않습니다.
+- [x] 관련 위험 비례 검사·기록/선별 Git — 실제 실패 뒤 수정 영향 검사만 실행하고 기존 성공을 재사용합니다. 기능표/배치/PROCESS는 닫힌 기능 묶음만 갱신하며 전체 OS/성능/출시를 완료로 올리지 않습니다.
 
 이번 조사는 읽기 전용 코드 대조이며 제품 코드 변경/새 테스트 실행은 없습니다. d3의 서로 다른560건 성공은 위치 저장/복원의 기존 근거이며 이 로딩 화면의 통과 근거로 대체하지 않습니다.
 
@@ -43,3 +43,5 @@ host-system.log는 주입 platform의 OpenPath/URL 검증·복사 오류/worker 
 view-state.log는 현재 실제 App 저장/복원 전체15통과·25.24초·exit0입니다. 최근 닫힘/preview·IDE/remote/project/slot·주/보조 batch·UTF-16/scroll/접기·readonly/원문/디스크·새 App 재시작과 디스크 오류 유지/재시도를 확인했습니다. 이번 실제 App4/버튼1/admission4/Host9/system2/기존 App15의 서로 다른35건·소유6Rust fmt/diff가 통과했습니다. 앞선 초기/추가/포화/재검사의 같은 test 이름은 합산하지 않습니다. 이번 검사 개수를 기존 d3 누계에 임의로 추가하지 않습니다.
 
 editor-19의 대형 tier와 editor-59의 파일 열기/로딩/오류는 실제 원본 소비 경계와 이 자동 근거로 complete입니다. 정상/큰 편집 가능/큰 읽기 전용·NUL/threshold/포화 Refused의 비동기 처리·localized 안내/오류·기존 외부 열기 명령/경로 검증·파일 변경 복구/마지막 닫힘 재열기·공유 보조 영역/프로젝트 제거와 소유 회수를 확인했습니다. editor-64의 삭제 source draft/Save As 전체 실제 App 흐름과 전체App 준비 실패·OS launch/접근성/성능/출시 게이트는 별도 미완료입니다. 완료 판정 반영 뒤 기능표는 complete301/partial90/unwired110/missing87·588대상·미완료287·기능 체크리스트51.2%·배치23 잔여20/최종33입니다. 전체전환율/신뢰할 잔여시간은 미산정입니다.
+
+파일 로딩 코드/검사·QA/소유 PROCESS의8경로를 `6fe9eed6`로 선별 커밋했습니다. 기능표599행/405근거 경로·301완료/287미완료·원래302 ID 배정의 누락/중복/미확인ID0·배치23~30 잔여20/52/23/64/32/39/51/6·최종33을 실제 JSON으로 확인했습니다. 소유 staged diff exit0이며 사용자 기존 문서와 PROCESS 하단 두 hunk는 스테이징하지 않았습니다. 남은 목표 전체는 유지하며 다음은 editor-64의 실제 삭제 draft/Save As 경계입니다.
