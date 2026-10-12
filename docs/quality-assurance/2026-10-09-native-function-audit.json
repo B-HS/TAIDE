@@ -1,6 +1,6 @@
 {
     "date": "2026-10-13",
-    "baseline": "361bb641",
+    "baseline": "1a4c0f32",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1150,7 +1150,8 @@
                 "native/taide-native-app/src/presentation-refresh.rs",
                 "native/taide-native-editor/src/documentation.rs",
                 "native/taide-native-app/src/editor-markdown-table.rs",
-                "native/taide-native-ui/src/editor-markup-table.rs"
+                "native/taide-native-ui/src/editor-markup-table.rs",
+                "native/taide-native-app/src/editor-markup-autolinks.rs"
             ],
             "tests": [
                 "native/taide-native-app/src/application-markdown-tests.rs",
@@ -1167,7 +1168,7 @@
                 "native/taide-native-app/src/editor-markdown-table.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-12-native-batch23-markdown.md"],
-            "limitation": "분할/readonly·두 뷰/독립 scroll·mirror/닫힘·viewport 회수와 기본 HTML/표시/테마·표 배치/병합/그룹/제목·signed/reversed/value 번호에 직접 li type을 연결했습니다. 실제 App AA/C marker 미표시를 재현하고 원본 Tailwind·DOMPurify/별도 브라우저21사례의 parent CSS 우선순위·공백/BOM/NBSP/NEL과 대조했습니다. optional marker_style·공통 formatter/두 소비자·unordered value counter의 알파벳 자리수/로마1..3999·decimal fallback/i64·도형/none이 parser15/Core8/UI26/App3/LSP8의60통과·소유10Rust fmt/diff·frozen host tests/inspection/Wasm canvas lib compile입니다. CSS counter 소유/마커 정렬·전체 CSS/표 행·열 스타일/임의 block cell·접근성·i64 밖 번호·SVG/MathML/media/details/anchor·CLI 경계/물리 OS/전체App/실기/성능/출시는 미완료라 partial입니다."
+            "limitation": "분할/readonly·두 뷰/독립 scroll·mirror/닫힘·viewport 회수와 기본 HTML/테마·표 병합/그룹/제목·목록 type에 표 셀의 문단/제목/목록/코드/인용/중첩 표 구조를 연결했습니다. 실제 App first paragraph 평탄화와 checkbox 자연 너비7/1줄 실패를 재현해 optional body/Hash·재귀 최소/자연 너비/현재 높이/병합·th inline 굵기·중첩 이미지/링크·실제 widget 최소값을 연결했습니다. 블록 추가/회수/viewport·이미지 준비/높이/실제 링크와 실제 App PNG/입력/undo/원문/닫힘/task0이 parser16/UI27/cache4/LSP8/App4의59통과·소유11Rust fmt/diff·frozen host tests/inspection/Wasm canvas 계약 check입니다. 기존 LSP None을 유지합니다. 암시 인라인/문단 여백 collapse/글꼴 상속·복합 caption/행·열/임의 CSS·counter 소유/접근성·SVG/MathML/media/details/anchor·CLI 경계/물리 OS/전체App/실기/성능/출시는 미완료라 partial입니다."
         }
     },
     "rows": [
@@ -3050,7 +3051,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-markdown",
-            "note": "stable 분할/readonly·두 뷰/독립 scroll/mirror·닫힘·viewport 회수와 기본 HTML/표시/테마·표 현재 geometry/병합/행 그룹/caption·signed/reversed/value 번호에 원본 parent CSS와 직접 li type 우선순위를 연결했습니다. 공통 marker_style/formatter·unordered value counter의 알파벳/로마 범위/decimal fallback·도형/none이 parser15/Core8/UI26/App3/LSP8의60통과·원본 브라우저21사례·frozen host/Wasm compile입니다. CSS counter 소유/마커 정렬·전체 CSS/행·열 스타일/임의 block cell/접근성·추가 HTML/CLI 경계/물리 OS/전체 게이트는 미완료입니다."
+            "note": "stable 분할/readonly·두 뷰/독립 scroll·mirror/닫힘/viewport 회수·HTML/테마·표/목록 type에 셀의 문단/제목/목록/코드/인용/중첩 표를 연결했습니다. optional body/Hash·최소/자연 너비/현재 높이/병합·th inline 굵기/중첩 이미지/링크·checkbox 실제 최소값과 블록/viewport/이미지 변경이 parser16/UI27/cache4/LSP8/App4의59통과·frozen 계약 check입니다. 암시 인라인/여백 collapse/글꼴 상속·복합 caption/행·열/임의 CSS/counter 소유/접근성·추가 HTML/CLI 경계/물리 OS/전체 게이트는 미완료입니다."
         },
         {
             "id": "editor-73",
@@ -7761,5 +7762,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "제품361bb641에서 실제 App AA/C marker 미표시를 재현하고 원본 Tailwind·DOMPurify와 별도 headless Chrome21사례로 parent ol/ul CSS와 직접 li type·정화기의 공백/BOM/NBSP 제거/NEL 보존을 대조했습니다. optional marker_style·공통 formatter/두 표시·unordered value counter와 알파벳 자리수/로마1..3999·decimal fallback/i64·도형/none을 연결했습니다. parser15/Core8/UI26/App3/LSP8의 서로 다른60통과·소유10Rust fmt/diff·frozen host tests/inspection check27.74초/Wasm canvas lib check13.64초·exit0입니다. source/readonly/독립 scroll·입력/undo/오류 복구·HTML 병합 표/PNG·원문/승인 revision 닫힘/task0과 일반 LSP None을 보존했습니다. 공백 변경 영향1건만 재검사하고 기존14성공을 재사용했으며 동일 성공/브라우저 사례를 중복 합산하지 않습니다. 번들 Chromium 부재·작성 기대값/치환 오류·inspection 누락0건·이전 소유 표의 fmt 차이를 QA에 구분했습니다. editor-72 partial·complete302/partial90/unwired110/missing86·미완료286·배치23 잔여19/최종33입니다. 의존성/manifest/lock/frozen source와 사용자 문서/PROCESS 하단 두 hunk를 보존했습니다. CSS counter 소유/마커 정렬·전체 CSS/표 행·열 스타일/임의 block cell/접근성·i64 밖 번호·SVG/MathML/media/details/anchor·CLI 경계·전체App877통과/22준비실패/보호3제외/exit101·준비 원인 미확정·Core성능ignored1/Wasmtests시간API불일치7·물리 OS/실기/성능/신뢰성/출시/전환/제거와 남은 전체 목표를 유지합니다. 전체전환율/잔여시간은 미산정입니다."
+    "validation": "제품1a4c0f32에서 실제 App first paragraph 평탄화와 checkbox 자연 너비7/1줄 실패를 재현했습니다. optional TableCell.blocks·재귀 Hash/Block 파싱·최소/자연 너비/현재 높이/병합·th inline 굵기·중첩 이미지/링크·widget 최소값을 연결했습니다. 블록 추가/회수·viewport·이미지 준비/높이/실제 링크·실제 App PNG/입력/undo/오류/readonly/두 뷰/원문/승인 닫힘/task0이 parser16/UI27/cache4/LSP8/App4의 서로 다른59통과·소유11Rust fmt/diff입니다. frozen host tests/inspection check38.25초·Wasm canvas lib13.57초·마지막0.12초·exit0이며 공개 계약이 같은 host 성공과 변경 없는 검사 성공을 재사용했습니다. 일반 LSP None/의존성/manifest/lock/frozen source·사용자 문서/PROCESS 하단 두 hunk·실제 OS/보호 경계를 유지했습니다. 단순 경계 성공을 줄바꿈 충실도의 성공으로 확대하지 않고 실제7/1 실패 뒤 관련1건만 재검사했으며 작성/환경 실패와 중복을 QA에 구분했습니다. editor-72 partial·complete302/partial90/unwired110/missing86·미완료286·배치23 잔여19/최종33입니다. 암시 인라인/문단 여백 collapse/글꼴 상속·복합 caption/행·열/임의 CSS·counter 소유/접근성·SVG/MathML/media/details/anchor·CLI 경계·전체App877통과/22준비실패/보호3제외/exit101·준비 원인 미확정·Core성능ignored1/Wasmtests시간API불일치7·물리 OS/실기/성능/신뢰성/출시/전환/제거와 남은 전체 목표를 유지합니다. 전체전환율/잔여시간은 미산정입니다."
 }
