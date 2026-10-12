@@ -116,6 +116,7 @@ pub struct NativeApplication {
     terminal_fonts: crate::terminal_fonts::Loader,
     web_bridge: Option<crate::preview_web_host::Bridge>,
     helper_executable: PathBuf,
+    save_picker: crate::file_dialogs::SavePicker,
     web_previews: crate::preview_web_cache::Cache,
     web_views: crate::preview_web_view::Views,
     lsp: Option<crate::lsp::LspBridge>,
@@ -448,6 +449,7 @@ impl NativeApplication {
             terminal_fonts: crate::terminal_fonts::Loader::new(font_families),
             web_bridge: Some(web_bridge),
             helper_executable,
+            save_picker: Arc::new(crate::file_dialogs::save),
             web_previews: crate::preview_web_cache::Cache::default(),
             web_views: crate::preview_web_view::Views::default(),
             lsp: Some(lsp),
@@ -1448,6 +1450,17 @@ impl NativeApplication {
                                 .filter(|pending| pending.tab.id == tab)
                             {
                                 pending.phase = TabClosePhase::Confirm;
+                            }
+                            if self.closing.is_none()
+                                && !self.services.state.is_shutting_down()
+                                && self.missing_drafts.contains_key(&path)
+                                && self.loading.insert(path.clone())
+                            {
+                                self.loading_file_tabs.insert(path.clone(), tab.clone());
+                                if !self.submit(HostCommand::OpenDocument(path.clone())) {
+                                    self.loading.remove(&path);
+                                    self.loading_file_tabs.remove(&path);
+                                }
                             }
                         }
                     }
@@ -3102,12 +3115,14 @@ impl NativeApplication {
         let (Some(root), Some(title)) = (root, title) else {
             return;
         };
-        let selected = rfd::FileDialog::new()
-            .set_parent(frame)
-            .set_directory(root)
-            .set_file_name(title)
-            .set_title(presentation::message(&self.locale, "tab.saveAsTitle", &[]))
-            .save_file();
+        let selected = (self.save_picker)(
+            frame,
+            crate::file_dialogs::SaveRequest {
+                directory: root.into(),
+                name: title,
+                title: presentation::message(&self.locale, "tab.saveAsTitle", &[]),
+            },
+        );
         let Some(selected) = selected else {
             return;
         };
@@ -3190,6 +3205,9 @@ impl NativeApplication {
         let Some(path) = path else {
             return;
         };
+        if self.loading.contains(&path) {
+            return;
+        }
         let Some(draft) = self.missing_drafts.get(&path).cloned() else {
             return;
         };
@@ -3200,12 +3218,14 @@ impl NativeApplication {
         let Some(name) = original.file_name().and_then(|name| name.to_str()) else {
             return;
         };
-        let selected = rfd::FileDialog::new()
-            .set_parent(frame)
-            .set_directory(parent)
-            .set_file_name(name)
-            .set_title(presentation::message(&self.locale, "tab.saveAsTitle", &[]))
-            .save_file();
+        let selected = (self.save_picker)(
+            frame,
+            crate::file_dialogs::SaveRequest {
+                directory: parent.into(),
+                name: name.into(),
+                title: presentation::message(&self.locale, "tab.saveAsTitle", &[]),
+            },
+        );
         let Some(selected) = selected else {
             return;
         };
@@ -9194,6 +9214,10 @@ mod view_state_tests;
 #[cfg(all(test, unix))]
 #[path = "application-file-loading-tests.rs"]
 mod file_loading_tests;
+
+#[cfg(all(test, unix))]
+#[path = "application-missing-draft-tests.rs"]
+mod missing_draft_tests;
 
 #[cfg(test)]
 mod close_all_tests {

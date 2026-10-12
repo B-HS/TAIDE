@@ -94,6 +94,8 @@ pub mod explorer_delete;
 pub mod explorer_move;
 pub mod explorer_source_missing;
 pub mod explorer_toolbar;
+#[path = "file-dialogs.rs"]
+mod file_dialogs;
 #[path = "file-loading.rs"]
 mod file_loading;
 pub mod file_sync;

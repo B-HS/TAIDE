@@ -135,7 +135,7 @@ pub async fn save(
         if !matches!(&candidate.kind, TabKind::File { path } if root_guard::ensure_within_root(&root, Path::new(path)).is_ok_and(|path| path == source)) {
             return Err(AppError::Forbidden("native draft tab no longer names its source".into()));
         }
-        let open_destination = matches!(&candidate.kind, TabKind::File { path } if path != &destination);
+        let open_destination = target != source;
         if target != source {
             let target_root = root_guard::project_root(&projects, &target_owner)?;
             if matching_mirror(state, &target_owner, &target_root, &target)?.is_some() {
@@ -153,13 +153,23 @@ pub async fn save(
         }
         let layout = taide_layout::service::get_layout_mut(&mut layouts, &layout_project)?;
         if open_destination {
-            let pane = layout.focused_pane.clone();
+            let tree = taide_layout::service::all_roots(layout)
+                .find(|tree| taide_layout::service::find_tab(tree, &tab).is_some())
+                .ok_or_else(|| AppError::NotFound("native draft pane is missing".into()))?;
+            let existing = crate::tabs::tabs_in(tree).into_iter()
+                .find(|candidate| matches!(&candidate.kind, TabKind::File { path } if root_guard::canonicalize_lenient(Path::new(path)).is_ok_and(|path| path == target))).cloned();
+            let target_tab = existing.as_ref().map_or(&tab, |existing| &existing.id);
+            let pane = taide_layout::service::find_tab(tree, target_tab)
+                .map(|(pane, _)| pane.clone())
+                .ok_or_else(|| AppError::NotFound("native draft target pane is missing".into()))?;
             let title = Path::new(&destination).file_name().and_then(|name| name.to_str())
                 .ok_or_else(|| AppError::InvalidArgument("native save destination has no UTF-8 file name".into()))?.to_owned();
-            taide_layout::service::open_tab(layout, &pane, Tab {
+            let opened_tab = existing.unwrap_or(Tab {
                 id: TabId::new(), kind: TabKind::File { path: destination }, title,
                 pinned: false, preview: false, dirty: false, view_state: None,
-            }, false)?;
+            });
+            let opened = taide_layout::service::open_tab(layout, &pane, opened_tab, false)?;
+            taide_layout::service::activate_tab(layout, &opened)?;
         }
         let mut changed_projects = std::collections::HashSet::new();
         for (project, layout) in &mut layouts {

@@ -3,8 +3,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use taide_model::app_event::AppEvent;
-use taide_model::ids::{ProjectId, TabId};
-use taide_model::layout::{Tab, TabKind};
+use taide_model::ids::{PaneId, ProjectId, TabId};
+use taide_model::layout::{PaneNode, SplitDir, Tab, TabKind};
 use taide_model::paths::AppPaths;
 use taide_model::project::Project;
 use taide_native_app::bootstrap::services;
@@ -18,6 +18,54 @@ use tokio::sync::Notify;
 
 const TIMEOUT: Duration = Duration::from_secs(3);
 const DRAFT: &str = "한글 draft\r\n日本語";
+const SPLIT_PERCENT: f32 = 50.0;
+
+#[test]
+fn missing_draft는_같은_canonical_경로와_현재_창의_기존_목적지_탭을_재사용한다() {
+    runtime().block_on(async {
+        for is_alias in [true, false] {
+            let fixture = Fixture::new().await;
+            let target = fixture.path.with_file_name("saved.rs");
+            let existing = TabId::new();
+            let pane = PaneId::new();
+            let destination = if is_alias {
+                let directory = fixture.path.parent().unwrap().join("nested");
+                std::fs::create_dir(&directory).unwrap();
+                directory.join("../missing.rs")
+            } else {
+                std::fs::write(&target, "old destination").unwrap();
+                let mut layouts = fixture.services.state.layouts.write();
+                let layout = layouts.get_mut(&fixture.project).unwrap();
+                layout.root = PaneNode::Split {
+                    id: PaneId::new(), dir: SplitDir::Horizontal, sizes: vec![SPLIT_PERCENT, SPLIT_PERCENT],
+                    children: vec![layout.root.clone(), PaneNode::Leaf {id: pane.clone(), tabs: vec![Tab {
+                        id: existing.clone(), kind: TabKind::File {path: target.to_str().unwrap().into()}, title: "existing destination".into(), pinned: true, preview: false, dirty: false, view_state: Some("preserved view".into()),
+                    }], active: Some(existing.clone())}],
+                };
+                target.clone()
+            };
+            let saved = missing_draft::save(&fixture.services, fixture.tab.clone(), fixture.draft().await, destination.to_str().unwrap().into()).await.unwrap();
+            let tabs = fixture.tabs();
+            if is_alias {
+                assert_eq!(saved.source, saved.destination);
+                assert_eq!(tabs.iter().filter(|tab| matches!(tab.kind, TabKind::File {..})).count(), 1);
+                assert!(tabs.iter().any(|tab| tab.id == fixture.tab && !tab.dirty));
+                assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), DRAFT);
+            } else {
+                let targets = tabs.iter().filter(|tab| matches!(&tab.kind, TabKind::File {path} if Path::new(path) == target)).collect::<Vec<_>>();
+                assert_eq!(targets.len(), 1);
+                assert_eq!(targets[0].id, existing);
+                assert!(targets[0].pinned);
+                assert_eq!(targets[0].view_state.as_deref(), Some("preserved view"));
+                assert_eq!(fixture.services.state.layouts.read()[&fixture.project].focused_pane, pane);
+                assert_eq!(std::fs::read_to_string(&target).unwrap(), DRAFT);
+                assert!(!fixture.path.exists());
+            }
+            assert!(taide_file::service::list_mirrors(&fixture.services.state.paths, &fixture.project).unwrap().is_empty());
+            assert_eq!(fixture.services.tasks.tracked_count(), 0);
+        }
+    });
+}
 
 struct Sink;
 impl EventSink for Sink {
