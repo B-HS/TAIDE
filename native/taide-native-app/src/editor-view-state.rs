@@ -112,7 +112,7 @@ pub(crate) struct Captured {
     fields: serde_json::Map<String, serde_json::Value>,
 }
 
-pub(crate) async fn apply(services: &AppServices, captured: Vec<Captured>) -> AppResult<()> {
+pub(crate) async fn apply(services: &AppServices, captured: &[Captured]) -> AppResult<()> {
     if captured.is_empty() {
         return Ok(());
     }

@@ -22,6 +22,124 @@ const NAVIGATION_LINE: u32 = 100;
 const INVALID_UTF8: u8 = 0xff;
 
 #[test]
+fn 실제_탭_닫힘은_최신_선택과_scroll을_최근_닫힘에_보존하고_다시_열때_복원한다() {
+    let text = format!(
+        "class\n  \u{1f600}method\n{}",
+        (0..LONG_LINE_COUNT)
+            .map(|index| format!("row {index}\n"))
+            .collect::<String>()
+    );
+    let mut fixture =
+        fixture_with_view_state("--native-inlay-hints", false, |_, _, _| true, None, &text);
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let view = body_view(application, &fixture.path, &fixture.tab);
+    application
+        .store
+        .set_view_state(
+            view,
+            SelectionSet {
+                primary: 0,
+                selections: vec![Selection {
+                    anchor: ANCHOR_BYTE,
+                    head: HEAD_BYTE,
+                }],
+            },
+            ScrollPosition {
+                x: 0.0,
+                y: LEGACY_SCROLL_TOP,
+            },
+            Vec::new(),
+        )
+        .unwrap();
+    let focus = crate::editor_context_menu::body(context, view).unwrap();
+    context.memory_mut(|memory| memory.request_focus(focus));
+    paint(
+        application,
+        context,
+        key(
+            egui::Key::ArrowRight,
+            egui::Modifiers {
+                shift: true,
+                ..egui::Modifiers::NONE
+            },
+        ),
+    );
+    for _ in 0..STABLE_FRAMES {
+        eframe::App::logic(application, context, &mut eframe::Frame::_new_kittest());
+        paint(application, context, Vec::new());
+    }
+    let current = application.store.views().get(view).unwrap();
+    let scroll = current.scroll.clone();
+    assert_eq!(
+        current.selection.selections,
+        vec![Selection {
+            anchor: ANCHOR_BYTE,
+            head: SHIFT_HEAD_BYTE
+        }]
+    );
+    application.request_tab_close(fixture.tab.clone());
+    wait(application, context, "closed view state", |application| {
+        application.controller.snapshot().layouts[&fixture.project]
+            .closed_tabs
+            .iter()
+            .any(|closed| closed.tab.id == fixture.tab)
+    });
+    let snapshot = application.controller.snapshot();
+    let closed = snapshot.layouts[&fixture.project]
+        .closed_tabs
+        .iter()
+        .find(|closed| closed.tab.id == fixture.tab)
+        .unwrap();
+    let saved = closed
+        .tab
+        .view_state
+        .as_deref()
+        .expect("latest live position must reach closed-tab history");
+    let saved: serde_json::Value = serde_json::from_str(saved).unwrap();
+    assert_eq!(
+        saved["cursorState"][0]["position"],
+        serde_json::json!({"lineNumber": STORED_LINE, "column": SHIFT_HEAD_COLUMN})
+    );
+    application
+        .controller
+        .submit(ShellMutation::ReopenClosed(fixture.project.clone()))
+        .unwrap();
+    wait(application, context, "reopened view state", |application| {
+        let snapshot = application.controller.snapshot();
+        let has_tab = crate::tabs::tabs_in(&snapshot.layouts[&fixture.project].root)
+            .iter()
+            .any(|tab| tab.id == fixture.tab);
+        has_tab
+            && application.files.get(&fixture.path).is_some_and(|file| {
+                application
+                    .store
+                    .views()
+                    .for_document(file.id)
+                    .any(|view| view.key.tab == fixture.tab)
+            })
+    });
+    let reopened = body_view(application, &fixture.path, &fixture.tab);
+    let current = application.store.views().get(reopened).unwrap();
+    assert_eq!(
+        current.selection.selections,
+        vec![Selection {
+            anchor: ANCHOR_BYTE,
+            head: SHIFT_HEAD_BYTE
+        }]
+    );
+    assert_eq!(current.scroll, scroll);
+    let document = application
+        .store
+        .documents()
+        .snapshot(current.document)
+        .unwrap();
+    assert_eq!(document.rope.to_string(), text);
+    assert!(!document.dirty);
+    assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), text);
+}
+
+#[test]
 fn 실제_정상과_직접_종료는_마지막_본문_선택과_scroll을_layout에_저장한다() {
     let text = format!(
         "class\n  \u{1f600}method\n{}",

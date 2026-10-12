@@ -136,6 +136,7 @@ pub struct NativeApplication {
     editor_selection_ranges: crate::editor_selection_ranges::State,
     editor_ide_selection: crate::editor_ide_selection::State,
     editor_view_state: crate::editor_view_state::State,
+    view_state_flush: Arc<crate::editor_view_state_sync::Shared>,
     editor_clipboard: crate::editor_context_menu::Clipboard,
     editor_menu_changes: HashMap<DocumentId, ViewId>,
     editor_terminal_writes: Vec<crate::editor_context_menu::TerminalDelivery>,
@@ -362,6 +363,8 @@ impl NativeApplication {
                 arch: std::env::consts::ARCH.into(),
             },
         ));
+        let view_state_flush = application_ports.view_states.clone();
+        view_state_flush.bind(repaint.clone());
         let host = HostBridge::connect_with_application_ports(
             services.clone(),
             repaint.clone(),
@@ -457,6 +460,7 @@ impl NativeApplication {
             editor_selection_ranges: crate::editor_selection_ranges::State::default(),
             editor_ide_selection: crate::editor_ide_selection::State::default(),
             editor_view_state: crate::editor_view_state::State::default(),
+            view_state_flush,
             editor_clipboard: crate::editor_context_menu::Clipboard::default(),
             editor_menu_changes: HashMap::new(),
             editor_terminal_writes: Vec::new(),
@@ -2517,6 +2521,23 @@ impl NativeApplication {
         })
     }
 
+    fn capture_view_states(&self) -> crate::editor_view_state_sync::Captures {
+        self.editor_view_state
+            .capture(
+                &self.store,
+                &self.services.state.layouts.read(),
+                WINDOW_LABEL,
+            )
+            .map(Arc::from)
+            .map_err(editor_error)
+    }
+
+    fn fulfill_view_states(&self) {
+        if self.view_state_flush.has_pending() {
+            self.view_state_flush.publish(self.capture_view_states());
+        }
+    }
+
     fn close(&mut self, context: &egui::Context) {
         if self.closing.is_some()
             || self.workspace_busy()
@@ -2533,14 +2554,8 @@ impl NativeApplication {
             context.request_repaint();
             return;
         }
-        let view_states = self
-            .editor_view_state
-            .capture(
-                &self.store,
-                &self.controller.snapshot().layouts,
-                WINDOW_LABEL,
-            )
-            .map_err(editor_error);
+        let view_states = self.capture_view_states();
+        self.view_state_flush.finish(view_states.clone());
         self.app_file_views.clear();
         self.editor_completion.clear();
         self.editor_highlights.clear();
@@ -5812,6 +5827,7 @@ impl NativeApplication {
                 }
             }
         }
+        self.fulfill_view_states();
         if let Some(receiver) = &mut self.closing {
             match receiver.try_recv() {
                 Ok(Ok(())) => {
@@ -5822,6 +5838,7 @@ impl NativeApplication {
                 Ok(Err(error)) => {
                     self.status = Some(error.to_string());
                     self.closing = None;
+                    self.view_state_flush.resume();
                     if !self.services.state.is_shutting_down() {
                         self.loading.clear();
                         self.tree_loading.clear();
@@ -7331,6 +7348,7 @@ impl eframe::App for NativeApplication {
             self.status = Some(error.to_string());
         }
         self.run_toast_actions();
+        self.fulfill_view_states();
     }
 
     fn on_exit(&mut self) {
@@ -7338,14 +7356,8 @@ impl eframe::App for NativeApplication {
             return;
         }
         let pending_close = self.closing.take();
-        let view_states = self
-            .editor_view_state
-            .capture(
-                &self.store,
-                &self.controller.snapshot().layouts,
-                WINDOW_LABEL,
-            )
-            .map_err(editor_error);
+        let view_states = self.capture_view_states();
+        self.view_state_flush.finish(view_states.clone());
         self.editor_completion.clear();
         self.editor_inlay_hints.clear();
         self.editor_code_lenses.clear();
@@ -7405,7 +7417,7 @@ async fn shutdown(
     lsp: Option<tokio::task::JoinHandle<()>>,
     web: Option<tokio::task::JoinHandle<()>>,
     drafts: AppResult<Vec<Draft>>,
-    view_states: AppResult<Vec<crate::editor_view_state::Captured>>,
+    view_states: crate::editor_view_state_sync::Captures,
 ) -> AppResult<()> {
     let (host_result, lsp_result, web_result) = tokio::join!(
         async {
@@ -7470,7 +7482,7 @@ async fn shutdown(
         }
     }
     let view_state_result = match view_states {
-        Ok(captured) => crate::editor_view_state::apply(&services, captured).await,
+        Ok(captured) => crate::editor_view_state::apply(&services, &captured).await,
         Err(error) => Err(error),
     };
     crate::host::flush_layouts(&services).await?;

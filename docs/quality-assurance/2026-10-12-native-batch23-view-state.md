@@ -1,11 +1,12 @@
 # 배치 23 커서·스크롤 상태 복원
 
-현재 상태: 실제 초기 복원·누락 축/종료 저장 실패와 위치 오류의 draft 저장 누락을 재현해 수정했습니다. 정상/직접 앱 종료의 최신 선택·scroll 캡처/layout flush와 본문 우선 오류 처리를 연결했습니다. 관련 App/상태 10·종료 2·UI geometry 1건, 기존 Core 전체 306/UI 본문 87의 서로 다른 406건과 App tests compile·소유 fmt/diff가 통과했습니다. 전환·탭/창/프로젝트 닫힘·원격 요청의 fresh capture와 folding contribution·전체 재시작은 남아 editor-67 partial을 유지합니다. 기능 체크리스트는 298/588(50.7%)·미완료 290이고 전체 전환율/잔여 시간은 미산정입니다. workflow/서브에이전트 없이 메인이 진행합니다.
+현재 상태: 기본 Host 탭 닫힘 전에 최신 캡처를 적용해 최근 닫힘/재열기의 선택/scroll을 보존했습니다. 실제 None 실패와 수정 뒤 App/상태/sync 13·전체 Host 9·종료 2건이 통과했습니다. 변경 없는 Core 306/UI 88을 재사용한 서로 다른 418건과 소유 fmt/diff를 확인했습니다. 다른 Host/셸·창/프로젝트/IDE/remote의 fresh capture와 folding contribution·전체 재시작은 남아 editor-67 partial을 유지합니다. 기능 체크리스트는 298/588(50.7%)·미완료 290이고 전체 전환율/잔여 시간은 미산정입니다. workflow/서브에이전트 없이 메인이 진행합니다.
 
 - [x] a. 원본 저장 형식·native 모델/표시·facade/종료 경계 대조
 - [x] b. 임시 App의 초기 복원 실패 재현·검증된 저장 형식과 복원 연결
 - [ ] c. 탭/뷰 전환·닫힘·창/프로젝트/앱 종료의 최신 상태 저장 연결
 - [x] c1. 실제 geometry/live 선택 캡처·정상/직접 앱 종료의 layout 저장과 본문 우선 오류 처리
+- [x] c2. 기본 Host typed CloseTab의 최신 캡처 선행 적용·실제 최근 닫힘/재열기와 요청 수명 검증
 - [ ] d. 실제 App/재시작·Unicode/scroll/mirror/readonly·잘못된 값/소유 수명 검증
 - [ ] e. 관련 회귀/형식/경계·기능표/PROCESS·선별 Git 저장
 - [x] e1. 초기 복원 단위의 실제 App/상태·Core 전체·UI 회귀·frozen 제품 compile·소유 fmt 확인
@@ -103,3 +104,21 @@ raw legacy scroll도 초기 커서 reveal에 덮이지 않도록 Core 요청에 
 `view-state-exit-server-permitted.log`의 실패 한 건은 권한 허용·exit 0으로 통과했습니다. 원래 서버/세션/pending/lockfile·감독 종료와 직접 오류 drain을 확인했습니다. 관련 종료 2건을 포함한 서로 다른 성공은 총 406건입니다. API/타입이 같은 private shutdown 내부의 본문 우선 순서만 바뀌었으므로 App tests 포함 compile 성공을 재사용하고 변경한 함수의 두 검사를 직접 확인했습니다. 마지막 소유 7Rust fmt/diff는 exit 0이고 변경하지 않은 Core/UI 본문·native-host 외의 frozen 성공은 재사용합니다. 전체 App/실기/전체 재시작이나 editor-67 전체 완료를 뜻하지 않습니다.
 
 종료 저장 코드/검사·QA/현재 PROCESS의 9경로는 `f1805287`로 선별 커밋했습니다. 현재 기능표는 599행·392근거 경로·588대상·complete 298/partial 93/unwired 110/missing 87입니다. editor-67 partial·미완료 290·배치 23 잔여 23/최종 33을 유지합니다. 이전 사용자 문서/PROCESS 하단 변경은 보존하고 다음은 d3b2의 실제 탭 닫힘/최근 닫힘과 fresh capture 순서입니다.
+
+## 탭 닫힘의 최신 위치 전달
+
+이전 goal turn은 초기 복원/종료 저장의 실제 코드·검증·커밋/일반 push로 진척했습니다. 현재 f1805287/e7709ae1의 source와 보존된 작업 트리를 대조했고 d3b2를 이어갑니다. 첫 `view-state-tab-close-red.log`는 실제 Shift+Right의 마지막 선택을 만든 뒤 생산용 request_tab_close를 실행했습니다. 닫힘 자체는 완료됐지만 ClosedTab.tab.view_state가 None이라 실패했습니다. 0통과/1실패·21.16초·exit 101(컴파일 21.80초)입니다. 재열기/복원·내용/디스크의 후기 단언은 아직 통과로 세지 않습니다.
+
+UI의 최신 Store를 요청하는 oneshot 경계를 App 포트가 공유하고 Host의 typed 닫힘 result 안에서 이를 먼저 적용합니다. UI는 mutation guard를 동기로 기다리지 않고 기존 poll로 PreparedDocument reply를 회수한 뒤 요청을 처리합니다. 소유자가 없는 기존 headless 포트는 빈 캡처를 사용하고 정상/직접 앱 종료는 최종 캡처를 대기 요청에도 전달해 UI 종료 뒤 대기를 남기지 않습니다. 기존 셸/IDE/remote·프로젝트/보조 창·preview 교체 경계는 d3b2 전체 범위로 남기며 기본 Host 한 경로를 전체 완료로 올리지 않습니다.
+
+[Tokio oneshot 공식 계약](https://docs.rs/tokio/latest/tokio/sync/oneshot/fn.channel.html)의 태스크 간 단일 값 전달과 sender/receiver 수명, [Rust Arc 공식 계약](https://doc.rust-lang.org/std/sync/struct.Arc.html)의 공유 소유를 확인했습니다. 기존 sync feature와 std만 쓰고 새 의존성/RPC를 추가하지 않습니다. 최종 캡처는 Arc slice로 공유하며 mutation 적용은 slice를 빌려 같은 캡처를 불필요하게 deep clone하지 않습니다.
+
+`view-state-tab-close-green.log`의 같은 실제 App은 1통과·21.26초·exit 0(컴파일 29.31초)입니다. 최근 닫힘의 저장값·같은 탭 재열기의 마지막 선택/실제 scroll·원문/dirty/디스크 보존이 통과했습니다. 초기 성공을 이후 관련 검사 수에 다시 합산하지 않습니다. 동시 요청·소유자 없는 포트·취소/최종 오류 회수·종료 취소 뒤 live 요청과 기존 관련 App/상태를 함께 확인 중입니다.
+
+첫 `view-state-tab-close-related.log`는 authored sync 검사에서 빈 Arc::from([])의 slice/allocator 타입을 추론할 수 없어 E0282 1건·exit 101로 컴파일 실패했습니다. Arc<[Captured]>의 타입을 명시해 필수 추론 경계를 좁혔고 같은 관련 13건을 확인합니다. 실행 0건을 성공으로 세지 않습니다. 실제 lock은 Tokio 1.53.1이며 공식 최신 1.53.2와 기존 repo의 oneshot 동일 API를 대조했고 lock/의존성은 수정하지 않았습니다.
+
+`view-state-tab-close-related-fixed.log`는 App 6/기존 상태 5/sync 2의 서로 다른 13통과/0실패·24.02초·exit 0(컴파일 17.84초)입니다. 실제 최근 닫힘/재열기와 초기/종료 복원·readonly·metadata·명시 이동 회귀, 소유자 없는 포트·동시 요청의 같은 Arc 공유·취소 회수·최종 오류 전달·종료 취소 뒤 live 재개를 확인했습니다. 이전 10건과 첫 기본 App 성공은 중복 합산하지 않습니다. 현재 Host 경계와 종료 입력의 Arc slice 변경을 관련 검사로 확인하며 Core/UI/frozen은 변경하지 않아 기존 성공을 재사용합니다.
+
+`view-state-tab-close-host.log`는 전체 Host 9통과/0실패·0.13초·exit 0입니다. 기존 공개 연결 포트·파일/프로젝트 결과·PreparedDocument 미소비 회수·실제 mirror/저장·종료 layout flush·watcher 선행 대기 회귀를 확인했습니다. `connect_with_application_ports`만 공유 캡처를 공급하며 기존 headless 연결 경로는 기존 동작을 보존합니다. 소유자 없는 공유 포트도 UI 대기를 만들지 않습니다.
+
+`view-state-tab-close-exit.log`는 권한 허용의 소유 종료 2건·exit 0입니다. 위치 캡처 실패의 실제 draft mirror/오류 반환·작업 회수와 서버/세션/pending/lockfile 종료를 확인했습니다. 현재 App 13/Host 9/종료 2와 변경 없는 Core 306/UI 88의 서로 다른 418건을 유지하며 기존 같은 성공을 추가 합산하지 않습니다. 소유 9Rust fmt/diff는 exit 0이고 manifest/lock/Core/UI/Syntax/엔진/frozen 변경은 없습니다. 기본 Host CloseTab만 연결했으며 셸/IDE/remote·프로젝트/slot/aux·새 파일/preview·folding contribution/전체 재시작과 전체 배치 게이트는 남습니다.

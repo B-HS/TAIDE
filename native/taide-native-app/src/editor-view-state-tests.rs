@@ -411,7 +411,7 @@ async fn 캡처_저장은_미지의_필드와_contribution을_보존하고_중�
         fields: serde_json::json!({"cursorState": [{"position": {"lineNumber": 2, "column": EMOJI_COLUMN}}], "viewState": {"scrollLeft": PREVIOUS_X, "scrollTopWithoutViewZones": PREVIOUS_Y}}).as_object().unwrap().clone(),
     }
     };
-    apply(&fixture.services, vec![captured()]).await.unwrap();
+    apply(&fixture.services, &[captured()]).await.unwrap();
     let updated = state.layouts.read()[&project].clone();
     assert_eq!(updated.revision, initial + 1);
     assert_eq!(events.0.load(Ordering::SeqCst), 1);
@@ -423,14 +423,14 @@ async fn 캡처_저장은_미지의_필드와_contribution을_보존하고_중�
     assert_eq!(saved["future"], serde_json::json!({"preserve": true}));
     assert_eq!(saved["contributionsState"], contribution);
     state.dirty_layouts.write().clear();
-    apply(&fixture.services, vec![captured()]).await.unwrap();
+    apply(&fixture.services, &[captured()]).await.unwrap();
     assert!(state.dirty_layouts.read().is_empty());
     assert_eq!(state.layouts.read()[&project].revision, updated.revision);
     assert_eq!(events.0.load(Ordering::SeqCst), 1);
     state.projects.write().remove(&project);
     apply(
         &fixture.services,
-        vec![Captured {
+        &[Captured {
             fields: serde_json::json!({"cursorState": []})
                 .as_object()
                 .unwrap()
@@ -458,7 +458,7 @@ async fn 캡처_저장은_미지의_필드와_contribution을_보존하고_중�
         tabs[0].kind = TabKind::Untitled { index: 1 };
     }
     let replaced = state.layouts.read()[&project].clone();
-    apply(&fixture.services, vec![captured()]).await.unwrap();
+    apply(&fixture.services, &[captured()]).await.unwrap();
     assert_eq!(state.layouts.read()[&project], replaced);
     let mut closed = replaced;
     taide_layout::service::close_tab(&mut closed, &tab).unwrap();
@@ -466,7 +466,7 @@ async fn 캡처_저장은_미지의_필드와_contribution을_보존하고_중�
         .layouts
         .write()
         .insert(project.clone(), closed.clone());
-    apply(&fixture.services, vec![captured()]).await.unwrap();
+    apply(&fixture.services, &[captured()]).await.unwrap();
     assert_eq!(state.layouts.read()[&project], closed);
     assert_eq!(fixture.services.tasks.tracked_count(), 0);
 }

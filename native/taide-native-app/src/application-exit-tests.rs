@@ -171,7 +171,7 @@ async fn 실제_app_exit는_서버_세션_pending_lockfile과_감독_소유권�
                     None,
                     None,
                     Err(AppError::InvalidArgument("synthetic draft failure".into())),
-                    Ok(Vec::new()),
+                    Ok(Arc::from([])),
                 )
                 .await;
                 assert!(matches!(
@@ -185,7 +185,7 @@ async fn 실제_app_exit는_서버_세션_pending_lockfile과_감독_소유권�
                     None,
                     None,
                     Ok(Vec::new()),
-                    Ok(Vec::new()),
+                    Ok(Arc::from([])),
                 )
                 .await;
                 finish_direct_exit(services, result).await.unwrap();

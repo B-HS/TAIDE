@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: d3b1의 정상/직접 앱 종료에 최신 선택/scroll 캡처와 layout flush를 연결했습니다. 종료 후 view_state None과 위치 오류로 draft mirror가 0개인 실패를 재현해 수정했으며 본문/기존 layout을 먼저 저장하고 위치 오류를 보고합니다. App/상태 10·종료 2·UI geometry 1과 기존 Core 306/UI 본문 87의 서로 다른 406건, App tests compile·7Rust fmt/diff가 통과했습니다. 포트 권한 실패 한 건은 소유 loopback 서버만 권한 허용으로 확인했습니다. 초기 복원 2ee11a21/판정 339fc46a의 일반 push·0/0을 유지하며 종료 단위를 선별 저장합니다. 전환/탭·창·프로젝트·원격 fresh capture·folding contribution/전체 재시작은 남아 있습니다. 기능 체크리스트 298/588(50.7%)·미완료 290·부분93/미연결110/미구현87·배치23 잔여23/최종33이고 전체 전환율/잔여 시간은 미산정입니다. 이전 App 준비 실패·frozen Wasm tests·전체/실기/출시와 사용자 기존 변경을 보존합니다.
+현재 상태: d3b2a의 최근 닫힘 view_state None을 실제 실패로 재현해 기본 Host typed CloseTab 전에 oneshot/Arc 캡처를 적용했습니다. UI poll 뒤 최신 Store·정상/직접 종료의 최종 캡처 전달·종료 실패 뒤 live 복귀를 연결했습니다. 최근 닫힘/재열기·선택/scroll·원문/디스크와 동시 요청/취소/최종 오류/headless, App/상태13·Host전체9·종료2가 통과했습니다. 변경 없는 Core306/UI88과 합친 서로 다른418건·9Rust fmt/diff를 확인하고 기본 단위를 선별 저장합니다. 셸/IDE/remote·다른 Host/project/slot/aux·preview 교체·folding contribution/전체 재시작은 미완료입니다. 기능 체크리스트298/588(50.7%)·미완료290·부분93/미연결110/미구현87·배치23 잔여23/최종33이며 전체 전환율/잔여 시간은 미산정입니다. 이전 준비/실기/출시 부채와 사용자 기존 변경을 보존합니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 
@@ -103,12 +103,14 @@
 - [ ] d3b. 최신 위치 저장/종료 연결 — 기존 typed facade와 mutation/flush 경계에서 탭 전환/닫힘·보조 창/프로젝트/앱 종료의 최신 상태 순서를 보장하고 닫힌 뷰/잘못된 JSON/metadata 갱신의 재복원·내용 변경을 막습니다. 연결 뒤 관련 검사와 실제 재시작/디스크·mirror/readonly 회귀를 확인합니다. 원본 folding contribution의 유효 범위/본문 확인도 함께 대조합니다.
 - [x] d3b1. 실제 종료 저장 실패와 캡처 — 정상/직접 앱 종료의 마지막 Unicode 선택·실제 geometry anchor/delta·raw fallback과 디스크 layout→새 ViewId/scroll roundtrip을 연결했습니다. 위치 오류의 draft 저장 누락도 재현해 본문/기존 layout 우선 저장과 원래 오류 반환을 보장했습니다. App/상태 10·종료 2·UI geometry 1과 기존 Core 306/UI 87의 서로 다른 406건, App tests compile·7Rust fmt/diff가 통과했습니다. source/readonly·primary/중복/소유/해제·본문/디스크·작업 0을 확인했으며 전체 c/d3b/재시작 완료로 확대하지 않습니다.
 - [ ] d3b2. 전환/닫힘의 fresh capture — 셸 mutation·Host 파일/탭 작업·IDE/remote 소비에서 최신 live 위치를 적용한 뒤 기존 작업을 실행하도록 연결합니다. UI를 guard 대기로 막지 않고 두 큐의 순서를 보장하며 정상 종료/직접 on_exit의 대기 캡처 회수를 함께 처리합니다. 탭 닫힘/최근 닫힘·project/slot/aux 종료·새 파일/preview 교체를 실제 앱과 소유 임시 서비스에서 검증합니다.
+- [x] d3b2a. 기본 Host 탭 닫힘 — 최근 닫힘 view_state None을 실제 실패로 재현하고 App 포트의 oneshot/Arc 공유 캡처를 typed CloseTab 전에 적용했습니다. UI poll 뒤 최신 Store와 종료 최종 캡처/실패 뒤 live 복귀를 연결했습니다. 실제 최근 닫힘/재열기·선택/scroll·원문/디스크, 동시 요청/취소/최종 오류·headless 포트와 기존 App/상태 13·전체 Host 9·종료 2건이 통과했고 소유 fmt/diff를 확인했습니다. 변경 없는 Core 306/UI 88을 재사용한 서로 다른 418건이며 셸/IDE/remote·나머지 Host/종료·folding/전체 재시작과 전체 배치 완료로 올리지 않습니다.
+- [ ] d3b2b. 나머지 소비자의 선행 저장 — 실제 셸 탭/프로젝트/창 전환과 Host 새 파일/preview 교체·batch close·project/slot/aux 종료, IDE/remote 명령에 같은 최신 캡처를 연결합니다. 기존 권한/입력 검증 뒤 순서와 typed 실패·종료 회수·진행 중 document lease를 보존하고 실제 소유 경로별 실패→수정→관련 검사로 확인합니다.
 - [ ] e. AI·Emmet — editor-77/78/80의 인라인 완성/편집과 Emmet을 원본 명령·표시·수락/거절/취소/오래된 응답에 맞게 연결합니다. 실제 키/개인 데이터 대신 주입 포트·임시 데이터로 검증합니다.
 - [ ] f. 실제 앱·전체 게이트 — 닫을 기능의 실제 앱/child/mirror·readonly/tier/다중 커서/IME·정상 종료/회귀를 확인하고 변경 크레이트 전체 대상을 --no-fail-fast로 직접 1회 실행합니다. 성공 결과는 재사용하고 실패 영향만 재검사합니다. frozen host/Wasm compile·fmt/diff·manifest/lock/engine/보호 경계·디스크와 배치 31 실기/성능/신뢰성 부채를 구분합니다.
 - [x] f1. 프로젝트 열기 지연 위치 조사·배치 31 이관 — 전체 App 811통과/프로젝트 open 5초 초과 1실패와 Cargo 단독 동일 실패를 보존했습니다. 같은 실행 파일의 직접 검사는 저장소/크레이트 cwd에서 3.81/3.23초에 통과했습니다. 성공한 두 번째 검사 중 start_watch→notify runloop 준비 대기와 FSEventStreamStart→등록 RPC의 실제 스택을 확인했습니다. 실패 시점의 스택이나 지연 변동의 근본 원인은 확인하지 않았으며 해결/전체 exit 0으로 보고하지 않습니다. 제한 확대·검사 생략·OS 변경 없이 반복 조사를 종료하고 배치 31의 실행 환경/신뢰성 게이트에 미해결 위험을 유지합니다.
 - [ ] g. 완료 근거·선별 Git — 실제 닫힌 ID만 QA/기능표/PROCESS에 반영하고 논리 단위 선별 커밋·일반 푸시합니다. 배치 24를 기존 계획 안에서 이어가며 배치 번호를 세부 수정마다 늘리지 않습니다.
 
-다음 행동: 검증한 종료 저장 단위를 일반 푸시한 뒤 d3b2의 실제 탭 닫힘에서 최신 위치가 최근 닫힘에 남는지 재현하고 fresh capture 순서를 연결합니다. 이전 준비 실패와 frozen Wasm tests의 std/web Instant 불일치는 신뢰성 게이트에 보존하며 같은 성공은 반복하지 않습니다.
+다음 행동: 검증한 기본 탭 닫힘 단위를 일반 푸시한 뒤 d3b2b의 셸 탭 전환/Host preview 교체를 실제 소유 경로에서 재현하고 동일 캡처의 선행 적용을 연결합니다. 이전 준비 실패와 frozen Wasm tests의 std/web Instant 불일치는 신뢰성 게이트에 보존하며 같은 성공은 반복하지 않습니다.
 
 ## 완료: 배치 22 — 자동완성과 사용자 스니펫 소비 (2026-10-10)
 

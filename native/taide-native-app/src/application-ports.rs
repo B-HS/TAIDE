@@ -55,6 +55,7 @@ pub(crate) fn start_agent_poll(services: Arc<AppServices>) {
 }
 
 pub struct Ports {
+    pub(crate) view_states: Arc<crate::editor_view_state_sync::Shared>,
     pub ide: Arc<crate::ide_server::Ports>,
     pub remote: Arc<crate::remote_http::Ports>,
     pub dispatch: Arc<Dispatch>,
@@ -136,6 +137,7 @@ impl Ports {
         });
         let (reconcile, dispatch) = connections.expect("remote ports constructor initialized");
         Self {
+            view_states: Arc::default(),
             ide,
             remote,
             dispatch,

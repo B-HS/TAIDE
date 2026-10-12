@@ -432,6 +432,7 @@ pub struct Terminals {
 }
 
 struct HostIntegrations {
+    view_states: Option<Arc<crate::editor_view_state_sync::Shared>>,
     terminals: Option<Terminals>,
     reconcile: Option<crate::remote_preferences::Reconcile>,
 }
@@ -466,13 +467,16 @@ impl HostBridge {
         terminals: Terminals,
         ports: &crate::application_ports::Ports,
     ) -> AppResult<Self> {
-        Self::connect_with_settings_ports(
+        Self::connect_with_integrations(
             services,
             repaint,
             clipboard_writer(),
             clipboard_reader(),
-            Some(terminals),
-            ports.reconcile.clone(),
+            HostIntegrations {
+                terminals: Some(terminals),
+                reconcile: Some(ports.reconcile.clone()),
+                view_states: Some(ports.view_states.clone()),
+            },
         )
     }
 
@@ -504,6 +508,7 @@ impl HostBridge {
             clipboard,
             read_clipboard,
             HostIntegrations {
+                view_states: None,
                 terminals,
                 reconcile: None,
             },
@@ -524,6 +529,7 @@ impl HostBridge {
             clipboard,
             read_clipboard,
             HostIntegrations {
+                view_states: None,
                 terminals,
                 reconcile: Some(reconcile),
             },
@@ -1411,6 +1417,9 @@ async fn dispatch(
         }
         HostCommand::CloseTab { tab, discard } => {
             let result = async {
+                if let Some(view_states) = &integrations.view_states {
+                    view_states.flush(services).await?;
+                }
                 let closed = crate::tabs::close(services, tab.clone(), discard).await?;
                 if let TabKind::Terminal { session_id, .. } = &closed.tab.kind
                     && let Some(terminals) = terminals

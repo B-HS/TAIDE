@@ -82,6 +82,8 @@ mod editor_symbols;
 pub mod editor_syntax;
 #[path = "editor-view-state.rs"]
 mod editor_view_state;
+#[path = "editor-view-state-sync.rs"]
+mod editor_view_state_sync;
 #[path = "event-relay.rs"]
 pub mod event_relay;
 pub mod events;
