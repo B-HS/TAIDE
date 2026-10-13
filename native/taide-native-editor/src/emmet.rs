@@ -27,6 +27,15 @@ mod stylesheet_parser;
 #[path = "emmet-stylesheet-preparation.rs"]
 mod stylesheet_preparation;
 
+#[path = "emmet-snippet-output.rs"]
+mod snippet_output;
+
+#[path = "emmet-stylesheet-format.rs"]
+mod stylesheet_format;
+
+#[path = "emmet-stylesheet-output.rs"]
+mod stylesheet_output;
+
 pub use extraction::extract;
 pub use markup_conversion::{
     ConversionLimits, ExpandedMarkupAttribute, ExpandedMarkupNode, MarkupRepeat, MarkupValue,
@@ -38,6 +47,7 @@ pub use markup_output::{
 };
 pub use markup_parser::{MarkupAttribute, MarkupLimits, MarkupNode, Repeat, parse_markup};
 pub use markup_preparation::{prepare_markup, prepare_markup_with_random};
+pub use stylesheet_output::{expand_stylesheet, render_stylesheet};
 pub use stylesheet_parser::{
     StylesheetProperty, StylesheetToken, StylesheetValue, parse_stylesheet,
 };

@@ -31,8 +31,22 @@ fn stylesheet의_registry_keyword_fuzzy_단위와_기본값은_원본_준비ast�
             let actual = prepare_stylesheet(input, PARSE_LIMITS, LIMITS)
                 .ok()
                 .map(|properties| canonical::canonical(&properties));
-            (actual.as_deref() != expected)
-                .then(|| format!("{input:?}: actual={actual:?}, expected={expected:?}"))
+            let corrected = match input {
+                "f:'a\\'b'" => {
+                    assert_eq!(
+                        expected,
+                        Some("4:fonti0[[ssingle:2:a\\l5:blockssingle:0:]]")
+                    );
+                    Some("4:fonti0[[ssingle:4:a\\'b]]")
+                }
+                "m${1:foo\\}bar}" => {
+                    assert_eq!(expected, None);
+                    Some("6:margini0[[f1:0:8:foo\\}bar]]")
+                }
+                _ => expected,
+            };
+            (actual.as_deref() != corrected)
+                .then(|| format!("{input:?}: actual={actual:?}, expected={corrected:?}"))
         })
         .collect::<Vec<_>>();
     assert!(

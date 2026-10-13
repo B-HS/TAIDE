@@ -141,3 +141,17 @@ stylesheet-preparation-first.log는4291 handle에서compile10.52초·기존parse
 초기두실행은라이브러리기본fuzzy0의자료입니다. 실제getExpandOptions는0.3으로덮어쓰므로이값을설치helper에서읽어defaults와준비oracle에반영했습니다. preparation-project.log는20958 handle에서compile9.34초·준비2/현재2110프로젝트사례/0.04초·exit0으로종료했고변경없는parser3 성공은재사용합니다. 앞절의fuzzy0은라이브러리기본이며실제프로젝트의공급자기준으로확대하지않습니다. preparation-host.log의현재lib/CSS2target compile9.55초와preparation-wasm.log의corelib4.83초는3516 handle에서모두exit0/추가경고0으로종료했습니다. 최종9Rustfmt/4MJS·QA포맷·입력/공통canonical재사용·소유diff/manifest·lock/frozen변경0·디스크629GiB/66%를확인했습니다. e3c2의프로젝트준비AST만닫고CSS출력/후보/실제App·editor-80unwired/전체302완료/전체게이트·목표active·잔여시간미산정을유지합니다.
 
 소유CSS 준비/defaults·UTF-16 출처/공통fixture·원본/예산검사·MIT출처와QA/PROCESS상단16경로를67145e1e로선별커밋했습니다. 기능표baseline/준비AST·프로젝트fuzzy0.3 근거만갱신하고editor-80unwired·전체302완료를유지합니다. 사용자PROCESS하단2hunk와다른문서/결정/피드백/메모리는보존했습니다.
+
+## e3c3 — stylesheet 출력
+
+원본css/property/outputValue/outputToken·pushString/field/index/최종0을대조해CSS/scss의속성·raw snippet·comma/공백/함수/important/줄바꿈·hex/rgba/숫자/field/string을portable renderer에연결했습니다. [ECMAScript toFixed 계약](https://tc39.es/ecma262/multipage/numbers-and-dates.html#sec-number.prototype.tofixed)의IEEE binary64 값·정수반올림/큰수처리를확인하고4/8자리에서u128 분자·2의거듭제곱분모로계산합니다. 실제half인0.03125/alpha0.001953125·음수/negative rounded0·tiny/subnormal과1000000000000000128을원본출력으로검증합니다. 큰수의과학표기에서는원본frac의마지막0 제거가1e+30을1e+3으로바꾸는오류를수정했습니다.
+
+원본helper가정한field index를그대로사용하고기존0이있으면추가최종0으로덮어쓰지않습니다. Literal은스니펫문법으로encode해달러/백슬래시를실제본문에보존하며숫자field와이름있는변수를구분합니다. 원본이변수를undefined 이름으로출력하는오류는실제변수명/명시default·미해결시이름default로수정했습니다. 빈변수m${}는잘못된placeholder/CSS를반환하는대신Refused입니다. String의field와escaped field를구분하고quote안의진짜field 슬롯을유지합니다. Field placeholder encoder는markup/CSS 두실제소비자가같은모듈을재사용하고재귀/byte·비유한숫자/정확히표현할수없는index 상한을검증합니다.
+
+실제소비에서f:'a\\'b'가잘못된CSS로분리되는원본lexer 오류와m${1:foo\\}bar}의닫힘오인을확인해CSS lexer의escape 처리를수정했습니다. raw/parser·prepared oracle는원본값을유지하고정확한오류/None 값을단언한후명시적수정기대값을사용합니다. 현재820입력/1640 raw 사례의4수정·2111 prepared 사례의2수정을포함하며원본결과를감추거나fixture를native 값으로교체하지않습니다.
+
+output-first.log는29341 handle에서compile13.30초·shared encoder/기존markup12·CSS준비2/새출력2성공·출력raw비교1실패의16통과/1실패·exit101로종료했습니다. CSS/scss 4286raw 출력중24차이는출력표기의같은본문이거나변수/brace/리터럴·큰수의원본오류였습니다. 표시뿐아니라native snippet_syntax→snippet_expansion을통과한본문으로비교하고수정기대는명시적입력목록에기록했습니다. source 자료는유지하며따옴표안의추가3입력으로현재2146입력×2syntax/4292사례입니다.
+
+output-final.log는29282 handle에서compile10.46초·출력4/1실패/0.13초·parser3/0.00초·준비2/0.04초의9통과/1실패·exit101로종료했습니다. 변수명은보존했지만미해결변수default가없어본문label이빈문자열이된두입력/두syntax의4실패를이름default로수정했습니다. output-variables-final.log는65451 handle에서compile9.10초·현재출력5/4292소비사례·0.13초·exit0으로종료했습니다. 실제변수명foo/bar와명시default·원본지수오류/진짜field·escaped field/empty변수거절·출력/함수깊이예산·비유한숫자를확인했습니다. 최신CSS10과변경없는markup12의현재22서로다른성공을재사용하고기존335+새출력5의340성공/기존성능1ignored이며반복성공은더하지않습니다.
+
+최소양수Number.MIN_VALUE를실제decimal로만든양/음subnormal 두입력을추가했습니다. output-subnormal.log는50645 handle에서해당비교1검사만재실행해compile4.25초·현재2148입력×2syntax/4296삽입비교·1통과/4filtered·0.12초·exit0이며기존5성공에더하지않습니다. 현재lib/영향7target의output-host.log compile13.42초와output-wasm.log/corelib4.33초는92585 handle에서exit0/추가경고0으로종료했고같은lib 성공을재사용합니다. 최종13Rustfmt/5MJS·QA포맷/소유diff·manifest/lock/frozen변경0·디스크629GiB/66%입니다. 67145e1e/6969f6a1의준비AST는일반push/local·remote0/0으로확인했습니다. e3c3 출력만닫고후보/설정/실제App·editor-80unwired/전체302완료/전체게이트·목표active·잔여시간미산정을유지합니다.

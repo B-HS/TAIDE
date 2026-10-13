@@ -60,6 +60,7 @@ export const STYLESHEET_INPUTS = [
         'f:${1}${2}',
         'm${variable}',
         'm${1:a{b}c}',
+        'm${1:foo\\}bar}',
         'm${1}',
         'm${}',
         'm${1:}',
@@ -73,4 +74,5 @@ export const STYLESHEET_INPUTS = [
         'foo(1!2)',
     ]),
 ]
-export const STYLESHEET_SNIPPET_COUNT = Object.keys(snippets).length
+export const STYLESHEET_SNIPPET_KEYS = Object.keys(snippets)
+export const STYLESHEET_SNIPPET_COUNT = STYLESHEET_SNIPPET_KEYS.length

@@ -129,6 +129,13 @@ impl Lexer<'_> {
         if has_name {
             let mut depth = 0usize;
             while let Some(character) = self.peek() {
+                if character == '\\' {
+                    self.position += character.len_utf8();
+                    if let Some(next) = self.peek() {
+                        self.position += next.len_utf8();
+                    }
+                    continue;
+                }
                 if character == '}' && depth == 0 {
                     break;
                 }
@@ -261,7 +268,17 @@ impl Lexer<'_> {
         if matches!(character, '\'' | '"') {
             self.position += character.len_utf8();
             let start = self.position;
-            self.consume(|next| next != character);
+            while let Some(next) = self.peek() {
+                if next == character {
+                    break;
+                }
+                self.position += next.len_utf8();
+                if next == '\\'
+                    && let Some(escaped) = self.peek()
+                {
+                    self.position += escaped.len_utf8();
+                }
+            }
             let value = self.input[start..self.position].to_owned();
             self.take(character);
             return Ok(Some(Lexeme::Value(StylesheetValue::String {

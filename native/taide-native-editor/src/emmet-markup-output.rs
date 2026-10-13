@@ -4,6 +4,7 @@ use crate::document::EditorError;
 
 use super::markup_filters::apply_markup_filters;
 use super::markup_preparation::{BOOLEAN_ATTRIBUTES, INLINE_ELEMENTS};
+use super::snippet_output::placeholder;
 use super::{
     ConversionLimits, ExpandedMarkupAttribute, ExpandedMarkupNode, MarkupLimits, MarkupValue,
     MarkupValueType, Syntax, markup_filters, prepare_markup, prepare_markup_with_filters,
@@ -182,39 +183,7 @@ impl Output {
     }
 
     fn placeholder(&mut self, name: &str) -> Result<(), EditorError> {
-        let mut characters = name.chars().peekable();
-        let mut braces = Vec::new();
-        let mut is_field_open = false;
-        while let Some(character) = characters.next() {
-            if character == '\\' {
-                self.push("\\")?;
-                if let Some(next) = characters.next() {
-                    self.push(next.encode_utf8(&mut [0; UTF8_MAX_BYTES]))?;
-                }
-                continue;
-            }
-            if character == '$' {
-                if characters.peek() == Some(&'{') {
-                    is_field_open = true;
-                } else {
-                    self.push("\\")?;
-                }
-            }
-            if character == '{' {
-                if braces.len() >= self.max_nesting {
-                    return Err(EditorError::Capacity);
-                }
-                braces.push(is_field_open);
-                is_field_open = false;
-            }
-            if character == '}' {
-                if !braces.pop().unwrap_or(false) {
-                    self.push("\\")?;
-                }
-            }
-            self.push(character.encode_utf8(&mut [0; UTF8_MAX_BYTES]))?;
-        }
-        Ok(())
+        placeholder(name, self.max_nesting, |text| self.push(text))
     }
 
     fn write_tokens(
