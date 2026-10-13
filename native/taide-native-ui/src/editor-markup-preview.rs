@@ -25,7 +25,7 @@ const QUOTE_INDENT: i8 = 12;
 const QUOTE_BORDER: f32 = 2.0;
 const QUOTE_OPACITY: f32 = 0.8;
 const LIST_INDENT: i8 = 20;
-const TASK_ICON_SIZE: f32 = 13.0;
+pub(super) const TASK_ICON_SIZE: f32 = 13.0;
 const CODE_PADDING: i8 = 12;
 pub(super) const CORNER_RADIUS: u8 = 4;
 pub(super) const INLINE_CODE_PADDING: Margin = Margin::symmetric(4, 2);
@@ -202,6 +202,29 @@ fn block_widths(
                 .iter()
                 .map(|item| {
                     let (min, max) = block_widths(ui, &item.blocks, appearance, provider);
+                    if item.checked.is_some() && item.blocks.first().is_some_and(can_prefix) {
+                        let values = match &item.blocks[0] {
+                            Block::Inline(values) | Block::Paragraph(values) => values,
+                            _ => unreachable!(),
+                        };
+                        let (mut job, _) = super::inline_job(
+                            ui,
+                            values,
+                            appearance,
+                            FONT_SIZE,
+                            TextWeight::Normal,
+                            true,
+                        );
+                        if let Some(section) = job.sections.first_mut() {
+                            section.leading_space += TASK_ICON_SIZE + space_width(ui);
+                        }
+                        let first = text_widths(ui, job);
+                        let rest = block_widths(ui, &item.blocks[1..], appearance, provider);
+                        return (
+                            first.0.max(rest.0) + f32::from(LIST_INDENT),
+                            first.1.max(rest.1) + f32::from(LIST_INDENT),
+                        );
+                    }
                     let task_width = if item.checked.is_some() {
                         TASK_ICON_SIZE + space_width(ui)
                     } else {
@@ -515,7 +538,7 @@ fn blocks(
     flow_blocks(ui, contents, appearance, colors, provider, false);
 }
 
-fn space_width(ui: &Ui) -> f32 {
+pub(super) fn space_width(ui: &Ui) -> f32 {
     ui.fonts_mut(|fonts| {
         fonts
             .layout_no_wrap(
@@ -526,6 +549,20 @@ fn space_width(ui: &Ui) -> f32 {
             .size()
             .x
     })
+}
+
+fn can_prefix(block: &Block) -> bool {
+    match block {
+        Block::Inline(values) | Block::Paragraph(values) => {
+            flow::has_content(values)
+                && values.iter().all(|value| match value {
+                    Inline::Text(span) => !span.style.code,
+                    Inline::Break => true,
+                    Inline::Image { .. } => false,
+                })
+        }
+        _ => false,
+    }
 }
 
 fn first_baseline(ui: &Ui, contents: &[Block], appearance: &EditorAppearance, width: f32) -> f32 {
@@ -637,6 +674,18 @@ fn flow_blocks(
     provider: &mut (impl Provider + ?Sized),
     trim_edges: bool,
 ) {
+    flow_blocks_with_prefix(ui, contents, appearance, colors, provider, trim_edges, None);
+}
+
+fn flow_blocks_with_prefix(
+    ui: &mut Ui,
+    contents: &[Block],
+    appearance: &EditorAppearance,
+    colors: Colors,
+    provider: &mut (impl Provider + ?Sized),
+    trim_edges: bool,
+    prefix: Option<bool>,
+) {
     let mut previous_margin = 0.0f32;
     let mut is_first = true;
     for (index, block) in contents.iter().enumerate() {
@@ -651,6 +700,23 @@ fn flow_blocks(
         is_first = false;
         ui.push_id(index, |ui| match block {
             Block::Inline(contents) => {
+                if index == 0
+                    && let Some(checked) = prefix
+                {
+                    let mut appearance = appearance.clone();
+                    appearance.line_height = LINE_HEIGHT;
+                    super::aligned::show_with_prefix(
+                        ui,
+                        contents,
+                        &appearance,
+                        colors,
+                        provider,
+                        FONT_SIZE,
+                        TextWeight::Normal,
+                        Some(checked),
+                    );
+                    return;
+                }
                 inline_contents(
                     ui,
                     contents,
@@ -663,6 +729,23 @@ fn flow_blocks(
                 );
             }
             Block::Paragraph(contents) => {
+                if index == 0
+                    && let Some(checked) = prefix
+                {
+                    let mut appearance = appearance.clone();
+                    appearance.line_height = PARAGRAPH_LINE_HEIGHT;
+                    super::aligned::show_with_prefix(
+                        ui,
+                        contents,
+                        &appearance,
+                        colors,
+                        provider,
+                        FONT_SIZE,
+                        TextWeight::Normal,
+                        Some(checked),
+                    );
+                    return;
+                }
                 inline_contents(
                     ui,
                     contents,
@@ -772,6 +855,18 @@ fn flow_blocks(
                                     marker_ui.add(egui::Label::new(galley));
                                 }
                                 if let Some(checked) = item.checked {
+                                    if item.blocks.first().is_some_and(can_prefix) {
+                                        flow_blocks_with_prefix(
+                                            ui,
+                                            &item.blocks,
+                                            appearance,
+                                            colors,
+                                            provider,
+                                            true,
+                                            Some(checked),
+                                        );
+                                        return;
+                                    }
                                     let (_, preferred) =
                                         block_widths(ui, &item.blocks, appearance, provider);
                                     let task_width =

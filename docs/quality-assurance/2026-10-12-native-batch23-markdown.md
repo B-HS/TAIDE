@@ -209,3 +209,15 @@ block-image-red.log는 앞 텍스트의 아래쪽이 이미지 위쪽보다 뒤�
 outside-image-app.log는 실제 App의 제목9883/작업 목록/여러 줄 코드·두 PNG 표시와 입력/undo/오류/읽기 전용/두 뷰·원문/이미지/디스크 보존·닫힘/작업0의4통과·52.62초·exit0(컴파일24.05초)입니다. 새 제목 코드의 source escape는 실제 개행이며 double escape가 아님을 파일로 확인했습니다. 서둘러 넓게 적용한 테스트 setup/포맷 patch context와 escape 관찰 오류는 수정 전 작성 단계이며 제품 검사 성공에 합산하지 않습니다. 이전 parser18/cache4/LSP8의 입력/경계는 변경 없어 재사용합니다. 새 UI34/App4와 재사용30의 서로 다른68건, 소유4Rust fmt/diff·frozen host tests/inspection0.08초/Wasm canvas lib0.09초·exit0·663GiB/64%입니다. 새 의존성/manifest/lock/frozen source와 사용자 문서/PROCESS 하단 두 hunk·실제 OS/설정/클립보드/보호 앱은 변경하지 않았습니다.
 
 혼합 inline code의 모든 줄 정렬·raw checkbox 위치/다중 줄 흐름·첫 블록 table/임의 CSS baseline·list-style-position/이미지 display override·counter 소유/행·열/접근성·추가 HTML/CLI와 이전 전체App 준비22실패/성능/OS/출시·전환·제거는 미완료입니다. 부모 d6c3h·editor-72 partial·302/588(51.4%)·미완료286·배치23 잔여19/최종33·전체 완료 시간 미산정을 유지합니다.
+
+## 작업 목록의 첫 줄 checkbox 예약 (2026-10-13)
+
+원본 marked/Tailwind를 소유한 standards Chrome 문서에서 대조한 task-wrap-browser.log는5조건 통과·exit0입니다. 체크박스는 첫 줄의 inline 공간을 사용하며 plain/중앙 제목의 다음 줄은 li 전체 폭을 사용합니다. task-inline-red.log는 별도 체크박스 열 때문에 다음 줄이20 대신36.1875point에서 시작하는 실제0/1·0.02초·exit101(컴파일8.18초)입니다.
+
+preview의 단순 텍스트/링크 작업 목록은 기존 Label galley에 첫 section의 leading_space로 checkbox13px와 공백을 예약합니다. 내용 문자에 가짜 여백이나 제어 문자를 넣지 않으며 실제 checkbox는 첫 줄의 font 기준선에서 disabled 상태로 표시합니다. 다음 줄은 전체 폭으로 되돌리고 최소/자연 너비도 첫 단어에만 예약 공간을 적용합니다. can_prefix는 실제 내용이 있는 첫 Inline/Paragraph를 검사하며 빈 내용과 code/image 및 다른 block은 기존 경로를 유지합니다. flow_blocks_with_prefix는 기존 문단 여백/후속 블록 수명을 보존하며 일반 호버·LSP 모델은 바꾸지 않습니다.
+
+첫 helper 작성의 job 선언 전 참조 E0425·exit101·0검사는 선언 뒤로 이동해 수정했습니다. task-inline-ui-fixed.log의22통과·0.07초·exit0(컴파일17.43초) 뒤, pointer를 추가한 task-inline-ui-final.log는 일반 도움말13/preview21성공과 checkbox 클릭으로 링크가 열리는1실패·exit101입니다. task-inline-hit-diagnostic.log는 중앙 정렬의 checkbox52.5/26.5와 첫 glyph0/13·row-69/0·origin115/20에서 같은 겹침을 확인한0/1·0.04초·exit101(컴파일25.64초)입니다.
+
+설치된 epaint의 align_and_justify_row는 중앙/오른쪽 정렬에서 첫 들여쓰기의 glyph 위치를 정규화함을 실제 소스로 확인했습니다. cached galley를 변경하지 않고 배치 전에 소유한 clone에서 첫 text row의 중앙과 checkbox 포함 logical rect·mesh bounds를 계산합니다. Label의 response/선택·실제 glyph 링크 영역과 checkbox가 같은 배치를 사용합니다. 화면에 이미 그린 shape를 따로 이동하지 않습니다. task-inline-hit-fixed.log는 plain/중앙의 줄바꿈·checkbox 영역 클릭 거절·마지막 줄 실제 링크 pointer press/release1통과·0.03초·exit0(컴파일12.55초)입니다.
+
+task-inline-ui-geometry-final.log는 preview22/일반 도움말13의35통과·0.06/0.04초·exit0(컴파일6.63초)입니다. task-inline-app.log는 긴 제목의 실제 작업 목록과 기존 토글/입력/undo/오류·읽기 전용/두 뷰·원문/PNG/디스크·닫힘/작업0의4통과·87.61초·exit0(컴파일37.70초)입니다. over60초 관찰 메시지에서 검사 프로세스를 재시작하지 않고 같은 handle의 종료를 확인했습니다. 변경 없는 parser18/cache4/LSP8의30성공은 재사용한 서로 다른69건입니다. 소유4Rust fmt/diff·frozen host tests/inspection0.08초/Wasm canvas lib0.10초·exit0·662GiB/64%와 사용자 문서/PROCESS 하단 두 hunk·의존성/manifest/lock/frozen source·보호 경계를 보존했습니다. 혼합 code/image 작업 목록·raw input 위치/상태와 임의 CSS·첫 table baseline·전체 HTML/접근성/OS/전체 게이트는 부모 d6c3h에 유지합니다. editor-72 partial·302/588(51.4%)·미완료286·배치23 잔여19/최종33·전체 완료 시간 미산정입니다.

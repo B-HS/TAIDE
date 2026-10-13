@@ -1399,6 +1399,166 @@ fn 병합_셀의_내부_경계는_없고_제목과_본문은_병합_영역에_�
 }
 
 #[test]
+fn 작업_목록의_체크박스는_첫_줄에만_공간을_예약한다() {
+    use taide_native_editor::documentation::{Alignment, Link, ListItem, TableCell, TableLayout};
+    const WIDTH: f32 = 210.0;
+    const INDENT: f32 = 20.0;
+    const CENTER_FRACTION: f32 = 0.5;
+    const TOLERANCE: f32 = 1.0;
+    const BODY: &str =
+        "many task words wrap across several lines and use the entire list item width";
+    const TARGET: &str = "https://example.com/task";
+    const TASK_ICON_SIZE: f32 = 13.0;
+    struct Links(Vec<String>);
+    impl Provider for Links {
+        fn open_link(&mut self, _: &Ui, target: &str) -> bool {
+            self.0.push(target.into());
+            true
+        }
+    }
+    for centered in [false, true] {
+        let list = Block::List {
+            start: None,
+            items: vec![ListItem {
+                checked: Some(true),
+                ordinal: None,
+                marker_style: None,
+                blocks: vec![Block::Inline(vec![Inline::Text(Span {
+                    text: BODY.into(),
+                    link: Some(Link {
+                        target: TARGET.into(),
+                        title: String::new(),
+                    }),
+                    ..Default::default()
+                })])],
+            }],
+            style: Default::default(),
+        };
+        let body = if centered {
+            Block::Table {
+                columns: vec![],
+                header: vec![],
+                rows: vec![vec![text("table body")]],
+                layout: Some(TableLayout {
+                    caption: vec![],
+                    caption_blocks: Some(vec![list]),
+                    cells: vec![vec![TableCell {
+                        column: 0,
+                        column_span: 1,
+                        row_span: 1,
+                        alignment: Alignment::Default,
+                        blocks: None,
+                    }]],
+                    column_count: 1,
+                    row_count: 1,
+                }),
+            }
+        } else {
+            list
+        };
+        let document = RichDocument {
+            blocks: vec![Block::Inline(text("origin")), body],
+        };
+        let context = Context::default();
+        let mut links = Links(vec![]);
+        let paint = |links: &mut Links, events| {
+            let mut output = context.run_ui(
+                RawInput {
+                    screen_rect: Some(Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(WIDTH, SCREEN.y),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| show_preview(ui, &document, &appearance(), colors(), links),
+            );
+            output.textures_delta.clear();
+            output
+        };
+        let output = paint(&mut links, vec![]);
+        let shape = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == BODY => Some(text),
+                _ => None,
+            })
+            .unwrap();
+        assert!(shape.galley.rows.len() > 1);
+        let item_start = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == "origin" => {
+                    Some(text.galley.rect.translate(text.pos.to_vec2()).left() + INDENT)
+                }
+                _ => None,
+            })
+            .unwrap();
+        for row in shape.galley.rows.iter().skip(1) {
+            let rect = row.rect().translate(shape.pos.to_vec2());
+            if centered {
+                let (columns, _) = table_bounds(&table_edges(&output), 1, 1);
+                let center = (columns[0] + columns[1]) * CENTER_FRACTION + INDENT * CENTER_FRACTION;
+                assert!((rect.center().x - center).abs() <= TOLERANCE);
+            } else {
+                assert!(
+                    (rect.left() - item_start).abs() <= TOLERANCE,
+                    "wrapped task line begins at {} instead of {item_start}",
+                    rect.left()
+                );
+            }
+        }
+        let last = shape.galley.rows.last().unwrap();
+        let link_point = last
+            .glyphs
+            .first()
+            .unwrap()
+            .logical_rect()
+            .translate(shape.pos.to_vec2() + last.pos.to_vec2())
+            .center();
+        let checkbox = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Rect(rect)
+                    if rect.rect.size() == egui::vec2(TASK_ICON_SIZE, TASK_ICON_SIZE) =>
+                {
+                    Some(rect.rect.center())
+                }
+                _ => None,
+            })
+            .unwrap();
+        for (position, expected) in [(checkbox, 0), (link_point, 1)] {
+            for pressed in [true, false] {
+                paint(
+                    &mut links,
+                    vec![
+                        egui::Event::PointerMoved(position),
+                        egui::Event::PointerButton {
+                            pos: position,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ],
+                );
+            }
+            assert_eq!(
+                links.0.len(),
+                expected,
+                "centered={centered}; checkbox={checkbox:?}; row={:?}; glyph={:?}; origin={:?}",
+                shape.galley.rows[0].pos,
+                shape.galley.rows[0].glyphs[0].pos,
+                shape.pos
+            );
+        }
+        assert_eq!(links.0, [TARGET]);
+    }
+}
+
+#[test]
 fn 미리보기_문단의_이미지는_앞뒤_텍스트와_독립된_블록으로_표시된다() {
     use taide_native_editor::documentation::ImageDimensions;
     const IMAGE: Vec2 = egui::vec2(40.0, 20.0);

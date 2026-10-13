@@ -4,6 +4,8 @@ use taide_native_editor::documentation::Inline;
 use super::{Colors, Provider, TextWeight, inline_font};
 use crate::editor_surface::EditorAppearance;
 
+const CENTER_FRACTION: f32 = 0.5;
+
 pub(super) fn show(
     ui: &mut Ui,
     contents: &[Inline],
@@ -13,8 +15,23 @@ pub(super) fn show(
     size: f32,
     weight: TextWeight,
 ) -> bool {
+    show_with_prefix(
+        ui, contents, appearance, colors, provider, size, weight, None,
+    )
+}
+
+pub(super) fn show_with_prefix(
+    ui: &mut Ui,
+    contents: &[Inline],
+    appearance: &EditorAppearance,
+    colors: Colors,
+    provider: &mut (impl Provider + ?Sized),
+    size: f32,
+    weight: TextWeight,
+    prefix: Option<bool>,
+) -> bool {
     let alignment = ui.layout().horizontal_align();
-    if alignment == Align::Min
+    if (alignment == Align::Min && prefix.is_none())
         || contents.iter().any(|inline| match inline {
             Inline::Text(span) => span.style.code,
             Inline::Image { .. } => true,
@@ -65,15 +82,77 @@ pub(super) fn show(
             Inline::Image { .. } => unreachable!(),
         }
     }
+    if prefix.is_some()
+        && let Some(section) = job.sections.first_mut()
+    {
+        section.leading_space += super::preview::TASK_ICON_SIZE + super::preview::space_width(ui);
+    }
     job.halign = alignment;
     job.wrap.max_width = ui.available_width();
     let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
+    let galley = if prefix.is_some() && alignment != Align::Min {
+        let mut galley = std::sync::Arc::unwrap_or_clone(galley);
+        let prefix_width = super::preview::TASK_ICON_SIZE + super::preview::space_width(ui);
+        if let Some(first) = galley.rows.first_mut()
+            && alignment == Align::Center
+        {
+            first.pos.x += prefix_width * CENTER_FRACTION;
+        }
+        galley.rect =
+            galley
+                .rows
+                .iter()
+                .enumerate()
+                .fold(egui::Rect::NOTHING, |rect, (index, row)| {
+                    let mut bounds = row.rect();
+                    if index == 0 {
+                        bounds.min.x -= prefix_width;
+                    }
+                    rect.union(bounds)
+                });
+        galley.mesh_bounds = galley.rows.iter().fold(egui::Rect::NOTHING, |rect, row| {
+            rect.union(row.visuals.mesh_bounds.translate(row.pos.to_vec2()))
+        });
+        std::sync::Arc::new(galley)
+    } else {
+        galley
+    };
     let has_links = !links.is_empty();
     let mut label = Label::new(galley.clone()).selectable(true);
     if has_links {
         label = label.sense(egui::Sense::click())
     }
     let response = ui.add(label);
+    let origin = match alignment {
+        Align::Min => response.rect.left_top(),
+        Align::Center => response.rect.center_top(),
+        Align::Max => response.rect.right_top(),
+    };
+    if let Some(checked) = prefix
+        && let Some(row) = galley.rows.first()
+    {
+        let baseline = row
+            .glyphs
+            .first()
+            .map_or(appearance.line_height, |glyph| glyph.pos.y);
+        let size = super::preview::TASK_ICON_SIZE;
+        let prefix_width = size + super::preview::space_width(ui);
+        let first_x = row.glyphs.first().map_or(prefix_width, |glyph| glyph.pos.x);
+        let mut child = ui.new_child(
+            egui::UiBuilder::new()
+                .id_salt("task-prefix")
+                .max_rect(egui::Rect::from_min_size(
+                    origin
+                        + row.pos.to_vec2()
+                        + egui::vec2(first_x - prefix_width, baseline - size),
+                    egui::vec2(size, size),
+                ))
+                .layout(egui::Layout::top_down(Align::Min)),
+        );
+        child.spacing_mut().icon_width = size;
+        child.spacing_mut().interact_size.y = size;
+        child.add_enabled(false, egui::Checkbox::without_text(&mut checked.clone()));
+    }
     if !has_links {
         return true;
     }
@@ -85,11 +164,6 @@ pub(super) fn show(
     if !response.contains_pointer() {
         return true;
     }
-    let origin = match alignment {
-        Align::Min => response.rect.left_top(),
-        Align::Center => response.rect.center_top(),
-        Align::Max => response.rect.right_top(),
-    };
     let mut character = 0;
     for row in &galley.rows {
         for glyph in &row.glyphs {
