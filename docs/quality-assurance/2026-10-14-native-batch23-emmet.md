@@ -59,3 +59,25 @@ conversion-final.log는compile9.93초·변환3/parser2의5통과·0실패·exit0
 preparation-wasm.log는현재core lib의wasm32 compile4.47초·exit0이며Wasm검사실행/기존시간API문제해결로확대하지않습니다. 소유7Rustfmt/MJS·QA포맷/manifest·lock·frozen변경0/디스크630GiB·66%입니다. e3b3준비2검사와변경없는이전파서/변환6검사는서로다른8성공으로재사용합니다. HTML/JSX출력/field offset·lorem/BEM/필터/CSS·후보/실제App은미완료라editor-80missing·전체302/588(51.4%)·미완료286·목표active·잔여시간미산정을유지합니다.
 
 소유기본스니펫준비/생성자료/공통비교helper·검사/원본oracle/출처/QA와PROCESS상단14경로를31bb6ed8로선별커밋했습니다. 사용자PROCESS하단2hunk와다른문서/결정/피드백/메모리를보존했습니다. 기능표baseline과준비근거만갱신하며출력/후보/App이없어editor-80missing/전체302완료·목표active를유지합니다.
+
+## e3b4 HTML/JSX 출력
+
+준비된AST를inline/block·html skip/body force·tab/newline·문자열/placeholder·snippet field 위치의children·속성boolean/expression과JSX className/htmlFor/styleName/styles로출력합니다. 전역field offset과가장높은빈field의final0은typed field byte위치로관리하고최대byte/depth/index상한을거절합니다. CSS·lorem/BEM/필터와실제후보/App은현재범위에연결하지않았으므로e3b/e3의전체완료로확대하지않습니다.
+
+설치emmet-monaco-es5.7.0의실제expandAbbreviation과원본doComplete의출력옵션을사용한oracle는920입력/1840사례입니다. 첫output-red.log는비교생성기의상대경로한단계초과→fixture없음으로compile실패/exit101이며0검사입니다. 상대경로를현재파일로수정한output-parity.log는compile9.09초·예산1통과/비교1실패·0.03초·exit101입니다. 차이는p{escaped field}의2사례로원본addFinalTabStop/escapeNonTabStopDollar가literal ${1}을탭위치0으로바꾸어본문문자를없애는오류였습니다. native는typed Text/Field를구분해literal문자를보존합니다. 원본oracle를그대로보관하고정확한input/원본잘못된output을단언한뒤올바른literal기대값과비교하며실제snippet_syntax/expansion에서텍스트/빈placeholder를검증합니다. 기존group닫힘2사례도이미기록한원본오탈자를수정하며나머지1836은원본그대로일치합니다.
+
+output-fixed.log는4통과/0실패·0.05초·compile4.47초·exit0입니다. 출력비교/예산·CSS/field overflow/실제literal소비·성공한모든출력의현재native snippet문법소비를확인했습니다. 소유6Rustfmt와manifest/lock/frozen변경0을확인했으며변경core의전체all-targets/no-fail-fast/test-threads4는output-core-all.log에서실행중입니다. 종료전전체성공으로선언하지않습니다.
+
+fixture literal생성은6생성기에서공통emmet-rust-literal.mjs를사용하도록정리했습니다. 문자열값을유지하면서codepoint/제어문자/quote/backslash를Rust표준literal로표기해code에그림문자를직접쓰지않습니다. 원본호출/추출3096/구조1026/변환2112/준비1838/출력1840의입력·기대값/예산은같고최종fixture컴파일을전체실행종료후확인합니다.
+
+## e3b4 전체 결과·e3b5 필터
+
+output-core-all.log의직접전체실행은92544 handle에서정상종료했습니다. --all-targets/--no-fail-fast/test-threads4·44대상/322통과/0실패/기존대형성능1ignored·compile43.64초·exit0입니다. 문서/편집/undo/mirror/완성/스니펫/들여쓰기/포맷/위치의기존target과당시Emmet15검사를포함하며앞선좁은성공을중복합산하지않습니다. 기본출력뒤의독립필터코드는이후추가했고변경없는기존target성공은재사용하며새/영향검사만확인했습니다.
+
+필터는최대3개의알려진bem/c/t접미사를분리하고BEM기본block/cache·element/modifier/ancestor·중복제거/JS공백과닫힘주석의id/class/fieldoffset을연결했습니다. 원본getExpandOptions는t를인식해도출력변화를적용하지않으므로native도임의trim을추가하지않습니다. void/self-closing은원본처럼닫힘주석을추가하지않습니다. 원본3filter label의comma표현때문에oracle는primary의정확한detail을선택하며태그추가후보와구분합니다.
+
+markup-filters-red.log는최종fixture/필터코드의compile10.90초·필터3(32stem/10suffix/2syntax의640사례)/기본출력4의7통과·0실패·0.01/0.07초·exit0입니다. field/comment/Unicode공백/대문자중복id/void/다중filter를포함합니다. 실제BEM변환전준비는성공하고변환후byte예산만넘는검사를보강한filters-budget.log는준비AST의속성이름길이를빠뜨린상한44의0통과/1실패·exit101입니다. 실제기본AST문자열길이49로상한을고정한filters-budget-final.log는해당1통과·compile4.36초·exit0이며앞선반복성공과더하지않습니다. 기존전체322와새필터3의서로다른325성공·0실패·성능1ignored입니다.
+
+최종표기/현재library 및Emmet6검사target의output-final-host.log compile은12.94초·추가경고0·exit0, output-final-wasm.log는현재corelib4.86초·exit0입니다. 최종14Rustfmt/9MJS·QA포맷·manifest/lock/frozen변경0·디스크630GiB/66%를확인했습니다. 동일Unicode/문자열값의fixture표기만변경해성공을재사용하고새기능/기본출력은현재코드로다시확인했습니다. wasm검사실행/기존시간API불일치/전체App877·22준비실패/실기해결로확대하지않습니다.
+
+HTML/JSX기본출력과필터의core구현은연결되어editor-80을missing에서unwired로반영합니다. lorem/기타추가경계/CSS·completion range/validation/추가후보·설정/실제App소비와전체게이트는남아있으며전체완료302/588(51.4%)·부분92/미연결111/미구현83·미완료286·목표active·잔여시간미산정을유지합니다.

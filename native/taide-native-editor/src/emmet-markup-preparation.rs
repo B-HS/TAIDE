@@ -8,7 +8,7 @@ use super::{
 #[path = "emmet-markup-defaults.rs"]
 mod defaults;
 
-pub(crate) use defaults::INLINE_ELEMENTS;
+pub(crate) use defaults::{BOOLEAN_ATTRIBUTES, INLINE_ELEMENTS};
 
 struct Resolver {
     syntax: Syntax,

@@ -12,11 +12,19 @@ mod markup_conversion;
 #[path = "emmet-markup-preparation.rs"]
 mod markup_preparation;
 
+#[path = "emmet-markup-output.rs"]
+mod markup_output;
+
+#[path = "emmet-markup-filters.rs"]
+mod markup_filters;
+
 pub use extraction::extract;
 pub use markup_conversion::{
     ConversionLimits, ExpandedMarkupAttribute, ExpandedMarkupNode, MarkupRepeat, MarkupValue,
     MarkupValueType, convert_markup,
 };
+pub use markup_filters::{MarkupFilters, markup_filters, prepare_markup_with_filters};
+pub use markup_output::{expand_markup, expand_markup_with_filters, render_markup};
 pub use markup_parser::{MarkupAttribute, MarkupLimits, MarkupNode, Repeat, parse_markup};
 pub use markup_preparation::prepare_markup;
 

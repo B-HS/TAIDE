@@ -20,7 +20,7 @@ const BASE_INPUTS = [
     'div>(ul>li*2)+footer',
     '((a+b)>c)*3',
     'div>span{hello}+em{world}',
-    'span{한글 😀}',
+    'span{한글 \u{1f600}}',
     'span{a{b}c}',
     '{text}>span',
     'div[hidden]',

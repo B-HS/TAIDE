@@ -1,3 +1,4 @@
+import { rustLiteral as literal } from './emmet-rust-literal.mjs'
 import { extract } from 'emmet'
 import { fileURLToPath } from 'node:url'
 
@@ -9,7 +10,7 @@ const INPUTS = [
     'div>(header>nav)+main+footer',
     'div>span+strong',
     'div>p^aside',
-    'span{한글 😀 (text)}',
+    'span{한글 \u{1f600} (text)}',
     'div{a{b}c}',
     'span[title="hello world"]',
     "a[href='https://example.test/a?q=1']",
@@ -36,11 +37,11 @@ const INPUTS = [
     '<span>.foo[title=bar]</span>',
     '<a href=""><span>ul>li</span></a>',
     '한글 div',
-    '😀 div>span',
+    '\u{1f600} div>span',
     'x = div',
     'hello\tul>li',
-    'div[title="한글 😀"]',
-    'div{你好(😀)}',
+    'div[title="한글 \u{1f600}"]',
+    'div{你好(\u{1f600})}',
     'div[',
     'div]',
     '(div',
@@ -67,12 +68,9 @@ const INPUTS = [
     'text <span data-x=https://a.test>div',
     'div[attr="a>b"]>span',
     '<div attr="a>b">span',
-    '<div attr=😀>span',
+    '<div attr=\u{1f600}>span',
 ]
-const literal = (value) => {
-    if (value.includes('"###')) throw new Error('Rust raw string delimiter collision')
-    return `r###"${value}"###`
-}
+
 const cases = INPUTS.flatMap((line) => {
     const cursors = [0, ...Array.from(line).map((_, index, characters) => characters.slice(0, index + 1).join('').length)]
     return ['html', 'jsx', 'css'].flatMap((syntax) =>

@@ -1,3 +1,4 @@
+import { rustLiteral as literal } from './emmet-rust-literal.mjs'
 import { parseMarkup, resolveConfig } from 'emmet'
 import { fileURLToPath } from 'node:url'
 
@@ -27,10 +28,7 @@ const inputs = [
         '(input:checkbox+img)*2',
     ]),
 ]
-const literal = (value) => {
-    if (value.includes('"###')) throw new Error('Rust raw string delimiter collision')
-    return `r###"${value}"###`
-}
+
 const cases = ['html', 'jsx'].flatMap((syntax) =>
     inputs.map((input) => {
         let expected = 'None'

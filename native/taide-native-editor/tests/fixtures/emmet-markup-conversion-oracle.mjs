@@ -1,3 +1,4 @@
+import { rustLiteral as literal } from './emmet-rust-literal.mjs'
 import abbreviation from '@emmetio/abbreviation'
 import { fileURLToPath } from 'node:url'
 
@@ -24,10 +25,7 @@ const CASE_INPUTS = [
     'ul>li.item$$@-3*2',
     'p{\\${1}}',
 ]
-const literal = (value) => {
-    if (value.includes('"###')) throw new Error('Rust raw string delimiter collision')
-    return `r###"${value}"###`
-}
+
 const cases = ['html', 'jsx'].flatMap((syntax) =>
     [false, true].flatMap((withVariables) =>
         CASE_INPUTS.map((input) => {

@@ -1,11 +1,9 @@
+import { rustLiteral as literal } from './emmet-rust-literal.mjs'
 import { resolveConfig } from 'emmet'
 import { fileURLToPath } from 'node:url'
 
 const config = resolveConfig({ type: 'markup', syntax: 'html' })
-const literal = (value) => {
-    if (value.includes('"###')) throw new Error('Rust raw string delimiter collision')
-    return `r###"${value}"###`
-}
+
 const pairs = (name, values) =>
     `pub(crate) const ${name}: &[(&str, &str)] = &[\n${Object.entries(values)
         .map(([key, value]) => `    (${literal(key)}, ${literal(value)}),`)
@@ -14,7 +12,10 @@ const array = (name, values) => `pub(crate) const ${name}: &[&str] = &[\n${value
 const output = new URL('../../src/emmet-markup-defaults.rs', import.meta.url)
 await Bun.write(
     output,
-    pairs('SNIPPETS', config.snippets) + pairs('VARIABLES', config.variables) + array('INLINE_ELEMENTS', config.options.inlineElements),
+    pairs('SNIPPETS', config.snippets) +
+        pairs('VARIABLES', config.variables) +
+        array('INLINE_ELEMENTS', config.options.inlineElements) +
+        array('BOOLEAN_ATTRIBUTES', config.options['output.booleanAttributes']),
 )
 const formatted = Bun.spawnSync(['rustfmt', '--edition', '2024', fileURLToPath(output)])
 if (formatted.exitCode !== 0) throw new Error('Emmet defaults formatting failed')

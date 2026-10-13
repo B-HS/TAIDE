@@ -1,12 +1,9 @@
+import { rustLiteral as literal } from './emmet-rust-literal.mjs'
 import { parse, tokenize } from '@emmetio/abbreviation'
 import { fileURLToPath } from 'node:url'
 
 import { INPUTS } from './emmet-markup-inputs.mjs'
 
-const literal = (value) => {
-    if (value.includes('"###')) throw new Error('Rust raw string delimiter collision')
-    return `r###"${value}"###`
-}
 const part = (value) => (value == null ? '-' : `${new TextEncoder().encode(value).length}:${value}`)
 const raw = (tokens, input) => tokens?.map((token) => (token.start == null ? token.value : input.slice(token.start, token.end))).join('')
 const node = (value, input) => {

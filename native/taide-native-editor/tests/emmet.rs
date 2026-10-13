@@ -47,8 +47,8 @@ fn emmet의_언어등록은_원본의_여섯언어만_지원한다() {
 
 #[test]
 fn emmet의_잘못된_byte경계와_입력상한은_추출하지않는다() {
-    let line = "😀div";
-    for cursor in 1.."😀".len() {
+    let line = "\u{1f600}div";
+    for cursor in 1.."\u{1f600}".len() {
         assert!(extract(line, cursor, Syntax::Html, MAX_LINE_BYTES).is_none());
     }
     assert!(extract(line, line.len() + 1, Syntax::Html, MAX_LINE_BYTES).is_none());
@@ -56,5 +56,5 @@ fn emmet의_잘못된_byte경계와_입력상한은_추출하지않는다() {
     assert!(extract("div", "div".len(), Syntax::Html, 0).is_none());
     let extracted = extract(line, line.len(), Syntax::Html, line.len()).unwrap();
     assert_eq!(extracted.abbreviation, "div");
-    assert_eq!(extracted.bytes, "😀".len()..line.len());
+    assert_eq!(extracted.bytes, "\u{1f600}".len()..line.len());
 }
