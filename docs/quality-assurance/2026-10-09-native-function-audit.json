@@ -1,6 +1,6 @@
 {
     "date": "2026-10-14",
-    "baseline": "4ab2547a",
+    "baseline": "0e5e737f",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -814,14 +814,16 @@
                 "native/taide-native-ui/src/command-palette-tests.rs",
                 "native/taide-native-ui/tests/editor-sticky-scroll.rs",
                 "native/taide-native-app/src/application-startup-tests.rs",
-                "native/taide-native-ui/tests/editor-locations.rs"
+                "native/taide-native-ui/tests/editor-locations.rs",
+                "native/taide-native-app/src/application-sticky-definition-tests.rs"
             ],
             "reports": [
                 "docs/quality-assurance/2026-10-10-native-batch16-document-symbols.md",
                 "docs/quality-assurance/2026-10-10-native-batch17-outline-breadcrumbs.md",
-                "docs/quality-assurance/2026-10-10-native-batch23-editor.md"
+                "docs/quality-assurance/2026-10-10-native-batch23-editor.md",
+                "docs/quality-assurance/2026-10-14-native-batch23-sticky-definition.md"
             ],
-            "limitation": "기존 문서 심볼·outline/접기/indent fallback에 고정 줄 Ctrl/Meta/hover/GoTo/Aside를 연결했습니다. 최신 UI 32·실제 앱 회귀 1건은 통과했으나 새 고정 줄 클릭의 실제 child E2E·batch 전체/실기/성능 게이트는 아직입니다."
+            "limitation": "기존문서심볼/구문접기/indent fallback의고정줄Ctrl/Meta/hover/GoTo/Aside를연결했습니다. 기존UI32와새실제child/App3에서실제Galley 클릭·서버UTF-16 위치/한줄아래응답·현재/독립옆뷰·원문/revision/디스크/task0을확인했습니다. 실제비BMP 식별자의byte8/UTF-16열6·Normal readonly 탐색도통과했습니다. 원본내장JSON/CSS/HTML/TS 심볼/접기공급(editor-57)이아직없어provider전체동등성은partial이며전체App준비/실기/성능/출시게이트는별도미완료입니다."
         },
         "editor-indentation": {
             "sources": [
@@ -2579,7 +2581,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-sticky-definition",
-            "note": "문서 심볼·구문 접기/indent fallback에 고정 줄 실제 문자 위치의 Ctrl/Meta 정의 이동·hover 밑줄·옆 열기를 연결했습니다. UI 32·실제 앱 회귀 1건이 통과했습니다. 새 고정 줄 클릭 child E2E와 batch 전체/실기 게이트는 별도이며 전체 gate 전까지 partial입니다."
+            "note": "기존문서심볼/구문접기/indent fallback의고정줄Ctrl/Meta/hover/GoTo/Aside를연결했습니다. 기존UI32와새실제child/App3에서실제Galley 클릭·서버UTF-16 위치/한줄아래응답·현재/독립옆뷰·원문/revision/디스크/task0을확인했습니다. 실제비BMP 식별자의byte8/UTF-16열6·Normal readonly 탐색도통과했습니다. 원본내장JSON/CSS/HTML/TS 심볼/접기공급(editor-57)이아직없어provider전체동등성은partial이며전체App준비/실기/성능/출시게이트는별도미완료입니다."
         },
         {
             "id": "editor-17",
