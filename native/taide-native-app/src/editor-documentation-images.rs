@@ -307,6 +307,9 @@ fn collect<'a>(blocks: &'a [Block], sources: &mut HashSet<&'a str>) {
             } => {
                 if let Some(layout) = layout {
                     collect_inline(&layout.caption, sources);
+                    if let Some(blocks) = &layout.caption_blocks {
+                        collect(blocks, sources)
+                    }
                     for cell in layout.cells.iter().flatten() {
                         if let Some(blocks) = &cell.blocks {
                             collect(blocks, sources)

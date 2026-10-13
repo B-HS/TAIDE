@@ -2,6 +2,68 @@ use super::*;
 use taide_native_editor::documentation::{Block, Inline};
 
 #[test]
+fn 표_제목의_flow_구조와_셀없는_표의_이미지_링크를_보존한다() {
+    let document = parse(
+        "<table><caption><p>first</p><p>https://example.com/caption</p><ol start='-1'><li>item</li></ol><pre><code>first code\nsecond code</code></pre><blockquote><p><img src='./caption.png'><a href='./next.md'>next</a></p></blockquote></caption></table>",
+        Some(std::path::Path::new("/workspace/readme.md")),
+    ).unwrap();
+    let Block::Table {
+        rows,
+        layout: Some(layout),
+        ..
+    } = &document.blocks[0]
+    else {
+        panic!("expected table")
+    };
+    assert!(rows.is_empty());
+    assert_eq!(layout.column_count, 0);
+    assert_eq!(layout.row_count, 0);
+    assert!(layout.caption.is_empty());
+    let blocks = layout.caption_blocks.as_ref().unwrap();
+    assert_eq!(blocks.len(), 5);
+    assert!(
+        matches!(&blocks[0], Block::Paragraph(values) if matches!(&values[0], Inline::Text(span) if span.text == "first"))
+    );
+    assert!(
+        matches!(&blocks[1], Block::Paragraph(values) if matches!(&values[0], Inline::Text(span) if span.link.as_ref().is_some_and(|link| link.target == "https://example.com/caption")))
+    );
+    assert!(matches!(
+        &blocks[2],
+        Block::List {
+            start: Some(-1),
+            ..
+        }
+    ));
+    assert!(matches!(&blocks[3], Block::Code { text, .. } if text == "first code\nsecond code"));
+    let Block::Quote(quote) = &blocks[4] else {
+        panic!("expected quote")
+    };
+    let Block::Paragraph(values) = &quote[0] else {
+        panic!("expected paragraph")
+    };
+    assert!(
+        matches!(&values[0], Inline::Image { source, .. } if source == "file:///workspace/caption.png")
+    );
+    assert!(
+        matches!(&values[1], Inline::Text(span) if span.link.as_ref().is_some_and(|link| link.target == "file:///workspace/next.md"))
+    );
+    let document = parse(
+        "<table><caption hidden><p>hidden</p></caption><tr><td>body</td></tr></table>",
+        None,
+    )
+    .unwrap();
+    let Block::Table {
+        layout: Some(layout),
+        ..
+    } = &document.blocks[0]
+    else {
+        panic!("expected table")
+    };
+    assert!(layout.caption.is_empty());
+    assert!(layout.caption_blocks.is_none());
+}
+
+#[test]
 fn html의_암시_인라인은_명시_문단으로_바뀌지_않는다() {
     let document = parse(
         "<ul><li>plain item</li><li><p>explicit paragraph</p></li></ul><div>plain container</div>",

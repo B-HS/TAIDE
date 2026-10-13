@@ -6,6 +6,9 @@ use crate::editor_surface::EditorAppearance;
 #[path = "editor-markup-preview.rs"]
 mod preview;
 
+#[path = "editor-markup-aligned.rs"]
+mod aligned;
+
 const LIST_INDENT: f32 = 20.0;
 const CODE_PADDING: i8 = 5;
 const HEADING_SCALE: [f32; 6] = [2.0, 1.5, 1.17, 1.0, 0.83, 0.67];

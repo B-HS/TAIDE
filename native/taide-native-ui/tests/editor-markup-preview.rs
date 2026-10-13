@@ -367,6 +367,7 @@ fn 복합_셀의_블록과_중첩_표는_병합_영역과_현재_너비에_맞�
         header: vec![],
         rows: vec![vec![text("nested table")]],
         layout: Some(TableLayout {
+            caption_blocks: None,
             caption: vec![],
             column_count: 1,
             row_count: 1,
@@ -412,6 +413,7 @@ fn 복합_셀의_블록과_중첩_표는_병합_영역과_현재_너비에_맞�
                 vec![text("bottom neighbor")],
             ],
             layout: Some(TableLayout {
+                caption_blocks: None,
                 caption: vec![],
                 column_count: COLUMN_COUNT,
                 row_count: ROW_COUNT,
@@ -939,6 +941,7 @@ fn 표의_이미지_준비와_높이_변경은_경계와_링크_id_캐시_크기
     const INITIAL_SIZE: Vec2 = egui::vec2(40.0, 20.0);
     const TALL_SIZE: Vec2 = egui::vec2(40.0, 100.0);
     const TALL_INDEX: usize = 2;
+    const CENTER_FRACTION: f32 = 0.5;
     const TARGET: &str = "https://example.com/table-image";
     const TOLERANCE: f32 = 1.0;
     struct Images {
@@ -974,7 +977,12 @@ fn 표의_이미지_준비와_높이_변경은_경계와_링크_id_캐시_크기
             Some(response)
         }
     }
-    for (is_html, has_blocks) in [(false, false), (true, false), (true, true)] {
+    for (is_html, has_blocks, has_caption) in [
+        (false, false, false),
+        (true, false, false),
+        (true, true, false),
+        (true, false, true),
+    ] {
         let context = Context::default();
         let mut document = RichDocument {
             blocks: vec![Block::Table {
@@ -1008,6 +1016,7 @@ fn 표의_이미지_준비와_높이_변경은_경계와_링크_id_캐시_크기
             };
             rows.insert(0, std::mem::take(header));
             *layout = Some(taide_native_editor::documentation::TableLayout {
+                caption_blocks: None,
                 caption: Vec::new(),
                 column_count: rows[0].len(),
                 row_count: rows.len(),
@@ -1035,6 +1044,10 @@ fn 표의_이미지_준비와_높이_변경은_경계와_링크_id_캐시_크기
                     Some(vec![Block::Quote(vec![Block::Paragraph(std::mem::take(
                         &mut rows[1][1],
                     ))])]);
+            }
+            if has_caption {
+                layout.as_mut().unwrap().caption_blocks =
+                    Some(vec![Block::Paragraph(std::mem::take(&mut rows[1][1]))]);
             }
         }
         let mut provider = Images {
@@ -1086,7 +1099,11 @@ fn 표의_이미지_준비와_높이_변경은_경계와_링크_id_캐시_크기
             } else {
                 table_bounds(&edges, 2, 2)
             };
-            heights.push(rows.last().unwrap() - rows[1]);
+            heights.push(if has_caption {
+                rows[0]
+            } else {
+                rows.last().unwrap() - rows[1]
+            });
             if let Some(size) = size {
                 assert_eq!(provider.rects.len(), 1);
                 let rect = provider.rects[0];
@@ -1094,10 +1111,20 @@ fn 표의_이미지_준비와_높이_변경은_경계와_링크_id_캐시_크기
                     (rect.width() - rect.height() * size.x / size.y).abs() <= TOLERANCE,
                     "image rect={rect:?}; requested={size:?}"
                 );
-                assert!(rect.left() + TOLERANCE >= columns[1]);
+                assert!(rect.left() + TOLERANCE >= columns[usize::from(!has_caption)]);
                 assert!(rect.right() <= columns.last().unwrap() + TOLERANCE);
-                assert!(rect.top() + TOLERANCE >= rows[1]);
-                assert!(rect.bottom() <= rows.last().unwrap() + TOLERANCE);
+                if has_caption {
+                    assert!(rect.bottom() <= rows[0] + TOLERANCE);
+                    assert!(
+                        (rect.center().x
+                            - (columns[0] + columns.last().unwrap()) * CENTER_FRACTION)
+                            .abs()
+                            <= TOLERANCE
+                    );
+                } else {
+                    assert!(rect.top() + TOLERANCE >= rows[1]);
+                    assert!(rect.bottom() <= rows.last().unwrap() + TOLERANCE);
+                }
             }
             if index == 1 {
                 memory = Some(context.data(|data| data.len()))
@@ -1236,6 +1263,7 @@ fn 병합_셀의_내부_경계는_없고_제목과_본문은_병합_영역에_�
                 vec![text("first"), text("second")],
             ],
             layout: Some(TableLayout {
+                caption_blocks: None,
                 caption: text("table caption"),
                 column_count: COLUMN_COUNT,
                 row_count: ROW_COUNT,
@@ -1371,6 +1399,195 @@ fn 병합_셀의_내부_경계는_없고_제목과_본문은_병합_영역에_�
 }
 
 #[test]
+fn 복합_표_제목의_각_문단과_줄은_표의_중앙에_정렬된다() {
+    use taide_native_editor::documentation::{Alignment, TableCell, TableLayout};
+    const TOLERANCE: f32 = 1.0;
+    const CENTER_FRACTION: f32 = 0.5;
+    const WIDTHS: [f32; 2] = [210.0, 600.0];
+    let context = Context::default();
+    let document = RichDocument {
+        blocks: vec![Block::Table {
+            columns: vec![],
+            header: vec![],
+            rows: vec![vec![text("wide table body with several words")]],
+            layout: Some(TableLayout {
+                caption: vec![],
+                caption_blocks: Some(vec![
+                    Block::Paragraph(text("short")),
+                    Block::Paragraph(vec![
+                        Inline::Text(Span {
+                            text: "long emphasized ".into(),
+                            style: taide_native_editor::documentation::Style {
+                                bold: true,
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        }),
+                        Inline::Text(Span {
+                            text: "caption paragraph wraps on a narrow table".into(),
+                            ..Default::default()
+                        }),
+                    ]),
+                ]),
+                cells: vec![vec![TableCell {
+                    column: 0,
+                    column_span: 1,
+                    row_span: 1,
+                    alignment: Alignment::Default,
+                    blocks: None,
+                }]],
+                column_count: 1,
+                row_count: 1,
+            }),
+        }],
+    };
+    for width in WIDTHS {
+        let mut output = context.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(width, SCREEN.y),
+                )),
+                ..Default::default()
+            },
+            |ui| show_preview(ui, &document, &appearance(), colors(), &mut Preview),
+        );
+        output.textures_delta.clear();
+        let (columns, rows) = table_bounds(&table_edges(&output), 1, 1);
+        let center = (columns[0] + columns[1]) * CENTER_FRACTION;
+        let mut paragraphs = 0;
+        for shape in &output.shapes {
+            if let egui::Shape::Text(text) = &shape.shape
+                && matches!(
+                    text.galley.job.text.as_str(),
+                    "short" | "long emphasized caption paragraph wraps on a narrow table"
+                )
+            {
+                paragraphs += 1;
+                for row in &text.galley.rows {
+                    let rect = row.rect().translate(text.pos.to_vec2());
+                    assert!(
+                        (rect.center().x - center).abs() <= TOLERANCE,
+                        "caption row center {} != table {center}; {}",
+                        rect.center().x,
+                        text.galley.job.text
+                    );
+                    assert!(rect.bottom() <= rows[0]);
+                }
+            }
+        }
+        assert_eq!(paragraphs, 2);
+    }
+}
+
+#[test]
+fn 복합_제목의_여러줄_링크는_실제_문자_영역에서만_열린다() {
+    use taide_native_editor::documentation::{Link, Style, TableLayout};
+    const TARGET: &str = "https://example.com/rich-caption";
+    const CAPTION: &str = "강조 prefix\ncaption link tail";
+    struct Links(Vec<String>);
+    impl Provider for Links {
+        fn open_link(&mut self, _: &Ui, target: &str) -> bool {
+            self.0.push(target.into());
+            true
+        }
+    }
+    let context = Context::default();
+    let document = RichDocument {
+        blocks: vec![Block::Table {
+            columns: vec![],
+            header: vec![],
+            rows: vec![],
+            layout: Some(TableLayout {
+                caption: vec![],
+                cells: vec![],
+                column_count: 0,
+                row_count: 0,
+                caption_blocks: Some(vec![Block::Paragraph(vec![
+                    Inline::Text(Span {
+                        text: "강조 prefix".into(),
+                        style: Style {
+                            bold: true,
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    }),
+                    Inline::Break,
+                    Inline::Text(Span {
+                        text: "caption link".into(),
+                        link: Some(Link {
+                            target: TARGET.into(),
+                            title: "caption title".into(),
+                        }),
+                        ..Default::default()
+                    }),
+                    Inline::Text(Span {
+                        text: " tail".into(),
+                        ..Default::default()
+                    }),
+                ])]),
+            }),
+        }],
+    };
+    let mut links = Links(vec![]);
+    let paint = |links: &mut Links, events| {
+        let mut output = context.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, SCREEN)),
+                events,
+                ..Default::default()
+            },
+            |ui| show_preview(ui, &document, &appearance(), colors(), links),
+        );
+        output.textures_delta.clear();
+        output
+    };
+    let output = paint(&mut links, vec![]);
+    let shape = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.job.text == CAPTION => Some(text),
+            _ => None,
+        })
+        .unwrap();
+    let prefix = shape.galley.rows[0].glyphs[0]
+        .logical_rect()
+        .translate(shape.pos.to_vec2() + shape.galley.rows[0].pos.to_vec2())
+        .center();
+    let link = shape.galley.rows[1].glyphs[0]
+        .logical_rect()
+        .translate(shape.pos.to_vec2() + shape.galley.rows[1].pos.to_vec2())
+        .center();
+    let tail = shape.galley.rows[1]
+        .glyphs
+        .last()
+        .unwrap()
+        .logical_rect()
+        .translate(shape.pos.to_vec2() + shape.galley.rows[1].pos.to_vec2())
+        .center();
+    for (position, expected) in [(prefix, 0), (tail, 0), (link, 1)] {
+        for pressed in [true, false] {
+            paint(
+                &mut links,
+                vec![
+                    egui::Event::PointerMoved(position),
+                    egui::Event::PointerButton {
+                        pos: position,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+        assert_eq!(links.0.len(), expected);
+    }
+    assert_eq!(links.0, [TARGET]);
+    assert!(table_edges(&output).is_empty());
+}
+
+#[test]
 fn 셀이_없는_표의_제목도_표시하고_링크_id를_유지한다() {
     const TARGET: &str = "https://example.com/caption";
     const CAPTION: &str = "caption without cells";
@@ -1388,6 +1605,7 @@ fn 셀이_없는_표의_제목도_표시하고_링크_id를_유지한다() {
             header: vec![],
             rows: vec![],
             layout: Some(taide_native_editor::documentation::TableLayout {
+                caption_blocks: None,
                 caption: vec![Inline::Text(Span {
                     text: CAPTION.into(),
                     link: Some(taide_native_editor::documentation::Link {

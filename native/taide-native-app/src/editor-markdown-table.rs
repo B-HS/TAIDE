@@ -54,7 +54,20 @@ pub(super) fn parse(node: NodeRef<'_>, base: Option<&Url>, bold: bool) -> AppRes
     let caption = node
         .children_it(false)
         .find(|child| name(*child) == "caption" && !child.has_attr("hidden"))
-        .map(|caption| contents(caption, base, bold))
+        .map(|caption| -> AppResult<_> {
+            let body = caption
+                .children_it(false)
+                .any(|child| BLOCK_TAGS.contains(&name(child).as_str()))
+                .then(|| blocks(caption, base, bold))
+                .transpose()?;
+            let values = if body.is_some() {
+                Vec::new()
+            } else {
+                contents(caption, base, bold)
+            };
+            Ok((values, body))
+        })
+        .transpose()?
         .unwrap_or_default();
     let mut head = Vec::new();
     let mut body = Vec::new();
@@ -164,7 +177,8 @@ pub(super) fn parse(node: NodeRef<'_>, base: Option<&Url>, bold: bool) -> AppRes
     }
     Ok(Block::Table {
         layout: Some(TableLayout {
-            caption,
+            caption: caption.0,
+            caption_blocks: caption.1,
             column_count: columns.len(),
             row_count: rows.len(),
             cells,

@@ -74,6 +74,7 @@ pub enum Block {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TableLayout {
     pub caption: Vec<Inline>,
+    pub caption_blocks: Option<Vec<Block>>,
     pub cells: Vec<Vec<TableCell>>,
     pub column_count: usize,
     pub row_count: usize,

@@ -80,7 +80,7 @@ fn preview_text_contains(
 
 #[test]
 fn 실제_markdown_표_셀은_문단_목록_코드와_중첩_표를_분리해_표시한다() {
-    const CONTENT: &str = "<table><tr><td><p>first paragraph</p><p>second paragraph</p><ol><li>list item</li></ol><pre><code>let cell = 1;\nnext line</code></pre><blockquote><p>linked paragraph<a href='https://example.com'>safe link</a><img src='./cell.png' width='80' height='40'></p></blockquote><table><tr><td>nested table</td></tr></table></td><td>neighbor</td></tr></table>";
+    const CONTENT: &str = "<table><caption><p>first caption</p><p>second caption</p><p><a href='https://example.com/caption'><img src='./cell.png' width='80' height='40'></a></p></caption><tr><td><p>first paragraph</p><p>second paragraph</p><ol><li>list item</li></ol><pre><code>let cell = 1;\nnext line</code></pre><blockquote><p>linked paragraph<a href='https://example.com'>safe link</a><img src='./cell.png' width='80' height='40'></p></blockquote><table><tr><td>nested table</td></tr></table></td><td>neighbor</td></tr></table>";
     const CELL_IMAGE_SIZE: egui::Vec2 = egui::vec2(80.0, 40.0);
     let mut fixture = fixture_with_view_state(
         "--native-inlay-hints",
@@ -148,11 +148,13 @@ fn 실제_markdown_표_셀은_문단_목록_코드와_중첩_표를_분리해_�
                 .editor_markdown
                 .image_rects(context.viewport_id(), &key.pane)
                 .len()
-                == 1
+                == 2
         },
     );
     let output = paint(application, context, Vec::new());
     for label in [
+        "first caption",
+        "second caption",
         "first paragraph",
         "second paragraph",
         "1.",
@@ -169,7 +171,8 @@ fn 실제_markdown_표_셀은_문단_목록_코드와_중첩_표를_분리해_�
     let images = application
         .editor_markdown
         .image_rects(context.viewport_id(), &key.pane);
-    assert_eq!(images.len(), 1);
+    assert_eq!(images.len(), 2);
+    assert_eq!(images[1].size(), CELL_IMAGE_SIZE);
     assert_eq!(images[0].size(), CELL_IMAGE_SIZE);
     assert_eq!(std::fs::read(&image).unwrap(), image_bytes);
     assert_eq!(

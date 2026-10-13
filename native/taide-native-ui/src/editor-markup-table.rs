@@ -135,6 +135,9 @@ fn block_image_metrics(
                 }
                 if let Some(layout) = layout {
                     inline_image_metrics(&layout.caption, provider, sizes);
+                    if let Some(blocks) = &layout.caption_blocks {
+                        block_image_metrics(blocks, provider, sizes)
+                    }
                     for cell in layout.cells.iter().flatten() {
                         if let Some(blocks) = &cell.blocks {
                             block_image_metrics(blocks, provider, sizes)
@@ -163,7 +166,11 @@ fn contents(
     let padding = f32::from(CELL_PADDING.left) + f32::from(CELL_PADDING.right);
     let (_, preferred) = cell_sizes(ui, values, blocks, appearance, provider);
     let available = (rect.width() - f32::from(margin.left) - f32::from(margin.right)).max(0.0);
-    let width = (preferred - padding).min(available).max(0.0);
+    let width = if blocks.is_some() {
+        available
+    } else {
+        (preferred - padding).min(available).max(0.0)
+    };
     let offset = match alignment {
         Alignment::Center => (available - width) * CENTER_FRACTION,
         Alignment::Right => available - width,
@@ -176,6 +183,14 @@ fn contents(
             f32::INFINITY,
         ),
     ));
+    if blocks.is_some() {
+        let align = match alignment {
+            Alignment::Center => egui::Align::Center,
+            Alignment::Right => egui::Align::Max,
+            _ => egui::Align::Min,
+        };
+        builder = builder.layout(egui::Layout::top_down(align));
+    }
     if measured {
         builder = builder.invisible()
     }
@@ -259,7 +274,13 @@ pub(super) fn intrinsic_widths(
             }
         }
     }
-    let caption = cell_widths(ui, &layout.caption, appearance, provider, false);
+    let caption = cell_sizes(
+        ui,
+        &layout.caption,
+        layout.caption_blocks.as_deref(),
+        appearance,
+        provider,
+    );
     let padding = f32::from(CELL_PADDING.left) + f32::from(CELL_PADDING.right);
     grow(&mut minimum, (caption.0 - padding).max(0.0));
     grow(&mut preferred, (caption.1 - padding).max(0.0));
@@ -278,7 +299,13 @@ pub(super) fn show(
     else {
         return;
     };
-    let caption = cell_widths(ui, &layout.caption, appearance, provider, false);
+    let caption = cell_sizes(
+        ui,
+        &layout.caption,
+        layout.caption_blocks.as_deref(),
+        appearance,
+        provider,
+    );
     let padding = f32::from(CELL_PADDING.left) + f32::from(CELL_PADDING.right);
     let mut metrics = Vec::new();
     let mut image_sizes = Vec::new();
@@ -293,6 +320,9 @@ pub(super) fn show(
         }
     }
     inline_image_metrics(&layout.caption, provider, &mut image_sizes);
+    if let Some(blocks) = &layout.caption_blocks {
+        block_image_metrics(blocks, provider, &mut image_sizes)
+    }
     let min = minimum.iter().sum::<f32>();
     let max = preferred.iter().sum::<f32>();
     let available = ui.available_width();
@@ -367,7 +397,7 @@ pub(super) fn show(
         } else {
             columns.last().copied().unwrap_or_default()
         };
-        let caption_height = if layout.caption.is_empty() {
+        let caption_height = if layout.caption.is_empty() && layout.caption_blocks.is_none() {
             0.0
         } else {
             contents(
@@ -375,7 +405,7 @@ pub(super) fn show(
                 owner.with("caption-measure"),
                 Rect::from_min_size(origin, egui::vec2(width, f32::INFINITY)),
                 &layout.caption,
-                None,
+                layout.caption_blocks.as_deref(),
                 Alignment::Center,
                 appearance,
                 colors,
@@ -397,13 +427,13 @@ pub(super) fn show(
         geometry
     });
     let width = geometry.width;
-    if !layout.caption.is_empty() {
+    if !layout.caption.is_empty() || layout.caption_blocks.is_some() {
         contents(
             ui,
             owner.with("caption"),
             Rect::from_min_size(origin, egui::vec2(width, geometry.caption_height)),
             &layout.caption,
-            None,
+            layout.caption_blocks.as_deref(),
             Alignment::Center,
             appearance,
             colors,

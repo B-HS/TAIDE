@@ -247,6 +247,9 @@ fn block_widths(
             } => {
                 if let Some(layout) = layout {
                     if layout.column_count == 0 {
+                        if let Some(blocks) = &layout.caption_blocks {
+                            return block_widths(ui, blocks, appearance, provider);
+                        }
                         return inline_widths(
                             ui,
                             &layout.caption,
@@ -342,6 +345,30 @@ fn inline_contents(
 ) {
     let mut appearance = appearance.clone();
     appearance.line_height = line_height;
+    if super::aligned::show(ui, contents, &appearance, colors, provider, size, weight) {
+        return;
+    }
+    if ui.layout().horizontal_align() != egui::Align::Min {
+        let (_, preferred) = inline_widths(ui, contents, &appearance, provider, size, weight);
+        ui.allocate_ui_with_layout(
+            egui::vec2(preferred.min(ui.available_width()), 0.0),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                inlines(
+                    ui,
+                    contents,
+                    &appearance,
+                    colors,
+                    provider,
+                    size,
+                    false,
+                    true,
+                    weight,
+                )
+            },
+        );
+        return;
+    }
     inlines(
         ui,
         contents,

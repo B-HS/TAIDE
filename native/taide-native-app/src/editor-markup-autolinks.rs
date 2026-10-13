@@ -123,6 +123,9 @@ impl Autolinks {
                 } => {
                     if let Some(layout) = layout {
                         self.inlines(&mut layout.caption);
+                        if let Some(blocks) = &mut layout.caption_blocks {
+                            self.blocks(blocks)
+                        }
                         for cell in layout.cells.iter_mut().flatten() {
                             if let Some(blocks) = &mut cell.blocks {
                                 self.blocks(blocks)

@@ -208,7 +208,7 @@ async fn 실제_도움말_이미지는_root_격리와_중복_표시_닫힘_및_p
     };
     let texture_id = texture.id();
     let caption = crate::editor_markdown_parse::parse(
-        "<table><caption><img src='./synthetic.png' width='40' height='20' alt='caption image'></caption></table>",
+        "<table><caption><blockquote><p><img src='./synthetic.png' width='40' height='20' alt='caption image'></p></blockquote></caption></table>",
         Some(&fixture.root.join("readme.md")),
     ).unwrap();
     cache.prepare(
