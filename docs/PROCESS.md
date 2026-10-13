@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: AI 편집의 e2/e2b/e2b2 실제 소비 범위를 연결했습니다. 본문/다른 파일 peek/팔레트·표시/마우스/IME·split source의 공유 수락/undo와 model/메모리 credential/core 문서 변경에서 loading/preview 6사례 회수·디스크/task0을 실제 App7통과로 확인했습니다. 상태/소비15·UI34의 변경 없는 성공을 재사용한 현재56통과·소유Rust fmt/diff이며 기록/Git 반영 중입니다. AI 완료 판정은 전체 App/실기 게이트가 남아 partial로 유지하며 Emmet/Markdown·전환/제거/최종33은 미완료입니다. 전체302/588(51.4%)·미완료286·부분92/미연결110/미구현84·배치23 잔여19·잔여시간 미산정이며 사용자 문서/보호 경계를 유지합니다.
+현재 상태: e3a Emmet축약식추출을portable core로연결했습니다. 설치원본emmet2.4.11의66입력/3096문자경계대조·여섯language ID/잘못된byte/입력예산3통과·coreWasm3분03초 exit0·소유5Rustfmt/원본MIT출처/재생성oracle를확인했고기록/Git반영중입니다. HTML/JSX/CSS확장/필터/snippet·후보/실제App은미완료이므로editor-80missing·AI77/78partial및전체302완료를유지합니다. Markdown/전체App준비실패/실기·전환/제거/최종33도미완료입니다. 전체302/588(51.4%)·미완료286·부분92/미연결110/미구현84·배치23잔여19·잔여시간미산정이며사용자문서/보호경계를유지합니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 
@@ -159,11 +159,14 @@
 - [x] e2b2a. 실제 source/팔레트/닫힘 — direct·실제 팔레트의 다른 파일 peek AI 편집/완성 요청·표시/소스만 수락/undo·owner/디스크/task0과 두 번째 진행 편집 요청의 닫힘 회수를99통과·fmt/diff/동결 compile로 확인했습니다. source는 선택 처리 시점에서 전달하며 일반 Intent focus 가설/진단은 제거했습니다. 나머지 e2b2와 전체 게이트는 미완료입니다.
 - [x] e2b2b. 표시·마우스·지시 IME — 실제 삭제 범위/현재·변경 font·lineheight/target 뒤 zone/가로·세로 scroll/gutter clip/닫힘 복원·primary 마우스 수락/단일 undo·거절/생성취소/본문 포커스와 조합중 Enter/Escape·확정 지시를 확인했습니다. TextEdit 필터의 Escape 포커스 해제를 재현해 기존 필터/조합키 회수를 적용했고 실제 App의 IME수신 준비를 단언했습니다. 현재 App20/UI34의 서로 다른54통과이며 동결 host/Wasm0.09/0.11초 exit0·기록/Git을 확인했습니다. split/mirror/추가 수명과 전체 게이트는 미완료입니다.
 - [x] e2b2c. 실제 split/mirror·추가 요청 수명 — 옆 열기/FocusPane의 두 번째 source만 세션을 열고 같은 문서의 공유 수락/단일 undo·원문/디스크/task0을 확인했습니다. 메모리 SecretStore의 실제 ai_clear_token과 model 설정/core 문서 변경 각각에서 loading/preview 6사례의 무수락 회수·닫힌 응답을 실제 App에서 확인했습니다. 관련 실제 App7통과·80.53초·compile1분30초 exit0이며 상태/소비15와 UI34의 변경 없는 성공을 재사용해 현재 서로 다른56통과입니다. 공개/UI/동결 코드가 같아 compile을 반복하지 않으며 전체 게이트/editor-77/78 partial은 유지합니다.
+- [ ] e3. Emmet — editor-80의 원본 html/heex·css/scss·javascriptreact/typescriptreact 등록·standard token 게이트·축약식/필터/기본 snippets·HTML/JSX/CSS 확장과 후보 label/range/documentation/snippet 소비를 native에 연결합니다. 기존 core/syntax/Completion·snippet 수명과 원본 oracle를 재사용하고 의존성/동결/사용자 데이터/OS 경계를 유지합니다.
+- [x] e3a. 축약식 추출 경계 — 원본 역방향 brace/실제 HTML tag/attribute·markup lookAhead/style 고정 cursor와 Unicode UTF-16→UTF-8 경계를portable core로 연결했습니다. 설치emmet2.4.11의66입력/3096문자경계 oracle·여섯언어/비지원·상한/잘못된byte의3검사통과·coreWasm3분03초 exit0·소유5Rustfmt/원본MIT출처를 확인했습니다. 확장/필터/snippet·후보/실제앱은미완료이며editor-80missing/302완료·전체게이트를유지합니다.
+- [ ] e3b. HTML/JSX 확장 — 기존 설치엔진의실제출력/기본snippets/필드·암시tag·이름/속성/텍스트·child/sibling/climb/group/repeat/counter·self closing/indent/JSX·필터를oracle로대조하고portable Rust확장에연결합니다. 범위는emmet core/검사/fixture/출처문서·QA/PROCESS이며CSS확장/후보/앱소비는e3에유지합니다. 새의존성/JS런타임/동결source나미지원문법의거짓확장은추가하지않습니다.
 - [ ] f. 실제 앱·전체 게이트 — 닫을 기능의 실제 앱/child/mirror·readonly/tier/다중 커서/IME·정상 종료/회귀를 확인하고 변경 크레이트 전체 대상을 --no-fail-fast로 직접 1회 실행합니다. 성공 결과는 재사용하고 실패 영향만 재검사합니다. frozen host/Wasm compile·fmt/diff·manifest/lock/engine/보호 경계·디스크와 배치 31 실기/성능/신뢰성 부채를 구분합니다.
 - [x] f1. 프로젝트 열기 지연 위치 조사·배치 31 이관 — 전체 App 811통과/프로젝트 open 5초 초과 1실패와 Cargo 단독 동일 실패를 보존했습니다. 같은 실행 파일의 직접 검사는 저장소/크레이트 cwd에서 3.81/3.23초에 통과했습니다. 성공한 두 번째 검사 중 start_watch→notify runloop 준비 대기와 FSEventStreamStart→등록 RPC의 실제 스택을 확인했습니다. 실패 시점의 스택이나 지연 변동의 근본 원인은 확인하지 않았으며 해결/전체 exit 0으로 보고하지 않습니다. 제한 확대·검사 생략·OS 변경 없이 반복 조사를 종료하고 배치 31의 실행 환경/신뢰성 게이트에 미해결 위험을 유지합니다.
 - [ ] g. 완료 근거·선별 Git — 실제 닫힌 ID만 QA/기능표/PROCESS에 반영하고 논리 단위 선별 커밋·일반 푸시합니다. 배치 24를 기존 계획 안에서 이어가며 배치 번호를 세부 수정마다 늘리지 않습니다.
 
-다음 행동: e의 editor-80 Emmet 원본 등록/설정/HTML·CSS·JSX 공급자와 native 기존 parser/후보/스니펫 경계를 대조합니다. editor-77/78 partial과 전체 App/실기·Markdown/전환/제거·최종33은 유지합니다.
+다음 행동: e3b의HTML/JSX원본확장·필드/snippet·트리/반복/출력oracle를고정하고Rust확장에연결합니다. editor-80missing·AI77/78partial과전체게이트/Markdown·전환/제거·최종33은유지합니다.
 
 ## 완료: 배치 22 — 자동완성과 사용자 스니펫 소비 (2026-10-10)
 

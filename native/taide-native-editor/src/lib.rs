@@ -32,6 +32,7 @@ pub mod document;
 pub mod document_symbols;
 pub mod documentation;
 pub mod editing;
+pub mod emmet;
 pub mod find;
 #[path = "find-replacement.rs"]
 pub mod find_replacement;
