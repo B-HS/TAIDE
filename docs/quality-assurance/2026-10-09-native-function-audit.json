@@ -1,6 +1,6 @@
 {
     "date": "2026-10-14",
-    "baseline": "2ed3eca7",
+    "baseline": "19b02cbf",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1326,7 +1326,8 @@
                 "native/taide-native-editor/src/json-symbols.rs",
                 "native/taide-native-editor/src/json-folding.rs",
                 "native/taide-native-editor/src/json-format.rs",
-                "native/taide-native-editor/src/json-validation.rs"
+                "native/taide-native-editor/src/json-validation.rs",
+                "native/taide-native-editor/src/json-value.rs"
             ],
             "tests": [
                 "native/taide-native-editor/tests/json-scanner.rs",
@@ -1350,10 +1351,13 @@
                 "native/taide-native-editor/tests/json-validation.rs",
                 "native/taide-native-editor/tests/fixtures/json-validation-oracle.mjs",
                 "native/taide-native-editor/tests/fixtures/json-validation-oracle.rs",
-                "native/taide-native-editor/tests/fixtures/json-source-boundaries.mjs"
+                "native/taide-native-editor/tests/fixtures/json-source-boundaries.mjs",
+                "native/taide-native-editor/tests/json-value.rs",
+                "native/taide-native-editor/tests/fixtures/json-value-oracle.mjs",
+                "native/taide-native-editor/tests/fixtures/json-value-oracle.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-14-native-batch23-builtin-language-services.md"],
-            "limitation": "실제 source scanner19,624·AST6,336·조회1,118·선택3,303·심볼5,616·접기693·포맷9,216·진단정책9,216사례와 현재Core23검사/host·Wasm 성공입니다. 기존 실제 편집/marker 소비의 readonly/원문/revision·두 뷰/선택·단일undo와 전체 예산을 확인했습니다. 포맷 oracle helper 변경 뒤 fixture 동일성을 확인했고 raw/교정은 분리합니다. JSON schema 선택/해결/의미검증·조회/완성/앱 공급과 CSS·HTML·TS 전체는 미완료이며 editor-57 missing입니다."
+            "limitation": "실제 source scanner19,624·AST6,336·조회1,118·선택3,303·심볼5,616·접기693·포맷9,216·진단정책9,216·값2,348/비교600사례와 현재Core26검사/host·Wasm 성공입니다. 평면 값·JS키순서/중복·논리UTF-16/숫자·deep 비교·문자길이 교정과 기존 실제 편집/marker 소비 및 전체 예산을 확인했습니다. JSON URI/schema 선택/참조/의미검증·조회/완성/앱 공급과 CSS·HTML·TS 전체는 미완료이며 editor-57 missing입니다."
         }
     },
     "rows": [
@@ -3071,7 +3075,7 @@
             "domain": "editor",
             "status": "missing",
             "proof": "editor-builtin-language-services",
-            "note": "실제 JSON scanner19,624·AST6,336·노드조회1,118·선택3,303·심볼5,616·접기693·포맷9,216·구문진단정책9,216사례를 portable core로 구현했습니다. 현재Core23검사·host/Wasm·원문/Unicode/예산·기존 실제 편집/MarkerSet 소비가 통과했습니다. JSON schema 선택/해결/의미검증·조회/완성·실제App 공급과 CSS/HTML/TS 전체는 미완료이므로 missing을 유지합니다. default schemas=[]로 전체schema 기능을 생략하지 않습니다."
+            "note": "실제 JSON scanner/AST·구조/포맷/구문정책과 schema 값2,348/equals600사례를 portable core로 구현했습니다. 현재Core26검사·host/Wasm·원문/논리Unicode/JS키순서/IEEE754·전체예산과 기존 실제 편집/MarkerSet 소비가 통과했습니다. 값 기반만으로 JSON URI/schema 선택/참조/anchor/의미검증·조회/완성·실제App 공급과 CSS/HTML/TS 전체를 완료로 올리지 않으며 missing을 유지합니다."
         },
         {
             "id": "editor-58",
