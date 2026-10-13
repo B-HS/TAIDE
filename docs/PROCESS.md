@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: e1c에서 원본의 첫 포커스 무요청·explicit/api 선택 이동/blur 중단과 기본 키 없는 inlineSuggest.trigger를 대조했습니다. ArrowLeft 후 요청2/기대1 실패를 재현해 자동 typed/paste/IME/편집과 선택 이동을 구분하고 명시 요청·기존 카탈로그/키 재정의·본문/창 포커스 상실 회수를 연결했습니다. 실제 앱3/문맥3/consumer16·UI253/Editor9의 서로 다른284통과·소유8Rust fmt/diff·최종 frozen host/Wasm0.08/0.10초 exit0입니다. 명시 문서 명령은 팔레트에서 본문 focus를 회복하며 마지막 후보31/본문87의118건만 재검사했습니다. 추가 split/peek/선택/포커스·후보와 ghost 소비 분기 및 e1/editor-77·AI 편집/Emmet/Markdown HTML·전체 게이트/최종33은 미완료입니다. 전체302/588(51.4%)·미완료286·부분91/미연결110/미구현85·배치23 잔여19·잔여시간 미산정이며 사용자 문서/보호 경계를 유지합니다.
+현재 상태: e1d의 다른 문서 peek에서 owner 경로를 보내는0/1 실패를 재현해 실제 source File key 경로를 연결했습니다. 실제 cross-file peek의 경로/언어/문맥·표시/소스만 수락/undo·owner/디스크/닫힘/task0과 실제 split의 controller pane 선택·현재 뷰 표시/수락·mirror undo, 주입 second-window/mirror의 이전 응답 거절을 App5/문맥3/consumer18의 서로 다른26통과·소유3Rust fmt/diff로 확인했습니다. split 첫 실패는 memory focus와 layout 선택의 fixture 불일치였고 실제 FocusPane으로 수정했습니다. 최종 frozen host/Wasm0.08/0.11초 exit0이며 후보/ghost 합성 소비·e1/editor-77/AI 편집/Emmet/Markdown HTML/전체 App·실기/최종33과 목표는 미완료입니다. 전체302/588(51.4%)·미완료286·부분91/미연결110/미구현85·배치23 잔여19·잔여시간 미산정이며 사용자 문서/보호 경계를 유지합니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 
@@ -149,11 +149,12 @@
 - [x] e1a. AI 기본 실행·표시·수락 — 기존 runtime service/token 확인·주입 port와 supervised 취소, bounded 원문 캐시·UTF-16 유효 경계, 문서/뷰/owner/설정/선택 검증을 연결했습니다. 실제 앱1/문맥3/completion 회귀62의66통과로 ghost/Tab/undo/원문·디스크/task0·IME/readonly/다중 커서/일치 입력을 확인했습니다. 여러 저널 항목·후보 정리/명시 취소 분리·빈 후보 준비 상태의 Tab 오류를 수정했고 e1/editor-77의 남은 소비와 전체 게이트는 미완료로 유지합니다.
 - [x] e1b. 자격 증명 변경 수명 — 성공한 SecretStore set/delete에서 값이 없는 계정별 변경 식별자를 공유하고 표시/수락/대기 요청·캐시가 기존 식별자의 응답을 거절하도록 연결합니다. 소유 범위는 taide-infra/src/secret.rs의 typed port/상태와 메모리 검사, editor-ai-completion/Provider/Application 및 관련 소비자/실제 App 검사·QA/기능표/PROCESS입니다. Keychain을 읽는 polling/실제 키·OS 변경 없이 주입 store와 기존 API를 재사용하며 성공/실패·선택 계정/다른 계정/늦은 응답/원문·task0·공개 계약 호환성과 선별 Git을 확인합니다. 초기 포커스/명시 요청·추가 split/peek/선택/포커스와 부모 e1의 나머지는 미완료로 유지합니다.
 - [x] e1c. 명시 요청과 포커스/선택 — 설치된 Monaco controller의 최초 포커스 무요청·explicit/api 선택 이동 중단·blur 중단과 원본 inlineSuggest.trigger writable/기본 키 없음/즉시 요청을 적용합니다. 소유 범위는 editor completion Command/검사·UI Provider/command/preview/surface·App AI state/Provider/기존 명령 소비 및 소비자/실제 App 검사·QA/기능표/PROCESS입니다. 새 기본 키나 임의 자동 요청을 만들지 않고 후보/스니펫·재정의·명령 팔레트·readonly/IME·문서/뷰/owner/credential/취소를 보존하며 실제 입력/명령과 회귀/계약·선별 Git을 확인합니다. 추가 split/peek·전체 게이트와 부모 e1은 검증 근거가 갖춰질 때만 닫습니다.
+- [x] e1d. split/peek의 실제 요청 소스 — 원본 model URI/언어/현재 position과 native source/owner를 대조하고 소스가 다른 peek의 경로·문맥·표시/수락/undo·닫힘/오래된 응답을 재현·연결합니다. 소유 범위는 App AI state/Provider·consumer/실제 App 검사와 기존 peek/분할 fixture·QA/기능표/PROCESS입니다. 두 뷰의 source/owner/문서/창/프로젝트·credential 수명과 readonly/IME를 주입 port/임시 파일/egui로 검증하고 회귀/계약·선별 Git을 수행합니다. 일반 후보/ghost 합성 소비·전체 게이트와 부모 e1은 별도 미완료로 유지합니다.
 - [ ] f. 실제 앱·전체 게이트 — 닫을 기능의 실제 앱/child/mirror·readonly/tier/다중 커서/IME·정상 종료/회귀를 확인하고 변경 크레이트 전체 대상을 --no-fail-fast로 직접 1회 실행합니다. 성공 결과는 재사용하고 실패 영향만 재검사합니다. frozen host/Wasm compile·fmt/diff·manifest/lock/engine/보호 경계·디스크와 배치 31 실기/성능/신뢰성 부채를 구분합니다.
 - [x] f1. 프로젝트 열기 지연 위치 조사·배치 31 이관 — 전체 App 811통과/프로젝트 open 5초 초과 1실패와 Cargo 단독 동일 실패를 보존했습니다. 같은 실행 파일의 직접 검사는 저장소/크레이트 cwd에서 3.81/3.23초에 통과했습니다. 성공한 두 번째 검사 중 start_watch→notify runloop 준비 대기와 FSEventStreamStart→등록 RPC의 실제 스택을 확인했습니다. 실패 시점의 스택이나 지연 변동의 근본 원인은 확인하지 않았으며 해결/전체 exit 0으로 보고하지 않습니다. 제한 확대·검사 생략·OS 변경 없이 반복 조사를 종료하고 배치 31의 실행 환경/신뢰성 게이트에 미해결 위험을 유지합니다.
 - [ ] g. 완료 근거·선별 Git — 실제 닫힌 ID만 QA/기능표/PROCESS에 반영하고 논리 단위 선별 커밋·일반 푸시합니다. 배치 24를 기존 계획 안에서 이어가며 배치 번호를 세부 수정마다 늘리지 않습니다.
 
-다음 행동: e1의 추가 split/peek/선택/포커스·source 경로/언어와 후보/ghost 소비 분기를 원본과 대조하고 연결합니다. d6c3h의 code BR/image/nested/혼합 줄·raw input/표 행·열/임의 CSS·추가 HTML과 editor-72 partial·전체 HTML/접근성·OS·게이트·최종 배치33을 유지합니다.
+다음 행동: e1의 일반 후보와 AI ghost 합성/우선순위·취소/수락 소비 분기를 원본과 대조하고 연결합니다. d6c3h의 code BR/image/nested/혼합 줄·raw input/표 행·열/임의 CSS·추가 HTML과 editor-72 partial·전체 HTML/접근성·OS·게이트·최종 배치33을 유지합니다.
 
 ## 완료: 배치 22 — 자동완성과 사용자 스니펫 소비 (2026-10-10)
 

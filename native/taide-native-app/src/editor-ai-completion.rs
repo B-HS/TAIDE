@@ -312,6 +312,12 @@ impl State {
         if snapshot.metadata.read_only {
             return Ok(());
         }
+        let file = match &snapshot.key {
+            taide_native_editor::document::DocumentKey::File(path) => {
+                path.to_string_lossy().into_owned()
+            }
+            _ => file,
+        };
         let owner_state = store.views().get(owner).ok_or(EditorError::NotFound)?;
         let byte = current.selection.selections[current.selection.primary].head;
         let (prefix, suffix) = context_window(&snapshot, byte)?;

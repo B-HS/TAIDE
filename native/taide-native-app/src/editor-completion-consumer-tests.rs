@@ -140,6 +140,93 @@ fn native_ai_inline의_명시_문서명령은_팔레트_포커스에서_본문�
     assert_eq!(fixture.text(fixture.document), "from_palette");
 }
 
+#[test]
+fn native_ai_inline의_peek요청은_owner가_아닌_실제소스_경로와_언어를_사용한다() {
+    let (mut fixture, receive) = ai_fixture("owner", "owner".len());
+    let owner_document = fixture.document;
+    let source_path = PathBuf::from("/synthetic/peek.py");
+    let document = fixture
+        .store
+        .open_file(
+            source_path.clone(),
+            OpenedFile {
+                path: source_path.to_string_lossy().into_owned(),
+                content: ";".into(),
+                encoding_lossy: false,
+                language_id: "python".into(),
+                tier: FileSizeTier::Normal,
+                byte_size: 1,
+                line_count: 1,
+                modified_ms: 0.0,
+                read_only: false,
+                editor_config: EditorConfigOptions::default(),
+            },
+        )
+        .unwrap();
+    fixture.view = fixture
+        .store
+        .attach_view(
+            ViewKey {
+                window: "synthetic".into(),
+                pane: PaneId::new(),
+                tab: TabId::new(),
+            },
+            document,
+        )
+        .unwrap();
+    fixture.document = document;
+    fixture.frame(Vec::new(), &[Command::TriggerInline]);
+    let request = ai_respond(&mut fixture, &receive, "source_only");
+    assert_eq!(request.file_path, source_path.to_string_lossy());
+    assert_eq!(request.language, "python");
+    assert_eq!(request.prefix, "");
+    assert_eq!(request.suffix, ";");
+    fixture.frame(vec![key(Key::Tab, Modifiers::NONE)], &[]);
+    assert_eq!(fixture.text(document), "source_only;");
+    assert_eq!(fixture.text(owner_document), "owner");
+    fixture.store.undo(document).unwrap();
+    assert_eq!(fixture.text(document), ";");
+}
+
+#[test]
+fn native_ai_inline의_mirror_편집은_이전뷰_응답을_거절하고_현재창_소유를_보존한다() {
+    let (mut fixture, receive) = ai_fixture("", 0);
+    let first = fixture.view;
+    fixture.frame(vec![Event::Text(";".into())], &[]);
+    let (old, reply) = receive.recv_timeout(CLIPBOARD_DEADLINE).unwrap();
+    let second = fixture
+        .store
+        .attach_view(
+            ViewKey {
+                window: "second-window".into(),
+                pane: PaneId::new(),
+                tab: TabId::new(),
+            },
+            fixture.document,
+        )
+        .unwrap();
+    fixture.view = second;
+    fixture.owner = second;
+    fixture.focus = true;
+    fixture.frame(vec![Event::Text(";".into())], &[]);
+    fixture.state.inline.reconcile(
+        &fixture.store,
+        &fixture.services.state.settings.read(),
+        |_| true,
+    );
+    let deadline = std::time::Instant::now() + CLIPBOARD_DEADLINE;
+    while !reply.is_closed() {
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::yield_now();
+    }
+    assert!(fixture.state.inline.poll(&fixture.store, first).is_empty());
+    let new = ai_respond(&mut fixture, &receive, "current");
+    assert_ne!(new.request_id, old.request_id);
+    assert_eq!(new.owner, "second-window");
+    fixture.frame(vec![key(Key::Tab, Modifiers::NONE)], &[]);
+    assert_eq!(fixture.text(fixture.document), ";current;");
+}
+
 #[derive(Default)]
 struct CredentialStore;
 

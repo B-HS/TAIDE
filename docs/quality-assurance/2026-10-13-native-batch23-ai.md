@@ -12,7 +12,7 @@ final-focused.log는 11통과/2실패·38.45초·컴파일27.83초입니다. 실
 
 검증 로그 접두사는 `/private/tmp/taide-ai-inline-`입니다. Cargo는 앞 실행의 terminal 종료를 확인한 뒤 직렬로 진행하며 시간 초과를 이유로 실행을 재시작하지 않습니다. 실제 앱과 세부 입력은 임시 프로젝트·주입 port·egui 이벤트만 사용하며 실제 키/Keychain/사용자 데이터/OS 설정/합성 OS 입력은 접근하지 않습니다.
 
-현재 editor-77은 부분 구현입니다. 최초 포커스 무요청·명시적 선택 이동 중단·blur 회수/명시 요청은 현재 근거를 연결했고, 추가 split/peek/선택/포커스 수명과 후보/ghost 소비 분기·전체 게이트를 더 확인해야 합니다. editor-78 인라인 편집과 editor-80 Emmet은 미구현이며 Markdown editor-72/행·열/HTML·접근성·전체 App 준비 실패와 실기/성능/신뢰성/전환/제거 게이트도 유지합니다. 완료율은 302/588(51.4%), 전체 잔여 시간은 미산정입니다.
+현재 editor-77은 부분 구현입니다. 최초 포커스 무요청·명시적 선택 이동 중단·blur 회수/명시 요청은 현재 근거를 연결했고, 후보/ghost 합성 소비 분기와 전체 게이트를 더 확인해야 합니다. editor-78 인라인 편집과 editor-80 Emmet은 미구현이며 Markdown editor-72/행·열/HTML·접근성·전체 App 준비 실패와 실기/성능/신뢰성/전환/제거 게이트도 유지합니다. 완료율은 302/588(51.4%), 전체 잔여 시간은 미산정입니다.
 
 completion-regression.log는 editor_completion 관련 62건·8.94초·exit0입니다. 기존 후보/문서/스니펫/CLIPBOARD 공급·키맵·실제 child/취소/종료와 새 AI 소비자 9건을 포함하며 반복 성공을 더하지 않습니다. ui-all.log의 --all-targets --features inspection --no-fail-fast는 29대상/520통과·0실패·0ignored·exit0입니다. 문맥/설정3·App1의 변경 없는 성공과 App completion62를 합친 App의 서로 다른66건, UI520건의 서로 다른586건입니다. 변경한 Rust10개 fmt check와 소유 diff check도 exit0입니다. 전체 App 대상 실행/이전 준비 실패 해결이나 배치 완료로 확대하지 않습니다.
 
@@ -59,3 +59,15 @@ trigger-palette-ui.log의 마지막 후보31/본문87은118통과·0실패·exit
 trigger-frozen-host/wasm.log는28.40/13.35초·exit0이고 마지막 focus 변화 뒤 palette-frozen-host/wasm.log는0.08/0.10초·exit0입니다. 동일 실제 Cargo 종료를 확인한 뒤 직렬로 실행했고 캐시된 현재 계약 검사와 테스트 실행을 구분합니다. 소유8Rust fmt/diff와 문서 format exit0, manifest/lock/동결 소스 변경0·디스크652GiB/65%입니다. e1c의 해당 명령/포커스/선택 범위만 닫고 e1/editor-77·전체 목표는 유지합니다.
 
 명시 요청/포커스/선택 구현·검사·QA와 소유 PROCESS 상단10경로를e3efc2c1로 선별 커밋했습니다. 사용자 PROCESS 하단2hunk·기타 문서/결정/피드백/메모리를 보존했고 기능표 baseline을 실제 제품으로 갱신합니다. e1/editor-77은partial이며 전체302/588(51.4%)·미완료286은 유지합니다.
+
+## split/peek 요청의 실제 소스 (2026-10-13)
+
+원본 provideInlineCompletions는 현재 model URI/언어/position을 사용합니다. native는 peek의 실제 snapshot을 문맥/언어에 사용하면서 경로만 owner Provider의 model_path를 전달했습니다. peek-path-red.log는 실제 source 경로 /synthetic/peek.py 대신 /synthetic/main.rs를 보내는 consumer0통과/1실패·0.05초·컴파일17.57초·exit101입니다. State request에서 실제 source DocumentKey::File 경로를 사용하고 Untitled/AppFile의 기존 전달값은 보존했습니다. 새로운 path 접근/의존성/owner 변경은 하지 않았습니다.
+
+peek-path-fixed.log는 source 경로/python 언어/prefix/suffix·소스만 수락/owner 원문·undo1통과·0.03초·컴파일19.91초·exit0입니다. 실제 LSP mock의 cross-file definition→peek·주입 AI 요청의 source 경로/언어/전체 문맥→표시/Tab 수락/owner 보존/디스크 원문/undo·닫힘/종료task0을 peek-actual.log의1통과·35.67초·컴파일20.07초·exit0으로 확인했습니다. peek-regression.log는 App4/문맥3/consumer18의 서로 다른25통과·66.53초·컴파일17.83초·exit0이며 consumer의 별도 second-window ViewKey/mirror 편집에서 기존 요청 취소·늦은 응답 거절과 현재 창 owner를 확인했습니다. 이 metadata 사례를 실제 OS의 두 창 실기로 확대하지 않습니다.
+
+실제 split의 두 pane에서 활성 뷰만 요청/표시·동일 문서 mirror 수락/undo·디스크/종료를 추가 검사합니다. 임시 파일·주입 port·egui 이벤트만 사용하며 실제 키/Keychain/클립보드/OS 입력은 접근하지 않습니다. 후보/ghost 합성·전체 App 게이트·실기/성능/신뢰성/전환/제거와 최종33은 미완료이고 전체302/588(51.4%)·미완료286·잔여시간 미산정을 유지합니다.
+
+peek-split.log는35.32초·0통과/1실패·컴파일20.21초·exit101입니다. OS 입력 대신 egui memory focus만 바꾸고 기존 layout focused_pane을 오른쪽에 유지한 fixture에서 요청/표시가 오른쪽 뷰에 남았습니다. 제품 동작을 바꾸거나 두 뷰의 표시를 허용하지 않고 controller의 실제 FocusPane mutation→snapshot focused_pane을 확인한 뒤 입력했습니다. peek-split-focused.log의 동일 실제 split 검사1건은35.76초·컴파일19.39초·exit0입니다. pane 선택·본문 focus·현재 뷰 요청/표시와 비활성 다른 뷰 회수, mirror 수락/undo·디스크/종료task0을 확인했습니다. App5/문맥3/consumer18의 서로 다른26통과이며 이전단독 peek/path/mirror 반복 성공을 더하지 않습니다.
+
+peek-frozen-host.log의 --tests --features inspection과 peek-frozen-wasm.log의 --lib --features canvas --target wasm32-unknown-unknown은 현재 캐시된 그래프에서0.08/0.11초·exit0입니다. App 경로 선택만 수정했고 public API/UI/Editor·manifest/lock/동결 source 변경0이라 변하지 않은 범위의 기존 근거는 유지합니다. 소유3Rust fmt/diff·문서 format exit0, 디스크649GiB/65%이며 청소하지 않았습니다. e1d만 닫고 후보/ghost 합성·e1/editor-77과 전체 목표는 미완료로 유지합니다.
