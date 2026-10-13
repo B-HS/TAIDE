@@ -1,6 +1,6 @@
 {
     "date": "2026-10-14",
-    "baseline": "ef020bb5",
+    "baseline": "554d03e5",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1362,10 +1362,13 @@
                 "native/taide-native-editor/tests/fixtures/json-schema-refs-oracle.rs",
                 "native/taide-native-editor/tests/json-schema-uri.rs",
                 "native/taide-native-editor/tests/fixtures/json-schema-uri-oracle.mjs",
-                "native/taide-native-editor/tests/fixtures/json-schema-uri-oracle.rs"
+                "native/taide-native-editor/tests/fixtures/json-schema-uri-oracle.rs",
+                "native/taide-native-editor/tests/json-schema-context.rs",
+                "native/taide-native-editor/tests/fixtures/json-schema-context-oracle.mjs",
+                "native/taide-native-editor/tests/fixtures/json-schema-context-oracle.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-14-native-batch23-builtin-language-services.md"],
-            "limitation": "실제 source scanner19,624·AST6,336·조회1,118·선택3,303·심볼5,616·접기693·포맷9,216·진단정책9,216·값2,348/비교600·local 참조104·URI7,100사례와 현재Core32검사/host·Wasm 근거입니다. local pointer/anchor·공유/순환/merge·schema ID/resource 정규화·논리UTF-16/percent·자료/작업예산·기존 실제 편집/marker 소비를 확인했습니다. 외부 참조는 typed 대기 항목이며 relative context/연관 glob·schema 선택·외부 요청/cache/의미검증·조회/완성/앱 공급과 CSS·HTML·TS 전체는 미완료입니다. editor-57 missing을 유지합니다."
+            "limitation": "실제 source scanner19,624·AST6,336·조회1,118·선택3,303·심볼5,616·접기693·포맷9,216·진단정책9,216·값2,348/비교600·local 참조104·URI7,100·context/속성1,152사례와 현재Core35검사/host·Wasm 근거입니다. local pointer/anchor·공유/순환/merge·ID/resource 정규화·worker 상대 context/default encoding·AST 첫 schema 속성·논리UTF-16/예산·기존 실제 편집/marker 소비를 확인했습니다. 연관 glob·전체 선택·외부 요청/참조/cache/의미검증·조회/완성/앱 공급과 CSS·HTML·TS 전체는 미완료입니다. editor-57 missing을 유지합니다."
         }
     },
     "rows": [
@@ -3083,7 +3086,7 @@
             "domain": "editor",
             "status": "missing",
             "proof": "editor-builtin-language-services",
-            "note": "실제 JSON scanner/AST·구조/포맷/구문정책·schema 값/비교와 local 참조104·URI 정규화7,100사례를 portable core로 구현했습니다. 현재Core32검사·host/Wasm·논리Unicode/JS키순서/IEEE754·전체예산과 기존 실제 편집/MarkerSet 소비를 확인했습니다. relative context/연관 glob·schema 선택·외부 요청/참조/cache·의미검증·조회/완성·실제App 공급과 CSS/HTML/TS 전체가 미완료이므로 missing을 유지합니다."
+            "note": "실제 JSON scanner/AST·구조/포맷/구문정책·schema 값/비교·local 참조104·URI7,100·실제worker 상대 context/첫 schema 속성1,152사례를 portable core로 구현했습니다. 현재Core35검사·host/Wasm·논리Unicode/JS키순서/IEEE754·전체예산과 기존 실제 편집/MarkerSet 소비를 확인했습니다. 연관 glob·전체 schema 선택·외부 요청/참조/cache·의미검증·조회/완성·실제App 공급과 CSS/HTML/TS 전체가 미완료이므로 missing을 유지합니다."
         },
         {
             "id": "editor-58",
