@@ -43,6 +43,8 @@ pub mod indent;
 pub mod json_parser;
 #[path = "json-scanner.rs"]
 pub mod json_scanner;
+#[path = "json-selection.rs"]
+pub mod json_selection;
 #[path = "inlay-hints.rs"]
 pub mod inlay_hints;
 #[path = "language-configuration.rs"]
