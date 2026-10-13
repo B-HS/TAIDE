@@ -71,3 +71,5 @@ peek-path-fixed.log는 source 경로/python 언어/prefix/suffix·소스만 수�
 peek-split.log는35.32초·0통과/1실패·컴파일20.21초·exit101입니다. OS 입력 대신 egui memory focus만 바꾸고 기존 layout focused_pane을 오른쪽에 유지한 fixture에서 요청/표시가 오른쪽 뷰에 남았습니다. 제품 동작을 바꾸거나 두 뷰의 표시를 허용하지 않고 controller의 실제 FocusPane mutation→snapshot focused_pane을 확인한 뒤 입력했습니다. peek-split-focused.log의 동일 실제 split 검사1건은35.76초·컴파일19.39초·exit0입니다. pane 선택·본문 focus·현재 뷰 요청/표시와 비활성 다른 뷰 회수, mirror 수락/undo·디스크/종료task0을 확인했습니다. App5/문맥3/consumer18의 서로 다른26통과이며 이전단독 peek/path/mirror 반복 성공을 더하지 않습니다.
 
 peek-frozen-host.log의 --tests --features inspection과 peek-frozen-wasm.log의 --lib --features canvas --target wasm32-unknown-unknown은 현재 캐시된 그래프에서0.08/0.11초·exit0입니다. App 경로 선택만 수정했고 public API/UI/Editor·manifest/lock/동결 source 변경0이라 변하지 않은 범위의 기존 근거는 유지합니다. 소유3Rust fmt/diff·문서 format exit0, 디스크649GiB/65%이며 청소하지 않았습니다. e1d만 닫고 후보/ghost 합성·e1/editor-77과 전체 목표는 미완료로 유지합니다.
+
+소유 source 경로/검사/QA와 PROCESS 상단5경로를3f06c526로 선별 커밋했습니다. 하단 PROCESS2hunk 및 사용자 문서/결정/피드백/메모리는 보존합니다. 기능표 baseline을 실제 제품으로 갱신하고 e1/editor-77 partial·전체302완료는 유지합니다.
