@@ -3,6 +3,7 @@ import { format as serviceFormat } from '../../../../node_modules/monaco-editor/
 import { TextDocument } from '../../../../node_modules/monaco-editor/esm/external/vscode-languageserver-textdocument/lib/esm/main.js'
 
 import { rustLiteral } from './emmet-rust-literal.mjs'
+import { writeBoundedScanner } from './json-source-boundaries.mjs'
 
 const FORMAT_URL = new URL('../../../../node_modules/monaco-editor/esm/external/jsonc-parser/lib/esm/impl/format.js', import.meta.url)
 const SCANNER_URL = new URL('./scanner.js', FORMAT_URL)
@@ -11,19 +12,7 @@ const FORMAT_PATCH_URL = new URL('file:///private/tmp/taide-json-format-source-o
 const SCANNER_IMPORT = "import { createScanner } from './scanner.js';"
 const source = await Bun.file(FORMAT_URL).text()
 if (source.split(SCANNER_IMPORT).length !== 2) throw new Error('Unexpected original format scanner import')
-const scannerWrapper = `import { createScanner as original } from ${JSON.stringify(SCANNER_URL.href)}
-export const createScanner = (text, ...args) => {
-    const scanner = original(text, ...args)
-    const start = () => Math.min(text.length, scanner.getTokenOffset())
-    const end = () => {
-        const offset = scanner.getTokenOffset() + scanner.getTokenLength()
-        if (offset > text.length && (offset !== text.length + 1 || ![13, 17].includes(scanner.getToken()))) throw new Error('Unexpected format scanner overflow')
-        return Math.min(text.length, offset)
-    }
-    return { ...scanner, getTokenOffset: start, getTokenLength: () => end() - start() }
-}
-`
-await Bun.write(SCANNER_PATCH_URL, scannerWrapper)
+await writeBoundedScanner(SCANNER_URL, SCANNER_PATCH_URL)
 const patched = source
     .replace(SCANNER_IMPORT, `import { createScanner } from ${JSON.stringify(SCANNER_PATCH_URL.href)};`)
     .replace(/(from\s+)'(\.[^']+)'/g, (_, prefix, relative) => `${prefix}${JSON.stringify(new URL(relative, FORMAT_URL).href)}`)

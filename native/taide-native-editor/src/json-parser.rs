@@ -60,6 +60,31 @@ pub enum Error {
 }
 
 impl Error {
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::ExpectedValue => "Expected a JSON object, array or literal.",
+            Self::ExpectedEnd => "End of file expected.",
+            Self::InvalidNumber => "Invalid number format.",
+            Self::EndOfComment => "Unexpected end of comment.",
+            Self::EndOfString => "Unexpected end of string.",
+            Self::EndOfNumber => "Unexpected end of number.",
+            Self::InvalidUnicode => "Invalid unicode sequence in string.",
+            Self::InvalidEscape => "Invalid escape character in string.",
+            Self::InvalidCharacter => {
+                "Invalid characters in string. Control characters must be escaped."
+            }
+            Self::PropertyExpected => "Property expected",
+            Self::CommaExpected => "Expected comma",
+            Self::ColonExpected => "Colon expected",
+            Self::ValueExpected => "Value expected",
+            Self::ArrayEndExpected => "Expected comma or closing bracket",
+            Self::ObjectEndExpected => "Expected comma or closing brace",
+            Self::TrailingComma => "Trailing comma",
+            Self::DuplicateKey => "Duplicate object key",
+            Self::KeyMustBeQuoted => "Property keys must be doublequoted",
+        }
+    }
+
     pub fn code(self) -> u32 {
         match self {
             Self::ExpectedValue | Self::ExpectedEnd | Self::InvalidNumber => 0,
