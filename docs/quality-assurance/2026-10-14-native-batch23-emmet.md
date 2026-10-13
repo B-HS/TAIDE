@@ -197,3 +197,11 @@ borrowed-final.log는6773 handle에서compile28.47초·실제HTML App1/36.58초�
 설치@shikijs/monaco의theme color/style→첫scope 복원과monaco token 종류, 현재native style-scopes/textmate-tokenizer를대조했습니다. CSSselector의색이String scope에복원되므로현재위치는원본standard token Other 공급조건을만족하지않습니다. 조건을끄거나새Other를만들지않고실제CSS/scss 선언본문 .box 내부로 fixture를옮겼습니다. css-declaration.log는46627 handle에서compile15.76초·실제선언범위candidate/Other 토큰까지통과한뒤다중줄original이단일Text shape에있다고가정한assert에서0통과/1실패·37.20초/exit101입니다. 갱신된fixture는실제마지막줄로표시를단언하고현재CSS/scss 최종검사는진행중입니다. 테스트위치교정이며현재제품소스는0de10795 이후변경없습니다.
 
 css-declaration-final.log는46827 handle에서compile18.38초·실제CSS/scss 두파일의App1/45.76초·exit0입니다. 현재언어묶음은기존HTML1/HEEX1/JSX1/TSX1/CSS·scss1의App5검사/6파일사례가성공했습니다. 메타데이터추론/실제Other·원본후보/범위·키보드수락/단일undo·설정회수·디스크/종료task0이며다른파일peek 실제App 전체와일반전체게이트는남습니다. 기존소비자8/구문20/기존완성79와합친현재App112서로다른성공을재사용하며source fixture/helper 포맷과product source변경0을확인했습니다. 전체302/588(51.4%)·미완료286/부분93/미연결110/미구현83·목표active/잔여시간미산정입니다.
+
+## e3d4 — 실제 다른 파일 peek
+
+소유LSP mock의독립cross-file-emmet mode는실제소유root의peek.html URI/유효0..3range를Definition으로반환합니다. 기존cross-file모드·다른응답은유지했습니다. 실제앱fixture가별도HTML 파일 div.foo를쓰기/읽고backend가language_id=html을추론합니다. 원본Rust owner와다른Document ID/정확한실제canonical key·peek source/ViewKey를단언하고기존Core 후보·키보드Tab 수락·단일undo·owner revision/본문·두디스크·재요청후peek닫힘/cancel·정상종료task0을확인했습니다. 어떠한가짜ID/언어교체/OS입력도없습니다.
+
+peek-mock-build.log는12320 handle에서example/lib compile27.72초·exit0이며기존lib is_applying dead_code/vendor경고를유지합니다. formatter가만든무관한4hunk만되돌려mock은실제추가8줄/3hunk이며실행동작이같은성공build를재사용했습니다. peek-first.log는36855 handle에서compile21.15초·실제App1/46.17초·exit0입니다. 현재Emmet관련App6/7파일·소비자8/구문20/기존완성79의113서로다른성공과Core343/성능1ignored를재사용하며반복/비교사례수는더하지않습니다. 현재제품소스는0de10795 이후변경없고추가의존성/manifest/lock/동결diff0이며현재2fixture Rustfmt와mock소유8줄/diff를확인했습니다.
+
+editor-80의원본등록/standard token·유효성/노이즈/필터·HTML/JSX/CSS 확장·기본자료/후보/문서/범위·현재설정·실제여섯언어파일/다른파일peek의동작묶음을완료로갱신합니다. 동일revision tier/readonly·IME·다중커서/mirror·재생성/닫힘·예산·원본오류수정도연결됐습니다. 일반전체App 준비실패/큰Core성능ignored/remoteWasm Instant·OS실기·배치31~33 전환/제거는별도게이트로남으며Emmet성공으로해결됐다고보고하지않습니다. 전체303/588(51.5%)·미완료285·부분92/미연결110/미구현83·배치23잔여18·목표active/잔여시간미산정입니다.

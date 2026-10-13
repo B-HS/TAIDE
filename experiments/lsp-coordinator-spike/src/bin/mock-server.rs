@@ -1450,6 +1450,12 @@ impl MockServer {
                         };
                         json!({"uri":format!("{parent}/{name}"),"range":selection})
                     }
+                    (Some("cross-file-emmet"), "textDocument/definition") => {
+                        let (parent, _) = uri
+                            .rsplit_once('/')
+                            .ok_or_else(|| invalid("location URI parent"))?;
+                        json!({"uri":format!("{parent}/peek.html"),"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":3}}})
+                    }
                     (_, "textDocument/definition") => json!({"uri":uri,"range":selection}),
                     (_, "textDocument/declaration") => json!([{"uri":uri,"range":declaration}]),
                     (_, "textDocument/typeDefinition") => {
@@ -2501,6 +2507,7 @@ fn main() -> io::Result<ExitCode> {
         Some(
             mode @ ("--native-locations"
             | "--native-locations-cross-file"
+            | "--native-locations-cross-file-emmet"
             | "--native-locations-empty"
             | "--native-locations-null"
             | "--native-locations-error"
@@ -2512,6 +2519,7 @@ fn main() -> io::Result<ExitCode> {
             server.should_track_saves = true;
             server.locations = Some(match mode {
                 "--native-locations-cross-file" => "cross-file",
+                "--native-locations-cross-file-emmet" => "cross-file-emmet",
                 "--native-locations-empty" => "empty",
                 "--native-locations-null" => "null",
                 "--native-locations-error" => "error",

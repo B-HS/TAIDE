@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: Emmet의 실제 여섯언어 파일은HTML/HEEX/JSX/TSX/CSS·scss App5검사/6사례·소비자8/구문20/기존완성79의현재112성공입니다. CSSselector의String 위치를선언본문으로고쳤고multi-line표시fixture를수정해Source Other 게이트를유지했습니다. Core343성공/1성능ignored와현재제품0de10795 검증을재사용합니다. 다른파일peek 실제App 전체/전체App 준비실패/remote Wasm·실기/전환/제거/최종33은미완료입니다. 전체302/588(51.4%)·미완료286·부분93/미연결110/미구현83·배치23잔여19·editor-80partial·잔여시간미산정이며 사용자문서/보호경계를 유지합니다.
+현재 상태: Emmet 원본Core·후보5286사례와실제여섯언어/다른HTML파일peek·수락/undo/owner/디스크/설정/취소/task0이App6/소비자8/구문20/기존완성79의현재113성공입니다. Core343성공/성능1ignored·host/Wasm와토큰프레임참조/원본Large정책·범위/예산 근거를재사용합니다. editor-80동작묶음을complete로닫으며일반전체App 준비실패/성능/remoteWasm·실기/전환/제거/최종33은남습니다. 전체303/588(51.5%)·미완료285·부분92/미연결110/미구현83·배치23잔여18·잔여시간미산정이며 사용자문서/보호경계를 유지합니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 
@@ -178,6 +178,7 @@
 - [x] e3d1. Core 후보 생산 — 실제doComplete의정적자료·유효성/노이즈·추출/필터/range/primary·HTML 추가후보·CSS 억제/important를portable core에구현합니다. 주입난수의실제원본oracle와문서/label/필터/정렬·바이트/UTF-16/예산을검증하고실제DocumentSnapshot/Position의Candidate로어댑트합니다. 의존성/동결/사용자데이터·문서는보호하고QA/기능표/PROCESS/선별Git을갱신하며App의수명·토큰/설정/readonly는e3d/e3에유지합니다.
 - [x] e3d2. 앱 공급자 연결 — 실제 standard token Other·6개 언어/원본 trigger·설정/readonly/tier/IME·현재 request와 후보 수명을 연결합니다. 기존 LSP/사용자 snippet·단어 대체 목록과 실제 문서 범위/다중커서/peek/mirror·수락/undo/설정취소를 소비자·실제 App에서 검증하고 QA/기능표/PROCESS·선별 Git을 갱신합니다. 전체 게이트/OS 실기·보호 경계는 유지합니다.
 - [x] e3d3. 실제 앱 언어 묶음 — 이미통과한HTML 경로를기존공통fixture로재사용하고실제CSS/scss·HEEX·JSX/TSX 파일/언어추론·TextMate Other·위젯Tab삽입/단일undo·설정해제/디스크/종료를검증합니다. 기존성공의입력/환경은재사용하고실패한독립위험만재검사하며QA/기능표/PROCESS·선별Git을갱신합니다. 다른파일peek 전체/일반전체게이트·OS 경계는미완료로유지합니다.
+- [x] e3d4. 다른 파일 peek 실제 앱 — 소유 mock의Definition 결과를실제별도HTML 파일로돌려원본Rust owner/실제HTML source/파일언어·native peek 공급/토큰/전체범위·Tab수락/undo/디스크·닫힌후보 취소/종료task0을검증합니다. 가짜ID/언어/OS 입력 없이기존동작을재사용하고현재관련검사만추가해QA/기능표/PROCESS·선별Git을갱신합니다. 일반전체게이트/OS·동결은남깁니다.
 - [ ] f. 실제 앱·전체 게이트 — 닫을 기능의 실제 앱/child/mirror·readonly/tier/다중 커서/IME·정상 종료/회귀를 확인하고 변경 크레이트 전체 대상을 --no-fail-fast로 직접 1회 실행합니다. 성공 결과는 재사용하고 실패 영향만 재검사합니다. frozen host/Wasm compile·fmt/diff·manifest/lock/engine/보호 경계·디스크와 배치 31 실기/성능/신뢰성 부채를 구분합니다.
 - [x] f1. 프로젝트 열기 지연 위치 조사·배치 31 이관 — 전체 App 811통과/프로젝트 open 5초 초과 1실패와 Cargo 단독 동일 실패를 보존했습니다. 같은 실행 파일의 직접 검사는 저장소/크레이트 cwd에서 3.81/3.23초에 통과했습니다. 성공한 두 번째 검사 중 start_watch→notify runloop 준비 대기와 FSEventStreamStart→등록 RPC의 실제 스택을 확인했습니다. 실패 시점의 스택이나 지연 변동의 근본 원인은 확인하지 않았으며 해결/전체 exit 0으로 보고하지 않습니다. 제한 확대·검사 생략·OS 변경 없이 반복 조사를 종료하고 배치 31의 실행 환경/신뢰성 게이트에 미해결 위험을 유지합니다.
 - [ ] g. 완료 근거·선별 Git — 실제 닫힌 ID만 QA/기능표/PROCESS에 반영하고 논리 단위 선별 커밋·일반 푸시합니다. 배치 24를 기존 계획 안에서 이어가며 배치 번호를 세부 수정마다 늘리지 않습니다.

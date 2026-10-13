@@ -231,6 +231,42 @@ pub(super) fn fixture_with_language(text: &str, extension: &str) -> Fixture {
     )
 }
 
+pub(super) fn fixture_with_emmet_peek() -> Fixture {
+    let mut fixture = fixture_with_ports(
+        "--native-locations-cross-file-emmet",
+        false,
+        |application, project, document| {
+            let snapshot = application.store.documents().snapshot(document).unwrap();
+            application.lsp.as_ref().is_some_and(|lsp| {
+                !lsp.location_providers(
+                    project,
+                    &snapshot,
+                    taide_native_editor::symbol_locations::Kind::Definition,
+                )
+                .is_empty()
+            })
+        },
+        None,
+        "fn owner() {}",
+        None,
+        "rs",
+        |_, path, _, _| {
+            std::fs::write(
+                std::path::Path::new(path).with_file_name("peek.html"),
+                "div.foo",
+            )
+            .unwrap()
+        },
+    );
+    fixture.peek_path = std::path::Path::new(&fixture.path)
+        .with_file_name("peek.html")
+        .canonicalize()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    fixture
+}
+
 fn fixture_with_ports(
     mode: &str,
     is_suggest_preview_enabled: bool,
