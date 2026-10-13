@@ -68,9 +68,21 @@ pub(super) struct Preview {
     selection: taide_native_editor::view::SelectionSet,
     indent: taide_native_editor::indent::IndentOptions,
     alternate: bool,
+    augmentation: Option<String>,
     ghosts: Vec<taide_native_editor::completion_preview::GhostText>,
     styles: std::collections::HashMap<usize, Arc<taide_native_editor::line_tokens::PreviewTokens>>,
     text: std::collections::BTreeMap<usize, Arc<[String]>>,
+}
+
+#[cfg(test)]
+impl Preview {
+    pub(super) fn augmentation(
+        &self,
+    ) -> Option<(&str, &[taide_native_editor::completion_preview::GhostText])> {
+        self.augmentation
+            .as_deref()
+            .map(|text| (text, self.ghosts.as_slice()))
+    }
 }
 
 impl Consumer<'_, '_> {
@@ -438,6 +450,32 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
         candidate: usize,
         alternate: bool,
     ) -> Vec<taide_native_editor::completion_preview::GhostText> {
+        self.preview_with_inline(store, view, token, candidate, alternate, true)
+    }
+
+    fn preview_with_inline(
+        &mut self,
+        store: &EditorStore,
+        view: ViewId,
+        token: &str,
+        candidate: usize,
+        alternate: bool,
+        suggest_preview: bool,
+    ) -> Vec<taide_native_editor::completion_preview::GhostText> {
+        if let Some(project) = self.project.clone()
+            && self.available(store, view)
+        {
+            let mut state = self.consumer.state.borrow_mut();
+            let _ = state.inline.observe(
+                store,
+                self.consumer.services,
+                project,
+                view,
+                self.owner,
+                self.model_path.clone(),
+                &self.consumer.context,
+            );
+        }
         let Some(source) = store
             .views()
             .get(view)
@@ -449,6 +487,13 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
             return Vec::new();
         };
         let mut state = self.consumer.state.borrow_mut();
+        state.inline.reconcile_credentials(self.consumer.services);
+        let inline = state
+            .inline
+            .poll(store, view)
+            .first()
+            .and_then(|ghost| ghost.parts.first())
+            .map(|part| part.text.clone());
         let Some(entry) = state.entries.get_mut(&view).filter(|entry| {
             entry.widget_token.to_string() == token
                 && entry.choice.is_none()
@@ -466,14 +511,6 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
         let indent = document
             .model_indentation(self.editor.indent_options(&document))
             .formatting_options();
-        if let Some(preview) = &entry.preview
-            && preview.candidate == candidate
-            && preview.selection == source.selection
-            && preview.indent == indent
-            && preview.alternate == alternate
-        {
-            return preview.ghosts.clone();
-        }
         let primary = source.selection.selections[source.selection.primary].head;
         let limits = ParseLimits {
             max_bytes: taide_model::file::REFUSED_FILE_BYTES as usize,
@@ -494,6 +531,31 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
             entry.preview = None;
             return Vec::new();
         };
+        let augmentation = inline.as_ref().and_then(|inline| {
+            super::augmentation::extend(
+                &document,
+                ranges.get(source.selection.primary)?,
+                &text,
+                primary,
+                inline,
+            )
+        });
+        if !suggest_preview && augmentation.is_none() {
+            entry.preview = None;
+            return Vec::new();
+        }
+        let augmented_text = augmentation.as_ref().map(|(text, _)| text.clone());
+        if let Some(preview) = &entry.preview
+            && preview.candidate == candidate
+            && preview.selection == source.selection
+            && preview.indent == indent
+            && preview.alternate == alternate
+            && preview.augmentation == augmented_text
+        {
+            return preview.ghosts.clone();
+        }
+        let preview_suffix_utf16 = augmentation.as_ref().map_or(0, |(_, length)| *length);
+        let text = augmented_text.as_deref().unwrap_or(&text);
         let ghosts = ranges
             .into_iter()
             .zip(&source.selection.selections)
@@ -501,11 +563,11 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
                 taide_native_editor::completion_preview::compute(
                     &document,
                     range,
-                    &text,
+                    text,
                     selection.head,
                     taide_native_editor::completion_preview::Options {
                         mode: taide_native_editor::completion_preview::Mode::SubwordSmart,
-                        preview_suffix_utf16: 0,
+                        preview_suffix_utf16,
                     },
                 )
             })
@@ -524,6 +586,7 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
             selection: source.selection.clone(),
             indent,
             alternate,
+            augmentation: augmented_text,
             ghosts: ghosts.clone(),
             styles: std::collections::HashMap::new(),
             text: std::collections::BTreeMap::new(),

@@ -73,3 +73,17 @@ peek-split.log는35.32초·0통과/1실패·컴파일20.21초·exit101입니다.
 peek-frozen-host.log의 --tests --features inspection과 peek-frozen-wasm.log의 --lib --features canvas --target wasm32-unknown-unknown은 현재 캐시된 그래프에서0.08/0.11초·exit0입니다. App 경로 선택만 수정했고 public API/UI/Editor·manifest/lock/동결 source 변경0이라 변하지 않은 범위의 기존 근거는 유지합니다. 소유3Rust fmt/diff·문서 format exit0, 디스크649GiB/65%이며 청소하지 않았습니다. e1d만 닫고 후보/ghost 합성·e1/editor-77과 전체 목표는 미완료로 유지합니다.
 
 소유 source 경로/검사/QA와 PROCESS 상단5경로를3f06c526로 선별 커밋했습니다. 하단 PROCESS2hunk 및 사용자 문서/결정/피드백/메모리는 보존합니다. 기능표 baseline을 실제 제품으로 갱신하고 e1/editor-77 partial·전체302완료는 유지합니다.
+
+## 일반 후보와 AI 확장 합성 (2026-10-14)
+
+설치된 Monaco inlineCompletionsModel의 selectedSuggestItem 자동 요청, singleTextRemoveCommonPrefix/singleTextEditAugments와 preview 설정·추가 부분 길이를 대조했습니다. 원본 AI 공급자는 현재 커서의 빈 범위에 문자열을 삽입하므로 후보의 원문 접두사를 제거한 시작이 커서와 같고 후보 범위가 커서에서 끝나며 AI 문자열이 후보의 나머지로 시작할 때만 확장입니다. 이 조건을 별도 helper에서 안전한 UTF-8 경계로 검증하고 CRLF를 LF로 정규화하며 추가 부분은 UTF-16 길이로 기존 GhostText preview_suffix에 전달합니다. 원문·후보 자체는 변경하지 않습니다.
+
+일반 후보가 선택되면 기존 300ms 자동 요청을 사용하며 suggestPreview=false에서도 실제 AI 확장이 있으면 표시합니다. 후보 불일치는 합성하지 않고 목록을 닫으면 독립 AI 표시를 복원합니다. preview 캐시는 확장 문자열을 포함해 늦게 도착한 AI 응답으로 갱신됩니다. 후보 수락의 한 ChangeSet이 이전 접두사를 그대로 보존하고 각 커서에서 AI 접두사만 삽입했을 때 forward stability로 잔여 제안을 유지합니다. 다른 치환·추가 편집·스니펫 선택은 기존 문서/선택 수명으로 회수하며 일반 후보와 스니펫의 입력 우선순위를 보존합니다.
+
+로그 접두사는 `/private/tmp/taide-ai-augmentation-`입니다. red.log의0통과/1실패·0.06초·exit101은 suggestPreview=false일 때 확장 미표시를 재현했습니다. fixed.log의1통과·0.04초·컴파일30.81초·exit0에서 첫 Tab의 console 후보 수락과 두 번째 Tab의 console.extra 잔여 수락을 확인했습니다. consumer.log의 E0616은 검사에서 private Preview 필드에 직접 접근한 컴파일 오류이며 실행된 검사는0건입니다. cfg(test) 읽기 accessor로 수정한 consumer-fixed.log는44통과·6.86초·컴파일23.72초·exit0, auto-consumer.log는 선택된 일반 후보만으로 요청하는 검사를 더한45통과·7.16초·exit0입니다. multi.log의 추가 다중 커서1건은0.35초·컴파일17.38초·exit0입니다. 이 반복 성공을 합산하지 않습니다.
+
+regression.log의 native_ai_inline 소비자23통과·7.05초·exit0 뒤 Enter/Escape·스니펫 경계와 각각의 undo를 보강했습니다. completion-final.log는 consumer48을 포함한 후보/문서/스니펫/LSP child·변수 회귀의 서로 다른79통과·13.03초·컴파일17.53초·exit0입니다. 후보 수락은 Tab과 Enter 각각에서 잔여 AI를 보존하며 두 번의 수락은 각각 undo됩니다. Escape는 목록과 AI를 회수하고 원문을 보존하며 활성 스니펫 선택/Tab은 잔여 AI 삽입에 빼앗기지 않습니다. helper의 Unicode·잘못된 바이트 범위/접두사/범위 끝·UTF-16, 미리보기 설정·캐시 갱신/추가 부분 표시와 기존 credential/readonly/IME/오래된 응답 검사도 포함합니다.
+
+app-final.log의 실제 App6건은66.39초·컴파일0.20초·exit0입니다. 실제 앱의 임시 snippet catalog와 주입 AI 응답에서 suggestPreview=false의 확장 표시→첫 Tab 일반 후보→두 번째 Tab 잔여 제안→undo·디스크 원문·정상 종료 task0을 확인했습니다. 다른 파일 peek/실제 split·mirror/명시 키/credential 삭제와 기본 AI 표시도 현재 제품 변경에서 통과했습니다. 최초 module 이름 필터는0건을 실행했으므로 성공 근거에서 제외하고 실제_ai_inline 이름으로 정확히6건을 실행했습니다. App 소비79/실제6의 서로 다른85건이며 앞선 반복 성공을 더하지 않습니다.
+
+ui.log의 후보31/본문87은118통과·0실패·컴파일11.46초·검사0.50/0.19초·exit0입니다. App85/UI118의 현재 서로 다른203건이며 앞선 실행과 중복 합산하지 않습니다. frozen-host/wasm.log의 계약 검사는 현재 캐시에서0.08/0.10초·exit0이며 Wasm 검사 실행/기존 시간 API 불일치 해결로 확대하지 않습니다. 소유 Rust7개 fmt/diff exit0, manifest/lock/동결 source 변경0이며 디스크645GiB/사용65%를 확인했습니다. 실제 키/Keychain/사용자 데이터/클립보드/OS 입력은 접근하지 않았습니다. e1e만 해당 근거로 닫고 e1/editor-77은 전체 App 준비 실패/실기 게이트가 남아 partial로 유지합니다. editor-78/80, Markdown HTML/표/접근성·전체 전환/제거/최종33은 미완료이며 전체302/588(51.4%)·미완료286·잔여 시간 미산정입니다.

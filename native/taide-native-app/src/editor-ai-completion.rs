@@ -142,6 +142,7 @@ impl Entry {
         else {
             return false;
         };
+        let changes = changes.collect::<Vec<_>>();
         let mut positions = self
             .origin
             .selection
@@ -149,24 +150,43 @@ impl Entry {
             .iter()
             .map(|selection| (selection.head, 0usize))
             .collect::<Vec<_>>();
-        for change in changes {
+        for change in &changes {
             if change.spans.len() != positions.len()
                 || change.spans.iter().any(|span| {
-                    span.start_byte != span.old_end_byte || span.new_end_byte <= span.start_byte
+                    span.new_end_byte <= span.old_end_byte
+                        || span.start_byte != span.old_end_byte && changes.len() != 1
                 })
             {
                 return false;
             }
             for (head, size) in &mut positions {
-                let Some(span) = change.spans.iter().find(|span| span.start_byte == *head) else {
+                let Some(span) = change.spans.iter().find(|span| span.old_end_byte == *head) else {
                     return false;
                 };
-                *size += span.new_end_byte - span.start_byte;
+                let old_size = span.old_end_byte - span.start_byte;
+                let before_delta = change
+                    .spans
+                    .iter()
+                    .filter(|other| other.start_byte < span.start_byte)
+                    .map(|other| other.new_end_byte - other.old_end_byte)
+                    .sum::<usize>();
+                let start = span.start_byte + before_delta;
+                if old_size > 0
+                    && self
+                        .origin
+                        .snapshot
+                        .rope
+                        .byte_slice(span.start_byte..span.old_end_byte)
+                        != snapshot.rope.byte_slice(start..start + old_size)
+                {
+                    return false;
+                }
+                *size += span.new_end_byte - span.old_end_byte;
                 *head += change
                     .spans
                     .iter()
                     .filter(|span| span.start_byte <= *head)
-                    .map(|span| span.new_end_byte - span.start_byte)
+                    .map(|span| span.new_end_byte - span.old_end_byte)
                     .sum::<usize>();
             }
         }

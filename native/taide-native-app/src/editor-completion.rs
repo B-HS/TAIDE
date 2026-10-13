@@ -16,6 +16,8 @@ use uuid::Uuid;
 
 use crate::editor_symbols::ProviderIdentity;
 
+#[path = "editor-completion-augmentation.rs"]
+mod augmentation;
 #[path = "editor-completion-cache.rs"]
 mod cache;
 #[path = "editor-completion-colors.rs"]

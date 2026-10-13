@@ -155,6 +155,20 @@ pub trait Provider: editor_markup::Provider {
     ) -> Vec<GhostText> {
         Vec::new()
     }
+    fn preview_with_inline(
+        &mut self,
+        store: &EditorStore,
+        view: ViewId,
+        token: &str,
+        candidate: usize,
+        alternate: bool,
+        suggest_preview: bool,
+    ) -> Vec<GhostText> {
+        if !suggest_preview {
+            return Vec::new();
+        }
+        self.preview(store, view, token, candidate, alternate)
+    }
     fn preview_tokens(
         &self,
         _view: ViewId,
@@ -665,19 +679,18 @@ impl State {
         };
         let ghosts = if let Some(widget) = provider.current(store, view) {
             self.ranked(&widget);
-            if !suggest_preview {
-                return Preview::default();
+            if let Some(selected) = self.selected {
+                provider.preview_with_inline(
+                    store,
+                    view,
+                    &widget.token,
+                    selected,
+                    ui.input(|input| input.modifiers.shift),
+                    suggest_preview,
+                )
+            } else {
+                provider.inline_preview(store, view)
             }
-            let Some(selected) = self.selected else {
-                return Preview::default();
-            };
-            provider.preview(
-                store,
-                view,
-                &widget.token,
-                selected,
-                ui.input(|input| input.modifiers.shift),
-            )
         } else {
             provider.inline_preview(store, view)
         };

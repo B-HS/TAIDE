@@ -38,6 +38,277 @@ const CHANGED_INDENT_SIZE: u32 = 2;
 const SNIPPET_PREFIX_BYTES: usize = 3;
 
 #[test]
+fn native_ai_inline은_선택후보를_확장해_표시하고_후보_수락뒤_잔여제안을_유지한다() {
+    for accept in [Key::Tab, Key::Enter] {
+        let (mut fixture, receive) = ai_fixture("con", SNIPPET_PREFIX_BYTES);
+        let mut files = snippets().to_vec();
+        files[0].snippets.get_mut("Mirrored").unwrap().body =
+            SnippetStringOrList::Single("console".into());
+        fixture.files = Arc::from(files);
+        fixture.presentation.options.suggest_preview = false;
+        fixture.frame(Vec::new(), &[Command::TriggerInline]);
+        ai_respond(&mut fixture, &receive, "sole.extra");
+        fixture.frame(Vec::new(), &[Command::Trigger]);
+        assert!(fixture.painted.iter().any(|text| text.contains(".extra")));
+        assert_eq!(fixture.text(fixture.document), "con");
+        fixture.frame(vec![key(accept, Modifiers::NONE)], &[]);
+        assert_eq!(fixture.text(fixture.document), "console");
+        let ghosts = fixture.state.inline.poll(&fixture.store, fixture.view);
+        assert_eq!(ghosts[0].parts[0].text, ".extra");
+        fixture.frame(vec![key(Key::Tab, Modifiers::NONE)], &[]);
+        assert_eq!(fixture.text(fixture.document), "console.extra");
+        assert!(fixture.store.undo(fixture.document).unwrap());
+        assert_eq!(fixture.text(fixture.document), "console");
+        assert!(fixture.store.undo(fixture.document).unwrap());
+        assert_eq!(fixture.text(fixture.document), "con");
+    }
+}
+
+#[test]
+fn native_ai_inline의_후보확장은_escape로_목록과_제안을_회수하고_원문을_보존한다() {
+    let (mut fixture, receive) = ai_fixture("con", SNIPPET_PREFIX_BYTES);
+    let mut files = snippets().to_vec();
+    files[0].snippets.get_mut("Mirrored").unwrap().body =
+        SnippetStringOrList::Single("console".into());
+    fixture.files = Arc::from(files);
+    fixture.presentation.options.suggest_preview = false;
+    fixture.frame(Vec::new(), &[Command::Trigger]);
+    ai_respond(&mut fixture, &receive, "sole.extra");
+    fixture.frame(vec![key(Key::Escape, Modifiers::NONE)], &[]);
+    assert!(!fixture.state.entries.contains_key(&fixture.view));
+    assert!(
+        fixture
+            .state
+            .inline
+            .poll(&fixture.store, fixture.view)
+            .is_empty()
+    );
+    assert_eq!(fixture.text(fixture.document), "con");
+}
+
+#[test]
+fn ai_augmentation은_문자경계_범위_접두사와_utf16_추가부분을_검증한다() {
+    let prefix = "한\u{1f600}";
+    let fixture = Fixture::new(prefix, prefix.len(), Arc::from([]));
+    let snapshot = fixture
+        .store
+        .documents()
+        .snapshot(fixture.document)
+        .unwrap();
+    let candidate = format!("{prefix}候補");
+    let inline = "候補.more";
+    let result = super::augmentation::extend(
+        &snapshot,
+        &(0..prefix.len()),
+        &candidate,
+        prefix.len(),
+        inline,
+    )
+    .unwrap();
+    assert_eq!(result.0, format!("{prefix}{inline}"));
+    assert_eq!(result.1, ".more".encode_utf16().count());
+    assert!(
+        super::augmentation::extend(&snapshot, &(0..prefix.len()), "wrong", prefix.len(), inline)
+            .is_none()
+    );
+    assert!(
+        super::augmentation::extend(
+            &snapshot,
+            &(0..prefix.len()),
+            &candidate,
+            prefix.len(),
+            "other"
+        )
+        .is_none()
+    );
+    assert!(
+        super::augmentation::extend(&snapshot, &(0..prefix.len()), &candidate, 0, inline).is_none()
+    );
+    assert!(
+        super::augmentation::extend(
+            &snapshot,
+            &(1..prefix.len()),
+            &candidate,
+            prefix.len(),
+            inline
+        )
+        .is_none()
+    );
+}
+
+#[test]
+fn native_ai_inline의_후보확장은_스니펫_선택과_tab_이동을_침범하지않는다() {
+    let (mut fixture, receive) = ai_fixture("con", SNIPPET_PREFIX_BYTES);
+    let mut files = snippets().to_vec();
+    files[0].snippets.get_mut("Mirrored").unwrap().body =
+        SnippetStringOrList::Single("con${1:sole}$0".into());
+    fixture.files = Arc::from(files);
+    fixture.presentation.options.suggest_preview = false;
+    fixture.frame(Vec::new(), &[Command::Trigger]);
+    ai_respond(&mut fixture, &receive, "sole.extra");
+    fixture.frame(vec![key(Key::Tab, Modifiers::NONE)], &[]);
+    assert_eq!(fixture.text(fixture.document), "console");
+    assert!(fixture.state.snippet_sessions.contains_key(&fixture.view));
+    let selection = &fixture.store.views().get(fixture.view).unwrap().selection;
+    assert_eq!(
+        selection.selections[selection.primary],
+        Selection {
+            anchor: SNIPPET_PREFIX_BYTES,
+            head: "console".len()
+        }
+    );
+    assert!(
+        fixture
+            .state
+            .inline
+            .poll(&fixture.store, fixture.view)
+            .is_empty()
+    );
+    fixture.frame(vec![key(Key::Tab, Modifiers::NONE)], &[]);
+    assert_eq!(fixture.text(fixture.document), "console");
+}
+
+#[test]
+fn native_ai_inline의_불일치_후보는_합성하지않고_목록을_닫으면_ai표시를_복원한다() {
+    let (mut fixture, receive) = ai_fixture("con", SNIPPET_PREFIX_BYTES);
+    let mut files = snippets().to_vec();
+    files[0].snippets.get_mut("Mirrored").unwrap().body =
+        SnippetStringOrList::Single("console".into());
+    fixture.files = Arc::from(files);
+    fixture.presentation.options.suggest_preview = false;
+    fixture.frame(Vec::new(), &[Command::TriggerInline]);
+    ai_respond(&mut fixture, &receive, "different");
+    fixture.frame(Vec::new(), &[Command::Trigger]);
+    assert!(
+        !fixture
+            .painted
+            .iter()
+            .any(|text| text.contains("different"))
+    );
+    fixture.state.close(fixture.view);
+    fixture.frame(Vec::new(), &[]);
+    assert!(
+        fixture
+            .painted
+            .iter()
+            .any(|text| text.contains("different"))
+    );
+    assert_eq!(fixture.text(fixture.document), "con");
+}
+
+#[test]
+fn native_ai_inline의_후보확장_캐시는_응답이_도착하면_갱신하고_추가부분을_구분한다() {
+    let (mut fixture, receive) = ai_fixture("con", SNIPPET_PREFIX_BYTES);
+    let mut files = snippets().to_vec();
+    files[0].snippets.get_mut("Mirrored").unwrap().body =
+        SnippetStringOrList::Single("console".into());
+    fixture.files = Arc::from(files);
+    fixture.presentation.options.suggest_preview = true;
+    fixture.frame(Vec::new(), &[Command::TriggerInline]);
+    let (request, reply) = receive.recv_timeout(CLIPBOARD_DEADLINE).unwrap();
+    fixture.frame(Vec::new(), &[Command::Trigger]);
+    assert!(
+        fixture.state.entries[&fixture.view]
+            .preview
+            .as_ref()
+            .unwrap()
+            .augmentation()
+            .is_none()
+    );
+    reply
+        .send(Ok(taide_model::ai::AiTextResponse {
+            request_id: request.request_id,
+            text: Some("sole.extra".into()),
+        }))
+        .unwrap();
+    let deadline = std::time::Instant::now() + CLIPBOARD_DEADLINE;
+    loop {
+        fixture.frame(Vec::new(), &[]);
+        if fixture.state.entries[&fixture.view]
+            .preview
+            .as_ref()
+            .is_some_and(|preview| preview.augmentation().is_some())
+        {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::yield_now();
+    }
+    let preview = fixture.state.entries[&fixture.view]
+        .preview
+        .as_ref()
+        .unwrap();
+    assert!(
+        preview
+            .augmentation()
+            .unwrap()
+            .1
+            .iter()
+            .flat_map(|ghost| &ghost.parts)
+            .any(|part| part.text == ".extra" && part.is_preview)
+    );
+    assert_eq!(fixture.text(fixture.document), "con");
+}
+
+#[test]
+fn native_ai_inline은_선택후보만_열려도_공급자를_요청하고_확장해_표시한다() {
+    let (mut fixture, receive) = ai_fixture("con", SNIPPET_PREFIX_BYTES);
+    let mut files = snippets().to_vec();
+    files[0].snippets.get_mut("Mirrored").unwrap().body =
+        SnippetStringOrList::Single("console".into());
+    fixture.files = Arc::from(files);
+    fixture.presentation.options.suggest_preview = false;
+    fixture.frame(Vec::new(), &[Command::Trigger]);
+    ai_respond(&mut fixture, &receive, "sole.extra");
+    assert!(fixture.painted.iter().any(|text| text.contains(".extra")));
+    assert_eq!(fixture.text(fixture.document), "con");
+}
+
+#[test]
+fn native_ai_inline의_다중커서_후보확장은_각_접두사를_보존하고_순서대로_수락한다() {
+    let (mut fixture, receive) = ai_fixture("con\ncon", SNIPPET_PREFIX_BYTES);
+    let mut files = snippets().to_vec();
+    files[0].snippets.get_mut("Mirrored").unwrap().body =
+        SnippetStringOrList::Single("console".into());
+    fixture.files = Arc::from(files);
+    fixture.presentation.options.suggest_preview = false;
+    let second = "con\ncon".len();
+    fixture
+        .store
+        .set_view_state(
+            fixture.view,
+            SelectionSet {
+                primary: 0,
+                selections: vec![
+                    Selection {
+                        anchor: SNIPPET_PREFIX_BYTES,
+                        head: SNIPPET_PREFIX_BYTES,
+                    },
+                    Selection {
+                        anchor: second,
+                        head: second,
+                    },
+                ],
+            },
+            ScrollPosition::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    fixture.frame(Vec::new(), &[Command::Trigger]);
+    ai_respond(&mut fixture, &receive, "sole.extra");
+    fixture.frame(vec![key(Key::Tab, Modifiers::NONE)], &[]);
+    assert_eq!(fixture.text(fixture.document), "console\nconsole");
+    let ghosts = fixture.state.inline.poll(&fixture.store, fixture.view);
+    assert_eq!(ghosts.len(), "con\ncon".lines().count());
+    assert!(ghosts.iter().all(|ghost| ghost.parts[0].text == ".extra"));
+    fixture.frame(vec![key(Key::Tab, Modifiers::NONE)], &[]);
+    assert_eq!(
+        fixture.text(fixture.document),
+        "console.extra\nconsole.extra"
+    );
+}
+
+#[test]
 fn native_ai_inline은_최초포커스에서_요청하지않고_커서이동에서_제안을_중단한다() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let (mut fixture, _) = ai_fixture("", 0);
