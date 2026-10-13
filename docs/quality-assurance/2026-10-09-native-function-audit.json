@@ -1,6 +1,6 @@
 {
-    "date": "2026-10-13",
-    "baseline": "3f06c526",
+    "date": "2026-10-14",
+    "baseline": "683bfe68",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1187,7 +1187,8 @@
                 "crates/taide-runtime/src/ai_request_store.rs",
                 "crates/taide-infra/src/secret.rs",
                 "native/taide-native-editor/src/completion.rs",
-                "native/taide-native-ui/src/command-registry.rs"
+                "native/taide-native-ui/src/command-registry.rs",
+                "native/taide-native-app/src/editor-completion-augmentation.rs"
             ],
             "tests": [
                 "native/taide-native-app/src/editor-ai-completion-tests.rs",
@@ -1198,7 +1199,7 @@
                 "native/taide-native-editor/tests/completion.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-13-native-batch23-ai.md"],
-            "limitation": "자동/명시 요청·문맥/캐시·설정/수명·비파괴 ghost/Tab/undo·IME/readonly/다중 커서/일치 입력·credential 회수·첫 포커스 무요청/선택·blur 중단을 연결했습니다. 실제 다른 파일의 peek source 경로/언어/문맥·소스만 수락/undo/닫힘과 실제 split의 활성 뷰·mirror undo, 주입 다른 창의 이전 응답 거절을 확인했습니다. 일반 후보/ghost 합성 소비와 전체 게이트가 남아 partial입니다. OS 두 창 실기/외부 credential 감시로 확대하지 않습니다."
+            "limitation": "자동/명시 요청·문맥/캐시·credential/문서/뷰 수명·비파괴 ghost/Tab/undo·IME/readonly/다중 커서와 실제 peek source/split mirror를 확인했습니다. 선택 일반 후보의 자동 요청·미리보기 설정과 독립된 확장/UTF-16 추가 부분·응답 캐시 갱신·Tab/Enter 후보 수락 후 잔여 AI·Escape/스니펫 선택 보호/각 undo도 연결했습니다. 현재 App85/UI118의 서로 다른203통과·동결 host/Wasm compile이며 전체 App 준비 실패/실기 게이트가 남아 partial입니다. OS 두 창 실기/외부 credential 감시로 확대하지 않습니다."
         }
     },
     "rows": [
@@ -3136,7 +3137,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-ai-inline",
-            "note": "자동/명시 요청·문맥/캐시·설정/수명·비파괴 ghost/Tab/undo·IME/readonly/다중 커서/일치 입력·credential 회수·첫 포커스 무요청/선택·blur 중단을 연결했습니다. 실제 다른 파일의 peek source 경로/언어/문맥·소스만 수락/undo/닫힘과 실제 split의 활성 뷰·mirror undo, 주입 다른 창의 이전 응답 거절을 확인했습니다. 일반 후보/ghost 합성 소비와 전체 게이트가 남아 partial입니다. OS 두 창 실기/외부 credential 감시로 확대하지 않습니다."
+            "note": "자동/명시 요청·문맥/캐시·credential/문서/뷰 수명·비파괴 ghost/Tab/undo·IME/readonly/다중 커서와 실제 peek source/split mirror를 확인했습니다. 선택 일반 후보의 자동 요청·미리보기 설정과 독립된 확장/UTF-16 추가 부분·응답 캐시 갱신·Tab/Enter 후보 수락 후 잔여 AI·Escape/스니펫 선택 보호/각 undo도 연결했습니다. 현재 App85/UI118의 서로 다른203통과·동결 host/Wasm compile이며 전체 App 준비 실패/실기 게이트가 남아 partial입니다. OS 두 창 실기/외부 credential 감시로 확대하지 않습니다."
         },
         {
             "id": "editor-78",

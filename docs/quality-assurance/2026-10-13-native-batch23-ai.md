@@ -87,3 +87,5 @@ regression.log의 native_ai_inline 소비자23통과·7.05초·exit0 뒤 Enter/E
 app-final.log의 실제 App6건은66.39초·컴파일0.20초·exit0입니다. 실제 앱의 임시 snippet catalog와 주입 AI 응답에서 suggestPreview=false의 확장 표시→첫 Tab 일반 후보→두 번째 Tab 잔여 제안→undo·디스크 원문·정상 종료 task0을 확인했습니다. 다른 파일 peek/실제 split·mirror/명시 키/credential 삭제와 기본 AI 표시도 현재 제품 변경에서 통과했습니다. 최초 module 이름 필터는0건을 실행했으므로 성공 근거에서 제외하고 실제_ai_inline 이름으로 정확히6건을 실행했습니다. App 소비79/실제6의 서로 다른85건이며 앞선 반복 성공을 더하지 않습니다.
 
 ui.log의 후보31/본문87은118통과·0실패·컴파일11.46초·검사0.50/0.19초·exit0입니다. App85/UI118의 현재 서로 다른203건이며 앞선 실행과 중복 합산하지 않습니다. frozen-host/wasm.log의 계약 검사는 현재 캐시에서0.08/0.10초·exit0이며 Wasm 검사 실행/기존 시간 API 불일치 해결로 확대하지 않습니다. 소유 Rust7개 fmt/diff exit0, manifest/lock/동결 source 변경0이며 디스크645GiB/사용65%를 확인했습니다. 실제 키/Keychain/사용자 데이터/클립보드/OS 입력은 접근하지 않았습니다. e1e만 해당 근거로 닫고 e1/editor-77은 전체 App 준비 실패/실기 게이트가 남아 partial로 유지합니다. editor-78/80, Markdown HTML/표/접근성·전체 전환/제거/최종33은 미완료이며 전체302/588(51.4%)·미완료286·잔여 시간 미산정입니다.
+
+소유 코드/검사/QA와 PROCESS 상단의9경로를683bfe68로 선별 커밋했습니다. 사용자 PROCESS 하단2hunk와 다른 문서/결정/피드백/메모리를 보존했으며 기능표 baseline을 실제 제품 커밋으로 갱신합니다. editor-77 partial과 전체302완료는 유지합니다.
