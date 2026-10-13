@@ -123,3 +123,5 @@ lorem 구현/기능표커밋5ce6a2ba/9ebfa0e4는일반push/local·remote0/0으�
 소유CSS typed parser/export/검사/oracle·MIT출처와QA/PROCESS상단8경로를78bd5889로선별커밋했습니다. 기능표baseline/CSS AST근거만갱신하고editor-80unwired·전체302완료를유지합니다. 사용자PROCESS하단2hunk와다른문서/결정/피드백/메모리는보존했습니다.
 
 e3c 출력의원본outputValue를대조하면서field.start===previous.end일때공백을생략하는의존성을확인했습니다. byte/UTF-16 절대위치대신StylesheetValue::Field.is_adjacent로동일fragment 안의직전값과붙어있는지보존합니다. 원본FunctionCall은end가없어뒤field와자동결합하지않으며같은동작을유지합니다. 기본canonical도이플래그를비교하도록확장하고숫자+field/구분자/함수내·함수뒤/연속field의다섯입력을추가해818입력/1636사례를생성했습니다. stylesheet-parser-adjacency.log는35395 handle에서compile9.20초·영향2검사/0.00초·exit0으로종료했고이전2성공을추가합산하지않습니다. stylesheet-adjacency-host.log/currentlib·CSS target compile8.54초와stylesheet-adjacency-wasm.log/corelib4.39초는14156 handle에서모두exit0/추가경고0으로종료했습니다. 최종3Rustfmt·oracle MJS/QA포맷·소유diff/manifest·lock/frozen변경0을확인했습니다. 초기AST자료와기능표는78bd5889/f80c0f85까지일반푸시했고local·remote0/0이며e3c1a만닫고전체CSS출력/App·editor-80unwired/302완료·목표active를유지합니다.
+
+소유CSS field 인접성/core 검사/oracle와QA/PROCESS상단6경로를981da085로선별커밋했습니다. 기능표baseline/1636인접성근거만갱신하고editor-80unwired·전체302완료를유지합니다. 사용자PROCESS하단2hunk와다른문서/결정/피드백/메모리는보존했습니다.
