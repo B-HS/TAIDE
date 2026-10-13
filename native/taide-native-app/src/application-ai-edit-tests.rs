@@ -250,6 +250,15 @@ fn ai_edit_peek(from_palette: bool) {
 
 #[test]
 fn 실제_ai_edit의_cmdi_지시_미리보기_cmdenter_수락과_undo는_디스크를_보존한다() {
+    ai_edit_body(false);
+}
+
+#[test]
+fn 실제_ai_edit의_조합중_enter_escape는_지시를_보존하고_확정뒤_마우스로_수락한다() {
+    ai_edit_body(true);
+}
+
+fn ai_edit_body(with_ime_and_mouse: bool) {
     let mut fixture = fixture_with_view_state(
         "--native-inlay-hints",
         false,
@@ -300,11 +309,61 @@ fn 실제_ai_edit의_cmdi_지시_미리보기_cmdenter_수락과_undo는_디스�
             view,
         )
     });
-    paint(
-        application,
-        context,
-        vec![egui::Event::Text("rename".into())],
-    );
+    let instruction = if with_ime_and_mouse {
+        "한글 수정"
+    } else {
+        "rename"
+    };
+    if with_ime_and_mouse {
+        wait(application, context, "AI instruction IME focus", |_| {
+            let Some(editor) = crate::editor_context_menu::body(context, view) else {
+                return false;
+            };
+            context.memory(|memory| {
+                memory.focused().is_some_and(|focus| {
+                    memory.owns_ime_events(focus)
+                        && taide_native_ui::editor_ai_edit::is_control(context, editor, focus)
+                })
+            })
+        });
+        paint(
+            application,
+            context,
+            vec![egui::Event::Ime(egui::ImeEvent::Preedit {
+                text: "한".into(),
+                active_range_chars: None,
+            })],
+        );
+        let mut events = key(egui::Key::Enter, egui::Modifiers::NONE);
+        events.extend(key(egui::Key::Escape, egui::Modifiers::NONE));
+        paint(application, context, events);
+        assert!(captured.lock().unwrap().is_empty());
+        assert!(application.editor_completion.inline_edit.is_open(
+            &application.store,
+            &application.services,
+            view,
+        ));
+        paint(
+            application,
+            context,
+            vec![egui::Event::Ime(egui::ImeEvent::Commit(instruction.into()))],
+        );
+        assert_eq!(
+            application
+                .editor_completion
+                .inline_edit
+                .session(&application.store, &application.services, view,)
+                .unwrap()
+                .instruction,
+            instruction
+        );
+    } else {
+        paint(
+            application,
+            context,
+            vec![egui::Event::Text(instruction.into())],
+        );
+    }
     paint(
         application,
         context,
@@ -323,7 +382,7 @@ fn 실제_ai_edit의_cmdi_지시_미리보기_cmdenter_수락과_undo는_디스�
     let requests = captured.lock().unwrap();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].selection, "old");
-    assert_eq!(requests[0].instruction, "rename");
+    assert_eq!(requests[0].instruction, instruction);
     assert_eq!(requests[0].file_path, fixture.path);
     drop(requests);
     assert_eq!(
@@ -337,14 +396,41 @@ fn 실제_ai_edit의_cmdi_지시_미리보기_cmdenter_수락과_undo는_디스�
         ORIGINAL
     );
     assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), ORIGINAL);
-    paint(
-        application,
-        context,
-        key(
-            egui::Key::Enter,
-            egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND,
-        ),
-    );
+    if with_ime_and_mouse {
+        let label =
+            taide_native_ui::presentation::message(&application.locale, "ai.inlineEditAccept", &[]);
+        let output = paint(application, context, Vec::new());
+        let text = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == label => Some(text),
+                _ => None,
+            })
+            .expect("visible localized AI edit accept button");
+        let position = text.pos + text.galley.size() * 0.5;
+        let pointer = |pressed| egui::Event::PointerButton {
+            pos: position,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        paint(
+            application,
+            context,
+            vec![egui::Event::PointerMoved(position), pointer(true)],
+        );
+        paint(application, context, vec![pointer(false)]);
+    } else {
+        paint(
+            application,
+            context,
+            key(
+                egui::Key::Enter,
+                egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND,
+            ),
+        );
+    }
     assert_eq!(
         application
             .store

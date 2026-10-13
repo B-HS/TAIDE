@@ -11,12 +11,12 @@ use serde_json::json;
 use taide_model::ids::{PaneId, TabId};
 use taide_native_editor::completion::{Candidate, Command, PreparationOptions};
 use taide_native_editor::completion_model::Model;
-use taide_native_editor::document::{DocumentId, EditorError};
+use taide_native_editor::document::{DocumentId, Edit, EditorError, UndoGroup};
 use taide_native_editor::documentation::{Block, Inline, RichDocument, Span};
 use taide_native_editor::indent::IndentOptions;
 use taide_native_editor::lsp::{LspRange, Position};
 use taide_native_editor::snippet_syntax::ParseLimits;
-use taide_native_editor::store::{EditorLimits, EditorStore};
+use taide_native_editor::store::{EditorLimits, EditorStore, Transaction};
 use taide_native_editor::view::{ScrollPosition, Selection, SelectionSet, ViewId, ViewKey};
 use taide_native_ui::editor_completion::{Colors, Geometry, Provider, Trigger, Widget};
 use taide_native_ui::editor_markup;
@@ -45,6 +45,13 @@ const SWATCH_CONTENT_EM: f32 = 0.7;
 const SWATCH_BORDER_EM: f32 = 0.1;
 const GEOMETRY_EPSILON: f32 = 0.01;
 const FORMATTING_DETAILS_TIMES: [f64; 4] = [0.3, 0.4, 0.5, 0.6];
+const EDIT_FONT_SIZE: f32 = 23.0;
+const EDIT_LINE_HEIGHT: f32 = 32.0;
+const EDIT_SCROLL: f32 = 12.0;
+const EDIT_SOURCE_LINES: usize = 40;
+const EDIT_PREVIEW: &str = "generated\nsecond";
+const EDIT_REMOVED: Color32 = Color32::from_rgb(140, 20, 30);
+const EDIT_PRIMARY: Color32 = Color32::from_rgb(20, 80, 160);
 
 fn limits() -> ParseLimits {
     ParseLimits {
@@ -71,6 +78,9 @@ struct Completions {
     embedded: bool,
     has_documentation: bool,
     detail: Option<String>,
+    edit: Option<taide_native_ui::editor_ai_edit::Session>,
+    edit_submissions: Vec<String>,
+    edit_closes: usize,
 }
 
 impl Default for Completions {
@@ -92,6 +102,9 @@ impl Default for Completions {
             embedded: false,
             has_documentation: true,
             detail: Some("function\r\ndetail".into()),
+            edit: None,
+            edit_submissions: Vec::new(),
+            edit_closes: 0,
         }
     }
 }
@@ -140,6 +153,60 @@ impl editor_markup::Provider for Completions {
 }
 
 impl Provider for Completions {
+    fn inline_edit(
+        &mut self,
+        _: &EditorStore,
+        _: ViewId,
+    ) -> Option<taide_native_ui::editor_ai_edit::Session> {
+        self.edit.clone()
+    }
+    fn set_inline_edit_instruction(&mut self, _: ViewId, instruction: String) {
+        if let Some(edit) = self.edit.as_mut() {
+            edit.instruction = instruction;
+        }
+    }
+    fn submit_inline_edit(&mut self, _: &EditorStore, _: ViewId) {
+        let edit = self.edit.as_mut().unwrap();
+        self.edit_submissions.push(edit.instruction.clone());
+        edit.is_loading = true;
+    }
+    fn accept_inline_edit(
+        &mut self,
+        store: &mut EditorStore,
+        view: ViewId,
+    ) -> Result<bool, EditorError> {
+        let edit = self.edit.take().unwrap();
+        let document = store.views().get(view).unwrap().document;
+        let revision = store.documents().snapshot(document).unwrap().revision;
+        store.apply_separate(
+            document,
+            Transaction {
+                revision,
+                edits: vec![Edit {
+                    bytes: edit.range,
+                    text: edit.preview.unwrap().to_string(),
+                }],
+                group: UndoGroup(revision),
+                origin: Some(view),
+                selection_after: None,
+            },
+        )?;
+        Ok(true)
+    }
+    fn close_inline_edit(&mut self, _: ViewId) {
+        self.edit = None;
+        self.edit_closes += 1;
+    }
+    fn inline_edit_colors(&self) -> Option<taide_native_ui::editor_ai_edit::Colors> {
+        Some(taide_native_ui::editor_ai_edit::Colors {
+            background: Color32::DARK_GRAY,
+            foreground: Color32::WHITE,
+            border: Color32::GRAY,
+            removed: EDIT_REMOVED,
+            primary: EDIT_PRIMARY,
+            primary_foreground: Color32::WHITE,
+        })
+    }
     fn swatch(&mut self, _: &EditorStore, _: ViewId, _: &str, _: usize) -> Option<Color32> {
         self.swatch
     }
@@ -327,6 +394,7 @@ struct Fixture {
     preview_colors: taide_native_ui::editor_completion::PreviewColors,
     top_padding: f32,
     formatting_inputs: Vec<taide_native_ui::editor_formatting_input::Input>,
+    shapes: Vec<egui::epaint::ClippedShape>,
 }
 
 impl Fixture {
@@ -404,6 +472,7 @@ impl Fixture {
             editor_geometry: None,
             top_padding: 0.0,
             formatting_inputs: Vec::new(),
+            shapes: Vec::new(),
         }
     }
 
@@ -453,6 +522,7 @@ impl Fixture {
             ui.add_space(self.top_padding);
             rendered = Some(self.editor.show_request(ui, &mut self.store, self.view, EditorRequest { request_focus: self.body.is_none(), keymap: |_: &Ui, event: &Event, _: bool| matches!(event, Event::Key { key, pressed: true, .. } if Some(*key) == self.intercepted), route: |response: &egui::Response| response.ctx.keyboard_input_route(response.id), presentation: &presentation, tokens: |_: &EditorStore| None, language: None, decorations: &[], fold_commands: &[], fold_controls: None, problems: None, locations: None, documentation: None, documentation_commands: &[], completion: Some(&mut self.completion), completion_commands: commands, syntax_folds: None }).unwrap());
         });
+        self.shapes = output.shapes.clone();
         self.rectangles = output
             .shapes
             .iter()
@@ -1658,4 +1728,267 @@ fn completion_마우스_상세버튼은_선택한_행에서만_보이고_후보�
     fixture.completion.build(&fixture.store, fixture.view);
     fixture.frame(1.0, vec![Event::PointerMoved(selected)], &[]);
     assert!(fixture.geometry.details_toggle.is_none());
+}
+
+fn open_ai_edit(fixture: &mut Fixture, preview: Option<&str>, loading: bool) {
+    fixture.completion.edit = Some(taide_native_ui::editor_ai_edit::Session {
+        token: 1,
+        focus: 1,
+        range: 0.."fo".len(),
+        language: "rust".into(),
+        instruction: String::new(),
+        is_loading: loading,
+        preview: preview.map(Arc::from),
+    });
+    for time in [0.0, FRAME_STEP, FRAME_STEP * 2.0] {
+        fixture.frame(time, Vec::new(), &[]);
+    }
+}
+
+fn click_ai_edit(fixture: &mut Fixture, label: &str, time: f64) -> bool {
+    let text = fixture
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.job.text == label => Some(text),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("visible AI edit button: {label}"));
+    let position = text.pos + text.galley.size() * 0.5;
+    let pointer = |pressed| Event::PointerButton {
+        pos: position,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Modifiers::NONE,
+    };
+    fixture.frame(
+        time,
+        vec![Event::PointerMoved(position), pointer(true)],
+        &[],
+    );
+    fixture.frame(time + FRAME_STEP, vec![pointer(false)], &[])
+}
+
+#[test]
+fn ai_edit의_마우스_수락은_단일_undo이고_거절과_생성취소는_원문을_보존한다() {
+    let mut fixture = Fixture::new();
+    open_ai_edit(&mut fixture, Some(EDIT_PREVIEW), false);
+    assert_eq!(fixture.text(), "fo");
+    assert!(
+        fixture
+            .rectangles
+            .iter()
+            .any(|shape| shape.fill == EDIT_PRIMARY)
+    );
+    assert!(click_ai_edit(&mut fixture, "ai.inlineEditAccept", 0.3));
+    assert_eq!(fixture.text(), EDIT_PREVIEW);
+    assert!(fixture.completion.edit.is_none());
+    assert_eq!(
+        fixture.context.memory(|memory| memory.focused()),
+        fixture.body
+    );
+    assert!(fixture.store.undo(fixture.document).unwrap());
+    assert_eq!(fixture.text(), "fo");
+    assert!(!fixture.store.undo(fixture.document).unwrap());
+
+    for (loading, label) in [(false, "ai.inlineEditReject"), (true, "common.cancel")] {
+        let mut fixture = Fixture::new();
+        open_ai_edit(&mut fixture, (!loading).then_some(EDIT_PREVIEW), loading);
+        assert!(!click_ai_edit(&mut fixture, label, 0.3));
+        assert!(fixture.completion.edit.is_none());
+        assert_eq!(fixture.completion.edit_closes, 1);
+        assert_eq!(fixture.text(), "fo");
+        assert_eq!(
+            fixture.context.memory(|memory| memory.focused()),
+            fixture.body
+        );
+        fixture.frame(0.5, Vec::new(), &[]);
+        assert!(!fixture.painted.iter().any(|text| text == EDIT_PREVIEW));
+    }
+}
+
+#[test]
+fn ai_edit의_지시_ime는_조합중_enter_escape를_제출_취소하지않고_확정문자만_제출한다() {
+    let mut fixture = Fixture::new();
+    open_ai_edit(&mut fixture, None, false);
+    let focus = taide_native_ui::editor_ai_edit::focus_id(fixture.body.unwrap(), 1);
+    assert_eq!(
+        fixture.context.memory(|memory| memory.focused()),
+        Some(focus),
+        "AI input initially focused"
+    );
+    fixture.frame(
+        0.3,
+        vec![Event::Ime(egui::ImeEvent::Preedit {
+            text: "한".into(),
+            active_range_chars: None,
+        })],
+        &[],
+    );
+    fixture.frame(
+        0.4,
+        vec![
+            key(Key::Enter, Modifiers::NONE),
+            key(Key::Escape, Modifiers::NONE),
+        ],
+        &[],
+    );
+    assert_eq!(
+        fixture.context.memory(|memory| memory.focused()),
+        Some(focus),
+        "AI input after composition keys"
+    );
+    assert!(fixture.completion.edit.is_some());
+    assert!(fixture.completion.edit_submissions.is_empty());
+    assert_eq!(fixture.completion.edit_closes, 0);
+    assert_eq!(fixture.text(), "fo");
+    fixture.frame(
+        0.5,
+        vec![Event::Ime(egui::ImeEvent::Commit("한글 수정".into()))],
+        &[],
+    );
+    assert_eq!(
+        fixture.completion.edit.as_ref().unwrap().instruction,
+        "한글 수정"
+    );
+    fixture.frame(0.6, vec![key(Key::Enter, Modifiers::NONE)], &[]);
+    assert_eq!(fixture.completion.edit_submissions, ["한글 수정"]);
+    assert!(fixture.completion.edit.as_ref().unwrap().is_loading);
+    assert_eq!(fixture.text(), "fo");
+}
+
+#[test]
+fn ai_edit의_미리보기는_삭제범위와_현재_font_lineheight_scroll을_따르고_본문을_밀어낸다() {
+    let mut fixture = Fixture::new();
+    let source = format!(
+        "fo{}{}",
+        "x".repeat(BYTE_LIMIT / 2),
+        "\nkeep".repeat(EDIT_SOURCE_LINES)
+    );
+    let revision = fixture
+        .store
+        .documents()
+        .snapshot(fixture.document)
+        .unwrap()
+        .revision;
+    fixture
+        .store
+        .apply_separate(
+            fixture.document,
+            Transaction {
+                revision,
+                edits: vec![Edit {
+                    bytes: 0.."fo".len(),
+                    text: source.clone(),
+                }],
+                group: UndoGroup(revision),
+                origin: Some(fixture.view),
+                selection_after: Some(SelectionSet {
+                    primary: 0,
+                    selections: vec![Selection { anchor: 0, head: 0 }],
+                }),
+            },
+        )
+        .unwrap();
+    fixture.editor.appearance.font = FontId::monospace(EDIT_FONT_SIZE);
+    fixture.editor.appearance.line_height = EDIT_LINE_HEIGHT;
+    open_ai_edit(&mut fixture, Some(EDIT_PREVIEW), false);
+    let geometry = fixture.editor_geometry.as_ref().unwrap();
+    let start = geometry.caret_rect(0).unwrap();
+    let end = geometry.caret_rect("fo".len()).unwrap();
+    let removed = fixture
+        .rectangles
+        .iter()
+        .find(|shape| shape.fill == EDIT_REMOVED)
+        .unwrap();
+    assert!((removed.rect.left() - start.left()).abs() < GEOMETRY_EPSILON);
+    assert!((removed.rect.right() - end.left()).abs() < GEOMETRY_EPSILON);
+    let next = geometry.caret_rect(source.find('\n').unwrap() + 1).unwrap();
+    assert!((next.top() - start.top() - EDIT_LINE_HEIGHT * 3.0).abs() < GEOMETRY_EPSILON);
+    let preview = fixture
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.job.text == EDIT_PREVIEW => {
+                Some((shape.clip_rect, text))
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert!(
+        preview
+            .1
+            .galley
+            .job
+            .sections
+            .iter()
+            .all(
+                |section| section.format.font_id == fixture.editor.appearance.font
+                    && section.format.line_height == Some(EDIT_LINE_HEIGHT)
+            )
+    );
+    assert!((preview.1.pos.y - start.top() - EDIT_LINE_HEIGHT).abs() < GEOMETRY_EPSILON);
+    let initial_x = preview.1.pos.x;
+    let current = fixture.store.views().get(fixture.view).unwrap().clone();
+    fixture
+        .store
+        .set_view_state(
+            fixture.view,
+            current.selection,
+            ScrollPosition {
+                x: EDIT_SCROLL,
+                y: EDIT_SCROLL,
+            },
+            current.folds,
+        )
+        .unwrap();
+    fixture.frame(0.3, Vec::new(), &[]);
+    let geometry = fixture.editor_geometry.as_ref().unwrap();
+    assert!((geometry.scroll.x - EDIT_SCROLL).abs() < GEOMETRY_EPSILON);
+    assert!((geometry.scroll.y - EDIT_SCROLL).abs() < GEOMETRY_EPSILON);
+    let (clip, text) = fixture
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.job.text == EDIT_PREVIEW => {
+                Some((shape.clip_rect, text))
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert!((text.pos.x - initial_x + EDIT_SCROLL).abs() < GEOMETRY_EPSILON);
+    assert!(
+        (text.pos.y - geometry.caret_rect(0).unwrap().top() - EDIT_LINE_HEIGHT).abs()
+            < GEOMETRY_EPSILON
+    );
+    assert!(clip.left() >= geometry.content_rect.left());
+    fixture.editor.appearance.font = FontId::monospace(FONT_SIZE);
+    fixture.editor.appearance.line_height = LINE_HEIGHT;
+    fixture.frame(0.4, Vec::new(), &[]);
+    let preview = fixture
+        .jobs
+        .iter()
+        .find(|job| job.text == EDIT_PREVIEW)
+        .unwrap();
+    assert!(preview.sections.iter().all(|section| section.format.font_id
+        == fixture.editor.appearance.font
+        && section.format.line_height == Some(LINE_HEIGHT)));
+    let geometry = fixture.editor_geometry.as_ref().unwrap();
+    let start = geometry.caret_rect(0).unwrap();
+    let next = geometry.caret_rect(source.find('\n').unwrap() + 1).unwrap();
+    assert!((next.top() - start.top() - LINE_HEIGHT * 3.0).abs() < GEOMETRY_EPSILON);
+    fixture.completion.edit = None;
+    fixture.frame(0.5, Vec::new(), &[]);
+    let geometry = fixture.editor_geometry.as_ref().unwrap();
+    let start = geometry.caret_rect(0).unwrap();
+    let next = geometry.caret_rect(source.find('\n').unwrap() + 1).unwrap();
+    assert!((next.top() - start.top() - LINE_HEIGHT).abs() < GEOMETRY_EPSILON);
+    assert!(
+        !fixture
+            .rectangles
+            .iter()
+            .any(|shape| shape.fill == EDIT_REMOVED)
+    );
+    assert!(!fixture.painted.iter().any(|text| text == EDIT_PREVIEW));
+    assert_eq!(fixture.text(), source);
 }

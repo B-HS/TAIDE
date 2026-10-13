@@ -182,6 +182,10 @@ impl State {
                         }
                         Event::Ime(egui::ImeEvent::Commit(_)) => self.composing = false,
                         Event::Key {
+                            key: Key::Enter | Key::Escape,
+                            ..
+                        } if self.composing => return false,
+                        Event::Key {
                             key: Key::Escape,
                             pressed: true,
                             modifiers,
@@ -298,6 +302,7 @@ impl State {
                                 let response = ui.add(
                                     TextEdit::singleline(&mut self.text)
                                         .id(focus)
+                                        .event_filter(INPUT_FILTER)
                                         .font(FontId::proportional(INPUT_FONT_SIZE))
                                         .hint_text(placeholder)
                                         .desired_width(ui.available_width()),
