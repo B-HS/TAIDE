@@ -10,6 +10,7 @@ JSON value conversion and comparison in src/json-value.rs are adapted from the s
 Local JSON schema reference and anchor resolution in src/json-schema-refs.rs is adapted from the same JSON language service.
 JSON schema URI normalization in src/json-schema-uri.rs is adapted from the same JSON language service and Microsoft vscode-uri (https://github.com/microsoft/vscode-uri).
 JSON relative schema context and property selection in src/json-schema-uri.rs are adapted from the same JSON language service and Microsoft Monaco JSONWorker.
+JSON schema file associations in src/json-schema-associations.rs are adapted from the same JSON language service, including glob conversion (Copyright (c) 2013, Nick Fitzgerald).
 Source: https://github.com/microsoft/vscode-json-languageservice
 
 The MIT License (MIT)

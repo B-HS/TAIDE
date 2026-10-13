@@ -20,6 +20,8 @@ mod monaco_token_theme;
 mod plugin_grammars;
 #[path = "requested-languages.rs"]
 mod requested_languages;
+#[path = "schema-pattern.rs"]
+mod schema_pattern;
 #[path = "snippet-transforms.rs"]
 mod snippet_transforms;
 #[path = "style-scopes.rs"]
@@ -54,6 +56,7 @@ pub use language_configuration::{
 pub use leading_trailing_debounce::{LeadingTrailingDebounce, THEME_REAPPLY_DEBOUNCE};
 pub use plugin_grammars::PluginGrammar;
 pub use requested_languages::{CORE_LANGUAGE_IDS, RequestedLanguages, is_bundled_language};
+pub use schema_pattern::JsonSchemaPatternCompiler;
 pub use snippet_transforms::MonacoSnippetTransforms;
 pub use text_transforms::MonacoTextTransforms;
 pub use textmate_tokenizer::{GrammarSet, LanguageGrammar, TextmateTokenizer, TokenizerLimits};
