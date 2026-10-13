@@ -81,3 +81,5 @@ markup-filters-red.log는최종fixture/필터코드의compile10.90초·필터3(3
 최종표기/현재library 및Emmet6검사target의output-final-host.log compile은12.94초·추가경고0·exit0, output-final-wasm.log는현재corelib4.86초·exit0입니다. 최종14Rustfmt/9MJS·QA포맷·manifest/lock/frozen변경0·디스크630GiB/66%를확인했습니다. 동일Unicode/문자열값의fixture표기만변경해성공을재사용하고새기능/기본출력은현재코드로다시확인했습니다. wasm검사실행/기존시간API불일치/전체App877·22준비실패/실기해결로확대하지않습니다.
 
 HTML/JSX기본출력과필터의core구현은연결되어editor-80을missing에서unwired로반영합니다. lorem/기타추가경계/CSS·completion range/validation/추가후보·설정/실제App소비와전체게이트는남아있으며전체완료302/588(51.4%)·부분92/미연결111/미구현83·미완료286·목표active·잔여시간미산정을유지합니다.
+
+출력·필터와공통Rust문자열fixture/MIT출처·검사·QA/PROCESS상단의26경로를5bf4acc9로선별커밋했습니다. 사용자PROCESS하단2hunk와다른문서/결정/피드백/메모리는보존했습니다. 기능표baseline을이커밋으로갱신하며editor-80unwired·전체302완료와미완료게이트를유지합니다.

@@ -1,6 +1,6 @@
 {
     "date": "2026-10-14",
-    "baseline": "31bb6ed8",
+    "baseline": "5bf4acc9",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1239,7 +1239,9 @@
                 "native/taide-native-editor/src/emmet-markup-parser.rs",
                 "native/taide-native-editor/src/emmet-markup-conversion.rs",
                 "native/taide-native-editor/src/emmet-markup-defaults.rs",
-                "native/taide-native-editor/src/emmet-markup-preparation.rs"
+                "native/taide-native-editor/src/emmet-markup-preparation.rs",
+                "native/taide-native-editor/src/emmet-markup-output.rs",
+                "native/taide-native-editor/src/emmet-markup-filters.rs"
             ],
             "tests": [
                 "native/taide-native-editor/tests/emmet.rs",
@@ -1257,10 +1259,17 @@
                 "native/taide-native-editor/tests/fixtures/emmet-markup-canonical.rs",
                 "native/taide-native-editor/tests/fixtures/emmet-markup-defaults.mjs",
                 "native/taide-native-editor/tests/fixtures/emmet-markup-preparation-oracle.mjs",
-                "native/taide-native-editor/tests/fixtures/emmet-markup-preparation-oracle.rs"
+                "native/taide-native-editor/tests/fixtures/emmet-markup-preparation-oracle.rs",
+                "native/taide-native-editor/tests/emmet-markup-output.rs",
+                "native/taide-native-editor/tests/emmet-markup-filters.rs",
+                "native/taide-native-editor/tests/fixtures/emmet-rust-literal.mjs",
+                "native/taide-native-editor/tests/fixtures/emmet-markup-output-oracle.mjs",
+                "native/taide-native-editor/tests/fixtures/emmet-markup-output-oracle.rs",
+                "native/taide-native-editor/tests/fixtures/emmet-markup-filters-oracle.mjs",
+                "native/taide-native-editor/tests/fixtures/emmet-markup-filters-oracle.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-14-native-batch23-emmet.md"],
-            "limitation": "설정/여섯 language ID·추출/파서/typed 반복·필드 변환과기본202스니펫/5variables·재귀alias/태그/속성/class/label 준비가있습니다. 추출3096/구조1026/변환2112/준비1838사례와원본괄호오탈자수정·예산/현재8검사·host/coreWasm/MIT출처를확인했습니다. HTML/JSX/CSS출력/필드offset·lorem/BEM/필터·후보/실제App소비가없어missing이며기초만으로완료를올리지않습니다."
+            "limitation": "여섯 language ID·추출/파서/typed 반복·필드와202스니펫/5variables·HTML/JSX 출력/들여쓰기/속성/literal보존·BEM/주석/최대3필터를core에연결했습니다. 원본출력1840/필터640사례와원본괄호/literal버그4사례수정·예산·core전체322+새필터3의325서로다른성공/성능1ignored·최종host/Wasm컴파일/MIT출처를확인했습니다. lorem/CSS·validation/range/추가후보·설정/실제App소비와전체게이트가남아unwired이며완료를올리지않습니다."
         }
     },
     "rows": [
@@ -3229,9 +3238,9 @@
             "ts": "`emmet-integration.ts:26-33`, `src/app/providers/emmet-provider.tsx`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:161",
             "domain": "editor",
-            "status": "missing",
+            "status": "unwired",
             "proof": "editor-emmet",
-            "note": "설정/여섯 language ID·추출/파서/typed 반복·필드 변환과기본202스니펫/5variables·재귀alias/태그/속성/class/label 준비가있습니다. 추출3096/구조1026/변환2112/준비1838사례와원본괄호오탈자수정·예산/현재8검사·host/coreWasm/MIT출처를확인했습니다. HTML/JSX/CSS출력/필드offset·lorem/BEM/필터·후보/실제App소비가없어missing이며기초만으로완료를올리지않습니다."
+            "note": "여섯 language ID·추출/파서/typed 반복·필드와202스니펫/5variables·HTML/JSX 출력/들여쓰기/속성/literal보존·BEM/주석/최대3필터를core에연결했습니다. 원본출력1840/필터640사례와원본괄호/literal버그4사례수정·예산·core전체322+새필터3의325서로다른성공/성능1ignored·최종host/Wasm컴파일/MIT출처를확인했습니다. lorem/CSS·validation/range/추가후보·설정/실제App소비와전체게이트가남아unwired이며완료를올리지않습니다."
         },
         {
             "id": "editor-81",
