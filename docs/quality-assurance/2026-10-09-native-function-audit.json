@@ -1,6 +1,6 @@
 {
     "date": "2026-10-13",
-    "baseline": "b4a67346",
+    "baseline": "4e4b02cd",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1154,7 +1154,8 @@
                 "native/taide-native-app/src/editor-markup-autolinks.rs",
                 "native/taide-native-ui/src/editor-markup-flow.rs",
                 "native/taide-native-ui/src/font-families.rs",
-                "native/taide-native-app/src/ui-fonts.rs"
+                "native/taide-native-app/src/ui-fonts.rs",
+                "native/taide-native-ui/src/editor-markup-aligned.rs"
             ],
             "tests": [
                 "native/taide-native-app/src/application-markdown-tests.rs",
@@ -1172,7 +1173,7 @@
                 "native/taide-native-app/src/ui-fonts.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-12-native-batch23-markdown.md"],
-            "limitation": "기본 HTML/분할/readonly·두 뷰/독립 scroll/mirror/닫힘/viewport·표/목록/복합 셀에 암시 Inline/Code·List Style과 지원 양수 여백/빈 내용/quote·list 부모 경계 병합·20/22.75px/NBSP·normal/600/700·편집기와 독립된 코드 가족을 연결했습니다. 실제 문단16/8px·system mono URL 누락을 재현해 실제 sans/mono face·head/maxp/hhea 대조/variation/별칭/공유budget을 연결했습니다. 원본 standards browser14조건·parser17/UI30/fonts2/LSP8/cache4/App4의65통과·소유16Rust fmt/diff·frozen host tests/inspection/Wasm canvas check입니다. 기존 LSP/default Style·실제 앱 입력/undo/원문/task0을 보존합니다. 상대 bolder/임의 weight·모든 CSS display/clearance/negative margin·복합 caption/행·열/임의 CSS/counter 소유/접근성·SVG/MathML/media/details/anchor/CLI 경계·OS/전체App/실기/성능/출시는 미완료라 partial입니다."
+            "limitation": "표 제목의 optional caption_blocks·문단/목록/코드/인용 파싱과 상대 이미지/autolink 재귀·현재 너비/높이/Hash 캐시를 연결했습니다. 문단/강조/명시 개행의 줄별 중앙 정렬·실제 문자 범위 링크·단독 이미지와 준비/높이 변경의 같은 프레임 배치를 원본 browser10조건·parser18/UI32/cache4/App4/LSP8의 서로 다른66통과·소유12Rust fmt/diff·최종 frozen host0.09초/Wasm0.10초·exit0으로 확인했습니다. 기존 분할/readonly/두 뷰/독립 scroll·mirror/입력/undo/원문/PNG/닫힘/task0과 LSP/default Style을 보존합니다. 제목의 목록 marker/혼합 이미지·코드 모든 줄 정렬·임의 CSS/bolder/행·열/counter 소유/접근성·추가 HTML/CLI/OS/전체 게이트는 미완료라 partial입니다."
         }
     },
     "rows": [
@@ -3055,7 +3056,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-markdown",
-            "note": "stable 분할/readonly·두 뷰/독립 scroll·mirror/닫힘/viewport·기본 HTML/테마·표/목록/복합 셀에 Inline/상속 Style·지원 여백 병합/부모 경계·20/22.75px/NBSP·normal/600/700·독립 코드 가족/실제 sans·mono face/variation/별칭/공유budget을 연결했습니다. parser17/UI30/fonts2/LSP8/cache4/App4의65통과·원본 standards14조건·frozen 계약 check입니다. 임의 CSS/bolder/복합 caption/행·열/counter 소유/접근성·추가 HTML/CLI/OS/전체 게이트는 미완료입니다."
+            "note": "표 제목의 optional caption_blocks·문단/목록/코드/인용 파싱과 상대 이미지/autolink 재귀·현재 너비/높이/Hash 캐시를 연결했습니다. 문단/강조/명시 개행의 줄별 중앙 정렬·실제 문자 범위 링크·단독 이미지와 준비/높이 변경의 같은 프레임 배치를 원본 browser10조건·parser18/UI32/cache4/App4/LSP8의 서로 다른66통과·소유12Rust fmt/diff·최종 frozen host0.09초/Wasm0.10초·exit0으로 확인했습니다. 기존 분할/readonly/두 뷰/독립 scroll·mirror/입력/undo/원문/PNG/닫힘/task0과 LSP/default Style을 보존합니다. 제목의 목록 marker/혼합 이미지·코드 모든 줄 정렬·임의 CSS/bolder/행·열/counter 소유/접근성·추가 HTML/CLI/OS/전체 게이트는 미완료라 partial입니다."
         },
         {
             "id": "editor-73",
@@ -7766,5 +7767,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "제품b4a67346에서 실제 문단 여백16/원본8px과 system mono font URL 누락을 재현했습니다. Block.Inline/Code·List Style·지원 양수 여백/빈 내용/quote·list 부모 경계 병합·인라인20px/p22.75px/NBSP·normal/600/700·편집기와 독립된 미리보기 코드 가족·실제 sans/mono face의 경로 또는 head/maxp/hhea·variation/역할별 별칭/공유budget을 연결했습니다. 원본 standards browser14조건·parser17/UI30/fonts2/LSP8/cache4/App4의 서로 다른65통과·소유16Rust fmt/diff·frozen host tests/inspection1분42초/Wasm canvas1분44초·exit0입니다. 같은 성공을 재사용하고 NBSP/URL 누락 수정의 영향만 각1건 재검사했습니다. 잘못된 최초 문서 모드·closure E0282/patch·검색/샌드박스 ps 관찰은 QA에 구분하며 성공에 합산하지 않습니다. 실제 앱 입력/undo/오류/readonly/두 뷰/복합 셀/PNG/원문/디스크/닫힘/task0·LSP/default Style·의존성/manifest/lock/frozen source와 사용자 문서/PROCESS 하단 두 hunk·보호 경계를 보존했습니다. editor-72 partial·complete302/partial90/unwired110/missing86·미완료286·배치23 잔여19/최종33입니다. 상대 bolder/임의 weight·모든 CSS display/clearance/negative margin·복합 caption/행·열/임의 CSS/counter 소유/접근성·SVG/MathML/media/details/anchor/CLI 경계·전체App877통과/22준비실패/보호3제외/exit101·준비 원인 미확정·Core성능ignored1/Wasmtests시간API불일치7·실제 OS/실기/성능/신뢰성/출시/전환/제거와 남은 전체 목표를 유지합니다. 전체전환율/잔여시간은 미산정입니다."
+    "validation": "제품4e4b02cd에서 표 제목의 optional caption_blocks·문단/목록/코드/인용 파싱과 상대 이미지/autolink 재귀·현재 너비/높이/Hash 캐시를 연결했습니다. 문단/강조/명시 개행의 줄별 중앙 정렬·실제 문자 범위 링크·단독 이미지와 준비/높이 변경의 같은 프레임 배치를 원본 browser10조건·parser18/UI32/cache4/App4/LSP8의 서로 다른66통과·소유12Rust fmt/diff·최종 frozen host0.09초/Wasm0.10초·exit0으로 확인했습니다. 기존 분할/readonly/두 뷰/독립 scroll·mirror/입력/undo/원문/PNG/닫힘/task0과 LSP/default Style을 보존합니다. 제목의 목록 marker/혼합 이미지·코드 모든 줄 정렬·임의 CSS/bolder/행·열/counter 소유/접근성·추가 HTML/CLI/OS/전체 게이트는 미완료라 partial입니다. 정렬16.375/105point와 LayoutJob section 병합의 링크 실패·caption parser E0282/E0283 및 수정 근거는 QA에 보존했습니다. 링크 정보는 글자마다 추가 할당하지 않고 span 범위로 보존하며 관련3건을 최종 재검사하고 영향 없는 성공을 재사용했습니다. 사용자 문서/PROCESS 하단 두 hunk·의존성/manifest/lock/frozen source·보호 경계를 유지했습니다. complete302/partial90/unwired110/missing86·미완료286·배치23 잔여19/최종33입니다. 이전 전체App877통과/22준비실패/보호3제외/exit101의 준비 원인 미확정·Core성능ignored1/Wasmtests시간API불일치7·실제 OS/실기/성능/신뢰성/출시/전환/제거와 남은 전체 목표는 미완료입니다. 전체전환율/잔여시간은 미산정입니다."
 }
