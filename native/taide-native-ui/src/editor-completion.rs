@@ -107,6 +107,18 @@ pub struct Widget {
 }
 
 pub trait Provider: editor_markup::Provider {
+    fn dismiss_inline(&mut self, _view: ViewId) {}
+    fn inline_preview(&mut self, _store: &EditorStore, _view: ViewId) -> Vec<GhostText> {
+        Vec::new()
+    }
+    fn inline_event(
+        &mut self,
+        _store: &mut EditorStore,
+        _view: ViewId,
+        _event: &Event,
+    ) -> Result<bool, EditorError> {
+        Ok(false)
+    }
     fn is_embedded(&self, _view: ViewId) -> bool {
         false
     }
@@ -639,14 +651,8 @@ impl State {
         store: &EditorStore,
         view: ViewId,
         provider: &mut dyn Provider,
+        suggest_preview: bool,
     ) -> Preview {
-        let Some(widget) = provider.current(store, view) else {
-            return Preview::default();
-        };
-        self.ranked(&widget);
-        let Some(selected) = self.selected else {
-            return Preview::default();
-        };
         let Some(document) = store
             .views()
             .get(view)
@@ -654,13 +660,24 @@ impl State {
         else {
             return Preview::default();
         };
-        let ghosts = provider.preview(
-            store,
-            view,
-            &widget.token,
-            selected,
-            ui.input(|input| input.modifiers.shift),
-        );
+        let ghosts = if let Some(widget) = provider.current(store, view) {
+            self.ranked(&widget);
+            if !suggest_preview {
+                return Preview::default();
+            }
+            let Some(selected) = self.selected else {
+                return Preview::default();
+            };
+            provider.preview(
+                store,
+                view,
+                &widget.token,
+                selected,
+                ui.input(|input| input.modifiers.shift),
+            )
+        } else {
+            provider.inline_preview(store, view)
+        };
         let mut result = Preview::default();
         for ghost in &ghosts {
             let Ok(data) = ViewData::new(&document, ghost) else {
@@ -977,7 +994,10 @@ impl State {
                     }
                 }
             }
-            Command::Hide => self.close(ui, body, provider, view),
+            Command::Hide => {
+                provider.dismiss_inline(view);
+                self.close(ui, body, provider, view);
+            }
             Command::Accept { alternate } => {
                 let Some(candidate) = self.selected else {
                     return Ok(false);
@@ -1030,10 +1050,12 @@ impl State {
         if matches!(event, Event::WindowFocused(false))
             || matches!(event, Event::PointerButton { pos, pressed: true, .. } if !self.geometry.list.is_some_and(|rect| rect.contains(*pos)) && !self.geometry.details.is_some_and(|rect| rect.contains(*pos)) && !self.geometry.resize_handles.iter().any(|rect| rect.contains(*pos)))
         {
+            provider.dismiss_inline(view);
             self.close(ui, body, provider, view);
             return Ok(false);
         }
         if composing {
+            provider.dismiss_inline(view);
             return Ok(false);
         }
         let visible = provider.current(store, view).is_some();
@@ -1060,6 +1082,9 @@ impl State {
             let handled = self.command(ui, store, view, body, provider, command)?;
             if handled && was_focused && !self.details_focused {
                 self.release_at = Some(index);
+            }
+            if !handled && matches!(command, Command::Accept { .. }) && self.selected.is_none() {
+                return provider.inline_event(store, view, event);
             }
             return Ok(handled);
         }
@@ -1094,7 +1119,10 @@ impl State {
                 Event::Text(_) | Event::Paste(_) | Event::Ime(_)
             ));
         }
-        provider.snippet_event(store, view, event)
+        if provider.snippet_event(store, view, event)? {
+            return Ok(true);
+        }
+        provider.inline_event(store, view, event)
     }
 
     pub(crate) fn after_event(

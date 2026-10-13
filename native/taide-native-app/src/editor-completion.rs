@@ -160,6 +160,7 @@ impl Drop for Entry {
 
 #[derive(Default)]
 pub(crate) struct State {
+    pub(crate) inline: crate::editor_ai_completion::State,
     entries: HashMap<ViewId, Entry>,
     commands: HashMap<ViewId, Vec<taide_native_editor::completion::Command>>,
     snippet_sessions: HashMap<ViewId, provider::Snippet>,
@@ -389,6 +390,7 @@ impl State {
     }
 
     pub(crate) fn clear(&mut self) {
+        self.inline.clear();
         self.entries.clear();
         self.commands.clear();
         self.snippet_sessions.clear();

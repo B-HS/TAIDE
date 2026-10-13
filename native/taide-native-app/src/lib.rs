@@ -31,6 +31,8 @@ pub mod command_registry;
 mod css_motion;
 pub mod delete_dialog;
 pub mod diagnostics;
+#[path = "editor-ai-completion.rs"]
+mod editor_ai_completion;
 #[path = "editor-code-actions.rs"]
 mod editor_code_actions;
 #[path = "editor-code-actions-controller.rs"]

@@ -2221,15 +2221,18 @@ impl NativeEditor {
         let mut projection = input_context.projection;
         #[cfg(feature = "native-host")]
         let preview = {
-            let preview = if presentation.options.suggest_preview {
-                completion
-                    .as_deref_mut()
-                    .map_or_else(crate::editor_completion::Preview::default, |provider| {
-                        input_state.completion.preview(ui, store, view, provider)
-                    })
-            } else {
-                crate::editor_completion::Preview::default()
-            };
+            let preview = completion.as_deref_mut().map_or_else(
+                crate::editor_completion::Preview::default,
+                |provider| {
+                    input_state.completion.preview(
+                        ui,
+                        store,
+                        view,
+                        provider,
+                        presentation.options.suggest_preview,
+                    )
+                },
+            );
             projection.preview_views = preview.views.clone();
             preview
         };

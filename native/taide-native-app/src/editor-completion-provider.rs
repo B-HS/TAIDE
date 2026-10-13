@@ -82,6 +82,7 @@ impl Consumer<'_, '_> {
             state.entries.contains_key(&view),
         )
         .is_some()
+            || state.inline.defers(view, event)
             || state.snippet_sessions.contains_key(&view)
                 && matches!(event, Event::Key { key: Key::Tab | Key::Escape, pressed: true, modifiers, .. } if !modifiers.ctrl && !modifiers.alt && !modifiers.mac_cmd && !modifiers.command)
     }
@@ -300,6 +301,34 @@ impl Provider<'_, '_> {
 }
 
 impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
+    fn inline_preview(
+        &mut self,
+        store: &EditorStore,
+        view: ViewId,
+    ) -> Vec<taide_native_editor::completion_preview::GhostText> {
+        if !self.available(store, view) {
+            self.consumer.state.borrow_mut().inline.close(view);
+            return Vec::new();
+        }
+        self.consumer.state.borrow_mut().inline.poll(store, view)
+    }
+
+    fn inline_event(
+        &mut self,
+        store: &mut EditorStore,
+        view: ViewId,
+        event: &Event,
+    ) -> Result<bool, EditorError> {
+        self.consumer
+            .state
+            .borrow_mut()
+            .inline
+            .event(store, view, event)
+    }
+
+    fn dismiss_inline(&mut self, view: ViewId) {
+        self.consumer.state.borrow_mut().inline.close(view);
+    }
     fn is_embedded(&self, view: ViewId) -> bool {
         view != self.owner
     }
@@ -583,7 +612,7 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
         &mut self,
         store: &EditorStore,
         view: ViewId,
-        _event: &Event,
+        event: &Event,
     ) -> Result<(), EditorError> {
         let mut state = self.consumer.state.borrow_mut();
         if let Some(snippet) = state.snippet_sessions.get_mut(&view)
@@ -594,7 +623,31 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
         let _ = state.refresh_view(store, view);
         drop(state);
         self.supply(store, view);
-        self.choice(store, view, false).map(|_| ())
+        self.choice(store, view, false)?;
+        if (matches!(
+            event,
+            Event::Text(_) | Event::Paste(_) | Event::Ime(egui::ImeEvent::Commit(_))
+        ) || matches!(event, Event::Key { key, pressed: true, .. } if !matches!(key, Key::Tab | Key::Escape)))
+            && let Some(project) = self.project.clone()
+            && self.available(store, view)
+            && !self
+                .consumer
+                .state
+                .borrow()
+                .snippet_sessions
+                .contains_key(&view)
+        {
+            self.consumer.state.borrow_mut().inline.observe(
+                store,
+                self.consumer.services,
+                project,
+                view,
+                self.owner,
+                self.model_path.clone(),
+                &self.consumer.context,
+            )?;
+        }
+        Ok(())
     }
 
     fn take_commands(&mut self, view: ViewId) -> Vec<taide_native_editor::completion::Command> {

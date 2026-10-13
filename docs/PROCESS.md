@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: d6c3h4의 인접 code 병합4/기대5 span을 재현하고 optional code_element·내부 style/link 식별·안정된 parse/Hash·요소별 공유 Frame/padding 너비·preview 폰트 경계를 연결했습니다. 마지막 표는 실제 preview scroll로 관찰했습니다. browser6조건·parser19/UI36/LSP8/App4/cache4의 서로 다른71통과·소유8Rust fmt/diff·frozen host27.58초/Wasm12.98초·exit0입니다. 전체 혼합 code 줄/nested code/BR/image/kbd/samp 박스·raw input/첫 table/임의 CSS baseline/행·열/접근성/추가 HTML/CLI·실제 OS/전체 게이트와 d6c3h는 미완료입니다. editor-72 partial·기능 체크리스트302/588(51.4%)·미완료286·부분90/미연결110/미구현86·배치23 잔여19/최종33·전체전환율/잔여시간 미산정이며 사용자 문서·보호 경계를 유지합니다.
+현재 상태: e1의 AI 자동 요청·UTF-16 문맥/캐시·문서/뷰/owner/선택/설정/취소·오래된 응답·native ghost/Tab/undo·readonly/IME/다중 커서/일치 입력을 연결했습니다. 실제 앱1·문맥/설정3·completion 회귀62 및 UI 전체29대상/520건의 서로 다른586통과·소유Rust10개 fmt/diff입니다. frozen host23.50초/Wasm lib8.70초 exit0이며 의존성/manifest/lock/동결 소스 변경0입니다. 현재 제안의 credential 변경 감지·최초 포커스/클릭/명시적 요청·추가 split/peek/선택/포커스와 e1/e/editor-77은 partial입니다. d6c3h/editor-72의 HTML/표/접근성·인라인 편집/Emmet·실제 OS/전체 게이트와 목표는 미완료입니다. 기능 체크리스트302/588(51.4%)·미완료286·부분91/미연결110/미구현85·배치23 잔여19/최종33·잔여시간 미산정이며 사용자 문서·보호 경계를 유지합니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 
@@ -145,11 +145,13 @@
 - [x] d6c3h3. 작업 목록의 여러 줄 흐름 — 원본 checkbox가 첫 줄의 텍스트와 같은 inline 흐름에 놓이는지 확인하고 native의 별도 열/줄 정렬 차이를 재현합니다. 첫 줄 예약 공간·기준선·체크 상태/disabled·다음 줄 전체 폭·중앙/왼쪽/링크·수명을 기존 native label/checkbox에 연결하고 실제 shape/App·회귀/동결·기록/Git으로 검증합니다. 혼합 code frame·raw input 위치·임의 CSS·전체 게이트는 부모에 유지합니다.
 - [x] d6c3h4. 코드 요소 경계 — 원본에서 인접 code 요소와 한 code 안의 강조/링크가 각기 다른 박스 경계를 갖는지 대조하고 native 텍스트 병합 손실을 재현합니다. 기존 Span의 선택적 code 요소 식별과 파서/병합/미리보기·기존 LSP 소비를 연결하며 parser/UI/App/동결·예산/기록/Git으로 검증합니다. 전체 혼합 줄 배치·nested code 박스/임의 CSS·접근성·전체 게이트는 부모에 유지합니다.
 - [ ] e. AI·Emmet — editor-77/78/80의 인라인 완성/편집과 Emmet을 원본 명령·표시·수락/거절/취소/오래된 응답에 맞게 연결합니다. 실제 키/개인 데이터 대신 주입 포트·임시 데이터로 검증합니다.
+- [ ] e1. AI 인라인 완성 — 원본의 300ms 자동 요청·4000/2000 UTF-16 문맥·50개 캐시·provider/model/token 조건과 기존 Rust ai_inline_complete/AiRequestStore를 대조합니다. 소유 파일은 새 editor-ai-completion.rs/검사, 기존 completion State/Provider·UI Provider/preview/event·Application reconcile/lib 및 이 작업의 QA/기능표/PROCESS입니다. 현재 문서/뷰/선택/owner/설정 검증, 취소/오래된 응답·제안의 비파괴 표시/Tab 수락/undo·readonly/IME와 기존 후보/스니펫 우선순위를 실제 native 경로에 연결하고 최소 상태/UI/App 검사·fmt/동결 compile·선별 Git으로 확인합니다. 인라인 편집·Emmet 및 전체 게이트는 부모 e/f에 유지합니다.
+- [x] e1a. AI 기본 실행·표시·수락 — 기존 runtime service/token 확인·주입 port와 supervised 취소, bounded 원문 캐시·UTF-16 유효 경계, 문서/뷰/owner/설정/선택 검증을 연결했습니다. 실제 앱1/문맥3/completion 회귀62의66통과로 ghost/Tab/undo/원문·디스크/task0·IME/readonly/다중 커서/일치 입력을 확인했습니다. 여러 저널 항목·후보 정리/명시 취소 분리·빈 후보 준비 상태의 Tab 오류를 수정했고 e1/editor-77의 남은 소비와 전체 게이트는 미완료로 유지합니다.
 - [ ] f. 실제 앱·전체 게이트 — 닫을 기능의 실제 앱/child/mirror·readonly/tier/다중 커서/IME·정상 종료/회귀를 확인하고 변경 크레이트 전체 대상을 --no-fail-fast로 직접 1회 실행합니다. 성공 결과는 재사용하고 실패 영향만 재검사합니다. frozen host/Wasm compile·fmt/diff·manifest/lock/engine/보호 경계·디스크와 배치 31 실기/성능/신뢰성 부채를 구분합니다.
 - [x] f1. 프로젝트 열기 지연 위치 조사·배치 31 이관 — 전체 App 811통과/프로젝트 open 5초 초과 1실패와 Cargo 단독 동일 실패를 보존했습니다. 같은 실행 파일의 직접 검사는 저장소/크레이트 cwd에서 3.81/3.23초에 통과했습니다. 성공한 두 번째 검사 중 start_watch→notify runloop 준비 대기와 FSEventStreamStart→등록 RPC의 실제 스택을 확인했습니다. 실패 시점의 스택이나 지연 변동의 근본 원인은 확인하지 않았으며 해결/전체 exit 0으로 보고하지 않습니다. 제한 확대·검사 생략·OS 변경 없이 반복 조사를 종료하고 배치 31의 실행 환경/신뢰성 게이트에 미해결 위험을 유지합니다.
 - [ ] g. 완료 근거·선별 Git — 실제 닫힌 ID만 QA/기능표/PROCESS에 반영하고 논리 단위 선별 커밋·일반 푸시합니다. 배치 24를 기존 계획 안에서 이어가며 배치 번호를 세부 수정마다 늘리지 않습니다.
 
-다음 행동: d6c3h의 code 요소 BR/image/nested 경계와 혼합 줄 배치를 원본과 대조하고 남은 raw input/첫 table baseline·표 행·열/임의 CSS·추가 HTML 표시를 구현·검증합니다. editor-72 partial·전체 HTML/접근성·OS·게이트와 최종 배치33을 유지합니다.
+다음 행동: e1의 AI 인라인 완성 실행·취소·native 표시/수락을 연결합니다. d6c3h의 code BR/image/nested/혼합 줄·raw input/표 행·열/임의 CSS·추가 HTML과 editor-72 partial·전체 HTML/접근성·OS·게이트·최종 배치33을 유지합니다.
 
 ## 완료: 배치 22 — 자동완성과 사용자 스니펫 소비 (2026-10-10)
 

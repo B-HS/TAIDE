@@ -37,6 +37,348 @@ const MODEL_DISPLAY_SIZE: u32 = 8;
 const CHANGED_INDENT_SIZE: u32 = 2;
 const SNIPPET_PREFIX_BYTES: usize = 3;
 
+type AiReply = (
+    taide_model::ai::AiInlineCompleteRequest,
+    tokio::sync::oneshot::Sender<taide_model::error::AppResult<taide_model::ai::AiTextResponse>>,
+);
+
+fn ai_fixture(text: &str, byte: usize) -> (Fixture, std::sync::mpsc::Receiver<AiReply>) {
+    let mut fixture = Fixture::new(text, byte, Arc::from([]));
+    {
+        let mut settings = fixture.services.state.settings.write();
+        settings.ai_auto_tab_enabled = true;
+        settings.ai_provider = Some(taide_model::ai::AiProviderId::Omlx);
+        settings.ai_model = Some("fixture".into());
+    }
+    let (send, receive) = std::sync::mpsc::channel();
+    fixture.state.inline =
+        crate::editor_ai_completion::State::with_complete(Arc::new(move |_, request, cached| {
+            let send = send.clone();
+            Box::pin(async move {
+                if cached.is_some() {
+                    return Ok(taide_model::ai::AiTextResponse {
+                        request_id: request.request_id,
+                        text: cached,
+                    });
+                }
+                let (reply, result) = tokio::sync::oneshot::channel();
+                send.send((request, reply)).unwrap();
+                result.await.unwrap_or_else(|_| {
+                    Err(taide_model::error::AppError::Internal(
+                        "fixture closed".into(),
+                    ))
+                })
+            })
+        }));
+    (fixture, receive)
+}
+
+fn ai_respond(
+    fixture: &mut Fixture,
+    receive: &std::sync::mpsc::Receiver<AiReply>,
+    text: &str,
+) -> taide_model::ai::AiInlineCompleteRequest {
+    let (request, reply) = receive.recv_timeout(CLIPBOARD_DEADLINE).unwrap();
+    reply
+        .send(Ok(taide_model::ai::AiTextResponse {
+            request_id: request.request_id.clone(),
+            text: Some(text.into()),
+        }))
+        .unwrap();
+    let deadline = std::time::Instant::now() + CLIPBOARD_DEADLINE;
+    loop {
+        fixture.frame(Vec::new(), &[]);
+        if !fixture
+            .state
+            .inline
+            .poll(&fixture.store, fixture.view)
+            .is_empty()
+        {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::yield_now();
+    }
+    request
+}
+
+#[test]
+fn native_ai_inline은_설정된_문맥과_ghost를_보내고_tab수락과_undo를_연결한다() {
+    let (mut fixture, receive) = ai_fixture("let value = ", "let value = ".len());
+    fixture.presentation.options.suggest_preview = false;
+    fixture.frame(vec![Event::Text(";".into())], &[]);
+    let original = fixture.text(fixture.document);
+    let request = ai_respond(&mut fixture, &receive, "완성\n다음");
+    assert_eq!(request.owner, "synthetic");
+    assert_eq!(request.prefix, original);
+    assert_eq!(request.suffix, "");
+    assert_eq!(request.file_path, "/synthetic/main.rs");
+    assert_eq!(request.language, "rust");
+    assert_eq!(fixture.text(fixture.document), original);
+    assert!(fixture.painted.iter().any(|text| text.contains("완성")));
+    assert!(fixture.painted.iter().any(|text| text.contains("다음")));
+    fixture.frame(vec![key(Key::Tab, Modifiers::NONE)], &[]);
+    assert_eq!(
+        fixture.text(fixture.document),
+        format!("{original}완성\n다음")
+    );
+    fixture.store.undo(fixture.document).unwrap();
+    assert_eq!(fixture.text(fixture.document), original);
+}
+
+#[test]
+fn native_ai_inline의_escape는_원문을_보존하고_즉시_재요청하지않는다() {
+    let (mut fixture, receive) = ai_fixture("", 0);
+    fixture.frame(vec![Event::Text(";".into())], &[]);
+    ai_respond(&mut fixture, &receive, "kept");
+    fixture.frame(vec![key(Key::Escape, Modifiers::NONE)], &[]);
+    assert_eq!(fixture.text(fixture.document), ";");
+    assert!(
+        fixture
+            .state
+            .inline
+            .poll(&fixture.store, fixture.view)
+            .is_empty()
+    );
+    assert!(receive.try_recv().is_err());
+}
+
+#[test]
+fn native_ai_inline은_새입력에서_이전요청을_취소하고_늦은응답을_무시한다() {
+    let (mut fixture, receive) = ai_fixture("", 0);
+    fixture.frame(vec![Event::Text(";".into())], &[]);
+    let (old, reply) = receive.recv_timeout(CLIPBOARD_DEADLINE).unwrap();
+    fixture.frame(vec![Event::Text(";".into())], &[]);
+    let deadline = std::time::Instant::now() + CLIPBOARD_DEADLINE;
+    while !reply.is_closed() {
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::yield_now();
+    }
+    let new = ai_respond(&mut fixture, &receive, "new");
+    assert_ne!(new.request_id, old.request_id);
+    assert_eq!(new.prefix, ";;");
+    fixture.frame(vec![key(Key::Tab, Modifiers::NONE)], &[]);
+    assert_eq!(fixture.text(fixture.document), ";;new");
+}
+
+#[test]
+fn native_ai_inline은_설정교체와_owner회수에서_표시와_요청을_버린다() {
+    let (mut fixture, receive) = ai_fixture("", 0);
+    fixture.frame(vec![Event::Text(";".into())], &[]);
+    ai_respond(&mut fixture, &receive, "old");
+    fixture.services.state.settings.write().ai_model = Some("changed".into());
+    fixture.state.inline.reconcile(
+        &fixture.store,
+        &fixture.services.state.settings.read(),
+        |_| true,
+    );
+    assert!(
+        fixture
+            .state
+            .inline
+            .poll(&fixture.store, fixture.view)
+            .is_empty()
+    );
+    fixture.frame(vec![Event::Text(";".into())], &[]);
+    ai_respond(&mut fixture, &receive, "new");
+    fixture.state.inline.reconcile(
+        &fixture.store,
+        &fixture.services.state.settings.read(),
+        |_| false,
+    );
+    assert!(
+        fixture
+            .state
+            .inline
+            .poll(&fixture.store, fixture.view)
+            .is_empty()
+    );
+    assert_eq!(fixture.text(fixture.document), ";;");
+}
+
+#[test]
+fn native_ai_inline의_캐시는_같은문맥만_재사용하고_설정교체는_새요청을_보낸다() {
+    let (mut fixture, receive) = ai_fixture("", 0);
+    fixture.frame(vec![Event::Text(";".into())], &[]);
+    ai_respond(&mut fixture, &receive, "cached");
+    fixture.state.inline.close(fixture.view);
+    fixture
+        .state
+        .inline
+        .observe(
+            &fixture.store,
+            &fixture.services,
+            fixture.project.clone(),
+            fixture.view,
+            fixture.owner,
+            "/synthetic/main.rs".into(),
+            &fixture.context,
+        )
+        .unwrap();
+    let deadline = std::time::Instant::now() + CLIPBOARD_DEADLINE;
+    while fixture
+        .state
+        .inline
+        .poll(&fixture.store, fixture.view)
+        .is_empty()
+    {
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::yield_now();
+    }
+    assert!(receive.try_recv().is_err());
+    fixture.services.state.settings.write().ai_model = Some("another".into());
+    fixture
+        .state
+        .inline
+        .observe(
+            &fixture.store,
+            &fixture.services,
+            fixture.project.clone(),
+            fixture.view,
+            fixture.owner,
+            "/synthetic/main.rs".into(),
+            &fixture.context,
+        )
+        .unwrap();
+    let request = ai_respond(&mut fixture, &receive, "new");
+    assert_eq!(request.model, "another");
+}
+
+#[test]
+fn native_ai_inline의_다중커서는_같은_제안을_각위치에_삽입하고_한번에_되돌린다() {
+    let (mut fixture, receive) = ai_fixture(";\n;", 1);
+    fixture
+        .store
+        .set_view_state(
+            fixture.view,
+            SelectionSet {
+                primary: 0,
+                selections: vec![
+                    Selection { anchor: 1, head: 1 },
+                    Selection { anchor: 3, head: 3 },
+                ],
+            },
+            ScrollPosition::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    fixture.frame(vec![Event::Text(";".into())], &[]);
+    let original = fixture.text(fixture.document);
+    ai_respond(&mut fixture, &receive, "multi");
+    assert_eq!(
+        fixture
+            .state
+            .inline
+            .poll(&fixture.store, fixture.view)
+            .len(),
+        2
+    );
+    fixture.frame(vec![key(Key::Tab, Modifiers::NONE)], &[]);
+    assert_eq!(fixture.text(fixture.document), ";;multi\n;;multi");
+    fixture.store.undo(fixture.document).unwrap();
+    assert_eq!(fixture.text(fixture.document), original);
+}
+
+#[test]
+fn native_ai_inline은_ime중에는_제안을_버리고_확정뒤_새문맥을_요청한다() {
+    let (mut fixture, receive) = ai_fixture("", 0);
+    fixture.frame(vec![Event::Text(";".into())], &[]);
+    ai_respond(&mut fixture, &receive, "old");
+    fixture.frame(
+        vec![Event::Ime(egui::ImeEvent::Preedit {
+            text: "한".into(),
+            active_range_chars: None,
+        })],
+        &[],
+    );
+    assert!(
+        fixture
+            .state
+            .inline
+            .poll(&fixture.store, fixture.view)
+            .is_empty()
+    );
+    assert_eq!(fixture.text(fixture.document), ";");
+    fixture.frame(vec![Event::Ime(egui::ImeEvent::Commit("한".into()))], &[]);
+    let request = ai_respond(&mut fixture, &receive, "new");
+    assert!(request.prefix.ends_with('한'));
+}
+
+#[test]
+fn native_ai_inline은_제안과_일치하는_입력에서_남은_텍스트를_유지한다() {
+    let (mut fixture, receive) = ai_fixture("", 0);
+    fixture.frame(vec![Event::Text(";".into())], &[]);
+    ai_respond(&mut fixture, &receive, "한\u{1f600}rest");
+    fixture.frame(vec![Event::Text("한\u{1f600}".into())], &[]);
+    let ghosts = fixture.state.inline.poll(&fixture.store, fixture.view);
+    assert_eq!(ghosts[0].parts[0].text, "rest");
+    assert!(receive.try_recv().is_err());
+    fixture.frame(vec![key(Key::Tab, Modifiers::NONE)], &[]);
+    assert_eq!(fixture.text(fixture.document), ";한\u{1f600}rest");
+}
+
+#[test]
+fn native_ai_inline은_읽기전용_파일에서_요청이나_삽입을_하지않는다() {
+    let (mut fixture, receive) = ai_fixture("", 0);
+    let path = PathBuf::from("/synthetic/readonly.rs");
+    let document = fixture
+        .store
+        .open_file(
+            path.clone(),
+            OpenedFile {
+                path: path.to_string_lossy().into_owned(),
+                content: ";".into(),
+                encoding_lossy: false,
+                language_id: "rust".into(),
+                tier: FileSizeTier::ReadOnly,
+                byte_size: 1,
+                line_count: 1,
+                modified_ms: 0.0,
+                read_only: true,
+                editor_config: EditorConfigOptions::default(),
+            },
+        )
+        .unwrap();
+    let view = fixture
+        .store
+        .attach_view(
+            ViewKey {
+                window: "synthetic".into(),
+                pane: PaneId::new(),
+                tab: TabId::new(),
+            },
+            document,
+        )
+        .unwrap();
+    fixture.view = view;
+    fixture.owner = view;
+    fixture.document = document;
+    fixture.frame(Vec::new(), &[Command::Trigger]);
+    fixture
+        .state
+        .inline
+        .observe(
+            &fixture.store,
+            &fixture.services,
+            fixture.project.clone(),
+            fixture.view,
+            fixture.owner,
+            "/synthetic/readonly.rs".into(),
+            &fixture.context,
+        )
+        .unwrap();
+    assert!(
+        !fixture
+            .state
+            .inline
+            .event(&mut fixture.store, view, &key(Key::Tab, Modifiers::NONE))
+            .unwrap()
+    );
+    assert!(receive.try_recv().is_err());
+    assert!(fixture.state.inline.poll(&fixture.store, view).is_empty());
+    assert_eq!(fixture.text(document), ";");
+}
+
 fn indentation_fixture(embedded: bool) -> Fixture {
     use taide_native_editor::indent::{IndentConfiguration, IndentOptions, IndentationChange};
     let mut files = snippets().to_vec();

@@ -6475,6 +6475,24 @@ impl eframe::App for NativeApplication {
         if self.editor_completion.poll_supply(&self.store) {
             context.request_repaint();
         }
+        self.editor_completion.inline.reconcile(
+            &self.store,
+            &self.services.state.settings.read(),
+            |origin| {
+                projects.contains(&origin.project)
+                    && snapshot.layouts.get(&origin.project).is_some_and(|layout| {
+                        crate::symbol_sidebar::window_tree(
+                            &origin.project,
+                            layout,
+                            &self.shell.scope,
+                        )
+                        .is_some_and(|(root, _)| {
+                            taide_native_ui::snapshot::active_tab(root, &origin.owner_key.pane)
+                                .is_some_and(|tab| tab.id == origin.owner_key.tab)
+                        })
+                    })
+            },
+        );
         if let Err(error) = self.editor_documentation.prepare_code(
             &mut self.store,
             &mut self.editor_syntax,
@@ -9248,6 +9266,10 @@ mod missing_draft_tests;
 #[cfg(all(test, unix))]
 #[path = "application-markdown-tests.rs"]
 mod markdown_tests;
+
+#[cfg(all(test, unix))]
+#[path = "application-ai-completion-tests.rs"]
+mod ai_completion_tests;
 
 #[cfg(test)]
 mod close_all_tests {
