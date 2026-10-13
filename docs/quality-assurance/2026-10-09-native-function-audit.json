@@ -1,6 +1,6 @@
 {
     "date": "2026-10-14",
-    "baseline": "b55327d0",
+    "baseline": "78bd5889",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1243,7 +1243,8 @@
                 "native/taide-native-editor/src/emmet-markup-output.rs",
                 "native/taide-native-editor/src/emmet-markup-filters.rs",
                 "native/taide-native-editor/src/emmet-markup-lorem.rs",
-                "native/taide-native-editor/src/emmet-markup-lorem-defaults.rs"
+                "native/taide-native-editor/src/emmet-markup-lorem-defaults.rs",
+                "native/taide-native-editor/src/emmet-stylesheet-parser.rs"
             ],
             "tests": [
                 "native/taide-native-editor/tests/emmet.rs",
@@ -1274,10 +1275,13 @@
                 "native/taide-native-editor/tests/fixtures/emmet-markup-lorem-oracle.rs",
                 "native/taide-native-editor/tests/emmet-markup-boundaries.rs",
                 "native/taide-native-editor/tests/fixtures/emmet-markup-boundaries-oracle.mjs",
-                "native/taide-native-editor/tests/fixtures/emmet-markup-boundaries-oracle.rs"
+                "native/taide-native-editor/tests/fixtures/emmet-markup-boundaries-oracle.rs",
+                "native/taide-native-editor/tests/emmet-stylesheet-parser.rs",
+                "native/taide-native-editor/tests/fixtures/emmet-stylesheet-parser-oracle.mjs",
+                "native/taide-native-editor/tests/fixtures/emmet-stylesheet-parser-oracle.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-14-native-batch23-emmet.md"],
-            "limitation": "여섯 language ID·추출/파서/typed 반복·202스니펫/5variables·HTML/JSX 출력/필드/들여쓰기/속성·BEM/주석/최대3필터·lorem latin/ru/sp를portable core에연결했습니다. 원본기본출력1840(1834raw일치/명시적6원본수정)·필터640/lorem444·문자/field의64실제snippet소비·속성name field/기존0/백슬래시·달러/brace/JSX key/속성quote를확인했습니다. 최신직접18성공과기존전체322+필터3+lorem3+새경계2의330서로다른성공/성능1ignored·최종host17.88/Wasm4.73초/5Rustfmt/MIT출처를재사용합니다. CSS·validation/range/추가후보·설정/실제App소비와전체게이트가남아unwired이며완료를올리지않습니다."
+            "limitation": "여섯 language ID·추출/markup parser·typed 반복·202스니펫/5variables·HTML/JSX 출력/필드/들여쓰기/속성·BEM/주석/필터·lorem과CSS AST를portable core에연결했습니다. 원본기본출력1840(1834raw일치/명시적6수정)·필터640/lorem444·64실제snippet소비와253CSS snippet/813입력/1626AST사례를확인했습니다. 최신markup직접18/CSS2성공과기존전체322+필터3+lorem3+경계2+CSS2의332서로다른성공/성능1ignored·최종CSS host9.05/Wasm4.84초/4Rustfmt/MIT출처를재사용합니다. CSS snippet/속성·keyword/fuzzy/unit해석/출력·validation/range/추가후보·설정/실제App소비와전체게이트가남아unwired이며완료를올리지않습니다."
         }
     },
     "rows": [
@@ -3248,7 +3252,7 @@
             "domain": "editor",
             "status": "unwired",
             "proof": "editor-emmet",
-            "note": "여섯 language ID·추출/파서/typed 반복·202스니펫/5variables·HTML/JSX 출력/필드/들여쓰기/속성·BEM/주석/최대3필터·lorem latin/ru/sp를portable core에연결했습니다. 원본기본출력1840(1834raw일치/명시적6원본수정)·필터640/lorem444·문자/field의64실제snippet소비·속성name field/기존0/백슬래시·달러/brace/JSX key/속성quote를확인했습니다. 최신직접18성공과기존전체322+필터3+lorem3+새경계2의330서로다른성공/성능1ignored·최종host17.88/Wasm4.73초/5Rustfmt/MIT출처를재사용합니다. CSS·validation/range/추가후보·설정/실제App소비와전체게이트가남아unwired이며완료를올리지않습니다."
+            "note": "여섯 language ID·추출/markup parser·typed 반복·202스니펫/5variables·HTML/JSX 출력/필드/들여쓰기/속성·BEM/주석/필터·lorem과CSS AST를portable core에연결했습니다. 원본기본출력1840(1834raw일치/명시적6수정)·필터640/lorem444·64실제snippet소비와253CSS snippet/813입력/1626AST사례를확인했습니다. 최신markup직접18/CSS2성공과기존전체322+필터3+lorem3+경계2+CSS2의332서로다른성공/성능1ignored·최종CSS host9.05/Wasm4.84초/4Rustfmt/MIT출처를재사용합니다. CSS snippet/속성·keyword/fuzzy/unit해석/출력·validation/range/추가후보·설정/실제App소비와전체게이트가남아unwired이며완료를올리지않습니다."
         },
         {
             "id": "editor-81",

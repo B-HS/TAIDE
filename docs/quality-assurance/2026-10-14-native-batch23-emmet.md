@@ -119,3 +119,5 @@ lorem 구현/기능표커밋5ce6a2ba/9ebfa0e4는일반push/local·remote0/0으�
 원본순서의부호/단위없는값뒤dash구분·함수앞literal/number 병합·value모드·NBSP/ASCII whitespace·partial quote/open function의기존parser관용을유지합니다. 임의로정상CSS 선언parser로대체하지않았으며이AST는축약식해석전단계입니다. parse_stylesheet는명시적value모드와기존MarkupLimits의구조예산을받습니다. 실제공급자/설정/완성·속성keyword/fuzzy·기본값/단위/색상형식·CSS출력은없습니다.
 
 설치253 stylesheet snippet의키/숫자추가/정의본문과수동경계의813입력×2모드/1626사례를원본으로생성했습니다. stylesheet-parser-first.log는16068 handle에서compile9.95초·원본AST/예산의2통과·0실패·0.01초·exit0으로종료했습니다. 동일기존330성공과새CSS2의서로다른현재332성공/기존대형성능1ignored로재사용하며1626을검사수로더하지않습니다. stylesheet-parser-host.log는현재lib/새target compile9.05초·stylesheet-parser-wasm.log는corelib wasm32 compile4.84초이며72737 handle에서모두exit0/추가경고0으로종료했습니다. 최종4Rustfmt·oracle MJS/QA포맷·소유diff/manifest·lock·frozen변경0·디스크629GiB/66%를확인했습니다. e3c1 AST만닫고editor-80unwired·전체302/588(51.4%)·미완료286/전체목표active·CSS해석/출력/후보/실제App/전체게이트는유지합니다.
+
+소유CSS typed parser/export/검사/oracle·MIT출처와QA/PROCESS상단8경로를78bd5889로선별커밋했습니다. 기능표baseline/CSS AST근거만갱신하고editor-80unwired·전체302완료를유지합니다. 사용자PROCESS하단2hunk와다른문서/결정/피드백/메모리는보존했습니다.
