@@ -30,7 +30,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-Filter suffix and final-field behavior is based on emmet-monaco-es@5.7.0 and its Microsoft Emmet helper implementation.
+Completion production in src/emmet-completion.rs and static completion data in src/emmet-completion-defaults.rs, filter suffix and final-field behavior are based on emmet-monaco-es@5.7.0 and its Microsoft Emmet helper implementation.
 
 MIT License
 

@@ -159,3 +159,13 @@ output-final.log는29282 handle에서compile10.46초·출력4/1실패/0.13초·p
 소유CSS renderer/IEEE formatter·공통placeholder/lexer escape·원본/소비/예산검사·MIT출처와QA/PROCESS상단21경로를6ffd18b6로선별커밋했습니다. 기능표baseline/현재출력·원본오류수정근거만갱신하고editor-80unwired·전체302완료를유지합니다. 사용자PROCESS하단2hunk와다른문서/결정/피드백/메모리는보존했습니다.
 
 6ffd18b6/ec2b0627은일반push/local·remote0/0으로확인했고작업트리에는사용자문서/피드백/메모리만남았습니다. 다음doComplete의실제primary/HTML tag·snippet 추가후보·CSS propertyprefix/부분일치·important patch·유효성/noise/open tag/range/문서/label을확인했습니다. CSS의추가후보는custom registry만이며프로젝트가등록하지않아비어있습니다. 설치Monaco의Property/InsertAsSnippet과전체range를현재native CompletionItem/Candidate의실제snapshot/Position 계약으로옮기고가짜document/offset을쓰지않습니다. standard token의Other만허용하는실제App 경계와readonly/tier/IME/peek·설정/취소는별도e3에남습니다.
+
+## e3d1 — 실제 완성 후보
+
+설치 emmet-monaco-es@5.7.0의 doComplete/validation/noise/extraction/getExpandOptions와 정적 htmlData/cssData를 대조했습니다. HTML 105태그·lorem·202 markup 키와 CSS 591 속성 자료, 실제 프로젝트 기본 설정을 사용합니다. 기본 CSS 후보를 임의 추가하지 않으며 프로젝트가 등록하지 않는 custom snippets는 제외합니다. Property/InsertAsSnippet·문서/detail/label/filterText/sortText·필터 포함 전체 축약식 범위와 HTML 추가 후보 순서를 portable Core에 연결했습니다. 실제 DocumentSnapshot/Position의 Candidate로 변환하고 UTF-16↔byte의 엄격한 왕복, 실제 문서 ID/revision·출력/후보 수 예산을 확인합니다.
+
+실제 doComplete의 595입력·5286위치/syntax 사례를 seed42 주입 난수로 생성했고 원본 fixture를 유지합니다. 후보 첫 compile 두 번은 snapshot API 가정 오류로 0검사였습니다. parity-final.log는 compile4.45초·2통과/1실패와11차이였습니다. 원본의 세 필터 label에서 첫 쉼표만 치환·속성 escaped quote·escaped literal field·변수 undefined를 명시 수정했고 올바른 변수 후보가 표시 필터에서 제외되는 문제를 보강했습니다. corrected.log는 compile8.87초·2통과/1실패와CSS qe의 raw 백슬래시1차이를 확인했습니다. source raw insertText를 실제 snippet으로 소비하면 backslash가 없어져 CSS escape가 손실되므로 label/문서/필터는 유지하고 insertText만 encode하는 수정 기대값을 정확히 단언합니다. final.log의 첫 실행은 잘못된 native/Cargo.toml 경로로 0검사/exit101이며 실제 editor manifest로 수정했습니다. 최종 compile4.31초·3통과/0.23초·exit0입니다. source fixture에 native 출력을 덮어쓰지 않습니다.
+
+기존340성공과 신규3의343서로다른Core 성공을 재사용하며 비교사례수를 테스트 수로 더하지 않습니다. 실제 App의 standard token Other·설정 변경·readonly/tier/IME/다중커서·peek/mirror·취소·실제 삽입/undo 경계는 미완료입니다. editor-80unwired·전체302/588(51.4%)·전체App 준비 실패/성능ignored/remote Wasm 게이트와 목표active·잔여시간미산정을 유지합니다.
+
+completion-host.log/current lib+target14.87초와completion-wasm.log/corelib4.74초는76083 handle에서 exit0/추가경고0으로 종료했습니다. 소유5Rustfmt/1MJS·QA포맷을 확인했고 manifest/lock/동결변경은 없습니다. 후보3검사의 같은 입력/환경 성공은 커밋 전에 재실행하지 않습니다.

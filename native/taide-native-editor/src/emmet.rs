@@ -36,6 +36,10 @@ mod stylesheet_format;
 #[path = "emmet-stylesheet-output.rs"]
 mod stylesheet_output;
 
+#[path = "emmet-completion.rs"]
+mod completion;
+
+pub use completion::{CompletionLimits, Suggestion, complete_document, complete_line};
 pub use extraction::extract;
 pub use markup_conversion::{
     ConversionLimits, ExpandedMarkupAttribute, ExpandedMarkupNode, MarkupRepeat, MarkupValue,
