@@ -57,3 +57,5 @@ conversion-final.log는compile9.93초·변환3/parser2의5통과·0실패·exit0
 준비/변환oracle가같은canonical출력을쓰므로MJS/Rust 비교helper를fixtures/emmet-markup-canonical로공통화했습니다. 기존2112변환fixture재생성은diff0이며내용이같은기존성공을반복하지않습니다. preparation-red.log는919입력/1838사례·2검사통과·0.02초·compile9.50초·exit0입니다. 원본group닫힘2사례는이미기록한정확한입력의오탈자만바로잡으며나머지1836은원본그대로일치합니다. 기본202이름/원문·속성수정·label/input·부모/fieldsnippet·중복class/속성을포함합니다. 새검사이름AST대문자의snake case경고는이름을소문자로수정했고preparation-host.log의두검사target compile은4.97초·추가경고0·exit0입니다. 입력/환경/본문동작이같아2검사성공은재사용합니다.
 
 preparation-wasm.log는현재core lib의wasm32 compile4.47초·exit0이며Wasm검사실행/기존시간API문제해결로확대하지않습니다. 소유7Rustfmt/MJS·QA포맷/manifest·lock·frozen변경0/디스크630GiB·66%입니다. e3b3준비2검사와변경없는이전파서/변환6검사는서로다른8성공으로재사용합니다. HTML/JSX출력/field offset·lorem/BEM/필터/CSS·후보/실제App은미완료라editor-80missing·전체302/588(51.4%)·미완료286·목표active·잔여시간미산정을유지합니다.
+
+소유기본스니펫준비/생성자료/공통비교helper·검사/원본oracle/출처/QA와PROCESS상단14경로를31bb6ed8로선별커밋했습니다. 사용자PROCESS하단2hunk와다른문서/결정/피드백/메모리를보존했습니다. 기능표baseline과준비근거만갱신하며출력/후보/App이없어editor-80missing/전체302완료·목표active를유지합니다.
