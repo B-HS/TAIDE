@@ -1,6 +1,6 @@
 {
     "date": "2026-10-13",
-    "baseline": "8ad5ebcf",
+    "baseline": "93dba2b8",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1173,7 +1173,7 @@
                 "native/taide-native-app/src/ui-fonts.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-12-native-batch23-markdown.md"],
-            "limitation": "분할/readonly/두 뷰/독립 scroll·mirror/입력/undo/원문/이미지/닫힘과 표·목록·제목의 기본 flow를 연결했습니다. preview의 outside 마커·폭과 독립된20px 본문/상속 정렬·문단/h1/pre 기준선·작업 목록의13px disabled checkbox/그룹 중심·pre 줄별 정렬·이미지 독립 블록과 최소/자연 최대 너비를 원본 browser12조건·UI34/App4와 변경 없는 parser18/cache4/LSP8의 서로 다른68통과·소유4Rust fmt/diff·frozen host0.08초/Wasm0.09초·exit0으로 확인했습니다. 혼합 inline code/checkbox 모든 줄·raw checkbox 위치·첫 table/임의 CSS baseline·list-style-position/display override·bolder/counter 소유·행·열/접근성·추가 HTML/CLI/OS/전체 게이트는 미완료라 partial입니다."
+            "limitation": "분할/readonly/두 뷰/독립 scroll·mirror/입력/undo/원문/이미지/닫힘과 표·목록·제목의 기본 flow를 연결했습니다. 단순 텍스트/링크 작업 목록의 첫 줄 checkbox13px/공백 예약·기준선/disabled·다음 줄 전체 폭·왼쪽/중앙과 실제 glyph 링크 클릭·최소/자연 너비를 연결했습니다. native의36.1875/원본20px과 중앙 checkbox/link 겹침을 재현해 배치 전 소유 galley의 logical rect/mesh bounds를 계산했습니다. 원본 browser5조건·UI35/App4와 변경 없는 parser18/cache4/LSP8의 서로 다른69통과·소유4Rust fmt/diff·frozen host0.08초/Wasm0.10초·exit0입니다. 혼합 code/image 작업 목록·raw input 위치/상태·첫 table/임의 CSS baseline·bolder/counter 소유·행·열/접근성·추가 HTML/CLI/OS/전체 게이트는 미완료라 partial입니다."
         }
     },
     "rows": [
@@ -3056,7 +3056,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-markdown",
-            "note": "분할/readonly/두 뷰/독립 scroll·mirror/입력/undo/원문/이미지/닫힘과 표·목록·제목의 기본 flow를 연결했습니다. preview의 outside 마커·폭과 독립된20px 본문/상속 정렬·문단/h1/pre 기준선·작업 목록의13px disabled checkbox/그룹 중심·pre 줄별 정렬·이미지 독립 블록과 최소/자연 최대 너비를 원본 browser12조건·UI34/App4와 변경 없는 parser18/cache4/LSP8의 서로 다른68통과·소유4Rust fmt/diff·frozen host0.08초/Wasm0.09초·exit0으로 확인했습니다. 혼합 inline code/checkbox 모든 줄·raw checkbox 위치·첫 table/임의 CSS baseline·list-style-position/display override·bolder/counter 소유·행·열/접근성·추가 HTML/CLI/OS/전체 게이트는 미완료라 partial입니다."
+            "note": "분할/readonly/두 뷰/독립 scroll·mirror/입력/undo/원문/이미지/닫힘과 표·목록·제목의 기본 flow를 연결했습니다. 단순 텍스트/링크 작업 목록의 첫 줄 checkbox13px/공백 예약·기준선/disabled·다음 줄 전체 폭·왼쪽/중앙과 실제 glyph 링크 클릭·최소/자연 너비를 연결했습니다. native의36.1875/원본20px과 중앙 checkbox/link 겹침을 재현해 배치 전 소유 galley의 logical rect/mesh bounds를 계산했습니다. 원본 browser5조건·UI35/App4와 변경 없는 parser18/cache4/LSP8의 서로 다른69통과·소유4Rust fmt/diff·frozen host0.08초/Wasm0.10초·exit0입니다. 혼합 code/image 작업 목록·raw input 위치/상태·첫 table/임의 CSS baseline·bolder/counter 소유·행·열/접근성·추가 HTML/CLI/OS/전체 게이트는 미완료라 partial입니다."
         },
         {
             "id": "editor-73",
@@ -7767,5 +7767,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "제품8ad5ebcf에서 분할/readonly/두 뷰/독립 scroll·mirror/입력/undo/원문/이미지/닫힘과 표·목록·제목의 기본 flow를 연결했습니다. preview의 outside 마커·폭과 독립된20px 본문/상속 정렬·문단/h1/pre 기준선·작업 목록의13px disabled checkbox/그룹 중심·pre 줄별 정렬·이미지 독립 블록과 최소/자연 최대 너비를 원본 browser12조건·UI34/App4와 변경 없는 parser18/cache4/LSP8의 서로 다른68통과·소유4Rust fmt/diff·frozen host0.08초/Wasm0.09초·exit0으로 확인했습니다. 혼합 inline code/checkbox 모든 줄·raw checkbox 위치·첫 table/임의 CSS baseline·list-style-position/display override·bolder/counter 소유·행·열/접근성·추가 HTML/CLI/OS/전체 게이트는 미완료라 partial입니다. 본문20px 대신 marker 폭이 더해진 위치와 inline 이미지의 앞뒤 텍스트 겹침을 실제 실패로 재현했고 수정 근거는 QA에 보존했습니다. marker 너비는 본문 폭에서 제외하고 텍스트/이미지 너비는 각각의 블록 최대값으로 계산합니다. 최신 실제 App4통과52.62초와 UI34통과를 확인했으며 parser/cache/LSP 입력과 경계가 같아 기존30성공을 재사용했습니다. 사용자 문서/PROCESS 하단 두 hunk·의존성/manifest/lock/frozen source와 보호 경계를 유지했습니다. complete302/partial90/unwired110/missing86·미완료286·배치23 잔여19/최종33입니다. 이전 전체App877통과/22준비실패/보호3제외/exit101의 준비 원인 미확정·Core성능ignored1/Wasmtests시간API불일치7·실제 OS/실기/성능/신뢰성/출시/전환/제거와 남은 전체 목표는 미완료입니다. 전체전환율/잔여시간은 미산정입니다."
+    "validation": "제품93dba2b8에서 분할/readonly/두 뷰/독립 scroll·mirror/입력/undo/원문/이미지/닫힘과 표·목록·제목의 기본 flow를 연결했습니다. 단순 텍스트/링크 작업 목록의 첫 줄 checkbox13px/공백 예약·기준선/disabled·다음 줄 전체 폭·왼쪽/중앙과 실제 glyph 링크 클릭·최소/자연 너비를 연결했습니다. native의36.1875/원본20px과 중앙 checkbox/link 겹침을 재현해 배치 전 소유 galley의 logical rect/mesh bounds를 계산했습니다. 원본 browser5조건·UI35/App4와 변경 없는 parser18/cache4/LSP8의 서로 다른69통과·소유4Rust fmt/diff·frozen host0.08초/Wasm0.10초·exit0입니다. 혼합 code/image 작업 목록·raw input 위치/상태·첫 table/임의 CSS baseline·bolder/counter 소유·행·열/접근성·추가 HTML/CLI/OS/전체 게이트는 미완료라 partial입니다. 원본 표준 브라우저와 설치 epaint의 first-row leading_space 정규화/Label/Galley 계약을 실제 코드로 확인했습니다. 가짜 내용 문자를 추가하거나 이미 그린 shape를 따로 이동하지 않고 배치와 Label response·선택·checkbox/링크를 같은 좌표로 소비합니다. 실제 App4통과87.61초와 UI35통과를 확인하고 over60초 관찰에도 같은 handle을 유지했으며 입력/경계가 같은 parser/cache/LSP30성공은 재사용했습니다. 사용자 문서/PROCESS 하단 두 hunk·의존성/manifest/lock/frozen source와 보호 경계를 유지했습니다. complete302/partial90/unwired110/missing86·미완료286·배치23 잔여19/최종33입니다. 이전 전체App877통과/22준비실패/보호3제외/exit101의 준비 원인 미확정·Core성능ignored1/Wasmtests시간API불일치7·실제 OS/실기/성능/신뢰성/출시/전환/제거와 남은 전체 목표는 미완료입니다. 전체전환율/잔여시간은 미산정입니다."
 }
