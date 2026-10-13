@@ -139,3 +139,5 @@ keyword/default/raw 변환으로token 출처가교체되면인접성을다시계
 stylesheet-preparation-first.log는4291 handle에서compile10.52초·기존parser2/0.01초·준비2/2109사례/0.04초의4통과·exit0입니다. 새UTF-16 자료/누적예산을포함한preparation-final.log는75062 handle에서compile10.04초·parser3/1638사례/0.00초·준비2/2110사례/0.04초의5통과·exit0으로종료했습니다. 준비2와새parser 위치1은독립추가3이며이전332+현재3의335서로다른성공/기존성능1ignored로재사용하고반복성공/비교사례수는검사수에더하지않습니다.
 
 초기두실행은라이브러리기본fuzzy0의자료입니다. 실제getExpandOptions는0.3으로덮어쓰므로이값을설치helper에서읽어defaults와준비oracle에반영했습니다. preparation-project.log는20958 handle에서compile9.34초·준비2/현재2110프로젝트사례/0.04초·exit0으로종료했고변경없는parser3 성공은재사용합니다. 앞절의fuzzy0은라이브러리기본이며실제프로젝트의공급자기준으로확대하지않습니다. preparation-host.log의현재lib/CSS2target compile9.55초와preparation-wasm.log의corelib4.83초는3516 handle에서모두exit0/추가경고0으로종료했습니다. 최종9Rustfmt/4MJS·QA포맷·입력/공통canonical재사용·소유diff/manifest·lock/frozen변경0·디스크629GiB/66%를확인했습니다. e3c2의프로젝트준비AST만닫고CSS출력/후보/실제App·editor-80unwired/전체302완료/전체게이트·목표active·잔여시간미산정을유지합니다.
+
+소유CSS 준비/defaults·UTF-16 출처/공통fixture·원본/예산검사·MIT출처와QA/PROCESS상단16경로를67145e1e로선별커밋했습니다. 기능표baseline/준비AST·프로젝트fuzzy0.3 근거만갱신하고editor-80unwired·전체302완료를유지합니다. 사용자PROCESS하단2hunk와다른문서/결정/피드백/메모리는보존했습니다.

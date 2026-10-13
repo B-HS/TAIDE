@@ -1,6 +1,6 @@
 {
     "date": "2026-10-14",
-    "baseline": "981da085",
+    "baseline": "67145e1e",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1244,7 +1244,9 @@
                 "native/taide-native-editor/src/emmet-markup-filters.rs",
                 "native/taide-native-editor/src/emmet-markup-lorem.rs",
                 "native/taide-native-editor/src/emmet-markup-lorem-defaults.rs",
-                "native/taide-native-editor/src/emmet-stylesheet-parser.rs"
+                "native/taide-native-editor/src/emmet-stylesheet-parser.rs",
+                "native/taide-native-editor/src/emmet-stylesheet-defaults.rs",
+                "native/taide-native-editor/src/emmet-stylesheet-preparation.rs"
             ],
             "tests": [
                 "native/taide-native-editor/tests/emmet.rs",
@@ -1278,10 +1280,16 @@
                 "native/taide-native-editor/tests/fixtures/emmet-markup-boundaries-oracle.rs",
                 "native/taide-native-editor/tests/emmet-stylesheet-parser.rs",
                 "native/taide-native-editor/tests/fixtures/emmet-stylesheet-parser-oracle.mjs",
-                "native/taide-native-editor/tests/fixtures/emmet-stylesheet-parser-oracle.rs"
+                "native/taide-native-editor/tests/fixtures/emmet-stylesheet-parser-oracle.rs",
+                "native/taide-native-editor/tests/emmet-stylesheet-preparation.rs",
+                "native/taide-native-editor/tests/fixtures/emmet-stylesheet-canonical.mjs",
+                "native/taide-native-editor/tests/fixtures/emmet-stylesheet-canonical.rs",
+                "native/taide-native-editor/tests/fixtures/emmet-stylesheet-inputs.mjs",
+                "native/taide-native-editor/tests/fixtures/emmet-stylesheet-preparation-oracle.mjs",
+                "native/taide-native-editor/tests/fixtures/emmet-stylesheet-preparation-oracle.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-14-native-batch23-emmet.md"],
-            "limitation": "여섯 language ID·추출/markup parser·typed 반복·202스니펫/5variables·HTML/JSX 출력/필드/들여쓰기/속성·BEM/주석/필터·lorem과CSS AST를portable core에연결했습니다. 원본기본출력1840(1834raw일치/명시적6수정)·필터640/lorem444·64실제snippet소비와253CSS snippet/818입력/1636AST·숫자/함수/연속field 인접성사례를확인했습니다. 최신markup직접18/CSS2성공과기존전체322+필터3+lorem3+경계2+CSS2의332서로다른성공/성능1ignored·최종CSS host8.54/Wasm4.39초/3Rustfmt/MIT출처를재사용합니다. CSS snippet/속성·keyword/fuzzy/unit해석/출력·validation/range/추가후보·설정/실제App소비와전체게이트가남아unwired이며완료를올리지않습니다."
+            "limitation": "여섯language ID·추출/markup parser·202스니펫/HTML·JSX 출력/필터/lorem과CSS parser/준비AST를portable core에연결했습니다. CSS253registry/raw·property/keyword·의존정렬/실제helper fuzzy0.3·inline/기본값/gradient/단위와UTF-16 출처·변환뒤field 인접성을확인했습니다. 원본markup1840/필터640/lorem444/64소비·CSS1638raw/2110준비사례·준비2+parser3/누적예산과기존332+새3의335서로다른성공/성능1ignored·최종host9.55/Wasm4.83초/9Rustfmt/MIT출처를재사용합니다. CSS출력·validation/range/추가후보·설정/실제App소비와전체게이트가남아unwired이며완료를올리지않습니다."
         }
     },
     "rows": [
@@ -3252,7 +3260,7 @@
             "domain": "editor",
             "status": "unwired",
             "proof": "editor-emmet",
-            "note": "여섯 language ID·추출/markup parser·typed 반복·202스니펫/5variables·HTML/JSX 출력/필드/들여쓰기/속성·BEM/주석/필터·lorem과CSS AST를portable core에연결했습니다. 원본기본출력1840(1834raw일치/명시적6수정)·필터640/lorem444·64실제snippet소비와253CSS snippet/818입력/1636AST·숫자/함수/연속field 인접성사례를확인했습니다. 최신markup직접18/CSS2성공과기존전체322+필터3+lorem3+경계2+CSS2의332서로다른성공/성능1ignored·최종CSS host8.54/Wasm4.39초/3Rustfmt/MIT출처를재사용합니다. CSS snippet/속성·keyword/fuzzy/unit해석/출력·validation/range/추가후보·설정/실제App소비와전체게이트가남아unwired이며완료를올리지않습니다."
+            "note": "여섯language ID·추출/markup parser·202스니펫/HTML·JSX 출력/필터/lorem과CSS parser/준비AST를portable core에연결했습니다. CSS253registry/raw·property/keyword·의존정렬/실제helper fuzzy0.3·inline/기본값/gradient/단위와UTF-16 출처·변환뒤field 인접성을확인했습니다. 원본markup1840/필터640/lorem444/64소비·CSS1638raw/2110준비사례·준비2+parser3/누적예산과기존332+새3의335서로다른성공/성능1ignored·최종host9.55/Wasm4.83초/9Rustfmt/MIT출처를재사용합니다. CSS출력·validation/range/추가후보·설정/실제App소비와전체게이트가남아unwired이며완료를올리지않습니다."
         },
         {
             "id": "editor-81",
