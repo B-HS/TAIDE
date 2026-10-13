@@ -84,3 +84,17 @@ native 결과 제한은 원본의 순서·얕은 깊이 우선·같은 깊이의
 first.log/lib은62531 handle에서4.90초·exit0입니다. parity.log는58124 handle에서 compile10.27초·2통과/비교1실패·0.01초·exit101입니다. 실패는 raw/교정이 다른 입력에서 region 또는 깊은 객체만 허용하는 검사 assert가 깊은 배열을 빠뜨렸기 때문입니다. 실제 출력 불일치로 단정하지 않고 해당 원본 guard 가족도 정확히 허용한 뒤 corrected.log를2522 handle에서 compile8.39초·현재3통과/0.02초·exit0으로 확인했습니다. 이후 숫자29 비교를 같은 의미의 source depth limit30 상수로만 정리했으며 입력/검사 의미가 같은 성공은 반복 실행하지 않습니다.
 
 소유Rust3/MJS format과 helper의1줄 가시성 diff·MIT·manifest/lock/동결 변경0·디스크618GiB/67%를 확인했습니다. host.log/lib+json-folding test4.22초와 wasm.log/corelib4.85초는8830 handle에서 exit0·추가경고0으로 종료했습니다. helper를 포함한 소유Rust4 fmt가 통과했으며 동일 성공은 재실행하지 않습니다. 기존Core356+신규3의359서로 다른 성공/성능1ignored를 유지합니다. 선택 확장·심볼·접기의 portable 구조 서비스 b3c는 구현·원본/경계/예산 검증을 마쳤지만 실제 App 공급과 JSON 진단 정책/포맷/조회/완성/colors·CSS/HTML/TS·전체 App 준비/remoteWasm·OS/성능/전환/최종33 게이트는 부모b3/전체 목표에 남습니다. 전체303/588(51.5%)·미완료285·editor-57missing/editor-16partial·목표active·잔여시간미산정입니다.
+
+## b3d — JSON 포맷
+
+실제 JSONWorker.format·language service utils/format.js wrapper와 jsonc-parser impl/format.js 전체를 확인했습니다. json-format.rs는 기존 scanner/IndentOptions/typed Edit를 사용해 문서/선택 범위의 줄 확장·초기 들여쓰기·0 tabSize의4 fallback·공백/탭·원문 첫 EOL 우선·keepLines·최종 줄·주석/불완전 입력의 국소 편집과 원본 편집 순서를 구현합니다. wrapper는 EOL을LF로 제공하고 원문에CR/LF가 있으면 원본 포맷터가 해당 첫 EOL을 선택합니다. raw 포맷터의 fallback EOL도 실제 API대로 처리합니다. 새로운 JSON stringify 대체나 전체 문서 재작성으로 축소하지 않습니다.
+
+출력은 newlines/indent/spaces 반복 패턴으로 표현해 범위/오류/이미 같은 텍스트를 먼저 판정합니다. 동일 구간은 출력 문자열을 할당하지 않습니다. 실제 편집을 만드는 경우에만 전체 output bytes/편집 수를 checked 연산과 제한으로 검사하고 부분 결과 없이 Capacity로 거절합니다. 폭/입력 byte·전체 scanner token/value와 실제 scalar 범위도 검증하며 음수 indentation의 원본 반복0 계약을 보존합니다. 새 의존성/JS 런타임·manifest/lock/동결/공유 타입은 바꾸지 않았습니다. Microsoft MIT 출처를 포함합니다.
+
+48입력·indent6개·keepLines/finalNewline 두 값·raw/actual service wrapper 두 경로·문서/전체 범위/빈 cursor/뒤 범위4개에서9,216사례를 실제 설치 코드로 생성했습니다. 정상/불완전·Unicode/escape·주석/CR/LF/CRLF·선행/빈 줄/탭·잘못된 구조·fallback U+2028도 원본 동작 대조에 포함합니다. raw/교정 결과와 실제 편집 적용 결과를 함께 fixture에 저장했습니다. source EOF가 입력 밖 len+1인 block comment/EOF 13/17 종류일 때만 단언한 scanner wrapper로 getTokenOffset/Length를 입력에 clamp하고 실제 원본 formatter를 다시 호출했습니다. native 출력으로 기대값을 만들지 않습니다. 명시 교정은60사례이며 service의 실제 TextDocument 위치도 직접 비교합니다.
+
+first.log/lib은13311 handle에서4.88초·exit0입니다. parity.log는15230 handle에서 compile10.10초·3통과/0.06초·exit0입니다. 모든 편집의 원문 범위/UTF-8 경계·UTF-16/순서/실제 적용 결과, 범위 밖/문자 중간과 전체 출력/편집/폭/token·깊이1,024의 출력 예산 실패 및 무편집0 budget을 확인했습니다. 동일 성공은 재실행하지 않습니다.
+
+실제 기존 formatting::apply_edits 소비를 readonly/writable 두 문서의 real EditorStore/DocumentId/ViewId·같은 문서 두 뷰와 검사했습니다. consumer.log는57970 handle에서 compile4.43초·1실패/0.00초·exit101이며 undo 후 dirty=false 기대가 틀렸습니다. native store의 requires_save=true·기존 store 검사와 TS code-editor.onDidChangeModelContent→use-editor-file-persistence.handleChange/setDirty(true)를 실제로 확인했습니다. 원문 복원 뒤에도 dirty=true를 보존하는 현재 원본/저장 계약을 기대값에 반영했습니다. 제품 저장 정책은 수정하지 않았습니다. consumer-final.log는80354 handle에서 compile4.49초·실제소비1통과/0.00초·3선별제외·exit0입니다. 적용된 전체 결과/비BMP 역방향 선택·mirror 단어 선택·단일 undo/추가undo 없음·기존 dirty·readonly 내용/revision/clean·stale 요청 거절을 확인했습니다. 기존3+신규소비1의서로 다른4성공이며 반복 합산하지 않습니다.
+
+소유Rust3/MJS format·소유diff와 manifest/lock/동결 변경0을 확인했습니다. host.log/lib+json-format test9.14초와 wasm.log/corelib5.09초는14409 handle에서 exit0·추가경고0으로 종료했습니다. 같은 성공은 재실행하지 않습니다. 기존Core359+신규4의363서로 다른 성공/성능1ignored입니다. portable 포맷과 기존 Core 편집 소비만 닫고 실제 App 내장 공급/진단 정책·schema/조회/완성/colors·CSS/HTML/TS·전체 App 준비/remoteWasm·OS/성능/전환/최종33 게이트는 부모b3/전체 목표에 유지합니다. 전체303/588(51.5%)·미완료285·editor-57missing/editor-16partial·목표active·잔여시간미산정입니다.

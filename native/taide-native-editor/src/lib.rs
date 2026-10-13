@@ -41,6 +41,8 @@ pub mod formatting;
 pub mod indent;
 #[path = "json-folding.rs"]
 pub mod json_folding;
+#[path = "json-format.rs"]
+pub mod json_format;
 #[path = "json-parser.rs"]
 pub mod json_parser;
 #[path = "json-scanner.rs"]
