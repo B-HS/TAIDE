@@ -1,6 +1,6 @@
 {
     "date": "2026-10-14",
-    "baseline": "66e08f95",
+    "baseline": "4ab2547a",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1308,10 +1308,11 @@
                 "native/taide-native-editor/tests/fixtures/emmet-completion-oracle.rs",
                 "native/taide-native-app/src/editor-completion-emmet-consumer-tests.rs",
                 "native/taide-native-app/src/application-emmet-tests.rs",
-                "native/taide-native-app/src/editor-syntax-tests.rs"
+                "native/taide-native-app/src/editor-syntax-tests.rs",
+                "experiments/lsp-coordinator-spike/src/bin/mock-server.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-14-native-batch23-emmet.md"],
-            "limitation": "현재doComplete5286사례·Core343서로다른성공/성능1ignored와실제여섯언어파일 App5/6사례·여섯언어/standard token/설정/Large/readonly/IME·peek/mirror/다중커서의소비자8·복제없는토큰프레임수명/구문20·기존완성79의현재App112성공을확인했습니다. full range/문서/label/필터·기본HTML/CSS 출력/원본오류수정·난수와예산을연결했고설정/token 변경·동일revision tier·닫힘에서회수합니다. 다른파일peek 실제App 전체묶음과전체App준비실패/성능ignored/remoteWasm/OS실기/최종33은남아partial입니다."
+            "limitation": "원본doComplete5286사례·Core343서로다른성공과실제여섯언어파일/다른HTML파일peek App6·standard token/설정/Large/readonly/IME/다중커서/mirror/재생성의소비자8·복제없는토큰프레임수명/구문20·기존완성79의현재App113성공을확인했습니다. 실제peek는서버Definition URI/실제언어/문서ID/owner·Tab수락/단일undo·원본Rust revision/본문/두디스크·닫힌후보취소/task0을보존합니다. HTML/JSX/CSS 출력/자료/필터·후보label/문서/범위/정렬·난수·예산/원본오류수정까지동작묶음을완료했습니다. 일반전체App 준비실패/Core성능ignored/remoteWasm Instant·OS실기/31~33 전체전환게이트는별도미완료입니다."
         }
     },
     "rows": [
@@ -3280,9 +3281,9 @@
             "ts": "`emmet-integration.ts:26-33`, `src/app/providers/emmet-provider.tsx`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:161",
             "domain": "editor",
-            "status": "partial",
+            "status": "complete",
             "proof": "editor-emmet",
-            "note": "현재doComplete5286사례·Core343서로다른성공/성능1ignored와실제여섯언어파일 App5/6사례·여섯언어/standard token/설정/Large/readonly/IME·peek/mirror/다중커서의소비자8·복제없는토큰프레임수명/구문20·기존완성79의현재App112성공을확인했습니다. full range/문서/label/필터·기본HTML/CSS 출력/원본오류수정·난수와예산을연결했고설정/token 변경·동일revision tier·닫힘에서회수합니다. 다른파일peek 실제App 전체묶음과전체App준비실패/성능ignored/remoteWasm/OS실기/최종33은남아partial입니다."
+            "note": "원본doComplete5286사례·Core343서로다른성공과실제여섯언어파일/다른HTML파일peek App6·standard token/설정/Large/readonly/IME/다중커서/mirror/재생성의소비자8·복제없는토큰프레임수명/구문20·기존완성79의현재App113성공을확인했습니다. 실제peek는서버Definition URI/실제언어/문서ID/owner·Tab수락/단일undo·원본Rust revision/본문/두디스크·닫힌후보취소/task0을보존합니다. HTML/JSX/CSS 출력/자료/필터·후보label/문서/범위/정렬·난수·예산/원본오류수정까지동작묶음을완료했습니다. 일반전체App 준비실패/Core성능ignored/remoteWasm Instant·OS실기/31~33 전체전환게이트는별도미완료입니다."
         },
         {
             "id": "editor-81",
