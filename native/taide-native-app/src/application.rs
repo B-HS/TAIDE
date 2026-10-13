@@ -9394,6 +9394,10 @@ mod ai_edit_tests;
 #[path = "application-emmet-tests.rs"]
 mod emmet_tests;
 
+#[cfg(all(test, unix, feature = "inspection"))]
+#[path = "application-sticky-definition-tests.rs"]
+mod sticky_definition_tests;
+
 #[cfg(test)]
 mod close_all_tests {
     use super::*;

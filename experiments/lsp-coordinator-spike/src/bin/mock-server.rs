@@ -1456,6 +1456,17 @@ impl MockServer {
                             .ok_or_else(|| invalid("location URI parent"))?;
                         json!({"uri":format!("{parent}/peek.html"),"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":3}}})
                     }
+                    (Some("sticky"), "textDocument/definition") => {
+                        let line = params["position"]["line"]
+                            .as_u64()
+                            .and_then(|value| value.checked_add(1))
+                            .ok_or_else(|| invalid("sticky position line"))?;
+                        let character = params["position"]["character"]
+                            .as_u64()
+                            .ok_or_else(|| invalid("sticky position character"))?;
+                        let end = character.checked_add(1).ok_or_else(|| invalid("sticky end character"))?;
+                        json!({"uri":uri,"range":{"start":{"line":line,"character":character},"end":{"line":line,"character":end}}})
+                    }
                     (_, "textDocument/definition") => json!({"uri":uri,"range":selection}),
                     (_, "textDocument/declaration") => json!([{"uri":uri,"range":declaration}]),
                     (_, "textDocument/typeDefinition") => {
@@ -2508,6 +2519,7 @@ fn main() -> io::Result<ExitCode> {
             mode @ ("--native-locations"
             | "--native-locations-cross-file"
             | "--native-locations-cross-file-emmet"
+            | "--native-locations-sticky"
             | "--native-locations-empty"
             | "--native-locations-null"
             | "--native-locations-error"
@@ -2520,6 +2532,7 @@ fn main() -> io::Result<ExitCode> {
             server.locations = Some(match mode {
                 "--native-locations-cross-file" => "cross-file",
                 "--native-locations-cross-file-emmet" => "cross-file-emmet",
+                "--native-locations-sticky" => "sticky",
                 "--native-locations-empty" => "empty",
                 "--native-locations-null" => "null",
                 "--native-locations-error" => "error",
