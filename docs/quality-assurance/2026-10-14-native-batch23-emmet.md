@@ -95,3 +95,5 @@ prepare_markup_with_random/expand_markup_with_random은u32 난수콜백을받아
 markup-lorem-first.log와markup-lorem-parity.log는검사호출의인자누락·잘못된모듈import로compile exit101/실행0건입니다. 실제snippet_syntax::ParseLimits/parse 계약으로수정한markup-lorem-parity-final.log는98864 handle에서compile4.44초·lorem3(444사례/비lorem 난수0/정체·생성예산)/0.02초·필터3/0.01초·출력4/0.05초·준비2/0.02초의12통과·0실패·exit0으로종료했습니다. 기존전체322+독립필터3+새lorem3의서로다른현재328성공/기존성능1ignored로재사용하며최신12를중복합산하지않습니다.
 
 markup-lorem-host.log의현재lib/Emmet7target host check17.69초와markup-lorem-wasm.log의현재corelib wasm32 check4.55초는73717 handle에서exit0/추가경고0으로종료했습니다. 최종8Rustfmt·oracle MJS/QA포맷·어휘/444fixture의동일입력재생성·소유diff/manifest·lock·frozen변경0·디스크630GiB/66%를확인했습니다. e3b6 코어범위만완료이며CSS/후보/실제App/editor-80unwired·전체302/588(51.4%)·미완료286/목표active·기존App준비/Wasm시간API/성능/실기게이트는미완료입니다.
+
+소유lorem core/생성어휘·난수API/검사/oracle/MIT출처·QA와PROCESS상단12경로를5ce6a2ba로선별커밋했습니다. 기능표baseline/lorem 근거만갱신하고editor-80unwired·전체302완료를유지합니다. 사용자PROCESS하단2hunk와다른문서/결정/피드백/메모리는보존했습니다.
