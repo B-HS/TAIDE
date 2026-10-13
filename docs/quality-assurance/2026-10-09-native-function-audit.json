@@ -1,6 +1,6 @@
 {
     "date": "2026-10-14",
-    "baseline": "0e5e737f",
+    "baseline": "abbeb5a1",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1315,6 +1315,20 @@
             ],
             "reports": ["docs/quality-assurance/2026-10-14-native-batch23-emmet.md"],
             "limitation": "원본doComplete5286사례·Core343서로다른성공과실제여섯언어파일/다른HTML파일peek App6·standard token/설정/Large/readonly/IME/다중커서/mirror/재생성의소비자8·복제없는토큰프레임수명/구문20·기존완성79의현재App113성공을확인했습니다. 실제peek는서버Definition URI/실제언어/문서ID/owner·Tab수락/단일undo·원본Rust revision/본문/두디스크·닫힌후보취소/task0을보존합니다. HTML/JSX/CSS 출력/자료/필터·후보label/문서/범위/정렬·난수·예산/원본오류수정까지동작묶음을완료했습니다. 일반전체App 준비실패/Core성능ignored/remoteWasm Instant·OS실기/31~33 전체전환게이트는별도미완료입니다."
+        },
+        "editor-builtin-language-services": {
+            "sources": [
+                "native/taide-native-editor/src/json-scanner.rs",
+                "native/taide-native-editor/src/lib.rs",
+                "native/taide-native-editor/json-language-license.txt"
+            ],
+            "tests": [
+                "native/taide-native-editor/tests/json-scanner.rs",
+                "native/taide-native-editor/tests/fixtures/json-scanner-oracle.mjs",
+                "native/taide-native-editor/tests/fixtures/json-scanner-oracle.rs"
+            ],
+            "reports": ["docs/quality-assurance/2026-10-14-native-batch23-builtin-language-services.md"],
+            "limitation": "scanner 원본 19,624사례·3검사/host·Wasm 성공만 검증했습니다. JSON 전체 AST/서비스/앱 공급과 CSS·HTML·TS는 미완료이며 editor-57 missing을 유지합니다."
         }
     },
     "rows": [
@@ -3031,8 +3045,8 @@
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:128",
             "domain": "editor",
             "status": "missing",
-            "proof": "editor-missing",
-            "note": "해당 사용자 동작의 실제 native 편집기/앱 소비 경로가 없습니다. 프로토콜·설정·backend만으로 완료 처리하지 않습니다."
+            "proof": "editor-builtin-language-services",
+            "note": "실제 설치 JSON scanner의 19,624사례·논리 UTF-16/오류/실제 byte 범위·예산과 현재 3검사/host·Wasm 컴파일을 확인했습니다. scanner는 원본 comment 범위/값과 실제 TextDocument 위치 오류 77사례를 명시적으로 교정합니다. JSON AST/회복·심볼/진단/조회/완성/포맷과 실제 App 공급·CSS/HTML/TS 전체가 미완료이므로 missing을 유지합니다. 외부 LSP 공급은 내장 fallback 완료 근거가 아닙니다."
         },
         {
             "id": "editor-58",
