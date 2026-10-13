@@ -61,8 +61,8 @@ impl Value {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Arena {
-    root: Option<usize>,
-    nodes: Vec<Value>,
+    pub(crate) root: Option<usize>,
+    pub(crate) nodes: Vec<Value>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -104,6 +104,17 @@ fn array_index(key: &[u16]) -> Option<u32> {
             .checked_add(u32::from(unit - ZERO_UNIT))?;
     }
     (value <= ARRAY_INDEX_MAX).then_some(value)
+}
+
+pub(crate) fn sort_members(members: &mut [Member]) {
+    members.sort_by(
+        |one, two| match (array_index(&one.key), array_index(&two.key)) {
+            (Some(one), Some(two)) => one.cmp(&two),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        },
+    );
 }
 
 impl Arena {
@@ -312,14 +323,7 @@ impl Arena {
                             });
                         }
                     }
-                    members.sort_by(|one, two| {
-                        match (array_index(&one.key), array_index(&two.key)) {
-                            (Some(one), Some(two)) => one.cmp(&two),
-                            (Some(_), None) => std::cmp::Ordering::Less,
-                            (None, Some(_)) => std::cmp::Ordering::Greater,
-                            (None, None) => std::cmp::Ordering::Equal,
-                        }
-                    });
+                    sort_members(&mut members);
                     Value::Object(members)
                 }
                 _ => return Err(EditorError::InvalidBoundary),

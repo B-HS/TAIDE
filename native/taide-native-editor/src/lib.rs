@@ -45,6 +45,8 @@ pub mod json_folding;
 pub mod json_format;
 #[path = "json-parser.rs"]
 pub mod json_parser;
+#[path = "json-schema-refs.rs"]
+pub mod json_schema_refs;
 #[path = "json-scanner.rs"]
 pub mod json_scanner;
 #[path = "json-selection.rs"]
