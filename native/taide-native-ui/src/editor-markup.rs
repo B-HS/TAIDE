@@ -303,6 +303,7 @@ fn blocks(
                 false,
                 false,
                 TextWeight::Normal,
+                false,
             ),
             Block::Heading { level, contents } => inlines(
                 ui,
@@ -318,6 +319,7 @@ fn blocks(
                 true,
                 false,
                 TextWeight::Bold,
+                false,
             ),
             Block::Quote(contents) => {
                 egui::Frame::new()
@@ -415,6 +417,7 @@ fn blocks(
                                     } else {
                                         TextWeight::Normal
                                     },
+                                    false,
                                 )
                             });
                         }
@@ -439,15 +442,26 @@ fn inlines(
     heading: bool,
     code_frame: bool,
     weight: TextWeight,
+    is_preview: bool,
 ) {
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
-        for inline in contents {
+        let mut grouped_until = 0;
+        for (index, inline) in contents.iter().enumerate() {
+            if index < grouped_until { continue; }
+            if code_frame && let Inline::Text(span) = inline && span.style.code && let Some(element) = span.code_element {
+                let count = contents[index..].iter().take_while(|inline| matches!(inline, Inline::Text(span) if span.code_element == Some(element))).count();
+                if count > 1 {
+                    egui::Frame::new().fill(colors.code_background).corner_radius(preview::CORNER_RADIUS).inner_margin(preview::INLINE_CODE_PADDING).show(ui, |ui| inlines(ui, &contents[index..index+count], appearance, colors, provider, size, heading, false, weight, true));
+                    grouped_until = index + count;
+                    continue;
+                }
+            }
             match inline {
                 Inline::Text(span) => {
                     let mut text = RichText::new(&span.text)
                         .font(inline_font(
-                            ui, span.style, appearance, size, weight, code_frame,
+                            ui, span.style, appearance, size, weight, is_preview,
                         ))
                         .color(colors.foreground)
                         .line_height(Some(if heading {
@@ -461,7 +475,7 @@ fn inlines(
                     if span.style.strike {
                         text = text.strikethrough();
                     }
-                    if span.style.code && !code_frame {
+                    if span.style.code && !code_frame && !is_preview {
                         text = text.background_color(colors.code_background);
                     }
                     let label = match &span.link {

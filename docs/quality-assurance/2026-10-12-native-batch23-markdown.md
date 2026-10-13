@@ -221,3 +221,17 @@ preview의 단순 텍스트/링크 작업 목록은 기존 Label galley에 첫 s
 설치된 epaint의 align_and_justify_row는 중앙/오른쪽 정렬에서 첫 들여쓰기의 glyph 위치를 정규화함을 실제 소스로 확인했습니다. cached galley를 변경하지 않고 배치 전에 소유한 clone에서 첫 text row의 중앙과 checkbox 포함 logical rect·mesh bounds를 계산합니다. Label의 response/선택·실제 glyph 링크 영역과 checkbox가 같은 배치를 사용합니다. 화면에 이미 그린 shape를 따로 이동하지 않습니다. task-inline-hit-fixed.log는 plain/중앙의 줄바꿈·checkbox 영역 클릭 거절·마지막 줄 실제 링크 pointer press/release1통과·0.03초·exit0(컴파일12.55초)입니다.
 
 task-inline-ui-geometry-final.log는 preview22/일반 도움말13의35통과·0.06/0.04초·exit0(컴파일6.63초)입니다. task-inline-app.log는 긴 제목의 실제 작업 목록과 기존 토글/입력/undo/오류·읽기 전용/두 뷰·원문/PNG/디스크·닫힘/작업0의4통과·87.61초·exit0(컴파일37.70초)입니다. over60초 관찰 메시지에서 검사 프로세스를 재시작하지 않고 같은 handle의 종료를 확인했습니다. 변경 없는 parser18/cache4/LSP8의30성공은 재사용한 서로 다른69건입니다. 소유4Rust fmt/diff·frozen host tests/inspection0.08초/Wasm canvas lib0.10초·exit0·662GiB/64%와 사용자 문서/PROCESS 하단 두 hunk·의존성/manifest/lock/frozen source·보호 경계를 보존했습니다. 혼합 code/image 작업 목록·raw input 위치/상태와 임의 CSS·첫 table baseline·전체 HTML/접근성/OS/전체 게이트는 부모 d6c3h에 유지합니다. editor-72 partial·302/588(51.4%)·미완료286·배치23 잔여19/최종33·전체 완료 시간 미산정입니다.
+
+## 코드 요소 식별과 배경 경계 (2026-10-13)
+
+원본의 인접 code와 한 code 안의 강조/일반/링크를 별도 standards Chrome 문서로 대조한 code-boundary-browser.log는6조건 통과·exit0입니다. 서로 다른3개 요소는 별도 박스/좌우4px padding을 유지하며 세 자식의 스타일이 다른 한 요소는 같은 박스입니다. code-boundary-red.log는 first/second가 합쳐져5개 span 대신4개가 된 실제0/1·0.03초·exit101(컴파일16.84초)입니다.
+
+Span의 optional code_element는 기본 None으로 기존 LSP/일반 소비를 유지합니다. HTML은 inline 문맥에서 source 순서의 식별자를 각 code 요소에 부여하고 내부 강조/링크 재귀에 보존합니다. append는 style/link뿐 아니라 요소도 같은 경우에만 병합합니다. 이 식별은 기존64MiB 출력/128depth 경계 안의 code 개수로 제한되며 임의 주소/랜덤/추가 자료구조를 사용하지 않습니다. repeat parse equality와 인접 요소의 다른 식별·같은 요소 내부의 동일 식별을 검사했습니다.
+
+미리보기는 연속된 같은 요소 span을 한 Frame에 배치하며 좌우 padding도 너비 측정에서 요소당1번 적용합니다. preview 폰트와 frame 여부를 독립된 내부 인자로 구분해 그룹 안의 code mono/상속 굵기와 일반 LSP의 기존 편집기 code 가족을 유지합니다. legacy None은 기존 표시를 따릅니다. 새 필드의 기존 직접 Span test literal 누락 E0063·exit101·0검사는 명시적인 None으로 수정했고 포맷 뒤 patch context 작성 오류도 현재 제품 성공에 합산하지 않습니다.
+
+code-boundary-parser.log는 parser/분할 상태/예산19통과·0.03초·exit0(컴파일33.08초)입니다. 식별/동일 parse 단언을 추가한 parser-final.log의 관련1통과·0.00초·exit0(컴파일26.30초) 뒤 영향 없는18성공은 재사용합니다. code-boundary-ui-fixed.log는 preview22/일반 도움말13의35통과·0.07/0.04초·exit0(컴파일10.43초)입니다. 새 group-ui.log의0/1·0.01초·exit101은 wrapped Label의 galley 전체 rect에 이전 span의 leading space를 포함해 링크 밖을 클릭한 검사 관찰 오류였습니다. 설치 epaint Row.rect_without_leading_space의 실제 glyph 영역을 사용한 group-ui-fixed.log는3개 둥근 배경·동일 그룹의 강조/일반/링크·실제 pointer 링크1통과·0.01초·exit0(컴파일4.75초)입니다. 중복을 제외한 UI36건입니다.
+
+code-boundary-lsp.log는 기존 plain/코드/GFM/보안8통과·0.00초·exit0입니다. code-boundary-app.log는3성공/마지막 nested table1관찰 실패·59.22초·exit101입니다. 새 제목으로 문서가 길어져 첫 화면 밖에 내려간 표를 같은 viewport에서 wheel/실제 scroll로 관찰한 app-scroll.log는 관련1통과·34.19초·exit0(컴파일15.88초)이며 나머지3성공을 재사용합니다. 실제 인접 code/내부 강조·입력/undo/오류/읽기 전용/두 뷰·이미지2개/원문/PNG/디스크·마지막 표/닫힘/작업0을 유지합니다. 기존 cache4는 입력/소비 경계가 같아 재사용합니다. 현재 parser19/UI36/LSP8/App4/cache4의 서로 다른71건과 browser6조건입니다.
+
+frozen host tests/inspection27.58초/Wasm canvas lib12.98초·exit0·소유8Rust fmt/diff·660GiB/64%를 확인했습니다. 새 의존성/manifest/lock/frozen source·사용자 문서/PROCESS 하단 두 hunk·실제 OS/설정/클립보드/보호 앱을 변경하지 않았습니다. 전체 혼합 code 줄 배치·nested code 박스/BR/image 경계·kbd/samp 박스/임의 CSS·raw input/첫 table baseline·접근성/추가 HTML/CLI·이전 전체App 준비22실패/성능/OS/출시/전환/제거는 미완료입니다. 부모 d6c3h·editor-72 partial·302/588(51.4%)·미완료286·배치23 잔여19/최종33·전체 완료 시간 미산정을 유지합니다.

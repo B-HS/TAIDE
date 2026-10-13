@@ -221,6 +221,7 @@ pub struct Span {
     pub text: String,
     pub style: Style,
     pub link: Option<Link>,
+    pub code_element: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]

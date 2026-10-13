@@ -728,6 +728,118 @@ fn 인용과_표는_원본_테두리를_사용하고_긴_코드는_줄바꿈하�
 }
 
 #[test]
+fn 코드_요소의_강조와_링크는_같은_프레임을_공유한다() {
+    use taide_native_editor::documentation::{Link, Style};
+    const FRAME_COUNT: usize = 3;
+    const GROUP: usize = 2;
+    const RADIUS: u8 = 4;
+    const TARGET: &str = "https://example.com/code-group";
+    struct Links(Vec<String>);
+    impl Provider for Links {
+        fn open_link(&mut self, _: &Ui, target: &str) -> bool {
+            self.0.push(target.into());
+            true
+        }
+    }
+    let code = |label: &str, id, is_bold, link| {
+        Inline::Text(Span {
+            text: label.into(),
+            style: Style {
+                code: true,
+                bold: is_bold,
+                ..Default::default()
+            },
+            link,
+            code_element: Some(id),
+        })
+    };
+    let document = RichDocument {
+        blocks: vec![Block::Paragraph(vec![
+            code("first", 0, false, None),
+            code("second", 1, false, None),
+            code("bold", GROUP, true, None),
+            code(" plain ", GROUP, false, None),
+            code(
+                "linked",
+                GROUP,
+                false,
+                Some(Link {
+                    target: TARGET.into(),
+                    title: String::new(),
+                }),
+            ),
+        ])],
+    };
+    let context = Context::default();
+    let mut links = Links(vec![]);
+    let paint = |links: &mut Links, events| {
+        let mut output = context.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, SCREEN)),
+                events,
+                ..Default::default()
+            },
+            |ui| show_preview(ui, &document, &appearance(), colors(), links),
+        );
+        output.textures_delta.clear();
+        output
+    };
+    let output = paint(&mut links, vec![]);
+    let frames = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Rect(rect)
+                if rect.fill == colors().code_background && rect.corner_radius.nw == RADIUS =>
+            {
+                Some(rect.rect)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(frames.len(), FRAME_COUNT);
+    let bounds = |label: &str| {
+        output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == label => {
+                    Some(text.galley.rows.iter().fold(Rect::NOTHING, |rect, row| {
+                        rect.union(
+                            row.rect_without_leading_space()
+                                .translate(text.pos.to_vec2()),
+                        )
+                    }))
+                }
+                _ => None,
+            })
+            .unwrap()
+    };
+    for label in ["bold", " plain ", "linked"] {
+        assert!(
+            frames[GROUP].contains_rect(bounds(label)),
+            "group frame does not contain {label}"
+        );
+    }
+    for pressed in [true, false] {
+        let position = bounds("linked").center();
+        paint(
+            &mut links,
+            vec![
+                egui::Event::PointerMoved(position),
+                egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+    }
+    assert_eq!(links.0, [TARGET]);
+}
+
+#[test]
 fn 인라인_코드_프레임은_원본_둥근_배경과_링크_클릭을_보존한다() {
     const CODE_RADIUS: u8 = 4;
     const TARGET: &str = "https://example.com/code";
@@ -745,6 +857,7 @@ fn 인라인_코드_프레임은_원본_둥근_배경과_링크_클릭을_보존
     let document = RichDocument {
         blocks: vec![Block::Paragraph(vec![Inline::Text(Span {
             text: "linked-code".into(),
+            code_element: None,
             style: taide_native_editor::documentation::Style {
                 code: true,
                 ..Default::default()

@@ -58,10 +58,17 @@ fn target(value: &str, base: Option<&Url>, image: bool) -> Option<String> {
     allowed.then(|| uri.to_string())
 }
 
-fn append(contents: &mut Vec<Inline>, text: &str, style: Style, link: Option<Link>) {
+fn append(
+    contents: &mut Vec<Inline>,
+    text: &str,
+    style: Style,
+    link: Option<Link>,
+    code_element: Option<usize>,
+) {
     if let Some(Inline::Text(previous)) = contents.last_mut()
         && previous.style == style
         && previous.link == link
+        && previous.code_element == code_element
     {
         previous.text.push_str(text);
         return;
@@ -70,6 +77,7 @@ fn append(contents: &mut Vec<Inline>, text: &str, style: Style, link: Option<Lin
         text: text.into(),
         style,
         link,
+        code_element,
     }));
 }
 
@@ -79,6 +87,8 @@ fn inlines(
     mut style: Style,
     mut link: Option<Link>,
     output: &mut Vec<Inline>,
+    mut code_element: Option<usize>,
+    next_code_element: &mut usize,
 ) {
     if node.is_text() {
         let text = node.text().to_string();
@@ -95,7 +105,7 @@ fn inlines(
                 space = false;
             }
         }
-        append(output, &collapsed, style, link);
+        append(output, &collapsed, style, link, code_element);
         return;
     }
     let tag = name(node);
@@ -106,7 +116,12 @@ fn inlines(
         "strong" | "b" => style.bold = true,
         "em" | "i" => style.italic = true,
         "del" | "s" | "strike" => style.strike = true,
-        "code" | "kbd" | "samp" => style.code = true,
+        "code" => {
+            style.code = true;
+            code_element = Some(*next_code_element);
+            *next_code_element += 1;
+        }
+        "kbd" | "samp" => style.code = true,
         "a" => {
             link = node
                 .attr("href")
@@ -133,7 +148,7 @@ fn inlines(
                 .attr("src")
                 .and_then(|source| target(&source, base, true))
             else {
-                append(output, &alt, style, link);
+                append(output, &alt, style, link, code_element);
                 return;
             };
             output.push(Inline::Image {
@@ -154,12 +169,21 @@ fn inlines(
         _ => {}
     }
     for child in node.children_it(false) {
-        inlines(child, base, style, link.clone(), output);
+        inlines(
+            child,
+            base,
+            style,
+            link.clone(),
+            output,
+            code_element,
+            next_code_element,
+        );
     }
 }
 
 fn contents(node: NodeRef<'_>, base: Option<&Url>, bold: bool) -> Vec<Inline> {
     let mut output = Vec::new();
+    let mut next_code_element = 0;
     for child in node.children_it(false) {
         inlines(
             child,
@@ -170,6 +194,8 @@ fn contents(node: NodeRef<'_>, base: Option<&Url>, bold: bool) -> Vec<Inline> {
             },
             None,
             &mut output,
+            None,
+            &mut next_code_element,
         );
     }
     output
@@ -253,6 +279,7 @@ fn marker_style(value: &str) -> Option<ListMarkerStyle> {
 fn blocks(node: NodeRef<'_>, base: Option<&Url>, bold: bool) -> AppResult<Vec<Block>> {
     let mut output = Vec::new();
     let mut pending = Vec::new();
+    let mut next_code_element = 0;
     for child in node.children_it(false) {
         let tag = name(child);
         if REMOVED_TAGS.contains(&tag.as_str()) || child.has_attr("hidden") {
@@ -268,6 +295,8 @@ fn blocks(node: NodeRef<'_>, base: Option<&Url>, bold: bool) -> AppResult<Vec<Bl
                 },
                 None,
                 &mut pending,
+                None,
+                &mut next_code_element,
             );
             continue;
         }

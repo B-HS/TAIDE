@@ -223,6 +223,7 @@ fn append_text(inlines: &mut Vec<Inline>, text: &str, style: Style, link: Option
         text: text.into(),
         style,
         link,
+        code_element: None,
     }));
 }
 

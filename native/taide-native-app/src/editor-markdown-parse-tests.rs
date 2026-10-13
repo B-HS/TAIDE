@@ -2,6 +2,28 @@ use super::*;
 use taide_native_editor::documentation::{Block, Inline};
 
 #[test]
+fn 인접한_code_요소와_요소_안의_스타일_경계는_보존된다() {
+    let document = parse("<p><code>first</code><code>second</code><code><strong>bold</strong> plain <a href='https://example.com'>linked</a></code></p>", None).unwrap();
+    let Block::Paragraph(values) = &document.blocks[0] else {
+        panic!("expected paragraph")
+    };
+    assert_eq!(values.len(), 5);
+    assert!(matches!(&values[0], Inline::Text(span) if span.text == "first" && span.style.code));
+    assert!(matches!(&values[1], Inline::Text(span) if span.text == "second" && span.style.code));
+    let elements = values
+        .iter()
+        .map(|value| match value {
+            Inline::Text(span) => span.code_element.unwrap(),
+            _ => panic!("expected span"),
+        })
+        .collect::<Vec<_>>();
+    assert_ne!(elements[0], elements[1]);
+    assert_ne!(elements[1], elements[2]);
+    assert_eq!(elements[2..], [elements[2], elements[2], elements[2]]);
+    assert_eq!(document, parse("<p><code>first</code><code>second</code><code><strong>bold</strong> plain <a href='https://example.com'>linked</a></code></p>", None).unwrap());
+}
+
+#[test]
 fn 표_제목의_flow_구조와_셀없는_표의_이미지_링크를_보존한다() {
     let document = parse(
         "<table><caption><p>first</p><p>https://example.com/caption</p><ol start='-1'><li>item</li></ol><pre><code>first code\nsecond code</code></pre><blockquote><p><img src='./caption.png'><a href='./next.md'>next</a></p></blockquote></caption></table>",

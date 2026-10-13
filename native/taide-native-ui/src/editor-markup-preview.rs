@@ -128,9 +128,11 @@ fn inline_widths(
     let code_padding = f32::from(INLINE_CODE_PADDING.left) + f32::from(INLINE_CODE_PADDING.right);
     let (job, _) = super::inline_job(ui, cell, appearance, font_size, weight, true);
     let (mut min, mut max) = text_widths(ui, job);
-    for inline in cell {
+    for (index, inline) in cell.iter().enumerate() {
         if let Inline::Text(span) = inline
             && span.style.code
+            && (span.code_element.is_none()
+                || !matches!(index.checked_sub(1).and_then(|previous| cell.get(previous)), Some(Inline::Text(previous)) if previous.code_element == span.code_element && previous.style.code))
         {
             min += code_padding;
             max += code_padding;
@@ -399,6 +401,7 @@ fn inline_contents(
                         false,
                         true,
                         weight,
+                        true,
                     )
                 },
             );
@@ -437,6 +440,7 @@ fn inline_contents(
                     false,
                     true,
                     weight,
+                    true,
                 )
             },
         );
@@ -452,6 +456,7 @@ fn inline_contents(
         false,
         true,
         weight,
+        true,
     );
 }
 
