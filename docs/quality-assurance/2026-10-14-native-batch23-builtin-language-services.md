@@ -70,3 +70,17 @@ name/detail/container는 Vec<u16>으로 escaped lone surrogate를 보존합니�
 first.log/lib은12870 handle에서5.04초·exit0입니다. 첫 generator 실패 뒤 원본 fixture가 없는 상태에서도 이어진 parity.log Cargo는49247 handle에서 컴파일 exit101·실행 검사0건으로 종료했습니다. 이 실패를 성공에 포함하지 않고 이후 생성/format 앞에 set -e를 적용했습니다. Prettier 실제 줄과 다른 patch2회는 적용되지 않았으며 파일을 읽고 정확히 수정했습니다. canonical.log는67073 handle에서 compile4.49초·3통과/0.03초·exit0의URI4개/3,744사례입니다. Unicode lowercase URI 두 사례를 추가한 uri.log는65449 handle에서 compile9.00초·현재3통과/0.05초·exit0의5,616사례입니다. 이전3건과 중복 합산하지 않습니다.
 
 소유 Rust3 fmt/MJS prettier·소유diff와 manifest/lock/동결 변경0을 확인했습니다. host.log/lib+json-symbols test8.71초와 wasm.log/corelib4.85초는67928 handle에서 exit0·추가경고0으로 종료했으며 동일 성공을 재실행하지 않습니다. 기존Core353+신규3의356서로 다른 성공/기존성능1ignored를 유지합니다. 문서 심볼의 portable core만 닫고 실제 App 공급·접기/나머지 JSON 서비스·CSS/HTML/TS 및 전체App 준비/remoteWasm·OS/성능/전환/최종33 게이트는 미완료로 남깁니다. 전체303/588(51.5%)·미완료285·editor-57missing/editor-16partial·목표active·잔여시간미산정입니다.
+
+## b3c3 — JSON 접기
+
+설치 jsonFolding.js 전체와 현재 native SyntaxFoldRange/FoldRegion·문서별 SyntaxFolds 수명을 실제 코드로 대조했습니다. json-folding.rs는 기존 scanner의 실제 byte 경계를 원본 CR/LF/CRLF 줄 시작으로 변환해 객체/배열 닫힘 이전 줄·블록 comment 전체 줄·region·종류 불일치·동일 시작 억제를 구현합니다. 닫히지 않은 comment는 원본처럼 다음 물리 줄부터 scanner를 다시 시작하고 EOF/반복 comment와 줄 안의 문자열/중괄호를 구분합니다. 기존 parser의 ECMA 공백 helper는 구현 그대로 crate 내부에만 노출해 region의 공백/BOM/NBSP·ASCII word boundary를 적용했습니다. 공유 타입/manifest/lock/동결은 바꾸지 않았습니다.
+
+원본 regex /^\/\/\s*#(region\b)|(endregion\b)/의 두 번째 대안은 comment 안 임의 endregion 단어를 종료 지시자로 취급합니다. 또한 제한 계산이 level<30만 집계해 깊은 영역의 결과 제한에서 정당한 범위를 누락합니다. 실제 설치 source를 읽고 두 정확한 marker가 한 번씩만 존재함을 단언했습니다. golden의 raw는 수정 없는 actual getFoldingRanges를 호출합니다. 교정은 동일 실제 source의 해당 regex를 양쪽 모두 // 공백 #로 묶고 count guard를 모든 비음수 깊이로 고친 private temp 모듈을 호출합니다. 상대 import는 실제 파일 URI로만 재배치했으며 native 구현으로 기대값을 만들지 않습니다. 이 test-only source의 runtime/새 의존성을 제품에 반입하지 않았습니다.
+
+native 결과 제한은 원본의 순서·얕은 깊이 우선·같은 깊이의 기존 순서를 유지하고 초과 callback 상태를 함께 반환합니다. 자원 상한은 max_depth/ranges와 scanner token/value/input byte·재탐색 전체 work byte에 별도로 적용합니다. suffix scan에서 이미 소비한 token/value 예산을 되돌리지 않으며 반복 미완료 comment의 누적 작업을 검증합니다. 명시 stack/평면 범위를 사용해 깊은 생성/조회/폐기에도 재귀 소유 구조를 만들지 않습니다.
+
+99입력·원본 rangeLimit None/0/1/2/4/8/32의693사례에서 객체/배열·혼합/불일치·주석/불완전 재탐색·region/중첩/잘못된 종료·Unicode whitespace/word boundary·세 newline 방식과 깊이1/2/4/29/30/31/34를 대조했습니다. raw 교정41사례는 두 원본 오류에만 해당합니다. 4,096깊이와 원문 줄 범위/닫힌 줄 제외·제한과 전체 작업/값/token/byte/range/depth 예산을 별도로 검증했습니다.
+
+first.log/lib은62531 handle에서4.90초·exit0입니다. parity.log는58124 handle에서 compile10.27초·2통과/비교1실패·0.01초·exit101입니다. 실패는 raw/교정이 다른 입력에서 region 또는 깊은 객체만 허용하는 검사 assert가 깊은 배열을 빠뜨렸기 때문입니다. 실제 출력 불일치로 단정하지 않고 해당 원본 guard 가족도 정확히 허용한 뒤 corrected.log를2522 handle에서 compile8.39초·현재3통과/0.02초·exit0으로 확인했습니다. 이후 숫자29 비교를 같은 의미의 source depth limit30 상수로만 정리했으며 입력/검사 의미가 같은 성공은 반복 실행하지 않습니다.
+
+소유Rust3/MJS format과 helper의1줄 가시성 diff·MIT·manifest/lock/동결 변경0·디스크618GiB/67%를 확인했습니다. host.log/lib+json-folding test4.22초와 wasm.log/corelib4.85초는8830 handle에서 exit0·추가경고0으로 종료했습니다. helper를 포함한 소유Rust4 fmt가 통과했으며 동일 성공은 재실행하지 않습니다. 기존Core356+신규3의359서로 다른 성공/성능1ignored를 유지합니다. 선택 확장·심볼·접기의 portable 구조 서비스 b3c는 구현·원본/경계/예산 검증을 마쳤지만 실제 App 공급과 JSON 진단 정책/포맷/조회/완성/colors·CSS/HTML/TS·전체 App 준비/remoteWasm·OS/성능/전환/최종33 게이트는 부모b3/전체 목표에 남습니다. 전체303/588(51.5%)·미완료285·editor-57missing/editor-16partial·목표active·잔여시간미산정입니다.

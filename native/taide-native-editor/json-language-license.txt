@@ -3,6 +3,7 @@ Source: https://github.com/microsoft/node-jsonc-parser
 JSON AST parsing and recovery in src/json-parser.rs are adapted from the JSON language service bundled with monaco-editor.
 JSON selection expansion in src/json-selection.rs is adapted from the same JSON language service.
 JSON document symbols in src/json-symbols.rs are adapted from the same JSON language service.
+JSON folding in src/json-folding.rs is adapted from the same JSON language service.
 Source: https://github.com/microsoft/vscode-json-languageservice
 
 The MIT License (MIT)

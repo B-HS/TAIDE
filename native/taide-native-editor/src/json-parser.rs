@@ -184,7 +184,7 @@ struct Parser<'a> {
 
 const COMMENT_KEY: &[u16] = &[u16::from_be_bytes([0, b'/']); 2];
 
-fn is_ecma_whitespace(character: char) -> bool {
+pub(crate) fn is_ecma_whitespace(character: char) -> bool {
     matches!(
         character,
         '\u{9}'..='\u{d}' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}'
