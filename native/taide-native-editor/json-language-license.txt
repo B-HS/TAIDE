@@ -6,6 +6,7 @@ JSON selection expansion in src/json-selection.rs is adapted from the same JSON 
 JSON document symbols in src/json-symbols.rs are adapted from the same JSON language service.
 JSON folding in src/json-folding.rs is adapted from the same JSON language service.
 JSON syntax validation policy in src/json-validation.rs is adapted from the same JSON language service.
+JSON value conversion and comparison in src/json-value.rs are adapted from the same JSON language service and its bundled JSONC parser.
 Source: https://github.com/microsoft/vscode-json-languageservice
 
 The MIT License (MIT)

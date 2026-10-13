@@ -53,6 +53,8 @@ pub mod json_selection;
 pub mod json_symbols;
 #[path = "json-validation.rs"]
 pub mod json_validation;
+#[path = "json-value.rs"]
+pub mod json_value;
 #[path = "inlay-hints.rs"]
 pub mod inlay_hints;
 #[path = "language-configuration.rs"]
