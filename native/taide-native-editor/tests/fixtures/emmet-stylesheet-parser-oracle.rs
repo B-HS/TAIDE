@@ -546,7 +546,7 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         false,
         "animation-duration:${1:0}s",
-        Some("9:animationi0[[l8:durationf1:1:0l1:s]]"),
+        Some("9:animationi0[[l8:durationf1:0:1:0l1:s]]"),
     ),
     (false, "animation-fill-mode:both|forwards|backwards", None),
     (false, "animation-iteration-count:1|infinite", None),
@@ -569,12 +569,12 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         false,
         "border-bottom-color:${1:#000}",
-        Some("6:borderi0[[l6:bottoml5:colorf1:4:#000]]"),
+        Some("6:borderi0[[l6:bottoml5:colorf1:0:4:#000]]"),
     ),
     (
         false,
         "border-bottom-image:url(${0})",
-        Some("6:borderi0[[l6:bottoml5:imagex3:url[[f0:0:]]]]"),
+        Some("6:borderi0[[l6:bottoml5:imagex3:url[[f0:0:0:]]]]"),
     ),
     (
         false,
@@ -606,7 +606,7 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         false,
         "border-color:${1:#000}",
-        Some("6:borderi0[[l5:colorf1:4:#000]]"),
+        Some("6:borderi0[[l5:colorf1:0:4:#000]]"),
     ),
     (false, "border-corner-image:url(${0})|continue", None),
     (false, "border-collapse:collapse|separate", None),
@@ -618,19 +618,19 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         false,
         "border-image:url(${0})",
-        Some("6:borderi0[[l5:imagex3:url[[f0:0:]]]]"),
+        Some("6:borderi0[[l5:imagex3:url[[f0:0:0:]]]]"),
     ),
     (false, "border-left:${1:1px} ${2:solid} ${3:#000}", None),
     (
         false,
         "border-left-color:${1:#000}",
-        Some("6:borderi0[[l4:leftl5:colorf1:4:#000]]"),
+        Some("6:borderi0[[l4:leftl5:colorf1:0:4:#000]]"),
     ),
     (false, "border-length", Some("6:borderi0[[l6:length]]")),
     (
         false,
         "border-left-image:url(${0})",
-        Some("6:borderi0[[l4:leftl5:imagex3:url[[f0:0:]]]]"),
+        Some("6:borderi0[[l4:leftl5:imagex3:url[[f0:0:0:]]]]"),
     ),
     (
         false,
@@ -646,12 +646,12 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         false,
         "border-right-color:${1:#000}",
-        Some("6:borderi0[[l5:rightl5:colorf1:4:#000]]"),
+        Some("6:borderi0[[l5:rightl5:colorf1:0:4:#000]]"),
     ),
     (
         false,
         "border-right-image:url(${0})",
-        Some("6:borderi0[[l5:rightl5:imagex3:url[[f0:0:]]]]"),
+        Some("6:borderi0[[l5:rightl5:imagex3:url[[f0:0:0:]]]]"),
     ),
     (false, "border-radius", Some("6:borderi0[[l6:radius]]")),
     (
@@ -674,12 +674,12 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         false,
         "border-top-color:${1:#000}",
-        Some("6:borderi0[[l3:topl5:colorf1:4:#000]]"),
+        Some("6:borderi0[[l3:topl5:colorf1:0:4:#000]]"),
     ),
     (
         false,
         "border-top-image:url(${0})",
-        Some("6:borderi0[[l3:topl5:imagex3:url[[f0:0:]]]]"),
+        Some("6:borderi0[[l3:topl5:imagex3:url[[f0:0:0:]]]]"),
     ),
     (false, "border-top-left-image:url(${0})|continue", None),
     (
@@ -728,7 +728,7 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         false,
         "background:${1:#000}",
-        Some("10:backgroundi0[[f1:4:#000]]"),
+        Some("10:backgroundi0[[f1:0:4:#000]]"),
     ),
     (false, "background: none", None),
     (false, "background-attachment:fixed|scroll", None),
@@ -740,7 +740,7 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         false,
         "background-color:${1:#fff}",
-        Some("10:backgroundi0[[l5:colorf1:4:#fff]]"),
+        Some("10:backgroundi0[[l5:colorf1:0:4:#fff]]"),
     ),
     (
         false,
@@ -750,7 +750,7 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         false,
         "background-image:url(${0})",
-        Some("10:backgroundi0[[l5:imagex3:url[[f0:0:]]]]"),
+        Some("10:backgroundi0[[l5:imagex3:url[[f0:0:0:]]]]"),
     ),
     (
         false,
@@ -781,17 +781,17 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
         None,
     ),
     (false, "box-sizing:border-box|content-box|border-box", None),
-    (false, "color:${1:#000}", Some("5:colori0[[f1:4:#000]]")),
+    (false, "color:${1:#000}", Some("5:colori0[[f1:0:4:#000]]")),
     (false, "column-gap", Some("6:columni0[[l3:gap]]")),
     (
         false,
         "color:rgb(${1:0}, ${2:0}, ${3:0})",
-        Some("5:colori0[[x3:rgb[[f1:1:0][f2:1:0][f3:1:0]]]]"),
+        Some("5:colori0[[x3:rgb[[f1:0:1:0][f2:0:1:0][f3:0:1:0]]]]"),
     ),
     (
         false,
         "color:rgba(${1:0}, ${2:0}, ${3:0}, ${4:.5})",
-        Some("5:colori0[[x4:rgba[[f1:1:0][f2:1:0][f3:1:0][f4:2:.5]]]]"),
+        Some("5:colori0[[x4:rgba[[f1:0:1:0][f2:0:1:0][f3:0:1:0][f4:0:2:.5]]]]"),
     ),
     (false, "clear:both|left|right|none", None),
     (false, "/* ${0} */", None),
@@ -966,7 +966,7 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         false,
         "background-image:linear-gradient(${1})",
-        Some("10:backgroundi0[[l5:imagel6:linearx8:gradient[[f1:0:]]]]"),
+        Some("10:backgroundi0[[l5:imagel6:linearx8:gradient[[f1:0:0:]]]]"),
     ),
     (false, "line-height", Some("4:linei0[[l6:height]]")),
     (false, "list-style", Some("4:listi0[[l5:style]]")),
@@ -1144,22 +1144,22 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         false,
         "transition-delay:${1:time}",
-        Some("10:transitioni0[[l5:delayf1:4:time]]"),
+        Some("10:transitioni0[[l5:delayf1:0:4:time]]"),
     ),
     (
         false,
         "transition-duration:${1:time}",
-        Some("10:transitioni0[[l8:durationf1:4:time]]"),
+        Some("10:transitioni0[[l8:durationf1:0:4:time]]"),
     ),
     (
         false,
         "transition-property:${1:prop}",
-        Some("10:transitioni0[[l8:propertyf1:4:prop]]"),
+        Some("10:transitioni0[[l8:propertyf1:0:4:prop]]"),
     ),
     (
         false,
         "transition-timing-function:${1:fn}",
-        Some("10:transitioni0[[l6:timingl8:functionf1:2:fn]]"),
+        Some("10:transitioni0[[l6:timingl8:functionf1:0:2:fn]]"),
     ),
     (
         false,
@@ -1286,12 +1286,25 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (false, "$var10", Some("4:$vari0[[n10:2:100:]]")),
     (false, "m$var10", Some("1:mi0[[l6:$var10]]")),
     (false, "@foo10", Some("4:@fooi0[[n10:2:100:]]")),
-    (false, "m${1:20px}", Some("1:mi0[[f1:4:20px]]")),
-    (false, "m${variable}", Some("1:mi0[[f-:8:variable]]")),
-    (false, "m${1:a{b}c}", Some("1:mi0[[f1:5:a{b}c]]")),
-    (false, "m${1}", Some("1:mi0[[f1:0:]]")),
-    (false, "m${}", Some("1:mi0[[f-:0:]]")),
-    (false, "m${1:}", Some("1:mi0[[f1:0:]]")),
+    (false, "m${1:20px}", Some("1:mi0[[f1:0:4:20px]]")),
+    (false, "m10${1}", Some("1:mi0[[n10:2:100:f1:1:0:]]")),
+    (false, "m10-${1}", Some("1:mi0[[n10:2:100:f1:0:0:]]")),
+    (
+        false,
+        "rgb(1${1},2)",
+        Some("-i0[[x3:rgb[[n1:1:10:f1:1:0:][n2:1:20:]]]]"),
+    ),
+    (
+        false,
+        "foo(1)${1}",
+        Some("-i0[[x3:foo[[n1:1:10:]]f1:0:0:]]"),
+    ),
+    (false, "f:${1}${2}", Some("1:fi0[[f1:0:0:f2:1:0:]]")),
+    (false, "m${variable}", Some("1:mi0[[f-:0:8:variable]]")),
+    (false, "m${1:a{b}c}", Some("1:mi0[[f1:0:5:a{b}c]]")),
+    (false, "m${1}", Some("1:mi0[[f1:0:0:]]")),
+    (false, "m${}", Some("1:mi0[[f-:0:0:]]")),
+    (false, "m${1:}", Some("1:mi0[[f1:0:0:]]")),
     (false, "m${1", None),
     (false, "f:'open", Some("1:fi0[[ssingle:4:open]]")),
     (
@@ -1837,7 +1850,7 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
         true,
         "animation:${1:name} ${2:duration} ${3:timing-function} ${4:delay} ${5:iteration-count} ${6:direction} ${7:fill-mode}",
         Some(
-            "-i0[[l9:animationf1:4:namef2:8:durationf3:15:timing-functionf4:5:delayf5:15:iteration-countf6:9:directionf7:9:fill-mode]]",
+            "-i0[[l9:animationf1:0:4:namef2:0:8:durationf3:0:15:timing-functionf4:0:5:delayf5:0:15:iteration-countf6:0:9:directionf7:0:9:fill-mode]]",
         ),
     ),
     (
@@ -1853,7 +1866,7 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         true,
         "animation-duration:${1:0}s",
-        Some("-i0[[l18:animation-durationf1:1:0l1:s]]"),
+        Some("-i0[[l18:animation-durationf1:0:1:0l1:s]]"),
     ),
     (true, "animation-fill-mode:both|forwards|backwards", None),
     (true, "animation-iteration-count:1|infinite", None),
@@ -1878,22 +1891,22 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         true,
         "border:${1:1px} ${2:solid} ${3:#000}",
-        Some("-i0[[l6:borderf1:3:1pxf2:5:solidf3:4:#000]]"),
+        Some("-i0[[l6:borderf1:0:3:1pxf2:0:5:solidf3:0:4:#000]]"),
     ),
     (
         true,
         "border-bottom:${1:1px} ${2:solid} ${3:#000}",
-        Some("-i0[[l13:border-bottomf1:3:1pxf2:5:solidf3:4:#000]]"),
+        Some("-i0[[l13:border-bottomf1:0:3:1pxf2:0:5:solidf3:0:4:#000]]"),
     ),
     (
         true,
         "border-bottom-color:${1:#000}",
-        Some("-i0[[l19:border-bottom-colorf1:4:#000]]"),
+        Some("-i0[[l19:border-bottom-colorf1:0:4:#000]]"),
     ),
     (
         true,
         "border-bottom-image:url(${0})",
-        Some("-i0[[l19:border-bottom-imagex3:url[[f0:0:]]]]"),
+        Some("-i0[[l19:border-bottom-imagex3:url[[f0:0:0:]]]]"),
     ),
     (
         true,
@@ -1925,7 +1938,7 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         true,
         "border-color:${1:#000}",
-        Some("-i0[[l12:border-colorf1:4:#000]]"),
+        Some("-i0[[l12:border-colorf1:0:4:#000]]"),
     ),
     (true, "border-corner-image:url(${0})|continue", None),
     (true, "border-collapse:collapse|separate", None),
@@ -1937,23 +1950,23 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         true,
         "border-image:url(${0})",
-        Some("-i0[[l12:border-imagex3:url[[f0:0:]]]]"),
+        Some("-i0[[l12:border-imagex3:url[[f0:0:0:]]]]"),
     ),
     (
         true,
         "border-left:${1:1px} ${2:solid} ${3:#000}",
-        Some("-i0[[l11:border-leftf1:3:1pxf2:5:solidf3:4:#000]]"),
+        Some("-i0[[l11:border-leftf1:0:3:1pxf2:0:5:solidf3:0:4:#000]]"),
     ),
     (
         true,
         "border-left-color:${1:#000}",
-        Some("-i0[[l17:border-left-colorf1:4:#000]]"),
+        Some("-i0[[l17:border-left-colorf1:0:4:#000]]"),
     ),
     (true, "border-length", Some("-i0[[l13:border-length]]")),
     (
         true,
         "border-left-image:url(${0})",
-        Some("-i0[[l17:border-left-imagex3:url[[f0:0:]]]]"),
+        Some("-i0[[l17:border-left-imagex3:url[[f0:0:0:]]]]"),
     ),
     (
         true,
@@ -1968,17 +1981,17 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         true,
         "border-right:${1:1px} ${2:solid} ${3:#000}",
-        Some("-i0[[l12:border-rightf1:3:1pxf2:5:solidf3:4:#000]]"),
+        Some("-i0[[l12:border-rightf1:0:3:1pxf2:0:5:solidf3:0:4:#000]]"),
     ),
     (
         true,
         "border-right-color:${1:#000}",
-        Some("-i0[[l18:border-right-colorf1:4:#000]]"),
+        Some("-i0[[l18:border-right-colorf1:0:4:#000]]"),
     ),
     (
         true,
         "border-right-image:url(${0})",
-        Some("-i0[[l18:border-right-imagex3:url[[f0:0:]]]]"),
+        Some("-i0[[l18:border-right-imagex3:url[[f0:0:0:]]]]"),
     ),
     (true, "border-radius", Some("-i0[[l13:border-radius]]")),
     (
@@ -2000,17 +2013,17 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         true,
         "border-top:${1:1px} ${2:solid} ${3:#000}",
-        Some("-i0[[l10:border-topf1:3:1pxf2:5:solidf3:4:#000]]"),
+        Some("-i0[[l10:border-topf1:0:3:1pxf2:0:5:solidf3:0:4:#000]]"),
     ),
     (
         true,
         "border-top-color:${1:#000}",
-        Some("-i0[[l16:border-top-colorf1:4:#000]]"),
+        Some("-i0[[l16:border-top-colorf1:0:4:#000]]"),
     ),
     (
         true,
         "border-top-image:url(${0})",
-        Some("-i0[[l16:border-top-imagex3:url[[f0:0:]]]]"),
+        Some("-i0[[l16:border-top-imagex3:url[[f0:0:0:]]]]"),
     ),
     (true, "border-top-left-image:url(${0})|continue", None),
     (
@@ -2059,7 +2072,7 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         true,
         "background:${1:#000}",
-        Some("-i0[[l10:backgroundf1:4:#000]]"),
+        Some("-i0[[l10:backgroundf1:0:4:#000]]"),
     ),
     (
         true,
@@ -2075,7 +2088,7 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         true,
         "background-color:${1:#fff}",
-        Some("-i0[[l16:background-colorf1:4:#fff]]"),
+        Some("-i0[[l16:background-colorf1:0:4:#fff]]"),
     ),
     (
         true,
@@ -2085,7 +2098,7 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         true,
         "background-image:url(${0})",
-        Some("-i0[[l16:background-imagex3:url[[f0:0:]]]]"),
+        Some("-i0[[l16:background-imagex3:url[[f0:0:0:]]]]"),
     ),
     (
         true,
@@ -2095,7 +2108,7 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         true,
         "background-position:${1:0} ${2:0}",
-        Some("-i0[[l19:background-positionf1:1:0f2:1:0]]"),
+        Some("-i0[[l19:background-positionf1:0:1:0f2:0:1:0]]"),
     ),
     (
         true,
@@ -2120,17 +2133,17 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
         None,
     ),
     (true, "box-sizing:border-box|content-box|border-box", None),
-    (true, "color:${1:#000}", Some("-i0[[l5:colorf1:4:#000]]")),
+    (true, "color:${1:#000}", Some("-i0[[l5:colorf1:0:4:#000]]")),
     (true, "column-gap", Some("-i0[[l10:column-gap]]")),
     (
         true,
         "color:rgb(${1:0}, ${2:0}, ${3:0})",
-        Some("-i0[[l5:colorx3:rgb[[f1:1:0][f2:1:0][f3:1:0]]]]"),
+        Some("-i0[[l5:colorx3:rgb[[f1:0:1:0][f2:0:1:0][f3:0:1:0]]]]"),
     ),
     (
         true,
         "color:rgba(${1:0}, ${2:0}, ${3:0}, ${4:.5})",
-        Some("-i0[[l5:colorx4:rgba[[f1:1:0][f2:1:0][f3:1:0][f4:2:.5]]]]"),
+        Some("-i0[[l5:colorx4:rgba[[f1:0:1:0][f2:0:1:0][f3:0:1:0][f4:0:2:.5]]]]"),
     ),
     (true, "clear:both|left|right|none", None),
     (true, "/* ${0} */", None),
@@ -2186,7 +2199,7 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         true,
         "font:${1:1em} ${2:sans-serif}",
-        Some("-i0[[l4:fontf1:3:1emf2:10:sans-serif]]"),
+        Some("-i0[[l4:fontf1:0:3:1emf2:0:10:sans-serif]]"),
     ),
     (true, "font-display:auto|block|swap|fallback|optional", None),
     (true, "font-effect:none|engrave|emboss|outline", None),
@@ -2305,7 +2318,7 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         true,
         "background-image:linear-gradient(${1})",
-        Some("-i0[[l16:background-imagex15:linear-gradient[[f1:0:]]]]"),
+        Some("-i0[[l16:background-imagex15:linear-gradient[[f1:0:0:]]]]"),
     ),
     (true, "line-height", Some("-i0[[l11:line-height]]")),
     (true, "list-style", Some("-i0[[l10:list-style]]")),
@@ -2472,7 +2485,7 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         true,
         "text-outline:${1:0} ${2:0} ${3:#000}",
-        Some("-i0[[l12:text-outlinef1:1:0f2:1:0f3:4:#000]]"),
+        Some("-i0[[l12:text-outlinef1:0:1:0f2:0:1:0f3:0:4:#000]]"),
     ),
     (true, "text-overflow:ellipsis|clip", None),
     (true, "text-replace", Some("-i0[[l12:text-replace]]")),
@@ -2494,32 +2507,32 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (
         true,
         "transition:${1:prop} ${2:time}",
-        Some("-i0[[l10:transitionf1:4:propf2:4:time]]"),
+        Some("-i0[[l10:transitionf1:0:4:propf2:0:4:time]]"),
     ),
     (
         true,
         "transition-delay:${1:time}",
-        Some("-i0[[l16:transition-delayf1:4:time]]"),
+        Some("-i0[[l16:transition-delayf1:0:4:time]]"),
     ),
     (
         true,
         "transition-duration:${1:time}",
-        Some("-i0[[l19:transition-durationf1:4:time]]"),
+        Some("-i0[[l19:transition-durationf1:0:4:time]]"),
     ),
     (
         true,
         "transition-property:${1:prop}",
-        Some("-i0[[l19:transition-propertyf1:4:prop]]"),
+        Some("-i0[[l19:transition-propertyf1:0:4:prop]]"),
     ),
     (
         true,
         "transition-timing-function:${1:fn}",
-        Some("-i0[[l26:transition-timing-functionf1:2:fn]]"),
+        Some("-i0[[l26:transition-timing-functionf1:0:2:fn]]"),
     ),
     (
         true,
         "text-shadow:${1:hoff} ${2:voff} ${3:blur} ${4:#000}",
-        Some("-i0[[l11:text-shadowf1:4:hofff2:4:vofff3:4:blurf4:4:#000]]"),
+        Some("-i0[[l11:text-shadowf1:0:4:hofff2:0:4:vofff3:0:4:blurf4:0:4:#000]]"),
     ),
     (
         true,
@@ -2641,12 +2654,21 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (true, "$var10", Some("-i0[[l4:$varn10:2:100:]]")),
     (true, "m$var10", Some("-i0[[l1:ml6:$var10]]")),
     (true, "@foo10", Some("-i0[[l4:@foon10:2:100:]]")),
-    (true, "m${1:20px}", Some("-i0[[l1:mf1:4:20px]]")),
-    (true, "m${variable}", Some("-i0[[l1:mf-:8:variable]]")),
-    (true, "m${1:a{b}c}", Some("-i0[[l1:mf1:5:a{b}c]]")),
-    (true, "m${1}", Some("-i0[[l1:mf1:0:]]")),
-    (true, "m${}", Some("-i0[[l1:mf-:0:]]")),
-    (true, "m${1:}", Some("-i0[[l1:mf1:0:]]")),
+    (true, "m${1:20px}", Some("-i0[[l1:mf1:1:4:20px]]")),
+    (true, "m10${1}", Some("-i0[[l3:m10f1:1:0:]]")),
+    (true, "m10-${1}", Some("-i0[[l4:m10-f1:1:0:]]")),
+    (
+        true,
+        "rgb(1${1},2)",
+        Some("-i0[[x3:rgb[[n1:1:10:f1:1:0:][n2:1:20:]]]]"),
+    ),
+    (true, "foo(1)${1}", Some("-i0[[x3:foo[[n1:1:10:]]f1:0:0:]]")),
+    (true, "f:${1}${2}", Some("-i0[[l1:ff1:0:0:f2:1:0:]]")),
+    (true, "m${variable}", Some("-i0[[l1:mf-:1:8:variable]]")),
+    (true, "m${1:a{b}c}", Some("-i0[[l1:mf1:1:5:a{b}c]]")),
+    (true, "m${1}", Some("-i0[[l1:mf1:1:0:]]")),
+    (true, "m${}", Some("-i0[[l1:mf-:1:0:]]")),
+    (true, "m${1:}", Some("-i0[[l1:mf1:1:0:]]")),
     (true, "m${1", None),
     (true, "f:'open", Some("-i0[[l1:fssingle:4:open]]")),
     (

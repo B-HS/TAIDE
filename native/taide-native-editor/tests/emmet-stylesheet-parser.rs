@@ -53,9 +53,14 @@ fn values(fragments: &[Vec<StylesheetValue>]) -> String {
                         let quote = if *quote == '\'' { "single" } else { "double" };
                         format!("s{quote}:{}", part(Some(value)))
                     }
-                    StylesheetValue::Field { index, name } => format!(
-                        "f{}:{}",
+                    StylesheetValue::Field {
+                        index,
+                        name,
+                        is_adjacent,
+                    } => format!(
+                        "f{}:{}:{}",
                         index.map_or_else(|| "-".into(), |index| index.to_string()),
+                        usize::from(*is_adjacent),
                         part(Some(name))
                     ),
                     StylesheetValue::Function { name, arguments } => {

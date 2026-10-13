@@ -28,6 +28,7 @@ pub enum StylesheetValue {
     Field {
         index: Option<usize>,
         name: String,
+        is_adjacent: bool,
     },
     Function {
         name: String,
@@ -139,7 +140,11 @@ impl Lexer<'_> {
         if !self.take('}') {
             return Err(EditorError::Refused);
         }
-        Ok(Some(StylesheetValue::Field { index, name }))
+        Ok(Some(StylesheetValue::Field {
+            index,
+            name,
+            is_adjacent: false,
+        }))
     }
 
     fn number(&mut self) -> Result<Option<StylesheetValue>, EditorError> {
@@ -396,9 +401,14 @@ impl Parser {
             return Err(EditorError::Capacity);
         }
         let mut values = Vec::new();
+        let mut previous_end = None;
         while let Some(token) = self.tokens.get(self.position) {
             if let Lexeme::Value(value) = &token.value {
                 let mut value = value.clone();
+                if let StylesheetValue::Field { is_adjacent, .. } = &mut value {
+                    *is_adjacent = previous_end == Some(token.start);
+                }
+                previous_end = Some(token.end);
                 self.position += 1;
                 if let StylesheetValue::Literal(name) = &value
                     && self.take(|token| matches!(token, Lexeme::Open))
@@ -419,6 +429,7 @@ impl Parser {
                         name: name.clone(),
                         arguments,
                     };
+                    previous_end = None;
                 }
                 values.push(value);
                 continue;
