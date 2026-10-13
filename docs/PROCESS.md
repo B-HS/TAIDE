@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: e1e의 일반 후보/AI 확장 합성을 연결했습니다. suggestPreview 설정과 독립된 확장 표시·선택 후보 자동 요청·UTF-16 추가 부분·후보 수락 후 잔여 제안/Tab/Enter·Escape·스니펫/다중 커서/각 undo를 App 후보79/실제6·UI118의 서로 다른203통과와 소유7Rust fmt/diff·동결 host/Wasm compile로 확인했습니다. e1/editor-77은 전체 App 준비 실패/실기 게이트가 남아 partial이며 AI 편집/Emmet/Markdown HTML/전체 전환·제거/최종33과 목표는 미완료입니다. 전체302/588(51.4%)·미완료286·부분91/미연결110/미구현85·배치23 잔여19·잔여시간 미산정이며 사용자 문서/보호 경계를 유지합니다.
+현재 상태: e1e 일반 후보/AI 확장은 App85/UI118의203통과·동결 host/Wasm compile로 검증하고683bfe68/4ae76f26를 일반 푸시했습니다. e2a AI 인라인 편집의 typed 요청/응답·선택/현재 줄·2000 UTF-16 문맥/fence·반복 세션/커서 이동·문서/owner/credential 수명·supervised 취소·비파괴 preview/단일 transaction·CRLF/undo를 상태12통과·소유3Rust fmt/diff로 확인했습니다. 실제 명령/지시 입력·삭제 표시/추가 미리보기·버튼/키는 e2b 미연결이며 e1/editor-77의 전체 App/실기·AI 편집/Emmet·Markdown/전체 전환·제거/최종33과 목표는 미완료입니다. 전체302/588(51.4%)·미완료286·부분91/미연결111/미구현84·배치23 잔여19·잔여시간 미산정이며 사용자 문서/보호 경계를 유지합니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 
@@ -151,11 +151,14 @@
 - [x] e1c. 명시 요청과 포커스/선택 — 설치된 Monaco controller의 최초 포커스 무요청·explicit/api 선택 이동 중단·blur 중단과 원본 inlineSuggest.trigger writable/기본 키 없음/즉시 요청을 적용합니다. 소유 범위는 editor completion Command/검사·UI Provider/command/preview/surface·App AI state/Provider/기존 명령 소비 및 소비자/실제 App 검사·QA/기능표/PROCESS입니다. 새 기본 키나 임의 자동 요청을 만들지 않고 후보/스니펫·재정의·명령 팔레트·readonly/IME·문서/뷰/owner/credential/취소를 보존하며 실제 입력/명령과 회귀/계약·선별 Git을 확인합니다. 추가 split/peek·전체 게이트와 부모 e1은 검증 근거가 갖춰질 때만 닫습니다.
 - [x] e1d. split/peek의 실제 요청 소스 — 원본 model URI/언어/현재 position과 native source/owner를 대조하고 소스가 다른 peek의 경로·문맥·표시/수락/undo·닫힘/오래된 응답을 재현·연결합니다. 소유 범위는 App AI state/Provider·consumer/실제 App 검사와 기존 peek/분할 fixture·QA/기능표/PROCESS입니다. 두 뷰의 source/owner/문서/창/프로젝트·credential 수명과 readonly/IME를 주입 port/임시 파일/egui로 검증하고 회귀/계약·선별 Git을 수행합니다. 일반 후보/ghost 합성 소비·전체 게이트와 부모 e1은 별도 미완료로 유지합니다.
 - [x] e1e. 일반 후보와 AI 확장 합성 — 원본 singleTextRemoveCommonPrefix/singleTextEditAugments·suggest preview 설정/UTF-16 추가 부분·후보 수락 후 잔여 제안과 Tab/Enter/Escape를 대조합니다. 소유 범위는 App AI state/합성 helper/Completion Preview/Provider·consumer/실제 App 검사·UI Provider/preview/event 및 관련 회귀·QA/기능표/PROCESS입니다. 범위와 동일 접두사가 실제 확장일 때만 합성하고 불일치/빈 후보·추가 edit/스니펫·다중 커서/readonly/IME/credential/오래된 응답을 보존하며 모델 원문·undo·사라짐/수락과 전체 게이트를 검증합니다. 원본 없는 새 후보/기본 키/임의 합성은 만들지 않습니다.
+- [ ] e2. AI 인라인 편집 — 원본 CmdI/팔레트·선택 또는 현재 줄·2000 UTF-16 양쪽 문맥·지시 입력/요청·원문 불변 삭제 표시/추가 미리보기·수락/거절/취소/오래된 응답을 기존 runtime ai_inline_edit와 native 명령/편집기 수명에 연결합니다.
+- [x] e2a. 요청/응답과 편집 상태 — 소유 범위는 새 App editor-ai-edit.rs/검사·lib 등록 및 QA/PROCESS입니다. 선택/현재 줄·유효 UTF-16 문맥·fence 제거·한 세션/반복 열기·설정/provider/model/credential·문서/뷰/owner·읽기 전용/IME·supervised 취소/응답 식별·수락 전 원문 보존/원자 수락/undo를 typed 주입 port·임시 EditorStore로 검증하고 위험 비례 검사·fmt/diff·기록/선별 Git을 수행합니다. 명령/입력/미리보기 UI·실제 앱 소비는 e2b에 유지하며 실제 Keychain/키/OS/사용자 데이터는 접근하지 않습니다.
+- [ ] e2b. 명령과 실제 미리보기 소비 — e2a 상태를 원본 action/default CmdI/사용자 재정의·팔레트와 본문/peek의 지시 입력·loading/취소·삭제 표시/현재 font의 추가 영역·수락/거절/Esc·CmdEnter에 연결합니다. 실제 앱/회귀·동결 계약·수명/정상 종료와 기능표/QA/PROCESS를 확인하며 전체 게이트는 f에 유지합니다.
 - [ ] f. 실제 앱·전체 게이트 — 닫을 기능의 실제 앱/child/mirror·readonly/tier/다중 커서/IME·정상 종료/회귀를 확인하고 변경 크레이트 전체 대상을 --no-fail-fast로 직접 1회 실행합니다. 성공 결과는 재사용하고 실패 영향만 재검사합니다. frozen host/Wasm compile·fmt/diff·manifest/lock/engine/보호 경계·디스크와 배치 31 실기/성능/신뢰성 부채를 구분합니다.
 - [x] f1. 프로젝트 열기 지연 위치 조사·배치 31 이관 — 전체 App 811통과/프로젝트 open 5초 초과 1실패와 Cargo 단독 동일 실패를 보존했습니다. 같은 실행 파일의 직접 검사는 저장소/크레이트 cwd에서 3.81/3.23초에 통과했습니다. 성공한 두 번째 검사 중 start_watch→notify runloop 준비 대기와 FSEventStreamStart→등록 RPC의 실제 스택을 확인했습니다. 실패 시점의 스택이나 지연 변동의 근본 원인은 확인하지 않았으며 해결/전체 exit 0으로 보고하지 않습니다. 제한 확대·검사 생략·OS 변경 없이 반복 조사를 종료하고 배치 31의 실행 환경/신뢰성 게이트에 미해결 위험을 유지합니다.
 - [ ] g. 완료 근거·선별 Git — 실제 닫힌 ID만 QA/기능표/PROCESS에 반영하고 논리 단위 선별 커밋·일반 푸시합니다. 배치 24를 기존 계획 안에서 이어가며 배치 번호를 세부 수정마다 늘리지 않습니다.
 
-다음 행동: e2의 AI 인라인 편집을 원본 선택/현재 줄·명령/요청·미리보기·수락/거절/취소/오래된 응답과 대조하고 기존 native 경계에 연결합니다. editor-77의 전체 App/실기 게이트와 editor-72 partial·HTML/접근성·OS·전체 전환/제거·최종33은 유지합니다.
+다음 행동: e2b의 AI 인라인 편집 명령/지시 입력·삭제 표시/추가 영역·수락/거절/취소를 실제 본문/peek에 연결합니다. editor-77의 전체 App/실기와 editor-72 partial·HTML/접근성·OS·전체 전환/제거·최종33은 유지합니다.
 
 ## 완료: 배치 22 — 자동완성과 사용자 스니펫 소비 (2026-10-10)
 

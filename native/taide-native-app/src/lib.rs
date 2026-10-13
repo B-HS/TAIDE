@@ -33,6 +33,8 @@ pub mod delete_dialog;
 pub mod diagnostics;
 #[path = "editor-ai-completion.rs"]
 mod editor_ai_completion;
+#[path = "editor-ai-edit.rs"]
+mod editor_ai_edit;
 #[path = "editor-code-actions.rs"]
 mod editor_code_actions;
 #[path = "editor-code-actions-controller.rs"]

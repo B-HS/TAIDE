@@ -89,3 +89,15 @@ app-final.log의 실제 App6건은66.39초·컴파일0.20초·exit0입니다. �
 ui.log의 후보31/본문87은118통과·0실패·컴파일11.46초·검사0.50/0.19초·exit0입니다. App85/UI118의 현재 서로 다른203건이며 앞선 실행과 중복 합산하지 않습니다. frozen-host/wasm.log의 계약 검사는 현재 캐시에서0.08/0.10초·exit0이며 Wasm 검사 실행/기존 시간 API 불일치 해결로 확대하지 않습니다. 소유 Rust7개 fmt/diff exit0, manifest/lock/동결 source 변경0이며 디스크645GiB/사용65%를 확인했습니다. 실제 키/Keychain/사용자 데이터/클립보드/OS 입력은 접근하지 않았습니다. e1e만 해당 근거로 닫고 e1/editor-77은 전체 App 준비 실패/실기 게이트가 남아 partial로 유지합니다. editor-78/80, Markdown HTML/표/접근성·전체 전환/제거/최종33은 미완료이며 전체302/588(51.4%)·미완료286·잔여 시간 미산정입니다.
 
 소유 코드/검사/QA와 PROCESS 상단의9경로를683bfe68로 선별 커밋했습니다. 사용자 PROCESS 하단2hunk와 다른 문서/결정/피드백/메모리를 보존했으며 기능표 baseline을 실제 제품 커밋으로 갱신합니다. editor-77 partial과 전체302완료는 유지합니다.
+
+## AI 인라인 편집의 요청/응답과 편집 상태 (2026-10-14)
+
+원본 `src/features/editor/ai-inline-edit.ts`, `src/shared/lib/inline-edit-fence.ts`와 Rust `ai_inline_edit`/`AiRequestStore`를 대조했습니다. 새 App `editor-ai-edit.rs`는 현재 주 선택 또는 선택이 비어 있으면 현재 줄의 줄바꿈을 제외한 범위를 고정합니다. 실제 source File key/언어와 owner window를 구분하고 양쪽 2000 UTF-16 문맥을 유효한 문자 경계에서 생성합니다. 원본은 세션 중 커서 이동으로 대상을 다시 정하지 않으므로 반복 열기는 기존 대상/지시를 보존하며 문서 변경·모델/언어·owner/뷰 수명·readonly/IME·설정/provider/model/base URL과 공유 credential 변경은 회수합니다. 자동 Tab 활성화 설정은 수동 인라인 편집의 조건으로 사용하지 않습니다.
+
+지시는 원본 JS 공백 규칙으로 trim한 뒤 빈 값/중복 제출을 거절하고 runtime과 같은 지시4KiB·선택100KiB 상한을 적용합니다. 기본 typed port는 기존 runtime 서비스를 사용하며 supervised future의 취소는 기존 AiRequestToken RAII 회수 경계를 따릅니다. 응답 ID/빈 응답/오류를 확인한 뒤 첫 code fence 열기와 마지막 닫기 사이의 내용, CRLF 정규화·마지막 LF 한 개 제거와 plain/unterminated fallback을 원본과 동일하게 처리합니다. 별도 응답 길이 상한은 새로 만들지 않고 기존 서비스·EditorStore 용량 경계를 사용합니다.
+
+요청/응답/미리보기/거절은 원문·undo를 변경하지 않습니다. 현재 문서/설정/credential을 수락 직전에 재확인한 뒤 기존 apply_separate의 단일 transaction으로 대상만 치환하며 문서 줄바꿈을 보존합니다. mirror의 원문은 공통 document transaction에 따라 변하고 source와 다른 owner 문서는 변경하지 않습니다. UI 명령·실제 삭제 표시/추가 영역·지시 입력·키·버튼과 App 소비는 아직 연결하지 않았으므로 기능 완료로 보고하지 않습니다.
+
+`/private/tmp/taide-ai-edit-state.log`는 OpenedFile을 값 대신 참조로 전달한 E0308 컴파일 실패·exit101이며 실행된 검사는0건입니다. 값 전달로 수정한 state-fixed.log의8통과·0.04초·컴파일27.13초·exit0 뒤 readonly/선택·지시 상한·중복 제출/비활성 project·pending credential/문서 변경·service 실패/종료한 supervisor를 보강했습니다. state-final.log는 서로 다른12통과·0.05초·컴파일21.82초·exit0입니다. 선택 방향/현재 줄·실제 source 경로/문맥·request trim/owner, 비파괴 fenced preview→수락/CRLF/한 undo·owner 보존, 반복 열기/커서 이동·Unicode/UTF-16·JS BOM/NEL·fence 중첩/단일 줄·빈/잘못된 ID, 취소 후 reply 닫힘/늦은 응답 거절과 정상 종료 task0/AiRequestStore idle을 확인했습니다. 반복8건을 더하지 않습니다.
+
+검사는 임시 AppPaths/EditorStore·메모리 SecretStore/주입 future만 사용하며 실제 키/Keychain/사용자 데이터/OS/클립보드를 읽거나 변경하지 않습니다. 소유 Rust3개 fmt와 native diff check exit0, manifest/lock/동결 source 변경0입니다. 동결 UI/Editor 계약은 e1e의 변경 없는 compile 근거를 유지하며 이 상태 검사로 전체 App/실기/성능 게이트까지 통과했다고 보고하지 않습니다. e2a의 상태만 닫고 e2/e2b는 미완료입니다. editor-78은 실제 소비가 없어 unwired로 기록하며 전체302/588(51.4%)·미완료286·잔여 시간 미산정을 유지합니다.
