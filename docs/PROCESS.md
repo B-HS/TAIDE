@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: e3c3 CSS/scss 출력의숫자/hex·rgba/field/문자열·raw/important와실제snippet소비를연결했습니다. 현재4296비교/출력5·parser3/준비2+기존markup12의22성공·양·음subnormal/원본변수·quote/brace/지수오류수정·host13.42/Wasm4.33초 exit0·13Rustfmt/5MJS·QA이며기록/Git반영중입니다. 기존335+새출력5의340서로다른성공/성능1ignored를재사용하고초기실패/수정근거를QA에보존합니다. validation/noise/range/추가후보/설정/실제App·Markdown/전체App준비실패/실기·전환/제거/최종33은미완료입니다. 전체302/588(51.4%)·미완료286·부분92/미연결111/미구현83·배치23잔여19·editor-80unwired·잔여시간미산정이며사용자문서/보호경계를유지합니다.
+현재 상태: e3c2/CSS 준비와e3c3/출력을6ffd18b6/ec2b0627까지일반푸시했고local·remote0/0입니다. 현재4296비교/출력5·parser3/준비2+markup12의22성공·원본escape/변수/default/지수오류·subnormal/예산·host13.42/Wasm4.33초 exit0·13Rustfmt/5MJS·QA와기존335+새5의340서로다른성공/성능1ignored를재사용합니다. e3d의실제doComplete/추가후보·Property/InsertAsSnippet·전체range와native 실제snapshot Candidate 계약을확인했습니다. validation/noise/range/추가후보/설정/실제App·Markdown/전체App준비실패/실기·전환/제거/최종33은미완료입니다. 전체302/588(51.4%)·미완료286·부분92/미연결111/미구현83·배치23잔여19·editor-80unwired·잔여시간미산정이며사용자문서/보호경계를유지합니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 
@@ -174,11 +174,12 @@
 - [x] e3c1a. CSS field 인접성 — 원본outputValue의field start/이전end 비교를typed is_adjacent에보존했습니다. 숫자·delimiter/함수내·함수뒤/연속field와기본818입력/1636AST의인접성·영향2검사통과/compile9.20초·host8.54/Wasm4.39초 exit0·3Rustfmt/MJS·QA를확인했습니다. 이전CSS2성공과중복합산하지않으며전체CSS출력/App·editor-80unwired/302완료·전체게이트는유지합니다.
 - [x] e3c2. CSS 해석 — 원본253 registry/raw·property·keyword/의존정렬/fuzzy/inline/기본값/gradient/단위를준비AST에연결했습니다. 실제helper fuzzy0.3을반영한2110원본준비사례/준비2통과와1638parser/UTF-16범위·원본교체뒤field 인접성/누적byte·node의현재5성공·host9.55/Wasm4.83초 exit0·9Rustfmt/4MJS·QA를확인했습니다. 기존332+준비2/새parser1의335서로다른성공/성능1ignored를재사용하며초기라이브러리fuzzy0 근거는분리했습니다. 새의존성/manifest·lock/frozen·사용자경계를유지하고output/후보/실제App·전체게이트는e3c/e3에미완료입니다.
 - [x] e3c3. CSS 출력 — CSS/scss 속성/raw·수/toFixed/hex/rgba·fragment/function/field/기존0/줄바꿈/important를portable renderer에연결했습니다. 현재4296실제삽입사례/출력5와parser3/준비2·원본escaped quote/closing·변수/리터럴/지수오류 수정·이름default/양·음subnormal·예산이통과했습니다. 최신CSS10+markup12의22성공·host13.42/Wasm4.33초 exit0·13Rustfmt/5MJS·QA와기존335+새출력5의340성공/성능1ignored를재사용합니다. 초기16/1·9/1실패와수정근거는QA에보존하고후보/설정/실제App·전체게이트는e3c/e3에미완료입니다.
+- [ ] e3d. 완성 후보 — 원본doComplete의유효성/noise/open tag·필터와전체축약식range·문서/detail/kind/label/filterText/sortText·HTML tag/기본snippet 추가후보·CSS propertyprefix/부분일치/important를현재문서의typed Candidate에연결합니다. 원본현재프로젝트설정/실제doComplete oracle·locale/UTF-16/원본오류수정·예산을검증하고QA/기능표/PROCESS·선별Git을갱신합니다. CSS기본snippet 추가후보는원본에없고custom등록도현재프로젝트에서없으므로새동작을추가하지않습니다. 실제App/setting/standard token·readonly/tier/IME/다중cursor/peek/취소·전체게이트는e3에유지합니다.
 - [ ] f. 실제 앱·전체 게이트 — 닫을 기능의 실제 앱/child/mirror·readonly/tier/다중 커서/IME·정상 종료/회귀를 확인하고 변경 크레이트 전체 대상을 --no-fail-fast로 직접 1회 실행합니다. 성공 결과는 재사용하고 실패 영향만 재검사합니다. frozen host/Wasm compile·fmt/diff·manifest/lock/engine/보호 경계·디스크와 배치 31 실기/성능/신뢰성 부채를 구분합니다.
 - [x] f1. 프로젝트 열기 지연 위치 조사·배치 31 이관 — 전체 App 811통과/프로젝트 open 5초 초과 1실패와 Cargo 단독 동일 실패를 보존했습니다. 같은 실행 파일의 직접 검사는 저장소/크레이트 cwd에서 3.81/3.23초에 통과했습니다. 성공한 두 번째 검사 중 start_watch→notify runloop 준비 대기와 FSEventStreamStart→등록 RPC의 실제 스택을 확인했습니다. 실패 시점의 스택이나 지연 변동의 근본 원인은 확인하지 않았으며 해결/전체 exit 0으로 보고하지 않습니다. 제한 확대·검사 생략·OS 변경 없이 반복 조사를 종료하고 배치 31의 실행 환경/신뢰성 게이트에 미해결 위험을 유지합니다.
 - [ ] g. 완료 근거·선별 Git — 실제 닫힌 ID만 QA/기능표/PROCESS에 반영하고 논리 단위 선별 커밋·일반 푸시합니다. 배치 24를 기존 계획 안에서 이어가며 배치 번호를 세부 수정마다 늘리지 않습니다.
 
-다음 행동: e3c3 출력기록/선별Git을반영한뒤e3의validation/noise·실제range/문서·HTML tag/CSS snippets 추가후보와설정/실제App 소비를이어갑니다. 29341의16/1실패·29282의9/1실패는QA에보존하고65451출력5/50645subnormal1/92585host·Wasm13.42/4.33초는모두exit0으로종료했습니다. 이전성공은중복합산/재실행하지않으며editor-80unwired·AI77/78partial·전체게이트/Markdown/전환/제거/최종33은유지합니다.
+다음 행동: e3d의실제doComplete oracle/HTML tag·CSS property 자료와현재문서typed Candidate 경계를고정한뒤유효성/노이즈·범위/문서/추가후보를구현합니다. 6ffd18b6/ec2b0627은일반push/local·remote0/0이고CSS 출력/공통encoder의22성공과compiler는모두종료했으며성공은재실행하지않습니다. editor-80unwired·AI77/78partial·전체게이트/Markdown/전환/제거/최종33은유지합니다.
 
 ## 완료: 배치 22 — 자동완성과 사용자 스니펫 소비 (2026-10-10)
 
