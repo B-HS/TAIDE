@@ -1,6 +1,6 @@
 {
     "date": "2026-10-14",
-    "baseline": "abbeb5a1",
+    "baseline": "8accc30e",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1320,15 +1320,19 @@
             "sources": [
                 "native/taide-native-editor/src/json-scanner.rs",
                 "native/taide-native-editor/src/lib.rs",
-                "native/taide-native-editor/json-language-license.txt"
+                "native/taide-native-editor/json-language-license.txt",
+                "native/taide-native-editor/src/json-parser.rs"
             ],
             "tests": [
                 "native/taide-native-editor/tests/json-scanner.rs",
                 "native/taide-native-editor/tests/fixtures/json-scanner-oracle.mjs",
-                "native/taide-native-editor/tests/fixtures/json-scanner-oracle.rs"
+                "native/taide-native-editor/tests/fixtures/json-scanner-oracle.rs",
+                "native/taide-native-editor/tests/json-parser.rs",
+                "native/taide-native-editor/tests/fixtures/json-parser-oracle.mjs",
+                "native/taide-native-editor/tests/fixtures/json-parser-oracle.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-14-native-batch23-builtin-language-services.md"],
-            "limitation": "scanner 원본 19,624사례·3검사/host·Wasm 성공만 검증했습니다. JSON 전체 AST/서비스/앱 공급과 CSS·HTML·TS는 미완료이며 editor-57 missing을 유지합니다."
+            "limitation": "scanner19,624사례·JSON 언어서비스 AST/회복/진단6,336사례·노드조회1,118사례와 현재7검사/host·Wasm 성공입니다. 깊이/byte·UTF-16·논리값/노드/진단/주석 예산을 보존합니다. JSON 전체 서비스/앱 공급과 CSS·HTML·TS는 미완료이며 editor-57 missing을 유지합니다."
         }
     },
     "rows": [
@@ -3046,7 +3050,7 @@
             "domain": "editor",
             "status": "missing",
             "proof": "editor-builtin-language-services",
-            "note": "실제 설치 JSON scanner의 19,624사례·논리 UTF-16/오류/실제 byte 범위·예산과 현재 3검사/host·Wasm 컴파일을 확인했습니다. scanner는 원본 comment 범위/값과 실제 TextDocument 위치 오류 77사례를 명시적으로 교정합니다. JSON AST/회복·심볼/진단/조회/완성/포맷과 실제 App 공급·CSS/HTML/TS 전체가 미완료이므로 missing을 유지합니다. 외부 LSP 공급은 내장 fallback 완료 근거가 아닙니다."
+            "note": "실제 설치 JSON scanner19,624사례와 언어서비스 AST/회복/진단6,336사례·노드조회1,118사례를 portable arena/명시 스택으로 구현했습니다. 현재scanner3/parser4검사·host/Wasm 컴파일·Unicode·깊이/원문/예산이 통과했습니다. raw원본과 명시 교정은 분리하며 JSON 심볼/접기/진단 정책/조회/완성/포맷·실제App 공급과 CSS/HTML/TS 전체는 미완료이므로 missing을 유지합니다. 외부 LSP는 내장 fallback 완료 근거가 아닙니다."
         },
         {
             "id": "editor-58",
