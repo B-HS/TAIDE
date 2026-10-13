@@ -1,6 +1,6 @@
 {
     "date": "2026-10-13",
-    "baseline": "1a4c0f32",
+    "baseline": "b4a67346",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1151,7 +1151,10 @@
                 "native/taide-native-editor/src/documentation.rs",
                 "native/taide-native-app/src/editor-markdown-table.rs",
                 "native/taide-native-ui/src/editor-markup-table.rs",
-                "native/taide-native-app/src/editor-markup-autolinks.rs"
+                "native/taide-native-app/src/editor-markup-autolinks.rs",
+                "native/taide-native-ui/src/editor-markup-flow.rs",
+                "native/taide-native-ui/src/font-families.rs",
+                "native/taide-native-app/src/ui-fonts.rs"
             ],
             "tests": [
                 "native/taide-native-app/src/application-markdown-tests.rs",
@@ -1165,10 +1168,11 @@
                 "native/taide-native-ui/tests/editor-documentation.rs",
                 "native/taide-native-ui/tests/theme-portable.rs",
                 "native/taide-native-editor/tests/documentation.rs",
-                "native/taide-native-app/src/editor-markdown-table.rs"
+                "native/taide-native-app/src/editor-markdown-table.rs",
+                "native/taide-native-app/src/ui-fonts.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-12-native-batch23-markdown.md"],
-            "limitation": "분할/readonly·두 뷰/독립 scroll·mirror/닫힘·viewport 회수와 기본 HTML/테마·표 병합/그룹/제목·목록 type에 표 셀의 문단/제목/목록/코드/인용/중첩 표 구조를 연결했습니다. 실제 App first paragraph 평탄화와 checkbox 자연 너비7/1줄 실패를 재현해 optional body/Hash·재귀 최소/자연 너비/현재 높이/병합·th inline 굵기·중첩 이미지/링크·실제 widget 최소값을 연결했습니다. 블록 추가/회수/viewport·이미지 준비/높이/실제 링크와 실제 App PNG/입력/undo/원문/닫힘/task0이 parser16/UI27/cache4/LSP8/App4의59통과·소유11Rust fmt/diff·frozen host tests/inspection/Wasm canvas 계약 check입니다. 기존 LSP None을 유지합니다. 암시 인라인/문단 여백 collapse/글꼴 상속·복합 caption/행·열/임의 CSS·counter 소유/접근성·SVG/MathML/media/details/anchor·CLI 경계/물리 OS/전체App/실기/성능/출시는 미완료라 partial입니다."
+            "limitation": "기본 HTML/분할/readonly·두 뷰/독립 scroll/mirror/닫힘/viewport·표/목록/복합 셀에 암시 Inline/Code·List Style과 지원 양수 여백/빈 내용/quote·list 부모 경계 병합·20/22.75px/NBSP·normal/600/700·편집기와 독립된 코드 가족을 연결했습니다. 실제 문단16/8px·system mono URL 누락을 재현해 실제 sans/mono face·head/maxp/hhea 대조/variation/별칭/공유budget을 연결했습니다. 원본 standards browser14조건·parser17/UI30/fonts2/LSP8/cache4/App4의65통과·소유16Rust fmt/diff·frozen host tests/inspection/Wasm canvas check입니다. 기존 LSP/default Style·실제 앱 입력/undo/원문/task0을 보존합니다. 상대 bolder/임의 weight·모든 CSS display/clearance/negative margin·복합 caption/행·열/임의 CSS/counter 소유/접근성·SVG/MathML/media/details/anchor/CLI 경계·OS/전체App/실기/성능/출시는 미완료라 partial입니다."
         }
     },
     "rows": [
@@ -3051,7 +3055,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-markdown",
-            "note": "stable 분할/readonly·두 뷰/독립 scroll·mirror/닫힘/viewport 회수·HTML/테마·표/목록 type에 셀의 문단/제목/목록/코드/인용/중첩 표를 연결했습니다. optional body/Hash·최소/자연 너비/현재 높이/병합·th inline 굵기/중첩 이미지/링크·checkbox 실제 최소값과 블록/viewport/이미지 변경이 parser16/UI27/cache4/LSP8/App4의59통과·frozen 계약 check입니다. 암시 인라인/여백 collapse/글꼴 상속·복합 caption/행·열/임의 CSS/counter 소유/접근성·추가 HTML/CLI 경계/물리 OS/전체 게이트는 미완료입니다."
+            "note": "stable 분할/readonly·두 뷰/독립 scroll·mirror/닫힘/viewport·기본 HTML/테마·표/목록/복합 셀에 Inline/상속 Style·지원 여백 병합/부모 경계·20/22.75px/NBSP·normal/600/700·독립 코드 가족/실제 sans·mono face/variation/별칭/공유budget을 연결했습니다. parser17/UI30/fonts2/LSP8/cache4/App4의65통과·원본 standards14조건·frozen 계약 check입니다. 임의 CSS/bolder/복합 caption/행·열/counter 소유/접근성·추가 HTML/CLI/OS/전체 게이트는 미완료입니다."
         },
         {
             "id": "editor-73",
@@ -7762,5 +7766,5 @@
             "note": "해당 native 등록/키맵·팔레트/공용 표면·locale/아이콘 공급과 앱 소비가 있으며 배치 13 UI/app 전체 대상의 관련 회귀가 통과했습니다. 등록·prefix/키맵 자체 완료는 미구현 명령 실행 완료를 뜻하지 않습니다."
         }
     ],
-    "validation": "제품1a4c0f32에서 실제 App first paragraph 평탄화와 checkbox 자연 너비7/1줄 실패를 재현했습니다. optional TableCell.blocks·재귀 Hash/Block 파싱·최소/자연 너비/현재 높이/병합·th inline 굵기·중첩 이미지/링크·widget 최소값을 연결했습니다. 블록 추가/회수·viewport·이미지 준비/높이/실제 링크·실제 App PNG/입력/undo/오류/readonly/두 뷰/원문/승인 닫힘/task0이 parser16/UI27/cache4/LSP8/App4의 서로 다른59통과·소유11Rust fmt/diff입니다. frozen host tests/inspection check38.25초·Wasm canvas lib13.57초·마지막0.12초·exit0이며 공개 계약이 같은 host 성공과 변경 없는 검사 성공을 재사용했습니다. 일반 LSP None/의존성/manifest/lock/frozen source·사용자 문서/PROCESS 하단 두 hunk·실제 OS/보호 경계를 유지했습니다. 단순 경계 성공을 줄바꿈 충실도의 성공으로 확대하지 않고 실제7/1 실패 뒤 관련1건만 재검사했으며 작성/환경 실패와 중복을 QA에 구분했습니다. editor-72 partial·complete302/partial90/unwired110/missing86·미완료286·배치23 잔여19/최종33입니다. 암시 인라인/문단 여백 collapse/글꼴 상속·복합 caption/행·열/임의 CSS·counter 소유/접근성·SVG/MathML/media/details/anchor·CLI 경계·전체App877통과/22준비실패/보호3제외/exit101·준비 원인 미확정·Core성능ignored1/Wasmtests시간API불일치7·물리 OS/실기/성능/신뢰성/출시/전환/제거와 남은 전체 목표를 유지합니다. 전체전환율/잔여시간은 미산정입니다."
+    "validation": "제품b4a67346에서 실제 문단 여백16/원본8px과 system mono font URL 누락을 재현했습니다. Block.Inline/Code·List Style·지원 양수 여백/빈 내용/quote·list 부모 경계 병합·인라인20px/p22.75px/NBSP·normal/600/700·편집기와 독립된 미리보기 코드 가족·실제 sans/mono face의 경로 또는 head/maxp/hhea·variation/역할별 별칭/공유budget을 연결했습니다. 원본 standards browser14조건·parser17/UI30/fonts2/LSP8/cache4/App4의 서로 다른65통과·소유16Rust fmt/diff·frozen host tests/inspection1분42초/Wasm canvas1분44초·exit0입니다. 같은 성공을 재사용하고 NBSP/URL 누락 수정의 영향만 각1건 재검사했습니다. 잘못된 최초 문서 모드·closure E0282/patch·검색/샌드박스 ps 관찰은 QA에 구분하며 성공에 합산하지 않습니다. 실제 앱 입력/undo/오류/readonly/두 뷰/복합 셀/PNG/원문/디스크/닫힘/task0·LSP/default Style·의존성/manifest/lock/frozen source와 사용자 문서/PROCESS 하단 두 hunk·보호 경계를 보존했습니다. editor-72 partial·complete302/partial90/unwired110/missing86·미완료286·배치23 잔여19/최종33입니다. 상대 bolder/임의 weight·모든 CSS display/clearance/negative margin·복합 caption/행·열/임의 CSS/counter 소유/접근성·SVG/MathML/media/details/anchor/CLI 경계·전체App877통과/22준비실패/보호3제외/exit101·준비 원인 미확정·Core성능ignored1/Wasmtests시간API불일치7·실제 OS/실기/성능/신뢰성/출시/전환/제거와 남은 전체 목표를 유지합니다. 전체전환율/잔여시간은 미산정입니다."
 }
