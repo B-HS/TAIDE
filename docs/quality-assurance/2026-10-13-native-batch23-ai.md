@@ -35,3 +35,5 @@ credential-consumer.log의12통과·5.07초·컴파일76초·exit0은 삭제/교
 credential-contract.log의 App --tests --features inspection compile는15분13초·exit0입니다. 공개 new/tuple/clone/SecretStore 기본 메서드와 외부 검사 대상 타입 계약을 확인했습니다. 기존 editor-code-actions.rs is_applying 미사용 경고1과 vendor 경고를 구분하며 전체 App 테스트 실행/준비 실패 해결로 보고하지 않습니다.
 
 credential-frozen-host.log의 --tests --features inspection과 credential-frozen-wasm.log의 --lib --features canvas --target wasm32-unknown-unknown은 각각0.08/0.10초·exit0입니다. 캐시된 현재 그래프를 검사했으며 동결 소스/manifest/lock/engine 변경0입니다. UI 제품 소스와 API는 이번 수정에서 변경하지 않았고 기존 UI 전체29대상/520의 해당 소비 근거를 유지합니다. 현재 직접 실행한 서로 다른22건과 과거520건을 새 전체 실행으로 합산하지 않습니다. 디스크655GiB·사용65%이며 청소하지 않았습니다.
+
+자격 증명 수정·검사·QA와 소유 PROCESS 상단9경로를0330abc0로 선별 커밋했습니다. 하단 PROCESS2hunk와 사용자 문서/결정/피드백/메모리는 보존했습니다. 기능표 baseline을 실제 제품 커밋으로 갱신하고 editor-77의 credential 미완료 문구만 현재 검증에 맞게 제거하며 partial/전체302완료는 유지합니다.
