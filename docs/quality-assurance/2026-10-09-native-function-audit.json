@@ -1,6 +1,6 @@
 {
     "date": "2026-10-14",
-    "baseline": "49cacdc8",
+    "baseline": "0de10795",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1251,7 +1251,13 @@
                 "native/taide-native-editor/src/emmet-stylesheet-format.rs",
                 "native/taide-native-editor/src/emmet-stylesheet-output.rs",
                 "native/taide-native-editor/src/emmet-completion.rs",
-                "native/taide-native-editor/src/emmet-completion-defaults.rs"
+                "native/taide-native-editor/src/emmet-completion-defaults.rs",
+                "native/taide-native-app/src/editor-completion-emmet.rs",
+                "native/taide-native-app/src/editor-completion-provider.rs",
+                "native/taide-native-app/src/editor-completion-cache.rs",
+                "native/taide-native-app/src/editor-completion-supply.rs",
+                "native/taide-native-app/src/editor-completion.rs",
+                "native/taide-native-app/src/editor-syntax.rs"
             ],
             "tests": [
                 "native/taide-native-editor/tests/emmet.rs",
@@ -1299,10 +1305,13 @@
                 "native/taide-native-editor/tests/fixtures/emmet-stylesheet-output-oracle.rs",
                 "native/taide-native-editor/tests/emmet-completion.rs",
                 "native/taide-native-editor/tests/fixtures/emmet-completion-oracle.mjs",
-                "native/taide-native-editor/tests/fixtures/emmet-completion-oracle.rs"
+                "native/taide-native-editor/tests/fixtures/emmet-completion-oracle.rs",
+                "native/taide-native-app/src/editor-completion-emmet-consumer-tests.rs",
+                "native/taide-native-app/src/application-emmet-tests.rs",
+                "native/taide-native-app/src/editor-syntax-tests.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-14-native-batch23-emmet.md"],
-            "limitation": "여섯language ID·추출/markup202스니펫/HTML·JSX 출력/필터/lorem·CSS253registry/준비/출력을portable core에연결했습니다. CSS 실제helper fuzzy0.3·keyword/gradient/단위·UTF-16 출처/인접성과4296 실제snippet소비·IEEEScalar4/8자리/subnormal/변수명·default/quote·brace/지수오류수정을확인했습니다. 현재raw1640/준비2111사례는명시적원본4/2수정을포함합니다. CSS출력5+parser3+준비2/markup12의현재22성공과기존335+새5의340서로다른성공/성능1ignored·host13.42/Wasm4.33초/13Rustfmt/MIT출처를재사용합니다. validation/noise/range/추가후보·설정/실제App소비와전체게이트가남아unwired이며완료를올리지않습니다. 실제doComplete의5286후보사례/신규3검사와실제DocumentSnapshot·UTF-16범위/예산·host/Wasm compile을확인했습니다. 현재서로다른Core343성공이며실제App 공급자/설정·standard token/readonly/tier/IME·peek/수명은미완료입니다."
+            "limitation": "현재doComplete5286사례·Core343서로다른성공/성능1ignored와실제HTML App1·여섯언어/standard token/설정/Large/readonly/IME·peek/mirror/다중커서의소비자8·복제없는토큰프레임수명/구문20·기존완성79의현재App108성공을확인했습니다. full range/문서/label/필터·기본HTML/CSS 출력/원본오류수정·난수와예산을연결했고설정/token 변경·동일revision tier·닫힘에서회수합니다. 실제앱CSS/JSX/HEEX·다른파일peek전체묶음과전체App준비실패/성능ignored/remoteWasm/OS실기/최종33은남아partial입니다."
         }
     },
     "rows": [
@@ -3271,9 +3280,9 @@
             "ts": "`emmet-integration.ts:26-33`, `src/app/providers/emmet-provider.tsx`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:161",
             "domain": "editor",
-            "status": "unwired",
+            "status": "partial",
             "proof": "editor-emmet",
-            "note": "여섯language ID·추출/markup202스니펫/HTML·JSX 출력/필터/lorem·CSS253registry/준비/출력을portable core에연결했습니다. CSS 실제helper fuzzy0.3·keyword/gradient/단위·UTF-16 출처/인접성과4296 실제snippet소비·IEEEScalar4/8자리/subnormal/변수명·default/quote·brace/지수오류수정을확인했습니다. 현재raw1640/준비2111사례는명시적원본4/2수정을포함합니다. CSS출력5+parser3+준비2/markup12의현재22성공과기존335+새5의340서로다른성공/성능1ignored·host13.42/Wasm4.33초/13Rustfmt/MIT출처를재사용합니다. validation/noise/range/추가후보·설정/실제App소비와전체게이트가남아unwired이며완료를올리지않습니다."
+            "note": "현재doComplete5286사례·Core343서로다른성공/성능1ignored와실제HTML App1·여섯언어/standard token/설정/Large/readonly/IME·peek/mirror/다중커서의소비자8·복제없는토큰프레임수명/구문20·기존완성79의현재App108성공을확인했습니다. full range/문서/label/필터·기본HTML/CSS 출력/원본오류수정·난수와예산을연결했고설정/token 변경·동일revision tier·닫힘에서회수합니다. 실제앱CSS/JSX/HEEX·다른파일peek전체묶음과전체App준비실패/성능ignored/remoteWasm/OS실기/최종33은남아partial입니다."
         },
         {
             "id": "editor-81",
