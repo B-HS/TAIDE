@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: e3a Emmet축약식추출을portable core로연결했습니다. 설치원본emmet2.4.11의66입력/3096문자경계대조·여섯language ID/잘못된byte/입력예산3통과·coreWasm3분03초 exit0·소유5Rustfmt/원본MIT출처/재생성oracle를확인했고기록/Git반영중입니다. HTML/JSX/CSS확장/필터/snippet·후보/실제App은미완료이므로editor-80missing·AI77/78partial및전체302완료를유지합니다. Markdown/전체App준비실패/실기·전환/제거/최종33도미완료입니다. 전체302/588(51.4%)·미완료286·부분92/미연결110/미구현84·배치23잔여19·잔여시간미산정이며사용자문서/보호경계를유지합니다.
+현재 상태: e3a Emmet축약식추출을portable core로연결했습니다. 설치원본emmet2.4.11의66입력/3096문자경계대조·여섯language ID/잘못된byte/입력예산3통과·coreWasm3분03초 exit0·소유5Rustfmt/원본MIT출처/재생성oracle를확인했고fdb39e3b·c97aa51f로기록/푸시·로컬/원격0/0입니다. e3b의실제원본doComplete에서HTML/JSX각19축약식의필드번호·inline/블록·group/sibling·repeat·JSX속성·selfclosing출력을대조했으며Rust확장은구현전입니다. HTML/JSX/CSS확장/필터/snippet·후보/실제App은미완료이므로editor-80missing·AI77/78partial및전체302완료를유지합니다. Markdown/전체App준비실패/실기·전환/제거/최종33도미완료입니다. 전체302/588(51.4%)·미완료286·부분92/미연결110/미구현84·배치23잔여19·잔여시간미산정이며사용자문서/보호경계를유지합니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 

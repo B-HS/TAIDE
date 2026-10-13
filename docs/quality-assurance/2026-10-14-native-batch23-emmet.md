@@ -17,3 +17,9 @@ native-editor의emmet.rs는여섯language ID의Syntax와borrowed Extraction/rang
 emmet-extraction-wasm.log는새core의wasm32-unknown-unknown lib compile을직접확인했고의존성포함3분03초·exit0입니다. 기존remote-web이나Wasm테스트/시간API불일치해결로확대하지않습니다. 소유5Rustfmt·oracle MJS/QA포맷·manifest/lock/frozen변경0·디스크630GiB/66%이며fixture재생성의변경은포맷만이라같은3096입력의성공을재사용했습니다. e3a추출범위만닫고editor-80의확장/후보/앱소비및전체302/588(51.4%)·미완료286·잔여시간미산정을유지합니다.
 
 소유추출core/검사/oracle/MIT출처/QA와PROCESS상단9경로를fdb39e3b로선별커밋했습니다. 사용자PROCESS하단2hunk·다른문서/결정/피드백/메모리를보존했습니다. 기능표baseline과editor-80의분리된추출기초근거를추가하되확장/후보/앱이없어missing/전체302완료는유지합니다.
+
+## e3b 원본 출력의 초기 대조
+
+설치emmet-monaco-es의실제doComplete에line/position/Range만주입해HTML/JSX각19축약식의주후보insertText를직접관찰했습니다. div는빈본문final field를포함하고span{hello}는추가final field없이다룹니다. a는href의첫field/본문finalfield, img는src/alt fields, input:checkbox는리터럴type을통해소모한fieldindex를보존해name2/id0으로출력합니다. class는JSX에서className으로바뀌며expression속성{value}는두syntax모두quotes없이보존합니다.
+
+div>span+strong은inline자식이어서한줄이고ul>li*2와div>p^aside는tab들여쓰기·줄바꿈을사용합니다. (header+main)>p의p는그룹마지막main의child가아니라같은root의sibling입니다. repeat의$counter와여러빈본문field는마지막field만0으로바뀝니다. boolean hidden은두syntax모두hidden=hidden의quoted형태이며br/도현재원본output.selfClosingStyle:html때문에HTML형식입니다. 기억으로JSXselfclosing을추가하지않고원본출력에맞춥니다. 이관찰은Rust확장성공을뜻하지않으며e3b는구현전입니다.
