@@ -28,6 +28,7 @@ pub struct MarkupNode {
     pub name: Option<String>,
     pub text: Option<String>,
     pub attributes: Vec<MarkupAttribute>,
+    pub has_attributes: bool,
     pub children: Vec<Self>,
     pub repeat: Option<Repeat>,
     pub is_group: bool,
@@ -290,14 +291,13 @@ impl Parser<'_> {
             match self.peek() {
                 Some('*')
                     if node.repeat.is_none()
-                        && (node.name.is_some()
-                            || node.text.is_some()
-                            || !node.attributes.is_empty()) =>
+                        && (node.name.is_some() || node.text.is_some() || node.has_attributes) =>
                 {
                     node.repeat = self.repeat()?
                 }
                 Some('{') if node.text.is_none() => node.text = Some(self.balanced('{', '}')?),
                 Some(operator @ ('.' | '#')) => {
+                    node.has_attributes = true;
                     self.next();
                     let is_multiple = self.consume(operator);
                     while self.consume(operator) {}
@@ -314,12 +314,11 @@ impl Parser<'_> {
                         is_multiple,
                     });
                 }
-                Some('[') => node.attributes.extend(self.attributes()?),
-                Some('/')
-                    if node.name.is_some()
-                        || node.text.is_some()
-                        || !node.attributes.is_empty() =>
-                {
+                Some('[') => {
+                    node.has_attributes = true;
+                    node.attributes.extend(self.attributes()?);
+                }
+                Some('/') if node.name.is_some() || node.text.is_some() || node.has_attributes => {
                     self.next();
                     node.self_closing = true;
                     if node.repeat.is_none() {
@@ -333,7 +332,7 @@ impl Parser<'_> {
                 return Err(EditorError::Capacity);
             }
         }
-        if node.name.is_none() && node.text.is_none() && node.attributes.is_empty() {
+        if node.name.is_none() && node.text.is_none() && !node.has_attributes {
             return Err(EditorError::Refused);
         }
         Ok(node)

@@ -35,3 +35,15 @@ ASCII인쇄문자전체의name/class/attribute와분수형class를더한markup-p
 markup-parser-wasm.log의현재core wasm32-unknown-unknown lib compile은4.82초·exit0입니다. 소유4Rustfmt와oracle MJS/QA포맷·manifest/lock/동결source변경0을확인했습니다. e3b1의raw구조범위만검증했으며기본snippet해결/반복counter변환/필드해결/HTML·JSX렌더·CSS/필터/후보/실제앱은미완료입니다. editor-80missing·302/588(51.4%)·미완료286·목표active·잔여시간미산정을유지합니다.
 
 소유raw markup파서/core export/검사/원본oracle/출처/QA와PROCESS상단8경로를d565bcb9로선별커밋했습니다. 사용자PROCESS하단2hunk·다른문서/결정/피드백/메모리를보존했습니다. 기능표baseline과editor-80기초근거만갱신하며반복/스니펫/필드/렌더/앱이없어missing·전체302완료/목표active를유지합니다.
+
+## e3b2 반복·필드/변수 변환
+
+emmet-markup-conversion.rs는Repeat Count/Implicit·공유repeat guard·번호padding/base/reverse/상위repeat·group flatten/메타데이터·escaped text·fields/variables·속성quote/expression/boolean/implied/multiple와text-only children을typed ExpandedMarkupNode/Attribute/Value로변환합니다. maxRepeat를포함한node/byte/depth예산에서부분결과를반환하지않습니다. 원본의빈attribute set 존재를잃지않게raw has_attributes를추가했고형제/자식·변수없는implicit repeat의빈text삽입도보존합니다.
+
+새변환oracle와기존파서가같은입력을사용하므로emmet-markup-inputs.mjs로공통화했습니다. 실제재생성된기존513입력/1026parser fixture는diff0입니다. conversion oracle는HTML/JSX·변수없는/세변수설정의528입력/2112사례이며maxRepeat7·0/implicit/2000반복·상위counter·fields/expression·text-only를포함합니다. conversion-check.log는초기core compile5.04초 exit0이며최종코드성공근거로전용하지않습니다. conversion-red.log는compile10.89초·1통과/1실패·0.01초·exit101이며coreparser target은fail-fast로실행되지않았습니다.
+
+실패4사례는설치원본tokenVisitor.Bracket의group닫힘이괄호대신curly로작성된오탈자입니다. div[foo=(bar)]의원본AST값(bar}를관찰하고native는올바른(bar)를유지합니다. 원본oracle원문은보존하며해당정확한입력만기대오탈자를단언한뒤올바른닫힘과비교하고별도수정검사를추가했습니다. 2108사례는원본그대로일치하고4사례는의도한원본bug수정입니다. 원본버그를강제로복제하지않는프로젝트범위에맞춘차이를명시합니다.
+
+conversion-final.log는compile9.93초·변환3/parser2의5통과·0실패·exit0입니다. 필드name으로복구한${1}의문자byte누락을추가로재현한field-budget-red.log는0통과/1실패·exit101로예산1에서Ok를보였습니다. name복구의추가marker/index 문자를charge하는field-budget-fixed.log는1통과·0.00초·compile9.45초·exit0입니다. 반환문자열이같은앞선5성공은재사용하며현재서로다른6검사입니다. coreWasm conversion-wasm.log는4.85초·exit0, 소유7Rustfmt·MJS/QA포맷·manifest/lock/frozen변경0·디스크630GiB/66%입니다.
+
+기본snippet해결/implicit tag·HTML/JSX formatting/field offset·필터/lorem/CSS·후보/실제App소비는미완료입니다. e3b2변환만닫고editor-80missing/302완료·미완료286·전체목표active·잔여시간미산정을유지합니다.

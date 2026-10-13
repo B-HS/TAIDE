@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: e3b1 Emmetmarkup구조파서를portable core에연결했습니다. 원본기본snippet·ASCII/분수형class/JSX를포함한513입력/1026raw token-tree사례·예산2검사통과·coreWasm4.82초 exit0·소유4Rustfmt/MIT출처이며기록/Git반영중입니다. 반복oracle의count/value준비오류와native속성/이름/연산자/분수/괄호차이를수정했습니다. 기본snippet해결/반복·필드변환/HTML·JSX렌더·CSS/필터/후보/실제App은미완료이므로editor-80missing·AI77/78partial및전체302완료를유지합니다. Markdown/전체App준비실패/실기·전환/제거/최종33도미완료입니다. 전체302/588(51.4%)·미완료286·부분92/미연결110/미구현84·배치23잔여19·잔여시간미산정이며사용자문서/보호경계를유지합니다.
+현재 상태: e3b2 Emmet반복/번호/field/variable/속성/text-only변환을portable core에연결했습니다. 528입력/2112사례중2108원본일치/4원본group닫힘오탈자수정과fieldname byte예산누락회귀·현재6통과·coreWasm4.85초 exit0·소유7Rustfmt/MIT출처이며기록/Git반영중입니다. 기본snippet/tag·HTML/JSX렌더/필드offset·필터/lorem/CSS/후보/실제App은미완료이므로editor-80missing·AI77/78partial및전체302완료를유지합니다. Markdown/전체App준비실패/실기·전환/제거/최종33도미완료입니다. 전체302/588(51.4%)·미완료286·부분92/미연결110/미구현84·배치23잔여19·잔여시간미산정이며사용자문서/보호경계를유지합니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 
@@ -163,6 +163,7 @@
 - [x] e3a. 축약식 추출 경계 — 원본 역방향 brace/실제 HTML tag/attribute·markup lookAhead/style 고정 cursor와 Unicode UTF-16→UTF-8 경계를portable core로 연결했습니다. 설치emmet2.4.11의66입력/3096문자경계 oracle·여섯언어/비지원·상한/잘못된byte의3검사통과·coreWasm3분03초 exit0·소유5Rustfmt/원본MIT출처를 확인했습니다. 확장/필터/snippet·후보/실제앱은미완료이며editor-80missing/302완료·전체게이트를유지합니다.
 - [ ] e3b. HTML/JSX 확장 — 기존 설치엔진의실제출력/기본snippets/필드·암시tag·이름/속성/텍스트·child/sibling/climb/group/repeat/counter·self closing/indent/JSX·필터를oracle로대조하고portable Rust확장에연결합니다. 범위는emmet core/검사/fixture/출처문서·QA/PROCESS이며CSS확장/후보/앱소비는e3에유지합니다. 새의존성/JS런타임/동결source나미지원문법의거짓확장은추가하지않습니다.
 - [x] e3b1. markup 구조 파서 — portable name/text/속성·JSXmember/표현식·group/child/sibling/climb·반복선언/닫힘을연결했습니다. 원본기본markup snippet과ASCII/분수형class를포함한513입력/1026raw token-tree사례·입력/노드/깊이예산2검사통과·coreWasm4.82초 exit0·소유4Rustfmt/MIT출처를확인했습니다. 반복oracle의count/value오류와native의속성/이름/연산자/분수/괄호차이를재현/수정했습니다. 기본snippet/반복변환/필드/렌더/앱은부모e3b/e3에미완료입니다.
+- [x] e3b2. 반복·필드/변수 변환 — repeat/group flatten·번호padding/base/reverse/상위counter·escaped/field/variable·속성quote/expression/boolean/implied·text-only를typed확장노드에연결했습니다. 528입력/2112사례중2108원본일치/4원본닫힘오탈자수정과byte누락회귀·현재6통과·coreWasm4.85초 exit0·소유7Rustfmt를확인했습니다. 빈attribute set을보존하고공통입력재생성의기존parser fixture diff0입니다. 기본snippet/tag·렌더/필터/CSS/후보/App은미완료입니다.
 - [ ] f. 실제 앱·전체 게이트 — 닫을 기능의 실제 앱/child/mirror·readonly/tier/다중 커서/IME·정상 종료/회귀를 확인하고 변경 크레이트 전체 대상을 --no-fail-fast로 직접 1회 실행합니다. 성공 결과는 재사용하고 실패 영향만 재검사합니다. frozen host/Wasm compile·fmt/diff·manifest/lock/engine/보호 경계·디스크와 배치 31 실기/성능/신뢰성 부채를 구분합니다.
 - [x] f1. 프로젝트 열기 지연 위치 조사·배치 31 이관 — 전체 App 811통과/프로젝트 open 5초 초과 1실패와 Cargo 단독 동일 실패를 보존했습니다. 같은 실행 파일의 직접 검사는 저장소/크레이트 cwd에서 3.81/3.23초에 통과했습니다. 성공한 두 번째 검사 중 start_watch→notify runloop 준비 대기와 FSEventStreamStart→등록 RPC의 실제 스택을 확인했습니다. 실패 시점의 스택이나 지연 변동의 근본 원인은 확인하지 않았으며 해결/전체 exit 0으로 보고하지 않습니다. 제한 확대·검사 생략·OS 변경 없이 반복 조사를 종료하고 배치 31의 실행 환경/신뢰성 게이트에 미해결 위험을 유지합니다.
 - [ ] g. 완료 근거·선별 Git — 실제 닫힌 ID만 QA/기능표/PROCESS에 반영하고 논리 단위 선별 커밋·일반 푸시합니다. 배치 24를 기존 계획 안에서 이어가며 배치 번호를 세부 수정마다 늘리지 않습니다.
