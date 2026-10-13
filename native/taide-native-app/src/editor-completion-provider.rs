@@ -110,12 +110,7 @@ impl Consumer<'_, '_> {
         view: ViewId,
         command: taide_native_editor::completion::Command,
     ) {
-        self.state
-            .borrow_mut()
-            .commands
-            .entry(view)
-            .or_default()
-            .push(command);
+        self.state.borrow_mut().queue_command(view, command);
         self.context.request_repaint();
     }
 }

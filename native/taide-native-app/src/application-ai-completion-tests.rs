@@ -316,6 +316,15 @@ fn 실제_ai_inline의_split은_활성뷰만_표시하고_mirror_수락과_undo�
 
 #[test]
 fn 실제_ai_inline의_peek는_다른_파일_문맥으로_요청하고_소스만_수락한다() {
+    ai_inline_peek(false);
+}
+
+#[test]
+fn 실제_ai_inline의_팔레트는_다른파일_peek의_현재_source에_요청과_수락을_연결한다() {
+    ai_inline_peek(true);
+}
+
+fn ai_inline_peek(from_palette: bool) {
     let mut fixture = fixture_with_view_state(
         "--native-locations-cross-file",
         false,
@@ -391,14 +400,22 @@ fn 실제_ai_inline의_peek는_다른_파일_문맥으로_요청하고_소스만
         context,
         key(egui::Key::End, egui::Modifiers::COMMAND),
     );
-    paint(
-        application,
-        context,
-        key(
-            egui::Key::Q,
-            egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND,
-        ),
-    );
+    if from_palette {
+        super::selection_ranges_tests::run_palette(
+            application,
+            context,
+            "monaco.editor.action.inlineSuggest.trigger",
+        );
+    } else {
+        paint(
+            application,
+            context,
+            key(
+                egui::Key::Q,
+                egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND,
+            ),
+        );
+    }
     let deadline = Instant::now() + PAINT_DEADLINE;
     loop {
         eframe::App::logic(application, context, &mut eframe::Frame::_new_kittest());

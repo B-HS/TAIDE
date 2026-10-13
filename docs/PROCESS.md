@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: e2b1 AI 편집의 실제 본문 명령/기본 CmdI/재정의·지시 입력·loading/취소·삭제 표시/현재 font 추가 zone·localized 알림/primary 색·CmdEnter 수락/undo·디스크/task0을 연결했습니다. 상태/소비/키맵/후보의 App123·UI253 서로 다른376통과·소유15Rust fmt/diff·동결 host24.45/Wasm12.94초 exit0으로 확인했습니다. sizing/입력유예·창 사전 키 소비와 진단 잠금/좌표 hunk 실수를 QA에 보존하고 진단·무관한 좌표 변경을 제거했습니다. e2b2의 peek/palette·그리기/버튼/IME/추가 수명과 전체 App/실기·AI 완성/Emmet·Markdown/전체 전환·제거/최종33은 미완료입니다. 전체302/588(51.4%)·미완료286·부분92/미연결110/미구현84·배치23 잔여19·잔여시간 미산정이며 사용자 문서/보호 경계를 유지합니다.
+현재 상태: e2b2a 실제 다른 파일 peek·팔레트에서 AI 편집/명시 완성의 실제 source 경로/언어/문맥·source만 수락/undo·owner/디스크/task0과 진행 중 편집 요청의 peek 닫힘 회수를 연결했습니다. 일반 Intent 단계의 focus 가설을 큐/세션으로 진단해 선택 순간의 검증된 source로 직접 전달하며 가설 변경/진단을 제거했습니다. 상태/소비/실제 App19·명시 완성1·후보82의 중복3 제외99통과·소유5Rust fmt/diff·동결 host/Wasm0.07/0.11초 exit0입니다. e2b2의 표시/버튼/IME·split/mirror/추가 수명과 전체 App/실기·AI 완성/편집/Emmet·Markdown/전환·제거/최종33은 미완료입니다. 전체302/588(51.4%)·미완료286·부분92/미연결110/미구현84·배치23 잔여19·잔여시간 미산정이며 사용자 문서/보호 경계를 유지합니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 
@@ -156,11 +156,12 @@
 - [ ] e2b. 명령과 실제 미리보기 소비 — e2a 상태를 원본 action/default CmdI/사용자 재정의·팔레트와 본문/peek의 지시 입력·loading/취소·삭제 표시/현재 font의 추가 영역·수락/거절/Esc·CmdEnter에 연결합니다. 실제 앱/회귀·동결 계약·수명/정상 종료와 기능표/QA/PROCESS를 확인하며 전체 게이트는 f에 유지합니다.
 - [x] e2b1. 본문 명령/입력/미리보기 — 기본 CmdI/사용자 재정의와 지시 입력·생성/취소·원문 삭제 표시/추가 zone·localized 알림·CmdEnter 수락/undo·원문/디스크/task0을 상태12/소비자3/실제 App2에서 확인했습니다. sizing pass와 창의 사전 editor keymap 소비를 수정했고 나머지 source/실기·전체 게이트는 부모 e2b에 유지합니다.
 - [ ] e2b2. source·표시·입력 추가 경계 — 실제 다른 파일 peek/owner·palette 명령·split/mirror·닫힘·반복 명령과 source 변경/credential·primary 버튼/삭제 범위/현재 font/scroll·IME와 마우스 수락/거절을 원본 및 실제 표시로 확인합니다. 미완료 source를 partial로 유지하며 관련 회귀/동결 호환성·기록/Git을 수행합니다.
+- [x] e2b2a. 실제 source/팔레트/닫힘 — direct·실제 팔레트의 다른 파일 peek AI 편집/완성 요청·표시/소스만 수락/undo·owner/디스크/task0과 두 번째 진행 편집 요청의 닫힘 회수를99통과·fmt/diff/동결 compile로 확인했습니다. source는 선택 처리 시점에서 전달하며 일반 Intent focus 가설/진단은 제거했습니다. 나머지 e2b2와 전체 게이트는 미완료입니다.
 - [ ] f. 실제 앱·전체 게이트 — 닫을 기능의 실제 앱/child/mirror·readonly/tier/다중 커서/IME·정상 종료/회귀를 확인하고 변경 크레이트 전체 대상을 --no-fail-fast로 직접 1회 실행합니다. 성공 결과는 재사용하고 실패 영향만 재검사합니다. frozen host/Wasm compile·fmt/diff·manifest/lock/engine/보호 경계·디스크와 배치 31 실기/성능/신뢰성 부채를 구분합니다.
 - [x] f1. 프로젝트 열기 지연 위치 조사·배치 31 이관 — 전체 App 811통과/프로젝트 open 5초 초과 1실패와 Cargo 단독 동일 실패를 보존했습니다. 같은 실행 파일의 직접 검사는 저장소/크레이트 cwd에서 3.81/3.23초에 통과했습니다. 성공한 두 번째 검사 중 start_watch→notify runloop 준비 대기와 FSEventStreamStart→등록 RPC의 실제 스택을 확인했습니다. 실패 시점의 스택이나 지연 변동의 근본 원인은 확인하지 않았으며 해결/전체 exit 0으로 보고하지 않습니다. 제한 확대·검사 생략·OS 변경 없이 반복 조사를 종료하고 배치 31의 실행 환경/신뢰성 게이트에 미해결 위험을 유지합니다.
 - [ ] g. 완료 근거·선별 Git — 실제 닫힌 ID만 QA/기능표/PROCESS에 반영하고 논리 단위 선별 커밋·일반 푸시합니다. 배치 24를 기존 계획 안에서 이어가며 배치 번호를 세부 수정마다 늘리지 않습니다.
 
-다음 행동: e2b2의 실제 다른 파일 peek/owner·palette와 표시/버튼/IME·닫힘/추가 source 수명을 확인합니다. e2/editor-78 partial·editor-77 전체 App/실기와 editor-72 HTML/접근성·OS·전체 전환/제거·최종33은 유지합니다.
+다음 행동: e2b2의 실제 버튼/삭제 범위/추가 zone·현재 font/scroll·instruction IME와 split/mirror/추가 수명을 확인합니다. editor-77/78 partial·editor-72 HTML/접근성·전체 App/OS/실기/전환·제거·최종33은 유지합니다.
 
 ## 완료: 배치 22 — 자동완성과 사용자 스니펫 소비 (2026-10-10)
 

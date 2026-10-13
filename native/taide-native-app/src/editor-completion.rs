@@ -179,6 +179,14 @@ pub(crate) enum EditNotice {
 }
 
 impl State {
+    pub(crate) fn queue_command(
+        &mut self,
+        view: ViewId,
+        command: taide_native_editor::completion::Command,
+    ) {
+        self.commands.entry(view).or_default().push(command);
+    }
+
     pub(crate) fn begin(
         &mut self,
         store: &EditorStore,

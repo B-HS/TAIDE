@@ -131,3 +131,21 @@ frozen-host.log는28.95초·exit0이지만 native-host 없는 그래프의 unuse
 frozen-wasm.log의 --lib --features canvas --target wasm32-unknown-unknown은12.94초·exit0입니다. 현재 변경된 공통/UI 계약의 Wasm 컴파일이며 테스트 실행이나 기존 시간 API 불일치 해결로 확대하지 않습니다. editor-78은 실제 본문 소비가 연결되어 unwired에서 partial로 갱신합니다. complete302/partial92/unwired110/missing84·전체 미완료286·배정 누락/중복0·최종33은 유지합니다.
 
 소유 코드/검사/UI keymap/QA와 PROCESS 상단18경로를fe9aa9b3로 선별 커밋했습니다. 사용자 PROCESS 하단2hunk·HANDOFF/architecture/이전 결정·피드백/메모리를 보존했습니다. 기능표 baseline은 이 실제 제품 커밋으로 갱신하며 editor-78의 본문 소비만 partial로 반영합니다. 전체 완료302와 전체 목표의 미완료 상태는 유지합니다.
+
+## 다른 파일 peek·팔레트의 AI 편집 소스와 닫힘 (2026-10-14)
+
+로그 접두사는 `/private/tmp/taide-ai-edit-`입니다. peek.log의 실제 다른 파일 검사1건은32.83초·컴파일37.01초·exit0입니다. 원본처럼 현재 model의 경로/언어/선택 또는 현재 줄·양쪽 문맥을 요청하고 fenced/plain preview를 수락해 source만 변경하며 owner·디스크 원문/undo·닫힘/task0을 확인했습니다. 실제 파일은 임시 current/peek 파일이며 Keychain/실제 키/사용자 데이터/OS 입력은 접근하지 않습니다.
+
+peek-palette-red.log는0통과/1실패·48.02초·컴파일20.60초·exit101로 팔레트 뒤 peek 세션 미생성을 관찰했습니다. 기존 run_palette helper의 입력 포커스·enabled/selected 명령 단언을 적용한 prepared.log도0통과/1실패·36.17초·컴파일16.65초·exit101입니다. 선택 이후 일반 ShellIntent 단계에서 현재 focus로 source를 찾는 routed.log는36.38초·컴파일19.56초, 그 프레임의 palette origin을 사용하는 origin.log는35.24초·컴파일18.25초에 각각0통과/1실패·exit101이었습니다. 같은 가정의 반복은 중단하고 선택 직후의 큐/세션을 확인했습니다.
+
+palette-queue.log의0통과/1실패·32.05초·컴파일19.29초·exit101에서는 owner/source가 각각 ViewId1/2이며 queued=[]/owner_open=false/focus=None인 시점을 확인했습니다. 실제 팔레트는 명령 선택을 show_palette에서 처리하고 일반 명령 문자열을 다음 UI 프레임으로 전달하며 FocusReturn.release가 origin을 회수합니다. 일반 Intent 소비 지점의 현재 focus로는 원래 peek를 보존할 수 없습니다. 기존 포맷/리네임의 선택 처리와 같은 지점에서, show 전 검증한 source/owner를 사용해 AI 편집과 명시 인라인 완성 명령을 실제 source에 바로 큐잉합니다. 이후 Intent 단계의 가설 변경과 검사 전용 큐 출력은 제거했습니다. State queue API는 기존 consumer와 팔레트가 함께 사용하며 새 명령/키/owner를 만들지 않습니다.
+
+peek-palette-dispatch.log는 실제 팔레트의 enabled/selected ai.inlineEdit→peek 지시 입력/현재 source 요청→source만 수락/undo·owner/디스크/닫힘/task0의1통과·32.26초·컴파일18.36초·exit0입니다. peek-pending-close.log의1통과·32.15초·컴파일21.95초·exit0은 수락/undo 뒤 같은 peek에서 두 번째 생성 요청을 시작하고 peek 닫힘에서 pending reply가 닫히는 것까지 확인했습니다. 실제 UI 종료에서 request future를 회수하며 늦은 응답을 적용할 source 세션도 남지 않습니다. 반복 실행을 합산하지 않습니다.
+
+현재 source 통합 검사를 실행 중이며 e2b2의 해당 source 범위만 닫습니다. 표시/마우스 버튼/현재 font/scroll·instruction IME·실제 split/mirror·추가 설정/credential 수명과 전체 App 준비 실패/실기/성능/전환·제거/최종33은 미완료입니다. editor-78 partial과 전체302/588(51.4%)·미완료286·잔여 시간 미산정을 유지합니다.
+
+source-final.log는 상태12/소비자3/실제 App4의19통과·49.92초·컴파일0.26초·exit0입니다. direct/실제 팔레트의 peek 수락·undo 뒤 같은 source에서 두 번째 진행 요청을 만들고 닫힘으로 회수하는 두 source 사례와 기존 본문/재정의/취소/알림/정상 종료를 현재 코드에서 확인했습니다. source-inline-palette.log는 같은 dispatcher의 monaco.editor.action.inlineSuggest.trigger→다른 파일 peek 경로/언어/문맥·ghost/Tab 수락/undo·owner/디스크/닫힘/task0의1통과·32.46초·컴파일21.44초·exit0입니다. 원본 없는 완성 키나 새 UI를 추가하지 않았습니다.
+
+source-completion-regression.log의82통과·13.21초·컴파일0.25초·exit0은 기존 후보/문서/스니펫/AI·키/clipboard port·LSP child 취소/오래된 응답/종료와 AI 편집 소비3건입니다. 실제 test 이름으로 Source19/명시 완성1/후보82의 중복3건을 제외한 현재 서로 다른99건이며 반복 단독 성공을 더하지 않습니다. App 내부 큐/팔레트 선택만 변경했고 UI/Editor 공개 계약은 변경하지 않아 기존 UI253 등의 성공을 유지하되 새 전체 실행으로 합산하지 않습니다.
+
+source-frozen-host/wasm.log는 현재 캐시된 그래프에서0.07/0.11초·exit0이며 동결 compile과 Wasm 테스트 실행을 구분합니다. 소유5Rust fmt/native diff check exit0, manifest/lock/동결 source 변경0, 디스크632GiB/사용66%입니다. 검사 전용 큐 조회와 진단 출력은 제거했습니다. e2b2a의 source/팔레트/닫힘만 닫고 e2b2의 추가 표시/버튼/IME·split/mirror/credential·전체 게이트와 editor-77/78 partial을 유지합니다. 전체302/588(51.4%)·미완료286·잔여 시간 미산정입니다.

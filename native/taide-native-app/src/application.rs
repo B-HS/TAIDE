@@ -5503,6 +5503,27 @@ impl NativeApplication {
                 }
             }
             Some(crate::command_palette::Action::RunCommand(id)) => {
+                let inline_command = if id == "ai.inlineEdit" {
+                    Some(taide_native_editor::completion::Command::TriggerEdit)
+                } else {
+                    taide_native_editor::completion::Command::from_action(
+                        id.strip_prefix("monaco.").unwrap_or(&id),
+                    )
+                    .filter(|command| {
+                        matches!(
+                            command,
+                            taide_native_editor::completion::Command::TriggerEdit
+                                | taide_native_editor::completion::Command::TriggerInline
+                        )
+                    })
+                };
+                if let Some(command) = inline_command
+                    && let Some((source, _)) = formatting_source
+                {
+                    self.editor_completion.queue_command(source, command);
+                    context.request_repaint();
+                    return;
+                }
                 if id == "monaco.editor.action.showContextMenu" {
                     if let Some((source, owner)) = formatting_source {
                         if let Err(error) = crate::editor_context_menu::request_palette(
