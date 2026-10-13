@@ -27,6 +27,7 @@ pub enum MarkupValueType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpandedMarkupAttribute {
     pub name: Option<String>,
+    pub name_fields: Option<Vec<MarkupValue>>,
     pub value: Option<Vec<MarkupValue>>,
     pub value_type: MarkupValueType,
     pub is_boolean: bool,
@@ -98,6 +99,12 @@ impl Converter<'_> {
                 let mut closed = false;
                 while let Some(character) = raw[cursor..].chars().next() {
                     cursor += character.len_utf8();
+                    if character == '\\'
+                        && let Some(next) = raw[cursor..].chars().next()
+                    {
+                        cursor += next.len_utf8();
+                        continue;
+                    }
                     match character {
                         '{' => {
                             depth += 1;
@@ -220,10 +227,14 @@ impl Converter<'_> {
 
     fn name(&mut self, raw: &str, fields: bool) -> Result<String, EditorError> {
         let values = self.value(raw, fields)?;
+        self.serialize_name(&values)
+    }
+
+    fn serialize_name(&mut self, values: &[MarkupValue]) -> Result<String, EditorError> {
         let mut output = String::new();
         for value in values {
             match value {
-                MarkupValue::Text(text) => output.push_str(&text),
+                MarkupValue::Text(text) => output.push_str(text),
                 MarkupValue::Field { index, name } => {
                     let field = if name.is_empty() {
                         format!("${{{index}}}")
@@ -239,10 +250,14 @@ impl Converter<'_> {
     }
 
     fn attribute(&mut self, raw: &MarkupAttribute) -> Result<ExpandedMarkupAttribute, EditorError> {
-        let mut name = raw
+        let mut name_fields = raw
             .name
             .as_deref()
-            .map(|name| self.name(name, true))
+            .map(|name| self.value(name, true))
+            .transpose()?;
+        let mut name = name_fields
+            .as_deref()
+            .map(|values| self.serialize_name(values))
             .transpose()?;
         let is_implied = name.as_ref().is_some_and(|name| name.starts_with('!'));
         let is_boolean = name.as_ref().is_some_and(|name| name.ends_with('.'));
@@ -254,6 +269,19 @@ impl Converter<'_> {
                 name.remove(0);
             }
         }
+        if let Some(fields) = &mut name_fields {
+            if is_implied && let Some(MarkupValue::Text(first)) = fields.first_mut() {
+                first.remove(0);
+            }
+            if is_boolean && let Some(MarkupValue::Text(last)) = fields.last_mut() {
+                last.pop();
+            }
+        }
+        let name_fields = name_fields.filter(|values| {
+            values
+                .iter()
+                .any(|value| matches!(value, MarkupValue::Field { .. }))
+        });
         let mut value_type = if raw.is_expression {
             MarkupValueType::Expression
         } else {
@@ -286,6 +314,7 @@ impl Converter<'_> {
             .transpose()?;
         Ok(ExpandedMarkupAttribute {
             name,
+            name_fields,
             value,
             value_type,
             is_boolean,

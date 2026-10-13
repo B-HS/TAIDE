@@ -168,7 +168,7 @@ impl Output {
                 self.newline(self.level)?;
             }
             for character in line.chars() {
-                if character == '$' && !self.text.ends_with('\\') {
+                if matches!(character, '$' | '\\') {
                     self.push("\\")?;
                 }
                 self.push(character.encode_utf8(&mut [0; UTF8_MAX_BYTES]))?;
@@ -178,22 +178,64 @@ impl Output {
     }
 
     fn tokens(&mut self, values: &[MarkupValue]) -> Result<(), EditorError> {
+        self.write_tokens(values, self.field, true)
+    }
+
+    fn placeholder(&mut self, name: &str) -> Result<(), EditorError> {
+        let mut characters = name.chars().peekable();
+        let mut braces = Vec::new();
+        let mut is_field_open = false;
+        while let Some(character) = characters.next() {
+            if character == '\\' {
+                self.push("\\")?;
+                if let Some(next) = characters.next() {
+                    self.push(next.encode_utf8(&mut [0; UTF8_MAX_BYTES]))?;
+                }
+                continue;
+            }
+            if character == '$' {
+                if characters.peek() == Some(&'{') {
+                    is_field_open = true;
+                } else {
+                    self.push("\\")?;
+                }
+            }
+            if character == '{' {
+                if braces.len() >= self.max_nesting {
+                    return Err(EditorError::Capacity);
+                }
+                braces.push(is_field_open);
+                is_field_open = false;
+            }
+            if character == '}' {
+                if !braces.pop().unwrap_or(false) {
+                    self.push("\\")?;
+                }
+            }
+            self.push(character.encode_utf8(&mut [0; UTF8_MAX_BYTES]))?;
+        }
+        Ok(())
+    }
+
+    fn write_tokens(
+        &mut self,
+        values: &[MarkupValue],
+        offset: usize,
+        should_advance: bool,
+    ) -> Result<(), EditorError> {
         let mut largest = None::<usize>;
         for value in values {
             match value {
                 MarkupValue::Text(text) => self.literal(text)?,
                 MarkupValue::Field { index, name } => {
-                    let number = self
-                        .field
-                        .checked_add(*index)
-                        .ok_or(EditorError::Capacity)?;
+                    let number = offset.checked_add(*index).ok_or(EditorError::Capacity)?;
                     self.push("${")?;
                     let start = self.text.len();
                     self.push(&number.to_string())?;
                     let end = self.text.len();
                     if !name.is_empty() {
                         self.push(":")?;
-                        self.push(name)?;
+                        self.placeholder(name)?;
                     }
                     self.push("}")?;
                     self.fields.push(Field {
@@ -205,7 +247,7 @@ impl Output {
                 }
             }
         }
-        if let Some(largest) = largest {
+        if should_advance && let Some(largest) = largest {
             self.field = self
                 .field
                 .checked_add(largest)
@@ -256,6 +298,13 @@ impl Output {
             let text = if is_property {
                 format!("styles.{text}")
             } else {
+                let text = text
+                    .replace('\\', "\\\\")
+                    .replace('\'', "\\'")
+                    .replace('\n', "\\n")
+                    .replace('\r', "\\r")
+                    .replace('\u{2028}', "\\u2028")
+                    .replace('\u{2029}', "\\u2029");
                 format!("styles['{text}']")
             };
             value = Some(vec![MarkupValue::Text(text)]);
@@ -267,8 +316,21 @@ impl Output {
         {
             value = Some(vec![MarkupValue::Text(name.into())]);
         }
+        if !expression && let Some(values) = &mut value {
+            for value in values {
+                if let MarkupValue::Text(text) = value {
+                    *text = text.replace('"', "&quot;");
+                }
+            }
+        }
         self.literal(" ")?;
-        self.literal(name)?;
+        if name == original
+            && let Some(fields) = &attribute.name_fields
+        {
+            self.write_tokens(fields, 0, false)?;
+        } else {
+            self.literal(name)?;
+        }
         self.literal("=")?;
         self.literal(if expression { "{" } else { "\"" })?;
         if let Some(value) = value.as_deref() {
@@ -414,6 +476,9 @@ impl Output {
     }
 
     fn finish(mut self) -> String {
+        if self.fields.iter().any(|field| field.index == 0) {
+            return self.text;
+        }
         if let Some(largest) = self
             .fields
             .iter()

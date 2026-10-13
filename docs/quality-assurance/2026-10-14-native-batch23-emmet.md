@@ -97,3 +97,15 @@ markup-lorem-first.log와markup-lorem-parity.log는검사호출의인자누락·
 markup-lorem-host.log의현재lib/Emmet7target host check17.69초와markup-lorem-wasm.log의현재corelib wasm32 check4.55초는73717 handle에서exit0/추가경고0으로종료했습니다. 최종8Rustfmt·oracle MJS/QA포맷·어휘/444fixture의동일입력재생성·소유diff/manifest·lock·frozen변경0·디스크630GiB/66%를확인했습니다. e3b6 코어범위만완료이며CSS/후보/실제App/editor-80unwired·전체302/588(51.4%)·미완료286/목표active·기존App준비/Wasm시간API/성능/실기게이트는미완료입니다.
 
 소유lorem core/생성어휘·난수API/검사/oracle/MIT출처·QA와PROCESS상단12경로를5ce6a2ba로선별커밋했습니다. 기능표baseline/lorem 근거만갱신하고editor-80unwired·전체302완료를유지합니다. 사용자PROCESS하단2hunk와다른문서/결정/피드백/메모리는보존했습니다.
+
+## e3b7 — 문자열·필드 소비 경계
+
+새boundaries oracle는현재원본helper의실제출력을보존합니다. 최초MJS의String.raw 안에필드보간문법이있어generator syntax exit1/생성0건이었고일반문자열로고쳐30입력/60사례를생성했습니다. boundaries-red.log는compile8.98초·0통과/1실패/exit101로속성name의field literal처리와기본값cost$5·escaped field/닫힘의실제차이를재현했습니다.
+
+ExpandedMarkupAttribute.name_fields는변환때의진짜field token만보존합니다. 직렬화된name으로부터리터럴/field를다시추측하지않습니다. 원본name field의인덱스/일반value offset을유지하고최종0이이미있으면추가0으로덮어쓰지않습니다. literal출력은백슬래시와달러를snippet문법으로encode하고field default의일반달러/닫힘brace와중첩field의구조를분리했습니다. converter는field default의escaped brace를닫힘으로오인하지않습니다. 일반속성의double quote는HTML entity로,JSX styles의문자열key는single quote/backslash/줄바꿈을JS문법으로encode한뒤snippet encode합니다.
+
+boundaries-parity.log는compile13.33초·새경계0통과/1실패와기존변환4/필터3/lorem3/출력4/준비2의16통과·exit101입니다. 수정된escape출력을원본의손실있는raw문자열과동일하게요구한초기assert는별도consumer비교로바꿨습니다. raw원본fixture는유지하고리터럴${1}→${0} 손실·백슬래시/달러·plain brace/escaped closing·깨진JSX key/속성quote의기대본문만corrected_text의명시적입력목록에기록했습니다. native snippet_syntax와snippet_expansion을실제로통과시켜출력표기차이가본문/placeholder에미치는결과를비교합니다. 슬롯이름1/value3/최종0과cost$5가추가슬롯이되지않음도직접단언합니다.
+
+추가최종0 name/nested plain-brace 사례를포함한32입력/64사례의boundaries-final.log는43131 handle에서compile18.33초·새경계2/0.00초·변환4/0.01초·필터3/0.01초·lorem3/0.02초·출력3/1실패/0.05초·준비2/0.02초의17통과/1실패·exit101으로종료했습니다. 실패는기존1840출력oracle의title=\"a\"b\"를그대로요구한두syntax 사례입니다. 원본오류값을정확히단언한뒤native title=\"a&quot;b\" 기대값으로명시수정했습니다. boundaries-quoted-final.log는85334 handle에서해당1검사만재실행해compile4.40초·1통과/3filtered·0.03초·exit0으로종료했습니다. 현재변경직접18성공과이전전체322/필터3/lorem3/새경계2의서로다른330성공을재사용하고반복성공은더하지않습니다. 현재기본1840사례는1834원본raw일치와괄호/literal/속성quote의명시적6수정을포함합니다.
+
+lorem 구현/기능표커밋5ce6a2ba/9ebfa0e4는일반push/local·remote0/0으로확인했습니다. boundaries-host.log의현재lib/Emmet8target compile17.88초와boundaries-wasm.log의현재corelib wasm32 compile4.73초는83847 handle에서exit0/추가경고0으로종료했습니다. 최종5Rustfmt·oracle MJS/QA포맷·소유diff/manifest·lock·frozen변경0·디스크630GiB/66%를확인했습니다. e3b1~7의HTML/JSX 코어확장만닫고e3/CSS·range/validation/추가후보/설정/실제App은미완료이며editor-80unwired·전체302/588(51.4%)·미완료286·목표active·잔여시간미산정을유지합니다.

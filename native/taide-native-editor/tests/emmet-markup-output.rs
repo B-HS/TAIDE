@@ -17,6 +17,7 @@ const LIMITS: ConversionLimits = ConversionLimits {
 };
 const UPSTREAM_GROUP_CLOSING_INPUT: &str = "div[foo=(bar)]";
 const UPSTREAM_LITERAL_FIELD_INPUT: &str = "p{\\${1}}";
+const UPSTREAM_QUOTED_ATTRIBUTE_INPUT: &str = "div[title=\"a\\\"b\"]";
 const SNIPPET_LIMITS: taide_native_editor::snippet_syntax::ParseLimits =
     taide_native_editor::snippet_syntax::ParseLimits {
         max_bytes: LIMITS.max_bytes,
@@ -45,6 +46,10 @@ fn emmet_markup의_html_jsx_출력은_원본_snippet_필드_들여쓰기와_일�
                 if input == UPSTREAM_LITERAL_FIELD_INPUT {
                     assert_eq!(expected, "<p>${0}</p>");
                     return "<p>\\${1}</p>".into();
+                }
+                if input == UPSTREAM_QUOTED_ATTRIBUTE_INPUT {
+                    assert_eq!(expected, "<div title=\"a\"b\">${0}</div>");
+                    return "<div title=\"a&quot;b\">${0}</div>".into();
                 }
                 expected.into()
             });
