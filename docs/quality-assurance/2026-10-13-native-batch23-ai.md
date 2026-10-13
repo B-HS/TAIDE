@@ -165,3 +165,5 @@ app-ui-boundaries.log는컴파일30.32초·19통과/1실패·96.67초·exit101�
 app-ime-ready.log는실패1건의준비보완후1통과·56.56초·컴파일26.10초·exit0입니다. 실제현재control포커스/IME수신준비→조합중Enter/Escape에서무제출/세션유지→확정지시한글수정→현재파일/old선택의실제요청→비파괴미리보기→locale수락버튼의실제pointer누름/뗌→GENERATED/단일undo/디스크원문/task0을단언했습니다. 앞선영향없는19성공은재사용하며현재App서로다른20건입니다. ui-live-metrics.log의보강표시1건은5.05초컴파일·0.04초·exit0으로세로scroll/표시중font·lineheight변경/zone재계산·닫힘후원래본문간격과삭제배경/preview회수도확인했습니다. 기존UI34중해당1건을대체해현재App20/UI34의서로다른54통과이며0검사/이전반복실행은합산하지않습니다.
 
 ui-frozen-host/wasm.log는현재캐시된그래프에서0.09/0.11초·exit0입니다. 동결source변경없이계약compile을확인하며Wasm테스트실행/이전시간API불일치해결로확대하지않습니다. 소유3Rustfmt/diff·manifest/lock/frozen변경0·디스크630GiB/66%이며삭제/청소하지않았습니다. e2b2b의표시/입력만닫고실제split/mirror/추가credential·설정/문서수명과전체게이트/editor-77/78partial·302/588(51.4%)를유지합니다.
+
+소유조합입력수정/검사/QA와PROCESS상단5경로를36ebe0ab로선별커밋했습니다. 사용자PROCESS하단2hunk·다른문서/결정/피드백/메모리는보존했습니다. 기능표baseline과editor-78의행/근거제한을현재표시/입력검증에맞게갱신하고UI검사경로를연결합니다. partial/302완료·미완료286·목표active는유지합니다.

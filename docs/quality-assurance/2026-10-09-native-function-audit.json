@@ -1,6 +1,6 @@
 {
     "date": "2026-10-14",
-    "baseline": "6270f23b",
+    "baseline": "36ebe0ab",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1223,10 +1223,11 @@
                 "native/taide-native-app/src/editor-ai-edit-tests.rs",
                 "native/taide-native-app/src/application-ai-edit-tests.rs",
                 "native/taide-native-app/src/editor-completion-consumer-tests.rs",
-                "native/taide-native-ui/tests/editor_surface.rs"
+                "native/taide-native-ui/tests/editor_surface.rs",
+                "native/taide-native-ui/tests/editor-completion.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-13-native-batch23-ai.md"],
-            "limitation": "선택/현재 줄·양쪽2000 UTF-16 문맥·fence·문서/owner/credential 수명·supervised 취소/비파괴 preview와 실제 본문의 기본 CmdI/재정의·지시 입력·삭제 표시/현재 font 추가 zone·localized 취소/오류·primary 버튼·CmdEnter 수락/단일 undo·디스크/task0을 연결했습니다. 현재 App123/UI253의 서로 다른376통과·동결 host/Wasm compile입니다. 다른 파일 peek/owner·실제 palette/source·split/mirror·표시/마우스 버튼/IME/추가 수명과 전체 게이트가 남아 partial입니다."
+            "limitation": "선택/현재 줄·UTF-16 문맥/fence·supervised 요청/수명·실제 본문/다른 파일 peek/팔레트의 현재 source 요청/수락/undo·owner/디스크/task0을 연결했습니다. 실제 삭제 범위·현재/변경 font/lineheight·target 뒤 zone·가로/세로 scroll/gutter clip·닫힘 복원·primary 마우스 수락/단일 undo·거절/생성취소·조합중 Enter/Escape/확정 지시도 확인했습니다. TextEdit 기본 필터의 Escape 포커스 해제를 수정하고 실제 App의 IME수신 준비를 단언했습니다. 현재 App20/UI34의 서로 다른54통과·동결 host/Wasm compile이며 이전 반복 실행과 합산하지 않습니다. 실제 split/mirror와 추가 설정/credential/문서 수명·전체 App/실기 게이트는 남아 partial입니다."
         }
     },
     "rows": [
@@ -3175,7 +3176,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-ai-edit-state",
-            "note": "선택/현재 줄·양쪽2000 UTF-16 문맥·fence·문서/owner/credential 수명·supervised 취소/비파괴 preview와 실제 본문의 CmdI/재정의·지시 입력·삭제 표시/현재 font 추가 zone·localized 취소/오류·primary 버튼·CmdEnter 수락/단일 undo를 연결했습니다. 실제 다른 파일 peek와 팔레트에서 현재 source 경로/언어/문맥·source만 수락/undo·owner/디스크 보존·진행 요청 중 peek 닫힘/task0도 확인했습니다. 현재 소스 연결 App19/명시 완성1/후보82의 중복3 제외99통과·동결 host/Wasm compile이며 이전 본문376통과와 합산하지 않습니다. 추가 표시/마우스 버튼/IME·실제 split/mirror/설정/credential 수명과 전체 게이트가 남아 partial입니다."
+            "note": "선택/현재 줄·UTF-16 문맥/fence·supervised 요청/수명·실제 본문/다른 파일 peek/팔레트의 현재 source 요청/수락/undo·owner/디스크/task0을 연결했습니다. 실제 삭제 범위·현재/변경 font/lineheight·target 뒤 zone·가로/세로 scroll/gutter clip·닫힘 복원·primary 마우스 수락/단일 undo·거절/생성취소·조합중 Enter/Escape/확정 지시도 확인했습니다. TextEdit 기본 필터의 Escape 포커스 해제를 수정하고 실제 App의 IME수신 준비를 단언했습니다. 현재 App20/UI34의 서로 다른54통과·동결 host/Wasm compile이며 이전 반복 실행과 합산하지 않습니다. 실제 split/mirror와 추가 설정/credential/문서 수명·전체 App/실기 게이트는 남아 partial입니다."
         },
         {
             "id": "editor-79",
