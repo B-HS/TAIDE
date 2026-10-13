@@ -56,6 +56,7 @@ impl Config {
 #[derive(Clone, PartialEq, Eq)]
 struct CacheKey {
     config: Config,
+    credential: Option<Uuid>,
     file: String,
     language: String,
     prefix: String,
@@ -263,18 +264,19 @@ impl State {
             self.entries.remove(&source);
             return Ok(());
         };
-        if self
-            .entries
-            .get(&source)
-            .is_some_and(|entry| entry.origin.describes(store) && entry.origin.key.config == config)
-        {
+        let credential = services.secrets.0.revision(account(config.provider));
+        if self.entries.get(&source).is_some_and(|entry| {
+            entry.origin.describes(store)
+                && entry.origin.key.config == config
+                && entry.origin.key.credential == credential
+        }) {
             return Ok(());
         }
-        if self
-            .entries
-            .get_mut(&source)
-            .is_some_and(|entry| entry.origin.key.config == config && entry.reuse(store))
-        {
+        if self.entries.get_mut(&source).is_some_and(|entry| {
+            entry.origin.key.config == config
+                && entry.origin.key.credential == credential
+                && entry.reuse(store)
+        }) {
             return Ok(());
         }
         self.entries.remove(&source);
@@ -297,6 +299,7 @@ impl State {
         let (prefix, suffix) = context_window(&snapshot, byte)?;
         let key = CacheKey {
             config: config.clone(),
+            credential,
             file: file.clone(),
             language: snapshot.metadata.language_id.clone(),
             prefix,
@@ -466,6 +469,19 @@ impl State {
         self.cache.clear();
     }
 
+    pub(crate) fn reconcile_credentials(&mut self, services: &AppServices) {
+        self.entries.retain(|_, entry| {
+            services
+                .secrets
+                .0
+                .revision(account(entry.origin.key.config.provider))
+                == entry.origin.key.credential
+        });
+        self.cache.retain(|(key, _)| {
+            services.secrets.0.revision(account(key.config.provider)) == key.credential
+        });
+    }
+
     pub(crate) fn reconcile(
         &mut self,
         store: &EditorStore,
@@ -478,6 +494,14 @@ impl State {
                 && entry.origin.describes(store)
                 && active(&entry.origin)
         });
+    }
+}
+
+fn account(provider: AiProviderId) -> taide_infra::secret::SecretAccount {
+    match provider {
+        AiProviderId::OllamaCloud => taide_infra::secret::SecretAccount::AiOllamaCloud,
+        AiProviderId::Codex => taide_infra::secret::SecretAccount::AiCodex,
+        AiProviderId::Omlx => taide_infra::secret::SecretAccount::AiOmlx,
     }
 }
 

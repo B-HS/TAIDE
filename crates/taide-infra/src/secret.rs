@@ -1,4 +1,8 @@
+use std::collections::HashMap;
 use std::sync::Arc;
+
+use parking_lot::Mutex;
+use uuid::Uuid;
 
 use taide_model::error::{AppError, AppErrorKind, AppResult};
 
@@ -27,6 +31,37 @@ pub trait SecretStore: Send + Sync {
     fn set(&self, account: SecretAccount, value: &str) -> AppResult<()>;
     fn get(&self, account: SecretAccount) -> AppResult<Option<String>>;
     fn delete(&self, account: SecretAccount) -> AppResult<()>;
+    /// Returns the identity of the most recent successful credential write without reading its value.
+    fn revision(&self, _account: SecretAccount) -> Option<Uuid> {
+        None
+    }
+}
+
+struct ObservedSecretStore {
+    inner: Arc<dyn SecretStore>,
+    revisions: Mutex<HashMap<&'static str, Uuid>>,
+}
+
+impl SecretStore for ObservedSecretStore {
+    fn set(&self, account: SecretAccount, value: &str) -> AppResult<()> {
+        self.inner.set(account, value)?;
+        self.revisions.lock().insert(account.as_str(), Uuid::new_v4());
+        Ok(())
+    }
+
+    fn get(&self, account: SecretAccount) -> AppResult<Option<String>> {
+        self.inner.get(account)
+    }
+
+    fn delete(&self, account: SecretAccount) -> AppResult<()> {
+        self.inner.delete(account)?;
+        self.revisions.lock().insert(account.as_str(), Uuid::new_v4());
+        Ok(())
+    }
+
+    fn revision(&self, account: SecretAccount) -> Option<Uuid> {
+        self.revisions.lock().get(account.as_str()).copied()
+    }
 }
 
 pub struct KeyringSecretStore {
@@ -94,7 +129,15 @@ pub struct SecretStoreState(pub Arc<dyn SecretStore>);
 
 impl SecretStoreState {
     pub fn new(service: String) -> Self {
-        Self(Arc::new(KeyringSecretStore::new(service)))
+        Self::with_store(Arc::new(KeyringSecretStore::new(service)))
+    }
+
+    /// Tracks successful writes made through a shared credential port without exposing credential values.
+    pub fn with_store(inner: Arc<dyn SecretStore>) -> Self {
+        Self(Arc::new(ObservedSecretStore {
+            inner,
+            revisions: Mutex::new(HashMap::new()),
+        }))
     }
 }
 
@@ -130,6 +173,45 @@ pub mod test_support {
 mod tests {
     use super::test_support::InMemorySecretStore;
     use super::*;
+
+    #[derive(Default)]
+    struct Writes {
+        failed: std::sync::atomic::AtomicBool,
+    }
+
+    impl SecretStore for Writes {
+        fn set(&self, _: SecretAccount, _: &str) -> AppResult<()> {
+            if self.failed.load(std::sync::atomic::Ordering::Acquire) {
+                return Err(AppError::InvalidArgument("fixture write failed".into()));
+            }
+            Ok(())
+        }
+        fn get(&self, _: SecretAccount) -> AppResult<Option<String>> {
+            panic!("credential revision must not read its value");
+        }
+        fn delete(&self, account: SecretAccount) -> AppResult<()> {
+            self.set(account, "")
+        }
+    }
+
+    #[test]
+    fn 변경식별자는_성공한_저장과_삭제만_공유하고_다른계정을_보존한다() {
+        let writes = Arc::new(Writes::default());
+        let store = SecretStoreState::with_store(writes.clone());
+        let shared = store.clone();
+        assert!(store.0.revision(SecretAccount::AiOmlx).is_none());
+        store.0.set(SecretAccount::AiOmlx, "fixture").unwrap();
+        let revision = store.0.revision(SecretAccount::AiOmlx).unwrap();
+        assert_eq!(shared.0.revision(SecretAccount::AiOmlx), Some(revision));
+        assert!(shared.0.revision(SecretAccount::AiCodex).is_none());
+        writes.failed.store(true, std::sync::atomic::Ordering::Release);
+        assert!(shared.0.set(SecretAccount::AiOmlx, "fixture").is_err());
+        assert!(shared.0.delete(SecretAccount::AiOmlx).is_err());
+        assert_eq!(shared.0.revision(SecretAccount::AiOmlx), Some(revision));
+        writes.failed.store(false, std::sync::atomic::Ordering::Release);
+        shared.0.delete(SecretAccount::AiOmlx).unwrap();
+        assert_ne!(store.0.revision(SecretAccount::AiOmlx), Some(revision));
+    }
 
     #[test]
     fn 계정_열거값은_서로_다른_키_문자열로_매핑된다() {

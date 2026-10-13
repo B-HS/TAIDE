@@ -1,11 +1,106 @@
 use super::inlay_hints_tests::{
-    body_view, fixture_with_view_state, key, paint, text_contains, wait,
+    body_view, fixture_with_view_state, fixture_with_view_state_and_secrets, key, paint,
+    text_contains, wait,
 };
 use super::*;
 
 const ORIGINAL: &str = "let value = ";
 const GENERATED: &str = "native_generated\nnext_line";
 const PAINT_DEADLINE: Duration = Duration::from_secs(10);
+
+struct Credentials;
+
+impl taide_infra::secret::SecretStore for Credentials {
+    fn set(&self, _: taide_infra::secret::SecretAccount, _: &str) -> AppResult<()> {
+        panic!("credential deletion fixture must not store values");
+    }
+    fn get(&self, _: taide_infra::secret::SecretAccount) -> AppResult<Option<String>> {
+        panic!("credential deletion fixture must not read values");
+    }
+    fn delete(&self, account: taide_infra::secret::SecretAccount) -> AppResult<()> {
+        assert_eq!(account, taide_infra::secret::SecretAccount::AiOmlx);
+        Ok(())
+    }
+}
+
+#[test]
+fn 실제_ai_inline의_자격증명_삭제는_표시를_회수하고_원문과_디스크를_보존한다() {
+    let secrets = taide_infra::secret::SecretStoreState::with_store(Arc::new(Credentials));
+    let mut fixture = fixture_with_view_state_and_secrets(
+        "--native-inlay-hints",
+        false,
+        |_, _, _| true,
+        ORIGINAL,
+        secrets,
+    );
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let view = body_view(application, &fixture.path, &fixture.tab);
+    let document = application.files[&fixture.path].id;
+    {
+        let mut settings = application.services.state.settings.write();
+        settings.ai_auto_tab_enabled = true;
+        settings.ai_provider = Some(taide_model::ai::AiProviderId::Omlx);
+        settings.ai_model = Some("fixture".into());
+    }
+    application.editor_completion.inline =
+        crate::editor_ai_completion::State::with_complete(Arc::new(|_, request, _| {
+            Box::pin(async move {
+                Ok(taide_model::ai::AiTextResponse {
+                    request_id: request.request_id,
+                    text: Some(GENERATED.into()),
+                })
+            })
+        }));
+    let body = crate::editor_context_menu::body(context, view).unwrap();
+    context.memory_mut(|memory| memory.request_focus(body));
+    paint(
+        application,
+        context,
+        key(egui::Key::End, egui::Modifiers::COMMAND),
+    );
+    paint(application, context, vec![egui::Event::Text(";".into())]);
+    let deadline = Instant::now() + PAINT_DEADLINE;
+    loop {
+        eframe::App::logic(application, context, &mut eframe::Frame::_new_kittest());
+        let output = paint(application, context, Vec::new());
+        if text_contains(&output, "native_generated") {
+            break;
+        }
+        assert!(Instant::now() < deadline, "AI ghost was not painted");
+        std::thread::yield_now();
+    }
+    application
+        .runtime
+        .block_on(taide_runtime::ai_actions::ai_clear_token(
+            &application.services.secrets,
+            taide_model::ai::AiProviderId::Omlx,
+        ))
+        .unwrap();
+    eframe::App::logic(application, context, &mut eframe::Frame::_new_kittest());
+    let output = paint(application, context, Vec::new());
+    assert!(!text_contains(&output, "native_generated"));
+    assert!(
+        application
+            .editor_completion
+            .inline
+            .poll(&application.store, view)
+            .is_empty()
+    );
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        format!("{ORIGINAL};")
+    );
+    assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), ORIGINAL);
+    eframe::App::on_exit(application);
+    assert_eq!(application.services.tasks.tracked_count(), 0);
+}
 
 #[test]
 fn 실제_ai_inline은_주입된_응답을_표시하고_수락전_디스크와_원문을_보존한다() {

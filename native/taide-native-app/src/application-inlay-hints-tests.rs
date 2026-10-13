@@ -159,6 +159,44 @@ pub(super) fn fixture_with_view_state_and_setup(
     text: &str,
     setup: impl FnOnce(&mut NativeApplication, &str, &ProjectId, &TabId),
 ) -> Fixture {
+    fixture_with_ports(
+        mode,
+        is_suggest_preview_enabled,
+        provider_ready,
+        view_state,
+        text,
+        None,
+        setup,
+    )
+}
+
+pub(super) fn fixture_with_view_state_and_secrets(
+    mode: &str,
+    is_suggest_preview_enabled: bool,
+    provider_ready: impl Fn(&NativeApplication, &ProjectId, DocumentId) -> bool,
+    text: &str,
+    secrets: taide_infra::secret::SecretStoreState,
+) -> Fixture {
+    fixture_with_ports(
+        mode,
+        is_suggest_preview_enabled,
+        provider_ready,
+        None,
+        text,
+        Some(secrets),
+        |_, _, _, _| {},
+    )
+}
+
+fn fixture_with_ports(
+    mode: &str,
+    is_suggest_preview_enabled: bool,
+    provider_ready: impl Fn(&NativeApplication, &ProjectId, DocumentId) -> bool,
+    view_state: Option<String>,
+    text: &str,
+    secrets: Option<taide_infra::secret::SecretStoreState>,
+    setup: impl FnOnce(&mut NativeApplication, &str, &ProjectId, &TabId),
+) -> Fixture {
     let directory =
         std::env::temp_dir().join(format!("taide-native-inlay-hints-app-{}", ProjectId::new()));
     let data = directory.join("data");
@@ -238,13 +276,14 @@ pub(super) fn fixture_with_view_state_and_setup(
     let tasks = TaskSupervisor::new(runtime.handle().clone());
     let context = egui::Context::default();
     context.set_os(egui::os::OperatingSystem::Mac);
-    let application = NativeApplication::new(
+    let application = NativeApplication::new_with_secret_store(
         &eframe::CreationContext::_new_kittest(context.clone()),
         runtime,
         state,
         tasks,
         bin.join("taide"),
         Vec::new(),
+        secrets,
     )
     .unwrap();
     let mut fixture = Fixture {

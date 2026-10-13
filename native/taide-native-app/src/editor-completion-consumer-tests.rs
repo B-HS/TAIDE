@@ -42,8 +42,32 @@ type AiReply = (
     tokio::sync::oneshot::Sender<taide_model::error::AppResult<taide_model::ai::AiTextResponse>>,
 );
 
+#[derive(Default)]
+struct CredentialStore;
+
+impl taide_infra::secret::SecretStore for CredentialStore {
+    fn set(
+        &self,
+        _: taide_infra::secret::SecretAccount,
+        _: &str,
+    ) -> taide_model::error::AppResult<()> {
+        Ok(())
+    }
+    fn get(
+        &self,
+        _: taide_infra::secret::SecretAccount,
+    ) -> taide_model::error::AppResult<Option<String>> {
+        panic!("injected completion must not read credentials");
+    }
+    fn delete(&self, _: taide_infra::secret::SecretAccount) -> taide_model::error::AppResult<()> {
+        Ok(())
+    }
+}
+
 fn ai_fixture(text: &str, byte: usize) -> (Fixture, std::sync::mpsc::Receiver<AiReply>) {
     let mut fixture = Fixture::new(text, byte, Arc::from([]));
+    Arc::get_mut(&mut fixture.services).unwrap().secrets =
+        taide_infra::secret::SecretStoreState::with_store(Arc::new(CredentialStore));
     {
         let mut settings = fixture.services.state.settings.write();
         settings.ai_auto_tab_enabled = true;
@@ -71,6 +95,107 @@ fn ai_fixture(text: &str, byte: usize) -> (Fixture, std::sync::mpsc::Receiver<Ai
             })
         }));
     (fixture, receive)
+}
+
+#[test]
+fn native_ai_inline은_자격증명_삭제에서_현재제안을_회수한다() {
+    let (mut fixture, receive) = ai_fixture("", 0);
+    fixture.frame(vec![Event::Text(";".into())], &[]);
+    ai_respond(&mut fixture, &receive, "old");
+    fixture
+        .services
+        .secrets
+        .0
+        .delete(taide_infra::secret::SecretAccount::AiOmlx)
+        .unwrap();
+    fixture.frame(Vec::new(), &[]);
+    assert!(
+        fixture
+            .state
+            .inline
+            .poll(&fixture.store, fixture.view)
+            .is_empty()
+    );
+    assert_eq!(fixture.text(fixture.document), ";");
+}
+
+#[test]
+fn native_ai_inline은_다른계정_변경을_보존하고_현재계정_교체는_캐시를_회수한다() {
+    let (mut fixture, receive) = ai_fixture("", 0);
+    fixture.frame(vec![Event::Text(";".into())], &[]);
+    ai_respond(&mut fixture, &receive, "old");
+    fixture
+        .services
+        .secrets
+        .0
+        .set(taide_infra::secret::SecretAccount::AiCodex, "fixture")
+        .unwrap();
+    fixture.frame(Vec::new(), &[]);
+    assert!(
+        !fixture
+            .state
+            .inline
+            .poll(&fixture.store, fixture.view)
+            .is_empty()
+    );
+    fixture
+        .services
+        .secrets
+        .0
+        .set(taide_infra::secret::SecretAccount::AiOmlx, "fixture")
+        .unwrap();
+    fixture.frame(Vec::new(), &[]);
+    assert!(
+        fixture
+            .state
+            .inline
+            .poll(&fixture.store, fixture.view)
+            .is_empty()
+    );
+    fixture
+        .state
+        .inline
+        .observe(
+            &fixture.store,
+            &fixture.services,
+            fixture.project.clone(),
+            fixture.view,
+            fixture.owner,
+            "/synthetic/main.rs".into(),
+            &fixture.context,
+        )
+        .unwrap();
+    let request = ai_respond(&mut fixture, &receive, "new");
+    assert_eq!(request.prefix, ";");
+    fixture.frame(vec![key(Key::Tab, Modifiers::NONE)], &[]);
+    assert_eq!(fixture.text(fixture.document), ";new");
+}
+
+#[test]
+fn native_ai_inline은_자격증명_변경에서_대기요청을_취소한다() {
+    let (mut fixture, receive) = ai_fixture("", 0);
+    fixture.frame(vec![Event::Text(";".into())], &[]);
+    let (_, reply) = receive.recv_timeout(CLIPBOARD_DEADLINE).unwrap();
+    fixture
+        .services
+        .secrets
+        .0
+        .delete(taide_infra::secret::SecretAccount::AiOmlx)
+        .unwrap();
+    fixture.frame(Vec::new(), &[]);
+    let deadline = std::time::Instant::now() + CLIPBOARD_DEADLINE;
+    while !reply.is_closed() {
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::yield_now();
+    }
+    assert!(
+        fixture
+            .state
+            .inline
+            .poll(&fixture.store, fixture.view)
+            .is_empty()
+    );
+    assert_eq!(fixture.text(fixture.document), ";");
 }
 
 fn ai_respond(

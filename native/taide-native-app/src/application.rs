@@ -262,7 +262,27 @@ impl NativeApplication {
         state: AppState,
         tasks: TaskSupervisor,
         helper_executable: PathBuf,
+        warnings: Vec<String>,
+    ) -> AppResult<Self> {
+        Self::new_with_secret_store(
+            context,
+            runtime,
+            state,
+            tasks,
+            helper_executable,
+            warnings,
+            None,
+        )
+    }
+
+    pub(crate) fn new_with_secret_store(
+        context: &eframe::CreationContext<'_>,
+        runtime: Runtime,
+        state: AppState,
+        tasks: TaskSupervisor,
+        helper_executable: PathBuf,
         mut warnings: Vec<String>,
+        secret_store: Option<taide_infra::secret::SecretStoreState>,
     ) -> AppResult<Self> {
         let egui = context.egui_ctx.clone();
         let repaint_context = egui.clone();
@@ -271,7 +291,7 @@ impl NativeApplication {
         let tree_changes = Arc::new(crate::events::TreeChanges::default());
         let palette_file_changes = Arc::new(crate::command_palette::FileIndexChanges::default());
         let presentation_changes = Arc::new(crate::presentation_refresh::Changes::default());
-        let (assembly, connection) = runtime.block_on(bootstrap::connect_shell(
+        let (mut assembly, connection) = runtime.block_on(bootstrap::connect_shell(
             state.clone(),
             tasks.clone(),
             Arc::new(PaintSink {
@@ -282,6 +302,15 @@ impl NativeApplication {
             }),
             repaint.clone(),
         ))?;
+        if let Some(secret_store) = secret_store {
+            Arc::get_mut(&mut assembly.services)
+                .ok_or_else(|| {
+                    AppError::Internal(
+                        "native credentials were shared before initialization".into(),
+                    )
+                })?
+                .secrets = secret_store;
+        }
         let services = assembly.services;
         let system_theme = match egui.system_theme() {
             Some(egui::Theme::Light) => "light",
@@ -6475,6 +6504,9 @@ impl eframe::App for NativeApplication {
         if self.editor_completion.poll_supply(&self.store) {
             context.request_repaint();
         }
+        self.editor_completion
+            .inline
+            .reconcile_credentials(&self.services);
         self.editor_completion.inline.reconcile(
             &self.store,
             &self.services.state.settings.read(),

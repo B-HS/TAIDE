@@ -310,7 +310,9 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
             self.consumer.state.borrow_mut().inline.close(view);
             return Vec::new();
         }
-        self.consumer.state.borrow_mut().inline.poll(store, view)
+        let mut state = self.consumer.state.borrow_mut();
+        state.inline.reconcile_credentials(self.consumer.services);
+        state.inline.poll(store, view)
     }
 
     fn inline_event(
@@ -319,11 +321,9 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
         view: ViewId,
         event: &Event,
     ) -> Result<bool, EditorError> {
-        self.consumer
-            .state
-            .borrow_mut()
-            .inline
-            .event(store, view, event)
+        let mut state = self.consumer.state.borrow_mut();
+        state.inline.reconcile_credentials(self.consumer.services);
+        state.inline.event(store, view, event)
     }
 
     fn dismiss_inline(&mut self, view: ViewId) {
