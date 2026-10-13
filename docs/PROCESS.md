@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: b3c1 JSON 선택 확장은 actual source3,303사례/13명시 교정·다중 cursor/8,192깊이/전체 예산의 현재3검사0.06초와host13.68/Wasm4.89초 exit0입니다. b3b AST6,336/노드조회1,118/4검사와scanner19,624/3검사를 재사용하며 기존Core350+신규3의353서로 다른 성공/성능1ignored입니다. JSON 심볼/접기·포맷/진단정책/조회/완성/actual App·CSS/HTML/TS 서비스는 미완료이며 editor-57missing/editor-16partial입니다. 전체303/588(51.5%)·미완료285·부분92/미연결110/미구현83·배치23잔여18·목표active·잔여시간미산정이고 일반전체App 준비실패/remoteWasm·실기/전환/제거/최종33과 사용자/보호경계를 유지합니다.
+현재 상태: b3c2 JSON 문서 심볼은 actual provider5,616사례/nested·flat/URI6/result limit6·558typed이름 교정과 현재3검사0.05초·host8.71/Wasm4.85초 exit0입니다. 기존Core353+신규3의356서로 다른 성공/성능1ignored와 scanner/AST/선택 확장 원본 근거를 재사용합니다. JSON 접기·포맷/진단정책/조회/완성/actual App·CSS/HTML/TS 서비스는 미완료이며 editor-57missing/editor-16partial입니다. 전체303/588(51.5%)·미완료285·부분92/미연결110/미구현83·배치23잔여18·목표active·잔여시간미산정이고 일반전체App 준비실패/remoteWasm·실기/전환/제거/최종33과 사용자/보호경계를 유지합니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 
@@ -25,6 +25,7 @@
 - [x] b3b. JSON 구문 트리와 오류 복구 — 설치 vscode-json-languageservice parseJSONDocument의 실제 AST·부모/자식·속성/중복 키·불완전 입력 복구·구문 진단/주석 위치를 기존 scanner와 portable arena에 구현합니다. NativeEditor json-parser.rs/lib.rs·실제 설치 parser oracle/검사·MIT/QA/PROCESS/기능표를 소유하며 명시 스택·byte/UTF-16/깊이/노드/진단/값 예산을 검증합니다. 전체 JSON 서비스/실제 App와 CSS·HTML·TS는 부모 b3에 남기고 관련 host/Wasm 검사와 선별 Git을 수행합니다.
 - [ ] b3c. JSON 구조 서비스 — 실제 원본 심볼·접기·선택 확장을 portable core로 연결하고 원본 oracle·좌표/예산/원문·host/Wasm·QA/기능표/선별 Git을 검증합니다. 앱 공급과 나머지 JSON/CSS/HTML/TS 전체는 부모 b3에 유지합니다.
 - [x] b3c1. JSON 선택 확장 — 실제 jsonSelectionRanges의 안쪽 내용/전체 노드/속성·배열 뒤 쉼표/부모 순서와 cursor/no-node를 기존 AST·scanner로 구현합니다. NativeEditor json-selection.rs/lib.rs·실제 원본 selection oracle/검사·MIT/QA/PROCESS/기능표만 소유하며 scalar 경계·전체 position/range/token/byte 예산·명시 스택/깊은 문서와 host/Wasm을 확인합니다. 심볼/접기와 실제 App 공급은 b3c/b3에 유지합니다.
+- [x] b3c2. JSON 문서 심볼 — 실제 JSONDocumentSymbols의 nested/flat·BFS 결과 제한·키/값 표시·객체/배열·keybindings URI 예외를 기존 AST의 byte/UTF-16/논리값으로 구현합니다. NativeEditor json-symbols.rs/lib.rs·설치 원본 oracle/검사·MIT/QA/PROCESS/기능표를 소유하고 전체 노드/깊이/출력값 예산·host/Wasm·선별 Git을 확인합니다. 실제 App 공급·접기와 나머지 언어 서비스는 b3c/b3에 유지합니다.
 - [x] b2. 들여쓰기 설정 — editor-30의 자동 감지·탭/공백 변환·indent/outdent·전체/선택 reindent·두 폭/수동 선택·EditorConfig/전역 변경 관계를 실제 본문/peek와 저장/스니펫 소비에 연결했습니다. 원본 요구사항의 기능 묶음을 complete로 닫으며 별도 editor-32/57/19와 실기/성능/출시는 c/b/f에 유지합니다.
 - [x] b2a. 자동 감지와 문서 옵션 — 실제 앱의 2칸 문서를 4칸으로 처리하는 실패를 재현한 뒤 설치 Monaco 100사례의 감지 규칙을 Rope에 적용했습니다. 문서별 값을 본문/peek/저장 포맷에 연결하며 최초 1만 줄·빈 줄/정렬·Unicode·EditorConfig/언어·전역 설정 변경/텍스트 편집/undo·mirror/readonly를 Editor 9·UI 8·App 13의 30건에서 확인했습니다. readonly fixture 가정/Provider 초기화·Rope API 컴파일 실패는 QA에 보존합니다. 포맷의 실제 LSP 값·변환/reindent/수동 명령·전체 배치/실기/성능은 b2/f에 남깁니다.
 - [x] b2b. 변환·명시 감지 명령 — 원본 indentationToSpaces/indentationToTabs/detectIndentation을 readonly 게이팅·기존 팔레트/재지정 키·본문/peek에 연결했습니다. 선행 공백만 변환하며 같은 프레임/다음 큐의 최신 옵션·주 선택/undo·용량/readonly 거절·EditorConfig 명시 override를 관련 Core 13·UI 94·App 21의 128건에서 확인했습니다. 미리보기의 이전 revision 기대값 두 곳을 놓친 재검사 실패는 QA에 보존하며 수동 폭/방식 QuickPick·reindent·실제 포맷 요청 값과 전체 게이트는 b2/f에 남깁니다.
