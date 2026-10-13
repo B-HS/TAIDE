@@ -204,8 +204,17 @@ pub fn prepare_markup_with_filters(
     filters: MarkupFilters,
 ) -> Result<Vec<ExpandedMarkupNode>, EditorError> {
     let mut nodes = prepare_markup(input, syntax, parse_limits, conversion_limits)?;
-    if filters.is_bem_enabled {
-        bem(&mut nodes, &mut Vec::new(), 0, conversion_limits, &mut 0)?;
-    }
+    apply_markup_filters(&mut nodes, conversion_limits, filters)?;
     Ok(nodes)
+}
+
+pub(crate) fn apply_markup_filters(
+    nodes: &mut [ExpandedMarkupNode],
+    conversion_limits: ConversionLimits,
+    filters: MarkupFilters,
+) -> Result<(), EditorError> {
+    if filters.is_bem_enabled {
+        bem(nodes, &mut Vec::new(), 0, conversion_limits, &mut 0)?;
+    }
+    Ok(())
 }

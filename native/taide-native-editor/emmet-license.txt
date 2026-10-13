@@ -2,6 +2,7 @@ Emmet abbreviation extraction in src/emmet-extraction.rs is adapted from emmet@2
 Markup parsing in src/emmet-markup-parser.rs is adapted from @emmetio/abbreviation@2.3.3.
 Markup defaults and preparation in src/emmet-markup-defaults.rs and src/emmet-markup-preparation.rs are adapted from emmet@2.4.11.
 Markup output and BEM filtering in src/emmet-markup-output.rs and src/emmet-markup-filters.rs are adapted from emmet@2.4.11.
+Lorem generation and vocabularies in src/emmet-markup-lorem.rs and src/emmet-markup-lorem-defaults.rs are adapted from emmet@2.4.11.
 Source: https://github.com/emmetio/emmet
 
 MIT License

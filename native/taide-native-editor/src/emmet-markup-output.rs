@@ -2,10 +2,12 @@ use std::ops::Range;
 
 use crate::document::EditorError;
 
+use super::markup_filters::apply_markup_filters;
 use super::markup_preparation::{BOOLEAN_ATTRIBUTES, INLINE_ELEMENTS};
 use super::{
     ConversionLimits, ExpandedMarkupAttribute, ExpandedMarkupNode, MarkupLimits, MarkupValue,
     MarkupValueType, Syntax, markup_filters, prepare_markup, prepare_markup_with_filters,
+    prepare_markup_with_random,
 };
 
 const INDENT: &str = "\t";
@@ -436,11 +438,12 @@ impl Output {
     }
 }
 
-pub fn render_markup(
+fn render(
     nodes: &[ExpandedMarkupNode],
     syntax: Syntax,
     max_bytes: usize,
     max_nesting: usize,
+    is_comment_enabled: bool,
 ) -> Result<String, EditorError> {
     if syntax == Syntax::Css {
         return Err(EditorError::Refused);
@@ -454,10 +457,19 @@ pub fn render_markup(
         fields: Vec::new(),
         max_bytes,
         max_nesting,
-        is_comment_enabled: false,
+        is_comment_enabled,
     };
     output.nodes(nodes, None, 0)?;
     Ok(output.finish())
+}
+
+pub fn render_markup(
+    nodes: &[ExpandedMarkupNode],
+    syntax: Syntax,
+    max_bytes: usize,
+    max_nesting: usize,
+) -> Result<String, EditorError> {
+    render(nodes, syntax, max_bytes, max_nesting, false)
 }
 
 pub fn expand_markup(
@@ -484,17 +496,31 @@ pub fn expand_markup_with_filters(
     let (input, filters) = markup_filters(input);
     let nodes =
         prepare_markup_with_filters(input, syntax, parse_limits, conversion_limits, filters)?;
-    let mut output = Output {
-        text: String::new(),
+    render(
+        &nodes,
         syntax,
-        level: 0,
-        line: 0,
-        field: 1,
-        fields: Vec::new(),
-        max_bytes: conversion_limits.max_bytes,
-        max_nesting: conversion_limits.max_nesting,
-        is_comment_enabled: filters.is_comment_enabled,
-    };
-    output.nodes(&nodes, None, 0)?;
-    Ok(output.finish())
+        conversion_limits.max_bytes,
+        conversion_limits.max_nesting,
+        filters.is_comment_enabled,
+    )
+}
+
+pub fn expand_markup_with_random(
+    input: &str,
+    syntax: Syntax,
+    parse_limits: MarkupLimits,
+    conversion_limits: ConversionLimits,
+    random: &mut dyn FnMut() -> u32,
+) -> Result<String, EditorError> {
+    let (input, filters) = markup_filters(input);
+    let mut nodes =
+        prepare_markup_with_random(input, syntax, parse_limits, conversion_limits, random)?;
+    apply_markup_filters(&mut nodes, conversion_limits, filters)?;
+    render(
+        &nodes,
+        syntax,
+        conversion_limits.max_bytes,
+        conversion_limits.max_nesting,
+        filters.is_comment_enabled,
+    )
 }

@@ -83,3 +83,15 @@ markup-filters-red.log는최종fixture/필터코드의compile10.90초·필터3(3
 HTML/JSX기본출력과필터의core구현은연결되어editor-80을missing에서unwired로반영합니다. lorem/기타추가경계/CSS·completion range/validation/추가후보·설정/실제App소비와전체게이트는남아있으며전체완료302/588(51.4%)·부분92/미연결111/미구현83·미완료286·목표active·잔여시간미산정을유지합니다.
 
 출력·필터와공통Rust문자열fixture/MIT출처·검사·QA/PROCESS상단의26경로를5bf4acc9로선별커밋했습니다. 사용자PROCESS하단2hunk와다른문서/결정/피드백/메모리는보존했습니다. 기능표baseline을이커밋으로갱신하며editor-80unwired·전체302완료와미완료게이트를유지합니다.
+
+## e3b6 — lorem
+
+[공식 lorem 문서](https://docs.emmet.io/abbreviations/lorem-ipsum/)와설치emmet2.4.11의실제transform/latin·ru·sp 어휘·난수선택/쉼표/문장/반복을대조했습니다. 문서의class보존예시와달리현재설치원본은lorem처리때attributes를제거하므로실제프로젝트출력을기준으로했습니다. 대문자locale/알수없는locale는원본처럼latin이며범위상한은exclusive입니다. 첫반복만common문장을쓰고자체반복된자식은부모에맞는암시태그를사용합니다.
+
+prepare_markup_with_random/expand_markup_with_random은u32 난수콜백을받아portable core에연결했습니다. 원본처럼추가난수draw의순서를유지하며기존비난수준비API는보존합니다. 실제앱연결은새난수API를선택해야하며아직없습니다. 기존앱의UUID 난수공급과같은주입경계를사용할수있고추가의존성/OS난수전역/JS런타임은코어에넣지않았습니다. 변환전체draw는byte예산으로제한하여반복되는난수에원본의sample루프가끝없이머무르는상태를거절합니다. 생성문자/단어수/깊이/기본변환예산초과는부분출력을반환하지않습니다.
+
+새oracle는원본어휘를검증후Rust자료로생성하고37stem×3seed×2syntax×2filter의444사례를동일LCG 난수로실제원본확장합니다. seed는검사전용이며제품난수고정에사용하지않습니다. 기본30/0→1·단어수/범위/잘못된이름·ru/sp/알수없는언어·반복/중첩/child/속성제거·BEM/주석과native스니펫문법을비교합니다.
+
+markup-lorem-first.log와markup-lorem-parity.log는검사호출의인자누락·잘못된모듈import로compile exit101/실행0건입니다. 실제snippet_syntax::ParseLimits/parse 계약으로수정한markup-lorem-parity-final.log는98864 handle에서compile4.44초·lorem3(444사례/비lorem 난수0/정체·생성예산)/0.02초·필터3/0.01초·출력4/0.05초·준비2/0.02초의12통과·0실패·exit0으로종료했습니다. 기존전체322+독립필터3+새lorem3의서로다른현재328성공/기존성능1ignored로재사용하며최신12를중복합산하지않습니다.
+
+markup-lorem-host.log의현재lib/Emmet7target host check17.69초와markup-lorem-wasm.log의현재corelib wasm32 check4.55초는73717 handle에서exit0/추가경고0으로종료했습니다. 최종8Rustfmt·oracle MJS/QA포맷·어휘/444fixture의동일입력재생성·소유diff/manifest·lock·frozen변경0·디스크630GiB/66%를확인했습니다. e3b6 코어범위만완료이며CSS/후보/실제App/editor-80unwired·전체302/588(51.4%)·미완료286/목표active·기존App준비/Wasm시간API/성능/실기게이트는미완료입니다.

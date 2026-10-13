@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: e3b4/5 HTML/JSX기본출력·field/들여쓰기/속성/literal보존과BEM/주석/최대3필터를core에연결했습니다. 직접전체44target/322통과/0실패/성능1ignored와최종필터3/출력4·BEM예산보강을확인해현재325서로다른성공·host12.94/Wasm4.86초 exit0·14Rustfmt/MIT출처이며기록/Git반영중입니다. 코드가있는Emmet은unwired로반영하되lorem/CSS/validation/range/추가후보/실제App·Markdown/전체App준비실패/실기·전환/제거/최종33은미완료입니다. 전체302/588(51.4%)·미완료286·부분92/미연결111/미구현83·배치23잔여19·잔여시간미산정이며사용자문서/보호경계를유지합니다.
+현재 상태: e3b6 lorem의latin/ru/sp·반복/범위/필터·주입난수를core에연결했으며444원본사례/새3검사와기존출력4/필터3/준비2의현재12통과·compile4.44초 exit0·host17.69/Wasm4.55초 exit0·최종8Rustfmt를확인했습니다. 기록/Git반영중이며기존전체322/새필터3+새lorem3의현재328서로다른성공/성능1ignored는중복합산하지않습니다. e3b4/5 출력·필터를5bf4acc9/0dd8c868로일반푸시했고editor-80unwired입니다. CSS/validation/range/추가후보/실제App·Markdown/전체App준비실패/실기·전환/제거/최종33은미완료입니다. 전체302/588(51.4%)·미완료286·부분92/미연결111/미구현83·배치23잔여19·잔여시간미산정이며사용자문서/보호경계를유지합니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 
@@ -167,11 +167,12 @@
 - [x] e3b3. 기본 스니펫·태그/속성 준비 — 원본202 registry/5variables·재귀alias/순환·기본/사용자속성/value/repeat/children 우선순위·implicit tag/class/label을portable core에연결했습니다. 919입력/1838prepared AST사례(1836원본일치/2원본오탈자수정)·예산2통과·같은이전6성공재사용/현재8서로다른검사·host4.97/coreWasm4.47초 exit0·소유7Rustfmt/MIT출처를확인했습니다. 공통canonical재생성의기존2112fixture diff0입니다. 출력/필드offset/lorem/BEM/필터/CSS/후보/App은미완료입니다.
 - [x] e3b4. HTML/JSX 출력 — 준비AST의inline/block/html skip/body force/tab·속성/JSX·field offset/final0/children·literal보존을연결했습니다. 1840사례·출력4통과·기존44target/322전체통과/성능1ignored·최종host12.94/Wasm4.86초 exit0·14Rustfmt와같은문자열값의fixture표기를확인했습니다. 원본괄호/literal field버그4사례를명시적으로수정했으며lorem/CSS/후보/App은미완료입니다.
 - [x] e3b5. BEM·주석/필터 — 최대3접미사/bem/c/t·BEMblock/cache/ancestor/modifier/중복·JS공백·닫힘주석의ID/class/fieldoffset·원본t무출력변화를연결했습니다. 실제completion640사례/필터3와기본출력4통과·실제BEM변환후byte초과회귀1통과이며전체322+새3의현재325서로다른성공/성능1ignored입니다. readonly원문/동결/manifest·lock경계를유지했고lorem/CSS/추가후보/App은미완료입니다.
+- [x] e3b6. lorem — 원본latin/ru/sp 어휘·단어수범위/첫문장/반복·암시태그를주입난수의portable core에연결했습니다. 동일난수444사례/상한·정체난수/비lorem 난수0·새3검사와기존준비2/출력4/필터3의현재12통과/exit0·host17.69/Wasm4.55초/8Rustfmt를확인했습니다. 기존전체322+필터3+lorem3의328성공/성능1ignored와사용자문서/보호경계를유지하며CSS/후보/App·전체게이트는e3에미완료입니다.
 - [ ] f. 실제 앱·전체 게이트 — 닫을 기능의 실제 앱/child/mirror·readonly/tier/다중 커서/IME·정상 종료/회귀를 확인하고 변경 크레이트 전체 대상을 --no-fail-fast로 직접 1회 실행합니다. 성공 결과는 재사용하고 실패 영향만 재검사합니다. frozen host/Wasm compile·fmt/diff·manifest/lock/engine/보호 경계·디스크와 배치 31 실기/성능/신뢰성 부채를 구분합니다.
 - [x] f1. 프로젝트 열기 지연 위치 조사·배치 31 이관 — 전체 App 811통과/프로젝트 open 5초 초과 1실패와 Cargo 단독 동일 실패를 보존했습니다. 같은 실행 파일의 직접 검사는 저장소/크레이트 cwd에서 3.81/3.23초에 통과했습니다. 성공한 두 번째 검사 중 start_watch→notify runloop 준비 대기와 FSEventStreamStart→등록 RPC의 실제 스택을 확인했습니다. 실패 시점의 스택이나 지연 변동의 근본 원인은 확인하지 않았으며 해결/전체 exit 0으로 보고하지 않습니다. 제한 확대·검사 생략·OS 변경 없이 반복 조사를 종료하고 배치 31의 실행 환경/신뢰성 게이트에 미해결 위험을 유지합니다.
 - [ ] g. 완료 근거·선별 Git — 실제 닫힌 ID만 QA/기능표/PROCESS에 반영하고 논리 단위 선별 커밋·일반 푸시합니다. 배치 24를 기존 계획 안에서 이어가며 배치 번호를 세부 수정마다 늘리지 않습니다.
 
-다음 행동: e3b의남은lorem/추가문자·field경계를원본과대조하고CSS확장·설정/후보/실제App소비를이어갑니다. 92544전체/31599관련/67081예산/88470host/12704Wasm handle은모두종료확인했으며재시작하지않습니다. editor-80unwired·AI77/78partial·전체게이트/Markdown/전환/제거/최종33은유지합니다.
+다음 행동: e3b6의lorem 기록/선별Git과남은문자·field경계/CSS확장·설정/후보/실제App소비를이어갑니다. 98864의lorem/영향검사는12통과/exit0·73717의host/Wasm은17.69/4.55초 exit0으로종료했고이전성공을재실행하지않습니다. editor-80unwired·AI77/78partial·전체게이트/Markdown/전환/제거/최종33은유지합니다.
 
 ## 완료: 배치 22 — 자동완성과 사용자 스니펫 소비 (2026-10-10)
 

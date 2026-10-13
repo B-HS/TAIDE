@@ -18,15 +18,20 @@ mod markup_output;
 #[path = "emmet-markup-filters.rs"]
 mod markup_filters;
 
+#[path = "emmet-markup-lorem.rs"]
+mod markup_lorem;
+
 pub use extraction::extract;
 pub use markup_conversion::{
     ConversionLimits, ExpandedMarkupAttribute, ExpandedMarkupNode, MarkupRepeat, MarkupValue,
     MarkupValueType, convert_markup,
 };
 pub use markup_filters::{MarkupFilters, markup_filters, prepare_markup_with_filters};
-pub use markup_output::{expand_markup, expand_markup_with_filters, render_markup};
+pub use markup_output::{
+    expand_markup, expand_markup_with_filters, expand_markup_with_random, render_markup,
+};
 pub use markup_parser::{MarkupAttribute, MarkupLimits, MarkupNode, Repeat, parse_markup};
-pub use markup_preparation::prepare_markup;
+pub use markup_preparation::{prepare_markup, prepare_markup_with_random};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Syntax {

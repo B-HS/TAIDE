@@ -1,5 +1,6 @@
 use crate::document::EditorError;
 
+use super::markup_lorem::Lorem;
 use super::{
     ConversionLimits, ExpandedMarkupAttribute, ExpandedMarkupNode, MarkupLimits, MarkupValue,
     MarkupValueType, Syntax, convert_markup, parse_markup,
@@ -175,6 +176,8 @@ fn prepare(
     depth: usize,
     limits: ConversionLimits,
     bytes: &mut usize,
+    lorem: &mut Option<Lorem<'_>>,
+    inherited_repeat: Option<usize>,
 ) -> Result<(), EditorError> {
     if depth > limits.max_nesting {
         return Err(EditorError::Capacity);
@@ -185,6 +188,13 @@ fn prepare(
         }
         if let Some(attributes) = &mut node.attributes {
             merge_attributes(attributes);
+        }
+        if let Some(lorem) = lorem
+            && lorem.resolve(node, inherited_repeat)?
+            && node.repeat.is_some()
+            && depth > 0
+        {
+            node.name = Some(implicit_tag(parent).into());
         }
         if node.name.as_deref() == Some("label")
             && let Some(input) = find_label_input(&mut node.children)
@@ -228,16 +238,26 @@ fn prepare(
         }
         let normalized = node.name.as_ref().map(|name| name.to_ascii_lowercase());
         let next_parent = normalized.as_deref().filter(|name| !name.is_empty());
-        prepare(&mut node.children, next_parent, depth + 1, limits, bytes)?;
+        let inherited_repeat = node.repeat.map(|repeat| repeat.index).or(inherited_repeat);
+        prepare(
+            &mut node.children,
+            next_parent,
+            depth + 1,
+            limits,
+            bytes,
+            lorem,
+            inherited_repeat,
+        )?;
     }
     Ok(())
 }
 
-pub fn prepare_markup(
+fn resolve_markup(
     input: &str,
     syntax: Syntax,
     parse_limits: MarkupLimits,
     conversion_limits: ConversionLimits,
+    mut lorem: Option<Lorem<'_>>,
 ) -> Result<Vec<ExpandedMarkupNode>, EditorError> {
     let parsed = parse_markup(input, syntax, parse_limits)?;
     let converted = convert_markup(&parsed, defaults::VARIABLES, conversion_limits)?;
@@ -249,6 +269,43 @@ pub fn prepare_markup(
         stack: Vec::new(),
     }
     .resolve(converted, 0)?;
-    prepare(&mut resolved, None, 0, conversion_limits, &mut 0)?;
+    prepare(
+        &mut resolved,
+        None,
+        0,
+        conversion_limits,
+        &mut 0,
+        &mut lorem,
+        None,
+    )?;
     Ok(resolved)
+}
+
+pub fn prepare_markup(
+    input: &str,
+    syntax: Syntax,
+    parse_limits: MarkupLimits,
+    conversion_limits: ConversionLimits,
+) -> Result<Vec<ExpandedMarkupNode>, EditorError> {
+    resolve_markup(input, syntax, parse_limits, conversion_limits, None)
+}
+
+pub fn prepare_markup_with_random(
+    input: &str,
+    syntax: Syntax,
+    parse_limits: MarkupLimits,
+    conversion_limits: ConversionLimits,
+    random: &mut dyn FnMut() -> u32,
+) -> Result<Vec<ExpandedMarkupNode>, EditorError> {
+    resolve_markup(
+        input,
+        syntax,
+        parse_limits,
+        conversion_limits,
+        Some(Lorem {
+            random,
+            remaining_draws: conversion_limits.max_bytes,
+            max_bytes: conversion_limits.max_bytes,
+        }),
+    )
 }
