@@ -37,6 +37,171 @@ const MODEL_DISPLAY_SIZE: u32 = 8;
 const CHANGED_INDENT_SIZE: u32 = 2;
 const SNIPPET_PREFIX_BYTES: usize = 3;
 
+type AiEditReply = (
+    taide_model::ai::AiInlineEditRequest,
+    tokio::sync::oneshot::Sender<taide_model::error::AppResult<taide_model::ai::AiTextResponse>>,
+);
+
+fn ai_edit_fixture(text: &str, byte: usize) -> (Fixture, std::sync::mpsc::Receiver<AiEditReply>) {
+    let mut fixture = Fixture::new(text, byte, Arc::from([]));
+    Arc::get_mut(&mut fixture.services).unwrap().secrets =
+        taide_infra::secret::SecretStoreState::with_store(Arc::new(CredentialStore));
+    fixture.services.state.settings.write().ai_provider = Some(taide_model::ai::AiProviderId::Omlx);
+    fixture.services.state.settings.write().ai_model = Some("fixture".into());
+    let (send, receive) = std::sync::mpsc::channel();
+    fixture.state.inline_edit =
+        crate::editor_ai_edit::State::with_complete(Arc::new(move |_, request| {
+            let send = send.clone();
+            Box::pin(async move {
+                let (reply, result) = tokio::sync::oneshot::channel();
+                send.send((request, reply)).unwrap();
+                result.await.unwrap_or_else(|_| {
+                    Err(taide_model::error::AppError::Internal(
+                        "fixture closed".into(),
+                    ))
+                })
+            })
+        }));
+    (fixture, receive)
+}
+
+#[test]
+fn native_ai_edit의_cmdi_지시입력_미리보기_cmdenter_수락은_원문과_undo를_보존한다() {
+    let (mut fixture, receive) = ai_edit_fixture("old\nkeep", 0);
+    fixture.frame(Vec::new(), &[]);
+    fixture.frame(
+        vec![key(Key::I, Modifiers::MAC_CMD | Modifiers::COMMAND)],
+        &[],
+    );
+    assert!(
+        fixture
+            .state
+            .inline_edit
+            .session(&fixture.store, &fixture.services, fixture.view)
+            .is_some()
+    );
+    assert_eq!(fixture.text(fixture.document), "old\nkeep");
+    fixture.frame(
+        vec![
+            Event::Text("rename".into()),
+            key(Key::Enter, Modifiers::NONE),
+        ],
+        &[],
+    );
+    let (request, reply) = receive.recv_timeout(CLIPBOARD_DEADLINE).unwrap();
+    assert_eq!(request.selection, "old");
+    assert_eq!(request.instruction, "rename");
+    reply
+        .send(Ok(taide_model::ai::AiTextResponse {
+            request_id: request.request_id,
+            text: Some("```rust\nnew\nnext\n```".into()),
+        }))
+        .unwrap();
+    let deadline = std::time::Instant::now() + CLIPBOARD_DEADLINE;
+    loop {
+        fixture.frame(Vec::new(), &[]);
+        if fixture
+            .painted
+            .iter()
+            .any(|text| text.contains("new\nnext"))
+        {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::yield_now();
+    }
+    assert_eq!(fixture.text(fixture.document), "old\nkeep");
+    assert!(fixture.frame(
+        vec![key(Key::Enter, Modifiers::MAC_CMD | Modifiers::COMMAND)],
+        &[]
+    ));
+    assert_eq!(fixture.text(fixture.document), "new\nnext\nkeep");
+    assert!(fixture.store.undo(fixture.document).unwrap());
+    assert_eq!(fixture.text(fixture.document), "old\nkeep");
+}
+
+#[test]
+fn native_ai_edit의_loading_escape는_요청을_취소하고_취소알림과_원문을_보존한다() {
+    let (mut fixture, receive) = ai_edit_fixture("old", 0);
+    fixture.frame(Vec::new(), &[Command::TriggerEdit]);
+    fixture.frame(
+        vec![
+            Event::Text("rename".into()),
+            key(Key::Enter, Modifiers::NONE),
+        ],
+        &[],
+    );
+    let (_request, reply) = receive.recv_timeout(CLIPBOARD_DEADLINE).unwrap();
+    fixture.frame(Vec::new(), &[]);
+    fixture.frame(vec![key(Key::Escape, Modifiers::NONE)], &[]);
+    let deadline = std::time::Instant::now() + CLIPBOARD_DEADLINE;
+    while !reply.is_closed() {
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::yield_now();
+    }
+    assert!(
+        fixture
+            .state
+            .inline_edit
+            .session(&fixture.store, &fixture.services, fixture.view)
+            .is_none()
+    );
+    assert!(matches!(
+        fixture.state.edit_notices.as_slice(),
+        [super::EditNotice::Cancelled]
+    ));
+    assert_eq!(fixture.text(fixture.document), "old");
+}
+
+#[test]
+fn native_ai_edit의_preview_escape는_수락없이_닫고_반복명령은_지시를_보존한다() {
+    let (mut fixture, receive) = ai_edit_fixture("old", 0);
+    fixture.frame(Vec::new(), &[Command::TriggerEdit]);
+    fixture.frame(vec![Event::Text("rename".into())], &[]);
+    fixture.frame(Vec::new(), &[Command::TriggerEdit]);
+    assert_eq!(
+        fixture
+            .state
+            .inline_edit
+            .session(&fixture.store, &fixture.services, fixture.view)
+            .unwrap()
+            .instruction,
+        "rename"
+    );
+    fixture.frame(vec![key(Key::Enter, Modifiers::NONE)], &[]);
+    let (request, reply) = receive.recv_timeout(CLIPBOARD_DEADLINE).unwrap();
+    reply
+        .send(Ok(taide_model::ai::AiTextResponse {
+            request_id: request.request_id,
+            text: Some("new".into()),
+        }))
+        .unwrap();
+    let deadline = std::time::Instant::now() + CLIPBOARD_DEADLINE;
+    loop {
+        fixture.frame(Vec::new(), &[]);
+        if fixture
+            .state
+            .inline_edit
+            .session(&fixture.store, &fixture.services, fixture.view)
+            .is_some_and(|session| session.preview().is_some())
+        {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::yield_now();
+    }
+    fixture.frame(vec![key(Key::Escape, Modifiers::NONE)], &[]);
+    assert!(
+        fixture
+            .state
+            .inline_edit
+            .session(&fixture.store, &fixture.services, fixture.view)
+            .is_none()
+    );
+    assert!(fixture.state.edit_notices.is_empty());
+    assert_eq!(fixture.text(fixture.document), "old");
+}
+
 #[test]
 fn native_ai_inline은_선택후보를_확장해_표시하고_후보_수락뒤_잔여제안을_유지한다() {
     for accept in [Key::Tab, Key::Enter] {
@@ -1615,6 +1780,8 @@ impl Fixture {
                     services: &self.services,
                     files: self.files.clone(),
                     context: self.context.clone(),
+                    locale: None,
+                    edit_colors: None,
                 };
                 let mut provider = Provider {
                     consumer: consumer.clone(),
@@ -2046,6 +2213,8 @@ fn native_completion_consumer의_자동요청은_실제단어_숫자_토큰_커�
                 services: &fixture.services,
                 files: fixture.files.clone(),
                 context: fixture.context.clone(),
+                locale: None,
+                edit_colors: None,
             },
             project: Some(fixture.project.clone()),
             owner: fixture.owner,
@@ -2371,6 +2540,8 @@ fn native_completion_consumer의_choice_용량거절은_문서와_부분입력_�
             services: &fixture.services,
             files: fixture.files.clone(),
             context: fixture.context.clone(),
+            locale: None,
+            edit_colors: None,
         },
         project: Some(fixture.project.clone()),
         owner: fixture.owner,

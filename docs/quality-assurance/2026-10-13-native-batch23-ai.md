@@ -103,3 +103,29 @@ ui.log의 후보31/본문87은118통과·0실패·컴파일11.46초·검사0.50/
 검사는 임시 AppPaths/EditorStore·메모리 SecretStore/주입 future만 사용하며 실제 키/Keychain/사용자 데이터/OS/클립보드를 읽거나 변경하지 않습니다. 소유 Rust3개 fmt와 native diff check exit0, manifest/lock/동결 source 변경0입니다. 동결 UI/Editor 계약은 e1e의 변경 없는 compile 근거를 유지하며 이 상태 검사로 전체 App/실기/성능 게이트까지 통과했다고 보고하지 않습니다. e2a의 상태만 닫고 e2/e2b는 미완료입니다. editor-78은 실제 소비가 없어 unwired로 기록하며 전체302/588(51.4%)·미완료286·잔여 시간 미산정을 유지합니다.
 
 소유 상태/검사/lib/QA와 PROCESS 상단5경로를97e931b5로 선별 커밋했습니다. 기능표는 이 실제 제품 commit을 baseline으로 갱신하고 editor-78을 missing에서 unwired로 변경합니다. complete302/partial91/unwired111/missing84·미완료286·전체302/588(51.4%)이며 완료 수를 올리지 않습니다. 사용자 PROCESS 하단2hunk·다른 문서/결정/피드백/메모리는 보존했습니다.
+
+## AI 편집 명령·입력·미리보기 연결 진행 (2026-10-14)
+
+원본 taide.aiInlineEdit/ai.inlineEdit·CmdI를 기존 Core completion command/카탈로그·keymap의 native 소비에 연결하고 App completion의 공유 consumer에 별도 AI 편집 상태를 배치했습니다. 본문/peek가 같은 consumer를 사용하며 shutdown clear·활성 project/owner/source·credential/문서 수명을 기존 App reconcile에서 회수합니다. UI는 지시 입력/생성/취소·미리보기 수락/거절과 입력 포커스를 별도 상태로 관리하고 현재 편집기 line height의 추가 zone·원문 범위의 삭제 배경·기존 TextMate code cache를 사용합니다. 명령/응답의 일부 소비가 연결되었지만 실제 앱 수락 실패가 남아 있으므로 e2b·editor-78 완료로 보고하지 않습니다.
+
+로그 접두사는 `/private/tmp/taide-ai-edit-`입니다. ui-compile.log의 InputOutput 필드/E0507 closure move/Projection 대여3개 컴파일 오류를 수정했고 ui-compile-fixed.log에서 기존 상태12건이0.05초·컴파일42.32초·exit0으로 통과했습니다. consumer-red.log는0통과/3실패·5.08초·컴파일19.49초·exit101입니다. 새 keymap의 feature cfg가 App의 include 기반 compatibility 검사에서 다르게 평가되어 CmdI가 등록되지 않았으며 기존 completion이 CmdI default를 유예했습니다. Ui가 아닌 공통 availability 상수로 읽고 CmdI를 정식 editor keymap에 전달하도록 수정했습니다.
+
+지시 입력/반복 명령의 빈 문자열은 egui Area의 첫 sizing pass에서 보이지 않는 입력의 focus가 사라지는 문제였습니다. input-focus.log의0통과/1실패·0.05초에서는 painted=[old]/focused=None을 관찰했고 설치된 egui Area의 첫 프레임 sizing 규칙을 대조했습니다. 실제로 표시되는 control이 focus를 얻기 전까지 요청을 유지했습니다. consumer-focus-fixed.log는2통과/1실패·0.08초였고 남은 CmdI 유예를 수정한 consumer-route-fixed.log는3통과·0.07초·컴파일24.11초·exit0입니다. CmdI→지시 입력/Enter→fenced preview→CmdEnter 수락/undo·원문 보존, loading Escape의 future/reply 회수·취소 notice와 preview Escape/반복 명령의 지시 보존을 확인했습니다.
+
+actual.log는 실제 App0통과/2실패·44.34초·컴파일23.49초·exit101입니다. 실제 기본 CmdI와 사용자 재정의는 요청/표시에 도달했으나 CmdEnter 수락이 되지 않았고 취소 notice를 반영하기 전 logic만 호출한 단계에서 toast를 단언했습니다. 취소 알림을 다음 UI 프레임까지 관찰한 actual-focus.log는1통과/1실패·43.36초·컴파일16.20초·exit101입니다. 수락 실패에서 focus 전후 동일·session open=true·status=None, document_edits의 Line(InsertLineAfter)를 관찰했습니다. 생성 결과가 원문에 적용되기 전 일반 editor 명령으로 수락 키가 빠져나간 원인을 계속 진단합니다.
+
+진단용 UI inspection을 추가하면서 Context data 잠금 안에서 input을 읽는 중첩 잠금을 넣었습니다. actual-input-route.log는 RwLock write 10초 DEBUG PANIC·0통과/1실패·37.90초·exit101입니다. 검사 프로세스 PID62738의 생존을 확인한 뒤 요청한 1초 sample 시에는 이미 종료되어 스택 파일이 없었습니다. 프로세스를 종료하거나 재시작하지 않았으며 입력을 잠금 전에 읽도록 수정한 별도 코드 상태에서 관련 검사를 실행합니다. timeout을 성공이나 무한 실행으로 보고하지 않습니다.
+
+현재 디스크639GiB/사용66%, native diff check exit0, manifest/lock/동결 source 변경0입니다. 실제 키/Keychain/사용자 데이터/OS/클립보드는 접근하지 않았으며 임시 AppPaths·주입 응답·egui 이벤트만 사용합니다. 진단 inspection은 원인 확인 뒤 제거하거나 필요한 검사 계약으로 정리하고 실제 앱 수락·peek/관련 회귀·UI/동결 계약·기록/Git을 마칩니다. 전체302/588(51.4%)·미완료286·잔여 시간 미산정과 전체 목표는 유지합니다.
+
+actual-input-route-fixed.log의0통과/1실패·32.34초·exit101에서는 AI UI owned=true였지만 input events에는 CmdEnter의 keyup만 남았습니다. 실제 pressed 키는 App의 capture_window_keymap_with_local에서 사전 소비되어 Line(InsertLineAfter)로 큐에 들어갔습니다. 본문 focus 요청을 막는 가설 수정은 actual-focus-preserved.log의0통과/1실패·80.84초·컴파일30.52초·exit101로 실패했고 원인과 무관한 guard는 제거했습니다. UI control을 안정된 editor ID의 작은 metadata로 등록하고 App의 사전 편집기 scope/로컬 이벤트 판정과 후기 editor scope에서 일반 본문과 분리했습니다. 전역 명령이 남은 입력을 처리하는 기존 경로는 유지합니다.
+
+actual-capture-fixed.log의 실제 App2건은65.45초·컴파일38.01초·exit0입니다. 기본 CmdI와 사용자 재정의·지시/요청·fenced preview→CmdEnter 수락/단일 undo·디스크 원문 보존, loading Escape future/reply 회수·다음 UI 프레임의 localized info toast·원문/정상 종료 task0을 확인했습니다. 앞선 반복 실패/단독 성공을 더하지 않습니다. raw event 진단용 inspection과 assertion 출력을 제거했고 원본 primary 버튼 색을 기존 button.primaryBackground/Foreground로 연결합니다. 남은 peek/그리기/버튼·IME·실제 palette/source와 관련 회귀/동결/전체 게이트는 e2b에 유지합니다.
+
+ui-regression.log는135건 중133통과/2실패·0.51초·컴파일12.30초·exit101입니다. 새 AI 명령을 여전히 Unavailable로 기대한 두 기존 검사를 실제 native/readonly 계약으로 갱신했습니다. ui-regression-fixed.log는 library135/후보31통과·0.50/0.50초, 본문86통과/1실패·0.20초·컴파일16.07초·exit101입니다. AI preview의 가로 스크롤 위치를 고치면서 기존 pointer row 위치를 같은 형태의 hunk로 잘못 바꿔 IME 좌표 회귀를 만들었습니다. 첫 복원에서도 같은 이름의 다른 row 블록을 수정해 surface-final.log가84통과/3실패·0.20초·exit101이었습니다. 원본 HEAD의 각 행/클릭 좌표를 직접 대조해 정확한 두 블록을 복원했고 surface-restored.log의 본문87건은0.20초·컴파일11.11초·exit0입니다. 기존 행/IME/장식 좌표의 diff는 없으며 AI zone은 정해진 viewport에서 text만 scroll.x만큼 이동합니다.
+
+current-final.log는 상태12/소비자3/실제 App2의 서로 다른17통과·33.94초·컴파일0.27초·exit0입니다. 진단 제거·primary 색/기존 popup shadow를 포함한 현재 코드에서 기본/재정의·입력/preview/수락/undo·취소/알림/디스크/task0을 확인했습니다. keymap-regression.log는기존 키맵27통과·0.37초·컴파일34.54초·exit0이며 기본·재정의·해제·chord·창 로컬 입력·기존 shell/terminal/저장 소비를 확인했습니다. completion-regression.log는 기존 후보/문서/스니펫/AI 완성·LSP child 취소와 새 AI 편집3건을 포함한82통과·12.83초·컴파일0.25초·exit0입니다. 이 세 App 로그의 실제 test 이름을 합쳐 중복3건을 제외한123건, 변경 없는 library135/후보31 및 최종 본문87의 UI253건을 합한 현재 서로 다른376건입니다.
+
+frozen-host.log는28.95초·exit0이지만 native-host 없는 그래프의 unused_mut 경고를 발견했습니다. feature가 있을 때만 mutable 바인딩을 두도록 정리한 frozen-host-final.log는24.45초·exit0·추가 경고0입니다. 이 바인딩 정리는 동작을 바꾸지 않으므로 앞 성공 검사들은 재사용합니다. 소유 Rust15개 fmt/native diff check exit0, manifest/lock/동결 source 변경0이며 디스크636GiB/사용66%입니다. e2b1 본문 연결만 닫고 부모 e2b/e2b2의 peek/palette·표시/버튼/IME·추가 수명과 전체 App 준비 실패/실기/성능/전환·제거/최종33은 미완료로 유지합니다. 전체302/588(51.4%)·미완료286·잔여 시간 미산정입니다.
+
+frozen-wasm.log의 --lib --features canvas --target wasm32-unknown-unknown은12.94초·exit0입니다. 현재 변경된 공통/UI 계약의 Wasm 컴파일이며 테스트 실행이나 기존 시간 API 불일치 해결로 확대하지 않습니다. editor-78은 실제 본문 소비가 연결되어 unwired에서 partial로 갱신합니다. complete302/partial92/unwired110/missing84·전체 미완료286·배정 누락/중복0·최종33은 유지합니다.

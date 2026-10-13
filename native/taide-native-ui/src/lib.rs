@@ -23,6 +23,9 @@ pub mod css_motion;
 #[cfg(feature = "native-host")]
 pub mod document_admission;
 #[cfg(feature = "native-host")]
+#[path = "editor-ai-edit.rs"]
+pub mod editor_ai_edit;
+#[cfg(feature = "native-host")]
 #[path = "editor-brackets.rs"]
 pub mod editor_brackets;
 #[cfg(feature = "native-host")]

@@ -201,6 +201,7 @@ impl Fixture {
                 .state
                 .poll(&self.store, &self.services, self.source)
                 .unwrap()
+                == Poll::Preview
             {
                 break;
             }
@@ -501,16 +502,20 @@ fn ai_edit의_빈지시와_잘못된_응답은_삽입하지않는다() {
             }))
             .unwrap();
         let deadline = Instant::now() + DEADLINE;
-        loop {
-            if fixture
+        let result = loop {
+            let result = fixture
                 .state
-                .poll(&fixture.store, &fixture.services, fixture.source)
-                .is_err()
-            {
-                break;
+                .poll(&fixture.store, &fixture.services, fixture.source);
+            if !matches!(result, Ok(Poll::Waiting)) {
+                break result;
             }
             assert!(Instant::now() < deadline);
             std::thread::yield_now();
+        };
+        if response == Some("new") {
+            assert!(result.is_err());
+        } else {
+            assert_eq!(result.unwrap(), Poll::Empty);
         }
         assert!(
             !fixture

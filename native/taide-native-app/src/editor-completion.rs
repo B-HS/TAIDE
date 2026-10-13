@@ -163,11 +163,19 @@ impl Drop for Entry {
 #[derive(Default)]
 pub(crate) struct State {
     pub(crate) inline: crate::editor_ai_completion::State,
+    pub(crate) inline_edit: crate::editor_ai_edit::State,
+    pub(crate) edit_notices: Vec<EditNotice>,
     entries: HashMap<ViewId, Entry>,
     commands: HashMap<ViewId, Vec<taide_native_editor::completion::Command>>,
     snippet_sessions: HashMap<ViewId, provider::Snippet>,
     code: crate::editor_documentation_code::Cache,
     images: crate::editor_documentation_images::Cache,
+}
+
+pub(crate) enum EditNotice {
+    Cancelled,
+    Empty,
+    Failed(taide_model::error::AppError),
 }
 
 impl State {
@@ -393,6 +401,8 @@ impl State {
 
     pub(crate) fn clear(&mut self) {
         self.inline.clear();
+        self.inline_edit.clear();
+        self.edit_notices.clear();
         self.entries.clear();
         self.commands.clear();
         self.snippet_sessions.clear();

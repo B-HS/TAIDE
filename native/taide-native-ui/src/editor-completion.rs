@@ -107,6 +107,36 @@ pub struct Widget {
 }
 
 pub trait Provider: editor_markup::Provider {
+    fn request_inline_edit(
+        &mut self,
+        _store: &EditorStore,
+        _view: ViewId,
+    ) -> Result<bool, EditorError> {
+        Ok(false)
+    }
+    fn inline_edit(
+        &mut self,
+        _store: &EditorStore,
+        _view: ViewId,
+    ) -> Option<crate::editor_ai_edit::Session> {
+        None
+    }
+    fn set_inline_edit_instruction(&mut self, _view: ViewId, _instruction: String) {}
+    fn submit_inline_edit(&mut self, _store: &EditorStore, _view: ViewId) {}
+    fn accept_inline_edit(
+        &mut self,
+        _store: &mut EditorStore,
+        _view: ViewId,
+    ) -> Result<bool, EditorError> {
+        Ok(false)
+    }
+    fn close_inline_edit(&mut self, _view: ViewId) {}
+    fn inline_edit_label(&self, key: &str) -> String {
+        key.into()
+    }
+    fn inline_edit_colors(&self) -> Option<crate::editor_ai_edit::Colors> {
+        None
+    }
     fn request_inline(&mut self, _store: &EditorStore, _view: ViewId) -> Result<bool, EditorError> {
         Ok(false)
     }
@@ -872,7 +902,11 @@ impl State {
             ui.memory_mut(|memory| memory.request_focus_with_filter(focus, FILTER));
         }
         let pending = provider.take_commands(view);
-        if commands.contains(&Command::TriggerInline) || pending.contains(&Command::TriggerInline) {
+        if commands
+            .iter()
+            .chain(&pending)
+            .any(|command| matches!(command, Command::TriggerInline | Command::TriggerEdit))
+        {
             ui.memory_mut(|memory| memory.request_focus_with_filter(body, FILTER));
         }
         if commands.contains(&Command::ResetSize) || pending.contains(&Command::ResetSize) {
@@ -973,6 +1007,10 @@ impl State {
         provider: &mut dyn Provider,
         command: Command,
     ) -> Result<bool, EditorError> {
+        if command == Command::TriggerEdit {
+            self.close(ui, body, provider, view);
+            return provider.request_inline_edit(store, view);
+        }
         if command == Command::TriggerInline {
             return provider.request_inline(store, view);
         }
@@ -1054,7 +1092,7 @@ impl State {
                 self.reveal = true;
                 self.details_scroll = Vec2::ZERO;
             }
-            Command::ResetSize | Command::TriggerInline => {}
+            Command::ResetSize | Command::TriggerInline | Command::TriggerEdit => {}
         }
         ui.ctx().request_repaint();
         Ok(true)

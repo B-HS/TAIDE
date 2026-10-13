@@ -40,6 +40,8 @@ pub(crate) struct Consumer<'a, 'state> {
     pub services: &'a AppServices,
     pub files: Arc<[SnippetFile]>,
     pub context: egui::Context,
+    pub locale: Option<&'a taide_model::locale::ResolvedLocale>,
+    pub edit_colors: Option<taide_native_ui::editor_ai_edit::Colors>,
 }
 
 pub(crate) struct Provider<'a, 'state> {
@@ -87,6 +89,10 @@ impl Preview {
 
 impl Consumer<'_, '_> {
     pub(crate) fn defers(&self, view: ViewId, event: &Event) -> bool {
+        if matches!(event, Event::Key { key: Key::I, pressed: true, modifiers, .. } if !modifiers.alt && !modifiers.shift && (modifiers.command || modifiers.mac_cmd || modifiers.ctrl && !self.context.os().is_mac()))
+        {
+            return false;
+        }
         let state = self.state.borrow();
         taide_native_ui::editor_completion::shortcut(
             event,
@@ -176,6 +182,22 @@ impl State {
             }
         }
         syntax.retain_previews(&active);
+        let edit_documents = self
+            .inline_edit
+            .previews(store)
+            .map(|(language, text)| {
+                (
+                    taide_native_editor::documentation::RichDocument {
+                        blocks: vec![taide_native_editor::documentation::Block::Code {
+                            language: language.into(),
+                            text: text.into(),
+                            style: Default::default(),
+                        }],
+                    },
+                    language.to_owned(),
+                )
+            })
+            .collect::<Vec<_>>();
         let documents = self
             .entries
             .values()
@@ -189,8 +211,16 @@ impl State {
                 })
             })
             .collect::<Vec<_>>();
-        self.code
-            .prepare(store, syntax, documents.into_iter(), plugins)
+        self.code.prepare(
+            store,
+            syntax,
+            documents.into_iter().chain(
+                edit_documents
+                    .iter()
+                    .map(|(document, language)| (document, language.as_str())),
+            ),
+            plugins,
+        )
     }
 
     pub(crate) fn prepare_images(
@@ -313,6 +343,115 @@ impl Provider<'_, '_> {
 }
 
 impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
+    fn request_inline_edit(
+        &mut self,
+        store: &EditorStore,
+        view: ViewId,
+    ) -> Result<bool, EditorError> {
+        if !self.available(store, view) {
+            return Ok(false);
+        }
+        let Some(project) = self.project.clone() else {
+            return Ok(false);
+        };
+        let mut state = self.consumer.state.borrow_mut();
+        state.inline.close(view);
+        state
+            .inline_edit
+            .open(store, project, view, self.owner, self.model_path.clone())?;
+        Ok(true)
+    }
+
+    fn inline_edit(
+        &mut self,
+        store: &EditorStore,
+        view: ViewId,
+    ) -> Option<taide_native_ui::editor_ai_edit::Session> {
+        let mut state = self.consumer.state.borrow_mut();
+        let was_loading = state.inline_edit.is_loading(view);
+        match state.inline_edit.poll(store, self.consumer.services, view) {
+            Err(error) => {
+                state.edit_notices.push(super::EditNotice::Failed(error));
+                return None;
+            }
+            Ok(crate::editor_ai_edit::Poll::Empty) => {
+                state.edit_notices.push(super::EditNotice::Empty);
+                return None;
+            }
+            Ok(_) => (),
+        }
+        if was_loading
+            && state
+                .inline_edit
+                .session(store, self.consumer.services, view)
+                .is_none()
+        {
+            state.edit_notices.push(super::EditNotice::Cancelled);
+            return None;
+        }
+        let session = state
+            .inline_edit
+            .session(store, self.consumer.services, view)?;
+        Some(taide_native_ui::editor_ai_edit::Session {
+            token: session.token.as_u128(),
+            focus: session.focus.as_u128(),
+            range: session.origin.target.clone(),
+            language: session.origin.snapshot.metadata.language_id.clone(),
+            instruction: session.instruction.clone(),
+            is_loading: session.is_loading(),
+            preview: session.preview().map(Arc::from),
+        })
+    }
+
+    fn set_inline_edit_instruction(&mut self, view: ViewId, instruction: String) {
+        self.consumer
+            .state
+            .borrow_mut()
+            .inline_edit
+            .set_instruction(view, instruction);
+    }
+
+    fn submit_inline_edit(&mut self, store: &EditorStore, view: ViewId) {
+        let mut state = self.consumer.state.borrow_mut();
+        if let Err(error) =
+            state
+                .inline_edit
+                .submit(store, self.consumer.services, view, &self.consumer.context)
+        {
+            state.edit_notices.push(super::EditNotice::Failed(error));
+        }
+    }
+
+    fn accept_inline_edit(
+        &mut self,
+        store: &mut EditorStore,
+        view: ViewId,
+    ) -> Result<bool, EditorError> {
+        self.consumer
+            .state
+            .borrow_mut()
+            .inline_edit
+            .accept(store, self.consumer.services, view)
+    }
+
+    fn close_inline_edit(&mut self, view: ViewId) {
+        let mut state = self.consumer.state.borrow_mut();
+        if state.inline_edit.is_loading(view) {
+            state.edit_notices.push(super::EditNotice::Cancelled);
+        }
+        state.inline_edit.close(view);
+    }
+
+    fn inline_edit_label(&self, key: &str) -> String {
+        self.consumer.locale.map_or_else(
+            || key.into(),
+            |locale| taide_native_ui::presentation::message(locale, key, &[]),
+        )
+    }
+
+    fn inline_edit_colors(&self) -> Option<taide_native_ui::editor_ai_edit::Colors> {
+        self.consumer.edit_colors
+    }
     fn request_inline(&mut self, store: &EditorStore, view: ViewId) -> Result<bool, EditorError> {
         if !self.available(store, view) {
             return Ok(false);

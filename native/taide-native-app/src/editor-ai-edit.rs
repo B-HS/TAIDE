@@ -106,6 +106,8 @@ enum Stage {
 }
 
 pub(crate) struct Session {
+    pub token: Uuid,
+    pub focus: Uuid,
     pub origin: Origin,
     pub instruction: String,
     config: Option<Config>,
@@ -128,6 +130,13 @@ impl Session {
 pub(crate) struct State {
     sessions: HashMap<ViewId, Session>,
     complete: Complete,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Poll {
+    Waiting,
+    Preview,
+    Empty,
 }
 
 impl Default for State {
@@ -156,11 +165,12 @@ impl State {
         owner: ViewId,
         file: String,
     ) -> Result<(), EditorError> {
-        if self
+        if let Some(session) = self
             .sessions
-            .get(&source)
-            .is_some_and(|session| session.origin.describes(store))
+            .get_mut(&source)
+            .filter(|session| session.origin.describes(store))
         {
+            session.focus = Uuid::new_v4();
             return Ok(());
         }
         self.close(source);
@@ -190,6 +200,8 @@ impl State {
         self.sessions.insert(
             source,
             Session {
+                token: Uuid::new_v4(),
+                focus: Uuid::new_v4(),
                 origin: Origin {
                     project,
                     owner,
@@ -215,17 +227,26 @@ impl State {
         services: &AppServices,
         view: ViewId,
     ) -> Option<&mut Session> {
-        let current = self.sessions.get(&view)?;
-        if !current.origin.describes(store)
-            || current
-                .config
-                .as_ref()
-                .is_some_and(|config| config != &Config::new(services))
-        {
+        if !self.is_open(store, services, view) {
             self.close(view);
             return None;
         }
         self.sessions.get_mut(&view)
+    }
+
+    pub(crate) fn is_open(
+        &self,
+        store: &EditorStore,
+        services: &AppServices,
+        view: ViewId,
+    ) -> bool {
+        self.sessions.get(&view).is_some_and(|session| {
+            session.origin.describes(store)
+                && session
+                    .config
+                    .as_ref()
+                    .is_none_or(|config| config == &Config::new(services))
+        })
     }
 
     pub(crate) fn submit(
@@ -299,16 +320,16 @@ impl State {
         store: &EditorStore,
         services: &AppServices,
         view: ViewId,
-    ) -> AppResult<bool> {
+    ) -> AppResult<Poll> {
         let Some(session) = self.session(store, services, view) else {
-            return Ok(false);
+            return Ok(Poll::Waiting);
         };
         let Stage::Loading(pending) = &mut session.stage else {
-            return Ok(false);
+            return Ok(Poll::Waiting);
         };
         let result = match pending.reply.try_recv() {
             Ok(result) => result,
-            Err(oneshot::error::TryRecvError::Empty) => return Ok(false),
+            Err(oneshot::error::TryRecvError::Empty) => return Ok(Poll::Waiting),
             Err(oneshot::error::TryRecvError::Closed) => Err(AppError::Internal(
                 "AI inline edit task ended without a response".into(),
             )),
@@ -323,12 +344,16 @@ impl State {
                 .text
                 .map(|text| strip_code_fence(&text))
                 .filter(|text| !text.is_empty());
-            text.ok_or_else(|| AppError::InvalidArgument("AI inline edit response is empty".into()))
+            Ok(text)
         });
         match result {
-            Ok(text) => {
+            Ok(Some(text)) => {
                 session.stage = Stage::Preview(text);
-                Ok(true)
+                Ok(Poll::Preview)
+            }
+            Ok(None) => {
+                self.close(view);
+                Ok(Poll::Empty)
             }
             Err(error) => {
                 self.close(view);
@@ -386,20 +411,47 @@ impl State {
         self.sessions.clear();
     }
 
+    pub(crate) fn is_loading(&self, view: ViewId) -> bool {
+        self.sessions.get(&view).is_some_and(Session::is_loading)
+    }
+
+    pub(crate) fn set_instruction(&mut self, view: ViewId, instruction: String) {
+        if let Some(session) = self.sessions.get_mut(&view) {
+            session.instruction = instruction
+        }
+    }
+
+    pub(crate) fn previews(&self, store: &EditorStore) -> impl Iterator<Item = (&str, &str)> {
+        self.sessions
+            .values()
+            .filter(|session| session.origin.describes(store))
+            .filter_map(|session| {
+                session
+                    .preview()
+                    .map(|text| (session.origin.snapshot.metadata.language_id.as_str(), text))
+            })
+    }
+
     pub(crate) fn reconcile(
         &mut self,
         store: &EditorStore,
         services: &AppServices,
         mut active: impl FnMut(&Origin) -> bool,
-    ) {
+    ) -> usize {
+        let mut cancelled = 0;
         self.sessions.retain(|_, session| {
-            session.origin.describes(store)
+            let retained = session.origin.describes(store)
                 && session
                     .config
                     .as_ref()
                     .is_none_or(|config| config == &Config::new(services))
-                && active(&session.origin)
+                && active(&session.origin);
+            if !retained && session.is_loading() {
+                cancelled += 1;
+            }
+            retained
         });
+        cancelled
     }
 
     #[cfg(test)]

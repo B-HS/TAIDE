@@ -1,0 +1,14 @@
+[
+    {
+        "id": "monaco.taide.aiInlineEdit",
+        "platform": "mac",
+        "key": "i",
+        "mods": ["mod"]
+    },
+    {
+        "id": "monaco.taide.aiInlineEdit",
+        "platform": "win",
+        "key": "i",
+        "mods": ["mod"]
+    }
+]

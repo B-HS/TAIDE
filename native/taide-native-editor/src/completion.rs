@@ -50,6 +50,7 @@ const SUPPORTED_KINDS: [CompletionItemKind; 25] = [
 pub enum Command {
     Trigger,
     TriggerInline,
+    TriggerEdit,
     Accept { alternate: bool },
     Next,
     Previous,
@@ -68,6 +69,7 @@ impl Command {
         Some(match action {
             "editor.action.triggerSuggest" => Self::Trigger,
             "editor.action.inlineSuggest.trigger" => Self::TriggerInline,
+            "taide.aiInlineEdit" => Self::TriggerEdit,
             "acceptSelectedSuggestion" | "acceptSelectedSuggestionOnEnter" => {
                 Self::Accept { alternate: false }
             }

@@ -21,6 +21,7 @@ pub const EDITOR_HIGHLIGHTS_AVAILABLE: bool = cfg!(feature = "native-host");
 pub const EDITOR_FORMATTING_AVAILABLE: bool = cfg!(feature = "native-host");
 pub const EDITOR_RENAME_AVAILABLE: bool = cfg!(feature = "native-host");
 pub const EDITOR_CODE_ACTIONS_AVAILABLE: bool = cfg!(feature = "native-host");
+pub const EDITOR_AI_EDIT_AVAILABLE: bool = cfg!(feature = "native-host");
 const EDITOR_ACTIONS_WITHOUT_SUPPORT_GATE: [&str; 21] = [
     "editor.action.goToImplementation",
     "editor.action.goToLocation",
@@ -338,6 +339,12 @@ fn enablement(id: &str) -> Enablement {
 }
 
 fn execution(id: &str, keymap_id: Option<&str>) -> Execution {
+    #[cfg(feature = "native-host")]
+    if id == "ai.inlineEdit" {
+        return Execution::Native(Run::EditDocument(DocumentEdit::Completion(
+            taide_native_editor::completion::Command::TriggerEdit,
+        )));
+    }
     #[cfg(feature = "native-host")]
     if matches!(
         id,
@@ -1446,6 +1453,11 @@ mod tests {
                             && (!is_read_only || *action == "editor.action.detectIndentation")
                     }),
                 )
+                .chain(
+                    ["taide.aiInlineEdit"]
+                        .into_iter()
+                        .filter(|_| EDITOR_AI_EDIT_AVAILABLE && !is_read_only),
+                )
                 .map(str::to_owned)
                 .collect::<HashSet<_>>();
             assert_eq!(
@@ -1742,6 +1754,20 @@ mod tests {
                 allowed,
                 "{id}"
             );
+            #[cfg(feature = "native-host")]
+            if id == "ai.inlineEdit" {
+                assert_eq!(
+                    command.execution,
+                    Execution::Native(Run::EditDocument(DocumentEdit::Completion(
+                        taide_native_editor::completion::Command::TriggerEdit
+                    )))
+                );
+                assert_eq!(
+                    contexts.map(|context| command.is_runnable(context)),
+                    allowed
+                );
+                continue;
+            }
             #[cfg(feature = "native-host")]
             if id == "monaco.editor.action.quickFix" {
                 assert_eq!(

@@ -200,6 +200,7 @@ pub struct NativeApplication {
     editor_documentation_colors: taide_native_ui::editor_documentation::Colors,
     editor_markdown_colors: taide_native_ui::editor_markup::Colors,
     editor_completion_colors: taide_native_ui::editor_completion::Colors,
+    editor_ai_edit_colors: taide_native_ui::editor_ai_edit::Colors,
     editor_highlight_colors: crate::editor_highlights::Colors,
     editor_code_action_colors: taide_native_ui::editor_code_actions::Colors,
     editor_inlay_hint_colors: taide_native_ui::editor_inlay_hints::Colors,
@@ -567,6 +568,7 @@ impl NativeApplication {
             editor_documentation_colors: appearances.editor_documentation,
             editor_markdown_colors: appearances.editor_markdown,
             editor_completion_colors: appearances.editor_completion,
+            editor_ai_edit_colors: appearances.editor_ai_edit,
             editor_highlight_colors: appearances.editor_highlights,
             editor_code_action_colors: appearances.editor_code_actions,
             editor_inlay_hint_colors: appearances.editor_inlay_hints,
@@ -849,6 +851,7 @@ impl NativeApplication {
                                         self.editor_markdown_colors = appearances.editor_markdown;
                                         self.editor_completion_colors =
                                             appearances.editor_completion;
+                                        self.editor_ai_edit_colors = appearances.editor_ai_edit;
                                         self.editor_highlight_colors =
                                             appearances.editor_highlights;
                                         self.editor_code_action_colors =
@@ -5736,6 +5739,7 @@ impl NativeApplication {
                 self.editor_documentation_colors = appearances.editor_documentation;
                 self.editor_markdown_colors = appearances.editor_markdown;
                 self.editor_completion_colors = appearances.editor_completion;
+                self.editor_ai_edit_colors = appearances.editor_ai_edit;
                 self.editor_highlight_colors = appearances.editor_highlights;
                 self.editor_code_action_colors = appearances.editor_code_actions;
                 self.editor_inlay_hint_colors = appearances.editor_inlay_hints;
@@ -6525,6 +6529,49 @@ impl eframe::App for NativeApplication {
                     })
             },
         );
+        let cancelled_edits =
+            self.editor_completion
+                .inline_edit
+                .reconcile(&self.store, &self.services, |origin| {
+                    projects.contains(&origin.project)
+                        && snapshot.layouts.get(&origin.project).is_some_and(|layout| {
+                            crate::symbol_sidebar::window_tree(
+                                &origin.project,
+                                layout,
+                                &self.shell.scope,
+                            )
+                            .is_some_and(|(root, _)| {
+                                taide_native_ui::snapshot::active_tab(root, &origin.owner_key.pane)
+                                    .is_some_and(|tab| tab.id == origin.owner_key.tab)
+                            })
+                        })
+                });
+        if cancelled_edits > 0 {
+            self.editor_completion
+                .edit_notices
+                .push(crate::editor_completion::EditNotice::Cancelled);
+        }
+        for notice in std::mem::take(&mut self.editor_completion.edit_notices) {
+            match notice {
+                crate::editor_completion::EditNotice::Cancelled => self.toasts.info(
+                    presentation::message(&self.locale, "ai.inlineEditCancelled", &[]),
+                    Instant::now(),
+                ),
+                crate::editor_completion::EditNotice::Empty => self.toasts.error(
+                    presentation::message(&self.locale, "ai.inlineEditEmptyResponse", &[]),
+                    Instant::now(),
+                ),
+                crate::editor_completion::EditNotice::Failed(error) => self.toasts.notify(
+                    taide_native_ui::toast::Kind::Error,
+                    presentation::message(&self.locale, "ai.inlineEditFailed", &[]),
+                    taide_native_ui::toast::Options {
+                        description: Some(crate::toast::describe_error(&self.locale, &error)),
+                        ..Default::default()
+                    },
+                    Instant::now(),
+                ),
+            }
+        }
         if let Err(error) = self.editor_documentation.prepare_code(
             &mut self.store,
             &mut self.editor_syntax,
@@ -6633,13 +6680,25 @@ impl eframe::App for NativeApplication {
                 snapshot.focused_project().is_some(),
                 |id| {
                     let (view, _) = self.editor_keymap_targets.get(&(viewport, id))?;
+                    if crate::editor_context_menu::body(&context, *view).is_some_and(|editor| {
+                        taide_native_ui::editor_ai_edit::is_control(&context, editor, id)
+                    }) {
+                        return None;
+                    }
                     Some(self.store.views().get(*view)?.composition.is_some())
                 },
                 |id, event| {
                     self.editor_keymap_targets
                         .get(&(viewport, id))
                         .is_some_and(|(view, _)| {
-                            self.editor_code_actions
+                            crate::editor_context_menu::body(&context, *view).is_some_and(
+                                |editor| {
+                                    taide_native_ui::editor_ai_edit::owns_event(
+                                        &context, editor, id, event,
+                                    )
+                                },
+                            ) || self
+                                .editor_code_actions
                                 .local_key(&self.store, *view, event)
                                 || self.editor_rename.local_key(*view, event)
                                 || self.editor_locations.local_key(*view, event)
@@ -6732,6 +6791,7 @@ impl eframe::App for NativeApplication {
             editor_documentation_colors: self.editor_documentation_colors,
             editor_markdown_colors: self.editor_markdown_colors,
             editor_completion_colors: self.editor_completion_colors,
+            editor_ai_edit_colors: self.editor_ai_edit_colors,
             editor_highlight_colors: self.editor_highlight_colors,
             editor_code_action_colors: self.editor_code_action_colors,
             editor_inlay_hint_colors: self.editor_inlay_hint_colors,
@@ -7719,6 +7779,7 @@ struct AppSurfaces<'a> {
     editor_documentation_colors: taide_native_ui::editor_documentation::Colors,
     editor_markdown_colors: taide_native_ui::editor_markup::Colors,
     editor_completion_colors: taide_native_ui::editor_completion::Colors,
+    editor_ai_edit_colors: taide_native_ui::editor_ai_edit::Colors,
     editor_highlight_colors: crate::editor_highlights::Colors,
     editor_code_action_colors: taide_native_ui::editor_code_actions::Colors,
     editor_inlay_hint_colors: taide_native_ui::editor_inlay_hints::Colors,
@@ -8788,6 +8849,7 @@ impl AppSurfaces<'_> {
                     state: std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_completion)),
                     services: self.services,
                     files: self.settings_views.snippet_catalog().snapshot().unwrap_or_default(),
+                    locale: Some(self.locale), edit_colors: Some(self.editor_ai_edit_colors),
                     context: ui.ctx().clone(),
                 };
                 let code_lens_consumer = crate::editor_code_lenses::Consumer {
@@ -9158,7 +9220,8 @@ impl AppSurfaces<'_> {
                         (view, ui.ctx().cumulative_frame_nr()),
                     );
                 }
-                if output.response.has_focus() || ui.memory(|memory| output.focus_ids.iter().any(|id| memory.has_focus(*id))) {
+                let ai_control_focused = ui.memory(|memory| memory.focused()).is_some_and(|id| taide_native_ui::editor_ai_edit::is_control(ui.ctx(), output.response.id, id));
+                if !ai_control_focused && (output.response.has_focus() || ui.memory(|memory| output.focus_ids.iter().any(|id| memory.has_focus(*id)))) {
                     *self.keymap_editor_scope = Some(
                         self.store
                             .views()
@@ -9302,6 +9365,9 @@ mod markdown_tests;
 #[cfg(all(test, unix))]
 #[path = "application-ai-completion-tests.rs"]
 mod ai_completion_tests;
+#[cfg(test)]
+#[path = "application-ai-edit-tests.rs"]
+mod ai_edit_tests;
 
 #[cfg(test)]
 mod close_all_tests {

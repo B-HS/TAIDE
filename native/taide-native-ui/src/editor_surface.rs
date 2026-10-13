@@ -272,6 +272,8 @@ struct RenderedViewport {
     #[cfg(feature = "native-host")]
     problem_zone: Option<(usize, f32)>,
     #[cfg(feature = "native-host")]
+    ai_edit_zone: Option<(usize, f32)>,
+    #[cfg(feature = "native-host")]
     code_lens_height: f32,
 }
 
@@ -308,6 +310,8 @@ struct InputState {
     documentation: crate::editor_documentation::State,
     #[cfg(feature = "native-host")]
     completion: crate::editor_completion::State,
+    #[cfg(feature = "native-host")]
+    ai_edit: crate::editor_ai_edit::State,
     #[cfg(feature = "native-host")]
     rename: crate::editor_rename::State,
     #[cfg(feature = "native-host")]
@@ -556,6 +560,8 @@ struct Projection<'a> {
     stable_scroll_top: Option<f32>,
     #[cfg(feature = "native-host")]
     problem_zone: Option<(usize, f32)>,
+    #[cfg(feature = "native-host")]
+    ai_edit_zone: Option<(usize, f32)>,
     preview_views: Vec<taide_native_editor::completion_preview_view::ViewData>,
     #[cfg(feature = "native-host")]
     inlay_hints: Option<&'a crate::editor_inlay_hints::Presentation>,
@@ -567,18 +573,33 @@ struct Projection<'a> {
     rendered_code_lenses: Option<crate::editor_code_lenses::Presentation>,
 }
 
-fn preview_layout(line_height: f32, display: &DisplayMap) -> VerticalLayout {
-    VerticalLayout::new(line_height, display.row_count()).with_additional_zones(
-        display.preview_views().iter().map(|view| {
-            let rows = display.rows_of_line(view.line);
-            let after = if rows.is_empty() {
+fn preview_layout(
+    line_height: f32,
+    display: &DisplayMap,
+    #[cfg(feature = "native-host")] ai_edit_zone: Option<(usize, f32)>,
+) -> VerticalLayout {
+    let zones = display.preview_views().iter().map(|view| {
+        let rows = display.rows_of_line(view.line);
+        let after = if rows.is_empty() {
+            usize::MAX
+        } else {
+            rows.end - 1
+        };
+        (after, view.additional.len() as f32 * line_height)
+    });
+    #[cfg(feature = "native-host")]
+    let zones = zones.chain(ai_edit_zone.into_iter().map(|(line, height)| {
+        let rows = display.rows_of_line(line);
+        (
+            if rows.is_empty() {
                 usize::MAX
             } else {
                 rows.end - 1
-            };
-            (after, view.additional.len() as f32 * line_height)
-        }),
-    )
+            },
+            height,
+        )
+    }));
+    VerticalLayout::new(line_height, display.row_count()).with_additional_zones(zones)
 }
 
 impl Projection<'_> {
@@ -598,6 +619,7 @@ impl Projection<'_> {
         #[cfg(feature = "native-host")]
         let zone_changed = self.rendered_viewport.is_some_and(|rendered| {
             rendered.problem_zone != self.problem_zone
+                || rendered.ai_edit_zone != self.ai_edit_zone
                 || rendered.code_lens_height
                     != crate::editor_code_lenses::presentation_height(
                         self.code_lenses.as_ref(),
@@ -659,7 +681,12 @@ impl Projection<'_> {
                     .filter(|rendered| rendered.scroll_top > 0.0),
             )
             .map(|(stale, rendered)| {
-                let layout = preview_layout(rendered.line_height, stale);
+                let layout = preview_layout(
+                    rendered.line_height,
+                    stale,
+                    #[cfg(feature = "native-host")]
+                    rendered.ai_edit_zone,
+                );
                 #[cfg(feature = "native-host")]
                 let layout = crate::editor_code_lenses::layout(
                     layout,
@@ -703,7 +730,12 @@ impl Projection<'_> {
                 .hidden_lines_at(document.rope.byte_to_line(byte))
                 .is_none()
         {
-            let layout = preview_layout(self.appearance.line_height, map);
+            let layout = preview_layout(
+                self.appearance.line_height,
+                map,
+                #[cfg(feature = "native-host")]
+                self.ai_edit_zone,
+            );
             #[cfg(feature = "native-host")]
             let layout = crate::editor_code_lenses::layout(
                 layout,
@@ -1037,10 +1069,23 @@ impl NativeEditor {
             rendered_viewport: None,
             stable_scroll_top: None,
             #[cfg(feature = "native-host")]
+            ai_edit_zone: ui.ctx().data(|data| {
+                data.get_temp::<InputState>(ui.make_persistent_id(("native-code-editor", view)))
+                    .and_then(|input| input.rendered_viewport)
+                    .and_then(|rendered| rendered.ai_edit_zone)
+            }),
+            #[cfg(feature = "native-host")]
             problem_zone,
         };
+        #[cfg(feature = "native-host")]
+        let ai_edit_zone = projection.ai_edit_zone;
         let display = projection.map(&document, &current.folds)?;
-        let layout = preview_layout(appearance.line_height, display);
+        let layout = preview_layout(
+            appearance.line_height,
+            display,
+            #[cfg(feature = "native-host")]
+            ai_edit_zone,
+        );
         #[cfg(feature = "native-host")]
         let layout = crate::editor_code_lenses::layout(
             layout,
@@ -1588,6 +1633,14 @@ impl NativeEditor {
                 .begin(ui, store, view, id, provider, completion_commands)?;
         }
         #[cfg(feature = "native-host")]
+        let initial_inline_edit = completion
+            .as_deref_mut()
+            .and_then(|provider| provider.inline_edit(store, view));
+        #[cfg(feature = "native-host")]
+        let ai_edit_owned = initial_inline_edit
+            .as_ref()
+            .is_some_and(|session| input_state.ai_edit.owns_input(ui, session));
+        #[cfg(feature = "native-host")]
         let documentation_input = if let Some(provider) = documentation.as_deref_mut() {
             input_state.documentation.input(
                 ui,
@@ -1702,6 +1755,12 @@ impl NativeEditor {
                     .rendered_viewport
                     .filter(|rendered| rendered.scroll_top == current.scroll.y),
                 stable_scroll_top: None,
+                #[cfg(feature = "native-host")]
+                ai_edit_zone: crate::editor_ai_edit::zone(
+                    initial_inline_edit.as_ref(),
+                    &previous,
+                    appearance.line_height,
+                ),
                 #[cfg(feature = "native-host")]
                 problem_zone: initial_location
                     .as_ref()
@@ -1831,6 +1890,7 @@ impl NativeEditor {
             for (_index, event) in events.into_iter().enumerate() {
                 #[cfg(feature = "native-host")]
                 if (rename_active
+                    || ai_edit_owned
                     || code_actions_active
                     || code_action_message_active
                         && matches!(
@@ -2203,6 +2263,38 @@ impl NativeEditor {
             .transpose()?;
         let tracked = tracked_layers(store, &document, decorations)?;
         #[cfg(feature = "native-host")]
+        let mut tracked = tracked;
+        #[cfg(feature = "native-host")]
+        let inline_edit = completion
+            .as_deref_mut()
+            .and_then(|provider| provider.inline_edit(store, view));
+        #[cfg(feature = "native-host")]
+        if let Some(session) = inline_edit
+            .as_ref()
+            .filter(|session| session.preview.is_some())
+        {
+            let removed = completion
+                .as_deref()
+                .and_then(|provider| provider.inline_edit_colors())
+                .map(|colors| colors.removed)
+                .unwrap_or(ui.visuals().error_fg_color);
+            let layer = DecorationLayer::new(
+                document.revision,
+                u8::MAX,
+                vec![taide_native_editor::decoration::Decoration {
+                    bytes: session.range.clone(),
+                    kind: taide_native_editor::decoration::DecorationKind::Inline(
+                        taide_native_editor::decoration::InlineStyle {
+                            background: Some(removed.to_array()),
+                            ..Default::default()
+                        },
+                    ),
+                    stickiness: Default::default(),
+                }],
+            );
+            tracked.push(Cow::Owned(layer));
+        }
+        #[cfg(feature = "native-host")]
         let diagnostic_markers = presentation
             .options
             .diagnostics
@@ -2219,6 +2311,14 @@ impl NativeEditor {
             .ok_or(EditorError::NotFound)?
             .clone();
         let mut projection = input_context.projection;
+        #[cfg(feature = "native-host")]
+        {
+            projection.ai_edit_zone = crate::editor_ai_edit::zone(
+                inline_edit.as_ref(),
+                &document,
+                appearance.line_height,
+            );
+        }
         #[cfg(feature = "native-host")]
         let preview = {
             let preview = completion.as_deref_mut().map_or_else(
@@ -2273,6 +2373,8 @@ impl NativeEditor {
         }
         #[cfg(feature = "native-host")]
         let zone_position = projection.problem_zone;
+        #[cfg(feature = "native-host")]
+        let ai_edit_zone = projection.ai_edit_zone;
         let (display, stable_scroll_top) =
             projection.map_with_stable_scroll_top(&document, &state.folds)?;
         let wrap_column = display.wrap_settings().map(|settings| settings.wrap_column);
@@ -2297,7 +2399,14 @@ impl NativeEditor {
                 rect.bottom(),
             ),
         );
-        let layout = preview_layout(appearance.line_height, display);
+        let layout = preview_layout(
+            appearance.line_height,
+            display,
+            #[cfg(feature = "native-host")]
+            ai_edit_zone,
+        );
+        #[cfg(feature = "native-host")]
+        let ai_edit_zone_order = display.preview_views().len();
         #[cfg(feature = "native-host")]
         let layout = crate::editor_code_lenses::layout(
             layout,
@@ -3704,6 +3813,8 @@ impl NativeEditor {
             #[cfg(feature = "native-host")]
             problem_zone: zone_position,
             #[cfg(feature = "native-host")]
+            ai_edit_zone,
+            #[cfg(feature = "native-host")]
             code_lens_height: crate::editor_code_lenses::presentation_height(
                 code_lenses.as_ref(),
                 &document,
@@ -3730,6 +3841,35 @@ impl NativeEditor {
         #[cfg(feature = "native-host")]
         if let Some(hints) = &inlay_hints {
             crate::editor_inlay_hints::show_tooltips(ui, id, &document, &geometry, hints);
+        }
+        #[cfg(feature = "native-host")]
+        if let Some(provider) = completion.as_deref_mut() {
+            if let Some(session) = inline_edit.as_ref()
+                && session.preview.is_some()
+                && let Some(zone) = layout.additional_zone(ai_edit_zone_order)
+            {
+                let preview_rect = Rect::from_min_max(
+                    pos2(text_rect.left(), rect.top() + zone.start - state.scroll.y),
+                    pos2(text_rect.right(), rect.top() + zone.end - state.scroll.y),
+                );
+                crate::editor_ai_edit::paint_preview(
+                    ui,
+                    session,
+                    preview_rect,
+                    state.scroll.x,
+                    appearance,
+                    provider,
+                );
+            }
+            let edit_output = input_state
+                .ai_edit
+                .show(ui, store, view, id, &geometry, provider);
+            focus_ids.extend(edit_output.focus_ids);
+            output.errors.extend(edit_output.errors);
+            if edit_output.changed {
+                input_state.rendered_viewport = None;
+                ui.ctx().request_repaint();
+            }
         }
         #[cfg(feature = "native-host")]
         let mut popup_output = crate::editor_rename::Output::default();
