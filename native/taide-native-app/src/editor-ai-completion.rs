@@ -260,23 +260,41 @@ impl State {
         file: String,
         context: &egui::Context,
     ) -> Result<(), EditorError> {
+        self.request(store, services, project, source, owner, file, context, true)
+    }
+
+    pub(crate) fn request(
+        &mut self,
+        store: &EditorStore,
+        services: &AppServices,
+        project: ProjectId,
+        source: ViewId,
+        owner: ViewId,
+        file: String,
+        context: &egui::Context,
+        automatic: bool,
+    ) -> Result<(), EditorError> {
         let Some(config) = Config::new(&services.state.settings.read()) else {
             self.entries.remove(&source);
             return Ok(());
         };
         let credential = services.secrets.0.revision(account(config.provider));
-        if self.entries.get(&source).is_some_and(|entry| {
-            entry.origin.describes(store)
-                && entry.origin.key.config == config
-                && entry.origin.key.credential == credential
-        }) {
+        if automatic
+            && self.entries.get(&source).is_some_and(|entry| {
+                entry.origin.describes(store)
+                    && entry.origin.key.config == config
+                    && entry.origin.key.credential == credential
+            })
+        {
             return Ok(());
         }
-        if self.entries.get_mut(&source).is_some_and(|entry| {
-            entry.origin.key.config == config
-                && entry.origin.key.credential == credential
-                && entry.reuse(store)
-        }) {
+        if automatic
+            && self.entries.get_mut(&source).is_some_and(|entry| {
+                entry.origin.key.config == config
+                    && entry.origin.key.credential == credential
+                    && entry.reuse(store)
+            })
+        {
             return Ok(());
         }
         self.entries.remove(&source);
@@ -333,7 +351,7 @@ impl State {
                     biased;
                     _ = cancelled.changed() => return,
                     result = async move {
-                        if !is_cached {
+                        if automatic && !is_cached {
                             tokio::time::sleep(DEBOUNCE).await;
                         }
                         future.await
@@ -462,6 +480,16 @@ impl State {
 
     pub(crate) fn close(&mut self, view: ViewId) {
         self.entries.remove(&view);
+    }
+
+    pub(crate) fn cancel_changed(&mut self, store: &EditorStore, view: ViewId) {
+        if self
+            .entries
+            .get(&view)
+            .is_some_and(|entry| !entry.origin.describes(store))
+        {
+            self.close(view);
+        }
     }
 
     pub(crate) fn clear(&mut self) {

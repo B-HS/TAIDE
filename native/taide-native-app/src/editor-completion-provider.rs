@@ -301,6 +301,25 @@ impl Provider<'_, '_> {
 }
 
 impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
+    fn request_inline(&mut self, store: &EditorStore, view: ViewId) -> Result<bool, EditorError> {
+        if !self.available(store, view) {
+            return Ok(false);
+        }
+        let Some(project) = self.project.clone() else {
+            return Ok(false);
+        };
+        self.consumer.state.borrow_mut().inline.request(
+            store,
+            self.consumer.services,
+            project,
+            view,
+            self.owner,
+            self.model_path.clone(),
+            &self.consumer.context,
+            false,
+        )?;
+        Ok(true)
+    }
     fn inline_preview(
         &mut self,
         store: &EditorStore,
@@ -627,8 +646,14 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
         if (matches!(
             event,
             Event::Text(_) | Event::Paste(_) | Event::Ime(egui::ImeEvent::Commit(_))
-        ) || matches!(event, Event::Key { key, pressed: true, .. } if !matches!(key, Key::Tab | Key::Escape)))
-            && let Some(project) = self.project.clone()
+        ) || matches!(
+            event,
+            Event::Key {
+                key: Key::Backspace | Key::Delete | Key::Tab | Key::Enter,
+                pressed: true,
+                ..
+            }
+        )) && let Some(project) = self.project.clone()
             && self.available(store, view)
             && !self
                 .consumer
@@ -646,7 +671,13 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
                 self.model_path.clone(),
                 &self.consumer.context,
             )?;
+            return Ok(());
         }
+        self.consumer
+            .state
+            .borrow_mut()
+            .inline
+            .cancel_changed(store, view);
         Ok(())
     }
 

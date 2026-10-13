@@ -1381,9 +1381,12 @@ mod tests {
                     .filter(|_| EDITOR_HIGHLIGHTS_AVAILABLE),
                 )
                 .chain(
-                    ["editor.action.triggerSuggest"]
-                        .into_iter()
-                        .filter(|_| cfg!(feature = "native-host") && !is_read_only),
+                    [
+                        "editor.action.triggerSuggest",
+                        "editor.action.inlineSuggest.trigger",
+                    ]
+                    .into_iter()
+                    .filter(|_| cfg!(feature = "native-host") && !is_read_only),
                 )
                 .chain(
                     [

@@ -49,6 +49,7 @@ const SUPPORTED_KINDS: [CompletionItemKind; 25] = [
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
     Trigger,
+    TriggerInline,
     Accept { alternate: bool },
     Next,
     Previous,
@@ -66,6 +67,7 @@ impl Command {
     pub fn from_action(action: &str) -> Option<Self> {
         Some(match action {
             "editor.action.triggerSuggest" => Self::Trigger,
+            "editor.action.inlineSuggest.trigger" => Self::TriggerInline,
             "acceptSelectedSuggestion" | "acceptSelectedSuggestionOnEnter" => {
                 Self::Accept { alternate: false }
             }

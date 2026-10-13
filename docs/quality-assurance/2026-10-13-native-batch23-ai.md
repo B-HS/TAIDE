@@ -12,7 +12,7 @@ final-focused.log는 11통과/2실패·38.45초·컴파일27.83초입니다. 실
 
 검증 로그 접두사는 `/private/tmp/taide-ai-inline-`입니다. Cargo는 앞 실행의 terminal 종료를 확인한 뒤 직렬로 진행하며 시간 초과를 이유로 실행을 재시작하지 않습니다. 실제 앱과 세부 입력은 임시 프로젝트·주입 port·egui 이벤트만 사용하며 실제 키/Keychain/사용자 데이터/OS 설정/합성 OS 입력은 접근하지 않습니다.
 
-현재 editor-77은 부분 구현입니다. 최초 포커스/클릭 이동 및 명시적 인라인 요청, 추가 split/peek/선택/포커스 수명과 원본 소비 분기·전체 게이트를 더 확인해야 합니다. editor-78 인라인 편집과 editor-80 Emmet은 미구현이며 Markdown editor-72/행·열/HTML·접근성·전체 App 준비 실패와 실기/성능/신뢰성/전환/제거 게이트도 유지합니다. 완료율은 302/588(51.4%), 전체 잔여 시간은 미산정입니다.
+현재 editor-77은 부분 구현입니다. 최초 포커스 무요청·명시적 선택 이동 중단·blur 회수/명시 요청은 현재 근거를 연결했고, 추가 split/peek/선택/포커스 수명과 후보/ghost 소비 분기·전체 게이트를 더 확인해야 합니다. editor-78 인라인 편집과 editor-80 Emmet은 미구현이며 Markdown editor-72/행·열/HTML·접근성·전체 App 준비 실패와 실기/성능/신뢰성/전환/제거 게이트도 유지합니다. 완료율은 302/588(51.4%), 전체 잔여 시간은 미산정입니다.
 
 completion-regression.log는 editor_completion 관련 62건·8.94초·exit0입니다. 기존 후보/문서/스니펫/CLIPBOARD 공급·키맵·실제 child/취소/종료와 새 AI 소비자 9건을 포함하며 반복 성공을 더하지 않습니다. ui-all.log의 --all-targets --features inspection --no-fail-fast는 29대상/520통과·0실패·0ignored·exit0입니다. 문맥/설정3·App1의 변경 없는 성공과 App completion62를 합친 App의 서로 다른66건, UI520건의 서로 다른586건입니다. 변경한 Rust10개 fmt check와 소유 diff check도 exit0입니다. 전체 App 대상 실행/이전 준비 실패 해결이나 배치 완료로 확대하지 않습니다.
 
@@ -37,3 +37,23 @@ credential-contract.log의 App --tests --features inspection compile는15분13�
 credential-frozen-host.log의 --tests --features inspection과 credential-frozen-wasm.log의 --lib --features canvas --target wasm32-unknown-unknown은 각각0.08/0.10초·exit0입니다. 캐시된 현재 그래프를 검사했으며 동결 소스/manifest/lock/engine 변경0입니다. UI 제품 소스와 API는 이번 수정에서 변경하지 않았고 기존 UI 전체29대상/520의 해당 소비 근거를 유지합니다. 현재 직접 실행한 서로 다른22건과 과거520건을 새 전체 실행으로 합산하지 않습니다. 디스크655GiB·사용65%이며 청소하지 않았습니다.
 
 자격 증명 수정·검사·QA와 소유 PROCESS 상단9경로를0330abc0로 선별 커밋했습니다. 하단 PROCESS2hunk와 사용자 문서/결정/피드백/메모리는 보존했습니다. 기능표 baseline을 실제 제품 커밋으로 갱신하고 editor-77의 credential 미완료 문구만 현재 검증에 맞게 제거하며 partial/전체302완료는 유지합니다.
+
+## 명시적 인라인 요청과 포커스/선택 (2026-10-13)
+
+설치된 Monaco controller의 onDidType/onDidPaste·triggerCommands·explicit/api 선택 이동 stop·focus/blur와 commands.js의 inlineSuggest.trigger writable/기본 키 없음/explicit 즉시 요청을 대조했습니다. 최초 포커스나 단순 커서 이동에서 새 요청을 만드는 것이 원본 동작은 아닙니다. 기존 native의 모든 Key 입력 observe 때문에 ArrowLeft에서 두 번째 요청이 생기는 실패를 trigger-focus-red.log의0통과/1실패·0.35초·컴파일16.69초·exit101로 재현했습니다.
+
+기존 completion Command에 TriggerInline과 원본 action ID를 연결해 기존 카탈로그·문서 명령·키 재정의 소비 경로를 재사용했습니다. UI Provider의 기본 메서드는 기존 공급자 계약을 보존하며 명시적 요청은 목록 후보 유무와 독립적으로 현재 AI 공급자로 전달합니다. 자동 typed/paste/IME 확정·Tab/Delete/Backspace/Enter와 명시적 요청을 구분하고 explicit 요청은 300ms 자동 quiet delay를 적용하지 않습니다. explicit/api 선택 이동은 문서/선택이 다른 제안을 중단하며 첫 포커스는 무요청이고 본문/창 포커스 상실·비활성/readonly/IME는 제안과 pending future를 회수합니다. 새 기본 키나 toolbar/원본 미등록 기능을 만들지 않습니다.
+
+trigger-consumer.log는 커서 이동 중단/최초 포커스 무요청과 기존 AI12의13통과·5.37초·exit0입니다. 명시 명령/사용자 재정의·본문 blur를 보강한 trigger-consumer-final.log는15통과·5.69초·exit0이며 중복 합산하지 않습니다. trigger-app.log는 실제 App3/문맥·설정3/consumer15의 서로 다른21통과·57.93초·컴파일19.83초·exit0입니다. 실제 앱의 사용자 키 재정의→입력 없이 요청/원본 경로/prefix→표시/Tab·원문/디스크/종료task0과 기존 기본/credential 소비를 확인했습니다. 임시 프로젝트·주입 AI/메모리 port·egui 이벤트만 사용하고 실제 키/Keychain/클립보드/OS 입력은 접근하지 않았습니다.
+
+소유8Rust fmt/diff는exit0이며 manifest/lock/동결 source 변경0입니다. UI/Editor 명령·입력 회귀와 동결 계약의 실제 종료를 확인하고 기록/Git을 수행합니다. e1/editor-77은 추가 split/peek/선택/포커스·후보와 ghost 소비 분기 및 전체 게이트가 남아 partial이며 editor-78/80·Markdown/접근성·전체 App 준비 실패/실기/성능/신뢰성/전환/제거/최종33은 미완료입니다. 전체302/588(51.4%)·미완료286·잔여시간 미산정을 유지합니다.
+
+trigger-ui.log의 UI --lib --test editor-completion --test editor_surface --no-fail-fast는 library135/후보31/본문87의3대상·253통과·0실패·0ignored·exit0이며 컴파일50.26초, 검사0.49/0.50/0.20초입니다. 카탈로그의 새 typed 명령·readonly 게이팅/기본 키 없음과 기존 목록/상세/키/스니펫·본문 입력/IME/readonly/좌표·접기/포커스 회귀를 확인했습니다. 이 검사를 UI 전체520건의 새 실행으로 보고하지 않습니다.
+
+trigger-editor.log의 Editor completion9건은 명시 요청 action ID와 기존 후보/범위/UTF-16/스니펫·수락 경계가0.00초·exit0으로 통과했습니다. App21/UI253/Editor9의 현재 서로 다른283건이며 consumer15 반복 성공을 더하지 않습니다.
+
+명시 문서 명령이 팔레트에 포커스가 있을 때 기존 begin의 focus guard에서 소실되지 않도록 TriggerInline에 한해 본문 포커스를 먼저 회복합니다. trigger-palette.log의 native consumer16건이 통과했고 팔레트 focus→명시 문서 명령→현재 요청/표시/Tab 수락을 원문으로 확인했습니다. 이전 App3/문맥3와 consumer16의 서로 다른22건이며 재실행/consumer15를 더하지 않습니다. UI library135/Editor9의 변경 없는 성공은 유지하고 마지막 focus 변화의 후보31/본문87만 다시 검사합니다.
+
+trigger-palette-ui.log의 마지막 후보31/본문87은118통과·0실패·exit0입니다. 현재 App22/UI253/Editor9의 서로 다른284건으로 확인하며 이전13/15/16 반복 성공과 마지막118을 중복 합산하지 않습니다.
+
+trigger-frozen-host/wasm.log는28.40/13.35초·exit0이고 마지막 focus 변화 뒤 palette-frozen-host/wasm.log는0.08/0.10초·exit0입니다. 동일 실제 Cargo 종료를 확인한 뒤 직렬로 실행했고 캐시된 현재 계약 검사와 테스트 실행을 구분합니다. 소유8Rust fmt/diff와 문서 format exit0, manifest/lock/동결 소스 변경0·디스크652GiB/65%입니다. e1c의 해당 명령/포커스/선택 범위만 닫고 e1/editor-77·전체 목표는 유지합니다.

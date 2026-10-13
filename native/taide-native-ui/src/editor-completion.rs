@@ -107,6 +107,9 @@ pub struct Widget {
 }
 
 pub trait Provider: editor_markup::Provider {
+    fn request_inline(&mut self, _store: &EditorStore, _view: ViewId) -> Result<bool, EditorError> {
+        Ok(false)
+    }
     fn dismiss_inline(&mut self, _view: ViewId) {}
     fn inline_preview(&mut self, _store: &EditorStore, _view: ViewId) -> Vec<GhostText> {
         Vec::new()
@@ -856,6 +859,9 @@ impl State {
             ui.memory_mut(|memory| memory.request_focus_with_filter(focus, FILTER));
         }
         let pending = provider.take_commands(view);
+        if commands.contains(&Command::TriggerInline) || pending.contains(&Command::TriggerInline) {
+            ui.memory_mut(|memory| memory.request_focus_with_filter(body, FILTER));
+        }
         if commands.contains(&Command::ResetSize) || pending.contains(&Command::ResetSize) {
             self.resizing = None;
             let key = size_key(ui, provider.is_embedded(view));
@@ -867,6 +873,7 @@ impl State {
             memory.has_focus(body) || memory.has_focus(body.with("completion-details"))
         });
         if !focused || !ui.input(|input| input.focused) {
+            provider.dismiss_inline(view);
             self.details_focused = false;
             self.close(ui, body, provider, view);
             return Ok(());
@@ -876,6 +883,7 @@ impl State {
             || document.metadata.read_only
             || !provider.available(store, view)
         {
+            provider.dismiss_inline(view);
             self.close(ui, body, provider, view);
             return Ok(());
         }
@@ -952,6 +960,9 @@ impl State {
         provider: &mut dyn Provider,
         command: Command,
     ) -> Result<bool, EditorError> {
+        if command == Command::TriggerInline {
+            return provider.request_inline(store, view);
+        }
         if command == Command::ResetSize {
             self.resizing = None;
             let key = size_key(ui, provider.is_embedded(view));
@@ -1030,7 +1041,7 @@ impl State {
                 self.reveal = true;
                 self.details_scroll = Vec2::ZERO;
             }
-            Command::ResetSize => {}
+            Command::ResetSize | Command::TriggerInline => {}
         }
         ui.ctx().request_repaint();
         Ok(true)

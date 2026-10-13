@@ -37,10 +37,108 @@ const MODEL_DISPLAY_SIZE: u32 = 8;
 const CHANGED_INDENT_SIZE: u32 = 2;
 const SNIPPET_PREFIX_BYTES: usize = 3;
 
+#[test]
+fn native_ai_inline은_최초포커스에서_요청하지않고_커서이동에서_제안을_중단한다() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let (mut fixture, _) = ai_fixture("", 0);
+    let count = Arc::new(AtomicUsize::new(0));
+    let sent = count.clone();
+    fixture.state.inline =
+        crate::editor_ai_completion::State::with_complete(Arc::new(move |_, request, _| {
+            sent.fetch_add(1, Ordering::AcqRel);
+            Box::pin(async move {
+                Ok(taide_model::ai::AiTextResponse {
+                    request_id: request.request_id,
+                    text: Some("visible_text".into()),
+                })
+            })
+        }));
+    fixture.frame(Vec::new(), &[]);
+    assert_eq!(count.load(Ordering::Acquire), 0);
+    fixture.frame(vec![Event::Text(";".into())], &[]);
+    let deadline = std::time::Instant::now() + CLIPBOARD_DEADLINE;
+    while fixture
+        .state
+        .inline
+        .poll(&fixture.store, fixture.view)
+        .is_empty()
+    {
+        fixture.frame(Vec::new(), &[]);
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::yield_now();
+    }
+    assert_eq!(count.load(Ordering::Acquire), 1);
+    fixture.frame(vec![key(Key::ArrowLeft, Modifiers::NONE)], &[]);
+    assert!(
+        fixture
+            .state
+            .inline
+            .poll(&fixture.store, fixture.view)
+            .is_empty()
+    );
+    assert_eq!(count.load(Ordering::Acquire), 1);
+}
+
 type AiReply = (
     taide_model::ai::AiInlineCompleteRequest,
     tokio::sync::oneshot::Sender<taide_model::error::AppResult<taide_model::ai::AiTextResponse>>,
 );
+
+#[test]
+fn native_ai_inline의_명시요청은_원본_명령과_사용자_재정의에서_동작한다() {
+    let (mut fixture, receive) = ai_fixture("let value = ", "let value = ".len());
+    fixture.frame(Vec::new(), &[Command::TriggerInline]);
+    let request = ai_respond(&mut fixture, &receive, "explicit");
+    assert_eq!(request.prefix, "let value = ");
+    fixture.frame(vec![key(Key::Tab, Modifiers::NONE)], &[]);
+    assert_eq!(fixture.text(fixture.document), "let value = explicit");
+    fixture.state.inline.clear();
+    fixture.overrides = Some(
+        r#"[{"actionId":"monaco.editor.action.inlineSuggest.trigger","key":"q","mods":["mod"]}]"#
+            .into(),
+    );
+    fixture.frame(
+        vec![key(Key::Q, Modifiers::MAC_CMD | Modifiers::COMMAND)],
+        &[],
+    );
+    let request = ai_respond(&mut fixture, &receive, "override");
+    assert_eq!(request.prefix, "let value = explicit");
+    assert!(fixture.actions.is_empty());
+}
+
+#[test]
+fn native_ai_inline은_본문_포커스_상실에서_현재제안을_회수한다() {
+    let (mut fixture, receive) = ai_fixture("", 0);
+    fixture.frame(vec![Event::Text(";".into())], &[]);
+    ai_respond(&mut fixture, &receive, "old");
+    fixture.context.memory_mut(|memory| {
+        if let Some(id) = memory.focused() {
+            memory.surrender_focus(id);
+        }
+    });
+    fixture.frame(Vec::new(), &[]);
+    assert!(
+        fixture
+            .state
+            .inline
+            .poll(&fixture.store, fixture.view)
+            .is_empty()
+    );
+    assert_eq!(fixture.text(fixture.document), ";");
+}
+
+#[test]
+fn native_ai_inline의_명시_문서명령은_팔레트_포커스에서_본문으로_돌아온다() {
+    let (mut fixture, receive) = ai_fixture("", 0);
+    fixture.frame(Vec::new(), &[]);
+    fixture
+        .context
+        .memory_mut(|memory| memory.request_focus(egui::Id::new("synthetic-command-palette")));
+    fixture.frame(Vec::new(), &[Command::TriggerInline]);
+    ai_respond(&mut fixture, &receive, "from_palette");
+    fixture.frame(vec![key(Key::Tab, Modifiers::NONE)], &[]);
+    assert_eq!(fixture.text(fixture.document), "from_palette");
+}
 
 #[derive(Default)]
 struct CredentialStore;
@@ -478,7 +576,7 @@ fn native_ai_inline은_읽기전용_파일에서_요청이나_삽입을_하지�
     fixture.view = view;
     fixture.owner = view;
     fixture.document = document;
-    fixture.frame(Vec::new(), &[Command::Trigger]);
+    fixture.frame(Vec::new(), &[Command::Trigger, Command::TriggerInline]);
     fixture
         .state
         .inline

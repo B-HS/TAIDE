@@ -306,6 +306,10 @@ fn 다른_revision에_이전_후보의_삽입범위를_재사용하지않는다(
 #[test]
 fn 명시_명령과_목록_명령은_원본_id를_소비하고_무관한_명령을_거절한다() {
     assert_eq!(
+        Command::from_action("editor.action.inlineSuggest.trigger"),
+        Some(Command::TriggerInline)
+    );
+    assert_eq!(
         Command::from_action("editor.action.triggerSuggest"),
         Some(Command::Trigger)
     );
