@@ -47,3 +47,5 @@ emmet-markup-conversion.rs는Repeat Count/Implicit·공유repeat guard·번호pa
 conversion-final.log는compile9.93초·변환3/parser2의5통과·0실패·exit0입니다. 필드name으로복구한${1}의문자byte누락을추가로재현한field-budget-red.log는0통과/1실패·exit101로예산1에서Ok를보였습니다. name복구의추가marker/index 문자를charge하는field-budget-fixed.log는1통과·0.00초·compile9.45초·exit0입니다. 반환문자열이같은앞선5성공은재사용하며현재서로다른6검사입니다. coreWasm conversion-wasm.log는4.85초·exit0, 소유7Rustfmt·MJS/QA포맷·manifest/lock/frozen변경0·디스크630GiB/66%입니다.
 
 기본snippet해결/implicit tag·HTML/JSX formatting/field offset·필터/lorem/CSS·후보/실제App소비는미완료입니다. e3b2변환만닫고editor-80missing/302완료·미완료286·전체목표active·잔여시간미산정을유지합니다.
+
+소유typed변환/빈속성존재·예산수정/원본oracle/공통입력/QA와PROCESS상단10경로를1b409ced로선별커밋했습니다. 사용자PROCESS하단2hunk와다른문서/결정/피드백/메모리를보존했습니다. 기능표baseline/변환근거만갱신하고renderer/후보/App이없어editor-80missing/302완료·전체목표active를유지합니다.
