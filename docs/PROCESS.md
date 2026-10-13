@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: e3c1/CSS AST와e3c1a/field 인접성을981da085/dc3c4581까지일반푸시했고local·remote0/0입니다. 현재253원본snippet/818입력/1636AST사례·영향CSS2검사통과/compile9.20초·host8.54/Wasm4.39초 exit0·3Rustfmt/MJS·QA를확인했고기존markup330+CSS2의332서로다른성공/성능1ignored를재사용합니다. 다음e3c2의원본registry/keyword/fuzzy/gradient/단위기본설정을확인했습니다. CSS 해석/출력·validation/range/추가후보/실제App·Markdown/전체App준비실패/실기·전환/제거/최종33은미완료입니다. 전체302/588(51.4%)·미완료286·부분92/미연결111/미구현83·배치23잔여19·editor-80unwired·잔여시간미산정이며사용자문서/보호경계를유지합니다.
+현재 상태: e3c2 CSS 준비AST의253 registry/keyword/fuzzy/inline/기본값/gradient·단위와token의선택적UTF-16 출처/변환뒤인접성을연결했습니다. 실제helper fuzzy0.3/2110준비사례·준비2와parser3/1638사례·누적예산의현재5성공·host9.55/Wasm4.83초 exit0·9Rustfmt/4MJS·QA이며기록/Git반영중입니다. 기존332+준비2/새parser1의335서로다른성공/성능1ignored를재사용하고초기라이브러리fuzzy0은분리합니다. CSS 출력·validation/range/추가후보/실제App·Markdown/전체App준비실패/실기·전환/제거/최종33은미완료입니다. 전체302/588(51.4%)·미완료286·부분92/미연결111/미구현83·배치23잔여19·editor-80unwired·잔여시간미산정이며사용자문서/보호경계를유지합니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 
@@ -172,12 +172,12 @@
 - [ ] e3c. CSS 확장 — 원본stylesheet parser/속성·snippet·keyword/fuzzy·unit/color/function/출력과css/scss 완성후보를portable core에연결합니다. 단계별AST/출력oracle·예산/기존회귀를검증하며설정/실제App은e3에유지합니다.
 - [x] e3c1. stylesheet AST — 설치css-abbreviation2.1.8의숫자/단위/RGBA/raw·문자열/field/변수·함수/중요도/구분자와253기본snippet/value모드의813입력/1626AST사례를typed Rust parser에연결했습니다. 원본AST/예산2통과·host9.05/Wasm4.84초 exit0/4Rustfmt/MIT출처와기존330+새2의332서로다른성공/성능1ignored를확인했습니다. 새의존성/manifest·lock·frozen/사용자문서경계를유지하며속성해석/출력/후보/App·전체게이트는e3c/e3에미완료입니다.
 - [x] e3c1a. CSS field 인접성 — 원본outputValue의field start/이전end 비교를typed is_adjacent에보존했습니다. 숫자·delimiter/함수내·함수뒤/연속field와기본818입력/1636AST의인접성·영향2검사통과/compile9.20초·host8.54/Wasm4.39초 exit0·3Rustfmt/MJS·QA를확인했습니다. 이전CSS2성공과중복합산하지않으며전체CSS출력/App·editor-80unwired/302완료·전체게이트는유지합니다.
-- [ ] e3c2. CSS 해석 — 원본253 registry의raw/property 분류·대체값/keyword/의존정렬과fuzzy/inline value·gradient·기본값/단위alias/무단위속성을준비AST에연결합니다. 원본기본설정/실제parseStylesheet oracle·생성예산/현재AST 회귀/host/Wasm을검증하고QA/기능표/PROCESS·선별Git을갱신합니다. output/후보/설정/실제App·전체게이트는e3c/e3에미완료입니다.
+- [x] e3c2. CSS 해석 — 원본253 registry/raw·property·keyword/의존정렬/fuzzy/inline/기본값/gradient/단위를준비AST에연결했습니다. 실제helper fuzzy0.3을반영한2110원본준비사례/준비2통과와1638parser/UTF-16범위·원본교체뒤field 인접성/누적byte·node의현재5성공·host9.55/Wasm4.83초 exit0·9Rustfmt/4MJS·QA를확인했습니다. 기존332+준비2/새parser1의335서로다른성공/성능1ignored를재사용하며초기라이브러리fuzzy0 근거는분리했습니다. 새의존성/manifest·lock/frozen·사용자경계를유지하고output/후보/실제App·전체게이트는e3c/e3에미완료입니다.
 - [ ] f. 실제 앱·전체 게이트 — 닫을 기능의 실제 앱/child/mirror·readonly/tier/다중 커서/IME·정상 종료/회귀를 확인하고 변경 크레이트 전체 대상을 --no-fail-fast로 직접 1회 실행합니다. 성공 결과는 재사용하고 실패 영향만 재검사합니다. frozen host/Wasm compile·fmt/diff·manifest/lock/engine/보호 경계·디스크와 배치 31 실기/성능/신뢰성 부채를 구분합니다.
 - [x] f1. 프로젝트 열기 지연 위치 조사·배치 31 이관 — 전체 App 811통과/프로젝트 open 5초 초과 1실패와 Cargo 단독 동일 실패를 보존했습니다. 같은 실행 파일의 직접 검사는 저장소/크레이트 cwd에서 3.81/3.23초에 통과했습니다. 성공한 두 번째 검사 중 start_watch→notify runloop 준비 대기와 FSEventStreamStart→등록 RPC의 실제 스택을 확인했습니다. 실패 시점의 스택이나 지연 변동의 근본 원인은 확인하지 않았으며 해결/전체 exit 0으로 보고하지 않습니다. 제한 확대·검사 생략·OS 변경 없이 반복 조사를 종료하고 배치 31의 실행 환경/신뢰성 게이트에 미해결 위험을 유지합니다.
 - [ ] g. 완료 근거·선별 Git — 실제 닫힌 ID만 QA/기능표/PROCESS에 반영하고 논리 단위 선별 커밋·일반 푸시합니다. 배치 24를 기존 계획 안에서 이어가며 배치 번호를 세부 수정마다 늘리지 않습니다.
 
-다음 행동: e3c2의253 CSS registry/기본옵션 생성자료와원본parseStylesheet 준비AST oracle를만든뒤속성/keyword/fuzzy/단위해석을구현합니다. 981da085/dc3c4581은일반푸시했고local·remote0/0이며35395의CSS2/14156의host·Wasm8.54/4.39초는모두exit0으로종료했습니다. 이전markup성공은재실행하지않으며editor-80unwired·AI77/78partial·전체게이트/Markdown/전환/제거/최종33은유지합니다.
+다음 행동: e3c2의준비AST 기록/선별Git을반영한뒤CSS 출력의숫자/색상/field·raw newline/fragment·최종0을실제helper와대조해e3c를이어갑니다. 4291초기4/75062보강5/20958프로젝트2/3516host·Wasm handle은모두exit0으로종료했고성공은중복합산/재실행하지않습니다. editor-80unwired·AI77/78partial·전체게이트/Markdown/전환/제거/최종33은유지합니다.
 
 ## 완료: 배치 22 — 자동완성과 사용자 스니펫 소비 (2026-10-10)
 

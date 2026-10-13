@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use crate::document::EditorError;
 
 use super::MarkupLimits;
@@ -32,14 +34,20 @@ pub enum StylesheetValue {
     },
     Function {
         name: String,
-        arguments: Vec<Vec<Self>>,
+        arguments: Vec<Vec<StylesheetToken>>,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StylesheetToken {
+    pub value: StylesheetValue,
+    pub source: Option<Range<usize>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StylesheetProperty {
     pub name: Option<String>,
-    pub values: Vec<Vec<StylesheetValue>>,
+    pub values: Vec<Vec<StylesheetToken>>,
     pub is_important: bool,
 }
 
@@ -396,7 +404,7 @@ impl Parser {
         &mut self,
         in_argument: bool,
         depth: usize,
-    ) -> Result<Option<Vec<StylesheetValue>>, EditorError> {
+    ) -> Result<Option<Vec<StylesheetToken>>, EditorError> {
         if depth > self.max_nesting {
             return Err(EditorError::Capacity);
         }
@@ -409,6 +417,7 @@ impl Parser {
                     *is_adjacent = previous_end == Some(token.start);
                 }
                 previous_end = Some(token.end);
+                let mut source = Some(token.start..token.end);
                 self.position += 1;
                 if let StylesheetValue::Literal(name) = &value
                     && self.take(|token| matches!(token, Lexeme::Open))
@@ -430,8 +439,9 @@ impl Parser {
                         arguments,
                     };
                     previous_end = None;
+                    source = None;
                 }
-                values.push(value);
+                values.push(StylesheetToken { value, source });
                 continue;
             }
             if self.take(|token| {
@@ -505,6 +515,25 @@ pub fn parse_stylesheet(
         limits,
     }
     .tokens(is_value)?;
+    let tokens = if input.is_ascii() {
+        tokens
+    } else {
+        let mut offsets = Vec::with_capacity(input.len() + 1);
+        let mut utf16 = 0usize;
+        for character in input.chars() {
+            offsets.extend(std::iter::repeat(utf16).take(character.len_utf8()));
+            utf16 += character.len_utf16();
+        }
+        offsets.push(utf16);
+        tokens
+            .into_iter()
+            .map(|token| Token {
+                value: token.value,
+                start: offsets[token.start],
+                end: offsets[token.end],
+            })
+            .collect()
+    };
     Parser {
         tokens,
         position: 0,

@@ -1287,6 +1287,11 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (false, "m$var10", Some("1:mi0[[l6:$var10]]")),
     (false, "@foo10", Some("4:@fooi0[[n10:2:100:]]")),
     (false, "m${1:20px}", Some("1:mi0[[f1:0:4:20px]]")),
+    (
+        false,
+        "m\"\u{1f642}\"${1}",
+        Some("1:mi0[[sdouble:4:\u{1f642}f1:1:0:]]"),
+    ),
     (false, "m10${1}", Some("1:mi0[[n10:2:100:f1:1:0:]]")),
     (false, "m10-${1}", Some("1:mi0[[n10:2:100:f1:0:0:]]")),
     (
@@ -2655,6 +2660,11 @@ const CASES: &[(bool, &str, Option<&str>)] = &[
     (true, "m$var10", Some("-i0[[l1:ml6:$var10]]")),
     (true, "@foo10", Some("-i0[[l4:@foon10:2:100:]]")),
     (true, "m${1:20px}", Some("-i0[[l1:mf1:1:4:20px]]")),
+    (
+        true,
+        "m\"\u{1f642}\"${1}",
+        Some("-i0[[l1:msdouble:4:\u{1f642}f1:1:0:]]"),
+    ),
     (true, "m10${1}", Some("-i0[[l3:m10f1:1:0:]]")),
     (true, "m10-${1}", Some("-i0[[l4:m10-f1:1:0:]]")),
     (

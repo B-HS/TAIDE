@@ -1,7 +1,5 @@
 use taide_native_editor::document::EditorError;
-use taide_native_editor::emmet::{
-    MarkupLimits, StylesheetProperty, StylesheetValue, parse_stylesheet,
-};
+use taide_native_editor::emmet::{MarkupLimits, parse_stylesheet};
 
 const LIMITS: MarkupLimits = MarkupLimits {
     max_bytes: 16 * 1024,
@@ -12,80 +10,10 @@ const MISMATCH_SAMPLE_COUNT: usize = 8;
 
 include!("fixtures/emmet-stylesheet-parser-oracle.rs");
 
-fn part(value: Option<&str>) -> String {
-    value.map_or_else(|| "-".into(), |value| format!("{}:{value}", value.len()))
-}
+#[path = "fixtures/emmet-stylesheet-canonical.rs"]
+mod canonical;
 
-fn number(value: f64) -> String {
-    if value == 0.0 {
-        return "0".into();
-    }
-    value.to_string()
-}
-
-fn values(fragments: &[Vec<StylesheetValue>]) -> String {
-    fragments
-        .iter()
-        .map(|fragment| {
-            let text = fragment
-                .iter()
-                .map(|value| match value {
-                    StylesheetValue::Literal(value) => format!("l{}", part(Some(value))),
-                    StylesheetValue::CustomProperty(value) => format!("c{}", part(Some(value))),
-                    StylesheetValue::Number { value, raw, unit } => format!(
-                        "n{}:{}{}",
-                        number(*value),
-                        part(Some(raw)),
-                        part(Some(unit))
-                    ),
-                    StylesheetValue::Color {
-                        red,
-                        green,
-                        blue,
-                        alpha,
-                        raw,
-                    } => format!(
-                        "r{red}:{green}:{blue}:{}:{}",
-                        number(*alpha),
-                        part(Some(raw))
-                    ),
-                    StylesheetValue::String { value, quote } => {
-                        let quote = if *quote == '\'' { "single" } else { "double" };
-                        format!("s{quote}:{}", part(Some(value)))
-                    }
-                    StylesheetValue::Field {
-                        index,
-                        name,
-                        is_adjacent,
-                    } => format!(
-                        "f{}:{}:{}",
-                        index.map_or_else(|| "-".into(), |index| index.to_string()),
-                        usize::from(*is_adjacent),
-                        part(Some(name))
-                    ),
-                    StylesheetValue::Function { name, arguments } => {
-                        format!("x{}[{}]", part(Some(name)), values(arguments))
-                    }
-                })
-                .collect::<String>();
-            format!("[{text}]")
-        })
-        .collect()
-}
-
-fn canonical(properties: &[StylesheetProperty]) -> String {
-    properties
-        .iter()
-        .map(|property| {
-            format!(
-                "{}i{}[{}]",
-                part(property.name.as_deref()),
-                usize::from(property.is_important),
-                values(&property.values)
-            )
-        })
-        .collect()
-}
+use canonical::canonical;
 
 #[test]
 fn stylesheet구조는_원본기본snippet과_value모드_ast에_일치한다() {
@@ -154,4 +82,14 @@ fn stylesheet구조는_입력_token_깊이_예산과_비유한숫자를_거절�
         parse_stylesheet("foo)", false, LIMITS),
         Err(EditorError::Refused)
     );
+}
+
+#[test]
+fn stylesheet토큰의_원본범위는_utf16이며_함수는_합성값으로_구분된다() {
+    let properties = parse_stylesheet("m\"\u{1f642}\"${1}", false, LIMITS).unwrap();
+    let tokens = &properties[0].values[0];
+    assert_eq!(tokens[0].source, Some(1..5));
+    assert_eq!(tokens[1].source, Some(5..9));
+    let properties = parse_stylesheet("foo(1)${1}", false, LIMITS).unwrap();
+    assert_eq!(properties[0].values[0][0].source, None);
 }

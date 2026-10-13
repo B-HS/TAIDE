@@ -127,3 +127,15 @@ e3c 출력의원본outputValue를대조하면서field.start===previous.end일때
 소유CSS field 인접성/core 검사/oracle와QA/PROCESS상단6경로를981da085로선별커밋했습니다. 기능표baseline/1636인접성근거만갱신하고editor-80unwired·전체302완료를유지합니다. 사용자PROCESS하단2hunk와다른문서/결정/피드백/메모리는보존했습니다.
 
 981da085/dc3c4581은일반push/local·remote0/0으로확인했고작업트리에는사용자문서/피드백/메모리만남았습니다. 다음e3c2의원본createSnippet/nest/resolveNode·keyword/fuzzy/gradient/numeric와실제resolveConfig의선별옵션을확인했습니다. 기본253registry·unitAlias e/em,p/%,x/ex,r/rem·정수px/소수em·무단위8속성·global keyword auto/inherit/unset/none·fuzzy 최소0/strict false입니다. source동작에맞는registry/준비AST oracle/예산을먼저고정하며CSS출력·후보·실제App과기존전체게이트는미완료입니다.
+
+## e3c2 — stylesheet 준비 AST
+
+실제원본의createSnippet/nest·scoreMatch/getUnmatchedPart·keyword/기본대체값/raw snippet/gradient/numeric을portable core에연결했습니다. 253 registry/alias·키워드·무단위/두unit을설치엔진에서생성하고immutable OnceLock에기본snippet 분석결과를보관합니다. scope는원본프로젝트의context 없는CSS/scss 확장경로이며section/property/value context나Emmet custom snippets API는프로젝트에서호출하지않습니다. 기본매치의정렬/동점과직접dependency 키워드순서·function 인자보충·field 기본값/gradient·입력값으로raw field 대체·alias/0/정수·소수단위가원본과일치합니다.
+
+keyword/default/raw 변환으로token 출처가교체되면인접성을다시계산해야하므로StylesheetToken의선택적UTF-16 원본범위를보존했습니다. FunctionCall/합성token의출처없음을None으로표현하고아무ID/오프셋을만들지않습니다. ASCII는기존위치를재사용하고non-ASCII는입력을한번순회하는offset table을사용합니다. UTF-16 astral string(1..5)/뒤field(5..9)와함수의None을직접검사했습니다. 공통canonical Rust/MJS와입력자료는parser/preparation 두곳에서재사용하며기존1636값을수정하지않고새Unicode 두사례를추가했습니다.
+
+준비결과의property/token/문자열byte·함수깊이를전체에누적검증합니다. 단일@i·d는예산에서통과하고@i+@i·d+d는누적byte/node를넘어부분결과없이거절합니다. raw @ff/작은token상한/gradient 깊이/입력상한도검사합니다. 새의존성/JS런타임/manifest·lock/동결소스는없습니다.
+
+stylesheet-preparation-first.log는4291 handle에서compile10.52초·기존parser2/0.01초·준비2/2109사례/0.04초의4통과·exit0입니다. 새UTF-16 자료/누적예산을포함한preparation-final.log는75062 handle에서compile10.04초·parser3/1638사례/0.00초·준비2/2110사례/0.04초의5통과·exit0으로종료했습니다. 준비2와새parser 위치1은독립추가3이며이전332+현재3의335서로다른성공/기존성능1ignored로재사용하고반복성공/비교사례수는검사수에더하지않습니다.
+
+초기두실행은라이브러리기본fuzzy0의자료입니다. 실제getExpandOptions는0.3으로덮어쓰므로이값을설치helper에서읽어defaults와준비oracle에반영했습니다. preparation-project.log는20958 handle에서compile9.34초·준비2/현재2110프로젝트사례/0.04초·exit0으로종료했고변경없는parser3 성공은재사용합니다. 앞절의fuzzy0은라이브러리기본이며실제프로젝트의공급자기준으로확대하지않습니다. preparation-host.log의현재lib/CSS2target compile9.55초와preparation-wasm.log의corelib4.83초는3516 handle에서모두exit0/추가경고0으로종료했습니다. 최종9Rustfmt/4MJS·QA포맷·입력/공통canonical재사용·소유diff/manifest·lock/frozen변경0·디스크629GiB/66%를확인했습니다. e3c2의프로젝트준비AST만닫고CSS출력/후보/실제App·editor-80unwired/전체302완료/전체게이트·목표active·잔여시간미산정을유지합니다.
