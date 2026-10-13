@@ -1,6 +1,6 @@
 {
     "date": "2026-10-14",
-    "baseline": "36ebe0ab",
+    "baseline": "b0c74fc9",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1227,7 +1227,7 @@
                 "native/taide-native-ui/tests/editor-completion.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-13-native-batch23-ai.md"],
-            "limitation": "선택/현재 줄·UTF-16 문맥/fence·supervised 요청/수명·실제 본문/다른 파일 peek/팔레트의 현재 source 요청/수락/undo·owner/디스크/task0을 연결했습니다. 실제 삭제 범위·현재/변경 font/lineheight·target 뒤 zone·가로/세로 scroll/gutter clip·닫힘 복원·primary 마우스 수락/단일 undo·거절/생성취소·조합중 Enter/Escape/확정 지시도 확인했습니다. TextEdit 기본 필터의 Escape 포커스 해제를 수정하고 실제 App의 IME수신 준비를 단언했습니다. 현재 App20/UI34의 서로 다른54통과·동결 host/Wasm compile이며 이전 반복 실행과 합산하지 않습니다. 실제 split/mirror와 추가 설정/credential/문서 수명·전체 App/실기 게이트는 남아 partial입니다."
+            "limitation": "선택/현재 줄·UTF-16 문맥/fence·supervised 요청/수명·실제 본문/다른 파일 peek/팔레트의 현재 source 요청/수락/undo·owner/디스크/task0을 연결했습니다. 삭제 범위·현재/변경 font/lineheight·target 뒤 zone·가로/세로 scroll/gutter clip·닫힘 복원·primary 마우스 수락/단일 undo·거절/생성취소·지시 IME도 확인했습니다. 실제 split 두 번째 source의 같은 문서 공유 수락/undo와 model 설정/실제 메모리 ai_clear_token/core 문서 변경 각각에서 loading/preview 6사례 무수락 회수·닫힌 응답을 확인했습니다. 현재 실제 App7/상태12/소비3/UI34의 서로 다른56통과·변경 없는 동결 host/Wasm compile이며 이전 반복 실행과 합산하지 않습니다. e2 요청/소비 범위는 연결했으나 전체 App 준비 실패/실기 게이트가 남아 partial이며 OS 두 창/실제 Keychain 검증으로 확대하지 않습니다."
         }
     },
     "rows": [
@@ -3176,7 +3176,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-ai-edit-state",
-            "note": "선택/현재 줄·UTF-16 문맥/fence·supervised 요청/수명·실제 본문/다른 파일 peek/팔레트의 현재 source 요청/수락/undo·owner/디스크/task0을 연결했습니다. 실제 삭제 범위·현재/변경 font/lineheight·target 뒤 zone·가로/세로 scroll/gutter clip·닫힘 복원·primary 마우스 수락/단일 undo·거절/생성취소·조합중 Enter/Escape/확정 지시도 확인했습니다. TextEdit 기본 필터의 Escape 포커스 해제를 수정하고 실제 App의 IME수신 준비를 단언했습니다. 현재 App20/UI34의 서로 다른54통과·동결 host/Wasm compile이며 이전 반복 실행과 합산하지 않습니다. 실제 split/mirror와 추가 설정/credential/문서 수명·전체 App/실기 게이트는 남아 partial입니다."
+            "note": "선택/현재 줄·UTF-16 문맥/fence·supervised 요청/수명·실제 본문/다른 파일 peek/팔레트의 현재 source 요청/수락/undo·owner/디스크/task0을 연결했습니다. 삭제 범위·현재/변경 font/lineheight·target 뒤 zone·가로/세로 scroll/gutter clip·닫힘 복원·primary 마우스 수락/단일 undo·거절/생성취소·지시 IME도 확인했습니다. 실제 split 두 번째 source의 같은 문서 공유 수락/undo와 model 설정/실제 메모리 ai_clear_token/core 문서 변경 각각에서 loading/preview 6사례 무수락 회수·닫힌 응답을 확인했습니다. 현재 실제 App7/상태12/소비3/UI34의 서로 다른56통과·변경 없는 동결 host/Wasm compile이며 이전 반복 실행과 합산하지 않습니다. e2 요청/소비 범위는 연결했으나 전체 App 준비 실패/실기 게이트가 남아 partial이며 OS 두 창/실제 Keychain 검증으로 확대하지 않습니다."
         },
         {
             "id": "editor-79",
