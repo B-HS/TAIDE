@@ -49,3 +49,11 @@ conversion-final.log는compile9.93초·변환3/parser2의5통과·0실패·exit0
 기본snippet해결/implicit tag·HTML/JSX formatting/field offset·필터/lorem/CSS·후보/실제App소비는미완료입니다. e3b2변환만닫고editor-80missing/302완료·미완료286·전체목표active·잔여시간미산정을유지합니다.
 
 소유typed변환/빈속성존재·예산수정/원본oracle/공통입력/QA와PROCESS상단10경로를1b409ced로선별커밋했습니다. 사용자PROCESS하단2hunk와다른문서/결정/피드백/메모리를보존했습니다. 기능표baseline/변환근거만갱신하고renderer/후보/App이없어editor-80missing/302완료·전체목표active를유지합니다.
+
+## e3b3 기본 스니펫·태그/속성 준비
+
+설치emmet2.4.11 resolveConfig의기본markup202 registry와5 variables·inline elements를Rust정적자료로고정했습니다. 재생성기emmet-markup-defaults.mjs는개발검증용이며native실행에JS런타임/새의존성을추가하지않습니다. 준비계층은재귀alias의definition stack 순환종료·기본/사용자속성/value/repeat 우선순위·마지막깊은노드에원본children연결·implicit tag/parent context·class중복값병합/다른속성override·label안의빈for/id회수를연결합니다. tag/byte/node/depth예산을적용하며기본dictionary/alias모두를실제원본prepared AST로대조합니다.
+
+준비/변환oracle가같은canonical출력을쓰므로MJS/Rust 비교helper를fixtures/emmet-markup-canonical로공통화했습니다. 기존2112변환fixture재생성은diff0이며내용이같은기존성공을반복하지않습니다. preparation-red.log는919입력/1838사례·2검사통과·0.02초·compile9.50초·exit0입니다. 원본group닫힘2사례는이미기록한정확한입력의오탈자만바로잡으며나머지1836은원본그대로일치합니다. 기본202이름/원문·속성수정·label/input·부모/fieldsnippet·중복class/속성을포함합니다. 새검사이름AST대문자의snake case경고는이름을소문자로수정했고preparation-host.log의두검사target compile은4.97초·추가경고0·exit0입니다. 입력/환경/본문동작이같아2검사성공은재사용합니다.
+
+preparation-wasm.log는현재core lib의wasm32 compile4.47초·exit0이며Wasm검사실행/기존시간API문제해결로확대하지않습니다. 소유7Rustfmt/MJS·QA포맷/manifest·lock·frozen변경0/디스크630GiB·66%입니다. e3b3준비2검사와변경없는이전파서/변환6검사는서로다른8성공으로재사용합니다. HTML/JSX출력/field offset·lorem/BEM/필터/CSS·후보/실제App은미완료라editor-80missing·전체302/588(51.4%)·미완료286·목표active·잔여시간미산정을유지합니다.
