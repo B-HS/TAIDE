@@ -111,3 +111,11 @@ boundaries-parity.log는compile13.33초·새경계0통과/1실패와기존변환
 lorem 구현/기능표커밋5ce6a2ba/9ebfa0e4는일반push/local·remote0/0으로확인했습니다. boundaries-host.log의현재lib/Emmet8target compile17.88초와boundaries-wasm.log의현재corelib wasm32 compile4.73초는83847 handle에서exit0/추가경고0으로종료했습니다. 최종5Rustfmt·oracle MJS/QA포맷·소유diff/manifest·lock·frozen변경0·디스크630GiB/66%를확인했습니다. e3b1~7의HTML/JSX 코어확장만닫고e3/CSS·range/validation/추가후보/설정/실제App은미완료이며editor-80unwired·전체302/588(51.4%)·미완료286·목표active·잔여시간미산정을유지합니다.
 
 소유typed name-field/출력escape·원본/consumer 검사·oracle와QA/PROCESS상단8경로를b55327d0로선별커밋했습니다. 기능표baseline/64경계근거를갱신하고editor-80unwired·전체302완료를유지합니다. 사용자PROCESS하단2hunk와다른문서/결정/피드백/메모리는보존했습니다.
+
+## e3c1 — stylesheet AST
+
+[공식 CSS 축약식 문서](https://docs.emmet.io/css-abbreviations/)와설치@emmetio/css-abbreviation2.1.8 README/type계약·현재emmet2.4.11의동일tokenizer/parser를대조했습니다. CSS/scss의숫자/raw/unit·RGBA/raw color·string quote·literal/custom property/field/variable·function arguments와property name/값fragment/important를portable typed AST로연결했습니다. byte/token/depth예산·finite 숫자·닫힘오류를검증하고JS런타임/새의존성은추가하지않았습니다.
+
+원본순서의부호/단위없는값뒤dash구분·함수앞literal/number 병합·value모드·NBSP/ASCII whitespace·partial quote/open function의기존parser관용을유지합니다. 임의로정상CSS 선언parser로대체하지않았으며이AST는축약식해석전단계입니다. parse_stylesheet는명시적value모드와기존MarkupLimits의구조예산을받습니다. 실제공급자/설정/완성·속성keyword/fuzzy·기본값/단위/색상형식·CSS출력은없습니다.
+
+설치253 stylesheet snippet의키/숫자추가/정의본문과수동경계의813입력×2모드/1626사례를원본으로생성했습니다. stylesheet-parser-first.log는16068 handle에서compile9.95초·원본AST/예산의2통과·0실패·0.01초·exit0으로종료했습니다. 동일기존330성공과새CSS2의서로다른현재332성공/기존대형성능1ignored로재사용하며1626을검사수로더하지않습니다. stylesheet-parser-host.log는현재lib/새target compile9.05초·stylesheet-parser-wasm.log는corelib wasm32 compile4.84초이며72737 handle에서모두exit0/추가경고0으로종료했습니다. 최종4Rustfmt·oracle MJS/QA포맷·소유diff/manifest·lock·frozen변경0·디스크629GiB/66%를확인했습니다. e3c1 AST만닫고editor-80unwired·전체302/588(51.4%)·미완료286/전체목표active·CSS해석/출력/후보/실제App/전체게이트는유지합니다.

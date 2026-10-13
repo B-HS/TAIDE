@@ -21,6 +21,9 @@ mod markup_filters;
 #[path = "emmet-markup-lorem.rs"]
 mod markup_lorem;
 
+#[path = "emmet-stylesheet-parser.rs"]
+mod stylesheet_parser;
+
 pub use extraction::extract;
 pub use markup_conversion::{
     ConversionLimits, ExpandedMarkupAttribute, ExpandedMarkupNode, MarkupRepeat, MarkupValue,
@@ -32,6 +35,7 @@ pub use markup_output::{
 };
 pub use markup_parser::{MarkupAttribute, MarkupLimits, MarkupNode, Repeat, parse_markup};
 pub use markup_preparation::{prepare_markup, prepare_markup_with_random};
+pub use stylesheet_parser::{StylesheetProperty, StylesheetValue, parse_stylesheet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Syntax {
