@@ -33,3 +33,5 @@ markup-parser-red.log는1통과/1실패·compile10.04초·exit101입니다. 반�
 ASCII인쇄문자전체의name/class/attribute와분수형class를더한markup-parser-symbols.log는513입력/1026사례의1통과/1실패·compile4.42초·exit101입니다. native가거절해야할%,&,comma,semicolon,angle,question,at,backtick,pipe,tilde를이름에허용하던분기·숫자사이slash·미완성속성의다른closing bracket처리를재현했습니다. 원본getToken/isElementName/반복counter modifier와attribute별괄호깊이를대조해수정했습니다. symbols-fixed.log는소스생성의Unicodeescape표현오류6건으로컴파일실패/exit101이며검사성공으로세지않습니다. 이를Rustbrace escape로바로잡은symbols-final.log는1026사례대조/예산의2통과·compile8.98초·exit0입니다. 같은입력의예전성공/실패를중복합산하지않습니다.
 
 markup-parser-wasm.log의현재core wasm32-unknown-unknown lib compile은4.82초·exit0입니다. 소유4Rustfmt와oracle MJS/QA포맷·manifest/lock/동결source변경0을확인했습니다. e3b1의raw구조범위만검증했으며기본snippet해결/반복counter변환/필드해결/HTML·JSX렌더·CSS/필터/후보/실제앱은미완료입니다. editor-80missing·302/588(51.4%)·미완료286·목표active·잔여시간미산정을유지합니다.
+
+소유raw markup파서/core export/검사/원본oracle/출처/QA와PROCESS상단8경로를d565bcb9로선별커밋했습니다. 사용자PROCESS하단2hunk·다른문서/결정/피드백/메모리를보존했습니다. 기능표baseline과editor-80기초근거만갱신하며반복/스니펫/필드/렌더/앱이없어missing·전체302완료/목표active를유지합니다.
