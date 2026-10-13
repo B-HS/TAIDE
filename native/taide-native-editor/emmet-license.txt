@@ -1,4 +1,5 @@
 Emmet abbreviation extraction in src/emmet-extraction.rs is adapted from emmet@2.4.11.
+Markup parsing in src/emmet-markup-parser.rs is adapted from @emmetio/abbreviation@2.3.3.
 Source: https://github.com/emmetio/emmet
 
 MIT License

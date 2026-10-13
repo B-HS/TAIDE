@@ -3,7 +3,11 @@ use std::ops::Range;
 #[path = "emmet-extraction.rs"]
 mod extraction;
 
+#[path = "emmet-markup-parser.rs"]
+mod markup_parser;
+
 pub use extraction::extract;
+pub use markup_parser::{MarkupAttribute, MarkupLimits, MarkupNode, Repeat, parse_markup};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Syntax {
