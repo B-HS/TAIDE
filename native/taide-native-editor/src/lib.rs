@@ -47,6 +47,8 @@ pub mod json_format;
 pub mod json_parser;
 #[path = "json-schema-refs.rs"]
 pub mod json_schema_refs;
+#[path = "json-schema-uri.rs"]
+pub mod json_schema_uri;
 #[path = "json-scanner.rs"]
 pub mod json_scanner;
 #[path = "json-selection.rs"]
