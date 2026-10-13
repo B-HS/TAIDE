@@ -1399,6 +1399,276 @@ fn 병합_셀의_내부_경계는_없고_제목과_본문은_병합_영역에_�
 }
 
 #[test]
+fn 미리보기_문단의_이미지는_앞뒤_텍스트와_독립된_블록으로_표시된다() {
+    use taide_native_editor::documentation::ImageDimensions;
+    const IMAGE: Vec2 = egui::vec2(40.0, 20.0);
+    const EXPECTED_FLOW_HEIGHT: f32 = 65.5;
+    const TOLERANCE: f32 = 1.0;
+    struct Images(Option<Rect>);
+    impl Provider for Images {
+        fn open_link(&mut self, _: &Ui, _: &str) -> bool {
+            false
+        }
+        fn image_size(&self, _: &str, _: ImageDimensions) -> Option<Vec2> {
+            Some(IMAGE)
+        }
+        fn image(
+            &mut self,
+            ui: &mut Ui,
+            _: &str,
+            _: &str,
+            _: ImageDimensions,
+        ) -> Option<egui::Response> {
+            let response = ui.allocate_exact_size(IMAGE, egui::Sense::hover()).1;
+            self.0 = Some(response.rect);
+            Some(response)
+        }
+    }
+    let document = RichDocument {
+        blocks: vec![Block::Paragraph(vec![
+            Inline::Text(Span {
+                text: "before".into(),
+                ..Default::default()
+            }),
+            Inline::Image {
+                source: "synthetic".into(),
+                title: String::new(),
+                alt: "image".into(),
+                link: None,
+                dimensions: Default::default(),
+            },
+            Inline::Text(Span {
+                text: "after".into(),
+                ..Default::default()
+            }),
+        ])],
+    };
+    let context = Context::default();
+    let mut images = Images(None);
+    let mut output = context.run_ui(
+        RawInput {
+            screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, SCREEN)),
+            ..Default::default()
+        },
+        |ui| show_preview(ui, &document, &appearance(), colors(), &mut images),
+    );
+    output.textures_delta.clear();
+    let bounds = |label: &str| {
+        output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == label => {
+                    Some(text.galley.rect.translate(text.pos.to_vec2()))
+                }
+                _ => None,
+            })
+            .unwrap()
+    };
+    let image = images.0.unwrap();
+    assert!(bounds("before").bottom() <= image.top());
+    assert!(bounds("after").top() >= image.bottom());
+    assert!(
+        (bounds("after").bottom() - bounds("before").top() - EXPECTED_FLOW_HEIGHT).abs()
+            <= TOLERANCE
+    );
+}
+
+#[test]
+fn 목록_본문은_마커_너비와_독립된_들여쓰기와_제목_정렬을_사용한다() {
+    use taide_native_editor::documentation::{Alignment, ListItem, TableCell, TableLayout};
+    const START: i64 = 9883;
+    const INDENT: f32 = 20.0;
+    const TASK_ICON_SIZE: f32 = 13.0;
+    const CENTER_FRACTION: f32 = 0.5;
+    const TOLERANCE: f32 = 1.0;
+    let list = |label: &str, start| Block::List {
+        start,
+        items: vec![ListItem {
+            checked: None,
+            ordinal: None,
+            marker_style: None,
+            blocks: vec![Block::Inline(text(label))],
+        }],
+        style: Default::default(),
+    };
+    let document = RichDocument {
+        blocks: vec![
+            Block::Table {
+                columns: vec![],
+                header: vec![],
+                rows: vec![vec![text(
+                    "wide body forces the caption to use a common column width",
+                )]],
+                layout: Some(TableLayout {
+                    caption: vec![],
+                    caption_blocks: Some(vec![
+                        list("centered item", Some(START)),
+                        Block::List {
+                            start: None,
+                            items: vec![ListItem {
+                                checked: Some(false),
+                                ordinal: None,
+                                marker_style: None,
+                                blocks: vec![Block::Inline(text("task item"))],
+                            }],
+                            style: Default::default(),
+                        },
+                        Block::Code {
+                            language: String::new(),
+                            text: "short\nlonger code line".into(),
+                            style: Default::default(),
+                        },
+                    ]),
+                    cells: vec![vec![TableCell {
+                        column: 0,
+                        column_span: 1,
+                        row_span: 1,
+                        alignment: Alignment::Default,
+                        blocks: None,
+                    }]],
+                    column_count: 1,
+                    row_count: 1,
+                }),
+            },
+            Block::Inline(text("origin")),
+            list("short marker", Some(1)),
+            list("wide marker", Some(START)),
+        ],
+    };
+    let extra = [
+        (
+            3,
+            "paragraph baseline",
+            Block::Paragraph(text("paragraph baseline")),
+        ),
+        (
+            4,
+            "heading baseline",
+            Block::Heading {
+                level: 1,
+                contents: text("heading baseline"),
+            },
+        ),
+        (
+            5,
+            "code baseline",
+            Block::Code {
+                language: String::new(),
+                text: "code baseline".into(),
+                style: Default::default(),
+            },
+        ),
+    ];
+    let baseline_labels = extra
+        .iter()
+        .map(|(number, label, _)| (format!("{number}."), *label))
+        .collect::<Vec<_>>();
+    let document = RichDocument {
+        blocks: document
+            .blocks
+            .into_iter()
+            .chain(extra.into_iter().map(|(start, _, block)| Block::List {
+                start: Some(start),
+                items: vec![ListItem {
+                    checked: None,
+                    ordinal: None,
+                    marker_style: None,
+                    blocks: vec![block],
+                }],
+                style: Default::default(),
+            }))
+            .collect(),
+    };
+    let context = Context::default();
+    let mut output = context.run_ui(
+        RawInput {
+            screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, SCREEN)),
+            ..Default::default()
+        },
+        |ui| show_preview(ui, &document, &appearance(), colors(), &mut Preview),
+    );
+    output.textures_delta.clear();
+    let bounds = |label: &str| {
+        output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == label => {
+                    Some(text.galley.rect.translate(text.pos.to_vec2()))
+                }
+                _ => None,
+            })
+            .unwrap()
+    };
+    let baseline = |label: &str| {
+        output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == label => {
+                    text.galley.rows.first().and_then(|row| {
+                        row.glyphs
+                            .first()
+                            .map(|glyph| text.pos.y + row.pos.y + glyph.pos.y)
+                    })
+                }
+                _ => None,
+            })
+            .unwrap()
+    };
+    for (marker, label) in baseline_labels {
+        assert!(
+            (baseline(&marker) - baseline(label)).abs() <= TOLERANCE,
+            "{marker}/{label}"
+        );
+    }
+    let origin = bounds("origin");
+    for label in ["short marker", "wide marker"] {
+        assert!(
+            (bounds(label).left() - origin.left() - INDENT).abs() <= TOLERANCE,
+            "{label}: {:?}",
+            bounds(label)
+        );
+    }
+    let (columns, _) = table_bounds(&table_edges(&output), 1, 1);
+    let center = (columns[0] + columns[1]) * CENTER_FRACTION;
+    let task_icon = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Rect(rect)
+                if rect.rect.size() == egui::vec2(TASK_ICON_SIZE, TASK_ICON_SIZE) =>
+            {
+                Some(rect.rect)
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert!(
+        (task_icon.union(bounds("task item")).center().x - center - INDENT * CENTER_FRACTION).abs()
+            <= TOLERANCE
+    );
+    assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == "\u{2022}")));
+    assert!(
+        (bounds("centered item").center().x - center - INDENT * CENTER_FRACTION).abs() <= TOLERANCE
+    );
+    let code = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.job.text == "short\nlonger code line" => {
+                Some(text)
+            }
+            _ => None,
+        })
+        .unwrap();
+    for row in &code.galley.rows {
+        assert!((row.rect().translate(code.pos.to_vec2()).center().x - center).abs() <= TOLERANCE);
+    }
+}
+
+#[test]
 fn 복합_표_제목의_각_문단과_줄은_표의_중앙에_정렬된다() {
     use taide_native_editor::documentation::{Alignment, TableCell, TableLayout};
     const TOLERANCE: f32 = 1.0;

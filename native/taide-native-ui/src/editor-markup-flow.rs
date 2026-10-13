@@ -9,7 +9,7 @@ pub(super) struct Edges {
     pub through: bool,
 }
 
-fn has_content(contents: &[Inline]) -> bool {
+pub(super) fn has_content(contents: &[Inline]) -> bool {
     contents.iter().any(|inline| match inline {
         Inline::Text(span) => span
             .text

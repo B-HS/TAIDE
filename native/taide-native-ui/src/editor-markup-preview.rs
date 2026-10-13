@@ -25,6 +25,7 @@ const QUOTE_INDENT: i8 = 12;
 const QUOTE_BORDER: f32 = 2.0;
 const QUOTE_OPACITY: f32 = 0.8;
 const LIST_INDENT: i8 = 20;
+const TASK_ICON_SIZE: f32 = 13.0;
 const CODE_PADDING: i8 = 12;
 pub(super) const CORNER_RADIUS: u8 = 4;
 pub(super) const INLINE_CODE_PADDING: Margin = Margin::symmetric(4, 2);
@@ -77,39 +78,62 @@ fn inline_widths(
     font_size: f32,
     weight: TextWeight,
 ) -> (f32, f32) {
-    let code_padding = f32::from(INLINE_CODE_PADDING.left) + f32::from(INLINE_CODE_PADDING.right);
-    let (job, _) = super::inline_job(ui, cell, appearance, font_size, weight, true);
-    let (mut min, mut max) = text_widths(ui, job);
-    for inline in cell {
-        match inline {
-            Inline::Image {
+    if cell
+        .iter()
+        .any(|value| matches!(value, Inline::Image { .. }))
+    {
+        let mut result = (0.0f32, 0.0f32);
+        let mut start = 0;
+        for (index, value) in cell.iter().enumerate() {
+            let Inline::Image {
                 source,
                 alt,
                 dimensions,
                 ..
-            } => {
-                let (image_min, image_max) = provider
-                    .image_size(source, *dimensions)
-                    .map(|size| (size.x, size.x))
-                    .unwrap_or_else(|| {
-                        text_widths(
-                            ui,
-                            egui::text::LayoutJob::simple(
-                                alt.clone(),
-                                egui::FontId::proportional(font_size),
-                                ui.visuals().text_color(),
-                                f32::INFINITY,
-                            ),
-                        )
-                    });
-                min = min.max(image_min);
-                max += image_max;
-            }
-            Inline::Text(span) if span.style.code => {
-                min += code_padding;
-                max += code_padding;
-            }
-            _ => {}
+            } = value
+            else {
+                continue;
+            };
+            let before = inline_widths(
+                ui,
+                &cell[start..index],
+                appearance,
+                provider,
+                font_size,
+                weight,
+            );
+            let image = provider
+                .image_size(source, *dimensions)
+                .map(|size| (size.x, size.x))
+                .unwrap_or_else(|| {
+                    text_widths(
+                        ui,
+                        egui::text::LayoutJob::simple(
+                            alt.clone(),
+                            egui::FontId::proportional(font_size),
+                            ui.visuals().text_color(),
+                            f32::INFINITY,
+                        ),
+                    )
+                });
+            result = (
+                result.0.max(before.0).max(image.0),
+                result.1.max(before.1).max(image.1),
+            );
+            start = index + 1;
+        }
+        let after = inline_widths(ui, &cell[start..], appearance, provider, font_size, weight);
+        return (result.0.max(after.0), result.1.max(after.1));
+    }
+    let code_padding = f32::from(INLINE_CODE_PADDING.left) + f32::from(INLINE_CODE_PADDING.right);
+    let (job, _) = super::inline_job(ui, cell, appearance, font_size, weight, true);
+    let (mut min, mut max) = text_widths(ui, job);
+    for inline in cell {
+        if let Inline::Text(span) = inline
+            && span.style.code
+        {
+            min += code_padding;
+            max += code_padding;
         }
     }
     (min, max)
@@ -174,46 +198,16 @@ fn block_widths(
                 let (min, max) = block_widths(ui, contents, appearance, provider);
                 (min + f32::from(QUOTE_INDENT), max + f32::from(QUOTE_INDENT))
             }
-            Block::List {
-                start,
-                items,
-                style,
-            } => items
+            Block::List { items, .. } => items
                 .iter()
-                .enumerate()
-                .map(|(index, item)| {
+                .map(|item| {
                     let (min, max) = block_widths(ui, &item.blocks, appearance, provider);
-                    let marker = if item.checked.is_some() {
-                        ui.spacing().icon_width.max(ui.spacing().interact_size.y)
-                    } else {
-                        item.marker(*start, index)
-                            .map(|marker| {
-                                text_widths(
-                                    ui,
-                                    egui::text::LayoutJob::simple(
-                                        marker,
-                                        egui::FontId::new(
-                                            FONT_SIZE,
-                                            if style.bold {
-                                                crate::font_families::bold(ui)
-                                            } else {
-                                                FontFamily::Proportional
-                                            },
-                                        ),
-                                        ui.visuals().text_color(),
-                                        f32::INFINITY,
-                                    ),
-                                )
-                                .1
-                            })
-                            .unwrap_or_default()
-                    };
-                    let spacing = if marker > 0.0 {
-                        ui.spacing().item_spacing.x
+                    let task_width = if item.checked.is_some() {
+                        TASK_ICON_SIZE + space_width(ui)
                     } else {
                         0.0
                     };
-                    let indent = f32::from(LIST_INDENT) + marker + spacing;
+                    let indent = f32::from(LIST_INDENT) + task_width;
                     (min + indent, max + indent)
                 })
                 .fold((0.0f32, 0.0f32), |(min, max), (next_min, next_max)| {
@@ -345,6 +339,62 @@ fn inline_contents(
 ) {
     let mut appearance = appearance.clone();
     appearance.line_height = line_height;
+    if contents
+        .iter()
+        .any(|value| matches!(value, Inline::Image { .. }))
+    {
+        let mut start = 0;
+        for (index, value) in contents.iter().enumerate() {
+            if !matches!(value, Inline::Image { .. }) {
+                continue;
+            }
+            if flow::has_content(&contents[start..index]) {
+                inline_contents(
+                    ui,
+                    &contents[start..index],
+                    &appearance,
+                    colors,
+                    provider,
+                    size,
+                    line_height,
+                    weight,
+                );
+            }
+            let values = &contents[index..index + 1];
+            let (_, preferred) = inline_widths(ui, values, &appearance, provider, size, weight);
+            ui.allocate_ui_with_layout(
+                egui::vec2(preferred.min(ui.available_width()), 0.0),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    inlines(
+                        ui,
+                        values,
+                        &appearance,
+                        colors,
+                        provider,
+                        size,
+                        false,
+                        true,
+                        weight,
+                    )
+                },
+            );
+            start = index + 1;
+        }
+        if flow::has_content(&contents[start..]) {
+            inline_contents(
+                ui,
+                &contents[start..],
+                &appearance,
+                colors,
+                provider,
+                size,
+                line_height,
+                weight,
+            );
+        }
+        return;
+    }
     if super::aligned::show(ui, contents, &appearance, colors, provider, size, weight) {
         return;
     }
@@ -465,6 +515,120 @@ fn blocks(
     flow_blocks(ui, contents, appearance, colors, provider, false);
 }
 
+fn space_width(ui: &Ui) -> f32 {
+    ui.fonts_mut(|fonts| {
+        fonts
+            .layout_no_wrap(
+                " ".into(),
+                egui::FontId::proportional(FONT_SIZE),
+                ui.visuals().text_color(),
+            )
+            .size()
+            .x
+    })
+}
+
+fn first_baseline(ui: &Ui, contents: &[Block], appearance: &EditorAppearance, width: f32) -> f32 {
+    let block = contents.iter().find(|block| !flow::edges(block).through);
+    let (mut job, line_height, inset) = match block {
+        Some(Block::Inline(values) | Block::Paragraph(values)) => {
+            let line_height = if matches!(block, Some(Block::Paragraph(_))) {
+                PARAGRAPH_LINE_HEIGHT
+            } else {
+                LINE_HEIGHT
+            };
+            (
+                super::inline_job(ui, values, appearance, FONT_SIZE, TextWeight::Normal, true).0,
+                line_height,
+                0.0,
+            )
+        }
+        Some(Block::Heading { level, contents }) => {
+            let index = usize::from(level.saturating_sub(1));
+            let size = HEADING_SIZES.get(index).copied().unwrap_or(FONT_SIZE);
+            let weight = if HEADING_SIZES.get(index).is_some() {
+                TextWeight::Semibold
+            } else {
+                TextWeight::Normal
+            };
+            (
+                super::inline_job(ui, contents, appearance, size, weight, true).0,
+                HEADING_LINE_HEIGHTS
+                    .get(index)
+                    .copied()
+                    .unwrap_or(LINE_HEIGHT),
+                0.0,
+            )
+        }
+        Some(Block::Code { text, style, .. }) => (
+            egui::text::LayoutJob::simple(
+                text.clone(),
+                egui::FontId::new(
+                    FONT_SIZE,
+                    if style.bold {
+                        crate::font_families::code_bold(ui)
+                    } else {
+                        FontFamily::Monospace
+                    },
+                ),
+                ui.visuals().text_color(),
+                f32::INFINITY,
+            ),
+            LINE_HEIGHT,
+            f32::from(CODE_PADDING),
+        ),
+        Some(Block::Quote(contents)) => {
+            return first_baseline(
+                ui,
+                contents,
+                appearance,
+                (width - f32::from(QUOTE_INDENT)).max(0.0),
+            );
+        }
+        Some(Block::List { items, .. }) => {
+            return items
+                .first()
+                .map(|item| {
+                    first_baseline(
+                        ui,
+                        &item.blocks,
+                        appearance,
+                        (width - f32::from(LIST_INDENT)).max(0.0),
+                    )
+                })
+                .unwrap_or_default();
+        }
+        _ => (
+            egui::text::LayoutJob::simple(
+                " ".into(),
+                egui::FontId::proportional(FONT_SIZE),
+                ui.visuals().text_color(),
+                width,
+            ),
+            LINE_HEIGHT,
+            0.0,
+        ),
+    };
+    if job.text.is_empty() {
+        job = egui::text::LayoutJob::simple(
+            " ".into(),
+            egui::FontId::proportional(FONT_SIZE),
+            ui.visuals().text_color(),
+            width,
+        );
+    }
+    for section in &mut job.sections {
+        section.format.line_height = Some(line_height);
+    }
+    job.wrap.max_width = width;
+    inset
+        + ui.fonts_mut(|fonts| fonts.layout_job(job))
+            .rows
+            .first()
+            .and_then(|row| row.glyphs.first().map(|glyph| row.pos.y + glyph.pos.y))
+            .unwrap_or_default()
+}
+
 fn flow_blocks(
     ui: &mut Ui,
     contents: &[Block],
@@ -566,35 +730,88 @@ fn flow_blocks(
                                 ..Margin::ZERO
                             })
                             .show(ui, |ui| {
-                                ui.horizontal_top(|ui| {
-                                    if let Some(checked) = item.checked {
-                                        ui.add_enabled(
-                                            false,
-                                            egui::Checkbox::without_text(&mut checked.clone()),
-                                        );
-                                    } else if let Some(marker) = item.marker(*start, index) {
-                                        ui.label(
-                                            RichText::new(marker)
-                                                .size(FONT_SIZE)
-                                                .line_height(Some(LINE_HEIGHT))
-                                                .family(if style.bold {
-                                                    crate::font_families::bold(ui)
-                                                } else {
-                                                    FontFamily::Proportional
-                                                }),
-                                        );
-                                    }
-                                    ui.vertical(|ui| {
-                                        flow_blocks(
-                                            ui,
-                                            &item.blocks,
-                                            appearance,
-                                            colors,
-                                            provider,
-                                            true,
-                                        )
-                                    });
-                                });
+                                let origin = ui.available_rect_before_wrap().min;
+                                let width = ui.available_width();
+                                ui.set_width(width);
+                                if let Some(marker) = item.marker(*start, index) {
+                                    let font = egui::FontId::new(
+                                        FONT_SIZE,
+                                        if style.bold {
+                                            crate::font_families::bold(ui)
+                                        } else {
+                                            FontFamily::Proportional
+                                        },
+                                    );
+                                    let mut job = egui::text::LayoutJob::simple(
+                                        marker,
+                                        font,
+                                        colors.foreground,
+                                        f32::INFINITY,
+                                    );
+                                    job.sections[0].format.line_height = Some(LINE_HEIGHT);
+                                    let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
+                                    let baseline = galley.rows[0]
+                                        .glyphs
+                                        .first()
+                                        .map_or(0.0, |glyph| glyph.pos.y);
+                                    let top = origin.y
+                                        + first_baseline(ui, &item.blocks, appearance, width)
+                                        - baseline;
+                                    let mut marker_ui = ui.new_child(
+                                        egui::UiBuilder::new()
+                                            .id_salt("marker")
+                                            .max_rect(egui::Rect::from_min_size(
+                                                egui::pos2(
+                                                    origin.x - space_width(ui) - galley.size().x,
+                                                    top,
+                                                ),
+                                                galley.size(),
+                                            ))
+                                            .layout(egui::Layout::top_down(egui::Align::Min)),
+                                    );
+                                    marker_ui.add(egui::Label::new(galley));
+                                }
+                                if let Some(checked) = item.checked {
+                                    let (_, preferred) =
+                                        block_widths(ui, &item.blocks, appearance, provider);
+                                    let task_width =
+                                        (preferred + TASK_ICON_SIZE + space_width(ui)).min(width);
+                                    ui.allocate_ui_with_layout(
+                                        egui::vec2(task_width, 0.0),
+                                        egui::Layout::left_to_right(egui::Align::Center),
+                                        |ui| {
+                                            ui.spacing_mut().item_spacing.x = space_width(ui);
+                                            ui.spacing_mut().icon_width = TASK_ICON_SIZE;
+                                            ui.spacing_mut().interact_size.y = TASK_ICON_SIZE;
+                                            ui.add_enabled(
+                                                false,
+                                                egui::Checkbox::without_text(&mut checked.clone()),
+                                            );
+                                            ui.with_layout(
+                                                egui::Layout::top_down(egui::Align::Min),
+                                                |ui| {
+                                                    flow_blocks(
+                                                        ui,
+                                                        &item.blocks,
+                                                        appearance,
+                                                        colors,
+                                                        provider,
+                                                        true,
+                                                    )
+                                                },
+                                            );
+                                        },
+                                    );
+                                } else {
+                                    flow_blocks(
+                                        ui,
+                                        &item.blocks,
+                                        appearance,
+                                        colors,
+                                        provider,
+                                        true,
+                                    )
+                                }
                             });
                     });
                     previous = item_edges.bottom;
@@ -628,6 +845,7 @@ fn flow_blocks(
                                             .color(colors.foreground),
                                     )
                                     .selectable(true)
+                                    .halign(ui.layout().horizontal_align())
                                     .extend(),
                                 );
                             });

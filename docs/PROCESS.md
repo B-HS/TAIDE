@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: d6c3h1의 표 제목 블록/줄별 텍스트 정렬을 연결했습니다. caption_blocks·이미지/autolink 재귀·현재 너비/높이/Hash 캐시·강조/명시 개행/문자 범위 링크·단독 이미지 정렬과 첫 프레임 변경을 원본 browser10조건·parser18/UI32/cache4/App4/LSP8의 서로 다른66통과·소유12Rust fmt/diff·최종 frozen host0.09초/Wasm0.10초·exit0으로 확인했습니다. 목록 marker/혼합 이미지·코드의 모든 줄 정렬·임의 CSS/행·열/접근성/추가 HTML/CLI·실제 OS/전체 게이트와 d6c3h는 미완료입니다. editor-72 partial·기능 체크리스트302/588(51.4%)·미완료286·부분90/미연결110/미구현86·배치23 잔여19/최종33·전체전환율/잔여시간 미산정이며 사용자 문서·보호 경계를 유지합니다.
+현재 상태: d6c3h2의 바깥 목록 마커/20px 본문과 상속 정렬·문단/제목/코드 기준선·disabled checkbox13px/그룹 중앙·pre 줄별 정렬·이미지 독립 블록/최대 너비를 연결했습니다. 원본 browser12조건·UI34/App4와 변경 없는 parser18/cache4/LSP8의 서로 다른68통과·소유4Rust fmt/diff·frozen host0.08초/Wasm0.09초·exit0입니다. 혼합 inline code/checkbox 다중 줄·임의 CSS baseline/행·열/접근성/추가 HTML/CLI·실제 OS/전체 게이트와 d6c3h는 미완료입니다. editor-72 partial·기능 체크리스트302/588(51.4%)·미완료286·부분90/미연결110/미구현86·배치23 잔여19/최종33·전체전환율/잔여시간 미산정이며 사용자 문서·보호 경계를 유지합니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 
@@ -141,12 +141,13 @@
 - [x] d6c3g. 인라인/문단 간격과 글꼴 상속 — 원본 standards browser14조건·실제 문단16/8px·system mono URL 누락을 재현했습니다. Inline/상속 Style·지원 양수 여백/빈 내용/quote/list 부모 병합·20/22.75px/NBSP·normal/600/700·코드 가족 독립과 실제 sans/mono face/variation/별칭/공유budget을 parser17/UI30/fonts2/LSP8/cache4/App4의65통과·소유16Rust fmt/diff·frozen 계약 check로 확인했습니다. 기존 LSP/default Style·입력/undo/readonly/두 뷰/원문/task0을 보존하며 임의 CSS/bolder/복합 caption/행·열/접근성/OS/전체 게이트는 남깁니다.
 - [ ] d6c3h. 복합 표 제목 — 원본 caption의 flow 구조/중앙 정렬/문단·목록·코드·이미지·링크와 셀 없는 표를 대조하고 평탄화 손실을 재현합니다. 기존 블록 파싱·너비/높이/현재 프레임·이미지/링크 수명에 연결하고 파서/실제 shape/앱·LSP·동결 호환성 검사와 QA/기능표/PROCESS·선별 Git을 수행합니다. 행·열/임의 CSS·접근성·전체 게이트는 유지합니다.
 - [x] d6c3h1. 표 제목 블록과 텍스트 정렬 — optional caption_blocks·재귀 이미지/autolink·현재 너비/높이/Hash 캐시·문단/강조/명시 줄바꿈의 줄별 중앙 정렬·문자별 링크 클릭·단독 이미지 정렬을 연결합니다. 브라우저10조건·정렬 실패와 링크 실패/수정·parser/UI/실제 App/cache/LSP/동결 계약·기록/Git으로 해당 범위를 확인하며 목록 marker/혼합 이미지·코드의 줄별 정렬과 임의 CSS는 부모 d6c3h에 남깁니다.
+- [x] d6c3h2. 바깥 목록 마커와 블록 표시 — 원본 outside 마커/20px 본문 들여쓰기·제목의 중첩 목록/코드 정렬·Tailwind 이미지 display 경계를 브라우저 실제 배치로 대조합니다. preview의 목록 너비/마커·본문 정렬과 이미지/코드 소비를 연결하고 실제 shape/App·관련 회귀/동결 검사와 QA/기능표/PROCESS·선별 Git으로 검증합니다. 임의 CSS/list-style-position 변경·counter 소유·접근성·전체 게이트는 별도로 유지합니다.
 - [ ] e. AI·Emmet — editor-77/78/80의 인라인 완성/편집과 Emmet을 원본 명령·표시·수락/거절/취소/오래된 응답에 맞게 연결합니다. 실제 키/개인 데이터 대신 주입 포트·임시 데이터로 검증합니다.
 - [ ] f. 실제 앱·전체 게이트 — 닫을 기능의 실제 앱/child/mirror·readonly/tier/다중 커서/IME·정상 종료/회귀를 확인하고 변경 크레이트 전체 대상을 --no-fail-fast로 직접 1회 실행합니다. 성공 결과는 재사용하고 실패 영향만 재검사합니다. frozen host/Wasm compile·fmt/diff·manifest/lock/engine/보호 경계·디스크와 배치 31 실기/성능/신뢰성 부채를 구분합니다.
 - [x] f1. 프로젝트 열기 지연 위치 조사·배치 31 이관 — 전체 App 811통과/프로젝트 open 5초 초과 1실패와 Cargo 단독 동일 실패를 보존했습니다. 같은 실행 파일의 직접 검사는 저장소/크레이트 cwd에서 3.81/3.23초에 통과했습니다. 성공한 두 번째 검사 중 start_watch→notify runloop 준비 대기와 FSEventStreamStart→등록 RPC의 실제 스택을 확인했습니다. 실패 시점의 스택이나 지연 변동의 근본 원인은 확인하지 않았으며 해결/전체 exit 0으로 보고하지 않습니다. 제한 확대·검사 생략·OS 변경 없이 반복 조사를 종료하고 배치 31의 실행 환경/신뢰성 게이트에 미해결 위험을 유지합니다.
 - [ ] g. 완료 근거·선별 Git — 실제 닫힌 ID만 QA/기능표/PROCESS에 반영하고 논리 단위 선별 커밋·일반 푸시합니다. 배치 24를 기존 계획 안에서 이어가며 배치 번호를 세부 수정마다 늘리지 않습니다.
 
-다음 행동: d6c3h의 목록 marker/혼합 이미지·코드 줄 정렬을 원본과 대조하고 남은 표 행·열/임의 CSS·추가 HTML 표시를 구현·검증합니다. editor-72 partial·전체 HTML/접근성·OS·게이트와 최종 배치33을 유지합니다.
+다음 행동: d6c3h의 혼합 inline code/checkbox 다중 줄 흐름과 첫 table baseline을 원본과 대조하고 남은 표 행·열/임의 CSS·추가 HTML 표시를 구현·검증합니다. editor-72 partial·전체 HTML/접근성·OS·게이트와 최종 배치33을 유지합니다.
 
 ## 완료: 배치 22 — 자동완성과 사용자 스니펫 소비 (2026-10-10)
 
