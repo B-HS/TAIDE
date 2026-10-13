@@ -189,3 +189,11 @@ borrowed-final.log는6773 handle에서compile28.47초·실제HTML App1/36.58초�
 원본code-editor/editor-pane와EmmetProvider를추가대조했습니다. largeFile은folding/bracket/minimap을억제하지만Emmet 등록을해제하지않습니다. 초기Normal-only gate는원본과달라쓰기가능한Large도허용하도록수정했습니다. 같은revision tier변경은이전요청을취소하고새요청은Large에서도현재줄/출력예산안에서생성하며ReadOnly/명시read_only는수락을허용하지않습니다. source-tier.log는35662 handle에서compile14.63초·소비자8/0.29초·exit0입니다. Normal 경로가같은실제App1과변경없는구문20/기존완성79를재사용하고현재App의서로다른108성공을확인했습니다. 앞선8/7/6 반복성공은더하지않습니다. Core343/성능1ignored 성공도현재Core 변경이없어재사용합니다.
 
 현재12Rust fmt/diff·UI/manifest/lock/동결diff0·디스크627GiB/66%를확인했습니다. 일반lib의기존is_applying 경고·vendor wry17·검사linker unwind 경고를보존합니다. 추가의존성/사용자데이터/OS 입력/실제클립보드/Keychain은사용하지않았습니다. e3c/e3d/e3d2의코어와공급/소비구현체크를닫으며editor-80은unwired에서partial로만갱신합니다. 실제앱의CSS/JSX/HEEX·다른파일peek 전체묶음·전체App 준비실패/성능ignored/remote Wasm/OS실기·최종33게이트는남습니다. 전체302/588(51.4%)·미완료286·부분93/미연결110/미구현83·목표active/잔여시간미산정입니다.
+
+## e3d3 — 실제 앱 언어 묶음
+
+공통 actual_emmet는기존HTML 성공의동일입력/설정/포커스/수락/undo/디스크/종료를재사용하고파일확장자·실제추론language_id·본문/출력만받습니다. language-family.log는31593 handle에서compile20.09초·HEEX/JSX/TSX의실제App3성공/CSS1실패·64.79초/exit101입니다. 이미통과한HTML은skip해반복하지않았습니다. CSS는selector 위치의m10-20을사용해candidate가없었습니다. css-token-diagnostic.log는55962 handle에서compile20.15초·0통과/1실패·39.04초/exit101이며실제정확한토큰은String이었습니다.
+
+설치@shikijs/monaco의theme color/style→첫scope 복원과monaco token 종류, 현재native style-scopes/textmate-tokenizer를대조했습니다. CSSselector의색이String scope에복원되므로현재위치는원본standard token Other 공급조건을만족하지않습니다. 조건을끄거나새Other를만들지않고실제CSS/scss 선언본문 .box 내부로 fixture를옮겼습니다. css-declaration.log는46627 handle에서compile15.76초·실제선언범위candidate/Other 토큰까지통과한뒤다중줄original이단일Text shape에있다고가정한assert에서0통과/1실패·37.20초/exit101입니다. 갱신된fixture는실제마지막줄로표시를단언하고현재CSS/scss 최종검사는진행중입니다. 테스트위치교정이며현재제품소스는0de10795 이후변경없습니다.
+
+css-declaration-final.log는46827 handle에서compile18.38초·실제CSS/scss 두파일의App1/45.76초·exit0입니다. 현재언어묶음은기존HTML1/HEEX1/JSX1/TSX1/CSS·scss1의App5검사/6파일사례가성공했습니다. 메타데이터추론/실제Other·원본후보/범위·키보드수락/단일undo·설정회수·디스크/종료task0이며다른파일peek 실제App 전체와일반전체게이트는남습니다. 기존소비자8/구문20/기존완성79와합친현재App112서로다른성공을재사용하며source fixture/helper 포맷과product source변경0을확인했습니다. 전체302/588(51.4%)·미완료286/부분93/미연결110/미구현83·목표active/잔여시간미산정입니다.

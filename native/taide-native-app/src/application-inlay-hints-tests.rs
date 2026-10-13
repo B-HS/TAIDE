@@ -79,9 +79,33 @@ pub(super) fn wait(
         })
         .await
     });
+    let token_kinds = if result.is_err() {
+        let documents = application
+            .store
+            .documents()
+            .snapshots()
+            .collect::<Vec<_>>();
+        documents
+            .iter()
+            .map(|snapshot| {
+                let lease = crate::editor_syntax::SyntaxLease::new(
+                    &mut application.editor_syntax,
+                    snapshot.id,
+                );
+                (
+                    snapshot.metadata.language_id.clone(),
+                    taide_native_editor::language_configuration::LineSyntax::accurate_tokens(
+                        &lease, snapshot, 0,
+                    ),
+                )
+            })
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
     assert!(
         result.is_ok(),
-        "phase={phase}; status={:?}; tasks={}; lsp={:?}; documents={:?}; loading={}",
+        "phase={phase}; status={:?}; tasks={}; lsp={:?}; documents={:?}; loading={}; token_kinds={token_kinds:?}",
         application.status,
         application.services.tasks.tracked_count(),
         application
