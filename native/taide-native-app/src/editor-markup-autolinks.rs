@@ -104,7 +104,8 @@ impl Autolinks {
     fn blocks(&self, blocks: &mut [Block]) {
         for block in blocks {
             match block {
-                Block::Paragraph(inlines)
+                Block::Inline(inlines)
+                | Block::Paragraph(inlines)
                 | Block::Heading {
                     contents: inlines, ..
                 } => self.inlines(inlines),

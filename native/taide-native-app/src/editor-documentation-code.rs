@@ -214,7 +214,7 @@ impl Cache {
     fn collect(&self, blocks: &[Block], fallback: &str, keys: &mut HashSet<Key>) {
         for block in blocks {
             match block {
-                Block::Code { language, text } => {
+                Block::Code { language, text, .. } => {
                     keys.insert(self.key(language, text, fallback));
                 }
                 Block::Quote(blocks) => self.collect(blocks, fallback, keys),

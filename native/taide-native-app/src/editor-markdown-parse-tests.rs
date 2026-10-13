@@ -2,6 +2,29 @@ use super::*;
 use taide_native_editor::documentation::{Block, Inline};
 
 #[test]
+fn html의_암시_인라인은_명시_문단으로_바뀌지_않는다() {
+    let document = parse(
+        "<ul><li>plain item</li><li><p>explicit paragraph</p></li></ul><div>plain container</div>",
+        None,
+    )
+    .unwrap();
+    let Block::List { items, .. } = &document.blocks[0] else {
+        panic!("expected list")
+    };
+    assert!(
+        matches!(&items[0].blocks[0], Block::Inline(_)),
+        "implicit list text became a paragraph"
+    );
+    assert!(matches!(&items[1].blocks[0], Block::Paragraph(_)));
+    assert!(matches!(&document.blocks[1], Block::Inline(_)));
+    let document = parse("<div>&nbsp;</div><div> \n </div>", None).unwrap();
+    assert_eq!(document.blocks.len(), 1);
+    assert!(
+        matches!(&document.blocks[0], Block::Inline(values) if matches!(&values[0], Inline::Text(span) if span.text == "\u{a0}"))
+    );
+}
+
+#[test]
 fn 표_셀의_flow_구조는_문단_코드_목록_중첩_표와_상대_이미지를_보존한다() {
     let document = parse("<table><tr><th><p>first</p><p>second</p><h3>heading</h3><ol start='-1'><li>item</li></ol><pre><code class='language-rust'>let cell = 1;\nnext line</code></pre><blockquote><p><a href='https://example.com'>linked</a><img src='./nested.png'></p></blockquote><table><tr><td><p>https://example.com/nested</p></td></tr></table></th><td>plain <em>inline</em></td></tr></table>", Some(std::path::Path::new("/workspace/cell.md"))).unwrap();
     let Block::Table {
@@ -29,11 +52,16 @@ fn 표_셀의_flow_구조는_문단_코드_목록_중첩_표와_상대_이미지
         &blocks[3],
         Block::List {
             start: Some(-1),
+            style,
             ..
-        }
+        } if style.bold
     ));
+    let Block::Code { style, .. } = &blocks[4] else {
+        panic!("expected code")
+    };
+    assert!(style.bold);
     assert!(
-        matches!(&blocks[4], Block::Code { language, text } if language == "rust" && text == "let cell = 1;\nnext line")
+        matches!(&blocks[4], Block::Code { language, text, style } if language == "rust" && text == "let cell = 1;\nnext line" && style.bold)
     );
     let Block::Quote(quote) = &blocks[5] else {
         panic!("expected quote")
@@ -83,7 +111,7 @@ fn html_목록은_원본_parent_css와_개별_type_정화_우선순위를_보존
                 None,
             )
             .unwrap();
-            let Block::List { start, items } = &document.blocks[0] else {
+            let Block::List { start, items, .. } = &document.blocks[0] else {
                 panic!("expected list")
             };
             assert_eq!(items[0].marker(*start, 0).as_deref(), expected);
@@ -94,7 +122,7 @@ fn html_목록은_원본_parent_css와_개별_type_정화_우선순위를_보존
                 None,
             )
             .unwrap();
-            let Block::List { start, items } = &document.blocks[0] else {
+            let Block::List { start, items, .. } = &document.blocks[0] else {
                 panic!("expected list")
             };
             let expected = if tag == "ol" { "1." } else { "\u{2022}" };
@@ -106,7 +134,7 @@ fn html_목록은_원본_parent_css와_개별_type_정화_우선순위를_보존
         vec![Some("\u{2022}"), Some("AB."), Some("IV."), None, Some("f.")],
         vec![Some("C."), None, Some("a.")],
     ]) {
-        let Block::List { start, items } = block else {
+        let Block::List { start, items, .. } = block else {
             panic!("expected list")
         };
         assert_eq!(
@@ -252,10 +280,10 @@ fn html_목록의_역순과_항목_value는_후속_번호와_중첩_범위를_�
         vec![2, 1]
     );
     assert!(
-        matches!(&items[0].blocks[1], Block::List { start: Some(6), items } if items.iter().map(|item| item.ordinal.unwrap()).collect::<Vec<_>>() == vec![6, -1])
+        matches!(&items[0].blocks[1], Block::List { start: Some(6), items, .. } if items.iter().map(|item| item.ordinal.unwrap()).collect::<Vec<_>>() == vec![6, -1])
     );
     assert!(
-        matches!(&document.blocks[1], Block::List { start: None, items } if items[0].ordinal.is_none())
+        matches!(&document.blocks[1], Block::List { start: None, items, .. } if items[0].ordinal.is_none())
     );
 }
 
@@ -281,7 +309,7 @@ fn html_순서_목록은_음수와_0의_시작_값을_보존한다() {
         )
         .unwrap();
         assert!(
-            matches!(&document.blocks[0], Block::List { start: Some(number), items } if number.to_string() == start && items.len() > 1)
+            matches!(&document.blocks[0], Block::List { start: Some(number), items, .. } if number.to_string() == start && items.len() > 1)
         );
     }
     for (value, expected) in [(" \t-3tail", -3), ("+7suffix", 7), ("bad", 1), ("-", 1)] {
@@ -302,13 +330,13 @@ fn gfm과_html의_인용_목록_체크박스_표와_코드는_내용과_정렬�
         matches!(&document.blocks[0], Block::Quote(contents) if matches!(&contents[0], Block::Paragraph(_)))
     );
     assert!(
-        matches!(&document.blocks[1], Block::List { start: Some(3), items } if matches!(&items[0].blocks[1], Block::List { items, .. } if items[0].checked == Some(true)))
+        matches!(&document.blocks[1], Block::List { start: Some(3), items, .. } if matches!(&items[0].blocks[1], Block::List { items, .. } if items[0].checked == Some(true)))
     );
     assert!(
         matches!(&document.blocks[2], Block::Table { columns, rows, .. } if columns == &vec![taide_native_editor::documentation::Alignment::Left, taide_native_editor::documentation::Alignment::Right] && rows.len() == 2)
     );
     assert!(
-        matches!(&document.blocks[3], Block::Code { language, text } if language == "rust" && text == "<&>  code\n")
+        matches!(&document.blocks[3], Block::Code { language, text, .. } if language == "rust" && text == "<&>  code\n")
     );
     assert!(
         matches!(&document.blocks[4], Block::Table { rows, .. } if matches!(&rows[0][0][0], Inline::Text(span) if span.text == "plain" && !span.style.bold) && matches!(&rows[0][1][0], Inline::Text(span) if span.text == "bold" && span.style.bold))

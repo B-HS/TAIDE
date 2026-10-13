@@ -479,26 +479,31 @@ fn 문서_도움말_코드는_본문_textmate와_테마를_쓰고_닫힌_소스�
     let document = RichDocument {
         blocks: vec![
             Block::Quote(vec![Block::Code {
+                style: Default::default(),
                 language: "Rust".into(),
                 text: RUST_SOURCE.into(),
             }]),
             Block::List {
+                style: Default::default(),
                 start: None,
                 items: vec![ListItem {
                     checked: None,
                     ordinal: None,
                     marker_style: None,
                     blocks: vec![Block::Code {
+                        style: Default::default(),
                         language: String::new(),
                         text: RUST_SOURCE.into(),
                     }],
                 }],
             },
             Block::Code {
+                style: Default::default(),
                 language: "js".into(),
                 text: "const value = 1;".into(),
             },
             Block::Code {
+                style: Default::default(),
                 language: "unknown language".into(),
                 text: "plain text".into(),
             },

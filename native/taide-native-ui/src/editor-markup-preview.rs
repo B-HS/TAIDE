@@ -3,11 +3,14 @@ use std::collections::HashSet;
 use egui::{FontFamily, Margin, RichText, Stroke, Ui};
 use taide_native_editor::documentation::{Alignment, Block, Inline, RichDocument};
 
-use super::{Colors, Provider, inlines};
+use super::{Colors, Provider, TextWeight, inlines};
 use crate::editor_surface::EditorAppearance;
 
 #[path = "editor-markup-table.rs"]
 mod table;
+
+#[path = "editor-markup-flow.rs"]
+mod flow;
 
 const FONT_SIZE: f32 = 14.0;
 const LINE_HEIGHT: f32 = 20.0;
@@ -72,10 +75,10 @@ fn inline_widths(
     appearance: &EditorAppearance,
     provider: &(impl Provider + ?Sized),
     font_size: f32,
-    bold: bool,
+    weight: TextWeight,
 ) -> (f32, f32) {
     let code_padding = f32::from(INLINE_CODE_PADDING.left) + f32::from(INLINE_CODE_PADDING.right);
-    let (job, _) = super::inline_job(ui, cell, appearance, font_size, bold);
+    let (job, _) = super::inline_job(ui, cell, appearance, font_size, weight, true);
     let (mut min, mut max) = text_widths(ui, job);
     for inline in cell {
         match inline {
@@ -120,7 +123,18 @@ fn cell_widths(
     bold: bool,
 ) -> (f32, f32) {
     let padding = f32::from(CELL_PADDING.left) + f32::from(CELL_PADDING.right);
-    let (min, max) = inline_widths(ui, cell, appearance, provider, FONT_SIZE, bold);
+    let (min, max) = inline_widths(
+        ui,
+        cell,
+        appearance,
+        provider,
+        FONT_SIZE,
+        if bold {
+            TextWeight::Bold
+        } else {
+            TextWeight::Normal
+        },
+    );
     (min + padding, max + padding)
 }
 
@@ -133,9 +147,14 @@ fn block_widths(
     contents
         .iter()
         .map(|block| match block {
-            Block::Paragraph(values) => {
-                inline_widths(ui, values, appearance, provider, FONT_SIZE, false)
-            }
+            Block::Inline(values) | Block::Paragraph(values) => inline_widths(
+                ui,
+                values,
+                appearance,
+                provider,
+                FONT_SIZE,
+                TextWeight::Normal,
+            ),
             Block::Heading { level, contents } => {
                 let index = usize::from(level.saturating_sub(1));
                 inline_widths(
@@ -144,14 +163,22 @@ fn block_widths(
                     appearance,
                     provider,
                     HEADING_SIZES.get(index).copied().unwrap_or(FONT_SIZE),
-                    HEADING_SIZES.get(index).is_some(),
+                    if HEADING_SIZES.get(index).is_some() {
+                        TextWeight::Semibold
+                    } else {
+                        TextWeight::Normal
+                    },
                 )
             }
             Block::Quote(contents) => {
                 let (min, max) = block_widths(ui, contents, appearance, provider);
                 (min + f32::from(QUOTE_INDENT), max + f32::from(QUOTE_INDENT))
             }
-            Block::List { start, items } => items
+            Block::List {
+                start,
+                items,
+                style,
+            } => items
                 .iter()
                 .enumerate()
                 .map(|(index, item)| {
@@ -165,7 +192,14 @@ fn block_widths(
                                     ui,
                                     egui::text::LayoutJob::simple(
                                         marker,
-                                        egui::FontId::proportional(FONT_SIZE),
+                                        egui::FontId::new(
+                                            FONT_SIZE,
+                                            if style.bold {
+                                                crate::font_families::bold(ui)
+                                            } else {
+                                                FontFamily::Proportional
+                                            },
+                                        ),
                                         ui.visuals().text_color(),
                                         f32::INFINITY,
                                     ),
@@ -185,12 +219,19 @@ fn block_widths(
                 .fold((0.0f32, 0.0f32), |(min, max), (next_min, next_max)| {
                     (min.max(next_min), max.max(next_max))
                 }),
-            Block::Code { text, .. } => {
+            Block::Code { text, style, .. } => {
                 let width = text_widths(
                     ui,
                     egui::text::LayoutJob::simple(
                         text.clone(),
-                        egui::FontId::new(FONT_SIZE, FontFamily::Monospace),
+                        egui::FontId::new(
+                            FONT_SIZE,
+                            if style.bold {
+                                crate::font_families::code_bold(ui)
+                            } else {
+                                FontFamily::Monospace
+                            },
+                        ),
                         ui.visuals().text_color(),
                         f32::INFINITY,
                     ),
@@ -212,7 +253,7 @@ fn block_widths(
                             appearance,
                             provider,
                             FONT_SIZE,
-                            false,
+                            TextWeight::Normal,
                         );
                     }
                     return table::intrinsic_widths(ui, rows, layout, appearance, provider)
@@ -297,30 +338,20 @@ fn inline_contents(
     provider: &mut (impl Provider + ?Sized),
     size: f32,
     line_height: f32,
-    bold: bool,
+    weight: TextWeight,
 ) {
     let mut appearance = appearance.clone();
     appearance.line_height = line_height;
-    let contents = contents
-        .iter()
-        .cloned()
-        .map(|inline| match inline {
-            Inline::Text(mut span) => {
-                span.style.bold |= bold;
-                Inline::Text(span)
-            }
-            inline => inline,
-        })
-        .collect::<Vec<_>>();
     inlines(
         ui,
-        &contents,
+        contents,
         &appearance,
         colors,
         provider,
         size,
         false,
         true,
+        weight,
     );
 }
 
@@ -373,7 +404,11 @@ fn table_cells(
                                         provider,
                                         FONT_SIZE,
                                         LINE_HEIGHT,
-                                        !header.is_empty() && index == 0,
+                                        if !header.is_empty() && index == 0 {
+                                            TextWeight::Bold
+                                        } else {
+                                            TextWeight::Normal
+                                        },
                                     );
                                 });
                         });
@@ -400,10 +435,43 @@ fn blocks(
     colors: Colors,
     provider: &mut (impl Provider + ?Sized),
 ) {
+    flow_blocks(ui, contents, appearance, colors, provider, false);
+}
+
+fn flow_blocks(
+    ui: &mut Ui,
+    contents: &[Block],
+    appearance: &EditorAppearance,
+    colors: Colors,
+    provider: &mut (impl Provider + ?Sized),
+    trim_edges: bool,
+) {
+    let mut previous_margin = 0.0f32;
+    let mut is_first = true;
     for (index, block) in contents.iter().enumerate() {
+        let edges = flow::edges(block);
+        if edges.through {
+            previous_margin = previous_margin.max(edges.top).max(edges.bottom);
+            continue;
+        }
+        if !is_first || !trim_edges {
+            ui.add_space(previous_margin.max(edges.top));
+        }
+        is_first = false;
         ui.push_id(index, |ui| match block {
+            Block::Inline(contents) => {
+                inline_contents(
+                    ui,
+                    contents,
+                    appearance,
+                    colors,
+                    provider,
+                    FONT_SIZE,
+                    LINE_HEIGHT,
+                    TextWeight::Normal,
+                );
+            }
             Block::Paragraph(contents) => {
-                ui.add_space(PARAGRAPH_MARGIN);
                 inline_contents(
                     ui,
                     contents,
@@ -412,9 +480,8 @@ fn blocks(
                     provider,
                     FONT_SIZE,
                     PARAGRAPH_LINE_HEIGHT,
-                    false,
+                    TextWeight::Normal,
                 );
-                ui.add_space(PARAGRAPH_MARGIN);
             }
             Block::Heading { level, contents } => {
                 let index = usize::from(level.saturating_sub(1));
@@ -423,7 +490,6 @@ fn blocks(
                     .get(index)
                     .copied()
                     .unwrap_or(LINE_HEIGHT);
-                ui.add_space(HEADING_TOP.get(index).copied().unwrap_or_default());
                 inline_contents(
                     ui,
                     contents,
@@ -432,13 +498,12 @@ fn blocks(
                     provider,
                     size,
                     line_height,
-                    HEADING_SIZES.get(index).is_some(),
+                    if HEADING_SIZES.get(index).is_some() {
+                        TextWeight::Semibold
+                    } else {
+                        TextWeight::Normal
+                    },
                 );
-                ui.add_space(if HEADING_SIZES.get(index).is_some() {
-                    HEADING_BOTTOM
-                } else {
-                    0.0
-                });
             }
             Block::Quote(contents) => {
                 let output = egui::Frame::new()
@@ -448,7 +513,7 @@ fn blocks(
                     })
                     .show(ui, |ui| {
                         ui.multiply_opacity(QUOTE_OPACITY);
-                        blocks(ui, contents, appearance, colors, provider);
+                        flow_blocks(ui, contents, appearance, colors, provider, true);
                     });
                 ui.painter().vline(
                     output.response.rect.left(),
@@ -456,8 +521,17 @@ fn blocks(
                     Stroke::new(QUOTE_BORDER, colors.border.gamma_multiply(QUOTE_OPACITY)),
                 );
             }
-            Block::List { start, items } => {
+            Block::List {
+                start,
+                items,
+                style,
+            } => {
+                let mut previous = 0.0f32;
                 for (index, item) in items.iter().enumerate() {
+                    let item_edges = flow::group(&item.blocks);
+                    if index > 0 {
+                        ui.add_space(previous.max(item_edges.top))
+                    }
                     ui.push_id(index, |ui| {
                         egui::Frame::new()
                             .inner_margin(Margin {
@@ -472,18 +546,34 @@ fn blocks(
                                             egui::Checkbox::without_text(&mut checked.clone()),
                                         );
                                     } else if let Some(marker) = item.marker(*start, index) {
-                                        ui.label(RichText::new(marker).size(FONT_SIZE));
+                                        ui.label(
+                                            RichText::new(marker)
+                                                .size(FONT_SIZE)
+                                                .line_height(Some(LINE_HEIGHT))
+                                                .family(if style.bold {
+                                                    crate::font_families::bold(ui)
+                                                } else {
+                                                    FontFamily::Proportional
+                                                }),
+                                        );
                                     }
                                     ui.vertical(|ui| {
-                                        blocks(ui, &item.blocks, appearance, colors, provider)
+                                        flow_blocks(
+                                            ui,
+                                            &item.blocks,
+                                            appearance,
+                                            colors,
+                                            provider,
+                                            true,
+                                        )
                                     });
                                 });
                             });
                     });
+                    previous = item_edges.bottom;
                 }
             }
-            Block::Code { text, .. } => {
-                ui.add_space(PARAGRAPH_MARGIN);
+            Block::Code { text, style, .. } => {
                 egui::Frame::new()
                     .fill(colors.code_background)
                     .corner_radius(CORNER_RADIUS)
@@ -493,12 +583,19 @@ fn blocks(
                             .id_salt("code-scroll")
                             .auto_shrink([false, true])
                             .show(ui, |ui| {
+                                if text.is_empty() {
+                                    return;
+                                }
                                 ui.add(
                                     egui::Label::new(
                                         RichText::new(text)
                                             .font(egui::FontId::new(
                                                 FONT_SIZE,
-                                                FontFamily::Monospace,
+                                                if style.bold {
+                                                    crate::font_families::code_bold(ui)
+                                                } else {
+                                                    FontFamily::Monospace
+                                                },
                                             ))
                                             .line_height(Some(LINE_HEIGHT))
                                             .color(colors.foreground),
@@ -508,7 +605,6 @@ fn blocks(
                                 );
                             });
                     });
-                ui.add_space(PARAGRAPH_MARGIN);
             }
             Block::Table {
                 columns,
@@ -664,7 +760,6 @@ fn blocks(
                 });
             }
             Block::Rule => {
-                ui.add_space(RULE_MARGIN);
                 let (rect, _) = ui.allocate_exact_size(
                     egui::vec2(ui.available_width(), CELL_BORDER),
                     egui::Sense::hover(),
@@ -674,9 +769,12 @@ fn blocks(
                     rect.center().y,
                     Stroke::new(CELL_BORDER, colors.border),
                 );
-                ui.add_space(RULE_MARGIN);
             }
         });
+        previous_margin = edges.bottom;
+    }
+    if !trim_edges {
+        ui.add_space(previous_margin);
     }
 }
 

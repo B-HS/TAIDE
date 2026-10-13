@@ -290,9 +290,9 @@ fn ready(context: &Context, raster: Raster, used: usize) -> AppResult<Entry> {
 fn collect<'a>(blocks: &'a [Block], sources: &mut HashSet<&'a str>) {
     for block in blocks {
         match block {
-            Block::Paragraph(contents) | Block::Heading { contents, .. } => {
-                collect_inline(contents, sources)
-            }
+            Block::Inline(contents)
+            | Block::Paragraph(contents)
+            | Block::Heading { contents, .. } => collect_inline(contents, sources),
             Block::Quote(blocks) => collect(blocks, sources),
             Block::List { items, .. } => {
                 for item in items {

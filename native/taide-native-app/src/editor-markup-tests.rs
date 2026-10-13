@@ -45,7 +45,7 @@ fn 제목_인용_순서목록_중첩목록_체크박스와_코드언어를_보�
         Block::Heading { level: 1, .. }
     ));
     assert!(matches!(&document.blocks[1], Block::Quote(blocks) if blocks.len() == 1));
-    let Block::List { start, items } = &document.blocks[2] else {
+    let Block::List { start, items, .. } = &document.blocks[2] else {
         panic!("expected list")
     };
     assert_eq!(*start, Some(3));
@@ -56,6 +56,7 @@ fn 제목_인용_순서목록_중첩목록_체크박스와_코드언어를_보�
     assert_eq!(
         document.blocks[3],
         Block::Code {
+            style: Default::default(),
             language: "rust".into(),
             text: "fn x() {}\n".into()
         }
@@ -99,6 +100,7 @@ fn plaintext와_언어코드는_markdown으로_재해석하지않는다() {
     assert_eq!(
         code.blocks,
         vec![Block::Code {
+            style: Default::default(),
             language: "rust".into(),
             text: "**literal**".into()
         }]

@@ -5,7 +5,7 @@ use egui::{Id, Rect, Ui};
 use taide_native_editor::documentation::{Alignment, Block, Inline, TableLayout};
 
 use super::{CELL_BORDER, CELL_PADDING, FONT_SIZE, LINE_HEIGHT, cell_widths, inline_contents};
-use crate::editor_markup::{Colors, Provider};
+use crate::editor_markup::{Colors, Provider, TextWeight};
 use crate::editor_surface::EditorAppearance;
 
 const CENTER_FRACTION: f32 = 0.5;
@@ -113,7 +113,8 @@ fn block_image_metrics(
 ) {
     for block in contents {
         match block {
-            Block::Paragraph(values)
+            Block::Inline(values)
+            | Block::Paragraph(values)
             | Block::Heading {
                 contents: values, ..
             } => inline_image_metrics(values, provider, sizes),
@@ -198,7 +199,7 @@ fn contents(
                 provider,
                 FONT_SIZE,
                 LINE_HEIGHT,
-                false,
+                TextWeight::Normal,
             );
         });
     output.response.rect.height()

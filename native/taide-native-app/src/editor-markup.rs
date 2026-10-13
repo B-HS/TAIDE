@@ -75,6 +75,7 @@ pub(crate) fn parse(content: &Content) -> RichDocument {
         Content::Code { language, text } => {
             return RichDocument {
                 blocks: vec![Block::Code {
+                    style: Default::default(),
                     language: language.clone(),
                     text: text.clone(),
                 }],
@@ -242,6 +243,7 @@ fn finish(frames: &mut Vec<Frame>) {
             Some(Block::Quote(frame.blocks))
         }
         Kind::List(start) => Some(Block::List {
+            style: Default::default(),
             start: start.and_then(|start| i64::try_from(start).ok()),
             items: frame.items,
         }),
@@ -256,6 +258,7 @@ fn finish(frames: &mut Vec<Frame>) {
             None
         }
         Kind::Code(language) => Some(Block::Code {
+            style: Default::default(),
             language,
             text: frame.text,
         }),

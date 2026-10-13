@@ -45,6 +45,7 @@ pub struct RichDocument {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Block {
+    Inline(Vec<Inline>),
     Paragraph(Vec<Inline>),
     Heading {
         level: u8,
@@ -54,10 +55,12 @@ pub enum Block {
     List {
         start: Option<i64>,
         items: Vec<ListItem>,
+        style: Style,
     },
     Code {
         language: String,
         text: String,
+        style: Style,
     },
     Table {
         columns: Vec<Alignment>,

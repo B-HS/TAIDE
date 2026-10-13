@@ -177,10 +177,13 @@ fn contents(node: NodeRef<'_>, base: Option<&Url>, bold: bool) -> Vec<Inline> {
 
 fn flush(blocks: &mut Vec<Block>, contents: &mut Vec<Inline>) {
     if contents.iter().any(|inline| match inline {
-        Inline::Text(span) => !span.text.trim().is_empty(),
+        Inline::Text(span) => span
+            .text
+            .chars()
+            .any(|character| !character.is_ascii_whitespace()),
         _ => true,
     }) {
-        blocks.push(Block::Paragraph(std::mem::take(contents)));
+        blocks.push(Block::Inline(std::mem::take(contents)));
     } else {
         contents.clear();
     }
@@ -272,7 +275,11 @@ fn blocks(node: NodeRef<'_>, base: Option<&Url>, bold: bool) -> AppResult<Vec<Bl
         match tag.as_str() {
             "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => output.push(Block::Heading {
                 level: tag.as_bytes()[1] - b'0',
-                contents: contents(child, base, bold),
+                contents: contents(
+                    child,
+                    base,
+                    bold && !matches!(tag.as_str(), "h1" | "h2" | "h3"),
+                ),
             }),
             "p" => output.push(Block::Paragraph(contents(child, base, bold))),
             "blockquote" => output.push(Block::Quote(blocks(child, base, bold)?)),
@@ -292,6 +299,10 @@ fn blocks(node: NodeRef<'_>, base: Option<&Url>, bold: bool) -> AppResult<Vec<Bl
                 output.push(Block::Code {
                     language,
                     text: code.text().to_string(),
+                    style: Style {
+                        bold,
+                        ..Default::default()
+                    },
                 });
             }
             "ul" | "ol" => {
@@ -334,7 +345,14 @@ fn blocks(node: NodeRef<'_>, base: Option<&Url>, bold: bool) -> AppResult<Vec<Bl
                         })
                     })
                     .collect::<AppResult<_>>()?;
-                output.push(Block::List { start, items });
+                output.push(Block::List {
+                    start,
+                    items,
+                    style: Style {
+                        bold,
+                        ..Default::default()
+                    },
+                });
             }
             "table" => output.push(table::parse(child, base, bold)?),
             "hr" => output.push(Block::Rule),

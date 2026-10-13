@@ -94,24 +94,41 @@ pub(crate) fn unwrapped_width(
     block_width(ui, &document.blocks, appearance, provider)
 }
 
+#[derive(Clone, Copy)]
+enum TextWeight {
+    Normal,
+    Semibold,
+    Bold,
+}
+
 fn inline_font(
     ui: &Ui,
     style: taide_native_editor::documentation::Style,
     appearance: &EditorAppearance,
     size: f32,
-    heading: bool,
+    weight: TextWeight,
+    is_preview: bool,
 ) -> FontId {
-    let bold = style.bold || heading;
+    let weight = if style.bold { TextWeight::Bold } else { weight };
     let family = if style.code {
-        if bold {
-            egui::FontFamily::Name(crate::font_families::EDITOR_BOLD_FAMILY.into())
+        if is_preview {
+            match weight {
+                TextWeight::Normal => egui::FontFamily::Monospace,
+                TextWeight::Semibold => crate::font_families::code_semibold(ui),
+                TextWeight::Bold => crate::font_families::code_bold(ui),
+            }
         } else {
-            appearance.font.family.clone()
+            match weight {
+                TextWeight::Normal => appearance.font.family.clone(),
+                _ => crate::font_families::editor_bold(ui),
+            }
         }
-    } else if bold {
-        crate::font_families::semibold(ui)
     } else {
-        egui::FontFamily::Proportional
+        match weight {
+            TextWeight::Normal => egui::FontFamily::Proportional,
+            TextWeight::Semibold => crate::font_families::semibold(ui),
+            TextWeight::Bold => crate::font_families::bold(ui),
+        }
     };
     FontId::new(size, family)
 }
@@ -121,7 +138,8 @@ fn inline_job(
     contents: &[Inline],
     appearance: &EditorAppearance,
     size: f32,
-    heading: bool,
+    weight: TextWeight,
+    is_preview: bool,
 ) -> (egui::text::LayoutJob, f32) {
     let mut job = egui::text::LayoutJob::default();
     let mut images = 0.0;
@@ -131,7 +149,7 @@ fn inline_job(
                 &span.text,
                 0.0,
                 egui::TextFormat {
-                    font_id: inline_font(ui, span.style, appearance, size, heading),
+                    font_id: inline_font(ui, span.style, appearance, size, weight, is_preview),
                     italics: span.style.italic,
                     ..Default::default()
                 },
@@ -145,6 +163,20 @@ fn inline_job(
     (job, images)
 }
 
+fn code_job(
+    ui: &Ui,
+    mut job: egui::text::LayoutJob,
+    style: taide_native_editor::documentation::Style,
+) -> egui::text::LayoutJob {
+    if !style.bold {
+        return job;
+    }
+    for section in &mut job.sections {
+        section.format.font_id.family = crate::font_families::editor_bold(ui)
+    }
+    job
+}
+
 fn inline_width(
     ui: &Ui,
     contents: &[Inline],
@@ -152,7 +184,18 @@ fn inline_width(
     size: f32,
     heading: bool,
 ) -> f32 {
-    let (job, images) = inline_job(ui, contents, appearance, size, heading);
+    let (job, images) = inline_job(
+        ui,
+        contents,
+        appearance,
+        size,
+        if heading {
+            TextWeight::Bold
+        } else {
+            TextWeight::Normal
+        },
+        false,
+    );
     ui.fonts_mut(|fonts| fonts.layout_job(job).size().x) + images
 }
 
@@ -165,7 +208,7 @@ fn block_width(
     blocks
         .iter()
         .map(|block| match block {
-            Block::Paragraph(contents) => {
+            Block::Inline(contents) | Block::Paragraph(contents) => {
                 inline_width(ui, contents, appearance, appearance.font.size, false)
             }
             Block::Heading { level, contents } => inline_width(
@@ -191,15 +234,27 @@ fn block_width(
                     .fold(0.0, f32::max)
                     + LIST_INDENT
             }
-            Block::Code { language, text } => {
+            Block::Code {
+                language,
+                text,
+                style,
+            } => {
                 let mut job = provider.code(ui, language, text).unwrap_or_else(|| {
                     egui::text::LayoutJob::simple(
                         text.clone(),
-                        appearance.font.clone(),
+                        FontId::new(
+                            appearance.font.size,
+                            if style.bold {
+                                crate::font_families::editor_bold(ui)
+                            } else {
+                                appearance.font.family.clone()
+                            },
+                        ),
                         ui.visuals().text_color(),
                         f32::INFINITY,
                     )
                 });
+                job = code_job(ui, job, *style);
                 job.wrap.max_width = f32::INFINITY;
                 ui.fonts_mut(|fonts| fonts.layout_job(job).size().x) + f32::from(CODE_PADDING) * 2.0
             }
@@ -235,7 +290,7 @@ fn blocks(
 ) {
     for (index, block) in contents.iter().enumerate() {
         ui.push_id(index, |ui| match block {
-            Block::Paragraph(contents) => inlines(
+            Block::Inline(contents) | Block::Paragraph(contents) => inlines(
                 ui,
                 contents,
                 appearance,
@@ -244,6 +299,7 @@ fn blocks(
                 appearance.font.size,
                 false,
                 false,
+                TextWeight::Normal,
             ),
             Block::Heading { level, contents } => inlines(
                 ui,
@@ -258,6 +314,7 @@ fn blocks(
                         .unwrap_or(1.0),
                 true,
                 false,
+                TextWeight::Bold,
             ),
             Block::Quote(contents) => {
                 egui::Frame::new()
@@ -268,7 +325,11 @@ fn blocks(
                         });
                     });
             }
-            Block::List { start, items } => {
+            Block::List {
+                start,
+                items,
+                style,
+            } => {
                 for (index, item) in items.iter().enumerate() {
                     ui.push_id(index, |ui| {
                         ui.horizontal_top(|ui| {
@@ -278,7 +339,11 @@ fn blocks(
                                     egui::Checkbox::without_text(&mut checked.clone()),
                                 );
                             } else if let Some(marker) = item.marker(*start, index) {
-                                ui.label(marker);
+                                ui.label(RichText::new(marker).family(if style.bold {
+                                    crate::font_families::bold(ui)
+                                } else {
+                                    egui::FontFamily::Proportional
+                                }));
                             }
                             ui.vertical(|ui| {
                                 ui.set_max_width((ui.available_width() - LIST_INDENT).max(0.0));
@@ -288,18 +353,29 @@ fn blocks(
                     });
                 }
             }
-            Block::Code { language, text } => {
+            Block::Code {
+                language,
+                text,
+                style,
+            } => {
                 egui::Frame::new()
                     .fill(colors.code_background)
                     .inner_margin(CODE_PADDING)
                     .show(ui, |ui| {
                         if let Some(job) = provider.code(ui, language, text) {
-                            ui.add(egui::Label::new(job).selectable(true));
+                            ui.add(egui::Label::new(code_job(ui, job, *style)).selectable(true));
                         } else {
                             ui.add(
                                 egui::Label::new(
                                     RichText::new(text)
-                                        .font(appearance.font.clone())
+                                        .font(FontId::new(
+                                            appearance.font.size,
+                                            if style.bold {
+                                                crate::font_families::editor_bold(ui)
+                                            } else {
+                                                appearance.font.family.clone()
+                                            },
+                                        ))
                                         .color(colors.foreground),
                                 )
                                 .selectable(true),
@@ -331,6 +407,11 @@ fn blocks(
                                     appearance.font.size,
                                     row_index == 0,
                                     false,
+                                    if row_index == 0 {
+                                        TextWeight::Bold
+                                    } else {
+                                        TextWeight::Normal
+                                    },
                                 )
                             });
                         }
@@ -354,6 +435,7 @@ fn inlines(
     size: f32,
     heading: bool,
     code_frame: bool,
+    weight: TextWeight,
 ) {
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
@@ -361,7 +443,9 @@ fn inlines(
             match inline {
                 Inline::Text(span) => {
                     let mut text = RichText::new(&span.text)
-                        .font(inline_font(ui, span.style, appearance, size, heading))
+                        .font(inline_font(
+                            ui, span.style, appearance, size, weight, code_frame,
+                        ))
                         .color(colors.foreground)
                         .line_height(Some(if heading {
                             size * HEADING_LINE_HEIGHT

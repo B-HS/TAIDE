@@ -6,9 +6,19 @@ use resvg::usvg::fontdb::{Database, Family, Query, Weight};
 use taide_model::error::{AppError, AppResult};
 
 pub(crate) use taide_native_ui::font_families::medium;
-use taide_native_ui::font_families::{MEDIUM_FAMILY, SEMIBOLD_FAMILY};
+use taide_native_ui::font_families::{
+    BOLD_FAMILY, CODE_BOLD_FAMILY, CODE_SEMIBOLD_FAMILY, MEDIUM_FAMILY, SEMIBOLD_FAMILY,
+};
 const MEDIUM_WEIGHT: u16 = 500;
 const CODICON_FONT: &[u8] = include_bytes!("../assets/codicons/codicon.ttf");
+const CODE_FONT_STACK: [&str; 6] = [
+    "SFMono-Regular",
+    "Menlo",
+    "Monaco",
+    "Consolas",
+    "Liberation Mono",
+    "Courier New",
+];
 const UI_FONT_STACK: [&str; 5] = [
     "Segoe UI",
     "Roboto",
@@ -43,17 +53,39 @@ pub(crate) fn prepare(
         );
         warnings.push("native find icons exceed their font byte budget".into());
     }
-    let fallback = definitions.families[&FontFamily::Proportional].clone();
-    for (weight, family) in [
-        (Weight::NORMAL, FontFamily::Proportional),
+    for (weight, family, is_monospace) in [
+        (Weight::NORMAL, FontFamily::Proportional, false),
         (
             Weight(MEDIUM_WEIGHT),
             FontFamily::Name(MEDIUM_FAMILY.into()),
+            false,
         ),
-        (Weight::SEMIBOLD, FontFamily::Name(SEMIBOLD_FAMILY.into())),
+        (
+            Weight::SEMIBOLD,
+            FontFamily::Name(SEMIBOLD_FAMILY.into()),
+            false,
+        ),
+        (Weight::BOLD, FontFamily::Name(BOLD_FAMILY.into()), false),
+        (Weight::NORMAL, FontFamily::Monospace, true),
+        (
+            Weight::SEMIBOLD,
+            FontFamily::Name(CODE_SEMIBOLD_FAMILY.into()),
+            true,
+        ),
+        (
+            Weight::BOLD,
+            FontFamily::Name(CODE_BOLD_FAMILY.into()),
+            true,
+        ),
     ] {
+        let fallback_family = if is_monospace {
+            FontFamily::Monospace
+        } else {
+            FontFamily::Proportional
+        };
+        let fallback = definitions.families[&fallback_family].clone();
         #[cfg(target_os = "macos")]
-        let mut system = match system_face(database, weight, *remaining) {
+        let mut system = match system_face(database, weight, *remaining, is_monospace) {
             Ok(data) => Some(data),
             Err(_) => {
                 warnings.push("native system UI font is unavailable; using font stack".into());
@@ -63,7 +95,12 @@ pub(crate) fn prepare(
         #[cfg(not(target_os = "macos"))]
         let mut system = None::<FontData>;
         let mut selected = Vec::new();
-        for name in UI_FONT_STACK {
+        let stack: &[&str] = if is_monospace {
+            &CODE_FONT_STACK
+        } else {
+            &UI_FONT_STACK
+        };
+        for name in stack {
             if let Some(id) = crate::terminal_fonts::named(database, name, weight)
                 && !selected.contains(&id)
             {
@@ -71,7 +108,11 @@ pub(crate) fn prepare(
             }
         }
         if let Some(id) = database.query(&Query {
-            families: &[Family::SansSerif],
+            families: &[if is_monospace {
+                Family::Monospace
+            } else {
+                Family::SansSerif
+            }],
             weight,
             ..Default::default()
         }) && !selected.contains(&id)
@@ -111,7 +152,8 @@ pub(crate) fn prepare(
                 continue;
             };
             *remaining = next;
-            let name = format!("taide-ui/{}/{}", weight.0, chain.len());
+            let role = if is_monospace { "mono" } else { "sans" };
+            let name = format!("taide-ui/{role}/{}/{}", weight.0, chain.len());
             definitions.font_data.insert(name.clone(), Arc::new(data));
             chain.push(name);
         }
@@ -122,8 +164,15 @@ pub(crate) fn prepare(
 }
 
 #[cfg(target_os = "macos")]
-fn system_face(database: &Database, weight: Weight, remaining: usize) -> AppResult<FontData> {
-    use objc2_app_kit::{NSFont, NSFontWeightMedium, NSFontWeightRegular, NSFontWeightSemibold};
+fn system_face(
+    database: &Database,
+    weight: Weight,
+    remaining: usize,
+    is_monospace: bool,
+) -> AppResult<FontData> {
+    use objc2_app_kit::{
+        NSFont, NSFontWeightBold, NSFontWeightMedium, NSFontWeightRegular, NSFontWeightSemibold,
+    };
     use objc2_core_foundation::{CFDictionary, CFNumber, CFRetained, CFType, CFURL};
     use objc2_core_text::{CTFont, CTFontTableOptions, kCTFontURLAttribute};
     use resvg::usvg::fontdb::Source;
@@ -132,20 +181,27 @@ fn system_face(database: &Database, weight: Weight, remaining: usize) -> AppResu
         Weight::NORMAL => unsafe { NSFontWeightRegular },
         Weight(MEDIUM_WEIGHT) => unsafe { NSFontWeightMedium },
         Weight::SEMIBOLD => unsafe { NSFontWeightSemibold },
+        Weight::BOLD => unsafe { NSFontWeightBold },
         _ => {
             return Err(AppError::InvalidArgument(
                 "system UI font weight is unsupported".into(),
             ));
         }
     };
-    let font = NSFont::systemFontOfSize_weight(SYSTEM_FONT_SIZE, weight);
+    let font = if is_monospace {
+        NSFont::monospacedSystemFontOfSize_weight(SYSTEM_FONT_SIZE, weight)
+    } else {
+        NSFont::systemFontOfSize_weight(SYSTEM_FONT_SIZE, weight)
+    };
     let font: &CTFont = font.as_ref();
-    let attribute = unsafe { font.attribute(kCTFontURLAttribute) }
-        .ok_or_else(|| AppError::Internal("system UI font has no URL".into()))?;
-    let path = attribute
-        .downcast_ref::<CFURL>()
-        .and_then(CFURL::to_file_path)
-        .ok_or_else(|| AppError::InvalidArgument("system UI font URL is invalid".into()))?;
+    let path = unsafe { font.attribute(kCTFontURLAttribute) }
+        .map(|attribute| {
+            attribute
+                .downcast_ref::<CFURL>()
+                .and_then(CFURL::to_file_path)
+                .ok_or_else(|| AppError::InvalidArgument("system UI font URL is invalid".into()))
+        })
+        .transpose()?;
     let head = unsafe { font.table(u32::from_be_bytes(*b"head"), CTFontTableOptions::empty()) }
         .ok_or_else(|| AppError::InvalidArgument("system UI font has no head table".into()))?;
     if head.len() != FONT_HEAD_BYTES {
@@ -154,18 +210,40 @@ fn system_face(database: &Database, weight: Weight, remaining: usize) -> AppResu
         ));
     }
     let head = head.to_vec();
+    let mut tables = vec![(*b"head", head)];
+    if path.is_none() {
+        for tag in [*b"maxp", *b"hhea"] {
+            let table = unsafe { font.table(u32::from_be_bytes(tag), CTFontTableOptions::empty()) }
+                .ok_or_else(|| {
+                    AppError::InvalidArgument(
+                        "system UI font identification table is missing".into(),
+                    )
+                })?;
+            tables.push((tag, table.to_vec()));
+        }
+    }
     let mut selected = None;
     for face in database.faces() {
-        if !matches!(&face.source, Source::File(source) if source == &path) {
+        let matches_source = if let Some(path) = &path {
+            matches!(&face.source, Source::File(source) if source == path)
+        } else {
+            face.monospaced == is_monospace
+        };
+        if !matches_source {
             continue;
         }
-        let data = crate::terminal_fonts::face_data(database, face.id, remaining)?;
+        let data = match crate::terminal_fonts::face_data(database, face.id, remaining) {
+            Ok(data) => data,
+            Err(error) if path.is_some() => return Err(error),
+            Err(_) => continue,
+        };
         let parsed = skrifa::FontRef::from_index(&data.font, data.index)
             .map_err(|_| AppError::InvalidArgument("system UI font data is invalid".into()))?;
-        let Some(table) = parsed.table_data(skrifa::raw::types::Tag::new(b"head")) else {
-            continue;
-        };
-        if table.as_bytes() == head {
+        if tables.iter().all(|(tag, bytes)| {
+            parsed
+                .table_data(skrifa::raw::types::Tag::new(tag))
+                .is_some_and(|table| table.as_bytes() == bytes)
+        }) {
             selected = Some(data);
             break;
         }
@@ -262,14 +340,16 @@ mod tests {
         let mut budget = builtin.font.len() * 3 + CODICON_FONT.len();
         prepare(&database, &mut definitions, &mut budget);
         assert_eq!(budget, 0);
-        assert!(definitions.families[&FontFamily::Proportional][0].starts_with("taide-ui/400/"));
+        assert!(
+            definitions.families[&FontFamily::Proportional][0].starts_with("taide-ui/sans/400/")
+        );
         assert!(
             definitions.families[&FontFamily::Name(MEDIUM_FAMILY.into())][0]
-                .starts_with("taide-ui/500/")
+                .starts_with("taide-ui/sans/500/")
         );
         assert!(
             definitions.families[&FontFamily::Name(SEMIBOLD_FAMILY.into())][0]
-                .starts_with("taide-ui/600/")
+                .starts_with("taide-ui/sans/600/")
         );
         let medium_font = &definitions.font_data
             [&definitions.families[&FontFamily::Name(MEDIUM_FAMILY.into())][0]];
@@ -304,6 +384,20 @@ mod tests {
             refused.families[&FontFamily::Name(SEMIBOLD_FAMILY.into())],
             defaults.families[&FontFamily::Proportional]
         );
+        assert_eq!(
+            refused.families[&FontFamily::Name(BOLD_FAMILY.into())],
+            defaults.families[&FontFamily::Proportional]
+        );
+        assert_eq!(
+            refused.families[&FontFamily::Monospace],
+            defaults.families[&FontFamily::Monospace]
+        );
+        for name in [CODE_SEMIBOLD_FAMILY, CODE_BOLD_FAMILY] {
+            assert_eq!(
+                refused.families[&FontFamily::Name(name.into())],
+                defaults.families[&FontFamily::Monospace]
+            );
+        }
     }
 
     #[cfg(target_os = "macos")]
@@ -311,9 +405,18 @@ mod tests {
     fn ui_fonts는_os가_선택한_regular_medium_semibold_face와_variation을_실제_renderer에_연결한다()
     {
         let database = crate::system_fonts::database();
-        let regular = system_face(&database, Weight::NORMAL, FONT_BUDGET).unwrap();
-        let medium_font = system_face(&database, Weight(MEDIUM_WEIGHT), FONT_BUDGET).unwrap();
-        let semibold_font = system_face(&database, Weight::SEMIBOLD, FONT_BUDGET).unwrap();
+        let regular = system_face(&database, Weight::NORMAL, FONT_BUDGET, false).unwrap();
+        let medium_font =
+            system_face(&database, Weight(MEDIUM_WEIGHT), FONT_BUDGET, false).unwrap();
+        let semibold_font = system_face(&database, Weight::SEMIBOLD, FONT_BUDGET, false).unwrap();
+        let bold_font = system_face(&database, Weight::BOLD, FONT_BUDGET, false).unwrap();
+        let code_regular = system_face(&database, Weight::NORMAL, FONT_BUDGET, true).unwrap();
+        let code_semibold = system_face(&database, Weight::SEMIBOLD, FONT_BUDGET, true).unwrap();
+        let code_bold = system_face(&database, Weight::BOLD, FONT_BUDGET, true).unwrap();
+        assert_ne!(regular, code_regular);
+        assert_ne!(regular, bold_font);
+        assert_ne!(code_regular, code_semibold);
+        assert_ne!(code_regular, code_bold);
         assert!(!regular.tweak.coords.as_ref().is_empty());
         assert_ne!(regular.tweak.coords, medium_font.tweak.coords);
         assert_ne!(medium_font.tweak.coords, semibold_font.tweak.coords);
@@ -334,6 +437,27 @@ mod tests {
         assert_eq!(regular_prepared.as_ref(), &regular);
         assert_eq!(medium_prepared.as_ref(), &medium_font);
         assert_eq!(semibold_prepared.as_ref(), &semibold_font);
+        assert_eq!(
+            definitions.font_data[&definitions.families[&FontFamily::Name(BOLD_FAMILY.into())][0]]
+                .as_ref(),
+            &bold_font
+        );
+        assert_eq!(
+            definitions.font_data[&definitions.families[&FontFamily::Monospace][0]].as_ref(),
+            &code_regular
+        );
+        assert_eq!(
+            definitions.font_data
+                [&definitions.families[&FontFamily::Name(CODE_SEMIBOLD_FAMILY.into())][0]]
+                .as_ref(),
+            &code_semibold
+        );
+        assert_eq!(
+            definitions.font_data
+                [&definitions.families[&FontFamily::Name(CODE_BOLD_FAMILY.into())][0]]
+                .as_ref(),
+            &code_bold
+        );
         let context = egui::Context::default();
         context.set_fonts(definitions);
         let state = taide_runtime::AppState::new(taide_model::paths::AppPaths::new(

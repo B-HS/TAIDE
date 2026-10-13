@@ -124,6 +124,237 @@ fn table_bounds(
 }
 
 #[test]
+fn 미리보기는_암시_줄과_컨테이너_여백을_원본처럼_배치한다() {
+    use taide_native_editor::documentation::ListItem;
+    const EXPECTED_LINE_HEIGHT: f32 = 20.0;
+    const EXPECTED_MARGIN: f32 = 8.0;
+    let items = ["plain first", "plain second"]
+        .into_iter()
+        .map(|label| ListItem {
+            checked: None,
+            ordinal: None,
+            marker_style: None,
+            blocks: vec![Block::Inline(text(label))],
+        })
+        .collect();
+    let document = RichDocument {
+        blocks: vec![
+            Block::List {
+                start: None,
+                items,
+                style: Default::default(),
+            },
+            Block::Quote(vec![
+                Block::Paragraph(text("quote first")),
+                Block::Paragraph(text("quote second")),
+            ]),
+        ],
+    };
+    let context = Context::default();
+    let mut output = context.run_ui(
+        RawInput {
+            screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, SCREEN)),
+            ..Default::default()
+        },
+        |ui| show_preview(ui, &document, &appearance(), colors(), &mut Preview),
+    );
+    output.textures_delta.clear();
+    let rect = |label| {
+        output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == label => {
+                    Some(Rect::from_min_size(text.pos, text.galley.size()))
+                }
+                _ => None,
+            })
+            .unwrap()
+    };
+    assert_eq!(rect("plain first").height(), EXPECTED_LINE_HEIGHT);
+    assert_eq!(
+        rect("plain second").top() - rect("plain first").bottom(),
+        0.0
+    );
+    assert_eq!(
+        rect("quote second").top() - rect("quote first").bottom(),
+        EXPECTED_MARGIN
+    );
+    let border = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::LineSegment { points, stroke } if stroke.width == QUOTE_BORDER_WIDTH => {
+                Some(Rect::from_two_pos(points[0], points[1]))
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(border.top(), rect("quote first").top());
+    assert_eq!(border.bottom(), rect("quote second").bottom());
+}
+
+#[test]
+fn 미리보기_코드와_상속_굵기는_편집기_글꼴과_별개로_선택된다() {
+    use taide_native_editor::documentation::{ListItem, Style};
+    use taide_native_ui::font_families::{
+        BOLD_FAMILY, CODE_BOLD_FAMILY, CODE_SEMIBOLD_FAMILY, SEMIBOLD_FAMILY,
+    };
+    let context = Context::default();
+    let mut definitions = egui::FontDefinitions::default();
+    for name in [BOLD_FAMILY, SEMIBOLD_FAMILY] {
+        definitions.families.insert(
+            egui::FontFamily::Name(name.into()),
+            definitions.families[&egui::FontFamily::Proportional].clone(),
+        );
+    }
+    for name in [CODE_BOLD_FAMILY, CODE_SEMIBOLD_FAMILY] {
+        definitions.families.insert(
+            egui::FontFamily::Name(name.into()),
+            definitions.families[&egui::FontFamily::Monospace].clone(),
+        );
+    }
+    context.set_fonts(definitions);
+    let code = |label: &str, is_bold| {
+        vec![Inline::Text(Span {
+            text: label.into(),
+            style: Style {
+                code: true,
+                bold: is_bold,
+                ..Default::default()
+            },
+            ..Default::default()
+        })]
+    };
+    let document = RichDocument {
+        blocks: vec![
+            Block::Paragraph(code("inline code", false)),
+            Block::Paragraph(code("strong code", true)),
+            Block::Heading {
+                level: 1,
+                contents: code("heading code", false),
+            },
+            Block::Heading {
+                level: 1,
+                contents: text("heading text"),
+            },
+            Block::Code {
+                language: String::new(),
+                text: "header code".into(),
+                style: Style {
+                    bold: true,
+                    ..Default::default()
+                },
+            },
+            Block::List {
+                start: Some(1),
+                items: vec![ListItem {
+                    checked: None,
+                    ordinal: None,
+                    marker_style: None,
+                    blocks: vec![Block::Inline(text("list text"))],
+                }],
+                style: Style {
+                    bold: true,
+                    ..Default::default()
+                },
+            },
+        ],
+    };
+    let mut appearance = appearance();
+    appearance.font = FontId::new(
+        EDITOR_FONT_SIZE,
+        egui::FontFamily::Name("unregistered-editor-setting".into()),
+    );
+    let mut output = context.run_ui(
+        RawInput {
+            screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, SCREEN)),
+            ..Default::default()
+        },
+        |ui| show_preview(ui, &document, &appearance, colors(), &mut Preview),
+    );
+    output.textures_delta.clear();
+    for (label, family) in [
+        ("inline code", egui::FontFamily::Monospace),
+        (
+            "strong code",
+            egui::FontFamily::Name(CODE_BOLD_FAMILY.into()),
+        ),
+        (
+            "heading code",
+            egui::FontFamily::Name(CODE_SEMIBOLD_FAMILY.into()),
+        ),
+        (
+            "heading text",
+            egui::FontFamily::Name(SEMIBOLD_FAMILY.into()),
+        ),
+        (
+            "header code",
+            egui::FontFamily::Name(CODE_BOLD_FAMILY.into()),
+        ),
+        ("1.", egui::FontFamily::Name(BOLD_FAMILY.into())),
+    ] {
+        let text = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == label => Some(text),
+                _ => None,
+            })
+            .unwrap();
+        assert!(
+            text.galley
+                .job
+                .sections
+                .iter()
+                .all(|section| section.format.font_id.family == family),
+            "wrong family {label}"
+        );
+    }
+}
+
+#[test]
+fn 인접_문단의_세로_여백은_원본처럼_병합된다() {
+    const EXPECTED_GAP: f32 = 8.0;
+    let document = RichDocument {
+        blocks: vec![
+            Block::Paragraph(text("first flow paragraph")),
+            Block::Paragraph(text("second flow paragraph")),
+        ],
+    };
+    let context = Context::default();
+    let mut output = context.run_ui(
+        RawInput {
+            screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, SCREEN)),
+            ..Default::default()
+        },
+        |ui| show_preview(ui, &document, &appearance(), colors(), &mut Preview),
+    );
+    output.textures_delta.clear();
+    let first = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.job.text == "first flow paragraph" => {
+                Some(Rect::from_min_size(text.pos, text.galley.size()))
+            }
+            _ => None,
+        })
+        .unwrap();
+    let second = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.job.text == "second flow paragraph" => {
+                Some(Rect::from_min_size(text.pos, text.galley.size()))
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(second.top() - first.bottom(), EXPECTED_GAP);
+}
+
+#[test]
 fn 복합_셀의_블록과_중첩_표는_병합_영역과_현재_너비에_맞게_배치된다() {
     use taide_native_editor::documentation::{Alignment, ListItem, TableCell, TableLayout};
     const COLUMN_COUNT: usize = 2;
@@ -156,6 +387,7 @@ fn 복합_셀의_블록과_중첩_표는_병합_영역과_현재_너비에_맞�
             contents: text("cell heading"),
         },
         Block::List {
+            style: Default::default(),
             start: Some(-1),
             items: vec![ListItem {
                 checked: None,
@@ -165,6 +397,7 @@ fn 복합_셀의_블록과_중첩_표는_병합_영역과_현재_너비에_맞�
             }],
         },
         Block::Code {
+            style: Default::default(),
             language: String::new(),
             text: "let cell = 1;\nnext line".into(),
         },
@@ -331,6 +564,7 @@ fn 복합_셀의_블록과_중첩_표는_병합_영역과_현재_너비에_맞�
         panic!("expected table")
     };
     layout.cells[0][0].blocks = Some(vec![Block::List {
+        style: Default::default(),
         start: None,
         items: vec![ListItem {
             checked: Some(true),
@@ -435,6 +669,7 @@ fn 인용과_표는_원본_테두리를_사용하고_긴_코드는_줄바꿈하�
                 rows: vec![vec![text("value")]],
             },
             Block::Code {
+                style: Default::default(),
                 language: String::new(),
                 text: code.clone(),
             },
@@ -1215,6 +1450,7 @@ fn 순서_목록은_음수에서_0을_거쳐_증가하고_큰_번호에서도_ov
     let context = Context::default();
     let document = RichDocument {
         blocks: vec![Block::List {
+            style: Default::default(),
             start: Some(NEGATIVE_START),
             items: vec![
                 taide_native_editor::documentation::ListItem {
@@ -1262,6 +1498,7 @@ fn 항목별_ordinal은_미리보기와_일반_표시에서_역순과_번호_재
     const ORDINALS: [i64; 3] = [3, -4, -5];
     let document = RichDocument {
         blocks: vec![Block::List {
+            style: Default::default(),
             start: Some(ORDINALS[0]),
             items: ORDINALS
                 .into_iter()
@@ -1312,6 +1549,7 @@ fn 항목별_type은_두_표시에서_번호_도형_생략을_그린다() {
         for (style, marker) in styles {
             let document = RichDocument {
                 blocks: vec![Block::List {
+                    style: Default::default(),
                     start: None,
                     items: vec![ListItem {
                         checked: None,
