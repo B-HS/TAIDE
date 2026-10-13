@@ -9,6 +9,7 @@ JSON syntax validation policy in src/json-validation.rs is adapted from the same
 JSON value conversion and comparison in src/json-value.rs are adapted from the same JSON language service and its bundled JSONC parser.
 Local JSON schema reference and anchor resolution in src/json-schema-refs.rs is adapted from the same JSON language service.
 JSON schema URI normalization in src/json-schema-uri.rs is adapted from the same JSON language service and Microsoft vscode-uri (https://github.com/microsoft/vscode-uri).
+JSON relative schema context and property selection in src/json-schema-uri.rs are adapted from the same JSON language service and Microsoft Monaco JSONWorker.
 Source: https://github.com/microsoft/vscode-json-languageservice
 
 The MIT License (MIT)

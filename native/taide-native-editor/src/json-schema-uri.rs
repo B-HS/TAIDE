@@ -1,4 +1,5 @@
 use crate::document::EditorError;
+use crate::json_parser::{Document, Kind, Value};
 
 const COLON: u16 = 0x3a;
 const SLASH: u16 = 0x2f;
@@ -8,6 +9,9 @@ const PERCENT: u16 = 0x25;
 const AT: u16 = 0x40;
 const ESCAPE_UNITS: usize = 3;
 const HEX_RADIX: u8 = 16;
+const HEX_DIGITS: &[u8] = b"0123456789ABCDEF";
+const DOT: u16 = 0x2e;
+const PROPERTY_VALUE_CHILDREN: usize = 2;
 const FILE: &[u16] = &[0x66, 0x69, 0x6c, 0x65];
 const HTTP: &[u16] = &[0x68, 0x74, 0x74, 0x70];
 const HTTPS: &[u16] = &[0x68, 0x74, 0x74, 0x70, 0x73];
@@ -58,6 +62,62 @@ impl Budget {
         }
         Ok(())
     }
+
+    fn encoded(
+        &mut self,
+        target: &mut Vec<u16>,
+        value: &[u16],
+        is_path: bool,
+        is_authority: bool,
+    ) -> Result<(), EditorError> {
+        self.charge(value.len())?;
+        for character in char::decode_utf16(value.iter().copied()) {
+            let character = character.map_err(|_| EditorError::InvalidBoundary)?;
+            let is_safe = character.is_ascii_alphanumeric()
+                || matches!(character, '-' | '.' | '_' | '~')
+                || is_path && character == '/'
+                || is_authority && matches!(character, '[' | ']' | ':');
+            if is_safe {
+                let mut units = [0; char::MAX_LEN_UTF16];
+                self.append(target, character.encode_utf16(&mut units))?;
+                continue;
+            }
+            let mut bytes = [0; char::MAX_LEN_UTF8];
+            for &byte in character.encode_utf8(&mut bytes).as_bytes() {
+                self.append(
+                    target,
+                    &[
+                        PERCENT,
+                        u16::from(HEX_DIGITS[usize::from(byte / HEX_RADIX)]),
+                        u16::from(HEX_DIGITS[usize::from(byte % HEX_RADIX)]),
+                    ],
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    fn format_component(
+        &mut self,
+        target: &mut Vec<u16>,
+        value: &[u16],
+        should_encode: bool,
+        is_path: bool,
+        is_authority: bool,
+    ) -> Result<(), EditorError> {
+        if should_encode {
+            return self.encoded(target, value, is_path, is_authority);
+        }
+        self.escaped(target, value)
+    }
+}
+
+struct Parts<'a> {
+    scheme: &'a [u16],
+    authority: Vec<u16>,
+    path: Vec<u16>,
+    query: Vec<u16>,
+    fragment: Vec<u16>,
 }
 
 fn is_word(unit: u16) -> bool {
@@ -140,11 +200,10 @@ fn lower(input: &[u16], budget: &mut Budget) -> Result<Vec<u16>, EditorError> {
     Ok(result)
 }
 
-fn normalize(input: &[u16], is_resource: bool, limits: Limits) -> Result<Vec<u16>, EditorError> {
-    if input.len() > limits.max_input_units {
+fn parse<'a>(input: &'a [u16], budget: &mut Budget) -> Result<Parts<'a>, EditorError> {
+    if input.len() > budget.limits.max_input_units {
         return Err(EditorError::Capacity);
     }
-    let mut budget = Budget { limits, work: 0 };
     budget.charge(input.len())?;
     let mut cursor = 0;
     let scheme_end = input
@@ -158,9 +217,7 @@ fn normalize(input: &[u16], is_resource: bool, limits: Limits) -> Result<Vec<u16
                     .iter()
                     .all(|&unit| is_word(unit) || matches!(unit, 0x2b | 0x2e | 0x2d))
             {
-                let mut result = Vec::new();
-                budget.append(&mut result, input)?;
-                return Ok(result);
+                return Err(EditorError::InvalidBoundary);
             }
             cursor = end + 1;
             scheme
@@ -173,7 +230,7 @@ fn normalize(input: &[u16], is_resource: bool, limits: Limits) -> Result<Vec<u16
             .iter()
             .position(|&unit| matches!(unit, SLASH | QUESTION | HASH))
             .map_or(input.len(), |end| cursor + end);
-        let value = decode(&input[cursor..end], &mut budget)?;
+        let value = decode(&input[cursor..end], budget)?;
         cursor = end;
         value
     } else {
@@ -183,7 +240,7 @@ fn normalize(input: &[u16], is_resource: bool, limits: Limits) -> Result<Vec<u16
         .iter()
         .position(|&unit| matches!(unit, QUESTION | HASH))
         .map_or(input.len(), |end| cursor + end);
-    let mut path = decode(&input[cursor..end], &mut budget)?;
+    let mut path = decode(&input[cursor..end], budget)?;
     cursor = end;
     if [FILE, HTTP, HTTPS].contains(&scheme) && path.first() != Some(&SLASH) {
         path.insert(0, SLASH);
@@ -192,9 +249,7 @@ fn normalize(input: &[u16], is_resource: bool, limits: Limits) -> Result<Vec<u16
         && (!authority.is_empty() && path[0] != SLASH
             || authority.is_empty() && path.starts_with(&[SLASH, SLASH]))
     {
-        let mut result = Vec::new();
-        budget.append(&mut result, input)?;
-        return Ok(result);
+        return Err(EditorError::InvalidBoundary);
     }
     let query = if input.get(cursor) == Some(&QUESTION) {
         cursor += 1;
@@ -202,7 +257,7 @@ fn normalize(input: &[u16], is_resource: bool, limits: Limits) -> Result<Vec<u16
             .iter()
             .position(|&unit| unit == HASH)
             .map_or(input.len(), |end| cursor + end);
-        let value = decode(&input[cursor..end], &mut budget)?;
+        let value = decode(&input[cursor..end], budget)?;
         cursor = end;
         value
     } else {
@@ -214,10 +269,32 @@ fn normalize(input: &[u16], is_resource: bool, limits: Limits) -> Result<Vec<u16
             .iter()
             .position(|&unit| matches!(unit, 0x0a | 0x0d | 0x2028 | 0x2029))
             .map_or(input.len(), |end| cursor + end);
-        decode(&input[cursor..end], &mut budget)?
+        decode(&input[cursor..end], budget)?
     } else {
         Vec::new()
     };
+    Ok(Parts {
+        scheme,
+        authority,
+        path,
+        query,
+        fragment,
+    })
+}
+
+fn format(
+    parts: Parts<'_>,
+    should_encode: bool,
+    is_resource: bool,
+    budget: &mut Budget,
+) -> Result<Vec<u16>, EditorError> {
+    let Parts {
+        scheme,
+        authority,
+        mut path,
+        query,
+        fragment,
+    } = parts;
     let mut result = Vec::new();
     budget.append(&mut result, scheme)?;
     budget.append(&mut result, &[COLON])?;
@@ -226,16 +303,35 @@ fn normalize(input: &[u16], is_resource: bool, limits: Limits) -> Result<Vec<u16
     }
     if !authority.is_empty() {
         let host_start = if let Some(at) = authority.iter().position(|&unit| unit == AT) {
-            budget.escaped(&mut result, &authority[..at])?;
+            let userinfo = &authority[..at];
+            if let Some(colon) = userinfo.iter().rposition(|&unit| unit == COLON) {
+                budget.format_component(
+                    &mut result,
+                    &userinfo[..colon],
+                    should_encode,
+                    false,
+                    false,
+                )?;
+                budget.append(&mut result, &[COLON])?;
+                budget.format_component(
+                    &mut result,
+                    &userinfo[colon + 1..],
+                    should_encode,
+                    false,
+                    true,
+                )?;
+            } else {
+                budget.format_component(&mut result, userinfo, should_encode, false, false)?;
+            }
             budget.append(&mut result, &[AT])?;
             at + 1
         } else {
             0
         };
-        let host = lower(&authority[host_start..], &mut budget)?;
+        let host = lower(&authority[host_start..], budget)?;
         let port_start = host.iter().rposition(|&unit| unit == COLON);
         let host_end = port_start.unwrap_or(host.len());
-        budget.escaped(&mut result, &host[..host_end])?;
+        budget.format_component(&mut result, &host[..host_end], should_encode, false, true)?;
         budget.append(&mut result, &host[host_end..])?;
     }
     let drive = if path.len() >= ESCAPE_UNITS && path[0] == SLASH && path[2] == COLON {
@@ -248,16 +344,169 @@ fn normalize(input: &[u16], is_resource: bool, limits: Limits) -> Result<Vec<u16
     if let Some(position) = drive.filter(|&position| (0x41..=0x5a).contains(&path[position])) {
         path[position] += 0x20;
     }
-    budget.escaped(&mut result, &path)?;
+    budget.format_component(&mut result, &path, should_encode, true, false)?;
     if !is_resource && !query.is_empty() {
         budget.append(&mut result, &[QUESTION])?;
-        budget.escaped(&mut result, &query)?;
+        budget.format_component(&mut result, &query, should_encode, false, false)?;
     }
     if !is_resource && !fragment.is_empty() {
         budget.append(&mut result, &[HASH])?;
-        budget.append(&mut result, &fragment)?;
+        if should_encode {
+            budget.encoded(&mut result, &fragment, false, false)?;
+        } else {
+            budget.append(&mut result, &fragment)?;
+        }
     }
     Ok(result)
+}
+
+fn normalize(input: &[u16], is_resource: bool, limits: Limits) -> Result<Vec<u16>, EditorError> {
+    let mut budget = Budget { limits, work: 0 };
+    match parse(input, &mut budget) {
+        Ok(parts) => format(parts, false, is_resource, &mut budget),
+        Err(EditorError::InvalidBoundary) => {
+            let mut result = Vec::new();
+            budget.append(&mut result, input)?;
+            Ok(result)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn context_path(
+    relative: &[u16],
+    resource: &[u16],
+    budget: &mut Budget,
+) -> Result<Vec<u16>, EditorError> {
+    let total = relative
+        .len()
+        .checked_add(resource.len())
+        .ok_or(EditorError::Capacity)?;
+    if total > budget.limits.max_input_units {
+        return Err(EditorError::Capacity);
+    }
+    budget.charge(total)?;
+    let base_end = resource
+        .iter()
+        .rposition(|&unit| unit == SLASH)
+        .map_or(0, |position| position + 1);
+    let mut parts = parse(&resource[..base_end], budget)?;
+    let is_absolute = relative.first() == Some(&SLASH);
+    let source = if is_absolute {
+        relative.split(|&unit| unit == SLASH).collect::<Vec<_>>()
+    } else {
+        parts
+            .path
+            .split(|&unit| unit == SLASH)
+            .chain(relative.split(|&unit| unit == SLASH))
+            .collect::<Vec<_>>()
+    };
+    let mut normalized = Vec::new();
+    for &segment in &source {
+        budget.charge(segment.len().checked_add(1).ok_or(EditorError::Capacity)?)?;
+        if segment.is_empty() || segment == [DOT] {
+            continue;
+        }
+        if segment == [DOT, DOT] {
+            normalized.pop();
+            continue;
+        }
+        normalized.push(segment);
+    }
+    if source.len() > 1 && source.last().is_some_and(|segment| segment.is_empty()) {
+        normalized.push(&[]);
+    }
+    let mut path = Vec::new();
+    if source.first().is_some_and(|segment| segment.is_empty()) {
+        budget.append(&mut path, &[SLASH])?;
+    }
+    for (index, &segment) in normalized.iter().enumerate() {
+        if index > 0 {
+            budget.append(&mut path, &[SLASH])?;
+        }
+        budget.append(&mut path, segment)?;
+    }
+    if [FILE, HTTP, HTTPS].contains(&parts.scheme) && path.first() != Some(&SLASH) {
+        path.insert(0, SLASH);
+    }
+    if !path.is_empty()
+        && (!parts.authority.is_empty() && path[0] != SLASH
+            || parts.authority.is_empty() && path.starts_with(&[SLASH, SLASH]))
+    {
+        return Err(EditorError::InvalidBoundary);
+    }
+    parts.path = path;
+    format(parts, true, false, budget)
+}
+
+pub fn resolve_relative_path(
+    relative: &[u16],
+    resource: &[u16],
+    limits: Limits,
+) -> Result<Vec<u16>, EditorError> {
+    context_path(relative, resource, &mut Budget { limits, work: 0 })
+}
+
+pub fn schema_property(
+    document: &Document,
+    resource: &[u16],
+    limits: Limits,
+) -> Result<Option<Vec<u16>>, EditorError> {
+    let Some(index) = document.root else {
+        return Ok(None);
+    };
+    let root = document
+        .nodes
+        .get(index)
+        .ok_or(EditorError::InvalidBoundary)?;
+    if root.kind != Kind::Object {
+        return Ok(None);
+    }
+    let mut budget = Budget { limits, work: 0 };
+    for &index in &root.children {
+        budget.charge(1)?;
+        let property = document
+            .nodes
+            .get(index)
+            .ok_or(EditorError::InvalidBoundary)?;
+        if property.kind != Kind::Property || property.children.len() != PROPERTY_VALUE_CHILDREN {
+            continue;
+        }
+        let key = document
+            .nodes
+            .get(property.children[0])
+            .ok_or(EditorError::InvalidBoundary)?;
+        let Value::String(key) = &key.value else {
+            continue;
+        };
+        budget.charge(key.len())?;
+        if !key.iter().copied().eq("$schema".encode_utf16()) {
+            continue;
+        }
+        let value = document
+            .nodes
+            .get(property.children[1])
+            .ok_or(EditorError::InvalidBoundary)?;
+        let Value::String(value) = &value.value else {
+            continue;
+        };
+        if value.len() > limits.max_input_units {
+            return Err(EditorError::Capacity);
+        }
+        budget.charge(value.len())?;
+        let end = value
+            .iter()
+            .position(|&unit| !is_word(unit) && !matches!(unit, 0x2b | 0x2e | 0x2d));
+        let has_scheme = value.first().is_some_and(|&unit| is_word(unit))
+            && end.is_some_and(|end| value[end] == COLON);
+        if has_scheme {
+            let mut result = Vec::new();
+            budget.append(&mut result, value)?;
+            return Ok(Some(result));
+        }
+        return context_path(value, resource, &mut budget).map(Some);
+    }
+    Ok(None)
 }
 
 pub fn normalize_id(input: &[u16], limits: Limits) -> Result<Vec<u16>, EditorError> {
