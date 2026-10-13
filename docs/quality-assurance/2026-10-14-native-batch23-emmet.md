@@ -109,3 +109,5 @@ boundaries-parity.log는compile13.33초·새경계0통과/1실패와기존변환
 추가최종0 name/nested plain-brace 사례를포함한32입력/64사례의boundaries-final.log는43131 handle에서compile18.33초·새경계2/0.00초·변환4/0.01초·필터3/0.01초·lorem3/0.02초·출력3/1실패/0.05초·준비2/0.02초의17통과/1실패·exit101으로종료했습니다. 실패는기존1840출력oracle의title=\"a\"b\"를그대로요구한두syntax 사례입니다. 원본오류값을정확히단언한뒤native title=\"a&quot;b\" 기대값으로명시수정했습니다. boundaries-quoted-final.log는85334 handle에서해당1검사만재실행해compile4.40초·1통과/3filtered·0.03초·exit0으로종료했습니다. 현재변경직접18성공과이전전체322/필터3/lorem3/새경계2의서로다른330성공을재사용하고반복성공은더하지않습니다. 현재기본1840사례는1834원본raw일치와괄호/literal/속성quote의명시적6수정을포함합니다.
 
 lorem 구현/기능표커밋5ce6a2ba/9ebfa0e4는일반push/local·remote0/0으로확인했습니다. boundaries-host.log의현재lib/Emmet8target compile17.88초와boundaries-wasm.log의현재corelib wasm32 compile4.73초는83847 handle에서exit0/추가경고0으로종료했습니다. 최종5Rustfmt·oracle MJS/QA포맷·소유diff/manifest·lock·frozen변경0·디스크630GiB/66%를확인했습니다. e3b1~7의HTML/JSX 코어확장만닫고e3/CSS·range/validation/추가후보/설정/실제App은미완료이며editor-80unwired·전체302/588(51.4%)·미완료286·목표active·잔여시간미산정을유지합니다.
+
+소유typed name-field/출력escape·원본/consumer 검사·oracle와QA/PROCESS상단8경로를b55327d0로선별커밋했습니다. 기능표baseline/64경계근거를갱신하고editor-80unwired·전체302완료를유지합니다. 사용자PROCESS하단2hunk와다른문서/결정/피드백/메모리는보존했습니다.
