@@ -129,3 +129,5 @@ current-final.log는 상태12/소비자3/실제 App2의 서로 다른17통과·3
 frozen-host.log는28.95초·exit0이지만 native-host 없는 그래프의 unused_mut 경고를 발견했습니다. feature가 있을 때만 mutable 바인딩을 두도록 정리한 frozen-host-final.log는24.45초·exit0·추가 경고0입니다. 이 바인딩 정리는 동작을 바꾸지 않으므로 앞 성공 검사들은 재사용합니다. 소유 Rust15개 fmt/native diff check exit0, manifest/lock/동결 source 변경0이며 디스크636GiB/사용66%입니다. e2b1 본문 연결만 닫고 부모 e2b/e2b2의 peek/palette·표시/버튼/IME·추가 수명과 전체 App 준비 실패/실기/성능/전환·제거/최종33은 미완료로 유지합니다. 전체302/588(51.4%)·미완료286·잔여 시간 미산정입니다.
 
 frozen-wasm.log의 --lib --features canvas --target wasm32-unknown-unknown은12.94초·exit0입니다. 현재 변경된 공통/UI 계약의 Wasm 컴파일이며 테스트 실행이나 기존 시간 API 불일치 해결로 확대하지 않습니다. editor-78은 실제 본문 소비가 연결되어 unwired에서 partial로 갱신합니다. complete302/partial92/unwired110/missing84·전체 미완료286·배정 누락/중복0·최종33은 유지합니다.
+
+소유 코드/검사/UI keymap/QA와 PROCESS 상단18경로를fe9aa9b3로 선별 커밋했습니다. 사용자 PROCESS 하단2hunk·HANDOFF/architecture/이전 결정·피드백/메모리를 보존했습니다. 기능표 baseline은 이 실제 제품 커밋으로 갱신하며 editor-78의 본문 소비만 partial로 반영합니다. 전체 완료302와 전체 목표의 미완료 상태는 유지합니다.
