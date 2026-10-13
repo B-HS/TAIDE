@@ -1,6 +1,6 @@
 {
     "date": "2026-10-14",
-    "baseline": "67145e1e",
+    "baseline": "6ffd18b6",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1246,7 +1246,10 @@
                 "native/taide-native-editor/src/emmet-markup-lorem-defaults.rs",
                 "native/taide-native-editor/src/emmet-stylesheet-parser.rs",
                 "native/taide-native-editor/src/emmet-stylesheet-defaults.rs",
-                "native/taide-native-editor/src/emmet-stylesheet-preparation.rs"
+                "native/taide-native-editor/src/emmet-stylesheet-preparation.rs",
+                "native/taide-native-editor/src/emmet-snippet-output.rs",
+                "native/taide-native-editor/src/emmet-stylesheet-format.rs",
+                "native/taide-native-editor/src/emmet-stylesheet-output.rs"
             ],
             "tests": [
                 "native/taide-native-editor/tests/emmet.rs",
@@ -1286,10 +1289,15 @@
                 "native/taide-native-editor/tests/fixtures/emmet-stylesheet-canonical.rs",
                 "native/taide-native-editor/tests/fixtures/emmet-stylesheet-inputs.mjs",
                 "native/taide-native-editor/tests/fixtures/emmet-stylesheet-preparation-oracle.mjs",
-                "native/taide-native-editor/tests/fixtures/emmet-stylesheet-preparation-oracle.rs"
+                "native/taide-native-editor/tests/fixtures/emmet-stylesheet-preparation-oracle.rs",
+                "native/taide-native-editor/tests/emmet-stylesheet-output.rs",
+                "native/taide-native-editor/tests/fixtures/emmet-stylesheet-config.mjs",
+                "native/taide-native-editor/tests/fixtures/emmet-stylesheet-preparation-inputs.mjs",
+                "native/taide-native-editor/tests/fixtures/emmet-stylesheet-output-oracle.mjs",
+                "native/taide-native-editor/tests/fixtures/emmet-stylesheet-output-oracle.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-14-native-batch23-emmet.md"],
-            "limitation": "여섯language ID·추출/markup parser·202스니펫/HTML·JSX 출력/필터/lorem과CSS parser/준비AST를portable core에연결했습니다. CSS253registry/raw·property/keyword·의존정렬/실제helper fuzzy0.3·inline/기본값/gradient/단위와UTF-16 출처·변환뒤field 인접성을확인했습니다. 원본markup1840/필터640/lorem444/64소비·CSS1638raw/2110준비사례·준비2+parser3/누적예산과기존332+새3의335서로다른성공/성능1ignored·최종host9.55/Wasm4.83초/9Rustfmt/MIT출처를재사용합니다. CSS출력·validation/range/추가후보·설정/실제App소비와전체게이트가남아unwired이며완료를올리지않습니다."
+            "limitation": "여섯language ID·추출/markup202스니펫/HTML·JSX 출력/필터/lorem·CSS253registry/준비/출력을portable core에연결했습니다. CSS 실제helper fuzzy0.3·keyword/gradient/단위·UTF-16 출처/인접성과4296 실제snippet소비·IEEEScalar4/8자리/subnormal/변수명·default/quote·brace/지수오류수정을확인했습니다. 현재raw1640/준비2111사례는명시적원본4/2수정을포함합니다. CSS출력5+parser3+준비2/markup12의현재22성공과기존335+새5의340서로다른성공/성능1ignored·host13.42/Wasm4.33초/13Rustfmt/MIT출처를재사용합니다. validation/noise/range/추가후보·설정/실제App소비와전체게이트가남아unwired이며완료를올리지않습니다."
         }
     },
     "rows": [
@@ -3260,7 +3268,7 @@
             "domain": "editor",
             "status": "unwired",
             "proof": "editor-emmet",
-            "note": "여섯language ID·추출/markup parser·202스니펫/HTML·JSX 출력/필터/lorem과CSS parser/준비AST를portable core에연결했습니다. CSS253registry/raw·property/keyword·의존정렬/실제helper fuzzy0.3·inline/기본값/gradient/단위와UTF-16 출처·변환뒤field 인접성을확인했습니다. 원본markup1840/필터640/lorem444/64소비·CSS1638raw/2110준비사례·준비2+parser3/누적예산과기존332+새3의335서로다른성공/성능1ignored·최종host9.55/Wasm4.83초/9Rustfmt/MIT출처를재사용합니다. CSS출력·validation/range/추가후보·설정/실제App소비와전체게이트가남아unwired이며완료를올리지않습니다."
+            "note": "여섯language ID·추출/markup202스니펫/HTML·JSX 출력/필터/lorem·CSS253registry/준비/출력을portable core에연결했습니다. CSS 실제helper fuzzy0.3·keyword/gradient/단위·UTF-16 출처/인접성과4296 실제snippet소비·IEEEScalar4/8자리/subnormal/변수명·default/quote·brace/지수오류수정을확인했습니다. 현재raw1640/준비2111사례는명시적원본4/2수정을포함합니다. CSS출력5+parser3+준비2/markup12의현재22성공과기존335+새5의340서로다른성공/성능1ignored·host13.42/Wasm4.33초/13Rustfmt/MIT출처를재사용합니다. validation/noise/range/추가후보·설정/실제App소비와전체게이트가남아unwired이며완료를올리지않습니다."
         },
         {
             "id": "editor-81",
