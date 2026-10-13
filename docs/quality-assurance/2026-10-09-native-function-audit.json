@@ -1,6 +1,6 @@
 {
     "date": "2026-10-14",
-    "baseline": "fe9aa9b3",
+    "baseline": "6270f23b",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -3164,7 +3164,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-ai-inline",
-            "note": "자동/명시 요청·문맥/캐시·credential/문서/뷰 수명·비파괴 ghost/Tab/undo·IME/readonly/다중 커서와 실제 peek source/split mirror를 확인했습니다. 선택 일반 후보의 자동 요청·미리보기 설정과 독립된 확장/UTF-16 추가 부분·응답 캐시 갱신·Tab/Enter 후보 수락 후 잔여 AI·Escape/스니펫 선택 보호/각 undo도 연결했습니다. 현재 App85/UI118의 서로 다른203통과·동결 host/Wasm compile이며 전체 App 준비 실패/실기 게이트가 남아 partial입니다. OS 두 창 실기/외부 credential 감시로 확대하지 않습니다."
+            "note": "자동/명시 요청·문맥/캐시·credential/문서/뷰 수명·비파괴 ghost/Tab/undo·IME/readonly/다중 커서와 실제 peek source/split mirror를 확인했습니다. 선택 일반 후보의 자동 요청·미리보기 설정과 독립된 확장/UTF-16 추가 부분·응답 캐시 갱신·Tab/Enter 후보 수락 후 잔여 AI·Escape/스니펫 선택 보호/각 undo도 연결했습니다. 현재 App85/UI118의 서로 다른203통과·동결 host/Wasm compile이며 전체 App 준비 실패/실기 게이트가 남아 partial입니다. OS 두 창 실기/외부 credential 감시로 확대하지 않습니다. 실제 팔레트의 명시 완성도 다른 파일 peek source의 경로/언어/문맥·Tab 수락/undo·owner/디스크/task0을 확인했습니다. 현재 소스 연결 묶음의 중복 제외99통과 근거를 추가하며 이전 실행과 합산하지 않습니다."
         },
         {
             "id": "editor-78",
@@ -3175,7 +3175,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-ai-edit-state",
-            "note": "선택/현재 줄·양쪽2000 UTF-16 문맥·fence·문서/owner/credential 수명·supervised 취소/비파괴 preview와 실제 본문의 기본 CmdI/재정의·지시 입력·삭제 표시/현재 font 추가 zone·localized 취소/오류·primary 버튼·CmdEnter 수락/단일 undo·디스크/task0을 연결했습니다. 현재 App123/UI253의 서로 다른376통과·동결 host/Wasm compile입니다. 다른 파일 peek/owner·실제 palette/source·split/mirror·표시/마우스 버튼/IME/추가 수명과 전체 게이트가 남아 partial입니다."
+            "note": "선택/현재 줄·양쪽2000 UTF-16 문맥·fence·문서/owner/credential 수명·supervised 취소/비파괴 preview와 실제 본문의 CmdI/재정의·지시 입력·삭제 표시/현재 font 추가 zone·localized 취소/오류·primary 버튼·CmdEnter 수락/단일 undo를 연결했습니다. 실제 다른 파일 peek와 팔레트에서 현재 source 경로/언어/문맥·source만 수락/undo·owner/디스크 보존·진행 요청 중 peek 닫힘/task0도 확인했습니다. 현재 소스 연결 App19/명시 완성1/후보82의 중복3 제외99통과·동결 host/Wasm compile이며 이전 본문376통과와 합산하지 않습니다. 추가 표시/마우스 버튼/IME·실제 split/mirror/설정/credential 수명과 전체 게이트가 남아 partial입니다."
         },
         {
             "id": "editor-79",

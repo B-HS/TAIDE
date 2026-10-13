@@ -149,3 +149,5 @@ source-final.log는 상태12/소비자3/실제 App4의19통과·49.92초·컴파
 source-completion-regression.log의82통과·13.21초·컴파일0.25초·exit0은 기존 후보/문서/스니펫/AI·키/clipboard port·LSP child 취소/오래된 응답/종료와 AI 편집 소비3건입니다. 실제 test 이름으로 Source19/명시 완성1/후보82의 중복3건을 제외한 현재 서로 다른99건이며 반복 단독 성공을 더하지 않습니다. App 내부 큐/팔레트 선택만 변경했고 UI/Editor 공개 계약은 변경하지 않아 기존 UI253 등의 성공을 유지하되 새 전체 실행으로 합산하지 않습니다.
 
 source-frozen-host/wasm.log는 현재 캐시된 그래프에서0.07/0.11초·exit0이며 동결 compile과 Wasm 테스트 실행을 구분합니다. 소유5Rust fmt/native diff check exit0, manifest/lock/동결 source 변경0, 디스크632GiB/사용66%입니다. 검사 전용 큐 조회와 진단 출력은 제거했습니다. e2b2a의 source/팔레트/닫힘만 닫고 e2b2의 추가 표시/버튼/IME·split/mirror/credential·전체 게이트와 editor-77/78 partial을 유지합니다. 전체302/588(51.4%)·미완료286·잔여 시간 미산정입니다.
+
+소유 source/검사/QA와 PROCESS 상단7경로를6270f23b로 선별 커밋했습니다. 사용자 PROCESS 하단2hunk·다른 문서/결정/피드백/메모리는 보존했습니다. 기능표 baseline을 실제 제품 커밋으로 갱신하고 editor-77/78의 검증된 source/팔레트/닫힘 근거만 추가합니다. partial/전체302완료·미완료286과 전체 목표의 active 상태는 유지합니다.
