@@ -250,15 +250,20 @@ fn ai_edit_peek(from_palette: bool) {
 
 #[test]
 fn 실제_ai_edit의_cmdi_지시_미리보기_cmdenter_수락과_undo는_디스크를_보존한다() {
-    ai_edit_body(false);
+    ai_edit_body(false, false);
 }
 
 #[test]
 fn 실제_ai_edit의_조합중_enter_escape는_지시를_보존하고_확정뒤_마우스로_수락한다() {
-    ai_edit_body(true);
+    ai_edit_body(true, false);
 }
 
-fn ai_edit_body(with_ime_and_mouse: bool) {
+#[test]
+fn 실제_ai_edit의_split은_source만_표시하고_mirror의_수락과_단일_undo를_공유한다() {
+    ai_edit_body(false, true);
+}
+
+fn ai_edit_body(with_ime_and_mouse: bool, with_split: bool) {
     let mut fixture = fixture_with_view_state(
         "--native-inlay-hints",
         false,
@@ -268,8 +273,72 @@ fn ai_edit_body(with_ime_and_mouse: bool) {
     );
     let application = fixture.application.as_mut().unwrap();
     let context = &fixture.context;
-    let view = body_view(application, &fixture.path, &fixture.tab);
+    let first = body_view(application, &fixture.path, &fixture.tab);
     let document = application.files[&fixture.path].id;
+    let view = if with_split {
+        let pane = application
+            .store
+            .views()
+            .get(first)
+            .unwrap()
+            .key
+            .pane
+            .clone();
+        assert!(application.submit(HostCommand::OpenFileToSide(
+            taide_model::layout::OpenTabInSplitRequest {
+                project_id: fixture.project.clone(),
+                target_pane: pane,
+                edge: taide_model::layout::DropEdge::Right,
+                kind: TabKind::File {
+                    path: fixture.path.clone()
+                },
+                title: "current.rs".into(),
+                preview: false,
+            }
+        )));
+        wait(
+            application,
+            context,
+            "AI edit split mirror",
+            |application| application.store.views().for_document(document).count() > 1,
+        );
+        let source = application
+            .store
+            .views()
+            .for_document(document)
+            .find(|view| view.id != first)
+            .unwrap()
+            .id;
+        let pane = application
+            .store
+            .views()
+            .get(source)
+            .unwrap()
+            .key
+            .pane
+            .clone();
+        application
+            .controller
+            .submit(ShellMutation::FocusPane(pane.clone()))
+            .unwrap();
+        wait(
+            application,
+            context,
+            "AI edit split source focus",
+            |application| {
+                application
+                    .controller
+                    .snapshot()
+                    .layouts
+                    .get(&fixture.project)
+                    .is_some_and(|layout| layout.focused_pane == pane)
+            },
+        );
+        paint(application, context, Vec::new());
+        source
+    } else {
+        first
+    };
     application.services.state.settings.write().ai_provider =
         Some(taide_model::ai::AiProviderId::Omlx);
     application.services.state.settings.write().ai_model = Some("fixture".into());
@@ -385,6 +454,22 @@ fn ai_edit_body(with_ime_and_mouse: bool) {
     assert_eq!(requests[0].instruction, instruction);
     assert_eq!(requests[0].file_path, fixture.path);
     drop(requests);
+    if with_split {
+        assert_ne!(first, view);
+        assert!(!application.editor_completion.inline_edit.is_open(
+            &application.store,
+            &application.services,
+            first,
+        ));
+        assert_eq!(
+            application.store.views().get(first).unwrap().document,
+            document
+        );
+        assert_eq!(
+            application.store.views().get(view).unwrap().document,
+            document
+        );
+    }
     assert_eq!(
         application
             .store
@@ -562,6 +647,195 @@ fn 실제_ai_edit의_재정의_명령은_입력에_도달하고_loading_escape�
         ORIGINAL
     );
     assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), ORIGINAL);
+    eframe::App::on_exit(application);
+    assert_eq!(application.services.tasks.tracked_count(), 0);
+}
+
+struct EditCredentials;
+
+impl taide_infra::secret::SecretStore for EditCredentials {
+    fn set(&self, _: taide_infra::secret::SecretAccount, _: &str) -> AppResult<()> {
+        panic!("AI edit fixture must not store credentials");
+    }
+    fn get(&self, _: taide_infra::secret::SecretAccount) -> AppResult<Option<String>> {
+        panic!("AI edit fixture must not read credentials");
+    }
+    fn delete(&self, account: taide_infra::secret::SecretAccount) -> AppResult<()> {
+        assert_eq!(account, taide_infra::secret::SecretAccount::AiOmlx);
+        Ok(())
+    }
+}
+
+#[test]
+fn 실제_ai_edit의_설정_credential_문서변경은_loading과_preview를_수락없이_회수한다() {
+    let secrets = taide_infra::secret::SecretStoreState::with_store(Arc::new(EditCredentials));
+    let mut fixture = super::inlay_hints_tests::fixture_with_view_state_and_secrets(
+        "--native-inlay-hints",
+        false,
+        |_, _, _| true,
+        ORIGINAL,
+        secrets,
+    );
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let view = body_view(application, &fixture.path, &fixture.tab);
+    let document = application.files[&fixture.path].id;
+    let (send, receive) = std::sync::mpsc::channel();
+    application.editor_completion.inline_edit =
+        crate::editor_ai_edit::State::with_complete(Arc::new(move |_, request| {
+            let send = send.clone();
+            Box::pin(async move {
+                let (reply, result) = tokio::sync::oneshot::channel();
+                send.send((request, reply)).unwrap();
+                result
+                    .await
+                    .unwrap_or_else(|_| Err(AppError::Internal("fixture closed".into())))
+            })
+        }));
+    for is_preview in [false, true] {
+        for mutation in ["model", "credential", "document"] {
+            {
+                let mut settings = application.services.state.settings.write();
+                settings.ai_provider = Some(taide_model::ai::AiProviderId::Omlx);
+                settings.ai_model = Some("fixture".into());
+            }
+            paint(application, context, Vec::new());
+            let body = crate::editor_context_menu::body(context, view).unwrap();
+            context.memory_mut(|memory| memory.request_focus(body));
+            paint(
+                application,
+                context,
+                key(egui::Key::Home, egui::Modifiers::COMMAND),
+            );
+            paint(
+                application,
+                context,
+                key(
+                    egui::Key::I,
+                    egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND,
+                ),
+            );
+            wait(
+                application,
+                context,
+                "AI edit lifetime input",
+                |application| {
+                    application.editor_completion.inline_edit.is_open(
+                        &application.store,
+                        &application.services,
+                        view,
+                    )
+                },
+            );
+            paint(
+                application,
+                context,
+                vec![egui::Event::Text("rename".into())],
+            );
+            paint(
+                application,
+                context,
+                key(egui::Key::Enter, egui::Modifiers::NONE),
+            );
+            let deadline = Instant::now() + DEADLINE;
+            let (request, reply) = loop {
+                if let Ok(reply) = receive.try_recv() {
+                    break reply;
+                }
+                eframe::App::logic(application, context, &mut eframe::Frame::_new_kittest());
+                paint(application, context, Vec::new());
+                assert!(Instant::now() < deadline, "AI edit lifetime request");
+                std::thread::yield_now();
+            };
+            assert_eq!(request.selection, "old");
+            assert_eq!(request.instruction, "rename");
+            let pending = if is_preview {
+                reply
+                    .send(Ok(taide_model::ai::AiTextResponse {
+                        request_id: request.request_id,
+                        text: Some("generated".into()),
+                    }))
+                    .unwrap();
+                let deadline = Instant::now() + DEADLINE;
+                loop {
+                    eframe::App::logic(application, context, &mut eframe::Frame::_new_kittest());
+                    if text_contains(&paint(application, context, Vec::new()), "generated") {
+                        break;
+                    }
+                    assert!(Instant::now() < deadline, "AI edit lifetime preview");
+                    std::thread::yield_now();
+                }
+                None
+            } else {
+                Some(reply)
+            };
+            match mutation {
+                "model" => {
+                    application.services.state.settings.write().ai_model = Some("other".into())
+                }
+                "credential" => application
+                    .runtime
+                    .block_on(taide_runtime::ai_actions::ai_clear_token(
+                        &application.services.secrets,
+                        taide_model::ai::AiProviderId::Omlx,
+                    ))
+                    .unwrap(),
+                "document" => {
+                    taide_native_editor::editing::type_text(&mut application.store, view, "x")
+                        .unwrap();
+                }
+                _ => unreachable!(),
+            }
+            let deadline = Instant::now() + DEADLINE;
+            loop {
+                eframe::App::logic(application, context, &mut eframe::Frame::_new_kittest());
+                let output = paint(application, context, Vec::new());
+                let closed = !application.editor_completion.inline_edit.is_open(
+                    &application.store,
+                    &application.services,
+                    view,
+                );
+                if closed && pending.as_ref().is_none_or(|reply| reply.is_closed()) {
+                    assert!(!text_contains(&output, "generated"));
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "AI edit lifetime cancellation: {mutation}"
+                );
+                std::thread::yield_now();
+            }
+            let expected = if mutation == "document" {
+                "xold\nkeep"
+            } else {
+                ORIGINAL
+            };
+            assert_eq!(
+                application
+                    .store
+                    .documents()
+                    .snapshot(document)
+                    .unwrap()
+                    .rope
+                    .to_string(),
+                expected
+            );
+            assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), ORIGINAL);
+            if mutation == "document" {
+                assert!(application.store.undo(document).unwrap());
+                assert_eq!(
+                    application
+                        .store
+                        .documents()
+                        .snapshot(document)
+                        .unwrap()
+                        .rope
+                        .to_string(),
+                    ORIGINAL
+                );
+            }
+        }
+    }
     eframe::App::on_exit(application);
     assert_eq!(application.services.tasks.tracked_count(), 0);
 }

@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: e2b2b 표시/입력에서 삭제 범위·현재/변경 font/lineheight·target 뒤 zone·가로/세로 scroll/닫힘 복원·primary 마우스 수락/undo·거절/생성취소·지시 IME를 확인했습니다. 조합중 Escape가 TextEdit 기본 필터로 포커스를 해제하는 실패를 수정했고 실제 App 입력 준비를 단언해 App20/UI34의 서로 다른54통과·소유3Rust fmt/diff를 확보했습니다. 동결 host/Wasm0.09/0.11초 exit0·기록/Git 반영 중이며 split/mirror/추가 수명·전체 App/실기·AI 완성/편집/Emmet/Markdown·전환/제거/최종33은 미완료입니다. 전체302/588(51.4%)·미완료286·부분92/미연결110/미구현84·배치23 잔여19·잔여시간 미산정이며 사용자 문서/보호 경계를 유지합니다.
+현재 상태: AI 편집의 e2/e2b/e2b2 실제 소비 범위를 연결했습니다. 본문/다른 파일 peek/팔레트·표시/마우스/IME·split source의 공유 수락/undo와 model/메모리 credential/core 문서 변경에서 loading/preview 6사례 회수·디스크/task0을 실제 App7통과로 확인했습니다. 상태/소비15·UI34의 변경 없는 성공을 재사용한 현재56통과·소유Rust fmt/diff이며 기록/Git 반영 중입니다. AI 완료 판정은 전체 App/실기 게이트가 남아 partial로 유지하며 Emmet/Markdown·전환/제거/최종33은 미완료입니다. 전체302/588(51.4%)·미완료286·부분92/미연결110/미구현84·배치23 잔여19·잔여시간 미산정이며 사용자 문서/보호 경계를 유지합니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 
@@ -151,18 +151,19 @@
 - [x] e1c. 명시 요청과 포커스/선택 — 설치된 Monaco controller의 최초 포커스 무요청·explicit/api 선택 이동 중단·blur 중단과 원본 inlineSuggest.trigger writable/기본 키 없음/즉시 요청을 적용합니다. 소유 범위는 editor completion Command/검사·UI Provider/command/preview/surface·App AI state/Provider/기존 명령 소비 및 소비자/실제 App 검사·QA/기능표/PROCESS입니다. 새 기본 키나 임의 자동 요청을 만들지 않고 후보/스니펫·재정의·명령 팔레트·readonly/IME·문서/뷰/owner/credential/취소를 보존하며 실제 입력/명령과 회귀/계약·선별 Git을 확인합니다. 추가 split/peek·전체 게이트와 부모 e1은 검증 근거가 갖춰질 때만 닫습니다.
 - [x] e1d. split/peek의 실제 요청 소스 — 원본 model URI/언어/현재 position과 native source/owner를 대조하고 소스가 다른 peek의 경로·문맥·표시/수락/undo·닫힘/오래된 응답을 재현·연결합니다. 소유 범위는 App AI state/Provider·consumer/실제 App 검사와 기존 peek/분할 fixture·QA/기능표/PROCESS입니다. 두 뷰의 source/owner/문서/창/프로젝트·credential 수명과 readonly/IME를 주입 port/임시 파일/egui로 검증하고 회귀/계약·선별 Git을 수행합니다. 일반 후보/ghost 합성 소비·전체 게이트와 부모 e1은 별도 미완료로 유지합니다.
 - [x] e1e. 일반 후보와 AI 확장 합성 — 원본 singleTextRemoveCommonPrefix/singleTextEditAugments·suggest preview 설정/UTF-16 추가 부분·후보 수락 후 잔여 제안과 Tab/Enter/Escape를 대조합니다. 소유 범위는 App AI state/합성 helper/Completion Preview/Provider·consumer/실제 App 검사·UI Provider/preview/event 및 관련 회귀·QA/기능표/PROCESS입니다. 범위와 동일 접두사가 실제 확장일 때만 합성하고 불일치/빈 후보·추가 edit/스니펫·다중 커서/readonly/IME/credential/오래된 응답을 보존하며 모델 원문·undo·사라짐/수락과 전체 게이트를 검증합니다. 원본 없는 새 후보/기본 키/임의 합성은 만들지 않습니다.
-- [ ] e2. AI 인라인 편집 — 원본 CmdI/팔레트·선택 또는 현재 줄·2000 UTF-16 양쪽 문맥·지시 입력/요청·원문 불변 삭제 표시/추가 미리보기·수락/거절/취소/오래된 응답을 기존 runtime ai_inline_edit와 native 명령/편집기 수명에 연결합니다.
+- [x] e2. AI 인라인 편집 — 원본 CmdI/팔레트·선택 또는 현재 줄·2000 UTF-16 양쪽 문맥·지시 입력/요청·원문 불변 삭제 표시/추가 미리보기·수락/거절/취소/오래된 응답을 기존 runtime ai_inline_edit와 native 명령/편집기 수명에 연결합니다.
 - [x] e2a. 요청/응답과 편집 상태 — 소유 범위는 새 App editor-ai-edit.rs/검사·lib 등록 및 QA/PROCESS입니다. 선택/현재 줄·유효 UTF-16 문맥·fence 제거·한 세션/반복 열기·설정/provider/model/credential·문서/뷰/owner·읽기 전용/IME·supervised 취소/응답 식별·수락 전 원문 보존/원자 수락/undo를 typed 주입 port·임시 EditorStore로 검증하고 위험 비례 검사·fmt/diff·기록/선별 Git을 수행합니다. 명령/입력/미리보기 UI·실제 앱 소비는 e2b에 유지하며 실제 Keychain/키/OS/사용자 데이터는 접근하지 않습니다.
-- [ ] e2b. 명령과 실제 미리보기 소비 — e2a 상태를 원본 action/default CmdI/사용자 재정의·팔레트와 본문/peek의 지시 입력·loading/취소·삭제 표시/현재 font의 추가 영역·수락/거절/Esc·CmdEnter에 연결합니다. 실제 앱/회귀·동결 계약·수명/정상 종료와 기능표/QA/PROCESS를 확인하며 전체 게이트는 f에 유지합니다.
+- [x] e2b. 명령과 실제 미리보기 소비 — e2a 상태를 원본 action/default CmdI/사용자 재정의·팔레트와 본문/peek의 지시 입력·loading/취소·삭제 표시/현재 font의 추가 영역·수락/거절/Esc·CmdEnter에 연결합니다. 실제 앱/회귀·동결 계약·수명/정상 종료와 기능표/QA/PROCESS를 확인하며 전체 게이트는 f에 유지합니다.
 - [x] e2b1. 본문 명령/입력/미리보기 — 기본 CmdI/사용자 재정의와 지시 입력·생성/취소·원문 삭제 표시/추가 zone·localized 알림·CmdEnter 수락/undo·원문/디스크/task0을 상태12/소비자3/실제 App2에서 확인했습니다. sizing pass와 창의 사전 editor keymap 소비를 수정했고 나머지 source/실기·전체 게이트는 부모 e2b에 유지합니다.
-- [ ] e2b2. source·표시·입력 추가 경계 — 실제 다른 파일 peek/owner·palette 명령·split/mirror·닫힘·반복 명령과 source 변경/credential·primary 버튼/삭제 범위/현재 font/scroll·IME와 마우스 수락/거절을 원본 및 실제 표시로 확인합니다. 미완료 source를 partial로 유지하며 관련 회귀/동결 호환성·기록/Git을 수행합니다.
+- [x] e2b2. source·표시·입력 추가 경계 — 실제 다른 파일 peek/owner·palette 명령·split/mirror·닫힘·반복 명령과 source 변경/credential·primary 버튼/삭제 범위/현재 font/scroll·IME와 마우스 수락/거절을 원본 및 실제 표시로 확인합니다. 미완료 source를 partial로 유지하며 관련 회귀/동결 호환성·기록/Git을 수행합니다.
 - [x] e2b2a. 실제 source/팔레트/닫힘 — direct·실제 팔레트의 다른 파일 peek AI 편집/완성 요청·표시/소스만 수락/undo·owner/디스크/task0과 두 번째 진행 편집 요청의 닫힘 회수를99통과·fmt/diff/동결 compile로 확인했습니다. source는 선택 처리 시점에서 전달하며 일반 Intent focus 가설/진단은 제거했습니다. 나머지 e2b2와 전체 게이트는 미완료입니다.
 - [x] e2b2b. 표시·마우스·지시 IME — 실제 삭제 범위/현재·변경 font·lineheight/target 뒤 zone/가로·세로 scroll/gutter clip/닫힘 복원·primary 마우스 수락/단일 undo·거절/생성취소/본문 포커스와 조합중 Enter/Escape·확정 지시를 확인했습니다. TextEdit 필터의 Escape 포커스 해제를 재현해 기존 필터/조합키 회수를 적용했고 실제 App의 IME수신 준비를 단언했습니다. 현재 App20/UI34의 서로 다른54통과이며 동결 host/Wasm0.09/0.11초 exit0·기록/Git을 확인했습니다. split/mirror/추가 수명과 전체 게이트는 미완료입니다.
+- [x] e2b2c. 실제 split/mirror·추가 요청 수명 — 옆 열기/FocusPane의 두 번째 source만 세션을 열고 같은 문서의 공유 수락/단일 undo·원문/디스크/task0을 확인했습니다. 메모리 SecretStore의 실제 ai_clear_token과 model 설정/core 문서 변경 각각에서 loading/preview 6사례의 무수락 회수·닫힌 응답을 실제 App에서 확인했습니다. 관련 실제 App7통과·80.53초·compile1분30초 exit0이며 상태/소비15와 UI34의 변경 없는 성공을 재사용해 현재 서로 다른56통과입니다. 공개/UI/동결 코드가 같아 compile을 반복하지 않으며 전체 게이트/editor-77/78 partial은 유지합니다.
 - [ ] f. 실제 앱·전체 게이트 — 닫을 기능의 실제 앱/child/mirror·readonly/tier/다중 커서/IME·정상 종료/회귀를 확인하고 변경 크레이트 전체 대상을 --no-fail-fast로 직접 1회 실행합니다. 성공 결과는 재사용하고 실패 영향만 재검사합니다. frozen host/Wasm compile·fmt/diff·manifest/lock/engine/보호 경계·디스크와 배치 31 실기/성능/신뢰성 부채를 구분합니다.
 - [x] f1. 프로젝트 열기 지연 위치 조사·배치 31 이관 — 전체 App 811통과/프로젝트 open 5초 초과 1실패와 Cargo 단독 동일 실패를 보존했습니다. 같은 실행 파일의 직접 검사는 저장소/크레이트 cwd에서 3.81/3.23초에 통과했습니다. 성공한 두 번째 검사 중 start_watch→notify runloop 준비 대기와 FSEventStreamStart→등록 RPC의 실제 스택을 확인했습니다. 실패 시점의 스택이나 지연 변동의 근본 원인은 확인하지 않았으며 해결/전체 exit 0으로 보고하지 않습니다. 제한 확대·검사 생략·OS 변경 없이 반복 조사를 종료하고 배치 31의 실행 환경/신뢰성 게이트에 미해결 위험을 유지합니다.
 - [ ] g. 완료 근거·선별 Git — 실제 닫힌 ID만 QA/기능표/PROCESS에 반영하고 논리 단위 선별 커밋·일반 푸시합니다. 배치 24를 기존 계획 안에서 이어가며 배치 번호를 세부 수정마다 늘리지 않습니다.
 
-다음 행동: e2b2의 실제 split/mirror와 설정/credential·문서 변경의 추가 수명을 확인합니다. editor-77/78 partial·editor-72 HTML/접근성·전체 App/OS/실기/전환·제거·최종33은 유지합니다.
+다음 행동: e의 editor-80 Emmet 원본 등록/설정/HTML·CSS·JSX 공급자와 native 기존 parser/후보/스니펫 경계를 대조합니다. editor-77/78 partial과 전체 App/실기·Markdown/전환/제거·최종33은 유지합니다.
 
 ## 완료: 배치 22 — 자동완성과 사용자 스니펫 소비 (2026-10-10)
 

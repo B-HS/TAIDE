@@ -167,3 +167,9 @@ app-ime-ready.log는실패1건의준비보완후1통과·56.56초·컴파일26.1
 ui-frozen-host/wasm.log는현재캐시된그래프에서0.09/0.11초·exit0입니다. 동결source변경없이계약compile을확인하며Wasm테스트실행/이전시간API불일치해결로확대하지않습니다. 소유3Rustfmt/diff·manifest/lock/frozen변경0·디스크630GiB/66%이며삭제/청소하지않았습니다. e2b2b의표시/입력만닫고실제split/mirror/추가credential·설정/문서수명과전체게이트/editor-77/78partial·302/588(51.4%)를유지합니다.
 
 소유조합입력수정/검사/QA와PROCESS상단5경로를36ebe0ab로선별커밋했습니다. 사용자PROCESS하단2hunk·다른문서/결정/피드백/메모리는보존했습니다. 기능표baseline과editor-78의행/근거제한을현재표시/입력검증에맞게갱신하고UI검사경로를연결합니다. partial/302완료·미완료286·목표active는유지합니다.
+
+## 실제 AI 편집 split/mirror·추가 요청 수명 (2026-10-14)
+
+기존 본문 실제 App helper를 옆 열기와 FocusPane의 현재 layout·두 번째 ViewId/같은 DocumentId로 확장했습니다. 현재 source만 세션을 열고 동일 파일/old 선택의 요청→preview→수락/공유 문서/단일 undo·디스크/task0을 확인합니다. 추가 actual fixture는 get/set에서실패하는주입SecretStore와oneshot AI포트만사용합니다. model설정/실제ai_clear_token의관찰revision/coretype_text에의한문서변경각각에서loading/preview6사례를actualApp.logic/paint로회수합니다. core변경은외부편집의주입경계이며OS입력/Keychain/파일저장까지검사했다고확대하지않습니다. 현재관련App7건실행중입니다.
+
+app-lifetimes.log는관련실제App7통과·0실패·80.53초·컴파일1분30초·exit0입니다. 새split1/수명1의6사례와수정된공유helper의기존5실제검사를확인했습니다. 영향없는state12/consumer3과현재UI34를재사용해현재서로다른56통과이며앞선App20/실행반복은합산하지않습니다. 생산코드/UI공개계약/동결의변경0이라host/Wasm0.09/0.11초compile근거는재사용하고테스트실행/전체App게이트와구분합니다. e2/e2b/e2b2의요청·소비·source/표시/입력/추가수명기능범위만닫고editor-77/78partial및전체목표active·302/588(51.4%)·미완료286·잔여시간미산정을유지합니다.
