@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
@@ -203,6 +203,7 @@ pub fn language_rules(language_id: &str) -> Option<&'static dyn LanguageRules> {
 pub struct SyntaxLease<'a> {
     syntax: Cell<Option<&'a mut EditorSyntax>>,
     document: DocumentId,
+    frame_syntax: RefCell<Option<(String, EditorTokens<'a>)>>,
 }
 
 impl<'a> SyntaxLease<'a> {
@@ -210,11 +211,49 @@ impl<'a> SyntaxLease<'a> {
         Self {
             syntax: Cell::new(Some(syntax)),
             document,
+            frame_syntax: RefCell::new(None),
         }
     }
 
     pub fn frame_tokens(&self, store: &EditorStore) -> Option<EditorTokens<'a>> {
-        self.syntax.take()?.tokens(store, self.document)
+        let syntax = self.syntax.take()?;
+        let language = store
+            .documents()
+            .snapshot(self.document)
+            .ok()?
+            .metadata
+            .language_id;
+        let tokens = syntax.tokens(store, self.document)?;
+        *self.frame_syntax.borrow_mut() = Some((language, tokens));
+        Some(tokens)
+    }
+
+    fn frame_kinds(&self, document: &DocumentSnapshot, line: usize) -> Option<Vec<Token>> {
+        let frame = self.frame_syntax.borrow();
+        let (language, tokens) = frame.as_ref()?;
+        if document.id != self.document
+            || tokens.revision != document.revision
+            || language != &document.metadata.language_id
+        {
+            return None;
+        }
+        if tokens.lines.line_count() == 0 || line_content_range(document, line).is_empty() {
+            return UntokenizedLines.tokens(document, line);
+        }
+        if line >= tokens.lines.line_count() || !tokens.lines.has_accurate_tokens(line) {
+            return None;
+        }
+        let mut kinds: Vec<Token> = Vec::new();
+        for [start_byte, style_id] in tokens.lines.spans(line).as_chunks::<SPAN_FIELDS>().0 {
+            let kind = tokens.styles.style(*style_id).kind;
+            if kinds.last().is_none_or(|previous| previous.kind != kind) {
+                kinds.push(Token {
+                    start_byte: *start_byte as usize,
+                    kind,
+                });
+            }
+        }
+        Some(kinds)
     }
 
     fn read<T>(&self, read: impl FnOnce(&mut EditorSyntax) -> T) -> Option<T> {
@@ -254,6 +293,7 @@ impl LineSyntax for SyntaxLease<'_> {
     fn tokens(&self, document: &DocumentSnapshot, line: usize) -> Option<Vec<Token>> {
         self.read(|syntax| syntax.line_kinds(document, line))
             .flatten()
+            .or_else(|| self.frame_kinds(document, line))
     }
 
     fn accurate_tokens(&self, document: &DocumentSnapshot, line: usize) -> Option<Vec<Token>> {
@@ -267,6 +307,7 @@ impl LineSyntax for SyntaxLease<'_> {
             syntax.line_kinds(document, line)
         })
         .flatten()
+        .or_else(|| self.frame_kinds(document, line))
     }
 
     fn kind_if_inserting(
@@ -277,8 +318,7 @@ impl LineSyntax for SyntaxLease<'_> {
         _character: char,
     ) -> TokenKind {
         let line_length = line_content_range(document, line).len();
-        self.read(|syntax| syntax.line_kinds(document, line))
-            .flatten()
+        self.tokens(document, line)
             .filter(|tokens| {
                 byte_in_line > 0
                     && byte_in_line < line_length

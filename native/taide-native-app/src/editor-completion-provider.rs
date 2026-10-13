@@ -23,7 +23,7 @@ use taide_native_ui::editor_surface::NativeEditor;
 use taide_runtime::AppServices;
 use uuid::Uuid;
 
-use super::{Context, PreparationContext, Request, SnippetClock, State, colors, supply};
+use super::{Context, PreparationContext, Request, SnippetClock, State, colors, emmet, supply};
 
 const SNIPPET_NESTING_LIMIT: usize = 128;
 const SNIPPET_MARKER_LIMIT: usize = 65_536;
@@ -321,6 +321,7 @@ impl Provider<'_, '_> {
     }
 
     fn supply(&mut self, store: &EditorStore, view: ViewId) {
+        self.syntax.follow_edits(store);
         let mut state = self.consumer.state.borrow_mut();
         let Some(request) = state.request(store, view).cloned() else {
             return;
@@ -334,6 +335,14 @@ impl Provider<'_, '_> {
             &services.tasks,
             Arc::new(move || repaint.request_repaint()),
         );
+        if state.supply_emmet(
+            store,
+            view,
+            self.syntax,
+            services.state.settings.read().emmet_enabled,
+        ) {
+            self.consumer.context.request_repaint();
+        }
     }
 }
 
@@ -555,6 +564,13 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
         if !state.refresh_view(store, view).ok()? {
             return None;
         }
+        self.syntax.follow_edits(store);
+        state.supply_emmet(
+            store,
+            view,
+            self.syntax,
+            self.consumer.services.state.settings.read().emmet_enabled,
+        );
         let model = state.model(store, view).ok()?;
         let request = state.request(store, view)?;
         let byte = store.views().get(view)?.selection.selections[request.selection.primary].head;
@@ -756,9 +772,6 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
         {
             return Vec::new();
         }
-        let Some((project, lsp)) = self.project.as_ref().zip(self.lsp) else {
-            return Vec::new();
-        };
         let Some(document) = store
             .views()
             .get(view)
@@ -766,12 +779,29 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
         else {
             return Vec::new();
         };
-        let mut triggers = lsp
-            .completion_options(project, &document)
-            .into_values()
+        let mut triggers = self
+            .project
+            .as_ref()
+            .zip(self.lsp)
+            .map(|(project, lsp)| lsp.completion_options(project, &document))
+            .into_iter()
+            .flat_map(|options| options.into_values())
             .flatten()
             .flat_map(|options| options.trigger_characters.unwrap_or_default())
             .collect::<Vec<_>>();
+        if matches!(
+            document.metadata.tier,
+            taide_model::file::FileSizeTier::Normal | taide_model::file::FileSizeTier::Large
+        ) {
+            triggers.extend(
+                emmet::triggers(
+                    &document.metadata.language_id,
+                    self.consumer.services.state.settings.read().emmet_enabled,
+                )
+                .iter()
+                .map(|trigger| (*trigger).to_owned()),
+            );
+        }
         triggers.sort();
         triggers.dedup();
         triggers
@@ -895,6 +925,7 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
         candidate: usize,
         alternate: bool,
     ) -> Result<bool, EditorError> {
+        self.supply(store, view);
         let token = Uuid::parse_str(token).map_err(|_| EditorError::InvalidIdentity)?;
         let origin = self
             .consumer

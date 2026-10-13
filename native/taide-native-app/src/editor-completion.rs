@@ -22,6 +22,8 @@ mod augmentation;
 mod cache;
 #[path = "editor-completion-colors.rs"]
 mod colors;
+#[path = "editor-completion-emmet.rs"]
+mod emmet;
 #[path = "editor-completion-insertion.rs"]
 mod insertion;
 #[path = "editor-completion-provider.rs"]
@@ -88,6 +90,7 @@ impl Request {
                                 && snapshot.revision == self.snapshot.revision
                                 && snapshot.metadata.language_id
                                     == self.snapshot.metadata.language_id
+                                && snapshot.metadata.tier == self.snapshot.metadata.tier
                                 && !snapshot.metadata.read_only
                         })
             })
@@ -121,6 +124,8 @@ struct Entry {
     complete: bool,
     groups: BTreeMap<usize, Group>,
     snippets: Vec<taide_native_editor::completion::Candidate>,
+    emmet: Vec<taide_native_editor::completion::Candidate>,
+    emmet_context: Option<(Uuid, bool)>,
     words: Vec<taide_native_editor::completion::Candidate>,
     word_result:
         Option<tokio::sync::oneshot::Receiver<Vec<taide_native_editor::completion::Candidate>>>,
@@ -251,6 +256,8 @@ impl State {
                 complete: request.providers.is_empty(),
                 groups: BTreeMap::new(),
                 snippets: Vec::new(),
+                emmet: Vec::new(),
+                emmet_context: None,
                 words: Vec::new(),
                 word_result: None,
                 supplied: false,
@@ -312,6 +319,8 @@ impl State {
             .map_err(|_| Failure::Cancelled)?;
         cache::rebase_candidates(store, &request.snapshot, byte, &mut entry.words)
             .map_err(|_| Failure::Cancelled)?;
+        cache::rebase_candidates(store, &request.snapshot, byte, &mut entry.emmet)
+            .map_err(|_| Failure::Cancelled)?;
         entry.origin_position = request.position;
         entry.leading = cache::leading(&request.snapshot, byte);
         entry.delta = 0;
@@ -350,6 +359,7 @@ impl State {
                     || (entry.needs_clipboard && entry.clipboard.is_none())
                     || (entry.word_result.is_some()
                         && entry.snippets.is_empty()
+                        && entry.emmet.is_empty()
                         && entry
                             .groups
                             .values()

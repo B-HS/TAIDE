@@ -169,3 +169,23 @@ output-final.log는29282 handle에서compile10.46초·출력4/1실패/0.13초·p
 기존340성공과 신규3의343서로다른Core 성공을 재사용하며 비교사례수를 테스트 수로 더하지 않습니다. 실제 App의 standard token Other·설정 변경·readonly/tier/IME/다중커서·peek/mirror·취소·실제 삽입/undo 경계는 미완료입니다. editor-80unwired·전체302/588(51.4%)·전체App 준비 실패/성능ignored/remote Wasm 게이트와 목표active·잔여시간미산정을 유지합니다.
 
 completion-host.log/current lib+target14.87초와completion-wasm.log/corelib4.74초는76083 handle에서 exit0/추가경고0으로 종료했습니다. 소유5Rustfmt/1MJS·QA포맷을 확인했고 manifest/lock/동결변경은 없습니다. 후보3검사의 같은 입력/환경 성공은 커밋 전에 재실행하지 않습니다.
+
+## e3d2 — 앱 공급자와 수명
+
+원본 registerProvider/LANGUAGE_MODES와 abbreviationActions의 standard tokenizer를 확인했습니다. 현재프로젝트는 html/heex·css/scss·javascriptreact/typescriptreact 여섯언어이며 cursor보다 엄격히 앞선 토큰 중 마지막의 Other만 허용합니다. 원본은 heex/두react 언어의 triggerCharacters 배열을 정의하지 않아 native도 이세언어에 새 trigger를 추가하지 않습니다. html과css/scss의원본배열만기존LSP trigger와합칩니다. 실제 기존LineSyntax 정확한 토큰·문서ID/revision/requesttoken/ownerkey·빈선택과Normal tier·설정으로 공급하고 기존 사용자snippet/LSP와합친뒤 모두비었을때만단어대체목록을사용합니다. 난수는기존uuid crate의무작위byte를주입하고새의존성을추가하지않습니다.
+
+입력후 Emmet 본문을단순rebase로재사용하면변경된축약식을이전내용으로삽입하므로현재request에서재생성합니다. settings/token 허용여부와requesttoken이같으면같은random결과를프레임마다재생성하지않습니다. 목록이바뀌면기존LSP/사용자snippet/단어range도실제변경journal로rebase한뒤model·preview·문서/색캐시를회수하고widgettoken을변경합니다. 수락직전에도현재설정/토큰을동기화합니다. 같은revision의tier변경도Request/describes와cache에서검사해이전요청을회수합니다. readonly/IME·owner/source생존은기존수명을재사용합니다.
+
+app-host.log는33441 handle에서lib/inspection compile3m06초·exit0입니다. 기존vendor wry17경고와lib에서기존is_applying dead_code1경고가있어무경고로보고하지않습니다. 테스트first.log는13739 handle에서observe_file의실제document ID인자누락으로compile실패/0검사·exit101입니다. 실제계약을읽어fixture만수정했고현재parity검사는진행중입니다. 여섯언어삽입/undo·설정/token/숫자trigger·편집재생성·다른문서peek·다중커서/mirror·tier/readonly·실제html파일App검사성공은아직선언하지않습니다.
+
+parity.log는compile32.34초·6통과/2실패·38.93초/exit101입니다. 실제HTML파일은기본HTML preview로열려document가없었고, HEEX 소비자fixture는실제선택적language rules를필수로가정했습니다. 원본코드열기Registry::set(Editor)와실제language_rules Option 경로를사용했습니다. six-languages.log는해당여섯언어검사1/0.15초·compile19.25초/exit0입니다. 이어진application-editor.log는신규IME fixture의selection 필드가실제active_range_chars와달라compile실패/0검사·exit101이며기존사용계약으로수정했습니다.
+
+app-tests-final.log는compile17.81초·7통과/2실패·39.19초/exit101입니다. 기존6성공과여섯언어1은동일성공으로재사용하며실제앱은document(html,Normal,revision0)를연뒤candidate가없었습니다. LSP 병합fixture는직접begin/accept한뒤기존State::supply를호출하지않아user snippet이없었으므로실제공급경로를추가했습니다. lsp-ime.log는compile0.25초·1통과/0.02초/exit0입니다. request-diagnostic.log는compile19.93초·실제request존재와외부tokens=None·0통과/1실패·36.43초/exit101입니다.
+
+SyntaxLease::frame_tokens가mutable syntax를렌더링에넘긴뒤같은프레임Provider::current의accurate_tokens를읽지못해Other 후보를회수하는수명을확인했습니다. 최초Arc PeekTokens 공유수정의token-lifetime.log는compile22.99초·원본candidate실제표시/토큰Other까지통과한뒤Tab수락에서원문유지·0통과/1실패·37.42초/exit101입니다. 기존앱검사처럼trigger전에본문포커스를설정하고후속수락을검사합니다. 모든줄의token 복사를추가하지않도록기존Copy인EditorTokens의실제프레임참조와language만보관하며현재문서/revision/language·정확한줄만읽고다른revision은거절합니다. 기존Copy 파생을중복추가한frame-reference.log/syntax-regression.log의compile오류·0검사도보존했고중복을제거해UI 파일diff는0입니다. 현재borrowed-final/syntax-regression 검사는진행중입니다. 새토큰수명검사는같은프레임의comment/string/빈줄을비교하고편집뒤old 참조의거절을단언합니다.
+
+borrowed-final.log는6773 handle에서compile28.47초·실제HTML App1/36.58초·exit0입니다. 실제코드열기·언어html/현재문서·Other 토큰·위젯후보·Tab 삽입·단일undo·settingsfalse 회수·디스크원문/정상종료task0을단언했습니다. 같은handle의syntax-regression.log는compile0.25초·구문20/1.28초·exit0이고새프레임참조1과기존19의성공입니다. 모든줄을복제하지않고실제EditorTokens 참조를사용하며sourceOther 제한을우회하지않았습니다. completion-regression.log는66795 handle에서compile0.21초·기존완성79/9.80초·exit0으로종료했고이미검사한Emmet는skip해반복하지않았습니다.
+
+원본code-editor/editor-pane와EmmetProvider를추가대조했습니다. largeFile은folding/bracket/minimap을억제하지만Emmet 등록을해제하지않습니다. 초기Normal-only gate는원본과달라쓰기가능한Large도허용하도록수정했습니다. 같은revision tier변경은이전요청을취소하고새요청은Large에서도현재줄/출력예산안에서생성하며ReadOnly/명시read_only는수락을허용하지않습니다. source-tier.log는35662 handle에서compile14.63초·소비자8/0.29초·exit0입니다. Normal 경로가같은실제App1과변경없는구문20/기존완성79를재사용하고현재App의서로다른108성공을확인했습니다. 앞선8/7/6 반복성공은더하지않습니다. Core343/성능1ignored 성공도현재Core 변경이없어재사용합니다.
+
+현재12Rust fmt/diff·UI/manifest/lock/동결diff0·디스크627GiB/66%를확인했습니다. 일반lib의기존is_applying 경고·vendor wry17·검사linker unwind 경고를보존합니다. 추가의존성/사용자데이터/OS 입력/실제클립보드/Keychain은사용하지않았습니다. e3c/e3d/e3d2의코어와공급/소비구현체크를닫으며editor-80은unwired에서partial로만갱신합니다. 실제앱의CSS/JSX/HEEX·다른파일peek 전체묶음·전체App 준비실패/성능ignored/remote Wasm/OS실기·최종33게이트는남습니다. 전체302/588(51.4%)·미완료286·부분93/미연결110/미구현83·목표active/잔여시간미산정입니다.

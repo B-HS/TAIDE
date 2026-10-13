@@ -39,6 +39,34 @@ const RUST_STRING_LINE: usize = 2;
 const RUST_EMPTY_LINE: usize = 4;
 const REINDENT_WIDTH: u32 = 4;
 
+#[test]
+fn 표시프레임이_토큰을_빌린뒤에도_같은_revision의_정확한종류를_읽고_편집뒤에는_거절한다() {
+    let theme = theme("dark", "#6a9955");
+    let mut harness = Harness::new();
+    let mut store = store();
+    let document = open(&mut store, "/synthetic/frame.rs", "rust", RUST_SOURCE);
+    attach(&mut store, document);
+    harness.settle(&store, &theme, Instant::now());
+    let snapshot = store.documents().snapshot(document).unwrap();
+    let lease = SyntaxLease::new(&mut harness.syntax, document);
+    let comment = lease.accurate_tokens(&snapshot, RUST_COMMENT_LINE).unwrap();
+    let string = lease.accurate_tokens(&snapshot, RUST_STRING_LINE).unwrap();
+    let frame = lease.frame_tokens(&store).unwrap();
+    assert_eq!(frame.revision, snapshot.revision);
+    assert_eq!(
+        lease.accurate_tokens(&snapshot, RUST_COMMENT_LINE),
+        Some(comment)
+    );
+    assert_eq!(
+        lease.accurate_tokens(&snapshot, RUST_STRING_LINE),
+        Some(string)
+    );
+    assert_eq!(lease.tokens(&snapshot, RUST_EMPTY_LINE), Some(Vec::new()));
+    apply(&mut store, document, 0..0, "x");
+    let edited = store.documents().snapshot(document).unwrap();
+    assert_eq!(lease.accurate_tokens(&edited, RUST_COMMENT_LINE), None);
+}
+
 struct Harness {
     syntax: EditorSyntax,
     wake: Receiver<()>,

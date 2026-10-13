@@ -9390,6 +9390,10 @@ mod ai_completion_tests;
 #[path = "application-ai-edit-tests.rs"]
 mod ai_edit_tests;
 
+#[cfg(all(test, unix, feature = "inspection"))]
+#[path = "application-emmet-tests.rs"]
+mod emmet_tests;
+
 #[cfg(test)]
 mod close_all_tests {
     use super::*;

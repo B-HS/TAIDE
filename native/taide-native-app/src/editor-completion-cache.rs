@@ -68,6 +68,7 @@ pub(super) fn refresh(entry: &mut Entry, store: &EditorStore) -> Result<bool, Ed
         || document.key != request.snapshot.key
         || document.metadata.read_only
         || document.metadata.language_id != request.snapshot.metadata.language_id
+        || document.metadata.tier != request.snapshot.metadata.tier
         || source.composition.is_some()
         || source.selection.primary != request.selection.primary
         || source.selection.selections.len() != request.selection.selections.len()
@@ -117,6 +118,7 @@ pub(super) fn refresh(entry: &mut Entry, store: &EditorStore) -> Result<bool, Ed
             .cloned()
             .collect::<Vec<_>>();
         candidates.extend(entry.snippets.iter().cloned());
+        candidates.extend(entry.emmet.iter().cloned());
         let fallback_pending = candidates.is_empty() && entry.word_result.is_some();
         if candidates.is_empty() && !fallback_pending {
             candidates.extend(entry.words.iter().cloned());
@@ -177,6 +179,11 @@ pub(super) fn refresh(entry: &mut Entry, store: &EditorStore) -> Result<bool, Ed
         entry.words.clear();
     }
     entry.word_result = None;
+    if !entry.emmet.is_empty() {
+        entry.model = None;
+        entry.preview = None;
+    }
+    entry.emmet_context = None;
     entry.cancel.send_replace(true);
     entry.clipboard_pending = false;
     entry.cancel = cancel;

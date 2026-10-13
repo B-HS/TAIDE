@@ -166,6 +166,7 @@ pub(super) fn fixture_with_view_state_and_setup(
         view_state,
         text,
         None,
+        "rs",
         setup,
     )
 }
@@ -184,7 +185,25 @@ pub(super) fn fixture_with_view_state_and_secrets(
         None,
         text,
         Some(secrets),
+        "rs",
         |_, _, _, _| {},
+    )
+}
+
+pub(super) fn fixture_with_language(text: &str, extension: &str) -> Fixture {
+    fixture_with_ports(
+        "--native-inlay-hints",
+        false,
+        |_, _, _| true,
+        None,
+        text,
+        None,
+        extension,
+        |application, path, _, _| {
+            application
+                .open_with
+                .set(path.into(), crate::open_with::Mode::Editor)
+        },
     )
 }
 
@@ -195,6 +214,7 @@ fn fixture_with_ports(
     view_state: Option<String>,
     text: &str,
     secrets: Option<taide_infra::secret::SecretStoreState>,
+    extension: &str,
     setup: impl FnOnce(&mut NativeApplication, &str, &ProjectId, &TabId),
 ) -> Fixture {
     let directory =
@@ -205,7 +225,8 @@ fn fixture_with_ports(
     for path in [&data, &root, &bin] {
         std::fs::create_dir_all(path).unwrap();
     }
-    let file = root.join("current.rs");
+    let filename = format!("current.{extension}");
+    let file = root.join(&filename);
     let peek = root.join("peek.rs");
     std::fs::write(&file, text).unwrap();
     std::fs::write(&peek, TEXT).unwrap();
@@ -243,7 +264,7 @@ fn fixture_with_ports(
         tabs: vec![Tab {
             id: tab.clone(),
             kind: TabKind::File { path: path.clone() },
-            title: "current.rs".into(),
+            title: filename,
             pinned: false,
             preview: false,
             dirty: false,

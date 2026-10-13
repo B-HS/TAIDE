@@ -23,6 +23,9 @@ use taide_runtime::{AppServices, AppState, EventSink, TaskSupervisor, theme_acti
 
 use super::{Consumer, Provider, State};
 
+#[path = "editor-completion-emmet-consumer-tests.rs"]
+mod emmet_tests;
+
 const BYTE_LIMIT: usize = 4096;
 const OWNER_LIMIT: usize = 4;
 const UNDO_LIMIT: usize = 8;
@@ -1651,6 +1654,10 @@ impl Fixture {
     }
 
     fn new(text: &str, byte: usize, files: Arc<[SnippetFile]>) -> Self {
+        Self::with_language(text, byte, files, "rust")
+    }
+
+    fn with_language(text: &str, byte: usize, files: Arc<[SnippetFile]>, language: &str) -> Self {
         let project = ProjectId::new();
         let directory =
             std::env::temp_dir().join(format!("taide-batch22-completion-consumer-{project}"));
@@ -1684,7 +1691,7 @@ impl Fixture {
         .unwrap();
         let tab = TabId::new();
         let document = store
-            .open_untitled(tab.clone(), text, "rust".into())
+            .open_untitled(tab.clone(), text, language.into())
             .unwrap();
         let view = store
             .attach_view(
@@ -1754,6 +1761,13 @@ impl Fixture {
     }
 
     fn frame(&mut self, events: Vec<Event>, commands: &[Command]) -> bool {
+        let language_id = self
+            .store
+            .documents()
+            .snapshot(self.document)
+            .unwrap()
+            .metadata
+            .language_id;
         self.time += FRAME_STEP;
         self.state.poll_supply(&self.store);
         self.keymaps
@@ -1794,15 +1808,14 @@ impl Fixture {
                     editor: &self.editor,
                     syntax: &self.syntax,
                     model_path: "/synthetic/main.rs".into(),
-                    language: "rust".into(),
+                    language: language_id.clone(),
                 };
                 assert_eq!(provider.is_embedded(self.view), self.view != self.owner);
-                let language = Language {
-                    rules: taide_native_syntax::monaco_language("rust")
-                        .unwrap()
-                        .unwrap(),
-                    syntax: &self.syntax,
-                };
+                let language =
+                    crate::editor_syntax::language_rules(&language_id).map(|rules| Language {
+                        rules,
+                        syntax: &self.syntax,
+                    });
                 let mut next = 0;
                 let output = self
                     .editor
@@ -1839,7 +1852,7 @@ impl Fixture {
                             },
                             presentation: &self.presentation,
                             tokens: |_: &EditorStore| None,
-                            language: Some(language),
+                            language,
                             decorations: &[],
                             fold_commands: &[],
                             fold_controls: None,

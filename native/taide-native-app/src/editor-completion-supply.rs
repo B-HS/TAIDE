@@ -281,6 +281,7 @@ impl State {
             if entry.request.describes(store) {
                 entry.words = words;
                 if entry.snippets.is_empty()
+                    && entry.emmet.is_empty()
                     && entry
                         .groups
                         .values()
@@ -306,6 +307,7 @@ impl State {
             .flat_map(|group| &group.candidates.items)
             .collect::<Vec<_>>();
         primary.extend(&entry.snippets);
+        primary.extend(&entry.emmet);
         if primary.is_empty() {
             primary.extend(&entry.words);
         }
