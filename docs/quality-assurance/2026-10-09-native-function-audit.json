@@ -1,6 +1,6 @@
 {
     "date": "2026-10-14",
-    "baseline": "9f59217a",
+    "baseline": "7d8d3930",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1425,7 +1425,7 @@
                 "native/taide-native-ui/tests/editor-sticky-scroll.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-14-native-batch23-builtin-language-services.md"],
-            "limitation": "ef5df931의 JSON 구문 작업/native 슬롯·typed 문제 목록·현재 untitled 이동과 제거 뒤 늦은 게시 회수에 이어 9f59217a는 고정 줄 소실 뒤 focus None을 UI 실패로 재현하고 해당 본문으로 회수했습니다. UI18/실제 JSON peek1(일반·readonly 두 사례)/Wasm4.85초·소유Rust3 fmt/diff가 현재 근거이며 실제 오류 marker/hover 문구·본문 분리·고정 줄 F9→본문 focus→Escape 즉시 세션 폐기/문서·작업0을 확인했습니다. 이전 g1 작업2/진단7/목록·탐색24/본문 앱 등 성공은 변경 없는 범위에서 재사용하며 합산하지 않습니다. 다른 문서/프로젝트 untitled 문제 요청은 미연결 실패를 재현하고 b3g2b에서 구현 중이며 완료로 주장하지 않습니다. 언어 선택 UI·schema semantic/나머지 JSON 조회/완성/포맷·CSS/HTML/TS·전체 App 준비/OS·접근성/대형 성능/신뢰성/출시·전환 게이트는 미완료라 partial입니다."
+            "limitation": "JSON 파일/untitled/peek 구조·구문 진단·호버/문제 목록과 현재/다른 문서 이동을 연결했습니다. 7d8d3930은 실제 두 프로젝트의 F8/ShiftF8·문제 행/목적 본문 focus·비BMP·원문/revision·undo·닫힘/tasks0을 상태6/실제App1의7통과로 확인했습니다. Main/Auxiliary/slot 소유·토큰/현재 layout·편집 anchor를 검사하며 문제 행의 조기 focus 상태 갱신을 제거했습니다. 고정 줄 소실/실제 peek 오류·readonly·닫힘은 9f59217a의 UI18/App1/Wasm 성공을 재사용합니다. FSEvents 등록 RPC 지연은 미해결로 보존하며 언어 선택 UI·schema semantic·JSON 포맷/선택 확장/조회/완성·CSS/HTML/TS·전체 App 준비/OS/접근성/대형 성능/출시 게이트가 남아 partial입니다."
         }
     },
     "rows": [
@@ -3143,7 +3143,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-builtin-language-services",
-            "note": "JSON 구조·실제 untitled 탐색/구문 진단·문제 목록/현재 문서 이동을 연결했습니다. 9f59217a는 고정 줄 소실 focus 오류를 재현·수정하고 UI18/실제 JSON peek1(일반·readonly 두 사례)/Wasm4.85초에서 오류 hover·본문 분리/F9/본문 focus/Escape·작업0을 확인했습니다. 다른 문서/프로젝트 untitled 문제 요청은 실패 재현 뒤 b3g2b에 구현 중입니다. 언어 선택 UI/schema semantic/나머지 JSON 기능·CSS/HTML/TS 및 전체 게이트가 미완료여서 partial입니다."
+            "note": "JSON 파일/untitled/peek 구조·구문 진단·호버/문제 목록과 현재/다른 문서 이동을 연결했습니다. 7d8d3930은 실제 두 프로젝트의 F8/ShiftF8·문제 행/목적 본문 focus·비BMP·원문/revision·undo·닫힘/tasks0을 상태6/실제App1의7통과로 확인했습니다. Main/Auxiliary/slot 소유·토큰/현재 layout·편집 anchor를 검사하며 문제 행의 조기 focus 상태 갱신을 제거했습니다. 고정 줄 소실/실제 peek 오류·readonly·닫힘은 9f59217a의 UI18/App1/Wasm 성공을 재사용합니다. FSEvents 등록 RPC 지연은 미해결로 보존하며 언어 선택 UI·schema semantic·JSON 포맷/선택 확장/조회/완성·CSS/HTML/TS·전체 App 준비/OS/접근성/대형 성능/출시 게이트가 남아 partial입니다."
         },
         {
             "id": "editor-58",
