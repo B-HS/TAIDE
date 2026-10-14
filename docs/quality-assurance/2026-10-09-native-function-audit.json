@@ -1,6 +1,6 @@
 {
     "date": "2026-10-14",
-    "baseline": "cea50ee9",
+    "baseline": "ef5df931",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1349,7 +1349,11 @@
                 "native/taide-native-editor/src/document-symbols.rs",
                 "native/taide-native-ui/src/command-palette.rs",
                 "native/taide-native-app/src/symbol-outline.rs",
-                "native/taide-native-app/src/editor_reveal.rs"
+                "native/taide-native-app/src/editor_reveal.rs",
+                "native/taide-native-app/src/editor-json-validation.rs",
+                "native/taide-native-app/src/diagnostics.rs",
+                "native/taide-native-app/src/problems.rs",
+                "native/taide-native-app/src/editor-problems.rs"
             ],
             "tests": [
                 "native/taide-native-editor/tests/json-scanner.rs",
@@ -1410,10 +1414,14 @@
                 "native/taide-native-editor/tests/document-symbols.rs",
                 "native/taide-native-ui/src/command-palette-tests.rs",
                 "native/taide-native-app/src/symbol-outline-tests.rs",
-                "native/taide-native-app/src/editor_reveal.rs"
+                "native/taide-native-app/src/editor_reveal.rs",
+                "native/taide-native-app/src/editor-json-validation-tests.rs",
+                "native/taide-native-app/src/diagnostics-tests.rs",
+                "native/taide-native-app/src/problems-tests.rs",
+                "native/taide-native-app/src/editor-problems-tests.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-14-native-batch23-builtin-language-services.md"],
-            "limitation": "377d5f55의 실제 JSON 구조 작업은 본문/peek의 심볼·접기·sticky와 외부 공급 공존에 연결됐습니다. cea50ee9는 실제 DocumentId/DocumentKey·현재 ViewKey로 untitled 전역 팔레트/outline 탐색을 연결했습니다. UI29/실제App1/reveal1/outline4/기존심볼5의 서로 다른40통과·최종App43.41초/exit0·Wasm UI lib7분07초가 근거입니다. 비BMP byte/문서 세대·내용/언어/닫힘/readonly/원문·정상 종료tasks0을 확인했으며 입력은 실제 has_input_focus 준비 후 전달합니다. 기존 JSONCore49/Syntax5·schema 전송App10/graph·b3f1 peek 성공은 재사용하며 중복 합산하지 않습니다. 언어 선택 UI/자동 언어 감지·나머지 JSON 진단/semantic/조회/완성/포맷·CSS/HTML/TS·전체 App 준비/OS·접근성/큰tier 성능과 최종 게이트는 미완료라 partial입니다."
+            "limitation": "기존 JSON 구조/실제 untitled 탐색에 이어 ef5df931은 원본 defaults/500ms 변경 지연의 별도 native 구문 진단 작업·Core byte marker/typed 문제 목록·현재 untitled 행 클릭/문제 이동·Undo 회수를 연결했습니다. 작업2/진단7/목록·탐색24/실제 본문1/현재 입력 소유를 직접 확인한 peek1의 서로 다른35건이 성공 근거입니다. 제거 뒤 늦은 게시가 오류1로 되살아나는 실패를 재현하고 게시 자격 회수 뒤 진단7/0.03초/exit0으로 수정했습니다. 실제 문서 키/언어/readonly/Large·외부 공존/원문/tasks0·소유Rust13 fmt/diff이며 공유 UI/Core/Wasm 계약·manifest/lock/동결 소스 변경0입니다. 앞선 간헐 peek Escape 회수 시간 초과의 원인은 미확정이며 nonempty peek 진단/hover·다른 문서/프로젝트 untitled 탐색과 함께 b3g2에 유지합니다. 언어 선택 UI·schema semantic/나머지 JSON 조회/완성/포맷·CSS/HTML/TS·전체 App 준비/OS·접근성/성능/출시·전환 게이트는 미완료라 partial입니다. 기존 Core392/JSONCore49/Syntax5·Wasm 및 schema 전송/graph 성공은 재사용하며 새 전체 실행으로 합산하지 않습니다."
         }
     },
     "rows": [
@@ -3131,7 +3139,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-builtin-language-services",
-            "note": "JSON 내장 구조의 본문/peek·심볼/접기/sticky/외부 공급 공존과 실제 untitled 전역 팔레트/outline·현재 뷰 탐색을 연결했습니다. cea50ee9의 UI29/실제App1/reveal1/outline4/기존심볼5의40통과·Wasm UI lib, 비BMP byte/문서 세대·readonly/내용/언어/닫힘·원문/tasks0이 근거입니다. 언어 선택 UI/자동 감지·나머지 JSON 진단/semantic/조회/완성/포맷·CSS/HTML/TS 및 전체 App/OS·접근성/성능·전환 게이트는 미완료여서 partial을 유지합니다."
+            "note": "JSON 내장 구조와 실제 untitled 탐색에 이어 원본 defaults/500ms 변경 지연의 구문 진단·별도 native 슬롯/외부 공존·문제 목록/현재 untitled 행 이동·Undo를 연결했습니다. ef5df931의 작업2/진단7/목록·탐색24/본문앱1/좁은peek1의 성공35건과 제거 뒤 늦은 게시 실패→수정이 근거입니다. 간헐 peek Escape 회수의 원인·nonempty peek 진단/hover·다른 문서/프로젝트 untitled 이동은 b3g2에 남깁니다. 언어 선택 UI/schema semantic/나머지 JSON 기능·CSS/HTML/TS와 전체 App/OS·성능/출시·전환 게이트가 미완료여서 partial입니다."
         },
         {
             "id": "editor-58",
