@@ -1,6 +1,6 @@
 {
     "date": "2026-10-14",
-    "baseline": "b04f1ad6",
+    "baseline": "1bfa487d",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1335,7 +1335,12 @@
                 "native/taide-native-syntax/src/lib.rs",
                 "native/taide-native-editor/src/json-schema-service.rs",
                 "native/taide-native-editor/src/json-schema-load.rs",
-                "native/taide-native-editor/src/json-schema-graph.rs"
+                "native/taide-native-editor/src/json-schema-graph.rs",
+                "native/taide-native-app/src/editor-schema-transport.rs",
+                "native/taide-native-app/src/lib.rs",
+                "native/taide-native-app/src/preview_web_file.rs",
+                "crates/taide-infra/src/http.rs",
+                "crates/taide-infra/src/root_guard.rs"
             ],
             "tests": [
                 "native/taide-native-editor/tests/json-scanner.rs",
@@ -1388,10 +1393,11 @@
                 "native/taide-native-editor/tests/fixtures/json-schema-graph-oracle.mjs",
                 "native/taide-native-editor/tests/fixtures/json-schema-graph-oracle.rs",
                 "native/taide-native-editor/tests/fixtures/json-schema-reference-source.mjs",
-                "native/taide-native-editor/tests/fixtures/json-schema-worker-context.mjs"
+                "native/taide-native-editor/tests/fixtures/json-schema-worker-context.mjs",
+                "native/taide-native-app/src/editor-schema-transport-tests.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-14-native-batch23-builtin-language-services.md"],
-            "limitation": "실제 source scanner/AST·구조/포맷/진단·값/참조/URI/context/association/service·JSONC/load와 외부graph21사례/currentCore49/Syntax5·host/Wasm 근거입니다. 공유/순환·문서별 pointer/anchor·로딩 오류/unsupported·owner/generation/sequence·변경/취소/실제 전이의존·일괄 cache 게시와 quota·retired 미발송 요청 실패→수정을 확인했습니다. 원본 간접순환은512traverse raw 중단과 guard 교정 expected를 구분하며21중4차이입니다. 실제 HTTP/file adapter·semantic/조회/완성/실제App·CSS/HTML/TS 및 큰tier 성능은 미완료이며 editor-57 missing을 유지합니다."
+            "limitation": "기존 실제 source oracle·JSONCore49/Syntax5와 새 실제 전송 App10·현재 관련18건/host/Wasm 근거입니다. 기존 외부 graph21사례/순환4교정과 owner/generation/sequence·취소·의존/원자성 근거를 재사용합니다. 실제 file/HTTP 전송의 비활성/404 text/UTF-8·byte/시간/동시 상한·프로젝트/종료/취소·decode 실패와 먼저 읽힌 로컬 cache의 원격 참조 차단을 확인했습니다. root의 Ready cache와 참조 import 전에도 권한을 검사하며 취소된 실제 worker 수명을 상한에 포함합니다. 전체 App 자동 builtin 공급·semantic/조회/완성·CSS/HTML/TS·non-Unix 파일 anchor/큰tier 성능과 기존 전체 게이트는 미완료이므로 editor-57 missing을 유지합니다."
         }
     },
     "rows": [
@@ -3109,7 +3115,7 @@
             "domain": "editor",
             "status": "missing",
             "proof": "editor-builtin-language-services",
-            "note": "JSON scanner/AST·구조/포맷/진단과 schema 등록/선택·응답 decode·재개 가능한 외부 graph/캐시 게시를 Core/Syntax에 연결했습니다. actual graph21사례/currentCore49/Syntax5·host/Wasm·공유/순환/로딩 오류·소유/세대/취소/복원·실제 전이의존/최종 원자성·예산과 기존 편집/MarkerSet 소비가 근거입니다. 실제 HTTP/file 전송·semantic/조회/완성·실제App 공급과 CSS/HTML/TS 전체 및 큰tier 성능은 미완료이므로 missing을 유지합니다."
+            "note": "JSON scanner/AST·구조/포맷/진단과 schema 등록/선택·응답 decode·외부 graph/cache 및 실제 file/HTTP 전송 모듈을 연결했습니다. currentCore49/Syntax5/App10·현재 관련18건/host/Wasm과 비활성/404 text·UTF-8/byte·시간/동시 상한·취소/종료/프로젝트·stale ticket·실제 로컬 cache 원격 참조 차단이 근거입니다. 실제 편집 화면의 자동 builtin provider/semantic·조회/완성·CSS/HTML/TS 전체·non-Unix 파일 경계/큰tier 성능과 전체 게이트는 미완료라 missing을 유지합니다."
         },
         {
             "id": "editor-58",
