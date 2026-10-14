@@ -36,11 +36,13 @@ fn paint(application: &mut NativeApplication, context: &egui::Context) -> egui::
     output
 }
 
+#[track_caller]
 fn wait(
     application: &mut NativeApplication,
     context: &egui::Context,
     ready: impl Fn(&NativeApplication) -> bool,
 ) {
+    let caller = std::panic::Location::caller();
     let runtime = application.runtime.handle().clone();
     runtime.block_on(async {
         tokio::time::timeout(DEADLINE, async {
@@ -54,7 +56,14 @@ fn wait(
             }
         })
         .await
-        .unwrap();
+        .unwrap_or_else(|error| {
+            panic!(
+                "{caller}: {error}; native documents={}, validation documents={}, tasks={}",
+                application.editor_json.documents().len(),
+                application.editor_json_validation.documents().len(),
+                application.services.tasks.tracked_count()
+            )
+        });
     });
 }
 
@@ -313,6 +322,12 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
         !application.editor_json.documents().contains(&document)
     });
     let plain = application.store.documents().snapshot(document).unwrap();
+    assert!(
+        !application
+            .editor_json_validation
+            .documents()
+            .contains(&document)
+    );
     assert!(application.editor_symbols.builtin_model(&plain).is_none());
     let mut metadata = plain.metadata.clone();
     metadata.language_id = "json".into();
@@ -334,6 +349,12 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
     });
     let readonly = application.store.documents().snapshot(document).unwrap();
     assert!(readonly.metadata.read_only);
+    assert!(
+        application
+            .editor_json_validation
+            .documents()
+            .contains(&document)
+    );
     let mut metadata = readonly.metadata.clone();
     metadata.tier = taide_model::file::FileSizeTier::Large;
     application
@@ -352,6 +373,12 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
     );
     assert!(application.editor_symbols.builtin_model(&large).is_none());
     assert!(application.editor_folding.builtin_model(&large).is_none());
+    assert!(
+        !application
+            .editor_json_validation
+            .documents()
+            .contains(&document)
+    );
     let pane = application
         .store
         .views()
@@ -515,9 +542,130 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
         (after.revision, after.rope.to_string()),
         (before.revision, before.rope.to_string())
     );
+    const INVALID: &str = "/*note*/{\"\u{1f600}\":1,}";
+    application
+        .store
+        .apply(
+            untitled_document,
+            Transaction {
+                revision: after.revision,
+                edits: vec![Edit {
+                    bytes: 0..TEXT.len(),
+                    text: INVALID.into(),
+                }],
+                group: UndoGroup(7),
+                origin: Some(untitled_view),
+                selection_after: None,
+            },
+        )
+        .unwrap();
+    wait(application, &context, |application| {
+        application.lsp_diagnostics.counts()[crate::diagnostics::ERROR] == 2
+    });
+    let invalid = application
+        .store
+        .documents()
+        .snapshot(untitled_document)
+        .unwrap();
+    let markers = application
+        .lsp_diagnostics
+        .display(&application.store, &invalid)
+        .unwrap();
+    assert_eq!(markers.markers().len(), 2);
+    let comment = markers
+        .markers()
+        .iter()
+        .find(|marker| marker.message.code.as_deref() == Some("521"))
+        .unwrap();
+    let body = crate::editor_context_menu::body(&context, untitled_view).unwrap();
+    assert!(
+        context
+            .read_response(body.with((
+                "diagnostic-hover",
+                comment.bytes.start,
+                comment.bytes.end,
+                0usize
+            )))
+            .is_some()
+    );
+    let taide_native_editor::document::DocumentKey::Untitled(tab) = &invalid.key else {
+        panic!("expected actual untitled model")
+    };
+    application.problems.toggle(&slot);
+    paint(application, &context);
+    let row = egui::Id::new(("problem-row", &slot, &invalid.key, Some(1usize)));
+    let point = context
+        .read_response(row)
+        .expect("actual untitled problem row")
+        .rect
+        .center();
+    for pressed in [true, false] {
+        super::inlay_hints_tests::paint(
+            application,
+            &context,
+            vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+    }
+    assert!(!application.problem_opens.is_empty());
+    wait(application, &context, |application| {
+        application
+            .store
+            .views()
+            .get(untitled_view)
+            .unwrap()
+            .selection
+            .selections[0]
+            .head
+            == INVALID.find(',').unwrap()
+    });
+    application.document_edits.push((
+        tab.clone(),
+        DocumentEdit::Problem(taide_native_editor::problem_navigation::Command::Next),
+    ));
+    paint(application, &context);
+    {
+        let mut provider = crate::editor_problems::Provider {
+            state: &mut application.editor_problems,
+            diagnostics: &application.lsp_diagnostics,
+            project: Some(project.clone()),
+            commands: &mut Vec::new(),
+            viewport: context.viewport_id(),
+        };
+        assert!(
+            taide_native_ui::editor_problems::Provider::current(
+                &mut provider,
+                &application.store,
+                untitled_view
+            )
+            .is_some()
+        );
+    }
+    assert!(application.store.undo(untitled_document).unwrap());
+    wait(application, &context, |application| {
+        application.lsp_diagnostics.counts()[crate::diagnostics::ERROR] == 0
+    });
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(untitled_document)
+            .unwrap()
+            .rope
+            .to_string(),
+        TEXT
+    );
     eframe::App::on_exit(application);
     assert_eq!(application.services.tasks.tracked_count(), 0);
     assert!(application.editor_json.documents().is_empty());
+    assert!(application.editor_json_validation.documents().is_empty());
 }
 
 #[test]
@@ -709,10 +857,28 @@ fn actual_app의_json_peek는_현재_문서_구조와_키_접기_및_닫힘을_�
         (owner_after.revision, owner_after.rope.to_string()),
         (owner_before.revision, owner_before.rope.to_string())
     );
+    let focused = context.memory(|memory| memory.focused()).and_then(|id| {
+        application
+            .editor_keymap_targets
+            .get(&(context.viewport_id(), id))
+            .map(|(view, _)| *view)
+    });
+    assert_eq!(
+        focused,
+        Some(preview),
+        "peek must own Escape before closing; focus={:?}",
+        context.memory(|memory| memory.focused())
+    );
     super::inlay_hints_tests::paint(
         application,
         context,
         key(egui::Key::Escape, egui::Modifiers::NONE),
+    );
+    assert!(
+        application.editor_locations.current(owner).is_none(),
+        "Escape did not close its owned peek; focus={:?}; preview still exists={}",
+        context.memory(|memory| memory.focused()),
+        application.store.views().get(preview).is_some()
     );
     wait(application, context, |application| {
         !application.editor_json.documents().contains(&document)

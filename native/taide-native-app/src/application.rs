@@ -129,6 +129,8 @@ pub struct NativeApplication {
     editor_symbols: crate::editor_symbols::State,
     editor_folding: crate::editor_folding::State,
     editor_json: crate::editor_json::State,
+    editor_json_validation: crate::editor_json_validation::State,
+    problem_opens: Vec<(ProjectId, crate::problems::Open)>,
     editor_locations: crate::editor_locations::State,
     editor_documentation: crate::editor_documentation::State,
     editor_completion: crate::editor_completion::State,
@@ -495,6 +497,8 @@ impl NativeApplication {
             editor_symbols: crate::editor_symbols::State::default(),
             editor_folding: crate::editor_folding::State::default(),
             editor_json: crate::editor_json::State::default(),
+            editor_json_validation: crate::editor_json_validation::State::default(),
+            problem_opens: Vec::new(),
             editor_locations: crate::editor_locations::State::default(),
             editor_documentation: crate::editor_documentation::State::default(),
             editor_completion: crate::editor_completion::State::default(),
@@ -4119,6 +4123,10 @@ impl NativeApplication {
 
     fn clear_builtin_json(&mut self) {
         self.editor_json.clear();
+        self.editor_json_validation.clear();
+        self.lsp_diagnostics
+            .retain_builtin(&self.store, HashSet::new());
+        self.problem_opens.clear();
         self.editor_symbols.retain_builtin(&HashSet::new());
         self.editor_folding.retain_builtin(&HashSet::new());
     }
@@ -4127,6 +4135,108 @@ impl NativeApplication {
         if self.closing.is_some() || self.is_exit_ready || self.services.state.is_shutting_down() {
             self.clear_builtin_json();
             return;
+        }
+        for (project, open) in std::mem::take(&mut self.problem_opens) {
+            let Ok(snapshot) = self.store.documents().snapshot(open.document) else {
+                continue;
+            };
+            if snapshot.key != open.key || snapshot.revision != open.revision {
+                continue;
+            }
+            let layout = self.controller.snapshot().layouts.get(&project).cloned();
+            let Some(key) = self
+                .store
+                .views()
+                .for_document(open.document)
+                .find(|view| {
+                    view.key.window == WINDOW_LABEL
+                        && layout.as_ref().is_some_and(|layout| {
+                            taide_layout::service::all_roots(layout).any(|root| {
+                                crate::tabs::tabs_in(root)
+                                    .iter()
+                                    .any(|tab| tab.id == view.key.tab)
+                            })
+                        })
+                })
+                .map(|view| view.key.clone())
+            else {
+                continue;
+            };
+            let position = taide_native_editor::lsp::Position::new(
+                u32::try_from(open.line.saturating_sub(1)).unwrap_or(u32::MAX),
+                u32::try_from(open.column.saturating_sub(1)).unwrap_or(u32::MAX),
+            );
+            let result =
+                taide_native_editor::lsp::position_to_byte(&snapshot, position).and_then(|byte| {
+                    crate::editor_reveal::reveal_document(
+                        &mut self.store,
+                        &key,
+                        &snapshot,
+                        byte..byte,
+                    )
+                });
+            match result {
+                Ok(Some(view)) => {
+                    for command in [
+                        ShellMutation::FocusPane(key.pane.clone()),
+                        ShellMutation::ActivateTab(key.tab.clone()),
+                    ] {
+                        if let Err(error) = self.controller.submit(command) {
+                            self.report(&error);
+                        }
+                    }
+                    self.focused = Some((key.pane, key.tab));
+                    if let Some(body) = crate::editor_context_menu::body(context, view) {
+                        context.memory_mut(|memory| memory.request_focus(body));
+                    }
+                    context.request_repaint();
+                }
+                Ok(None) => {}
+                Err(error) => self.report(&editor_error(error)),
+            }
+        }
+        let diagnostics = self.editor_json_validation.tick(
+            &self.store,
+            &self.services.tasks,
+            context,
+            Instant::now(),
+        );
+        self.lsp_diagnostics
+            .retain_builtin(&self.store, self.editor_json_validation.documents());
+        for (snapshot, result) in diagnostics {
+            match result {
+                Ok(markers) => {
+                    let title = match &snapshot.key {
+                        taide_native_editor::document::DocumentKey::File(path) => path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .into_owned(),
+                        taide_native_editor::document::DocumentKey::Untitled(tab) => self
+                            .controller
+                            .snapshot()
+                            .layouts
+                            .values()
+                            .flat_map(taide_layout::service::all_roots)
+                            .flat_map(crate::tabs::tabs_in)
+                            .find(|entry| entry.id == *tab)
+                            .map(|entry| entry.title.clone())
+                            .unwrap_or_default(),
+                        _ => String::new(),
+                    };
+                    if let Err(error) = self
+                        .lsp_diagnostics
+                        .publish_builtin(&snapshot, markers, title)
+                    {
+                        self.lsp_diagnostics.remove_builtin(snapshot.id);
+                        self.report(&editor_error(error));
+                    }
+                }
+                Err(error) => {
+                    self.lsp_diagnostics.remove_builtin(snapshot.id);
+                    self.report(&editor_error(error));
+                }
+            }
         }
         let completed = self
             .editor_json
@@ -6810,6 +6920,7 @@ impl eframe::App for NativeApplication {
             .focused_project()
             .and_then(|project| self.lsp.as_ref().and_then(|lsp| lsp.summary(project)));
         let mut surfaces = AppSurfaces {
+            problem_opens: &mut self.problem_opens,
             tooltips: &self.tooltips,
             tooltip_appearance: &self.tooltip_appearance,
             problems: &mut self.problems,
@@ -7799,6 +7910,7 @@ async fn drain_services(services: &Arc<AppServices>) -> AppResult<()> {
 }
 
 struct AppSurfaces<'a> {
+    problem_opens: &'a mut Vec<(ProjectId, crate::problems::Open)>,
     tooltips: &'a crate::tooltips::Provider,
     tooltip_appearance: &'a crate::tooltips::Appearance,
     problems: &'a mut crate::problems::Views,
@@ -7963,9 +8075,20 @@ impl ShellSurfaces for AppSurfaces<'_> {
             }
         };
         for open in opens {
+            if matches!(
+                open.key,
+                taide_native_editor::document::DocumentKey::Untitled(_)
+            ) {
+                self.problem_opens.push((project.clone(), open));
+                ui.ctx().request_repaint();
+                continue;
+            }
+            let taide_native_editor::document::DocumentKey::File(path) = open.key else {
+                continue;
+            };
             self.commands.push(HostCommand::OpenProblem {
                 project: project.clone(),
-                path: open.path,
+                path: path.to_string_lossy().into_owned(),
                 line: open.line,
                 column: open.column,
                 viewport: ui.ctx().viewport_id(),
@@ -9039,7 +9162,7 @@ impl AppSurfaces<'_> {
                 let preview_overrides = self.services.state.settings.read().keymap_overrides.clone();
                 let mut location_provider = crate::editor_locations::Provider {
                     state: &mut *self.editor_locations, models: self.peek_models, project: editor_project.cloned(), lsp: self.lsp,
-                    symbols: Some(self.editor_symbols), folding: Some(self.editor_folding),
+                    symbols: Some(self.editor_symbols), folding: Some(self.editor_folding), diagnostics: Some(self.diagnostics),
                     layout: editor_project.and_then(|project| self.layouts.get(project)), scope: self.scope,
                     commands: &mut location_commands, viewport: ui.ctx().viewport_id(), editor: &editor,
                     indentation: indent_configuration,

@@ -224,10 +224,11 @@ impl taide_native_ui::editor_problems::Provider for Provider<'_> {
         } else {
             bytes.start
         };
-        let DocumentKey::File(path) = &document.key else {
-            return None;
+        let title = match &document.key {
+            DocumentKey::File(path) => path.file_name()?.to_string_lossy().into_owned(),
+            DocumentKey::Untitled(_) => self.diagnostics.title(document.id)?.to_owned(),
+            _ => return None,
         };
-        let title = path.file_name()?.to_string_lossy().into_owned();
         Some(Widget {
             coordinate: shown.coordinate.clone(),
             position,
@@ -247,7 +248,7 @@ impl taide_native_ui::editor_problems::Provider for Provider<'_> {
             .ok_or(EditorError::NotFound)?
             .clone();
         let document = store.documents().snapshot(current.document)?;
-        let DocumentKey::File(path) = &document.key else {
+        let Some(resource) = crate::diagnostics::resource(&document.key) else {
             return Ok(false);
         };
         if command == Command::Close {
@@ -260,7 +261,6 @@ impl taide_native_ui::editor_problems::Provider for Provider<'_> {
             return Ok(pending || shown);
         }
         self.state.pending.remove(&view);
-        let resource = url::Url::from_file_path(path).map_err(|_| EditorError::InvalidBoundary)?;
         let session = self.state.sessions.entry(view).or_default();
         if session.all_files != command.all_files() {
             *session = Session {
@@ -277,10 +277,9 @@ impl taide_native_ui::editor_problems::Provider for Provider<'_> {
         );
         let head = current.selection.selections[current.selection.primary].head;
         session.navigation.follow_cursor(document.id, head);
-        let Some(coordinate) =
-            session
-                .navigation
-                .navigate(resource.as_str(), head, command.forward())
+        let Some(coordinate) = session
+            .navigation
+            .navigate(&resource, head, command.forward())
         else {
             session.shown = None;
             return Ok(true);

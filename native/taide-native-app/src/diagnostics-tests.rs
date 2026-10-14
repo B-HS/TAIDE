@@ -1,4 +1,5 @@
 use super::*;
+use std::path::PathBuf;
 
 use taide_lsp::native::protocol::lsp_types::{NumberOrString, Position, Range};
 use taide_model::ids::TabId;
@@ -304,4 +305,145 @@ fn 문제_이동_목록은_표시_500개_상한과_빈범위_단어_확장을_�
     );
     store.remove_document(id);
     assert!(store.problems(&editor).is_empty());
+}
+
+#[test]
+fn builtin_json_진단은_실제_untitled_키와_native_슬롯으로_표시하고_외부_회수와_독립이다() {
+    let mut editor = EditorStore::new(EditorLimits {
+        max_documents: 1,
+        max_views: 1,
+        max_undo_groups: 1,
+        max_document_bytes: 1024,
+    })
+    .unwrap();
+    let tab = TabId::new();
+    let id = editor
+        .open_untitled(tab.clone(), "\u{1f600}bad", "json".into())
+        .unwrap();
+    let snapshot = editor.documents().snapshot(id).unwrap();
+    let marker = Marker {
+        bytes: 4..7,
+        message: Arc::new(Message {
+            severity: Severity::Error,
+            text: "invalid JSON".into(),
+            source: Some("json".into()),
+            code: Some("test".into()),
+        }),
+    };
+    let mut store = Store::default();
+    store.retain_builtin(&editor, HashSet::from([id]));
+    store
+        .publish_builtin(&snapshot, vec![marker.clone()], "Untitled-1".into())
+        .unwrap();
+    assert_eq!(store.counts(), &[1, 0, 0, 0]);
+    assert!(store.bindings.is_empty());
+    assert!(store.batches.is_empty());
+    let batch = store.batches().next().unwrap();
+    assert_eq!(batch.key, DocumentKey::Untitled(tab.clone()));
+    assert_eq!(batch.diagnostics[0].range.start, Position::new(0, 2));
+    assert_eq!(batch.title, "Untitled-1");
+    assert_eq!(
+        store.display(&editor, &snapshot).unwrap().markers(),
+        &[marker.clone()]
+    );
+    assert_eq!(
+        store.problems(&editor)[0].resource,
+        format!("untitled:{tab}")
+    );
+    store.reconcile(HashMap::new());
+    assert_eq!(store.counts(), &[1, 0, 0, 0]);
+    let invalid = Marker {
+        bytes: 1..7,
+        ..marker.clone()
+    };
+    assert_eq!(
+        store.publish_builtin(&snapshot, vec![invalid], "Untitled-1".into()),
+        Err(EditorError::InvalidBoundary)
+    );
+    assert_eq!(store.counts(), &[1, 0, 0, 0]);
+    store.remove_document(id);
+    store
+        .publish_builtin(&snapshot, vec![marker], "Untitled-1".into())
+        .unwrap();
+    assert_eq!(
+        store.counts(),
+        &[0, 0, 0, 0],
+        "removed document must reject late native publication"
+    );
+    store.retain_builtin(&editor, HashSet::new());
+    assert_eq!(store.counts(), &[0, 0, 0, 0]);
+    assert!(store.problems(&editor).is_empty());
+    assert!(
+        store
+            .display(&editor, &snapshot)
+            .unwrap()
+            .markers()
+            .is_empty()
+    );
+}
+
+#[test]
+fn builtin_json과_외부_진단은_같은_문서에서_공존하고_각_공급자만_회수한다() {
+    let mut editor = EditorStore::new(EditorLimits {
+        max_documents: 1,
+        max_views: 1,
+        max_undo_groups: 1,
+        max_document_bytes: 1024,
+    })
+    .unwrap();
+    let path = PathBuf::from("/synthetic/native-and-external.json");
+    let id = editor
+        .open_file(
+            path.clone(),
+            taide_model::file::OpenedFile {
+                path: path.to_string_lossy().into_owned(),
+                content: "true".into(),
+                language_id: "json".into(),
+                byte_size: 4,
+                line_count: 1,
+                tier: taide_model::file::FileSizeTier::Normal,
+                read_only: false,
+                encoding_lossy: false,
+                modified_ms: 0.0,
+                editor_config: Default::default(),
+            },
+        )
+        .unwrap();
+    let snapshot = editor.documents().snapshot(id).unwrap();
+    let owner = Owner::new();
+    let mut store = Store::default();
+    store.retain_documents(HashSet::from([id]));
+    store.reconcile(HashMap::from([(owner, HashSet::from([id]))]));
+    store.retain_builtin(&editor, HashSet::from([id]));
+    store.publish(
+        owner,
+        &snapshot,
+        vec![diagnostic(Some(DiagnosticSeverity::WARNING), 0)],
+    );
+    store
+        .publish_builtin(
+            &snapshot,
+            vec![Marker {
+                bytes: 0..4,
+                message: Arc::new(Message {
+                    severity: Severity::Error,
+                    text: "native".into(),
+                    source: Some("json".into()),
+                    code: None,
+                }),
+            }],
+            "native-and-external.json".into(),
+        )
+        .unwrap();
+    assert_eq!(store.counts(), &[1, 1, 0, 0]);
+    assert_eq!(
+        store.display(&editor, &snapshot).unwrap().markers().len(),
+        2
+    );
+    assert_eq!(store.problems(&editor).len(), 2);
+    store.retain_builtin(&editor, HashSet::new());
+    assert_eq!(store.counts(), &[0, 1, 0, 0]);
+    assert_eq!(store.problems(&editor).len(), 1);
+    store.reconcile(HashMap::new());
+    assert_eq!(store.counts(), &[0, 0, 0, 0]);
 }

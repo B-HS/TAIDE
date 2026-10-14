@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use eframe::egui::{
@@ -13,6 +12,7 @@ use taide_model::{
 
 use crate::diagnostics::{self, Store};
 use crate::problems_icons::{self, FileColor, Glyph, Icons};
+use taide_native_editor::document::{DocumentId, DocumentKey};
 
 const SEVERITY_KEYS: [&str; 4] = ["error", "warning", "info", "hint"];
 const ROW_HEIGHT: f32 = 20.0;
@@ -68,7 +68,10 @@ impl Appearance {
 }
 
 struct Group {
-    path: Arc<PathBuf>,
+    path: Arc<DocumentKey>,
+    title: String,
+    document: DocumentId,
+    revision: u64,
     problems: Vec<Arc<Diagnostic>>,
     icon: (Glyph, FileColor),
 }
@@ -80,8 +83,11 @@ enum Row {
 
 enum PanelAction {
     Filter(usize),
-    Collapse(Arc<PathBuf>),
-    Open { path: Arc<PathBuf>, index: usize },
+    Collapse(Arc<DocumentKey>),
+    Open {
+        path: Arc<DocumentKey>,
+        index: usize,
+    },
     Close,
 }
 
@@ -89,7 +95,7 @@ struct Panel {
     viewport: Option<ScrollViewport>,
     spaces: SpaceInputs,
     active: [bool; 4],
-    collapsed: HashSet<PathBuf>,
+    collapsed: HashSet<DocumentKey>,
     revision: Option<Arc<()>>,
     groups: Vec<Group>,
     rows: Vec<Row>,
@@ -118,35 +124,44 @@ impl Panel {
         {
             return;
         }
-        let mut grouped = HashMap::<PathBuf, Vec<Arc<Diagnostic>>>::new();
+        let mut grouped =
+            HashMap::<DocumentKey, (String, DocumentId, u64, Vec<Arc<Diagnostic>>)>::new();
         for batch in store.batches() {
             for diagnostic in &batch.diagnostics {
                 if self.active[diagnostics::severity(diagnostic)] {
                     grouped
-                        .entry(batch.path.clone())
-                        .or_default()
+                        .entry(batch.key.clone())
+                        .or_insert_with(|| {
+                            (
+                                batch.title.clone(),
+                                batch.document,
+                                batch.revision(),
+                                Vec::new(),
+                            )
+                        })
+                        .3
                         .push(diagnostic.clone());
                 }
             }
         }
         self.groups = grouped
             .into_iter()
-            .map(|(path, mut problems)| {
+            .map(|(path, (title, document, revision, mut problems))| {
                 problems.sort_by_key(|problem| {
                     (problem.range.start.line, problem.range.start.character)
                 });
                 Group {
-                    icon: problems_icons::file(
-                        &path.file_name().unwrap_or_default().to_string_lossy(),
-                    ),
+                    icon: problems_icons::file(&title),
+                    title,
+                    document,
+                    revision,
                     path: Arc::new(path),
                     problems,
                 }
             })
             .collect();
-        self.groups.sort_by(|left, right| {
-            collation.compare(&left.path.to_string_lossy(), &right.path.to_string_lossy())
-        });
+        self.groups
+            .sort_by(|left, right| collation.compare(&group_label(left), &group_label(right)));
         self.revision = Some(store.revision().clone());
         self.flatten();
     }
@@ -505,7 +520,12 @@ impl Views {
                         let entry = &panel.groups[group];
                         let response = ui.interact(
                             rect,
-                            Id::new(("problem-row", slot, entry.path.as_ref(), problem)),
+                            match entry.path.as_ref() {
+                                DocumentKey::File(path) => {
+                                    Id::new(("problem-row", slot, path, problem))
+                                }
+                                key => Id::new(("problem-row", slot, key, problem)),
+                            },
                             Sense::click(),
                         );
                         let label = match problem {
@@ -527,7 +547,7 @@ impl Views {
                                     u64::from(diagnostic.range.start.character) + 1
                                 )
                             }
-                            None => entry.path.to_string_lossy().into_owned(),
+                            None => group_label(entry),
                         };
                         response.widget_info(|| {
                             egui::WidgetInfo::labeled(
@@ -618,7 +638,7 @@ impl Views {
                                 &entry.problems.len().to_string(),
                                 appearance.muted,
                             );
-                            let name = entry.path.file_name().unwrap_or_default().to_string_lossy();
+                            let name = &entry.title;
                             let width = paint_label(
                                 ui,
                                 content,
@@ -630,7 +650,7 @@ impl Views {
                             paint_label(
                                 ui,
                                 content,
-                                &entry.path.to_string_lossy(),
+                                &group_path(entry),
                                 appearance.muted,
                                 FontId::proportional(TEXT_SIZE),
                             );
@@ -710,16 +730,16 @@ impl Views {
                     if panel.collapsed.contains(path.as_ref()) {
                         continue;
                     }
-                    let Some(diagnostic) = panel
-                        .groups
-                        .iter()
-                        .find(|group| group.path == path)
-                        .and_then(|group| group.problems.get(index))
-                    else {
+                    let Some(group) = panel.groups.iter().find(|group| group.path == path) else {
+                        continue;
+                    };
+                    let Some(diagnostic) = group.problems.get(index) else {
                         continue;
                     };
                     open.push(Open {
-                        path: path.to_string_lossy().into_owned(),
+                        key: path.as_ref().clone(),
+                        document: group.document,
+                        revision: group.revision,
                         line: u64::from(diagnostic.range.start.line) + 1,
                         column: u64::from(diagnostic.range.start.character) + 1,
                     });
@@ -741,7 +761,9 @@ impl Views {
 }
 
 pub(crate) struct Open {
-    pub(crate) path: String,
+    pub(crate) key: DocumentKey,
+    pub(crate) document: DocumentId,
+    pub(crate) revision: u64,
     pub(crate) line: u64,
     pub(crate) column: u64,
 }
@@ -1029,3 +1051,17 @@ impl ActivationInputs {
 #[cfg(test)]
 #[path = "problems-tests.rs"]
 mod tests;
+
+fn group_label(group: &Group) -> String {
+    match group.path.as_ref() {
+        DocumentKey::File(path) => path.to_string_lossy().into_owned(),
+        _ => group.title.clone(),
+    }
+}
+
+fn group_path(group: &Group) -> String {
+    match group.path.as_ref() {
+        DocumentKey::File(path) => path.to_string_lossy().into_owned(),
+        _ => String::new(),
+    }
+}

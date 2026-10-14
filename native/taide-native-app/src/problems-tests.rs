@@ -1,5 +1,5 @@
 use super::*;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use taide_lsp::native::protocol::lsp_types::{DiagnosticSeverity, Position, Range};
 use taide_model::ids::TabId;
 use taide_native_editor::{
@@ -876,11 +876,9 @@ fn problems_서로다른_진단행의_ax_click은_원래_사건순서를_보존�
         opened.iter().map(|open| open.line).collect::<Vec<_>>(),
         [2, 1, 2]
     );
-    assert!(
-        opened
-            .iter()
-            .all(|open| open.path == "/synthetic/ordered.rs" && open.column == 1)
-    );
+    assert!(opened.iter().all(|open| open.key
+        == DocumentKey::File(PathBuf::from("/synthetic/ordered.rs"))
+        && open.column == 1));
 }
 
 #[test]
@@ -944,11 +942,9 @@ fn problems_진단행의_pointer_key_ax_혼합은_원래_사건순서를_보존�
         opened.iter().map(|open| open.line).collect::<Vec<_>>(),
         [2, 1, 2]
     );
-    assert!(
-        opened
-            .iter()
-            .all(|open| open.path == "/synthetic/mixed.rs" && open.column == 1)
-    );
+    assert!(opened.iter().all(|open| open.key
+        == DocumentKey::File(PathBuf::from("/synthetic/mixed.rs"))
+        && open.column == 1));
     assert!(!context.input(|input| {
         input.events.iter().any(|event| {
             matches!(
@@ -1110,7 +1106,9 @@ fn problems_filter_collapse_close는_진단열기와_원래_사건순서로_적�
             "{action}, control_first={control_first}"
         );
         assert!(opened.iter().all(|open| {
-            open.path == "/synthetic/actions.rs" && open.line == 1 && open.column == 1
+            open.key == DocumentKey::File(PathBuf::from("/synthetic/actions.rs"))
+                && open.line == 1
+                && open.column == 1
         }));
         match action {
             "filter" => {
@@ -1217,7 +1215,7 @@ fn problems_필터변경은_같은_행id의_새_진단을_열고_사라진_행�
         assert!(
             opened
                 .iter()
-                .all(|open| open.path == "/synthetic/retarget.rs")
+                .all(|open| open.key == DocumentKey::File(PathBuf::from("/synthetic/retarget.rs")))
         );
     }
 }
@@ -1456,8 +1454,12 @@ fn problems_프레임_batch_행은_최초_space와_enter_사건수를_보존한�
     assert!(
         opens
             .iter()
-            .all(|open| (open.path.as_str(), open.line, open.column)
-                == ("/synthetic/batch.rs", 1, 1))
+            .all(|open| (open.key.clone(), open.line, open.column)
+                == (
+                    DocumentKey::File(PathBuf::from("/synthetic/batch.rs")),
+                    1,
+                    1
+                ))
     );
     run(&mut views, &[(egui::Key::Enter, false, false)]);
     let requests = vec![
@@ -1822,8 +1824,12 @@ fn problems_키보드와_닫기는_반복_space_빈필터와_스크롤_재열기
     assert_eq!(opened.len(), 1);
     let opened = opened.into_iter().next().unwrap();
     assert_eq!(
-        (&*opened.path, opened.line, opened.column),
-        ("/synthetic/keyboard.rs", 1, 1)
+        (opened.key, opened.line, opened.column),
+        (
+            DocumentKey::File(PathBuf::from("/synthetic/keyboard.rs")),
+            1,
+            1
+        )
     );
     panel_frame(
         &context,
@@ -2324,7 +2330,7 @@ fn problems_입력은_필터_가상행_접기_파일위치와_슬롯수명을_�
     assert_eq!(group_node.is_expanded(), Some(true));
     assert_eq!(
         views.panels[&slot].groups[0].path.as_ref(),
-        &PathBuf::from("/synthetic/a.rs")
+        &DocumentKey::File(PathBuf::from("/synthetic/a.rs"))
     );
     assert!(
         texts(&output)
@@ -2399,8 +2405,8 @@ fn problems_입력은_필터_가상행_접기_파일위치와_슬롯수명을_�
         )
     });
     assert_eq!(
-        (&*opened.path, opened.line, opened.column),
-        ("/synthetic/b.rs", 3, 8)
+        (opened.key, opened.line, opened.column),
+        (DocumentKey::File(PathBuf::from("/synthetic/b.rs")), 3, 8)
     );
     let group = texts(&output)
         .into_iter()
@@ -2430,4 +2436,79 @@ fn problems_입력은_필터_가상행_접기_파일위치와_슬롯수명을_�
     assert!(!views.is_open(&other));
     views.reconcile(None);
     assert!(views.panels.is_empty());
+}
+
+#[test]
+fn native_untitled_문제_행은_실제_문서_키와_제목으로_표시하고_선택을_반환한다() {
+    let mut editor = EditorStore::new(EditorLimits {
+        max_documents: 1,
+        max_views: 1,
+        max_undo_groups: 1,
+        max_document_bytes: BYTE_LIMIT,
+    })
+    .unwrap();
+    let tab = TabId::new();
+    let id = editor
+        .open_untitled(tab.clone(), "bad", "json".into())
+        .unwrap();
+    let snapshot = editor.documents().snapshot(id).unwrap();
+    let mut store = Store::default();
+    store.retain_builtin(&editor, HashSet::from([id]));
+    store
+        .publish_builtin(
+            &snapshot,
+            vec![taide_native_editor::diagnostics::Marker {
+                bytes: 0..3,
+                message: Arc::new(taide_native_editor::diagnostics::Message {
+                    severity: taide_native_editor::diagnostics::Severity::Error,
+                    text: "Invalid JSON".into(),
+                    source: Some("json".into()),
+                    code: None,
+                }),
+            }],
+            "Untitled-1".into(),
+        )
+        .unwrap();
+    let mut views = Views::new("en").unwrap();
+    let slot = ShellSlotId::new();
+    views.toggle(&slot);
+    let context = egui::Context::default();
+    let (appearance, locale) = batch_appearance_locale();
+    panel_frame(
+        &context,
+        &mut views,
+        &slot,
+        &store,
+        &locale,
+        &appearance,
+        Vec::new(),
+    );
+    assert_eq!(views.panels[&slot].groups[0].title, "Untitled-1");
+    let row = Id::new(("problem-row", &slot, &snapshot.key, Some(0usize)));
+    let position = context.read_response(row).unwrap().rect.center();
+    let (_, mut opens, _) = panel_frame(
+        &context,
+        &mut views,
+        &slot,
+        &store,
+        &locale,
+        &appearance,
+        pointer(position, true),
+    );
+    let (_, released, _) = panel_frame(
+        &context,
+        &mut views,
+        &slot,
+        &store,
+        &locale,
+        &appearance,
+        pointer(position, false),
+    );
+    opens.extend(released);
+    assert_eq!(opens.len(), 1);
+    let selected = opens.remove(0);
+    assert_eq!(selected.key, DocumentKey::Untitled(tab));
+    assert_eq!(selected.document, id);
+    assert_eq!(selected.revision, snapshot.revision);
+    assert_eq!((selected.line, selected.column), (1, 1));
 }

@@ -1080,6 +1080,7 @@ pub(crate) struct Provider<'a, 'state> {
     pub(crate) lsp: Option<&'a crate::lsp::LspBridge>,
     pub(crate) symbols: Option<&'a crate::editor_symbols::State>,
     pub(crate) folding: Option<&'a crate::editor_folding::State>,
+    pub(crate) diagnostics: Option<&'a crate::diagnostics::Store>,
     pub(crate) layout: Option<&'a taide_model::layout::ProjectLayout>,
     pub(crate) scope: &'a taide_native_ui::shell::WindowScope,
     pub(crate) commands: &'a mut Vec<crate::host::HostCommand>,
@@ -1625,6 +1626,9 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
         presentation.options.problem_colors = None;
         store.configure_indentation(document, self.indentation)?;
         let snapshot = store.documents().snapshot(document)?;
+        presentation.options.diagnostics = self
+            .diagnostics
+            .and_then(|diagnostics| diagnostics.display(store, &snapshot));
         let syntax_folds = self.folding.and_then(|folding| {
             self.project
                 .as_ref()

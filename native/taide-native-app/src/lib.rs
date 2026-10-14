@@ -71,6 +71,8 @@ mod editor_indentation;
 mod editor_inlay_hints;
 #[path = "editor-json.rs"]
 mod editor_json;
+#[path = "editor-json-validation.rs"]
+mod editor_json_validation;
 #[path = "editor-locations.rs"]
 mod editor_locations;
 #[path = "editor-markdown.rs"]

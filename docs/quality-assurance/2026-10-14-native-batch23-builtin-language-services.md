@@ -308,3 +308,33 @@ reveal.log는compile0.26초·직접1통과/0.00초·exit0입니다. 실제 Edito
 wasm.log/73404는UI lib의 --target wasm32-unknown-unknown --no-default-features --locked --offline 검사·7분07초·exit0입니다. 이후 시작한 최종 App 검사는 같은 build directory의 Cargo lock에서 대기했고 먼저 시작한 Wasm이 종료된 뒤 컴파일했습니다. 두 실행 핸들을 유지했으며 대기를 실패/종료로 처리하거나 Cargo를 재시작하지 않았습니다. 이후 Cargo는 종료를 관찰한 뒤 직렬 실행합니다. 기존 vendor wry17경고와 App 검사 링크의 compact unwind1경고는 성공과 구분합니다.
 
 app-focus.log/4803은lock 대기를 포함한compile6분08초·실제앱1통과/43.41초·exit0입니다. 고정 프레임 수 대신 실제 has_input_focus가 준비된 뒤 @value를 입력했고 현재 untitled 팔레트/outline 이동·원문/revision·정상 종료tasks0을 확인했습니다. 기존 app-current의 같은1건을 중복 합산하지 않습니다. 소유Rust9 format·소유diff·manifest/lock/동결 변경0의 근거와 함께 b3f2 및 부모 b3f의 구조 공급 범위만 닫습니다. 전체 Core392/JSONCore49/Syntax5 및 b3f1 실제 peek의 변경 없는 성공은 재사용하며 새 전체 검사로 세지 않습니다. 이전 전체App877통과/22준비실패/보호3제외/exit101·Core성능ignored1·remote Wasm tests의 시간 API 불일치7·실제 OS/접근성/큰tier 성능/신뢰성/출시·전환 게이트는 유지합니다. 전체303/588(51.5%)·부분93/미연결110/미구현82·미완료285·배치23잔여18·최종33·목표active·잔여시간미산정입니다.
+
+## b3g — JSON 구문 진단의 실제 소비
+
+원본 setup.ts는 JSON defaults를 덮어쓰지 않습니다. 설치 features/json/register.js의 validate=true/allowComments=true/comments=error/trailingCommas=error·schemas 빈 목록/enableSchemaRequest=false를 확인했습니다. JSONWorker.doValidation은 이 설정을 language service에 넘기고 common/lspLanguageFeatures.js는 모델 생성 시 즉시, 내용 변경 시500ms 후 다시 검증하며 언어 변경/모델 폐기 시 해당 marker를 회수합니다. schema semantic과 schema의 주석/쉼표 허용 확장은 기존 b3e에 남기며 구문 진단만으로 전체 JSON 검증 완료를 주장하지 않습니다.
+
+editor-json-validation.rs는 기존 Core syntax_diagnostics를 별도 supervised blocking 작업으로 실행합니다. 실제 Normal JSON의 붙은 뷰/DocumentId·키/revision/언어/tier로 결과 수명을 제한하고 변경 지연500ms·활성 worker1개·기존 Normal byte 상한과 scanner/parser/깊이/노드/진단·메시지 예산을 명시합니다. 취소한 실제 worker가 종료될 때까지 slot을 보유하며 종료가 다음 작업을 깨웁니다. 구조 공급의 표시 용량 실패와 독립된 작업이므로 심볼 실패가 구문 진단을 성공으로 위장하거나 막지 않습니다.
+
+진단 Store에는 native DocumentId 슬롯을 별도로 추가했습니다. 외부 Owner/bindings의 생성·사용 없이 Core byte marker를 검증하고 기존 표시·탐색 MarkerSet 및 문제 UI의 Diagnostic 표현에 연결합니다. DTO 변환은 UI의 메시지/심각도/UTF-16 좌표 소비용이며 서버 메시지를 송수신하거나 가짜 LSP owner를 만들지 않습니다. 파일/untitled DocumentKey·실제 탭 제목을 보존하고 외부 공급의 회수와 독립적으로 native 진단/개수/표시 캐시를 회수합니다. 문제 목록도 typed key를 사용하며 파일 행의 기존 안정 ID는 유지합니다.
+
+validation-first.log/83521은검사 작성의5컴파일 오류·exit101·실행0건입니다. 부모 모듈에서 제거한 PathBuf import의 기존 검사 의존·TaskSupervisor의 실제 new(runtime) 계약·문제 Open의 typed key로 바뀐 기존 단언3곳을 대조해 수정했습니다. 제품 실행 실패나 통과 건수로 합산하지 않으며 최종 관련 검사와 실제 앱 소비의 결과는 아래에 기록합니다.
+
+validation-current.log/64001은compile35.40초·5통과/1실패·45.49초·exit101입니다. 새 문서 작업2/별도 native 저장소1과 기존 JSON 본문 앱1이 관련 성공이며 필터에 함께 잡힌 remote JSON 왕복1은 이 기능 건수에서 제외합니다. 기존 JSON peek는 마지막 Escape 뒤 구조 문서 회수를 기다리다10초 제한에 도달했습니다. validation-peek-diagnostic.log/55255는compile18.76초·0통과/1실패·40.29초·exit101이며 추가 호출 위치 관찰로 마지막 닫힘 대기임을 확인했습니다. 당시 native/validation 문서가 각각1개·supervised tasks9개 남아 있었으며 분석 자체의 실패로 확대하지 않습니다.
+
+Peek의 presentation은 본문 진단을 그대로 복사하지 않고 현재 peek snapshot의 별도 native/외부 진단을 다시 조회하도록 연결했습니다. validation-app.log/97604는compile21.86초·실제 앱2통과/46.75초·exit0입니다. 본문 앱은 실제 untitled의 주석/끝 쉼표 오류2건·현재 byte의 diagnostic-hover 응답·현재 문서 문제 widget/이동·Undo 후 오류 회수와 원문/tasks0을 확인합니다. Peek 닫힘은 한 번의 추가 UI 표시 후 즉시 세션 닫힘과 기존 문서 회수 조건을 확인했습니다. 추가 표시가 없는 기존 순서도 다시 확인하며 앞선 시간 초과의 정확한 원인은 아직 단정하지 않습니다.
+
+validation-diagnostics.log/91370은compile18.02초·7통과/0.03초·exit0입니다. 저장소6건(기존4+native untitled/같은 파일 외부 공존2)과 기존 raw 수명1건으로, native 슬롯은 실제 키/UTF-16 좌표·표시·탐색/개수를 제공하고 외부 회수와 독립이며 잘못된 native byte 게시가 이전 유효 결과를 손상하지 않습니다. 제품은 native에 Owner를 만들지 않고 외부 mock Owner는 별도 테스트 프로토콜 입력입니다. UI/이동과 마지막 실제 앱의 결과는 아래에 이어 기록합니다.
+
+validation-problems.log/30186은compile26.44초·24통과/0.11초·exit0입니다. 기존 편집기 문제 탐색5와 목록19(기존18+새 untitled1)에서 파일 행의 안정 ID/키/접기/필터/사건 순서/툴팁/viewport 수명과 native 실제 DocumentKey/제목·행 클릭의 document/revision/UTF-16 위치 반환을 확인했습니다.
+
+validation-app-current.log/1769는실제앱1통과/1실패·35.60초·exit101입니다. 본문은 추가한 실제 문제 목록의 untitled 행 클릭→기존 현재 뷰의 쉼표 byte 이동·문제 widget·Undo 회수까지 통과했습니다. 한 번의 추가 UI 표시를 제거한 peek는 원래 마지막 닫힘 대기에서 다시 시간 초과했으므로 앞의2통과를 최종 닫힘 성공으로 재사용하지 않습니다. Escape 입력 직전의 실제 preview 포커스와 직후 세션 폐기를 직접 검사하도록 관찰을 추가했으며 이 경계가 해결되기 전 전체 b3g를 닫지 않습니다.
+
+validation-peek-focus.log/80945는compile20.70초·실제 peek1통과/33.25초·exit0입니다. 추가 UI 프레임 없이 Escape 직전 입력 포커스가 실제 preview ViewId에 속하고 입력 직후 owner 세션이 폐기된다는 직접 단언·기존 JSON 구조/접기·문서 회수/tasks0이 통과했습니다. 제품 코드는 앞의 실패 때와 같고 검사 관찰만 추가했으므로 간헐적 마지막 회수 시간 초과의 원인을 해결했다고 단정하지 않습니다. 이전 실패/성공 로그와 재현 순서는 그대로 보존하며 peek의 실제 비어 있지 않은 진단 표시·hover 및 다른 문서/프로젝트의 untitled 문제 이동과 함께 b3g2의 잔여 검증으로 유지합니다. 성공한 본문·현재 소유 포커스의 좁은 peek 실행을 전체 닫힘 신뢰성 게이트로 확대하지 않습니다.
+
+validation-app-body.log/25261은compile18.44초·현재 본문 앱1통과/33.94초·exit0입니다. 실제 파일 언어 변경 후 진단 작업 회수·읽기 전용 Normal의 진단 문서 자격·Large 회수·실제 untitled의 오류2/행 클릭·UTF-16→현재 byte 이동/문제 widget/Undo 회수·두 native 작업 집합의 종료 회수/tasks0을 확인했습니다. 같은 본문 성공과 앞의 좁은 peek 성공을 중복 합산하지 않습니다.
+
+validation-removal-before.log/93319는compile15.53초·0통과/1실패·0.03초·exit101입니다. Store.remove_document 직후 늦은 native 결과를 게시하면 오류 수가0 대신1로 되살아나는 실제 신규 경계 오류를 재현했습니다. 제거 시 builtin_documents의 게시 자격도 회수하도록 수정하며 외부 Owner/bindings나 다른 native 문서의 진단은 변경하지 않습니다. 수정 후 같은 저장소/원본 raw 경계를 검사하며 최종 결과는 아래에 기록합니다.
+
+validation-removal-after.log/8844는compile14.09초·관련 진단7통과/0.03초·exit0입니다. 제거 뒤 늦은 게시를 거절하고 현재 다른 공급자/문서와 유효한 byte/원본 데이터를 보존합니다. 문서 작업2·진단7·목록/탐색24·현재 본문 앱1·입력 소유를 직접 확인한 peek1의 서로 다른35건을 성공 근거로 사용하며 앞의 동일 성공·관련 없는 remote1은 합산하지 않습니다. 간헐 peek 회수 실패의 재현 원인이 미확정인 사실은 별도 미완료로 유지합니다.
+
+소유Rust13 format·소유diff·manifest/lock/동결 변경0을 확인했습니다. 변경은 host App 내부이며 UI/Core의 공유 공개 계약과 Wasm 소스는 바뀌지 않아 b3f2의 Wasm UI lib·기존 Core392/JSONCore49/Syntax5 성공을 재사용합니다. 새 전체 App/Core/UI/Wasm 실행으로 세지 않으며 기존 vendor wry17/compact unwind1경고, 전체App877통과/22준비실패/보호3제외/exit101·Core성능ignored1·remote Wasm tests의 시간 API 불일치7·OS/접근성/대형 성능/신뢰성/출시·전환 게이트를 유지합니다. b3g1만 닫고 b3g2/부모 b3g·schema semantic/나머지 JSON/CSS/HTML/TS는 미완료입니다. 전체303/588(51.5%)·부분93/미연결110/미구현82·미완료285·배치23잔여18·최종33·목표active·잔여시간미산정입니다.
