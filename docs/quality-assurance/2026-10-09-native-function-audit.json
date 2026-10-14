@@ -1,16 +1,7 @@
 {
     "date": "2026-10-14",
     "baseline": "cea50ee9",
-    "domainOrder": [
-        "shell",
-        "editor",
-        "terminal-agent",
-        "explorer-search",
-        "preview",
-        "git",
-        "settings",
-        "commands-ui"
-    ],
+    "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
             "sources": [
@@ -125,24 +116,13 @@
                 "native/taide-native-editor/src/language-typing.rs",
                 "native/taide-native-ui/src/editor_surface.rs"
             ],
-            "tests": [
-                "native/taide-native-editor/tests/language-typing.rs",
-                "native/taide-native-ui/tests/editor_surface.rs"
-            ],
-            "reports": [
-                "docs/quality-assurance/2026-10-06-native-batch7-language-config.md"
-            ],
+            "tests": ["native/taide-native-editor/tests/language-typing.rs", "native/taide-native-ui/tests/editor_surface.rs"],
+            "reports": ["docs/quality-assurance/2026-10-06-native-batch7-language-config.md"],
             "limitation": "실제 OS IME/clipboard와 detectIndentation 전체 동작은 별도입니다."
         },
         "editor-commands": {
-            "sources": [
-                "native/taide-native-ui/src/command-registry.rs",
-                "native/taide-native-app/src/command-dispatch.rs"
-            ],
-            "tests": [
-                "native/taide-native-editor/tests/line-commands.rs",
-                "native/taide-native-editor/tests/cursor-commands.rs"
-            ],
+            "sources": ["native/taide-native-ui/src/command-registry.rs", "native/taide-native-app/src/command-dispatch.rs"],
+            "tests": ["native/taide-native-editor/tests/line-commands.rs", "native/taide-native-editor/tests/cursor-commands.rs"],
             "reports": [
                 "docs/quality-assurance/2026-10-06-native-batch7-line-commands.md",
                 "docs/quality-assurance/2026-10-06-native-batch7-cursor-commands.md"
@@ -150,19 +130,13 @@
             "limitation": ""
         },
         "editor-lsp": {
-            "sources": [
-                "native/taide-native-app/src/lsp.rs",
-                "native/taide-native-app/src/application.rs",
-                "native/taide-native-editor/src/lsp.rs"
-            ],
+            "sources": ["native/taide-native-app/src/lsp.rs", "native/taide-native-app/src/application.rs", "native/taide-native-editor/src/lsp.rs"],
             "tests": [
                 "native/taide-native-app/tests/lsp.rs",
                 "native/taide-native-app/tests/lsp-workspace.rs",
                 "native/taide-native-app/tests/save-syntax.rs"
             ],
-            "reports": [
-                "docs/quality-assurance/2026-10-09-native-completion-evidence.md"
-            ],
+            "reports": ["docs/quality-assurance/2026-10-09-native-completion-evidence.md"],
             "limitation": "현재 앱 typed 요청은 저장 Formatting/ExecuteCommand/CodeAction/Resolve입니다. 전체 LSP UI 요청으로 확대하지 않습니다."
         },
         "editor-state": {
@@ -217,13 +191,8 @@
                 "native/taide-native-ui/src/snippet-completion.rs",
                 "native/taide-native-app/src/application.rs"
             ],
-            "tests": [
-                "native/taide-native-ui/tests/snippet-session.rs",
-                "native/taide-native-ui/tests/snippet-completion.rs"
-            ],
-            "reports": [
-                "docs/quality-assurance/2026-10-09-native-completion-evidence.md"
-            ],
+            "tests": ["native/taide-native-ui/tests/snippet-session.rs", "native/taide-native-ui/tests/snippet-completion.rs"],
+            "reports": ["docs/quality-assurance/2026-10-09-native-completion-evidence.md"],
             "limitation": "스니펫 엔진 검사는 본문 완성/삽입 UI 소비자를 입증하지 않습니다."
         },
         "editor-ide": {
@@ -232,13 +201,8 @@
                 "native/taide-native-app/src/ide-server.rs",
                 "native/taide-native-app/src/application.rs"
             ],
-            "tests": [
-                "native/taide-native-app/src/ide-tools-tests.rs",
-                "native/taide-native-app/src/ide-server-tests.rs"
-            ],
-            "reports": [
-                "docs/quality-assurance/2026-10-09-native-completion-evidence.md"
-            ],
+            "tests": ["native/taide-native-app/src/ide-tools-tests.rs", "native/taide-native-app/src/ide-server-tests.rs"],
+            "reports": ["docs/quality-assurance/2026-10-09-native-completion-evidence.md"],
             "limitation": "합성 responder 검사는 앱 save/diff 소비 완료의 근거가 아닙니다. 본문 선택 공급의 실제 앱 근거는 editor-ide-selection에 분리했습니다."
         },
         "editor-missing": {
@@ -249,9 +213,7 @@
                 "native/taide-native-ui/src/command-registry.rs"
             ],
             "tests": [],
-            "reports": [
-                "docs/quality-assurance/2026-10-09-native-completion-evidence.md"
-            ],
+            "reports": ["docs/quality-assurance/2026-10-09-native-completion-evidence.md"],
             "limitation": "show_document·typed 요청·tab_content·registry를 읽어 해당 실제 사용자 소비자 부재를 확인했습니다."
         },
         "explorer-base": {
@@ -281,12 +243,8 @@
                 "native/taide-native-app/src/delete_dialog.rs",
                 "native/taide-native-app/src/application.rs"
             ],
-            "tests": [
-                "native/taide-native-app/tests/explorer-delete.rs"
-            ],
-            "reports": [
-                "docs/quality-assurance/2026-10-09-native-batch13-bracket-matching.md"
-            ],
+            "tests": ["native/taide-native-app/tests/explorer-delete.rs"],
+            "reports": ["docs/quality-assurance/2026-10-09-native-batch13-bracket-matching.md"],
             "limitation": "보호 Trash 3검사 제외·미검증을 완료로 세지 않습니다."
         },
         "panel-search": {
@@ -297,9 +255,7 @@
                 "crates/taide-runtime/src/search_actions.rs"
             ],
             "tests": [],
-            "reports": [
-                "docs/quality-assurance/2026-10-09-native-completion-evidence.md"
-            ],
+            "reports": ["docs/quality-assurance/2026-10-09-native-completion-evidence.md"],
             "limitation": "AppSurfaces::explorer는 파일/아웃라인 표면을 소비합니다. 공유/원격 검색 backend와 아직 없는 로컬 검색/Git 표면을 구분합니다."
         },
         "panel-git": {
@@ -309,12 +265,8 @@
                 "native/taide-native-app/src/event-relay.rs",
                 "crates/taide-runtime/src/git_actions.rs"
             ],
-            "tests": [
-                "native/taide-native-app/src/remote-git-tests.rs"
-            ],
-            "reports": [
-                "docs/quality-assurance/2026-10-09-native-completion-evidence.md"
-            ],
+            "tests": ["native/taide-native-app/src/remote-git-tests.rs"],
+            "reports": ["docs/quality-assurance/2026-10-09-native-completion-evidence.md"],
             "limitation": "branch는 None이며 Diff/ClaudeDiff의 실제 앱 표면·SCM/gutter 요청 소비가 없습니다. 원격 backend 검사는 로컬 UI 완료가 아닙니다."
         },
         "preview-base": {
@@ -356,20 +308,13 @@
                 "native/taide-native-app/tests/preview-web-http-lifetime.rs",
                 "native/taide-native-app/tests/preview-web-helper.rs"
             ],
-            "reports": [
-                "docs/quality-assurance/2026-10-09-native-batch13-bracket-matching.md"
-            ],
+            "reports": ["docs/quality-assurance/2026-10-09-native-batch13-bracket-matching.md"],
             "limitation": "Rust 소유 HTML/helper 검사는 실제 재생·seek·플랫폼 제어 검사가 아닙니다."
         },
         "browser-frozen": {
-            "sources": [
-                "native/taide-remote-web/src/lib.rs",
-                "native/taide-remote-web/Cargo.toml"
-            ],
+            "sources": ["native/taide-remote-web/src/lib.rs", "native/taide-remote-web/Cargo.toml"],
             "tests": [],
-            "reports": [
-                "docs/quality-assurance/2026-10-09-native-batch13-bracket-matching.md"
-            ],
+            "reports": ["docs/quality-assurance/2026-10-09-native-batch13-bracket-matching.md"],
             "limitation": "host/Wasm 컴파일만 유지하고 기능·의존 그래프·lockfile을 바꾸지 않습니다."
         },
         "locale": {
@@ -378,13 +323,8 @@
                 "native/taide-native-app/src/presentation-refresh.rs",
                 "crates/taide-locale/src/service.rs"
             ],
-            "tests": [
-                "native/taide-native-app/src/presentation-refresh.rs",
-                "native/taide-native-app/src/settings-view-tests.rs"
-            ],
-            "reports": [
-                "docs/quality-assurance/2026-10-09-native-batch13-bracket-matching.md"
-            ],
+            "tests": ["native/taide-native-app/src/presentation-refresh.rs", "native/taide-native-app/src/settings-view-tests.rs"],
+            "reports": ["docs/quality-assurance/2026-10-09-native-batch13-bracket-matching.md"],
             "limitation": ""
         },
         "terminal-base": {
@@ -421,13 +361,8 @@
                 "native/taide-native-ui/src/settings-resources.rs",
                 "native/taide-native-app/src/application.rs"
             ],
-            "tests": [
-                "native/taide-native-ui/tests/settings-code-controls.rs",
-                "native/taide-native-app/tests/settings-controls.rs"
-            ],
-            "reports": [
-                "docs/quality-assurance/2026-10-09-native-completion-evidence.md"
-            ],
+            "tests": ["native/taide-native-ui/tests/settings-code-controls.rs", "native/taide-native-app/tests/settings-controls.rs"],
+            "reports": ["docs/quality-assurance/2026-10-09-native-completion-evidence.md"],
             "limitation": "설정 저장/자원·순수 control 검사를 모든 picker/UI 소비자 동작 검사로 확대하지 않습니다."
         },
         "settings-base": {
@@ -473,9 +408,7 @@
                 "native/taide-native-app/src/remote-utilities-tests.rs",
                 "native/taide-native-app/src/remote-agents-tests.rs"
             ],
-            "reports": [
-                "docs/quality-assurance/2026-10-09-native-batch13-bracket-matching.md"
-            ],
+            "reports": ["docs/quality-assurance/2026-10-09-native-batch13-bracket-matching.md"],
             "limitation": "서버/원격/공유 서비스 검사는 미연결된 로컬 설정·task/agent·알림/IDE 사용자 소비자 완료를 뜻하지 않습니다."
         },
         "shell-base": {
@@ -509,13 +442,8 @@
                 "native/taide-native-ui/src/shell.rs",
                 "crates/taide-runtime/src/window_registry.rs"
             ],
-            "tests": [
-                "native/taide-native-ui/tests/workbench.rs",
-                "native/taide-native-app/tests/persistence.rs"
-            ],
-            "reports": [
-                "docs/quality-assurance/2026-10-09-native-completion-evidence.md"
-            ],
+            "tests": ["native/taide-native-ui/tests/workbench.rs", "native/taide-native-app/tests/persistence.rs"],
+            "reports": ["docs/quality-assurance/2026-10-09-native-completion-evidence.md"],
             "limitation": "논리 auxiliary/restore 검사를 실제 보조 viewport·OS 창 생성/재시작·데이터 전환 검증으로 세지 않습니다."
         },
         "shell-tabs": {
@@ -525,13 +453,8 @@
                 "native/taide-native-app/src/shell_keymap.rs",
                 "native/taide-native-app/src/application.rs"
             ],
-            "tests": [
-                "native/taide-native-app/tests/tabs.rs",
-                "native/taide-native-ui/tests/workbench.rs"
-            ],
-            "reports": [
-                "docs/quality-assurance/2026-10-09-native-completion-evidence.md"
-            ],
+            "tests": ["native/taide-native-app/tests/tabs.rs", "native/taide-native-ui/tests/workbench.rs"],
+            "reports": ["docs/quality-assurance/2026-10-09-native-completion-evidence.md"],
             "limitation": "실제 메뉴/pin·drag/drop 사용자 진입과 layout/backend 모델을 구분합니다."
         },
         "shell-projects": {
@@ -542,13 +465,8 @@
                 "native/taide-native-app/src/remote-projects.rs",
                 "crates/taide-runtime/src/project_actions.rs"
             ],
-            "tests": [
-                "native/taide-native-app/tests/projects.rs",
-                "native/taide-native-app/src/remote-projects-tests.rs"
-            ],
-            "reports": [
-                "docs/quality-assurance/2026-10-09-native-completion-evidence.md"
-            ],
+            "tests": ["native/taide-native-app/tests/projects.rs", "native/taide-native-app/src/remote-projects-tests.rs"],
+            "reports": ["docs/quality-assurance/2026-10-09-native-completion-evidence.md"],
             "limitation": "프로젝트/그룹 backend 검사는 rail 메뉴/대화상자/drag 소비자가 아닙니다."
         },
         "icons": {
@@ -557,10 +475,7 @@
                 "native/taide-native-ui/src/icons.rs",
                 "native/taide-native-app/src/application.rs"
             ],
-            "tests": [
-                "native/taide-native-ui/src/glyph-icons-tests.rs",
-                "native/taide-native-ui/tests/workbench.rs"
-            ],
+            "tests": ["native/taide-native-ui/src/glyph-icons-tests.rs", "native/taide-native-ui/tests/workbench.rs"],
             "reports": [
                 "docs/quality-assurance/2026-10-06-native-batch3-modal-icons.md",
                 "docs/quality-assurance/2026-10-09-native-batch13-bracket-matching.md"
@@ -597,9 +512,7 @@
                 "native/taide-native-ui/src/command-score.rs",
                 "native/taide-native-app/src/application.rs"
             ],
-            "tests": [
-                "native/taide-native-ui/src/command-palette-tests.rs"
-            ],
+            "tests": ["native/taide-native-ui/src/command-palette-tests.rs"],
             "reports": [
                 "docs/quality-assurance/2026-10-06-native-batch2-command-palette.md",
                 "docs/quality-assurance/2026-10-10-native-batch16-document-symbols.md",
@@ -724,9 +637,7 @@
                 "native/taide-native-app/src/breadcrumb-host-tests.rs",
                 "native/taide-native-app/src/application-startup-tests.rs"
             ],
-            "reports": [
-                "docs/quality-assurance/2026-10-10-native-batch17-outline-breadcrumbs.md"
-            ],
+            "reports": ["docs/quality-assurance/2026-10-10-native-batch17-outline-breadcrumbs.md"],
             "limitation": "파일/아웃라인 진입·현재 문서 심볼 트리·경로/심볼 막대·형제 메뉴·preview/reveal·창/탭/세대 수명을 연결했습니다. 검색/Git의 나머지 두 뷰, 실제 OS 접근성/IME·pixel·대형 지연/출시 게이트는 잔여입니다."
         },
         "workspace-symbols": {
@@ -748,9 +659,7 @@
                 "native/taide-native-ui/src/command-palette-tests.rs",
                 "native/taide-native-ui/tests/keymap-platform.rs"
             ],
-            "reports": [
-                "docs/quality-assurance/2026-10-10-native-batch18-workspace-symbols.md"
-            ],
+            "reports": ["docs/quality-assurance/2026-10-10-native-batch18-workspace-symbols.md"],
             "limitation": "단일 200ms trailing·typed 여러 세션·결과 순서/부분 오류·세대/취소·Hash/컨테이너/강조·키/마우스·preview/기존 탭/UTF-16 reveal을 검증했습니다. 실제 OS 화면/IME/접근성·대형/출시는 미검증입니다."
         },
         "editor-locations": {
@@ -816,9 +725,7 @@
                 "native/taide-native-ui/tests/keymap-platform.rs",
                 "crates/taide-lsp/src/native/registration.rs"
             ],
-            "reports": [
-                "docs/quality-assurance/2026-10-10-native-batch21-hover-signature.md"
-            ],
+            "reports": ["docs/quality-assurance/2026-10-10-native-batch21-hover-signature.md"],
             "limitation": "본문/순수 peek의 typed 호버·자동/명시 서명·provider 우선순위/부분 응답/취소·Markdown/기존 TextMate 코드·안전한 이미지/파일 링크·직렬 입력/포커스·원본 크기/테마·readonly/두 뷰/열린 도움말 종료를 검증했습니다. 실기 pixel/OS IME/접근성·보조 창·대형/성능/soak·기타 LSP·출시는 잔여입니다."
         },
         "editor-completion": {
@@ -882,9 +789,7 @@
                 "native/taide-native-ui/src/command-registry.rs",
                 "native/taide-native-app/src/terminal_surface.rs"
             ],
-            "reports": [
-                "docs/quality-assurance/2026-10-10-native-batch23-editor.md"
-            ],
+            "reports": ["docs/quality-assurance/2026-10-10-native-batch23-editor.md"],
             "limitation": "기본 텍스트/LSP 표시와 F7/ShiftF7 이동·본문/peek·mirror/readonly/tier·복수 공급자·null/오류 대체·요청 취소와 실제 서버 재시작/동적 capability 수명·종료를 실제 App/child에서 확인했습니다. TS 호스트와 설치 Monaco 기본 설정을 대조했으며 관련 검사는 현재 App 전체 실행에서도 통과했습니다. 실기/대형 성능/출시 게이트는 기능표의 complete 정의와 구분해 배치 31~33에서 추적합니다."
         },
         "editor-sticky-definition": {
@@ -994,9 +899,7 @@
                 "native/taide-native-app/src/application-startup-tests.rs",
                 "native/taide-native-ui/tests/editor-rename.rs"
             ],
-            "reports": [
-                "docs/quality-assurance/2026-10-10-native-batch23-editor.md"
-            ],
+            "reports": ["docs/quality-assurance/2026-10-10-native-batch23-editor.md"],
             "limitation": "외부 LSP 공급자의 typed 준비/새 이름·심볼 입력 창·본문/peek F2/팔레트·전체/부분 선택·IME/Enter/Escape/blur/비활성화·종료 뒤 입력·기존 locale/오류 알림과 실제 열린 파일/undo·닫힌 파일 저장·create/편집/rename resource를 연결했습니다. 추가 공급자/프로젝트 소유·실제 대기 취소/늦은 응답·readonly owner/원래 디스크·종료 task 0을 관련 15건에서 확인했고 현재 App 전체 67대상/823통과/0실패·보호 3제외, 마지막 canonical 단언의 영향 App 1통과를 확인했습니다. 같은 성공은 중복 합산하지 않습니다. 내장 공급자 editor-57과 보호 삭제·실기/OS IME/pixel/성능/출시는 별도 게이트입니다. 변경 없는 UI 현재 서로 다른 447건·Core/SDK/Syntax/frozen의 이전 근거를 재사용합니다. 원본의 잘못된 공급자 복귀/일부 적용 실패 뒤 다른 공급자로 중복 재시도와 정확한 서버 오류 문구는 강제 재현하지 않습니다. 이전 불안정성의 원인 확인은 배치 31에 남기며 전체 전환율/잔여 시간은 미산정입니다."
         },
         "editor-formatting": {
@@ -1029,9 +932,7 @@
                 "docs/utils/2026-10-11-monaco-formatting-markers-oracle.js",
                 "native/taide-native-ui/tests/editor-completion.rs"
             ],
-            "reports": [
-                "docs/quality-assurance/2026-10-10-native-batch23-editor.md"
-            ],
+            "reports": ["docs/quality-assurance/2026-10-10-native-batch23-editor.md"],
             "limitation": "외부 문서/선택/저장과 실제 본문/peek의 입력/붙여넣기를 연결했습니다. 입력 확정/UTF-16 범위·정적/동적 트리거·한 커서/IME/readonly/옵션·전체 선택 취소·undo와 완성 상세창 입력 소비를 확인했습니다. 내장 언어 서비스의 fallback(editor-57)과 전체 실기/성능/출시는 미완료입니다. SDK 87·최종 UI 441·App 전체 809통과/5timeout 뒤 새 실패 4건만 단독 통과했고 기존 프로젝트 open 실패는 미해결로 보존합니다. 마지막 UI 수정 후 실제 앱 1건도 통과했습니다. 원본 계측은 브라우저 픽셀 검사와 구분하며 App 전체 exit 0이나 OS 대기 원인 해결로 보고하지 않습니다."
         },
         "editor-code-actions": {
@@ -1080,9 +981,7 @@
                 "native/taide-native-app/src/lsp-editor-code-actions-tests.rs",
                 "native/taide-native-app/src/application-code-actions-tests.rs"
             ],
-            "reports": [
-                "docs/quality-assurance/2026-10-10-native-batch23-editor.md"
-            ],
+            "reports": ["docs/quality-assurance/2026-10-10-native-batch23-editor.md"],
             "limitation": "원본의 정적/동적 서버 명령과 문서별 공급자/owner·해제/재시작 계약, WorkspaceEdit 뒤 executeCommand와 client navigation 세 명령을 실제 SDK/child/App에서 확인했습니다. showReferences와 RA 별칭의 다른 파일 peek 및 gotoLocation의 선택 시작 이동을 검증했습니다. CodeLens 소비자 editor-53은 별도 실제 연결/검증으로 완료했으며 untitled opener editor-58은 독립 미완료 요구사항으로 추적합니다."
         },
         "editor-file-opener": {
@@ -1091,13 +990,8 @@
                 "native/taide-native-app/src/application.rs",
                 "native/taide-native-app/src/editor-locations.rs"
             ],
-            "tests": [
-                "native/taide-native-app/src/symbol-location-host-tests.rs",
-                "native/taide-native-app/src/application-code-actions-tests.rs"
-            ],
-            "reports": [
-                "docs/quality-assurance/2026-10-10-native-batch23-editor.md"
-            ],
+            "tests": ["native/taide-native-app/src/symbol-location-host-tests.rs", "native/taide-native-app/src/application-code-actions-tests.rs"],
+            "reports": ["docs/quality-assurance/2026-10-10-native-batch23-editor.md"],
             "limitation": "실제 앱의 파일 열기·기존 탭/dirty 모델 인수·같은 파일 이동·LocationLink 선택 시작·peek 인계를 기존 SymbolLocationHost와 App 검사에서 확인했습니다. 실제 소비자가 없다는 이전 missing 판정은 잘못됐습니다. 원본의 이미 열린 untitled 편집기 탐색과 나머지 진입의 통합은 남아 partial입니다."
         },
         "editor-inlay-hints": {
@@ -1123,9 +1017,7 @@
                 "native/taide-native-app/src/lsp-editor-inlay-hints-tests.rs",
                 "native/taide-native-app/src/application-inlay-hints-tests.rs"
             ],
-            "reports": [
-                "docs/quality-assurance/2026-10-10-native-batch23-editor.md"
-            ],
+            "reports": ["docs/quality-assurance/2026-10-10-native-batch23-editor.md"],
             "limitation": "기존 typed SDK를 사용해 복수 서버의 label/kind/tooltip/padding을 본문/peek의 주입 텍스트로 표시했습니다. 원문/선택·Unicode·wrap/fold·ghost 동시 표시/수락/undo·readonly/tier·viewport/문서/공급자 세대·취소/늦은 응답·정상 종료를 실제 child/App와 관련 검사에서 확인했습니다. 원본이 제공하지 않은 resolve/part 명령/textEdits/refresh는 추가하지 않았습니다. 전체 App 최초 포맷 1실패와 조건 변경 없는 해당 1통과·원인 미확정, pixel/OS IME/접근성/대형 성능/출시 게이트는 별도로 보존합니다."
         },
         "editor-code-lenses": {
@@ -1181,9 +1073,7 @@
                 "native/taide-native-app/src/application-selection-ranges-tests.rs",
                 "native/taide-native-app/src/command-dispatch.rs"
             ],
-            "reports": [
-                "docs/quality-assurance/2026-10-10-native-batch23-editor.md"
-            ],
+            "reports": ["docs/quality-assurance/2026-10-10-native-batch23-editor.md"],
             "limitation": "기존 typed SDK의 nullable 위치별 parent 체인을 모든 준비된 공급자에게 요청하고 항상 word와 합쳐 본문/peek의 기본·재지정 키/팔레트·다중 커서 확장/축소에 연결했습니다. 같은 프레임 명령 순서·캐시 재사용·UTF-16/readonly/tier·두 프로젝트/공급자 소유·수동 이동/IME/편집/닫기·취소/늦은 응답/재시작/정상 종료와 안정 프레임 재요청 억제를 검증했습니다. 최초 전체 문서 준비 시간 초과의 원인 미확정·pixel/OS IME/접근성/성능/출시는 별도 게이트입니다."
         },
         "editor-context-menu": {
@@ -1205,9 +1095,7 @@
                 "native/taide-native-app/src/editor-locations-tests.rs",
                 "native/taide-native-app/src/symbol-location-host-tests.rs"
             ],
-            "reports": [
-                "docs/quality-assurance/2026-10-11-native-batch23-context-menu-app.md"
-            ],
+            "reports": ["docs/quality-assurance/2026-10-11-native-batch23-context-menu-app.md"],
             "limitation": "실제 본문/peek 클립보드·팔레트 source/닫힘·찾기 입력·readonly/tier/lossy·임시 PTY와 보조 창/연결 실패/종료 회수 및 창별 팔레트를 확인했습니다. peek의 실제 문서/URI/UTF-16 위치/선택과 owner pane을 분리해 같은 파일 preview 이동·본문 보존, 다른 파일의 실제 LSP→Host→목적 탭/정의 위치, embedded의 원본 제외/허용 명령과 닫힘/열기 중 source 수명을 확인했습니다. 현재 App 전체 67대상/891통과/1실패·exit 101이며 기존 프로젝트 초기화 실패와 c9d/f1을 유지해 partial입니다. 원인 미확정 신뢰성·실제 OS 입력/시각/접근성·성능/출시는 별도이고 frozen/의존성 변경은 없습니다."
         },
         "editor-terminal-run": {
@@ -1225,9 +1113,7 @@
                 "native/taide-native-app/src/command-dispatch.rs",
                 "native/taide-native-ui/src/command-registry.rs"
             ],
-            "reports": [
-                "docs/quality-assurance/2026-10-12-native-batch23-terminal-run.md"
-            ],
+            "reports": ["docs/quality-assurance/2026-10-12-native-batch23-terminal-run.md"],
             "limitation": "8fa57ad2에서 실제 두 팔레트/재지정 키와 file/appFile/untitled/readonly·본문/peek·보조 창의 전달을 App 3건에서 확인했습니다. 보조 창이 메인 탭을 고르는 실패를 수정하고 원본 본문/pane·file 전용 커스텀 액션·Unicode/원문/디스크/동일 세션을 보존했습니다. 불변 분기 9/UI 등록 15를 합친 서로 다른 기능 검사 근거는 27건입니다. 최초 문서 준비 시간 초과와 메인 class의 비동기 출력 단언 오류·컴파일 중단을 구분해 기록했으며 전체/실기/성능/출시는 미완료입니다. frozen 제품 host/Wasm의 불변 성공을 재사용하고 Wasm tests의 기존 시간 API 7불일치는 배치 31에 보존합니다."
         },
         "editor-ide-selection": {
@@ -1288,9 +1174,7 @@
                 "native/taide-native-app/src/editor-markdown-table.rs",
                 "native/taide-native-app/src/ui-fonts.rs"
             ],
-            "reports": [
-                "docs/quality-assurance/2026-10-12-native-batch23-markdown.md"
-            ],
+            "reports": ["docs/quality-assurance/2026-10-12-native-batch23-markdown.md"],
             "limitation": "분할/readonly/두 뷰/독립 scroll·mirror/입력/undo/원문/이미지/닫힘과 표·목록·제목의 기본 flow를 연결했습니다. 인접 code 병합4/기대5 span을 재현하고 optional code_element·내부 style/link 식별·안정된 parse/Hash·요소별 공유 Frame/padding 너비·preview 폰트 경계를 연결했습니다. 실제 문서의 마지막 표는 preview scroll로 관찰했습니다. browser6조건·parser19/UI36/LSP8/App4/cache4의 서로 다른71통과·소유8Rust fmt/diff·frozen host27.58초/Wasm12.98초·exit0입니다. 전체 혼합 code 줄/nested code/BR/image/kbd/samp 박스·raw input/첫 table/임의 CSS baseline·bolder/counter 소유·행·열/접근성·추가 HTML/CLI/OS/전체 게이트는 미완료라 partial입니다."
         },
         "editor-ai-inline": {
@@ -1316,9 +1200,7 @@
                 "native/taide-native-app/src/application-inlay-hints-tests.rs",
                 "native/taide-native-editor/tests/completion.rs"
             ],
-            "reports": [
-                "docs/quality-assurance/2026-10-13-native-batch23-ai.md"
-            ],
+            "reports": ["docs/quality-assurance/2026-10-13-native-batch23-ai.md"],
             "limitation": "자동/명시 요청·문맥/캐시·credential/문서/뷰 수명·비파괴 ghost/Tab/undo·IME/readonly/다중 커서와 실제 peek source/split mirror를 확인했습니다. 선택 일반 후보의 자동 요청·미리보기 설정과 독립된 확장/UTF-16 추가 부분·응답 캐시 갱신·Tab/Enter 후보 수락 후 잔여 AI·Escape/스니펫 선택 보호/각 undo도 연결했습니다. 현재 App85/UI118의 서로 다른203통과·동결 host/Wasm compile이며 전체 App 준비 실패/실기 게이트가 남아 partial입니다. OS 두 창 실기/외부 credential 감시로 확대하지 않습니다."
         },
         "editor-ai-edit-state": {
@@ -1346,9 +1228,7 @@
                 "native/taide-native-ui/tests/editor_surface.rs",
                 "native/taide-native-ui/tests/editor-completion.rs"
             ],
-            "reports": [
-                "docs/quality-assurance/2026-10-13-native-batch23-ai.md"
-            ],
+            "reports": ["docs/quality-assurance/2026-10-13-native-batch23-ai.md"],
             "limitation": "선택/현재 줄·UTF-16 문맥/fence·supervised 요청/수명·실제 본문/다른 파일 peek/팔레트의 현재 source 요청/수락/undo·owner/디스크/task0을 연결했습니다. 삭제 범위·현재/변경 font/lineheight·target 뒤 zone·가로/세로 scroll/gutter clip·닫힘 복원·primary 마우스 수락/단일 undo·거절/생성취소·지시 IME도 확인했습니다. 실제 split 두 번째 source의 같은 문서 공유 수락/undo와 model 설정/실제 메모리 ai_clear_token/core 문서 변경 각각에서 loading/preview 6사례 무수락 회수·닫힌 응답을 확인했습니다. 현재 실제 App7/상태12/소비3/UI34의 서로 다른56통과·변경 없는 동결 host/Wasm compile이며 이전 반복 실행과 합산하지 않습니다. e2 요청/소비 범위는 연결했으나 전체 App 준비 실패/실기 게이트가 남아 partial이며 OS 두 창/실제 Keychain 검증으로 확대하지 않습니다."
         },
         "editor-emmet": {
@@ -1433,9 +1313,7 @@
                 "native/taide-native-app/src/application-emmet-tests.rs",
                 "native/taide-native-app/src/editor-syntax-tests.rs"
             ],
-            "reports": [
-                "docs/quality-assurance/2026-10-14-native-batch23-emmet.md"
-            ],
+            "reports": ["docs/quality-assurance/2026-10-14-native-batch23-emmet.md"],
             "limitation": "원본doComplete5286사례·Core343서로다른성공과실제여섯언어파일/다른HTML파일peek App6·standard token/설정/Large/readonly/IME/다중커서/mirror/재생성의소비자8·복제없는토큰프레임수명/구문20·기존완성79의현재App113성공을확인했습니다. 실제peek는서버Definition URI/실제언어/문서ID/owner·Tab수락/단일undo·원본Rust revision/본문/두디스크·닫힌후보취소/task0을보존합니다. HTML/JSX/CSS 출력/자료/필터·후보label/문서/범위/정렬·난수·예산/원본오류수정까지동작묶음을완료했습니다. 일반전체App 준비실패/Core성능ignored/remoteWasm Instant·OS실기/31~33 전체전환게이트는별도미완료입니다."
         },
         "editor-builtin-language-services": {
@@ -1534,9 +1412,7 @@
                 "native/taide-native-app/src/symbol-outline-tests.rs",
                 "native/taide-native-app/src/editor_reveal.rs"
             ],
-            "reports": [
-                "docs/quality-assurance/2026-10-14-native-batch23-builtin-language-services.md"
-            ],
+            "reports": ["docs/quality-assurance/2026-10-14-native-batch23-builtin-language-services.md"],
             "limitation": "377d5f55의 실제 JSON 구조 작업은 본문/peek의 심볼·접기·sticky와 외부 공급 공존에 연결됐습니다. cea50ee9는 실제 DocumentId/DocumentKey·현재 ViewKey로 untitled 전역 팔레트/outline 탐색을 연결했습니다. UI29/실제App1/reveal1/outline4/기존심볼5의 서로 다른40통과·최종App43.41초/exit0·Wasm UI lib7분07초가 근거입니다. 비BMP byte/문서 세대·내용/언어/닫힘/readonly/원문·정상 종료tasks0을 확인했으며 입력은 실제 has_input_focus 준비 후 전달합니다. 기존 JSONCore49/Syntax5·schema 전송App10/graph·b3f1 peek 성공은 재사용하며 중복 합산하지 않습니다. 언어 선택 UI/자동 언어 감지·나머지 JSON 진단/semantic/조회/완성/포맷·CSS/HTML/TS·전체 App 준비/OS·접근성/큰tier 성능과 최종 게이트는 미완료라 partial입니다."
         }
     },

@@ -289,7 +289,6 @@ wasm.log/32462는Syntax lib/Core dependency9.43초·exit0입니다. 소유 Rust1
 
 실제 전역 팔레트와 outline는 기존에 파일 탭/경로만 선택하므로 untitled의 내장 모델 성공만으로 실제 untitled 탐색을 완료로 보지 않습니다. 본문/peek 단위를 b3f1로 닫고 부모 b3f 및 실제 untitled 탐색 b3f2는 PROCESS에 미완료로 남깁니다. JSON의 구조 공급이 실제 앱에 연결됐으므로 editor-57은 missing에서partial로 갱신하며 나머지 JSON 진단/조회/완성/포맷·다른 언어 전체를 완료로 올리지 않습니다. 전체303/588(51.5%)·부분93/미연결110/미구현82·미완료285·최종33·목표active·잔여시간미산정입니다.
 
-
 ## b3f2 — 실제 untitled 심볼 탐색
 
 SymbolIndex는 실제 DocumentId를 전달하며 파일 경로 유무와 문서 존재를 분리합니다. 전역 팔레트는 현재 파일/untitled 모델을 선택하고 실제 심볼 문맥에서만 @ 목록/대기/빈 결과를 표시합니다. 기존 파일 위치 이동은 기존 deferred reveal을 유지합니다. Untitled는 실제 ViewKey/현재 snapshot·generation과 byte 선택을 검증해 해당 뷰의 caret/스크롤을 이동하고 숨겨진 접기를 풉니다. 경로 URI/ProjectId·LSP owner를 만들지 않으며 readonly 탐색에서 Rope/revision을 변경하지 않습니다. 닫힌 뷰·내용/언어 변경·잘못된 UTF-8 byte와 IME 중의 이동은 거절합니다.
