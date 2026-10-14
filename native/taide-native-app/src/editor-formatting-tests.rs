@@ -15,6 +15,130 @@ const DISPLAY_SIZE: u32 = 8;
 const NATIVE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(2);
 
 #[tokio::test]
+async fn json_저장_포맷은_최신_문서와_편집기_작업_슬롯을_공유한다() {
+    let mut fixture = Fixture::new("{\"before\":1}", false, false);
+    let current = fixture
+        .store
+        .documents()
+        .snapshot(fixture.document)
+        .unwrap();
+    let mut metadata = current.metadata.clone();
+    metadata.language_id = "json".into();
+    fixture
+        .store
+        .retarget_file(&current, "/synthetic/source.rs".into(), metadata)
+        .unwrap();
+    let before = fixture
+        .store
+        .documents()
+        .snapshot(fixture.document)
+        .unwrap();
+    let options = lsp_types::FormattingOptions {
+        tab_size: INDENT_SIZE,
+        insert_spaces: true,
+        ..Default::default()
+    };
+    let old = fixture
+        .state
+        .begin_native_save(before.clone(), options.clone());
+    fixture
+        .store
+        .apply(
+            fixture.document,
+            Transaction {
+                revision: before.revision,
+                edits: vec![Edit {
+                    bytes: 0..before.rope.len_bytes(),
+                    text: "{\"after\":2}".into(),
+                }],
+                group: UndoGroup(1),
+                origin: Some(fixture.source),
+                selection_after: None,
+            },
+        )
+        .unwrap();
+    let tasks = taide_runtime::TaskSupervisor::new(tokio::runtime::Handle::current());
+    let (stale, result) = fixture
+        .state
+        .tick_native_saves(&fixture.store, &tasks)
+        .pop()
+        .unwrap();
+    assert_eq!(stale.token, old);
+    assert_eq!(result.unwrap_err(), EditorError::StaleRevision);
+    let current = fixture
+        .store
+        .documents()
+        .snapshot(fixture.document)
+        .unwrap();
+    let token = fixture.state.begin_native_save(current.clone(), options);
+    fixture
+        .state
+        .begin(
+            &fixture.store,
+            fixture.project.clone(),
+            fixture.source,
+            fixture.owner,
+            Command::Document,
+            IndentOptions {
+                tab_size: INDENT_SIZE,
+                insert_spaces: true,
+            },
+            HashSet::new(),
+        )
+        .unwrap()
+        .unwrap();
+    let (saved, editor) = tokio::time::timeout(NATIVE_DEADLINE, async {
+        let mut saved = None;
+        let mut editor = None;
+        loop {
+            if let Some(result) = fixture
+                .state
+                .tick_native_saves(&fixture.store, &tasks)
+                .pop()
+            {
+                saved = Some(result);
+            }
+            if let Some(result) = fixture.state.tick_native(&tasks).pop() {
+                editor = Some(result);
+            }
+            assert!(fixture.state.active_json.load(Ordering::Acquire) <= MAX_JSON_ACTIVE);
+            if saved.is_some() && editor.is_some() && tasks.tracked_count() == 0 {
+                return (saved.unwrap(), editor.unwrap());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(saved.0.token, token);
+    taide_native_editor::formatting::apply_edits(
+        &mut fixture.store,
+        &saved.0.snapshot,
+        Some(fixture.source),
+        saved.1.unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        fixture
+            .store
+            .documents()
+            .snapshot(fixture.document)
+            .unwrap()
+            .rope
+            .to_string(),
+        "{\n    \"after\": 2\n}"
+    );
+    assert!(
+        !fixture
+            .state
+            .accept_native(&mut fixture.store, &editor.0, HashSet::new(), editor.1)
+            .unwrap()
+    );
+    assert!(fixture.state.saves.is_empty());
+    assert_eq!(fixture.state.active_json.load(Ordering::Acquire), 0);
+}
+
+#[tokio::test]
 async fn json의_같은_줄_다중_선택은_중복_편집_없이_함께_포맷한다() {
     const JSON: &str = "{\"a\":1,\"b\":2}";
     let mut fixture = Fixture::new(JSON, false, false);

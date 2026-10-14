@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use taide_lsp::native::Failure;
 use taide_lsp::native::protocol::lsp_types;
 use taide_model::ids::ProjectId;
-use taide_native_editor::document::{DocumentSnapshot, EditorError};
+use taide_native_editor::document::{DocumentId, DocumentSnapshot, EditorError};
 use taide_native_editor::formatting::{Command, selection_ranges};
 use taide_native_editor::indent::IndentOptions;
 use taide_native_editor::store::EditorStore;
@@ -119,6 +119,26 @@ struct Entry {
     complete: bool,
 }
 
+#[derive(Clone)]
+pub(crate) struct NativeSave {
+    pub snapshot: DocumentSnapshot,
+    pub token: Uuid,
+    options: lsp_types::FormattingOptions,
+}
+
+struct NativeSaveEntry {
+    request: NativeSave,
+    cancel: watch::Sender<bool>,
+    cancelled: watch::Receiver<bool>,
+    receiver: Option<oneshot::Receiver<Result<Vec<lsp_types::TextEdit>, EditorError>>>,
+}
+
+impl Drop for NativeSaveEntry {
+    fn drop(&mut self) {
+        self.cancel.send_replace(true);
+    }
+}
+
 impl Drop for Entry {
     fn drop(&mut self) {
         self.cancel.send_replace(true);
@@ -128,6 +148,7 @@ impl Drop for Entry {
 #[derive(Default)]
 pub(crate) struct State {
     entries: HashMap<ViewId, Entry>,
+    saves: HashMap<DocumentId, NativeSaveEntry>,
     active_json: Arc<AtomicUsize>,
     context: eframe::egui::Context,
 }
@@ -142,6 +163,111 @@ impl Drop for JsonSlot {
 }
 
 impl State {
+    pub(crate) fn begin_native_save(
+        &mut self,
+        snapshot: DocumentSnapshot,
+        options: lsp_types::FormattingOptions,
+    ) -> Uuid {
+        let token = Uuid::new_v4();
+        let (cancel, cancelled) = watch::channel(false);
+        self.saves.insert(
+            snapshot.id,
+            NativeSaveEntry {
+                request: NativeSave {
+                    snapshot,
+                    options,
+                    token,
+                },
+                cancel,
+                cancelled,
+                receiver: None,
+            },
+        );
+        self.context.request_repaint();
+        token
+    }
+
+    pub(crate) fn clear_native_saves(&mut self) {
+        self.saves.clear();
+    }
+
+    pub(crate) fn tick_native_saves(
+        &mut self,
+        store: &EditorStore,
+        tasks: &taide_runtime::TaskSupervisor,
+    ) -> Vec<(NativeSave, Result<Vec<lsp_types::TextEdit>, EditorError>)> {
+        let mut results = Vec::new();
+        let mut complete = Vec::new();
+        for (document, entry) in &mut self.saves {
+            let requested = &entry.request.snapshot;
+            let valid = store.documents().snapshot(*document).is_ok_and(|current| {
+                current.key == requested.key
+                    && current.revision == requested.revision
+                    && current.metadata.language_id == requested.metadata.language_id
+                    && crate::editor_json_formatting::is_eligible(&current)
+                    && current
+                        .model_indentation(IndentOptions {
+                            tab_size: entry.request.options.tab_size,
+                            insert_spaces: entry.request.options.insert_spaces,
+                        })
+                        .formatting_options()
+                        == (IndentOptions {
+                            tab_size: entry.request.options.tab_size,
+                            insert_spaces: entry.request.options.insert_spaces,
+                        })
+            });
+            if !valid {
+                results.push((entry.request.clone(), Err(EditorError::StaleRevision)));
+                complete.push(*document);
+                continue;
+            }
+            if let Some(receiver) = &mut entry.receiver {
+                let result = match receiver.try_recv() {
+                    Ok(result) => result,
+                    Err(oneshot::error::TryRecvError::Empty) => continue,
+                    Err(oneshot::error::TryRecvError::Closed) => Err(EditorError::StaleRevision),
+                };
+                results.push((entry.request.clone(), result));
+                complete.push(*document);
+                continue;
+            }
+            if self.active_json.load(Ordering::Acquire) >= MAX_JSON_ACTIVE {
+                continue;
+            }
+            self.active_json.fetch_add(1, Ordering::AcqRel);
+            let slot = JsonSlot(self.active_json.clone(), self.context.clone());
+            let request = entry.request.clone();
+            let cancelled = entry.cancelled.clone();
+            let (sender, receiver) = oneshot::channel();
+            if tasks
+                .spawn_blocking_transient_handle(JSON_WORKER_NAME, move || {
+                    let _slot = slot;
+                    if *cancelled.borrow() || cancelled.has_changed().is_err() {
+                        return;
+                    }
+                    let result = crate::editor_json_formatting::build(
+                        &request.snapshot,
+                        &Kind::Document,
+                        &request.options,
+                    );
+                    if !*cancelled.borrow() && cancelled.has_changed().is_ok() {
+                        drop(sender.send(result));
+                    }
+                })
+                .is_some()
+            {
+                entry.receiver = Some(receiver);
+            } else {
+                results.push((entry.request.clone(), Err(EditorError::StaleRevision)));
+                complete.push(*document);
+            }
+        }
+        for document in complete {
+            self.saves.remove(&document);
+        }
+        results
+    }
+
     pub(crate) fn new(context: eframe::egui::Context) -> Self {
         Self {
             context,

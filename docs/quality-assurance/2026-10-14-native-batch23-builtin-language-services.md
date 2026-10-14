@@ -404,3 +404,23 @@ formatting-app-current.log/83625는compile22.56초·실제App2통과/추가 상�
 추가 상태 검사는 같은 줄의 두 속성 선택에서도 문서 전체 줄바꿈을 기대해 실패했습니다. 실제 설치 jsonc-parser format에 `{"a":1,"b":2}`와 offset1/length5·offset7/length5를 각각 전달한 결과는 offset5/11의 공백 삽입2개와 `{"a": 1,"b": 2}`였습니다. Native 결과와 같으므로 제품을 전체 문서 포맷으로 바꾸지 않고 선택 범위에 맞는 기대값으로 수정했습니다. 이 원본 대조는 프로덕션에 JS를 추가한 것이 아닙니다. 현재 다중 범위 검사의 최종 결과는 아래에 기록합니다.
 
 formatting-multirange.log/41966은compile21.93초·직접 상태1통과/0.01초·exit0입니다. 같은 줄의 두 선택을 실제 native worker로 포맷하고 선택 밖 줄바꿈을 추가하지 않으며 한 번의 undo로 원문에 복귀합니다. 현재 관련 성공은 기존 상태6/신규 native3/실제App2의 서로 다른11건이고 변경 없는 성공은 재실행하거나 중복 합산하지 않습니다. 소유Rust6 fmt/소유diff·문서 format이 통과했으며 공유 UI/Core·manifest/lock/동결 소스 변경이 없어 기존 portable/Core·UI/Wasm 성공을 재사용합니다. 기존 wry17/링커1 경고와 전체 App 준비 실패/OS 감시 RPC 지연·성능/실기/출시 게이트는 유지합니다. b3h2a만 닫고 저장/코드 액션/cleanup/untitled 저장 b3h2b·부모 b3h2/b3h·나머지 JSON/CSS/HTML/TS는 미완료입니다. 전체303/588(51.5%)·미완료285·목표active·잔여시간미산정입니다.
+
+## b3h2b — JSON 저장 포맷과 미저장 문서 변환
+
+기존 LSP 저장 참여자는 fixAll/organizeImports를 적용한 뒤 최신 snapshot으로 Formatted를 돌려줍니다. JSON에 문서 formatter가 없으면 native 옵션을 PendingFormatSave에 보관하고 해당 응답 후에만 native 저장 작업을 큐에 넣습니다. Bridge가 없거나 연결에 실패하면 같은 native 작업으로 직접 이어갑니다. 외부 문서 formatter가 있으면 기존 선택을 유지하며 native 저장과 편집기 포맷은 같은 실제 종료 기준 최대1개 슬롯을 공유합니다.
+
+Native 저장은 문서 key/revision·언어/Normal·readonly·현재 문서 옵션을 검증하고 작업 토큰과 기존 저장 epoch가 맞을 때만 결과를 적용합니다. 변경/닫힘/오래된 작업은 포맷을 적용하지 않으며 기존 저장 재개·cleanup·원자적 최종 쓰기 경로를 사용합니다. Untitled도 실제 save-picker 포트/SaveUntitled·기존 guard/문서 변환을 사용하며 저장 전 cleanup을 적용하고 포맷 재요청 루프를 기존 resumed epoch로 막습니다. Settings의 bool은 먼저 읽어 guard를 풀고 저장 옵션을 구해 중첩 read 동안 writer를 기다리는 경로를 만들지 않습니다.
+
+save-compile.log/39797은compile45.91초·기존 포맷 상태9통과/0.04초·exit0입니다. save-app.log/61334는compile34.00초·신규 상태1통과/실제App1실패·78.00초·exit101입니다. 신규 상태는 저장 요청 뒤 문서 변경의 거절·변경 후 최신 내용 포맷·편집기/저장의 실제 공유 슬롯·늦은 편집기 결과 거절/작업0을 확인했습니다. App은 Bridge 유무의 일반 저장/자동 저장·cleanup·분리 undo·포맷을 끈 원문 저장과 실제 save-picker를 통한 untitled 변환을 통과한 뒤 저장된 탭 닫힘에서 시간 초과했습니다.
+
+UntitledSaved는 Core/레이아웃 변환의 clean 값을 얻은 뒤에도 이전 pending_dirty=true를 갱신하지 않았습니다. 후속 UI의 flush_dirty가 이를 변환된 파일 탭에 적용하면 실제 저장된 탭의 close가 dirty guard에 막힙니다. 기존 source 탭의 대기를 제거하고 실제 file_tab에 현재 converted.clean의 반대 값을 넣어 저장 후 수정/정상 저장을 구분합니다. 현재 App 검사는 pending dirty와 실제 런타임 탭의 clean 상태·discard 없는 닫힘/문서 작업 회수를 단언합니다. 저장 epoch 취소 시 파일과 편집기 원문을 그대로 두는 실제 App 경계도 검사에 추가했습니다. 최종 결과는 아래에 기록합니다.
+
+save-app-current.log/75309는compile29.29초·실제App2통과/123.26초·exit0입니다. JSON의 Bridge 유무·일반/자동 저장·cleanup/최종 파일·분리 undo·포맷을 끈 원문 저장·실제 picker를 통한 untitled 변환/clean 탭/닫힘과 기존 외부 서버의 문서/선택/peek/저장 포맷·문서 옵션/본문 분리를 확인했습니다. save-app-epoch.log/58682는compile28.91초·현재 JSON App1통과/99.32초·exit0이며 파일 저장의 epoch를 실제로 무효화해 파일/원문이 바뀌지 않고 추적을 정리한 뒤 새 저장이 가능한 경계를 추가 검증했습니다. 앞선 같은 App 성공은 중복 합산하지 않습니다.
+
+종료 시 편집기 요청과 native 저장 요청을 함께 회수하고, 무효 epoch/문서 폐기에서 untitled 저장 중 표시를 해제합니다. 최종 결과 적용에서는 이미 선택한 native 공급을 외부 서버의 늦은 시작만으로 버리지 않으며 문서 key/revision·언어/옵션·저장 epoch/token을 계속 검사합니다. 이는 첫 저장에서 포맷 결과 없이 쓰는 경로를 방지합니다. 성공한 기존 Bridge 없는/외부 없는 입력의 선택 결과는 바꾸지 않습니다. 미저장 문서의 실제 저장 취소/파일 미생성·원문 보존·재시도와 기존 fixAll/imports/format/cleanup 순서의 결과는 아래에 별도 기록합니다.
+
+save-untitled-cancel.log/87351은compile31.23초·추가 실제App1통과/98.04초·exit0입니다. 독립적인 소유 JSON fixture에서 실제 picker의 저장 epoch를 무효화하면 대상 파일이 생기지 않고 Untitled key/원문이 유지되며 저장 중 표시가 해제됩니다. 실제 재시도로 포맷/cleanup 후 파일 key/언어·clean 탭으로 변환하고 discard 없는 닫힘·native 문서/작업0을 확인했습니다. 같은 저장의 부모 앱 흐름을 반복하지 않고 신규 취소 경계만 별도로 실행했습니다.
+
+save-participants.log/79466은compile44.88초·기존 실제 LSP1통과/0.35초·exit0입니다. fixAll resolve/편집·원 공급자 command와 서버 applyEdit·organizeImports·format·cleanup·최종 저장의 기존 실제 순서와 최신 snapshot 사용을 확인합니다. 현재 저장 범위의 서로 다른 성공은 기존 포맷 상태9/신규 저장 상태1/실제App3/기존 LSP순서1의14건이며 앱 중복 성공을 합산하지 않습니다. b3h1/2a의 변경 없는 선택/peek·Core 원본 oracle/공유 UI/Wasm 성공도 새 실행으로 세지 않습니다.
+
+소유Rust5 fmt/소유diff와 문서 format이 통과했고 공유 UI/Core·manifest/lock/동결 소스 변경은 없습니다. 기존 wry17·링커1과 비test lib의 is_applying dead-code 경고, 전체 App 준비 실패/OS 감시 RPC 지연·큰 tier 성능/실기/출시 게이트는 유지합니다. b3h2b·부모 b3h2/b3h의 JSON 선택/포맷 소비만 닫고 schema 의미 검증/실제 공급·JSON 조회/완성·CSS/HTML/TS 및 전체 목표는 미완료입니다. 전체303/588(51.5%)·미완료285·목표active·잔여시간미산정입니다.

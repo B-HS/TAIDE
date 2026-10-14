@@ -9,6 +9,7 @@ const TEXT: &str = "{\n  \"\u{1f600}\": {\n    \"value\": 1\n  },\n  \"list\": [
 const INDEX: &[u8] = b"<!doctype html><title>owned native JSON fixture</title>";
 const MODULE: &[u8] = b"\0asm\x01\0\0\0";
 const MAX_SELECTION_EXPANSIONS: usize = 8;
+const MAX_SAVE_UNDOS: usize = 4;
 const SMART_SELECTION_MODIFIERS: egui::Modifiers = egui::Modifiers {
     alt: false,
     ctrl: true,
@@ -409,6 +410,294 @@ fn assert_json_formatting(
     });
 }
 
+fn replace_json_text(
+    application: &mut NativeApplication,
+    document: DocumentId,
+    view: ViewId,
+    text: &str,
+) {
+    let current = application.store.documents().snapshot(document).unwrap();
+    application
+        .store
+        .apply(
+            document,
+            Transaction {
+                revision: current.revision,
+                edits: vec![Edit {
+                    bytes: 0..current.rope.len_bytes(),
+                    text: text.into(),
+                }],
+                group: UndoGroup(1),
+                origin: Some(view),
+                selection_after: None,
+            },
+        )
+        .unwrap();
+}
+
+fn assert_json_file_save(
+    application: &mut NativeApplication,
+    context: &egui::Context,
+    view: ViewId,
+    auto_save: bool,
+) {
+    let document = application.store.views().get(view).unwrap().document;
+    let before = application.store.documents().snapshot(document).unwrap();
+    let taide_native_editor::document::DocumentKey::File(path) = &before.key else {
+        panic!("file fixture required")
+    };
+    let original = before.rope.to_string();
+    let flags = {
+        let mut settings = application.services.state.settings.write();
+        let flags = (
+            settings.format_on_save,
+            settings.trim_trailing_whitespace_on_save,
+            settings.insert_final_newline_on_save,
+        );
+        settings.format_on_save = true;
+        settings.trim_trailing_whitespace_on_save = true;
+        settings.insert_final_newline_on_save = true;
+        flags
+    };
+    const RAW: &str = "{\"save\":1}   ";
+    replace_json_text(application, document, view, RAW);
+    let options = application.save_formatting_options(document).unwrap();
+    let expected = format!(
+        "{{\n{}\"save\": 1\n}}\n",
+        " ".repeat(options.tab_size.try_into().unwrap())
+    );
+    let snapshot = application.store.save_snapshot(document).unwrap();
+    let command = if auto_save {
+        HostCommand::AutoSave {
+            path: path.to_str().unwrap().into(),
+            snapshot,
+        }
+    } else {
+        HostCommand::Save {
+            path: path.to_str().unwrap().into(),
+            snapshot,
+        }
+    };
+    assert!(application.submit(command));
+    wait(application, context, |application| {
+        !application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .dirty
+            && std::fs::read_to_string(path).is_ok_and(|text| text == expected)
+    });
+    let saved = application.store.documents().snapshot(document).unwrap();
+    assert_eq!(saved.rope.to_string(), expected);
+    for _ in 0..MAX_SAVE_UNDOS {
+        if application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string()
+            == RAW
+        {
+            break;
+        }
+        assert!(application.store.undo(document).unwrap());
+    }
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        RAW
+    );
+    if application.lsp.is_none() && !auto_save {
+        let snapshot = application.store.save_snapshot(document).unwrap();
+        assert!(application.submit(HostCommand::Save {
+            path: path.to_str().unwrap().into(),
+            snapshot
+        }));
+        application.pending_format_saves[&document]
+            .epoch
+            .invalidate();
+        wait(application, context, |application| {
+            !application.pending_format_saves.contains_key(&document)
+        });
+        assert_eq!(std::fs::read_to_string(path).unwrap(), expected);
+        assert_eq!(
+            application
+                .store
+                .documents()
+                .snapshot(document)
+                .unwrap()
+                .rope
+                .to_string(),
+            RAW
+        );
+        application.persistence.settled(document);
+    }
+    {
+        let mut settings = application.services.state.settings.write();
+        settings.format_on_save = false;
+        settings.trim_trailing_whitespace_on_save = false;
+        settings.insert_final_newline_on_save = false;
+    }
+    replace_json_text(application, document, view, &original);
+    let snapshot = application.store.save_snapshot(document).unwrap();
+    assert!(application.submit(HostCommand::Save {
+        path: path.to_str().unwrap().into(),
+        snapshot
+    }));
+    wait(application, context, |application| {
+        !application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .dirty
+            && std::fs::read_to_string(path).is_ok_and(|text| text == original)
+    });
+    {
+        let mut settings = application.services.state.settings.write();
+        settings.format_on_save = flags.0;
+        settings.trim_trailing_whitespace_on_save = flags.1;
+        settings.insert_final_newline_on_save = flags.2;
+    }
+    wait(application, context, |application| {
+        let current = application.store.documents().snapshot(document).unwrap();
+        application.editor_symbols.builtin_model(&current).is_some()
+    });
+}
+
+fn assert_json_untitled_save(
+    application: &mut NativeApplication,
+    context: &egui::Context,
+    view: ViewId,
+    project: &ProjectId,
+    cancel_first: bool,
+) {
+    let original = application.store.views().get(view).unwrap().key.clone();
+    let source = application
+        .store
+        .documents()
+        .snapshot(application.store.views().get(view).unwrap().document)
+        .unwrap();
+    let taide_native_editor::document::DocumentKey::File(path) = source.key else {
+        panic!("owned source file required")
+    };
+    let destination = path.parent().unwrap().join("native-saved.json");
+    const RAW: &str = "{\"draft\":1}  ";
+    let (tab, document, _) = new_json_untitled(application, context, project, &original.pane, RAW);
+    let previous_picker = application.save_picker.clone();
+    let selected = destination.clone();
+    application.save_picker = Arc::new(move |_, _| Some(selected.clone()));
+    let flags = {
+        let mut settings = application.services.state.settings.write();
+        let flags = (
+            settings.format_on_save,
+            settings.trim_trailing_whitespace_on_save,
+            settings.insert_final_newline_on_save,
+        );
+        settings.format_on_save = true;
+        settings.trim_trailing_whitespace_on_save = true;
+        settings.insert_final_newline_on_save = true;
+        flags
+    };
+    let options = application.save_formatting_options(document).unwrap();
+    let expected = format!(
+        "{{\n{}\"draft\": 1\n}}\n",
+        " ".repeat(options.tab_size.try_into().unwrap())
+    );
+    if cancel_first {
+        application.save_untitled(&tab, &eframe::Frame::_new_kittest());
+        assert_eq!(application.saving_untitled, Some(tab.clone()));
+        application.pending_format_saves[&document]
+            .epoch
+            .invalidate();
+        wait(application, context, |application| {
+            application.saving_untitled.is_none()
+                && !application.pending_format_saves.contains_key(&document)
+        });
+        assert!(!destination.exists());
+        let current = application.store.documents().snapshot(document).unwrap();
+        assert_eq!(
+            current.key,
+            taide_native_editor::document::DocumentKey::Untitled(tab.clone())
+        );
+        assert_eq!(current.rope.to_string(), RAW);
+        application.persistence.settled(document);
+    }
+    application.save_untitled(&tab, &eframe::Frame::_new_kittest());
+    assert_eq!(application.saving_untitled, Some(tab.clone()));
+    wait(application, context, |application| {
+        !application.untitled.contains_key(&tab)
+            && application
+                .store
+                .documents()
+                .snapshot(document)
+                .is_ok_and(|snapshot| {
+                    !snapshot.dirty
+                        && snapshot.metadata.language_id == "json"
+                        && snapshot.key
+                            == taide_native_editor::document::DocumentKey::File(destination.clone())
+                })
+            && std::fs::read_to_string(&destination).is_ok_and(|text| text == expected)
+    });
+    let file_tab = application
+        .store
+        .views()
+        .for_document(document)
+        .next()
+        .unwrap()
+        .key
+        .tab
+        .clone();
+    assert_ne!(application.pending_dirty.get(&file_tab), Some(&true));
+    let saved_tab = application
+        .services
+        .state
+        .layouts
+        .read()
+        .values()
+        .flat_map(taide_layout::service::all_roots)
+        .flat_map(crate::tabs::tabs_in)
+        .find(|tab| tab.id == file_tab)
+        .cloned()
+        .unwrap();
+    assert!(!saved_tab.dirty);
+    assert!(application.submit(HostCommand::CloseTab {
+        tab: file_tab.clone(),
+        discard: false
+    }));
+    wait(application, context, |application| {
+        !application.has_layout_tab(&file_tab)
+            && !application.editor_json.documents().contains(&document)
+    });
+    application.save_picker = previous_picker;
+    {
+        let mut settings = application.services.state.settings.write();
+        settings.format_on_save = flags.0;
+        settings.trim_trailing_whitespace_on_save = flags.1;
+        settings.insert_final_newline_on_save = flags.2;
+    }
+    application
+        .controller
+        .submit(ShellMutation::ActivateTab(original.tab))
+        .unwrap();
+    application
+        .controller
+        .submit(ShellMutation::FocusPane(original.pane))
+        .unwrap();
+    wait(application, context, |application| {
+        application.store.views().get(view).is_some()
+            && crate::editor_context_menu::body(context, view)
+                .is_some_and(|body| context.memory(|memory| memory.has_focus(body)))
+    });
+}
+
 fn new_json_untitled(
     application: &mut NativeApplication,
     context: &egui::Context,
@@ -614,8 +903,6 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
         .unwrap(),
     );
     let application = fixture.application.as_mut().unwrap();
-    let lsp = application.lsp.take().unwrap();
-    application.runtime.block_on(lsp.disconnect()).unwrap();
     wait(application, &context, |application| {
         application
             .files
@@ -629,7 +916,6 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
                     .is_some()
             })
     });
-    assert!(application.lsp.is_none());
     let document = application.files[&path].id;
     let initial_view = application
         .store
@@ -638,6 +924,16 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
         .next()
         .unwrap()
         .id;
+    assert!(application.lsp.as_ref().is_some_and(|lsp| {
+        !lsp.has_save_formatter(&application.store.documents().snapshot(document).unwrap())
+    }));
+    assert_json_file_save(application, &context, initial_view, false);
+    let lsp = application.lsp.take().unwrap();
+    application.runtime.block_on(lsp.disconnect()).unwrap();
+    assert_json_file_save(application, &context, initial_view, false);
+    assert_json_file_save(application, &context, initial_view, true);
+    assert_json_untitled_save(application, &context, initial_view, &project, false);
+    assert!(application.lsp.is_none());
     assert_json_formatting(application, &context, initial_view, "\"value\": 1");
     let snapshot = application.store.documents().snapshot(document).unwrap();
     assert_eq!(snapshot.metadata.language_id, "json");
@@ -1304,6 +1600,19 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
 fn actual_app의_json_peek는_현재_문서_구조와_키_접기_및_닫힘을_소비한다() {
     assert_json_peek(false);
     assert_json_peek(true);
+}
+
+#[test]
+fn actual_app의_json_미저장_저장취소는_파일을_쓰지않고_재시도를_허용한다() {
+    let mut fixture = super::inlay_hints_tests::fixture_with_language(TEXT, "json");
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let lsp = application.lsp.take().unwrap();
+    application.runtime.block_on(lsp.disconnect()).unwrap();
+    let view = super::inlay_hints_tests::body_view(application, &fixture.path, &fixture.tab);
+    assert_json_untitled_save(application, context, view, &fixture.project, true);
+    eframe::App::on_exit(application);
+    assert_eq!(application.services.tasks.tracked_count(), 0);
 }
 
 fn assert_json_peek(read_only: bool) {

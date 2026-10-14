@@ -858,6 +858,20 @@ impl LspBridge {
         providers
     }
 
+    pub(crate) fn has_save_formatter(&self, snapshot: &DocumentSnapshot) -> bool {
+        let projects = self
+            .states
+            .borrow()
+            .iter()
+            .map(|state| state.project.clone())
+            .collect::<HashSet<_>>();
+        projects.iter().any(|project| {
+            !self
+                .feature_providers(project, snapshot, "textDocument/formatting")
+                .is_empty()
+        })
+    }
+
     pub(crate) fn automatic_formatting_providers(
         &self,
         project: &ProjectId,

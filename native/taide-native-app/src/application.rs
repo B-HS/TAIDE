@@ -102,6 +102,27 @@ struct PendingFormatSave {
     path: String,
     auto_save: bool,
     epoch: crate::persistence::DraftEpoch,
+    native_options: Option<taide_lsp::native::protocol::lsp_types::FormattingOptions>,
+    native_token: Option<uuid::Uuid>,
+    untitled: Option<TabId>,
+}
+
+impl PendingFormatSave {
+    fn new(
+        path: String,
+        auto_save: bool,
+        epoch: crate::persistence::DraftEpoch,
+        untitled: Option<TabId>,
+    ) -> Self {
+        Self {
+            path,
+            auto_save,
+            epoch,
+            native_options: None,
+            native_token: None,
+            untitled,
+        }
+    }
 }
 
 pub struct NativeApplication {
@@ -1370,6 +1391,9 @@ impl NativeApplication {
                     match result.and_then(|prepared| prepared.commit(&mut self.store)) {
                         Ok(converted) => {
                             self.persistence.settled(converted.document);
+                            self.pending_dirty.remove(&converted.source_tab);
+                            self.pending_dirty
+                                .insert(converted.file_tab.clone(), !converted.clean);
                             self.untitled.remove(&converted.source_tab);
                             self.untitled_failed.remove(&converted.source_tab);
                             self.untitled_loading.remove(&converted.source_tab);
@@ -2050,6 +2074,62 @@ impl NativeApplication {
             }
             return true;
         }
+        let command = match command {
+            HostCommand::SaveUntitled {
+                tab,
+                destination,
+                snapshot,
+            } => {
+                let document = snapshot.document();
+                if self.pending_format_saves.contains_key(&document) {
+                    return false;
+                }
+                let resumed = self.resumed_save_epochs.remove(&document);
+                if resumed.as_ref().is_some_and(|epoch| !epoch.is_current()) {
+                    return false;
+                }
+                let current = self.store.documents().snapshot(document).ok();
+                let should_format = self.services.state.settings.read().format_on_save;
+                if resumed.is_none()
+                    && should_format
+                    && let Some(current) = current.filter(|current| {
+                        current.key == *snapshot.key()
+                            && current.revision == snapshot.revision()
+                            && crate::editor_json_formatting::is_eligible(current)
+                    })
+                {
+                    let options = match self.save_formatting_options(document) {
+                        Ok(options) => options,
+                        Err(error) => {
+                            self.report_save_failure(error, false);
+                            return false;
+                        }
+                    };
+                    let Some(epoch) = self.persistence.begin_save(document) else {
+                        return false;
+                    };
+                    self.queue_native_save(
+                        current,
+                        PendingFormatSave::new(destination, false, epoch, Some(tab)),
+                        options,
+                    );
+                    return true;
+                }
+                let snapshot = match self.prepare_untitled_cleanup(snapshot) {
+                    Ok(snapshot) => snapshot,
+                    Err(error) => {
+                        self.report_save_failure(error, false);
+                        return false;
+                    }
+                };
+                HostCommand::SaveUntitled {
+                    tab,
+                    destination,
+                    snapshot,
+                }
+            }
+            other => other,
+        };
         let mut tracked_save = None;
         let (save, command) = match command {
             HostCommand::Save { path, snapshot } => (Some((path, snapshot, false)), None),
@@ -2078,17 +2158,22 @@ impl NativeApplication {
                     .documents()
                     .snapshot(document)
                     .is_ok_and(|current| current.dirty && !current.metadata.read_only)
-                && self.lsp.is_some()
+                && (self.lsp.is_some()
+                    || should_format
+                        && self
+                            .store
+                            .documents()
+                            .snapshot(document)
+                            .is_ok_and(|current| {
+                                crate::editor_json_formatting::is_eligible(&current)
+                            }))
             {
                 self.reconcile_lsp();
                 let Some(epoch) = self.persistence.begin_save(document) else {
                     return false;
                 };
-                let configuration = crate::presentation_refresh::indent_configuration(
-                    &self.services.state.settings.read(),
-                );
-                let indent = match self.store.configure_indentation(document, configuration) {
-                    Ok(indent) => indent,
+                let options = match self.save_formatting_options(document) {
+                    Ok(options) => options,
                     Err(_) => {
                         self.persistence.submission_failed(document);
                         return false;
@@ -2106,31 +2191,39 @@ impl NativeApplication {
                         return false;
                     }
                 };
-                let indent = current.model_indentation(indent).formatting_options();
-                let options = taide_lsp::native::protocol::lsp_types::FormattingOptions {
-                    tab_size: indent.tab_size,
-                    insert_spaces: indent.insert_spaces,
-                    ..Default::default()
-                };
+                let native = should_format
+                    && crate::editor_json_formatting::is_eligible(&current)
+                    && self
+                        .lsp
+                        .as_ref()
+                        .is_none_or(|lsp| !lsp.has_save_formatter(&current));
+                let mut pending =
+                    PendingFormatSave::new(path.clone(), auto_save, epoch.clone(), None);
+                if native && self.lsp.is_none() {
+                    self.queue_native_save(current, pending, options);
+                    return true;
+                }
                 let result = self
                     .lsp
                     .as_ref()
-                    .expect("native language server bridge is connected")
-                    .participate(current, should_format.then_some(options), actions);
+                    .expect("save participation has a bridge")
+                    .participate(
+                        current.clone(),
+                        (should_format && !native).then_some(options.clone()),
+                        actions,
+                    );
                 match result {
                     Ok(()) => {
-                        self.pending_format_saves.insert(
-                            document,
-                            PendingFormatSave {
-                                path,
-                                auto_save,
-                                epoch,
-                            },
-                        );
+                        pending.native_options = native.then_some(options);
+                        self.pending_format_saves.insert(document, pending);
                         return true;
                     }
                     Err(error) => {
                         log::warn!("native save participation failed: {error}");
+                        if native {
+                            self.queue_native_save(current, pending, options);
+                            return true;
+                        }
                         self.resumed_save_epochs.insert(document, epoch);
                     }
                 }
@@ -3824,7 +3917,88 @@ impl NativeApplication {
         self.reconcile_lsp();
     }
 
+    fn save_formatting_options(
+        &mut self,
+        document: DocumentId,
+    ) -> Result<
+        taide_lsp::native::protocol::lsp_types::FormattingOptions,
+        taide_native_editor::document::EditorError,
+    > {
+        let configuration =
+            crate::presentation_refresh::indent_configuration(&self.services.state.settings.read());
+        let fallback = self.store.configure_indentation(document, configuration)?;
+        let current = self.store.documents().snapshot(document)?;
+        let indent = current.model_indentation(fallback).formatting_options();
+        Ok(taide_lsp::native::protocol::lsp_types::FormattingOptions {
+            tab_size: indent.tab_size,
+            insert_spaces: indent.insert_spaces,
+            ..Default::default()
+        })
+    }
+
+    fn prepare_untitled_cleanup(
+        &mut self,
+        snapshot: taide_native_editor::store::SaveSnapshot,
+    ) -> Result<taide_native_editor::store::SaveSnapshot, taide_native_editor::document::EditorError>
+    {
+        let document = snapshot.document();
+        let current = self.store.documents().snapshot(document)?;
+        if current.key != *snapshot.key() || current.revision != snapshot.revision() {
+            return Err(taide_native_editor::document::EditorError::StaleRevision);
+        }
+        let settings = self.services.state.settings.read();
+        let flags = taide_native_editor::save_cleanup::CleanupFlags {
+            trim_trailing_whitespace: settings.trim_trailing_whitespace_on_save,
+            insert_final_newline: settings.insert_final_newline_on_save,
+        };
+        drop(settings);
+        let view = self.save_view(document);
+        self.editor_syntax
+            .supply_save_cleanup(&mut self.store, document, flags);
+        let result =
+            taide_native_editor::save_cleanup::run(&mut self.store, document, view, flags, false)?;
+        if result.changed {
+            self.formatted_document(document);
+        }
+        self.store.save_snapshot(document)
+    }
+
+    fn queue_native_save(
+        &mut self,
+        snapshot: taide_native_editor::document::DocumentSnapshot,
+        mut pending: PendingFormatSave,
+        options: taide_lsp::native::protocol::lsp_types::FormattingOptions,
+    ) {
+        let document = snapshot.id;
+        pending.native_options = None;
+        pending.native_token = Some(self.editor_formatting.begin_native_save(snapshot, options));
+        self.pending_format_saves.insert(document, pending);
+    }
+
     fn poll_native_formatting(&mut self) {
+        for (request, result) in self
+            .editor_formatting
+            .tick_native_saves(&self.store, &self.services.tasks)
+        {
+            if self
+                .pending_format_saves
+                .get(&request.snapshot.id)
+                .is_none_or(|pending| pending.native_token != Some(request.token))
+            {
+                continue;
+            }
+            let result = if self.services.state.settings.read().format_on_save {
+                result.map(Some).map_err(|error| {
+                    if error != taide_native_editor::document::EditorError::StaleRevision {
+                        log::warn!("native JSON save formatter failed: {error:?}");
+                    }
+                    taide_lsp::native::Failure::StaleRevision
+                })
+            } else {
+                Ok(None)
+            };
+            self.finish_formatted_save(request.snapshot, result);
+        }
         for (request, result) in self.editor_formatting.tick_native(&self.services.tasks) {
             if self.closing.is_some()
                 || self.services.state.is_shutting_down()
@@ -5317,78 +5491,115 @@ impl NativeApplication {
                     }
                 }
                 crate::lsp::Reply::Formatted { snapshot, result } => {
-                    let document = snapshot.id;
-                    let Some(pending) = self.pending_format_saves.remove(&document) else {
-                        continue;
-                    };
-                    match result {
-                        Ok(Some(edits)) => {
-                            let view = self.save_view(document);
-                            match taide_native_editor::formatting::apply_edits(
-                                &mut self.store,
-                                &snapshot,
-                                view,
-                                edits,
-                            ) {
-                                Ok(true) => {
-                                    if let Ok(current) = self.store.documents().snapshot(document) {
-                                        let mirror = self.draft_project(document).is_some();
-                                        self.persistence.changed(
-                                            document,
-                                            current.revision,
-                                            Instant::now(),
-                                            mirror,
-                                            Duration::ZERO,
-                                        );
-                                        for view in self.store.views().for_document(document) {
-                                            self.pending_dirty.insert(view.key.tab.clone(), true);
-                                        }
-                                    }
-                                }
-                                Ok(false) => {}
-                                Err(taide_native_editor::document::EditorError::StaleRevision) => {}
-                                Err(error) => {
-                                    log::warn!("native save formatter edit failed: {error:?}")
-                                }
-                            }
-                        }
-                        Ok(None) | Err(taide_lsp::native::Failure::StaleRevision) => {}
-                        Err(error) => log::warn!("native save formatter failed: {error:?}"),
-                    }
-                    self.resumed_save_epochs.insert(document, pending.epoch);
-                    match self.store.save_snapshot(document) {
-                        Ok(snapshot) => {
-                            let command = if pending.auto_save {
-                                HostCommand::AutoSave {
-                                    path: pending.path,
-                                    snapshot,
-                                }
-                            } else {
-                                HostCommand::Save {
-                                    path: pending.path,
-                                    snapshot,
-                                }
-                            };
-                            if !self.submit(command) {
-                                self.persistence.submission_failed(document);
-                                if let Some(close) = self.pending_tab_close.as_mut()
-                                    && matches!(close.phase, TabClosePhase::Saving(Some(id)) if id == document)
-                                {
-                                    close.phase = TabClosePhase::Confirm;
-                                }
-                            }
-                        }
-                        Err(error) => {
-                            self.resumed_save_epochs.remove(&document);
-                            self.persistence.submission_failed(document);
-                            self.report_save_failure(error, pending.auto_save);
-                            if let Some(close) = self.pending_tab_close.as_mut()
-                                && matches!(close.phase, TabClosePhase::Saving(Some(id)) if id == document)
-                            {
-                                close.phase = TabClosePhase::Confirm;
+                    self.finish_formatted_save(snapshot, result)
+                }
+            }
+        }
+    }
+
+    fn finish_formatted_save(
+        &mut self,
+        snapshot: taide_native_editor::document::DocumentSnapshot,
+        result: Result<
+            Option<Vec<taide_lsp::native::protocol::lsp_types::TextEdit>>,
+            taide_lsp::native::Failure,
+        >,
+    ) {
+        let document = snapshot.id;
+        let Some(mut pending) = self.pending_format_saves.remove(&document) else {
+            return;
+        };
+        if !pending.epoch.is_current() {
+            if pending.untitled.is_some() {
+                self.saving_untitled = None;
+            }
+            self.persistence.submission_failed(document);
+            return;
+        }
+        let should_format = self.services.state.settings.read().format_on_save;
+        if let Some(options) = pending.native_options.take()
+            && should_format
+        {
+            self.queue_native_save(snapshot, pending, options);
+            return;
+        }
+        match result {
+            Ok(Some(edits)) => {
+                let view = self.save_view(document);
+                match taide_native_editor::formatting::apply_edits(
+                    &mut self.store,
+                    &snapshot,
+                    view,
+                    edits,
+                ) {
+                    Ok(true) => {
+                        if let Ok(current) = self.store.documents().snapshot(document) {
+                            let mirror = self.draft_project(document).is_some();
+                            self.persistence.changed(
+                                document,
+                                current.revision,
+                                Instant::now(),
+                                mirror,
+                                Duration::ZERO,
+                            );
+                            for view in self.store.views().for_document(document) {
+                                self.pending_dirty.insert(view.key.tab.clone(), true);
                             }
                         }
                     }
+                    Ok(false) => {}
+                    Err(taide_native_editor::document::EditorError::StaleRevision) => {}
+                    Err(error) => {
+                        log::warn!("native save formatter edit failed: {error:?}")
+                    }
+                }
+            }
+            Ok(None) | Err(taide_lsp::native::Failure::StaleRevision) => {}
+            Err(error) => log::warn!("native save formatter failed: {error:?}"),
+        }
+        self.resumed_save_epochs.insert(document, pending.epoch);
+        match self.store.save_snapshot(document) {
+            Ok(snapshot) => {
+                let command = if let Some(tab) = pending.untitled.clone() {
+                    HostCommand::SaveUntitled {
+                        tab,
+                        destination: pending.path,
+                        snapshot,
+                    }
+                } else if pending.auto_save {
+                    HostCommand::AutoSave {
+                        path: pending.path,
+                        snapshot,
+                    }
+                } else {
+                    HostCommand::Save {
+                        path: pending.path,
+                        snapshot,
+                    }
+                };
+                if !self.submit(command) {
+                    if pending.untitled.is_some() {
+                        self.saving_untitled = None;
+                    }
+                    self.persistence.submission_failed(document);
+                    if let Some(close) = self.pending_tab_close.as_mut()
+                        && matches!(close.phase, TabClosePhase::Saving(Some(id)) if id == document)
+                    {
+                        close.phase = TabClosePhase::Confirm;
+                    }
+                }
+            }
+            Err(error) => {
+                self.resumed_save_epochs.remove(&document);
+                if pending.untitled.is_some() {
+                    self.saving_untitled = None;
+                }
+                self.persistence.submission_failed(document);
+                self.report_save_failure(error, pending.auto_save);
+                if let Some(close) = self.pending_tab_close.as_mut()
+                    && matches!(close.phase, TabClosePhase::Saving(Some(id)) if id == document)
+                {
+                    close.phase = TabClosePhase::Confirm;
                 }
             }
         }
@@ -7823,6 +8034,8 @@ impl eframe::App for NativeApplication {
         self.editor_inlay_hints.clear();
         self.editor_code_lenses.clear();
         self.editor_selection_ranges.clear(&mut self.store);
+        self.editor_formatting.clear();
+        self.editor_formatting.clear_native_saves();
         if let Err(error) = self
             .editor_documentation
             .clear(&mut self.store, &mut self.editor_syntax)
