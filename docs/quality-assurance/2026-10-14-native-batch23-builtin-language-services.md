@@ -338,3 +338,19 @@ validation-removal-before.log/93319는compile15.53초·0통과/1실패·0.03초�
 validation-removal-after.log/8844는compile14.09초·관련 진단7통과/0.03초·exit0입니다. 제거 뒤 늦은 게시를 거절하고 현재 다른 공급자/문서와 유효한 byte/원본 데이터를 보존합니다. 문서 작업2·진단7·목록/탐색24·현재 본문 앱1·입력 소유를 직접 확인한 peek1의 서로 다른35건을 성공 근거로 사용하며 앞의 동일 성공·관련 없는 remote1은 합산하지 않습니다. 간헐 peek 회수 실패의 재현 원인이 미확정인 사실은 별도 미완료로 유지합니다.
 
 소유Rust13 format·소유diff·manifest/lock/동결 변경0을 확인했습니다. 변경은 host App 내부이며 UI/Core의 공유 공개 계약과 Wasm 소스는 바뀌지 않아 b3f2의 Wasm UI lib·기존 Core392/JSONCore49/Syntax5 성공을 재사용합니다. 새 전체 App/Core/UI/Wasm 실행으로 세지 않으며 기존 vendor wry17/compact unwind1경고, 전체App877통과/22준비실패/보호3제외/exit101·Core성능ignored1·remote Wasm tests의 시간 API 불일치7·OS/접근성/대형 성능/신뢰성/출시·전환 게이트를 유지합니다. b3g1만 닫고 b3g2/부모 b3g·schema semantic/나머지 JSON/CSS/HTML/TS는 미완료입니다. 전체303/588(51.5%)·부분93/미연결110/미구현82·미완료285·배치23잔여18·최종33·목표active·잔여시간미산정입니다.
+
+## b3g2a — Peek 오류·호버와 사라진 고정 줄의 포커스
+
+peek-message.log/68190은compile22.92초·0통과/1실패·36.87초·exit101입니다. 실제 JSON peek에 준비한 주석 오류의 marker 응답은 존재하지만 최초 tooltip 표시에서 메시지를 기대해 실패했습니다. 기존 problems tooltip 검사처럼 준비/표시 시간을 구분하고 실제 shape의 문구를 관찰합니다. peek-message-current.log/33192는compile22.07초·0통과/1실패·35.82초·exit101이며 실제 오류 메시지/본문 분리는 통과한 뒤 Escape 직전 포커스가 None으로 사라진 사실을 확인했습니다. 시간 초과만 반복하지 않고 입력 소유 단계에서 원인을 분리했습니다.
+
+기존 App 검사는 editor_keymap_targets HashMap의 첫 preview 항목을 선택했습니다. 실제 Provider는 본문 response와 sticky/문제/위치 popup 등의 focus_ids를 함께 등록하므로 이 항목은 안정된 본문을 뜻하지 않습니다. NativeEditor는 입력 전 sticky.prepare의 무효화에는 본문 포커스를 회수하지만 그 뒤 maintain_folds/최종 배치에서 고정 줄이 없어지는 경로에는 회수가 없었습니다.
+
+sticky-focus-before.log/55659는compile14.50초·0통과/1실패·0.02초·exit101입니다. 실제 고정 줄 ID에 포커스를 둔 뒤 외부 FoldAll 명령을 소비하면 헤더가 사라지고 본문 대신 None이 되는 동일한 수명 오류를 재현했습니다. 최종 sticky paint 뒤 현재 포커스가 이전 고정 줄 소유이고 새 표시 목록에서 사라졌을 때만 해당 본문 response로 회수합니다. 다른 입력창의 현재 포커스는 바꾸지 않으며 기존 입력 사건 순서를 유지합니다.
+
+sticky-focus-after.log/11602는compile10.77초·기존17+신규1의18통과/0.06초·exit0입니다. 고정 줄 소실/본문 회수와 기존 클릭/키/다른 입력창·닫기/읽기 전용·설정·행/문서 변경 수명이 통과했습니다. App은 임의 HashMap 항목 대신 실제 고정 줄 ID를 선택해 접기 후 본문 포커스·Escape 즉시 세션 폐기·뷰/작업 회수까지 확인하며 일반/읽기 전용 JSON 두 사례의 결과는 아래에 기록합니다.
+
+native-problem-before.log/71768은compile19.42초·0통과/1실패·0.03초·exit101입니다. 실제 Core untitled 문서/byte marker만 남긴 뒤 파일의 NextInFiles를 실행하면 현재 파일 전용 Provider가 요청을 만들지 않는 미연결 경계를 재현했습니다. 이 신규 검사와 File/Untitled 요청·프로젝트/뷰 소유 연결은 b3g2b에 진행 중이며 포커스 수정이나 전체 JSON 소비 완료로 합산하지 않습니다.
+
+sticky-focus-app.log/40864는compile29.44초·실제 App1통과/44.10초·exit0입니다. 한 검사 안에서 편집 가능/Normal readonly 두 실제 앱을 생성해 주석 오류의 현재 peek marker·실제 tooltip 문구·본문 Rust 진단과의 분리·고정 줄 ID의 실제 입력 소유→F9/FoldAll→해당 본문 focus→Escape 즉시 세션 폐기·native 문서/작업0을 확인했습니다. HashMap의 임의 focus 항목을 쓰거나 접힌 뒤 강제로 포커스를 다시 지정하지 않습니다. 이전 실패와 같은 일반 peek를 별도 신규 건수로 합산하지 않습니다.
+
+sticky-focus-wasm.log/2260은변경한 UI lib의 --target wasm32-unknown-unknown --no-default-features --locked --offline 검사4.85초·exit0입니다. 소유Rust3 format/소유diff와 manifest/lock/동결 변경0을 확인했습니다. UI의 공유 공개 계약은 바꾸지 않고 native-host의 사라진 고정 줄 focus만 회수합니다. 기존 foreign 입력창/원문·readonly 탐색과 Web/Wasm 경계를 유지하며 전체 App/Core/UI/플랫폼·성능·출시·전환 검증으로 확대하지 않습니다. b3g2a만 닫고 b3g2b/부모 b3g2·b3g/전체 JSON 서비스는 미완료입니다. 전체303/588(51.5%)·부분93/미연결110/미구현82·미완료285·배치23잔여18·최종33·목표active·잔여시간미산정입니다.

@@ -3606,6 +3606,14 @@ impl NativeEditor {
             false
         };
         #[cfg(feature = "native-host")]
+        if ui.is_enabled()
+            && let Some(focused) = ui.memory(|memory| memory.focused())
+            && sticky_ids.contains(&focused)
+            && !input_state.sticky.focus_ids().contains(&focused)
+        {
+            response.request_focus();
+        }
+        #[cfg(feature = "native-host")]
         let scroll_marks = presentation
             .options
             .overview_colors

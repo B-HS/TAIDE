@@ -58,10 +58,13 @@ fn wait(
         .await
         .unwrap_or_else(|error| {
             panic!(
-                "{caller}: {error}; native documents={}, validation documents={}, tasks={}",
-                application.editor_json.documents().len(),
-                application.editor_json_validation.documents().len(),
-                application.services.tasks.tracked_count()
+                "{caller}: {error}; native={:?}; validation={:?}; previews={:?}; views={:?}; focus={:?}; tasks={}",
+                application.editor_json.documents(),
+                application.editor_json_validation.documents(),
+                application.editor_locations.preview_views(),
+                application.store.documents().snapshots().flat_map(|snapshot| application.store.views().for_document(snapshot.id).map(|view| (snapshot.id, view.id, view.key.clone())).collect::<Vec<_>>()).collect::<Vec<_>>(),
+                context.memory(|memory| memory.focused()),
+                application.services.tasks.tracked_count(),
             )
         });
     });
@@ -670,12 +673,17 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
 
 #[test]
 fn actual_app의_json_peek는_현재_문서_구조와_키_접기_및_닫힘을_소비한다() {
+    assert_json_peek(false);
+    assert_json_peek(true);
+}
+
+fn assert_json_peek(read_only: bool) {
     use super::inlay_hints_tests::{body_view, fixture_with_view_state_and_setup, key};
     use taide_native_editor::symbol_locations::{Command, Kind, Mode};
     const PEEK_LINE_COUNT: usize = 40;
     const SCROLL_LINE: usize = 10;
     let peek_text = format!(
-        "{{\n\"outer\": {{\n{}\n}}\n}}",
+        "/*note*/{{\n\"outer\": {{\n{}\n}}\n}}",
         (0..PEEK_LINE_COUNT)
             .map(|index| format!("\"value_{index}\": {index}"))
             .collect::<Vec<_>>()
@@ -708,7 +716,7 @@ fn actual_app의_json_peek는_현재_문서_구조와_키_접기_및_닫힘을_�
                         byte_size: peek_text.len().try_into().unwrap(),
                         line_count: peek_text.lines().count().try_into().unwrap(),
                         tier: taide_model::file::FileSizeTier::Normal,
-                        read_only: false,
+                        read_only,
                         encoding_lossy: false,
                         modified_ms: 0.0,
                         editor_config: Default::default(),
@@ -762,6 +770,83 @@ fn actual_app의_json_peek는_현재_문서_구조와_키_접기_및_닫힘을_�
     });
     let current = application.store.documents().snapshot(document).unwrap();
     assert_eq!(current.rope.to_string(), peek_text);
+    assert_eq!(current.metadata.read_only, read_only);
+    wait(application, context, |application| {
+        application
+            .lsp_diagnostics
+            .display(&application.store, &current)
+            .is_some_and(|markers| {
+                markers
+                    .markers()
+                    .iter()
+                    .any(|marker| marker.message.code.as_deref() == Some("521"))
+            })
+    });
+    let body = crate::editor_context_menu::body(context, preview).unwrap();
+    let marker = context
+        .read_response(body.with(("diagnostic-hover", 0usize, "/*note*/".len(), 0usize)))
+        .expect("peek must paint its own JSON diagnostic");
+    let point = marker.rect.center();
+    super::inlay_hints_tests::paint(application, context, vec![egui::Event::PointerMoved(point)]);
+    let ready = context.input(|input| input.time)
+        + f64::from(context.global_style().interaction.tooltip_delay)
+        + 1.0;
+    let mut prepared_tooltip = context.run_ui(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, FRAME_SIZE)),
+            time: Some(ready),
+            ..Default::default()
+        },
+        |ui| eframe::App::ui(application, ui, &mut eframe::Frame::_new_kittest()),
+    );
+    prepared_tooltip.textures_delta.clear();
+    let mut tooltip = context.run_ui(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, FRAME_SIZE)),
+            time: Some(ready + 1.0),
+            ..Default::default()
+        },
+        |ui| eframe::App::ui(application, ui, &mut eframe::Frame::_new_kittest()),
+    );
+    tooltip.textures_delta.clear();
+    let mut shapes = tooltip
+        .shapes
+        .iter()
+        .map(|shape| &shape.shape)
+        .collect::<Vec<_>>();
+    let mut has_message = false;
+    let mut rendered_text = Vec::new();
+    while let Some(shape) = shapes.pop() {
+        match shape {
+            egui::Shape::Vec(children) => shapes.extend(children),
+            egui::Shape::Text(text) => {
+                rendered_text.push(text.galley.text().to_owned());
+                has_message |= text
+                    .galley
+                    .text()
+                    .contains("Comments are not permitted in JSON.")
+            }
+            _ => {}
+        }
+    }
+    assert!(
+        has_message,
+        "actual peek hover must display the current JSON diagnostic: {rendered_text:?}"
+    );
+    let owner_snapshot = application
+        .store
+        .documents()
+        .snapshot(owner_document)
+        .unwrap();
+    assert!(
+        application
+            .lsp_diagnostics
+            .display(&application.store, &owner_snapshot)
+            .unwrap()
+            .markers()
+            .iter()
+            .all(|marker| marker.message.code.as_deref() != Some("521"))
+    );
     assert_eq!(
         application
             .editor_symbols
@@ -816,13 +901,15 @@ fn actual_app의_json_peek는_현재_문서_구조와_키_접기_및_닫힘을_�
             .is_some(),
         "JSON peek must display its own sticky scope"
     );
-    let focus = application
-        .editor_keymap_targets
-        .iter()
-        .find_map(|((viewport, id), (view, _))| {
-            (*viewport == context.viewport_id() && *view == preview).then_some(*id)
-        })
-        .expect("JSON preview must be rendered and register its focus target");
+    let focus = body.with(("sticky-line", 0usize));
+    assert!(context.read_response(focus).is_some());
+    assert_eq!(
+        application
+            .editor_keymap_targets
+            .get(&(context.viewport_id(), focus))
+            .map(|(view, _)| *view),
+        Some(preview)
+    );
     context.memory_mut(|memory| memory.request_focus(focus));
     super::inlay_hints_tests::paint(
         application,
@@ -869,6 +956,7 @@ fn actual_app의_json_peek는_현재_문서_구조와_키_접기_및_닫힘을_�
         "peek must own Escape before closing; focus={:?}",
         context.memory(|memory| memory.focused())
     );
+    assert_eq!(context.memory(|memory| memory.focused()), Some(body));
     super::inlay_hints_tests::paint(
         application,
         context,

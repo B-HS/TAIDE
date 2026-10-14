@@ -47,6 +47,7 @@ struct Fixture {
     tokens: Option<(u64, LineTokens, TokenStyleTable)>,
     layers: Vec<DecorationLayer>,
     syntax_folds: Option<Arc<taide_native_editor::syntax_folding::SyntaxFolds>>,
+    fold_commands: Vec<taide_native_editor::folding::FoldCommand>,
 }
 
 impl Fixture {
@@ -128,6 +129,7 @@ impl Fixture {
             tokens: None,
             layers: Vec::new(),
             syntax_folds: None,
+            fold_commands: Vec::new(),
             presentation: EditorPresentation {
                 options: EditorDisplayOptions {
                     sticky_scroll: true,
@@ -151,6 +153,7 @@ impl Fixture {
         let mut foreign_rect = None;
         let mut toggle = false;
         let mut controls = Vec::new();
+        let fold_commands = std::mem::take(&mut self.fold_commands);
         let mut output = self.context.run_ui(
             RawInput {
                 screen_rect: Some(Rect::from_min_size(Pos2::ZERO, self.screen)),
@@ -193,7 +196,7 @@ impl Fixture {
                             },
                             language: None,
                             decorations: &layers,
-                            fold_commands: &[],
+                            fold_commands: &fold_commands,
                             #[cfg(feature = "native-host")]
                             syntax_folds: self.syntax_folds.clone(),
                             #[cfg(feature = "native-host")]
@@ -1025,4 +1028,29 @@ fn 명령_토글은_세션_메모리에만_남고_실제_설정_변경과_새_�
     assert!(!first.synchronize(false));
     assert!(first.synchronize(true));
     assert!(StickySetting::new(configured).synchronize(configured));
+}
+
+#[test]
+fn 접기_명령으로_고정_줄이_사라지면_포커스를_현재_본문으로_회수한다() {
+    let mut fixture = Fixture::new(&document(), &[]);
+    fixture.presentation.options.sticky_model = None;
+    fixture.presentation.options.folding = true;
+    let shown = fixture.show(0.0, Vec::new(), Modifiers::NONE);
+    let header = shown.id.with(("sticky-line", 0usize));
+    assert!(fixture.context.read_response(header).is_some());
+    fixture
+        .context
+        .memory_mut(|memory| memory.request_focus(header));
+    fixture.show(0.1, Vec::new(), Modifiers::NONE);
+    assert_eq!(
+        fixture.context.memory(|memory| memory.focused()),
+        Some(header)
+    );
+    fixture.fold_commands = vec![taide_native_editor::folding::FoldCommand::FoldAll];
+    let folded = fixture.show(0.2, Vec::new(), Modifiers::NONE);
+    assert!(sticky_text(&folded).is_empty());
+    assert_eq!(
+        fixture.context.memory(|memory| memory.focused()),
+        Some(shown.id)
+    );
 }
