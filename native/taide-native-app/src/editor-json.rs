@@ -27,14 +27,15 @@ const SCANNER_LIMITS: json_scanner::Limits = json_scanner::Limits {
     max_tokens: MAX_TOKENS,
     max_value_units: LARGE_FILE_BYTES as usize,
 };
+pub(crate) const PARSER_LIMITS: json_parser::Limits = json_parser::Limits {
+    scanner: SCANNER_LIMITS,
+    max_nodes: MAX_NODES,
+    max_depth: MAX_DEPTH,
+    max_diagnostics: MAX_NODES,
+    max_comments: MAX_NODES,
+};
 const SYMBOL_LIMITS: json_symbols::Limits = json_symbols::Limits {
-    parser: json_parser::Limits {
-        scanner: SCANNER_LIMITS,
-        max_nodes: MAX_NODES,
-        max_depth: MAX_DEPTH,
-        max_diagnostics: MAX_NODES,
-        max_comments: MAX_NODES,
-    },
+    parser: PARSER_LIMITS,
     max_symbols: MAX_NODES,
     max_text_units: LARGE_FILE_BYTES as usize * TEXT_MULTIPLIER,
     result_limit: None,

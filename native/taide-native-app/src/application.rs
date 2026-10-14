@@ -6102,6 +6102,10 @@ impl NativeApplication {
             &self.shell.scope,
         );
         self.reconcile_builtin_json(context);
+        if self.closing.is_none() && !self.services.state.is_shutting_down() {
+            self.editor_selection_ranges
+                .tick_native(&self.store, &self.services.tasks, context);
+        }
         self.reconcile_lsp();
         self.dispatch_completion(context);
         if let Some(delay) = self.editor_symbols.next_refresh(Instant::now()) {

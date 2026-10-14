@@ -11,6 +11,7 @@ const FILE_PATH: &str = "/synthetic/selection-range.rs";
 const CAPACITY: usize = 4;
 const BYTE_LIMIT: usize = 4096;
 const STABLE_FRAMES: usize = 16;
+const NATIVE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(2);
 const RULES: LineCommandContext<'static> = LineCommandContext {
     indent: IndentOptions {
         tab_size: 4,
@@ -136,6 +137,215 @@ fn submit(
         .unwrap()
         .pop()
         .unwrap()
+}
+
+async fn await_native(
+    state: &mut State,
+    store: &EditorStore,
+    tasks: &taide_runtime::TaskSupervisor,
+) {
+    let context = egui::Context::default();
+    tokio::time::timeout(NATIVE_DEADLINE, async {
+        loop {
+            state.tick_native(store, tasks, &context);
+            if state
+                .entries
+                .values()
+                .all(|entry| !matches!(entry.native, Some(Native::Pending(_))))
+                && state.active_json.load(Ordering::Acquire) == 0
+                && tasks.tracked_count() == 0
+            {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn 내장_json_untitled은_외부_공급자_없이_문서_선택_요청을_유지한다() {
+    let (mut store, _, project, _) = fixture(FileSizeTier::Normal, false);
+    let tab = TabId::new();
+    let document = store
+        .open_untitled(tab.clone(), "{\"value\":1}", "json".into())
+        .unwrap();
+    let view = store
+        .attach_view(
+            ViewKey {
+                window: "selection-fixture".into(),
+                pane: PaneId::new(),
+                tab,
+            },
+            document,
+        )
+        .unwrap();
+    set_selection(&mut store, view, &[(3, 3)]);
+    let mut state = State::default();
+    state
+        .queue(&store, context(&project, view, view), true)
+        .unwrap();
+    assert!(
+        state
+            .before(
+                &mut store,
+                context(&project, view, view),
+                HashSet::new(),
+                RULES
+            )
+            .unwrap()
+            .is_empty()
+    );
+    assert!(state.entries.contains_key(&(egui::ViewportId::ROOT, view)));
+    assert_eq!(selection(&store, view), vec![(3, 3)]);
+    let before = store.documents().snapshot(document).unwrap();
+    let tasks = taide_runtime::TaskSupervisor::new(tokio::runtime::Handle::current());
+    await_native(&mut state, &store, &tasks).await;
+    state
+        .before(
+            &mut store,
+            context(&project, view, view),
+            HashSet::new(),
+            RULES,
+        )
+        .unwrap();
+    assert_eq!(selection(&store, view), vec![(2, 7)]);
+    for (forward, expected) in [
+        (true, (1, 8)),
+        (true, (1, 10)),
+        (false, (1, 8)),
+        (false, (2, 7)),
+        (false, (3, 3)),
+    ] {
+        state
+            .queue(&store, context(&project, view, view), forward)
+            .unwrap();
+        state
+            .before(
+                &mut store,
+                context(&project, view, view),
+                HashSet::new(),
+                RULES,
+            )
+            .unwrap();
+        assert_eq!(selection(&store, view), vec![expected]);
+    }
+    assert!(matches!(
+        state.entries[&(egui::ViewportId::ROOT, view)].native,
+        Some(Native::Ready(_))
+    ));
+    let after = store.documents().snapshot(document).unwrap();
+    assert_eq!((before.revision, before.rope), (after.revision, after.rope));
+    state.clear(&mut store);
+    set_selection(&mut store, view, &[(3, 3), (9, 9)]);
+    state
+        .queue(&store, context(&project, view, view), true)
+        .unwrap();
+    state
+        .before(
+            &mut store,
+            context(&project, view, view),
+            HashSet::new(),
+            RULES,
+        )
+        .unwrap();
+    await_native(&mut state, &store, &tasks).await;
+    let Some(Native::Ready(ranges)) = &state.entries[&(egui::ViewportId::ROOT, view)].native else {
+        panic!("native ranges missing")
+    };
+    assert_eq!(ranges.len(), 2);
+    assert!(ranges[0].contains(&(1..10)));
+    assert!(ranges[1].contains(&(9..10)));
+    state.clear(&mut store);
+    state
+        .queue(&store, context(&project, view, view), true)
+        .unwrap();
+    state
+        .before(
+            &mut store,
+            context(&project, view, view),
+            HashSet::new(),
+            RULES,
+        )
+        .unwrap();
+    state.tick_native(&store, &tasks, &egui::Context::default());
+    store.detach_view(view).unwrap();
+    state.reconcile(&mut store, |_| false, |_, _| HashSet::new());
+    await_native(&mut state, &store, &tasks).await;
+    assert!(state.entries.is_empty());
+}
+
+#[tokio::test]
+async fn json의_외부_선택과_내장_범위는_같은_선택_이력에_합친다() {
+    let (mut store, view, project, provider) = fixture(FileSizeTier::Normal, true);
+    let document = store.views().get(view).unwrap().document;
+    let snapshot = store.documents().snapshot(document).unwrap();
+    const JSON: &str = "{\"value\":1}";
+    store
+        .refresh_clean_file(
+            document,
+            std::path::Path::new(FILE_PATH),
+            OpenedFile {
+                path: FILE_PATH.into(),
+                content: JSON.into(),
+                language_id: "json".into(),
+                byte_size: JSON.len().try_into().unwrap(),
+                line_count: 1,
+                tier: FileSizeTier::Normal,
+                read_only: true,
+                encoding_lossy: false,
+                modified_ms: 0.0,
+                editor_config: Default::default(),
+            },
+        )
+        .unwrap();
+    set_selection(&mut store, view, &[(3, 3)]);
+    let mut state = State::default();
+    let request = submit(&mut state, &mut store, &project, view, provider);
+    assert!(state.accept(
+        &store,
+        &request,
+        HashSet::from([provider]),
+        Ok(Response {
+            groups: vec![(provider, Some(vec![Some(node(2, 4, None))]))]
+        })
+    ));
+    state
+        .before(
+            &mut store,
+            context(&project, view, view),
+            HashSet::from([provider]),
+            RULES,
+        )
+        .unwrap();
+    assert_eq!(selection(&store, view), vec![(3, 3)]);
+    let tasks = taide_runtime::TaskSupervisor::new(tokio::runtime::Handle::current());
+    await_native(&mut state, &store, &tasks).await;
+    state
+        .before(
+            &mut store,
+            context(&project, view, view),
+            HashSet::from([provider]),
+            RULES,
+        )
+        .unwrap();
+    assert_eq!(selection(&store, view), vec![(2, 4)]);
+    assert!(matches!(
+        state.entries[&(egui::ViewportId::ROOT, view)].native,
+        Some(Native::Ready(_))
+    ));
+    let Some(Native::Ready(ranges)) = &state.entries[&(egui::ViewportId::ROOT, view)].native else {
+        panic!("native ranges missing")
+    };
+    assert!(ranges[0].contains(&(1..10)));
+    let after = store.documents().snapshot(document).unwrap();
+    assert_eq!(after.rope.to_string(), JSON);
+    assert!(after.metadata.read_only);
+    assert_eq!(after.revision, snapshot.revision + 1);
+    state.reconcile(&mut store, |_| true, |_, _| HashSet::new());
+    assert!(state.entries.is_empty());
+    assert!(!has_smart_selection(&store, view));
 }
 
 fn node(

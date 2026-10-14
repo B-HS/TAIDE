@@ -2,6 +2,8 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use eframe::egui;
 use taide_lsp::native::Failure;
@@ -18,10 +20,20 @@ use taide_native_editor::line_commands::LineCommandContext;
 use taide_native_editor::lsp::{Position, byte_to_position, position_to_byte};
 use taide_native_editor::store::EditorStore;
 use taide_native_editor::view::{SelectionSet, ViewId, ViewKey};
+use tokio::sync::oneshot;
 use tokio::sync::watch;
 use uuid::Uuid;
 
 use crate::editor_symbols::ProviderIdentity;
+
+const JSON_WORKER_NAME: &str = "native-json-selection";
+const MAX_JSON_ACTIVE: usize = 1;
+const JSON_LIMITS: taide_native_editor::json_selection::Limits =
+    taide_native_editor::json_selection::Limits {
+        parser: crate::editor_json::PARSER_LIMITS,
+        max_positions: 1024,
+        max_ranges: 256 * 1024,
+    };
 
 pub(crate) type ProviderRanges =
     <lsp_types::request::SelectionRangeRequest as FeatureRequest>::Reply;
@@ -108,12 +120,18 @@ enum Phase {
     Complete,
 }
 
+enum Native {
+    Pending(Option<oneshot::Receiver<Vec<Vec<Range<usize>>>>>),
+    Ready(Vec<Vec<Range<usize>>>),
+}
+
 struct Entry {
     request: Request,
     cancel: watch::Sender<bool>,
     expected: SelectionSet,
     forward: bool,
     phase: Phase,
+    native: Option<Native>,
 }
 
 impl Drop for Entry {
@@ -126,6 +144,43 @@ impl Drop for Entry {
 pub(crate) struct State {
     entries: HashMap<(egui::ViewportId, ViewId), Entry>,
     queued: Vec<Queued>,
+    active_json: Arc<AtomicUsize>,
+}
+
+struct JsonSlot(Arc<AtomicUsize>, egui::Context);
+
+impl Drop for JsonSlot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+        self.1.request_repaint();
+    }
+}
+
+fn is_json(snapshot: &DocumentSnapshot) -> bool {
+    snapshot.metadata.language_id == "json"
+        && snapshot.metadata.tier == FileSizeTier::Normal
+        && !matches!(snapshot.key, DocumentKey::AppFile(_))
+}
+
+fn json_ranges(request: &Request) -> Result<Vec<Vec<Range<usize>>>, EditorError> {
+    if request.snapshot.rope.len_bytes() > JSON_LIMITS.parser.scanner.max_bytes
+        || request.selection.selections.len() > JSON_LIMITS.max_positions
+    {
+        return Err(EditorError::Capacity);
+    }
+    let text = request.snapshot.rope.to_string();
+    let positions = request
+        .selection
+        .selections
+        .iter()
+        .map(|selection| selection.head)
+        .collect::<Vec<_>>();
+    Ok(
+        taide_native_editor::json_selection::selection_ranges(&text, &positions, JSON_LIMITS)?
+            .into_iter()
+            .map(|ranges| ranges.into_iter().map(|range| range.bytes).collect())
+            .collect(),
+    )
 }
 
 fn position(snapshot: &DocumentSnapshot, value: lsp_types::Position) -> Option<usize> {
@@ -171,6 +226,67 @@ fn ranges(request: &Request, response: Response) -> Vec<Vec<Range<usize>>> {
 }
 
 impl State {
+    pub(crate) fn tick_native(
+        &mut self,
+        store: &EditorStore,
+        tasks: &taide_runtime::TaskSupervisor,
+        context: &egui::Context,
+    ) {
+        for entry in self.entries.values_mut() {
+            let Some(Native::Pending(receiver)) = &mut entry.native else {
+                continue;
+            };
+            if !entry.request.describes(store)
+                || store
+                    .views()
+                    .get(entry.request.source)
+                    .is_none_or(|view| view.selection != entry.expected)
+            {
+                continue;
+            }
+            if let Some(receiver) = receiver {
+                let result = match receiver.try_recv() {
+                    Ok(ranges) => ranges,
+                    Err(oneshot::error::TryRecvError::Empty) => continue,
+                    Err(oneshot::error::TryRecvError::Closed) => {
+                        vec![Vec::new(); entry.expected.selections.len()]
+                    }
+                };
+                entry.native = Some(Native::Ready(result));
+                context.request_repaint();
+                continue;
+            }
+            if self.active_json.load(Ordering::Acquire) >= MAX_JSON_ACTIVE {
+                continue;
+            }
+            self.active_json.fetch_add(1, Ordering::AcqRel);
+            let slot = JsonSlot(self.active_json.clone(), context.clone());
+            let request = entry.request.clone();
+            let (sender, pending) = oneshot::channel();
+            if tasks
+                .spawn_blocking_transient_handle(JSON_WORKER_NAME, move || {
+                    let _slot = slot;
+                    if request.is_cancelled() {
+                        return;
+                    }
+                    let ranges = json_ranges(&request)
+                        .unwrap_or_else(|_| vec![Vec::new(); request.selection.selections.len()]);
+                    if !request.is_cancelled() {
+                        drop(sender.send(ranges));
+                    }
+                })
+                .is_some()
+            {
+                *receiver = Some(pending);
+            } else {
+                entry.native = Some(Native::Ready(vec![
+                    Vec::new();
+                    entry.expected.selections.len()
+                ]));
+            }
+        }
+    }
+
     pub(crate) fn queue(
         &mut self,
         store: &EditorStore,
@@ -235,8 +351,21 @@ impl State {
         }
         if let Some(entry) = self.entries.get_mut(&key)
             && let Phase::Ready(ranges) = &entry.phase
+            && !matches!(entry.native, Some(Native::Pending(_)))
         {
-            run_smart_selection_with_ranges(store, context.source, entry.forward, ranges, rules)?;
+            let mut combined = ranges.clone();
+            if let Some(Native::Ready(native)) = &entry.native {
+                for (ranges, native) in combined.iter_mut().zip(native) {
+                    ranges.extend(native.iter().cloned());
+                }
+            }
+            run_smart_selection_with_ranges(
+                store,
+                context.source,
+                entry.forward,
+                &combined,
+                rules,
+            )?;
             entry.expected = store
                 .views()
                 .get(context.source)
@@ -284,18 +413,18 @@ impl State {
                 }
                 continue;
             }
-            if self
-                .entries
-                .get(&key)
-                .is_some_and(|entry| matches!(entry.phase, Phase::Pending))
-            {
+            if self.entries.get(&key).is_some_and(|entry| {
+                matches!(entry.phase, Phase::Pending)
+                    || matches!(entry.native, Some(Native::Pending(_)))
+            }) {
                 continue;
             }
-            if providers.is_empty()
-                || context.project.is_none()
-                || queued.request.snapshot.metadata.tier != FileSizeTier::Normal
-                || !matches!(queued.request.snapshot.key, DocumentKey::File(_))
-            {
+            let native_json = is_json(&queued.request.snapshot);
+            let external = !providers.is_empty()
+                && context.project.is_some()
+                && queued.request.snapshot.metadata.tier == FileSizeTier::Normal
+                && matches!(queued.request.snapshot.key, DocumentKey::File(_));
+            if !native_json && !external {
                 run_cursor_command(
                     store,
                     context.source,
@@ -314,9 +443,16 @@ impl State {
                 request: queued.request.clone(),
                 cancel: queued.cancel,
                 forward: queued.forward,
-                phase: Phase::Pending,
+                phase: if external {
+                    Phase::Pending
+                } else {
+                    Phase::Ready(vec![Vec::new(); initial.selections.len()])
+                },
+                native: native_json.then_some(Native::Pending(None)),
             };
-            submitted.push(queued.request);
+            if external {
+                submitted.push(queued.request);
+            }
             self.entries.insert(key, entry);
         }
         Ok(submitted)

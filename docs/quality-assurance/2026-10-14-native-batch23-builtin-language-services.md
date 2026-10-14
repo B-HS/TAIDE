@@ -372,3 +372,17 @@ row-focus.log/11059는compile18.03초·0통과/1실패·35.81초·exit101입니�
 row-focus-fixed.log/92421는compile18.37초·0통과/1실패·35.58초·exit101이며 같은 시점의 포커스가None이었습니다. wait의 준비 조건은 controller의 새 프로젝트와 이미 변경된 caret만 확인해 비동기 새 snapshot이 아직 UI에 그려지기 전에 끝날 수 있었습니다. 실제 목적 본문의 has_focus를 준비 조건에 추가해 전환 결과의 실제 입력 소유까지 검사합니다. 고정 프레임 수·추가 시간 제한·강제 포커스 지정은 사용하지 않습니다.
 
 row-rendered.log/27595는compile19.40초·실제App1통과/35.56초·exit0입니다. 목적 본문이 실제 focus를 가진 상태의 F8/ShiftF8·문제 행 왕복과 문서 key/위치·본문 분리·비BMP·원문/revision·undo·닫힘·tasks0을 확인했습니다. 현재 관련 검사는 상태6/실제App1의 서로 다른7건이며 변경 없는 g1·peek의 성공을 재사용하고 같은 앱 반복 성공은 합산하지 않습니다. 소유Rust5 format/소유diff가 통과했고 새 의존성/manifest/lock/동결·공유 UI/Core 소스 변경은 없습니다. b3g2b·b3g2·구문 소비 b3g만 닫으며 JSON schema 의미 검증·언어 선택 UI·포맷/선택 확장/조회/완성·CSS/HTML/TS 및 전체 App 준비/성능/OS/출시 게이트는 미완료입니다. 전체303/588(51.5%)·미완료285·editor-57partial/editor-16partial·목표active·잔여시간미산정입니다.
+
+## b3h1 — JSON 선택 확장의 실제 공급
+
+설치 Monaco smartSelect.js의 provideSelectionRanges는 registry.all(model)의 모든 공급자와 단어 범위를 합칩니다. JSONSelectionRanges의 안쪽 문자열/노드·속성·뒤 쉼표/부모 체인은 기존 portable 구현과 원본 oracle를 재사용합니다. JSON의 외부 공급자가 있으면 내장을 생략하는 fallback으로 구현하지 않고 두 결과를 기다려 같은 기존 smart selection 이력에 합칩니다.
+
+editor-selection-ranges의 각 요청에 선택적 native 결과를 추가했습니다. 실제 문서 snapshot/byte 위치를 최대1개의 supervised blocking 작업에 전달하고, 작업 슬롯은 취소 후에도 실제 worker 종료 시 회수합니다. source/owner/문서 key·revision·언어/tier·현재 선택/IME·실제 창/프로젝트 소유와 공급자 집합은 기존 경계에서 검사하며 JSON native 결과에 LSP owner를 만들지 않습니다. 파일/untitled/peek·Normal readonly는 허용하고 AppFile/다른 언어/큰 tier는 기존 로컬 선택을 유지합니다. 기존 JSON 구조 작업의 parser 예산을 공유하며 입력 크기·token/노드/깊이·최대1024위치/262144결과 상한을 적용합니다.
+
+selection-native-before.log/90941은compile21.09초·0통과/1실패·0.03초·exit101입니다. 서버 없는 실제 untitled JSON의 요청이 상태에 남지 않는 기존 미연결을 재현했습니다. 검사 이름의 대문자 JSON 경고는 소문자로 수정했습니다. selection-native-state.log/91342는compile33.39초·기존5+신규2의7통과/0.01초·exit0이며 실제 worker의 byte 범위/확장·원 caret까지 축소/다중 위치·원문/revision·닫힌 뷰의 작업 회수와 외부/native 동시 대기를 포함합니다. 이후 동시 공급 검사의 입력을 불완전 Rust 텍스트에서 유효 JSON으로 강화했고 해당 현재 결과는 아래에 별도 기록합니다.
+
+selection-native-app.log/75460은검사 fixture의 ScrollPosition 재사용이 move 뒤 접근하는 컴파일 오류1건으로 종료했습니다. 최초 설정에서 복제하고 실제 파일·untitled·일반/readonly JSON peek의 확장/축소 키·속성 범위/원 caret·원문/revision/readonly·본문 분리·닫힘/tasks0을 기존 두 App 검사에 추가했습니다. 검사 helper를 잘못된 공통 untitled 생성 위치에 넣었던 편집은 실행 전에 실제 소비 위치로 옮겼습니다. 이 실패를 제품 오류로 보고하지 않습니다.
+
+selection-native-app-current.log/72956은compile23.87초·실제App2통과/57.73초·exit0입니다. 실제 확장/축소 키를 사용해 JSON 파일·untitled의 `"value": 1` 속성과 일반/readonly peek의 `"value_0": 0` 속성까지 선택을 확장하고 정확히 이전 caret까지 축소했습니다. 문서 key/원문/revision/readonly·peek 원본문 분리·기존 hover/고정 줄/문제 이동/undo·닫힘/tasks0을 보존합니다. 고정 프레임 수로 비동기 native 결과를 가정하지 않고 실제 선택 변경을 관찰했습니다.
+
+selection-native-state-current.log는 같은 최종 App 바이너리에서 변경한 두 상태 검사 이름을 명시해 직접 실행했으며2통과/0.00초·exit0입니다. 유효한 readonly JSON의 실제 native 속성 범위와 외부의 더 좁은 범위를 함께 기다려 같은 선택 이력에 넣고 공급자 교체 시 회수합니다. Untitled의 확장/축소/다중 위치·닫힌 뷰/작업0도 통과했습니다. 변경 없는 기존 상태5건은 이전 성공을 재사용하며 현재 관련 서로 다른 상태7/실제App2의9건입니다. 소유Rust5 fmt/소유diff가 통과했고 공유 UI/Core·manifest/lock/동결 변경은 없습니다. 기존 Core JSON 선택 원본 oracle/host/Wasm 결과를 새 실행으로 합산하지 않으며 b3h1만 닫고 b3h2의 포맷·schema 의미 검증/나머지 JSON·CSS/HTML/TS·전체 App 준비/OS/성능/출시·전환 게이트는 미완료입니다. 전체303/588(51.5%)·미완료285·목표active·잔여시간미산정입니다.

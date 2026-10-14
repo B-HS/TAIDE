@@ -8,6 +8,14 @@ const FRAME_SIZE: egui::Vec2 = egui::vec2(1000.0, 700.0);
 const TEXT: &str = "{\n  \"\u{1f600}\": {\n    \"value\": 1\n  },\n  \"list\": [1, 2]\n}";
 const INDEX: &[u8] = b"<!doctype html><title>owned native JSON fixture</title>";
 const MODULE: &[u8] = b"\0asm\x01\0\0\0";
+const MAX_SELECTION_EXPANSIONS: usize = 8;
+const SMART_SELECTION_MODIFIERS: egui::Modifiers = egui::Modifiers {
+    alt: false,
+    ctrl: true,
+    shift: true,
+    mac_cmd: true,
+    command: true,
+};
 
 struct Fixture {
     directory: PathBuf,
@@ -72,6 +80,125 @@ fn wait(
             )
         });
     });
+}
+
+fn assert_json_selection(
+    application: &mut NativeApplication,
+    context: &egui::Context,
+    view: ViewId,
+    property: &str,
+) {
+    let previous = application.store.views().get(view).unwrap().clone();
+    let before = application
+        .store
+        .documents()
+        .snapshot(previous.document)
+        .unwrap();
+    let text = before.rope.to_string();
+    let start = text.find(property).unwrap();
+    let caret = start + 2;
+    application
+        .store
+        .set_view_state(
+            view,
+            taide_native_editor::view::SelectionSet {
+                primary: 0,
+                selections: vec![taide_native_editor::view::Selection {
+                    anchor: caret,
+                    head: caret,
+                }],
+            },
+            previous.scroll.clone(),
+            previous.folds.clone(),
+        )
+        .unwrap();
+    paint(application, context);
+    let body = crate::editor_context_menu::body(context, view).unwrap();
+    context.memory_mut(|memory| memory.request_focus(body));
+    let mut expansions = 0;
+    for _ in 0..MAX_SELECTION_EXPANSIONS {
+        let selection = application
+            .store
+            .views()
+            .get(view)
+            .unwrap()
+            .selection
+            .clone();
+        super::inlay_hints_tests::paint(
+            application,
+            context,
+            super::inlay_hints_tests::key(egui::Key::ArrowRight, SMART_SELECTION_MODIFIERS),
+        );
+        wait(application, context, |application| {
+            application.store.views().get(view).unwrap().selection != selection
+        });
+        expansions += 1;
+        let selected = application
+            .store
+            .views()
+            .get(view)
+            .unwrap()
+            .selection
+            .selections[0];
+        if selected.anchor == start && selected.head == start + property.len() {
+            break;
+        }
+    }
+    let selected = application
+        .store
+        .views()
+        .get(view)
+        .unwrap()
+        .selection
+        .selections[0];
+    assert_eq!(
+        (selected.anchor, selected.head),
+        (start, start + property.len())
+    );
+    for _ in 0..expansions {
+        let selection = application
+            .store
+            .views()
+            .get(view)
+            .unwrap()
+            .selection
+            .clone();
+        super::inlay_hints_tests::paint(
+            application,
+            context,
+            super::inlay_hints_tests::key(egui::Key::ArrowLeft, SMART_SELECTION_MODIFIERS),
+        );
+        wait(application, context, |application| {
+            application.store.views().get(view).unwrap().selection != selection
+        });
+    }
+    let selected = application
+        .store
+        .views()
+        .get(view)
+        .unwrap()
+        .selection
+        .selections[0];
+    assert_eq!((selected.anchor, selected.head), (caret, caret));
+    let after = application
+        .store
+        .documents()
+        .snapshot(previous.document)
+        .unwrap();
+    assert_eq!(
+        (
+            after.key,
+            after.revision,
+            after.rope.to_string(),
+            after.metadata.read_only
+        ),
+        (before.key, before.revision, text, before.metadata.read_only)
+    );
+    application
+        .store
+        .set_view_state(view, previous.selection, previous.scroll, previous.folds)
+        .unwrap();
+    paint(application, context);
 }
 
 fn new_json_untitled(
@@ -333,6 +460,7 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
             tab: tab.clone(),
         })
         .unwrap();
+    assert_json_selection(application, &context, view, "\"value\": 1");
     application
         .fold_commands
         .push((tab.clone(), FoldCommand::FoldAll));
@@ -610,6 +738,7 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
         (after.revision, after.rope.to_string()),
         (before.revision, before.rope.to_string())
     );
+    assert_json_selection(application, &context, untitled_view, "\"value\": 1");
     const INVALID: &str = "/*note*/{\"\u{1f600}\":1,}";
     application
         .store
@@ -1147,6 +1276,7 @@ fn assert_json_peek(read_only: bool) {
     );
     application.services.state.settings.write().keymap_overrides =
         Some(r#"[{"actionId":"monaco.editor.foldAll","key":"F9","mods":[]}]"#.into());
+    assert_json_selection(application, context, preview, "\"value_0\": 0");
     application
         .services
         .state
