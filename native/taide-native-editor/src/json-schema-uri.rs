@@ -535,3 +535,47 @@ pub fn scheme(input: &[u16], limits: Limits) -> Result<Vec<u16>, EditorError> {
     budget.append(&mut result, parts.scheme)?;
     Ok(result)
 }
+
+pub fn display_string(
+    input: &[u16],
+    is_windows: bool,
+    limits: Limits,
+) -> Result<Vec<u16>, EditorError> {
+    let mut budget = Budget { limits, work: 0 };
+    let parts = match parse(input, &mut budget) {
+        Ok(parts) if parts.scheme == FILE => parts,
+        Ok(_) | Err(EditorError::InvalidBoundary) => {
+            let mut result = Vec::new();
+            budget.append(&mut result, input)?;
+            return Ok(result);
+        }
+        Err(error) => return Err(error),
+    };
+    let mut result = Vec::new();
+    if !parts.authority.is_empty() && parts.path.len() > 1 {
+        budget.append(&mut result, &[SLASH, SLASH])?;
+        budget.append(&mut result, &parts.authority)?;
+        budget.append(&mut result, &parts.path)?;
+    } else if parts.path.len() >= ESCAPE_UNITS
+        && parts.path[0] == SLASH
+        && matches!(parts.path[1],0x41..=0x5a|0x61..=0x7a)
+        && parts.path[2] == COLON
+    {
+        let mut drive = parts.path[1];
+        if (0x41..=0x5a).contains(&drive) {
+            drive += 0x20;
+        }
+        budget.append(&mut result, &[drive])?;
+        budget.append(&mut result, &parts.path[2..])?;
+    } else {
+        budget.append(&mut result, &parts.path)?;
+    }
+    if is_windows {
+        for unit in &mut result {
+            if *unit == SLASH {
+                *unit = 0x5c;
+            }
+        }
+    }
+    Ok(result)
+}

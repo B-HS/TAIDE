@@ -12,6 +12,7 @@ JSON schema URI normalization in src/json-schema-uri.rs is adapted from the same
 JSON relative schema context and property selection in src/json-schema-uri.rs are adapted from the same JSON language service and Microsoft Monaco JSONWorker.
 JSON schema file associations in src/json-schema-associations.rs are adapted from the same JSON language service, including glob conversion (Copyright (c) 2013, Nick Fitzgerald).
 JSON schema registration, selection, and cache lifecycle in src/json-schema-service.rs are adapted from the same JSON language service.
+JSON schema response decoding and JSONC value recovery in src/json-schema-load.rs are adapted from the same JSON language service and Microsoft jsonc-parser.
 Source: https://github.com/microsoft/vscode-json-languageservice
 
 The MIT License (MIT)
