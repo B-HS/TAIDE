@@ -541,7 +541,7 @@ impl NativeApplication {
             palette_file_changes,
             palette_commands: Vec::new(),
             indentation_request: None,
-            editor_formatting: Default::default(),
+            editor_formatting: crate::editor_formatting::State::new(egui.clone()),
             editor_rename: Default::default(),
             editor_code_actions: Default::default(),
             settings_views,
@@ -3807,6 +3807,48 @@ impl NativeApplication {
         }
     }
 
+    fn formatted_document(&mut self, document: DocumentId) {
+        if let Ok(current) = self.store.documents().snapshot(document) {
+            let mirror = self.draft_project(current.id).is_some();
+            self.persistence.changed(
+                current.id,
+                current.revision,
+                Instant::now(),
+                mirror,
+                Duration::ZERO,
+            );
+            for view in self.store.views().for_document(current.id) {
+                self.pending_dirty.insert(view.key.tab.clone(), true);
+            }
+        }
+        self.reconcile_lsp();
+    }
+
+    fn poll_native_formatting(&mut self) {
+        for (request, result) in self.editor_formatting.tick_native(&self.services.tasks) {
+            if self.closing.is_some()
+                || self.services.state.is_shutting_down()
+                || !request.enabled(&self.services.state.settings.read())
+            {
+                self.editor_formatting.reject(&request);
+                continue;
+            }
+            let providers = self
+                .lsp
+                .as_ref()
+                .map(|lsp| lsp.formatting_request_providers(&request))
+                .unwrap_or_default();
+            match self
+                .editor_formatting
+                .accept_native(&mut self.store, &request, providers, result)
+            {
+                Ok(true) => self.formatted_document(request.snapshot.id),
+                Ok(false) => (),
+                Err(error) => log::warn!("native JSON formatter edit failed: {error:?}"),
+            }
+        }
+    }
+
     fn request_editor_formatting(
         &mut self,
         context: &egui::Context,
@@ -3830,8 +3872,9 @@ impl NativeApplication {
         }
         let snapshot = self.controller.snapshot();
         let Some(project) = snapshot.layouts.iter().find_map(|(project, layout)| {
-            crate::tabs::tabs_in(&layout.root)
-                .iter()
+            crate::symbol_sidebar::window_tree(project, layout, &self.shell.scope)
+                .into_iter()
+                .flat_map(|(root, _)| crate::tabs::tabs_in(root))
                 .any(|candidate| candidate.id == *tab)
                 .then_some(project.clone())
         }) else {
@@ -3866,6 +3909,7 @@ impl NativeApplication {
             fallback,
             providers,
         ) {
+            Ok(Some(request)) if request.native_json => context.request_repaint(),
             Ok(Some(request)) => {
                 if let Some(lsp) = &self.lsp
                     && let Err(error) = lsp.format_editor(request.clone())
@@ -3897,11 +3941,14 @@ impl NativeApplication {
         };
         let shell = self.controller.snapshot();
         let valid_owner = shell.layouts.get(&project).is_some_and(|layout| {
-            taide_layout::service::all_roots(layout).any(|root| {
-                crate::tabs::tabs_in(root).iter().any(|tab| {
-                    tab.id == owner_view.key.tab && matches!(tab.kind, TabKind::File { .. })
-                })
-            })
+            crate::symbol_sidebar::window_tree(&project, layout, &self.shell.scope).is_some_and(
+                |(root, _)| {
+                    crate::tabs::tabs_in(root).iter().any(|tab| {
+                        tab.id == owner_view.key.tab
+                            && matches!(tab.kind, TabKind::File { .. } | TabKind::Untitled { .. })
+                    })
+                },
+            )
         });
         if !valid_owner {
             return false;
@@ -3957,6 +4004,7 @@ impl NativeApplication {
             fallback,
             providers,
         ) {
+            Ok(Some(request)) if request.native_json => true,
             Ok(Some(request)) => {
                 if let Some(lsp) = &self.lsp {
                     if lsp.format_editor(request.clone()).is_ok() {
@@ -3992,7 +4040,8 @@ impl NativeApplication {
                 .collect(),
         );
         let Some(lsp) = self.lsp.as_mut() else {
-            self.editor_formatting.clear();
+            self.editor_formatting
+                .reconcile(&self.store, |_| HashSet::new());
             self.editor_rename.clear();
             self.editor_code_actions.clear();
             self.editor_symbols.retain(&HashSet::new());
@@ -5262,24 +5311,7 @@ impl NativeApplication {
                         providers,
                         result,
                     ) {
-                        Ok(true) => {
-                            if let Ok(current) =
-                                self.store.documents().snapshot(request.snapshot.id)
-                            {
-                                let mirror = self.draft_project(current.id).is_some();
-                                self.persistence.changed(
-                                    current.id,
-                                    current.revision,
-                                    Instant::now(),
-                                    mirror,
-                                    Duration::ZERO,
-                                );
-                                for view in self.store.views().for_document(current.id) {
-                                    self.pending_dirty.insert(view.key.tab.clone(), true);
-                                }
-                            }
-                            self.reconcile_lsp();
-                        }
+                        Ok(true) => self.formatted_document(request.snapshot.id),
                         Ok(false) => (),
                         Err(error) => log::warn!("native formatter edit failed: {error:?}"),
                     }
@@ -6107,6 +6139,7 @@ impl NativeApplication {
                 .tick_native(&self.store, &self.services.tasks, context);
         }
         self.reconcile_lsp();
+        self.poll_native_formatting();
         self.dispatch_completion(context);
         if let Some(delay) = self.editor_symbols.next_refresh(Instant::now()) {
             context.request_repaint_after(delay);
@@ -6536,7 +6569,7 @@ impl eframe::App for NativeApplication {
                                     self.lsp.as_ref().is_some_and(|lsp| {
                                         !lsp.formatting_providers(project, &document, command)
                                             .is_empty()
-                                    })
+                                    }) || crate::editor_json_formatting::is_eligible(&document)
                                 });
                         }
                         if let Some(command) =
@@ -9477,7 +9510,7 @@ impl AppSurfaces<'_> {
                 self.commands.append(&mut location_commands);
                 self.commands.append(&mut documentation_host_commands);
                 self.commands.append(&mut completion_host_commands);
-                if matches!(tab.kind, TabKind::File { .. }) && let Some(project) = editor_project {
+                if matches!(tab.kind, TabKind::File { .. } | TabKind::Untitled { .. }) && let Some(project) = editor_project {
                     self.commands.extend(output.formatting_inputs.into_iter().map(|input| HostCommand::FormatEditorInput { project: project.clone(), source: view, owner: view, input }));
                 }
                 if let Some(display) = &document_highlights { display.paint(ui, &output.geometry); }

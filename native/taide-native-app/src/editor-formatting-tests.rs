@@ -12,6 +12,289 @@ const DOCUMENT_LIMIT: usize = 2;
 const HISTORY_LIMIT: usize = 8;
 const INDENT_SIZE: u32 = 4;
 const DISPLAY_SIZE: u32 = 8;
+const NATIVE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(2);
+
+#[tokio::test]
+async fn json의_같은_줄_다중_선택은_중복_편집_없이_함께_포맷한다() {
+    const JSON: &str = "{\"a\":1,\"b\":2}";
+    let mut fixture = Fixture::new(JSON, false, false);
+    let snapshot = fixture
+        .store
+        .documents()
+        .snapshot(fixture.document)
+        .unwrap();
+    let mut metadata = snapshot.metadata.clone();
+    metadata.language_id = "json".into();
+    fixture
+        .store
+        .retarget_file(&snapshot, "/synthetic/source.rs".into(), metadata)
+        .unwrap();
+    fixture
+        .store
+        .set_view_state(
+            fixture.source,
+            SelectionSet {
+                primary: 0,
+                selections: vec![
+                    Selection { anchor: 1, head: 6 },
+                    Selection {
+                        anchor: 7,
+                        head: 12,
+                    },
+                ],
+            },
+            Default::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    let request = fixture
+        .state
+        .begin(
+            &fixture.store,
+            fixture.project.clone(),
+            fixture.source,
+            fixture.owner,
+            Command::Selection,
+            IndentOptions {
+                tab_size: INDENT_SIZE,
+                insert_spaces: true,
+            },
+            HashSet::new(),
+        )
+        .unwrap()
+        .unwrap();
+    let Kind::Ranges(ranges) = &request.kind else {
+        panic!("selection ranges missing")
+    };
+    assert_eq!(ranges.len(), 2);
+    let tasks = taide_runtime::TaskSupervisor::new(tokio::runtime::Handle::current());
+    let (request, result) = native_response(&mut fixture.state, &tasks).await;
+    assert!(
+        fixture
+            .state
+            .accept_native(&mut fixture.store, &request, HashSet::new(), result)
+            .unwrap()
+    );
+    assert_eq!(
+        fixture
+            .store
+            .documents()
+            .snapshot(fixture.document)
+            .unwrap()
+            .rope
+            .to_string(),
+        "{\"a\": 1,\"b\": 2}"
+    );
+    assert!(fixture.store.undo(fixture.document).unwrap());
+    assert_eq!(
+        fixture
+            .store
+            .documents()
+            .snapshot(fixture.document)
+            .unwrap()
+            .rope
+            .to_string(),
+        JSON
+    );
+}
+
+async fn native_response(
+    state: &mut State,
+    tasks: &taide_runtime::TaskSupervisor,
+) -> (Request, Result<Vec<lsp_types::TextEdit>, EditorError>) {
+    tokio::time::timeout(NATIVE_DEADLINE, async {
+        loop {
+            if let Some(result) = state.tick_native(tasks).pop() {
+                return result;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn json_내장_문서_포맷은_현재_옵션과_peek의_독립_undo를_보존한다() {
+    const JSON: &str = "{\"α\u{1f600}\":1,\"list\":[1,2]}";
+    let mut fixture = Fixture::new(JSON, false, true);
+    let current = fixture
+        .store
+        .documents()
+        .snapshot(fixture.document)
+        .unwrap();
+    let mut metadata = current.metadata.clone();
+    metadata.language_id = "json".into();
+    fixture
+        .store
+        .retarget_file(&current, "/synthetic/source.rs".into(), metadata)
+        .unwrap();
+    let owner = fixture
+        .store
+        .documents()
+        .snapshot(fixture.store.views().get(fixture.owner).unwrap().document)
+        .unwrap();
+    let request = fixture
+        .state
+        .begin(
+            &fixture.store,
+            fixture.project.clone(),
+            fixture.source,
+            fixture.owner,
+            Command::Document,
+            IndentOptions {
+                tab_size: INDENT_SIZE,
+                insert_spaces: true,
+            },
+            HashSet::new(),
+        )
+        .unwrap()
+        .unwrap();
+    assert!(request.native_json);
+    assert_eq!(request.options.tab_size, INDENT_SIZE);
+    let tasks = taide_runtime::TaskSupervisor::new(tokio::runtime::Handle::current());
+    let (request, result) = native_response(&mut fixture.state, &tasks).await;
+    assert!(
+        fixture
+            .state
+            .accept_native(&mut fixture.store, &request, HashSet::new(), result)
+            .unwrap()
+    );
+    let after = fixture
+        .store
+        .documents()
+        .snapshot(fixture.document)
+        .unwrap();
+    assert_eq!(
+        after.rope.to_string(),
+        "{\n    \"α\u{1f600}\": 1,\n    \"list\": [\n        1,\n        2\n    ]\n}"
+    );
+    assert!(fixture.store.undo(fixture.document).unwrap());
+    assert_eq!(
+        fixture
+            .store
+            .documents()
+            .snapshot(fixture.document)
+            .unwrap()
+            .rope
+            .to_string(),
+        JSON
+    );
+    let after_owner = fixture.store.documents().snapshot(owner.id).unwrap();
+    assert_eq!(
+        (after_owner.revision, after_owner.rope),
+        (owner.revision, owner.rope)
+    );
+    let external = fixture.begin().unwrap().unwrap();
+    assert!(!external.native_json);
+    fixture.state.clear();
+    assert!(external.is_cancelled());
+}
+
+#[tokio::test]
+async fn json_포맷의_붙여넣기와_늦은_응답은_타입_공급과_편집을_분리한다() {
+    use taide_native_ui::editor_formatting_input::{Input, Kind as InputKind};
+    let mut fixture = Fixture::new("{\"x\":1}", false, false);
+    let snapshot = fixture
+        .store
+        .documents()
+        .snapshot(fixture.document)
+        .unwrap();
+    let mut metadata = snapshot.metadata.clone();
+    metadata.language_id = "json".into();
+    fixture
+        .store
+        .retarget_file(&snapshot, "/synthetic/source.rs".into(), metadata)
+        .unwrap();
+    let snapshot = fixture
+        .store
+        .documents()
+        .snapshot(fixture.document)
+        .unwrap();
+    let range = LspRange::new(
+        Position::default(),
+        byte_to_position(&snapshot, snapshot.rope.len_bytes()).unwrap(),
+    );
+    let input = Input {
+        document: snapshot.id,
+        revision: snapshot.revision,
+        kind: InputKind::Paste { range },
+    };
+    let request = fixture
+        .state
+        .begin_automatic(
+            &fixture.store,
+            fixture.project.clone(),
+            fixture.source,
+            fixture.owner,
+            &input,
+            IndentOptions {
+                tab_size: INDENT_SIZE,
+                insert_spaces: true,
+            },
+            HashSet::new(),
+        )
+        .unwrap()
+        .unwrap();
+    assert!(request.native_json);
+    let tasks = taide_runtime::TaskSupervisor::new(tokio::runtime::Handle::current());
+    let (request, result) = native_response(&mut fixture.state, &tasks).await;
+    fixture
+        .store
+        .set_view_state(
+            fixture.source,
+            SelectionSet {
+                primary: 0,
+                selections: vec![Selection { anchor: 1, head: 1 }],
+            },
+            Default::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    assert!(
+        !fixture
+            .state
+            .accept_native(&mut fixture.store, &request, HashSet::new(), result)
+            .unwrap()
+    );
+    assert_eq!(
+        fixture
+            .store
+            .documents()
+            .snapshot(fixture.document)
+            .unwrap()
+            .rope
+            .to_string(),
+        "{\"x\":1}"
+    );
+    let input = Input {
+        document: snapshot.id,
+        revision: snapshot.revision,
+        kind: InputKind::Type {
+            character: '}',
+            position: Position::new(0, 1),
+        },
+    };
+    assert!(
+        fixture
+            .state
+            .begin_automatic(
+                &fixture.store,
+                fixture.project.clone(),
+                fixture.source,
+                fixture.owner,
+                &input,
+                IndentOptions {
+                    tab_size: INDENT_SIZE,
+                    insert_spaces: true
+                },
+                HashSet::new()
+            )
+            .unwrap()
+            .is_none()
+    );
+    assert!(fixture.state.entries.is_empty());
+}
 
 #[test]
 fn 포맷은_주_커서가_같아도_선택_범위가_바뀌면_취소한다() {

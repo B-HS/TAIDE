@@ -201,6 +201,214 @@ fn assert_json_selection(
     paint(application, context);
 }
 
+fn assert_json_formatting(
+    application: &mut NativeApplication,
+    context: &egui::Context,
+    view: ViewId,
+    property: &str,
+) {
+    use super::selection_ranges_tests::run_palette;
+    let previous = application.store.views().get(view).unwrap().clone();
+    let before = application
+        .store
+        .documents()
+        .snapshot(previous.document)
+        .unwrap();
+    let original = before.rope.to_string();
+    paint(application, context);
+    let body = crate::editor_context_menu::body(context, view).unwrap();
+    context.memory_mut(|memory| memory.request_focus(body));
+    if before.metadata.read_only {
+        super::inlay_hints_tests::paint(
+            application,
+            context,
+            super::inlay_hints_tests::key(
+                egui::Key::F,
+                egui::Modifiers::ALT | egui::Modifiers::SHIFT,
+            ),
+        );
+        paint(application, context);
+        let current = application.store.documents().snapshot(before.id).unwrap();
+        assert_eq!(
+            (current.revision, current.rope),
+            (before.revision, before.rope)
+        );
+        return;
+    }
+    run_palette(application, context, "monaco.editor.action.formatDocument");
+    wait(application, context, |application| {
+        application
+            .store
+            .documents()
+            .snapshot(before.id)
+            .unwrap()
+            .rope
+            .to_string()
+            != original
+    });
+    assert!(application.store.undo(before.id).unwrap());
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(before.id)
+            .unwrap()
+            .rope
+            .to_string(),
+        original
+    );
+    let start = original.find(property).unwrap();
+    let compact = property.replace(": ", ":");
+    let current = application.store.documents().snapshot(before.id).unwrap();
+    application
+        .store
+        .apply(
+            before.id,
+            Transaction {
+                revision: current.revision,
+                edits: vec![Edit {
+                    bytes: start..start + property.len(),
+                    text: compact.clone(),
+                }],
+                group: UndoGroup(1),
+                origin: Some(view),
+                selection_after: None,
+            },
+        )
+        .unwrap();
+    application
+        .store
+        .set_view_state(
+            view,
+            taide_native_editor::view::SelectionSet {
+                primary: 0,
+                selections: vec![taide_native_editor::view::Selection {
+                    anchor: start,
+                    head: start + compact.len(),
+                }],
+            },
+            previous.scroll.clone(),
+            previous.folds.clone(),
+        )
+        .unwrap();
+    paint(application, context);
+    context.memory_mut(|memory| memory.request_focus(body));
+    run_palette(application, context, "monaco.editor.action.formatSelection");
+    wait(application, context, |application| {
+        application
+            .store
+            .documents()
+            .snapshot(before.id)
+            .unwrap()
+            .rope
+            .to_string()
+            == original
+    });
+    assert!(application.store.undo(before.id).unwrap());
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(before.id)
+            .unwrap()
+            .rope
+            .to_string(),
+        original.replacen(property, &compact, 1)
+    );
+    assert!(application.store.undo(before.id).unwrap());
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(before.id)
+            .unwrap()
+            .rope
+            .to_string(),
+        original
+    );
+    let paste_setting = application
+        .services
+        .state
+        .settings
+        .read()
+        .editor_format_on_paste;
+    application
+        .services
+        .state
+        .settings
+        .write()
+        .editor_format_on_paste = true;
+    application
+        .store
+        .set_view_state(
+            view,
+            taide_native_editor::view::SelectionSet {
+                primary: 0,
+                selections: vec![taide_native_editor::view::Selection {
+                    anchor: 0,
+                    head: original.len(),
+                }],
+            },
+            previous.scroll.clone(),
+            previous.folds.clone(),
+        )
+        .unwrap();
+    paint(application, context);
+    context.memory_mut(|memory| memory.request_focus(body));
+    const PASTED: &str = "{\"json\":1}";
+    super::inlay_hints_tests::paint(
+        application,
+        context,
+        vec![egui::Event::Paste(PASTED.into())],
+    );
+    wait(application, context, |application| {
+        let text = application
+            .store
+            .documents()
+            .snapshot(before.id)
+            .unwrap()
+            .rope
+            .to_string();
+        text.contains("\"json\": 1") && text.contains('\n')
+    });
+    assert!(application.store.undo(before.id).unwrap());
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(before.id)
+            .unwrap()
+            .rope
+            .to_string(),
+        PASTED
+    );
+    assert!(application.store.undo(before.id).unwrap());
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(before.id)
+            .unwrap()
+            .rope
+            .to_string(),
+        original
+    );
+    application
+        .services
+        .state
+        .settings
+        .write()
+        .editor_format_on_paste = paste_setting;
+    application
+        .store
+        .set_view_state(view, previous.selection, previous.scroll, previous.folds)
+        .unwrap();
+    wait(application, context, |application| {
+        let current = application.store.documents().snapshot(before.id).unwrap();
+        application.editor_symbols.builtin_model(&current).is_some()
+    });
+}
+
 fn new_json_untitled(
     application: &mut NativeApplication,
     context: &egui::Context,
@@ -423,6 +631,14 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
     });
     assert!(application.lsp.is_none());
     let document = application.files[&path].id;
+    let initial_view = application
+        .store
+        .views()
+        .for_document(document)
+        .next()
+        .unwrap()
+        .id;
+    assert_json_formatting(application, &context, initial_view, "\"value\": 1");
     let snapshot = application.store.documents().snapshot(document).unwrap();
     assert_eq!(snapshot.metadata.language_id, "json");
     let palette = application
@@ -638,6 +854,7 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
         .clone();
     let (untitled, untitled_document, untitled_view) =
         new_json_untitled(application, &context, &project, &pane, TEXT);
+    assert_json_formatting(application, &context, untitled_view, "\"value\": 1");
     let before = application
         .store
         .documents()
@@ -930,6 +1147,8 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
                 .is_some_and(|view| {
                     view.selection.selections[0].head == OTHER_JSON.find("/*").unwrap()
                 })
+            && crate::editor_context_menu::body(&context, other_view)
+                .is_some_and(|body| context.memory(|memory| memory.has_focus(body)))
     });
     {
         let mut provider = crate::editor_problems::Provider {
@@ -1165,6 +1384,7 @@ fn assert_json_peek(read_only: bool) {
         .unwrap();
     let document = application.store.views().get(preview).unwrap().document;
     assert_ne!(document, owner_document);
+    assert_json_formatting(application, context, preview, "\"value_0\": 0");
     let before = application.store.documents().snapshot(document).unwrap();
     assert_eq!(before.metadata.language_id, "json");
     wait(application, context, |application| {
@@ -1181,6 +1401,10 @@ fn assert_json_peek(read_only: bool) {
     let current = application.store.documents().snapshot(document).unwrap();
     assert_eq!(current.rope.to_string(), peek_text);
     assert_eq!(current.metadata.read_only, read_only);
+    application
+        .store
+        .request_scroll_restore(preview, Some(0), 0.0)
+        .unwrap();
     wait(application, context, |application| {
         application
             .lsp_diagnostics
@@ -1190,6 +1414,16 @@ fn assert_json_peek(read_only: bool) {
                     .markers()
                     .iter()
                     .any(|marker| marker.message.code.as_deref() == Some("521"))
+            })
+            && crate::editor_context_menu::body(context, preview).is_some_and(|body| {
+                context
+                    .read_response(body.with((
+                        "diagnostic-hover",
+                        0usize,
+                        "/*note*/".len(),
+                        0usize,
+                    )))
+                    .is_some()
             })
     });
     let body = crate::editor_context_menu::body(context, preview).unwrap();

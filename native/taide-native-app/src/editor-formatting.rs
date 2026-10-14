@@ -1,4 +1,6 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use taide_lsp::native::Failure;
 use taide_lsp::native::protocol::lsp_types;
@@ -8,10 +10,13 @@ use taide_native_editor::formatting::{Command, selection_ranges};
 use taide_native_editor::indent::IndentOptions;
 use taide_native_editor::store::EditorStore;
 use taide_native_editor::view::{SelectionSet, ViewId, ViewKey};
-use tokio::sync::watch;
+use tokio::sync::{oneshot, watch};
 use uuid::Uuid;
 
 use crate::editor_symbols::ProviderIdentity;
+
+const JSON_WORKER_NAME: &str = "native-json-formatting";
+const MAX_JSON_ACTIVE: usize = 1;
 
 #[cfg(test)]
 #[path = "editor-formatting-tests.rs"]
@@ -36,6 +41,7 @@ pub struct Request {
     pub(crate) cancelled: watch::Receiver<bool>,
     pub(crate) command: Command,
     pub(crate) automatic: bool,
+    pub(crate) native_json: bool,
     source: ViewId,
     source_key: ViewKey,
     owner: ViewId,
@@ -109,6 +115,8 @@ struct Entry {
     request: Request,
     providers: HashSet<ProviderIdentity>,
     cancel: watch::Sender<bool>,
+    native: Option<oneshot::Receiver<Result<Vec<lsp_types::TextEdit>, EditorError>>>,
+    complete: bool,
 }
 
 impl Drop for Entry {
@@ -120,9 +128,108 @@ impl Drop for Entry {
 #[derive(Default)]
 pub(crate) struct State {
     entries: HashMap<ViewId, Entry>,
+    active_json: Arc<AtomicUsize>,
+    context: eframe::egui::Context,
+}
+
+struct JsonSlot(Arc<AtomicUsize>, eframe::egui::Context);
+
+impl Drop for JsonSlot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+        self.1.request_repaint();
+    }
 }
 
 impl State {
+    pub(crate) fn new(context: eframe::egui::Context) -> Self {
+        Self {
+            context,
+            ..Default::default()
+        }
+    }
+
+    pub(crate) fn tick_native(
+        &mut self,
+        tasks: &taide_runtime::TaskSupervisor,
+    ) -> Vec<(Request, Result<Vec<lsp_types::TextEdit>, EditorError>)> {
+        let mut results = Vec::new();
+        for entry in self
+            .entries
+            .values_mut()
+            .filter(|entry| entry.request.native_json && !entry.complete)
+        {
+            if let Some(receiver) = &mut entry.native {
+                let result = match receiver.try_recv() {
+                    Ok(result) => result,
+                    Err(oneshot::error::TryRecvError::Empty) => continue,
+                    Err(oneshot::error::TryRecvError::Closed) => Err(EditorError::StaleRevision),
+                };
+                entry.complete = true;
+                results.push((entry.request.clone(), result));
+                continue;
+            }
+            if self.active_json.load(Ordering::Acquire) >= MAX_JSON_ACTIVE {
+                continue;
+            }
+            self.active_json.fetch_add(1, Ordering::AcqRel);
+            let slot = JsonSlot(self.active_json.clone(), self.context.clone());
+            let request = entry.request.clone();
+            let (sender, receiver) = oneshot::channel();
+            if tasks
+                .spawn_blocking_transient_handle(JSON_WORKER_NAME, move || {
+                    let _slot = slot;
+                    if request.is_cancelled() {
+                        return;
+                    }
+                    let result = crate::editor_json_formatting::build(
+                        &request.snapshot,
+                        &request.kind,
+                        &request.options,
+                    );
+                    if !request.is_cancelled() {
+                        drop(sender.send(result));
+                    }
+                })
+                .is_some()
+            {
+                entry.native = Some(receiver);
+            } else {
+                entry.complete = true;
+                results.push((entry.request.clone(), Err(EditorError::StaleRevision)));
+            }
+        }
+        results
+    }
+
+    pub(crate) fn accept_native(
+        &mut self,
+        store: &mut EditorStore,
+        request: &Request,
+        providers: HashSet<ProviderIdentity>,
+        result: Result<Vec<lsp_types::TextEdit>, EditorError>,
+    ) -> Result<bool, EditorError> {
+        let valid = self.entries.get(&request.source).is_some_and(|entry| {
+            entry.request.token == request.token
+                && entry.request.native_json
+                && entry.providers.is_empty()
+                && request.native_json
+                && providers.is_empty()
+                && request.describes(store)
+        });
+        if !valid {
+            self.reject(request);
+            return Ok(false);
+        }
+        self.entries.remove(&request.source);
+        taide_native_editor::formatting::apply_edits(
+            store,
+            &request.snapshot,
+            Some(request.source),
+            result?,
+        )
+    }
+
     pub(crate) fn clear(&mut self) {
         self.entries.clear();
     }
@@ -181,7 +288,9 @@ impl State {
         if snapshot.metadata.read_only {
             return Err(EditorError::ReadOnly);
         }
-        if source.composition.is_some() || providers.is_empty() {
+        let native_json =
+            providers.is_empty() && crate::editor_json_formatting::is_eligible(&snapshot);
+        if source.composition.is_some() || providers.is_empty() && !native_json {
             return Ok(None);
         }
         let options = snapshot.model_indentation(fallback).formatting_options();
@@ -223,6 +332,9 @@ impl State {
                 Command::Selection => Kind::Ranges(selection_ranges(&snapshot, &source.selection)?),
             },
         };
+        if native_json && matches!(kind, Kind::OnType { .. }) {
+            return Ok(None);
+        }
         let (cancel, cancelled) = watch::channel(false);
         let request = Request {
             project,
@@ -236,6 +348,7 @@ impl State {
             cancelled,
             command,
             automatic: input.is_some(),
+            native_json,
             source: source.id,
             source_key: source.key.clone(),
             owner: owner.id,
@@ -250,8 +363,13 @@ impl State {
                 request: request.clone(),
                 providers,
                 cancel,
+                native: None,
+                complete: false,
             },
         );
+        if native_json {
+            self.context.request_repaint();
+        }
         Ok(Some(request))
     }
 

@@ -386,3 +386,21 @@ selection-native-app.log/75460은검사 fixture의 ScrollPosition 재사용이 m
 selection-native-app-current.log/72956은compile23.87초·실제App2통과/57.73초·exit0입니다. 실제 확장/축소 키를 사용해 JSON 파일·untitled의 `"value": 1` 속성과 일반/readonly peek의 `"value_0": 0` 속성까지 선택을 확장하고 정확히 이전 caret까지 축소했습니다. 문서 key/원문/revision/readonly·peek 원본문 분리·기존 hover/고정 줄/문제 이동/undo·닫힘/tasks0을 보존합니다. 고정 프레임 수로 비동기 native 결과를 가정하지 않고 실제 선택 변경을 관찰했습니다.
 
 selection-native-state-current.log는 같은 최종 App 바이너리에서 변경한 두 상태 검사 이름을 명시해 직접 실행했으며2통과/0.00초·exit0입니다. 유효한 readonly JSON의 실제 native 속성 범위와 외부의 더 좁은 범위를 함께 기다려 같은 선택 이력에 넣고 공급자 교체 시 회수합니다. Untitled의 확장/축소/다중 위치·닫힌 뷰/작업0도 통과했습니다. 변경 없는 기존 상태5건은 이전 성공을 재사용하며 현재 관련 서로 다른 상태7/실제App2의9건입니다. 소유Rust5 fmt/소유diff가 통과했고 공유 UI/Core·manifest/lock/동결 변경은 없습니다. 기존 Core JSON 선택 원본 oracle/host/Wasm 결과를 새 실행으로 합산하지 않으며 b3h1만 닫고 b3h2의 포맷·schema 의미 검증/나머지 JSON·CSS/HTML/TS·전체 App 준비/OS/성능/출시·전환 게이트는 미완료입니다. 전체303/588(51.5%)·미완료285·목표active·잔여시간미산정입니다.
+
+## b3h2a — JSON 문서/선택·붙여넣기 포맷
+
+설치 JSONWorker.format과 utils/format.js의 실제 wrapper는 tabSize/insertSpaces·insertFinalNewline/keepLines·LF fallback과 원문 EOL·범위의 UTF-16 위치를 jsonc-parser에 넘깁니다. JSON은 문서/범위 formatter를 제공하고 onType formatter는 등록하지 않습니다. 원본 포맷 알고리즘과 oracle가 검증된 portable json-format을 사용하며 별도 stringify나 전체 문자열 교체로 축소하지 않습니다.
+
+editor-formatting State에 외부 공급자가 없을 때만 선택하는 typed native 요청을 추가했습니다. 문서/선택·paste의 실제 DocumentSnapshot/선택/source와 owner·문서 옵션을 기존 취소/현재성 경계에 넣고 최대1개 supervised blocking 작업으로 계산합니다. 취소해도 슬롯은 실제 worker 종료 전 재사용하지 않습니다. 정상 JSON 파일/untitled/peek에서만 실행하며 readonly/AppFile/큰 tier·IME와 JSON onType은 요청하지 않습니다. 현재 원본의 keepLines 기본false와 문서의 실제 EOL을 유지하고 byte/UTF-16 편집을 기존 minimal apply/독립 undo/scroll 처리에 전달합니다. range 수1024·편집262144·누적 입력 작업/출력과 들여쓰기 폭을 유한 예산으로 제한하고 같은 range 편집은 내용까지 같은 경우에만 중복 제거합니다. 가짜 LSP owner/URI는 없습니다.
+
+App의 formatter 명령 활성화·Main/Auxiliary 소유 탐색과 외부 Bridge 없는 실행·실제 untitled paste 요청도 연결했습니다. 외부/native 성공 후 dirty/mirror 갱신의 동일 코드를 두 경로가 공유합니다. 저장은 기존 코드 액션→포맷→cleanup/epoch·최종 저장 경로를 보존해야 하므로 b3h2b에 별도 미완료로 유지합니다.
+
+formatting-integration-compile.log/94347은 Core Edit가 PartialEq를 구현하지 않아 dedup 호출이 컴파일 오류1건으로 종료했습니다. 공유 Core 타입을 바꾸지 않고 App에서 bytes/text를 명시 비교하도록 수정했습니다. formatting-state.log/32172는기존6+신규2의8통과/0.03초·exit0입니다. 실제 native 문서 포맷의 비BMP·현재 편집 폭/readonly owner의 독립 undo·외부 공급자 선택·paste 요청과 늦은 선택 변경 거절·JSON onType 미요청을 확인합니다. 같은 줄 다중 선택의 현재 실제 worker/편집 합성 검사는 아래에 기록합니다.
+
+formatting-app.log/59800은compile43.64초·0통과/2실패·55.07초·exit101입니다. 새 문서/선택/paste 포맷과 분리 undo는 각각 실제 JSON 파일·untitled·편집 가능한 peek에서 실행된 뒤 기존 후속 검사에서 실패했습니다. Peek는 포맷/undo 뒤 기존 오류 줄의 실제 hover response를 확인하지 않고 가정했고, 본문은 F8의 새 프로젝트/caret이 controller에 먼저 보이는 순간 목적 본문 focus를 단언했습니다. 포커스는 실제 목적 본문의 has_focus까지 준비 조건에 포함했고, hover는 공개 scroll-restore 요청으로 첫 줄을 표시한 뒤 실제 오류 response를 관찰합니다. 제한 시간 연장·고정 프레임 수·입력 전 강제 재포커스로 성공을 만들지 않습니다. 원인 관찰 없이 제품의 scroll/포커스 오류를 추가로 고쳤다고 보고하지 않습니다.
+
+formatting-app-current.log/83625는compile22.56초·실제App2통과/추가 상태1실패·98.88초·exit101입니다. 실제 파일·untitled·일반/readonly JSON peek에서 문서 포맷·선택 속성의 콜론 공백 복원·붙여넣기 후 포맷을 기존 팔레트/입력 경로로 실행했고 각 포맷과 입력을 따로 undo해 원문으로 복구했습니다. readonly의 실제 포맷 키 거절·JSON 오류 hover/고정 줄/선택 확장·다른 프로젝트 문제 이동과 목적 focus·본문 분리/닫힘/tasks0도 통과했습니다. App2의 성공은 아래 상태 수정 뒤 반복하지 않습니다.
+
+추가 상태 검사는 같은 줄의 두 속성 선택에서도 문서 전체 줄바꿈을 기대해 실패했습니다. 실제 설치 jsonc-parser format에 `{"a":1,"b":2}`와 offset1/length5·offset7/length5를 각각 전달한 결과는 offset5/11의 공백 삽입2개와 `{"a": 1,"b": 2}`였습니다. Native 결과와 같으므로 제품을 전체 문서 포맷으로 바꾸지 않고 선택 범위에 맞는 기대값으로 수정했습니다. 이 원본 대조는 프로덕션에 JS를 추가한 것이 아닙니다. 현재 다중 범위 검사의 최종 결과는 아래에 기록합니다.
+
+formatting-multirange.log/41966은compile21.93초·직접 상태1통과/0.01초·exit0입니다. 같은 줄의 두 선택을 실제 native worker로 포맷하고 선택 밖 줄바꿈을 추가하지 않으며 한 번의 undo로 원문에 복귀합니다. 현재 관련 성공은 기존 상태6/신규 native3/실제App2의 서로 다른11건이고 변경 없는 성공은 재실행하거나 중복 합산하지 않습니다. 소유Rust6 fmt/소유diff·문서 format이 통과했으며 공유 UI/Core·manifest/lock/동결 소스 변경이 없어 기존 portable/Core·UI/Wasm 성공을 재사용합니다. 기존 wry17/링커1 경고와 전체 App 준비 실패/OS 감시 RPC 지연·성능/실기/출시 게이트는 유지합니다. b3h2a만 닫고 저장/코드 액션/cleanup/untitled 저장 b3h2b·부모 b3h2/b3h·나머지 JSON/CSS/HTML/TS는 미완료입니다. 전체303/588(51.5%)·미완료285·목표active·잔여시간미산정입니다.
