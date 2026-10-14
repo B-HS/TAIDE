@@ -1,6 +1,6 @@
 {
     "date": "2026-10-14",
-    "baseline": "1bfa487d",
+    "baseline": "377d5f55",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1340,7 +1340,13 @@
                 "native/taide-native-app/src/lib.rs",
                 "native/taide-native-app/src/preview_web_file.rs",
                 "crates/taide-infra/src/http.rs",
-                "crates/taide-infra/src/root_guard.rs"
+                "crates/taide-infra/src/root_guard.rs",
+                "native/taide-native-app/src/editor-json.rs",
+                "native/taide-native-app/src/editor-symbols.rs",
+                "native/taide-native-app/src/editor-folding.rs",
+                "native/taide-native-app/src/editor-locations.rs",
+                "native/taide-native-app/src/application.rs",
+                "native/taide-native-editor/src/document-symbols.rs"
             ],
             "tests": [
                 "native/taide-native-editor/tests/json-scanner.rs",
@@ -1394,10 +1400,14 @@
                 "native/taide-native-editor/tests/fixtures/json-schema-graph-oracle.rs",
                 "native/taide-native-editor/tests/fixtures/json-schema-reference-source.mjs",
                 "native/taide-native-editor/tests/fixtures/json-schema-worker-context.mjs",
-                "native/taide-native-app/src/editor-schema-transport-tests.rs"
+                "native/taide-native-app/src/editor-schema-transport-tests.rs",
+                "native/taide-native-app/src/editor-json-tests.rs",
+                "native/taide-native-app/src/application-json-tests.rs",
+                "native/taide-native-app/src/editor-symbols-tests.rs",
+                "native/taide-native-editor/tests/document-symbols.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-14-native-batch23-builtin-language-services.md"],
-            "limitation": "기존 실제 source oracle·JSONCore49/Syntax5와 새 실제 전송 App10·현재 관련18건/host/Wasm 근거입니다. 기존 외부 graph21사례/순환4교정과 owner/generation/sequence·취소·의존/원자성 근거를 재사용합니다. 실제 file/HTTP 전송의 비활성/404 text/UTF-8·byte/시간/동시 상한·프로젝트/종료/취소·decode 실패와 먼저 읽힌 로컬 cache의 원격 참조 차단을 확인했습니다. root의 Ready cache와 참조 import 전에도 권한을 검사하며 취소된 실제 worker 수명을 상한에 포함합니다. 전체 App 자동 builtin 공급·semantic/조회/완성·CSS/HTML/TS·non-Unix 파일 anchor/큰tier 성능과 기존 전체 게이트는 미완료이므로 editor-57 missing을 유지합니다."
+            "limitation": "377d5f55는 실제 JSON 내장 구조 작업을 본문/peek의 심볼·접기·sticky에 연결했습니다. 새 상태4/실제 앱2와 기존 상태5/Core3의 관련14건·Wasm9.43초이며 기존 JSONCore49/Syntax5·전송App10/graph21사례 근거는 재사용합니다. 실제 DocumentId/내장 generation·외부 공급 공존/합성·내용·언어/readonly/Large·취소/닫힘/tasks0과 용량 실패의 terminal/toast/Undo 복구, 실제 child peek 스크롤 고정 줄/키 접기를 확인했습니다. Untitled 모델 상태를 실제 전역 팔레트/outline 탐색으로 확대하지 않으며 b3f2에 남깁니다. 나머지 JSON 진단/semantic/조회/완성/포맷·CSS/HTML/TS·전체 App 준비/플랫폼/큰tier 성능과 최종 게이트는 미완료라 editor-57 partial입니다."
         }
     },
     "rows": [
@@ -3113,9 +3123,9 @@
             "ts": "`monaco/setup.ts:10-22`, `builtin-typescript.ts:55-56`",
             "source": "docs/quality-assurance/2026-10-06-native-audit-editor.md:128",
             "domain": "editor",
-            "status": "missing",
+            "status": "partial",
             "proof": "editor-builtin-language-services",
-            "note": "JSON scanner/AST·구조/포맷/진단과 schema 등록/선택·응답 decode·외부 graph/cache 및 실제 file/HTTP 전송 모듈을 연결했습니다. currentCore49/Syntax5/App10·현재 관련18건/host/Wasm과 비활성/404 text·UTF-8/byte·시간/동시 상한·취소/종료/프로젝트·stale ticket·실제 로컬 cache 원격 참조 차단이 근거입니다. 실제 편집 화면의 자동 builtin provider/semantic·조회/완성·CSS/HTML/TS 전체·non-Unix 파일 경계/큰tier 성능과 전체 게이트는 미완료라 missing을 유지합니다."
+            "note": "실제 JSON 문서 작업/별도 generation을 본문·peek의 심볼/접기/sticky와 외부 공급 공존에 연결했습니다. 새 상태4/실제 앱2와 기존 상태5/Core3의 관련14건·Wasm9.43초·내용/언어/readonly/Large·취소/닫힘/실제 child·용량 terminal/toast/Undo 복구가 근거입니다. 기존 Core49/Syntax5·schema 전송/graph 근거는 재사용합니다. Untitled의 전역 팔레트/outline 탐색과 나머지 JSON 진단/semantic/조회/완성/포맷·CSS/HTML/TS 및 전체 App/플랫폼·성능 게이트는 미완료이므로 partial입니다."
         },
         {
             "id": "editor-58",
