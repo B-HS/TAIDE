@@ -667,6 +667,8 @@ fn 실제_preview의_직렬_본문_명령과_저장은_대상_문서와_포커�
                     models: &models,
                     project: None,
                     lsp: None,
+                    symbols: None,
+                    folding: None,
                     layout: None,
                     scope: &scope,
                     commands,

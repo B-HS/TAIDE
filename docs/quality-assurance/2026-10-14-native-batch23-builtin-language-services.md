@@ -256,3 +256,35 @@ core.log는70208 handle·compile26.02초·실제 oracle/공유·순환/예산/�
 syntax.log는28351 handle·compile20.29초·실제 association/합성 선택/graph/cache 소비자3통과/0.00초·exit0입니다. 현재 변경 범위는 Core5/Syntax3/App10의 서로 다른18건이며, 이전 동일 검사의 성공을 중복 합산하지 않습니다. 전체 App 준비 실패·보호3제외/기존 remote Wasm Instant/OS·성능/최종 전환 게이트는 해소하지 않았습니다.
 
 wasm.log는94142 handle·Syntax lib/Core dependency9.47초·exit0입니다. 소유 Rust4 format·소유 diff·manifest/lock/동결 변경0을 확인했습니다. App에는 vendor wry17경고와 큰 lib test binary의 compact unwind linker1경고가 출력됐으며 검사 exit0과 구분합니다. 이 단위는 전송 모듈과 실제 Core 소비를 닫으며 UI 프레임의 자동 builtin provider·기본 설정 연결/선행 semantic·조회/완성·CSS/HTML/TS는 부모b3e/b3에 남습니다. 기존 전체 App 준비 실패/remote Wasm·플랫폼·regex/큰tier 성능·최종 전환 게이트도 유지합니다. 전체303/588(51.5%)·미완료285·editor-57missing/editor-16partial·목표active·잔여시간미산정입니다.
+
+## b3f — JSON 구조 공급자와 실제 NativeApplication
+
+App editor-json.rs는 실제 DocumentId/DocumentSnapshot·파일 URI 또는 실제 TabId의 untitled URI를 사용해 기존 JSON 심볼·접기를 최대2개 blocking 작업으로 공급합니다. LSP owner/ProjectId를 생성하거나 서버 응답으로 위장하지 않습니다. 편집·언어/키·크기 등급·뷰 닫힘에서 이전 receiver/cancel owner를 회수하고 실제 worker가 끝날 때까지 slot을 유지합니다. 취소된 worker의 종료도 repaint로 대기 작업을 깨웁니다. Normal JSON의 실제 붙은 뷰만 처리하고 원본 register.js의 json 언어 선택을 그대로 사용합니다. jsonc/앱 설정 파일·다른 언어까지 임의 활성화하지 않습니다.
+
+Core DocumentSymbols::from_symbols는 원래 byte 범위/selection/부모 순서·UTF-8 경계를 검사하고 기존 sticky 생성을 공유합니다. Native 모델을 LSP DTO/가짜 URI에 왕복하지 않습니다. 작업의 parser/scanner/깊이·노드/심볼/전체 문자·접기/재탐색 예산은 기존 Normal2MiB 기준과 명시 상수로 제한합니다. 최종 container 경로의 누적 표시 bytes도 제한해 깊은 경로의 제곱 크기 확장을 차단합니다. Unicode UTF-16 원본 label은 화면 String의 replacement 표시로 변환하고 원본 Core의 논리 값/좌표는 변경하지 않습니다.
+
+editor-symbols는 별도 내장 슬롯과 실제 publish generation을 갖고 외부의 비어 있지 않은 팔레트를 우선하며 빈 외부 결과에는 내장 모델을 사용합니다. 팔레트 source가 바뀌면 이전 generation 위치 이동을 거절합니다. sticky는 기존 범위 점수와 내장 점수를 함께 비교하고 점수를 publish 때 계산해 매 프레임 전체 심볼을 다시 순회하지 않습니다. editor-folding은 외부/내장 범위를 publish 때 합성하고 같은 시작 줄은 외부 우선, 다른 native 범위는 유지합니다. 설치 languageFeatureRegistry의 score/builtin/time 정렬과 JSON register·원본 workers/Core oracle 근거를 읽었습니다. 내장 회수는 외부 캐시를 삭제하지 않습니다.
+
+실제 앱 프레임은 LSP bridge 존재와 관계없이 구조 작업을 처리합니다. 기존 심볼 팔레트/outline/breadcrumb 위치·sticky와 본문 접기에 공급하고 peek의 별도 실제 snapshot에도 동일한 모델을 전달합니다. 설치 referencesWidget은 embedded editor에 minimap/scroll 옵션만 덮어쓰고 stickyScrollController는 현재 enabled 설정을 사용하므로 peek도 부모 sticky 설정을 상속하도록 기존 강제 false를 제거했습니다. 현재 peek snapshot의 모델을 전달해 본문 모델을 잘못 재사용하지 않습니다. shutdown/직접 on_exit에서 작업을 취소하고 기존 TaskSupervisor drain에 포함합니다. 읽기 전용 Normal은 구조를 제공하며 Large 이상은 작업/대기 표시를 중단합니다. 플랫폼/성능/전체 언어 서비스 완료를 뜻하지 않습니다.
+
+first.log/16584는 검사 트랜잭션의 실제 필드명3오류·exit101·실행0건입니다. 실제 Transaction/Edit 계약을 읽고 수정했습니다. state.log/73171은 compile37.87초·2통과/1실패·0.03초·exit101이며 배열 원소0/1도 심볼인 원본 계약을 누락한 기대값입니다. current.log/91989는 compile22.81초·2통과/1실패·0.03초·exit101이며 기존 원본 접기가 닫는 줄을 제외하는 기대값을 잘못 적었습니다. 이 두 건은 제품 오류로 확대하지 않습니다. native.log/26533은 compile22.29초·영향1통과/0.00초·exit0이며 나머지 내용/닫힘·깊은 container/UTF-8 경계2건은 입력과 제품 경로가 바뀌지 않은 성공을 재사용합니다.
+
+app.log/9699는 compile0.26초·실제 앱1통과/28.48초·exit0입니다. LSP bridge를 실제 disconnect/await한 뒤 JSON 파일을 로딩하고 Native 심볼 위치/sticky·접기 후 본문 숨김·텍스트 편집 후 새 generation/위치·디스크 원문 보존과 정상 종료 tasks0을 확인했습니다. coexist.log/42180은 compile22.55초·소유 typed provider 상태1통과/0.01초·exit0이며 외부 팔레트 우선/Native sticky·접기 합성/같은 줄 외부 우선·이전 팔레트 generation 거절/내장만 회수했을 때 외부 유지입니다. 이 상태 검사의 provider 식별자는 테스트 프로토콜 입력이며 제품 native runtime은 LSP owner를 만들지 않습니다.
+
+peek.log/36573은 compile22.33초·0통과/1실패·37.64초·exit101입니다. fixture가 열린 대상의 언어를 retarget_file로 변경해 참조 추적 journal 밖 revision을 만들고 peek를 종료시킨 뒤 포커스 대상을 기대했습니다. retarget은 언어 변경 전용 포트가 아니므로 제품을 우회해 수정하지 않습니다. 실제 대상 파일을 읽은 JSON OpenedFile 모델을 peek 전에 준비하고 기존 실제 Rust child의 정의 응답으로 해당 문서를 열도록 fixture를 수정했습니다. 이후 최종 실제 앱/회귀 결과를 아래에 기록합니다.
+
+app-current.log/28465는compile18.75초·본문/실제 child peek2통과/47.13초·exit0입니다. 본문은 언어 변경/읽기전용 Normal 재분석/Large 회수까지 확인했습니다. peek는 실제 파일을 읽은 JSON 문서 모델을 먼저 준비한 후 Rust child의 실제 정의 응답으로 열었습니다. 임의 좌표나 가짜 공급자/프로젝트로 앱 결과를 만들지 않습니다. 들여쓰기 없는 JSON의 F9 재지정 접기는 해당 peek만 변경하고 본문 revision/원문을 보존하며 닫힘 뒤 내장 결과와 tasks를 회수합니다. 최초 retarget fixture의 실패를 이 성공으로 지우지 않습니다.
+
+설치 referencesWidget의 embedded editor는 부모 sticky 설정을 상속하고 stickyScrollController는 enabled 값을 사용합니다. Native의 peek 강제 false를 제거하고 현재 peek의 올바른 모델을 전달했습니다. peek-sticky.log/94671은compile21.04초·실제 앱1통과/38.53초·exit0입니다. 40개 속성의 들여쓰기 없는 대상에서 scroll10줄 뒤 실제 sticky-line 응답·현재 peek 모델/키 접기·본문 보존·닫힘/tasks0을 확인했습니다. 기존 본문/미리보기 성공을 새 검사 건수로 중복 합산하지 않습니다.
+
+심볼 회귀 symbol-regression.log는직접exit0·compile0.25초·기존5통과/0.00초입니다. Core core.log/87391은compile10.25초·기존 document-symbols3통과/0.00초·exit0입니다. Core 검사 fixture의 deprecated2경고를 성공과 구분하며 신규 Core 검사를 추가한 것으로 합산하지 않습니다. 현재 새 상태4/실제 앱2와 기존 상태5/Core3의 서로 다른14건을 관련 근거로 사용합니다.
+
+분석 Capacity가 terminal인데 팔레트가 계속 pending이 될 수 있는 경로는 현재 snapshot의 별도 실패 상태로 종료합니다. 빈 성공 모델을 만들어 오류를 감추지 않고 실제 에러를 기존 보고 경로로 전달합니다. 외부 공급자의 결과/진행은 유지하고 새 revision의 성공 게시가 실패 상태를 회수합니다. 실제 앱의 깊은 container 용량 실패→로딩 종료→Undo→정상 재분석 검사를 추가했으며 결과는 아래에 기록합니다.
+
+recovery.log/37695는compile26.47초·0통과/1실패·38.99초·exit101입니다. 용량 실패의 terminal 상태와 로딩 종료는 확인했지만 기존 report가 status 대신 toast를 사용하는데 status를 기대해 실패했습니다. 실제 기존 report/Toasts 계약을 읽고 localized error toast를 검사하도록 기대값을 수정했습니다. 제품 오류 보고를 다른 경로로 우회하지 않았으며 Undo/정상 재분석의 최종 결과는 별도로 확인합니다.
+
+recovered.log/65162는compile14.91초·실제 본문 앱1통과/38.15초·exit0입니다. 깊은 container 표시 용량 초과의 pending 종료/실제 localized toast·Undo/정상 내장 결과 복원·언어 변경/읽기전용 Normal/Large 게이팅·원문·정상 종료tasks0을 확인했습니다. 앱2는 이 현재 본문1과 앞의 실제 peek-sticky1이며 과거 동일 본문/peek 성공을 합산하지 않습니다. 새로운 failed snapshot은 빈 성공 모델 없이 terminal 상태를 표시하고 오래된 위치 이동·새 revision의 복구를 구분합니다.
+
+wasm.log/32462는Syntax lib/Core dependency9.43초·exit0입니다. 소유 Rust11 format·소유 diff·manifest/lock/동결 변경0을 확인했습니다. 새 App 구조6건과 기존 상태5/Core3의 관련14건이며 기존 전송 App10/JSONCore49/Syntax5와 전체 Core392의 성공을 재사용할 뿐 새 전체 실행으로 합산하지 않습니다. 전체 App 준비 실패/보호3제외·remote Wasm tests의 시간 API·실제 OS/성능/신뢰성/출시·전환 게이트도 유지합니다.
+
+실제 전역 팔레트와 outline는 기존에 파일 탭/경로만 선택하므로 untitled의 내장 모델 성공만으로 실제 untitled 탐색을 완료로 보지 않습니다. 본문/peek 단위를 b3f1로 닫고 부모 b3f 및 실제 untitled 탐색 b3f2는 PROCESS에 미완료로 남깁니다. JSON의 구조 공급이 실제 앱에 연결됐으므로 editor-57은 missing에서partial로 갱신하며 나머지 JSON 진단/조회/완성/포맷·다른 언어 전체를 완료로 올리지 않습니다. 전체303/588(51.5%)·부분93/미연결110/미구현82·미완료285·최종33·목표active·잔여시간미산정입니다.

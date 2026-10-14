@@ -1078,6 +1078,8 @@ pub(crate) struct Provider<'a, 'state> {
     pub(crate) models: &'a crate::peek_models::Models,
     pub(crate) project: Option<ProjectId>,
     pub(crate) lsp: Option<&'a crate::lsp::LspBridge>,
+    pub(crate) symbols: Option<&'a crate::editor_symbols::State>,
+    pub(crate) folding: Option<&'a crate::editor_folding::State>,
     pub(crate) layout: Option<&'a taide_model::layout::ProjectLayout>,
     pub(crate) scope: &'a taide_native_ui::shell::WindowScope,
     pub(crate) commands: &'a mut Vec<crate::host::HostCommand>,
@@ -1618,12 +1620,23 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
         ui.set_clip_rect(rect.intersect(ui.clip_rect()));
         let mut presentation = self.presentation.clone();
         presentation.options.minimap = false;
-        presentation.options.sticky_scroll = false;
         presentation.options.scroll_beyond_last_line = false;
         presentation.options.location_colors = None;
         presentation.options.problem_colors = None;
         store.configure_indentation(document, self.indentation)?;
         let snapshot = store.documents().snapshot(document)?;
+        let syntax_folds = self.folding.and_then(|folding| {
+            self.project
+                .as_ref()
+                .and_then(|project| folding.model(project, &snapshot))
+                .or_else(|| folding.builtin_model(&snapshot))
+        });
+        presentation.options.sticky_model = self.symbols.and_then(|symbols| {
+            self.project
+                .as_ref()
+                .and_then(|project| symbols.sticky(project, &snapshot))
+                .or_else(|| symbols.builtin_sticky(&snapshot))
+        });
         let tokens = self.tokens.as_ref().filter(|tokens| {
             tokens.document == document
                 && tokens.revision == snapshot.revision
@@ -1914,7 +1927,7 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
                 fold_controls: None,
                 problems: None,
                 locations: None,
-                syntax_folds: None,
+                syntax_folds,
                 documentation: documentation_provider.as_mut().map(|provider| {
                     provider as &mut dyn taide_native_ui::editor_documentation::Provider
                 }),

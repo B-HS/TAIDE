@@ -612,6 +612,8 @@ async fn 연속_참조_이동은_같은_파일로_돌아와도_앞선_파일_열
         models: &models,
         project: Some(source.project.clone()),
         lsp: None,
+        symbols: None,
+        folding: None,
         layout: Some(&layout),
         scope: &f.request.scope,
         commands: &mut commands,

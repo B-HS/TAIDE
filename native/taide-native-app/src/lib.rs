@@ -69,6 +69,8 @@ mod editor_ide_selection;
 mod editor_indentation;
 #[path = "editor-inlay-hints.rs"]
 mod editor_inlay_hints;
+#[path = "editor-json.rs"]
+mod editor_json;
 #[path = "editor-locations.rs"]
 mod editor_locations;
 #[path = "editor-markdown.rs"]

@@ -40,6 +40,7 @@ struct Entry {
     generation: u64,
     providers: HashSet<ProviderIdentity>,
     model: Option<Arc<SyntaxFolds>>,
+    combined: Option<Arc<SyntaxFolds>>,
     cancel: Option<watch::Sender<bool>>,
     complete: bool,
     due: Instant,
@@ -56,10 +57,42 @@ impl Entry {
 #[derive(Default)]
 pub(crate) struct State {
     entries: HashMap<(ProjectId, DocumentId), Entry>,
+    builtin: HashMap<DocumentId, Arc<SyntaxFolds>>,
     generation: u64,
 }
 
 impl State {
+    pub(crate) fn install_builtin(&mut self, current: &DocumentSnapshot, model: Arc<SyntaxFolds>) {
+        if !model.describes(current) {
+            return;
+        }
+        for ((_, id), entry) in &mut self.entries {
+            if *id == current.id {
+                entry.combined = entry
+                    .model
+                    .as_ref()
+                    .filter(|external| external.describes(current))
+                    .map(|external| combine(current, external, &model));
+            }
+        }
+        self.builtin.insert(current.id, model);
+    }
+
+    pub(crate) fn retain_builtin(&mut self, documents: &HashSet<DocumentId>) {
+        self.builtin.retain(|id, _| documents.contains(id));
+        for ((_, id), entry) in &mut self.entries {
+            if !documents.contains(id) {
+                entry.combined = None;
+            }
+        }
+    }
+
+    pub(crate) fn builtin_model(&self, current: &DocumentSnapshot) -> Option<Arc<SyntaxFolds>> {
+        self.builtin
+            .get(&current.id)
+            .filter(|model| model.describes(current))
+            .cloned()
+    }
     pub(crate) fn observe(
         &mut self,
         project: &ProjectId,
@@ -75,6 +108,7 @@ impl State {
                 generation: 0,
                 providers: providers.clone(),
                 model: None,
+                combined: None,
                 cancel: None,
                 complete: false,
                 due: now,
@@ -87,6 +121,7 @@ impl State {
             entry.snapshot = snapshot.clone();
             entry.providers = providers;
             entry.model = None;
+            entry.combined = None;
             entry.complete = false;
             entry.due = if revision_changed && !identity_changed {
                 now + REFRESH_DEBOUNCE
@@ -145,6 +180,12 @@ impl State {
                     .collect::<Vec<_>>();
                 entry.model =
                     (!ranges.is_empty()).then(|| Arc::new(SyntaxFolds::new(current, ranges)));
+                entry.combined = entry.model.as_ref().and_then(|external| {
+                    self.builtin
+                        .get(&current.id)
+                        .filter(|native| native.describes(current))
+                        .map(|native| combine(current, external, native))
+                });
                 entry.complete = true;
                 true
             }
@@ -201,10 +242,28 @@ impl State {
         current: &DocumentSnapshot,
     ) -> Option<Arc<SyntaxFolds>> {
         self.entries
-            .get(&(project.clone(), current.id))?
-            .model
-            .as_ref()
+            .get(&(project.clone(), current.id))
+            .and_then(|entry| entry.combined.as_ref().or(entry.model.as_ref()))
             .filter(|model| model.describes(current))
             .cloned()
+            .or_else(|| self.builtin_model(current))
     }
+}
+
+fn combine(
+    current: &DocumentSnapshot,
+    external: &SyntaxFolds,
+    native: &SyntaxFolds,
+) -> Arc<SyntaxFolds> {
+    let groups = [external, native].map(|model| {
+        model
+            .regions()
+            .iter()
+            .map(|region| SyntaxFoldRange {
+                region: *region,
+                kind: model.kind(region.start_line).map(str::to_owned),
+            })
+            .collect()
+    });
+    Arc::new(SyntaxFolds::new(current, Vec::from(groups)))
 }

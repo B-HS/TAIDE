@@ -127,6 +127,31 @@ impl DocumentSymbols {
             }
             None => {}
         }
+        Self::from_symbols(document, symbols)
+    }
+
+    pub fn from_symbols(
+        document: &DocumentSnapshot,
+        symbols: Vec<Symbol>,
+    ) -> Result<Self, EditorError> {
+        for (index, symbol) in symbols.iter().enumerate() {
+            if symbol.bytes.start > symbol.selection.start
+                || symbol.selection.start > symbol.selection.end
+                || symbol.selection.end > symbol.bytes.end
+                || symbol.bytes.end > document.rope.len_bytes()
+                || symbol.parent.is_some_and(|parent| parent >= index)
+            {
+                return Err(EditorError::InvalidBoundary);
+            }
+            for byte in [
+                symbol.bytes.start,
+                symbol.bytes.end,
+                symbol.selection.start,
+                symbol.selection.end,
+            ] {
+                byte_to_position(document, byte)?;
+            }
+        }
         let sticky = if symbols.is_empty() {
             None
         } else {

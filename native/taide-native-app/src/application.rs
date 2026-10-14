@@ -128,6 +128,7 @@ pub struct NativeApplication {
     lsp_diagnostics: crate::diagnostics::Store,
     editor_symbols: crate::editor_symbols::State,
     editor_folding: crate::editor_folding::State,
+    editor_json: crate::editor_json::State,
     editor_locations: crate::editor_locations::State,
     editor_documentation: crate::editor_documentation::State,
     editor_completion: crate::editor_completion::State,
@@ -493,6 +494,7 @@ impl NativeApplication {
             lsp_diagnostics: crate::diagnostics::Store::default(),
             editor_symbols: crate::editor_symbols::State::default(),
             editor_folding: crate::editor_folding::State::default(),
+            editor_json: crate::editor_json::State::default(),
             editor_locations: crate::editor_locations::State::default(),
             editor_documentation: crate::editor_documentation::State::default(),
             editor_completion: crate::editor_completion::State::default(),
@@ -2646,6 +2648,7 @@ impl NativeApplication {
             .web_bridge
             .take()
             .map(crate::preview_web_host::Bridge::disconnect);
+        self.clear_builtin_json();
         let syntax = self.editor_syntax.disconnect();
         self.web_previews.invalidate_all();
         self.web_views.clear();
@@ -4112,6 +4115,43 @@ impl NativeApplication {
         }
         self.editor_symbols.retain(&retained);
         self.editor_folding.retain(&fold_retained);
+    }
+
+    fn clear_builtin_json(&mut self) {
+        self.editor_json.clear();
+        self.editor_symbols.retain_builtin(&HashSet::new());
+        self.editor_folding.retain_builtin(&HashSet::new());
+    }
+
+    fn reconcile_builtin_json(&mut self, context: &egui::Context) {
+        if self.closing.is_some() || self.is_exit_ready || self.services.state.is_shutting_down() {
+            self.clear_builtin_json();
+            return;
+        }
+        let completed = self
+            .editor_json
+            .tick(&self.store, &self.services.tasks, context);
+        let documents = self.editor_json.documents();
+        self.editor_symbols.retain_builtin(&documents);
+        self.editor_folding.retain_builtin(&documents);
+        for (snapshot, result) in completed {
+            match result {
+                Ok(models) => {
+                    if let Err(error) = self
+                        .editor_symbols
+                        .install_builtin(&snapshot, models.symbols)
+                    {
+                        self.editor_symbols.fail_builtin(&snapshot);
+                        self.report(&editor_error(error));
+                    }
+                    self.editor_folding.install_builtin(&snapshot, models.folds);
+                }
+                Err(error) => {
+                    self.editor_symbols.fail_builtin(&snapshot);
+                    self.report(&editor_error(error));
+                }
+            }
+        }
     }
 
     fn dispatch_completion(&mut self, context: &egui::Context) {
@@ -5886,6 +5926,7 @@ impl NativeApplication {
             self.controller.snapshot().shell.tree.as_ref(),
             &self.shell.scope,
         );
+        self.reconcile_builtin_json(context);
         self.reconcile_lsp();
         self.dispatch_completion(context);
         if let Some(delay) = self.editor_symbols.next_refresh(Instant::now()) {
@@ -7581,6 +7622,7 @@ impl eframe::App for NativeApplication {
             .web_bridge
             .take()
             .map(crate::preview_web_host::Bridge::disconnect);
+        self.clear_builtin_json();
         let syntax = self.editor_syntax.disconnect();
         self.web_previews.invalidate_all();
         self.web_views.clear();
@@ -8782,8 +8824,10 @@ impl AppSurfaces<'_> {
                 let editor_project = self.layouts.iter().find_map(|(project, layout)| {
                     taide_layout::service::all_roots(layout).any(|root| taide_layout::service::find_leaf(root, pane).is_some()).then_some(project)
                 });
-                let syntax_folds = editor_project.and_then(|project| self.editor_folding.model(project, &snapshot));
-                editor_presentation.options.sticky_model = editor_project.and_then(|project| self.editor_symbols.sticky(project, &snapshot));
+                let syntax_folds = editor_project.and_then(|project| self.editor_folding.model(project, &snapshot))
+                    .or_else(|| self.editor_folding.builtin_model(&snapshot));
+                editor_presentation.options.sticky_model = editor_project.and_then(|project| self.editor_symbols.sticky(project, &snapshot))
+                    .or_else(|| self.editor_symbols.builtin_sticky(&snapshot));
                 editor_presentation.options.minimap_colors = Some(self.editor_minimap_colors);
                 editor_presentation.options.diagnostic_colors = Some(self.editor_diagnostic_colors);
                 editor_presentation.options.overview_colors = Some(self.editor_overview_colors);
@@ -8921,6 +8965,7 @@ impl AppSurfaces<'_> {
                 let preview_overrides = self.services.state.settings.read().keymap_overrides.clone();
                 let mut location_provider = crate::editor_locations::Provider {
                     state: &mut *self.editor_locations, models: self.peek_models, project: editor_project.cloned(), lsp: self.lsp,
+                    symbols: Some(self.editor_symbols), folding: Some(self.editor_folding),
                     layout: editor_project.and_then(|project| self.layouts.get(project)), scope: self.scope,
                     commands: &mut location_commands, viewport: ui.ctx().viewport_id(), editor: &editor,
                     indentation: indent_configuration,
@@ -9367,6 +9412,9 @@ mod ide_selection_tests;
 #[cfg(all(test, unix))]
 #[path = "application-startup-tests.rs"]
 mod startup_tests;
+#[cfg(all(test, unix))]
+#[path = "application-json-tests.rs"]
+mod json_tests;
 #[cfg(all(test, unix))]
 #[path = "application-view-state-tests.rs"]
 mod view_state_tests;
