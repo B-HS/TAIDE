@@ -55,6 +55,8 @@ mod editor_documentation_code;
 mod editor_documentation_images;
 #[path = "editor-folding.rs"]
 mod editor_folding;
+#[path = "editor-schema-transport.rs"]
+pub mod editor_schema_transport;
 #[path = "editor-fonts.rs"]
 mod editor_fonts;
 #[path = "editor-formatting.rs"]

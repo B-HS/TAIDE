@@ -236,3 +236,23 @@ first.log/lib은90797 handle에서4.54초·engine.log는77465 handle에서4.79�
 수정 후 lifecycle.log는43129 handle에서 compile10.62초·현재graph5/0.00초·load4/0.01·service3/0.00의12통과·exit0입니다. consumer.log는 같은 handle에서 compile27.25초·실제 패턴/합성 선택→외부 graph→동일 Arc cache/의존 변경까지 포함한Syntax3통과/0.00초·exit0입니다. graph에는 값/문자/메시지·문서/요청/URI/작업 상한, 변경/이전 observer·미발송 복원, 실제 direct/transitive 의존 및 최종 quota 실패의 원자성 검사가 포함됩니다. 기존Core387+신규graph5의392서로 다른 성공/성능1ignored·current JSONCore49/Syntax5이며 기존 성공과 새 Syntax1을 중복 합산하지 않습니다.
 
 host-core.log/lib+graph/refs/service/load test11.31초·host-syntax.log/lib+schema-service test13.94초·wasm.log/Syntax lib+Core dependency9.45초는17319 handle에서 exit0·새경고0입니다. 소유Rust7/MJS5 format·MIT/소유diff와 manifest/lock/동결 변경0을 확인했습니다. 외부 graph/캐시 단위만 닫고 실제 HTTP/file adapter·schema semantic/조회/완성/실제 App·CSS/HTML/TS와 전체 App 준비/remoteWasm·OS/regex 성능/전환/최종33 게이트는 부모b3e/전체 목표에 유지합니다. 전체303/588(51.5%)·미완료285·editor-57missing/editor-16partial·목표active·잔여시간미산정입니다.
+
+## b3e10 — 실제 schema 전송·프로젝트 수명과 접근 경계
+
+App editor-schema-transport.rs는 기존 AppServices/TaskSupervisor와 taide-infra HTTP Api client·root_guard, 기존 preview_web_file::Anchor를 재사용합니다. manifest/lock/새 의존성은 수정하지 않습니다. 실제 graph Fetch의 원래 canonical URI와 load ticket·실제 referrer를 보존하고 요청 URL의 json-schema.org HTTPS 교정은 기존 request_url을 사용합니다. enableSchemaRequest=false는 전송 없이 원본 Unavailable 응답을 decode합니다. 설정 활성화와 전체 App provider 연결은 후속 b3e/b3에 남습니다.
+
+설치 JSONWorker의 defaultSchemaRequestService는 HTTP status를 검사하지 않고 response.text()를 읽으므로 Native도 404 등의 본문을 decode합니다. 임의 status를 네트워크 실패로 바꾸지 않습니다. 기존 reqwest 0.12.28 async_impl/response.rs의 content_length/chunk와 태스크 API 실제 소스를 읽었고, 길이 선언과 실제 수신 chunk 모두를 상한 검사합니다. UTF-8 오류는 fetch text처럼 replacement로 처리합니다. 요청 시간 제한과 활성/응답 대기 수 상한을 적용하고 완료된 payload도 Loading 소유자가 회수할 때까지 slot에 포함합니다. callback 결과는 owner/generation ticket을 검증한 뒤 한 번만 게시하고 decode Capacity·취소·종료/프로젝트 root 변경에서는 load를 회수합니다. Loading drop은 네트워크 작업을 취소하며 서비스 ticket 회수는 명시 cancel과 provider 소유자의 책임입니다.
+
+파일 읽기는 실제 프로젝트 root와 원본 resource/referrer를 확인하고 경로 정규화·root 내부 여부를 검사합니다. Unix의 기존 Anchor는 directory descriptor/openat·NOFOLLOW/NONBLOCK으로 경로 교체·symlink/FIFO와 비정규 파일을 차단합니다. 이 기존 파일 경계를 재사용하며 해당 파일은 수정하지 않았습니다. non-Unix는 Anchor가 구현되지 않은 플랫폼 파일 요청을 명시 거절하며 완료로 확대하지 않습니다. 원격 HTTP schema에서 file 참조로 권한을 넓히지 않습니다. 실제 내부 combinedSchema handle에서 프로젝트 파일로 나가는 참조는 원래 resource의 프로젝트 권한을 사용합니다.
+
+최초 tests.log는4735 handle·compile50.68초·5통과/1실패·검사0.04초·exit101입니다. root 밖 파일은 차단됐으나 localized Forbidden을 일반 오류로 변환하는 실패를 재현했고 AppError.kind로 원래 거절 분류를 보존했습니다. lifecycle.log는75349 handle·compile21.60초·8통과/0.03초·exit0이며, final.log는53659 handle·compile29.62초·10통과/0.03초·exit0입니다. 뒤의 10건은 기존 성공을 포함하므로 8/10을 합산하지 않습니다.
+
+cache-repro.log는51035 handle·compile24.49초·0통과/1실패·0.04초·exit101입니다. 같은 Service에서 실제 로컬 schema를 먼저 읽어 둔 뒤 원격 schema가 해당 file URI를 참조하면 새 Fetch가 없어 전송 경계만으로는 차단되지 않았습니다. Core graph에 참조별 접근 검사를 추가하고 App Scope.advance가 캐시 import 전에도 확인하도록 수정했습니다. 기본 portable advance의 원본 계약은 허용 정책으로 유지하고 접근 검사 작업/URI·메시지도 기존 예산을 사용합니다. 이 수정의 최종 검사 결과는 아래에 기록합니다.
+
+guard.log는89511 handle·compile34.09초·10통과/0.03초·exit0이며 실제 먼저 읽힌 로컬 cache의 원격 재사용을 차단했습니다. Scope.begin은 root의 Ready cache를 돌려주기 전에도 resource 권한을 검사하고 실제 combined handle ID는 원래 문자열로 Core에 전달합니다. owned.log는84807 handle·compile21.52초·10통과/0.03초·exit0입니다. 최종 retention.log는42520 handle·compile21.59초·현재10통과/0.03초·797filtered·exit0이며, 취소 직후 아직 실행 중인 task나 queued blocking 파일 worker의 slot도 실제 종료까지 보유하도록 Arc 소유를 연결했습니다. 같은 current-thread에서 시작 직후 취소→즉시 다음 요청 Capacity→실제 drain 뒤 재요청 성공을 확인했고, 단순 handle 개수만 세어 대기 작업을 초과시키지 않습니다. 앱 전체 807건을 실행했다는 뜻이 아닙니다.
+
+core.log는70208 handle·compile26.02초·실제 oracle/공유·순환/예산/캐시원자성의 기존5통과/0.00초·exit0입니다. 변경되지 않은 기존 Core392의 성공은 재사용하고 신규 Core 건수로 합산하지 않습니다. 실제 현재 JSONCore49/Syntax5에 새 App10을 별도로 표시합니다. 모든 검사는 소유 임시 fixture와 자체 loopback 연결이며 사용자 데이터/외부 네트워크·OS 입력/클립보드·설정·키/시크릿·동결/manifest/lock 변경은 없습니다.
+
+syntax.log는28351 handle·compile20.29초·실제 association/합성 선택/graph/cache 소비자3통과/0.00초·exit0입니다. 현재 변경 범위는 Core5/Syntax3/App10의 서로 다른18건이며, 이전 동일 검사의 성공을 중복 합산하지 않습니다. 전체 App 준비 실패·보호3제외/기존 remote Wasm Instant/OS·성능/최종 전환 게이트는 해소하지 않았습니다.
+
+wasm.log는94142 handle·Syntax lib/Core dependency9.47초·exit0입니다. 소유 Rust4 format·소유 diff·manifest/lock/동결 변경0을 확인했습니다. App에는 vendor wry17경고와 큰 lib test binary의 compact unwind linker1경고가 출력됐으며 검사 exit0과 구분합니다. 이 단위는 전송 모듈과 실제 Core 소비를 닫으며 UI 프레임의 자동 builtin provider·기본 설정 연결/선행 semantic·조회/완성·CSS/HTML/TS는 부모b3e/b3에 남습니다. 기존 전체 App 준비 실패/remote Wasm·플랫폼·regex/큰tier 성능·최종 전환 게이트도 유지합니다. 전체303/588(51.5%)·미완료285·editor-57missing/editor-16partial·목표active·잔여시간미산정입니다.

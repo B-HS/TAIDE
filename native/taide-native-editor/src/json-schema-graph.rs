@@ -22,6 +22,7 @@ pub struct Limits {
 #[derive(Debug, Clone)]
 pub struct Fetch {
     pub uri: Vec<u16>,
+    pub referrer: Option<Vec<u16>>,
     pub ticket: Ticket,
 }
 
@@ -132,6 +133,7 @@ impl Job {
         let outgoing = match source {
             LoadState::Start(ticket) => vec![Fetch {
                 uri: uri.clone(),
+                referrer: None,
                 ticket,
             }],
             LoadState::Ready(_) | LoadState::Pending(_) => Vec::new(),
@@ -256,13 +258,19 @@ impl Job {
         Ok(true)
     }
 
-    fn document(&mut self, service: &mut Service<'_>, uri: &[u16]) -> Result<usize, EditorError> {
+    fn document(
+        &mut self,
+        service: &mut Service<'_>,
+        uri: &[u16],
+        parent: usize,
+    ) -> Result<usize, EditorError> {
         if let Some(&index) = self.by_uri.get(uri) {
             return Ok(index);
         }
         let total = self
             .uri_units
             .checked_add(uri.len())
+            .and_then(|total| total.checked_add(self.documents[parent].uri.len()))
             .ok_or(EditorError::Capacity)?;
         if self.documents.len() >= self.limits.max_documents || total > self.limits.max_uri_units {
             return Err(EditorError::Capacity);
@@ -274,6 +282,7 @@ impl Job {
             LoadState::Start(ticket) => {
                 self.outgoing.push(Fetch {
                     uri: uri.to_vec(),
+                    referrer: Some(self.documents[parent].uri.clone()),
                     ticket,
                 });
                 None
@@ -397,6 +406,7 @@ impl Job {
         &mut self,
         service: &mut Service<'_>,
         mut link: Link,
+        access: &mut impl FnMut(&[u16], &[u16]) -> bool,
     ) -> Result<Option<Link>, EditorError> {
         self.charge(1)?;
         let uri = match link.uri.take() {
@@ -416,7 +426,25 @@ impl Job {
                 normalized
             }
         };
-        let document = self.document(service, &uri)?;
+        let access_units = uri
+            .len()
+            .checked_add(self.documents[link.parent].uri.len())
+            .ok_or(EditorError::Capacity)?;
+        self.charge(access_units)?;
+        if !access(&self.documents[link.parent].uri, &uri) {
+            self.engine
+                .as_mut()
+                .ok_or(EditorError::InvalidBoundary)?
+                .message(&[
+                    &"Schema reference access denied: '"
+                        .encode_utf16()
+                        .collect::<Vec<_>>(),
+                    &uri,
+                    &"'.".encode_utf16().collect::<Vec<_>>(),
+                ])?;
+            return Ok(None);
+        }
+        let document = self.document(service, &uri, link.parent)?;
         if self.documents[document].source.is_none() {
             link.uri = Some(uri);
             return Ok(Some(link));
@@ -477,7 +505,11 @@ impl Job {
         Ok(None)
     }
 
-    fn drive(&mut self, service: &mut Service<'_>) -> Result<bool, EditorError> {
+    fn drive(
+        &mut self,
+        service: &mut Service<'_>,
+        access: &mut impl FnMut(&[u16], &[u16]) -> bool,
+    ) -> Result<bool, EditorError> {
         self.fresh(service)?;
         if self.engine.is_none() && !self.initialize()? {
             return Ok(false);
@@ -493,7 +525,7 @@ impl Job {
                     .pending
                     .pop_front()
                     .ok_or(EditorError::InvalidBoundary)?;
-                if let Some(link) = self.link(service, link)? {
+                if let Some(link) = self.link(service, link, access)? {
                     self.pending.push_back(link);
                 } else {
                     progressed = true;
@@ -516,8 +548,16 @@ impl Job {
         self.cancel(service)
     }
 
-    pub fn advance(mut self, service: &mut Service<'_>) -> Result<Progress, EditorError> {
-        match self.drive(service) {
+    pub fn advance(self, service: &mut Service<'_>) -> Result<Progress, EditorError> {
+        self.advance_with_access(service, |_, _| true)
+    }
+
+    pub fn advance_with_access(
+        mut self,
+        service: &mut Service<'_>,
+        mut access: impl FnMut(&[u16], &[u16]) -> bool,
+    ) -> Result<Progress, EditorError> {
+        match self.drive(service, &mut access) {
             Ok(false) => {
                 let requests = std::mem::take(&mut self.outgoing);
                 Ok(Progress::Waiting {
