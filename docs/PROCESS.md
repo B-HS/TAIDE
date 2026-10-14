@@ -2,7 +2,7 @@
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
-현재 상태: e77e29c0의 b3e11b 문자열 pattern/format을 완료했습니다. 원본870사례·association2/문자열3의5통과·Core/Syntax Wasm34.25초·소유Rust7 fmt/diff와 QA가 근거이며 구형 비BMP 처리1실패를 수정했습니다. 다음은 b3e11c의 배열/객체·조합/조건/평가 집합과 draft별 정책입니다. 메타 schema/실제 App 공급과 regex 성능/전체 게이트는 미완료입니다. 전체303/588(51.5%)·미완료285·editor-57partial/editor-16partial·목표active·잔여시간미산정입니다.
+현재 상태: b3e11c의 배열/객체·조합/조건·평가 집합·draft별 정책과 AST key/value 매핑을 구현했습니다. 원본690사례/교정2·Core9/Syntax8의 서로 다른17통과·2048단 깊이·실제 해결 graph의 재귀/공유/비진행 순환 거절·전역 예산·Core/Syntax Wasm57.32초·소유Rust7 fmt/diff가 근거이며 QA와 선별 Git을 정리 중입니다. 부모 b3e11/b3e의 메타 schema/실제 App 공급·matching focus/exclude/boolean 임시 표현과 regex 성능/전체 게이트는 미완료입니다. 전체303/588(51.5%)·미완료285·editor-57partial/editor-16partial·목표active·잔여시간미산정입니다.
 
 범위는 native-remaining-batch-plan.json의 batch 23 배정 33 ID입니다. 같은 구현이 다른 배치 ID를 함께 닫으면 원래 배정과 실제 완료 근거를 기록합니다. 원본 TS 화면/상태/상호작용과 실제 Monaco/서비스 동작을 확인한 뒤 구현하며 새 기능/디자인이나 원본 버그 강제 재현은 하지 않습니다. 동결 remote-web·실제 앱 데이터/OS 설정/클립보드/Keychain/Trash·보호 M8 앱·합성 OS 입력을 건드리지 않습니다.
 

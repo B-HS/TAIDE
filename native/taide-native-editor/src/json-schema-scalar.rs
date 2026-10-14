@@ -42,11 +42,18 @@ pub struct Validation {
     pub enum_value_match: bool,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Phase {
+    All,
+    Type,
+    Values,
+}
+
 pub(crate) struct Validator<'a> {
     schema: &'a Arena,
     schema_node: usize,
     limits: Limits,
-    remaining: usize,
+    pub(crate) remaining: usize,
     message_units: usize,
     result: Validation,
 }
@@ -304,7 +311,17 @@ pub fn validate(
     severity: Severity,
     limits: Limits,
 ) -> Result<Validation, EditorError> {
-    validate_inner(target, schema, schema_node, severity, limits, None)
+    let mut remaining = limits.max_work;
+    validate_part(
+        target,
+        schema,
+        schema_node,
+        severity,
+        limits,
+        None,
+        Phase::All,
+        &mut remaining,
+    )
 }
 
 pub fn validate_with_patterns(
@@ -315,23 +332,28 @@ pub fn validate_with_patterns(
     limits: Limits,
     compiler: &dyn crate::json_schema_string::PatternCompiler,
 ) -> Result<Validation, EditorError> {
-    validate_inner(
+    let mut remaining = limits.max_work;
+    validate_part(
         target,
         schema,
         schema_node,
         severity,
         limits,
         Some(compiler),
+        Phase::All,
+        &mut remaining,
     )
 }
 
-fn validate_inner(
+pub(crate) fn validate_part(
     target: Target<'_>,
     schema: &Arena,
     schema_node: usize,
     severity: Severity,
     limits: Limits,
     compiler: Option<&dyn crate::json_schema_string::PatternCompiler>,
+    phase: Phase,
+    remaining: &mut usize,
 ) -> Result<Validation, EditorError> {
     let instance = target
         .values
@@ -344,12 +366,16 @@ fn validate_inner(
         schema,
         schema_node,
         limits,
-        remaining: limits.max_work,
+        remaining: *remaining,
         message_units: 0,
         result: Validation::default(),
     };
     let node = target.node;
-    if let Some(index) = validator.field("type")? {
+    if let Some(index) = if phase != Phase::Values {
+        validator.field("type")?
+    } else {
+        None
+    } {
         let mut names = Vec::new();
         let mut multiple = false;
         match schema.get(index).ok_or(EditorError::InvalidIdentity)? {
@@ -397,6 +423,10 @@ fn validate_inner(
             };
             validator.add(node, message, severity, None)?;
         }
+    }
+    if phase == Phase::Type {
+        *remaining = validator.remaining;
+        return Ok(validator.result);
     }
     if let Some(index) = validator.field("enum")? {
         if let Some(Value::Array(items)) = schema.get(index) {
@@ -508,5 +538,6 @@ fn validate_inner(
         }
         _ => {}
     }
+    *remaining = validator.remaining;
     Ok(validator.result)
 }

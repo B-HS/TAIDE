@@ -22,6 +22,29 @@ pub trait PatternCompiler {
     ) -> Result<Option<Box<dyn Pattern>>, EditorError>;
 }
 
+pub(crate) fn compile_extended(
+    compiler: &dyn PatternCompiler,
+    pattern: &[u16],
+    remaining: &mut usize,
+) -> Result<Option<Box<dyn Pattern>>, EditorError> {
+    let (source, ignore_case) = if let Some(source) = pattern.strip_prefix(CASE_INSENSITIVE_PREFIX)
+    {
+        (source, true)
+    } else {
+        (pattern, false)
+    };
+    *remaining = remaining
+        .checked_sub(source.len() + 1)
+        .ok_or(EditorError::Capacity)?;
+    if let Some(regex) = compiler.compile(source, ignore_case, true)? {
+        return Ok(Some(regex));
+    }
+    *remaining = remaining
+        .checked_sub(source.len() + 1)
+        .ok_or(EditorError::Capacity)?;
+    compiler.compile(source, ignore_case, false)
+}
+
 impl Validator<'_> {
     pub(crate) fn string_patterns(
         &mut self,
@@ -33,20 +56,8 @@ impl Validator<'_> {
     ) -> Result<(), EditorError> {
         if let Some(index) = self.field("pattern")? {
             if let Some(Value::String(pattern)) = schema.get(index) {
-                let (source, ignore_case) =
-                    if let Some(source) = pattern.strip_prefix(CASE_INSENSITIVE_PREFIX) {
-                        (source, true)
-                    } else {
-                        (pattern.as_slice(), false)
-                    };
-                self.spend(source.len() + value.len() + 1)?;
-                let regex = match compiler.compile(source, ignore_case, true)? {
-                    Some(regex) => Some(regex),
-                    None => {
-                        self.spend(source.len() + 1)?;
-                        compiler.compile(source, ignore_case, false)?
-                    }
-                };
+                self.spend(value.len())?;
+                let regex = compile_extended(compiler, pattern, &mut self.remaining)?;
                 if !regex.is_some_and(|regex| regex.is_match(value)) {
                     let message = if let Some(message) = self.pattern_message()? {
                         message

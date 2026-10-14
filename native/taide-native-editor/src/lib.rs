@@ -51,6 +51,8 @@ pub mod json_parser;
 pub mod json_scanner;
 #[path = "json-schema-associations.rs"]
 pub mod json_schema_associations;
+#[path = "json-schema-evaluation.rs"]
+pub mod json_schema_evaluation;
 #[path = "json-schema-graph.rs"]
 pub mod json_schema_graph;
 #[path = "json-schema-load.rs"]
@@ -63,6 +65,8 @@ pub mod json_schema_scalar;
 pub mod json_schema_service;
 #[path = "json-schema-string.rs"]
 pub mod json_schema_string;
+#[path = "json-schema-structure.rs"]
+mod json_schema_structure;
 #[path = "json-schema-uri.rs"]
 pub mod json_schema_uri;
 #[path = "json-selection.rs"]

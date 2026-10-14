@@ -236,6 +236,14 @@ impl Arena {
     }
 
     pub fn from_document(document: &Document, limits: Limits) -> Result<Self, EditorError> {
+        Ok(Self::from_document_mapped(document, limits, false)?.0)
+    }
+
+    pub(crate) fn from_document_mapped(
+        document: &Document,
+        limits: Limits,
+        include_keys: bool,
+    ) -> Result<(Self, Vec<Option<usize>>), EditorError> {
         if document.nodes.len() > limits.parser.max_nodes
             || document.diagnostics.len() > limits.parser.max_diagnostics
             || document.comments.len() > limits.parser.max_comments
@@ -258,10 +266,13 @@ impl Arena {
             depths.push(depth);
         }
         let Some(root) = document.root else {
-            return Ok(Self {
-                root: None,
-                nodes: Vec::new(),
-            });
+            return Ok((
+                Self {
+                    root: None,
+                    nodes: Vec::new(),
+                },
+                vec![None; document.nodes.len()],
+            ));
         };
         let mut arena = Self {
             root: None,
@@ -274,11 +285,12 @@ impl Arena {
         let mut mapped = vec![None; document.nodes.len()];
         for (index, node) in document.nodes.iter().enumerate().rev() {
             if node.kind == Kind::Property
-                || node.parent.is_some_and(|parent| {
-                    document.nodes.get(parent).is_some_and(|parent| {
-                        parent.kind == Kind::Property && parent.children.first() == Some(&index)
+                || !include_keys
+                    && node.parent.is_some_and(|parent| {
+                        document.nodes.get(parent).is_some_and(|parent| {
+                            parent.kind == Kind::Property && parent.children.first() == Some(&index)
+                        })
                     })
-                })
             {
                 continue;
             }
@@ -357,7 +369,7 @@ impl Arena {
                 .flatten()
                 .ok_or(EditorError::InvalidBoundary)?,
         );
-        Ok(arena)
+        Ok((arena, mapped))
     }
 }
 
