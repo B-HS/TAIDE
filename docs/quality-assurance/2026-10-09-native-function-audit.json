@@ -1,6 +1,6 @@
 {
     "date": "2026-10-14",
-    "baseline": "ad94b1a7",
+    "baseline": "e77e29c0",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1362,7 +1362,9 @@
                 "native/taide-native-app/src/editor-formatting.rs",
                 "native/taide-native-app/src/lsp.rs",
                 "native/taide-native-editor/src/json-schema-scalar.rs",
-                "native/taide-native-editor/src/json-value-text.rs"
+                "native/taide-native-editor/src/json-value-text.rs",
+                "native/taide-native-editor/src/json-schema-string.rs",
+                "native/taide-native-editor/src/json-schema-formats.rs"
             ],
             "tests": [
                 "native/taide-native-editor/tests/json-scanner.rs",
@@ -1435,13 +1437,17 @@
                 "native/taide-native-app/tests/lsp.rs",
                 "native/taide-native-editor/tests/json-schema-scalar.rs",
                 "native/taide-native-editor/tests/fixtures/json-schema-scalar-oracle.mjs",
-                "native/taide-native-editor/tests/fixtures/json-schema-scalar-oracle.rs"
+                "native/taide-native-editor/tests/fixtures/json-schema-scalar-oracle.rs",
+                "native/taide-native-syntax/tests/schema-string.rs",
+                "native/taide-native-editor/tests/fixtures/json-schema-string-oracle.mjs",
+                "native/taide-native-editor/tests/fixtures/json-schema-string-oracle.rs"
             ],
             "reports": [
                 "docs/quality-assurance/2026-10-14-native-batch23-builtin-language-services.md",
-                "docs/quality-assurance/2026-10-14-native-json-schema-scalar.md"
+                "docs/quality-assurance/2026-10-14-native-json-schema-scalar.md",
+                "docs/quality-assurance/2026-10-14-native-json-schema-string.md"
             ],
-            "limitation": "JSON 구조·구문 진단/문제 이동·선택 확장·문서/선택/paste/저장 포맷의 기존 실제 App 소비에 이어 ad94b1a7은 schema 공통·scalar 제약을 구현했습니다. 실제 원본533/직렬화46사례·enum/const 메타데이터·byte/논리UTF16/코드/심각도/순서·8192단 깊이·공유/순환·누적 비교/출력/자료 예산을 unit1/scalar5/기존value3의 서로 다른9통과와 host/Wasm lib check31.53초·소유Rust5 fmt/diff로 확인했습니다. 최초 검사 parser 인자 누락은 컴파일 실패로 보존했습니다. 이전 App/Core/UI 성공을 새 검사로 합산하지 않습니다. pattern/format·배열/객체/조합·조건/평가 속성·draft/메타 schema·실제 schema App 공급, 언어 선택 UI·나머지 JSON 조회/완성·CSS/HTML/TS와 전체 App 준비/OS 감시 RPC 지연·실기/성능/출시/전환 게이트가 남아 partial입니다."
+            "limitation": "JSON 구조·구문 진단/문제 이동·선택 확장·문서/선택/paste/저장 포맷의 실제 App 소비와 ad94b1a7의 공통·scalar 제약에 이어 e77e29c0은 문자열 pattern/format을 구현했습니다. 원본870사례·association2/문자열3의 서로 다른5통과·Core/Syntax Wasm34.25초·소유Rust7 fmt/diff로 Unicode 우선/legacy fallback·논리UTF16·URI/색상/날짜/시간/email/host/IP·메시지 우선순위/공통 순서와 공유 예산을 확인했습니다. 구형 비BMP 처리1실패를 모드별 입력으로 수정했고 긴 패턴 예산의 추가1통과는 중복 합산하지 않습니다. 이전 성공을 새 전체 검사로 세지 않습니다. 배열/객체·조합/조건/평가 속성·draft/메타 schema·matching schema/실제 schema App 공급, 언어 선택 UI·나머지 JSON 조회/완성·CSS/HTML/TS와 regex 내부 backtracking/전체 App 준비/OS 감시 RPC 지연·실기/성능/출시/전환 게이트가 남아 partial입니다."
         }
     },
     "rows": [
@@ -3159,7 +3165,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-builtin-language-services",
-            "note": "JSON 구조·구문 진단/문제 이동·선택 확장·문서/선택/paste/저장 포맷의 기존 실제 App 소비에 이어 ad94b1a7은 schema 공통·scalar 제약을 구현했습니다. 실제 원본533/직렬화46사례·enum/const 메타데이터·byte/논리UTF16/코드/심각도/순서·8192단 깊이·공유/순환·누적 비교/출력/자료 예산을 unit1/scalar5/기존value3의 서로 다른9통과와 host/Wasm lib check31.53초·소유Rust5 fmt/diff로 확인했습니다. 최초 검사 parser 인자 누락은 컴파일 실패로 보존했습니다. 이전 App/Core/UI 성공을 새 검사로 합산하지 않습니다. pattern/format·배열/객체/조합·조건/평가 속성·draft/메타 schema·실제 schema App 공급, 언어 선택 UI·나머지 JSON 조회/완성·CSS/HTML/TS와 전체 App 준비/OS 감시 RPC 지연·실기/성능/출시/전환 게이트가 남아 partial입니다."
+            "note": "JSON 구조·구문 진단/문제 이동·선택 확장·문서/선택/paste/저장 포맷의 실제 App 소비와 ad94b1a7의 공통·scalar 제약에 이어 e77e29c0은 문자열 pattern/format을 구현했습니다. 원본870사례·association2/문자열3의 서로 다른5통과·Core/Syntax Wasm34.25초·소유Rust7 fmt/diff로 Unicode 우선/legacy fallback·논리UTF16·URI/색상/날짜/시간/email/host/IP·메시지 우선순위/공통 순서와 공유 예산을 확인했습니다. 구형 비BMP 처리1실패를 모드별 입력으로 수정했고 긴 패턴 예산의 추가1통과는 중복 합산하지 않습니다. 이전 성공을 새 전체 검사로 세지 않습니다. 배열/객체·조합/조건/평가 속성·draft/메타 schema·matching schema/실제 schema App 공급, 언어 선택 UI·나머지 JSON 조회/완성·CSS/HTML/TS와 regex 내부 backtracking/전체 App 준비/OS 감시 RPC 지연·실기/성능/출시/전환 게이트가 남아 partial입니다."
         },
         {
             "id": "editor-58",
