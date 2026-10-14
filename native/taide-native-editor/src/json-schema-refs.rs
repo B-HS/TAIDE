@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
 use crate::document::EditorError;
+use crate::json_schema_uri;
 use crate::json_value::{self, Arena, Member, Value, sort_members};
 
 const HASH: u16 = 0x23;
@@ -549,13 +550,46 @@ impl Resolver<'_> {
 
 pub fn resolve_local(input: &str, uri: &str, limits: Limits) -> Result<Resolved, EditorError> {
     let schema = json_value::parse(input, limits.values)?;
+    resolve_arena(schema, uri, limits)
+}
+
+pub fn resolve_arena(schema: Arena, uri: &str, limits: Limits) -> Result<Resolved, EditorError> {
+    if schema.values().len() > limits.values.max_values {
+        return Err(EditorError::Capacity);
+    }
+    let text_units = schema.values().iter().try_fold(0usize, |total, value| {
+        let size = match value {
+            Value::String(value) => value.len(),
+            Value::Object(members) => members.iter().try_fold(0usize, |total, member| {
+                total
+                    .checked_add(member.key.len())
+                    .ok_or(EditorError::Capacity)
+            })?,
+            _ => 0,
+        };
+        total.checked_add(size).ok_or(EditorError::Capacity)
+    })?;
+    if text_units > limits.values.max_text_units {
+        return Err(EditorError::Capacity);
+    }
     let root = schema.root().ok_or(EditorError::InvalidBoundary)?;
     let draft = string(&schema, root, "$schema").filter(|value| !value.is_empty());
     let draft_units = draft.map_or(0, <[u16]>::len);
     if draft_units > limits.max_text_units {
         return Err(EditorError::Capacity);
     }
-    let schema_draft = draft.map(|value| value.strip_suffix(&[HASH]).unwrap_or(value).to_vec());
+    let schema_draft = draft
+        .map(|value| {
+            json_schema_uri::normalize_id(
+                value,
+                json_schema_uri::Limits {
+                    max_input_units: limits.max_text_units,
+                    max_output_units: limits.max_text_units,
+                    max_work: limits.max_work,
+                },
+            )
+        })
+        .transpose()?;
     let is_old_draft = schema_draft.as_ref().is_some_and(|draft| {
         draft
             .iter()

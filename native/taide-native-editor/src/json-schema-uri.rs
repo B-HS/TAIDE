@@ -69,6 +69,7 @@ impl Budget {
         value: &[u16],
         is_path: bool,
         is_authority: bool,
+        is_component: bool,
     ) -> Result<(), EditorError> {
         self.charge(value.len())?;
         for character in char::decode_utf16(value.iter().copied()) {
@@ -76,7 +77,8 @@ impl Budget {
             let is_safe = character.is_ascii_alphanumeric()
                 || matches!(character, '-' | '.' | '_' | '~')
                 || is_path && character == '/'
-                || is_authority && matches!(character, '[' | ']' | ':');
+                || is_authority && matches!(character, '[' | ']' | ':')
+                || is_component && matches!(character, '!' | '\'' | '(' | ')' | '*');
             if is_safe {
                 let mut units = [0; char::MAX_LEN_UTF16];
                 self.append(target, character.encode_utf16(&mut units))?;
@@ -106,7 +108,7 @@ impl Budget {
         is_authority: bool,
     ) -> Result<(), EditorError> {
         if should_encode {
-            return self.encoded(target, value, is_path, is_authority);
+            return self.encoded(target, value, is_path, is_authority, false);
         }
         self.escaped(target, value)
     }
@@ -352,7 +354,7 @@ fn format(
     if !is_resource && !fragment.is_empty() {
         budget.append(&mut result, &[HASH])?;
         if should_encode {
-            budget.encoded(&mut result, &fragment, false, false)?;
+            budget.encoded(&mut result, &fragment, false, false, false)?;
         } else {
             budget.append(&mut result, &fragment)?;
         }
@@ -515,4 +517,21 @@ pub fn normalize_id(input: &[u16], limits: Limits) -> Result<Vec<u16>, EditorErr
 
 pub fn normalize_resource(input: &[u16], limits: Limits) -> Result<Vec<u16>, EditorError> {
     normalize(input, true, limits)
+}
+
+pub fn encode_component(input: &[u16], limits: Limits) -> Result<Vec<u16>, EditorError> {
+    if input.len() > limits.max_input_units {
+        return Err(EditorError::Capacity);
+    }
+    let mut result = Vec::new();
+    Budget { limits, work: 0 }.encoded(&mut result, input, false, false, true)?;
+    Ok(result)
+}
+
+pub fn scheme(input: &[u16], limits: Limits) -> Result<Vec<u16>, EditorError> {
+    let mut budget = Budget { limits, work: 0 };
+    let parts = parse(input, &mut budget)?;
+    let mut result = Vec::new();
+    budget.append(&mut result, parts.scheme)?;
+    Ok(result)
 }

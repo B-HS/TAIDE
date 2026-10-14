@@ -49,6 +49,8 @@ pub mod json_parser;
 pub mod json_schema_associations;
 #[path = "json-schema-refs.rs"]
 pub mod json_schema_refs;
+#[path = "json-schema-service.rs"]
+pub mod json_schema_service;
 #[path = "json-schema-uri.rs"]
 pub mod json_schema_uri;
 #[path = "json-scanner.rs"]
