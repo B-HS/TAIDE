@@ -8,6 +8,7 @@ JSON folding in src/json-folding.rs is adapted from the same JSON language servi
 JSON syntax validation policy in src/json-validation.rs is adapted from the same JSON language service.
 JSON value conversion and comparison in src/json-value.rs are adapted from the same JSON language service and its bundled JSONC parser.
 JSON common and scalar schema validation in src/json-schema-scalar.rs is adapted from the same JSON language service.
+JSON string patterns and format validation in src/json-schema-string.rs and json-schema-formats.rs are adapted from the same JSON language service.
 Local JSON schema reference and anchor resolution in src/json-schema-refs.rs is adapted from the same JSON language service.
 JSON schema URI normalization in src/json-schema-uri.rs is adapted from the same JSON language service and Microsoft vscode-uri (https://github.com/microsoft/vscode-uri).
 JSON relative schema context and property selection in src/json-schema-uri.rs are adapted from the same JSON language service and Microsoft Monaco JSONWorker.

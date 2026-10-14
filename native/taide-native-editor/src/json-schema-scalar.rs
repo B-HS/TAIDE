@@ -42,7 +42,7 @@ pub struct Validation {
     pub enum_value_match: bool,
 }
 
-struct Validator<'a> {
+pub(crate) struct Validator<'a> {
     schema: &'a Arena,
     schema_node: usize,
     limits: Limits,
@@ -52,7 +52,7 @@ struct Validator<'a> {
 }
 
 impl Validator<'_> {
-    fn spend(&mut self, work: usize) -> Result<(), EditorError> {
+    pub(crate) fn spend(&mut self, work: usize) -> Result<(), EditorError> {
         self.remaining = self
             .remaining
             .checked_sub(work)
@@ -60,7 +60,7 @@ impl Validator<'_> {
         Ok(())
     }
 
-    fn field(&mut self, name: &str) -> Result<Option<usize>, EditorError> {
+    pub(crate) fn field(&mut self, name: &str) -> Result<Option<usize>, EditorError> {
         self.spend(1)?;
         let Some(value) = self.schema.get(self.schema_node) else {
             return Err(EditorError::InvalidIdentity);
@@ -97,7 +97,7 @@ impl Validator<'_> {
             .ok_or(EditorError::InvalidIdentity)
     }
 
-    fn custom(&mut self, name: &str) -> Result<Option<Vec<u16>>, EditorError> {
+    pub(crate) fn custom(&mut self, name: &str) -> Result<Option<Vec<u16>>, EditorError> {
         let Some(index) = self.field(name)? else {
             return Ok(None);
         };
@@ -119,7 +119,11 @@ impl Validator<'_> {
         }
     }
 
-    fn append(&mut self, output: &mut Vec<u16>, text: &[u16]) -> Result<(), EditorError> {
+    pub(crate) fn append(
+        &mut self,
+        output: &mut Vec<u16>,
+        text: &[u16],
+    ) -> Result<(), EditorError> {
         if output
             .len()
             .checked_add(text.len())
@@ -133,7 +137,7 @@ impl Validator<'_> {
         Ok(())
     }
 
-    fn literal(&mut self, output: &mut Vec<u16>, text: &str) -> Result<(), EditorError> {
+    pub(crate) fn literal(&mut self, output: &mut Vec<u16>, text: &str) -> Result<(), EditorError> {
         self.append(output, &text.encode_utf16().collect::<Vec<_>>())
     }
 
@@ -156,7 +160,7 @@ impl Validator<'_> {
         self.append(output, &text)
     }
 
-    fn add(
+    pub(crate) fn add(
         &mut self,
         node: &Node,
         message: Vec<u16>,
@@ -299,6 +303,35 @@ pub fn validate(
     schema_node: usize,
     severity: Severity,
     limits: Limits,
+) -> Result<Validation, EditorError> {
+    validate_inner(target, schema, schema_node, severity, limits, None)
+}
+
+pub fn validate_with_patterns(
+    target: Target<'_>,
+    schema: &Arena,
+    schema_node: usize,
+    severity: Severity,
+    limits: Limits,
+    compiler: &dyn crate::json_schema_string::PatternCompiler,
+) -> Result<Validation, EditorError> {
+    validate_inner(
+        target,
+        schema,
+        schema_node,
+        severity,
+        limits,
+        Some(compiler),
+    )
+}
+
+fn validate_inner(
+    target: Target<'_>,
+    schema: &Arena,
+    schema_node: usize,
+    severity: Severity,
+    limits: Limits,
+    compiler: Option<&dyn crate::json_schema_string::PatternCompiler>,
 ) -> Result<Validation, EditorError> {
     let instance = target
         .values
@@ -468,6 +501,9 @@ pub fn validate(
                     limit,
                     severity,
                 )?;
+            }
+            if let Some(compiler) = compiler {
+                validator.string_patterns(node, value, schema, compiler, severity)?;
             }
         }
         _ => {}
