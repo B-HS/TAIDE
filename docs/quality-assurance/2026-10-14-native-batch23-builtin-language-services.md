@@ -218,3 +218,21 @@ decode는 요청 서비스 없음/빈 본문/실패 문자열·Error: 분리/끝
 입력 byte/token/value units·논리 key/string 값·value 수·깊이/전체 작업·URI·메시지 수/합산 units는 Capacity로 거절하고 부분 cache 게시를 하지 않습니다. 8,192중첩·각 quota/0-error budget·no-request의 정확한 URI limit을 확인합니다. 소유 callback은 문자열만 반환하며 실제 파일/HTTP/네트워크 요청을 하지 않습니다. publish_response는 Service의 실제 owner/generation ticket을 확인하고 decode 결과를 기존 cache에 게시하는 제품 경로입니다.
 
 소유Rust5/MJS format·MIT/소유diff와 manifest/lock/동결 변경0을 확인했습니다. Core host.log/lib+json-schema-load test8.92초와 wasm.log/lib5.10초는47165 handle에서 exit0·새경고0입니다. 응답 decode 단위만 닫습니다. 기존Core383+신규4의387서로 다른 성공/성능1ignored·JSON currentCore44/Syntax4와 기존URI3 회귀를 구분합니다. 실제 HTTP/file adapter·외부 graph/semantic·조회/완성/실제 App·CSS/HTML/TS와 전체 App 준비/remoteWasm·OS/regex 성능/전환/최종33 게이트는 부모b3e/전체 목표에 유지합니다. 전체303/588(51.5%)·미완료285·editor-57missing/editor-16partial·목표active·잔여시간미산정입니다.
+
+## b3e9 — 외부 schema graph·로딩 오류·원자적 캐시 게시
+
+실제 resolveRefs/resolveExternalLink의 Promise continuation·공유 unresolved 객체·순회/local 문맥·URI 정규화·의존 집합과 로딩 오류/anchor/unsupported 순서를 대조했습니다. json-schema-graph.rs는 실제 Service의 root resolve/load ticket으로 시작하는 재개 가능한 작업입니다. Start/Pending/Ready를 재사용하고 새 요청만 Fetch로 내보내며, 회신 전에는 같은 작업을 Waiting으로 보존합니다. 실제 HTTP/file 전송을 대신 구현한 것으로 쓰지 않습니다. 등록된 schema만으로 끝나는 작업은 요청 없이 실제 cache까지 연결됩니다.
+
+각 문서의 값 arena는 한 번만 전체 예산 검사 후 평면 node ID로 import합니다. 원래 공유/순환 object·array identity를 유지하고 local pointer/anchor는 참조를 가져온 parent document의 root/URI/anchor cache에서 해결합니다. 본문/root 로딩 오류는 먼저 보존하고 외부 오류는 원본처럼 첫 메시지와 fragment를 붙여 전달합니다. draft03의 원본 조기 거절과 unsupported 순서도 유지합니다. source의 ID/root object/boolean·known schema fields 계약을 사용하며 임의 JavaScript 실행·새 의존성을 넣지 않았습니다.
+
+실제 Source는 root A가 B→C→B 간접 순환 바깥에 있을 때 같은 target의 외부 참조를 반복해 끝나지 않습니다. oracle의 raw source subclass는512 traverse를 넘으면 oracle-cycle-budget으로 종료시켜 실제 무한 처리 경로를 기록합니다. 이것을 source 정상 출력으로 쓰지 않습니다. 기존 local 참조 교정9곳에 더해 actual 외부 참조 guard2 marker만 수정한 모듈에서 expected를 생성했습니다. 같은 대상/URI/fragment 반복은 다시 merge하지 않고 의존 관계는 남기며 native도 동일하게 처리합니다. actual21사례·raw/교정 차이4이며 native로 기대값을 생성하지 않습니다. Source dependency suffix는 진단용 원본 metadata로 보존하고 native graph/오류/경고/draft를 직접 비교합니다. native의 실제 direct/transitive 의존은 별도의 캐시 만료/원자성 검사로 확인합니다.
+
+Service의 load watch는 실제 owner/handle/generation을, resolve watch는 추가 sequence를 확인합니다. 해결 취소는 공유 load를 만료시키지 않으면서 이전 resolve observer를 거절합니다. 모든 문서 snapshot을 재개/게시 전에 재확인하고 문서 변경/교체/취소/Capacity에서는 root 작업을 회수합니다. 아직 외부로 내보내지 않은 소유 요청만 취소하므로 다른 작업의 이미 발송된 공유 load를 잘못 회수하지 않습니다. 완료된 모든 문서의 direct dependency와 root 결과는 일괄 quota 검증 뒤 원자적으로 게시합니다. 최종 게시 실패가 Root dependency 일부만 남기는 것을 실제 cache 검사에서 막습니다.
+
+local resolver의 실제 traverse/merge/pointer/anchor·work/text/message 예산을 두 구현이 공유하도록 crate 범위로 추출했습니다. 실제 원본 module 교정과 JSONWorker workspaceContext helper는 각각 두 generator가 사용하도록 공유했고 기존 local104/서비스61event fixture는 재생성·rustfmt 뒤 cmp가 byte-for-byte exit0입니다. 추출 시 통계 출력의 replacements 범위를 놓친 ReferenceError1회와 format context가 다른 patch1회는 수정/재적용했으며 최종 기대값은 동일합니다. generator Set/Map/배열 mutation은 이 원본 graph/참조 대응 자료 생성 비용에 한정합니다.
+
+first.log/lib은90797 handle에서4.54초·engine.log는77465 handle에서4.79초·exit0입니다. parity.log는52064 handle에서 compile13.34초·graph3/0.00초·기존load4/0.01·refs3/0.01·service3/0.00의13통과·exit0입니다. retired-repro.log는70615 handle에서1실패/0.00초·exit101이며 external 덮어쓰기→미발송 이전 요청 거절→contribution 복원 뒤 Pending이 남는 실제 실패입니다. 취소만 소유/generation/phase를 기준으로 숨겨진 이전 handle도 회수하도록 고쳤고 게시/읽기는 여전히 현재 active handle만 허용합니다.
+
+수정 후 lifecycle.log는43129 handle에서 compile10.62초·현재graph5/0.00초·load4/0.01·service3/0.00의12통과·exit0입니다. consumer.log는 같은 handle에서 compile27.25초·실제 패턴/합성 선택→외부 graph→동일 Arc cache/의존 변경까지 포함한Syntax3통과/0.00초·exit0입니다. graph에는 값/문자/메시지·문서/요청/URI/작업 상한, 변경/이전 observer·미발송 복원, 실제 direct/transitive 의존 및 최종 quota 실패의 원자성 검사가 포함됩니다. 기존Core387+신규graph5의392서로 다른 성공/성능1ignored·current JSONCore49/Syntax5이며 기존 성공과 새 Syntax1을 중복 합산하지 않습니다.
+
+host-core.log/lib+graph/refs/service/load test11.31초·host-syntax.log/lib+schema-service test13.94초·wasm.log/Syntax lib+Core dependency9.45초는17319 handle에서 exit0·새경고0입니다. 소유Rust7/MJS5 format·MIT/소유diff와 manifest/lock/동결 변경0을 확인했습니다. 외부 graph/캐시 단위만 닫고 실제 HTTP/file adapter·schema semantic/조회/완성/실제 App·CSS/HTML/TS와 전체 App 준비/remoteWasm·OS/regex 성능/전환/최종33 게이트는 부모b3e/전체 목표에 유지합니다. 전체303/588(51.5%)·미완료285·editor-57missing/editor-16partial·목표active·잔여시간미산정입니다.

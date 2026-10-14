@@ -62,15 +62,14 @@ pub struct Resolved {
     pub schema_draft: Option<Vec<u16>>,
 }
 
-struct Resolver<'a> {
-    result: Resolved,
-    uri: &'a str,
-    limits: Limits,
-    work: usize,
+pub(crate) struct Resolver {
+    pub(crate) result: Resolved,
+    pub(crate) limits: Limits,
+    pub(crate) work: usize,
     merges: usize,
     text_units: usize,
     message_units: usize,
-    anchors: Option<BTreeMap<Vec<u16>, usize>>,
+    pub(crate) anchors: Option<BTreeMap<Vec<u16>, usize>>,
 }
 
 fn member(arena: &Arena, index: usize, key: &str) -> Option<usize> {
@@ -146,7 +145,7 @@ fn hex(unit: u16) -> Option<u8> {
     u8::try_from(value).ok()
 }
 
-fn decode(input: &[u16]) -> Result<Vec<u16>, EditorError> {
+pub(crate) fn decode(input: &[u16]) -> Result<Vec<u16>, EditorError> {
     let mut result = Vec::new();
     let mut cursor = 0;
     while cursor < input.len() {
@@ -170,7 +169,7 @@ fn decode(input: &[u16]) -> Result<Vec<u16>, EditorError> {
     Ok(result)
 }
 
-fn pointer(
+pub(crate) fn pointer(
     arena: &Arena,
     root: usize,
     path: &[u16],
@@ -238,8 +237,8 @@ fn pointer(
     Ok(Some(current))
 }
 
-impl Resolver<'_> {
-    fn charge(&mut self, count: usize) -> Result<(), EditorError> {
+impl Resolver {
+    pub(crate) fn charge(&mut self, count: usize) -> Result<(), EditorError> {
         self.work = self.work.checked_add(count).ok_or(EditorError::Capacity)?;
         if self.work > self.limits.max_work {
             return Err(EditorError::Capacity);
@@ -255,7 +254,7 @@ impl Resolver<'_> {
         Ok(())
     }
 
-    fn account(&mut self, units: usize) -> Result<(), EditorError> {
+    pub(crate) fn account(&mut self, units: usize) -> Result<(), EditorError> {
         self.text_units = self
             .text_units
             .checked_add(units)
@@ -292,6 +291,26 @@ impl Resolver<'_> {
         Ok(())
     }
 
+    pub(crate) fn message(&mut self, parts: &[&[u16]]) -> Result<(), EditorError> {
+        let units = parts.iter().try_fold(0usize, |count, part| {
+            count.checked_add(part.len()).ok_or(EditorError::Capacity)
+        })?;
+        let total = self
+            .message_units
+            .checked_add(units)
+            .ok_or(EditorError::Capacity)?;
+        if self.result.errors.len() >= self.limits.max_messages
+            || total > self.limits.max_message_units
+        {
+            return Err(EditorError::Capacity);
+        }
+        self.message_units = total;
+        self.result
+            .errors
+            .push(parts.iter().flat_map(|part| part.iter().copied()).collect());
+        Ok(())
+    }
+
     fn unsupported(&mut self, index: usize, fields: &[&'static str]) {
         for &field in fields {
             if member(&self.result.schema, index, field)
@@ -304,23 +323,17 @@ impl Resolver<'_> {
         }
     }
 
-    fn unresolved(&mut self, fragment: &[u16]) -> Result<(), EditorError> {
-        let required = "$ref '' in '' can not be resolved."
-            .encode_utf16()
-            .count()
-            .checked_add(fragment.len())
-            .and_then(|count| count.checked_add(self.uri.encode_utf16().count()))
-            .ok_or(EditorError::Capacity)?;
-        if self.result.errors.len() >= self.limits.max_messages
-            || required > self.limits.max_message_units - self.message_units
-        {
-            return Err(EditorError::Capacity);
-        }
-        let suffix = format!("' in '{}' can not be resolved.", self.uri);
-        self.error("$ref '", fragment, &suffix)
+    pub(crate) fn unresolved(&mut self, fragment: &[u16], uri: &[u16]) -> Result<(), EditorError> {
+        self.message(&[
+            &"$ref '".encode_utf16().collect::<Vec<_>>(),
+            fragment,
+            &"' in '".encode_utf16().collect::<Vec<_>>(),
+            uri,
+            &"' can not be resolved.".encode_utf16().collect::<Vec<_>>(),
+        ])
     }
 
-    fn build_anchors(&mut self, root: usize) -> Result<(), EditorError> {
+    pub(crate) fn build_anchors(&mut self, root: usize) -> Result<(), EditorError> {
         let mut anchors = BTreeMap::new();
         let mut pending = vec![root];
         let mut seen = BTreeSet::new();
@@ -361,7 +374,7 @@ impl Resolver<'_> {
         Ok(())
     }
 
-    fn merge(&mut self, target: usize, section: usize) -> Result<(), EditorError> {
+    pub(crate) fn merge(&mut self, target: usize, section: usize) -> Result<(), EditorError> {
         if self.merges >= self.limits.max_merges {
             return Err(EditorError::Capacity);
         }
@@ -439,13 +452,13 @@ impl Resolver<'_> {
         Ok(())
     }
 
-    fn run(mut self) -> Result<Resolved, EditorError> {
-        let root = self
-            .result
-            .schema
-            .root()
-            .ok_or(EditorError::InvalidBoundary)?;
-        let mut pending = vec![root];
+    pub(crate) fn traverse(
+        &mut self,
+        node: usize,
+        root: usize,
+        uri: &[u16],
+    ) -> Result<(), EditorError> {
+        let mut pending = vec![node];
         let mut visited = BTreeSet::new();
         while let Some(index) = pending.pop() {
             self.step()?;
@@ -531,7 +544,7 @@ impl Resolver<'_> {
                 if let Some(section) = section {
                     self.merge(index, section)?;
                 } else {
-                    self.unresolved(fragment)?;
+                    self.unresolved(fragment, uri)?;
                 }
             }
             if !is_external {
@@ -544,7 +557,7 @@ impl Resolver<'_> {
                 remaining.saturating_sub(pending.len()),
             )?);
         }
-        Ok(self.result)
+        Ok(())
     }
 }
 
@@ -554,6 +567,22 @@ pub fn resolve_local(input: &str, uri: &str, limits: Limits) -> Result<Resolved,
 }
 
 pub fn resolve_arena(schema: Arena, uri: &str, limits: Limits) -> Result<Resolved, EditorError> {
+    let (mut resolver, is_old_draft) = create_resolver(schema, limits)?;
+    if !is_old_draft {
+        let root = resolver
+            .result
+            .schema
+            .root()
+            .ok_or(EditorError::InvalidBoundary)?;
+        resolver.traverse(root, root, &uri.encode_utf16().collect::<Vec<_>>())?;
+    }
+    Ok(resolver.result)
+}
+
+pub(crate) fn create_resolver(
+    schema: Arena,
+    limits: Limits,
+) -> Result<(Resolver, bool), EditorError> {
     if schema.values().len() > limits.values.max_values {
         return Err(EditorError::Capacity);
     }
@@ -604,7 +633,6 @@ pub fn resolve_arena(schema: Arena, uri: &str, limits: Limits) -> Result<Resolve
             external: Vec::new(),
             schema_draft,
         },
-        uri,
         limits,
         work: 0,
         merges: 0,
@@ -615,7 +643,7 @@ pub fn resolve_arena(schema: Arena, uri: &str, limits: Limits) -> Result<Resolve
     if is_old_draft {
         resolver.result.schema.nodes[root] = Value::Object(Vec::new());
         resolver.error("Draft-03 schemas are not supported.", &[], "")?;
-        return Ok(resolver.result);
+        return Ok((resolver, true));
     }
-    resolver.run()
+    Ok((resolver, false))
 }

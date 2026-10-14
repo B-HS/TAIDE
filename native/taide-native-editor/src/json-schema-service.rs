@@ -40,6 +40,7 @@ pub struct Ticket {
     handle: u64,
     generation: u64,
     phase: Phase,
+    sequence: u64,
 }
 
 impl PartialEq for Ticket {
@@ -48,6 +49,7 @@ impl PartialEq for Ticket {
             && self.handle == other.handle
             && self.generation == other.generation
             && self.phase == other.phase
+            && self.sequence == other.sequence
     }
 }
 
@@ -67,9 +69,11 @@ pub enum ResolveState {
     Pending(Ticket),
 }
 
+#[derive(Clone)]
 struct Handle {
     id: Vec<u16>,
     generation: u64,
+    resolve_sequence: u64,
     unresolved: Option<Arc<Unresolved>>,
     resolved: Option<Arc<Resolved>>,
     load_pending: bool,
@@ -197,9 +201,29 @@ impl<'a> Service<'a> {
         cache: Option<(&[u16], Option<&[u16]>)>,
         new_registered: Option<&[u16]>,
     ) -> Result<(), EditorError> {
+        let handles = new_handle.into_iter().collect::<Vec<_>>();
+        self.check_handles(
+            kept,
+            &handles,
+            new_association,
+            registered_count,
+            cache,
+            new_registered,
+        )
+    }
+
+    fn check_handles(
+        &self,
+        kept: &BTreeSet<u64>,
+        new_handles: &[&Handle],
+        new_association: Option<&AssociationEntry>,
+        registered_count: usize,
+        cache: Option<(&[u16], Option<&[u16]>)>,
+        new_registered: Option<&[u16]>,
+    ) -> Result<(), EditorError> {
         let count = kept
             .len()
-            .checked_add(usize::from(new_handle.is_some()))
+            .checked_add(new_handles.len())
             .ok_or(EditorError::Capacity)?;
         let association_count = self
             .associations
@@ -217,7 +241,7 @@ impl<'a> Service<'a> {
         for handle in kept
             .iter()
             .filter_map(|key| self.handles.get(key))
-            .chain(new_handle)
+            .chain(new_handles.iter().copied())
         {
             let cost = handle_cost(handle, self.limits)?;
             add(&mut values, cost.0)?;
@@ -282,6 +306,7 @@ impl<'a> Service<'a> {
         let handle = Handle {
             id: id.clone(),
             generation: 0,
+            resolve_sequence: 0,
             unresolved: None,
             resolved: None,
             load_pending: false,
@@ -352,6 +377,7 @@ impl<'a> Service<'a> {
         let handle = Handle {
             id: id.clone(),
             generation: 0,
+            resolve_sequence: 0,
             unresolved: schema.map(|schema| {
                 Arc::new(Unresolved {
                     schema,
@@ -512,6 +538,7 @@ impl<'a> Service<'a> {
                 prepared = Some(Handle {
                     id: id.clone(),
                     generation: 0,
+                    resolve_sequence: 0,
                     unresolved: None,
                     resolved: None,
                     load_pending: false,
@@ -565,6 +592,7 @@ impl<'a> Service<'a> {
             let handle = Handle {
                 id: id.clone(),
                 generation: 0,
+                resolve_sequence: 0,
                 unresolved: Some(Arc::new(Unresolved {
                     schema,
                     errors: Vec::new(),
@@ -604,17 +632,22 @@ impl<'a> Service<'a> {
             handle: key,
             generation: handle.generation,
             phase,
+            sequence: if phase == Phase::Resolve {
+                handle.resolve_sequence
+            } else {
+                0
+            },
         })
     }
 
-    fn lookup_id(&self, id: &[u16]) -> Result<Vec<u16>, EditorError> {
+    pub(crate) fn lookup_id(&self, id: &[u16]) -> Result<Vec<u16>, EditorError> {
         if self.schemas.contains_key(id) {
             return Ok(id.to_vec());
         }
         json_schema_uri::normalize_id(id, self.limits.associations.uri)
     }
 
-    fn verify(&self, ticket: &Ticket, phase: Phase) -> Result<u64, EditorError> {
+    fn verify_owner(&self, ticket: &Ticket, phase: Phase) -> Result<u64, EditorError> {
         if !Arc::ptr_eq(&self.owner, &ticket.owner) || ticket.phase != phase {
             return Err(EditorError::StaleRevision);
         }
@@ -623,10 +656,25 @@ impl<'a> Service<'a> {
             .get(&ticket.handle)
             .ok_or(EditorError::StaleRevision)?;
         if handle.generation != ticket.generation
-            || self.schemas.get(&handle.id) != Some(&ticket.handle)
+            || phase == Phase::Resolve && ticket.sequence != handle.resolve_sequence
         {
             return Err(EditorError::StaleRevision);
         }
+        Ok(ticket.handle)
+    }
+
+    fn verify_identity(&self, ticket: &Ticket, phase: Phase) -> Result<u64, EditorError> {
+        let key = self.verify_owner(ticket, phase)?;
+        let handle = self.handles.get(&key).ok_or(EditorError::NotFound)?;
+        if self.schemas.get(&handle.id) != Some(&key) {
+            return Err(EditorError::StaleRevision);
+        }
+        Ok(key)
+    }
+
+    fn verify(&self, ticket: &Ticket, phase: Phase) -> Result<u64, EditorError> {
+        let key = self.verify_identity(ticket, phase)?;
+        let handle = self.handles.get(&key).ok_or(EditorError::NotFound)?;
         let pending = if phase == Phase::Load {
             handle.load_pending
         } else {
@@ -635,12 +683,72 @@ impl<'a> Service<'a> {
         if !pending {
             return Err(EditorError::StaleRevision);
         }
-        Ok(ticket.handle)
+        Ok(key)
     }
 
     pub fn request_uri(&self, ticket: &Ticket) -> Result<&[u16], EditorError> {
         let key = self.verify(ticket, ticket.phase)?;
         Ok(&self.handles.get(&key).ok_or(EditorError::NotFound)?.id)
+    }
+
+    pub fn watch_load(&self, id: &[u16]) -> Result<Ticket, EditorError> {
+        let id = self.lookup_id(id)?;
+        let key = *self.schemas.get(&id).ok_or(EditorError::NotFound)?;
+        self.ticket(key, Phase::Load)
+    }
+
+    pub fn read_unresolved(&self, ticket: &Ticket) -> Result<Option<Arc<Unresolved>>, EditorError> {
+        let key = self.verify_identity(ticket, Phase::Load)?;
+        Ok(self
+            .handles
+            .get(&key)
+            .ok_or(EditorError::NotFound)?
+            .unresolved
+            .clone())
+    }
+
+    pub fn read_resolved(&self, ticket: &Ticket) -> Result<Option<Arc<Resolved>>, EditorError> {
+        let key = self.verify_identity(ticket, Phase::Resolve)?;
+        Ok(self
+            .handles
+            .get(&key)
+            .ok_or(EditorError::NotFound)?
+            .resolved
+            .clone())
+    }
+
+    pub fn cancel_resolve(&mut self, ticket: &Ticket) -> Result<(), EditorError> {
+        let key = self.verify_owner(ticket, Phase::Resolve)?;
+        let handle = self.handles.get_mut(&key).ok_or(EditorError::NotFound)?;
+        if !handle.resolve_pending {
+            return Err(EditorError::StaleRevision);
+        }
+        let sequence = handle
+            .resolve_sequence
+            .checked_add(1)
+            .ok_or(EditorError::RevisionOverflow)?;
+        handle.resolve_sequence = sequence;
+        handle.resolve_pending = false;
+        Ok(())
+    }
+
+    pub fn cancel_load(&mut self, ticket: &Ticket) -> Result<(), EditorError> {
+        let key = self.verify_owner(ticket, Phase::Load)?;
+        let handle = self.handles.get_mut(&key).ok_or(EditorError::NotFound)?;
+        if !handle.load_pending {
+            return Err(EditorError::StaleRevision);
+        }
+        let generation = handle
+            .generation
+            .checked_add(1)
+            .ok_or(EditorError::RevisionOverflow)?;
+        handle.generation = generation;
+        handle.load_pending = false;
+        handle.resolve_pending = false;
+        handle.unresolved = None;
+        handle.resolved = None;
+        handle.dependencies.clear();
+        Ok(())
     }
 
     pub fn begin_load(&mut self, id: &[u16]) -> Result<LoadState, EditorError> {
@@ -668,15 +776,18 @@ impl<'a> Service<'a> {
         if let Some(resolved) = &handle.resolved {
             return Ok(ResolveState::Ready(Arc::clone(resolved)));
         }
-        let ticket = self.ticket(key, Phase::Resolve)?;
         if handle.resolve_pending {
-            return Ok(ResolveState::Pending(ticket));
+            return Ok(ResolveState::Pending(self.ticket(key, Phase::Resolve)?));
         }
+        let sequence = handle
+            .resolve_sequence
+            .checked_add(1)
+            .ok_or(EditorError::RevisionOverflow)?;
         let source = self.begin_load(&id)?;
-        self.handles
-            .get_mut(&key)
-            .ok_or(EditorError::NotFound)?
-            .resolve_pending = true;
+        let handle = self.handles.get_mut(&key).ok_or(EditorError::NotFound)?;
+        handle.resolve_sequence = sequence;
+        handle.resolve_pending = true;
+        let ticket = self.ticket(key, Phase::Resolve)?;
         Ok(ResolveState::Start { ticket, source })
     }
 
@@ -693,6 +804,7 @@ impl<'a> Service<'a> {
         let candidate = Handle {
             id: current.id.clone(),
             generation: current.generation,
+            resolve_sequence: current.resolve_sequence,
             unresolved: Some(Arc::new(unresolved)),
             resolved: current.resolved.clone(),
             load_pending: false,
@@ -741,6 +853,7 @@ impl<'a> Service<'a> {
         let candidate = Handle {
             id: current.id.clone(),
             generation: current.generation,
+            resolve_sequence: current.resolve_sequence,
             unresolved: current.unresolved.clone(),
             resolved: Some(Arc::new(resolved)),
             load_pending: current.load_pending,
@@ -758,6 +871,66 @@ impl<'a> Service<'a> {
             None,
         )?;
         self.handles.insert(key, candidate);
+        Ok(())
+    }
+
+    pub fn publish_graph(
+        &mut self,
+        ticket: &Ticket,
+        resolved: Resolved,
+        dependencies: &[(Ticket, Vec<Vec<u16>>)],
+    ) -> Result<(), EditorError> {
+        let root = self.verify(ticket, Phase::Resolve)?;
+        if !resolved.external.is_empty() {
+            return Err(EditorError::InvalidBoundary);
+        }
+        if dependencies.len() > self.limits.max_handles {
+            return Err(EditorError::Capacity);
+        }
+        let mut candidates = BTreeMap::<u64, Handle>::new();
+        for (watch, uris) in dependencies {
+            let key = self.verify_identity(watch, Phase::Load)?;
+            if uris.len() > self.limits.max_handles {
+                return Err(EditorError::Capacity);
+            }
+            let current = self.handles.get(&key).ok_or(EditorError::NotFound)?;
+            if current.unresolved.is_none() || current.load_pending {
+                return Err(EditorError::InvalidBoundary);
+            }
+            let candidate = candidates.entry(key).or_insert_with(|| current.clone());
+            for uri in uris {
+                let uri = json_schema_uri::normalize_id(uri, self.limits.associations.uri)?;
+                if !candidate.dependencies.contains(&uri) {
+                    candidate.dependencies.push(uri);
+                }
+            }
+            if candidate.dependencies.len() > self.limits.max_handles {
+                return Err(EditorError::Capacity);
+            }
+        }
+        let current = self.handles.get(&root).ok_or(EditorError::NotFound)?;
+        if current.unresolved.is_none() || current.load_pending {
+            return Err(EditorError::InvalidBoundary);
+        }
+        let candidate = candidates.entry(root).or_insert_with(|| current.clone());
+        candidate.resolved = Some(Arc::new(resolved));
+        candidate.resolve_pending = false;
+        let mut kept = self.kept(None);
+        for key in candidates.keys() {
+            kept.remove(key);
+        }
+        let handles = candidates.values().collect::<Vec<_>>();
+        self.check_handles(
+            &kept,
+            &handles,
+            None,
+            self.registered.len(),
+            self.cache(),
+            None,
+        )?;
+        for (key, candidate) in candidates {
+            self.handles.insert(key, candidate);
+        }
         Ok(())
     }
 

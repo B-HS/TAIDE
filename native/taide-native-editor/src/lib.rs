@@ -47,6 +47,8 @@ pub mod json_format;
 pub mod json_parser;
 #[path = "json-schema-associations.rs"]
 pub mod json_schema_associations;
+#[path = "json-schema-graph.rs"]
+pub mod json_schema_graph;
 #[path = "json-schema-load.rs"]
 pub mod json_schema_load;
 #[path = "json-schema-refs.rs"]

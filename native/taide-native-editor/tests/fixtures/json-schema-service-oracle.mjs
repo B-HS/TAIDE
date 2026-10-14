@@ -1,6 +1,8 @@
 import { JSONSchemaService } from '../../../../node_modules/monaco-editor/esm/external/vscode-json-languageservice/lib/esm/services/jsonSchemaService.js'
 import { TextDocument } from '../../../../node_modules/monaco-editor/esm/external/vscode-languageserver-textdocument/lib/esm/main.js'
 
+import { createWorkerContext } from './json-schema-worker-context.mjs'
+
 import { rustLiteral } from './emmet-rust-literal.mjs'
 
 const SERVICE_URL = new URL(
@@ -24,20 +26,7 @@ const remap = (source, url) =>
     source.replace(/(from\s+|import\s+)'(\.[^']+)'/g, (_, prefix, path) => `${prefix}${JSON.stringify(new URL(path, url).href)}`)
 await Bun.write(SERVICE_PATCH, `${remap(serviceSource, SERVICE_URL)}\nexport { normalizeId };\n`)
 const corrected = await import(SERVICE_PATCH.href)
-const WORKER_URL = new URL('../../../../node_modules/monaco-editor/esm/vs/languages/features/json/jsonWorker.js', import.meta.url)
-const WORKER_PATCH = new URL('file:///private/tmp/taide-json-schema-service-worker-oracle.mjs')
-const workerSource = await Bun.file(WORKER_URL).text()
-const WORKER_MARKER = 'this._languageService = getLanguageService({'
-if (workerSource.split(WORKER_MARKER).length !== 2) throw new Error('Unexpected original worker context marker')
-await Bun.write(
-    WORKER_PATCH,
-    `${remap(workerSource.replace(WORKER_MARKER, 'this._languageService = captureLanguageService({'), WORKER_URL)}\nlet capturedContext;\nconst captureLanguageService = (params) => { capturedContext=params.workspaceContext; return getLanguageService(params); };\nexport { capturedContext };\n`,
-)
-const workerModule = await import(WORKER_PATCH.href)
-const worker = new workerModule.JSONWorker(
-    { getMirrorModels: () => [] },
-    { languageSettings: { schemas: [] }, languageId: 'json', enableSchemaRequest: false },
-)
+const { worker, context } = await createWorkerContext(new URL('file:///private/tmp/taide-json-schema-service-worker-oracle.mjs'))
 const hex = (value) => Array.from({ length: value.length }, (_, index) => value.charCodeAt(index).toString(16)).join(',')
 const describe = (root) => {
     const queue = [{ value: root, parent: -1, edge: '-' }]
@@ -149,7 +138,7 @@ const run = async (Class, events) => {
             requests += 1
             return JSON.stringify({ title: `loaded:${uri}` })
         },
-        workerModule.capturedContext,
+        context,
         Promise,
     )
     const results = []

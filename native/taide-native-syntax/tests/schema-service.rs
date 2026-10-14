@@ -250,3 +250,63 @@ fn schema_service는_실제consumer에서_명시schema가_파일연관을_우선
         LoadState::Start(_)
     ));
 }
+
+#[test]
+fn schema_service는_실제패턴_합성선택을_외부graph와_캐시에_연결한다() {
+    use taide_native_editor::json_schema_graph::{self, Job, Progress, Start};
+    let mut service = Service::new(&JsonSchemaPatternCompiler, LIMITS);
+    for (uri, body) in [
+        ("https://schema.example/a.json", "{\"type\":\"string\"}"),
+        ("https://schema.example/b.json", "{\"minLength\":1}"),
+    ] {
+        service
+            .register(
+                &units(uri),
+                Some(Arc::new(json_value::parse(body, VALUE_LIMITS).unwrap())),
+                &[units("*.json")],
+                None,
+                false,
+            )
+            .unwrap();
+    }
+    let selected = service
+        .select(&units("file:///workspace/document.json"), None)
+        .unwrap()
+        .unwrap();
+    let limits = json_schema_graph::Limits {
+        refs: REF_LIMITS,
+        uri: URI_LIMITS,
+        max_documents: 128,
+        max_requests: 1024,
+        max_uri_units: 1024 * 1024,
+    };
+    let Start::Job(job) = Job::start(&mut service, &selected, true, limits).unwrap() else {
+        panic!("missing combined graph");
+    };
+    let Progress::Ready(result) = job.advance(&mut service).unwrap() else {
+        panic!("registered schemas unexpectedly requested IO");
+    };
+    assert!(result.errors.is_empty());
+    assert!(result.external.is_empty());
+    let arena = &result.schema;
+    let array = arena
+        .member(arena.root().unwrap(), &units("allOf"))
+        .unwrap();
+    let first = arena.item(array, 0).unwrap();
+    let second = arena.item(array, 1).unwrap();
+    assert!(arena.member(first, &units("type")).is_some());
+    assert!(arena.member(second, &units("minLength")).is_some());
+    let Start::Ready(cached) = Job::start(&mut service, &selected, true, limits).unwrap() else {
+        panic!("missing combined cache");
+    };
+    assert!(Arc::ptr_eq(&result, &cached));
+    assert!(
+        service
+            .on_resource_change(&units("https://schema.example/b.json"))
+            .unwrap()
+    );
+    assert!(matches!(
+        Job::start(&mut service, &selected, true, limits).unwrap(),
+        Start::Job(_)
+    ));
+}
