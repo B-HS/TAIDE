@@ -1,6 +1,6 @@
 {
     "date": "2026-10-14",
-    "baseline": "9c4b7537",
+    "baseline": "b701d53b",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1357,7 +1357,9 @@
                 "native/taide-native-app/src/problems.rs",
                 "native/taide-native-app/src/editor-problems.rs",
                 "native/taide-native-ui/src/editor_surface.rs",
-                "native/taide-native-app/src/editor-selection-ranges.rs"
+                "native/taide-native-app/src/editor-selection-ranges.rs",
+                "native/taide-native-app/src/editor-json-formatting.rs",
+                "native/taide-native-app/src/editor-formatting.rs"
             ],
             "tests": [
                 "native/taide-native-editor/tests/json-scanner.rs",
@@ -1424,10 +1426,11 @@
                 "native/taide-native-app/src/problems-tests.rs",
                 "native/taide-native-app/src/editor-problems-tests.rs",
                 "native/taide-native-ui/tests/editor-sticky-scroll.rs",
-                "native/taide-native-app/src/editor-selection-ranges-tests.rs"
+                "native/taide-native-app/src/editor-selection-ranges-tests.rs",
+                "native/taide-native-app/src/editor-formatting-tests.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-14-native-batch23-builtin-language-services.md"],
-            "limitation": "JSON 파일/untitled/peek 구조·진단/호버·문제 목록/프로젝트 간 이동에 이어 9c4b7537은 내장 선택 확장을 연결했습니다. 원본 registry.all처럼 외부/native 범위를 최대1개 문서 작업으로 기다려 기존 선택 이력에 합칩니다. 상태7/실제App2의9통과에서 파일·untitled·일반/readonly peek의 속성 단위 확장/원 caret 복귀·다중 위치·비BMP/본문 분리·원문/revision·공급자 교체/닫힘/tasks0을 확인했습니다. 변경 없는 Core JSON 원본 oracle와 UI/Wasm 성공은 재사용합니다. 7d8d3930의 실제 두 프로젝트 문제 이동·9f59217a의 고정 줄 포커스/peek 오류 소비도 제공하며 FSEvents 등록 RPC 지연은 미해결입니다. 언어 선택 UI·schema semantic·JSON 포맷/조회/완성·CSS/HTML/TS·전체 App 준비/OS/접근성/대형 성능/출시 게이트가 남아 partial입니다."
+            "limitation": "JSON 구조·진단/문제 이동·선택 확장에 이어 b701d53b는 문서/선택 명령과 paste 포맷을 연결했습니다. 실제 종료 기준 최대1개 native 작업과 기존 문서 옵션·외부 formatter 선택·minimal edit/독립 undo를 사용합니다. 상태9/실제App2의11통과에서 파일/untitled·일반/readonly peek·같은 줄 다중 선택·paste와 분리 undo·늦은 선택 변경 거절/JSON onType 미요청·본문 분리/원문/닫힘/tasks0을 확인했습니다. 원본 range formatter와 같은 선택 내부 공백 동작이며 화면 준비/컴파일·기대값 실패를 QA에 보존합니다. 9c4b7537의 외부/native 선택 범위 합성·7d8d3930의 두 프로젝트 문제 이동도 제공하고 변경 없는 Core/UI/Wasm 성공을 재사용합니다. 저장 포맷·언어 선택 UI·schema semantic·JSON 조회/완성·CSS/HTML/TS·전체 App 준비/OS 감시 RPC 지연/성능/출시 게이트가 남아 partial입니다."
         }
     },
     "rows": [
@@ -3145,7 +3148,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-builtin-language-services",
-            "note": "JSON 파일/untitled/peek 구조·진단/호버·문제 목록/프로젝트 간 이동에 이어 9c4b7537은 내장 선택 확장을 연결했습니다. 원본 registry.all처럼 외부/native 범위를 최대1개 문서 작업으로 기다려 기존 선택 이력에 합칩니다. 상태7/실제App2의9통과에서 파일·untitled·일반/readonly peek의 속성 단위 확장/원 caret 복귀·다중 위치·비BMP/본문 분리·원문/revision·공급자 교체/닫힘/tasks0을 확인했습니다. 변경 없는 Core JSON 원본 oracle와 UI/Wasm 성공은 재사용합니다. 7d8d3930의 실제 두 프로젝트 문제 이동·9f59217a의 고정 줄 포커스/peek 오류 소비도 제공하며 FSEvents 등록 RPC 지연은 미해결입니다. 언어 선택 UI·schema semantic·JSON 포맷/조회/완성·CSS/HTML/TS·전체 App 준비/OS/접근성/대형 성능/출시 게이트가 남아 partial입니다."
+            "note": "JSON 구조·진단/문제 이동·선택 확장에 이어 b701d53b는 문서/선택 명령과 paste 포맷을 연결했습니다. 실제 종료 기준 최대1개 native 작업과 기존 문서 옵션·외부 formatter 선택·minimal edit/독립 undo를 사용합니다. 상태9/실제App2의11통과에서 파일/untitled·일반/readonly peek·같은 줄 다중 선택·paste와 분리 undo·늦은 선택 변경 거절/JSON onType 미요청·본문 분리/원문/닫힘/tasks0을 확인했습니다. 원본 range formatter와 같은 선택 내부 공백 동작이며 화면 준비/컴파일·기대값 실패를 QA에 보존합니다. 9c4b7537의 외부/native 선택 범위 합성·7d8d3930의 두 프로젝트 문제 이동도 제공하고 변경 없는 Core/UI/Wasm 성공을 재사용합니다. 저장 포맷·언어 선택 UI·schema semantic·JSON 조회/완성·CSS/HTML/TS·전체 App 준비/OS 감시 RPC 지연/성능/출시 게이트가 남아 partial입니다."
         },
         {
             "id": "editor-58",
