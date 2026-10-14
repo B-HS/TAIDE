@@ -130,7 +130,7 @@ pub struct NativeApplication {
     editor_folding: crate::editor_folding::State,
     editor_json: crate::editor_json::State,
     editor_json_validation: crate::editor_json_validation::State,
-    problem_opens: Vec<(ProjectId, crate::problems::Open)>,
+    problem_opens: Vec<crate::problems::Open>,
     editor_locations: crate::editor_locations::State,
     editor_documentation: crate::editor_documentation::State,
     editor_completion: crate::editor_completion::State,
@@ -990,13 +990,25 @@ impl NativeApplication {
                     }
                 }
                 HostReply::MarkerOpened { request, result } => {
-                    if self.closing.is_none()
+                    let owns_source = !matches!(
+                        request.key,
+                        taide_native_editor::document::DocumentKey::Untitled(_)
+                    ) || self
+                        .services
+                        .state
+                        .layouts
+                        .read()
+                        .get(&request.project)
+                        .is_some_and(|layout| request.source_is_owned(layout));
+                    if !owns_source {
+                        self.editor_problems.failed(&request);
+                    } else if self.closing.is_none()
                         && !self.services.state.is_shutting_down()
                         && self.editor_problems.accepts(&request, &self.store)
                     {
                         match result {
                             Ok(opened)
-                                if crate::editor_problems::reply_is_current(
+                                if crate::editor_problems::document_reply_is_current(
                                     &opened,
                                     &self.services.state.layouts.read(),
                                 ) =>
@@ -4136,32 +4148,43 @@ impl NativeApplication {
             self.clear_builtin_json();
             return;
         }
-        for (project, open) in std::mem::take(&mut self.problem_opens) {
+        for open in std::mem::take(&mut self.problem_opens) {
             let Ok(snapshot) = self.store.documents().snapshot(open.document) else {
                 continue;
             };
             if snapshot.key != open.key || snapshot.revision != open.revision {
                 continue;
             }
-            let layout = self.controller.snapshot().layouts.get(&project).cloned();
-            let Some(key) = self
-                .store
-                .views()
-                .for_document(open.document)
-                .find(|view| {
-                    view.key.window == WINDOW_LABEL
-                        && layout.as_ref().is_some_and(|layout| {
-                            taide_layout::service::all_roots(layout).any(|root| {
-                                crate::tabs::tabs_in(root)
-                                    .iter()
-                                    .any(|tab| tab.id == view.key.tab)
-                            })
-                        })
-                })
-                .map(|view| view.key.clone())
-            else {
+            let taide_native_editor::document::DocumentKey::Untitled(tab) = &open.key else {
                 continue;
             };
+            let destination =
+                self.controller
+                    .snapshot()
+                    .layouts
+                    .iter()
+                    .find_map(|(project, layout)| {
+                        let (root, _) =
+                            crate::symbol_sidebar::window_tree(project, layout, &self.shell.scope)?;
+                        let (pane, _) = taide_layout::service::find_tab(root, tab)?;
+                        let actual = crate::tabs::tabs_in(root)
+                            .into_iter()
+                            .find(|entry| entry.id == *tab)?;
+                        matches!(actual.kind, TabKind::Untitled { .. })
+                            .then(|| (project.clone(), pane.clone()))
+                    });
+            let Some((project, pane)) = destination else {
+                continue;
+            };
+            let key = ViewKey {
+                window: WINDOW_LABEL.into(),
+                pane,
+                tab: tab.clone(),
+            };
+            if let Err(error) = self.store.attach_view(key.clone(), snapshot.id) {
+                self.report(&editor_error(error));
+                continue;
+            }
             let position = taide_native_editor::lsp::Position::new(
                 u32::try_from(open.line.saturating_sub(1)).unwrap_or(u32::MAX),
                 u32::try_from(open.column.saturating_sub(1)).unwrap_or(u32::MAX),
@@ -4177,6 +4200,14 @@ impl NativeApplication {
                 });
             match result {
                 Ok(Some(view)) => {
+                    if matches!(self.shell.scope, WindowScope::Main)
+                        && let Err(error) = self
+                            .controller
+                            .submit(ShellMutation::ActivateProject(project))
+                    {
+                        self.report(&error);
+                        continue;
+                    }
                     for command in [
                         ShellMutation::FocusPane(key.pane.clone()),
                         ShellMutation::ActivateTab(key.tab.clone()),
@@ -4185,7 +4216,6 @@ impl NativeApplication {
                             self.report(&error);
                         }
                     }
-                    self.focused = Some((key.pane, key.tab));
                     if let Some(body) = crate::editor_context_menu::body(context, view) {
                         context.memory_mut(|memory| memory.request_focus(body));
                     }
@@ -7910,7 +7940,7 @@ async fn drain_services(services: &Arc<AppServices>) -> AppResult<()> {
 }
 
 struct AppSurfaces<'a> {
-    problem_opens: &'a mut Vec<(ProjectId, crate::problems::Open)>,
+    problem_opens: &'a mut Vec<crate::problems::Open>,
     tooltips: &'a crate::tooltips::Provider,
     tooltip_appearance: &'a crate::tooltips::Appearance,
     problems: &'a mut crate::problems::Views,
@@ -8079,7 +8109,7 @@ impl ShellSurfaces for AppSurfaces<'_> {
                 open.key,
                 taide_native_editor::document::DocumentKey::Untitled(_)
             ) {
-                self.problem_opens.push((project.clone(), open));
+                self.problem_opens.push(open);
                 ui.ctx().request_repaint();
                 continue;
             }
@@ -9071,7 +9101,7 @@ impl AppSurfaces<'_> {
                 let mut problem_provider = crate::editor_problems::Provider {
                     state: &mut *self.editor_problems, diagnostics: self.diagnostics,
                     project: self.layouts.iter().find(|(_, layout)| taide_layout::service::all_roots(layout).any(|root| taide_layout::service::find_leaf(root, pane).is_some())).map(|(project, _)| project.clone()),
-                    commands: &mut *self.commands, viewport: ui.ctx().viewport_id(),
+                    commands: &mut *self.commands, viewport: ui.ctx().viewport_id(), scope: self.scope,
                 };
                 if ui.is_enabled() {
                     for (_, edit) in self.document_edits.extract_if(.., |(owner, edit)| owner == &tab.id && matches!(edit, DocumentEdit::Problem(_))) {

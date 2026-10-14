@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use taide_model::ids::ProjectId;
+use taide_model::ids::{PaneId, ProjectId, TabId};
 use taide_model::layout::{ProjectLayout, TabKind};
 use taide_native_editor::diagnostics::MarkerSet;
 use taide_native_editor::document::{DocumentId, DocumentKey, EditorError};
@@ -18,18 +18,87 @@ pub struct Request {
     pub(crate) source_key: ViewKey,
     pub(crate) source_document: DocumentId,
     pub(crate) project: ProjectId,
-    pub(crate) path: String,
+    pub(crate) key: DocumentKey,
     pub(crate) line: u64,
     pub(crate) column: u64,
     pub(crate) viewport: eframe::egui::ViewportId,
+    pub(crate) scope: taide_native_ui::shell::WindowScope,
     coordinate: Coordinate,
     markers: MarkerSet,
     all_files: bool,
 }
 
+pub struct Opened {
+    pub(crate) project: ProjectId,
+    pub(crate) pane: PaneId,
+    pub(crate) tab: TabId,
+    pub(crate) key: DocumentKey,
+    pub(crate) viewport: eframe::egui::ViewportId,
+    pub(crate) layout: ProjectLayout,
+}
+
+impl From<crate::terminal_tabs::OpenedFileLink> for Opened {
+    fn from(opened: crate::terminal_tabs::OpenedFileLink) -> Self {
+        Self {
+            project: opened.project,
+            pane: opened.pane,
+            tab: opened.tab,
+            key: DocumentKey::File(opened.path.into()),
+            viewport: opened.viewport,
+            layout: opened.layout,
+        }
+    }
+}
+
 impl Request {
     pub(crate) fn source_is_active(&self, layout: &ProjectLayout) -> bool {
-        view_key_is_active(layout, &self.source_key)
+        crate::symbol_sidebar::window_tree(&self.project, layout, &self.scope).is_some_and(
+            |(root, focused)| {
+                *focused == self.source_key.pane
+                    && taide_native_ui::snapshot::active_tab(root, focused)
+                        .is_some_and(|tab| tab.id == self.source_key.tab)
+            },
+        )
+    }
+
+    pub(crate) fn source_is_owned(&self, layout: &ProjectLayout) -> bool {
+        crate::symbol_sidebar::window_tree(&self.project, layout, &self.scope).is_some_and(
+            |(root, _)| {
+                taide_layout::service::find_tab(root, &self.source_key.tab)
+                    .is_some_and(|(pane, _)| *pane == self.source_key.pane)
+            },
+        )
+    }
+
+    pub(crate) fn allows_destination(
+        &self,
+        source: &ProjectLayout,
+        project: &ProjectId,
+        target: &ProjectLayout,
+        tab: &TabId,
+    ) -> bool {
+        if !self.source_is_owned(source) {
+            return false;
+        }
+        if taide_layout::service::find_leaf(&source.root, &self.source_key.pane).is_some() {
+            return taide_layout::service::find_tab(&target.root, tab).is_some();
+        }
+        if self.project != *project {
+            return false;
+        }
+        source
+            .auxiliary_windows
+            .iter()
+            .find(|window| {
+                taide_layout::service::find_leaf(&window.root, &self.source_key.pane).is_some()
+            })
+            .zip(
+                target
+                    .auxiliary_windows
+                    .iter()
+                    .find(|window| taide_layout::service::find_tab(&window.root, tab).is_some()),
+            )
+            .is_some_and(|(source, target)| source.slot == target.slot)
     }
 }
 
@@ -51,7 +120,26 @@ fn pane_is_focused(layout: &ProjectLayout, pane: &taide_model::ids::PaneId) -> b
     })
 }
 
-fn destination_is_active(opened: &crate::terminal_tabs::OpenedFileLink) -> bool {
+fn destination_is_active(opened: &Opened) -> bool {
+    pane_is_focused(&opened.layout, &opened.pane)
+        && taide_layout::service::all_roots(&opened.layout).any(|root| {
+            taide_native_ui::snapshot::active_tab(root, &opened.pane).is_some_and(|tab| {
+                tab.id == opened.tab
+                    && match (&tab.kind, &opened.key) {
+                        (TabKind::File { path }, DocumentKey::File(key)) => {
+                            std::path::Path::new(path) == key
+                        }
+                        (TabKind::Untitled { .. }, DocumentKey::Untitled(key)) => &tab.id == key,
+                        _ => false,
+                    }
+            })
+        })
+}
+
+pub(crate) fn reply_is_current(
+    opened: &crate::terminal_tabs::OpenedFileLink,
+    layouts: &HashMap<ProjectId, ProjectLayout>,
+) -> bool {
     pane_is_focused(&opened.layout, &opened.pane)
         && taide_layout::service::all_roots(&opened.layout).any(|root| {
             taide_native_ui::snapshot::active_tab(root, &opened.pane).is_some_and(|tab| {
@@ -59,10 +147,13 @@ fn destination_is_active(opened: &crate::terminal_tabs::OpenedFileLink) -> bool 
                     && matches!(&tab.kind, TabKind::File { path } if path == &opened.path)
             })
         })
+        && layouts
+            .get(&opened.project)
+            .is_some_and(|layout| layout == &opened.layout)
 }
 
-pub(crate) fn reply_is_current(
-    opened: &crate::terminal_tabs::OpenedFileLink,
+pub(crate) fn document_reply_is_current(
+    opened: &Opened,
     layouts: &HashMap<ProjectId, ProjectLayout>,
 ) -> bool {
     destination_is_active(opened)
@@ -123,13 +214,13 @@ impl State {
     pub(crate) fn opened(
         &mut self,
         request: &Request,
-        opened: &crate::terminal_tabs::OpenedFileLink,
+        opened: &Opened,
         store: &mut EditorStore,
         diagnostics: &crate::diagnostics::Store,
     ) -> Result<bool, EditorError> {
         if !self.accepts(request, store)
-            || opened.project != request.project
-            || opened.path != request.path
+            || matches!(request.key, DocumentKey::File(_)) && opened.project != request.project
+            || opened.key != request.key
             || opened.viewport != request.viewport
             || !destination_is_active(opened)
         {
@@ -182,6 +273,7 @@ pub(crate) struct Provider<'a> {
     pub(crate) project: Option<ProjectId>,
     pub(crate) commands: &'a mut Vec<crate::host::HostCommand>,
     pub(crate) viewport: eframe::egui::ViewportId,
+    pub(crate) scope: &'a taide_native_ui::shell::WindowScope,
 }
 
 impl taide_native_ui::editor_problems::Provider for Provider<'_> {
@@ -292,9 +384,9 @@ impl taide_native_ui::editor_problems::Provider for Provider<'_> {
             return Ok(false);
         };
         let target = store.documents().snapshot(coordinate.problem.document)?;
-        let DocumentKey::File(path) = &target.key else {
+        if matches!(target.key, DocumentKey::AppFile(_)) {
             return Ok(false);
-        };
+        }
         let position = taide_native_editor::lsp::byte_to_position(
             &target,
             coordinate.problem.marker.bytes.start,
@@ -305,10 +397,11 @@ impl taide_native_ui::editor_problems::Provider for Provider<'_> {
             source_key: current.key,
             source_document: document.id,
             project,
-            path: path.to_string_lossy().into_owned(),
+            key: target.key.clone(),
             line: u64::from(position.line) + 1,
             column: u64::from(position.character) + 1,
             viewport: self.viewport,
+            scope: self.scope.clone(),
             markers: MarkerSet::new(&target, vec![coordinate.problem.marker.clone()])?,
             coordinate,
             all_files: session.all_files,

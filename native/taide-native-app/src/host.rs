@@ -265,7 +265,7 @@ pub enum HostReply {
     },
     MarkerOpened {
         request: crate::editor_problems::Request,
-        result: AppResult<crate::terminal_tabs::OpenedFileLink>,
+        result: AppResult<crate::editor_problems::Opened>,
     },
     ProjectFiles {
         project: ProjectId,
@@ -1557,28 +1557,7 @@ async fn dispatch(
             Some(HostReply::ProblemOpened { result })
         }
         HostCommand::OpenMarker(request) => {
-            let active = services
-                .state
-                .layouts
-                .read()
-                .get(&request.project)
-                .is_some_and(|layout| request.source_is_active(layout));
-            let result = if active {
-                open_problem(
-                    services,
-                    request.project.clone(),
-                    Some(request.source_key.pane.clone()),
-                    request.path.clone(),
-                    request.line,
-                    request.column,
-                    request.viewport,
-                )
-                .await
-            } else {
-                Err(AppError::NotFound(
-                    "native problem source editor is closed or inactive".into(),
-                ))
-            };
+            let result = open_marker(services, &request).await;
             Some(HostReply::MarkerOpened { request, result })
         }
         HostCommand::OpenWorkspaceSymbol(request) => Some(HostReply::WorkspaceSymbolOpened {
@@ -1817,6 +1796,84 @@ async fn open_problem(
         viewport,
         layout,
     })
+}
+
+async fn open_marker(
+    services: &AppServices,
+    request: &crate::editor_problems::Request,
+) -> AppResult<crate::editor_problems::Opened> {
+    let source = services
+        .state
+        .layouts
+        .read()
+        .get(&request.project)
+        .filter(|layout| request.source_is_active(layout))
+        .cloned()
+        .ok_or_else(|| {
+            AppError::NotFound("native problem source editor is closed or inactive".into())
+        })?;
+    match &request.key {
+        taide_native_editor::document::DocumentKey::File(path) => Ok(open_problem(
+            services,
+            request.project.clone(),
+            Some(request.source_key.pane.clone()),
+            path.to_string_lossy().into_owned(),
+            request.line,
+            request.column,
+            request.viewport,
+        )
+        .await?
+        .into()),
+        taide_native_editor::document::DocumentKey::Untitled(tab) => {
+            let (project, target) = {
+                let layouts = services.state.layouts.read();
+                let project = taide_layout::service::locate_project_with_tab(&layouts, tab)?;
+                let target = layouts
+                    .get(&project)
+                    .cloned()
+                    .ok_or_else(|| AppError::NotFound("native problem project is closed".into()))?;
+                (project, target)
+            };
+            let is_untitled = taide_layout::service::all_roots(&target)
+                .flat_map(crate::tabs::tabs_in)
+                .any(|entry| entry.id == *tab && matches!(entry.kind, TabKind::Untitled { .. }));
+            if !is_untitled || !request.allows_destination(&source, &project, &target, tab) {
+                return Err(AppError::NotFound(
+                    "native problem target is closed or belongs to another window".into(),
+                ));
+            }
+            let layout = layout_actions::layout_activate_tab(
+                services.events.as_ref(),
+                &services.state,
+                tab.clone(),
+            )
+            .await?;
+            let pane = taide_layout::service::all_roots(&layout)
+                .find_map(|root| {
+                    taide_layout::service::find_tab(root, tab).map(|(pane, _)| pane.clone())
+                })
+                .ok_or_else(|| AppError::NotFound("native problem target is closed".into()))?;
+            if project != request.project {
+                taide_runtime::project_actions::project_activate(
+                    services.events.as_ref(),
+                    &services.state,
+                    project.clone(),
+                )
+                .await?;
+            }
+            Ok(crate::editor_problems::Opened {
+                project,
+                pane,
+                tab: tab.clone(),
+                key: request.key.clone(),
+                viewport: request.viewport,
+                layout,
+            })
+        }
+        taide_native_editor::document::DocumentKey::AppFile(_) => Err(AppError::InvalidArgument(
+            "native problem app-file navigation is not supported".into(),
+        )),
+    }
 }
 
 async fn open_file_tab(

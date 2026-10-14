@@ -354,3 +354,21 @@ native-problem-before.log/71768은compile19.42초·0통과/1실패·0.03초·exi
 sticky-focus-app.log/40864는compile29.44초·실제 App1통과/44.10초·exit0입니다. 한 검사 안에서 편집 가능/Normal readonly 두 실제 앱을 생성해 주석 오류의 현재 peek marker·실제 tooltip 문구·본문 Rust 진단과의 분리·고정 줄 ID의 실제 입력 소유→F9/FoldAll→해당 본문 focus→Escape 즉시 세션 폐기·native 문서/작업0을 확인했습니다. HashMap의 임의 focus 항목을 쓰거나 접힌 뒤 강제로 포커스를 다시 지정하지 않습니다. 이전 실패와 같은 일반 peek를 별도 신규 건수로 합산하지 않습니다.
 
 sticky-focus-wasm.log/2260은변경한 UI lib의 --target wasm32-unknown-unknown --no-default-features --locked --offline 검사4.85초·exit0입니다. 소유Rust3 format/소유diff와 manifest/lock/동결 변경0을 확인했습니다. UI의 공유 공개 계약은 바꾸지 않고 native-host의 사라진 고정 줄 focus만 회수합니다. 기존 foreign 입력창/원문·readonly 탐색과 Web/Wasm 경계를 유지하며 전체 App/Core/UI/플랫폼·성능·출시·전환 검증으로 확대하지 않습니다. b3g2a만 닫고 b3g2b/부모 b3g2·b3g/전체 JSON 서비스는 미완료입니다. 전체303/588(51.5%)·부분93/미연결110/미구현82·미완료285·배치23잔여18·최종33·목표active·잔여시간미산정입니다.
+
+## b3g2b — 실제 untitled 문제의 문서·프로젝트 이동
+
+파일 전용 요청을 DocumentKey로 바꾸고 실제 Untitled TabId의 프로젝트·pane을 찾아 기존 layout_activate_tab/project_activate를 호출합니다. 응답은 현재 source 뷰·문서/토큰·창 소유와 목적 layout/key/활성 탭을 검증하고 추적된 marker byte로 실제 EditorStore 뷰를 이동합니다. 문제 행도 현재 문서 key/revision을 검사한 뒤 실제 탭이 속한 프로젝트를 활성화합니다. File용 기존 공통 응답 검사는 유지합니다.
+
+native-problem-state.log/83756은 기존 파일 응답 타입을 사용하는 다른 소비자 9곳의 컴파일 오류로 종료했습니다. 파일 API를 유지하고 새 문서 응답 경계를 분리한 state-current.log/8348은6통과/exit0입니다. native-problem-scope.log의 현재6통과/exit0은 Main/Auxiliary source 소유, 다른 프로젝트 Main 허용·다른 창/slot 거절, 비BMP 좌표와 대기 중 편집의 추적, 기존 파일/토큰/문서 수명을 포함합니다. 같은6건은 중복 합산하지 않습니다.
+
+실제 App 확장의 첫 native-problem-app.log/15229는 fixture의 borrowed TabId/임시 snapshot 참조 컴파일 오류3건으로 종료했습니다. 소유 ID를 복제한 app-current.log/5312는 새 프로젝트 focus가 layout 등록보다 먼저 보이는 조건에서 실패했습니다. app-ready.log/49723·app-inspect.log/27551·project-stage.log/32619는 실제 OpenProject의 layout 등록 대기가 각각 실패했습니다. inspection에서는 프로젝트2개/layout1개와 작업8을 관찰했고 stage 로그에서는 watcher 준비가 실패 후에 끝났습니다.
+
+동일 바이너리 sample-run.log/46369는exit101이며 watch-sample.txt에서 build_files→watcher::start_watch→notify FsEventWatcher::run→채널 수신 대기, 별도 FSEvents 스레드의 FSEventStreamStart→register_with_server→f2d_register_rpc→mach_msg 대기를 확인했습니다. 운영체제 감시 등록 지연은 해결했다고 보고하지 않습니다. 진단용 projects.rs 출력은 모두 제거했습니다. 문제 이동 검사는 기존 첫 프로젝트와 동일하게 소유 실제 경로/프로젝트/session/layout이 있는 복원 세션을 시작 조건으로 사용하며, 실제 NewUntitled·문서 작업·F8/ShiftF8·문제 행·프로젝트 활성화 경로는 유지합니다. 이 검사를 프로젝트 열기 검증으로 확대하지 않습니다. 직접 taide_project 서비스 접근 시도는 현재 App의 직접 의존성이 없어 two-project.log/55748에서 컴파일 오류1건으로 종료했고 의존성은 추가하지 않았습니다.
+
+restored-projects.log/90388은compile27.11초·실제App1통과/33.54초·exit0입니다. 두 소유 프로젝트의 실제 NewUntitled/JSON 모델·진단 작업을 사용하며 F8로 다른 프로젝트의 비BMP 뒤 주석 오류로 이동하고 목적 본문 focus·현재 문제 widget/document를 확인합니다. 강제 재포커스 없이 ShiftF8로 원 프로젝트에 복귀하고 실제 문제 행 클릭으로 다시 목적 프로젝트/탭/caret을 활성화합니다. 목적 원문/revision과 원 문서 undo/오류 회수·문서 닫힘·정상 종료tasks0을 확인합니다. 마지막 문제 행 뒤 포커스 단언을 추가한 검사는 아래에 별도 기록하며 이전 성공을 새 검사로 중복 합산하지 않습니다.
+
+row-focus.log/11059는compile18.03초·0통과/1실패·35.81초·exit101입니다. 마지막 문제 행의 목적 프로젝트/탭/caret은 맞지만 실제 egui focus가 이전 프로젝트 ViewId2이고 목적은ViewId3인 오류를 재현했습니다. 문제 행 처리에서 목적이 표시되기 전에 self.focused를 목적 pane/tab으로 설정해 show_document의 실제 새 본문 포커스 요청을 막고 있었습니다. 이 조기 설정 한 줄을 제거하고 기존 show_document가 목적 본문을 표시할 때 포커스를 갱신하게 합니다. 같은 문서 문제 행의 기존 직접 focus 요청은 유지합니다.
+
+row-focus-fixed.log/92421는compile18.37초·0통과/1실패·35.58초·exit101이며 같은 시점의 포커스가None이었습니다. wait의 준비 조건은 controller의 새 프로젝트와 이미 변경된 caret만 확인해 비동기 새 snapshot이 아직 UI에 그려지기 전에 끝날 수 있었습니다. 실제 목적 본문의 has_focus를 준비 조건에 추가해 전환 결과의 실제 입력 소유까지 검사합니다. 고정 프레임 수·추가 시간 제한·강제 포커스 지정은 사용하지 않습니다.
+
+row-rendered.log/27595는compile19.40초·실제App1통과/35.56초·exit0입니다. 목적 본문이 실제 focus를 가진 상태의 F8/ShiftF8·문제 행 왕복과 문서 key/위치·본문 분리·비BMP·원문/revision·undo·닫힘·tasks0을 확인했습니다. 현재 관련 검사는 상태6/실제App1의 서로 다른7건이며 변경 없는 g1·peek의 성공을 재사용하고 같은 앱 반복 성공은 합산하지 않습니다. 소유Rust5 format/소유diff가 통과했고 새 의존성/manifest/lock/동결·공유 UI/Core 소스 변경은 없습니다. b3g2b·b3g2·구문 소비 b3g만 닫으며 JSON schema 의미 검증·언어 선택 UI·포맷/선택 확장/조회/완성·CSS/HTML/TS 및 전체 App 준비/성능/OS/출시 게이트는 미완료입니다. 전체303/588(51.5%)·미완료285·editor-57partial/editor-16partial·목표active·잔여시간미산정입니다.

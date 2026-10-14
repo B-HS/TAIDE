@@ -57,8 +57,12 @@ fn wait(
         })
         .await
         .unwrap_or_else(|error| {
+            let shell = application.controller.snapshot();
+            let runtime_layouts = application.services.state.layouts.read().keys().cloned().collect::<Vec<_>>();
+            let runtime_projects = application.services.state.projects.read().keys().cloned().collect::<Vec<_>>();
             panic!(
-                "{caller}: {error}; native={:?}; validation={:?}; previews={:?}; views={:?}; focus={:?}; tasks={}",
+                "{caller}: {error}; project={:?}; snapshot layouts={:?}; runtime layouts={runtime_layouts:?}; runtime projects={runtime_projects:?}; status={:?}; native={:?}; validation={:?}; previews={:?}; views={:?}; focus={:?}; tasks={}",
+                shell.focused_project(), shell.layouts.keys().collect::<Vec<_>>(), application.status,
                 application.editor_json.documents(),
                 application.editor_json_validation.documents(),
                 application.editor_locations.preview_views(),
@@ -68,6 +72,82 @@ fn wait(
             )
         });
     });
+}
+
+fn new_json_untitled(
+    application: &mut NativeApplication,
+    context: &egui::Context,
+    project: &ProjectId,
+    pane: &PaneId,
+    text: &str,
+) -> (TabId, DocumentId, ViewId) {
+    let existing = application
+        .controller
+        .snapshot()
+        .layouts
+        .get(project)
+        .into_iter()
+        .flat_map(taide_layout::service::all_roots)
+        .flat_map(crate::tabs::tabs_in)
+        .map(|tab| tab.id.clone())
+        .collect::<HashSet<_>>();
+    assert!(application.submit(HostCommand::NewUntitled {
+        project: project.clone(),
+        pane: pane.clone()
+    }));
+    let runtime = application.runtime.handle().clone();
+    let tab = runtime.block_on(async {
+        tokio::time::timeout(DEADLINE, async {
+            loop {
+                eframe::App::logic(application, context, &mut eframe::Frame::_new_kittest());
+                let tab = application
+                    .controller
+                    .snapshot()
+                    .layouts
+                    .get(project)
+                    .into_iter()
+                    .flat_map(taide_layout::service::all_roots)
+                    .flat_map(crate::tabs::tabs_in)
+                    .find(|tab| {
+                        matches!(tab.kind, TabKind::Untitled { .. }) && !existing.contains(&tab.id)
+                    })
+                    .map(|tab| tab.id.clone());
+                if let Some(tab) = tab {
+                    break tab;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap()
+    });
+    let document = application
+        .store
+        .open_untitled(tab.clone(), text, "json".into())
+        .unwrap();
+    wait(application, context, |application| {
+        application.untitled.contains_key(&tab)
+            && application
+                .store
+                .documents()
+                .snapshot(document)
+                .is_ok_and(|snapshot| {
+                    application
+                        .editor_symbols
+                        .builtin_model(&snapshot)
+                        .is_some()
+                })
+    });
+    let view = application
+        .store
+        .views()
+        .find(&ViewKey {
+            window: WINDOW_LABEL.into(),
+            pane: pane.clone(),
+            tab: tab.clone(),
+        })
+        .unwrap();
+    (tab, document, view)
 }
 
 #[test]
@@ -143,6 +223,44 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
             project_id: project.clone(),
         });
     }
+    let other_root = fixture.directory.join("other-project");
+    std::fs::create_dir_all(&other_root).unwrap();
+    let other_root = other_root
+        .canonicalize()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let other_project = ProjectId::new();
+    state.projects.write().insert(
+        other_project.clone(),
+        Project {
+            id: other_project.clone(),
+            root: other_root.clone(),
+            name: "owned other JSON".into(),
+            capabilities: Vec::new(),
+            root_missing: false,
+            last_opened_at: 0.0,
+            display: Default::default(),
+        },
+    );
+    state
+        .session
+        .write()
+        .projects
+        .push(taide_model::project::ProjectRef {
+            id: other_project.clone(),
+            root: other_root,
+            name: "owned other JSON".into(),
+            display: Default::default(),
+            root_missing: false,
+        });
+    let other_layout = taide_layout::service::load_layout(&state.paths, &other_project);
+    let other_pane = other_layout.focused_pane.clone();
+    state
+        .layouts
+        .write()
+        .insert(other_project.clone(), other_layout);
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -390,61 +508,8 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
         .key
         .pane
         .clone();
-    assert!(application.submit(HostCommand::NewUntitled {
-        project: project.clone(),
-        pane: pane.clone()
-    }));
-    let runtime = application.runtime.handle().clone();
-    let untitled = runtime.block_on(async {
-        tokio::time::timeout(DEADLINE, async {
-            loop {
-                eframe::App::logic(application, &context, &mut eframe::Frame::_new_kittest());
-                let tab = application
-                    .controller
-                    .snapshot()
-                    .layouts
-                    .get(&project)
-                    .and_then(|layout| {
-                        crate::tabs::tabs_in(&layout.root)
-                            .into_iter()
-                            .find(|tab| matches!(tab.kind, TabKind::Untitled { .. }))
-                            .map(|tab| tab.id.clone())
-                    });
-                if let Some(tab) = tab {
-                    return tab;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .unwrap()
-    });
-    let untitled_document = application
-        .store
-        .open_untitled(untitled.clone(), TEXT, "json".into())
-        .unwrap();
-    wait(application, &context, |application| {
-        application.untitled.contains_key(&untitled)
-            && application
-                .store
-                .documents()
-                .snapshot(untitled_document)
-                .is_ok_and(|snapshot| {
-                    application
-                        .editor_symbols
-                        .builtin_model(&snapshot)
-                        .is_some()
-                })
-    });
-    let untitled_view = application
-        .store
-        .views()
-        .find(&ViewKey {
-            window: WINDOW_LABEL.into(),
-            pane,
-            tab: untitled.clone(),
-        })
-        .unwrap();
+    let (untitled, untitled_document, untitled_view) =
+        new_json_untitled(application, &context, &project, &pane, TEXT);
     let before = application
         .store
         .documents()
@@ -636,6 +701,7 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
     paint(application, &context);
     {
         let mut provider = crate::editor_problems::Provider {
+            scope: &application.shell.scope,
             state: &mut application.editor_problems,
             diagnostics: &application.lsp_diagnostics,
             project: Some(project.clone()),
@@ -651,6 +717,221 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
             .is_some()
         );
     }
+    const OTHER_JSON: &str = "{\"\u{1f600}\":1}/*other*/";
+    application
+        .controller
+        .submit(ShellMutation::ActivateProject(other_project.clone()))
+        .unwrap();
+    wait(application, &context, |application| {
+        let snapshot = application.controller.snapshot();
+        snapshot.focused_project() == Some(&other_project)
+    });
+    let (other_tab, other_document, other_view) = new_json_untitled(
+        application,
+        &context,
+        &other_project,
+        &other_pane,
+        OTHER_JSON,
+    );
+    wait(application, &context, |application| {
+        application
+            .lsp_diagnostics
+            .problems(&application.store)
+            .iter()
+            .any(|problem| problem.document == other_document)
+    });
+    let other_before = application
+        .store
+        .documents()
+        .snapshot(other_document)
+        .unwrap();
+    application
+        .controller
+        .submit(ShellMutation::ActivateProject(project.clone()))
+        .unwrap();
+    application
+        .controller
+        .submit(ShellMutation::ActivateTab(tab.clone()))
+        .unwrap();
+    wait(application, &context, |application| {
+        let snapshot = application.controller.snapshot();
+        snapshot.focused_project() == Some(&project)
+            && snapshot
+                .layouts
+                .get(&project)
+                .and_then(|layout| {
+                    taide_native_ui::snapshot::active_tab(&layout.root, &layout.focused_pane)
+                })
+                .is_some_and(|entry| entry.id == *tab)
+    });
+    let previous = application
+        .store
+        .views()
+        .get(untitled_view)
+        .unwrap()
+        .clone();
+    application
+        .store
+        .set_view_state(
+            untitled_view,
+            taide_native_editor::view::SelectionSet {
+                primary: 0,
+                selections: vec![taide_native_editor::view::Selection {
+                    anchor: INVALID.len(),
+                    head: INVALID.len(),
+                }],
+            },
+            previous.scroll,
+            previous.folds,
+        )
+        .unwrap();
+    let body = crate::editor_context_menu::body(&context, untitled_view).unwrap();
+    context.memory_mut(|memory| memory.request_focus(body));
+    super::inlay_hints_tests::paint(
+        application,
+        &context,
+        super::inlay_hints_tests::key(egui::Key::F8, egui::Modifiers::NONE),
+    );
+    wait(application, &context, |application| {
+        application.controller.snapshot().focused_project() == Some(&other_project)
+            && application
+                .store
+                .views()
+                .get(other_view)
+                .is_some_and(|view| {
+                    view.selection.selections[0].head == OTHER_JSON.find("/*").unwrap()
+                })
+    });
+    {
+        let mut provider = crate::editor_problems::Provider {
+            scope: &application.shell.scope,
+            state: &mut application.editor_problems,
+            diagnostics: &application.lsp_diagnostics,
+            project: Some(other_project.clone()),
+            commands: &mut Vec::new(),
+            viewport: context.viewport_id(),
+        };
+        let widget = taide_native_ui::editor_problems::Provider::current(
+            &mut provider,
+            &application.store,
+            other_view,
+        )
+        .unwrap();
+        assert_eq!(widget.coordinate.problem.document, other_document);
+        assert_eq!(widget.position, OTHER_JSON.find("/*").unwrap());
+    }
+    let body = crate::editor_context_menu::body(&context, other_view).unwrap();
+    assert_eq!(context.memory(|memory| memory.focused()), Some(body));
+    super::inlay_hints_tests::paint(
+        application,
+        &context,
+        super::inlay_hints_tests::key(
+            egui::Key::F8,
+            egui::Modifiers {
+                shift: true,
+                ..egui::Modifiers::NONE
+            },
+        ),
+    );
+    wait(application, &context, |application| {
+        application.controller.snapshot().focused_project() == Some(&project)
+            && application
+                .store
+                .views()
+                .get(untitled_view)
+                .is_some_and(|view| view.selection.selections[0].head == INVALID.find(',').unwrap())
+    });
+    let slot = application
+        .services
+        .state
+        .session
+        .read()
+        .focused_shell_slot
+        .clone()
+        .unwrap();
+    if !application.problems.is_open(&slot) {
+        application.problems.toggle(&slot);
+    }
+    paint(application, &context);
+    let row = egui::Id::new(("problem-row", &slot, &other_before.key, Some(0usize)));
+    let point = context
+        .read_response(row)
+        .expect("other project untitled row must remain available")
+        .rect
+        .center();
+    for pressed in [true, false] {
+        super::inlay_hints_tests::paint(
+            application,
+            &context,
+            vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+    }
+    assert!(!application.problem_opens.is_empty());
+    wait(application, &context, |application| {
+        application.controller.snapshot().focused_project() == Some(&other_project)
+            && application
+                .store
+                .views()
+                .get(other_view)
+                .is_some_and(|view| {
+                    view.selection.selections[0].head == OTHER_JSON.find("/*").unwrap()
+                })
+            && crate::editor_context_menu::body(&context, other_view)
+                .is_some_and(|body| context.memory(|memory| memory.has_focus(body)))
+    });
+    let other_after = application
+        .store
+        .documents()
+        .snapshot(other_document)
+        .unwrap();
+    assert_eq!(
+        context.memory(|memory| memory.focused()),
+        crate::editor_context_menu::body(&context, other_view)
+    );
+    assert_eq!(
+        (other_after.revision, other_after.rope.to_string()),
+        (other_before.revision, OTHER_JSON.into())
+    );
+    assert!(application.submit(HostCommand::CloseTab {
+        tab: other_tab.clone(),
+        discard: true
+    }));
+    wait(application, &context, |application| {
+        !application.untitled.contains_key(&other_tab)
+            && !application
+                .editor_json_validation
+                .documents()
+                .contains(&other_document)
+    });
+    application
+        .controller
+        .submit(ShellMutation::ActivateProject(project.clone()))
+        .unwrap();
+    application
+        .controller
+        .submit(ShellMutation::ActivateTab(tab.clone()))
+        .unwrap();
+    wait(application, &context, |application| {
+        application.controller.snapshot().focused_project() == Some(&project)
+    });
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(untitled_document)
+            .unwrap()
+            .rope
+            .to_string(),
+        INVALID
+    );
     assert!(application.store.undo(untitled_document).unwrap());
     wait(application, &context, |application| {
         application.lsp_diagnostics.counts()[crate::diagnostics::ERROR] == 0
