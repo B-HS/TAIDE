@@ -78,6 +78,7 @@ impl Entry {
 pub(crate) struct State {
     entries: HashMap<(ProjectId, DocumentId), Entry>,
     builtin: HashMap<DocumentId, Builtin>,
+    builtin_documents: HashSet<DocumentId>,
     builtin_failures: HashMap<DocumentId, DocumentSnapshot>,
     generation: u64,
 }
@@ -108,6 +109,7 @@ impl State {
     }
 
     pub(crate) fn retain_builtin(&mut self, documents: &HashSet<DocumentId>) {
+        self.builtin_documents = documents.clone();
         self.builtin.retain(|id, _| documents.contains(id));
         self.builtin_failures.retain(|id, _| documents.contains(id));
     }
@@ -362,7 +364,10 @@ impl State {
         if current.metadata.language_id == "json"
             && current.metadata.tier != taide_model::file::FileSizeTier::Normal
         {
-            return SymbolIndex::default();
+            return SymbolIndex {
+                document: Some(current.id),
+                ..Default::default()
+            };
         }
         let external = project
             .and_then(|project| self.entries.get(&(project.clone(), current.id)))
@@ -377,6 +382,7 @@ impl State {
             && entry.model.describes(current)
         {
             return SymbolIndex {
+                document: Some(current.id),
                 entries: Some(entry.model.symbols()),
                 generation: entry.generation,
                 is_pending: false,
@@ -395,18 +401,30 @@ impl State {
                 .and_then(|project| self.entries.get(&(project.clone(), current.id)))
                 .is_none_or(|entry| entry.complete && entry.cancel.is_none())
         {
-            return SymbolIndex::default();
+            return SymbolIndex {
+                document: Some(current.id),
+                ..Default::default()
+            };
         }
         let Some(project) = project else {
-            return SymbolIndex::default();
+            return SymbolIndex {
+                document: Some(current.id),
+                is_pending: self.builtin_documents.contains(&current.id),
+                ..Default::default()
+            };
         };
         let Some(entry) = self.entries.get(&(project.clone(), current.id)) else {
             return SymbolIndex {
-                is_pending: true,
+                document: Some(current.id),
+                is_pending: matches!(
+                    current.key,
+                    taide_native_editor::document::DocumentKey::File(_)
+                ) || self.builtin_documents.contains(&current.id),
                 ..Default::default()
             };
         };
         SymbolIndex {
+            document: Some(current.id),
             entries: self.model(project, current).map(|model| model.symbols()),
             generation: entry.generation,
             is_pending: !entry.complete || entry.cancel.is_some(),
@@ -420,6 +438,21 @@ impl State {
         generation: u64,
         index: usize,
     ) -> Option<crate::editor_reveal::Position> {
+        let selection = self.selection(project, current, generation, index)?;
+        let position = byte_to_position(current, selection.start).ok()?;
+        Some(crate::editor_reveal::Position {
+            line: f64::from(position.line) + 1.0,
+            column: f64::from(position.character) + 1.0,
+        })
+    }
+
+    pub(crate) fn selection(
+        &self,
+        project: &ProjectId,
+        current: &DocumentSnapshot,
+        generation: u64,
+        index: usize,
+    ) -> Option<std::ops::Range<usize>> {
         if self.palette(Some(project), Some(current)).generation != generation {
             return None;
         }
@@ -427,13 +460,7 @@ impl State {
             && entry.generation == generation
             && entry.model.describes(current)
         {
-            let position =
-                byte_to_position(current, entry.model.symbols().get(index)?.selection.start)
-                    .ok()?;
-            return Some(crate::editor_reveal::Position {
-                line: f64::from(position.line) + 1.0,
-                column: f64::from(position.character) + 1.0,
-            });
+            return Some(entry.model.symbols().get(index)?.selection.clone());
         }
         let entry = self
             .entries
@@ -443,12 +470,7 @@ impl State {
             .model
             .as_ref()
             .filter(|model| model.describes(current))?;
-        let position =
-            byte_to_position(current, model.symbols().get(index)?.selection.start).ok()?;
-        Some(crate::editor_reveal::Position {
-            line: f64::from(position.line) + 1.0,
-            column: f64::from(position.character) + 1.0,
-        })
+        Some(model.symbols().get(index)?.selection.clone())
     }
 }
 

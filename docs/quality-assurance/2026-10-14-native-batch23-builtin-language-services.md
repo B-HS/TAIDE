@@ -288,3 +288,24 @@ recovered.log/65162는compile14.91초·실제 본문 앱1통과/38.15초·exit0�
 wasm.log/32462는Syntax lib/Core dependency9.43초·exit0입니다. 소유 Rust11 format·소유 diff·manifest/lock/동결 변경0을 확인했습니다. 새 App 구조6건과 기존 상태5/Core3의 관련14건이며 기존 전송 App10/JSONCore49/Syntax5와 전체 Core392의 성공을 재사용할 뿐 새 전체 실행으로 합산하지 않습니다. 전체 App 준비 실패/보호3제외·remote Wasm tests의 시간 API·실제 OS/성능/신뢰성/출시·전환 게이트도 유지합니다.
 
 실제 전역 팔레트와 outline는 기존에 파일 탭/경로만 선택하므로 untitled의 내장 모델 성공만으로 실제 untitled 탐색을 완료로 보지 않습니다. 본문/peek 단위를 b3f1로 닫고 부모 b3f 및 실제 untitled 탐색 b3f2는 PROCESS에 미완료로 남깁니다. JSON의 구조 공급이 실제 앱에 연결됐으므로 editor-57은 missing에서partial로 갱신하며 나머지 JSON 진단/조회/완성/포맷·다른 언어 전체를 완료로 올리지 않습니다. 전체303/588(51.5%)·부분93/미연결110/미구현82·미완료285·최종33·목표active·잔여시간미산정입니다.
+
+
+## b3f2 — 실제 untitled 심볼 탐색
+
+SymbolIndex는 실제 DocumentId를 전달하며 파일 경로 유무와 문서 존재를 분리합니다. 전역 팔레트는 현재 파일/untitled 모델을 선택하고 실제 심볼 문맥에서만 @ 목록/대기/빈 결과를 표시합니다. 기존 파일 위치 이동은 기존 deferred reveal을 유지합니다. Untitled는 실제 ViewKey/현재 snapshot·generation과 byte 선택을 검증해 해당 뷰의 caret/스크롤을 이동하고 숨겨진 접기를 풉니다. 경로 URI/ProjectId·LSP owner를 만들지 않으며 readonly 탐색에서 Rope/revision을 변경하지 않습니다. 닫힌 뷰·내용/언어 변경·잘못된 UTF-8 byte와 IME 중의 이동은 거절합니다.
+
+Outline은 파일 전용 path 대신 기존 DocumentKey의 File/Untitled variant로 문서 변경을 구분합니다. Native producer의 실제 문서 집합으로 pending을 판단해 지원하지 않는 untitled 언어를 무한 로딩하지 않습니다. 키/문서가 바뀌면 트리 선택/접힘 캐시도 회수하며 기존 파일의 공급/키/가상화는 유지합니다. 새로운 공통 저장소·의존성·manifest/lock·동결 소스는 변경하지 않았습니다.
+
+outline.log/72008은compile32.77초·기존3통과/0.04초·exit0입니다. palette.log/96393은compile16.05초·기존28+신규untitled1의29통과/0.29초·exit0이며 파일 경로/프로젝트 없는 실제 Core document ID에서 loading/목록/검색/세대 선택·닫힘의 구분을 확인합니다. 동일 입력의 성공을 새 전체 UI 실행으로 합산하지 않습니다.
+
+app.log/41197은compile21.06초·0통과/1실패·37.51초·exit101입니다. 실제 NewUntitled 명령의 탭 ID에 JSON 문서 모델을 준비해 정식 OpenUntitled로 연결했지만 팔레트 목록이 빈 상태를 먼저 관찰했습니다. 기존 UI harness처럼 두 번의 초기 표시를 거치고 query/문서 ID를 실패 근거에 포함하도록 fixture를 보강했습니다. 제품 원인인지 준비 조건인지 최종 결과 전에는 단정하지 않습니다.
+
+app-current.log/7096은compile19.44초·실제 앱1통과/38.34초·exit0입니다. 실제 NewUntitled로 생성한 TabId에 공개 모델 포트로 JSON 내용을 준비하고 정식 OpenUntitled가 같은 모델을 소비하게 했습니다. 실제 전역 팔레트의 @value 입력/목록/Enter와 outline의 실제 focus/ArrowDown/Enter가 비BMP 문자 뒤의 올바른 byte로 현재 뷰를 이동하며 문서 key·원문/revision과 종료tasks0을 보존합니다. 언어 선택 UI나 새 untitled 언어 자동 감지의 구현·검증으로 확대하지 않습니다. 고정 두 프레임 대기 대신 실제 palette inspection의 has_input_focus를 준비 조건으로 바꾼 최종 검사는 별도로 기록합니다. 최초 빈 목록의 원인은 당시 추가 진단이 없어 단정하지 않습니다.
+
+reveal.log는compile0.26초·직접1통과/0.00초·exit0입니다. 실제 EditorStore의 untitled/mirror와 readonly 모델에서 해당 ViewId만 이동하고 원문/revision을 보존하며 잘못된 UTF-8 시작 byte·내용 변경/닫힌 뷰를 거절합니다. outline-current.log는compile0.20초·4통과/0.03초·exit0이며 기존3건과 untitled DocumentKey 변경 시 선택/접힘 회수1건입니다. regression.log는compile0.20초·기존 심볼5통과/0.00초·exit0입니다. 관련 서로 다른 검사는 UI29/실제App1/reveal1/outline4/기존심볼5의40건이며 앞선 동일 outline3·앱 성공은 중복 합산하지 않습니다.
+
+설치 Monaco의 gotoSymbolQuickAccess.js는 symbol.selectionRange를 Range.collapseToStart로 접은 뒤 editorNavigationQuickAccess.js의 setSelection/revealRangeInCenter로 전달합니다. Untitled 직접 이동도 검증된 selection.start에 caret을 두고 기존 native reveal 정책으로 표시하며 실제 접기를 풉니다. 전체 픽셀/스크롤 애니메이션 일치로 확대하지 않습니다.
+
+wasm.log/73404는UI lib의 --target wasm32-unknown-unknown --no-default-features --locked --offline 검사·7분07초·exit0입니다. 이후 시작한 최종 App 검사는 같은 build directory의 Cargo lock에서 대기했고 먼저 시작한 Wasm이 종료된 뒤 컴파일했습니다. 두 실행 핸들을 유지했으며 대기를 실패/종료로 처리하거나 Cargo를 재시작하지 않았습니다. 이후 Cargo는 종료를 관찰한 뒤 직렬 실행합니다. 기존 vendor wry17경고와 App 검사 링크의 compact unwind1경고는 성공과 구분합니다.
+
+app-focus.log/4803은lock 대기를 포함한compile6분08초·실제앱1통과/43.41초·exit0입니다. 고정 프레임 수 대신 실제 has_input_focus가 준비된 뒤 @value를 입력했고 현재 untitled 팔레트/outline 이동·원문/revision·정상 종료tasks0을 확인했습니다. 기존 app-current의 같은1건을 중복 합산하지 않습니다. 소유Rust9 format·소유diff·manifest/lock/동결 변경0의 근거와 함께 b3f2 및 부모 b3f의 구조 공급 범위만 닫습니다. 전체 Core392/JSONCore49/Syntax5 및 b3f1 실제 peek의 변경 없는 성공은 재사용하며 새 전체 검사로 세지 않습니다. 이전 전체App877통과/22준비실패/보호3제외/exit101·Core성능ignored1·remote Wasm tests의 시간 API 불일치7·실제 OS/접근성/큰tier 성능/신뢰성/출시·전환 게이트는 유지합니다. 전체303/588(51.5%)·부분93/미연결110/미구현82·미완료285·배치23잔여18·최종33·목표active·잔여시간미산정입니다.

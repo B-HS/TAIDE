@@ -111,6 +111,7 @@ pub struct FileIndex<'a> {
 #[cfg(feature = "native-host")]
 #[derive(Clone, Copy, Default)]
 pub struct SymbolIndex<'a> {
+    pub document: Option<taide_native_editor::document::DocumentId>,
     pub entries: Option<&'a [taide_native_editor::document_symbols::Symbol]>,
     pub generation: u64,
     pub is_pending: bool,
@@ -883,7 +884,7 @@ impl Palette {
                 group: group(
                     "palette.symbols",
                     None,
-                    if scope.active_file.is_some() {
+                    if scope.active_file.is_some() || scope.symbols.document.is_some() {
                         self.symbol_items(&search_term, scope.symbols)
                     } else {
                         Vec::new()
@@ -892,8 +893,12 @@ impl Palette {
                 #[cfg(not(feature = "native-host"))]
                 group: group("palette.symbols", None, Vec::new()),
                 #[cfg(feature = "native-host")]
-                empty_message: if scope.active_file.is_some() && scope.symbols.is_pending {
+                empty_message: if (scope.active_file.is_some() || scope.symbols.document.is_some())
+                    && scope.symbols.is_pending
+                {
                     text("common.loading")
+                } else if scope.symbols.document.is_some() {
+                    text("palette.noResults")
                 } else {
                     without_active_file()
                 },

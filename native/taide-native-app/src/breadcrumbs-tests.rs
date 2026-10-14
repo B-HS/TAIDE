@@ -225,6 +225,7 @@ fn scope<'a>(
         root: ROOT,
         caret: Some(caret),
         symbols: SymbolIndex {
+            document: None,
             entries: Some(symbols),
             generation: source.generation,
             is_pending: false,

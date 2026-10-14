@@ -5458,22 +5458,29 @@ impl NativeApplication {
                 now,
             );
         }
-        let active_file = project
+        let active_editor = project
             .and_then(|project| {
                 let layout = snapshot.layouts.get(project)?;
                 crate::symbol_sidebar::window_tree(project, layout, &self.shell.scope)
             })
-            .and_then(|(root, focused)| taide_native_ui::snapshot::active_tab(root, focused))
-            .and_then(|tab| match &tab.kind {
-                TabKind::File { path } => Some((tab, path.as_str())),
-                _ => None,
+            .and_then(|(root, focused)| {
+                taide_native_ui::snapshot::active_tab(root, focused).map(|tab| (focused, tab))
             });
+        let active_file = active_editor.and_then(|(_, tab)| match &tab.kind {
+            TabKind::File { path } => Some((tab, path.as_str())),
+            _ => None,
+        });
         let root = project
             .and_then(|project| snapshot.project(project))
             .map(|project| project.root.as_str());
-        let active_document = active_file
-            .and_then(|(_, path)| self.files.get(path))
-            .and_then(|file| self.store.documents().snapshot(file.id).ok());
+        let active_document = active_editor.and_then(|(_, tab)| {
+            let document = match &tab.kind {
+                TabKind::File { path } => self.files.get(path).map(|file| file.id),
+                TabKind::Untitled { .. } => self.untitled.get(&tab.id).map(|document| document.id),
+                _ => None,
+            }?;
+            self.store.documents().snapshot(document).ok()
+        });
         let mut symbols = self
             .editor_symbols
             .palette(project, active_document.as_ref());
@@ -5727,6 +5734,34 @@ impl NativeApplication {
                 }
             }
             Some(crate::command_palette::Action::RevealSymbol { generation, index }) => {
+                if let (Some(project), Some((pane, tab)), Some(document)) =
+                    (project, active_editor, active_document.as_ref())
+                    && matches!(tab.kind, TabKind::Untitled { .. })
+                    && let Some(selection) = self
+                        .editor_symbols
+                        .selection(project, document, generation, index)
+                {
+                    let key = ViewKey {
+                        window: WINDOW_LABEL.into(),
+                        pane: pane.clone(),
+                        tab: tab.id.clone(),
+                    };
+                    match crate::editor_reveal::reveal_document(
+                        &mut self.store,
+                        &key,
+                        document,
+                        selection,
+                    ) {
+                        Ok(Some(view)) => {
+                            if let Some(body) = crate::editor_context_menu::body(context, view) {
+                                context.memory_mut(|memory| memory.request_focus(body));
+                            }
+                            context.request_repaint();
+                        }
+                        Ok(None) => {}
+                        Err(error) => self.report(&editor_error(error)),
+                    }
+                }
                 if let (Some(project), Some((tab, path)), Some(document)) =
                     (project, active_file, active_document.as_ref())
                     && let Some(position) = self
@@ -7976,19 +8011,33 @@ impl ShellSurfaces for AppSurfaces<'_> {
                 .layouts
                 .get(project)
                 .and_then(|layout| crate::symbol_sidebar::window_tree(project, layout, self.scope))
-                .and_then(|(root, focused)| taide_native_ui::snapshot::active_tab(root, focused))
-                .and_then(|tab| match &tab.kind {
-                    TabKind::File { path } => Some((tab, path.as_str())),
-                    _ => None,
+                .and_then(|(root, focused)| {
+                    taide_native_ui::snapshot::active_tab(root, focused).map(|tab| (focused, tab))
                 });
-            let document = active
-                .and_then(|(_, path)| self.files.get(path))
-                .and_then(|file| self.store.documents().snapshot(file.id).ok());
+            let document = active.and_then(|(_, tab)| {
+                let id = match &tab.kind {
+                    TabKind::File { path } => self.files.get(path).map(|file| file.id),
+                    TabKind::Untitled { .. } => {
+                        self.untitled.get(&tab.id).map(|document| document.id)
+                    }
+                    _ => None,
+                }?;
+                self.store.documents().snapshot(id).ok()
+            });
+            let key = active.and_then(|(_, tab)| match &tab.kind {
+                TabKind::File { path } => Some(taide_native_editor::document::DocumentKey::File(
+                    path.into(),
+                )),
+                TabKind::Untitled { .. } => Some(
+                    taide_native_editor::document::DocumentKey::Untitled(tab.id.clone()),
+                ),
+                _ => None,
+            });
             match sidebar.outline.show(
                 ui,
                 egui::Id::new(("symbol-outline", project, slot)),
                 crate::symbol_outline::Scope {
-                    path: active.map(|(_, path)| path),
+                    key,
                     symbols: self
                         .editor_symbols
                         .palette(Some(project), document.as_ref()),
@@ -7998,23 +8047,48 @@ impl ShellSurfaces for AppSurfaces<'_> {
                 self.navigation_icons,
             ) {
                 Ok(output) => {
-                    if let (Some((generation, index)), Some((tab, path)), Some(document)) =
+                    if let (Some((generation, index)), Some((pane, tab)), Some(document)) =
                         (output.reveal, active, document.as_ref())
-                        && let Some(position) = self
+                        && let Some(selection) = self
                             .editor_symbols
-                            .position(project, document, generation, index)
+                            .selection(project, document, generation, index)
                     {
-                        self.reveals.queue_position(
-                            crate::editor_reveal::Target {
-                                project,
-                                tab: &tab.id,
-                                path,
-                                viewport: ui.ctx().viewport_id(),
-                            },
-                            position,
-                            self.layouts,
-                            Instant::now(),
-                        );
+                        if matches!(tab.kind, TabKind::Untitled { .. }) {
+                            let key = ViewKey {
+                                window: WINDOW_LABEL.into(),
+                                pane: pane.clone(),
+                                tab: tab.id.clone(),
+                            };
+                            match crate::editor_reveal::reveal_document(
+                                self.store, &key, document, selection,
+                            ) {
+                                Ok(Some(view)) => {
+                                    if let Some(body) =
+                                        crate::editor_context_menu::body(ui.ctx(), view)
+                                    {
+                                        ui.memory_mut(|memory| memory.request_focus(body));
+                                    }
+                                }
+                                Ok(None) => {}
+                                Err(error) => *self.status = Some(editor_error(error).to_string()),
+                            }
+                        } else if let TabKind::File { path } = &tab.kind
+                            && let Some(position) = self
+                                .editor_symbols
+                                .position(project, document, generation, index)
+                        {
+                            self.reveals.queue_position(
+                                crate::editor_reveal::Target {
+                                    project,
+                                    tab: &tab.id,
+                                    path,
+                                    viewport: ui.ctx().viewport_id(),
+                                },
+                                position,
+                                self.layouts,
+                                Instant::now(),
+                            );
+                        }
                         ui.ctx().request_repaint();
                     }
                 }

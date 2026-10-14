@@ -75,7 +75,7 @@ impl Harness {
                             ui,
                             Id::new(TREE_ID),
                             Scope {
-                                path: scope.path,
+                                key: scope.key.clone(),
                                 symbols: scope.symbols,
                             },
                             &self.locale,
@@ -116,13 +116,45 @@ fn symbols() -> Vec<Symbol> {
 
 fn scope(symbols: &[Symbol]) -> Scope<'_> {
     Scope {
-        path: Some("/synthetic/current.rs"),
+        key: Some(taide_native_editor::document::DocumentKey::File(
+            "/synthetic/current.rs".into(),
+        )),
         symbols: SymbolIndex {
+            document: None,
             entries: Some(symbols),
             generation: GENERATION,
             is_pending: false,
         },
     }
+}
+
+#[test]
+fn outline은_untitled_키에서_파일경로없이_트리를_표시하고_문서변경시_선택을_회수한다() {
+    let mut harness = Harness::new();
+    let mut panel = Panel::default();
+    let symbols = symbols();
+    let document_key =
+        taide_native_editor::document::DocumentKey::Untitled(taide_model::ids::TabId::new());
+    let make_scope = |key| Scope {
+        key: Some(key),
+        ..scope(&symbols)
+    };
+    let (output, _) = harness.frame(&mut panel, make_scope(document_key.clone()), Vec::new());
+    assert!(!output.rows.is_empty());
+    harness
+        .context
+        .memory_mut(|memory| memory.request_focus(Id::new(TREE_ID)));
+    harness.frame(
+        &mut panel,
+        make_scope(document_key.clone()),
+        vec![key(Key::ArrowDown)],
+    );
+    assert!(panel.selected.is_some());
+    let next = taide_native_editor::document::DocumentKey::Untitled(taide_model::ids::TabId::new());
+    harness.frame(&mut panel, make_scope(next.clone()), Vec::new());
+    assert_eq!(panel.key, Some(next));
+    assert!(panel.selected.is_none());
+    assert!(panel.collapsed.is_empty());
 }
 
 fn key(key: Key) -> egui::Event {
@@ -214,7 +246,9 @@ fn outline의_단일_focus와_트리_키_접기_클릭은_현재_세대_심볼�
     let (reset, _) = h.frame(
         &mut panel,
         Scope {
-            path: Some("/synthetic/other.rs"),
+            key: Some(taide_native_editor::document::DocumentKey::File(
+                "/synthetic/other.rs".into(),
+            )),
             symbols: scope(&symbols).symbols,
         },
         Vec::new(),
@@ -315,7 +349,9 @@ fn outline은_대량_심볼을_가상화하고_마지막_키_선택과_빈_상�
     let (_, empty) = h.frame(
         &mut panel,
         Scope {
-            path: Some("/synthetic/current.rs"),
+            key: Some(taide_native_editor::document::DocumentKey::File(
+                "/synthetic/current.rs".into(),
+            )),
             symbols: SymbolIndex::default(),
         },
         Vec::new(),
@@ -328,7 +364,7 @@ fn outline은_대량_심볼을_가상화하고_마지막_키_선택과_빈_상�
     let (_, no_file) = h.frame(
         &mut panel,
         Scope {
-            path: None,
+            key: None,
             symbols: scope(&symbols).symbols,
         },
         Vec::new(),

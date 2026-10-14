@@ -56,6 +56,8 @@ struct Scene {
     symbols: Vec<taide_native_editor::document_symbols::Symbol>,
     #[cfg(feature = "native-host")]
     symbols_pending: bool,
+    #[cfg(feature = "native-host")]
+    symbol_document: Option<taide_native_editor::document::DocumentId>,
     workspace_symbols: Vec<WorkspaceSymbol>,
     workspace_query: Option<String>,
     workspace_pending: bool,
@@ -96,6 +98,8 @@ impl Scene {
             symbols: Vec::new(),
             #[cfg(feature = "native-host")]
             symbols_pending: false,
+            #[cfg(feature = "native-host")]
+            symbol_document: None,
             workspace_symbols: Vec::new(),
             workspace_query: None,
             workspace_pending: false,
@@ -164,6 +168,7 @@ impl Scene {
                                 active_file: self.active_file.as_deref(),
                                 #[cfg(feature = "native-host")]
                                 symbols: SymbolIndex {
+                                    document: self.symbol_document,
                                     entries: Some(&self.symbols),
                                     generation: self.revision,
                                     is_pending: self.symbols_pending,
@@ -943,6 +948,65 @@ fn 문서_심볼은_이름_fuzzy_한줄_breadcrumb_입력과_현재_세대_선�
     scene.active_file = None;
     scene.frame(Vec::new());
     assert!(scene.inspection().rows.is_empty());
+    assert_eq!(
+        scene.inspection().empty_message.as_deref(),
+        Some("Open a file first")
+    );
+}
+
+#[cfg(feature = "native-host")]
+#[test]
+fn untitled_문서_심볼은_파일_경로없이_실제_문서_id로_목록과_세대를_공급한다() {
+    use taide_native_editor::document_symbols::{Symbol, SymbolKind};
+    let mut store =
+        taide_native_editor::store::EditorStore::new(taide_native_editor::store::EditorLimits {
+            max_documents: 1,
+            max_views: 1,
+            max_undo_groups: 1,
+            max_document_bytes: 1024,
+        })
+        .unwrap();
+    let document = store
+        .open_untitled(taide_model::ids::TabId::new(), "{}", "json".into())
+        .unwrap();
+    let mut scene = Scene::new();
+    scene.symbol_document = Some(document);
+    scene.symbols_pending = true;
+    scene.open(PaletteEntry::Files);
+    scene.type_text("@");
+    assert_eq!(
+        scene.inspection().empty_message.as_deref(),
+        Some("Loading...")
+    );
+    scene.symbols_pending = false;
+    scene.symbols = vec![Symbol {
+        name: "property".into(),
+        detail: String::new(),
+        kind: SymbolKind::PROPERTY,
+        tags: Vec::new(),
+        parent: None,
+        container_label: String::new(),
+        bytes: 0..1,
+        selection: 0..1,
+    }];
+    scene.frame(Vec::new());
+    assert!(scene.active_file.is_none());
+    assert_eq!(scene.labels(), ["property"]);
+    assert_eq!(
+        scene.press(Key::Enter).action,
+        Some(Action::RevealSymbol {
+            generation: scene.revision,
+            index: 0
+        })
+    );
+    scene.open(PaletteEntry::Files);
+    scene.type_text("@missing");
+    assert_eq!(
+        scene.inspection().empty_message.as_deref(),
+        Some("No results")
+    );
+    scene.symbol_document = None;
+    scene.frame(Vec::new());
     assert_eq!(
         scene.inspection().empty_message.as_deref(),
         Some("Open a file first")

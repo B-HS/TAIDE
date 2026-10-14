@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use eframe::egui::{self, Color32, FontId, Id, Key, Rect, Response, Sense, Ui, vec2};
 use taide_model::{error::AppResult, locale::ResolvedLocale, theme::ResolvedTheme};
+use taide_native_editor::document::DocumentKey;
 use taide_native_ui::command_palette::SymbolIndex;
 
 use crate::navigation_icons::{Icon, Icons};
@@ -60,13 +61,13 @@ impl Appearance {
 }
 
 pub(crate) struct Scope<'a> {
-    pub path: Option<&'a str>,
+    pub key: Option<DocumentKey>,
     pub symbols: SymbolIndex<'a>,
 }
 
 #[derive(Default)]
 pub(crate) struct Panel {
-    path: Option<String>,
+    key: Option<DocumentKey>,
     generation: Option<u64>,
     tree: Option<Tree>,
     rows: Vec<Row>,
@@ -86,13 +87,13 @@ pub(crate) struct Output {
 
 impl Panel {
     fn reconcile(&mut self, scope: &Scope<'_>) {
-        if self.path.as_deref() != scope.path {
+        if self.key != scope.key {
             *self = Self {
-                path: scope.path.map(str::to_owned),
+                key: scope.key.clone(),
                 ..Default::default()
             };
         }
-        let Some(symbols) = scope.path.and(scope.symbols.entries) else {
+        let Some(symbols) = scope.key.as_ref().and(scope.symbols.entries) else {
             self.tree = None;
             self.rows.clear();
             self.generation = None;
@@ -198,7 +199,7 @@ impl Panel {
                 appearance.muted.gamma_multiply(EMPTY_OPACITY),
                 0.0,
             )?;
-            let key = if scope.path.is_some() {
+            let key = if scope.key.is_some() {
                 "outline.empty"
             } else {
                 "outline.noActiveFile"

@@ -352,6 +352,169 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
     );
     assert!(application.editor_symbols.builtin_model(&large).is_none());
     assert!(application.editor_folding.builtin_model(&large).is_none());
+    let pane = application
+        .store
+        .views()
+        .get(view)
+        .unwrap()
+        .key
+        .pane
+        .clone();
+    assert!(application.submit(HostCommand::NewUntitled {
+        project: project.clone(),
+        pane: pane.clone()
+    }));
+    let runtime = application.runtime.handle().clone();
+    let untitled = runtime.block_on(async {
+        tokio::time::timeout(DEADLINE, async {
+            loop {
+                eframe::App::logic(application, &context, &mut eframe::Frame::_new_kittest());
+                let tab = application
+                    .controller
+                    .snapshot()
+                    .layouts
+                    .get(&project)
+                    .and_then(|layout| {
+                        crate::tabs::tabs_in(&layout.root)
+                            .into_iter()
+                            .find(|tab| matches!(tab.kind, TabKind::Untitled { .. }))
+                            .map(|tab| tab.id.clone())
+                    });
+                if let Some(tab) = tab {
+                    return tab;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap()
+    });
+    let untitled_document = application
+        .store
+        .open_untitled(untitled.clone(), TEXT, "json".into())
+        .unwrap();
+    wait(application, &context, |application| {
+        application.untitled.contains_key(&untitled)
+            && application
+                .store
+                .documents()
+                .snapshot(untitled_document)
+                .is_ok_and(|snapshot| {
+                    application
+                        .editor_symbols
+                        .builtin_model(&snapshot)
+                        .is_some()
+                })
+    });
+    let untitled_view = application
+        .store
+        .views()
+        .find(&ViewKey {
+            window: WINDOW_LABEL.into(),
+            pane,
+            tab: untitled.clone(),
+        })
+        .unwrap();
+    let before = application
+        .store
+        .documents()
+        .snapshot(untitled_document)
+        .unwrap();
+    assert_eq!(
+        before.key,
+        taide_native_editor::document::DocumentKey::Untitled(untitled)
+    );
+    application.palette.open(
+        &context,
+        taide_native_ui::command_registry::PaletteEntry::Files,
+    );
+    wait(application, &context, |application| {
+        application.palette.inspection().has_input_focus
+    });
+    super::inlay_hints_tests::paint(
+        application,
+        &context,
+        vec![egui::Event::Text("@value".into())],
+    );
+    paint(application, &context);
+    assert_eq!(
+        application
+            .palette
+            .inspection()
+            .rows
+            .iter()
+            .map(|row| row.label.as_str())
+            .collect::<Vec<_>>(),
+        ["value"],
+        "palette={:?}; model={:?}",
+        application.palette.inspection(),
+        application
+            .editor_symbols
+            .palette(Some(&project), Some(&before))
+            .document,
+    );
+    super::inlay_hints_tests::paint(
+        application,
+        &context,
+        super::inlay_hints_tests::key(egui::Key::Enter, egui::Modifiers::NONE),
+    );
+    paint(application, &context);
+    assert!(!application.palette.is_open());
+    assert_eq!(
+        application
+            .store
+            .views()
+            .get(untitled_view)
+            .unwrap()
+            .selection
+            .selections[0]
+            .head,
+        TEXT.find("\"value\"").unwrap()
+    );
+    let slot = application
+        .services
+        .state
+        .session
+        .read()
+        .focused_shell_slot
+        .clone()
+        .unwrap();
+    application.symbol_sidebars.entry(&project, &slot).view = crate::symbol_sidebar::View::Outline;
+    paint(application, &context);
+    let outline = egui::Id::new(("symbol-outline", &project, &slot));
+    assert!(context.read_response(outline).is_some());
+    context.memory_mut(|memory| memory.request_focus(outline));
+    super::inlay_hints_tests::paint(
+        application,
+        &context,
+        super::inlay_hints_tests::key(egui::Key::ArrowDown, egui::Modifiers::NONE),
+    );
+    super::inlay_hints_tests::paint(
+        application,
+        &context,
+        super::inlay_hints_tests::key(egui::Key::Enter, egui::Modifiers::NONE),
+    );
+    paint(application, &context);
+    assert_eq!(
+        application
+            .store
+            .views()
+            .get(untitled_view)
+            .unwrap()
+            .selection
+            .selections[0]
+            .head,
+        TEXT.find("\"\u{1f600}\"").unwrap()
+    );
+    let after = application
+        .store
+        .documents()
+        .snapshot(untitled_document)
+        .unwrap();
+    assert_eq!(
+        (after.revision, after.rope.to_string()),
+        (before.revision, before.rope.to_string())
+    );
     eframe::App::on_exit(application);
     assert_eq!(application.services.tasks.tracked_count(), 0);
     assert!(application.editor_json.documents().is_empty());
