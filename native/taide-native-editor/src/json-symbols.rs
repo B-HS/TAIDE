@@ -179,7 +179,7 @@ impl Collector {
     }
 }
 
-fn number_string(value: f64) -> String {
+pub(crate) fn number_string(value: f64) -> String {
     if value.is_nan() {
         return "NaN".to_owned();
     }

@@ -67,6 +67,10 @@ pub mod json_symbols;
 pub mod json_validation;
 #[path = "json-value.rs"]
 pub mod json_value;
+#[path = "json-value-text.rs"]
+pub mod json_value_text;
+#[path = "json-schema-scalar.rs"]
+pub mod json_schema_scalar;
 #[path = "inlay-hints.rs"]
 pub mod inlay_hints;
 #[path = "language-configuration.rs"]

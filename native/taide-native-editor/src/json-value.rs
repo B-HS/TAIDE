@@ -154,21 +154,35 @@ impl Arena {
         right: usize,
         max_work: usize,
     ) -> Result<bool, EditorError> {
+        let mut remaining = max_work;
+        self.equals_budgeted(left, other, right, &mut remaining)
+    }
+
+    pub(crate) fn equals_budgeted(
+        &self,
+        left: usize,
+        other: &Self,
+        right: usize,
+        remaining: &mut usize,
+    ) -> Result<bool, EditorError> {
         let mut pending = vec![(left, right)];
         let mut seen = BTreeSet::new();
-        let mut work = 0usize;
         while let Some((left, right)) = pending.pop() {
-            if work >= max_work {
-                return Err(EditorError::Capacity);
-            }
-            work += 1;
+            *remaining = remaining.checked_sub(1).ok_or(EditorError::Capacity)?;
             let one = self.get(left).ok_or(EditorError::InvalidBoundary)?;
             let two = other.get(right).ok_or(EditorError::InvalidBoundary)?;
             match (one, two) {
                 (Value::Null, Value::Null) => {}
                 (Value::Boolean(one), Value::Boolean(two)) if one == two => {}
                 (Value::Number(one), Value::Number(two)) if one == two => {}
-                (Value::String(one), Value::String(two)) if one == two => {}
+                (Value::String(one), Value::String(two)) => {
+                    *remaining = remaining
+                        .checked_sub(one.len().min(two.len()))
+                        .ok_or(EditorError::Capacity)?;
+                    if one != two {
+                        return Ok(false);
+                    }
+                }
                 (Value::Array(one), Value::Array(two)) => {
                     if std::ptr::eq(self, other) && left == right || !seen.insert((left, right)) {
                         continue;
@@ -179,7 +193,7 @@ impl Arena {
                     if one
                         .len()
                         .checked_add(pending.len())
-                        .is_none_or(|count| count > max_work - work)
+                        .is_none_or(|count| count > *remaining)
                     {
                         return Err(EditorError::Capacity);
                     }
@@ -195,9 +209,14 @@ impl Arena {
                     if one
                         .len()
                         .checked_add(pending.len())
-                        .is_none_or(|count| count > max_work - work)
+                        .is_none_or(|count| count > *remaining)
                     {
                         return Err(EditorError::Capacity);
+                    }
+                    for member in one.iter().chain(two) {
+                        *remaining = remaining
+                            .checked_sub(member.key.len())
+                            .ok_or(EditorError::Capacity)?;
                     }
                     let lookup = two
                         .iter()
