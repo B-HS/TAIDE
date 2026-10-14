@@ -1,6 +1,6 @@
 {
     "date": "2026-10-14",
-    "baseline": "ef5df931",
+    "baseline": "9f59217a",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -815,15 +815,17 @@
                 "native/taide-native-ui/tests/editor-sticky-scroll.rs",
                 "native/taide-native-app/src/application-startup-tests.rs",
                 "native/taide-native-ui/tests/editor-locations.rs",
-                "native/taide-native-app/src/application-sticky-definition-tests.rs"
+                "native/taide-native-app/src/application-sticky-definition-tests.rs",
+                "native/taide-native-app/src/application-json-tests.rs"
             ],
             "reports": [
                 "docs/quality-assurance/2026-10-10-native-batch16-document-symbols.md",
                 "docs/quality-assurance/2026-10-10-native-batch17-outline-breadcrumbs.md",
                 "docs/quality-assurance/2026-10-10-native-batch23-editor.md",
-                "docs/quality-assurance/2026-10-14-native-batch23-sticky-definition.md"
+                "docs/quality-assurance/2026-10-14-native-batch23-sticky-definition.md",
+                "docs/quality-assurance/2026-10-14-native-batch23-builtin-language-services.md"
             ],
-            "limitation": "기존문서심볼/구문접기/indent fallback의고정줄Ctrl/Meta/hover/GoTo/Aside를연결했습니다. 기존UI32와새실제child/App3에서실제Galley 클릭·서버UTF-16 위치/한줄아래응답·현재/독립옆뷰·원문/revision/디스크/task0을확인했습니다. 실제비BMP 식별자의byte8/UTF-16열6·Normal readonly 탐색도통과했습니다. 원본내장JSON/CSS/HTML/TS 심볼/접기공급(editor-57)이아직없어provider전체동등성은partial이며전체App준비/실기/성능/출시게이트는별도미완료입니다."
+            "limitation": "기존 문서 심볼/구문 접기/indent fallback의 고정 줄 Ctrl/Meta·hover/GoTo/Aside·비BMP/readonly 탐색과 실제 JSON 구조 공급을 연결했습니다. 9f59217a는 고정 줄 focus→FoldAll→focus None을 재현하고 최종 표시에서 사라진 소유 ID만 본문으로 회수합니다. 기존17+신규1의UI18·실제 JSON peek1(일반/readonly 두 사례)의19통과와 Wasm4.85초·다른 입력창 focus/원문·종료tasks0이 현재 근거입니다. JSON 파일/untitled/peek 구조는 제공하며 CSS/HTML/TS의 내장 공급 전체와 전체 App 준비/OS·성능/출시 게이트가 남아 partial입니다."
         },
         "editor-indentation": {
             "sources": [
@@ -1353,7 +1355,8 @@
                 "native/taide-native-app/src/editor-json-validation.rs",
                 "native/taide-native-app/src/diagnostics.rs",
                 "native/taide-native-app/src/problems.rs",
-                "native/taide-native-app/src/editor-problems.rs"
+                "native/taide-native-app/src/editor-problems.rs",
+                "native/taide-native-ui/src/editor_surface.rs"
             ],
             "tests": [
                 "native/taide-native-editor/tests/json-scanner.rs",
@@ -1418,10 +1421,11 @@
                 "native/taide-native-app/src/editor-json-validation-tests.rs",
                 "native/taide-native-app/src/diagnostics-tests.rs",
                 "native/taide-native-app/src/problems-tests.rs",
-                "native/taide-native-app/src/editor-problems-tests.rs"
+                "native/taide-native-app/src/editor-problems-tests.rs",
+                "native/taide-native-ui/tests/editor-sticky-scroll.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-14-native-batch23-builtin-language-services.md"],
-            "limitation": "기존 JSON 구조/실제 untitled 탐색에 이어 ef5df931은 원본 defaults/500ms 변경 지연의 별도 native 구문 진단 작업·Core byte marker/typed 문제 목록·현재 untitled 행 클릭/문제 이동·Undo 회수를 연결했습니다. 작업2/진단7/목록·탐색24/실제 본문1/현재 입력 소유를 직접 확인한 peek1의 서로 다른35건이 성공 근거입니다. 제거 뒤 늦은 게시가 오류1로 되살아나는 실패를 재현하고 게시 자격 회수 뒤 진단7/0.03초/exit0으로 수정했습니다. 실제 문서 키/언어/readonly/Large·외부 공존/원문/tasks0·소유Rust13 fmt/diff이며 공유 UI/Core/Wasm 계약·manifest/lock/동결 소스 변경0입니다. 앞선 간헐 peek Escape 회수 시간 초과의 원인은 미확정이며 nonempty peek 진단/hover·다른 문서/프로젝트 untitled 탐색과 함께 b3g2에 유지합니다. 언어 선택 UI·schema semantic/나머지 JSON 조회/완성/포맷·CSS/HTML/TS·전체 App 준비/OS·접근성/성능/출시·전환 게이트는 미완료라 partial입니다. 기존 Core392/JSONCore49/Syntax5·Wasm 및 schema 전송/graph 성공은 재사용하며 새 전체 실행으로 합산하지 않습니다."
+            "limitation": "ef5df931의 JSON 구문 작업/native 슬롯·typed 문제 목록·현재 untitled 이동과 제거 뒤 늦은 게시 회수에 이어 9f59217a는 고정 줄 소실 뒤 focus None을 UI 실패로 재현하고 해당 본문으로 회수했습니다. UI18/실제 JSON peek1(일반·readonly 두 사례)/Wasm4.85초·소유Rust3 fmt/diff가 현재 근거이며 실제 오류 marker/hover 문구·본문 분리·고정 줄 F9→본문 focus→Escape 즉시 세션 폐기/문서·작업0을 확인했습니다. 이전 g1 작업2/진단7/목록·탐색24/본문 앱 등 성공은 변경 없는 범위에서 재사용하며 합산하지 않습니다. 다른 문서/프로젝트 untitled 문제 요청은 미연결 실패를 재현하고 b3g2b에서 구현 중이며 완료로 주장하지 않습니다. 언어 선택 UI·schema semantic/나머지 JSON 조회/완성/포맷·CSS/HTML/TS·전체 App 준비/OS·접근성/대형 성능/신뢰성/출시·전환 게이트는 미완료라 partial입니다."
         }
     },
     "rows": [
@@ -2688,7 +2692,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-sticky-definition",
-            "note": "기존문서심볼/구문접기/indent fallback의고정줄Ctrl/Meta/hover/GoTo/Aside를연결했습니다. 기존UI32와새실제child/App3에서실제Galley 클릭·서버UTF-16 위치/한줄아래응답·현재/독립옆뷰·원문/revision/디스크/task0을확인했습니다. 실제비BMP 식별자의byte8/UTF-16열6·Normal readonly 탐색도통과했습니다. 원본내장JSON/CSS/HTML/TS 심볼/접기공급(editor-57)이아직없어provider전체동등성은partial이며전체App준비/실기/성능/출시게이트는별도미완료입니다."
+            "note": "기존 문서 심볼/구문 접기/indent fallback의 고정 줄 Ctrl/Meta·hover/GoTo/Aside·비BMP/readonly 탐색과 실제 JSON 구조 공급을 연결했습니다. 9f59217a는 고정 줄 focus→FoldAll→focus None을 재현하고 최종 표시에서 사라진 소유 ID만 본문으로 회수합니다. 기존17+신규1의UI18·실제 JSON peek1(일반/readonly 두 사례)의19통과와 Wasm4.85초·다른 입력창 focus/원문·종료tasks0이 현재 근거입니다. JSON 파일/untitled/peek 구조는 제공하며 CSS/HTML/TS의 내장 공급 전체와 전체 App 준비/OS·성능/출시 게이트가 남아 partial입니다."
         },
         {
             "id": "editor-17",
@@ -3139,7 +3143,7 @@
             "domain": "editor",
             "status": "partial",
             "proof": "editor-builtin-language-services",
-            "note": "JSON 내장 구조와 실제 untitled 탐색에 이어 원본 defaults/500ms 변경 지연의 구문 진단·별도 native 슬롯/외부 공존·문제 목록/현재 untitled 행 이동·Undo를 연결했습니다. ef5df931의 작업2/진단7/목록·탐색24/본문앱1/좁은peek1의 성공35건과 제거 뒤 늦은 게시 실패→수정이 근거입니다. 간헐 peek Escape 회수의 원인·nonempty peek 진단/hover·다른 문서/프로젝트 untitled 이동은 b3g2에 남깁니다. 언어 선택 UI/schema semantic/나머지 JSON 기능·CSS/HTML/TS와 전체 App/OS·성능/출시·전환 게이트가 미완료여서 partial입니다."
+            "note": "JSON 구조·실제 untitled 탐색/구문 진단·문제 목록/현재 문서 이동을 연결했습니다. 9f59217a는 고정 줄 소실 focus 오류를 재현·수정하고 UI18/실제 JSON peek1(일반·readonly 두 사례)/Wasm4.85초에서 오류 hover·본문 분리/F9/본문 focus/Escape·작업0을 확인했습니다. 다른 문서/프로젝트 untitled 문제 요청은 실패 재현 뒤 b3g2b에 구현 중입니다. 언어 선택 UI/schema semantic/나머지 JSON 기능·CSS/HTML/TS 및 전체 게이트가 미완료여서 partial입니다."
         },
         {
             "id": "editor-58",
