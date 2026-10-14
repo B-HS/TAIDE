@@ -1,6 +1,6 @@
 {
     "date": "2026-10-14",
-    "baseline": "1c036ec1",
+    "baseline": "7990f413",
     "domainOrder": ["shell", "editor", "terminal-agent", "explorer-search", "preview", "git", "settings", "commands-ui"],
     "evidence": {
         "editor-base": {
@@ -1332,7 +1332,8 @@
                 "native/taide-native-editor/src/json-schema-uri.rs",
                 "native/taide-native-editor/src/json-schema-associations.rs",
                 "native/taide-native-syntax/src/schema-pattern.rs",
-                "native/taide-native-syntax/src/lib.rs"
+                "native/taide-native-syntax/src/lib.rs",
+                "native/taide-native-editor/src/json-schema-service.rs"
             ],
             "tests": [
                 "native/taide-native-editor/tests/json-scanner.rs",
@@ -1372,10 +1373,15 @@
                 "native/taide-native-editor/tests/json-schema-associations.rs",
                 "native/taide-native-editor/tests/fixtures/json-schema-associations-oracle.mjs",
                 "native/taide-native-editor/tests/fixtures/json-schema-associations-oracle.rs",
-                "native/taide-native-syntax/tests/schema-pattern.rs"
+                "native/taide-native-syntax/tests/schema-pattern.rs",
+                "native/taide-native-editor/tests/json-schema-service.rs",
+                "native/taide-native-editor/tests/fixtures/json-schema-service-limits.rs",
+                "native/taide-native-editor/tests/fixtures/json-schema-service-oracle.mjs",
+                "native/taide-native-editor/tests/fixtures/json-schema-service-oracle.rs",
+                "native/taide-native-syntax/tests/schema-service.rs"
             ],
             "reports": ["docs/quality-assurance/2026-10-14-native-batch23-builtin-language-services.md"],
-            "limitation": "실제 source scanner19,624·AST6,336·조회1,118·선택3,303·심볼5,616·접기693·포맷9,216·진단정책9,216·값2,348/비교600·local 참조104·URI7,100·context/속성1,152·association7,728/glob44사례와 현재Core37/Syntax2검사·host/Wasm 근거입니다. 내부 참조/graph·URI/context/default encoding·첫 schema 속성·순서대로 fileMatch include/exclude/folder·기존regress UCS2 legacy/논리UTF-16·자료/외부처리 예산과 기존 실제 편집/marker 소비를 확인했습니다. 실제 registry/전체 선택·외부 요청/참조/cache/semantic·조회/완성/App·CSS·HTML·TS와 regex 큰tier/backtracking 성능은 미완료이며 editor-57 missing을 유지합니다."
+            "limitation": "실제 source scanner19,624·AST6,336·조회1,118·선택3,303·심볼5,616·접기693·포맷9,216·진단정책9,216·값2,348/비교600·local 참조104·URI7,100·context/속성1,152·association7,728/glob44·service6scenario/61event와 currentCore40/Syntax4·host/Wasm 근거입니다. 등록/교체/contribution 복원·명시/합성 선택·owner/generation/phase·공유/전이의존/이전 응답·두 quota 실패→수정과 false-schema6교정을 확인했습니다. 실제 raw schema load/HTTP/file·외부 graph/의미검증·조회/완성/실제App·CSS/HTML/TS와 regex 큰tier/backtracking 성능은 미완료이며 editor-57 missing을 유지합니다."
         }
     },
     "rows": [
@@ -3093,7 +3099,7 @@
             "domain": "editor",
             "status": "missing",
             "proof": "editor-builtin-language-services",
-            "note": "실제 JSON scanner/AST·구조/포맷/구문정책·schema 값/비교·local 참조104·URI7,100·worker context/첫 속성1,152·파일 연관7,728/glob44사례를 portable Core와 기존 Syntax regress에 구현했습니다. 현재Core37/Syntax2검사·host/Wasm·원문/논리Unicode·자료/외부처리 예산과 기존 실제 편집/MarkerSet 소비를 확인했습니다. 실제 registry/캐시/전체 선택·외부 요청/참조·의미검증·조회/완성·실제App 및 CSS/HTML/TS 전체와 큰tier 정규식 성능은 미완료이므로 missing을 유지합니다."
+            "note": "JSON scanner/AST·구조/포맷/구문정책·schema 값/비교·local 참조/URI/context/association과 actual service6scenario/61event의 등록·선택·캐시 수명을 Core/Syntax에 연결했습니다. currentCore40/Syntax4·host/Wasm·실제 요청소유/공유/변경/전이의존·부분외부결과 거절·두 quota 수정/false-schema 교정과 기존 실제 편집/MarkerSet 소비가 근거입니다. 실제 raw loader/HTTP/file·외부 graph·semantic/조회/완성·실제App 공급과 CSS/HTML/TS 전체 및 큰tier 정규식 성능은 미완료이므로 missing을 유지합니다."
         },
         {
             "id": "editor-58",
