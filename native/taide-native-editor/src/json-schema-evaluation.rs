@@ -38,6 +38,44 @@ pub struct MatchingSchema {
     pub node: usize,
     pub schema: usize,
     pub inverted: bool,
+    pub view: SchemaView,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SchemaView {
+    Source,
+    Empty,
+    Reject,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Selection {
+    pub focus_byte: Option<usize>,
+    pub exclude_node: Option<usize>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct Collection {
+    pub enabled: bool,
+    selection: Selection,
+}
+
+impl Collection {
+    pub fn disabled() -> Self {
+        Self {
+            enabled: false,
+            selection: Selection::default(),
+        }
+    }
+    pub fn sub(self) -> Self {
+        Self {
+            selection: Selection {
+                focus_byte: None,
+                ..self.selection
+            },
+            ..self
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -84,6 +122,7 @@ pub(crate) enum Merge {
     All,
     Property(Option<Vec<u16>>),
     Direct,
+    RawProperty,
     Not,
     Condition {
         then_schema: Option<usize>,
@@ -105,7 +144,7 @@ pub(crate) enum Operation {
     Child {
         node: usize,
         schema: usize,
-        collect: bool,
+        collect: Collection,
         merge: Merge,
     },
     Merge(Merge),
@@ -135,7 +174,9 @@ pub(crate) struct Property {
 pub(crate) struct Frame {
     pub node: usize,
     pub schema: usize,
-    pub collect: bool,
+    pub collect: Collection,
+    view: SchemaView,
+    is_included: bool,
     pub result: Validation,
     pub pending: Vec<Operation>,
     pub properties: Vec<Property>,
@@ -220,36 +261,60 @@ impl Evaluator<'_> {
         Ok(())
     }
 
-    fn frame(&mut self, node: usize, schema: usize, collect: bool) -> Result<Frame, EditorError> {
+    fn frame(
+        &mut self,
+        node: usize,
+        schema: usize,
+        collect: Collection,
+        normalize_boolean: bool,
+    ) -> Result<Frame, EditorError> {
         self.spend(1)?;
-        if !self.active.insert((node, schema)) {
-            return Err(EditorError::Capacity);
-        }
-        self.document
+        let ast = self
+            .document
             .nodes
             .get(node)
             .ok_or(EditorError::InvalidIdentity)?;
+        let is_included = !collect.enabled
+            || collect
+                .selection
+                .focus_byte
+                .is_none_or(|byte| ast.bytes.contains(&byte))
+                && collect.selection.exclude_node != Some(node);
+        if is_included && !self.active.insert((node, schema)) {
+            return Err(EditorError::Capacity);
+        }
         match self.schema.get(schema) {
             Some(Value::Boolean(_) | Value::Object(_)) => {}
             _ => return Err(EditorError::InvalidBoundary),
         }
+        let view = match (normalize_boolean, self.schema.get(schema)) {
+            (true, Some(Value::Boolean(true))) => SchemaView::Empty,
+            (true, Some(Value::Boolean(false))) => SchemaView::Reject,
+            _ => SchemaView::Source,
+        };
         Ok(Frame {
             node,
             schema,
             collect,
+            view,
+            is_included,
             result: Validation::default(),
             properties: Vec::new(),
-            pending: vec![
-                Operation::Finish,
-                Operation::Structure,
-                Operation::Scalar(Phase::Values),
-                Operation::Condition,
-                Operation::OneOf,
-                Operation::AnyOf,
-                Operation::Not,
-                Operation::AllOf,
-                Operation::Scalar(Phase::Type),
-            ],
+            pending: if !is_included {
+                vec![Operation::Finish]
+            } else {
+                vec![
+                    Operation::Finish,
+                    Operation::Structure,
+                    Operation::Scalar(Phase::Values),
+                    Operation::Condition,
+                    Operation::OneOf,
+                    Operation::AnyOf,
+                    Operation::Not,
+                    Operation::AllOf,
+                    Operation::Scalar(Phase::Type),
+                ]
+            },
         })
     }
 
@@ -547,7 +612,13 @@ impl Evaluator<'_> {
         mode: Merge,
         mut child: Validation,
     ) -> Result<(), EditorError> {
+        let mode = if matches!(mode, Merge::RawProperty) {
+            Merge::Property(None)
+        } else {
+            mode
+        };
         match mode {
+            Merge::RawProperty => return Err(EditorError::InvalidBoundary),
             Merge::All => self.merge_all(&mut frame.result, child)?,
             Merge::Direct => {
                 if child.enum_values.is_some() {
@@ -613,7 +684,7 @@ impl Evaluator<'_> {
                         vec![Operation::Child {
                             node: frame.node,
                             schema,
-                            collect: frame.collect,
+                            collect: frame.collect.sub(),
                             merge: Merge::All,
                         }],
                     )?;
@@ -688,7 +759,7 @@ impl Evaluator<'_> {
                             operations.push(Operation::Child {
                                 node: frame.node,
                                 schema,
-                                collect: frame.collect,
+                                collect: frame.collect.sub(),
                                 merge: Merge::All,
                             });
                         }
@@ -704,7 +775,7 @@ impl Evaluator<'_> {
                         vec![Operation::Child {
                             node: frame.node,
                             schema,
-                            collect: frame.collect,
+                            collect: frame.collect.sub(),
                             merge: Merge::Not,
                         }],
                     )?;
@@ -740,7 +811,7 @@ impl Evaluator<'_> {
                         vec![Operation::Child {
                             node: frame.node,
                             schema,
-                            collect: frame.collect,
+                            collect: frame.collect.sub(),
                             merge: Merge::Alternative(alternatives),
                         }],
                     )?;
@@ -770,7 +841,7 @@ impl Evaluator<'_> {
                         vec![Operation::Child {
                             node: frame.node,
                             schema,
-                            collect: frame.collect,
+                            collect: frame.collect.sub(),
                             merge: Merge::Condition {
                                 then_schema,
                                 else_schema,
@@ -784,28 +855,71 @@ impl Evaluator<'_> {
         Ok(())
     }
 
-    fn run(&mut self, root: usize, schema: usize) -> Result<Validation, EditorError> {
-        let mut frames = vec![self.frame(root, schema, true)?];
+    fn add_matching(
+        &mut self,
+        result: &mut Validation,
+        node: usize,
+        schema: usize,
+        view: SchemaView,
+        inverted: bool,
+    ) -> Result<(), EditorError> {
+        self.match_count = self
+            .match_count
+            .checked_add(1)
+            .ok_or(EditorError::Capacity)?;
+        if self.match_count > self.limits.max_matches {
+            return Err(EditorError::Capacity);
+        }
+        result.schemas.push(MatchingSchema {
+            node,
+            schema,
+            view,
+            inverted,
+        });
+        Ok(())
+    }
+
+    fn run(
+        &mut self,
+        root: usize,
+        schema: usize,
+        selection: Selection,
+    ) -> Result<Validation, EditorError> {
+        let mut frames = vec![self.frame(
+            root,
+            schema,
+            Collection {
+                enabled: true,
+                selection,
+            },
+            false,
+        )?];
         let mut last = None;
         while let Some(mut frame) = frames.pop() {
             self.spend(1)?;
             match frame.pending.pop().ok_or(EditorError::InvalidIdentity)? {
                 Operation::Finish => {
-                    if frame.collect {
-                        self.match_count = self
-                            .match_count
-                            .checked_add(1)
-                            .ok_or(EditorError::Capacity)?;
-                        if self.match_count > self.limits.max_matches {
-                            return Err(EditorError::Capacity);
+                    if frame.is_included && frame.collect.enabled {
+                        if frame.view == SchemaView::Reject {
+                            self.add_matching(
+                                &mut frame.result,
+                                frame.node,
+                                frame.schema,
+                                SchemaView::Empty,
+                                true,
+                            )?;
                         }
-                        frame.result.schemas.push(MatchingSchema {
-                            node: frame.node,
-                            schema: frame.schema,
-                            inverted: false,
-                        });
+                        self.add_matching(
+                            &mut frame.result,
+                            frame.node,
+                            frame.schema,
+                            frame.view,
+                            false,
+                        )?;
                     }
-                    self.active.remove(&(frame.node, frame.schema));
+                    if frame.is_included {
+                        self.active.remove(&(frame.node, frame.schema));
+                    }
                     last = Some(frame.result);
                 }
                 Operation::Child {
@@ -817,8 +931,9 @@ impl Evaluator<'_> {
                     if frames.len() + 1 >= self.limits.max_frames {
                         return Err(EditorError::Capacity);
                     }
+                    let normalize_boolean = !matches!(merge, Merge::RawProperty);
                     frame.pending.push(Operation::Merge(merge));
-                    let child = self.frame(node, schema, collect)?;
+                    let child = self.frame(node, schema, collect, normalize_boolean)?;
                     frames.push(frame);
                     frames.push(child);
                 }
@@ -840,6 +955,69 @@ pub fn validate(
     severity: Severity,
     draft: Option<Draft>,
     limits: Limits,
+) -> Result<Validation, EditorError> {
+    if !schema
+        .get(schema_node)
+        .ok_or(EditorError::InvalidIdentity)?
+        .is_truthy()
+    {
+        return Ok(Validation::default());
+    }
+    evaluate(
+        document,
+        schema,
+        schema_node,
+        compiler,
+        severity,
+        draft,
+        limits,
+        Selection::default(),
+    )
+}
+
+pub fn matching_schemas(
+    document: &Document,
+    schema: &Arena,
+    schema_node: usize,
+    compiler: &dyn PatternCompiler,
+    selection: Selection,
+    limits: Limits,
+) -> Result<Vec<MatchingSchema>, EditorError> {
+    if !schema
+        .get(schema_node)
+        .ok_or(EditorError::InvalidIdentity)?
+        .is_truthy()
+    {
+        return Ok(Vec::new());
+    }
+    if selection
+        .exclude_node
+        .is_some_and(|node| node >= document.nodes.len())
+    {
+        return Err(EditorError::InvalidIdentity);
+    }
+    Ok(evaluate(
+        document,
+        schema,
+        schema_node,
+        compiler,
+        Severity::Warning,
+        None,
+        limits,
+        selection,
+    )?
+    .schemas)
+}
+
+fn evaluate(
+    document: &Document,
+    schema: &Arena,
+    schema_node: usize,
+    compiler: &dyn PatternCompiler,
+    severity: Severity,
+    draft: Option<Draft>,
+    limits: Limits,
+    selection: Selection,
 ) -> Result<Validation, EditorError> {
     let Some(root) = document.root else {
         return Ok(Validation::default());
@@ -890,5 +1068,5 @@ pub fn validate(
             }
         }
     }
-    evaluator.run(root, schema_node)
+    evaluator.run(root, schema_node, selection)
 }

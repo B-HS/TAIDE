@@ -57,6 +57,8 @@ pub mod json_schema_evaluation;
 pub mod json_schema_graph;
 #[path = "json-schema-load.rs"]
 pub mod json_schema_load;
+#[path = "json-schema-policy.rs"]
+pub mod json_schema_policy;
 #[path = "json-schema-refs.rs"]
 pub mod json_schema_refs;
 #[path = "json-schema-scalar.rs"]

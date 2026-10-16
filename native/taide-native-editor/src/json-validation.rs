@@ -17,7 +17,7 @@ pub enum Level {
 }
 
 impl Level {
-    fn severity(self) -> Option<Severity> {
+    pub(crate) fn severity(self) -> Option<Severity> {
         match self {
             Self::Error => Some(Severity::Error),
             Self::Warning => Some(Severity::Warning),
@@ -43,47 +43,60 @@ pub struct Limits {
     pub max_message_bytes: usize,
 }
 
-struct Collector {
-    markers: Vec<Marker>,
-    seen: BTreeSet<(usize, &'static str)>,
+pub(crate) struct Collector {
+    pub(crate) markers: Vec<Marker>,
+    seen: BTreeSet<(usize, Vec<u16>)>,
     message_bytes: usize,
-    limits: Limits,
+    max_diagnostics: usize,
+    max_message_bytes: usize,
 }
 
 impl Collector {
-    fn add(
+    pub(crate) fn new(max_diagnostics: usize, max_message_bytes: usize) -> Self {
+        Self {
+            markers: Vec::new(),
+            seen: BTreeSet::new(),
+            message_bytes: 0,
+            max_diagnostics,
+            max_message_bytes,
+        }
+    }
+
+    pub(crate) fn add(
         &mut self,
         bytes: Range<usize>,
-        text: &'static str,
-        code: u32,
+        message: Vec<u16>,
+        code: Option<u32>,
         severity: Severity,
         source: Option<&str>,
     ) -> Result<(), EditorError> {
-        if !self.seen.insert((bytes.start, text)) {
+        let key = (bytes.start, message);
+        if self.seen.contains(&key) {
             return Ok(());
         }
-        let code = code.to_string();
+        let text = String::from_utf16_lossy(&key.1);
+        let code = code.map(|code| code.to_string());
         let size = text
             .len()
-            .checked_add(code.len())
+            .checked_add(code.as_ref().map_or(0, String::len))
             .and_then(|count| count.checked_add(source.map_or(0, str::len)))
             .ok_or(EditorError::Capacity)?;
         self.message_bytes = self
             .message_bytes
             .checked_add(size)
             .ok_or(EditorError::Capacity)?;
-        if self.markers.len() >= self.limits.max_diagnostics
-            || self.message_bytes > self.limits.max_message_bytes
+        if self.markers.len() >= self.max_diagnostics || self.message_bytes > self.max_message_bytes
         {
             return Err(EditorError::Capacity);
         }
+        self.seen.insert(key);
         self.markers.push(Marker {
             bytes,
             message: Arc::new(Message {
                 severity,
-                text: text.to_owned(),
+                text,
                 source: source.map(str::to_owned),
-                code: Some(code),
+                code,
             }),
         });
         Ok(())
@@ -100,12 +113,17 @@ pub fn syntax_diagnostics(
         return Ok(Vec::new());
     }
     let document = json_parser::parse(input, true, limits.parser)?;
-    let mut collector = Collector {
-        markers: Vec::new(),
-        seen: BTreeSet::new(),
-        message_bytes: 0,
-        limits,
-    };
+    let mut collector = Collector::new(limits.max_diagnostics, limits.max_message_bytes);
+    collect_syntax(&document, language, settings, &mut collector)?;
+    Ok(collector.markers)
+}
+
+pub(crate) fn collect_syntax(
+    document: &json_parser::Document,
+    language: &str,
+    settings: Settings,
+    collector: &mut Collector,
+) -> Result<(), EditorError> {
     let trailing = if settings.schema_allows_trailing_commas {
         None
     } else {
@@ -122,7 +140,7 @@ pub fn syntax_diagnostics(
             }
         })
     };
-    for diagnostic in document.diagnostics {
+    for diagnostic in &document.diagnostics {
         let severity = if diagnostic.error == Error::TrailingComma {
             let Some(severity) = trailing else { continue };
             severity
@@ -132,23 +150,23 @@ pub fn syntax_diagnostics(
             Severity::Error
         };
         collector.add(
-            diagnostic.bytes,
-            diagnostic.error.message(),
-            diagnostic.error.code(),
+            diagnostic.bytes.clone(),
+            diagnostic.error.message().encode_utf16().collect(),
+            Some(diagnostic.error.code()),
             severity,
             Some(language),
         )?;
     }
     if let Some(severity) = comments {
-        for comment in document.comments {
+        for comment in &document.comments {
             collector.add(
-                comment.bytes,
-                COMMENT_ERROR_MESSAGE,
-                COMMENT_ERROR_CODE,
+                comment.bytes.clone(),
+                COMMENT_ERROR_MESSAGE.encode_utf16().collect(),
+                Some(COMMENT_ERROR_CODE),
                 severity,
                 None,
             )?;
         }
     }
-    Ok(collector.markers)
+    Ok(())
 }

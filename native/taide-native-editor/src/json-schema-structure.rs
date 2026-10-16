@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use crate::document::EditorError;
 use crate::json_parser::{Kind, Value as AstValue};
 use crate::json_schema_evaluation::{
-    Contains, Draft, Evaluator, Frame, Merge, Operation, Property,
+    Collection, Contains, Draft, Evaluator, Frame, Merge, Operation, Property,
 };
 use crate::json_schema_string::compile_extended;
 use crate::json_value::Value;
@@ -129,7 +129,7 @@ impl Evaluator<'_> {
                 vec![Operation::Child {
                     node,
                     schema: contains.schema,
-                    collect: false,
+                    collect: Collection::disabled(),
                     merge: Merge::Contains(contains),
                 }],
             );
@@ -189,7 +189,7 @@ impl Evaluator<'_> {
                         node,
                         schema,
                         collect: frame.collect,
-                        merge: Merge::Property(None),
+                        merge: Merge::RawProperty,
                     });
                 }
             }
@@ -563,7 +563,7 @@ impl Evaluator<'_> {
             operations.push(Operation::Child {
                 node,
                 schema,
-                collect: false,
+                collect: Collection::disabled(),
                 merge: Merge::Direct,
             });
         }
