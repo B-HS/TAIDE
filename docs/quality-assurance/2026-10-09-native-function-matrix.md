@@ -6,11 +6,11 @@ complete는 구현·실제 앱 경로·해당 동작 묶음의 자동 검사 근
 
 같은 구현을 참조해도 화면/명령 진입·소비자가 다른 요구사항은 유지합니다. 이 표는 중복 참조를 포함하고 규모가 다른 요구사항의 분류입니다. 행 수로 전체 전환율을 계산하지 않습니다.
 
-현재 599행 중 웹 기술/내부 지표 전용 10행과 동결 1행을 제외한 588행이 기능 분모입니다. 완료 308행·미완료 280행, 부분 92·미연결 110·미구현 78입니다. 잔여 시간은 기능별 구현/실기/출시 규모와 실제 실행 시간 근거가 없어 미산정입니다.
+현재 599행 중 웹 기술/내부 지표 전용 10행과 동결 1행을 제외한 588행이 기능 분모입니다. 완료 309행·미완료 279행, 부분 92·미연결 110·미구현 77입니다. 잔여 시간은 기능별 구현/실기/출시 규모와 실제 실행 시간 근거가 없어 미산정입니다.
 
 | 영역            |  행 | complete | partial | unwired | missing | not-applicable | frozen |
 | --------------- | --: | -------: | ------: | ------: | ------: | -------------: | -----: |
-| shell           |  99 |       48 |      22 |       9 |      17 |              3 |      0 |
+| shell           |  99 |       49 |      22 |       9 |      16 |              3 |      0 |
 | editor          |  87 |       68 |      10 |       0 |       7 |              2 |      0 |
 | terminal-agent  |  78 |       44 |      12 |      13 |       7 |              2 |      0 |
 | explorer-search |  45 |       22 |       7 |       4 |      12 |              0 |      0 |
@@ -18,7 +18,7 @@ complete는 구현·실제 앱 경로·해당 동작 묶음의 자동 검사 근
 | git             |  65 |        1 |       1 |      34 |      29 |              0 |      0 |
 | settings        |  83 |       43 |      10 |      28 |       1 |              1 |      0 |
 | commands-ui     | 102 |       50 |      25 |      22 |       4 |              1 |      0 |
-| 합계            | 599 |      308 |      92 |     110 |      78 |             10 |      1 |
+| 합계            | 599 |      309 |      92 |     110 |      77 |             10 |      1 |
 
 ## 현재 근거 지도
 
@@ -163,7 +163,7 @@ TS 경로의 상세 지도와 원본 행 위치는 [스냅샷](2026-10-09-native
 | shell-70 | 상태바 Zen 숨김(zenHideStatusBar)                                                                                                                                                                              | app-shell.tsx 226                                                       | complete       | shell-base        | 실제 NativeShell/앱·controller/host·상태/종료·키맵/저장 경로에 연결되며 관련 workbench/controller·app 회귀는 배치 13 전체 대상에서 통과했습니다. 원본 전체 화면/OS 창·출시 게이트는 별도입니다. |
 | shell-71 | pane 트리 렌더·분할 리사이즈 영속(layout_resize)                                                                                                                                                               | pane-node-view.tsx 78-120                                               | complete       | shell-base        | 실제 NativeShell/앱·controller/host·상태/종료·키맵/저장 경로에 연결되며 관련 workbench/controller·app 회귀는 배치 13 전체 대상에서 통과했습니다. 원본 전체 화면/OS 창·출시 게이트는 별도입니다. |
 | shell-72 | pane 포커스(포인터)                                                                                                                                                                                            | pane-node-view.tsx 162-170                                              | complete       | shell-base        | 실제 NativeShell/앱·controller/host·상태/종료·키맵/저장 경로에 연결되며 관련 workbench/controller·app 회귀는 배치 13 전체 대상에서 통과했습니다. 원본 전체 화면/OS 창·출시 게이트는 별도입니다. |
-| shell-73 | 포커스 pane 시각 표시(탭바 하단 ring)                                                                                                                                                                          | pane-tab-bar.tsx 264, 281                                               | missing        | shell-base        | 실제 창 복원/OS 메뉴·장애 격리·Zen fullscreen/안내·drop·최근/카드·프로젝트 메뉴/drag·4뷰·pane focus ring·탭 pin/menu/drag·미지원 탭·Emmet 소비자는 없습니다.                                    |
+| shell-73 | 포커스 pane 시각 표시(탭바 하단 ring)                                                                                                                                                                          | pane-tab-bar.tsx 264, 281                                               | complete        | shell-base        | 각 layout(주 창·보조 창)의 focused_pane 탭바 하단 1px을 app.focusBorder(원본 ring), 나머지는 tabBar.tabBorder로 그리고 Zen에서는 탭바와 함께 숨깁니다. UI workbench 실제 렌더 검사가 근거이며 실기는 배치 31입니다. |
 | shell-74 | 탭 항목(제목 truncate, preview 이탤릭, dirty 점, pin 아이콘, ✕)                                                                                                                                                | tab-item.tsx                                                            | complete       | shell-base        | 실제 NativeShell/앱·controller/host·상태/종료·키맵/저장 경로에 연결되며 관련 workbench/controller·app 회귀는 배치 13 전체 대상에서 통과했습니다. 원본 전체 화면/OS 창·출시 게이트는 별도입니다. |
 | shell-75 | 탭 종류별 아이콘(FileTypeIcon, 터미널·settings·diff 등, agent 터미널 색)                                                                                                                                       | pane-tab-bar.tsx 60-70                                                  | partial        | icons             | 파일/터미널/설정/diff 기본 아이콘은 있으나 agent 활동 색·배지 공급은 없습니다.                                                                                                                  |
 | shell-76 | 탭 활성화/중클릭 닫기/pinned 닫기 방지                                                                                                                                                                         | tab-item.tsx 34-39                                                      | complete       | shell-base        | 실제 NativeShell/앱·controller/host·상태/종료·키맵/저장 경로에 연결되며 관련 workbench/controller·app 회귀는 배치 13 전체 대상에서 통과했습니다. 원본 전체 화면/OS 창·출시 게이트는 별도입니다. |
