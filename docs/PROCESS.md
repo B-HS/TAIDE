@@ -1,5 +1,15 @@
 # PROCESS — TAIDE 작업 상태
 
+## 진행: 배치 24 — 셸 상호작용 (2026-10-16)
+
+범위는 native-remaining-batch-plan.json의 batch 24 배정 52 ID입니다. 원본 TS 화면/상태/상호작용을 기준으로 하나씩 구현·검증하고 task마다 선별 커밋·일반 푸시합니다.
+
+- [x] shell-27/28 Welcome 최근 프로젝트·단축키 카드 — 473a7a04 (QA 2026-10-16-native-welcome-recent-shortcuts.md)
+- [x] shell-19/20 Zen fullscreen opt-in 확인·안내 배너 — 316e7a4f (QA 2026-10-16-native-zen-hint.md)
+- [x] shell-73 포커스 pane 탭바 하단 표시 — c4d7ae86
+- [x] shell-77/79/86 탭 pin·탭바 빈 공간 메뉴·일괄 닫기, shell-78 탭 메뉴 기본 항목(partial) — 1f0be4ef
+- [ ] 나머지 batch 24 항목(창 상태/보조 창·OS 메뉴·ErrorBoundary·drop·프로젝트/그룹 메뉴·dialog·drag·4뷰·알림·IDE/IPC 동기화 등)
+
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
 현재 상태: b3e11(JSON schema 의미 검증)과 부모 b3e(JSON 진단·schema)를 완료했습니다. 원본 Monaco 기본값(schemas=[], enableSchemaRequest=false)과 내장 draft-04/07 메타 schema를 실제 App JSON 진단 작업에 공급했고 실제 JSONWorker 57사례·App JSON 20통과가 근거입니다. 다음은 b3의 나머지 JSON hover/completion·CSS/HTML/TS 내장 서비스와 c9c2/c9d입니다. App lib 전체의 기존 시간 초과·글꼴 10건은 변경 전에도 재현되어 배치 31에 유지합니다. 전체303/588(51.5%)·미완료285·editor-57partial/editor-16partial·목표active·잔여시간미산정을 유지합니다.
