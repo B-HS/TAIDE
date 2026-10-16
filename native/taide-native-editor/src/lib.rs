@@ -51,6 +51,8 @@ pub mod json_parser;
 pub mod json_scanner;
 #[path = "json-schema-associations.rs"]
 pub mod json_schema_associations;
+#[path = "json-schema-document.rs"]
+pub mod json_schema_document;
 #[path = "json-schema-evaluation.rs"]
 pub mod json_schema_evaluation;
 #[path = "json-schema-graph.rs"]

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use eframe::egui::Context;
@@ -9,8 +9,20 @@ use taide_native_editor::diagnostics::Marker;
 use taide_native_editor::document::{DocumentId, DocumentKey, DocumentSnapshot, EditorError};
 use taide_native_editor::json_parser;
 use taide_native_editor::json_scanner;
+use taide_native_editor::json_schema_associations;
+use taide_native_editor::json_schema_document::{self, Contribution};
+use taide_native_editor::json_schema_evaluation;
+use taide_native_editor::json_schema_graph;
+use taide_native_editor::json_schema_load;
+use taide_native_editor::json_schema_policy::{self, Policy};
+use taide_native_editor::json_schema_refs;
+use taide_native_editor::json_schema_scalar;
+use taide_native_editor::json_schema_service;
+use taide_native_editor::json_schema_uri;
 use taide_native_editor::json_validation::{self, Level, Settings};
+use taide_native_editor::json_value;
 use taide_native_editor::store::EditorStore;
+use taide_native_syntax::{JsonSchemaPatternCompiler, JsonSchemaValidationPatternCompiler};
 use taide_runtime::TaskSupervisor;
 use tokio::sync::oneshot;
 
@@ -22,20 +34,112 @@ const MAX_TOKENS: usize = 1024 * 1024;
 const MAX_DEPTH: usize = 8192;
 const MAX_DIAGNOSTICS: usize = 10 * 1024;
 const MAX_MESSAGE_BYTES: usize = LARGE_FILE_BYTES as usize;
-const LIMITS: json_validation::Limits = json_validation::Limits {
-    parser: json_parser::Limits {
-        scanner: json_scanner::Limits {
-            max_bytes: LARGE_FILE_BYTES as usize,
-            max_tokens: MAX_TOKENS,
-            max_value_units: LARGE_FILE_BYTES as usize,
-        },
-        max_nodes: MAX_NODES,
-        max_depth: MAX_DEPTH,
-        max_diagnostics: MAX_DIAGNOSTICS,
-        max_comments: MAX_DIAGNOSTICS,
+const MAX_VALUES: usize = 256 * 1024;
+const MAX_TEXT_UNITS: usize = LARGE_FILE_BYTES as usize;
+const MAX_WORK: usize = 64 * 1024 * 1024;
+const MAX_MESSAGE_UNITS: usize = 4 * 1024 * 1024;
+const MAX_URI_UNITS: usize = 64 * 1024;
+const MAX_SCHEMA_HANDLES: usize = 256;
+const MAX_SCHEMA_DOCUMENTS: usize = 64;
+const MAX_SCHEMA_STEPS: usize = 256;
+const MAX_FRAMES: usize = 16 * 1024;
+const MAX_MATCHES: usize = 1024 * 1024;
+const PARSER_LIMITS: json_parser::Limits = json_parser::Limits {
+    scanner: json_scanner::Limits {
+        max_bytes: LARGE_FILE_BYTES as usize,
+        max_tokens: MAX_TOKENS,
+        max_value_units: LARGE_FILE_BYTES as usize,
     },
+    max_nodes: MAX_NODES,
+    max_depth: MAX_DEPTH,
+    max_diagnostics: MAX_DIAGNOSTICS,
+    max_comments: MAX_DIAGNOSTICS,
+};
+const LIMITS: json_validation::Limits = json_validation::Limits {
+    parser: PARSER_LIMITS,
     max_diagnostics: MAX_DIAGNOSTICS,
     max_message_bytes: MAX_MESSAGE_BYTES,
+};
+const VALUE_LIMITS: json_value::Limits = json_value::Limits {
+    parser: PARSER_LIMITS,
+    max_values: MAX_VALUES,
+    max_text_units: MAX_TEXT_UNITS,
+};
+const URI_LIMITS: json_schema_uri::Limits = json_schema_uri::Limits {
+    max_input_units: MAX_URI_UNITS,
+    max_output_units: 4 * MAX_URI_UNITS,
+    max_work: MAX_WORK,
+};
+const REF_LIMITS: json_schema_refs::Limits = json_schema_refs::Limits {
+    values: VALUE_LIMITS,
+    max_work: MAX_WORK,
+    max_merges: MAX_VALUES,
+    max_text_units: MAX_TEXT_UNITS,
+    max_messages: MAX_DIAGNOSTICS,
+    max_message_units: MAX_MESSAGE_UNITS,
+};
+const SCHEMA_LIMITS: json_schema_document::Limits = json_schema_document::Limits {
+    service: json_schema_service::Limits {
+        associations: json_schema_associations::Limits {
+            uri: URI_LIMITS,
+            max_patterns: MAX_SCHEMA_HANDLES,
+            max_pattern_units: MAX_URI_UNITS,
+            max_regex_units: 4 * MAX_URI_UNITS,
+            max_uris: MAX_SCHEMA_HANDLES,
+            max_uri_units: 4 * MAX_URI_UNITS,
+            max_work: MAX_WORK,
+        },
+        max_handles: MAX_SCHEMA_HANDLES,
+        max_registered: MAX_SCHEMA_HANDLES,
+        max_associations: MAX_SCHEMA_HANDLES,
+        max_values: MAX_VALUES,
+        max_text_units: MAX_TEXT_UNITS,
+        max_work: MAX_WORK,
+    },
+    graph: json_schema_graph::Limits {
+        refs: REF_LIMITS,
+        uri: URI_LIMITS,
+        max_documents: MAX_SCHEMA_DOCUMENTS,
+        max_requests: MAX_SCHEMA_HANDLES,
+        max_uri_units: 4 * MAX_URI_UNITS,
+    },
+    load: json_schema_load::Limits {
+        scanner: PARSER_LIMITS.scanner,
+        uri: URI_LIMITS,
+        max_values: MAX_VALUES,
+        max_depth: MAX_DEPTH,
+        max_text_units: MAX_TEXT_UNITS,
+        max_work: MAX_WORK,
+        max_messages: MAX_DIAGNOSTICS,
+        max_message_units: MAX_MESSAGE_UNITS,
+    },
+    policy: json_schema_policy::Limits {
+        syntax: LIMITS,
+        evaluation: json_schema_evaluation::Limits {
+            values: VALUE_LIMITS,
+            scalar: json_schema_scalar::Limits {
+                max_work: MAX_WORK,
+                max_diagnostics: MAX_DIAGNOSTICS,
+                max_message_units: MAX_MESSAGE_UNITS,
+                max_enum_values: MAX_VALUES,
+                max_depth: MAX_DEPTH,
+            },
+            max_work: MAX_WORK,
+            max_frames: MAX_FRAMES,
+            max_diagnostics: MAX_DIAGNOSTICS,
+            max_message_units: MAX_MESSAGE_UNITS,
+            max_matches: MAX_MATCHES,
+            max_processed: MAX_MATCHES,
+        },
+        max_schema_work: MAX_WORK,
+    },
+    contributions: VALUE_LIMITS,
+    max_steps: MAX_SCHEMA_STEPS,
+};
+const POLICY: Policy = Policy {
+    schema_validation: Some(Level::Warning),
+    schema_request: Some(Level::Warning),
+    schema_draft: None,
 };
 const SETTINGS: Settings = Settings {
     validate: true,
@@ -189,6 +293,24 @@ impl State {
     }
 }
 
+fn contributions() -> Result<&'static [Contribution], EditorError> {
+    static CONTRIBUTIONS: OnceLock<Result<Vec<Contribution>, EditorError>> = OnceLock::new();
+    CONTRIBUTIONS
+        .get_or_init(|| json_schema_document::contributions(VALUE_LIMITS))
+        .as_deref()
+        .map_err(Clone::clone)
+}
+
+fn resource_uri(key: &DocumentKey) -> Result<String, EditorError> {
+    match key {
+        DocumentKey::File(path) => Ok(url::Url::from_file_path(path)
+            .map_err(|_| EditorError::InvalidIdentity)?
+            .to_string()),
+        DocumentKey::Untitled(tab) => Ok(format!("untitled:{tab}")),
+        DocumentKey::AppFile(_) => Err(EditorError::InvalidIdentity),
+    }
+}
+
 fn build(snapshot: &DocumentSnapshot, cancelled: &AtomicBool) -> Result<Vec<Marker>, EditorError> {
     if snapshot.rope.len_bytes() > LIMITS.parser.scanner.max_bytes {
         return Err(EditorError::Capacity);
@@ -196,11 +318,17 @@ fn build(snapshot: &DocumentSnapshot, cancelled: &AtomicBool) -> Result<Vec<Mark
     if cancelled.load(Ordering::Acquire) {
         return Err(EditorError::StaleRevision);
     }
-    let markers = json_validation::syntax_diagnostics(
+    let markers = json_schema_document::diagnostics(
         &snapshot.rope.to_string(),
+        &resource_uri(&snapshot.key)?,
         &snapshot.metadata.language_id,
         SETTINGS,
-        LIMITS,
+        POLICY,
+        contributions()?,
+        &JsonSchemaPatternCompiler,
+        &JsonSchemaValidationPatternCompiler,
+        SCHEMA_LIMITS,
+        &|| cancelled.load(Ordering::Acquire),
     )?;
     if cancelled.load(Ordering::Acquire) {
         return Err(EditorError::StaleRevision);

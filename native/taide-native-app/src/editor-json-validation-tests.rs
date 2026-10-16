@@ -1,5 +1,6 @@
 use super::*;
 
+use taide_model::file::{EditorConfigOptions, OpenedFile};
 use taide_model::ids::{PaneId, TabId};
 use taide_native_editor::document::{Edit, UndoGroup};
 use taide_native_editor::store::{EditorLimits, Transaction};
@@ -131,4 +132,75 @@ async fn json_구문작업은_변경을_지연하고_이전_응답과_닫힌_문
     .await
     .unwrap();
     assert_eq!(state.active.load(Ordering::Acquire), 0);
+}
+
+#[test]
+fn json_구문검사는_메타schema_의미진단과_요청불가_schema경고를_파일과_untitled에_공급한다() {
+    const META: &str = r#"{"$schema":"http://json-schema.org/draft-07/schema#","type":"foo"}"#;
+    const REMOTE: &str = r#"{"$schema":"./local.schema.json","a":1,}"#;
+    let mut store = EditorStore::new(EditorLimits {
+        max_documents: 2,
+        max_views: 2,
+        max_undo_groups: 2,
+        max_document_bytes: BYTE_LIMIT,
+    })
+    .unwrap();
+    let file = store
+        .open_file(
+            "/workspace/한 글/schema.json".into(),
+            OpenedFile {
+                path: "/workspace/한 글/schema.json".into(),
+                content: META.into(),
+                encoding_lossy: false,
+                language_id: "json".into(),
+                tier: FileSizeTier::Normal,
+                byte_size: u32::try_from(META.len()).unwrap(),
+                line_count: 1,
+                modified_ms: 0.0,
+                read_only: true,
+                editor_config: EditorConfigOptions::default(),
+            },
+        )
+        .unwrap();
+    let markers = build(
+        &store.documents().snapshot(file).unwrap(),
+        &AtomicBool::new(false),
+    )
+    .unwrap();
+    assert_eq!(markers.len(), 1);
+    assert_eq!(&META[markers[0].bytes.clone()], "\"foo\"");
+    assert_eq!(markers[0].message.code.as_deref(), Some("1"));
+    assert_eq!(
+        markers[0].message.severity,
+        taide_native_editor::diagnostics::Severity::Warning
+    );
+    assert!(
+        markers[0]
+            .message
+            .text
+            .starts_with("Value is not accepted. Valid values: \"array\"")
+    );
+    let tab = TabId::new();
+    let untitled = store
+        .open_untitled(tab.clone(), REMOTE, "json".into())
+        .unwrap();
+    let markers = build(
+        &store.documents().snapshot(untitled).unwrap(),
+        &AtomicBool::new(false),
+    )
+    .unwrap();
+    assert_eq!(markers.len(), 2);
+    assert_eq!(&REMOTE[markers[0].bytes.clone()], "\"./local.schema.json\"");
+    assert_eq!(markers[0].message.code.as_deref(), Some("768"));
+    assert!(
+        markers[0]
+            .message
+            .text
+            .ends_with("No schema request service available")
+    );
+    assert_eq!(markers[1].message.code.as_deref(), Some("519"));
+    assert_eq!(
+        store.documents().snapshot(file).unwrap().rope.to_string(),
+        META
+    );
 }

@@ -132,6 +132,24 @@ pub fn diagnostics(
         return Ok(Vec::new());
     }
     let document = json_parser::parse(input, true, limits.syntax.parser)?;
+    document_diagnostics(
+        &document, language, settings, policy, schema, compiler, limits,
+    )
+}
+
+/// Same as [`diagnostics`] for a document parsed with comments collected.
+pub fn document_diagnostics(
+    document: &json_parser::Document,
+    language: &str,
+    settings: Settings,
+    policy: Policy,
+    schema: Option<&Resolved>,
+    compiler: &dyn PatternCompiler,
+    limits: Limits,
+) -> Result<Vec<Marker>, EditorError> {
+    if !settings.validate {
+        return Ok(Vec::new());
+    }
     let mut collector = Collector::new(
         limits.syntax.max_diagnostics,
         limits.syntax.max_message_bytes,
@@ -145,7 +163,7 @@ pub fn diagnostics(
             .severity();
         let add_schema_problem =
             |collector: &mut Collector, message: Vec<u16>, code: u32| -> Result<(), EditorError> {
-                let (Some(severity), Some(range)) = (request, schema_problem_range(&document))
+                let (Some(severity), Some(range)) = (request, schema_problem_range(document))
                 else {
                     return Ok(());
                 };
@@ -167,7 +185,7 @@ pub fn diagnostics(
             }
             if let Some(root) = resolved.schema.root() {
                 let validation = json_schema_evaluation::validate(
-                    &document,
+                    document,
                     &resolved.schema,
                     root,
                     compiler,
@@ -193,6 +211,6 @@ pub fn diagnostics(
             settings.schema_allows_trailing_commas = true;
         }
     }
-    json_validation::collect_syntax(&document, language, settings, &mut collector)?;
+    json_validation::collect_syntax(document, language, settings, &mut collector)?;
     Ok(collector.markers)
 }
