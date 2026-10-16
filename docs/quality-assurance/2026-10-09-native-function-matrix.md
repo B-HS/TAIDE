@@ -6,11 +6,11 @@ complete는 구현·실제 앱 경로·해당 동작 묶음의 자동 검사 근
 
 같은 구현을 참조해도 화면/명령 진입·소비자가 다른 요구사항은 유지합니다. 이 표는 중복 참조를 포함하고 규모가 다른 요구사항의 분류입니다. 행 수로 전체 전환율을 계산하지 않습니다.
 
-현재 599행 중 웹 기술/내부 지표 전용 10행과 동결 1행을 제외한 588행이 기능 분모입니다. 완료 312행·미완료 276행, 부분 92·미연결 110·미구현 74입니다. 잔여 시간은 기능별 구현/실기/출시 규모와 실제 실행 시간 근거가 없어 미산정입니다.
+현재 599행 중 웹 기술/내부 지표 전용 10행과 동결 1행을 제외한 588행이 기능 분모입니다. 완료 314행·미완료 274행, 부분 91·미연결 110·미구현 73입니다. 잔여 시간은 기능별 구현/실기/출시 규모와 실제 실행 시간 근거가 없어 미산정입니다.
 
 | 영역            |  행 | complete | partial | unwired | missing | not-applicable | frozen |
 | --------------- | --: | -------: | ------: | ------: | ------: | -------------: | -----: |
-| shell           |  99 |       52 |      22 |       9 |      13 |              3 |      0 |
+| shell           |  99 |       54 |      21 |       9 |      12 |              3 |      0 |
 | editor          |  87 |       68 |      10 |       0 |       7 |              2 |      0 |
 | terminal-agent  |  78 |       44 |      12 |      13 |       7 |              2 |      0 |
 | explorer-search |  45 |       22 |       7 |       4 |      12 |              0 |      0 |
@@ -18,7 +18,7 @@ complete는 구현·실제 앱 경로·해당 동작 묶음의 자동 검사 근
 | git             |  65 |        1 |       1 |      34 |      29 |              0 |      0 |
 | settings        |  83 |       43 |      10 |      28 |       1 |              1 |      0 |
 | commands-ui     | 102 |       50 |      25 |      22 |       4 |              1 |      0 |
-| 합계            | 599 |      312 |      92 |     110 |      74 |             10 |      1 |
+| 합계            | 599 |      314 |      91 |     110 |      73 |             10 |      1 |
 
 ## 현재 근거 지도
 
@@ -130,8 +130,8 @@ TS 경로의 상세 지도와 원본 행 위치는 [스냅샷](2026-10-09-native
 | shell-37 | 프로젝트 닫기(project_close)                                                                                                                                                                                   | sortable-project-icon.tsx 170                                           | unwired        | shell-projects    | 공유 프로젝트/그룹/slot/CLI 동작 모델과 서비스는 있으나 로컬 rail·메뉴/대화상자·외부 앱 열기 요청의 실제 사용자 진입은 없습니다.                                                                |
 | shell-38 | 프로젝트 표시 편집 dialog(mode·아이콘 검색·라벨·12색·미리보기) + 초기화                                                                                                                                        | project-display-dialog.tsx                                              | unwired        | shell-projects    | 공유 프로젝트/그룹/slot/CLI 동작 모델과 서비스는 있으나 로컬 rail·메뉴/대화상자·외부 앱 열기 요청의 실제 사용자 진입은 없습니다.                                                                |
 | shell-39 | rail 프로젝트 drag 재정렬(project_reorder)                                                                                                                                                                     | use-project-drag.ts 97-104                                              | missing        | shell-base        | 실제 창 복원/OS 메뉴·장애 격리·Zen fullscreen/안내·drop·최근/카드·프로젝트 메뉴/drag·4뷰·pane focus ring·탭 pin/menu/drag·미지원 탭·Emmet 소비자는 없습니다.                                    |
-| shell-40 | rail `+` 메뉴(경로로 열기, Finder로 열기, 최근 프로젝트 N개)                                                                                                                                                   | sidebar-add-project-menu.tsx                                            | partial        | shell-base        | 폴더 선택 버튼은 있으나 경로/최근 프로젝트 하위 메뉴가 없습니다.                                                                                                                                |
-| shell-41 | 경로로 열기 dialog                                                                                                                                                                                             | open-project-by-path-dialog.tsx                                         | missing        | shell-base        | 실제 창 복원/OS 메뉴·장애 격리·Zen fullscreen/안내·drop·최근/카드·프로젝트 메뉴/drag·4뷰·pane focus ring·탭 pin/menu/drag·미지원 탭·Emmet 소비자는 없습니다.                                    |
+| shell-40 | rail `+` 메뉴(경로로 열기, Finder로 열기, 최근 프로젝트 N개)                                                                                                                                                   | sidebar-add-project-menu.tsx                                            | complete        | shell-base        | rail `+` 메뉴가 경로로 열기·Finder로 열기·열려 있지 않은 최근 프로젝트 10개(표시 라벨 4코드포인트·root 누락 비활성·경고/경로)를 원본 순서로 보입니다. UI workbench 실제 클릭 검사가 근거입니다. |
+| shell-41 | 경로로 열기 dialog                                                                                                                                                                                             | open-project-by-path-dialog.tsx                                         | complete        | shell-base        | 경로 열기 dialog가 열 때마다 입력을 비우고 자동 포커스·Enter/열기 버튼으로 trim 경로를 요청합니다. 빈 값/대기 중 중복을 막고 실패는 toast와 입력 유지, 성공은 닫힘이며 Escape/취소로 닫힙니다. App open_path_dialog 검사가 근거입니다. |
 | shell-42 | rail 설정 버튼                                                                                                                                                                                                 | app-sidebar.tsx 201-208                                                 | complete       | shell-base        | 실제 NativeShell/앱·controller/host·상태/종료·키맵/저장 경로에 연결되며 관련 workbench/controller·app 회귀는 배치 13 전체 대상에서 통과했습니다. 원본 전체 화면/OS 창·출시 게이트는 별도입니다. |
 | shell-43 | 그룹 섹션 구성(그룹 헤더+멤버, 미분류 구분선, 중복 소속 정리)                                                                                                                                                  | project-group.ts, app-sidebar.tsx 154-177                               | complete       | shell-base        | 실제 NativeShell/앱·controller/host·상태/종료·키맵/저장 경로에 연결되며 관련 workbench/controller·app 회귀는 배치 13 전체 대상에서 통과했습니다. 원본 전체 화면/OS 창·출시 게이트는 별도입니다. |
 | shell-44 | 그룹 접기/펴기 영속                                                                                                                                                                                            | sortable-project-group-header.tsx 98-100                                | complete       | shell-base        | 실제 NativeShell/앱·controller/host·상태/종료·키맵/저장 경로에 연결되며 관련 workbench/controller·app 회귀는 배치 13 전체 대상에서 통과했습니다. 원본 전체 화면/OS 창·출시 게이트는 별도입니다. |
