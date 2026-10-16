@@ -32,6 +32,9 @@ const PADDING: f32 = 8.0;
 const WELCOME_WIDTH: f32 = 384.0;
 const WELCOME_GAP: f32 = 24.0;
 const TAB_BAR_FILLER_MIN_WIDTH: f32 = 32.0;
+const RAIL_ADD_ICON_SIZE: f32 = 20.0;
+const RAIL_ADD_ICON_STROKE: f32 = 1.5;
+const RAIL_RECENT_MAX_WIDTH: f32 = 288.0;
 const WELCOME_SHORTCUT_COLUMNS: usize = 2;
 const BORDER_WIDTH: f32 = 1.0;
 const DIRTY_RADIUS: f32 = 3.0;
@@ -132,6 +135,10 @@ pub trait ShellSurfaces {
     /// Recent projects (already excluding `project` and limited) and shortcut rows to show.
     fn welcome_content(&self, _project: Option<&ProjectId>) -> WelcomeContent {
         WelcomeContent::default()
+    }
+    /// Recent projects for the rail `+` menu, already excluding open ones and limited.
+    fn rail_recent_projects(&self) -> Vec<WelcomeRecent> {
+        Vec::new()
     }
 }
 
@@ -416,12 +423,58 @@ impl NativeShell {
                             intents,
                         );
                     }
-                    if ui.button(surfaces.text("app.openFolder")).clicked() {
-                        intents.push(ShellIntent::OpenFolder);
-                    }
+                    self.add_project_menu(ui, surfaces, intents);
                 });
             },
         );
+    }
+
+    /// The rail `+` menu (`sidebar-add-project-menu.tsx`).
+    fn add_project_menu(
+        &self,
+        ui: &mut Ui,
+        surfaces: &impl ShellSurfaces,
+        intents: &mut Vec<ShellIntent>,
+    ) {
+        let label = surfaces.text("sidebar.addProjectMenu");
+        let response = ui.add_sized(
+            Vec2::splat(RAIL_BUTTON_SIZE),
+            egui::Button::new("").frame(false),
+        );
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &label)
+        });
+        let icon = Rect::from_center_size(response.rect.center(), Vec2::splat(RAIL_ADD_ICON_SIZE));
+        let stroke = Stroke::new(RAIL_ADD_ICON_STROKE, self.colors.muted);
+        ui.painter().hline(icon.x_range(), icon.center().y, stroke);
+        ui.painter().vline(icon.center().x, icon.y_range(), stroke);
+        let response = response.on_hover_text(label);
+        egui::Popup::menu(&response)
+            .align(egui::RectAlign::RIGHT_START)
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+            .show(|ui| {
+                if menu_item(ui, surfaces.text("sidebar.openByPath")) {
+                    intents.push(ShellIntent::OpenProjectByPath);
+                }
+                if menu_item(ui, surfaces.text("sidebar.openViaFinder")) {
+                    intents.push(ShellIntent::OpenFolder);
+                }
+                let recent = surfaces.rail_recent_projects();
+                if !recent.is_empty() {
+                    ui.separator();
+                    ui.label(
+                        RichText::new(surfaces.text("app.recentItems"))
+                            .small()
+                            .color(self.colors.muted),
+                    );
+                    ui.set_max_width(RAIL_RECENT_MAX_WIDTH);
+                    for project in &recent {
+                        if welcome_recent_row(ui, project, surfaces, self.colors, intents) {
+                            ui.close();
+                        }
+                    }
+                }
+            });
     }
 
     fn project_button(
@@ -1082,7 +1135,7 @@ impl NativeShell {
                                 .strong(),
                         );
                         for project in recent {
-                            welcome_recent_row(ui, project, surfaces, self.colors, intents);
+                            let _ = welcome_recent_row(ui, project, surfaces, self.colors, intents);
                         }
                         ui.add_space(WELCOME_GAP);
                     }
@@ -1295,7 +1348,7 @@ fn welcome_recent_row(
     surfaces: &impl ShellSurfaces,
     colors: ShellColors,
     intents: &mut Vec<ShellIntent>,
-) {
+) -> bool {
     let mut detail = String::new();
     if project.root_missing {
         detail.push_str(&surfaces.text("app.recentProjectRootMissing"));
@@ -1323,12 +1376,14 @@ fn welcome_recent_row(
         )
         .on_hover_text(&project.root)
         .on_disabled_hover_text(&project.root);
-    if response.clicked() {
+    let clicked = response.clicked();
+    if clicked {
         intents.push(ShellIntent::SelectRecentProject {
             project: project.id.clone(),
             root: project.root.clone(),
         });
     }
+    clicked
 }
 
 fn child<R>(

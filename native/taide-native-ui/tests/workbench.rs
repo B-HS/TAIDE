@@ -68,9 +68,13 @@ struct Surfaces {
     problems: Vec<(ShellSlotId, Rect)>,
     tab_icons: Vec<(TabId, Rect, Color32)>,
     welcome: Option<WelcomeContent>,
+    rail: Vec<WelcomeRecent>,
 }
 
 impl ShellSurfaces for Surfaces {
+    fn rail_recent_projects(&self) -> Vec<WelcomeRecent> {
+        self.rail.clone()
+    }
     fn welcome_content(&self, _: Option<&ProjectId>) -> WelcomeContent {
         self.welcome.clone().unwrap_or_default()
     }
@@ -1708,5 +1712,107 @@ fn 탭_메뉴와_빈공간_메뉴는_원본_항목과_고정탭_제외_닫기와
             ShellIntent::NewUntitled { pane: target, .. } if target == &pane
         )),
         "{intents:?}"
+    );
+}
+
+#[test]
+fn rail_추가메뉴는_경로_finder_최근프로젝트와_root누락_비활성을_보인다() {
+    let snapshot = fixture();
+    let recent = vec![
+        WelcomeRecent {
+            id: ProjectId::new(),
+            name: "gamma".into(),
+            root: "/work/gamma".into(),
+            root_missing: false,
+        },
+        WelcomeRecent {
+            id: ProjectId::new(),
+            name: "delta".into(),
+            root: "/work/delta".into(),
+            root_missing: true,
+        },
+    ];
+    let shell = shell(WindowScope::Main);
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let run = |time: f64, events: Vec<egui::Event>| {
+        let mut surfaces = Surfaces {
+            rail: recent.clone(),
+            ..Default::default()
+        };
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                pos2(0.0, 0.0),
+                vec2(WINDOW_SIZE[0], WINDOW_SIZE[1]),
+            )),
+            time: Some(time),
+            events,
+            ..Default::default()
+        };
+        let mut intents = Vec::new();
+        let mut output = context.run_ui(input, |ui| {
+            intents = shell.show(ui, &snapshot, &mut surfaces);
+        });
+        output.textures_delta.clear();
+        (intents, output)
+    };
+    let (_, output) = run(0.0, Vec::new());
+    let add = output
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .and_then(|update| {
+            update.nodes.iter().find_map(|(_, node)| {
+                (node.label() == Some("sidebar.addProjectMenu"))
+                    .then(|| node.bounds())
+                    .flatten()
+            })
+        })
+        .map(|bounds| {
+            Rect::from_min_max(
+                pos2(bounds.x0 as f32, bounds.y0 as f32),
+                pos2(bounds.x1 as f32, bounds.y1 as f32),
+            )
+        })
+        .expect("add menu button is in the accessibility tree");
+    let _ = run(
+        FRAME_SECONDS,
+        pointer(add.center(), egui::PointerButton::Primary),
+    );
+    let (_, output) = run(FRAME_SECONDS * 2.0, Vec::new());
+    let texts = texts_of(&output);
+    for key in [
+        "sidebar.openByPath",
+        "sidebar.openViaFinder",
+        "app.recentItems",
+    ] {
+        assert!(texts.iter().any(|text| text == key), "{key}: {texts:?}");
+    }
+    assert!(texts.iter().any(|text| text == "gamma\n/work/gamma"));
+    assert!(
+        texts
+            .iter()
+            .any(|text| text == "delta\napp.recentProjectRootMissing /work/delta")
+    );
+    let delta = welcome_text_rect(&output, "delta").unwrap();
+    let (intents, _) = run(
+        FRAME_SECONDS * 3.0,
+        pointer(delta.center(), egui::PointerButton::Primary),
+    );
+    assert!(
+        !intents
+            .iter()
+            .any(|intent| matches!(intent, ShellIntent::SelectRecentProject { .. }))
+    );
+    let (_, output) = run(FRAME_SECONDS * 4.0, Vec::new());
+    let by_path = welcome_text_rect(&output, "sidebar.openByPath").unwrap();
+    let (intents, _) = run(
+        FRAME_SECONDS * 5.0,
+        pointer(by_path.center(), egui::PointerButton::Primary),
+    );
+    assert!(
+        intents
+            .iter()
+            .any(|intent| matches!(intent, ShellIntent::OpenProjectByPath))
     );
 }

@@ -180,6 +180,7 @@ pub enum HostCommand {
     },
     SaveMirroredTab(TabId),
     OpenProject(String),
+    OpenProjectByPath(String),
     RestoreWatchers,
     RefreshTree {
         project: ProjectId,
@@ -423,6 +424,7 @@ pub enum HostReply {
     },
     SettingsFailed(AppError),
     Failed(AppError),
+    ProjectOpenedByPath(taide_model::error::AppResult<()>),
 }
 
 pub struct HostBridge {
@@ -1546,6 +1548,18 @@ async fn dispatch(
                 Ok(_) => None,
                 Err(error) => Some(HostReply::Failed(error)),
             }
+        }
+        HostCommand::OpenProjectByPath(path) => {
+            let result = async {
+                taide_runtime::project_actions::validate_open_root(std::path::Path::new(&path))?;
+                integrations.flush_view_states(services).await?;
+                crate::projects::NativeProjects::new(services.clone())
+                    .open(path)
+                    .await
+                    .map(|_| ())
+            }
+            .await;
+            Some(HostReply::ProjectOpenedByPath(result))
         }
         HostCommand::RestoreWatchers => {
             let pending_services = services.clone();

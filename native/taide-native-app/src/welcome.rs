@@ -14,6 +14,16 @@ use tokio::sync::oneshot;
 const WORKER_NAME: &str = "native-welcome-recent";
 /// Original `RECENT_PROJECT_DISPLAY_LIMIT`.
 pub(crate) const RECENT_DISPLAY_LIMIT: usize = 8;
+/// Original `RECENT_PROJECT_MENU_LIMIT`.
+pub(crate) const RECENT_MENU_LIMIT: usize = 10;
+/// Original `PROJECT_LABEL_MAX_CODEPOINTS`.
+const LABEL_MAX_CODEPOINTS: usize = 4;
+
+/// Original `resolveProjectDisplay(...).label`: a trimmed non-empty label capped in codepoints.
+fn display_label(label: Option<&str>) -> Option<String> {
+    let trimmed = label?.trim();
+    (!trimmed.is_empty()).then(|| trimmed.chars().take(LABEL_MAX_CODEPOINTS).collect())
+}
 
 type Recent = Result<Arc<Vec<Project>>, ()>;
 
@@ -100,6 +110,26 @@ impl State {
         );
         self.shortcuts = Some((overrides.map(str::to_owned), rows.clone()));
         Ok(rows)
+    }
+
+    /// Rail `+` menu rows: recent projects that are not open, limited like the original menu.
+    pub(crate) fn rail(&self, open: &[taide_model::project::ProjectRef]) -> Vec<WelcomeRecent> {
+        self.wanted.set(true);
+        let Some(Ok(projects)) = &self.recent else {
+            return Vec::new();
+        };
+        projects
+            .iter()
+            .filter(|candidate| open.iter().all(|project| project.id != candidate.id))
+            .take(RECENT_MENU_LIMIT)
+            .map(|candidate| WelcomeRecent {
+                id: candidate.id.clone(),
+                name: display_label(candidate.display.label.as_deref())
+                    .unwrap_or_else(|| candidate.name.clone()),
+                root: candidate.root.clone(),
+                root_missing: candidate.root_missing,
+            })
+            .collect()
     }
 
     pub(crate) fn content(

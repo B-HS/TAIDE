@@ -152,6 +152,7 @@ pub struct NativeApplication {
     editor_json: crate::editor_json::State,
     editor_json_validation: crate::editor_json_validation::State,
     welcome: crate::welcome::State,
+    open_path_dialog: crate::open_path_dialog::OpenPathDialog,
     problem_opens: Vec<crate::problems::Open>,
     editor_locations: crate::editor_locations::State,
     editor_documentation: crate::editor_documentation::State,
@@ -523,6 +524,7 @@ impl NativeApplication {
             editor_json: crate::editor_json::State::default(),
             editor_json_validation: crate::editor_json_validation::State::default(),
             welcome: crate::welcome::State::default(),
+            open_path_dialog: Default::default(),
             problem_opens: Vec::new(),
             editor_locations: crate::editor_locations::State::default(),
             editor_documentation: crate::editor_documentation::State::default(),
@@ -1852,6 +1854,13 @@ impl NativeApplication {
                     }
                 }
                 HostReply::Failed(error) => self.report(&error),
+                HostReply::ProjectOpenedByPath(result) => {
+                    self.open_path_dialog.finish(result.is_ok());
+                    if let Err(error) = result {
+                        self.report(&error);
+                    }
+                    context.request_repaint();
+                }
             }
         }
     }
@@ -7233,6 +7242,7 @@ impl eframe::App for NativeApplication {
         };
         let mut surfaces = AppSurfaces {
             welcome: &self.welcome,
+            open_projects: &snapshot.projects,
             welcome_shortcuts: &welcome_shortcuts,
             problem_opens: &mut self.problem_opens,
             tooltips: &self.tooltips,
@@ -7900,6 +7910,7 @@ impl eframe::App for NativeApplication {
                             self.submit(HostCommand::OpenProject(root));
                         }
                     }
+                    ShellIntent::OpenProjectByPath => self.open_path_dialog.open(),
                     ShellIntent::OpenFolder => {
                         if let Some(path) = rfd::FileDialog::new().set_parent(frame).pick_folder() {
                             match path.into_os_string().into_string() {
@@ -8021,6 +8032,11 @@ impl eframe::App for NativeApplication {
             }
         }
         self.tab_close_dialog(&context, frame);
+        if let Some(path) = self.open_path_dialog.show(&context, &self.locale)
+            && !self.submit(HostCommand::OpenProjectByPath(path))
+        {
+            self.open_path_dialog.finish(false);
+        }
         if crate::zen::escape(
             &context,
             snapshot.shell.window_chrome.zen,
@@ -8261,6 +8277,7 @@ async fn drain_services(services: &Arc<AppServices>) -> AppResult<()> {
 
 struct AppSurfaces<'a> {
     welcome: &'a crate::welcome::State,
+    open_projects: &'a [taide_model::project::ProjectRef],
     welcome_shortcuts: &'a [taide_native_ui::shell::WelcomeShortcutRow],
     problem_opens: &'a mut Vec<crate::problems::Open>,
     tooltips: &'a crate::tooltips::Provider,
@@ -8408,6 +8425,9 @@ impl ShellSurfaces for AppSurfaces<'_> {
         project: Option<&ProjectId>,
     ) -> taide_native_ui::shell::WelcomeContent {
         self.welcome.content(project, self.welcome_shortcuts)
+    }
+    fn rail_recent_projects(&self) -> Vec<taide_native_ui::shell::WelcomeRecent> {
+        self.welcome.rail(self.open_projects)
     }
     fn text_with_args(&self, key: &str, arguments: &[(&str, &str)]) -> String {
         presentation::message(self.locale, key, arguments)

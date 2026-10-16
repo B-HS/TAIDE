@@ -55,6 +55,7 @@ pub enum ShellMutation {
 pub enum ShellIntent {
     Mutate(ShellMutation),
     OpenFolder,
+    OpenProjectByPath,
     SelectRecentProject {
         project: ProjectId,
         root: String,
