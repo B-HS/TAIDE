@@ -6,11 +6,11 @@ complete는 구현·실제 앱 경로·해당 동작 묶음의 자동 검사 근
 
 같은 구현을 참조해도 화면/명령 진입·소비자가 다른 요구사항은 유지합니다. 이 표는 중복 참조를 포함하고 규모가 다른 요구사항의 분류입니다. 행 수로 전체 전환율을 계산하지 않습니다.
 
-현재 599행 중 웹 기술/내부 지표 전용 10행과 동결 1행을 제외한 588행이 기능 분모입니다. 완료 304행·미완료 284행, 부분 92·미연결 110·미구현 82입니다. 잔여 시간은 기능별 구현/실기/출시 규모와 실제 실행 시간 근거가 없어 미산정입니다.
+현재 599행 중 웹 기술/내부 지표 전용 10행과 동결 1행을 제외한 588행이 기능 분모입니다. 완료 306행·미완료 282행, 부분 92·미연결 110·미구현 80입니다. 잔여 시간은 기능별 구현/실기/출시 규모와 실제 실행 시간 근거가 없어 미산정입니다.
 
 | 영역            |  행 | complete | partial | unwired | missing | not-applicable | frozen |
 | --------------- | --: | -------: | ------: | ------: | ------: | -------------: | -----: |
-| shell           |  99 |       44 |      22 |       9 |      21 |              3 |      0 |
+| shell           |  99 |       46 |      22 |       9 |      19 |              3 |      0 |
 | editor          |  87 |       68 |      10 |       0 |       7 |              2 |      0 |
 | terminal-agent  |  78 |       44 |      12 |      13 |       7 |              2 |      0 |
 | explorer-search |  45 |       22 |       7 |       4 |      12 |              0 |      0 |
@@ -18,7 +18,7 @@ complete는 구현·실제 앱 경로·해당 동작 묶음의 자동 검사 근
 | git             |  65 |        1 |       1 |      34 |      29 |              0 |      0 |
 | settings        |  83 |       43 |      10 |      28 |       1 |              1 |      0 |
 | commands-ui     | 102 |       50 |      25 |      22 |       4 |              1 |      0 |
-| 합계            | 599 |      304 |      92 |     110 |      82 |             10 |      1 |
+| 합계            | 599 |      306 |      92 |     110 |      80 |             10 |      1 |
 
 ## 현재 근거 지도
 
@@ -117,8 +117,8 @@ TS 경로의 상세 지도와 원본 행 위치는 [스냅샷](2026-10-09-native
 | shell-24 | MainWindowDialogs: CommandPalette·TaskRunner(포커스 프로젝트 기준)                                                                                                                                             | main-window-dialogs.tsx                                                 | partial        | commands-palette  | 파일/명령/줄과 현재 문서 @·워크스페이스 # 심볼 팔레트는 연결됐으나 TaskRunner 대화상자는 남아 있습니다.                                                                                         |
 | shell-25 | Hot-exit·앱 종료 후 세션 복원(프로젝트·slot 트리·레이아웃·zen)                                                                                                                                                 | ipc-sync-provider, session                                              | partial        | shell-window      | 프로젝트/slot/layout·hot-exit 복원은 있으나 editor view state·보조 창과 전체 재시작/종료 실기 게이트는 남아 있습니다.                                                                           |
 | shell-26 | 프로젝트 0개 전체 Welcome (제목·힌트·열기 버튼)                                                                                                                                                                | welcome-screen.tsx 46-70                                                | complete       | shell-base        | 실제 NativeShell/앱·controller/host·상태/종료·키맵/저장 경로에 연결되며 관련 workbench/controller·app 회귀는 배치 13 전체 대상에서 통과했습니다. 원본 전체 화면/OS 창·출시 게이트는 별도입니다. |
-| shell-27 | 최근 프로젝트 목록(limit, rootMissing 비활성, 조회 실패 안내)                                                                                                                                                  | welcome-container.tsx 61-62, 76-83                                      | missing        | shell-base        | 실제 창 복원/OS 메뉴·장애 격리·Zen fullscreen/안내·drop·최근/카드·프로젝트 메뉴/drag·4뷰·pane focus ring·탭 pin/menu/drag·미지원 탭·Emmet 소비자는 없습니다.                                    |
-| shell-28 | 단축키 카드(effective keymap 반영)                                                                                                                                                                             | welcome-container.tsx 24-60                                             | missing        | shell-base        | 실제 창 복원/OS 메뉴·장애 격리·Zen fullscreen/안내·drop·최근/카드·프로젝트 메뉴/drag·4뷰·pane focus ring·탭 pin/menu/drag·미지원 탭·Emmet 소비자는 없습니다.                                    |
+| shell-27 | 최근 프로젝트 목록(limit, rootMissing 비활성, 조회 실패 안내)                                                                                                                                                  | welcome-container.tsx 61-62, 76-83                                      | complete        | shell-base        | 실제 Welcome의 최근 프로젝트(자기 제외·8개·root 누락 비활성·조회 실패 안내·열기/활성화)와 effective keymap 단축키 카드를 연결했습니다. App2·UI 실제 렌더/클릭 검사가 근거입니다(2026-10-16-native-welcome-recent-shortcuts.md). 실기·픽셀은 배치 31입니다. |
+| shell-28 | 단축키 카드(effective keymap 반영)                                                                                                                                                                             | welcome-container.tsx 24-60                                             | complete        | shell-base        | 실제 Welcome의 최근 프로젝트(자기 제외·8개·root 누락 비활성·조회 실패 안내·열기/활성화)와 effective keymap 단축키 카드를 연결했습니다. App2·UI 실제 렌더/클릭 검사가 근거입니다(2026-10-16-native-welcome-recent-shortcuts.md). 실기·픽셀은 배치 31입니다. |
 | shell-29 | 열기 버튼 동작(폴더/파일/터미널, root 밖 파일 거부)                                                                                                                                                            | welcome-container.tsx 64-74                                             | complete       | shell-base        | 실제 NativeShell/앱·controller/host·상태/종료·키맵/저장 경로에 연결되며 관련 workbench/controller·app 회귀는 배치 13 전체 대상에서 통과했습니다. 원본 전체 화면/OS 창·출시 게이트는 별도입니다. |
 | shell-30 | 빈 pane의 Welcome/“파일 없음” 분기(welcomeOnEmptyEditor)                                                                                                                                                       | pane-node-view.tsx 130, 267-274                                         | complete       | shell-base        | 실제 NativeShell/앱·controller/host·상태/종료·키맵/저장 경로에 연결되며 관련 workbench/controller·app 회귀는 배치 13 전체 대상에서 통과했습니다. 원본 전체 화면/OS 창·출시 게이트는 별도입니다. |
 | shell-31 | welcome 종류 탭                                                                                                                                                                                                | pane-node-view.tsx 198-202, tab-bar-menu "openWelcome"                  | complete       | shell-base        | 실제 NativeShell/앱·controller/host·상태/종료·키맵/저장 경로에 연결되며 관련 workbench/controller·app 회귀는 배치 13 전체 대상에서 통과했습니다. 원본 전체 화면/OS 창·출시 게이트는 별도입니다. |
