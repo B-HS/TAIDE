@@ -57,6 +57,129 @@ pub(crate) fn escape(context: &egui::Context, zen: bool, enabled: bool, composin
     })
 }
 
+/// Original `ZEN_HINT_VISIBLE_DURATION_MS`.
+pub(crate) const HINT_DURATION: std::time::Duration = std::time::Duration::from_millis(3000);
+const HINT_TOP: f32 = 12.0;
+const HINT_PADDING: egui::Vec2 = egui::vec2(12.0, 6.0);
+const HINT_GAP: f32 = 8.0;
+const HINT_FONT_SIZE: f32 = 12.0;
+const HINT_LINE_HEIGHT: f32 = 16.0;
+const HINT_RADIUS: u8 = 6;
+const HINT_BORDER: f32 = 1.0;
+const HINT_SHADOW_OFFSET: [i8; 2] = [0, 10];
+const HINT_SHADOW_BLUR: u8 = 15;
+const HINT_SHADOW_ALPHA: u8 = 26;
+
+pub(crate) struct HintColors {
+    background: egui::Color32,
+    border: egui::Color32,
+    foreground: egui::Color32,
+    muted: egui::Color32,
+}
+
+impl HintColors {
+    pub(crate) fn new(
+        theme: &taide_model::theme::ResolvedTheme,
+    ) -> taide_model::error::AppResult<Self> {
+        let color = |key| crate::presentation::color(theme, key);
+        Ok(Self {
+            background: color("panel.background")?,
+            border: color("app.border")?,
+            foreground: color("app.foreground")?,
+            muted: color("appSidebar.iconDefault")?,
+        })
+    }
+}
+
+/// The Zen entry banner. Each transition into Zen restarts one 3s visible period like the
+/// original banner remounting; leaving Zen hides it immediately.
+#[derive(Default)]
+pub(crate) struct Hint {
+    started: Option<std::time::Instant>,
+    zen: bool,
+}
+
+impl Hint {
+    pub(crate) fn show(
+        &mut self,
+        ui: &egui::Ui,
+        rect: egui::Rect,
+        zen: bool,
+        now: std::time::Instant,
+        colors: &HintColors,
+        texts: (&str, &str),
+    ) -> Option<egui::Rect> {
+        if zen != self.zen {
+            self.zen = zen;
+            self.started = zen.then_some(now);
+        }
+        let started = self.started?;
+        let elapsed = now.saturating_duration_since(started);
+        if elapsed >= HINT_DURATION {
+            self.started = None;
+            return None;
+        }
+        ui.ctx().request_repaint_after(HINT_DURATION - elapsed);
+        let layout = |text: &str, family: egui::FontFamily, color| {
+            let mut job = egui::text::LayoutJob::single_section(
+                text.to_owned(),
+                egui::TextFormat {
+                    font_id: egui::FontId::new(HINT_FONT_SIZE, family),
+                    line_height: Some(HINT_LINE_HEIGHT),
+                    color,
+                    ..Default::default()
+                },
+            );
+            job.wrap.max_rows = 1;
+            ui.fonts_mut(|fonts| fonts.layout_job(job))
+        };
+        let title = layout(
+            texts.0,
+            taide_native_ui::font_families::medium(ui),
+            colors.foreground,
+        );
+        let exit = layout(texts.1, egui::FontFamily::Proportional, colors.muted);
+        let content = egui::vec2(
+            title.size().x + HINT_GAP + exit.size().x,
+            title.size().y.max(exit.size().y),
+        );
+        let size = content + HINT_PADDING * 2.0 + egui::Vec2::splat(HINT_BORDER * 2.0);
+        let banner = egui::Rect::from_min_size(
+            egui::pos2(rect.center().x - size.x / 2.0, rect.top() + HINT_TOP),
+            size,
+        );
+        let painter = ui.ctx().layer_painter(egui::LayerId::new(
+            egui::Order::Foreground,
+            egui::Id::new("native-zen-hint"),
+        ));
+        painter.add(
+            egui::epaint::Shadow {
+                offset: HINT_SHADOW_OFFSET,
+                blur: HINT_SHADOW_BLUR,
+                spread: 0,
+                color: egui::Color32::from_black_alpha(HINT_SHADOW_ALPHA),
+            }
+            .as_shape(banner, HINT_RADIUS),
+        );
+        painter.rect(
+            banner,
+            HINT_RADIUS,
+            colors.background,
+            egui::Stroke::new(HINT_BORDER, colors.border),
+            egui::StrokeKind::Inside,
+        );
+        let origin = banner.min + HINT_PADDING + egui::Vec2::splat(HINT_BORDER);
+        let title_width = title.size().x;
+        painter.galley(origin, title, colors.foreground);
+        painter.galley(
+            origin + egui::vec2(title_width + HINT_GAP, 0.0),
+            exit,
+            colors.muted,
+        );
+        Some(banner)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -402,5 +525,62 @@ mod tests {
         });
         finish(&mut output);
         assert!(claimed);
+    }
+
+    #[test]
+    fn zen_안내는_진입마다_3초동안_상단중앙에_보이고_종료하면_사라진다() {
+        let app = AppState::new(AppPaths::new(
+            std::env::temp_dir().join(format!("taide-zen-hint-{}", ProjectId::new())),
+        ));
+        let theme = taide_runtime::theme_actions::theme_get(&app, "taide-dark".into()).unwrap();
+        let colors = HintColors::new(&theme).unwrap();
+        let context = egui::Context::default();
+        let mut hint = Hint::default();
+        let start = std::time::Instant::now();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(SCREEN[0], SCREEN[1]));
+        let mut run = |hint: &mut Hint, zen: bool, at: std::time::Instant| {
+            let mut banner = None;
+            let mut output = context.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                },
+                |ui| {
+                    banner = hint.show(
+                        ui,
+                        ui.max_rect(),
+                        zen,
+                        at,
+                        &colors,
+                        ("Zen Mode", "Press Esc to exit"),
+                    )
+                },
+            );
+            output.textures_delta.clear();
+            let texts = output
+                .shapes
+                .iter()
+                .filter_map(|clipped| match &clipped.shape {
+                    egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            (banner, texts, output.platform_output.cursor_icon)
+        };
+        let (banner, texts, _) = run(&mut hint, false, start);
+        assert!(banner.is_none() && texts.is_empty());
+        let (banner, texts, _) = run(&mut hint, true, start);
+        let banner = banner.unwrap();
+        assert_eq!(texts, ["Zen Mode", "Press Esc to exit"]);
+        assert!((banner.center().x - SCREEN[0] / 2.0).abs() < 0.5);
+        assert_eq!(banner.top(), HINT_TOP);
+        let almost = start + HINT_DURATION - std::time::Duration::from_millis(1);
+        assert!(run(&mut hint, true, almost).0.is_some());
+        assert!(run(&mut hint, true, start + HINT_DURATION).0.is_none());
+        assert!(run(&mut hint, true, start + HINT_DURATION * 2).0.is_none());
+        let exit = start + HINT_DURATION * 3;
+        assert!(run(&mut hint, false, exit).0.is_none());
+        assert!(run(&mut hint, true, exit).0.is_some());
+        assert!(run(&mut hint, false, exit).0.is_none());
     }
 }

@@ -181,6 +181,8 @@ pub struct NativeApplication {
     tooltips: crate::tooltips::Provider,
     tooltip_appearance: crate::tooltips::Appearance,
     problems_appearance: crate::problems::Appearance,
+    zen_hint: crate::zen::Hint,
+    zen_hint_colors: crate::zen::HintColors,
     explorer_appearance: crate::explorer::Appearance,
     explorer_icons: crate::problems_icons::Icons,
     navigation_appearance: crate::symbol_outline::Appearance,
@@ -550,6 +552,8 @@ impl NativeApplication {
             tooltips,
             tooltip_appearance: appearances.tooltip,
             problems_appearance: appearances.problems,
+            zen_hint: crate::zen::Hint::default(),
+            zen_hint_colors: appearances.zen_hint,
             explorer_appearance: appearances.explorer,
             explorer_icons: crate::problems_icons::Icons::new()?,
             navigation_appearance: appearances.navigation,
@@ -896,6 +900,7 @@ impl NativeApplication {
                                         self.system_usage_appearance = appearances.system_usage;
                                         self.status_chord_appearance = appearances.status_chord;
                                         self.problems_appearance = appearances.problems;
+                self.zen_hint_colors = appearances.zen_hint;
                                         self.explorer_appearance = appearances.explorer;
                                         self.navigation_appearance = appearances.navigation;
                                         self.tooltip_appearance = appearances.tooltip;
@@ -6233,6 +6238,7 @@ impl NativeApplication {
                 self.system_usage_appearance = appearances.system_usage;
                 self.status_chord_appearance = appearances.status_chord;
                 self.problems_appearance = appearances.problems;
+                self.zen_hint_colors = appearances.zen_hint;
                 self.explorer_appearance = appearances.explorer;
                 self.navigation_appearance = appearances.navigation;
                 self.tooltip_appearance = appearances.tooltip;
@@ -7376,6 +7382,19 @@ impl eframe::App for NativeApplication {
                 |ui| self.shell.show(ui, &snapshot, &mut surfaces),
             )
             .inner;
+        if matches!(self.shell.scope, WindowScope::Main) {
+            self.zen_hint.show(
+                ui,
+                ui.max_rect(),
+                snapshot.shell.window_chrome.zen,
+                Instant::now(),
+                &self.zen_hint_colors,
+                (
+                    &presentation::message(&self.locale, "zen.hint", &[]),
+                    &presentation::message(&self.locale, "zen.hintExit", &[]),
+                ),
+            );
+        }
         self.focused = new_focus;
         self.status = status;
         let now = Instant::now();
