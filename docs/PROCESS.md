@@ -8,7 +8,8 @@
 - [x] shell-19/20 Zen fullscreen opt-in 확인·안내 배너 — 316e7a4f (QA 2026-10-16-native-zen-hint.md)
 - [x] shell-73 포커스 pane 탭바 하단 표시 — c4d7ae86
 - [x] shell-77/79/86 탭 pin·탭바 빈 공간 메뉴·일괄 닫기, shell-78 탭 메뉴 기본 항목(partial) — 1f0be4ef
-- [ ] 나머지 batch 24 항목(창 상태/보조 창·OS 메뉴·ErrorBoundary·drop·프로젝트/그룹 메뉴·dialog·drag·4뷰·알림·IDE/IPC 동기화 등)
+- [x] shell-40/41 rail 추가 메뉴·경로 열기 dialog — 75ed9f62
+- [ ] 나머지 batch 24 항목(창 상태/보조 창·OS 메뉴·ErrorBoundary·drop·프로젝트/그룹 메뉴·dialog·drag·4뷰·알림·IDE/IPC 동기화·shell-78 잔여 등). 기능표 기준 전체 314/588 완료·미완료 274
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
