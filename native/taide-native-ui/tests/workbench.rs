@@ -130,6 +130,7 @@ fn shell(scope: WindowScope) -> NativeShell {
             muted: COLOR,
             border: COLOR,
             focus_border: COLOR,
+            tab_border: COLOR,
             active_tab: COLOR,
             inactive_tab: COLOR,
             active_indicator: COLOR,
@@ -1396,4 +1397,88 @@ fn welcome는_최근_프로젝트_root누락_비활성과_조회실패와_단축
     assert!(welcome_text_rect(&output, "app.recentProjectsUnavailable").is_some());
     assert!(welcome_text_rect(&output, "app.recentItems").is_none());
     assert!(welcome_text_rect(&output, "app.keyboardShortcutsTitle").is_none());
+}
+
+#[test]
+fn 탭바_하단선은_layout의_포커스_pane만_focus_border로_그린다() {
+    const FOCUS: Color32 = Color32::from_rgb(1, 2, 3);
+    const TAB_BORDER: Color32 = Color32::from_rgb(4, 5, 6);
+    let mut snapshot = fixture();
+    let project = snapshot.projects[0].id.clone();
+    let layout = snapshot.layouts.get_mut(&project).unwrap();
+    let PaneNode::Leaf { tabs, .. } = &layout.root else {
+        panic!("expected leaf")
+    };
+    let moved = tabs[0].id.clone();
+    let first = layout.focused_pane.clone();
+    taide_layout::service::split(layout, &first, taide_model::layout::DropEdge::Right, &moved)
+        .unwrap();
+    let PaneNode::Split { children, .. } = &layout.root else {
+        panic!("expected split")
+    };
+    let leaves = children
+        .iter()
+        .map(|child| match child {
+            PaneNode::Leaf { id, .. } => id.clone(),
+            PaneNode::Split { .. } => panic!("expected leaves"),
+        })
+        .collect::<Vec<_>>();
+    let mut shell = shell(WindowScope::Main);
+    shell.colors.focus_border = FOCUS;
+    shell.colors.tab_border = TAB_BORDER;
+    let lines = |snapshot: &ShellSnapshot| {
+        let (surfaces, output) =
+            frame(&egui::Context::default(), &shell, snapshot, 0.0, Vec::new());
+        let lines = output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::LineSegment { points, stroke } if points[0].y == points[1].y => {
+                    Some((points[0], points[1], stroke.color))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        (surfaces, lines)
+    };
+    for (index, focused) in leaves.iter().enumerate() {
+        snapshot.layouts.get_mut(&project).unwrap().focused_pane = focused.clone();
+        let (_, lines) = lines(&snapshot);
+        let half = WINDOW_SIZE[0] / 2.0;
+        let lines = lines
+            .into_iter()
+            .filter(|(start, _, _)| start.x < half)
+            .collect::<Vec<_>>();
+        let focus = lines
+            .iter()
+            .filter(|(_, _, color)| *color == FOCUS)
+            .collect::<Vec<_>>();
+        let plain = lines
+            .iter()
+            .filter(|(_, _, color)| *color == TAB_BORDER)
+            .collect::<Vec<_>>();
+        assert_eq!(focus.len(), 1, "{lines:?}");
+        assert_eq!(plain.len(), 1, "{lines:?}");
+        let sibling = plain
+            .iter()
+            .filter(|(start, _, _)| (start.y - focus[0].0.y).abs() < 0.01)
+            .min_by(|left, right| {
+                (left.0.x - focus[0].0.x)
+                    .abs()
+                    .total_cmp(&(right.0.x - focus[0].0.x).abs())
+            })
+            .unwrap();
+        if index == 0 {
+            assert!(focus[0].0.x < sibling.0.x);
+        } else {
+            assert!(focus[0].0.x > sibling.0.x);
+        }
+    }
+    snapshot.shell.window_chrome.zen = true;
+    let (_, lines) = lines(&snapshot);
+    assert!(
+        lines
+            .iter()
+            .all(|(_, _, color)| *color != FOCUS && *color != TAB_BORDER)
+    );
 }

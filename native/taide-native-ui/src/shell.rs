@@ -54,6 +54,7 @@ pub struct ShellColors {
     pub muted: Color32,
     pub border: Color32,
     pub focus_border: Color32,
+    pub tab_border: Color32,
     pub active_tab: Color32,
     pub inactive_tab: Color32,
     pub active_indicator: Color32,
@@ -142,6 +143,7 @@ pub struct NativeShell {
 #[derive(Clone, Copy)]
 struct PaneViewContext<'a> {
     project: &'a ProjectId,
+    focused_pane: &'a PaneId,
     zen: bool,
     resizer_thickness: f32,
     welcome_on_empty: bool,
@@ -201,6 +203,7 @@ impl NativeShell {
                         &window.root,
                         PaneViewContext {
                             project,
+                            focused_pane: &window.focused_pane,
                             zen: false,
                             resizer_thickness: snapshot.resizer_thickness,
                             welcome_on_empty: false,
@@ -652,6 +655,7 @@ impl NativeShell {
             &layout.root,
             PaneViewContext {
                 project,
+                focused_pane: &layout.focused_pane,
                 zen,
                 resizer_thickness: snapshot.resizer_thickness,
                 welcome_on_empty: snapshot.welcome_on_empty_editor,
@@ -696,6 +700,7 @@ impl NativeShell {
     ) {
         let PaneViewContext {
             project,
+            focused_pane,
             zen,
             resizer_thickness,
             welcome_on_empty,
@@ -815,6 +820,16 @@ impl NativeShell {
                             }
                         });
                     });
+                    let border = if id == focused_pane {
+                        self.colors.focus_border
+                    } else {
+                        self.colors.tab_border
+                    };
+                    ui.painter().hline(
+                        bar.x_range(),
+                        bar.bottom() - BORDER_WIDTH / 2.0,
+                        Stroke::new(BORDER_WIDTH, border),
+                    );
                     content.min.y = bar.bottom();
                 }
                 child(ui, content, ("pane-content", project, id), |ui| {

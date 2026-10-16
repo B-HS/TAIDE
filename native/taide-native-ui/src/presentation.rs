@@ -113,6 +113,7 @@ pub fn shell_colors(theme: &ResolvedTheme) -> AppResult<ShellColors> {
         muted: color(theme, "appSidebar.iconDefault")?,
         border: color(theme, "app.border")?,
         focus_border: color(theme, "app.focusBorder")?,
+        tab_border: color(theme, "tabBar.tabBorder")?,
         active_tab: color(theme, "tabBar.tabActiveBackground")?,
         inactive_tab: color(theme, "tabBar.tabInactiveBackground")?,
         active_indicator: color(theme, "tabBar.tabActiveIndicator")?,
