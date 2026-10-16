@@ -2,8 +2,8 @@ use egui::emath::GuiRounding as _;
 use egui::{
     Align, Color32, Id, Layout, Rect, RichText, Sense, Stroke, Ui, UiBuilder, Vec2, pos2, vec2,
 };
-use taide_model::ids::{PaneId, ProjectId, ShellSlotId};
-use taide_model::layout::{PaneNode, SplitDir, Tab, TabKind};
+use taide_model::ids::{PaneId, ProjectId, ShellSlotId, TabId};
+use taide_model::layout::{DropEdge, PaneNode, SplitDir, Tab, TabKind};
 use taide_model::project::{ProjectRef, ShellSlotTree};
 
 use crate::commands::{ShellIntent, ShellMutation, request_close_tab};
@@ -31,6 +31,7 @@ const RAIL_BUTTON_SIZE: f32 = 40.0;
 const PADDING: f32 = 8.0;
 const WELCOME_WIDTH: f32 = 384.0;
 const WELCOME_GAP: f32 = 24.0;
+const TAB_BAR_FILLER_MIN_WIDTH: f32 = 32.0;
 const WELCOME_SHORTCUT_COLUMNS: usize = 2;
 const BORDER_WIDTH: f32 = 1.0;
 const DIRTY_RADIUS: f32 = 3.0;
@@ -143,6 +144,8 @@ pub struct NativeShell {
 #[derive(Clone, Copy)]
 struct PaneViewContext<'a> {
     project: &'a ProjectId,
+    root: Option<&'a str>,
+    has_closed_tabs: bool,
     focused_pane: &'a PaneId,
     zen: bool,
     resizer_thickness: f32,
@@ -203,6 +206,10 @@ impl NativeShell {
                         &window.root,
                         PaneViewContext {
                             project,
+                            root: snapshot
+                                .project(project)
+                                .map(|project| project.root.as_str()),
+                            has_closed_tabs: !layout.closed_tabs.is_empty(),
                             focused_pane: &window.focused_pane,
                             zen: false,
                             resizer_thickness: snapshot.resizer_thickness,
@@ -655,6 +662,10 @@ impl NativeShell {
             &layout.root,
             PaneViewContext {
                 project,
+                root: snapshot
+                    .project(project)
+                    .map(|project| project.root.as_str()),
+                has_closed_tabs: !layout.closed_tabs.is_empty(),
                 focused_pane: &layout.focused_pane,
                 zen,
                 resizer_thickness: snapshot.resizer_thickness,
@@ -700,6 +711,8 @@ impl NativeShell {
     ) {
         let PaneViewContext {
             project,
+            root,
+            has_closed_tabs,
             focused_pane,
             zen,
             resizer_thickness,
@@ -758,15 +771,39 @@ impl NativeShell {
                         ui.style_mut().always_scroll_the_only_direction = true;
                         egui::ScrollArea::horizontal().show(ui, |ui| {
                             ui.horizontal(|ui| {
+                                let menu = TabMenuContext {
+                                    project,
+                                    pane: id,
+                                    root,
+                                    tabs,
+                                    active: active.as_ref(),
+                                    has_closed_tabs,
+                                };
                                 for tab in tabs {
                                     self.tab(
                                         ui,
                                         tab,
                                         active.as_ref() == Some(&tab.id),
+                                        &menu,
                                         surfaces,
                                         intents,
                                     );
                                 }
+                                let filler = ui.allocate_response(
+                                    vec2(
+                                        ui.available_width().max(TAB_BAR_FILLER_MIN_WIDTH),
+                                        TAB_HEIGHT,
+                                    ),
+                                    Sense::click(),
+                                );
+                                if filler.double_clicked() {
+                                    intents.push(ShellIntent::NewUntitled {
+                                        project: project.clone(),
+                                        pane: id.clone(),
+                                    });
+                                }
+                                filler
+                                    .context_menu(|ui| tab_bar_menu(ui, &menu, surfaces, intents));
                             });
                         });
                     });
@@ -803,6 +840,21 @@ impl NativeShell {
                             stroke,
                         );
                         let response = response.on_hover_text(label);
+                        response.context_menu(|ui| {
+                            tab_bar_menu(
+                                ui,
+                                &TabMenuContext {
+                                    project,
+                                    pane: id,
+                                    root,
+                                    tabs,
+                                    active: active.as_ref(),
+                                    has_closed_tabs,
+                                },
+                                surfaces,
+                                intents,
+                            )
+                        });
                         egui::Popup::menu(&response).show(|ui| {
                             if ui.button(surfaces.text("tab.newUntitledFile")).clicked() {
                                 intents.push(ShellIntent::NewUntitled {
@@ -877,6 +929,7 @@ impl NativeShell {
         ui: &mut Ui,
         tab: &Tab,
         active: bool,
+        menu: &TabMenuContext<'_>,
         surfaces: &mut impl ShellSurfaces,
         intents: &mut Vec<ShellIntent>,
     ) {
@@ -923,6 +976,7 @@ impl NativeShell {
                                 tab.id.clone(),
                             )));
                         }
+                        response.context_menu(|ui| tab_menu(ui, tab, menu, surfaces, intents));
                         if response.double_clicked() && tab.preview {
                             intents
                                 .push(ShellIntent::Mutate(ShellMutation::KeepTab(tab.id.clone())));
@@ -1063,6 +1117,176 @@ impl NativeShell {
             });
         });
     }
+}
+
+#[derive(Clone, Copy)]
+struct TabMenuContext<'a> {
+    project: &'a ProjectId,
+    pane: &'a PaneId,
+    root: Option<&'a str>,
+    tabs: &'a [Tab],
+    active: Option<&'a TabId>,
+    has_closed_tabs: bool,
+}
+
+const SPLIT_EDGES: [(DropEdge, &str); 4] = [
+    (DropEdge::Left, "editorArea.splitLeft"),
+    (DropEdge::Right, "editorArea.splitRight"),
+    (DropEdge::Top, "editorArea.splitTop"),
+    (DropEdge::Bottom, "editorArea.splitBottom"),
+];
+
+fn menu_item(ui: &mut Ui, label: String) -> bool {
+    let clicked = ui.button(label).clicked();
+    if clicked {
+        ui.close();
+    }
+    clicked
+}
+
+fn close_requests(tabs: impl Iterator<Item = Tab>) -> ShellIntent {
+    ShellIntent::RequestCloseTabs(tabs.filter(|tab| !tab.pinned).map(|tab| tab.id).collect())
+}
+
+fn close_saved_and_all(
+    ui: &mut Ui,
+    menu: &TabMenuContext<'_>,
+    surfaces: &impl ShellSurfaces,
+    intents: &mut Vec<ShellIntent>,
+) {
+    if menu_item(ui, surfaces.text("tab.closeSaved")) {
+        intents.push(close_requests(
+            menu.tabs.iter().filter(|tab| !tab.dirty).cloned(),
+        ));
+    }
+    if menu_item(ui, surfaces.text("tab.closeAll")) {
+        intents.push(close_requests(menu.tabs.iter().cloned()));
+    }
+}
+
+fn split_menu(
+    ui: &mut Ui,
+    pane: &PaneId,
+    tab: &TabId,
+    surfaces: &impl ShellSurfaces,
+    intents: &mut Vec<ShellIntent>,
+) {
+    ui.menu_button(surfaces.text("tab.split"), |ui| {
+        for (edge, key) in SPLIT_EDGES {
+            if menu_item(ui, surfaces.text(key)) {
+                intents.push(ShellIntent::Mutate(ShellMutation::SplitTab {
+                    pane: pane.clone(),
+                    edge,
+                    tab: tab.clone(),
+                }));
+            }
+        }
+    });
+}
+
+/// The tab's own context menu (`tab-context-menu.tsx`). Entries whose native consumer does not
+/// exist yet (explorer reveal/rename, Git changes/history, reopen with, window moves) are not shown.
+fn tab_menu(
+    ui: &mut Ui,
+    tab: &Tab,
+    menu: &TabMenuContext<'_>,
+    surfaces: &impl ShellSurfaces,
+    intents: &mut Vec<ShellIntent>,
+) {
+    if menu_item(ui, surfaces.text("tab.close")) {
+        intents.push(ShellIntent::RequestCloseTab(tab.id.clone()));
+    }
+    if menu_item(ui, surfaces.text("tab.closeOthers")) {
+        intents.push(close_requests(
+            menu.tabs.iter().filter(|other| other.id != tab.id).cloned(),
+        ));
+    }
+    if menu_item(ui, surfaces.text("tab.closeToRight")) {
+        if let Some(index) = menu.tabs.iter().position(|other| other.id == tab.id) {
+            intents.push(close_requests(menu.tabs[index + 1..].iter().cloned()));
+        }
+    }
+    close_saved_and_all(ui, menu, surfaces, intents);
+    ui.separator();
+    let pin_key = if tab.pinned { "tab.unpin" } else { "tab.pin" };
+    if menu_item(ui, surfaces.text(pin_key)) {
+        intents.push(ShellIntent::Mutate(ShellMutation::PinTab {
+            tab: tab.id.clone(),
+            pinned: !tab.pinned,
+        }));
+    }
+    if tab.preview && menu_item(ui, surfaces.text("tab.keepOpen")) {
+        intents.push(ShellIntent::Mutate(ShellMutation::KeepTab(tab.id.clone())));
+    }
+    if let TabKind::File { path } = &tab.kind {
+        ui.separator();
+        if menu_item(ui, surfaces.text("explorer.copyPath")) {
+            intents.push(ShellIntent::CopyText(path.clone()));
+        }
+        if let Some(root) = menu.root
+            && menu_item(ui, surfaces.text("tab.copyRelativePath"))
+        {
+            intents.push(ShellIntent::CopyText(relative_path(root, path).to_owned()));
+        }
+        ui.separator();
+        if menu_item(ui, surfaces.text("explorer.revealInFinder")) {
+            intents.push(ShellIntent::RevealPath(path.clone()));
+        }
+    }
+    ui.separator();
+    split_menu(ui, menu.pane, &tab.id, surfaces, intents);
+}
+
+/// The tab bar's empty-space menu (`tab-bar-context-menu.tsx`, `buildTabBarMenuItems`).
+fn tab_bar_menu(
+    ui: &mut Ui,
+    menu: &TabMenuContext<'_>,
+    surfaces: &impl ShellSurfaces,
+    intents: &mut Vec<ShellIntent>,
+) {
+    if menu_item(ui, surfaces.text("tab.newUntitledFile")) {
+        intents.push(ShellIntent::NewUntitled {
+            project: menu.project.clone(),
+            pane: menu.pane.clone(),
+        });
+    }
+    if menu_item(ui, surfaces.text("tab.newTerminal")) {
+        intents.push(ShellIntent::NewTerminal {
+            project: menu.project.clone(),
+            pane: menu.pane.clone(),
+        });
+    }
+    if menu.has_closed_tabs {
+        ui.separator();
+        if menu_item(ui, surfaces.text("keymap.reopenClosedTab")) {
+            intents.push(ShellIntent::Mutate(ShellMutation::ReopenClosed(
+                menu.project.clone(),
+            )));
+        }
+    }
+    if !menu.tabs.is_empty() {
+        ui.separator();
+        close_saved_and_all(ui, menu, surfaces, intents);
+    }
+    if let Some(active) = menu.active {
+        ui.separator();
+        split_menu(ui, menu.pane, active, surfaces, intents);
+    }
+    ui.separator();
+    if menu_item(ui, surfaces.text("tab.openWelcome")) {
+        intents.push(ShellIntent::OpenWelcome {
+            project: menu.project.clone(),
+            pane: menu.pane.clone(),
+        });
+    }
+}
+
+/// Original `toRelativePath`: strips `root/` when the path is inside it, otherwise keeps it.
+fn relative_path<'a>(root: &str, path: &'a str) -> &'a str {
+    let trimmed = root.strip_suffix('/').unwrap_or(root);
+    path.strip_prefix(trimmed)
+        .and_then(|rest| rest.strip_prefix('/'))
+        .unwrap_or(path)
 }
 
 fn welcome_recent_row(

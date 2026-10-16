@@ -7824,6 +7824,15 @@ impl eframe::App for NativeApplication {
                     ShellIntent::NewUntitled { project, pane } => {
                         self.submit(HostCommand::NewUntitled { project, pane });
                     }
+                    ShellIntent::OpenWelcome { project, pane } => {
+                        self.submit(HostCommand::OpenWelcome { project, pane });
+                    }
+                    ShellIntent::CopyText(text) => {
+                        self.submit(HostCommand::CopyText(text));
+                    }
+                    ShellIntent::RevealPath(path) => {
+                        self.submit(HostCommand::RevealPath(path));
+                    }
                     ShellIntent::ShowOpenProjectNotice => self.notify_open_project_first(),
                     ShellIntent::FormatEditor { tab, command } => {
                         self.request_editor_formatting(

@@ -13,6 +13,8 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 pub const HOST_COMMAND_CAPACITY: usize = 64;
+/// Original `WELCOME_TAB_TITLE`.
+const WELCOME_TAB_TITLE: &str = "Welcome";
 const TERMINAL_CLIPBOARD_BYTES: usize = 64 * 1024;
 
 pub type ClipboardWriter = Arc<dyn Fn(&str) -> AppResult<()> + Send + Sync>;
@@ -107,6 +109,10 @@ pub enum HostCommand {
         project: ProjectId,
         pane: PaneId,
         title: String,
+    },
+    OpenWelcome {
+        project: ProjectId,
+        pane: PaneId,
     },
     SetEditorFontSize(u32),
     SetTerminalFontSize(u32),
@@ -1204,6 +1210,22 @@ async fn dispatch(
                     cwd: None,
                 },
                 title,
+                Some(pane),
+                false,
+            )
+            .await
+            {
+                Ok(_) => None,
+                Err(error) => Some(HostReply::Failed(error)),
+            }
+        }
+        HostCommand::OpenWelcome { project, pane } => {
+            match layout_actions::layout_open_tab(
+                services.events.as_ref(),
+                &services.state,
+                project,
+                TabKind::Welcome,
+                WELCOME_TAB_TITLE.into(),
                 Some(pane),
                 false,
             )

@@ -71,6 +71,12 @@ pub enum ShellIntent {
         project: ProjectId,
         pane: PaneId,
     },
+    OpenWelcome {
+        project: ProjectId,
+        pane: PaneId,
+    },
+    CopyText(String),
+    RevealPath(String),
     OpenSettings,
     OpenSettingsFile,
     OpenKeybindings,

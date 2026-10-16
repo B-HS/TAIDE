@@ -4,7 +4,9 @@ use egui::epaint::Shadow;
 use egui::{Color32, CornerRadius, Rect, Stroke, Ui, pos2, vec2};
 use taide_model::app_event::AppEvent;
 use taide_model::ids::{PaneId, ProjectGroupId, ProjectId, ShellSlotId, TabId};
-use taide_model::layout::{AuxWindowLayout, PaneNode, ProjectLayout, SplitDir, Tab, TabKind};
+use taide_model::layout::{
+    AuxWindowLayout, DropEdge, PaneNode, ProjectLayout, SplitDir, Tab, TabKind,
+};
 use taide_model::paths::AppPaths;
 use taide_model::project::{
     ProjectDisplay, ProjectGroup, ProjectRef, SessionShellState, ShellSlotTree, WindowChrome,
@@ -1480,5 +1482,231 @@ fn 탭바_하단선은_layout의_포커스_pane만_focus_border로_그린다() {
         lines
             .iter()
             .all(|(_, _, color)| *color != FOCUS && *color != TAB_BORDER)
+    );
+}
+
+fn tab_menu_frame(
+    context: &egui::Context,
+    snapshot: &ShellSnapshot,
+    time: f64,
+    events: Vec<egui::Event>,
+) -> (Vec<ShellIntent>, egui::FullOutput) {
+    welcome_frame(context, snapshot, &WelcomeContent::default(), time, events)
+}
+
+fn texts_of(output: &egui::FullOutput) -> Vec<String> {
+    output
+        .shapes
+        .iter()
+        .filter_map(|clipped| match &clipped.shape {
+            egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn pointer(position: egui::Pos2, button: egui::PointerButton) -> Vec<egui::Event> {
+    vec![
+        egui::Event::PointerMoved(position),
+        egui::Event::PointerButton {
+            pos: position,
+            button,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        },
+        egui::Event::PointerButton {
+            pos: position,
+            button,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        },
+    ]
+}
+
+#[test]
+fn 탭_메뉴와_빈공간_메뉴는_원본_항목과_고정탭_제외_닫기와_분할을_요청한다() {
+    let mut snapshot = fixture();
+    let project = snapshot.projects[0].id.clone();
+    snapshot.shell.tree = Some(ShellSlotTree::Leaf {
+        slot_id: ShellSlotId::new(),
+        project_id: project.clone(),
+    });
+    snapshot.layouts.retain(|id, _| id == &project);
+    snapshot.projects.truncate(1);
+    snapshot.projects[0].root = "/synthetic/root".into();
+    let layout = snapshot.layouts.get_mut(&project).unwrap();
+    let pane = layout.focused_pane.clone();
+    let PaneNode::Leaf { tabs, active, .. } = &mut layout.root else {
+        panic!("expected leaf")
+    };
+    let file = |title: &str, pinned: bool, dirty: bool, preview: bool| Tab {
+        id: TabId::new(),
+        kind: TabKind::File {
+            path: format!("/synthetic/root/src/{title}"),
+        },
+        title: title.into(),
+        pinned,
+        preview,
+        dirty,
+        view_state: None,
+    };
+    tabs.clear();
+    tabs.extend([
+        file("pinned.rs", true, false, false),
+        file("a.rs", false, true, false),
+        file("b.rs", false, false, true),
+        file("c.rs", false, false, false),
+    ]);
+    let ids = tabs.iter().map(|tab| tab.id.clone()).collect::<Vec<_>>();
+    *active = Some(ids[2].clone());
+    let context = egui::Context::default();
+    let (_, output) = tab_menu_frame(&context, &snapshot, 0.0, Vec::new());
+    let b_tab = welcome_text_rect(&output, "b.rs").unwrap();
+    let mut time = FRAME_SECONDS;
+    let (_, output) = tab_menu_frame(
+        &context,
+        &snapshot,
+        time,
+        pointer(b_tab.center(), egui::PointerButton::Secondary),
+    );
+    time += FRAME_SECONDS;
+    let (_, output2) = tab_menu_frame(&context, &snapshot, time, Vec::new());
+    let menu = texts_of(&output2);
+    for key in [
+        "tab.close",
+        "tab.closeOthers",
+        "tab.closeToRight",
+        "tab.closeSaved",
+        "tab.closeAll",
+        "tab.pin",
+        "tab.keepOpen",
+        "explorer.copyPath",
+        "tab.copyRelativePath",
+        "explorer.revealInFinder",
+        "tab.split",
+    ] {
+        assert!(menu.iter().any(|text| text == key), "{key}: {menu:?}");
+    }
+    drop(output);
+    let mut choose = |snapshot: &ShellSnapshot, key: &str, time: &mut f64| {
+        let (_, output) = tab_menu_frame(&context, snapshot, *time, Vec::new());
+        let item = welcome_text_rect(&output, key).unwrap_or_else(|| panic!("{key}"));
+        *time += FRAME_SECONDS;
+        let (intents, _) = tab_menu_frame(
+            &context,
+            snapshot,
+            *time,
+            pointer(item.center(), egui::PointerButton::Primary),
+        );
+        *time += FRAME_SECONDS;
+        intents
+    };
+    let intents = choose(&snapshot, "tab.closeOthers", &mut time);
+    assert!(intents.iter().any(|intent| matches!(
+        intent,
+        ShellIntent::RequestCloseTabs(closing) if closing == &vec![ids[1].clone(), ids[3].clone()]
+    )), "{intents:?}");
+    let reopen = |time: &mut f64, target: Rect, button| {
+        *time += 1.0;
+        let _ = tab_menu_frame(&context, &snapshot, *time, Vec::new());
+        *time += FRAME_SECONDS;
+        let _ = tab_menu_frame(&context, &snapshot, *time, pointer(target.center(), button));
+        *time += FRAME_SECONDS;
+    };
+    reopen(&mut time, b_tab, egui::PointerButton::Secondary);
+    let intents = choose(&snapshot, "tab.closeToRight", &mut time);
+    assert!(intents.iter().any(|intent| matches!(
+        intent,
+        ShellIntent::RequestCloseTabs(closing) if closing == &vec![ids[3].clone()]
+    )));
+    reopen(&mut time, b_tab, egui::PointerButton::Secondary);
+    let intents = choose(&snapshot, "tab.closeSaved", &mut time);
+    assert!(intents.iter().any(|intent| matches!(
+        intent,
+        ShellIntent::RequestCloseTabs(closing) if closing == &vec![ids[2].clone(), ids[3].clone()]
+    )));
+    reopen(&mut time, b_tab, egui::PointerButton::Secondary);
+    let intents = choose(&snapshot, "tab.copyRelativePath", &mut time);
+    assert!(intents.iter().any(|intent| matches!(
+        intent,
+        ShellIntent::CopyText(text) if text == "src/b.rs"
+    )));
+    reopen(&mut time, b_tab, egui::PointerButton::Secondary);
+    let intents = choose(&snapshot, "tab.pin", &mut time);
+    assert!(intents.iter().any(|intent| matches!(
+        intent,
+        ShellIntent::Mutate(ShellMutation::PinTab { tab, pinned: true }) if tab == &ids[2]
+    )));
+    reopen(&mut time, b_tab, egui::PointerButton::Secondary);
+    let (_, output) = tab_menu_frame(&context, &snapshot, time, Vec::new());
+    let split = welcome_text_rect(&output, "tab.split").unwrap();
+    time += FRAME_SECONDS;
+    let _ = tab_menu_frame(
+        &context,
+        &snapshot,
+        time,
+        vec![egui::Event::PointerMoved(split.center())],
+    );
+    time += FRAME_SECONDS;
+    for _ in 0..WHEEL_SETTLE_FRAMES {
+        let _ = tab_menu_frame(&context, &snapshot, time, Vec::new());
+        time += FRAME_SECONDS;
+    }
+    let intents = choose(&snapshot, "editorArea.splitRight", &mut time);
+    assert!(intents.iter().any(|intent| matches!(
+        intent,
+        ShellIntent::Mutate(ShellMutation::SplitTab { pane: target, edge: DropEdge::Right, tab })
+            if target == &pane && tab == &ids[2]
+    )), "{intents:?}");
+
+    let (_, output) = tab_menu_frame(&context, &snapshot, time, Vec::new());
+    let last = welcome_text_rect(&output, "c.rs").unwrap();
+    let filler = pos2(last.right() + 60.0, last.center().y);
+    time += FRAME_SECONDS;
+    let (_, _) = tab_menu_frame(
+        &context,
+        &snapshot,
+        time,
+        pointer(filler, egui::PointerButton::Secondary),
+    );
+    time += FRAME_SECONDS;
+    let (_, output) = tab_menu_frame(&context, &snapshot, time, Vec::new());
+    let menu = texts_of(&output);
+    for key in [
+        "tab.newUntitledFile",
+        "tab.newTerminal",
+        "tab.closeSaved",
+        "tab.closeAll",
+        "tab.split",
+        "tab.openWelcome",
+    ] {
+        assert!(menu.iter().any(|text| text == key), "{key}: {menu:?}");
+    }
+    assert!(!menu.iter().any(|text| text == "keymap.reopenClosedTab"));
+    let intents = choose(&snapshot, "tab.openWelcome", &mut time);
+    assert!(intents.iter().any(|intent| matches!(
+        intent,
+        ShellIntent::OpenWelcome { project: owner, pane: target } if owner == &project && target == &pane
+    )));
+    time += 1.0;
+    let _ = tab_menu_frame(
+        &context,
+        &snapshot,
+        time,
+        pointer(filler, egui::PointerButton::Primary),
+    );
+    time += FRAME_SECONDS;
+    let (intents, _) = tab_menu_frame(
+        &context,
+        &snapshot,
+        time,
+        pointer(filler, egui::PointerButton::Primary),
+    );
+    assert!(
+        intents.iter().any(|intent| matches!(
+            intent,
+            ShellIntent::NewUntitled { pane: target, .. } if target == &pane
+        )),
+        "{intents:?}"
     );
 }
