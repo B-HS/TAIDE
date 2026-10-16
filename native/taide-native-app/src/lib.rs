@@ -306,4 +306,5 @@ pub mod workspace_rename;
 pub mod workspace_symbol_host;
 #[path = "workspace-symbols.rs"]
 pub mod workspace_symbols;
+mod welcome;
 mod zen;

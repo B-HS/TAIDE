@@ -30,6 +30,8 @@ const ICON_INSET: f32 = 4.0;
 const RAIL_BUTTON_SIZE: f32 = 40.0;
 const PADDING: f32 = 8.0;
 const WELCOME_WIDTH: f32 = 384.0;
+const WELCOME_GAP: f32 = 24.0;
+const WELCOME_SHORTCUT_COLUMNS: usize = 2;
 const BORDER_WIDTH: f32 = 1.0;
 const DIRTY_RADIUS: f32 = 3.0;
 const TAB_ICON_SIZE: f32 = 14.0;
@@ -57,6 +59,38 @@ pub struct ShellColors {
     pub active_indicator: Color32,
     pub editor_background: Color32,
     pub editor_foreground: Color32,
+}
+
+/// A recent project row of the Welcome surface.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WelcomeRecent {
+    pub id: ProjectId,
+    pub name: String,
+    pub root: String,
+    pub root_missing: bool,
+}
+
+/// A shortcut row of the Welcome card with its localized description.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WelcomeShortcutRow {
+    pub description: String,
+    pub label: String,
+}
+
+/// Welcome data owned by the host; `recent` is `None` when the recent list failed to load.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WelcomeContent {
+    pub recent: Option<Vec<WelcomeRecent>>,
+    pub shortcuts: Vec<WelcomeShortcutRow>,
+}
+
+impl Default for WelcomeContent {
+    fn default() -> Self {
+        Self {
+            recent: Some(Vec::new()),
+            shortcuts: Vec::new(),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -93,6 +127,10 @@ pub trait ShellSurfaces {
         project: Option<&ProjectId>,
         intents: &mut Vec<ShellIntent>,
     );
+    /// Recent projects (already excluding `project` and limited) and shortcut rows to show.
+    fn welcome_content(&self, _project: Option<&ProjectId>) -> WelcomeContent {
+        WelcomeContent::default()
+    }
 }
 
 pub struct NativeShell {
@@ -958,7 +996,98 @@ impl NativeShell {
                 if target.is_none() {
                     ui.label(surfaces.text("app.openFileHint"));
                 }
+                let content = surfaces.welcome_content(target.map(|(project, _)| project));
+                ui.add_space(WELCOME_GAP);
+                match &content.recent {
+                    None => {
+                        ui.label(
+                            RichText::new(surfaces.text("app.recentProjectsUnavailable"))
+                                .small()
+                                .color(self.colors.muted),
+                        );
+                    }
+                    Some(recent) if !recent.is_empty() => {
+                        ui.label(
+                            RichText::new(surfaces.text("app.recentItems"))
+                                .small()
+                                .strong(),
+                        );
+                        for project in recent {
+                            welcome_recent_row(ui, project, surfaces, self.colors, intents);
+                        }
+                        ui.add_space(WELCOME_GAP);
+                    }
+                    Some(_) => {}
+                }
+                if !content.shortcuts.is_empty() {
+                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                        ui.label(
+                            RichText::new(surfaces.text("app.keyboardShortcutsTitle"))
+                                .small()
+                                .strong(),
+                        );
+                        egui::Grid::new("welcome-shortcuts")
+                            .num_columns(WELCOME_SHORTCUT_COLUMNS * 2)
+                            .show(ui, |ui| {
+                                for (index, shortcut) in content.shortcuts.iter().enumerate() {
+                                    ui.label(
+                                        RichText::new(&shortcut.description)
+                                            .small()
+                                            .color(self.colors.muted),
+                                    );
+                                    ui.label(RichText::new(&shortcut.label).small().monospace());
+                                    if index % WELCOME_SHORTCUT_COLUMNS
+                                        == WELCOME_SHORTCUT_COLUMNS - 1
+                                    {
+                                        ui.end_row();
+                                    }
+                                }
+                            });
+                    });
+                }
             });
+        });
+    }
+}
+
+fn welcome_recent_row(
+    ui: &mut Ui,
+    project: &WelcomeRecent,
+    surfaces: &impl ShellSurfaces,
+    colors: ShellColors,
+    intents: &mut Vec<ShellIntent>,
+) {
+    let mut detail = String::new();
+    if project.root_missing {
+        detail.push_str(&surfaces.text("app.recentProjectRootMissing"));
+        detail.push(' ');
+    }
+    detail.push_str(&project.root);
+    let mut job = egui::text::LayoutJob::default();
+    job.append(
+        &project.name,
+        0.0,
+        egui::TextFormat::simple(egui::TextStyle::Body.resolve(ui.style()), colors.foreground),
+    );
+    job.append(
+        &format!("\n{detail}"),
+        0.0,
+        egui::TextFormat::simple(egui::TextStyle::Small.resolve(ui.style()), colors.muted),
+    );
+    job.wrap = egui::text::TextWrapping::truncate_at_width(ui.available_width());
+    let response = ui
+        .add_enabled(
+            !project.root_missing,
+            egui::Button::new(job)
+                .frame(false)
+                .min_size(vec2(ui.available_width(), 0.0)),
+        )
+        .on_hover_text(&project.root)
+        .on_disabled_hover_text(&project.root);
+    if response.clicked() {
+        intents.push(ShellIntent::SelectRecentProject {
+            project: project.id.clone(),
+            root: project.root.clone(),
         });
     }
 }

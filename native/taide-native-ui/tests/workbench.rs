@@ -11,7 +11,10 @@ use taide_model::project::{
 };
 use taide_native_ui::commands::{ShellIntent, ShellMutation, dispatch, request_close_tab};
 use taide_native_ui::presentation::{apply_visuals, visuals};
-use taide_native_ui::shell::{NativeShell, ShellColors, ShellSurfaces, TITLE_HEIGHT, WindowScope};
+use taide_native_ui::shell::{
+    NativeShell, ShellColors, ShellSurfaces, TITLE_HEIGHT, WelcomeContent, WelcomeRecent,
+    WelcomeShortcutRow, WindowScope,
+};
 use taide_native_ui::snapshot::{ShellSnapshot, project_group_sections};
 use taide_native_ui::split::{MIN_PANE_SIZE, child_rects, normalized_sizes, resized_pair};
 use taide_runtime::{AppState, EventSink, theme_actions};
@@ -62,9 +65,13 @@ struct Surfaces {
     problems_open: std::collections::HashSet<ShellSlotId>,
     problems: Vec<(ShellSlotId, Rect)>,
     tab_icons: Vec<(TabId, Rect, Color32)>,
+    welcome: Option<WelcomeContent>,
 }
 
 impl ShellSurfaces for Surfaces {
+    fn welcome_content(&self, _: Option<&ProjectId>) -> WelcomeContent {
+        self.welcome.clone().unwrap_or_default()
+    }
     fn text(&self, key: &str) -> String {
         key.to_owned()
     }
@@ -1232,4 +1239,161 @@ async fn native_mutation은_기존_runtime의_revision_이벤트와_dirty_보호
     assert!(state.dirty_layouts.read().contains(&project));
     assert_eq!(sink.0.lock().unwrap().len(), 3);
     assert!(!dir.exists());
+}
+
+fn welcome_frame(
+    context: &egui::Context,
+    snapshot: &ShellSnapshot,
+    content: &WelcomeContent,
+    time: f64,
+    events: Vec<egui::Event>,
+) -> (Vec<ShellIntent>, egui::FullOutput) {
+    let mut surfaces = Surfaces {
+        welcome: Some(content.clone()),
+        ..Default::default()
+    };
+    let shell = shell(WindowScope::Main);
+    let input = egui::RawInput {
+        screen_rect: Some(Rect::from_min_size(
+            pos2(0.0, 0.0),
+            vec2(WINDOW_SIZE[0], WINDOW_SIZE[1]),
+        )),
+        time: Some(time),
+        events,
+        ..Default::default()
+    };
+    let mut intents = Vec::new();
+    let mut output = context.run_ui(input, |ui| {
+        intents = shell.show(ui, snapshot, &mut surfaces);
+    });
+    output.textures_delta.clear();
+    (intents, output)
+}
+
+fn welcome_text_rect(output: &egui::FullOutput, needle: &str) -> Option<Rect> {
+    output
+        .shapes
+        .iter()
+        .find_map(|clipped| match &clipped.shape {
+            egui::Shape::Text(text) if text.galley.text().contains(needle) => {
+                Some(text.visual_bounding_rect())
+            }
+            _ => None,
+        })
+}
+
+#[test]
+fn welcome는_최근_프로젝트_root누락_비활성과_조회실패와_단축키카드를_원본처럼_보인다() {
+    let mut snapshot = fixture();
+    snapshot.projects.clear();
+    snapshot.shell.tree = None;
+    snapshot.shell.focused = None;
+    snapshot.layouts.clear();
+    let open = ProjectId::new();
+    let missing = ProjectId::new();
+    let content = WelcomeContent {
+        recent: Some(vec![
+            WelcomeRecent {
+                id: open.clone(),
+                name: "alpha".into(),
+                root: "/work/alpha".into(),
+                root_missing: false,
+            },
+            WelcomeRecent {
+                id: missing.clone(),
+                name: "beta".into(),
+                root: "/work/beta".into(),
+                root_missing: true,
+            },
+        ]),
+        shortcuts: vec![
+            WelcomeShortcutRow {
+                description: "Quick Open File".into(),
+                label: "⌘P".into(),
+            },
+            WelcomeShortcutRow {
+                description: "Save".into(),
+                label: String::new(),
+            },
+        ],
+    };
+    let context = egui::Context::default();
+    let (_, output) = welcome_frame(&context, &snapshot, &content, 0.0, Vec::new());
+    let texts = output
+        .shapes
+        .iter()
+        .filter_map(|clipped| match &clipped.shape {
+            egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    for expected in [
+        "app.recentItems",
+        "app.keyboardShortcutsTitle",
+        "Quick Open File",
+        "⌘P",
+        "Save",
+    ] {
+        assert!(
+            texts.iter().any(|text| text == expected),
+            "{expected}: {texts:?}"
+        );
+    }
+    assert!(texts.iter().any(|text| text == "alpha\n/work/alpha"));
+    assert!(
+        texts
+            .iter()
+            .any(|text| text == "beta\napp.recentProjectRootMissing /work/beta")
+    );
+    let click = |rect: Rect| {
+        let position = rect.center();
+        vec![
+            egui::Event::PointerMoved(position),
+            egui::Event::PointerButton {
+                pos: position,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+            egui::Event::PointerButton {
+                pos: position,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ]
+    };
+    let beta = welcome_text_rect(&output, "beta").unwrap();
+    let (intents, _) = welcome_frame(&context, &snapshot, &content, FRAME_SECONDS, click(beta));
+    assert!(
+        !intents
+            .iter()
+            .any(|intent| matches!(intent, ShellIntent::SelectRecentProject { .. }))
+    );
+    let alpha = welcome_text_rect(&output, "alpha").unwrap();
+    let (intents, _) = welcome_frame(
+        &context,
+        &snapshot,
+        &content,
+        FRAME_SECONDS * 2.0,
+        click(alpha),
+    );
+    assert!(intents.iter().any(|intent| matches!(
+        intent,
+        ShellIntent::SelectRecentProject { project, root } if *project == open && root == "/work/alpha"
+    )));
+    let unavailable = WelcomeContent {
+        recent: None,
+        shortcuts: Vec::new(),
+    };
+    let (_, output) = welcome_frame(
+        &egui::Context::default(),
+        &snapshot,
+        &unavailable,
+        0.0,
+        Vec::new(),
+    );
+    assert!(welcome_text_rect(&output, "app.recentProjectsUnavailable").is_some());
+    assert!(welcome_text_rect(&output, "app.recentItems").is_none());
+    assert!(welcome_text_rect(&output, "app.keyboardShortcutsTitle").is_none());
 }

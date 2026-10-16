@@ -151,6 +151,7 @@ pub struct NativeApplication {
     editor_folding: crate::editor_folding::State,
     editor_json: crate::editor_json::State,
     editor_json_validation: crate::editor_json_validation::State,
+    welcome: crate::welcome::State,
     problem_opens: Vec<crate::problems::Open>,
     editor_locations: crate::editor_locations::State,
     editor_documentation: crate::editor_documentation::State,
@@ -519,6 +520,7 @@ impl NativeApplication {
             editor_folding: crate::editor_folding::State::default(),
             editor_json: crate::editor_json::State::default(),
             editor_json_validation: crate::editor_json_validation::State::default(),
+            welcome: crate::welcome::State::default(),
             problem_opens: Vec::new(),
             editor_locations: crate::editor_locations::State::default(),
             editor_documentation: crate::editor_documentation::State::default(),
@@ -4359,6 +4361,7 @@ impl NativeApplication {
     fn clear_builtin_json(&mut self) {
         self.editor_json.clear();
         self.editor_json_validation.clear();
+        self.welcome.clear();
         self.lsp_diagnostics
             .retain_builtin(&self.store, HashSet::new());
         self.problem_opens.clear();
@@ -6249,6 +6252,15 @@ impl NativeApplication {
     }
 
     fn background_tick(&mut self, context: &egui::Context) {
+        if self.closing.is_none() && !self.services.state.is_shutting_down() {
+            let snapshot = self.controller.snapshot();
+            self.welcome.tick(
+                &snapshot,
+                &self.services.state,
+                &self.services.tasks,
+                context,
+            );
+        }
         self.toasts
             .set_reduced_motion(self.motion_preference.current().unwrap_or(false));
         let toast_enabled = self.toast_interaction_enabled();
@@ -7197,7 +7209,25 @@ impl eframe::App for NativeApplication {
         let lsp_summary = snapshot
             .focused_project()
             .and_then(|project| self.lsp.as_ref().and_then(|lsp| lsp.summary(project)));
+        let welcome_shortcuts = match self.welcome.shortcuts(
+            self.services
+                .state
+                .settings
+                .read()
+                .keymap_overrides
+                .as_deref(),
+            &self.locale,
+            context.os().is_mac(),
+        ) {
+            Ok(shortcuts) => shortcuts,
+            Err(error) => {
+                status = Some(error.to_string());
+                Arc::new(Vec::new())
+            }
+        };
         let mut surfaces = AppSurfaces {
+            welcome: &self.welcome,
+            welcome_shortcuts: &welcome_shortcuts,
             problem_opens: &mut self.problem_opens,
             tooltips: &self.tooltips,
             tooltip_appearance: &self.tooltip_appearance,
@@ -7830,6 +7860,18 @@ impl eframe::App for NativeApplication {
                         let document = keymap_documents.get(&tab).copied();
                         self.request_tab_save(tab, document, frame);
                     }
+                    ShellIntent::SelectRecentProject { project, root } => {
+                        if self.services.state.projects.read().contains_key(&project) {
+                            if let Err(error) = self
+                                .controller
+                                .submit(ShellMutation::ActivateProject(project))
+                            {
+                                self.report(&error);
+                            }
+                        } else {
+                            self.submit(HostCommand::OpenProject(root));
+                        }
+                    }
                     ShellIntent::OpenFolder => {
                         if let Some(path) = rfd::FileDialog::new().set_parent(frame).pick_folder() {
                             match path.into_os_string().into_string() {
@@ -8190,6 +8232,8 @@ async fn drain_services(services: &Arc<AppServices>) -> AppResult<()> {
 }
 
 struct AppSurfaces<'a> {
+    welcome: &'a crate::welcome::State,
+    welcome_shortcuts: &'a [taide_native_ui::shell::WelcomeShortcutRow],
     problem_opens: &'a mut Vec<crate::problems::Open>,
     tooltips: &'a crate::tooltips::Provider,
     tooltip_appearance: &'a crate::tooltips::Appearance,
@@ -8330,6 +8374,12 @@ struct AppSurfaces<'a> {
 impl ShellSurfaces for AppSurfaces<'_> {
     fn text(&self, key: &str) -> String {
         presentation::message(self.locale, key, &[])
+    }
+    fn welcome_content(
+        &self,
+        project: Option<&ProjectId>,
+    ) -> taide_native_ui::shell::WelcomeContent {
+        self.welcome.content(project, self.welcome_shortcuts)
     }
     fn text_with_args(&self, key: &str, arguments: &[(&str, &str)]) -> String {
         presentation::message(self.locale, key, arguments)

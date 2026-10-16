@@ -233,6 +233,78 @@ impl Overrides {
     }
 }
 
+/// Welcome shortcut card ids: a short slice of the app keymap in the original card order.
+pub const WELCOME_SHORTCUT_IDS: [&str; 6] = [
+    "quick-open",
+    "command-palette",
+    "search",
+    "toggle-terminal",
+    "toggle-sidebar",
+    "save",
+];
+
+/// Welcome shortcut card entry derived from the effective keymap.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WelcomeShortcut {
+    pub id: String,
+    pub description_key: String,
+    pub label: String,
+}
+
+/// Returns the Welcome card entries with the user overrides applied; an unbound entry keeps an
+/// empty label like the original `formatKeymapShortcut` of an empty key.
+pub fn welcome_shortcuts(overrides: &Overrides, is_mac: bool) -> AppResult<Vec<WelcomeShortcut>> {
+    let defaults: Vec<Value> =
+        serde_json::from_str(DEFAULTS).map_err(|error| AppError::Internal(error.to_string()))?;
+    let mut entries = defaults
+        .iter()
+        .filter_map(|value| {
+            let id = value.get("id")?.as_str()?;
+            WELCOME_SHORTCUT_IDS.contains(&id).then(|| {
+                let mut entry = Entry {
+                    id: id.to_owned(),
+                    first: Stage::parse(value)?,
+                    second: value.get("chord").and_then(Stage::parse),
+                    when: None,
+                };
+                if let Some(value) = overrides
+                    .entries
+                    .iter()
+                    .find(|value| value.get("actionId").and_then(Value::as_str) == Some(id))
+                {
+                    entry.apply_override(value);
+                }
+                Some((
+                    id.to_owned(),
+                    value.get("descriptionKey")?.as_str()?.to_owned(),
+                    entry,
+                ))
+            })?
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by_key(|(id, _, _)| {
+        WELCOME_SHORTCUT_IDS
+            .iter()
+            .position(|candidate| candidate == id)
+    });
+    Ok(entries
+        .into_iter()
+        .map(|(id, description_key, entry)| WelcomeShortcut {
+            id,
+            description_key,
+            label: if entry.first.key.is_empty() {
+                String::new()
+            } else {
+                let first = stage_label(&entry.first, is_mac);
+                match &entry.second {
+                    Some(second) => format!("{first} {}", stage_label(second, is_mac)),
+                    None => first,
+                }
+            },
+        })
+        .collect())
+}
+
 pub fn rows(overrides: &Overrides, is_mac: bool) -> AppResult<Vec<Row>> {
     let map = Keymap::new()?;
     let commands = command_registry::registry()?.commands();
