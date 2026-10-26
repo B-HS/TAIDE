@@ -20,11 +20,11 @@ const LABEL_ID: &str = "native-project-display-label";
 const ICON_LIST_ID: &str = "native-project-display-icons";
 const DIALOG_CONTENT_WIDTH: f32 = 464.0;
 const DIALOG_VIEWPORT_INSET: f32 = 80.0;
-const SECTION_GAP: f32 = 16.0;
-const ROW_GAP: f32 = 12.0;
+pub(crate) const SECTION_GAP: f32 = 16.0;
+pub(crate) const ROW_GAP: f32 = 12.0;
 const MODE_GAP: f32 = 16.0;
 const COLOR_LABEL_GAP: f32 = 8.0;
-const SMALL_TEXT_SIZE: f32 = 12.0;
+pub(crate) const SMALL_TEXT_SIZE: f32 = 12.0;
 const ICON_COLUMNS: usize = 8;
 const ICON_GAP: f32 = 4.0;
 const ICON_LIST_PADDING: f32 = 4.0;
@@ -134,8 +134,7 @@ impl ProjectDisplayDialog {
         let project = self.project.clone()?;
         let mut is_saved = false;
         let mut is_cancelled = false;
-        let width =
-            DIALOG_CONTENT_WIDTH.min(context.content_rect().width() - DIALOG_VIEWPORT_INSET);
+        let width = dialog_width(context);
         let response = egui::Modal::new(Id::new(DIALOG_ID)).show(context, |ui| {
             ui.set_width(width);
             ui.heading(text("project.displayDialogTitle"));
@@ -163,7 +162,7 @@ impl ProjectDisplayDialog {
                 DisplayMode::Default => {}
             }
             ui.add_space(SECTION_GAP);
-            self.color_picker(ui, colors, text);
+            color_picker(ui, colors, &text("project.displayColor"), &mut self.lane);
             ui.add_space(SECTION_GAP);
             self.preview_row(ui, colors, text, icon);
             ui.add_space(SECTION_GAP);
@@ -398,46 +397,6 @@ impl ProjectDisplayDialog {
         });
     }
 
-    fn color_picker(&mut self, ui: &mut Ui, colors: &ShellColors, text: &dyn Fn(&str) -> String) {
-        let title = text("project.displayColor");
-        ui.label(
-            RichText::new(&title)
-                .size(SMALL_TEXT_SIZE)
-                .color(colors.foreground),
-        );
-        ui.add_space(COLOR_LABEL_GAP);
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = Vec2::splat(SWATCH_GAP);
-            for (lane, fill) in colors.rail.lanes.iter().copied().enumerate() {
-                let (rect, response) =
-                    ui.allocate_exact_size(Vec2::splat(SWATCH_SIZE), Sense::click());
-                let is_pressed = self.lane == Some(lane);
-                let label = format!("{title} {}", lane + 1);
-                response.widget_info(|| {
-                    egui::WidgetInfo::selected(egui::WidgetType::Button, true, is_pressed, &label)
-                });
-                if response.clicked() {
-                    self.lane = (!is_pressed).then_some(lane);
-                }
-                let radius = SWATCH_SIZE / 2.0;
-                let painter = ui.painter();
-                painter.circle_filled(rect.center(), radius, fill);
-                painter.circle_stroke(
-                    rect.center(),
-                    radius - BORDER_WIDTH / 2.0,
-                    Stroke::new(BORDER_WIDTH, colors.border),
-                );
-                if self.lane == Some(lane) {
-                    painter.circle_stroke(
-                        rect.center(),
-                        radius + SWATCH_RING_OFFSET + SWATCH_RING_WIDTH / 2.0,
-                        Stroke::new(SWATCH_RING_WIDTH, colors.rail.accent),
-                    );
-                }
-            }
-        });
-    }
-
     fn preview_row(
         &self,
         ui: &mut Ui,
@@ -470,6 +429,56 @@ impl ProjectDisplayDialog {
             );
         });
     }
+}
+
+/// Original `DialogContent` width: `sm:max-w-lg` less `p-6`, narrowing like `calc(100%-2rem)`.
+pub(crate) fn dialog_width(context: &egui::Context) -> f32 {
+    DIALOG_CONTENT_WIDTH.min(context.content_rect().width() - DIALOG_VIEWPORT_INSET)
+}
+
+/// The twelve `PROJECT_COLOR_TOKENS` swatches the display and group dialogs share: a press toggles
+/// the lane and the pressed one wears the accent ring.
+pub(crate) fn color_picker(
+    ui: &mut Ui,
+    colors: &ShellColors,
+    title: &str,
+    selected: &mut Option<usize>,
+) {
+    ui.label(
+        RichText::new(title)
+            .size(SMALL_TEXT_SIZE)
+            .color(colors.foreground),
+    );
+    ui.add_space(COLOR_LABEL_GAP);
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = Vec2::splat(SWATCH_GAP);
+        for (lane, fill) in colors.rail.lanes.iter().copied().enumerate() {
+            let (rect, response) = ui.allocate_exact_size(Vec2::splat(SWATCH_SIZE), Sense::click());
+            let is_pressed = *selected == Some(lane);
+            let label = format!("{title} {}", lane + 1);
+            response.widget_info(|| {
+                egui::WidgetInfo::selected(egui::WidgetType::Button, true, is_pressed, &label)
+            });
+            if response.clicked() {
+                *selected = (!is_pressed).then_some(lane);
+            }
+            let radius = SWATCH_SIZE / 2.0;
+            let painter = ui.painter();
+            painter.circle_filled(rect.center(), radius, fill);
+            painter.circle_stroke(
+                rect.center(),
+                radius - BORDER_WIDTH / 2.0,
+                Stroke::new(BORDER_WIDTH, colors.border),
+            );
+            if *selected == Some(lane) {
+                painter.circle_stroke(
+                    rect.center(),
+                    radius + SWATCH_RING_OFFSET + SWATCH_RING_WIDTH / 2.0,
+                    Stroke::new(SWATCH_RING_WIDTH, colors.rail.accent),
+                );
+            }
+        }
+    });
 }
 
 /// cmdk's default filter over the icon ids: positive `commandScore` only, best first, catalog order

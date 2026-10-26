@@ -6,6 +6,7 @@ use taide_model::project::{ProjectDisplay, ProjectDisplayPatch};
 use crate::icons::glyphs::PROJECT_ICONS;
 
 pub const PROJECT_LABEL_MAX_CODEPOINTS: usize = 4;
+pub const PROJECT_GROUP_NAME_MAX_CODEPOINTS: usize = 40;
 pub const DEFAULT_PROJECT_ICON_NAME: &str = "folder";
 pub const PROJECT_GLYPH_ICON_SIZE: f32 = 20.0;
 pub const PROJECT_COLOR_TOKENS: [&str; 12] = [
@@ -113,6 +114,25 @@ pub fn normalize_project_label(value: &str) -> String {
         .chars()
         .take(PROJECT_LABEL_MAX_CODEPOINTS)
         .collect()
+}
+
+/// Original `clampProjectGroupName`: what the name input may hold while typing, without trimming.
+pub fn clamp_project_group_name(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(PROJECT_GROUP_NAME_MAX_CODEPOINTS)
+        .collect()
+}
+
+/// Original `normalizeProjectGroupName`: the backend's `sanitize_group_name` order (strip, trim,
+/// then measure).
+pub fn normalize_project_group_name(value: &str) -> String {
+    let stripped: String = value
+        .chars()
+        .filter(|character| !character.is_control())
+        .collect();
+    clamp_project_group_name(stripped.trim())
 }
 
 /// Original `isProjectDisplayCustomized`, which gates the menu's "reset to default".

@@ -154,6 +154,8 @@ pub struct NativeApplication {
     welcome: crate::welcome::State,
     open_path_dialog: crate::open_path_dialog::OpenPathDialog,
     project_display_dialog: taide_native_ui::project_display_dialog::ProjectDisplayDialog,
+    project_group_dialog: taide_native_ui::project_group_dialog::ProjectGroupDialog,
+    project_group_delete: taide_native_ui::project_group_dialog::ProjectGroupDeleteDialog,
     problem_opens: Vec<crate::problems::Open>,
     editor_locations: crate::editor_locations::State,
     editor_documentation: crate::editor_documentation::State,
@@ -527,6 +529,8 @@ impl NativeApplication {
             welcome: crate::welcome::State::default(),
             open_path_dialog: Default::default(),
             project_display_dialog: Default::default(),
+            project_group_dialog: Default::default(),
+            project_group_delete: Default::default(),
             problem_opens: Vec::new(),
             editor_locations: crate::editor_locations::State::default(),
             editor_documentation: crate::editor_documentation::State::default(),
@@ -1872,6 +1876,33 @@ impl NativeApplication {
                 }
                 HostReply::ProjectClosed(project) => {
                     self.release_project_documents(&project);
+                    context.request_repaint();
+                }
+                HostReply::ProjectGroupSaved(result) => {
+                    self.project_group_dialog.finish(result.is_ok());
+                    if let Err(error) = result {
+                        self.report(&error);
+                    }
+                    context.request_repaint();
+                }
+                HostReply::ProjectGroupOpened(result) => {
+                    match result {
+                        Ok(result) => {
+                            let (opened, skipped) = (
+                                result.opened.len().to_string(),
+                                result.skipped.len().to_string(),
+                            );
+                            self.toasts.success(
+                                presentation::message(
+                                    &self.locale,
+                                    "projectGroup.openResult",
+                                    &[("opened", &opened), ("skipped", &skipped)],
+                                ),
+                                Instant::now(),
+                            );
+                        }
+                        Err(error) => self.report(&error),
+                    }
                     context.request_repaint();
                 }
             }
@@ -3453,6 +3484,69 @@ impl NativeApplication {
             {
                 pending.phase = TabClosePhase::Saving(None);
             }
+        }
+    }
+
+    /// The rail's group dialogs: creating a group for the project whose menu asked (`app-sidebar.tsx`
+    /// 124-128), editing a group (`sortable-project-group-header.tsx` 79-87) and confirming its
+    /// deletion (129-144). A group that disappears closes its dialogs, as the header unmounts.
+    fn project_group_dialogs(
+        &mut self,
+        context: &egui::Context,
+        snapshot: &taide_native_ui::snapshot::ShellSnapshot,
+    ) {
+        use taide_native_ui::project_group_dialog::{GroupEdit, Target};
+        let stored = |group: &taide_model::ids::ProjectGroupId| {
+            snapshot.groups.iter().find(|item| &item.id == group)
+        };
+        if let Some(Target::Edit(group)) = self.project_group_dialog.target()
+            && stored(group).is_none()
+        {
+            self.project_group_dialog.close();
+        }
+        if self
+            .project_group_delete
+            .group()
+            .is_some_and(|group| stored(group).is_none())
+        {
+            self.project_group_delete.close();
+        }
+        let submission = self
+            .project_group_dialog
+            .show(context, &self.shell.colors, &|key| {
+                presentation::message(&self.locale, key, &[])
+            });
+        if let Some(submission) = submission {
+            let color = submission.color.map(str::to_owned);
+            let command = match submission.target {
+                Target::Create(project) => Some(HostCommand::CreateProjectGroup {
+                    name: submission.name,
+                    color,
+                    members: vec![project],
+                }),
+                Target::Edit(group) => stored(&group)
+                    .map(|stored| GroupEdit::new(stored, &submission.name, submission.color))
+                    .filter(|edit| !edit.is_empty())
+                    .map(|edit| HostCommand::EditProjectGroup {
+                        group,
+                        name: edit.name,
+                        color: edit.color,
+                    }),
+            };
+            match command {
+                Some(command) => {
+                    if !self.submit(command) {
+                        self.project_group_dialog.finish(false);
+                    }
+                }
+                None => self.project_group_dialog.finish(true),
+            }
+        }
+        let deleted = self.project_group_delete.show(context, &|key, arguments| {
+            presentation::message(&self.locale, key, arguments)
+        });
+        if let Some(group) = deleted {
+            self.submit(HostCommand::DeleteProjectGroup(group));
         }
     }
 
@@ -7987,7 +8081,30 @@ impl eframe::App for NativeApplication {
                     ShellIntent::SetProjectGroupMembers { group, members } => {
                         self.submit(HostCommand::SetProjectGroupMembers { group, members });
                     }
-                    ShellIntent::NewProjectGroup(_) => {}
+                    ShellIntent::ReorderProjects(ids) => {
+                        self.submit(HostCommand::ReorderProjects(ids));
+                    }
+                    ShellIntent::ReorderProjectGroups(ids) => {
+                        self.submit(HostCommand::ReorderProjectGroups(ids));
+                    }
+                    ShellIntent::NewProjectGroup(project) => {
+                        if snapshot.project(&project).is_some() {
+                            self.project_group_dialog.create(project);
+                        }
+                    }
+                    ShellIntent::OpenProjectGroup(group) => {
+                        self.submit(HostCommand::OpenProjectGroup(group));
+                    }
+                    ShellIntent::EditProjectGroup(group) => {
+                        if let Some(group) = snapshot.groups.iter().find(|item| item.id == group) {
+                            self.project_group_dialog.edit(group);
+                        }
+                    }
+                    ShellIntent::DeleteProjectGroup(group) => {
+                        if let Some(group) = snapshot.groups.iter().find(|item| item.id == group) {
+                            self.project_group_delete.open(group);
+                        }
+                    }
                     ShellIntent::EditProjectDisplay(project) => {
                         if let Some(project) = snapshot.project(&project) {
                             self.project_display_dialog.open(project);
@@ -8212,6 +8329,9 @@ impl eframe::App for NativeApplication {
         {
             self.project_display_dialog.finish(false);
         }
+        let is_project_group_open =
+            self.project_group_dialog.is_open() || self.project_group_delete.is_open();
+        self.project_group_dialogs(&context, &snapshot);
         if crate::zen::escape(
             &context,
             snapshot.shell.window_chrome.zen,
@@ -8219,6 +8339,7 @@ impl eframe::App for NativeApplication {
                 && !self.keybindings.is_open()
                 && !self.palette.is_open()
                 && !is_project_display_open
+                && !is_project_group_open
                 && self.pending_tab_close.is_none()
                 && self.pending_entry_delete.is_none()
                 && !self.deleting_entry
@@ -8257,7 +8378,8 @@ impl eframe::App for NativeApplication {
             && self.pending_tab_close.is_none()
             && self.pending_entry_delete.is_none()
             && !egui::Popup::is_any_open(&context)
-            && !egui::DragAndDrop::has_any_payload(&context);
+            && !egui::DragAndDrop::has_any_payload(&context)
+            && !taide_native_ui::project_drag::is_dragging(&context);
         if let Err(error) =
             self.web_views
                 .sync(frame, &context, &live, &web_placements, web_enabled)

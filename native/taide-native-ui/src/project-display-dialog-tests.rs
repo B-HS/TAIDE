@@ -26,6 +26,7 @@ fn colors() -> ShellColors {
         active_indicator: COLOR,
         editor_background: COLOR,
         editor_foreground: COLOR,
+        drop_target: COLOR,
         rail: RailColors {
             item_hover: COLOR,
             item_active: COLOR,

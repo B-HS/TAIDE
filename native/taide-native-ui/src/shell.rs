@@ -3,15 +3,17 @@ use egui::{
     Align, Color32, Id, Layout, Rect, RichText, Sense, Stroke, Ui, UiBuilder, Vec2, pos2, vec2,
 };
 use taide_model::agent::{AgentActivity, DetectedAgent};
-use taide_model::ids::{PaneId, ProjectId, ShellSlotId, TabId};
+use taide_model::ids::{PaneId, ProjectGroupId, ProjectId, ShellSlotId, TabId};
 use taide_model::layout::{DropEdge, PaneNode, SplitDir, Tab, TabKind};
 use taide_model::project::{ProjectGroup, ProjectRef, ShellSlotEdge, ShellSlotTree};
 
 use crate::commands::{ShellIntent, ShellMutation, request_close_tab};
+use crate::project_drag::{self, DRAGGING_OPACITY, DropRequest, RailItem, RailTier};
 use crate::project_rail::{
     ProjectDisplayResolution, RailColors, RailIcon, agent_status_label_key,
     cleared_project_display_patch, is_project_display_customized, paint_agent_badge,
-    paint_project_glyph, pulse_opacity, resolve_project_display, top_priority_agent,
+    paint_project_glyph, pulse_opacity, resolve_project_color_lane, resolve_project_display,
+    top_priority_agent,
 };
 use crate::snapshot::{
     ShellSnapshot, active_tab, project_group_sections, slot_count, slot_project,
@@ -62,6 +64,20 @@ const RAIL_ROOT_MISSING_OPACITY: f32 = 0.5;
 const RAIL_TOOLTIP_ICON_SIZE: f32 = 12.0;
 const RAIL_TOOLTIP_ICON_GAP: f32 = 4.0;
 const RAIL_TOOLTIP_SECONDARY_OPACITY: f32 = 0.7;
+const GROUP_HEADER_WIDTH: f32 = 44.0;
+const GROUP_HEADER_HEIGHT: f32 = 17.5;
+const GROUP_HEADER_PADDING_X: f32 = 4.0;
+const GROUP_HEADER_GAP: f32 = 2.0;
+const GROUP_HEADER_RADIUS: f32 = 4.0;
+const GROUP_HEADER_FONT_SIZE: f32 = 9.0;
+const GROUP_CHEVRON_SIZE: f32 = 12.0;
+const GROUP_CHEVRON_STROKE: f32 = 1.0;
+const CHEVRON_DOWN_POINTS: [[f32; 2]; 3] = [[0.25, 0.375], [0.5, 0.625], [0.75, 0.375]];
+const CHEVRON_RIGHT_POINTS: [[f32; 2]; 3] = [[0.375, 0.25], [0.625, 0.5], [0.375, 0.75]];
+const DROP_PREVIEW_FILL_OPACITY: f32 = 0.25;
+const PROJECT_DRAG_PREVIEW_OPACITY: f32 = 0.9;
+const SLOT_DROP_PREVIEW_LAYER: &str = "project-drag-slot-preview";
+const PROJECT_DRAG_PREVIEW_LAYER: &str = "project-drag-preview";
 
 #[derive(Clone, Copy)]
 pub struct ShellColors {
@@ -77,6 +93,7 @@ pub struct ShellColors {
     pub active_indicator: Color32,
     pub editor_background: Color32,
     pub editor_foreground: Color32,
+    pub drop_target: Color32,
     pub rail: RailColors,
 }
 
@@ -215,7 +232,11 @@ impl NativeShell {
         ui.painter().rect_filled(rect, 0.0, self.colors.background);
         ui.visuals_mut().override_text_color = Some(self.colors.foreground);
         match &self.scope {
-            WindowScope::Main => self.main_window(ui, rect, snapshot, surfaces, &mut intents),
+            WindowScope::Main => {
+                project_drag::begin_frame(ui.ctx());
+                self.main_window(ui, rect, snapshot, surfaces, &mut intents);
+                self.project_drag_feedback(ui, snapshot, surfaces, &mut intents);
+            }
             WindowScope::Auxiliary { project, slot } => {
                 if let Some(layout) = snapshot.layouts.get(project)
                     && let Some(window) = layout
@@ -297,6 +318,7 @@ impl NativeShell {
                     body.bottom(),
                 ),
             );
+            project_drag::register_rail(ui.ctx(), rail);
             self.project_rail(ui, rail, snapshot, surfaces, intents);
             body.min.x = rail.right();
         }
@@ -309,6 +331,81 @@ impl NativeShell {
             return;
         };
         self.slot_tree(ui, body, (tree, &[]), snapshot, surfaces, intents);
+    }
+
+    /// The window's single project drag (`use-project-drag.ts` 79-142, `app-shell.tsx` 192-224):
+    /// the hovered slot's drop preview (`split-drop-zones.tsx` 29-34), the glyph that follows the
+    /// pointer (`project-drag-preview.tsx`), and the request a release makes.
+    fn project_drag_feedback(
+        &self,
+        ui: &mut Ui,
+        snapshot: &ShellSnapshot,
+        surfaces: &mut impl ShellSurfaces,
+        intents: &mut Vec<ShellIntent>,
+    ) {
+        let feedback = project_drag::end_frame(ui.ctx(), snapshot);
+        if let Some(preview) = feedback.slot_preview {
+            ui.ctx()
+                .layer_painter(egui::LayerId::new(
+                    egui::Order::Foreground,
+                    Id::new(SLOT_DROP_PREVIEW_LAYER),
+                ))
+                .rect(
+                    preview,
+                    0.0,
+                    self.colors
+                        .drop_target
+                        .gamma_multiply(DROP_PREVIEW_FILL_OPACITY),
+                    Stroke::new(BORDER_WIDTH, self.colors.drop_target),
+                    egui::StrokeKind::Inside,
+                );
+        }
+        if let Some((project, rect)) = feedback.overlay
+            && let Some(project) = snapshot.project(&project)
+        {
+            let mut overlay = ui.new_child(
+                UiBuilder::new()
+                    .layer_id(egui::LayerId::new(
+                        egui::Order::Tooltip,
+                        Id::new(PROJECT_DRAG_PREVIEW_LAYER),
+                    ))
+                    .max_rect(rect),
+            );
+            overlay.multiply_opacity(PROJECT_DRAG_PREVIEW_OPACITY);
+            let display = resolve_project_display(&project.display);
+            let painter = overlay.painter().clone();
+            painter.add(
+                overlay
+                    .visuals()
+                    .popup_shadow
+                    .as_shape(rect, RAIL_BUTTON_RADIUS),
+            );
+            painter.rect_filled(rect, RAIL_BUTTON_RADIUS, self.colors.rail.item_active);
+            let color = display
+                .lane
+                .map_or(self.colors.foreground, |lane| self.colors.rail.lanes[lane]);
+            paint_project_glyph(
+                &overlay,
+                &painter,
+                rect,
+                &display,
+                color,
+                &mut |ui, rect, icon, color| surfaces.rail_icon(ui, rect, icon, color),
+            );
+        }
+        intents.extend(feedback.request.map(|request| match request {
+            DropRequest::ReorderProjects(order) => ShellIntent::ReorderProjects(order),
+            DropRequest::ReorderGroups(order) => ShellIntent::ReorderProjectGroups(order),
+            DropRequest::OpenInSlot {
+                project,
+                slot,
+                edge,
+            } => ShellIntent::OpenProjectInSlot {
+                project,
+                slot,
+                edge,
+            },
+        }));
     }
 
     fn title_bar(
@@ -414,25 +511,14 @@ impl NativeShell {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     let rail = project_group_sections(&snapshot.projects, &snapshot.groups);
                     for (group, members) in rail.sections {
-                        if ui
-                            .add(
-                                egui::Button::new(&group.name)
-                                    .wrap_mode(egui::TextWrapMode::Truncate),
-                            )
-                            .clicked()
-                        {
-                            intents.push(ShellIntent::Mutate(ShellMutation::SetGroupCollapsed {
-                                group: group.id.clone(),
-                                collapsed: !group.collapsed,
-                            }));
-                        }
+                        self.group_header(ui, group, rect.x_range(), &*surfaces, intents);
                         if !group.collapsed {
                             for project in members {
                                 self.project_button(
                                     ui,
                                     project,
                                     snapshot,
-                                    rect.x_range(),
+                                    (rect.x_range(), RailTier::Members(group.id.clone())),
                                     surfaces,
                                     intents,
                                 );
@@ -444,7 +530,7 @@ impl NativeShell {
                             ui,
                             project,
                             snapshot,
-                            rect.x_range(),
+                            (rect.x_range(), RailTier::Ungrouped),
                             surfaces,
                             intents,
                         );
@@ -453,6 +539,89 @@ impl NativeShell {
                 });
             },
         );
+    }
+
+    /// One group's rail row (`sortable-project-group-header.tsx` 93-117): a 44px fold toggle whose
+    /// chevron and name take the group color, carrying the group's own menu.
+    fn group_header(
+        &self,
+        ui: &mut Ui,
+        group: &ProjectGroup,
+        rail: egui::Rangef,
+        surfaces: &impl ShellSurfaces,
+        intents: &mut Vec<ShellIntent>,
+    ) {
+        let (row, _) = ui.allocate_exact_size(
+            vec2(ui.available_width(), GROUP_HEADER_HEIGHT),
+            Sense::hover(),
+        );
+        let rect =
+            Rect::from_center_size(row.center(), vec2(GROUP_HEADER_WIDTH, GROUP_HEADER_HEIGHT));
+        let clip = Rect::from_x_y_ranges(rail, ui.clip_rect().y_range());
+        let (response, drag) = ui
+            .scope(|ui| {
+                ui.set_clip_rect(clip);
+                let response = ui.interact(
+                    rect,
+                    Id::new(("rail-group", &group.id)),
+                    Sense::click_and_drag(),
+                );
+                let drag = project_drag::rail_item(
+                    ui,
+                    &response,
+                    RailItem::Group(group.id.clone()),
+                    RailTier::Groups,
+                );
+                (response, drag)
+            })
+            .inner;
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &group.name)
+        });
+        let rect = rect.translate(vec2(0.0, drag.offset));
+        let mut painter = ui.painter().clone();
+        painter.set_clip_rect(clip);
+        if response.hovered() {
+            painter.rect_filled(rect, GROUP_HEADER_RADIUS, self.colors.rail.item_hover);
+        }
+        let color = resolve_project_color_lane(group.color.as_deref())
+            .map_or(self.colors.muted, |lane| self.colors.rail.lanes[lane]);
+        let content = rect.shrink2(vec2(GROUP_HEADER_PADDING_X, 0.0));
+        let chevron = Rect::from_min_size(
+            pos2(content.left(), rect.center().y - GROUP_CHEVRON_SIZE / 2.0),
+            Vec2::splat(GROUP_CHEVRON_SIZE),
+        );
+        let points = if group.collapsed {
+            CHEVRON_RIGHT_POINTS
+        } else {
+            CHEVRON_DOWN_POINTS
+        };
+        painter.add(egui::Shape::line(
+            points
+                .map(|[x, y]| chevron.min + vec2(chevron.width() * x, chevron.height() * y))
+                .to_vec(),
+            Stroke::new(GROUP_CHEVRON_STROKE, color),
+        ));
+        let text_left = chevron.right() + GROUP_HEADER_GAP;
+        let mut job = egui::text::LayoutJob::single_section(
+            group.name.clone(),
+            egui::TextFormat::simple(egui::FontId::proportional(GROUP_HEADER_FONT_SIZE), color),
+        );
+        job.wrap =
+            egui::text::TextWrapping::truncate_at_width((content.right() - text_left).max(0.0));
+        let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
+        painter.galley(
+            pos2(text_left, rect.center().y - galley.size().y / 2.0),
+            galley,
+            color,
+        );
+        if response.clicked() && !drag.suppresses_click {
+            intents.push(ShellIntent::Mutate(ShellMutation::SetGroupCollapsed {
+                group: group.id.clone(),
+                collapsed: !group.collapsed,
+            }));
+        }
+        response.context_menu(|ui| group_menu(ui, &group.id, surfaces, intents));
     }
 
     /// The rail `+` menu (`sidebar-add-project-menu.tsx`).
@@ -508,10 +677,11 @@ impl NativeShell {
         ui: &mut Ui,
         project: &ProjectRef,
         snapshot: &ShellSnapshot,
-        rail: egui::Rangef,
+        placement: (egui::Rangef, RailTier),
         surfaces: &mut impl ShellSurfaces,
         intents: &mut Vec<ShellIntent>,
     ) {
+        let (rail, tier) = placement;
         let active = snapshot.focused_project() == Some(&project.id);
         let display = resolve_project_display(&project.display);
         let agents = surfaces.project_agents(&project.id);
@@ -528,13 +698,25 @@ impl NativeShell {
             |(_, status)| format!("{} — {status}", project.name),
         );
         ui.push_id(&project.id, |ui| {
-            let response = ui
+            let (response, drag) = ui
                 .scope(|ui| {
+                    let (rect, response) = ui.allocate_exact_size(
+                        Vec2::splat(RAIL_BUTTON_SIZE),
+                        Sense::click_and_drag(),
+                    );
+                    let drag = project_drag::rail_item(
+                        ui,
+                        &response,
+                        RailItem::Project(project.id.clone()),
+                        tier,
+                    );
+                    if drag.is_dragging {
+                        ui.multiply_opacity(DRAGGING_OPACITY);
+                    }
                     if project.root_missing {
                         ui.multiply_opacity(RAIL_ROOT_MISSING_OPACITY);
                     }
-                    let (rect, response) =
-                        ui.allocate_exact_size(Vec2::splat(RAIL_BUTTON_SIZE), Sense::click());
+                    let rect = rect.translate(vec2(0.0, drag.offset));
                     response.widget_info(|| {
                         egui::WidgetInfo::selected(
                             egui::WidgetType::SelectableLabel,
@@ -611,10 +793,10 @@ impl NativeShell {
                             ui.ctx().request_repaint();
                         }
                     }
-                    response
+                    (response, drag)
                 })
                 .inner;
-            if response.clicked() {
+            if response.clicked() && !drag.suppresses_click {
                 intents.push(ShellIntent::Mutate(ShellMutation::ActivateProject(
                     project.id.clone(),
                 )));
@@ -773,6 +955,7 @@ impl NativeShell {
             );
             rect.min.y = header.bottom();
         }
+        project_drag::register_slot(ui.ctx(), slot, rect);
         let Some(layout) = snapshot.layouts.get(project) else {
             return;
         };
@@ -1420,6 +1603,25 @@ fn project_menu(
             project: project.clone(),
             patch: cleared_project_display_patch(),
         });
+    }
+}
+
+/// The group header's menu (`sortable-project-group-header.tsx` 111-116).
+fn group_menu(
+    ui: &mut Ui,
+    group: &ProjectGroupId,
+    surfaces: &impl ShellSurfaces,
+    intents: &mut Vec<ShellIntent>,
+) {
+    if menu_item(ui, surfaces.text("projectGroup.open")) {
+        intents.push(ShellIntent::OpenProjectGroup(group.clone()));
+    }
+    ui.separator();
+    if menu_item(ui, surfaces.text("projectGroup.edit")) {
+        intents.push(ShellIntent::EditProjectGroup(group.clone()));
+    }
+    if menu_item(ui, surfaces.text("projectGroup.delete")) {
+        intents.push(ShellIntent::DeleteProjectGroup(group.clone()));
     }
 }
 

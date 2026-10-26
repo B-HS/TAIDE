@@ -123,6 +123,10 @@ pub mod modal;
 pub mod presentation;
 #[path = "project-display-dialog.rs"]
 pub mod project_display_dialog;
+#[path = "project-drag.rs"]
+pub mod project_drag;
+#[path = "project-group-dialog.rs"]
+pub mod project_group_dialog;
 #[path = "project-rail.rs"]
 pub mod project_rail;
 #[path = "settings-code-controls.rs"]

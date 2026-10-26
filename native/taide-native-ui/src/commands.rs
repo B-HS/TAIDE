@@ -89,7 +89,12 @@ pub enum ShellIntent {
         group: ProjectGroupId,
         members: Vec<ProjectId>,
     },
+    ReorderProjects(Vec<ProjectId>),
+    ReorderProjectGroups(Vec<ProjectGroupId>),
     NewProjectGroup(ProjectId),
+    OpenProjectGroup(ProjectGroupId),
+    EditProjectGroup(ProjectGroupId),
+    DeleteProjectGroup(ProjectGroupId),
     EditProjectDisplay(ProjectId),
     SetProjectDisplay {
         project: ProjectId,

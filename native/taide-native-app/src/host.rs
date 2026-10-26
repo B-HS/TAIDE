@@ -191,6 +191,20 @@ pub enum HostCommand {
         group: taide_model::ids::ProjectGroupId,
         members: Vec<ProjectId>,
     },
+    ReorderProjects(Vec<ProjectId>),
+    ReorderProjectGroups(Vec<taide_model::ids::ProjectGroupId>),
+    CreateProjectGroup {
+        name: String,
+        color: Option<String>,
+        members: Vec<ProjectId>,
+    },
+    EditProjectGroup {
+        group: taide_model::ids::ProjectGroupId,
+        name: Option<String>,
+        color: Option<Option<String>>,
+    },
+    DeleteProjectGroup(taide_model::ids::ProjectGroupId),
+    OpenProjectGroup(taide_model::ids::ProjectGroupId),
     SetProjectDisplay {
         project: ProjectId,
         patch: taide_model::project::ProjectDisplayPatch,
@@ -441,6 +455,8 @@ pub enum HostReply {
     ProjectOpenedByPath(taide_model::error::AppResult<()>),
     ProjectDisplaySet(taide_model::error::AppResult<()>),
     ProjectClosed(ProjectId),
+    ProjectGroupSaved(AppResult<()>),
+    ProjectGroupOpened(AppResult<taide_model::project::ProjectGroupOpenResult>),
 }
 
 pub struct HostBridge {
@@ -1647,6 +1663,86 @@ async fn dispatch(
             .await
             .err()
             .map(HostReply::Failed)
+        }
+        HostCommand::ReorderProjects(ids) => {
+            project_actions::project_reorder(services.events.as_ref(), &services.state, ids)
+                .await
+                .err()
+                .map(HostReply::Failed)
+        }
+        HostCommand::ReorderProjectGroups(ids) => {
+            project_actions::project_group_reorder(services.events.as_ref(), &services.state, ids)
+                .await
+                .err()
+                .map(HostReply::Failed)
+        }
+        HostCommand::CreateProjectGroup {
+            name,
+            color,
+            members,
+        } => Some(HostReply::ProjectGroupSaved(
+            project_actions::project_group_create(
+                services.events.as_ref(),
+                &services.state,
+                name,
+                color,
+                Some(members),
+            )
+            .await
+            .map(|_| ()),
+        )),
+        HostCommand::EditProjectGroup { group, name, color } => {
+            let result = async {
+                if let Some(name) = name {
+                    project_actions::project_group_rename(
+                        services.events.as_ref(),
+                        &services.state,
+                        group.clone(),
+                        name,
+                    )
+                    .await?;
+                }
+                if let Some(color) = color {
+                    project_actions::project_group_set_color(
+                        services.events.as_ref(),
+                        &services.state,
+                        group,
+                        color,
+                    )
+                    .await?;
+                }
+                Ok(())
+            }
+            .await;
+            Some(HostReply::ProjectGroupSaved(result))
+        }
+        HostCommand::DeleteProjectGroup(group) => {
+            project_actions::project_group_delete(services.events.as_ref(), &services.state, group)
+                .await
+                .err()
+                .map(HostReply::Failed)
+        }
+        HostCommand::OpenProjectGroup(group) => {
+            let result = async {
+                project_actions::group_members(&services.state.session.read(), &group)?;
+                integrations.flush_view_states(services).await?;
+                let worker = services.clone();
+                let projects = integrations.projects(services);
+                services
+                    .tasks
+                    .run_nonabortable_result("native-project-group-open", async move {
+                        project_actions::project_group_open(
+                            worker.events.as_ref(),
+                            &worker.state,
+                            &projects,
+                            group,
+                        )
+                        .await
+                    })
+                    .await
+            }
+            .await;
+            Some(HostReply::ProjectGroupOpened(result))
         }
         HostCommand::SetProjectDisplay { project, patch } => Some(HostReply::ProjectDisplaySet(
             project_actions::project_set_display(

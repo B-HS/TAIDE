@@ -15,10 +15,11 @@ use taide_model::project::{
 };
 use taide_native_ui::commands::{ShellIntent, ShellMutation, dispatch, request_close_tab};
 use taide_native_ui::presentation::{apply_visuals, visuals};
+use taide_native_ui::project_drag::{DRAGGING_OPACITY, is_dragging, slot_drop_preview};
 use taide_native_ui::project_rail::{RailColors, RailIcon};
 use taide_native_ui::shell::{
-    NativeShell, ShellColors, ShellSurfaces, TITLE_HEIGHT, WelcomeContent, WelcomeRecent,
-    WelcomeShortcutRow, WindowScope,
+    NativeShell, PROJECT_RAIL_WIDTH, SLOT_HEADER_HEIGHT, STATUS_HEIGHT, ShellColors, ShellSurfaces,
+    TITLE_HEIGHT, WelcomeContent, WelcomeRecent, WelcomeShortcutRow, WindowScope,
 };
 use taide_native_ui::snapshot::{ShellSnapshot, project_group_sections};
 use taide_native_ui::split::{MIN_PANE_SIZE, child_rects, normalized_sizes, resized_pair};
@@ -55,6 +56,7 @@ const PIXEL_SNAP_TOLERANCE: f32 = 0.5;
 const RAIL_HOVER: Color32 = Color32::from_rgb(1, 2, 3);
 const RAIL_ACTIVE: Color32 = Color32::from_rgb(4, 5, 6);
 const RAIL_ACCENT: Color32 = Color32::from_rgb(7, 8, 9);
+const DROP_TARGET: Color32 = Color32::from_rgb(11, 12, 250);
 const AGENT_WORKING: Color32 = Color32::from_rgb(10, 200, 10);
 const AGENT_AWAITING: Color32 = Color32::from_rgb(200, 200, 10);
 const AGENT_IDLE: Color32 = Color32::from_rgb(10, 10, 200);
@@ -67,6 +69,16 @@ const TOOLTIP_HOVER_SECONDS: f64 = 10.0;
 const TOOLTIP_SECONDARY_OPACITY: f32 = 0.7;
 const TOOLTIP_FADE_SECONDS: f64 = 0.5;
 const TOOLTIP_SETTLE_SECONDS: f64 = 1.0;
+const GROUP_HEADER_SIZE: [f32; 2] = [44.0, 17.5];
+const GROUP_NAME_MAX_WIDTH: f32 = 22.0;
+const GROUP_NAME_FONT_SIZE: f32 = 9.0;
+const GROUP_CHEVRON_POINTS: usize = 3;
+const BELOW_ACTIVATION_DISTANCE: f32 = 3.0;
+const ABOVE_ACTIVATION_DISTANCE: f32 = 5.0;
+const DRAG_PREVIEW_OPACITY: f32 = 0.9;
+const DROP_PREVIEW_FILL_OPACITY: f32 = 0.25;
+const SLOT_EDGE_INSET: f32 = 10.0;
+const SLOT_HEADER_PROBE: f32 = 12.0;
 
 #[derive(Default)]
 struct Sink(Mutex<Vec<AppEvent>>);
@@ -177,6 +189,7 @@ fn shell(scope: WindowScope) -> NativeShell {
             active_indicator: COLOR,
             editor_background: COLOR,
             editor_foreground: COLOR,
+            drop_target: DROP_TARGET,
             rail: RailColors {
                 item_hover: RAIL_HOVER,
                 item_active: RAIL_ACTIVE,
@@ -2643,5 +2656,686 @@ fn 프로젝트_rail_메뉴는_원본_순서의_닫기_슬롯열기_그룹_경�
         !intents
             .iter()
             .any(|intent| matches!(intent, ShellIntent::OpenProjectInSlot { .. }))
+    );
+}
+
+/// The open-polyline chevron stroked inside `header`, with its stroke color.
+fn group_chevron(output: &egui::FullOutput, header: Rect) -> (Vec<egui::Pos2>, Color32) {
+    output
+        .shapes
+        .iter()
+        .find_map(|clipped| match &clipped.shape {
+            egui::Shape::Path(path)
+                if path.points.len() == GROUP_CHEVRON_POINTS
+                    && !path.closed
+                    && path.points.iter().all(|point| header.contains(*point)) =>
+            {
+                match path.stroke.color {
+                    egui::epaint::ColorMode::Solid(color) => Some((path.points.clone(), color)),
+                    egui::epaint::ColorMode::UV(_) => None,
+                }
+            }
+            _ => None,
+        })
+        .expect("group header chevron")
+}
+
+#[test]
+fn 프로젝트_그룹_헤더는_그룹색_tint와_접힘_chevron과_44px_말줄임과_그룹메뉴를_원본처럼_보인다() {
+    let mut snapshot = fixture();
+    let ids: Vec<_> = snapshot
+        .projects
+        .iter()
+        .map(|project| project.id.clone())
+        .collect();
+    let tinted_name = "tinted group with a long name";
+    snapshot.groups = vec![
+        ProjectGroup {
+            id: ProjectGroupId::new(),
+            name: tinted_name.into(),
+            color: Some("lane3".into()),
+            members: vec![ids[0].clone()],
+            collapsed: false,
+        },
+        ProjectGroup {
+            id: ProjectGroupId::new(),
+            name: "plain".into(),
+            color: Some("lane99".into()),
+            members: vec![ids[1].clone()],
+            collapsed: true,
+        },
+    ];
+    let groups: Vec<_> = snapshot
+        .groups
+        .iter()
+        .map(|group| group.id.clone())
+        .collect();
+    let lane_three = Color32::from_rgb(LANE_RED, 2, 0);
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let mut time = 0.0;
+    let (_, output) = menu_step(&context, &snapshot, &mut time, Vec::new());
+
+    let (tinted, _) = access_node(&output, tinted_name).expect("tinted header is accessible");
+    let (plain, _) = access_node(&output, "plain").expect("plain header is accessible");
+    for header in [tinted, plain] {
+        assert_eq!(
+            header.size(),
+            vec2(GROUP_HEADER_SIZE[0], GROUP_HEADER_SIZE[1])
+        );
+        assert!((header.center().x - PROJECT_RAIL_WIDTH / 2.0).abs() < PIXEL_SNAP_TOLERANCE);
+    }
+    assert!(tinted.bottom() <= plain.top());
+    let (member, _) = access_node(&output, &snapshot.projects[0].name).unwrap();
+    assert!(tinted.bottom() <= member.top() && member.bottom() <= plain.top());
+    assert!(
+        access_node(&output, &snapshot.projects[1].name).is_none(),
+        "a collapsed group hides its members"
+    );
+
+    let (label, label_rect) = text_shape(&output, tinted_name).unwrap();
+    let format = &label.galley.job.sections[0].format;
+    assert_eq!(format.font_id.size, GROUP_NAME_FONT_SIZE);
+    assert_eq!(format.color, lane_three);
+    assert_eq!(label.fallback_color, lane_three);
+    assert!(
+        label_rect.width() <= GROUP_NAME_MAX_WIDTH + PIXEL_SNAP_TOLERANCE,
+        "the name truncates beside the chevron: {label_rect:?}"
+    );
+    assert!(
+        tinted
+            .expand(PIXEL_SNAP_TOLERANCE)
+            .contains_rect(label_rect)
+    );
+    let (label, _) = text_shape(&output, "plain").unwrap();
+    assert_eq!(
+        label.galley.job.sections[0].format.color, COLOR,
+        "an unknown color token falls back to the default icon color"
+    );
+    let (points, color) = group_chevron(&output, tinted);
+    assert_eq!(color, lane_three);
+    assert!(
+        points[1].y > points[0].y && points[2].x > points[1].x && points[2].y < points[1].y,
+        "open: chevron down"
+    );
+    let (points, color) = group_chevron(&output, plain);
+    assert_eq!(color, COLOR);
+    assert!(
+        points[1].x > points[0].x && points[2].x < points[1].x && points[2].y > points[1].y,
+        "folded: chevron right"
+    );
+    let hover_fills = |output: &egui::FullOutput| {
+        output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Rect(shape)
+                    if shape.fill == RAIL_HOVER
+                        && (shape.rect.min - tinted.min).length() < PIXEL_SNAP_TOLERANCE
+                        && (shape.rect.max - tinted.max).length() < PIXEL_SNAP_TOLERANCE =>
+                {
+                    Some(clipped.clip_rect)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    assert!(hover_fills(&output).is_empty());
+    let _ = menu_step(
+        &context,
+        &snapshot,
+        &mut time,
+        vec![egui::Event::PointerMoved(tinted.center())],
+    );
+    let (_, output) = menu_step(&context, &snapshot, &mut time, Vec::new());
+    let fills = hover_fills(&output);
+    assert_eq!(fills.len(), 1);
+    assert!(
+        fills[0].contains_rect(tinted),
+        "the 44px hover fill is not clipped to the narrower scroll content: {:?} vs {tinted:?}",
+        fills[0]
+    );
+
+    for (name, group, collapsed) in [
+        (tinted_name, &groups[0], true),
+        ("plain", &groups[1], false),
+    ] {
+        time += 1.0;
+        let (_, output) = menu_step(&context, &snapshot, &mut time, Vec::new());
+        let (header, _) = access_node(&output, name).unwrap();
+        let (intents, _) = menu_step(
+            &context,
+            &snapshot,
+            &mut time,
+            pointer(header.center(), egui::PointerButton::Primary),
+        );
+        assert!(
+            intents.iter().any(|intent| matches!(
+                intent,
+                ShellIntent::Mutate(ShellMutation::SetGroupCollapsed { group: id, collapsed: value })
+                    if id == group && *value == collapsed
+            )),
+            "{name}: {intents:?}"
+        );
+    }
+
+    let output = open_project_menu(&context, &snapshot, &mut time, tinted_name);
+    let order = [
+        "projectGroup.open",
+        "projectGroup.edit",
+        "projectGroup.delete",
+    ];
+    let tops: Vec<f32> = order
+        .iter()
+        .map(|key| {
+            menu_text_rect(&output, key)
+                .unwrap_or_else(|| panic!("{key}: {:?}", texts_of(&output)))
+                .top()
+        })
+        .collect();
+    assert!(tops.windows(2).all(|pair| pair[0] < pair[1]), "{tops:?}");
+    for key in order {
+        assert_eq!(menu_node_disabled(&output, key), Some(false), "{key}");
+        let intents = choose_project_menu(&context, &snapshot, &mut time, tinted_name, key);
+        assert!(
+            intents.iter().any(|intent| match intent {
+                ShellIntent::OpenProjectGroup(id) => key == order[0] && id == &groups[0],
+                ShellIntent::EditProjectGroup(id) => key == order[1] && id == &groups[0],
+                ShellIntent::DeleteProjectGroup(id) => key == order[2] && id == &groups[0],
+                _ => false,
+            }),
+            "{key}: {intents:?}"
+        );
+        assert!(
+            !intents.iter().any(|intent| matches!(
+                intent,
+                ShellIntent::Mutate(ShellMutation::SetGroupCollapsed { .. })
+            )),
+            "{key}: a menu choice does not fold the group: {intents:?}"
+        );
+    }
+}
+
+fn primary_button(position: egui::Pos2, pressed: bool) -> Vec<egui::Event> {
+    vec![
+        egui::Event::PointerMoved(position),
+        egui::Event::PointerButton {
+            pos: position,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        },
+    ]
+}
+
+/// The rail button or header named `label`; a slot header also carries a project's name.
+fn rail_node(output: &egui::FullOutput, label: &str) -> Rect {
+    output
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .expect("accesskit is enabled")
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.label() == Some(label))
+        .filter_map(|(_, node)| node.bounds())
+        .map(|bounds| {
+            Rect::from_min_max(
+                pos2(bounds.x0 as f32, bounds.y0 as f32),
+                pos2(bounds.x1 as f32, bounds.y1 as f32),
+            )
+        })
+        .find(|rect| rect.right() <= PROJECT_RAIL_WIDTH)
+        .unwrap_or_else(|| panic!("{label}"))
+}
+
+fn rail_step(
+    context: &egui::Context,
+    snapshot: &ShellSnapshot,
+    time: &mut f64,
+    events: Vec<egui::Event>,
+    intents: &mut Vec<ShellIntent>,
+) -> (Surfaces, egui::FullOutput) {
+    *time += FRAME_SECONDS;
+    let (surfaces, frame_intents, output) =
+        rail_frame(context, snapshot, Surfaces::default(), *time, events);
+    intents.extend(frame_intents);
+    (surfaces, output)
+}
+
+/// Presses at `from`, moves through `path` a frame at a time, sends `before_release`, then
+/// releases where the path ends. Returns every frame's intents, the paint of the last move and
+/// whether the drag was active then.
+fn drag_rail(
+    context: &egui::Context,
+    snapshot: &ShellSnapshot,
+    time: &mut f64,
+    (from, path): (egui::Pos2, &[egui::Pos2]),
+    before_release: Vec<egui::Event>,
+) -> (Vec<ShellIntent>, Surfaces, egui::FullOutput, bool) {
+    let mut intents = Vec::new();
+    rail_step(
+        context,
+        snapshot,
+        time,
+        primary_button(from, true),
+        &mut intents,
+    );
+    let held = path
+        .iter()
+        .map(|point| {
+            rail_step(
+                context,
+                snapshot,
+                time,
+                vec![egui::Event::PointerMoved(*point)],
+                &mut intents,
+            )
+        })
+        .last()
+        .expect("a drag moves the pointer");
+    let was_dragging = is_dragging(context);
+    if !before_release.is_empty() {
+        rail_step(context, snapshot, time, before_release, &mut intents);
+    }
+    let release = path.last().copied().unwrap_or(from);
+    rail_step(
+        context,
+        snapshot,
+        time,
+        primary_button(release, false),
+        &mut intents,
+    );
+    rail_step(context, snapshot, time, Vec::new(), &mut intents);
+    assert!(!is_dragging(context), "a release always ends the drag");
+    (intents, held.0, held.1, was_dragging)
+}
+
+fn is_activation(intent: &ShellIntent) -> bool {
+    matches!(
+        intent,
+        ShellIntent::Mutate(ShellMutation::ActivateProject(_))
+    )
+}
+
+fn is_reorder(intent: &ShellIntent) -> bool {
+    matches!(
+        intent,
+        ShellIntent::ReorderProjects(_) | ShellIntent::ReorderProjectGroups(_)
+    )
+}
+
+#[test]
+fn 프로젝트_rail_drag는_4px을_넘어야_시작해_유령과_미리보기와_밀림을_보이고_전역순서를_재정렬한다()
+{
+    let mut snapshot = fixture();
+    let template = snapshot.projects[0].clone();
+    snapshot.projects.push(ProjectRef {
+        id: ProjectId::new(),
+        name: "third".into(),
+        ..template
+    });
+    let ids: Vec<_> = snapshot
+        .projects
+        .iter()
+        .map(|project| project.id.clone())
+        .collect();
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let mut time = 0.0;
+    let (_, output) = menu_step(&context, &snapshot, &mut time, Vec::new());
+    let icons: Vec<Rect> = snapshot
+        .projects
+        .iter()
+        .map(|project| rail_node(&output, &project.name))
+        .collect();
+
+    let (intents, _, _, was_dragging) = drag_rail(
+        &context,
+        &snapshot,
+        &mut time,
+        (
+            icons[0].center(),
+            &[icons[0].center() + vec2(BELOW_ACTIVATION_DISTANCE, 0.0)],
+        ),
+        Vec::new(),
+    );
+    assert!(!was_dragging, "within 4px the press is still pending");
+    assert!(
+        intents.iter().any(|intent| matches!(
+            intent,
+            ShellIntent::Mutate(ShellMutation::ActivateProject(id)) if id == &ids[0]
+        )),
+        "a press that never travels past 4px stays a click: {intents:?}"
+    );
+    assert!(!intents.iter().any(is_reorder), "{intents:?}");
+
+    let (intents, _, _, was_dragging) = drag_rail(
+        &context,
+        &snapshot,
+        &mut time,
+        (
+            icons[0].center(),
+            &[icons[0].center() + vec2(0.0, ABOVE_ACTIVATION_DISTANCE)],
+        ),
+        Vec::new(),
+    );
+    assert!(was_dragging, "past 4px the press becomes a drag");
+    assert!(
+        !intents
+            .iter()
+            .any(|intent| is_activation(intent) || is_reorder(intent)),
+        "a drag released on itself neither activates nor reorders: {intents:?}"
+    );
+
+    let (intents, surfaces, held, _) = drag_rail(
+        &context,
+        &snapshot,
+        &mut time,
+        (
+            icons[0].center(),
+            &[
+                icons[0].center() + vec2(0.0, ABOVE_ACTIVATION_DISTANCE),
+                icons[1].center(),
+                icons[2].center(),
+            ],
+        ),
+        Vec::new(),
+    );
+    assert!(
+        intents.iter().any(|intent| matches!(
+            intent,
+            ShellIntent::ReorderProjects(order)
+                if order == &vec![ids[1].clone(), ids[2].clone(), ids[0].clone()]
+        )),
+        "{intents:?}"
+    );
+    assert!(!intents.iter().any(is_activation), "{intents:?}");
+    let glyphs: Vec<(egui::Pos2, f32)> = surfaces
+        .rail_icons
+        .iter()
+        .map(|(_, rect, _, opacity)| (rect.center(), *opacity))
+        .collect();
+    let painted = |center: egui::Pos2, opacity: f32| {
+        glyphs.iter().any(|(painted, painted_opacity)| {
+            (*painted - center).length() < PIXEL_SNAP_TOLERANCE
+                && (painted_opacity - opacity).abs() < f32::EPSILON
+        })
+    };
+    assert_eq!(glyphs.len(), icons.len() + 1, "{glyphs:?}");
+    assert!(
+        painted(icons[2].center(), DRAG_PREVIEW_OPACITY),
+        "the preview follows the pointer: {glyphs:?}"
+    );
+    assert!(
+        painted(icons[2].center(), DRAGGING_OPACITY),
+        "the faded source takes the place it would land in: {glyphs:?}"
+    );
+    assert!(
+        painted(icons[0].center(), 1.0) && painted(icons[1].center(), 1.0),
+        "the icons it passed move up one place: {glyphs:?}"
+    );
+    assert!(
+        held.shapes.iter().any(|clipped| matches!(&clipped.shape,
+            egui::Shape::Rect(shape)
+                if shape.fill == RAIL_ACTIVE.gamma_multiply(DRAG_PREVIEW_OPACITY)
+                    && (shape.rect.center() - icons[2].center()).length() < PIXEL_SNAP_TOLERANCE
+                    && shape.rect.size() == icons[2].size())),
+        "the preview is a 40px item-active tile"
+    );
+}
+
+#[test]
+fn 프로젝트를_슬롯_가장자리와_가운데에_떨구면_분할_교체하고_자기교체_헤더_esc는_무동작이다() {
+    let snapshot = fixture();
+    let ids: Vec<_> = snapshot
+        .projects
+        .iter()
+        .map(|project| project.id.clone())
+        .collect();
+    let Some(ShellSlotTree::Split { children, .. }) = &snapshot.shell.tree else {
+        panic!("fixture splits two slots")
+    };
+    let slots: Vec<ShellSlotId> = children
+        .iter()
+        .filter_map(|child| match child {
+            ShellSlotTree::Leaf { slot_id, .. } => Some(slot_id.clone()),
+            ShellSlotTree::Split { .. } => None,
+        })
+        .collect();
+    let body = Rect::from_min_max(
+        pos2(PROJECT_RAIL_WIDTH, TITLE_HEIGHT),
+        pos2(WINDOW_SIZE[0], WINDOW_SIZE[1] - STATUS_HEIGHT),
+    );
+    let regions = child_rects(body, SplitDir::Horizontal, &[50.0, 50.0], SPLIT_THICKNESS);
+    let slot_body = |index: usize| {
+        let mut rect = regions[index];
+        rect.min.y += SLOT_HEADER_HEIGHT;
+        rect
+    };
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let mut time = 0.0;
+    let (_, output) = menu_step(&context, &snapshot, &mut time, Vec::new());
+    let icons: Vec<Rect> = snapshot
+        .projects
+        .iter()
+        .map(|project| rail_node(&output, &project.name))
+        .collect();
+    let start = |index: usize| icons[index].center() + vec2(ABOVE_ACTIVATION_DISTANCE, 0.0);
+    let opened = |intents: &[ShellIntent]| {
+        intents
+            .iter()
+            .filter_map(|intent| match intent {
+                ShellIntent::OpenProjectInSlot {
+                    project,
+                    slot,
+                    edge,
+                } => Some((project.clone(), slot.clone(), *edge)),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let right_zone = pos2(
+        slot_body(1).right() - SLOT_EDGE_INSET,
+        slot_body(1).center().y,
+    );
+    let (intents, _, held, _) = drag_rail(
+        &context,
+        &snapshot,
+        &mut time,
+        (icons[0].center(), &[start(0), right_zone]),
+        Vec::new(),
+    );
+    assert_eq!(
+        opened(&intents),
+        vec![(ids[0].clone(), slots[1].clone(), ShellSlotEdge::Right)],
+        "{intents:?}"
+    );
+    assert!(
+        !intents
+            .iter()
+            .any(|intent| is_activation(intent) || is_reorder(intent))
+    );
+    let preview = slot_drop_preview(slot_body(1), DropEdge::Right);
+    assert!(
+        held.shapes.iter().any(|clipped| matches!(&clipped.shape,
+            egui::Shape::Rect(shape)
+                if shape.fill == DROP_TARGET.gamma_multiply(DROP_PREVIEW_FILL_OPACITY)
+                    && shape.stroke == Stroke::new(CSS_BORDER_WIDTH, DROP_TARGET)
+                    && (shape.rect.min - preview.min).length() < PIXEL_SNAP_TOLERANCE
+                    && (shape.rect.max - preview.max).length() < PIXEL_SNAP_TOLERANCE)),
+        "the right half of the hovered slot is previewed: {preview:?}"
+    );
+
+    let (intents, ..) = drag_rail(
+        &context,
+        &snapshot,
+        &mut time,
+        (icons[0].center(), &[start(0), slot_body(1).center()]),
+        Vec::new(),
+    );
+    assert_eq!(
+        opened(&intents),
+        vec![(ids[0].clone(), slots[1].clone(), ShellSlotEdge::Replace)],
+        "the centre replaces the slot's project"
+    );
+
+    let (intents, ..) = drag_rail(
+        &context,
+        &snapshot,
+        &mut time,
+        (icons[1].center(), &[start(1), slot_body(1).center()]),
+        Vec::new(),
+    );
+    assert!(
+        opened(&intents).is_empty(),
+        "a project dropped on the centre of its own slot asks for nothing: {intents:?}"
+    );
+
+    let header = pos2(slot_body(1).center().x, TITLE_HEIGHT + SLOT_HEADER_PROBE);
+    let (intents, _, held, _) = drag_rail(
+        &context,
+        &snapshot,
+        &mut time,
+        (icons[0].center(), &[start(0), header]),
+        Vec::new(),
+    );
+    assert!(
+        opened(&intents).is_empty() && !intents.iter().any(is_reorder),
+        "a release outside the rail that misses every zone does nothing: {intents:?}"
+    );
+    assert!(
+        !held.shapes.iter().any(|clipped| matches!(&clipped.shape,
+            egui::Shape::Rect(shape) if shape.stroke.color == DROP_TARGET)),
+        "no zone is previewed over a slot header"
+    );
+
+    let escape = [true, false]
+        .map(|pressed| egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        })
+        .to_vec();
+    let (intents, ..) = drag_rail(
+        &context,
+        &snapshot,
+        &mut time,
+        (icons[0].center(), &[start(0), right_zone]),
+        escape,
+    );
+    assert!(
+        opened(&intents).is_empty() && !intents.iter().any(is_activation),
+        "Escape cancels the drag: {intents:?}"
+    );
+}
+
+#[test]
+fn 그룹_헤더_drag는_헤더끼리만_재정렬하고_자리를_바꿔_보이며_아이콘_위_드롭은_무동작이다() {
+    let mut snapshot = fixture();
+    let ids: Vec<_> = snapshot
+        .projects
+        .iter()
+        .map(|project| project.id.clone())
+        .collect();
+    snapshot.groups = vec![
+        ProjectGroup {
+            id: ProjectGroupId::new(),
+            name: "first".into(),
+            color: Some("lane3".into()),
+            members: vec![ids[0].clone()],
+            collapsed: false,
+        },
+        ProjectGroup {
+            id: ProjectGroupId::new(),
+            name: "second".into(),
+            color: None,
+            members: vec![ids[1].clone()],
+            collapsed: false,
+        },
+    ];
+    let groups: Vec<_> = snapshot
+        .groups
+        .iter()
+        .map(|group| group.id.clone())
+        .collect();
+    let lane_three = Color32::from_rgb(LANE_RED, 2, 0);
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let mut time = 0.0;
+    let (_, output) = menu_step(&context, &snapshot, &mut time, Vec::new());
+    let first = rail_node(&output, "first");
+    let second = rail_node(&output, "second");
+    let member = rail_node(&output, &snapshot.projects[1].name);
+
+    let (intents, _, held, _) = drag_rail(
+        &context,
+        &snapshot,
+        &mut time,
+        (
+            second.center(),
+            &[
+                second.center() - vec2(0.0, ABOVE_ACTIVATION_DISTANCE),
+                first.center(),
+            ],
+        ),
+        Vec::new(),
+    );
+    assert!(
+        intents.iter().any(|intent| matches!(
+            intent,
+            ShellIntent::ReorderProjectGroups(order)
+                if order == &vec![groups[1].clone(), groups[0].clone()]
+        )),
+        "{intents:?}"
+    );
+    assert!(
+        !intents.iter().any(|intent| matches!(
+            intent,
+            ShellIntent::ReorderProjects(_)
+                | ShellIntent::Mutate(ShellMutation::SetGroupCollapsed { .. })
+        )),
+        "a header drag neither folds nor touches the project order: {intents:?}"
+    );
+    assert_eq!(
+        group_chevron(&held, first).1,
+        COLOR,
+        "the held header takes the first header's place"
+    );
+    assert_eq!(
+        group_chevron(&held, second).1,
+        lane_three,
+        "and the first header moves down to the second's"
+    );
+    assert!(
+        !held.shapes.iter().any(|clipped| matches!(&clipped.shape,
+            egui::Shape::Rect(shape) if shape.fill == RAIL_ACTIVE.gamma_multiply(DRAG_PREVIEW_OPACITY))),
+        "only a project carries a preview"
+    );
+
+    let (intents, ..) = drag_rail(
+        &context,
+        &snapshot,
+        &mut time,
+        (
+            first.center(),
+            &[
+                first.center() + vec2(0.0, ABOVE_ACTIVATION_DISTANCE),
+                member.center(),
+            ],
+        ),
+        Vec::new(),
+    );
+    assert!(
+        !intents.iter().any(|intent| is_reorder(intent)
+            || matches!(
+                intent,
+                ShellIntent::Mutate(ShellMutation::SetGroupCollapsed { .. })
+            )),
+        "a header dropped on an icon writes neither order: {intents:?}"
     );
 }

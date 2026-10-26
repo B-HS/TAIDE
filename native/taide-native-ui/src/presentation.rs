@@ -119,6 +119,7 @@ pub fn shell_colors(theme: &ResolvedTheme) -> AppResult<ShellColors> {
         active_indicator: color(theme, "tabBar.tabActiveIndicator")?,
         editor_background: color(theme, "editor.background")?,
         editor_foreground: color(theme, "editor.foreground")?,
+        drop_target: color(theme, "tabBar.dropTarget")?,
         rail: crate::project_rail::RailColors {
             item_hover: color(theme, "appSidebar.itemHover")?,
             item_active: color(theme, "appSidebar.itemActive")?,

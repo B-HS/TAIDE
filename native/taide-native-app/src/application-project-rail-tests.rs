@@ -6,6 +6,7 @@ use taide_model::paths::AppPaths;
 use taide_model::project::{Project, ProjectDisplay, ProjectGroup, ProjectRef, ShellSlotTree};
 
 const DEADLINE: Duration = Duration::from_secs(10);
+const WATCHER_ATTACH_DEADLINE: Duration = Duration::from_secs(60);
 const RAIL_ICON_TEXTURE_PREFIX: &str = "native-glyph-Rocket-";
 const DIALOG_SETTLE_FRAMES: usize = 8;
 const MIRROR_DEBOUNCE_HOLD: Duration = Duration::from_secs(60);
@@ -544,4 +545,443 @@ fn 실제_app_rail_메뉴는_슬롯열기_그룹제거_표시초기화_표시dia
             .iter()
             .all(|draft| draft.project != beta)
     );
+}
+
+fn label(application: &NativeApplication, key: &str) -> String {
+    presentation::message(&application.locale, key, &[])
+}
+
+fn modal_area(id: &'static str) -> impl Fn(&egui::Context) -> egui::Rect {
+    move |context| {
+        context
+            .memory(|memory| memory.area_rect(egui::Id::new(id)))
+            .unwrap_or_else(|| panic!("{id} is shown"))
+    }
+}
+
+/// The accessible menu entry whose name starts with `label` (a submenu trigger also names its
+/// arrow): a group's name is also its rail header, which the rail contains and a menu does not.
+fn menu_entry(output: &egui::FullOutput, label: &str) -> Option<egui::Rect> {
+    output
+        .platform_output
+        .accesskit_update
+        .as_ref()?
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.label().is_some_and(|name| name.starts_with(label)))
+        .filter_map(|(_, node)| node.bounds())
+        .map(|bounds| {
+            egui::Rect::from_min_max(
+                egui::pos2(bounds.x0 as f32, bounds.y0 as f32),
+                egui::pos2(bounds.x1 as f32, bounds.y1 as f32),
+            )
+        })
+        .find(|rect| !rail_area().contains_rect(*rect))
+}
+
+fn choose_group_submenu(
+    application: &mut NativeApplication,
+    context: &egui::Context,
+    project: &str,
+    entry: &str,
+) {
+    settle_snapshot(application, context);
+    let output = step(application, context, Vec::new());
+    let button = node_rect(&output, project, rail_area()).unwrap_or_else(|| panic!("{project}"));
+    step(
+        application,
+        context,
+        pointer(button.center(), egui::PointerButton::Secondary),
+    );
+    let add_to = label(application, "projectGroup.addTo");
+    let output = step(application, context, Vec::new());
+    let trigger = menu_entry(&output, &add_to).expect("group submenu trigger");
+    step(
+        application,
+        context,
+        vec![egui::Event::PointerMoved(trigger.center())],
+    );
+    let output = paint_until(
+        application,
+        context,
+        "group submenu",
+        |_| {},
+        |output| menu_entry(output, entry).is_some(),
+    );
+    let target = menu_entry(&output, entry).unwrap();
+    step(
+        application,
+        context,
+        pointer(target.center(), egui::PointerButton::Primary),
+    );
+}
+
+fn settle_frames(application: &mut NativeApplication, context: &egui::Context) {
+    for _ in 0..DIALOG_SETTLE_FRAMES {
+        step(application, context, Vec::new());
+    }
+}
+
+#[test]
+fn 실제_app_그룹은_새그룹_생성_그룹추가_수정_열기결과_toast와_삭제확인을_runtime에_반영한다() {
+    let mut fixture = Fixture {
+        directory: std::env::temp_dir()
+            .join(format!("taide-native-project-groups-{}", ProjectId::new())),
+        application: None,
+    };
+    let data = fixture.directory.join("data");
+    let names = ["alpha", "beta", "gamma"];
+    let roots = names.map(|name| fixture.directory.join(name));
+    std::fs::create_dir_all(&data).unwrap();
+    for root in &roots {
+        std::fs::create_dir_all(root).unwrap();
+    }
+    let ids = [ProjectId::new(), ProjectId::new(), ProjectId::new()];
+    let slot = ShellSlotId::new();
+    let state = isolated_state(data);
+    for ((id, root), name) in ids.iter().zip(&roots).zip(names) {
+        let record = Project {
+            id: id.clone(),
+            root: std::fs::canonicalize(root)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .into(),
+            name: name.into(),
+            capabilities: Vec::new(),
+            root_missing: false,
+            last_opened_at: 0.0,
+            display: Default::default(),
+        };
+        let file = state.paths.project_file(id);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, serde_json::to_vec(&record).unwrap()).unwrap();
+    }
+    for index in 0..2 {
+        insert_project(&state, &ids[index], &roots[index], names[index], false);
+    }
+    {
+        let mut session = state.session.write();
+        session.projects = (0..2)
+            .map(|index| project_ref(&ids[index], &roots[index], names[index]))
+            .collect();
+        session.active_project = Some(ids[0].clone());
+        session.shell_slots = Some(ShellSlotTree::Leaf {
+            slot_id: slot.clone(),
+            project_id: ids[0].clone(),
+        });
+        session.focused_shell_slot = Some(slot);
+    }
+    let context = launch(&mut fixture, state);
+    let application = fixture.application.as_mut().unwrap();
+    let services = application.services.clone();
+    paint_until(
+        application,
+        &context,
+        "rail",
+        |_| {},
+        |output| has_label(output, "alpha") && has_label(output, "beta"),
+    );
+    let groups = || services.state.session.read().groups.clone();
+    let group_dialog = modal_area(taide_native_ui::project_group_dialog::DIALOG_ID);
+    let delete_dialog = modal_area(taide_native_ui::project_group_dialog::DELETE_DIALOG_ID);
+    let lane_three = format!("{} 3", label(application, "projectGroup.color"));
+
+    let new_group = label(application, "projectGroup.newGroup");
+    choose_group_submenu(application, &context, "alpha", &new_group);
+    settle_frames(application, &context);
+    assert!(application.project_group_dialog.is_open());
+    step(
+        application,
+        &context,
+        vec![egui::Event::Text("QA team".into())],
+    );
+    click_label(application, &context, &lane_three, &group_dialog);
+    let create = label(application, "projectGroup.create");
+    click_label(application, &context, &create, &group_dialog);
+    paint_until(
+        application,
+        &context,
+        "group create",
+        |_| {},
+        |_| {
+            matches!(groups().as_slice(), [group]
+                if group.name == "QA team"
+                    && group.color.as_deref() == Some("lane3")
+                    && group.members == [ids[0].clone()])
+        },
+    );
+    let deadline = Instant::now() + DEADLINE;
+    while application.project_group_dialog.is_open() {
+        assert!(Instant::now() < deadline, "created group dialog closes");
+        step(application, &context, Vec::new());
+        std::thread::yield_now();
+    }
+    let group = groups()[0].id.clone();
+
+    choose_group_submenu(application, &context, "beta", "QA team");
+    paint_until(
+        application,
+        &context,
+        "add to group",
+        |_| {},
+        |_| groups()[0].members == [ids[0].clone(), ids[1].clone()],
+    );
+
+    choose_rail_menu(application, &context, "QA team", "projectGroup.edit");
+    settle_frames(application, &context);
+    assert!(application.project_group_dialog.is_open());
+    step(application, &context, vec![egui::Event::Text(" 2".into())]);
+    click_label(application, &context, &lane_three, &group_dialog);
+    let save = label(application, "common.save");
+    click_label(application, &context, &save, &group_dialog);
+    paint_until(
+        application,
+        &context,
+        "group edit",
+        |_| {},
+        |_| {
+            let groups = groups();
+            groups[0].name == "QA team 2" && groups[0].color.is_none()
+        },
+    );
+    let deadline = Instant::now() + DEADLINE;
+    while application.project_group_dialog.is_open() {
+        assert!(Instant::now() < deadline, "edited group dialog closes");
+        step(application, &context, Vec::new());
+        std::thread::yield_now();
+    }
+
+    assert!(application.submit(HostCommand::SetProjectGroupMembers {
+        group: group.clone(),
+        members: ids.to_vec(),
+    }));
+    paint_until(
+        application,
+        &context,
+        "closed member",
+        |_| {},
+        |_| groups()[0].members == ids,
+    );
+    let _os_watch_registration = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(crate::projects::NativeProjects::exclusive_os_watch_registration());
+    choose_rail_menu(application, &context, "QA team 2", "projectGroup.open");
+    let result = presentation::message(
+        &application.locale,
+        "projectGroup.openResult",
+        &[("opened", "1"), ("skipped", "2")],
+    );
+    let deadline = Instant::now() + WATCHER_ATTACH_DEADLINE;
+    let mut seen = HashSet::new();
+    while !application
+        .toasts
+        .is_showing(taide_native_ui::toast::Kind::Success, &result)
+    {
+        seen.extend(
+            application
+                .toasts
+                .inspection()
+                .into_iter()
+                .map(|toast| toast.title),
+        );
+        assert!(
+            Instant::now() < deadline,
+            "group open result toast {result:?}: {seen:?} open={}",
+            services.state.projects.read().len()
+        );
+        step(application, &context, Vec::new());
+        std::thread::yield_now();
+    }
+    assert!(services.state.projects.read().contains_key(&ids[2]));
+    assert!(services.state.watchers.read().contains_key(&ids[2]));
+
+    choose_rail_menu(application, &context, "QA team 2", "projectGroup.delete");
+    settle_frames(application, &context);
+    assert!(application.project_group_delete.is_open());
+    let delete = label(application, "projectGroup.delete");
+    click_label(application, &context, &delete, &delete_dialog);
+    paint_until(
+        application,
+        &context,
+        "group delete",
+        |_| {},
+        |_| groups().is_empty(),
+    );
+    assert!(!application.project_group_delete.is_open());
+    assert!(
+        ids.iter()
+            .all(|id| services.state.projects.read().contains_key(id)),
+        "deleting a group leaves its members open"
+    );
+}
+
+const DRAG_ACTIVATION_PROBE: f32 = 6.0;
+const SLOT_EDGE_INSET: f32 = 10.0;
+
+fn primary_button(position: egui::Pos2, pressed: bool) -> Vec<egui::Event> {
+    vec![
+        egui::Event::PointerMoved(position),
+        egui::Event::PointerButton {
+            pos: position,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        },
+    ]
+}
+
+/// Presses the rail entry named `label`, carries it past the activation distance to `target`
+/// and releases there.
+fn drag_rail_entry(
+    application: &mut NativeApplication,
+    context: &egui::Context,
+    label: &str,
+    target: impl Fn(&egui::FullOutput) -> egui::Pos2,
+) {
+    settle_snapshot(application, context);
+    let output = step(application, context, Vec::new());
+    let source = node_rect(&output, label, rail_area()).unwrap_or_else(|| panic!("{label}"));
+    let target = target(&output);
+    step(application, context, primary_button(source.center(), true));
+    for point in [
+        source.center() + egui::vec2(0.0, DRAG_ACTIVATION_PROBE),
+        target,
+    ] {
+        step(application, context, vec![egui::Event::PointerMoved(point)]);
+    }
+    step(application, context, primary_button(target, false));
+}
+
+#[test]
+fn 실제_app_rail_drag는_프로젝트_순서_그룹_순서와_슬롯_분할을_runtime에_반영한다() {
+    let mut fixture = Fixture {
+        directory: std::env::temp_dir()
+            .join(format!("taide-native-project-drag-{}", ProjectId::new())),
+        application: None,
+    };
+    let data = fixture.directory.join("data");
+    let names = ["alpha", "beta", "gamma"];
+    let roots = names.map(|name| fixture.directory.join(name));
+    std::fs::create_dir_all(&data).unwrap();
+    for root in &roots {
+        std::fs::create_dir_all(root).unwrap();
+    }
+    let ids = [ProjectId::new(), ProjectId::new(), ProjectId::new()];
+    let groups = [ProjectGroupId::new(), ProjectGroupId::new()];
+    let slot = ShellSlotId::new();
+    let state = isolated_state(data);
+    for ((id, root), name) in ids.iter().zip(&roots).zip(names) {
+        insert_project(&state, id, root, name, false);
+    }
+    {
+        let mut session = state.session.write();
+        session.projects = ids
+            .iter()
+            .zip(&roots)
+            .zip(names)
+            .map(|((id, root), name)| project_ref(id, root, name))
+            .collect();
+        session.active_project = Some(ids[0].clone());
+        session.shell_slots = Some(ShellSlotTree::Leaf {
+            slot_id: slot.clone(),
+            project_id: ids[0].clone(),
+        });
+        session.focused_shell_slot = Some(slot);
+        session.groups = ["first", "second"]
+            .iter()
+            .zip(&groups)
+            .zip(&ids)
+            .map(|((name, group), member)| ProjectGroup {
+                id: group.clone(),
+                name: (*name).into(),
+                color: None,
+                members: vec![member.clone()],
+                collapsed: false,
+            })
+            .collect();
+    }
+    let context = launch(&mut fixture, state);
+    let application = fixture.application.as_mut().unwrap();
+    let services = application.services.clone();
+    paint_until(
+        application,
+        &context,
+        "rail",
+        |_| {},
+        |output| has_label(output, "gamma") && has_label(output, "second"),
+    );
+    let session = || services.state.session.read().clone();
+    let entry = |label: &'static str| {
+        move |output: &egui::FullOutput| {
+            node_rect(output, label, rail_area())
+                .unwrap_or_else(|| panic!("{label}"))
+                .center()
+        }
+    };
+
+    drag_rail_entry(application, &context, "gamma", entry("beta"));
+    paint_until(
+        application,
+        &context,
+        "project reorder",
+        |_| {},
+        |_| {
+            session()
+                .projects
+                .iter()
+                .map(|project| &project.id)
+                .eq([&ids[0], &ids[2], &ids[1]])
+        },
+    );
+    assert_eq!(
+        session()
+            .groups
+            .iter()
+            .map(|group| group.members.clone())
+            .collect::<Vec<_>>(),
+        vec![vec![ids[0].clone()], vec![ids[1].clone()]],
+        "a reorder never touches membership"
+    );
+
+    drag_rail_entry(application, &context, "second", entry("first"));
+    paint_until(
+        application,
+        &context,
+        "group reorder",
+        |_| {},
+        |_| {
+            session()
+                .groups
+                .iter()
+                .map(|group| &group.id)
+                .eq([&groups[1], &groups[0]])
+        },
+    );
+
+    drag_rail_entry(application, &context, "gamma", |_| {
+        let screen = context.content_rect();
+        egui::pos2(screen.right() - SLOT_EDGE_INSET, screen.center().y)
+    });
+    paint_until(
+        application,
+        &context,
+        "slot split",
+        |_| {},
+        |_| {
+            matches!(
+                &session().shell_slots,
+                Some(ShellSlotTree::Split { children, .. })
+                    if matches!(
+                        children.as_slice(),
+                        [
+                            ShellSlotTree::Leaf { project_id: left, .. },
+                            ShellSlotTree::Leaf { project_id: right, .. },
+                        ] if left == &ids[0] && right == &ids[2]
+                    )
+            )
+        },
+    );
+    assert!(!taide_native_ui::project_drag::is_dragging(&context));
 }
