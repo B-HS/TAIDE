@@ -13,7 +13,7 @@
 
 2026-10-26 재개: 사용자 지시로 workflow 단계 단위 자율 진행(`docs/acknowledge/2026-10-26-native-autonomous-continuation.md`). 구현·수정 opus·xhigh, 리뷰 sonnet·xhigh.
 
-- [ ] A. 프로젝트 rail — shell-33·34·35(glyph·rootMissing·agent 배지), shell-36·37·53·38(프로젝트 메뉴·닫기·Open to·표시 편집)
+- [x] A. 프로젝트 rail — `4a580bad` `e90385a8`. shell-33·34·35·53·38 complete, shell-36 partial('새 그룹'은 B에서 dialog 연결), shell-37 partial(리뷰 차단 '닫은 프로젝트 문서 미해제'는 수정, tree 캐시·dirty peek·전송 중 mirror 잔여). QA `2026-10-26-native-project-rail-{display,menu}.md`
 - [ ] B. 그룹·drag — shell-45·46·47·48, shell-39·49·52
 - [ ] C. 탭 — shell-75·78, shell-81·82
 - [ ] D. 보조 창 — shell-4·5·6·8, shell-7·61
