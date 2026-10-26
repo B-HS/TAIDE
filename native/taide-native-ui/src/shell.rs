@@ -21,6 +21,7 @@ use crate::snapshot::{
 use crate::split::{
     KEYBOARD_RESIZE_STEP, RESIZE_HIT_SIZE, child_rects, normalized_sizes, resized_pair,
 };
+use crate::tab_drag::{self, TabArea};
 
 pub const TITLE_HEIGHT: f32 = 28.0;
 pub const STATUS_HEIGHT: f32 = 24.0;
@@ -78,6 +79,8 @@ const DROP_PREVIEW_FILL_OPACITY: f32 = 0.25;
 const PROJECT_DRAG_PREVIEW_OPACITY: f32 = 0.9;
 const SLOT_DROP_PREVIEW_LAYER: &str = "project-drag-slot-preview";
 const PROJECT_DRAG_PREVIEW_LAYER: &str = "project-drag-preview";
+const TAB_DRAG_PREVIEW_OPACITY: f32 = 0.9;
+const TAB_DRAG_PREVIEW_LAYER: &str = "tab-drag-preview";
 
 #[derive(Clone, Copy)]
 pub struct ShellColors {
@@ -156,7 +159,20 @@ pub trait ShellSurfaces {
         tab: &Tab,
         intents: &mut Vec<ShellIntent>,
     );
-    fn tab_icon(&mut self, ui: &Ui, rect: Rect, tab: &Tab, title_color: Color32);
+    /// Paints the tab's kind icon; `agent_color` is the activity color of the agent detected in a
+    /// terminal tab, which then shows the agent glyph instead (`pane-tab-bar.tsx` `getTabIcon`).
+    fn tab_icon(
+        &mut self,
+        ui: &Ui,
+        rect: Rect,
+        tab: &Tab,
+        agent_color: Option<Color32>,
+        title_color: Color32,
+    );
+    /// Whether a file tab can be reopened between the editor and a preview (`resolvePreviewKind`).
+    fn can_reopen_with(&self, _path: &str) -> bool {
+        false
+    }
     fn status_bar(
         &mut self,
         ui: &mut Ui,
@@ -192,6 +208,7 @@ pub struct NativeShell {
 #[derive(Clone, Copy)]
 struct PaneViewContext<'a> {
     project: &'a ProjectId,
+    slot: Option<&'a ShellSlotId>,
     root: Option<&'a str>,
     has_closed_tabs: bool,
     focused_pane: &'a PaneId,
@@ -231,6 +248,7 @@ impl NativeShell {
         let rect = ui.available_rect_before_wrap();
         ui.painter().rect_filled(rect, 0.0, self.colors.background);
         ui.visuals_mut().override_text_color = Some(self.colors.foreground);
+        tab_drag::begin_frame(ui.ctx());
         match &self.scope {
             WindowScope::Main => {
                 project_drag::begin_frame(ui.ctx());
@@ -258,6 +276,7 @@ impl NativeShell {
                         &window.root,
                         PaneViewContext {
                             project,
+                            slot: None,
                             root: snapshot
                                 .project(project)
                                 .map(|project| project.root.as_str()),
@@ -273,6 +292,7 @@ impl NativeShell {
                 }
             }
         }
+        self.tab_drag_feedback(ui, surfaces, &mut intents);
         ui.allocate_rect(rect, Sense::hover());
         intents
     }
@@ -345,20 +365,7 @@ impl NativeShell {
     ) {
         let feedback = project_drag::end_frame(ui.ctx(), snapshot);
         if let Some(preview) = feedback.slot_preview {
-            ui.ctx()
-                .layer_painter(egui::LayerId::new(
-                    egui::Order::Foreground,
-                    Id::new(SLOT_DROP_PREVIEW_LAYER),
-                ))
-                .rect(
-                    preview,
-                    0.0,
-                    self.colors
-                        .drop_target
-                        .gamma_multiply(DROP_PREVIEW_FILL_OPACITY),
-                    Stroke::new(BORDER_WIDTH, self.colors.drop_target),
-                    egui::StrokeKind::Inside,
-                );
+            self.paint_drop_preview(ui, preview);
         }
         if let Some((project, rect)) = feedback.overlay
             && let Some(project) = snapshot.project(&project)
@@ -406,6 +413,90 @@ impl NativeShell {
                 edge,
             },
         }));
+    }
+
+    /// The hovered zone's half or whole (`split-drop-zones.tsx` 29-34).
+    fn paint_drop_preview(&self, ui: &Ui, preview: Rect) {
+        ui.ctx()
+            .layer_painter(egui::LayerId::new(
+                egui::Order::Foreground,
+                Id::new(SLOT_DROP_PREVIEW_LAYER),
+            ))
+            .rect(
+                preview,
+                0.0,
+                self.colors
+                    .drop_target
+                    .gamma_multiply(DROP_PREVIEW_FILL_OPACITY),
+                Stroke::new(BORDER_WIDTH, self.colors.drop_target),
+                egui::StrokeKind::Inside,
+            );
+    }
+
+    /// The window's tab drag (`editor-area.tsx` 445-504): the hovered pane zone's preview, the
+    /// `DragOverlay` tab that follows the pointer (536-552), and the request a release makes.
+    fn tab_drag_feedback(
+        &self,
+        ui: &mut Ui,
+        surfaces: &mut impl ShellSurfaces,
+        intents: &mut Vec<ShellIntent>,
+    ) {
+        let feedback = tab_drag::end_frame(ui.ctx());
+        if let Some(preview) = feedback.split_preview {
+            self.paint_drop_preview(ui, preview);
+        }
+        if let Some((tab, rect)) = feedback.overlay {
+            let mut overlay = ui.new_child(
+                UiBuilder::new()
+                    .layer_id(egui::LayerId::new(
+                        egui::Order::Tooltip,
+                        Id::new(TAB_DRAG_PREVIEW_LAYER),
+                    ))
+                    .max_rect(rect),
+            );
+            overlay.multiply_opacity(TAB_DRAG_PREVIEW_OPACITY);
+            let painter = overlay.painter().clone();
+            painter.rect_filled(rect, 0.0, self.colors.active_tab);
+            painter.hline(
+                rect.x_range(),
+                rect.top(),
+                Stroke::new(BORDER_WIDTH, self.colors.active_indicator),
+            );
+            let title_color = overlay.visuals().selection.stroke.color;
+            let icon = Rect::from_min_size(
+                pos2(rect.left(), rect.center().y - TAB_ICON_SIZE / 2.0)
+                    .round_to_pixels(overlay.pixels_per_point()),
+                Vec2::splat(TAB_ICON_SIZE),
+            );
+            surfaces.tab_icon(&overlay, icon, &tab, None, title_color);
+            let title_left = icon.right() + TAB_ICON_GAP;
+            let gap = overlay.spacing().item_spacing.x;
+            let mut title = RichText::new(&tab.title);
+            if tab.preview {
+                title = title.italics();
+            }
+            let galley = egui::WidgetText::from(title).into_galley(
+                &overlay,
+                Some(egui::TextWrapMode::Truncate),
+                (rect.right() - ICON_SIZE - gap - title_left).max(0.0),
+                egui::TextStyle::Button,
+            );
+            let title_size = galley.size();
+            painter.galley(
+                pos2(title_left, rect.center().y - title_size.y / 2.0),
+                galley,
+                title_color,
+            );
+            let trailing = Rect::from_min_size(
+                pos2(
+                    title_left + title_size.x + gap,
+                    rect.center().y - ICON_SIZE / 2.0,
+                ),
+                Vec2::splat(ICON_SIZE),
+            );
+            paint_tab_action(&painter, trailing, &tab, self.colors.foreground, false);
+        }
+        intents.extend(feedback.request.map(ShellIntent::Mutate));
     }
 
     fn title_bar(
@@ -1013,6 +1104,7 @@ impl NativeShell {
             &layout.root,
             PaneViewContext {
                 project,
+                slot: Some(slot),
                 root: snapshot
                     .project(project)
                     .map(|project| project.root.as_str()),
@@ -1062,6 +1154,7 @@ impl NativeShell {
     ) {
         let PaneViewContext {
             project,
+            slot,
             root,
             has_closed_tabs,
             focused_pane,
@@ -1099,6 +1192,10 @@ impl NativeShell {
                 }
             }
             PaneNode::Leaf { id, tabs, active } => {
+                let area = TabArea {
+                    project: project.clone(),
+                    slot: slot.cloned(),
+                };
                 let mut content = rect;
                 if !zen {
                     let bar = Rect::from_min_max(
@@ -1118,15 +1215,26 @@ impl NativeShell {
                         bar.min,
                         pos2((add_rect.left() - PADDING).max(bar.left()), bar.bottom()),
                     );
+                    let agents = surfaces.project_agents(project);
                     child(ui, tabs_rect, ("tab-bar", project, id), |ui| {
                         ui.style_mut().always_scroll_the_only_direction = true;
                         egui::ScrollArea::horizontal().show(ui, |ui| {
+                            let scroll = tab_drag::auto_scroll(ui.ctx(), &area, id, ui.clip_rect());
+                            if scroll != 0.0 {
+                                ui.scroll_with_delta_animation(
+                                    vec2(-scroll, 0.0),
+                                    egui::style::ScrollAnimation::none(),
+                                );
+                                ui.ctx().request_repaint();
+                            }
                             ui.horizontal(|ui| {
                                 let menu = TabMenuContext {
                                     project,
+                                    slot,
                                     pane: id,
                                     root,
                                     tabs,
+                                    agents: &agents,
                                     active: active.as_ref(),
                                     has_closed_tabs,
                                 };
@@ -1146,6 +1254,12 @@ impl NativeShell {
                                         TAB_HEIGHT,
                                     ),
                                     Sense::click(),
+                                );
+                                tab_drag::register_container(
+                                    ui.ctx(),
+                                    &area,
+                                    id,
+                                    filler.rect.intersect(ui.clip_rect()),
                                 );
                                 if filler.double_clicked() {
                                     intents.push(ShellIntent::NewUntitled {
@@ -1196,9 +1310,11 @@ impl NativeShell {
                                 ui,
                                 &TabMenuContext {
                                     project,
+                                    slot,
                                     pane: id,
                                     root,
                                     tabs,
+                                    agents: &agents,
                                     active: active.as_ref(),
                                     has_closed_tabs,
                                 },
@@ -1235,6 +1351,7 @@ impl NativeShell {
                     );
                     content.min.y = bar.bottom();
                 }
+                tab_drag::register_pane(ui.ctx(), &area, id, content, tabs);
                 child(ui, content, ("pane-content", project, id), |ui| {
                     let shown_tab = tabs.iter().find(|tab| Some(&tab.id) == active.as_ref());
                     let shows_welcome = match shown_tab {
@@ -1284,7 +1401,36 @@ impl NativeShell {
         surfaces: &mut impl ShellSurfaces,
         intents: &mut Vec<ShellIntent>,
     ) {
+        let area = TabArea {
+            project: menu.project.clone(),
+            slot: menu.slot.cloned(),
+        };
         ui.push_id(&tab.id, |ui| {
+            let held = ui.scope_builder(UiBuilder::new().sense(Sense::drag()), |ui| {
+                self.tab_face(ui, tab, active, menu, surfaces, intents);
+            });
+            tab_drag::register_tab(ui, &held.response, &area, menu.pane, tab);
+        });
+    }
+
+    /// One `SortableTab` (`sortable-tab.tsx` 73-121): faded while it is the dragged tab and shifted
+    /// to where the hovered tab of its own pinned or unpinned run puts it.
+    fn tab_face(
+        &self,
+        ui: &mut Ui,
+        tab: &Tab,
+        active: bool,
+        menu: &TabMenuContext<'_>,
+        surfaces: &mut impl ShellSurfaces,
+        intents: &mut Vec<ShellIntent>,
+    ) {
+        let drag = tab_drag::tab_view(ui.ctx(), &tab.id);
+        if drag.is_dragging {
+            ui.multiply_opacity(DRAGGING_OPACITY);
+        }
+        let shift = vec2(drag.offset, 0.0);
+        ui.with_visual_transform(egui::emath::TSTransform::from_translation(shift), |ui| {
+            ui.set_clip_rect(ui.clip_rect().translate(-shift));
             egui::Frame::NONE
                 .fill(if active {
                     self.colors.active_tab
@@ -1313,16 +1459,41 @@ impl NativeShell {
                             ui.visuals().text_color()
                         };
                         let icon_top = response.rect.center().y - TAB_ICON_SIZE / 2.0;
-                        surfaces.tab_icon(
-                            ui,
-                            Rect::from_min_size(
-                                pos2(icon_left, icon_top).round_to_pixels(ui.pixels_per_point()),
-                                Vec2::splat(TAB_ICON_SIZE),
-                            ),
-                            tab,
-                            title_color,
+                        let icon = Rect::from_min_size(
+                            pos2(icon_left, icon_top).round_to_pixels(ui.pixels_per_point()),
+                            Vec2::splat(TAB_ICON_SIZE),
                         );
-                        if response.clicked() {
+                        let agent = match &tab.kind {
+                            TabKind::Terminal { session_id, .. } if !session_id.is_empty() => menu
+                                .agents
+                                .iter()
+                                .find(|agent| &agent.session_id == session_id),
+                            _ => None,
+                        };
+                        let agent_color = agent.map(|agent| match agent.activity {
+                            AgentActivity::Working => self.colors.rail.agent_working,
+                            AgentActivity::AwaitingInput => self.colors.rail.agent_awaiting,
+                            AgentActivity::Idle => self.colors.rail.agent_idle,
+                            AgentActivity::Unknown => self.colors.rail.agent_unknown,
+                        });
+                        surfaces.tab_icon(ui, icon, tab, agent_color, title_color);
+                        if let Some(agent) = agent {
+                            let hover =
+                                ui.interact(icon, ui.id().with("agent-icon"), Sense::hover());
+                            let mut tooltip = egui::Tooltip::for_enabled(&hover);
+                            tooltip.popup = tooltip.popup.align(egui::RectAlign::BOTTOM);
+                            tooltip.show(|ui| {
+                                let status = surfaces.text(agent_status_label_key(
+                                    agent.activity,
+                                    agent.blocked_reason,
+                                ));
+                                ui.label(surfaces.text_with_args(
+                                    "agent.sessionTooltip",
+                                    &[("name", &agent.name), ("status", &status)],
+                                ));
+                            });
+                        }
+                        if response.clicked() && !drag.suppresses_click {
                             intents.push(ShellIntent::Mutate(ShellMutation::ActivateTab(
                                 tab.id.clone(),
                             )));
@@ -1344,7 +1515,7 @@ impl NativeShell {
                         };
                         let label = surfaces.text_with_args(label_key, &[("title", &tab.title)]);
                         let trailing = tab_action_button(ui, &label, tab, self.colors.foreground);
-                        if trailing.clicked() {
+                        if trailing.clicked() && !drag.suppresses_click {
                             if tab.pinned {
                                 intents.push(ShellIntent::Mutate(ShellMutation::PinTab {
                                     tab: tab.id.clone(),
@@ -1473,9 +1644,11 @@ impl NativeShell {
 #[derive(Clone, Copy)]
 struct TabMenuContext<'a> {
     project: &'a ProjectId,
+    slot: Option<&'a ShellSlotId>,
     pane: &'a PaneId,
     root: Option<&'a str>,
     tabs: &'a [Tab],
+    agents: &'a [DetectedAgent],
     active: Option<&'a TabId>,
     has_closed_tabs: bool,
 }
@@ -1666,7 +1839,8 @@ fn split_menu(
 }
 
 /// The tab's own context menu (`tab-context-menu.tsx`). Entries whose native consumer does not
-/// exist yet (explorer reveal/rename, Git changes/history, reopen with, window moves) are not shown.
+/// exist yet (Git changes/history, window moves, and explorer reveal/rename outside a main-window
+/// slot) are not shown.
 fn tab_menu(
     ui: &mut Ui,
     tab: &Tab,
@@ -1712,6 +1886,33 @@ fn tab_menu(
         ui.separator();
         if menu_item(ui, surfaces.text("explorer.revealInFinder")) {
             intents.push(ShellIntent::RevealPath(path.clone()));
+        }
+        if let Some(slot) = menu.slot {
+            for (key, rename) in [("tab.revealInExplorerView", false), ("tab.rename", true)] {
+                if menu_item(ui, surfaces.text(key)) {
+                    intents.push(ShellIntent::RevealInExplorer {
+                        project: menu.project.clone(),
+                        slot: slot.clone(),
+                        path: path.clone(),
+                        rename,
+                    });
+                }
+            }
+        }
+        if surfaces.can_reopen_with(path) {
+            ui.menu_button(surfaces.text("tab.reopenEditorWith"), |ui| {
+                for (key, preview) in [
+                    ("explorer.openWithEditor", false),
+                    ("explorer.openWithPreview", true),
+                ] {
+                    if menu_item(ui, surfaces.text(key)) {
+                        intents.push(ShellIntent::ReopenWith {
+                            path: path.clone(),
+                            preview,
+                        });
+                    }
+                }
+            });
         }
     }
     ui.separator();
@@ -1890,22 +2091,29 @@ fn close_button(ui: &mut Ui, label: &str, color: Color32) -> egui::Response {
 fn tab_action_button(ui: &mut Ui, label: &str, tab: &Tab, color: Color32) -> egui::Response {
     let response = ui.add_sized(Vec2::splat(ICON_SIZE), egui::Button::new(""));
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
-    let stroke = Stroke::new(BORDER_WIDTH, color);
-    let rect = response.rect.shrink(ICON_INSET);
-    if tab.dirty && !response.hovered() {
-        ui.painter()
-            .circle_filled(response.rect.center(), DIRTY_RADIUS, color);
-    } else if tab.pinned {
-        ui.painter().hline(rect.x_range(), rect.top(), stroke);
-        ui.painter().vline(rect.center().x, rect.y_range(), stroke);
-        ui.painter().hline(rect.x_range(), rect.center().y, stroke);
-    } else {
-        ui.painter()
-            .line_segment([rect.left_top(), rect.right_bottom()], stroke);
-        ui.painter()
-            .line_segment([rect.right_top(), rect.left_bottom()], stroke);
-    }
+    paint_tab_action(ui.painter(), response.rect, tab, color, response.hovered());
     response.on_hover_text(label)
+}
+
+fn paint_tab_action(
+    painter: &egui::Painter,
+    button: Rect,
+    tab: &Tab,
+    color: Color32,
+    is_hovered: bool,
+) {
+    let stroke = Stroke::new(BORDER_WIDTH, color);
+    let rect = button.shrink(ICON_INSET);
+    if tab.dirty && !is_hovered {
+        painter.circle_filled(button.center(), DIRTY_RADIUS, color);
+    } else if tab.pinned {
+        painter.hline(rect.x_range(), rect.top(), stroke);
+        painter.vline(rect.center().x, rect.y_range(), stroke);
+        painter.hline(rect.x_range(), rect.center().y, stroke);
+    } else {
+        painter.line_segment([rect.left_top(), rect.right_bottom()], stroke);
+        painter.line_segment([rect.right_top(), rect.left_bottom()], stroke);
+    }
 }
 
 fn problems_regions(ui: &mut Ui, rect: Rect, id: Id, thickness: f32) -> ProblemsRegions {

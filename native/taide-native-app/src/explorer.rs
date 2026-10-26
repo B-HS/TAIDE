@@ -538,6 +538,11 @@ impl Explorer {
         }
     }
 
+    /// Selects and scrolls to `path` when the page lists it (`file-tree.tsx` `selectPathRequest`).
+    pub fn select_path(&mut self, rows: &[TreeRow], path: &str) {
+        self.select_index(rows, rows.iter().position(|row| row.path == path));
+    }
+
     fn relative_path(&self, path: &str) -> Option<String> {
         let root = self.root.as_ref()?;
         let prefix = if root.ends_with('/') {

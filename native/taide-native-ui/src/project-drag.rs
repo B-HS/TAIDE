@@ -82,10 +82,20 @@ struct Frame {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Phase {
+pub(crate) enum Phase {
     Pending,
     Active,
     Cancelled,
+}
+
+/// What a held press does this frame: dropped before it ever activated, cancelled, still waiting,
+/// or dragging over the pointer.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Gesture {
+    Abandoned,
+    Cancelled,
+    Held,
+    Dragging(Pos2),
 }
 
 #[derive(Clone, Debug)]
@@ -106,15 +116,15 @@ struct Memory {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct PointerInput {
-    pointer: Option<Pos2>,
-    is_down: bool,
+pub(crate) struct PointerInput {
+    pub(crate) pointer: Option<Pos2>,
+    pub(crate) is_down: bool,
     is_escape: bool,
     content: Rect,
 }
 
 impl PointerInput {
-    fn read(context: &Context) -> Self {
+    pub(crate) fn read(context: &Context) -> Self {
         let (pointer, is_down, is_escape) = context.input(|input| {
             (
                 input.pointer.latest_pos(),
@@ -127,6 +137,29 @@ impl PointerInput {
             is_down,
             is_escape,
             content: context.content_rect(),
+        }
+    }
+
+    /// Cancellation on Escape or a window resize (`AbstractPointerSensor` `handleKeydown` and its
+    /// `resize` listener) and activation past [`DRAG_ACTIVATION_DISTANCE`].
+    pub(crate) fn advance(&self, phase: &mut Phase, origin: Pos2, content: Rect) -> Gesture {
+        if self.is_escape || self.content != content {
+            if *phase == Phase::Pending {
+                return Gesture::Abandoned;
+            }
+            *phase = Phase::Cancelled;
+            return Gesture::Cancelled;
+        }
+        let Some(pointer) = self.pointer else {
+            return Gesture::Held;
+        };
+        if *phase == Phase::Pending && (pointer - origin).length() > DRAG_ACTIVATION_DISTANCE {
+            *phase = Phase::Active;
+        }
+        if *phase == Phase::Active {
+            Gesture::Dragging(pointer)
+        } else {
+            Gesture::Held
         }
     }
 }
@@ -260,6 +293,19 @@ fn closest<T>(candidates: impl Iterator<Item = (T, f32)>) -> Option<T> {
         .map(|(target, _)| target)
 }
 
+/// `pointerWithin` (`@dnd-kit/core`): of the targets whose rect holds the pointer, the one whose
+/// corners are nearest to it on average.
+pub(crate) fn pointer_within<T>(
+    candidates: impl Iterator<Item = (T, Rect)>,
+    pointer: Pos2,
+) -> Option<T> {
+    closest(
+        candidates
+            .filter(|(_, rect)| rect.contains(pointer))
+            .map(|(target, rect)| (target, average_corner_distance(rect, pointer))),
+    )
+}
+
 /// `projectCollisionDetection` (`use-project-drag.ts` 59-65): `pointerWithin` over the rail
 /// entries and, for a project, the slots' zones; otherwise `closestCenter` over the rail entries
 /// only while the pointer is over the rail.
@@ -291,13 +337,7 @@ fn resolve_target(
                 )
             })
         });
-    closest(
-        items
-            .chain(zones)
-            .filter(|(_, rect)| rect.contains(pointer))
-            .map(|(target, rect)| (target, average_corner_distance(rect, pointer))),
-    )
-    .or_else(|| {
+    pointer_within(items.chain(zones), pointer).or_else(|| {
         frame.rail.filter(|rail| rail.contains(pointer))?;
         closest(visible.map(|placed| {
             (
@@ -403,32 +443,18 @@ impl Press {
     }
 }
 
-/// Cancellation on Escape or a window resize (`AbstractPointerSensor` `handleKeydown` and its
-/// `resize` listener), activation past [`DRAG_ACTIVATION_DISTANCE`], and the drop target under
-/// the pointer measured against `frame`.
+/// [`PointerInput::advance`] and the drop target under the pointer measured against `frame`.
 fn advance(press: &mut Option<Press>, frame: &Frame, input: PointerInput) {
     let Some(current) = press.as_mut() else {
         return;
     };
-    if input.is_escape || input.content != current.content {
-        if current.phase == Phase::Pending {
-            *press = None;
-            return;
+    match input.advance(&mut current.phase, current.origin, current.content) {
+        Gesture::Abandoned => *press = None,
+        Gesture::Cancelled => current.over = None,
+        Gesture::Held => {}
+        Gesture::Dragging(pointer) => {
+            current.over = resolve_target(frame, &current.item, pointer, current.dragged(pointer));
         }
-        current.phase = Phase::Cancelled;
-        current.over = None;
-        return;
-    }
-    let Some(pointer) = input.pointer else {
-        return;
-    };
-    if current.phase == Phase::Pending
-        && (pointer - current.origin).length() > DRAG_ACTIVATION_DISTANCE
-    {
-        current.phase = Phase::Active;
-    }
-    if current.phase == Phase::Active {
-        current.over = resolve_target(frame, &current.item, pointer, current.dragged(pointer));
     }
 }
 

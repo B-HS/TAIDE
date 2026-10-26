@@ -23,6 +23,7 @@ use taide_native_ui::shell::{
 };
 use taide_native_ui::snapshot::{ShellSnapshot, project_group_sections};
 use taide_native_ui::split::{MIN_PANE_SIZE, child_rects, normalized_sizes, resized_pair};
+use taide_native_ui::tab_drag;
 use taide_runtime::{AppState, EventSink, theme_actions};
 
 const WINDOW_SIZE: [f32; 2] = [1280.0, 800.0];
@@ -79,6 +80,10 @@ const DRAG_PREVIEW_OPACITY: f32 = 0.9;
 const DROP_PREVIEW_FILL_OPACITY: f32 = 0.25;
 const SLOT_EDGE_INSET: f32 = 10.0;
 const SLOT_HEADER_PROBE: f32 = 12.0;
+const EGUI_ITEM_SPACING: f32 = 8.0;
+const AUTO_SCROLL_EDGE_PROBE: f32 = 24.0;
+const AUTO_SCROLL_HOLD_FRAMES: usize = 6;
+const TAB_ROW_GAP_PROBE: f32 = TAB_ICON_SIDE + TAB_ICON_GAP + EGUI_ITEM_SPACING / 2.0;
 
 #[derive(Default)]
 struct Sink(Mutex<Vec<AppEvent>>);
@@ -97,6 +102,8 @@ struct Surfaces {
     problems_open: std::collections::HashSet<ShellSlotId>,
     problems: Vec<(ShellSlotId, Rect)>,
     tab_icons: Vec<(TabId, Rect, Color32)>,
+    agent_tab_icons: Vec<(TabId, Option<Color32>)>,
+    reopen_with_extension: Option<&'static str>,
     welcome: Option<WelcomeContent>,
     rail: Vec<WelcomeRecent>,
     agents: std::collections::HashMap<ProjectId, Vec<DetectedAgent>>,
@@ -164,8 +171,20 @@ impl ShellSurfaces for Surfaces {
             .push((project.clone(), pane.clone(), tab.id.clone(), ui.max_rect()));
         ui.label(&tab.title);
     }
-    fn tab_icon(&mut self, _: &Ui, rect: Rect, tab: &Tab, title_color: Color32) {
+    fn tab_icon(
+        &mut self,
+        _: &Ui,
+        rect: Rect,
+        tab: &Tab,
+        agent_color: Option<Color32>,
+        title_color: Color32,
+    ) {
         self.tab_icons.push((tab.id.clone(), rect, title_color));
+        self.agent_tab_icons.push((tab.id.clone(), agent_color));
+    }
+    fn can_reopen_with(&self, path: &str) -> bool {
+        self.reopen_with_extension
+            .is_some_and(|extension| path.ends_with(extension))
     }
     fn status_bar(&mut self, ui: &mut Ui, project: Option<&ProjectId>, _: &mut Vec<ShellIntent>) {
         self.status_projects.push(project.cloned());
@@ -1773,6 +1792,386 @@ fn 탭_메뉴와_빈공간_메뉴는_원본_항목과_고정탭_제외_닫기와
     );
 }
 
+fn scoped_frame(
+    context: &egui::Context,
+    scope: WindowScope,
+    snapshot: &ShellSnapshot,
+    mut surfaces: Surfaces,
+    time: f64,
+    events: Vec<egui::Event>,
+) -> (Surfaces, Vec<ShellIntent>, egui::FullOutput) {
+    let input = egui::RawInput {
+        screen_rect: Some(Rect::from_min_size(
+            pos2(0.0, 0.0),
+            vec2(WINDOW_SIZE[0], WINDOW_SIZE[1]),
+        )),
+        time: Some(time),
+        events,
+        ..Default::default()
+    };
+    let shell = shell(scope);
+    let mut intents = Vec::new();
+    let mut output = context.run_ui(input, |ui| {
+        intents = shell.show(ui, snapshot, &mut surfaces);
+    });
+    output.textures_delta.clear();
+    (surfaces, intents, output)
+}
+
+struct MenuDriver {
+    context: egui::Context,
+    time: f64,
+    surfaces: fn() -> Surfaces,
+}
+
+impl MenuDriver {
+    fn step(
+        &mut self,
+        scope: &WindowScope,
+        snapshot: &ShellSnapshot,
+        events: Vec<egui::Event>,
+    ) -> (Surfaces, Vec<ShellIntent>, egui::FullOutput) {
+        self.time += 1.0;
+        scoped_frame(
+            &self.context,
+            scope.clone(),
+            snapshot,
+            (self.surfaces)(),
+            self.time,
+            events,
+        )
+    }
+
+    fn open_menu(
+        &mut self,
+        scope: &WindowScope,
+        snapshot: &ShellSnapshot,
+        title: &str,
+    ) -> egui::FullOutput {
+        let (_, _, output) = self.step(scope, snapshot, Vec::new());
+        let (_, tab) = text_shape(&output, title).unwrap_or_else(|| panic!("{title}"));
+        let _ = self.step(
+            scope,
+            snapshot,
+            pointer(tab.center(), egui::PointerButton::Secondary),
+        );
+        self.step(scope, snapshot, Vec::new()).2
+    }
+
+    fn dismiss(
+        &mut self,
+        scope: &WindowScope,
+        snapshot: &ShellSnapshot,
+        output: &egui::FullOutput,
+    ) {
+        let (_, outside) = text_shape(output, "test-only status").unwrap();
+        let _ = self.step(
+            scope,
+            snapshot,
+            pointer(outside.center(), egui::PointerButton::Primary),
+        );
+    }
+
+    fn choose(
+        &mut self,
+        scope: &WindowScope,
+        snapshot: &ShellSnapshot,
+        output: &egui::FullOutput,
+        key: &str,
+    ) -> Vec<ShellIntent> {
+        let item = welcome_text_rect(output, key).unwrap_or_else(|| panic!("{key}"));
+        self.step(
+            scope,
+            snapshot,
+            pointer(item.center(), egui::PointerButton::Primary),
+        )
+        .1
+    }
+}
+
+fn single_slot_snapshot(tabs: Vec<Tab>) -> (ShellSnapshot, ProjectId, ShellSlotId) {
+    let mut snapshot = fixture();
+    let project = snapshot.projects[0].id.clone();
+    let slot = ShellSlotId::new();
+    snapshot.shell.tree = Some(ShellSlotTree::Leaf {
+        slot_id: slot.clone(),
+        project_id: project.clone(),
+    });
+    snapshot.shell.focused = Some(slot.clone());
+    snapshot.layouts.retain(|id, _| id == &project);
+    snapshot.projects.truncate(1);
+    snapshot.projects[0].root = "/synthetic/root".into();
+    let layout = snapshot.layouts.get_mut(&project).unwrap();
+    let PaneNode::Leaf {
+        tabs: leaf, active, ..
+    } = &mut layout.root
+    else {
+        panic!("expected leaf")
+    };
+    *active = tabs.first().map(|tab| tab.id.clone());
+    *leaf = tabs;
+    (snapshot, project, slot)
+}
+
+fn synthetic_tab(title: &str, kind: TabKind) -> Tab {
+    Tab {
+        id: TabId::new(),
+        kind,
+        title: title.into(),
+        pinned: false,
+        preview: false,
+        dirty: false,
+        view_state: None,
+    }
+}
+
+fn terminal_kind(session: &str) -> TabKind {
+    TabKind::Terminal {
+        session_id: session.into(),
+        cwd: None,
+    }
+}
+
+#[test]
+fn 탭_아이콘은_에이전트가_감지된_터미널만_활동색과_세션_tooltip을_보인다() {
+    let activities = [
+        ("awaiting", AgentActivity::AwaitingInput, AGENT_AWAITING),
+        ("working", AgentActivity::Working, AGENT_WORKING),
+        ("idle", AgentActivity::Idle, AGENT_IDLE),
+        ("unknown", AgentActivity::Unknown, AGENT_UNKNOWN),
+    ];
+    let mut tabs = activities
+        .iter()
+        .map(|(session, ..)| synthetic_tab(session, terminal_kind(session)))
+        .collect::<Vec<_>>();
+    tabs.extend([
+        synthetic_tab("plain", terminal_kind("synthetic-plain")),
+        synthetic_tab("fresh", terminal_kind("")),
+        synthetic_tab(
+            "main.rs",
+            TabKind::File {
+                path: "/synthetic/root/main.rs".into(),
+            },
+        ),
+    ]);
+    let (snapshot, project, _) = single_slot_snapshot(tabs.clone());
+    let mut agents = activities
+        .iter()
+        .map(|(session, activity, _)| {
+            let reason =
+                (*activity == AgentActivity::AwaitingInput).then_some(BlockedReason::Question);
+            rail_agent(session, "claude", *activity, reason)
+        })
+        .collect::<Vec<_>>();
+    agents.push(rail_agent("", "ghost", AgentActivity::Working, None));
+    agents.push(rail_agent("main.rs", "file", AgentActivity::Working, None));
+    let surfaces = || Surfaces {
+        agents: std::collections::HashMap::from([(project.clone(), agents.clone())]),
+        ..Default::default()
+    };
+    let context = egui::Context::default();
+    let (recorded, _, _) = scoped_frame(
+        &context,
+        WindowScope::Main,
+        &snapshot,
+        surfaces(),
+        0.0,
+        Vec::new(),
+    );
+    let agent_color = |tab: &Tab| {
+        recorded
+            .agent_tab_icons
+            .iter()
+            .find(|(id, _)| id == &tab.id)
+            .unwrap_or_else(|| panic!("{}", tab.title))
+            .1
+    };
+    for (tab, (_, _, color)) in tabs.iter().zip(&activities) {
+        assert_eq!(agent_color(tab), Some(*color), "{}", tab.title);
+    }
+    for tab in &tabs[activities.len()..] {
+        assert_eq!(agent_color(tab), None, "{}", tab.title);
+    }
+    let icon = |tab: &Tab| {
+        recorded
+            .tab_icons
+            .iter()
+            .find(|(id, ..)| id == &tab.id)
+            .unwrap()
+            .1
+    };
+    let tooltip = |icon: Rect, start: f64| {
+        let _ = scoped_frame(
+            &context,
+            WindowScope::Main,
+            &snapshot,
+            surfaces(),
+            start + TOOLTIP_HOVER_SECONDS,
+            vec![egui::Event::PointerMoved(icon.center())],
+        );
+        let _ = scoped_frame(
+            &context,
+            WindowScope::Main,
+            &snapshot,
+            surfaces(),
+            start + TOOLTIP_HOVER_SECONDS + TOOLTIP_SETTLE_SECONDS,
+            Vec::new(),
+        );
+        scoped_frame(
+            &context,
+            WindowScope::Main,
+            &snapshot,
+            surfaces(),
+            start + TOOLTIP_HOVER_SECONDS + TOOLTIP_SETTLE_SECONDS + TOOLTIP_FADE_SECONDS,
+            Vec::new(),
+        )
+        .2
+    };
+    let output = tooltip(icon(&tabs[0]), 0.0);
+    let expected = format!(
+        "agent.sessionTooltip: {:?}",
+        [("name", "claude"), ("status", "agent.blocked.question")]
+    );
+    let (_, text) = text_shape(&output, &expected).unwrap_or_else(|| panic!("{expected}"));
+    assert!(text.top() >= icon(&tabs[0]).bottom(), "{text:?}");
+    let plain = tooltip(icon(&tabs[activities.len()]), TOOLTIP_HOVER_SECONDS * 2.0);
+    assert!(
+        !texts_of(&plain)
+            .iter()
+            .any(|text| text.starts_with("agent.sessionTooltip")),
+        "{:?}",
+        texts_of(&plain)
+    );
+}
+
+#[test]
+fn 탭_메뉴는_주창_파일탭에_탐색기_reveal_rename과_미리보기파일_다시열기를_요청한다() {
+    let image = synthetic_tab(
+        "pic.png",
+        TabKind::File {
+            path: "/synthetic/root/assets/pic.png".into(),
+        },
+    );
+    let source = synthetic_tab(
+        "lib.rs",
+        TabKind::File {
+            path: "/synthetic/root/src/lib.rs".into(),
+        },
+    );
+    let terminal = synthetic_tab("term-tab", terminal_kind("synthetic-shell"));
+    let (mut snapshot, project, slot) = single_slot_snapshot(vec![image, source, terminal]);
+    let mut driver = MenuDriver {
+        context: egui::Context::default(),
+        time: 0.0,
+        surfaces: || Surfaces {
+            reopen_with_extension: Some(".png"),
+            ..Default::default()
+        },
+    };
+    let main = WindowScope::Main;
+
+    let menu = driver.open_menu(&main, &snapshot, "pic.png");
+    let texts = texts_of(&menu);
+    let position = |key: &str| {
+        texts
+            .iter()
+            .position(|text| text == key)
+            .unwrap_or_else(|| panic!("{key}: {texts:?}"))
+    };
+    assert!(position("explorer.revealInFinder") < position("tab.revealInExplorerView"));
+    assert!(position("tab.revealInExplorerView") < position("tab.rename"));
+    assert!(position("tab.rename") < position("tab.reopenEditorWith"));
+    assert!(position("tab.reopenEditorWith") < position("tab.split"));
+    for hidden in ["tab.openChanges", "git.fileHistory", "tab.moveToNewWindow"] {
+        assert!(!texts.iter().any(|text| text == hidden), "{hidden}");
+    }
+    let intents = driver.choose(&main, &snapshot, &menu, "tab.revealInExplorerView");
+    assert!(
+        intents.iter().any(|intent| matches!(
+            intent,
+            ShellIntent::RevealInExplorer { project: owner, slot: target, path, rename: false }
+                if owner == &project && target == &slot && path == "/synthetic/root/assets/pic.png"
+        )),
+        "{intents:?}"
+    );
+    let menu = driver.open_menu(&main, &snapshot, "pic.png");
+    let intents = driver.choose(&main, &snapshot, &menu, "tab.rename");
+    assert!(
+        intents.iter().any(|intent| matches!(
+            intent,
+            ShellIntent::RevealInExplorer { project: owner, slot: target, path, rename: true }
+                if owner == &project && target == &slot && path == "/synthetic/root/assets/pic.png"
+        )),
+        "{intents:?}"
+    );
+    for (key, expected_preview) in [
+        ("explorer.openWithEditor", false),
+        ("explorer.openWithPreview", true),
+    ] {
+        let menu = driver.open_menu(&main, &snapshot, "pic.png");
+        let submenu = welcome_text_rect(&menu, "tab.reopenEditorWith").unwrap();
+        let _ = driver.step(
+            &main,
+            &snapshot,
+            vec![egui::Event::PointerMoved(submenu.center())],
+        );
+        let mut output = None;
+        for _ in 0..WHEEL_SETTLE_FRAMES {
+            output = Some(driver.step(&main, &snapshot, Vec::new()).2);
+        }
+        let intents = driver.choose(&main, &snapshot, &output.unwrap(), key);
+        assert!(
+            intents.iter().any(|intent| matches!(
+                intent,
+                ShellIntent::ReopenWith { path, preview }
+                    if path == "/synthetic/root/assets/pic.png" && *preview == expected_preview
+            )),
+            "{key}: {intents:?}"
+        );
+    }
+
+    let menu = driver.open_menu(&main, &snapshot, "lib.rs");
+    let texts = texts_of(&menu);
+    assert!(texts.iter().any(|text| text == "tab.rename"), "{texts:?}");
+    assert!(
+        !texts.iter().any(|text| text == "tab.reopenEditorWith"),
+        "{texts:?}"
+    );
+    driver.dismiss(&main, &snapshot, &menu);
+    let menu = driver.open_menu(&main, &snapshot, "term-tab");
+    let texts = texts_of(&menu);
+    assert!(texts.iter().any(|text| text == "tab.split"), "{texts:?}");
+    for hidden in [
+        "tab.revealInExplorerView",
+        "tab.rename",
+        "tab.reopenEditorWith",
+    ] {
+        assert!(!texts.iter().any(|text| text == hidden), "{hidden}");
+    }
+    driver.dismiss(&main, &snapshot, &menu);
+
+    let layout = snapshot.layouts.get_mut(&project).unwrap();
+    let auxiliary = layout.root.clone();
+    layout.auxiliary_windows.push(AuxWindowLayout {
+        slot: AUX_SLOT,
+        root: auxiliary,
+        focused_pane: layout.focused_pane.clone(),
+    });
+    let auxiliary = WindowScope::Auxiliary {
+        project: project.clone(),
+        slot: AUX_SLOT,
+    };
+    let menu = driver.open_menu(&auxiliary, &snapshot, "pic.png");
+    let texts = texts_of(&menu);
+    assert!(
+        texts.iter().any(|text| text == "tab.reopenEditorWith"),
+        "{texts:?}"
+    );
+    for hidden in ["tab.revealInExplorerView", "tab.rename"] {
+        assert!(!texts.iter().any(|text| text == hidden), "{hidden}");
+    }
+}
+
 #[test]
 fn rail_추가메뉴는_경로_finder_최근프로젝트와_root누락_비활성을_보인다() {
     let snapshot = fixture();
@@ -2906,12 +3305,12 @@ fn rail_step(
 /// Presses at `from`, moves through `path` a frame at a time, sends `before_release`, then
 /// releases where the path ends. Returns every frame's intents, the paint of the last move and
 /// whether the drag was active then.
-fn drag_rail(
+fn drag_pointer(
     context: &egui::Context,
     snapshot: &ShellSnapshot,
     time: &mut f64,
     (from, path): (egui::Pos2, &[egui::Pos2]),
-    before_release: Vec<egui::Event>,
+    (before_release, is_dragging): (Vec<egui::Event>, fn(&egui::Context) -> bool),
 ) -> (Vec<ShellIntent>, Surfaces, egui::FullOutput, bool) {
     let mut intents = Vec::new();
     rail_step(
@@ -2949,6 +3348,38 @@ fn drag_rail(
     rail_step(context, snapshot, time, Vec::new(), &mut intents);
     assert!(!is_dragging(context), "a release always ends the drag");
     (intents, held.0, held.1, was_dragging)
+}
+
+fn drag_rail(
+    context: &egui::Context,
+    snapshot: &ShellSnapshot,
+    time: &mut f64,
+    gesture: (egui::Pos2, &[egui::Pos2]),
+    before_release: Vec<egui::Event>,
+) -> (Vec<ShellIntent>, Surfaces, egui::FullOutput, bool) {
+    drag_pointer(
+        context,
+        snapshot,
+        time,
+        gesture,
+        (before_release, is_dragging),
+    )
+}
+
+fn drag_tab(
+    context: &egui::Context,
+    snapshot: &ShellSnapshot,
+    time: &mut f64,
+    gesture: (egui::Pos2, &[egui::Pos2]),
+    before_release: Vec<egui::Event>,
+) -> (Vec<ShellIntent>, Surfaces, egui::FullOutput, bool) {
+    drag_pointer(
+        context,
+        snapshot,
+        time,
+        gesture,
+        (before_release, tab_drag::is_dragging),
+    )
 }
 
 fn is_activation(intent: &ShellIntent) -> bool {
@@ -3338,4 +3769,521 @@ fn 그룹_헤더_drag는_헤더끼리만_재정렬하고_자리를_바꿔_보이
             )),
         "a header dropped on an icon writes neither order: {intents:?}"
     );
+}
+
+/// The tab named `title`: an active tab's content repeats its title below the tab bar.
+fn tab_node(output: &egui::FullOutput, title: &str) -> Rect {
+    output
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .expect("accesskit is enabled")
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.label() == Some(title))
+        .filter_map(|(_, node)| node.bounds())
+        .map(|bounds| {
+            Rect::from_min_max(
+                pos2(bounds.x0 as f32, bounds.y0 as f32),
+                pos2(bounds.x1 as f32, bounds.y1 as f32),
+            )
+        })
+        .min_by(|upper, lower| upper.top().total_cmp(&lower.top()))
+        .unwrap_or_else(|| panic!("{title}"))
+}
+
+/// Every text painted as `text`, with its position and the opacity its opaque color was faded to.
+fn painted_texts(output: &egui::FullOutput, text: &str) -> Vec<(egui::Pos2, f32)> {
+    output
+        .shapes
+        .iter()
+        .filter_map(|clipped| match &clipped.shape {
+            egui::Shape::Text(shape) if shape.galley.text() == text => Some((
+                shape.pos,
+                f32::from(shape.fallback_color.a()) / f32::from(u8::MAX),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+fn is_faded_to(opacity: f32, expected: f32) -> bool {
+    (opacity - expected).abs() <= 1.0 / f32::from(u8::MAX)
+}
+
+fn tab_drops(intents: &[ShellIntent]) -> Vec<&ShellMutation> {
+    intents
+        .iter()
+        .filter_map(|intent| match intent {
+            ShellIntent::Mutate(
+                mutation @ (ShellMutation::MoveTab { .. } | ShellMutation::SplitTab { .. }),
+            ) => Some(mutation),
+            _ => None,
+        })
+        .collect()
+}
+
+fn is_moved(intents: &[ShellIntent], tab: &TabId, pane: &PaneId, index: u32) -> bool {
+    matches!(
+        tab_drops(intents).as_slice(),
+        [ShellMutation::MoveTab { tab: moved, pane: target, index: at }]
+            if moved == tab && target == pane && *at == index
+    )
+}
+
+fn is_split(intents: &[ShellIntent], tab: &TabId, pane: &PaneId, edge: DropEdge) -> bool {
+    matches!(
+        tab_drops(intents).as_slice(),
+        [ShellMutation::SplitTab { tab: moved, pane: target, edge: at }]
+            if moved == tab && target == pane && *at == edge
+    )
+}
+
+fn is_tab_activated(intents: &[ShellIntent], tab: &TabId) -> bool {
+    intents.iter().any(
+        |intent| matches!(intent, ShellIntent::Mutate(ShellMutation::ActivateTab(id)) if id == tab),
+    )
+}
+
+fn leaf_of(tabs: Vec<Tab>) -> PaneNode {
+    PaneNode::Leaf {
+        id: PaneId::new(),
+        active: tabs.first().map(|tab| tab.id.clone()),
+        tabs,
+    }
+}
+
+fn leaf_id(node: &PaneNode) -> PaneId {
+    match node {
+        PaneNode::Leaf { id, .. } | PaneNode::Split { id, .. } => id.clone(),
+    }
+}
+
+#[test]
+fn 탭_drag는_4px을_넘어야_시작해_유령과_미리보기와_밀림을_보이고_고정경계를_지켜_재정렬한다() {
+    let titles = ["pinned.rs", "a.rs", "b.rs", "c.rs"];
+    let mut tabs: Vec<Tab> = titles
+        .iter()
+        .map(|title| synthetic_tab(title, TabKind::Settings))
+        .collect();
+    tabs[0].pinned = true;
+    let ids: Vec<TabId> = tabs.iter().map(|tab| tab.id.clone()).collect();
+    let (snapshot, project, _) = single_slot_snapshot(tabs);
+    let pane = leaf_id(&snapshot.layouts[&project].root);
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let mut time = 0.0;
+    let (_, output) = menu_step(&context, &snapshot, &mut time, Vec::new());
+    let nodes: Vec<Rect> = titles
+        .iter()
+        .map(|title| tab_node(&output, title))
+        .collect();
+    let resting = |title: &str| painted_texts(&output, title)[0].0;
+    let (b_text, c_text) = (resting("b.rs"), resting("c.rs"));
+    let step = nodes[3].left() - nodes[2].left();
+    let lift = |index: usize| nodes[index].center() + vec2(0.0, ABOVE_ACTIVATION_DISTANCE);
+
+    let (intents, _, _, was_dragging) = drag_tab(
+        &context,
+        &snapshot,
+        &mut time,
+        (
+            nodes[2].center(),
+            &[nodes[2].center() + vec2(BELOW_ACTIVATION_DISTANCE, 0.0)],
+        ),
+        Vec::new(),
+    );
+    assert!(!was_dragging, "within 4px the press is still pending");
+    assert!(is_tab_activated(&intents, &ids[2]), "{intents:?}");
+    assert!(tab_drops(&intents).is_empty(), "{intents:?}");
+
+    let (intents, _, _, was_dragging) = drag_tab(
+        &context,
+        &snapshot,
+        &mut time,
+        (nodes[2].center(), &[lift(2)]),
+        Vec::new(),
+    );
+    assert!(was_dragging, "past 4px the press becomes a drag");
+    assert!(
+        !is_tab_activated(&intents, &ids[2]),
+        "a drag never activates on release: {intents:?}"
+    );
+    assert!(
+        is_moved(&intents, &ids[2], &pane, 2),
+        "released on itself it keeps its index, as the original moveTab does: {intents:?}"
+    );
+
+    let pointer = nodes[3].center();
+    let (intents, _, held, _) = drag_tab(
+        &context,
+        &snapshot,
+        &mut time,
+        (nodes[2].center(), &[lift(2), pointer]),
+        Vec::new(),
+    );
+    assert!(is_moved(&intents, &ids[2], &pane, 3), "{intents:?}");
+    assert!(!is_tab_activated(&intents, &ids[2]), "{intents:?}");
+    let dragged = painted_texts(&held, "b.rs");
+    let shown = |position: egui::Pos2, opacity: f32| {
+        dragged.iter().any(|(painted, painted_opacity)| {
+            (painted.x - position.x).abs() <= PIXEL_SNAP_TOLERANCE * 2.0
+                && (painted.y - position.y).abs() <= PIXEL_SNAP_TOLERANCE * 2.0
+                && is_faded_to(*painted_opacity, opacity)
+        })
+    };
+    assert_eq!(dragged.len(), 2, "{dragged:?}");
+    assert!(
+        shown(b_text + vec2(step, 0.0), DRAGGING_OPACITY),
+        "the faded source takes the place it would land in: {dragged:?}"
+    );
+    assert!(
+        shown(b_text + (pointer - nodes[2].center()), DRAG_PREVIEW_OPACITY),
+        "the preview follows the pointer: {dragged:?}"
+    );
+    assert!(
+        painted_texts(&held, "c.rs")
+            .iter()
+            .any(|(painted, opacity)| (painted.x - (c_text.x - step)).abs()
+                <= PIXEL_SNAP_TOLERANCE * 2.0
+                && is_faded_to(*opacity, 1.0)),
+        "the tab it passed moves back one place"
+    );
+
+    let (intents, ..) = drag_tab(
+        &context,
+        &snapshot,
+        &mut time,
+        (nodes[1].center(), &[lift(1), nodes[0].center()]),
+        Vec::new(),
+    );
+    assert!(
+        is_moved(&intents, &ids[1], &pane, 1),
+        "an unpinned tab stops right after the pinned run: {intents:?}"
+    );
+
+    let (intents, _, held, _) = drag_tab(
+        &context,
+        &snapshot,
+        &mut time,
+        (nodes[0].center(), &[lift(0), nodes[3].center()]),
+        Vec::new(),
+    );
+    assert!(
+        is_moved(&intents, &ids[0], &pane, 1),
+        "a pinned tab never leaves the pinned run: {intents:?}"
+    );
+    assert!(
+        painted_texts(&held, "c.rs")
+            .iter()
+            .all(|(painted, _)| (painted.x - c_text.x).abs() <= PIXEL_SNAP_TOLERANCE),
+        "the two runs are separate sortable lists, so nothing shifts"
+    );
+
+    let gap = pos2(
+        nodes[2].left() + step - TAB_ROW_GAP_PROBE,
+        nodes[2].center().y,
+    );
+    let (intents, ..) = drag_tab(
+        &context,
+        &snapshot,
+        &mut time,
+        (nodes[1].center(), &[lift(1), gap]),
+        Vec::new(),
+    );
+    assert!(
+        is_moved(&intents, &ids[1], &pane, 2),
+        "the gap after a tab still drops on that tab, as the flush original tabs do: {intents:?}"
+    );
+
+    let filler = pos2(nodes[3].left() + step, nodes[3].center().y);
+    let (intents, ..) = drag_tab(
+        &context,
+        &snapshot,
+        &mut time,
+        (nodes[2].center(), &[lift(2), filler]),
+        Vec::new(),
+    );
+    assert!(
+        is_moved(&intents, &ids[2], &pane, 4),
+        "the tab bar's empty space appends: {intents:?}"
+    );
+}
+
+#[test]
+fn 탭을_pane_가장자리와_가운데와_다른_pane_탭에_떨구면_분할과_이동을_요청하고_esc는_취소한다() {
+    let left = ["left.rs", "move.rs"].map(|title| synthetic_tab(title, TabKind::Settings));
+    let right = ["right.rs", "other.rs"].map(|title| synthetic_tab(title, TabKind::Settings));
+    let moving = left[1].id.clone();
+    let (mut snapshot, project, _) = single_slot_snapshot(Vec::new());
+    let layout = snapshot.layouts.get_mut(&project).unwrap();
+    let children = vec![leaf_of(left.to_vec()), leaf_of(right.to_vec())];
+    let panes: Vec<PaneId> = children.iter().map(leaf_id).collect();
+    layout.root = PaneNode::Split {
+        id: PaneId::new(),
+        dir: SplitDir::Horizontal,
+        children,
+        sizes: vec![50.0, 50.0],
+    };
+    layout.focused_pane = panes[0].clone();
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let mut time = 0.0;
+    let mut intents = Vec::new();
+    let (surfaces, output) = rail_step(&context, &snapshot, &mut time, Vec::new(), &mut intents);
+    let body = |pane: &PaneId| {
+        surfaces
+            .panes
+            .iter()
+            .find(|(_, owner, ..)| owner == pane)
+            .map(|(.., rect)| *rect)
+            .expect("both panes show their active tab")
+    };
+    let source = tab_node(&output, "move.rs");
+    let resting_icon = surfaces
+        .tab_icons
+        .iter()
+        .find(|(id, ..)| id == &moving)
+        .map(|(_, rect, _)| *rect)
+        .unwrap();
+    let lifted = source.center() + vec2(0.0, ABOVE_ACTIVATION_DISTANCE);
+    let drop_at = |target: egui::Pos2, time: &mut f64| {
+        drag_tab(
+            &context,
+            &snapshot,
+            time,
+            (source.center(), &[lifted, target]),
+            Vec::new(),
+        )
+    };
+
+    let right_zone = pos2(
+        body(&panes[1]).right() - SLOT_EDGE_INSET,
+        body(&panes[1]).center().y,
+    );
+    let (intents, held_surfaces, held, was_dragging) = drop_at(right_zone, &mut time);
+    assert!(was_dragging);
+    assert!(
+        is_split(&intents, &moving, &panes[1], DropEdge::Right),
+        "{intents:?}"
+    );
+    let preview = slot_drop_preview(body(&panes[1]), DropEdge::Right);
+    assert!(
+        held.shapes.iter().any(|clipped| matches!(&clipped.shape,
+            egui::Shape::Rect(shape)
+                if shape.fill == DROP_TARGET.gamma_multiply(DROP_PREVIEW_FILL_OPACITY)
+                    && shape.stroke == Stroke::new(CSS_BORDER_WIDTH, DROP_TARGET)
+                    && (shape.rect.min - preview.min).length() < PIXEL_SNAP_TOLERANCE
+                    && (shape.rect.max - preview.max).length() < PIXEL_SNAP_TOLERANCE)),
+        "the right half of the hovered pane is previewed: {preview:?}"
+    );
+    let icons: Vec<Rect> = held_surfaces
+        .tab_icons
+        .iter()
+        .filter(|(id, ..)| id == &moving)
+        .map(|(_, rect, _)| *rect)
+        .collect();
+    let carried = resting_icon.translate(right_zone - source.center());
+    assert_eq!(icons.len(), 2, "the source and its DragOverlay copy");
+    assert!(
+        (icons[1].min - carried.min).length() <= PIXEL_SNAP_TOLERANCE * 2.0,
+        "the overlay tab follows the pointer: {icons:?} {carried:?}"
+    );
+    assert!(
+        painted_texts(&held, "move.rs")
+            .iter()
+            .any(|(_, opacity)| is_faded_to(*opacity, DRAG_PREVIEW_OPACITY)),
+        "the overlay is drawn at 90%"
+    );
+
+    let (intents, ..) = drop_at(body(&panes[1]).center(), &mut time);
+    assert!(
+        is_moved(&intents, &moving, &panes[1], 2),
+        "the centre appends to that pane: {intents:?}"
+    );
+
+    let (intents, ..) = drop_at(tab_node(&output, "other.rs").center(), &mut time);
+    assert!(
+        is_moved(&intents, &moving, &panes[1], 1),
+        "another pane's tab takes its index: {intents:?}"
+    );
+
+    let top_zone = pos2(
+        body(&panes[0]).center().x,
+        body(&panes[0]).top() + SLOT_EDGE_INSET,
+    );
+    let (intents, ..) = drop_at(top_zone, &mut time);
+    assert!(
+        is_split(&intents, &moving, &panes[0], DropEdge::Top),
+        "its own pane splits too: {intents:?}"
+    );
+
+    let add_menu = output
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.label() == Some("tab.newTabMenu"))
+        .filter_map(|(_, node)| node.bounds())
+        .map(|bounds| pos2(bounds.x0 as f32, bounds.y0 as f32) + vec2(1.0, 1.0))
+        .find(|corner| corner.x < body(&panes[0]).right())
+        .unwrap();
+    let (intents, _, held, _) = drop_at(add_menu, &mut time);
+    assert!(
+        tab_drops(&intents).is_empty(),
+        "the + button takes no drop: {intents:?}"
+    );
+    assert!(
+        !held.shapes.iter().any(|clipped| matches!(&clipped.shape,
+            egui::Shape::Rect(shape) if shape.stroke.color == DROP_TARGET)),
+        "nothing is previewed outside the zones"
+    );
+
+    let escape = [true, false]
+        .map(|pressed| egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        })
+        .to_vec();
+    let (intents, ..) = drag_tab(
+        &context,
+        &snapshot,
+        &mut time,
+        (source.center(), &[lifted, right_zone]),
+        escape,
+    );
+    assert!(
+        tab_drops(&intents).is_empty() && !is_tab_activated(&intents, &moving),
+        "Escape cancels the drag: {intents:?}"
+    );
+}
+
+#[test]
+fn 탭은_자기_슬롯의_editor_area_안에서만_떨어진다() {
+    let mut snapshot = fixture();
+    let projects: Vec<ProjectId> = snapshot
+        .projects
+        .iter()
+        .map(|project| project.id.clone())
+        .collect();
+    let away = synthetic_tab("away.rs", TabKind::Settings);
+    let layout = snapshot.layouts.get_mut(&projects[0]).unwrap();
+    layout.root = leaf_of(vec![
+        synthetic_tab("keep.rs", TabKind::Settings),
+        away.clone(),
+    ]);
+    layout.focused_pane = leaf_id(&layout.root);
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let mut time = 0.0;
+    let mut intents = Vec::new();
+    let (surfaces, output) = rail_step(&context, &snapshot, &mut time, Vec::new(), &mut intents);
+    let other_slot = surfaces
+        .panes
+        .iter()
+        .find(|(owner, ..)| owner == &projects[1])
+        .map(|(.., rect)| *rect)
+        .unwrap();
+    let source = tab_node(&output, "away.rs");
+    let (intents, _, held, was_dragging) = drag_tab(
+        &context,
+        &snapshot,
+        &mut time,
+        (
+            source.center(),
+            &[
+                source.center() + vec2(0.0, ABOVE_ACTIVATION_DISTANCE),
+                other_slot.center(),
+            ],
+        ),
+        Vec::new(),
+    );
+    assert!(was_dragging);
+    assert!(
+        tab_drops(&intents).is_empty(),
+        "another slot's panes belong to another DndContext: {intents:?}"
+    );
+    assert!(
+        !held.shapes.iter().any(|clipped| matches!(&clipped.shape,
+            egui::Shape::Rect(shape) if shape.stroke.color == DROP_TARGET)),
+        "and show no zone"
+    );
+}
+
+#[test]
+fn 넘친_탭바는_탭을_오른쪽_가장자리로_끌면_자동으로_스크롤하고_pane_영역에서는_멈춘다() {
+    let tabs: Vec<Tab> = (0..OVERFLOWING_TAB_COUNT)
+        .map(|index| synthetic_tab(&format!("synthetic-tab-{index}"), TabKind::Settings))
+        .collect();
+    let (snapshot, ..) = single_slot_snapshot(tabs);
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let mut time = 0.0;
+    let (_, output) = menu_step(&context, &snapshot, &mut time, Vec::new());
+    let first = |output: &egui::FullOutput| tab_node(output, "synthetic-tab-0").left();
+    let resting = first(&output);
+    let source = tab_node(&output, "synthetic-tab-1");
+    let lifted = source.center() + vec2(0.0, ABOVE_ACTIVATION_DISTANCE);
+    let add_menu = output
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .find(|(_, node)| node.label() == Some("tab.newTabMenu"))
+        .and_then(|(_, node)| node.bounds())
+        .unwrap();
+    let near_edge = pos2(
+        add_menu.x0 as f32 - AUTO_SCROLL_EDGE_PROBE,
+        source.center().y,
+    );
+    let below_edge = near_edge + vec2(0.0, taide_native_ui::shell::TAB_HEIGHT * 2.0);
+    let escape = [true, false]
+        .map(|pressed| egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        })
+        .to_vec();
+    let held_at = |point: egui::Pos2| {
+        std::iter::once(lifted)
+            .chain(std::iter::repeat_n(point, AUTO_SCROLL_HOLD_FRAMES))
+            .collect::<Vec<_>>()
+    };
+
+    let path = held_at(below_edge);
+    let (_, _, held, _) = drag_tab(
+        &context,
+        &snapshot,
+        &mut time,
+        (source.center(), &path),
+        escape.clone(),
+    );
+    assert_eq!(
+        first(&held),
+        resting,
+        "a pane zone has no scrollable tab bar above it"
+    );
+
+    let path = held_at(near_edge);
+    let (intents, _, held, _) = drag_tab(
+        &context,
+        &snapshot,
+        &mut time,
+        (source.center(), &path),
+        escape,
+    );
+    assert!(
+        first(&held) < resting,
+        "the hovered tab bar scrolls toward the edge it is held at"
+    );
+    assert!(tab_drops(&intents).is_empty(), "{intents:?}");
 }

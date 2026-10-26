@@ -154,6 +154,8 @@ pub mod snippet_editor;
 #[path = "snippet-editor-state.rs"]
 pub mod snippet_editor_state;
 pub mod split;
+#[path = "tab-drag.rs"]
+pub mod tab_drag;
 #[path = "keybinding-icons.rs"]
 pub(crate) mod ui_icons;
 

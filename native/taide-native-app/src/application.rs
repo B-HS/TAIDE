@@ -1816,6 +1816,23 @@ impl NativeApplication {
                         Err(error) => self.status = Some(error.to_string()),
                     }
                 }
+                HostReply::ExplorerPathRevealed {
+                    project,
+                    path,
+                    rename,
+                    result,
+                } => match result {
+                    Ok(page) => {
+                        let explorer = self.explorers.entry(project.clone()).or_default();
+                        explorer.select_path(&page.rows, &path);
+                        if rename && let Some(row) = page.rows.iter().find(|row| row.path == path) {
+                            explorer.start_rename(row);
+                        }
+                        self.trees.insert(project, page);
+                        context.request_repaint();
+                    }
+                    Err(error) => self.status = Some(error.to_string()),
+                },
                 HostReply::CopiedText { result } => crate::toast::copy_finished(
                     &mut self.toasts,
                     &self.locale,
@@ -8063,6 +8080,43 @@ impl eframe::App for NativeApplication {
                     ShellIntent::RevealPath(path) => {
                         self.submit(HostCommand::RevealPath(path));
                     }
+                    ShellIntent::RevealInExplorer {
+                        project,
+                        slot,
+                        path,
+                        rename,
+                    } => {
+                        self.symbol_sidebars.entry(&project, &slot).view =
+                            crate::symbol_sidebar::View::Files;
+                        if snapshot
+                            .layouts
+                            .get(&project)
+                            .is_some_and(|layout| layout.shell_view.sidebar_collapsed)
+                            && let Err(error) =
+                                self.controller.submit(ShellMutation::SetSidebarCollapsed {
+                                    project: project.clone(),
+                                    collapsed: false,
+                                })
+                        {
+                            self.report(&error);
+                        }
+                        self.submit(HostCommand::RevealExplorerPath {
+                            project,
+                            path,
+                            rename,
+                        });
+                    }
+                    ShellIntent::ReopenWith { path, preview } => {
+                        self.open_with.set(
+                            path,
+                            if preview {
+                                crate::open_with::Mode::Preview
+                            } else {
+                                crate::open_with::Mode::Editor
+                            },
+                        );
+                        context.request_repaint();
+                    }
                     ShellIntent::OpenPath(path) => {
                         self.submit(HostCommand::OpenPath(path));
                     }
@@ -8379,7 +8433,8 @@ impl eframe::App for NativeApplication {
             && self.pending_entry_delete.is_none()
             && !egui::Popup::is_any_open(&context)
             && !egui::DragAndDrop::has_any_payload(&context)
-            && !taide_native_ui::project_drag::is_dragging(&context);
+            && !taide_native_ui::project_drag::is_dragging(&context)
+            && !taide_native_ui::tab_drag::is_dragging(&context);
         if let Err(error) =
             self.web_views
                 .sync(frame, &context, &live, &web_placements, web_enabled)
@@ -9459,14 +9514,26 @@ impl ShellSurfaces for AppSurfaces<'_> {
         };
         self.show_document(ui, pane, tab, document.id, Some(path), intents);
     }
-    fn tab_icon(&mut self, ui: &Ui, rect: egui::Rect, tab: &Tab, title_color: egui::Color32) {
-        let (glyph, color) = crate::problems_icons::tab(&tab.kind);
-        let color = color.map_or(title_color, |color| {
-            self.explorer_appearance.file_color(color)
+    fn tab_icon(
+        &mut self,
+        ui: &Ui,
+        rect: egui::Rect,
+        tab: &Tab,
+        agent_color: Option<egui::Color32>,
+        title_color: egui::Color32,
+    ) {
+        let (glyph, color) = crate::problems_icons::tab(&tab.kind, agent_color.is_some());
+        let color = agent_color.unwrap_or_else(|| {
+            color.map_or(title_color, |color| {
+                self.explorer_appearance.file_color(color)
+            })
         });
         if let Err(error) = self.explorer_icons.paint(ui, rect, glyph, color, 0.0) {
             *self.status = Some(error.to_string());
         }
+    }
+    fn can_reopen_with(&self, path: &str) -> bool {
+        crate::open_with::preview_kind(path.rsplit('/').next().unwrap_or_default()).is_some()
     }
     fn status_bar(&mut self, ui: &mut Ui, _: Option<&ProjectId>, _: &mut Vec<ShellIntent>) {
         ui.horizontal(|ui| {
@@ -10373,6 +10440,14 @@ mod sticky_definition_tests;
 #[cfg(all(test, unix))]
 #[path = "application-project-rail-tests.rs"]
 mod project_rail_tests;
+
+#[cfg(all(test, unix))]
+#[path = "application-tab-menu-tests.rs"]
+mod tab_menu_tests;
+
+#[cfg(all(test, unix))]
+#[path = "application-tab-drag-tests.rs"]
+mod tab_drag_tests;
 
 #[cfg(test)]
 mod close_all_tests {

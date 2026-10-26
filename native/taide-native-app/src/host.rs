@@ -256,6 +256,11 @@ pub enum HostCommand {
         path: String,
     },
     TreeCollapse(ProjectId),
+    RevealExplorerPath {
+        project: ProjectId,
+        path: String,
+        rename: bool,
+    },
     SetDirty {
         tab: TabId,
         dirty: bool,
@@ -448,6 +453,12 @@ pub enum HostReply {
     TreeToggled {
         project: ProjectId,
         path: String,
+        result: AppResult<TreeRowPage>,
+    },
+    ExplorerPathRevealed {
+        project: ProjectId,
+        path: String,
+        rename: bool,
         result: AppResult<TreeRowPage>,
     },
     SettingsFailed(AppError),
@@ -1958,6 +1969,26 @@ async fn dispatch(
             Some(HostReply::Tree {
                 project,
                 offset: 0,
+                result,
+            })
+        }
+        HostCommand::RevealExplorerPath {
+            project,
+            path,
+            rename,
+        } => {
+            let result = tree_actions::tree_reveal(
+                &services.state,
+                &services.tree,
+                &services.tasks,
+                project.clone(),
+                path.clone(),
+            )
+            .await;
+            Some(HostReply::ExplorerPathRevealed {
+                project,
+                path,
+                rename,
                 result,
             })
         }

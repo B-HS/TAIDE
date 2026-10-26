@@ -12,9 +12,9 @@ const DIALOG_SETTLE_FRAMES: usize = 8;
 const MIRROR_DEBOUNCE_HOLD: Duration = Duration::from_secs(60);
 const UNSAVED_DRAFT: &str = "unsaved beta draft";
 
-struct Fixture {
-    directory: PathBuf,
-    application: Option<NativeApplication>,
+pub(super) struct Fixture {
+    pub(super) directory: PathBuf,
+    pub(super) application: Option<NativeApplication>,
 }
 
 impl Drop for Fixture {
@@ -66,7 +66,7 @@ fn paint_until(
     }
 }
 
-fn project_ref(id: &ProjectId, root: &std::path::Path, name: &str) -> ProjectRef {
+pub(super) fn project_ref(id: &ProjectId, root: &std::path::Path, name: &str) -> ProjectRef {
     ProjectRef {
         id: id.clone(),
         root: root.to_str().unwrap().into(),
@@ -77,7 +77,7 @@ fn project_ref(id: &ProjectId, root: &std::path::Path, name: &str) -> ProjectRef
 }
 
 /// Synthetic app data with the IDE server and agent hooks off.
-fn isolated_state(data: PathBuf) -> AppState {
+pub(super) fn isolated_state(data: PathBuf) -> AppState {
     let state = AppState::new(AppPaths::new(data));
     {
         let mut settings = state.settings.write();
@@ -92,7 +92,7 @@ fn isolated_state(data: PathBuf) -> AppState {
     state
 }
 
-fn insert_project(
+pub(super) fn insert_project(
     state: &AppState,
     id: &ProjectId,
     root: &std::path::Path,
@@ -117,7 +117,7 @@ fn insert_project(
         .insert(id.clone(), taide_layout::service::default_layout());
 }
 
-fn launch(fixture: &mut Fixture, state: AppState) -> egui::Context {
+pub(super) fn launch(fixture: &mut Fixture, state: AppState) -> egui::Context {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -139,7 +139,7 @@ fn launch(fixture: &mut Fixture, state: AppState) -> egui::Context {
     context
 }
 
-fn step(
+pub(super) fn step(
     application: &mut NativeApplication,
     context: &egui::Context,
     events: Vec<egui::Event>,
@@ -150,7 +150,11 @@ fn step(
 
 /// The accessible widget named `label` inside `within`: the rail and a project's slot header both
 /// carry the project name, and the Welcome card and the dialog both show "Save".
-fn node_rect(output: &egui::FullOutput, label: &str, within: egui::Rect) -> Option<egui::Rect> {
+pub(super) fn node_rect(
+    output: &egui::FullOutput,
+    label: &str,
+    within: egui::Rect,
+) -> Option<egui::Rect> {
     output
         .platform_output
         .accesskit_update
@@ -185,7 +189,7 @@ fn dialog_area(context: &egui::Context) -> egui::Rect {
         .expect("project display dialog is shown")
 }
 
-fn pointer(position: egui::Pos2, button: egui::PointerButton) -> Vec<egui::Event> {
+pub(super) fn pointer(position: egui::Pos2, button: egui::PointerButton) -> Vec<egui::Event> {
     [true, false]
         .into_iter()
         .map(|pressed| egui::Event::PointerButton {
@@ -203,7 +207,7 @@ fn pointer(position: egui::Pos2, button: egui::PointerButton) -> Vec<egui::Event
         )
 }
 
-fn click_label(
+pub(super) fn click_label(
     application: &mut NativeApplication,
     context: &egui::Context,
     label: &str,

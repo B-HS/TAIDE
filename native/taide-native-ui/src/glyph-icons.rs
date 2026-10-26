@@ -611,10 +611,11 @@ pub fn folder(name: &str, is_expanded: bool) -> (Glyph, FileColor) {
     }
 }
 
-pub fn tab(kind: &TabKind) -> (Glyph, Option<FileColor>) {
+pub fn tab(kind: &TabKind, has_agent: bool) -> (Glyph, Option<FileColor>) {
     let file_name = match kind {
         TabKind::File { path } => &path[path.rfind('/').map_or(0, |index| index + 1)..],
         TabKind::Untitled { .. } => UNTITLED_TAB_FILE_NAME,
+        TabKind::Terminal { .. } if has_agent => return (Glyph::Sparkles, None),
         TabKind::Terminal { .. } => return (Glyph::Terminal, None),
         TabKind::Settings | TabKind::AppFile { .. } => return (Glyph::Settings, None),
         TabKind::Diff { .. } => return (Glyph::FileDiff, None),

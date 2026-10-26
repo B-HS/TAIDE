@@ -78,6 +78,16 @@ pub enum ShellIntent {
     },
     CopyText(String),
     RevealPath(String),
+    RevealInExplorer {
+        project: ProjectId,
+        slot: ShellSlotId,
+        path: String,
+        rename: bool,
+    },
+    ReopenWith {
+        path: String,
+        preview: bool,
+    },
     OpenPath(String),
     CloseProject(ProjectId),
     OpenProjectInSlot {

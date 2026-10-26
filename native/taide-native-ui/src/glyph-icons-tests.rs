@@ -286,8 +286,12 @@ fn 탭_종류는_ts의_탭_아이콘과_같은_글리프와_색으로_풀린다(
         (r#"{"kind":"welcome"}"#, Glyph::Sparkles, None),
     ] {
         let parsed = serde_json::from_str::<TabKind>(kind).unwrap();
-        assert_eq!(tab(&parsed), (glyph, color), "{kind}");
+        assert_eq!(tab(&parsed, false), (glyph, color), "{kind}");
     }
+    let terminal =
+        serde_json::from_str::<TabKind>(r#"{"kind":"terminal","sessionId":"synthetic-agent"}"#)
+            .unwrap();
+    assert_eq!(tab(&terminal, true), (Glyph::Sparkles, None));
 }
 
 #[test]
