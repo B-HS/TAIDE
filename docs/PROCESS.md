@@ -11,6 +11,18 @@
 - [x] shell-40/41 rail 추가 메뉴·경로 열기 dialog — 75ed9f62
 - [ ] 나머지 batch 24 항목(창 상태/보조 창·OS 메뉴·ErrorBoundary·drop·프로젝트/그룹 메뉴·dialog·drag·4뷰·알림·IDE/IPC 동기화·shell-78 잔여 등). 기능표 기준 전체 314/588 완료·미완료 274
 
+2026-10-26 재개: 사용자 지시로 workflow 단계 단위 자율 진행(`docs/acknowledge/2026-10-26-native-autonomous-continuation.md`). 구현·수정 opus·xhigh, 리뷰 sonnet·xhigh.
+
+- [ ] A. 프로젝트 rail — shell-33·34·35(glyph·rootMissing·agent 배지), shell-36·37·53·38(프로젝트 메뉴·닫기·Open to·표시 편집)
+- [ ] B. 그룹·drag — shell-45·46·47·48, shell-39·49·52
+- [ ] C. 탭 — shell-75·78, shell-81·82
+- [ ] D. 보조 창 — shell-4·5·6·8, shell-7·61
+- [ ] E. 앱 수준 — shell-3·25(창·세션 복원), shell-9(OS 메뉴), shell-12·22(ErrorBoundary·OS drop)
+- [ ] F. 셸 기타 — shell-21·24·54, shell-59·94·98
+- [ ] G. 통합 — shell-90·92·93, shell-91·96
+- [ ] H. 배치 24 통합 게이트 — 변경 크레이트 전체 대상 `--no-fail-fast` 1회, 기능표 합계 갱신
+- 보류: shell-15(실제 사용자 데이터 경로 — 허락 필요), shell-89(배치 25·26 뒤)
+
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)
 
 현재 상태: b3e11(JSON schema 의미 검증)과 부모 b3e(JSON 진단·schema)를 완료했습니다. 원본 Monaco 기본값(schemas=[], enableSchemaRequest=false)과 내장 draft-04/07 메타 schema를 실제 App JSON 진단 작업에 공급했고 실제 JSONWorker 57사례·App JSON 20통과가 근거입니다. 다음은 b3의 나머지 JSON hover/completion·CSS/HTML/TS 내장 서비스와 c9c2/c9d입니다. App lib 전체의 기존 시간 초과·글꼴 10건은 변경 전에도 재현되어 배치 31에 유지합니다. 전체303/588(51.5%)·미완료285·editor-57partial/editor-16partial·목표active·잔여시간미산정을 유지합니다.
