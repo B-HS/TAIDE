@@ -15,7 +15,7 @@
 
 - [x] A. 프로젝트 rail — `4a580bad` `e90385a8`. shell-33·34·35·53·38 complete, shell-36 partial('새 그룹'은 B에서 dialog 연결), shell-37 partial(리뷰 차단 '닫은 프로젝트 문서 미해제'는 수정, tree 캐시·dirty peek·전송 중 mirror 잔여). QA `2026-10-26-native-project-rail-{display,menu}.md`
 - [x] B. 그룹·drag — `7d5861e8` `4821aafd`. shell-45·46·47·48·36·39·49·52 complete(리뷰 차단 '그룹 헤더 hover clip 교집합'은 재현 후 수정). 정렬 애니메이션·요청 식별자 없는 늦은 응답은 QA 부채. QA `2026-10-26-native-project-{groups,drag}.md`
-- [ ] C. 탭 — shell-75·78, shell-81·82
+- [x] C. 탭 — `200c0175` `36af48b5`. shell-75·81·82 complete, shell-78 partial(창 이동은 D, Git 변경 열기·파일 이력은 배치 26). 리뷰 pass, 비차단: 해제 프레임 Escape·빈 영역 해제 시 직전 대상 drop 경계, resize 취소 검사 부재. QA `2026-10-27-native-tab-{icons-menu,drag}.md`
 - [ ] D. 보조 창 — shell-4·5·6·8, shell-7·61
 - [ ] E. 앱 수준 — shell-3·25(창·세션 복원), shell-9(OS 메뉴), shell-12·22(ErrorBoundary·OS drop)
 - [ ] F. 셸 기타 — shell-21·24·54, shell-59·94·98
