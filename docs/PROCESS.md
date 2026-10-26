@@ -525,6 +525,16 @@
 
 읽기 전용 재개 준비: `src/shared/lib/monaco/monaco-actions.ts`가 편집 명령 카탈로그이며 `src/shared/lib/monaco/monaco-keybinding.ts`의 사용자 재지정은 기존 기본 키 해제·새 키 등록·위젯 문맥 우선순위를 함께 처리합니다. `src/shared/lib/keymap/keymap.ts`에서 앱 chord의 `!terminalFocus` 조건과 편집기 커서 키를 피한 탭 이동 키를 확인했습니다. native에는 `editing.rs`의 기본 이동·단어 삭제·들여쓰기·붙여넣기 API와 `view.rs`의 선택 상태가 이미 있으므로 명령 연결 누락과 코어 동작 누락을 구분합니다. 실제 UI·앱 입력 파일명은 `editor_surface.rs`·`terminal_surface.rs`이고 기존 검증 대상 `editor_surface`·`keymap-platform`·`save`·`save-syntax`·`paste-shortcuts`가 존재합니다. 이 준비에서는 해당 테스트를 실행하지 않았습니다. 준비 당시 복원 확인과 명시적 재개 지시는 미수신이었으며 현재는 재개 지시를 받았습니다.
 
+## 완료: 세션 핸드오프 준비 (/prepare-new, 2026-10-09)
+
+사용자가 `/prepare-new`를 호출했습니다. workflow는 사용하지 않고 메인이 직접 수행했습니다. 애플리케이션 코드는 수정하지 않았습니다.
+
+- [x] a. 세션 컨텍스트 목록화와 코드·문서 대조 — 커밋 31개(`28240055..bf5175ca`), 인용 경로 34곳 모두 존재, 작업 트리 깨끗. `bf5175ca`는 다른 에이전트의 점검 커밋(아래 절)
+- [x] b. 문서 갱신 — `docs/HANDOFF.md` 전면 교체, `docs/architecture.md` 9절(native 구조) 추가, `docs/acknowledge/2026-10-06-native-transition-decisions.md`에 기각된 대안과 진행 지시 추가, `docs/memory/2026-10-07-native-transition-operations.md`, `docs/feedback/2026-10-07-build-cache-disk-usage.md`, `docs/feedback/2026-10-07-batch-integration-full-test-gate.md` 신규
+- [x] c. 유실 검사와 재개 프롬프트 출력
+
+새 세션의 진입점은 `docs/HANDOFF.md`입니다. 재개 시 workflow 사용 여부를 다시 묻습니다(이전 선택을 승계하지 않음). 구현 일시정지와 "배치 7까지만" 지시는 유지됩니다.
+
 ## 점검: 현재 작업과 남은 작업 확인 (2026-10-07)
 
 사용자 요청: 현재 작업과 남은 항목을 먼저 확인합니다. 구현 재개는 이번 점검에 포함하지 않습니다. 기준은 실제 파일과 최신 Git 상태이며, 아래 선행 기록의 완료율을 현재 기능 대응률로 사용하지 않습니다.
@@ -585,7 +595,7 @@
     - 작업 트리: 사용자 지시("일단 여기까지 commit push 해놔")로 단계 1 완료분과 단계 2 진행분을 한 커밋으로 올렸습니다. 커밋 전 메인 확인: 5개 native 크레이트 `cargo check --tests` 오류 0, syntax 136·editor 134·ui(lib + editor_surface) 189·앱 lib 369 통과. 앱 전체 통합 테스트 대상은 실행하지 않았습니다. 단계 2 진행분은 `editing.rs`·`command-registry.rs`·`command-dispatch.rs`의 일부 변경이며 리뷰를 거치지 않았습니다
     - 재개 방법: 같은 세션이면 Workflow를 `scriptPath` + `resumeFromRunId: wf_54a185cc-5bd`로 다시 실행(완료된 작업자는 캐시, 단계 2는 미커밋 변경을 읽고 이어서 작업하도록 지시돼 있음). 새 세션이면 `docs/utils/2026-10-07-native-batch7-workflow.js`(스크립트 사본)로 새로 실행하되, 먼저 작업 트리가 컴파일되는지 확인하고 단계 1은 이미 구현돼 있음을 작업자에게 알려야 합니다
     - 재개 뒤에도 배치 7까지만 하고 멈추라는 직전 지시가 유효합니다
-    - 찾기 정규식 조사의 추천: JS 방언 유지, `regress =0.12.0`을 게이트 조건부 채택(새 의존성 1개, 네트워크 내려받기 필요). 결정 7건은 조사 문서 참조
+    - 찾기 정규식 조사의 추천: JS 방언 유지, `regress =0.12.0`을 게이트 조건부 채택(새 의존성 1개, 네트워크 내려받기 필요). 결정은 조사 문서 7절의 6건입니다(작업자 반환값에는 성능 게이트 기준값이 7번째로 들어 있었으나 문서에는 번호 없는 항목)
 - [x] w. 전환 배치 7 구현 — 2026-10-09 재개에서는 서브에이전트·workflow 없이 메인이 언어 구성 리뷰 차단, 편집 명령 1(줄·텍스트 조작·기본 키), 편집 명령 2(커서·선택·다중 커서)를 직렬로 완료했습니다. 이전 찾기 방언 조사와 미결 결정은 보존합니다. 최신 결과는 PROCESS 상단 완료 절과 배치 7 통합 QA 참조
 - [x] x. 배치 7 검증·기록·커밋·푸시 — 변경 4개 크레이트 전체 대상 직접 실행, 안전한 실패 선별 재검사, QA 기록과 `3a011d35`·`866761e5` 일반 push 완료입니다. 기존 XLML 1건과 Trash 보호 검사 3건은 별도로 기록하며 전체 통과 선언은 하지 않습니다. 사용자 지시에 따라 배치 7 뒤 중단하며 배치 8 이후는 별도 지시를 기다립니다
 - 사용자 결정 대기: 번들 테마 `intellij-islands-light`의 7자리 색 값, `glsl` 문법 포함 유지, 한도 초과 문서의 저장 정리 범위, 전역 ⌘N, 실행 경로 없는 명령의 노출, 팔레트 배경, status 라벨 56곳

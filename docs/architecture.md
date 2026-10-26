@@ -902,3 +902,54 @@ eslint `no-restricted-imports` 는 import **방향**만 강제하고 레이어�
   `docs/research/lsp-servers.md` 결과에 따름).
 - `taide` CLI: single-instance 로 기존 앱에 위임(deep link/IPC). `--wait` 는 탭 닫힘 시그널까지 블록
   (`features/agent-integration.md`).
+
+## 9. Rust-native 전환 구조 (M8, 진행 중)
+
+> 최종 갱신일: 2026-10-09 · 대응 커밋: `bf5175ca` (브랜치 `to_rust_native`)
+> 1~8절은 현행 Tauri + React 앱의 구조이고 지금도 유효합니다. 이 절은 병행 개발 중인 native 앱의 구조입니다. 진행 상태와 남은 범위는 `docs/HANDOFF.md`, 목표 crate 경계는 `docs/roadmap-rust-native.md` 2절입니다.
+
+### 9.1 크레이트
+
+native 크레이트는 루트 workspace 밖의 개별 workspace이며 각자 `Cargo.lock`을 갖습니다. 공유 코어(`crates/taide-*`)는 Tauri 앱과 native 앱이 함께 씁니다.
+
+| 크레이트 | 책임 | 의존 |
+| --- | --- | --- |
+| `native/taide-native-app` | 실행 파일. `src/main.rs` → `src/application.rs`의 `NativeApplication`(eframe App). 셸 조립, 호스트 브리지, 탐색기, 터미널 표면, 미리보기, 원격 HTTP/WS·IDE 서버 | 아래 전부와 `crates/taide-*` |
+| `native/taide-native-ui` | native 앱과 브라우저 클라이언트가 공유하는 egui UI: 셸, 편집기 표면, 설정, 테마·키바인딩·스니펫 편집기, 팔레트, toast, modal, 아이콘, 명령 레지스트리, 키맵 | `taide-native-editor`, `taide-model`, `native-host` feature에서 runtime 계열 |
+| `native/taide-native-editor` | egui 비의존 편집 코어: rope 문서·뷰 스토어, 트랜잭션·undo, 편집 저널, 줄 토큰, 표시 줄 매핑(wrap·숨김), 세로 배치, 장식, 접기, 자동 들여쓰기·괄호 쌍의 규칙 인터페이스, 스니펫 | `taide-model`, ropey |
+| `native/taide-native-syntax` | 구문 토큰화: `ferriki-textmate`(vscode-textmate 이식) + `ferroni`(Oniguruma 이식), 문법 37개, 토큰 테마, 토큰화 스레드, 플러그인 문법, Monaco 언어 구성과 JS 정규식 평가 | `taide-native-editor`. 앱만 의존 |
+| `native/taide-native-terminal` | `alacritty_terminal` 기반 터미널 코어, 세션, 입력 인코딩, 선택 | `taide-infra`, `taide-model` |
+| `native/taide-native-retained` | retained 메모리 계측 유틸 | 없음 |
+| `native/taide-remote-web` | 브라우저 Wasm 원격 클라이언트. **동결**(컴파일만 유지) | `taide-native-ui`(기본 feature 끔), `taide-remote-wire` |
+
+정규식이 필요한 규칙과 구문 엔진은 `taide-native-syntax`에만 둡니다. `taide-native-ui`가 그것에 의존하면 동결된 `taide-remote-web`의 의존 그래프가 바뀌기 때문입니다. 그래서 표면은 `taide-native-editor`의 자료형(`LineTokens`, 스타일 표, 장식 층)만 보고, 앱이 `taide-native-syntax`로 평가한 결과를 넘깁니다.
+
+제품 크레이트가 `experiments/native-shell-spike/vendor/eframe`과 `experiments/terminal-core-spike/vendor/vte`를 path로 참조하고, `native/taide-native-app/vendor`에 egui-input·wry-preview·rhwp·cfb-retained·zip-retained fork가 있습니다. 정리는 구조 정리 배치의 범위입니다.
+
+### 9.2 한 프레임의 흐름
+
+시작: `main.rs`가 `bootstrap::restore`로 `AppServices`(`taide-runtime`)를 조립하고 `eframe::run_native`로 `NativeApplication`을 띄웁니다. 이후 매 프레임은 다음 순서입니다.
+
+1. `background_tick`: 호스트 응답 수신, 이벤트 반영, 플러그인 문법 추적, 팔레트 파일 목록 무효화
+2. 키맵: 키 결정 → `command-dispatch` → `ShellIntent` 또는 문서 편집 큐
+3. `shell.show`(`taide-native-ui`): 타이틀바, rail, slot·pane 분할, 탭, 상태바. 탭 내용은 종류에 따라 편집기 표면, 터미널, 미리보기, 설정 등을 그립니다
+4. 오버레이: 팔레트, 키바인딩 편집기, 다이얼로그, tooltip, toast
+5. 그 프레임에 모인 `ShellMutation`과 `HostCommand` 제출
+
+- **호스트 호출**: UI는 `HostBridge`(`native/taide-native-app/src/host.rs`)에 `HostCommand`를 보내고 `HostReply`를 다음 프레임에 받습니다. worker 1개가 직렬 처리하며 큐 용량은 64입니다. 일부 경로는 facade(`crates/taide-runtime/src/*_actions.rs`)를 거치지 않고 `taide_layout::service` 등을 직접 호출합니다.
+- **편집기**: `EditorStore`(코어) → `NativeEditor::show_request`(표면)가 입력을 트랜잭션으로 적용하고 그립니다. 앱의 `EditorSyntax`(`src/editor-syntax.rs`)가 문서 열기·편집(저널)·닫기·테마 변경을 `TokenPipeline`의 토큰화 스레드 요청으로 바꾸고, 응답으로 받은 줄 토큰을 표면에 빌려줍니다. 저장 직전에 정확히 토큰화된 줄까지의 토큰 정보를 저장 정리에 공급합니다.
+- **명령**: TS가 등록하던 명령 212개가 `native/taide-native-ui/src/command-registry.rs`에 등재돼 있고, 실행 경로가 있는 것과 없는 것이 타입으로 구분됩니다. 키맵, 팔레트, 컨텍스트 메뉴가 `native/taide-native-app/src/command-dispatch.rs`의 같은 실행 경로를 씁니다.
+- **터미널**: `terminal_host::Hub`가 세션과 프레임 큐를 소유하고 `terminal_surface::Views`가 그립니다. 전역 키맵 라우팅 함수가 아직 `terminal_surface.rs`에 있습니다.
+- **이벤트**: 백엔드 `AppEvent`는 `event-relay.rs`가 원격 클라이언트로 중계하고, native 화면은 그중 일부(파일·설정·테마 등)만 반영합니다.
+
+### 9.3 현행 구조와의 차이
+
+| 항목 | Tauri + React | native |
+| --- | --- | --- |
+| UI ↔ 코어 | specta 생성 IPC command 206종과 event 30종 | 같은 프로세스 안의 `HostCommand`/`HostReply`와 직접 호출. native 화면이 호출하는 command는 감사 시점 91종 |
+| 편집기 | Monaco + Shiki | rope 코어 + egui 표면 + `ferriki-textmate` |
+| 터미널 | xterm | `alacritty_terminal` + egui 도색 |
+| 창 | 메인 + 보조 창 | 단일 창(보조 창 미구현) |
+| 데이터 경로 | `app_data_dir`, identifier `net.gumyo.taide` | `--data-dir` 필수, keychain 서비스명 `net.gumyo.taide.native-isolated` |
+| HTML·미디어 미리보기 | iframe | vendored wry의 WKWebView(macOS 전용) |
+
