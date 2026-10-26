@@ -119,6 +119,23 @@ pub fn shell_colors(theme: &ResolvedTheme) -> AppResult<ShellColors> {
         active_indicator: color(theme, "tabBar.tabActiveIndicator")?,
         editor_background: color(theme, "editor.background")?,
         editor_foreground: color(theme, "editor.foreground")?,
+        rail: crate::project_rail::RailColors {
+            item_hover: color(theme, "appSidebar.itemHover")?,
+            item_active: color(theme, "appSidebar.itemActive")?,
+            accent: color(theme, "app.accent")?,
+            agent_working: color(theme, "appSidebar.iconAgentWorking")?,
+            agent_awaiting: color(theme, "appSidebar.iconAgentAwaiting")?,
+            agent_idle: color(theme, "appSidebar.iconAgentIdle")?,
+            agent_unknown: color(theme, "appSidebar.iconAgentUnknown")?,
+            lanes: crate::project_rail::PROJECT_COLOR_TOKENS
+                .iter()
+                .map(|token| color(theme, &format!("graph.{token}")))
+                .collect::<AppResult<Vec<_>>>()?
+                .try_into()
+                .map_err(|_| {
+                    AppError::Internal("native theme lane colors are incomplete".into())
+                })?,
+        },
     })
 }
 

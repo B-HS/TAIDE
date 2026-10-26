@@ -7,7 +7,7 @@ use taide_model::tree::TreeRowPage;
 use taide_native_editor::store::SaveSnapshot;
 use taide_native_ui::document_admission::{PreparedDocument, prepare_opened_document};
 use taide_runtime::{
-    AppServices, layout_actions, native_file_actions, system_actions, tree_actions,
+    AppServices, layout_actions, native_file_actions, project_actions, system_actions, tree_actions,
 };
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -181,6 +181,20 @@ pub enum HostCommand {
     SaveMirroredTab(TabId),
     OpenProject(String),
     OpenProjectByPath(String),
+    CloseProject(ProjectId),
+    OpenProjectInSlot {
+        project: ProjectId,
+        slot: taide_model::ids::ShellSlotId,
+        edge: taide_model::project::ShellSlotEdge,
+    },
+    SetProjectGroupMembers {
+        group: taide_model::ids::ProjectGroupId,
+        members: Vec<ProjectId>,
+    },
+    SetProjectDisplay {
+        project: ProjectId,
+        patch: taide_model::project::ProjectDisplayPatch,
+    },
     RestoreWatchers,
     RefreshTree {
         project: ProjectId,
@@ -425,6 +439,8 @@ pub enum HostReply {
     SettingsFailed(AppError),
     Failed(AppError),
     ProjectOpenedByPath(taide_model::error::AppResult<()>),
+    ProjectDisplaySet(taide_model::error::AppResult<()>),
+    ProjectClosed(ProjectId),
 }
 
 pub struct HostBridge {
@@ -451,6 +467,16 @@ impl HostIntegrations {
             view_states.flush(services).await?;
         }
         Ok(())
+    }
+
+    /// The project lifecycle the remote `project_close` uses, so a close also discards the
+    /// project's terminal tabs.
+    fn projects(&self, services: &Arc<AppServices>) -> crate::projects::NativeProjects {
+        let projects = crate::projects::NativeProjects::new(services.clone());
+        match &self.terminals {
+            Some(terminals) => projects.with_terminals(terminals.tabs.hub().clone()),
+            None => projects,
+        }
     }
 }
 
@@ -1561,6 +1587,76 @@ async fn dispatch(
             .await;
             Some(HostReply::ProjectOpenedByPath(result))
         }
+        HostCommand::CloseProject(project) => {
+            let closed = project.clone();
+            let result = async {
+                project_actions::get_project(&services.state.projects.read(), &project)?;
+                integrations.flush_view_states(services).await?;
+                flush_layouts(services).await?;
+                project_actions::project_close(
+                    services.events.as_ref(),
+                    &services.state,
+                    &integrations.projects(services),
+                    project,
+                )
+                .await
+            }
+            .await;
+            Some(match result {
+                Ok(()) => HostReply::ProjectClosed(closed),
+                Err(error) => HostReply::Failed(error),
+            })
+        }
+        HostCommand::OpenProjectInSlot {
+            project,
+            slot,
+            edge,
+        } => {
+            let result = async {
+                project_actions::get_project(&services.state.projects.read(), &project)?;
+                project_actions::ensure_slot_placement_allowed(
+                    &services.state.session.read(),
+                    Some(&project),
+                    &slot,
+                    edge,
+                )?;
+                integrations.flush_view_states(services).await?;
+                project_actions::project_open_in_slot(
+                    services.events.as_ref(),
+                    &services.state,
+                    &integrations.projects(services),
+                    taide_model::project::OpenProjectInSlotRequest {
+                        path: None,
+                        project_id: Some(project),
+                        target_slot: slot,
+                        edge,
+                    },
+                )
+                .await
+            }
+            .await;
+            result.err().map(HostReply::Failed)
+        }
+        HostCommand::SetProjectGroupMembers { group, members } => {
+            project_actions::project_group_set_members(
+                services.events.as_ref(),
+                &services.state,
+                group,
+                members,
+            )
+            .await
+            .err()
+            .map(HostReply::Failed)
+        }
+        HostCommand::SetProjectDisplay { project, patch } => Some(HostReply::ProjectDisplaySet(
+            project_actions::project_set_display(
+                services.events.as_ref(),
+                &services.state,
+                project,
+                patch,
+            )
+            .await,
+        )),
         HostCommand::RestoreWatchers => {
             let pending_services = services.clone();
             let sender = sender.clone();

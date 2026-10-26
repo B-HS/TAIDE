@@ -48,6 +48,29 @@ impl ShellSnapshot {
         let layout = self.layouts.get(self.focused_project()?)?;
         active_tab(&layout.root, &layout.focused_pane)
     }
+
+    /// Original `resolveShellSlotFocus`: the focused slot when it is still a leaf, otherwise the
+    /// first leaf, and `None` only while no slot exists.
+    pub fn focused_slot(&self) -> Option<&ShellSlotId> {
+        let mut slots = Vec::new();
+        slot_ids(self.shell.tree.as_ref()?, &mut slots);
+        slots
+            .iter()
+            .find(|slot| Some(**slot) == self.shell.focused.as_ref())
+            .or_else(|| slots.first())
+            .copied()
+    }
+}
+
+fn slot_ids<'a>(tree: &'a ShellSlotTree, slots: &mut Vec<&'a ShellSlotId>) {
+    match tree {
+        ShellSlotTree::Leaf { slot_id, .. } => slots.push(slot_id),
+        ShellSlotTree::Split { children, .. } => {
+            for child in children {
+                slot_ids(child, slots);
+            }
+        }
+    }
 }
 
 pub struct ProjectGroupSections<'a> {

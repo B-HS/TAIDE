@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use super::glyphs::{FileColor, Glyph, Icons, file, folder, tab};
+use super::glyphs::{FileColor, Glyph, Icons, PROJECT_ICONS, file, folder, project, tab};
 use egui::{Color32, Rect};
 use taide_model::layout::TabKind;
 
@@ -293,6 +293,38 @@ fn 탭_종류는_ts의_탭_아이콘과_같은_글리프와_색으로_풀린다(
 #[test]
 fn 탭_전용_글리프는_파일_타입_글리프와_구분되는_서로_다른_모양으로_그려진다() {
     let glyphs = [FILE_TYPE_GLYPHS.as_slice(), TAB_ONLY_GLYPHS.as_slice()].concat();
+    let rasters = rasters(&glyphs);
+    assert_eq!(rasters.len(), glyphs.len());
+    assert!(
+        rasters
+            .iter()
+            .all(|pixels| pixels.iter().any(|pixel| pixel.a() > 0))
+    );
+}
+
+#[test]
+fn 프로젝트_아이콘_카탈로그는_원본_순서의_서로_다른_글리프이고_모르는_id는_폴더로_풀린다() {
+    let ids = PROJECT_ICONS.iter().map(|(id, _)| *id).collect::<Vec<_>>();
+    assert_eq!(ids.iter().collect::<HashSet<_>>().len(), ids.len());
+    assert_eq!(ids.first(), Some(&"code"));
+    assert_eq!(ids.last(), Some(&"package"));
+    let glyphs = PROJECT_ICONS
+        .iter()
+        .map(|(_, glyph)| *glyph)
+        .collect::<Vec<_>>();
+    assert_eq!(glyphs.iter().collect::<HashSet<_>>().len(), glyphs.len());
+    for (id, glyph) in PROJECT_ICONS {
+        assert_eq!(project(Some(id)), glyph, "{id}");
+    }
+    for unknown in [
+        None,
+        Some(""),
+        Some("constructor"),
+        Some("Rocket"),
+        Some(" rocket"),
+    ] {
+        assert_eq!(project(unknown), Glyph::Folder, "{unknown:?}");
+    }
     let rasters = rasters(&glyphs);
     assert_eq!(rasters.len(), glyphs.len());
     assert!(

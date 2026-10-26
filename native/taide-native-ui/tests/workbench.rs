@@ -2,6 +2,7 @@ use std::sync::Mutex;
 
 use egui::epaint::Shadow;
 use egui::{Color32, CornerRadius, Rect, Stroke, Ui, pos2, vec2};
+use taide_model::agent::{AgentActivity, BlockedReason, DetectedAgent};
 use taide_model::app_event::AppEvent;
 use taide_model::ids::{PaneId, ProjectGroupId, ProjectId, ShellSlotId, TabId};
 use taide_model::layout::{
@@ -9,10 +10,12 @@ use taide_model::layout::{
 };
 use taide_model::paths::AppPaths;
 use taide_model::project::{
-    ProjectDisplay, ProjectGroup, ProjectRef, SessionShellState, ShellSlotTree, WindowChrome,
+    ProjectDisplay, ProjectGroup, ProjectRef, SessionShellState, ShellSlotEdge, ShellSlotTree,
+    WindowChrome,
 };
 use taide_native_ui::commands::{ShellIntent, ShellMutation, dispatch, request_close_tab};
 use taide_native_ui::presentation::{apply_visuals, visuals};
+use taide_native_ui::project_rail::{RailColors, RailIcon};
 use taide_native_ui::shell::{
     NativeShell, ShellColors, ShellSurfaces, TITLE_HEIGHT, WelcomeContent, WelcomeRecent,
     WelcomeShortcutRow, WindowScope,
@@ -49,6 +52,21 @@ const FRAME_SECONDS: f64 = 1.0 / 60.0;
 const TAB_ICON_SIDE: f32 = 14.0;
 const TAB_ICON_GAP: f32 = 6.0;
 const PIXEL_SNAP_TOLERANCE: f32 = 0.5;
+const RAIL_HOVER: Color32 = Color32::from_rgb(1, 2, 3);
+const RAIL_ACTIVE: Color32 = Color32::from_rgb(4, 5, 6);
+const RAIL_ACCENT: Color32 = Color32::from_rgb(7, 8, 9);
+const AGENT_WORKING: Color32 = Color32::from_rgb(10, 200, 10);
+const AGENT_AWAITING: Color32 = Color32::from_rgb(200, 200, 10);
+const AGENT_IDLE: Color32 = Color32::from_rgb(10, 10, 200);
+const AGENT_UNKNOWN: Color32 = Color32::from_rgb(90, 90, 90);
+const LANE_RED: u8 = 240;
+const RAIL_GLYPH_ICON_SIDE: f32 = 20.0;
+const RAIL_BUTTON_SIDE: f32 = 40.0;
+const ROOT_MISSING_OPACITY: f32 = 0.5;
+const TOOLTIP_HOVER_SECONDS: f64 = 10.0;
+const TOOLTIP_SECONDARY_OPACITY: f32 = 0.7;
+const TOOLTIP_FADE_SECONDS: f64 = 0.5;
+const TOOLTIP_SETTLE_SECONDS: f64 = 1.0;
 
 #[derive(Default)]
 struct Sink(Mutex<Vec<AppEvent>>);
@@ -69,11 +87,28 @@ struct Surfaces {
     tab_icons: Vec<(TabId, Rect, Color32)>,
     welcome: Option<WelcomeContent>,
     rail: Vec<WelcomeRecent>,
+    agents: std::collections::HashMap<ProjectId, Vec<DetectedAgent>>,
+    is_badge_disabled: bool,
+    is_reduced_motion: bool,
+    rail_icons: Vec<(String, Rect, Color32, f32)>,
 }
 
 impl ShellSurfaces for Surfaces {
     fn rail_recent_projects(&self) -> Vec<WelcomeRecent> {
         self.rail.clone()
+    }
+    fn project_agents(&self, project: &ProjectId) -> Vec<DetectedAgent> {
+        self.agents.get(project).cloned().unwrap_or_default()
+    }
+    fn is_agent_status_badge_enabled(&self) -> bool {
+        !self.is_badge_disabled
+    }
+    fn is_reduced_motion(&self) -> bool {
+        self.is_reduced_motion
+    }
+    fn rail_icon(&mut self, ui: &Ui, rect: Rect, icon: RailIcon<'_>, color: Color32) {
+        self.rail_icons
+            .push((format!("{icon:?}"), rect, color, ui.opacity()));
     }
     fn welcome_content(&self, _: Option<&ProjectId>) -> WelcomeContent {
         self.welcome.clone().unwrap_or_default()
@@ -142,6 +177,16 @@ fn shell(scope: WindowScope) -> NativeShell {
             active_indicator: COLOR,
             editor_background: COLOR,
             editor_foreground: COLOR,
+            rail: RailColors {
+                item_hover: RAIL_HOVER,
+                item_active: RAIL_ACTIVE,
+                accent: RAIL_ACCENT,
+                agent_working: AGENT_WORKING,
+                agent_awaiting: AGENT_AWAITING,
+                agent_idle: AGENT_IDLE,
+                agent_unknown: AGENT_UNKNOWN,
+                lanes: std::array::from_fn(|lane| Color32::from_rgb(LANE_RED, lane as u8, 0)),
+            },
         },
         has_title_bar: true,
     }
@@ -1814,5 +1859,789 @@ fn rail_추가메뉴는_경로_finder_최근프로젝트와_root누락_비활성
         intents
             .iter()
             .any(|intent| matches!(intent, ShellIntent::OpenProjectByPath))
+    );
+}
+
+fn rail_frame(
+    context: &egui::Context,
+    snapshot: &ShellSnapshot,
+    mut surfaces: Surfaces,
+    time: f64,
+    events: Vec<egui::Event>,
+) -> (Surfaces, Vec<ShellIntent>, egui::FullOutput) {
+    let input = egui::RawInput {
+        screen_rect: Some(Rect::from_min_size(
+            pos2(0.0, 0.0),
+            vec2(WINDOW_SIZE[0], WINDOW_SIZE[1]),
+        )),
+        time: Some(time),
+        events,
+        ..Default::default()
+    };
+    let mut intents = Vec::new();
+    let mut output = context.run_ui(input, |ui| {
+        intents = shell(WindowScope::Main).show(ui, snapshot, &mut surfaces);
+    });
+    output.textures_delta.clear();
+    (surfaces, intents, output)
+}
+
+fn access_node(
+    output: &egui::FullOutput,
+    label: &str,
+) -> Option<(Rect, Option<egui::accesskit::Toggled>)> {
+    output
+        .platform_output
+        .accesskit_update
+        .as_ref()?
+        .nodes
+        .iter()
+        .find_map(|(_, node)| {
+            (node.label() == Some(label)).then(|| {
+                node.bounds().map(|bounds| {
+                    (
+                        Rect::from_min_max(
+                            pos2(bounds.x0 as f32, bounds.y0 as f32),
+                            pos2(bounds.x1 as f32, bounds.y1 as f32),
+                        ),
+                        node.toggled(),
+                    )
+                })
+            })?
+        })
+}
+
+fn text_shape<'a>(
+    output: &'a egui::FullOutput,
+    text: &str,
+) -> Option<(&'a egui::epaint::TextShape, Rect)> {
+    output
+        .shapes
+        .iter()
+        .find_map(|clipped| match &clipped.shape {
+            egui::Shape::Text(shape) if shape.galley.text() == text => {
+                Some((shape, shape.visual_bounding_rect()))
+            }
+            _ => None,
+        })
+}
+
+fn rail_agent(
+    session: &str,
+    name: &str,
+    activity: AgentActivity,
+    reason: Option<BlockedReason>,
+) -> DetectedAgent {
+    DetectedAgent {
+        session_id: session.into(),
+        name: name.into(),
+        pid: 1,
+        activity,
+        blocked_reason: reason,
+    }
+}
+
+#[test]
+fn 프로젝트_rail은_라벨_아이콘_기본_glyph와_사용자색_root누락_흐림을_원본처럼_그린다() {
+    let mut snapshot = fixture();
+    let template = snapshot.projects[0].clone();
+    snapshot.projects.push(ProjectRef {
+        id: ProjectId::new(),
+        name: "gamma".into(),
+        ..template
+    });
+    snapshot.projects[0].display = ProjectDisplay {
+        icon: Some("rocket".into()),
+        label: Some(" 가나다라마 ".into()),
+        color: Some("lane3".into()),
+    };
+    snapshot.projects[0].root_missing = true;
+    snapshot.projects[1].display = ProjectDisplay {
+        icon: Some(" rocket ".into()),
+        label: Some("  ".into()),
+        color: Some("lane99".into()),
+    };
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let (surfaces, _, output) =
+        rail_frame(&context, &snapshot, Surfaces::default(), 0.0, Vec::new());
+    let names: Vec<_> = snapshot
+        .projects
+        .iter()
+        .map(|project| project.name.clone())
+        .collect();
+    let buttons: Vec<_> = names
+        .iter()
+        .map(|name| access_node(&output, name).expect("rail project button is accessible"))
+        .collect();
+    assert_eq!(
+        buttons
+            .iter()
+            .map(|(_, toggled)| *toggled)
+            .collect::<Vec<_>>(),
+        [
+            Some(egui::accesskit::Toggled::False),
+            Some(egui::accesskit::Toggled::True),
+            Some(egui::accesskit::Toggled::False)
+        ]
+    );
+    for (rect, _) in &buttons {
+        assert_eq!(rect.size(), egui::Vec2::splat(RAIL_BUTTON_SIDE));
+    }
+    let (label, label_rect) =
+        text_shape(&output, "가나다라").expect("label glyph replaces the icon");
+    let format = &label.galley.job.sections[0].format;
+    assert_eq!(format.font_id.size, 9.0);
+    assert!(format.extra_letter_spacing < 0.0);
+    assert_eq!(
+        label.fallback_color,
+        Color32::from_rgb(LANE_RED, 2, 0).gamma_multiply(ROOT_MISSING_OPACITY)
+    );
+    assert!(
+        buttons[0]
+            .0
+            .expand(PIXEL_SNAP_TOLERANCE)
+            .contains_rect(label_rect)
+    );
+    assert!(text_shape(&output, &names[0][..1]).is_none());
+    assert_eq!(surfaces.rail_icons.len(), 2);
+    let (icon, rect, color, opacity) = &surfaces.rail_icons[0];
+    assert_eq!(icon, &format!("{:?}", RailIcon::Project(Some("rocket"))));
+    assert_eq!(*color, COLOR);
+    assert_eq!(*opacity, 1.0);
+    assert_eq!(rect.size(), egui::Vec2::splat(RAIL_GLYPH_ICON_SIDE));
+    assert!((rect.center() - buttons[1].0.center()).length() < PIXEL_SNAP_TOLERANCE);
+    let (icon, rect, _, _) = &surfaces.rail_icons[1];
+    assert_eq!(icon, &format!("{:?}", RailIcon::Project(None)));
+    assert!((rect.center() - buttons[2].0.center()).length() < PIXEL_SNAP_TOLERANCE);
+    let rects: Vec<_> = output
+        .shapes
+        .iter()
+        .filter_map(|clipped| match &clipped.shape {
+            egui::Shape::Rect(shape) => Some((shape.rect, shape.fill, clipped.clip_rect)),
+            _ => None,
+        })
+        .collect();
+    assert!(rects.iter().any(|(rect, fill, _)| {
+        *fill == RAIL_ACTIVE
+            && (rect.min - buttons[1].0.min).length() < PIXEL_SNAP_TOLERANCE
+            && rect.size() == buttons[1].0.size()
+    }));
+    let (indicator, _, clip) = rects
+        .iter()
+        .find(|(_, fill, _)| *fill == RAIL_ACCENT)
+        .expect("active project draws the accent indicator");
+    assert_eq!(indicator.size(), vec2(2.0, 20.0));
+    assert!(indicator.right() < buttons[1].0.left());
+    assert!(clip.contains_rect(*indicator));
+    let mut snapshot = snapshot;
+    snapshot.projects[0].display.color = None;
+    let (_, _, output) = rail_frame(
+        &context,
+        &snapshot,
+        Surfaces::default(),
+        FRAME_SECONDS,
+        Vec::new(),
+    );
+    let (label, _) = text_shape(&output, "가나다라").unwrap();
+    assert_eq!(
+        label.fallback_color,
+        COLOR.gamma_multiply(ROOT_MISSING_OPACITY)
+    );
+}
+
+#[test]
+fn 프로젝트_rail_에이전트_배지는_대표상태_모양과_설정_꺼짐_reduced_motion을_따른다() {
+    let snapshot = fixture();
+    let first = snapshot.projects[0].clone();
+    let second = snapshot.projects[1].clone();
+    let agents = std::collections::HashMap::from([
+        (
+            first.id.clone(),
+            vec![
+                rail_agent("idle", "codex", AgentActivity::Idle, None),
+                rail_agent(
+                    "blocked",
+                    "claude",
+                    AgentActivity::AwaitingInput,
+                    Some(BlockedReason::Permission),
+                ),
+            ],
+        ),
+        (
+            second.id.clone(),
+            vec![rail_agent("busy", "claude", AgentActivity::Working, None)],
+        ),
+    ]);
+    let surfaces = |is_badge_disabled: bool, is_reduced_motion: bool| Surfaces {
+        agents: agents.clone(),
+        is_badge_disabled,
+        is_reduced_motion,
+        ..Default::default()
+    };
+    let pulse_middle = 1.0;
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let (_, _, output) = rail_frame(
+        &context,
+        &snapshot,
+        surfaces(false, false),
+        pulse_middle,
+        Vec::new(),
+    );
+    let blocked_label = format!("{} — agent.blocked.permission", first.name);
+    let working_label = format!("{} — agent.status.working", second.name);
+    let (first_button, _) =
+        access_node(&output, &blocked_label).expect("status joins the accessible name");
+    let (second_button, _) = access_node(&output, &working_label).unwrap();
+    let diamond = output
+        .shapes
+        .iter()
+        .find_map(|clipped| match &clipped.shape {
+            egui::Shape::Path(path) if path.fill == AGENT_AWAITING => {
+                Some((Rect::from_points(&path.points), clipped.clip_rect))
+            }
+            _ => None,
+        })
+        .expect("awaiting input draws the rotated square");
+    let badge_center = first_button.right_bottom() - egui::Vec2::splat(6.0);
+    assert!((diamond.0.center() - badge_center).length() < PIXEL_SNAP_TOLERANCE);
+    assert!(diamond.0.right() > first_button.right());
+    assert!(diamond.1.contains_rect(diamond.0));
+    let circles = |output: &egui::FullOutput| -> Vec<egui::epaint::CircleShape> {
+        output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Circle(circle) => Some(*circle),
+                _ => None,
+            })
+            .collect()
+    };
+    let working = circles(&output)
+        .into_iter()
+        .find(|circle| circle.fill != Color32::TRANSPARENT && circle.radius == 5.0)
+        .expect("working draws a filled dot");
+    assert_eq!(working.fill, AGENT_WORKING.gamma_multiply(0.5));
+    assert!(
+        (working.center - (second_button.right_bottom() - egui::Vec2::splat(5.0))).length()
+            < PIXEL_SNAP_TOLERANCE
+    );
+    let (_, _, output) = rail_frame(
+        &context,
+        &snapshot,
+        surfaces(false, true),
+        pulse_middle + FRAME_SECONDS,
+        Vec::new(),
+    );
+    assert!(
+        circles(&output)
+            .iter()
+            .any(|circle| circle.fill == AGENT_WORKING && circle.radius == 5.0)
+    );
+    let (_, _, output) = rail_frame(
+        &context,
+        &snapshot,
+        surfaces(true, false),
+        pulse_middle + FRAME_SECONDS * 2.0,
+        Vec::new(),
+    );
+    assert!(access_node(&output, &first.name).is_some());
+    assert!(access_node(&output, &second.name).is_some());
+    assert!(access_node(&output, &blocked_label).is_none());
+    assert!(
+        !circles(&output)
+            .iter()
+            .any(|circle| circle.fill == AGENT_WORKING.gamma_multiply(0.5)
+                || circle.fill == AGENT_WORKING)
+    );
+    assert!(!output.shapes.iter().any(
+        |clipped| matches!(&clipped.shape, egui::Shape::Path(path) if path.fill == AGENT_AWAITING)
+    ));
+    let quiet = std::collections::HashMap::from([
+        (
+            first.id.clone(),
+            vec![rail_agent(
+                "unknown",
+                "gemini",
+                AgentActivity::Unknown,
+                None,
+            )],
+        ),
+        (
+            second.id.clone(),
+            vec![rail_agent("idle", "codex", AgentActivity::Idle, None)],
+        ),
+    ]);
+    let (_, _, output) = rail_frame(
+        &context,
+        &snapshot,
+        Surfaces {
+            agents: quiet,
+            ..Default::default()
+        },
+        pulse_middle + FRAME_SECONDS * 3.0,
+        Vec::new(),
+    );
+    assert!(access_node(&output, &format!("{} — agent.status.unknown", first.name)).is_some());
+    assert!(access_node(&output, &format!("{} — agent.status.idle", second.name)).is_some());
+    for color in [AGENT_UNKNOWN, AGENT_IDLE] {
+        assert!(circles(&output).iter().any(|circle| {
+            circle.stroke.color == color
+                && circle.stroke.width == 1.0
+                && circle.fill == Color32::TRANSPARENT
+        }));
+    }
+}
+
+#[test]
+fn 프로젝트_rail_tooltip은_이름_root누락_경로와_모든_에이전트_세션을_오른쪽에_보인다() {
+    let mut snapshot = fixture();
+    snapshot.projects[0].root_missing = true;
+    let project = snapshot.projects[0].clone();
+    let agents = std::collections::HashMap::from([(
+        project.id.clone(),
+        vec![
+            rail_agent("busy", "claude", AgentActivity::Working, None),
+            rail_agent(
+                "asking",
+                "codex",
+                AgentActivity::AwaitingInput,
+                Some(BlockedReason::Question),
+            ),
+        ],
+    )]);
+    let surfaces = || Surfaces {
+        agents: agents.clone(),
+        is_badge_disabled: true,
+        ..Default::default()
+    };
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let (_, _, output) = rail_frame(&context, &snapshot, surfaces(), 0.0, Vec::new());
+    let (button, _) = access_node(&output, &project.name).unwrap();
+    let _ = rail_frame(
+        &context,
+        &snapshot,
+        surfaces(),
+        TOOLTIP_HOVER_SECONDS,
+        vec![egui::Event::PointerMoved(button.center())],
+    );
+    let _ = rail_frame(
+        &context,
+        &snapshot,
+        surfaces(),
+        TOOLTIP_HOVER_SECONDS + TOOLTIP_SETTLE_SECONDS,
+        Vec::new(),
+    );
+    let (surfaces, intents, output) = rail_frame(
+        &context,
+        &snapshot,
+        surfaces(),
+        TOOLTIP_HOVER_SECONDS + TOOLTIP_SETTLE_SECONDS + TOOLTIP_FADE_SECONDS,
+        Vec::new(),
+    );
+    assert!(intents.is_empty());
+    let texts = texts_of(&output);
+    let expected = [
+        "app.recentProjectRootMissing".to_owned(),
+        "/synthetic".to_owned(),
+        format!(
+            "agent.sessionTooltip: {:?}",
+            [("name", "claude"), ("status", "agent.status.working")]
+        ),
+        format!(
+            "agent.sessionTooltip: {:?}",
+            [("name", "codex"), ("status", "agent.blocked.question")]
+        ),
+    ];
+    for text in &expected {
+        assert!(texts.contains(text), "{text}: {texts:?}");
+    }
+    let (warning, warning_rect) = text_shape(&output, "app.recentProjectRootMissing").unwrap();
+    assert!(warning_rect.left() >= button.right());
+    let (root, _) = text_shape(&output, "/synthetic").unwrap();
+    assert_eq!(
+        warning.galley.job.sections[0].format.color,
+        Color32::PLACEHOLDER
+    );
+    assert_eq!(
+        root.galley.job.sections[0].format.color,
+        context
+            .global_style()
+            .visuals
+            .text_color()
+            .gamma_multiply(TOOLTIP_SECONDARY_OPACITY)
+    );
+    let (icon, rect, _, opacity) = surfaces
+        .rail_icons
+        .iter()
+        .find(|(icon, ..)| icon == &format!("{:?}", RailIcon::RootMissing))
+        .expect("root missing tooltip line carries the warning glyph");
+    assert_eq!(icon, "RootMissing");
+    assert_eq!(rect.size(), egui::Vec2::splat(12.0));
+    assert!(rect.right() < warning_rect.left());
+    assert_eq!(*opacity, 1.0);
+    let (_, rect, _, opacity) = surfaces
+        .rail_icons
+        .iter()
+        .find(|(icon, ..)| icon == &format!("{:?}", RailIcon::Project(None)))
+        .unwrap();
+    assert!(button.contains_rect(*rect));
+    assert_eq!(*opacity, ROOT_MISSING_OPACITY);
+}
+
+fn menu_step(
+    context: &egui::Context,
+    snapshot: &ShellSnapshot,
+    time: &mut f64,
+    events: Vec<egui::Event>,
+) -> (Vec<ShellIntent>, egui::FullOutput) {
+    *time += FRAME_SECONDS;
+    let (_, intents, output) = rail_frame(context, snapshot, Surfaces::default(), *time, events);
+    (intents, output)
+}
+
+/// The rightmost text with exactly `text`: a menu opens over or beside the rail, so a group name
+/// shared with a rail header resolves to the menu entry.
+fn menu_text_rect(output: &egui::FullOutput, text: &str) -> Option<Rect> {
+    output
+        .shapes
+        .iter()
+        .filter_map(|clipped| match &clipped.shape {
+            egui::Shape::Text(shape) if shape.galley.text() == text => {
+                Some(shape.visual_bounding_rect())
+            }
+            _ => None,
+        })
+        .max_by(|left, right| left.left().total_cmp(&right.left()))
+}
+
+fn menu_node_disabled(output: &egui::FullOutput, label: &str) -> Option<bool> {
+    output
+        .platform_output
+        .accesskit_update
+        .as_ref()?
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.label() == Some(label))
+        .filter_map(|(_, node)| node.bounds().map(|bounds| (bounds.x0, node.is_disabled())))
+        .max_by(|left, right| left.0.total_cmp(&right.0))
+        .map(|(_, is_disabled)| is_disabled)
+}
+
+fn open_project_menu(
+    context: &egui::Context,
+    snapshot: &ShellSnapshot,
+    time: &mut f64,
+    name: &str,
+) -> egui::FullOutput {
+    *time += 1.0;
+    let escape = [true, false]
+        .map(|pressed| egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        })
+        .to_vec();
+    let _ = menu_step(context, snapshot, time, escape);
+    let (_, output) = menu_step(context, snapshot, time, Vec::new());
+    let (button, _) = access_node(&output, name).unwrap_or_else(|| panic!("{name}"));
+    let _ = menu_step(
+        context,
+        snapshot,
+        time,
+        pointer(button.center(), egui::PointerButton::Secondary),
+    );
+    menu_step(context, snapshot, time, Vec::new()).1
+}
+
+fn choose_project_menu(
+    context: &egui::Context,
+    snapshot: &ShellSnapshot,
+    time: &mut f64,
+    name: &str,
+    label: &str,
+) -> Vec<ShellIntent> {
+    let output = open_project_menu(context, snapshot, time, name);
+    let item = menu_text_rect(&output, label).unwrap_or_else(|| panic!("{label}"));
+    menu_step(
+        context,
+        snapshot,
+        time,
+        pointer(item.center(), egui::PointerButton::Primary),
+    )
+    .0
+}
+
+fn hover_group_submenu(
+    context: &egui::Context,
+    snapshot: &ShellSnapshot,
+    time: &mut f64,
+    name: &str,
+) -> egui::FullOutput {
+    let output = open_project_menu(context, snapshot, time, name);
+    let trigger = menu_text_rect(&output, "projectGroup.addTo").expect("group submenu trigger");
+    let _ = menu_step(
+        context,
+        snapshot,
+        time,
+        vec![egui::Event::PointerMoved(trigger.center())],
+    );
+    for _ in 0..WHEEL_SETTLE_FRAMES {
+        let _ = menu_step(context, snapshot, time, Vec::new());
+    }
+    menu_step(context, snapshot, time, Vec::new()).1
+}
+
+#[test]
+fn 프로젝트_rail_메뉴는_원본_순서의_닫기_슬롯열기_그룹_경로_표시_항목과_비활성_조건을_따른다() {
+    let mut snapshot = fixture();
+    let template = snapshot.projects[0].clone();
+    snapshot.projects.push(ProjectRef {
+        id: ProjectId::new(),
+        ..template
+    });
+    for (project, (name, root)) in snapshot.projects.iter_mut().zip([
+        ("alpha", "/work/alpha"),
+        ("beta", "/work/beta"),
+        ("gamma", "/work/gamma"),
+    ]) {
+        project.name = name.into();
+        project.root = root.into();
+    }
+    snapshot.projects[0].display.label = Some("AL".into());
+    let ids: Vec<_> = snapshot
+        .projects
+        .iter()
+        .map(|project| project.id.clone())
+        .collect();
+    let group = |name: &str, members: Vec<ProjectId>| ProjectGroup {
+        id: ProjectGroupId::new(),
+        name: name.into(),
+        color: None,
+        members,
+        collapsed: false,
+    };
+    snapshot.groups = vec![
+        group("first-group", vec![ids[1].clone()]),
+        group("second-group", vec![ids[0].clone(), ids[1].clone()]),
+    ];
+    let groups: Vec<_> = snapshot
+        .groups
+        .iter()
+        .map(|group| group.id.clone())
+        .collect();
+    let Some(ShellSlotTree::Split { children, .. }) = &snapshot.shell.tree else {
+        panic!("fixture splits two slots")
+    };
+    let Some(ShellSlotTree::Leaf { slot_id: first, .. }) = children.first() else {
+        panic!("fixture leaf")
+    };
+    let first = first.clone();
+    let focused = snapshot.shell.focused.clone().unwrap();
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let mut time = 0.0;
+
+    let output = open_project_menu(&context, &snapshot, &mut time, "alpha");
+    let order = [
+        "project.close",
+        "shellSlot.openToTheRight",
+        "shellSlot.openBelow",
+        "shellSlot.openToTheLeft",
+        "shellSlot.openAbove",
+        "projectGroup.addTo",
+        "projectGroup.removeFrom",
+        "project.openInFileManager",
+        "project.copyPath",
+        "project.displayMenu",
+        "project.displayReset",
+    ];
+    let tops: Vec<f32> = order
+        .iter()
+        .map(|key| {
+            menu_text_rect(&output, key)
+                .unwrap_or_else(|| panic!("{key}: {:?}", texts_of(&output)))
+                .top()
+        })
+        .collect();
+    assert!(tops.windows(2).all(|pair| pair[0] < pair[1]), "{tops:?}");
+    for key in order.into_iter().filter(|key| *key != "projectGroup.addTo") {
+        assert_eq!(menu_node_disabled(&output, key), Some(false), "{key}");
+    }
+
+    let intents = choose_project_menu(&context, &snapshot, &mut time, "alpha", "project.close");
+    assert!(
+        intents
+            .iter()
+            .any(|intent| matches!(intent, ShellIntent::CloseProject(id) if id == &ids[0])),
+        "{intents:?}"
+    );
+    for (key, expected) in [
+        ("shellSlot.openToTheRight", ShellSlotEdge::Right),
+        ("shellSlot.openBelow", ShellSlotEdge::Bottom),
+        ("shellSlot.openToTheLeft", ShellSlotEdge::Left),
+        ("shellSlot.openAbove", ShellSlotEdge::Top),
+    ] {
+        let intents = choose_project_menu(&context, &snapshot, &mut time, "alpha", key);
+        assert!(
+            intents.iter().any(|intent| matches!(
+                intent,
+                ShellIntent::OpenProjectInSlot { project, slot, edge }
+                    if project == &ids[0] && slot == &focused && *edge == expected
+            )),
+            "{key}: {intents:?}"
+        );
+    }
+    let intents = choose_project_menu(
+        &context,
+        &snapshot,
+        &mut time,
+        "alpha",
+        "projectGroup.removeFrom",
+    );
+    assert!(intents.iter().any(|intent| matches!(
+        intent,
+        ShellIntent::SetProjectGroupMembers { group, members }
+            if group == &groups[1] && members == &vec![ids[1].clone()]
+    )));
+    for (key, path_intent) in [
+        ("project.openInFileManager", true),
+        ("project.copyPath", false),
+    ] {
+        let intents = choose_project_menu(&context, &snapshot, &mut time, "alpha", key);
+        assert!(
+            intents.iter().any(|intent| match intent {
+                ShellIntent::OpenPath(path) => path_intent && path == "/work/alpha",
+                ShellIntent::CopyText(text) => !path_intent && text == "/work/alpha",
+                _ => false,
+            }),
+            "{key}: {intents:?}"
+        );
+    }
+    let intents = choose_project_menu(
+        &context,
+        &snapshot,
+        &mut time,
+        "alpha",
+        "project.displayMenu",
+    );
+    assert!(
+        intents
+            .iter()
+            .any(|intent| matches!(intent, ShellIntent::EditProjectDisplay(id) if id == &ids[0]))
+    );
+    let intents = choose_project_menu(
+        &context,
+        &snapshot,
+        &mut time,
+        "alpha",
+        "project.displayReset",
+    );
+    assert!(intents.iter().any(|intent| matches!(
+        intent,
+        ShellIntent::SetProjectDisplay { project, patch }
+            if project == &ids[0]
+                && [&patch.icon, &patch.label, &patch.color]
+                    .iter()
+                    .all(|axis| axis.as_deref() == Some(""))
+    )));
+
+    let output = hover_group_submenu(&context, &snapshot, &mut time, "alpha");
+    let submenu = ["first-group", "second-group", "projectGroup.newGroup"]
+        .map(|label| menu_text_rect(&output, label).unwrap_or_else(|| panic!("{label}")));
+    assert!(submenu.windows(2).all(|pair| pair[0].top() < pair[1].top()));
+    assert_eq!(menu_node_disabled(&output, "first-group"), Some(false));
+    assert_eq!(
+        menu_node_disabled(&output, "second-group"),
+        Some(true),
+        "the current group is not offered again"
+    );
+    let (intents, _) = menu_step(
+        &context,
+        &snapshot,
+        &mut time,
+        pointer(submenu[0].center(), egui::PointerButton::Primary),
+    );
+    assert!(
+        intents.iter().any(|intent| matches!(
+            intent,
+            ShellIntent::SetProjectGroupMembers { group, members }
+                if group == &groups[0] && members == &vec![ids[1].clone(), ids[0].clone()]
+        )),
+        "{intents:?}"
+    );
+    let output = hover_group_submenu(&context, &snapshot, &mut time, "alpha");
+    let new_group = menu_text_rect(&output, "projectGroup.newGroup").unwrap();
+    let (intents, _) = menu_step(
+        &context,
+        &snapshot,
+        &mut time,
+        pointer(new_group.center(), egui::PointerButton::Primary),
+    );
+    assert!(
+        intents
+            .iter()
+            .any(|intent| matches!(intent, ShellIntent::NewProjectGroup(id) if id == &ids[0]))
+    );
+
+    let output = open_project_menu(&context, &snapshot, &mut time, "gamma");
+    assert_eq!(
+        menu_node_disabled(&output, "projectGroup.removeFrom"),
+        Some(true)
+    );
+    assert_eq!(
+        menu_node_disabled(&output, "project.displayReset"),
+        Some(true)
+    );
+    let intents = choose_project_menu(
+        &context,
+        &snapshot,
+        &mut time,
+        "gamma",
+        "projectGroup.removeFrom",
+    );
+    assert!(
+        !intents
+            .iter()
+            .any(|intent| matches!(intent, ShellIntent::SetProjectGroupMembers { .. }))
+    );
+
+    snapshot.shell.focused = Some(ShellSlotId::new());
+    let intents = choose_project_menu(
+        &context,
+        &snapshot,
+        &mut time,
+        "gamma",
+        "shellSlot.openToTheRight",
+    );
+    assert!(
+        intents.iter().any(|intent| matches!(
+            intent,
+            ShellIntent::OpenProjectInSlot { project, slot, .. }
+                if project == &ids[2] && slot == &first
+        )),
+        "a stale focus falls back to the first slot: {intents:?}"
+    );
+    snapshot.shell.tree = None;
+    snapshot.shell.focused = None;
+    let output = open_project_menu(&context, &snapshot, &mut time, "gamma");
+    for key in &order[1..5] {
+        assert_eq!(menu_node_disabled(&output, key), Some(true), "{key}");
+    }
+    let intents = choose_project_menu(
+        &context,
+        &snapshot,
+        &mut time,
+        "gamma",
+        "shellSlot.openToTheRight",
+    );
+    assert!(
+        !intents
+            .iter()
+            .any(|intent| matches!(intent, ShellIntent::OpenProjectInSlot { .. }))
     );
 }

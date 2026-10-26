@@ -153,6 +153,7 @@ pub struct NativeApplication {
     editor_json_validation: crate::editor_json_validation::State,
     welcome: crate::welcome::State,
     open_path_dialog: crate::open_path_dialog::OpenPathDialog,
+    project_display_dialog: taide_native_ui::project_display_dialog::ProjectDisplayDialog,
     problem_opens: Vec<crate::problems::Open>,
     editor_locations: crate::editor_locations::State,
     editor_documentation: crate::editor_documentation::State,
@@ -525,6 +526,7 @@ impl NativeApplication {
             editor_json_validation: crate::editor_json_validation::State::default(),
             welcome: crate::welcome::State::default(),
             open_path_dialog: Default::default(),
+            project_display_dialog: Default::default(),
             problem_opens: Vec::new(),
             editor_locations: crate::editor_locations::State::default(),
             editor_documentation: crate::editor_documentation::State::default(),
@@ -1859,6 +1861,17 @@ impl NativeApplication {
                     if let Err(error) = result {
                         self.report(&error);
                     }
+                    context.request_repaint();
+                }
+                HostReply::ProjectDisplaySet(result) => {
+                    self.project_display_dialog.finish(result.is_ok());
+                    if let Err(error) = result {
+                        self.report(&error);
+                    }
+                    context.request_repaint();
+                }
+                HostReply::ProjectClosed(project) => {
+                    self.release_project_documents(&project);
                     context.request_repaint();
                 }
             }
@@ -3440,6 +3453,118 @@ impl NativeApplication {
             {
                 pending.phase = TabClosePhase::Saving(None);
             }
+        }
+    }
+
+    /// Original `project_close` first has every window mirror the project's dirty buffers
+    /// (`await_project_flush`); the host queue is serial, so the mirrors submitted here land before
+    /// the close removes the project root they are written under.
+    fn close_project(&mut self, project: ProjectId) {
+        if !self.flush_dirty() {
+            return;
+        }
+        let documents: Vec<_> = self
+            .files
+            .values()
+            .filter(|file| file.project.as_ref() == Some(&project))
+            .map(|file| file.id)
+            .chain(
+                self.untitled
+                    .values()
+                    .filter(|draft| draft.project == project)
+                    .map(|draft| draft.id),
+            )
+            .collect();
+        for document in documents {
+            let Ok(snapshot) = self.store.documents().snapshot(document) else {
+                continue;
+            };
+            if let Some(job) = self.persistence.mirror_job(snapshot, project.clone()) {
+                if !self.submit(HostCommand::MirrorDraft(job.clone())) {
+                    return;
+                }
+                self.persistence.mirror_started(&job);
+            }
+        }
+        self.submit(HostCommand::CloseProject(project));
+    }
+
+    fn release_project_documents(&mut self, project: &ProjectId) {
+        let live_tabs = self
+            .services
+            .state
+            .layouts
+            .read()
+            .values()
+            .flat_map(taide_layout::service::all_roots)
+            .flat_map(crate::tabs::tabs_in)
+            .map(|tab| tab.id.clone())
+            .collect::<HashSet<_>>();
+        let documents = self
+            .files
+            .values()
+            .filter(|file| file.project.as_ref() == Some(project))
+            .map(|file| file.id)
+            .chain(
+                self.untitled
+                    .values()
+                    .filter(|draft| &draft.project == project)
+                    .map(|draft| draft.id),
+            )
+            .collect::<HashSet<_>>();
+        for document in documents {
+            let closed_views = self
+                .store
+                .views()
+                .for_document(document)
+                .filter(|view| !live_tabs.contains(&view.key.tab))
+                .map(|view| view.id)
+                .collect::<Vec<_>>();
+            for view in closed_views {
+                if let Err(error) = self.store.detach_view(view) {
+                    self.report(&editor_error(error));
+                }
+            }
+            if self.store.views().for_document(document).next().is_some() {
+                let owners = self
+                    .files
+                    .iter()
+                    .filter(|(_, file)| file.id == document)
+                    .map(|(path, _)| {
+                        let owner = taide_infra::root_guard::resolve_owning_project(
+                            &self.services.state.projects.read(),
+                            std::path::Path::new(path),
+                        )
+                        .ok()
+                        .map(|(owner, _)| owner);
+                        (path.clone(), owner)
+                    })
+                    .collect::<Vec<_>>();
+                for (path, owner) in owners {
+                    if let Some(file) = self.files.get_mut(&path) {
+                        file.project = owner;
+                    }
+                }
+                continue;
+            }
+            let released = match self.store.documents().snapshot(document) {
+                Ok(snapshot) if snapshot.dirty => {
+                    self.store.discard_document(document, snapshot.revision)
+                }
+                Ok(_) => self.store.release_document(document),
+                Err(_) => Ok(()),
+            };
+            if let Err(error) = released {
+                self.report(&editor_error(error));
+                continue;
+            }
+            self.files.retain(|_, file| file.id != document);
+            self.untitled.retain(|_, draft| draft.id != document);
+            self.persistence.settled(document);
+            self.last_edited_views.remove(&document);
+            self.lsp_diagnostics.remove_document(document);
+            self.observing_files.remove(&document);
+            self.pending_file_observations.remove(&document);
         }
     }
 
@@ -7385,6 +7510,7 @@ impl eframe::App for NativeApplication {
             focused: &mut new_focus,
             reveals: &mut self.reveals,
             status: &mut status,
+            is_reduced_motion: self.motion_preference.current().unwrap_or(false),
         };
         let mut intents = ui
             .add_enabled_ui(
@@ -7843,6 +7969,33 @@ impl eframe::App for NativeApplication {
                     ShellIntent::RevealPath(path) => {
                         self.submit(HostCommand::RevealPath(path));
                     }
+                    ShellIntent::OpenPath(path) => {
+                        self.submit(HostCommand::OpenPath(path));
+                    }
+                    ShellIntent::CloseProject(project) => self.close_project(project),
+                    ShellIntent::OpenProjectInSlot {
+                        project,
+                        slot,
+                        edge,
+                    } => {
+                        self.submit(HostCommand::OpenProjectInSlot {
+                            project,
+                            slot,
+                            edge,
+                        });
+                    }
+                    ShellIntent::SetProjectGroupMembers { group, members } => {
+                        self.submit(HostCommand::SetProjectGroupMembers { group, members });
+                    }
+                    ShellIntent::NewProjectGroup(_) => {}
+                    ShellIntent::EditProjectDisplay(project) => {
+                        if let Some(project) = snapshot.project(&project) {
+                            self.project_display_dialog.open(project);
+                        }
+                    }
+                    ShellIntent::SetProjectDisplay { project, patch } => {
+                        self.submit(HostCommand::SetProjectDisplay { project, patch });
+                    }
                     ShellIntent::ShowOpenProjectNotice => self.notify_open_project_first(),
                     ShellIntent::FormatEditor { tab, command } => {
                         self.request_editor_formatting(
@@ -8037,12 +8190,35 @@ impl eframe::App for NativeApplication {
         {
             self.open_path_dialog.finish(false);
         }
+        if self
+            .project_display_dialog
+            .project()
+            .is_some_and(|project| snapshot.project(project).is_none())
+        {
+            self.project_display_dialog.close();
+        }
+        let is_project_display_open = self.project_display_dialog.is_open();
+        let locale = &self.locale;
+        let icons = &mut self.explorer_icons;
+        let status = &mut self.status;
+        let saved = self.project_display_dialog.show(
+            &context,
+            &self.shell.colors,
+            &|key| presentation::message(locale, key, &[]),
+            &mut |ui, rect, icon, color| paint_rail_icon(icons, status, ui, rect, icon, color),
+        );
+        if let Some((project, patch)) = saved
+            && !self.submit(HostCommand::SetProjectDisplay { project, patch })
+        {
+            self.project_display_dialog.finish(false);
+        }
         if crate::zen::escape(
             &context,
             snapshot.shell.window_chrome.zen,
             is_enabled
                 && !self.keybindings.is_open()
                 && !self.palette.is_open()
+                && !is_project_display_open
                 && self.pending_tab_close.is_none()
                 && self.pending_entry_delete.is_none()
                 && !self.deleting_entry
@@ -8210,6 +8386,13 @@ async fn shutdown(
     lsp_result?;
     web_result?;
     for draft in drafts? {
+        if !services.state.projects.read().contains_key(&draft.project) {
+            log::warn!(
+                "native exit skipped a draft of closed project {}",
+                draft.project
+            );
+            continue;
+        }
         match draft.target {
             DraftTarget::File(path) => {
                 file_actions::file_mirror_dirty(
@@ -8273,6 +8456,27 @@ async fn drain_services(services: &Arc<AppServices>) -> AppResult<()> {
             services.terminal.clone(),
         )
         .await
+}
+
+fn paint_rail_icon(
+    icons: &mut crate::problems_icons::Icons,
+    status: &mut Option<String>,
+    ui: &Ui,
+    rect: egui::Rect,
+    icon: taide_native_ui::project_rail::RailIcon<'_>,
+    color: egui::Color32,
+) {
+    let glyph = match icon {
+        taide_native_ui::project_rail::RailIcon::Project(name) => {
+            crate::problems_icons::project(name)
+        }
+        taide_native_ui::project_rail::RailIcon::RootMissing => {
+            crate::problems_icons::Glyph::TriangleAlert
+        }
+    };
+    if let Err(error) = icons.paint(ui, rect, glyph, color, 0.0) {
+        *status = Some(error.to_string());
+    }
 }
 
 struct AppSurfaces<'a> {
@@ -8414,6 +8618,7 @@ struct AppSurfaces<'a> {
     focused: &'a mut Option<(PaneId, TabId)>,
     reveals: &'a mut crate::editor_reveal::Reveals,
     status: &'a mut Option<String>,
+    is_reduced_motion: bool,
 }
 
 impl ShellSurfaces for AppSurfaces<'_> {
@@ -8428,6 +8633,28 @@ impl ShellSurfaces for AppSurfaces<'_> {
     }
     fn rail_recent_projects(&self) -> Vec<taide_native_ui::shell::WelcomeRecent> {
         self.welcome.rail(self.open_projects)
+    }
+    fn project_agents(&self, project: &ProjectId) -> Vec<taide_model::agent::DetectedAgent> {
+        self.services.agents.agents_for(project)
+    }
+    fn is_agent_status_badge_enabled(&self) -> bool {
+        self.services
+            .state
+            .settings
+            .read()
+            .agent_status_badge_enabled
+    }
+    fn is_reduced_motion(&self) -> bool {
+        self.is_reduced_motion
+    }
+    fn rail_icon(
+        &mut self,
+        ui: &Ui,
+        rect: egui::Rect,
+        icon: taide_native_ui::project_rail::RailIcon<'_>,
+        color: egui::Color32,
+    ) {
+        paint_rail_icon(self.explorer_icons, self.status, ui, rect, icon, color);
     }
     fn text_with_args(&self, key: &str, arguments: &[(&str, &str)]) -> String {
         presentation::message(self.locale, key, arguments)
@@ -10020,6 +10247,10 @@ mod emmet_tests;
 #[cfg(all(test, unix, feature = "inspection"))]
 #[path = "application-sticky-definition-tests.rs"]
 mod sticky_definition_tests;
+
+#[cfg(all(test, unix))]
+#[path = "application-project-rail-tests.rs"]
+mod project_rail_tests;
 
 #[cfg(test)]
 mod close_all_tests {

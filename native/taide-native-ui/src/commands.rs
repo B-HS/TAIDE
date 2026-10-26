@@ -3,7 +3,7 @@ use taide_model::ids::{PaneId, ProjectGroupId, ProjectId, ShellSlotId, TabId};
 use taide_model::layout::DropEdge;
 #[cfg(feature = "native-host")]
 use taide_model::layout::ShellViewPatch;
-use taide_model::project::WindowChromePatch;
+use taide_model::project::{ProjectDisplayPatch, ShellSlotEdge, WindowChromePatch};
 #[cfg(feature = "native-host")]
 use taide_runtime::{AppState, EventSink, layout_actions, project_actions};
 
@@ -78,6 +78,23 @@ pub enum ShellIntent {
     },
     CopyText(String),
     RevealPath(String),
+    OpenPath(String),
+    CloseProject(ProjectId),
+    OpenProjectInSlot {
+        project: ProjectId,
+        slot: ShellSlotId,
+        edge: ShellSlotEdge,
+    },
+    SetProjectGroupMembers {
+        group: ProjectGroupId,
+        members: Vec<ProjectId>,
+    },
+    NewProjectGroup(ProjectId),
+    EditProjectDisplay(ProjectId),
+    SetProjectDisplay {
+        project: ProjectId,
+        patch: ProjectDisplayPatch,
+    },
     OpenSettings,
     OpenSettingsFile,
     OpenKeybindings,

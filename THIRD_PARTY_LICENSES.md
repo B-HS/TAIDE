@@ -698,6 +698,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   SVG files in `native/taide-native-app/resources/icons` carry geometry from
   `lucide-react` 1.28.0 under the same adjacent ISC license.
 
+- The project display icon SVG files in
+  `native/taide-native-app/resources/project-icons` carry geometry from
+  `lucide-react` 1.28.0 (ISC, Copyright (c) Lucide Icons and Contributors); the
+  ISC text is retained in the adjacent `resources/project-icons/LICENSE.txt`.
+
 - `native/taide-native-editor/src/symbol-locations.rs`,
   `native/taide-native-ui/src/editor-locations.rs`,
   `native/taide-native-ui/src/editor-definition-link.rs` and

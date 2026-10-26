@@ -2,11 +2,17 @@ use egui::emath::GuiRounding as _;
 use egui::{
     Align, Color32, Id, Layout, Rect, RichText, Sense, Stroke, Ui, UiBuilder, Vec2, pos2, vec2,
 };
+use taide_model::agent::{AgentActivity, DetectedAgent};
 use taide_model::ids::{PaneId, ProjectId, ShellSlotId, TabId};
 use taide_model::layout::{DropEdge, PaneNode, SplitDir, Tab, TabKind};
-use taide_model::project::{ProjectRef, ShellSlotTree};
+use taide_model::project::{ProjectGroup, ProjectRef, ShellSlotEdge, ShellSlotTree};
 
 use crate::commands::{ShellIntent, ShellMutation, request_close_tab};
+use crate::project_rail::{
+    ProjectDisplayResolution, RailColors, RailIcon, agent_status_label_key,
+    cleared_project_display_patch, is_project_display_customized, paint_agent_badge,
+    paint_project_glyph, pulse_opacity, resolve_project_display, top_priority_agent,
+};
 use crate::snapshot::{
     ShellSnapshot, active_tab, project_group_sections, slot_count, slot_project,
 };
@@ -49,6 +55,13 @@ const PROBLEMS_KEYBOARD_STEP: f32 = 0.05;
 const PANEL_PERCENT_PRECISION: f32 = 1000.0;
 const EMPTY_EDITOR_FONT_SIZE: f32 = 14.0;
 const EMPTY_EDITOR_TEXT_OPACITY: f32 = 0.4;
+const RAIL_BUTTON_RADIUS: f32 = 6.0;
+const RAIL_ACTIVE_INDICATOR_SIZE: Vec2 = vec2(2.0, 20.0);
+const RAIL_ACTIVE_INDICATOR_OFFSET: f32 = 6.0;
+const RAIL_ROOT_MISSING_OPACITY: f32 = 0.5;
+const RAIL_TOOLTIP_ICON_SIZE: f32 = 12.0;
+const RAIL_TOOLTIP_ICON_GAP: f32 = 4.0;
+const RAIL_TOOLTIP_SECONDARY_OPACITY: f32 = 0.7;
 
 #[derive(Clone, Copy)]
 pub struct ShellColors {
@@ -64,6 +77,7 @@ pub struct ShellColors {
     pub active_indicator: Color32,
     pub editor_background: Color32,
     pub editor_foreground: Color32,
+    pub rail: RailColors,
 }
 
 /// A recent project row of the Welcome surface.
@@ -140,6 +154,16 @@ pub trait ShellSurfaces {
     fn rail_recent_projects(&self) -> Vec<WelcomeRecent> {
         Vec::new()
     }
+    fn project_agents(&self, _project: &ProjectId) -> Vec<DetectedAgent> {
+        Vec::new()
+    }
+    fn is_agent_status_badge_enabled(&self) -> bool {
+        true
+    }
+    fn is_reduced_motion(&self) -> bool {
+        false
+    }
+    fn rail_icon(&mut self, _ui: &Ui, _rect: Rect, _icon: RailIcon<'_>, _color: Color32) {}
 }
 
 pub struct NativeShell {
@@ -353,7 +377,7 @@ impl NativeShell {
         ui: &mut Ui,
         rect: Rect,
         snapshot: &ShellSnapshot,
-        surfaces: &impl ShellSurfaces,
+        surfaces: &mut impl ShellSurfaces,
         intents: &mut Vec<ShellIntent>,
     ) {
         ui.painter().rect_filled(rect, 0.0, self.colors.sidebar);
@@ -407,7 +431,8 @@ impl NativeShell {
                                 self.project_button(
                                     ui,
                                     project,
-                                    snapshot.focused_project(),
+                                    snapshot,
+                                    rect.x_range(),
                                     surfaces,
                                     intents,
                                 );
@@ -418,12 +443,13 @@ impl NativeShell {
                         self.project_button(
                             ui,
                             project,
-                            snapshot.focused_project(),
+                            snapshot,
+                            rect.x_range(),
                             surfaces,
                             intents,
                         );
                     }
-                    self.add_project_menu(ui, surfaces, intents);
+                    self.add_project_menu(ui, &*surfaces, intents);
                 });
             },
         );
@@ -481,43 +507,132 @@ impl NativeShell {
         &self,
         ui: &mut Ui,
         project: &ProjectRef,
-        focused: Option<&ProjectId>,
-        surfaces: &impl ShellSurfaces,
+        snapshot: &ShellSnapshot,
+        rail: egui::Rangef,
+        surfaces: &mut impl ShellSurfaces,
         intents: &mut Vec<ShellIntent>,
     ) {
-        let label = project
-            .display
-            .label
-            .clone()
-            .unwrap_or_else(|| project.name.chars().take(1).collect());
-        ui.push_id(&project.id, |ui| {
-            let response = ui.add_sized(
-                vec2(RAIL_BUTTON_SIZE, RAIL_BUTTON_SIZE),
-                egui::Button::selectable(focused == Some(&project.id), label),
-            );
-            response.widget_info(|| {
-                egui::WidgetInfo::selected(
-                    egui::WidgetType::SelectableLabel,
-                    true,
-                    focused == Some(&project.id),
-                    &project.name,
+        let active = snapshot.focused_project() == Some(&project.id);
+        let display = resolve_project_display(&project.display);
+        let agents = surfaces.project_agents(&project.id);
+        let badge = top_priority_agent(&agents)
+            .filter(|_| surfaces.is_agent_status_badge_enabled())
+            .map(|agent| {
+                (
+                    agent.activity,
+                    surfaces.text(agent_status_label_key(agent.activity, agent.blocked_reason)),
                 )
             });
+        let label = badge.as_ref().map_or_else(
+            || project.name.clone(),
+            |(_, status)| format!("{} — {status}", project.name),
+        );
+        ui.push_id(&project.id, |ui| {
+            let response = ui
+                .scope(|ui| {
+                    if project.root_missing {
+                        ui.multiply_opacity(RAIL_ROOT_MISSING_OPACITY);
+                    }
+                    let (rect, response) =
+                        ui.allocate_exact_size(Vec2::splat(RAIL_BUTTON_SIZE), Sense::click());
+                    response.widget_info(|| {
+                        egui::WidgetInfo::selected(
+                            egui::WidgetType::SelectableLabel,
+                            true,
+                            active,
+                            &label,
+                        )
+                    });
+                    let mut painter = ui.painter().clone();
+                    painter.set_clip_rect(Rect::from_x_y_ranges(rail, ui.clip_rect().y_range()));
+                    if response.hovered() || active {
+                        let fill = if response.hovered() {
+                            self.colors.rail.item_hover
+                        } else {
+                            self.colors.rail.item_active
+                        };
+                        painter.rect_filled(rect, RAIL_BUTTON_RADIUS, fill);
+                    }
+                    if response.has_focus() {
+                        painter.rect_stroke(
+                            rect,
+                            RAIL_BUTTON_RADIUS,
+                            Stroke::new(BORDER_WIDTH, self.colors.focus_border),
+                            egui::StrokeKind::Inside,
+                        );
+                    }
+                    if active {
+                        let indicator = Rect::from_min_size(
+                            pos2(
+                                rect.left() - RAIL_ACTIVE_INDICATOR_OFFSET,
+                                rect.center().y - RAIL_ACTIVE_INDICATOR_SIZE.y / 2.0,
+                            ),
+                            RAIL_ACTIVE_INDICATOR_SIZE,
+                        );
+                        painter.rect_filled(
+                            indicator,
+                            RAIL_ACTIVE_INDICATOR_SIZE.x / 2.0,
+                            self.colors.rail.accent,
+                        );
+                    }
+                    let text_color = if active {
+                        self.colors.foreground
+                    } else {
+                        self.colors.muted
+                    };
+                    let glyph_color = display
+                        .lane
+                        .map_or(text_color, |lane| self.colors.rail.lanes[lane]);
+                    paint_project_glyph(
+                        ui,
+                        &painter,
+                        rect,
+                        &display,
+                        glyph_color,
+                        &mut |ui, rect, icon, color| surfaces.rail_icon(ui, rect, icon, color),
+                    );
+                    if let Some((activity, _)) = &badge {
+                        let is_pulsing =
+                            *activity == AgentActivity::Working && !surfaces.is_reduced_motion();
+                        let opacity = if is_pulsing {
+                            pulse_opacity(ui.input(|input| input.time))
+                        } else {
+                            1.0
+                        };
+                        paint_agent_badge(
+                            &painter,
+                            rect,
+                            *activity,
+                            &self.colors.rail,
+                            self.colors.sidebar,
+                            opacity,
+                        );
+                        if is_pulsing {
+                            ui.ctx().request_repaint();
+                        }
+                    }
+                    response
+                })
+                .inner;
             if response.clicked() {
                 intents.push(ShellIntent::Mutate(ShellMutation::ActivateProject(
                     project.id.clone(),
                 )));
             }
-            let tooltip = if project.root_missing {
-                format!(
-                    "{}: {}",
-                    project.name,
-                    surfaces.text("app.recentProjectRootMissing")
+            response.context_menu(|ui| {
+                project_menu(
+                    ui,
+                    &ProjectMenuContext {
+                        project,
+                        display: &display,
+                        groups: &snapshot.groups,
+                        focused_slot: snapshot.focused_slot(),
+                    },
+                    &*surfaces,
+                    intents,
                 )
-            } else {
-                project.name.clone()
-            };
-            response.on_hover_text(tooltip);
+            });
+            project_tooltip(&response, project, &agents, surfaces);
         });
     }
 
@@ -1190,11 +1305,122 @@ const SPLIT_EDGES: [(DropEdge, &str); 4] = [
 ];
 
 fn menu_item(ui: &mut Ui, label: String) -> bool {
-    let clicked = ui.button(label).clicked();
+    enabled_menu_item(ui, true, label)
+}
+
+fn enabled_menu_item(ui: &mut Ui, is_enabled: bool, label: String) -> bool {
+    let clicked = ui
+        .add_enabled(is_enabled, egui::Button::new(label))
+        .clicked();
     if clicked {
         ui.close();
     }
     clicked
+}
+
+struct ProjectMenuContext<'a> {
+    project: &'a ProjectRef,
+    display: &'a ProjectDisplayResolution,
+    groups: &'a [ProjectGroup],
+    focused_slot: Option<&'a ShellSlotId>,
+}
+
+/// Original `SHELL_SLOT_OPEN_EDGES`, in the contract's order.
+const SHELL_SLOT_OPEN_EDGES: [(ShellSlotEdge, &str); 4] = [
+    (ShellSlotEdge::Right, "shellSlot.openToTheRight"),
+    (ShellSlotEdge::Bottom, "shellSlot.openBelow"),
+    (ShellSlotEdge::Left, "shellSlot.openToTheLeft"),
+    (ShellSlotEdge::Top, "shellSlot.openAbove"),
+];
+
+/// The rail project's context menu (`sortable-project-icon.tsx` 169-203). The project's group is
+/// the last group claiming it, as `resolveProjectGroupSections` assigns sections.
+fn project_menu(
+    ui: &mut Ui,
+    menu: &ProjectMenuContext<'_>,
+    surfaces: &impl ShellSurfaces,
+    intents: &mut Vec<ShellIntent>,
+) {
+    let project = &menu.project.id;
+    let current = menu
+        .groups
+        .iter()
+        .rev()
+        .find(|group| group.members.contains(project));
+    if menu_item(ui, surfaces.text("project.close")) {
+        intents.push(ShellIntent::CloseProject(project.clone()));
+    }
+    ui.separator();
+    for (edge, key) in SHELL_SLOT_OPEN_EDGES {
+        if enabled_menu_item(ui, menu.focused_slot.is_some(), surfaces.text(key))
+            && let Some(slot) = menu.focused_slot
+        {
+            intents.push(ShellIntent::OpenProjectInSlot {
+                project: project.clone(),
+                slot: slot.clone(),
+                edge,
+            });
+        }
+    }
+    ui.separator();
+    ui.menu_button(surfaces.text("projectGroup.addTo"), |ui| {
+        for group in menu.groups {
+            let is_member = current.is_some_and(|current| current.id == group.id);
+            if enabled_menu_item(ui, !is_member, group.name.clone()) {
+                let mut members = group.members.clone();
+                if !members.contains(project) {
+                    members.push(project.clone());
+                }
+                intents.push(ShellIntent::SetProjectGroupMembers {
+                    group: group.id.clone(),
+                    members,
+                });
+            }
+        }
+        if !menu.groups.is_empty() {
+            ui.separator();
+        }
+        if menu_item(ui, surfaces.text("projectGroup.newGroup")) {
+            intents.push(ShellIntent::NewProjectGroup(project.clone()));
+        }
+    });
+    if enabled_menu_item(
+        ui,
+        current.is_some(),
+        surfaces.text("projectGroup.removeFrom"),
+    ) && let Some(group) = current
+    {
+        intents.push(ShellIntent::SetProjectGroupMembers {
+            group: group.id.clone(),
+            members: group
+                .members
+                .iter()
+                .filter(|member| *member != project)
+                .cloned()
+                .collect(),
+        });
+    }
+    ui.separator();
+    if menu_item(ui, surfaces.text("project.openInFileManager")) {
+        intents.push(ShellIntent::OpenPath(menu.project.root.clone()));
+    }
+    if menu_item(ui, surfaces.text("project.copyPath")) {
+        intents.push(ShellIntent::CopyText(menu.project.root.clone()));
+    }
+    ui.separator();
+    if menu_item(ui, surfaces.text("project.displayMenu")) {
+        intents.push(ShellIntent::EditProjectDisplay(project.clone()));
+    }
+    if enabled_menu_item(
+        ui,
+        is_project_display_customized(menu.display),
+        surfaces.text("project.displayReset"),
+    ) {
+        intents.push(ShellIntent::SetProjectDisplay {
+            project: project.clone(),
+            patch: cleared_project_display_patch(),
+        });
+    }
 }
 
 fn close_requests(tabs: impl Iterator<Item = Tab>) -> ShellIntent {
@@ -1384,6 +1610,45 @@ fn welcome_recent_row(
         });
     }
     clicked
+}
+
+fn project_tooltip(
+    response: &egui::Response,
+    project: &ProjectRef,
+    agents: &[DetectedAgent],
+    surfaces: &mut impl ShellSurfaces,
+) {
+    let mut tooltip = egui::Tooltip::for_enabled(response);
+    tooltip.popup = tooltip.popup.align(egui::RectAlign::RIGHT);
+    tooltip.show(|ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let secondary = ui
+            .visuals()
+            .text_color()
+            .gamma_multiply(RAIL_TOOLTIP_SECONDARY_OPACITY);
+        ui.label(&project.name);
+        if project.root_missing {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = RAIL_TOOLTIP_ICON_GAP;
+                let (icon, _) =
+                    ui.allocate_exact_size(Vec2::splat(RAIL_TOOLTIP_ICON_SIZE), Sense::hover());
+                surfaces.rail_icon(ui, icon, RailIcon::RootMissing, ui.visuals().text_color());
+                ui.label(surfaces.text("app.recentProjectRootMissing"));
+            });
+        }
+        ui.label(RichText::new(&project.root).color(secondary));
+        for agent in agents {
+            let status =
+                surfaces.text(agent_status_label_key(agent.activity, agent.blocked_reason));
+            ui.label(
+                RichText::new(surfaces.text_with_args(
+                    "agent.sessionTooltip",
+                    &[("name", &agent.name), ("status", &status)],
+                ))
+                .color(secondary),
+            );
+        }
+    });
 }
 
 fn child<R>(

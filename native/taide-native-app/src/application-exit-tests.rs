@@ -83,6 +83,62 @@ async fn 위치_캡처_오류가_있어도_미저장_본문을_mirror에_보존�
     assert_eq!(services.tasks.tracked_count(), 0);
 }
 
+#[tokio::test]
+async fn 닫힌_프로젝트의_draft는_건너뛰고_열린_프로젝트의_draft를_mirror한_뒤_종료한다() {
+    let project = ProjectId::new();
+    let closed = ProjectId::new();
+    let tab = TabId::new();
+    let directory =
+        std::env::temp_dir().join(format!("taide-native-closed-project-exit-{project}"));
+    std::fs::create_dir_all(&directory).unwrap();
+    let fixture = Fixture {
+        marker: directory.join("unused-marker"),
+        services: bootstrap::services(
+            AppState::new(AppPaths::new(directory.clone())),
+            TaskSupervisor::new(tokio::runtime::Handle::current()),
+            Arc::new(Sink),
+        ),
+        directory,
+    };
+    let services = &fixture.services;
+    services.state.projects.write().insert(
+        project.clone(),
+        Project {
+            id: project.clone(),
+            root: fixture.directory.to_str().unwrap().to_owned(),
+            name: "synthetic".into(),
+            capabilities: Vec::new(),
+            root_missing: false,
+            last_opened_at: 0.0,
+            display: Default::default(),
+        },
+    );
+    let draft = |project: &ProjectId, tab: TabId| Draft {
+        project: project.clone(),
+        target: DraftTarget::Untitled(tab),
+        content: DRAFT_CONTENT.into(),
+    };
+    let result = shutdown(
+        services.clone(),
+        None,
+        None,
+        None,
+        Ok(vec![
+            draft(&closed, TabId::new()),
+            draft(&project, tab.clone()),
+        ]),
+        Ok(Arc::from(Vec::new())),
+    )
+    .await;
+    finish_direct_exit(services, result).await.unwrap();
+    let mirrors =
+        taide_file::service::list_untitled_mirrors(&services.state.paths, &project).unwrap();
+    assert_eq!(mirrors.len(), 1);
+    assert_eq!(mirrors[0].tab_id, tab);
+    assert_eq!(mirrors[0].content, DRAFT_CONTENT);
+    assert_eq!(services.tasks.tracked_count(), 0);
+}
+
 impl Drop for Fixture {
     fn drop(&mut self) {
         crate::remote_http::stop(&self.services);

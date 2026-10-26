@@ -121,6 +121,10 @@ pub mod keybinding_search;
 pub mod keymap;
 pub mod modal;
 pub mod presentation;
+#[path = "project-display-dialog.rs"]
+pub mod project_display_dialog;
+#[path = "project-rail.rs"]
+pub mod project_rail;
 #[path = "settings-code-controls.rs"]
 pub mod settings_code_controls;
 #[path = "settings-controls.rs"]

@@ -52,6 +52,50 @@ pub enum Glyph {
     FileDiff,
     FileSearchCorner,
     Sparkles,
+    Braces,
+    Code,
+    CodeXml,
+    Bug,
+    Binary,
+    LayoutDashboard,
+    PanelsTopLeft,
+    Monitor,
+    AppWindow,
+    Smartphone,
+    TabletSmartphone,
+    Watch,
+    Database,
+    Server,
+    HardDrive,
+    Table2,
+    Cloud,
+    Network,
+    Cpu,
+    ShieldCheck,
+    Brush,
+    PenTool,
+    Shapes,
+    BookOpen,
+    NotebookPen,
+    ClipboardList,
+    Newspaper,
+    Microscope,
+    TestTube,
+    Bot,
+    Brain,
+    WandSparkles,
+    Gamepad2,
+    Dices,
+    Swords,
+    Wallet,
+    CreditCard,
+    Banknote,
+    PiggyBank,
+    Rocket,
+    Star,
+    Heart,
+    Flag,
+    Zap,
 }
 
 const SOURCES: &[(Glyph, &[u8])] = &[
@@ -211,7 +255,249 @@ const SOURCES: &[(Glyph, &[u8])] = &[
         Glyph::Sparkles,
         include_bytes!("../../taide-native-app/resources/icons/sparkles.svg"),
     ),
+    (
+        Glyph::Braces,
+        include_bytes!("../../taide-native-app/resources/icons/braces.svg"),
+    ),
+    (
+        Glyph::Code,
+        include_bytes!("../../taide-native-app/resources/project-icons/code.svg"),
+    ),
+    (
+        Glyph::CodeXml,
+        include_bytes!("../../taide-native-app/resources/project-icons/code-xml.svg"),
+    ),
+    (
+        Glyph::Bug,
+        include_bytes!("../../taide-native-app/resources/project-icons/bug.svg"),
+    ),
+    (
+        Glyph::Binary,
+        include_bytes!("../../taide-native-app/resources/project-icons/binary.svg"),
+    ),
+    (
+        Glyph::LayoutDashboard,
+        include_bytes!("../../taide-native-app/resources/project-icons/layout-dashboard.svg"),
+    ),
+    (
+        Glyph::PanelsTopLeft,
+        include_bytes!("../../taide-native-app/resources/project-icons/panels-top-left.svg"),
+    ),
+    (
+        Glyph::Monitor,
+        include_bytes!("../../taide-native-app/resources/project-icons/monitor.svg"),
+    ),
+    (
+        Glyph::AppWindow,
+        include_bytes!("../../taide-native-app/resources/project-icons/app-window.svg"),
+    ),
+    (
+        Glyph::Smartphone,
+        include_bytes!("../../taide-native-app/resources/project-icons/smartphone.svg"),
+    ),
+    (
+        Glyph::TabletSmartphone,
+        include_bytes!("../../taide-native-app/resources/project-icons/tablet-smartphone.svg"),
+    ),
+    (
+        Glyph::Watch,
+        include_bytes!("../../taide-native-app/resources/project-icons/watch.svg"),
+    ),
+    (
+        Glyph::Database,
+        include_bytes!("../../taide-native-app/resources/project-icons/database.svg"),
+    ),
+    (
+        Glyph::Server,
+        include_bytes!("../../taide-native-app/resources/project-icons/server.svg"),
+    ),
+    (
+        Glyph::HardDrive,
+        include_bytes!("../../taide-native-app/resources/project-icons/hard-drive.svg"),
+    ),
+    (
+        Glyph::Table2,
+        include_bytes!("../../taide-native-app/resources/project-icons/table-2.svg"),
+    ),
+    (
+        Glyph::Cloud,
+        include_bytes!("../../taide-native-app/resources/project-icons/cloud.svg"),
+    ),
+    (
+        Glyph::Network,
+        include_bytes!("../../taide-native-app/resources/project-icons/network.svg"),
+    ),
+    (
+        Glyph::Cpu,
+        include_bytes!("../../taide-native-app/resources/project-icons/cpu.svg"),
+    ),
+    (
+        Glyph::ShieldCheck,
+        include_bytes!("../../taide-native-app/resources/project-icons/shield-check.svg"),
+    ),
+    (
+        Glyph::Brush,
+        include_bytes!("../../taide-native-app/resources/project-icons/brush.svg"),
+    ),
+    (
+        Glyph::PenTool,
+        include_bytes!("../../taide-native-app/resources/project-icons/pen-tool.svg"),
+    ),
+    (
+        Glyph::Shapes,
+        include_bytes!("../../taide-native-app/resources/project-icons/shapes.svg"),
+    ),
+    (
+        Glyph::BookOpen,
+        include_bytes!("../../taide-native-app/resources/project-icons/book-open.svg"),
+    ),
+    (
+        Glyph::NotebookPen,
+        include_bytes!("../../taide-native-app/resources/project-icons/notebook-pen.svg"),
+    ),
+    (
+        Glyph::ClipboardList,
+        include_bytes!("../../taide-native-app/resources/project-icons/clipboard-list.svg"),
+    ),
+    (
+        Glyph::Newspaper,
+        include_bytes!("../../taide-native-app/resources/project-icons/newspaper.svg"),
+    ),
+    (
+        Glyph::Microscope,
+        include_bytes!("../../taide-native-app/resources/project-icons/microscope.svg"),
+    ),
+    (
+        Glyph::TestTube,
+        include_bytes!("../../taide-native-app/resources/project-icons/test-tube.svg"),
+    ),
+    (
+        Glyph::Bot,
+        include_bytes!("../../taide-native-app/resources/project-icons/bot.svg"),
+    ),
+    (
+        Glyph::Brain,
+        include_bytes!("../../taide-native-app/resources/project-icons/brain.svg"),
+    ),
+    (
+        Glyph::WandSparkles,
+        include_bytes!("../../taide-native-app/resources/project-icons/wand-sparkles.svg"),
+    ),
+    (
+        Glyph::Gamepad2,
+        include_bytes!("../../taide-native-app/resources/project-icons/gamepad-2.svg"),
+    ),
+    (
+        Glyph::Dices,
+        include_bytes!("../../taide-native-app/resources/project-icons/dices.svg"),
+    ),
+    (
+        Glyph::Swords,
+        include_bytes!("../../taide-native-app/resources/project-icons/swords.svg"),
+    ),
+    (
+        Glyph::Wallet,
+        include_bytes!("../../taide-native-app/resources/project-icons/wallet.svg"),
+    ),
+    (
+        Glyph::CreditCard,
+        include_bytes!("../../taide-native-app/resources/project-icons/credit-card.svg"),
+    ),
+    (
+        Glyph::Banknote,
+        include_bytes!("../../taide-native-app/resources/project-icons/banknote.svg"),
+    ),
+    (
+        Glyph::PiggyBank,
+        include_bytes!("../../taide-native-app/resources/project-icons/piggy-bank.svg"),
+    ),
+    (
+        Glyph::Rocket,
+        include_bytes!("../../taide-native-app/resources/project-icons/rocket.svg"),
+    ),
+    (
+        Glyph::Star,
+        include_bytes!("../../taide-native-app/resources/project-icons/star.svg"),
+    ),
+    (
+        Glyph::Heart,
+        include_bytes!("../../taide-native-app/resources/project-icons/heart.svg"),
+    ),
+    (
+        Glyph::Flag,
+        include_bytes!("../../taide-native-app/resources/project-icons/flag.svg"),
+    ),
+    (
+        Glyph::Zap,
+        include_bytes!("../../taide-native-app/resources/project-icons/zap.svg"),
+    ),
 ];
+
+pub const DEFAULT_PROJECT_ICON: Glyph = Glyph::Folder;
+
+pub const PROJECT_ICONS: [(&str, Glyph); 56] = [
+    ("code", Glyph::Code),
+    ("code-xml", Glyph::CodeXml),
+    ("terminal", Glyph::Terminal),
+    ("git-branch", Glyph::GitBranch),
+    ("git-fork", Glyph::GitFork),
+    ("bug", Glyph::Bug),
+    ("braces", Glyph::Braces),
+    ("binary", Glyph::Binary),
+    ("globe", Glyph::Globe),
+    ("layout-dashboard", Glyph::LayoutDashboard),
+    ("panels-top-left", Glyph::PanelsTopLeft),
+    ("monitor", Glyph::Monitor),
+    ("app-window", Glyph::AppWindow),
+    ("smartphone", Glyph::Smartphone),
+    ("tablet-smartphone", Glyph::TabletSmartphone),
+    ("watch", Glyph::Watch),
+    ("database", Glyph::Database),
+    ("server", Glyph::Server),
+    ("hard-drive", Glyph::HardDrive),
+    ("table-2", Glyph::Table2),
+    ("cloud", Glyph::Cloud),
+    ("container", Glyph::Container),
+    ("network", Glyph::Network),
+    ("cpu", Glyph::Cpu),
+    ("shield-check", Glyph::ShieldCheck),
+    ("palette", Glyph::Palette),
+    ("brush", Glyph::Brush),
+    ("pen-tool", Glyph::PenTool),
+    ("shapes", Glyph::Shapes),
+    ("image", Glyph::Image),
+    ("file-text", Glyph::FileText),
+    ("book-open", Glyph::BookOpen),
+    ("notebook-pen", Glyph::NotebookPen),
+    ("clipboard-list", Glyph::ClipboardList),
+    ("newspaper", Glyph::Newspaper),
+    ("flask-conical", Glyph::FlaskConical),
+    ("microscope", Glyph::Microscope),
+    ("test-tube", Glyph::TestTube),
+    ("bot", Glyph::Bot),
+    ("brain", Glyph::Brain),
+    ("sparkles", Glyph::Sparkles),
+    ("wand-sparkles", Glyph::WandSparkles),
+    ("gamepad-2", Glyph::Gamepad2),
+    ("dices", Glyph::Dices),
+    ("swords", Glyph::Swords),
+    ("wallet", Glyph::Wallet),
+    ("credit-card", Glyph::CreditCard),
+    ("banknote", Glyph::Banknote),
+    ("piggy-bank", Glyph::PiggyBank),
+    ("folder", Glyph::Folder),
+    ("rocket", Glyph::Rocket),
+    ("star", Glyph::Star),
+    ("heart", Glyph::Heart),
+    ("flag", Glyph::Flag),
+    ("zap", Glyph::Zap),
+    ("package", Glyph::Package),
+];
+
+pub fn project(name: Option<&str>) -> Glyph {
+    name.and_then(|name| PROJECT_ICONS.iter().find(|(id, _)| *id == name))
+        .map_or(DEFAULT_PROJECT_ICON, |(_, glyph)| *glyph)
+}
 
 pub const SEVERITIES: [Glyph; 4] = [
     Glyph::CircleX,
