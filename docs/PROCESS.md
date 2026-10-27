@@ -16,7 +16,7 @@
 - [x] A. 프로젝트 rail — `4a580bad` `e90385a8`. shell-33·34·35·53·38 complete, shell-36 partial('새 그룹'은 B에서 dialog 연결), shell-37 partial(리뷰 차단 '닫은 프로젝트 문서 미해제'는 수정, tree 캐시·dirty peek·전송 중 mirror 잔여). QA `2026-10-26-native-project-rail-{display,menu}.md`
 - [x] B. 그룹·drag — `7d5861e8` `4821aafd`. shell-45·46·47·48·36·39·49·52 complete(리뷰 차단 '그룹 헤더 hover clip 교집합'은 재현 후 수정). 정렬 애니메이션·요청 식별자 없는 늦은 응답은 QA 부채. QA `2026-10-26-native-project-{groups,drag}.md`
 - [x] C. 탭 — `200c0175` `36af48b5`. shell-75·81·82 complete, shell-78 partial(창 이동은 D, Git 변경 열기·파일 이력은 배치 26). 리뷰 pass, 비차단: 해제 프레임 Escape·빈 영역 해제 시 직전 대상 drop 경계, resize 취소 검사 부재. QA `2026-10-27-native-tab-{icons-menu,drag}.md`
-- [ ] D. 보조 창 — shell-4·5·6·8, shell-7·61
+- [x] D. 보조 창 — `2a99bab0` `8a73788f`. shell-4·6·7·8·61 complete, shell-5 partial(보조 창 WKWebView·터미널 raw input hook·theme preview·탐색기 선택 상태 창별 분리), shell-78 partial(Git 항목만 배치 26). 리뷰 차단 4건(LSP 범위 Main 고정, 메인 패스 실패 시 보조 창 생략, 탭 복귀 실패 무시, 보조 창 reveal이 메인 탐색기에서 소비) 수정. 종료 대기 시간 초과 startup 2건은 HEAD에서도 같은 위치(tasks=2)로 실패해 기존 실패로 확인. 주의: 작업자가 금지된 `tests/explorer-delete.rs`를 2회 실행해 합성 파일 `delete-synthetic.txt`가 사용자 휴지통에 들어갔을 수 있음(휴지통은 건드리지 않음, 사용자 보고 대상). QA `2026-10-27-native-auxiliary-window{,-moves}.md`
 - [ ] E. 앱 수준 — shell-3·25(창·세션 복원), shell-9(OS 메뉴), shell-12·22(ErrorBoundary·OS drop)
 - [ ] F. 셸 기타 — shell-21·24·54, shell-59·94·98
 - [ ] G. 통합 — shell-90·92·93, shell-91·96
