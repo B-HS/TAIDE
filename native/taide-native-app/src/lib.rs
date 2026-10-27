@@ -62,8 +62,6 @@ mod editor_documentation_code;
 mod editor_documentation_images;
 #[path = "editor-folding.rs"]
 mod editor_folding;
-#[path = "editor-schema-transport.rs"]
-pub mod editor_schema_transport;
 #[path = "editor-fonts.rs"]
 mod editor_fonts;
 #[path = "editor-formatting.rs"]
@@ -97,6 +95,8 @@ mod editor_rename;
 #[path = "editor-rename-controller.rs"]
 mod editor_rename_controller;
 pub mod editor_reveal;
+#[path = "editor-schema-transport.rs"]
+pub mod editor_schema_transport;
 #[path = "editor-selection-ranges.rs"]
 mod editor_selection_ranges;
 #[path = "editor-symbols.rs"]
@@ -150,6 +150,7 @@ mod modal;
 mod motion_preference;
 #[path = "navigation-icons.rs"]
 mod navigation_icons;
+mod open_path_dialog;
 pub mod open_with;
 #[path = "peek-models.rs"]
 mod peek_models;
@@ -314,6 +315,7 @@ mod ui_fonts;
 #[cfg(test)]
 pub(crate) mod ui_icons;
 pub mod untitled;
+mod welcome;
 #[path = "window-state.rs"]
 pub mod window_state;
 pub mod workspace_activity;
@@ -323,6 +325,4 @@ pub mod workspace_rename;
 pub mod workspace_symbol_host;
 #[path = "workspace-symbols.rs"]
 pub mod workspace_symbols;
-mod open_path_dialog;
-mod welcome;
 mod zen;

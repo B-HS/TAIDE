@@ -964,7 +964,7 @@ impl NativeApplication {
                                         self.system_usage_appearance = appearances.system_usage;
                                         self.status_chord_appearance = appearances.status_chord;
                                         self.problems_appearance = appearances.problems;
-                self.zen_hint_colors = appearances.zen_hint;
+                                        self.zen_hint_colors = appearances.zen_hint;
                                         self.file_drop_colors = appearances.file_drop;
                                         self.explorer_appearance = appearances.explorer;
                                         self.navigation_appearance = appearances.navigation;
@@ -11415,11 +11415,11 @@ mod context_menu_tests;
 #[path = "application-ide-selection-tests.rs"]
 mod ide_selection_tests;
 #[cfg(all(test, unix))]
-#[path = "application-startup-tests.rs"]
-mod startup_tests;
-#[cfg(all(test, unix))]
 #[path = "application-json-tests.rs"]
 mod json_tests;
+#[cfg(all(test, unix))]
+#[path = "application-startup-tests.rs"]
+mod startup_tests;
 #[cfg(all(test, unix))]
 #[path = "application-view-state-tests.rs"]
 mod view_state_tests;

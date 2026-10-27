@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::io::{self, BufRead, Read, Write};
 use std::process::ExitCode;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const MAX_HEADER_BYTES: usize = 4 * 1024;
 const MAX_BODY_BYTES: usize = 1024 * 1024;
@@ -604,8 +604,7 @@ impl MockServer {
                 };
             }
             if self.document_symbols.is_some() {
-                if params["capabilities"]["textDocument"]["documentSymbol"]
-                    ["hierarchicalDocumentSymbolSupport"]
+                if params["capabilities"]["textDocument"]["documentSymbol"]["hierarchicalDocumentSymbolSupport"]
                     != true
                 {
                     return Err(invalid(
@@ -707,8 +706,7 @@ impl MockServer {
                 }
             }
             if let Some(mode) = self.completion {
-                if params["capabilities"]["textDocument"]["completion"]["completionItem"]
-                    ["snippetSupport"]
+                if params["capabilities"]["textDocument"]["completion"]["completionItem"]["snippetSupport"]
                     != true
                     || params["capabilities"]["textDocument"]["completion"]["contextSupport"]
                         != true
@@ -1464,7 +1462,9 @@ impl MockServer {
                         let character = params["position"]["character"]
                             .as_u64()
                             .ok_or_else(|| invalid("sticky position character"))?;
-                        let end = character.checked_add(1).ok_or_else(|| invalid("sticky end character"))?;
+                        let end = character
+                            .checked_add(1)
+                            .ok_or_else(|| invalid("sticky end character"))?;
                         json!({"uri":uri,"range":{"start":{"line":line,"character":character},"end":{"line":line,"character":end}}})
                     }
                     (_, "textDocument/definition") => json!({"uri":uri,"range":selection}),
@@ -2092,7 +2092,9 @@ impl MockServer {
                                     .as_array()
                                     .is_none_or(Vec::is_empty)
                             {
-                                return Err(invalid("nearby query requires quickfix kind and intersecting diagnostics"));
+                                return Err(invalid(
+                                    "nearby query requires quickfix kind and intersecting diagnostics",
+                                ));
                             }
                             let prefix = if column == Some(2) { "near:" } else { "far:" };
                             let zero = json!({"start":{"line":0,"character":0},"end":{"line":0,"character":0}});
