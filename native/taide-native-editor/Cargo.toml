@@ -13,3 +13,9 @@ lsp-types = "=0.97.0"
 unicode-segmentation = "=1.13.3"
 ropey = { version = "=1.6.1", default-features = false, features = ["cr_lines", "simd"] }
 taide-model = { path = "../../crates/taide-model" }
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

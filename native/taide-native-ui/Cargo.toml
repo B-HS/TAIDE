@@ -52,3 +52,9 @@ required-features = ["native-host", "inspection"]
 
 [patch.crates-io]
 egui = { path = "../taide-native-app/vendor/egui-input" }
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

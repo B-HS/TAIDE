@@ -25,3 +25,9 @@ path = "tests/fixtures/session.rs"
 
 [patch.crates-io]
 vte = { path = "../../experiments/terminal-core-spike/vendor/vte" }
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

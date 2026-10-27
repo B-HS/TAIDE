@@ -111,3 +111,9 @@ ravif = { version = "=0.13.0", default-features = false }
 [patch.crates-io]
 egui = { path = "vendor/egui-input" }
 vte = { path = "../../experiments/terminal-core-spike/vendor/vte" }
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
