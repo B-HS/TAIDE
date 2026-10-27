@@ -17,10 +17,8 @@
 - [x] B. 그룹·drag — `7d5861e8` `4821aafd`. shell-45·46·47·48·36·39·49·52 complete(리뷰 차단 '그룹 헤더 hover clip 교집합'은 재현 후 수정). 정렬 애니메이션·요청 식별자 없는 늦은 응답은 QA 부채. QA `2026-10-26-native-project-{groups,drag}.md`
 - [x] C. 탭 — `200c0175` `36af48b5`. shell-75·81·82 complete, shell-78 partial(창 이동은 D, Git 변경 열기·파일 이력은 배치 26). 리뷰 pass, 비차단: 해제 프레임 Escape·빈 영역 해제 시 직전 대상 drop 경계, resize 취소 검사 부재. QA `2026-10-27-native-tab-{icons-menu,drag}.md`
 - [x] D. 보조 창 — `2a99bab0` `8a73788f`. shell-4·6·7·8·61 complete, shell-5 partial(보조 창 WKWebView·터미널 raw input hook·theme preview·탐색기 선택 상태 창별 분리), shell-78 partial(Git 항목만 배치 26). 리뷰 차단 4건(LSP 범위 Main 고정, 메인 패스 실패 시 보조 창 생략, 탭 복귀 실패 무시, 보조 창 reveal이 메인 탐색기에서 소비) 수정. 종료 대기 시간 초과 startup 2건은 HEAD에서도 같은 위치(tasks=2)로 실패해 기존 실패로 확인. 주의: 작업자가 금지된 `tests/explorer-delete.rs`를 2회 실행해 합성 파일 `delete-synthetic.txt`가 사용자 휴지통에 들어갔을 수 있음(휴지통은 건드리지 않음, 사용자 보고 대상). QA `2026-10-27-native-auxiliary-window{,-moves}.md`
-- [ ] E. 앱 수준 — shell-3·25(창·세션 복원), shell-9(OS 메뉴), shell-12·22(ErrorBoundary·OS drop)
-    - 2026-10-27 사용자 지시("implement만 끝내고 멈춰, 저녁에 다시 시작")로 구현 3건 완료 직후 workflow `wf_d95d56e9-ef7`을 정지했습니다. 리뷰·수정 전이라 작업 트리에 미커밋으로 둡니다(muda·taide-window 의존 추가로 앱 Cargo.toml·Cargo.lock 변경 포함). 재개: 같은 세션이면 script `native-step-runner-wf_89f0480f-e26.js` + `resumeFromRunId: wf_d95d56e9-ef7`(구현 3건 캐시, 리뷰부터)
-    - 구현 반환: shell-8 complete, shell-3·25·9·22 partial, shell-12 missing
-    - 결정 대기: shell-3 모니터 목록 획득(추천 A: 이미 lock에 있는 winit =0.30.13을 일반 의존으로), Edit 메뉴 단축키 표시(현재 A: 표시 안 함), shell-12 장애 격리 방식(추천 A는 영역 render 구조를 바꾸는 큰 설계 변경이라 사용자 확인 필요)
+- [x] E. 앱 수준 — `a03166b3` `3696f78a`. 사용자 "implement만 끝내고 멈춰"로 정지 뒤 "재개, 전부 추천안대로"로 같은 run을 리뷰부터 재개. shell-8 complete, shell-3(크기만)·25(mirror prune 잔여)·9(실기 대기)·22(WKWebView 위 drop 잔여) partial, shell-12 missing. 리뷰 차단 1건(보조 창 메뉴 Cut/Copy/Paste 미전달, vendored eframe immediate viewport drain) 수정. 결정 3건 추천안 채택(acknowledge 기록)
+- [ ] E2. 결정 반영 — shell-3 모니터 교차 보정 위치 복원(winit 일반 의존)·shell-25 mirror prune, shell-12 장애 경계 A안(공용 경계 + Welcome·rail·상태 표시줄, 이어서 편집기·사이드바), shell-22 WKWebView drop 처리기
 - [ ] F. 셸 기타 — shell-21·24·54, shell-59·94·98
 - [ ] G. 통합 — shell-90·92·93, shell-91·96
 - [ ] H. 배치 24 통합 게이트 — 변경 크레이트 전체 대상 `--no-fail-fast` 1회, 기능표 합계 갱신
