@@ -6,7 +6,7 @@ use eframe::egui::{
     self, Context, Event, Key, Modifiers, PointerButton, RawInput, Rect, pos2, vec2,
 };
 use taide_model::app_event::AppEvent;
-use taide_model::ids::ProjectId;
+use taide_model::ids::{ProjectId, ShellSlotId};
 use taide_model::locale::ResolvedLocale;
 use taide_model::paths::AppPaths;
 use taide_model::project::Project;
@@ -1813,6 +1813,7 @@ fn 탐색기_행은_들여쓰기_뒤에_chevron_칸과_타입_아이콘을_두�
         taide_runtime::theme_actions::theme_get(&state, "vscode-dark-modern".into()).unwrap();
     let appearance = Appearance::new(&theme).unwrap();
     let mut glyphs = Icons::new().unwrap();
+    let mount = ShellSlotId::new();
     let mut painted = None;
     let mut drawing = context.run_ui(
         RawInput {
@@ -1823,6 +1824,7 @@ fn 탐색기_행은_들여쓰기_뒤에_chevron_칸과_타입_아이콘을_두�
             painted = Some(explorer.show_with_icons(
                 ui,
                 &project,
+                &mount,
                 &page,
                 &locale(),
                 RowIcons {

@@ -144,7 +144,7 @@ mod tests {
         for (id, increase) in [("font-size-up", true), ("font-size-down", false)] {
             assert!(crate::shell_keymap::supports(id));
             assert!(
-                matches!(crate::shell_keymap::action(id, &snapshot), Some(ShellIntent::ChangeEditorFontSize { increase: value }) if value == increase)
+                matches!(crate::shell_keymap::action(id, &snapshot, &taide_native_ui::shell::WindowScope::Main), Some(ShellIntent::ChangeEditorFontSize { increase: value }) if value == increase)
             );
         }
         assert_eq!(

@@ -57,9 +57,14 @@ pub(crate) struct Views {
 }
 
 impl Views {
-    pub(crate) fn reconcile(&mut self, tree: Option<&ShellSlotTree>) {
+    pub(crate) fn reconcile(
+        &mut self,
+        tree: Option<&ShellSlotTree>,
+        auxiliary: &HashMap<ShellSlotId, ProjectId>,
+    ) {
         self.entries.retain(|slot, entry| {
             tree.and_then(|tree| taide_native_ui::snapshot::slot_project(tree, slot))
+                .or_else(|| auxiliary.get(slot))
                 == Some(&entry.project)
         });
     }

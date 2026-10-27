@@ -2,12 +2,13 @@ use std::sync::Arc;
 
 use taide_model::error::{AppError, AppResult};
 use taide_model::ids::{PaneId, ProjectId, TabId};
-use taide_model::layout::TabKind;
+use taide_model::layout::{TabKind, TabWindowTarget};
 use taide_model::tree::TreeRowPage;
 use taide_native_editor::store::SaveSnapshot;
 use taide_native_ui::document_admission::{PreparedDocument, prepare_opened_document};
 use taide_runtime::{
-    AppServices, layout_actions, native_file_actions, project_actions, system_actions, tree_actions,
+    AppServices, git_actions, layout_actions, native_file_actions, project_actions, system_actions,
+    tree_actions,
 };
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -193,6 +194,16 @@ pub enum HostCommand {
     },
     ReorderProjects(Vec<ProjectId>),
     ReorderProjectGroups(Vec<taide_model::ids::ProjectGroupId>),
+    ReturnAuxiliaryWindowTabs {
+        project: ProjectId,
+        slot: u32,
+    },
+    MoveTabToWindow {
+        tab: TabId,
+        target: TabWindowTarget,
+        label: Option<String>,
+    },
+    GitBranch(ProjectId),
     CreateProjectGroup {
         name: String,
         color: Option<String>,
@@ -258,6 +269,7 @@ pub enum HostCommand {
     TreeCollapse(ProjectId),
     RevealExplorerPath {
         project: ProjectId,
+        mount: taide_model::ids::ShellSlotId,
         path: String,
         rename: bool,
     },
@@ -268,6 +280,14 @@ pub enum HostCommand {
 }
 
 pub enum HostReply {
+    TabMovedToWindow {
+        label: Option<String>,
+        result: AppResult<Option<(ProjectId, u32)>>,
+    },
+    GitBranch {
+        project: ProjectId,
+        branch: Option<String>,
+    },
     EditorTerminalTarget(
         taide_model::error::AppResult<crate::editor_context_menu::TerminalDelivery>,
     ),
@@ -457,6 +477,7 @@ pub enum HostReply {
     },
     ExplorerPathRevealed {
         project: ProjectId,
+        mount: taide_model::ids::ShellSlotId,
         path: String,
         rename: bool,
         result: AppResult<TreeRowPage>,
@@ -1687,6 +1708,87 @@ async fn dispatch(
                 .err()
                 .map(HostReply::Failed)
         }
+        HostCommand::ReturnAuxiliaryWindowTabs { project, slot } => {
+            layout_actions::return_auxiliary_window_tabs(
+                services.events.as_ref(),
+                &services.state,
+                project,
+                slot,
+            )
+            .await;
+            None
+        }
+        HostCommand::MoveTabToWindow { tab, target, label } => {
+            let opened = std::sync::OnceLock::new();
+            let result = layout_actions::layout_move_tab_to_window(
+                services.events.as_ref(),
+                &services.state,
+                &services.windows,
+                tab,
+                target,
+                |project, slot| {
+                    let result = if !services.state.projects.read().contains_key(&project) {
+                        Err(AppError::NotFound(format!("project not open: {project}")))
+                    } else if let Some(label) = &label {
+                        services
+                            .windows
+                            .register(label.clone(), project.clone(), slot);
+                        opened.get_or_init(|| (project, slot));
+                        Ok(label.clone())
+                    } else {
+                        Err(AppError::Internal(
+                            "auxiliary window label was not reserved".into(),
+                        ))
+                    };
+                    std::future::ready(result)
+                },
+                |closed| {
+                    if opened.get().is_some() && label.as_deref() == Some(closed) {
+                        services.windows.forget(closed);
+                    }
+                },
+            )
+            .await;
+            Some(HostReply::TabMovedToWindow {
+                label,
+                result: result.map(|_| opened.into_inner()),
+            })
+        }
+        HostCommand::GitBranch(project) => {
+            let pending_services = services.clone();
+            let sender = sender.clone();
+            let repaint = repaint.clone();
+            let pending_project = project.clone();
+            if services
+                .tasks
+                .spawn_transient("native-title-branch", async move {
+                    let status = git_actions::git_status(
+                        || {},
+                        git_actions::GitActionContext::new(
+                            &pending_services.state,
+                            &pending_services.git,
+                            &pending_services.tasks,
+                        ),
+                        pending_project.clone(),
+                    )
+                    .await;
+                    let reply = HostReply::GitBranch {
+                        project: pending_project,
+                        branch: status.ok().and_then(|status| status.branch),
+                    };
+                    if sender.send(reply).await.is_ok() {
+                        repaint();
+                    }
+                })
+            {
+                None
+            } else {
+                Some(HostReply::GitBranch {
+                    project,
+                    branch: None,
+                })
+            }
+        }
         HostCommand::CreateProjectGroup {
             name,
             color,
@@ -1974,6 +2076,7 @@ async fn dispatch(
         }
         HostCommand::RevealExplorerPath {
             project,
+            mount,
             path,
             rename,
         } => {
@@ -1987,6 +2090,7 @@ async fn dispatch(
             .await;
             Some(HostReply::ExplorerPathRevealed {
                 project,
+                mount,
                 path,
                 rename,
                 result,

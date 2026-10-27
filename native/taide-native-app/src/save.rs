@@ -306,7 +306,7 @@ mod tests {
         );
         let shell = ShellSnapshot::read(&state).await;
         assert!(
-            matches!(crate::shell_keymap::action("save", &shell), Some(ShellIntent::RequestSaveTab(id)) if id == tab.id)
+            matches!(crate::shell_keymap::action("save", &shell, &taide_native_ui::shell::WindowScope::Main), Some(ShellIntent::RequestSaveTab(id)) if id == tab.id)
         );
         assert!(keymap_request(&tab, None, &mut store).unwrap().is_none());
         let Some(KeymapSave::File {
@@ -388,7 +388,14 @@ mod tests {
             panic!("expected leaf")
         };
         tabs[0] = terminal;
-        assert!(crate::shell_keymap::action("save", &terminal_shell).is_none());
+        assert!(
+            crate::shell_keymap::action(
+                "save",
+                &terminal_shell,
+                &taide_native_ui::shell::WindowScope::Main
+            )
+            .is_none()
+        );
         bridge.disconnect().await.unwrap();
         assert_eq!(tasks.tracked_count(), 0);
     }

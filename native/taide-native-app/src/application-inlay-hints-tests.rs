@@ -382,6 +382,21 @@ fn fixture_with_ports(
     wait(application, &fixture.context, "document", |application| {
         application.files.contains_key(&fixture.path)
     });
+    connect_lsp_mock(application, &fixture.context, &bin, mode);
+    let document = application.files[&fixture.path].id;
+    wait(application, &fixture.context, "provider", |application| {
+        provider_ready(application, &fixture.project, document)
+    });
+    paint(application, &fixture.context, Vec::new());
+    fixture
+}
+
+pub(super) fn connect_lsp_mock(
+    application: &mut NativeApplication,
+    context: &egui::Context,
+    bin: &std::path::Path,
+    mode: &str,
+) {
     let mock = std::env::current_exe()
         .unwrap()
         .parent()
@@ -404,21 +419,15 @@ fn fixture_with_ports(
         .clone()
         .block_on(application.lsp.take().unwrap().disconnect())
         .unwrap();
-    let repaint = fixture.context.clone();
+    let repaint = context.clone();
     application.lsp = Some(
         crate::lsp::LspBridge::connect(
             application.services.clone(),
-            bin.into_os_string(),
+            bin.as_os_str().to_owned(),
             Arc::new(move || repaint.request_repaint()),
         )
         .unwrap(),
     );
-    let document = application.files[&fixture.path].id;
-    wait(application, &fixture.context, "provider", |application| {
-        provider_ready(application, &fixture.project, document)
-    });
-    paint(application, &fixture.context, Vec::new());
-    fixture
 }
 
 pub(super) fn body_view(application: &NativeApplication, path: &str, tab: &TabId) -> ViewId {

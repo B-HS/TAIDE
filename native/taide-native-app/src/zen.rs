@@ -264,9 +264,11 @@ mod tests {
         let snapshot = ShellSnapshot::read(&state).await;
         assert!(snapshot.focused_project().is_none());
         assert!(crate::shell_keymap::supports("toggle-zen-mode"));
-        let Some(ShellIntent::Mutate(mutation)) =
-            crate::shell_keymap::action("toggle-zen-mode", &snapshot)
-        else {
+        let Some(ShellIntent::Mutate(mutation)) = crate::shell_keymap::action(
+            "toggle-zen-mode",
+            &snapshot,
+            &taide_native_ui::shell::WindowScope::Main,
+        ) else {
             panic!("expected window mutation")
         };
         taide_native_ui::commands::dispatch(&Sink, &state, mutation)

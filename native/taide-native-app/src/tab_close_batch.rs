@@ -196,9 +196,11 @@ mod tests {
             .write()
             .insert(project.clone(), layout.clone());
         let snapshot = ShellSnapshot::read(&state).await;
-        let Some(ShellIntent::RequestCloseTabs(ids)) =
-            crate::shell_keymap::action("close-all-tabs", &snapshot)
-        else {
+        let Some(ShellIntent::RequestCloseTabs(ids)) = crate::shell_keymap::action(
+            "close-all-tabs",
+            &snapshot,
+            &taide_native_ui::shell::WindowScope::Main,
+        ) else {
             panic!("expected batch intent")
         };
         assert_eq!(ids, [first.id.clone(), clean.id.clone(), last.id.clone()]);

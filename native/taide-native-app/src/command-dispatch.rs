@@ -71,14 +71,15 @@ pub(crate) fn intent(
     id: &str,
     context: &CommandContext,
     snapshot: &ShellSnapshot,
+    scope: &WindowScope,
 ) -> Option<ShellIntent> {
     if id == "find" {
-        return crate::shell_keymap::intent(command_run("editor.find", context)?, snapshot);
+        return crate::shell_keymap::intent(command_run("editor.find", context)?, snapshot, scope);
     }
     if crate::shell_keymap::supports(id) {
-        return crate::shell_keymap::action(id, snapshot);
+        return crate::shell_keymap::action(id, snapshot, scope);
     }
-    crate::shell_keymap::intent(command_run(id, context)?, snapshot)
+    crate::shell_keymap::intent(command_run(id, context)?, snapshot, scope)
 }
 
 pub(crate) fn intent_with_editor(
@@ -86,6 +87,7 @@ pub(crate) fn intent_with_editor(
     context: &CommandContext,
     snapshot: &ShellSnapshot,
     focused_view: Option<&ViewKey>,
+    scope: &WindowScope,
 ) -> Option<ShellIntent> {
     if let Some(Run::EditDocument(edit)) = command_run(id, context) {
         return Some(ShellIntent::EditDocument {
@@ -93,7 +95,7 @@ pub(crate) fn intent_with_editor(
             edit,
         });
     }
-    intent(id, context, snapshot)
+    intent(id, context, snapshot, scope)
 }
 
 pub(crate) fn take_fold_commands(
@@ -239,6 +241,10 @@ mod tests {
     const INDENT_WIDTH: u32 = 4;
     const UNDO_GROUPS: usize = 8;
     const AUXILIARY_SLOT: u32 = 1;
+
+    fn intent(id: &str, context: &CommandContext, snapshot: &ShellSnapshot) -> Option<ShellIntent> {
+        super::intent(id, context, snapshot, &WindowScope::Main)
+    }
 
     fn indentation_configuration() -> taide_native_editor::indent::IndentConfiguration {
         taide_native_editor::indent::IndentConfiguration {

@@ -100,7 +100,8 @@ struct Memory {
 }
 
 fn with_memory<R>(context: &Context, update: impl FnOnce(&mut Memory) -> R) -> R {
-    context.data_mut(|data| update(data.get_temp_mut_or_default::<Memory>(Id::new(MEMORY_KEY))))
+    let id = Id::new(MEMORY_KEY).with(context.viewport_id());
+    context.data_mut(|data| update(data.get_temp_mut_or_default::<Memory>(id)))
 }
 
 fn transposed(rect: Rect) -> Rect {

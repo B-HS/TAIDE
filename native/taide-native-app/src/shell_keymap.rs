@@ -3,6 +3,7 @@ use taide_model::{
     layout::{DropEdge, PaneNode, SplitDir, TabKind},
 };
 use taide_native_ui::commands::{ShellIntent, ShellMutation};
+use taide_native_ui::shell::WindowScope;
 use taide_native_ui::snapshot::ShellSnapshot;
 
 use crate::command_registry::{Direction, GroupTarget, Run, TabCycle, keymap_run};
@@ -75,34 +76,49 @@ pub(crate) fn runs_without_focused_project(action: &str) -> bool {
     )
 }
 
-pub(crate) fn action(action: &str, snapshot: &ShellSnapshot) -> Option<ShellIntent> {
-    intent(keymap_run(action)?, snapshot)
+pub(crate) fn action(
+    action: &str,
+    snapshot: &ShellSnapshot,
+    scope: &WindowScope,
+) -> Option<ShellIntent> {
+    intent(keymap_run(action)?, snapshot, scope)
 }
 
-pub(crate) fn intent(run: Run, snapshot: &ShellSnapshot) -> Option<ShellIntent> {
+pub(crate) fn intent(
+    run: Run,
+    snapshot: &ShellSnapshot,
+    scope: &WindowScope,
+) -> Option<ShellIntent> {
+    let project = match scope {
+        WindowScope::Main => snapshot.focused_project(),
+        WindowScope::Auxiliary { project, .. } => Some(project),
+    };
     match run {
         Run::OpenPalette(entry) => return Some(ShellIntent::OpenPalette(entry)),
         Run::OpenKeybindingsEditor => return Some(ShellIntent::OpenKeybindings),
         Run::OpenSettingsTab => return Some(ShellIntent::OpenSettings),
         Run::OpenSettingsFile => return Some(ShellIntent::OpenSettingsFile),
         Run::ToggleZenMode => {
-            return Some(ShellIntent::Mutate(ShellMutation::SetWindowChrome(
-                taide_model::project::WindowChromePatch {
-                    zen: Some(!snapshot.shell.window_chrome.zen),
-                    ..Default::default()
-                },
-            )));
+            return matches!(scope, WindowScope::Main).then(|| {
+                ShellIntent::Mutate(ShellMutation::SetWindowChrome(
+                    taide_model::project::WindowChromePatch {
+                        zen: Some(!snapshot.shell.window_chrome.zen),
+                        ..Default::default()
+                    },
+                ))
+            });
         }
         Run::ChangeEditorFontSize { increase } => {
             return Some(ShellIntent::ChangeEditorFontSize { increase });
         }
-        Run::OpenTerminalTab if snapshot.focused_project().is_none() => {
+        Run::OpenTerminalTab if project.is_none() => {
             return Some(ShellIntent::ShowOpenProjectNotice);
         }
         _ => (),
     }
-    let project = snapshot.focused_project()?;
+    let project = project?;
     let layout = snapshot.layouts.get(project)?;
+    let (root, focused) = crate::symbol_sidebar::window_tree(project, layout, scope)?;
     match run {
         Run::ReopenClosedTab => {
             return Some(ShellIntent::Mutate(ShellMutation::ReopenClosed(
@@ -110,6 +126,12 @@ pub(crate) fn intent(run: Run, snapshot: &ShellSnapshot) -> Option<ShellIntent> 
             )));
         }
         Run::ToggleSidebar => {
+            if let WindowScope::Auxiliary { slot, .. } = scope {
+                return Some(ShellIntent::ToggleAuxiliaryExplorer {
+                    project: project.clone(),
+                    slot: *slot,
+                });
+            }
             if snapshot.shell.window_chrome.zen {
                 return None;
             }
@@ -120,30 +142,27 @@ pub(crate) fn intent(run: Run, snapshot: &ShellSnapshot) -> Option<ShellIntent> 
         }
         Run::FocusGroup(target) => {
             let target = match target {
-                GroupTarget::Direction(direction) => {
-                    adjacent(&layout.root, &layout.focused_pane, drop_edge(direction))
-                }
+                GroupTarget::Direction(direction) => adjacent(root, focused, drop_edge(direction)),
                 GroupTarget::Position(position) => {
-                    leaves(&layout.root).get(position.checked_sub(1)?).copied()
+                    leaves(root).get(position.checked_sub(1)?).copied()
                 }
             }?;
             let PaneNode::Leaf { id, .. } = target else {
                 return None;
             };
-            return (id != &layout.focused_pane)
+            return (id != focused)
                 .then(|| ShellIntent::Mutate(ShellMutation::FocusPane(id.clone())));
         }
         _ => (),
     }
-    let PaneNode::Leaf { tabs, active, .. } =
-        taide_layout::service::find_leaf(&layout.root, &layout.focused_pane)?
+    let PaneNode::Leaf { tabs, active, .. } = taide_layout::service::find_leaf(root, focused)?
     else {
         return None;
     };
     if run == Run::OpenTerminalTab {
         return Some(ShellIntent::NewTerminal {
             project: project.clone(),
-            pane: layout.focused_pane.clone(),
+            pane: focused.clone(),
         });
     }
     if run == Run::ToggleTerminal {
@@ -161,7 +180,7 @@ pub(crate) fn intent(run: Run, snapshot: &ShellSnapshot) -> Option<ShellIntent> 
         }
         return (!active_terminal).then(|| ShellIntent::NewTerminal {
             project: project.clone(),
-            pane: layout.focused_pane.clone(),
+            pane: focused.clone(),
         });
     }
     if run == Run::CloseAllTabs {
@@ -177,7 +196,7 @@ pub(crate) fn intent(run: Run, snapshot: &ShellSnapshot) -> Option<ShellIntent> 
             id,
             tabs: target_tabs,
             ..
-        } = adjacent(&layout.root, &layout.focused_pane, drop_edge(direction))?
+        } = adjacent(root, focused, drop_edge(direction))?
         else {
             return None;
         };
@@ -226,7 +245,7 @@ pub(crate) fn intent(run: Run, snapshot: &ShellSnapshot) -> Option<ShellIntent> 
         }),
         Run::CloseTab => Some(ShellIntent::RequestCloseTab(tab.id.clone())),
         Run::Split => Some(ShellIntent::Mutate(ShellMutation::SplitTab {
-            pane: layout.focused_pane.clone(),
+            pane: focused.clone(),
             edge: DropEdge::Right,
             tab: tab.id.clone(),
         })),
@@ -269,6 +288,103 @@ mod tests {
     const PADDING: f32 = 8.0;
     const DOCUMENT_BYTES: usize = 1024;
     const UNDO_GROUPS: usize = 8;
+    const AUXILIARY_SLOT: u32 = 3;
+    const RESIZER_THICKNESS: f32 = 1.0;
+
+    fn action(action: &str, snapshot: &ShellSnapshot) -> Option<ShellIntent> {
+        super::action(action, snapshot, &WindowScope::Main)
+    }
+
+    #[test]
+    fn 보조_창_키맵은_자기_창_트리와_보기_전용_탐색기에_적용된다() {
+        use taide_model::layout::{AuxWindowLayout, Tab};
+        let project = ProjectId::new();
+        let main_layout = taide_layout::service::default_layout();
+        let left = PaneId::new();
+        let right = PaneId::new();
+        let tab = |title: &str| Tab {
+            id: TabId::new(),
+            kind: TabKind::Untitled { index: 1 },
+            title: title.into(),
+            pinned: false,
+            preview: false,
+            dirty: false,
+            view_state: None,
+        };
+        let (first, second, third) = (tab("first"), tab("second"), tab("third"));
+        let mut layout = main_layout.clone();
+        layout.auxiliary_windows.push(AuxWindowLayout {
+            slot: AUXILIARY_SLOT,
+            root: PaneNode::Split {
+                id: PaneId::new(),
+                dir: taide_model::layout::SplitDir::Horizontal,
+                children: vec![
+                    PaneNode::Leaf {
+                        id: left.clone(),
+                        tabs: vec![first.clone(), second.clone()],
+                        active: Some(first.id.clone()),
+                    },
+                    PaneNode::Leaf {
+                        id: right.clone(),
+                        tabs: vec![third.clone()],
+                        active: Some(third.id.clone()),
+                    },
+                ],
+                sizes: vec![50.0, 50.0],
+            },
+            focused_pane: left.clone(),
+        });
+        let snapshot = ShellSnapshot {
+            projects: Vec::new(),
+            groups: Vec::new(),
+            shell: taide_model::project::SessionShellState {
+                tree: None,
+                focused: None,
+                window_chrome: Default::default(),
+            },
+            layouts: [(project.clone(), layout)].into_iter().collect(),
+            hide_status_in_zen: true,
+            resizer_thickness: RESIZER_THICKNESS,
+            welcome_on_empty_editor: true,
+        };
+        let scope = WindowScope::Auxiliary {
+            project: project.clone(),
+            slot: AUXILIARY_SLOT,
+        };
+        let auxiliary = |id: &str| super::action(id, &snapshot, &scope);
+        assert!(snapshot.focused_project().is_none());
+        assert!(
+            matches!(auxiliary("close-tab"), Some(ShellIntent::RequestCloseTab(id)) if id == first.id)
+        );
+        assert!(matches!(
+            auxiliary("toggle-sidebar"),
+            Some(ShellIntent::ToggleAuxiliaryExplorer { project: owner, slot: AUXILIARY_SLOT }) if owner == project
+        ));
+        assert!(matches!(
+            auxiliary("split"),
+            Some(ShellIntent::Mutate(ShellMutation::SplitTab { pane, tab, .. })) if pane == left && tab == first.id
+        ));
+        assert!(matches!(
+            auxiliary("tab-cycle-next"),
+            Some(ShellIntent::Mutate(ShellMutation::ActivateTab(id))) if id == second.id
+        ));
+        assert!(matches!(
+            auxiliary("focus-group-right"),
+            Some(ShellIntent::Mutate(ShellMutation::FocusPane(pane))) if pane == right
+        ));
+        assert!(matches!(
+            auxiliary("new-terminal"),
+            Some(ShellIntent::NewTerminal { project: owner, pane }) if owner == project && pane == left
+        ));
+        assert!(auxiliary("toggle-zen-mode").is_none());
+        assert!(action("close-tab", &snapshot).is_none());
+        let missing = WindowScope::Auxiliary {
+            project,
+            slot: AUXILIARY_SLOT + 1,
+        };
+        assert!(super::action("close-tab", &snapshot, &missing).is_none());
+    }
+
     struct Sink;
     impl EventSink for Sink {
         fn publish(&self, _: AppEvent) {}

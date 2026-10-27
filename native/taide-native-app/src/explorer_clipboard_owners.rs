@@ -35,7 +35,15 @@ impl ClipboardOwners {
     }
 
     pub fn reconcile(&mut self, tree: Option<&ShellSlotTree>) {
-        let mut slots = HashSet::new();
+        self.reconcile_windows(tree, &HashSet::new());
+    }
+
+    pub fn reconcile_windows(
+        &mut self,
+        tree: Option<&ShellSlotTree>,
+        auxiliary: &HashSet<ShellSlotId>,
+    ) {
+        let mut slots = auxiliary.clone();
         if let Some(tree) = tree {
             collect_slots(tree, &mut slots);
         }

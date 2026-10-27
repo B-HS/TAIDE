@@ -400,19 +400,20 @@ impl State {
     pub(crate) fn retain_active(
         &mut self,
         layouts: &HashMap<ProjectId, taide_model::layout::ProjectLayout>,
-        scope: &taide_native_ui::shell::WindowScope,
+        scopes: &[taide_native_ui::shell::WindowScope],
     ) {
         let retired = &mut self.retired_previews;
         let now = Instant::now();
         self.pending_peeks.retain(|pending| {
             let active = pending.deadline > now
                 && layouts.get(&pending.project).is_some_and(|layout| {
-                    crate::symbol_sidebar::window_tree(&pending.project, layout, scope).is_some_and(
-                        |(root, _)| {
-                            taide_native_ui::snapshot::active_tab(root, &pending.pane)
-                                .is_some_and(|tab| tab.id == pending.tab)
-                        },
-                    )
+                    scopes.iter().any(|scope| {
+                        crate::symbol_sidebar::window_tree(&pending.project, layout, scope)
+                            .is_some_and(|(root, _)| {
+                                taide_native_ui::snapshot::active_tab(root, &pending.pane)
+                                    .is_some_and(|tab| tab.id == pending.tab)
+                            })
+                    })
                 });
             if !active {
                 retired.extend(pending.session.preview);
@@ -429,25 +430,27 @@ impl State {
                     session.open = None;
                 }
                 let active = layouts.get(&session.request.project).is_some_and(|layout| {
-                    if session.open.is_some() {
-                        return crate::symbol_sidebar::window_tree(
-                            &session.request.project,
-                            layout,
-                            scope,
-                        )
-                        .is_some();
-                    }
-                    if session.model.is_none() || session.request.mode == Mode::Hover {
-                        return session.request.is_active(layout, scope);
-                    }
-                    crate::symbol_sidebar::window_tree(&session.request.project, layout, scope)
-                        .is_some_and(|(root, _)| {
-                            taide_native_ui::snapshot::active_tab(
-                                root,
-                                &session.request.owner_key.pane,
+                    scopes.iter().any(|scope| {
+                        if session.open.is_some() {
+                            return crate::symbol_sidebar::window_tree(
+                                &session.request.project,
+                                layout,
+                                scope,
                             )
-                            .is_some_and(|tab| tab.id == session.request.owner_key.tab)
-                        })
+                            .is_some();
+                        }
+                        if session.model.is_none() || session.request.mode == Mode::Hover {
+                            return session.request.is_active(layout, scope);
+                        }
+                        crate::symbol_sidebar::window_tree(&session.request.project, layout, scope)
+                            .is_some_and(|(root, _)| {
+                                taide_native_ui::snapshot::active_tab(
+                                    root,
+                                    &session.request.owner_key.pane,
+                                )
+                                .is_some_and(|tab| tab.id == session.request.owner_key.tab)
+                            })
+                    })
                 });
                 if !active {
                     retired.extend(session.preview);

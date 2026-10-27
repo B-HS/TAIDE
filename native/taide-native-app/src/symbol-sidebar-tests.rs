@@ -16,10 +16,17 @@ fn outline_진입은_슬롯과_프로젝트별로_보존하고_교체와_닫힘�
         slot_id: right.clone(),
         project_id: second.clone(),
     };
-    views.reconcile(Some(&tree));
+    views.reconcile(Some(&tree), &HashMap::new());
     assert_eq!(views.entries.len(), 1);
     assert_eq!(views.entry(&second, &right).view, View::Outline);
-    views.reconcile(None);
+    let auxiliary = ShellSlotId::new();
+    views.entry(&first, &auxiliary).view = View::Outline;
+    views.reconcile(None, &HashMap::from([(auxiliary.clone(), first.clone())]));
+    assert_eq!(views.entries.len(), 1);
+    assert_eq!(views.entry(&first, &auxiliary).view, View::Outline);
+    views.reconcile(None, &HashMap::from([(auxiliary.clone(), second.clone())]));
+    assert!(views.entries.is_empty());
+    views.reconcile(None, &HashMap::new());
     assert!(views.entries.is_empty());
     assert_eq!(views.entry(&second, &right).view, View::Files);
 }

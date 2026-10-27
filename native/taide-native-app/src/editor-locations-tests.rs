@@ -271,7 +271,7 @@ fn peek_파일_열기는_레이아웃_인계_동안만_source를_보존하고_�
         let mut layouts = HashMap::from([(project.clone(), layout)]);
         let scope = taide_native_ui::shell::WindowScope::Main;
         assert!(child.is_active(&layouts[&project], &scope));
-        state.retain_active(&layouts, &scope);
+        state.retain_active(&layouts, std::slice::from_ref(&scope));
         assert!(state.is_current(&child));
         state
             .accept(&child, &store, providers.clone(), Ok(response(identity)))
@@ -282,7 +282,7 @@ fn peek_파일_열기는_레이아웃_인계_동안만_source를_보존하고_�
             panic!()
         };
         *active = Some(destination);
-        state.retain_active(&layouts, &scope);
+        state.retain_active(&layouts, std::slice::from_ref(&scope));
         state.detach_retired(&mut store);
         assert!(parent.is_cancelled());
         assert!(state.is_current(&child));
@@ -303,7 +303,7 @@ fn peek_파일_열기는_레이아웃_인계_동안만_source를_보존하고_�
             }
             _ => state.close(owner),
         }
-        state.retain_active(&layouts, &scope);
+        state.retain_active(&layouts, std::slice::from_ref(&scope));
         state.detach_retired(&mut store);
         assert!(*cancelled.borrow(), "{case}");
         assert!(child.is_cancelled(), "{case}");
@@ -1121,7 +1121,7 @@ fn 파일_열기의_레이아웃_이벤트는_아직_도착하지_않은_응답�
     layout.focused_pane = source.key.pane.clone();
     state.retain_active(
         &HashMap::from([(project, layout)]),
-        &taide_native_ui::shell::WindowScope::Main,
+        &[taide_native_ui::shell::WindowScope::Main],
     );
     assert!(!*cancelled.borrow());
     assert!(state.is_current(&request));
@@ -1224,7 +1224,7 @@ fn peek_인계는_대상_뷰와_미리보기를_보존하고_프로젝트_종료
             }
             state.retain_active(
                 &HashMap::from([(project, layout)]),
-                &taide_native_ui::shell::WindowScope::Main,
+                &[taide_native_ui::shell::WindowScope::Main],
             );
         }
         state.detach_retired(&mut store);

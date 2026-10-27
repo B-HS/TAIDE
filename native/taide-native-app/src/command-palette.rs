@@ -543,7 +543,12 @@ mod tests {
                         .unwrap();
                     for action in &actions {
                         if let Some(ShellIntent::OpenPalette(entry)) =
-                            crate::command_dispatch::intent(action, &commands, &snapshot)
+                            crate::command_dispatch::intent(
+                                action,
+                                &commands,
+                                &snapshot,
+                                &WindowScope::Main,
+                            )
                         {
                             palette.open(ui.ctx(), entry);
                         }

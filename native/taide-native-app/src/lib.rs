@@ -9,6 +9,8 @@ pub mod app_file_write;
 pub mod application;
 #[path = "application-ports.rs"]
 pub mod application_ports;
+#[path = "auxiliary-windows.rs"]
+mod auxiliary_windows;
 pub mod bootstrap;
 #[path = "breadcrumb-host.rs"]
 mod breadcrumb_host;
@@ -291,6 +293,8 @@ mod theme_editor_tokens;
 #[path = "theme-live-preview.rs"]
 #[cfg(test)]
 mod theme_live_preview;
+#[path = "title-branch.rs"]
+mod title_branch;
 mod toast;
 mod tooltips;
 #[path = "ui-fonts.rs"]

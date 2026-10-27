@@ -8,7 +8,7 @@ use taide_model::app_event::AppEvent;
 use taide_model::error::{AppError, AppResult};
 use taide_model::file::REFUSED_FILE_BYTES;
 use taide_model::ids::{PaneId, ProjectId, ShellSlotId, TabId};
-use taide_model::layout::{Tab, TabKind};
+use taide_model::layout::{Tab, TabKind, TabWindowTarget};
 use taide_model::locale::ResolvedLocale;
 use taide_model::tree::TreeRowPage;
 use taide_native_editor::document::DiskChoice;
@@ -51,6 +51,7 @@ struct PaintSink {
     trees: Arc<crate::events::TreeChanges>,
     file_indexes: Arc<crate::command_palette::FileIndexChanges>,
     presentation: Arc<crate::presentation_refresh::Changes>,
+    title_branches: Arc<crate::title_branch::Changes>,
 }
 
 impl EventSink for PaintSink {
@@ -58,6 +59,7 @@ impl EventSink for PaintSink {
         self.trees.record(&event);
         self.file_indexes.record(&event);
         self.presentation.record(&event);
+        self.title_branches.record(&event);
         self.context.request_repaint();
     }
 }
@@ -194,6 +196,9 @@ pub struct NativeApplication {
     symbol_sidebars: crate::symbol_sidebar::Views,
     breadcrumbs: crate::breadcrumbs::Views,
     shell: NativeShell,
+    auxiliary_windows: crate::auxiliary_windows::Windows,
+    auxiliary_pass_root: Option<WindowScope>,
+    overlay_viewport: egui::ViewportId,
     zen_fullscreen_state: crate::zen::Fullscreen,
     keybindings: crate::keybinding_editor::Editor,
     palette: crate::command_palette::Palette,
@@ -273,6 +278,8 @@ pub struct NativeApplication {
     deleting_entry: bool,
     tree_loading: HashSet<ProjectId>,
     tree_changes: Arc<crate::events::TreeChanges>,
+    title_branch_changes: Arc<crate::title_branch::Changes>,
+    title_branches: crate::title_branch::Branches,
     pending_dirty: HashMap<TabId, bool>,
     persistence: crate::persistence::Persistence,
     last_edited_views: HashMap<DocumentId, ViewId>,
@@ -323,6 +330,7 @@ impl NativeApplication {
         let tree_changes = Arc::new(crate::events::TreeChanges::default());
         let palette_file_changes = Arc::new(crate::command_palette::FileIndexChanges::default());
         let presentation_changes = Arc::new(crate::presentation_refresh::Changes::default());
+        let title_branch_changes = Arc::new(crate::title_branch::Changes::default());
         let (mut assembly, connection) = runtime.block_on(bootstrap::connect_shell(
             state.clone(),
             tasks.clone(),
@@ -331,6 +339,7 @@ impl NativeApplication {
                 trees: tree_changes.clone(),
                 file_indexes: palette_file_changes.clone(),
                 presentation: presentation_changes.clone(),
+                title_branches: title_branch_changes.clone(),
             }),
             repaint.clone(),
         ))?;
@@ -500,6 +509,19 @@ impl NativeApplication {
         let tooltips = crate::tooltips::Provider::default();
         let mut settings_views = crate::settings_view::Views::default();
         settings_views.set_font_painter(crate::font_preview::Renderer::new(services.tasks.clone()));
+        let project_order: Vec<ProjectId> = state
+            .session
+            .read()
+            .projects
+            .iter()
+            .map(|project| project.id.clone())
+            .collect();
+        let auxiliary_windows = crate::auxiliary_windows::Windows::restore(
+            &project_order,
+            &state.projects.read(),
+            &state.layouts.read(),
+            &services.windows,
+        );
         let application = Self {
             runtime,
             services,
@@ -569,6 +591,9 @@ impl NativeApplication {
             symbol_sidebars: crate::symbol_sidebar::Views::default(),
             breadcrumbs: crate::breadcrumbs::Views::default(),
             shell,
+            auxiliary_windows,
+            auxiliary_pass_root: None,
+            overlay_viewport: egui::ViewportId::ROOT,
             zen_fullscreen_state,
             keybindings,
             palette,
@@ -653,6 +678,8 @@ impl NativeApplication {
             deleting_entry: false,
             tree_loading: HashSet::new(),
             tree_changes,
+            title_branch_changes,
+            title_branches: Default::default(),
             pending_dirty: HashMap::new(),
             persistence: crate::persistence::Persistence::default(),
             last_edited_views: HashMap::new(),
@@ -1100,7 +1127,10 @@ impl NativeApplication {
                         .layouts
                         .read()
                         .get(&request.project)
-                        .is_some_and(|layout| request.is_active(layout, &self.shell.scope));
+                        .is_some_and(|layout| {
+                            self.active_window_scope(|scope| request.is_active(layout, scope))
+                                .is_some()
+                        });
                     if self.closing.is_none()
                         && active
                         && !self.services.state.is_shutting_down()
@@ -1818,12 +1848,14 @@ impl NativeApplication {
                 }
                 HostReply::ExplorerPathRevealed {
                     project,
+                    mount,
                     path,
                     rename,
                     result,
                 } => match result {
                     Ok(page) => {
                         let explorer = self.explorers.entry(project.clone()).or_default();
+                        explorer.address_requests(&mount);
                         explorer.select_path(&page.rows, &path);
                         if rename && let Some(row) = page.rows.iter().find(|row| row.path == path) {
                             explorer.start_rename(row);
@@ -1833,6 +1865,24 @@ impl NativeApplication {
                     }
                     Err(error) => self.status = Some(error.to_string()),
                 },
+                HostReply::TabMovedToWindow { label, result } => {
+                    if let Some(label) = label {
+                        match &result {
+                            Ok(Some((project, slot))) => {
+                                self.auxiliary_windows.adopt(project.clone(), *slot, label)
+                            }
+                            _ => self.auxiliary_windows.release(&label),
+                        }
+                    }
+                    if let Err(error) = result {
+                        self.report(&error);
+                    }
+                    context.request_repaint();
+                }
+                HostReply::GitBranch { project, branch } => {
+                    self.title_branches.finish(&project, branch);
+                    context.request_repaint();
+                }
                 HostReply::CopiedText { result } => crate::toast::copy_finished(
                     &mut self.toasts,
                     &self.locale,
@@ -4367,14 +4417,20 @@ impl NativeApplication {
         };
         let shell = self.controller.snapshot();
         let valid_owner = shell.layouts.get(&project).is_some_and(|layout| {
-            crate::symbol_sidebar::window_tree(&project, layout, &self.shell.scope).is_some_and(
-                |(root, _)| {
-                    crate::tabs::tabs_in(root).iter().any(|tab| {
-                        tab.id == owner_view.key.tab
-                            && matches!(tab.kind, TabKind::File { .. } | TabKind::Untitled { .. })
-                    })
-                },
-            )
+            self.active_window_scope(|scope| {
+                crate::symbol_sidebar::window_tree(&project, layout, scope).is_some_and(
+                    |(root, _)| {
+                        crate::tabs::tabs_in(root).iter().any(|tab| {
+                            tab.id == owner_view.key.tab
+                                && matches!(
+                                    tab.kind,
+                                    TabKind::File { .. } | TabKind::Untitled { .. }
+                                )
+                        })
+                    },
+                )
+            })
+            .is_some()
         });
         if !valid_owner {
             return false;
@@ -4465,6 +4521,7 @@ impl NativeApplication {
                 .map(|model| model.id)
                 .collect(),
         );
+        let scopes = self.window_scopes();
         let Some(lsp) = self.lsp.as_mut() else {
             self.editor_formatting
                 .reconcile(&self.store, |_| HashSet::new());
@@ -4501,14 +4558,12 @@ impl NativeApplication {
                         .layouts
                         .get(&request.project)
                         .is_some_and(|layout| {
-                            crate::symbol_sidebar::window_tree(
-                                &request.project,
-                                layout,
-                                &self.shell.scope,
-                            )
-                            .is_some_and(|(root, _)| {
-                                taide_native_ui::snapshot::active_tab(root, &owner.key.pane)
-                                    .is_some_and(|tab| tab.id == owner.key.tab)
+                            scopes.iter().any(|scope| {
+                                crate::symbol_sidebar::window_tree(&request.project, layout, scope)
+                                    .is_some_and(|(root, _)| {
+                                        taide_native_ui::snapshot::active_tab(root, &owner.key.pane)
+                                            .is_some_and(|tab| tab.id == owner.key.tab)
+                                    })
                             })
                         })
                 }) && (request.source == request.owner
@@ -4531,7 +4586,11 @@ impl NativeApplication {
         }
         let mut retained = HashSet::new();
         let mut fold_retained = HashSet::new();
-        for (project, path) in crate::lsp::visible_files(&shell, &self.shell.scope) {
+        let visible: Vec<_> = scopes
+            .iter()
+            .flat_map(|scope| crate::lsp::visible_files(&shell, scope))
+            .collect();
+        for (project, path) in visible {
             if self.loading.contains(path)
                 || self.failed.contains_key(path)
                 || self.missing_drafts.contains_key(path)
@@ -4778,7 +4837,10 @@ impl NativeApplication {
                 .layouts
                 .read()
                 .get(&request.project)
-                .is_some_and(|layout| request.is_active(layout, &self.shell.scope));
+                .is_some_and(|layout| {
+                    self.active_window_scope(|scope| request.is_active(layout, scope))
+                        .is_some()
+                });
             if self.closing.is_some() || !active || !request.describes(&self.store) {
                 if self.editor_completion.is_current(&request) {
                     self.editor_completion.close(request.source);
@@ -4823,7 +4885,10 @@ impl NativeApplication {
                 .layouts
                 .read()
                 .get(&request.project)
-                .is_some_and(|layout| request.is_active(layout, &self.shell.scope));
+                .is_some_and(|layout| {
+                    self.active_window_scope(|scope| request.is_active(layout, scope))
+                        .is_some()
+                });
             if self.closing.is_some()
                 || !active
                 || !self.submit(HostCommand::ReadCompletionClipboard(request.clone()))
@@ -4897,14 +4962,7 @@ impl NativeApplication {
             self.editor_locations.show(source);
             return;
         }
-        let revision = self
-            .services
-            .state
-            .layouts
-            .read()
-            .get(&request.project)
-            .map(|layout| layout.revision);
-        let Some(revision) = revision else {
+        let Some((revision, scope)) = self.request_window(&request) else {
             return;
         };
         let Ok((source, token, cancelled)) = self.editor_locations.begin_open(&self.store, source)
@@ -4926,10 +4984,22 @@ impl NativeApplication {
                 side: false,
                 keep_peek: true,
                 revision,
-                scope: self.shell.scope.clone(),
+                scope,
                 viewport,
             },
         ));
+    }
+
+    fn request_window(
+        &self,
+        request: &crate::editor_locations::Request,
+    ) -> Option<(u32, WindowScope)> {
+        let layouts = self.services.state.layouts.read();
+        let layout = layouts.get(&request.project)?;
+        let scope = self
+            .active_window_scope(|scope| request.is_active(layout, scope))
+            .unwrap_or_else(|| self.shell.scope.clone());
+        Some((layout.revision, scope))
     }
 
     fn consume_location_model(
@@ -5000,14 +5070,7 @@ impl NativeApplication {
             self.editor_locations.close(request.source);
             return;
         }
-        let revision = self
-            .services
-            .state
-            .layouts
-            .read()
-            .get(&request.project)
-            .map(|layout| layout.revision);
-        if let Some(revision) = revision {
+        if let Some((revision, scope)) = self.request_window(&request) {
             let viewport = request.viewport;
             let side = request.mode == Mode::Aside;
             if let Ok((source, token, cancelled)) = self
@@ -5023,7 +5086,7 @@ impl NativeApplication {
                         side,
                         keep_peek: false,
                         revision,
-                        scope: self.shell.scope.clone(),
+                        scope,
                         viewport,
                     },
                 ));
@@ -5046,7 +5109,10 @@ impl NativeApplication {
                 .layouts
                 .read()
                 .get(&request.project)
-                .is_some_and(|layout| request.is_active(layout, &self.shell.scope))
+                .is_some_and(|layout| {
+                    self.active_window_scope(|scope| request.is_active(layout, scope))
+                        .is_some()
+                })
     }
 
     fn is_current_selection_range_request(
@@ -5066,7 +5132,10 @@ impl NativeApplication {
                 .layouts
                 .read()
                 .iter()
-                .any(|(project, layout)| request.is_active(project, layout, &self.shell.scope))
+                .any(|(project, layout)| {
+                    self.active_window_scope(|scope| request.is_active(project, layout, scope))
+                        .is_some()
+                })
     }
 
     fn poll_lsp(&mut self) {
@@ -5166,7 +5235,10 @@ impl NativeApplication {
                             .layouts
                             .read()
                             .get(&request.project)
-                            .is_some_and(|layout| request.is_active(layout, &self.shell.scope));
+                            .is_some_and(|layout| {
+                                self.active_window_scope(|scope| request.is_active(layout, scope))
+                                    .is_some()
+                            });
                     if active && self.closing.is_none() {
                         self.editor_inlay_hints
                             .accept(&self.store, &request, providers, result);
@@ -5188,7 +5260,10 @@ impl NativeApplication {
                             .layouts
                             .read()
                             .get(project)
-                            .is_some_and(|layout| request.is_active(layout, &self.shell.scope))
+                            .is_some_and(|layout| {
+                                self.active_window_scope(|scope| request.is_active(layout, scope))
+                                    .is_some()
+                            })
                     });
                     if active && self.closing.is_none() {
                         self.editor_highlights
@@ -5207,7 +5282,10 @@ impl NativeApplication {
                         .layouts
                         .read()
                         .get(&request.project)
-                        .is_some_and(|layout| request.is_active(layout, &self.shell.scope));
+                        .is_some_and(|layout| {
+                            self.active_window_scope(|scope| request.is_active(layout, scope))
+                                .is_some()
+                        });
                     if active && self.closing.is_none() {
                         if let Err(error) =
                             self.editor_completion
@@ -5233,7 +5311,10 @@ impl NativeApplication {
                         .layouts
                         .read()
                         .get(&request.project)
-                        .is_some_and(|layout| request.is_active(layout, &self.shell.scope));
+                        .is_some_and(|layout| {
+                            self.active_window_scope(|scope| request.is_active(layout, scope))
+                                .is_some()
+                        });
                     if active && self.closing.is_none() {
                         if let Err(error) = self.editor_documentation.accept(
                             &self.store,
@@ -5258,7 +5339,10 @@ impl NativeApplication {
                         .layouts
                         .read()
                         .get(&request.project)
-                        .is_some_and(|layout| request.is_active(layout, &self.shell.scope));
+                        .is_some_and(|layout| {
+                            self.active_window_scope(|scope| request.is_active(layout, scope))
+                                .is_some()
+                        });
                     if active && self.closing.is_none() {
                         match self
                             .editor_locations
@@ -6307,10 +6391,21 @@ impl NativeApplication {
                     self.notify_open_project_first();
                     return;
                 };
-                let pane = snapshot
-                    .layouts
-                    .get(project)
-                    .and_then(|layout| crate::command_palette::file_tab_pane(layout, &path));
+                let pane =
+                    snapshot
+                        .layouts
+                        .get(project)
+                        .and_then(|layout| match &self.shell.scope {
+                            WindowScope::Main => {
+                                crate::command_palette::file_tab_pane(layout, &path)
+                            }
+                            WindowScope::Auxiliary { .. } => crate::symbol_sidebar::window_tree(
+                                project,
+                                layout,
+                                &self.shell.scope,
+                            )
+                            .map(|(_, focused)| focused.clone()),
+                        });
                 self.submit(HostCommand::OpenPaletteFile {
                     project: project.clone(),
                     pane,
@@ -6595,12 +6690,17 @@ impl NativeApplication {
         }
         self.reveals
             .reconcile(&self.services.state.layouts.read(), Instant::now());
-        self.explorer_clipboards
-            .reconcile(self.controller.snapshot().shell.tree.as_ref());
+        let auxiliary_explorers = self.auxiliary_windows.explorer_mounts();
+        self.explorer_clipboards.reconcile_windows(
+            self.controller.snapshot().shell.tree.as_ref(),
+            &auxiliary_explorers.keys().cloned().collect(),
+        );
         self.problems
             .reconcile(self.controller.snapshot().shell.tree.as_ref());
-        self.symbol_sidebars
-            .reconcile(self.controller.snapshot().shell.tree.as_ref());
+        self.symbol_sidebars.reconcile(
+            self.controller.snapshot().shell.tree.as_ref(),
+            &auxiliary_explorers,
+        );
         self.breadcrumbs.reconcile(
             context,
             &self.services.state.layouts.read(),
@@ -6694,6 +6794,11 @@ impl NativeApplication {
                     if !self.services.state.is_shutting_down() {
                         self.loading.clear();
                         self.tree_loading.clear();
+                        self.title_branches.cancel_fetches();
+                        self.auxiliary_windows.settle_reserved(
+                            &self.services.state.layouts.read(),
+                            &self.services.windows,
+                        );
                         self.palette_files.cancel_fetches();
                         self.previews.reset_pending();
                         self.hwp_previews.reset_pending();
@@ -6807,6 +6912,23 @@ impl NativeApplication {
                     context.request_repaint();
                 }
             }
+            self.title_branches
+                .invalidate(self.title_branch_changes.take());
+            self.title_branches.retain(&open_projects);
+            if self.shell.has_title_bar {
+                let shown = snapshot.focused_project().cloned().into_iter().chain(
+                    self.auxiliary_windows
+                        .windows()
+                        .iter()
+                        .map(|window| window.project.clone()),
+                );
+                for project in self.title_branches.requests(shown) {
+                    if !self.submit(HostCommand::GitBranch(project.clone())) {
+                        self.title_branches.retry(&project);
+                        context.request_repaint();
+                    }
+                }
+            }
         }
         if !self.workspace_busy() {
             self.flush_observations();
@@ -6835,8 +6957,27 @@ impl eframe::App for NativeApplication {
     }
 
     fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
+        self.frame_ui(ui, frame);
+    }
+
+    fn on_exit(&mut self) {
+        self.exit_application();
+    }
+}
+
+struct WindowPass {
+    snapshot: Arc<taide_native_ui::snapshot::ShellSnapshot>,
+    document_edits: Vec<(TabId, DocumentEdit)>,
+    fold_commands: Vec<(TabId, FoldCommand)>,
+    web_placements: Vec<crate::preview_web_view::Placement>,
+    root_enabled: bool,
+    overlay: egui::ViewportId,
+}
+
+impl NativeApplication {
+    fn frame_ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
         let context = ui.ctx().clone();
-        if !context.input(|input| input.raw.focused) {
+        if !self.is_any_window_focused(&context) {
             self.terminal_views.clear_keymap_chord(&context);
         }
         if let Some(bridge) = &self.web_bridge
@@ -6860,14 +7001,11 @@ impl eframe::App for NativeApplication {
         self.editor_view_state.begin_frame(&self.store);
         self.editor_markdown
             .reconcile(&context, &snapshot.layouts, &self.store);
-        self.breadcrumbs.reconcile(
-            &context,
-            &snapshot.layouts,
+        let auxiliary_explorers = self.auxiliary_windows.explorer_mounts();
+        self.explorer_clipboards.reconcile_windows(
             snapshot.shell.tree.as_ref(),
-            &self.shell.scope,
+            &auxiliary_explorers.keys().cloned().collect(),
         );
-        self.explorer_clipboards
-            .reconcile(snapshot.shell.tree.as_ref());
         if self.closing.is_none() && !self.services.state.is_shutting_down() {
             self.zen_fullscreen_state.reconcile(
                 &context,
@@ -6891,26 +7029,228 @@ impl eframe::App for NativeApplication {
             })
             .collect();
         self.terminal_views.retain(&live_tabs, &live_sessions);
-        let target = snapshot
-            .focused_project()
-            .and_then(|project| snapshot.layouts.get(project))
-            .map(|layout| layout.focused_pane.clone());
+        let scopes = self.window_scopes();
+        let (document_edits, fold_commands) =
+            self.reconcile_editor_features(&context, &snapshot, &scopes);
+        self.settings_views.begin_frame();
+        let mut pass = WindowPass {
+            snapshot,
+            document_edits,
+            fold_commands,
+            web_placements: Vec::new(),
+            root_enabled: false,
+            overlay: self.overlay_viewport(&context),
+        };
+        let main_proceeded = self.show_window(ui, frame, &mut pass);
+        let auxiliary_proceeded = self.show_auxiliary_windows(&context, frame, &mut pass);
+        self.finish_window_frames(&context);
+        if main_proceeded && auxiliary_proceeded {
+            self.finish_frame(&context, frame, pass);
+        }
+    }
+
+    fn window_scopes(&self) -> Vec<WindowScope> {
+        let root = self
+            .auxiliary_pass_root
+            .as_ref()
+            .unwrap_or(&self.shell.scope);
+        let mut scopes = vec![root.clone()];
+        if matches!(root, WindowScope::Main) {
+            scopes.extend(
+                self.auxiliary_windows
+                    .windows()
+                    .iter()
+                    .map(crate::auxiliary_windows::Window::scope),
+            );
+        }
+        scopes
+    }
+
+    fn active_window_scope(&self, is_active: impl Fn(&WindowScope) -> bool) -> Option<WindowScope> {
+        self.window_scopes()
+            .into_iter()
+            .find(|scope| is_active(scope))
+    }
+
+    fn is_any_window_focused(&self, context: &egui::Context) -> bool {
+        context.input(|input| input.raw.focused)
+            || self
+                .auxiliary_windows
+                .windows()
+                .iter()
+                .any(|window| context.input_for(window.viewport, |input| input.raw.focused))
+    }
+
+    fn overlay_viewport(&mut self, context: &egui::Context) -> egui::ViewportId {
+        let windows = self.auxiliary_windows.windows();
+        if !windows
+            .iter()
+            .any(|window| window.viewport == self.overlay_viewport)
+        {
+            self.overlay_viewport = egui::ViewportId::ROOT;
+        }
+        let has_overlay = self.keybindings.is_open()
+            || self.palette.is_open()
+            || self.pending_tab_close.is_some()
+            || self.pending_entry_delete.is_some()
+            || self.system_usage.detail_open
+            || self.open_path_dialog.is_open()
+            || self.project_display_dialog.is_open()
+            || self.project_group_dialog.is_open()
+            || self.project_group_delete.is_open();
+        if !has_overlay {
+            if context.input(|input| input.raw.focused) {
+                self.overlay_viewport = egui::ViewportId::ROOT;
+            } else if let Some(window) = windows
+                .iter()
+                .find(|window| context.input_for(window.viewport, |input| input.raw.focused))
+            {
+                self.overlay_viewport = window.viewport;
+            }
+        }
+        self.overlay_viewport
+    }
+
+    fn show_auxiliary_windows(
+        &mut self,
+        context: &egui::Context,
+        frame: &mut eframe::Frame,
+        pass: &mut WindowPass,
+    ) -> bool {
+        if !matches!(self.shell.scope, WindowScope::Main) {
+            return true;
+        }
+        self.submit_auxiliary_window_returns();
+        let is_live = self.closing.is_none()
+            && !self.is_exit_ready
+            && !self.services.state.is_shutting_down();
+        let mut all_proceeded = true;
+        for window in self.auxiliary_windows.windows().to_vec() {
+            if !window.is_alive(&self.services.state.layouts.read()) {
+                if is_live {
+                    self.close_auxiliary_window(&window.label);
+                }
+                continue;
+            }
+            let title = crate::auxiliary_windows::title(
+                pass.snapshot
+                    .project(&window.project)
+                    .map_or(window.project.as_str(), |project| project.name.as_str()),
+                APPLICATION_NAME,
+            );
+            let mut proceeded = true;
+            let mut close_requested = false;
+            context.show_viewport_immediate(
+                window.viewport,
+                crate::auxiliary_windows::builder(title),
+                |ui, _| {
+                    let root = std::mem::replace(&mut self.shell.scope, window.scope());
+                    self.auxiliary_pass_root = Some(root.clone());
+                    proceeded = self.show_window(ui, frame, pass);
+                    self.auxiliary_pass_root = None;
+                    self.shell.scope = root;
+                    close_requested = ui.input(|input| input.viewport().close_requested());
+                },
+            );
+            if close_requested && is_live {
+                self.close_auxiliary_window(&window.label);
+            }
+            all_proceeded &= proceeded;
+        }
+        all_proceeded
+    }
+
+    fn submit_auxiliary_window_returns(&mut self) {
+        for (project, slot) in self.auxiliary_windows.pending_returns() {
+            if !self.submit(HostCommand::ReturnAuxiliaryWindowTabs {
+                project: project.clone(),
+                slot,
+            }) {
+                return;
+            }
+            self.auxiliary_windows.returned(&project, slot);
+        }
+    }
+
+    fn close_auxiliary_window(&mut self, label: &str) {
+        let Some(window) = self.auxiliary_windows.close(label, &self.services.windows) else {
+            return;
+        };
+        if self.overlay_viewport == window.viewport {
+            self.overlay_viewport = egui::ViewportId::ROOT;
+        }
+        let layouts = self.services.state.layouts.read();
+        let documents: Vec<DocumentId> = window
+            .layout(&layouts)
+            .map(|layout| crate::tabs::tabs_in(&layout.root))
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|tab| match &tab.kind {
+                TabKind::File { path } => self.files.get(path).map(|file| file.id),
+                TabKind::Untitled { .. } => self.untitled.get(&tab.id).map(|document| document.id),
+                _ => None,
+            })
+            .collect();
+        drop(layouts);
+        for document in documents {
+            let Some(project) = self.draft_project(document) else {
+                continue;
+            };
+            if let Ok(snapshot) = self.store.documents().snapshot(document)
+                && let Some(job) = self.persistence.mirror_job(snapshot, project)
+                && self.submit(HostCommand::MirrorDraft(job.clone()))
+            {
+                self.persistence.mirror_started(&job);
+            }
+        }
+        self.submit_auxiliary_window_returns();
+    }
+
+    fn finish_window_frames(&mut self, context: &egui::Context) {
+        let now = Instant::now();
+        for request in self.editor_ide_selection.finish_frame(&self.store, now) {
+            match request {
+                Ok(request) => {
+                    if !self.submit(HostCommand::EditorIdeSelection(request.clone())) {
+                        self.editor_ide_selection.retry(request, now);
+                    }
+                }
+                Err(error) => self.report(&editor_error(error)),
+            }
+        }
+        if let Some(deadline) = self.editor_ide_selection.next_deadline() {
+            context.request_repaint_after(deadline.saturating_duration_since(now));
+        }
+        self.settings_views.finish_frame();
+        self.sync_theme_preview(context);
+    }
+
+    fn window_command_context(
+        &self,
+        context: &egui::Context,
+        snapshot: &taide_native_ui::snapshot::ShellSnapshot,
+    ) -> (
+        Option<PaneId>,
+        Option<ProjectId>,
+        Option<ViewKey>,
+        CommandContext,
+    ) {
         let editor_project = match &self.shell.scope {
             WindowScope::Main => snapshot.focused_project(),
             WindowScope::Auxiliary { project, .. } => Some(project),
         };
-        let focused_view = editor_project
-            .and_then(|project| {
-                let layout = snapshot.layouts.get(project)?;
-                crate::symbol_sidebar::window_tree(project, layout, &self.shell.scope)
+        let window = editor_project.and_then(|project| {
+            let layout = snapshot.layouts.get(project)?;
+            crate::symbol_sidebar::window_tree(project, layout, &self.shell.scope)
+        });
+        let target = window.map(|(_, pane)| pane.clone());
+        let focused_view = window.and_then(|(root, pane)| {
+            taide_native_ui::snapshot::active_tab(root, pane).map(|tab| ViewKey {
+                window: WINDOW_LABEL.into(),
+                pane: pane.clone(),
+                tab: tab.id.clone(),
             })
-            .and_then(|(root, pane)| {
-                taide_native_ui::snapshot::active_tab(root, pane).map(|tab| ViewKey {
-                    window: WINDOW_LABEL.into(),
-                    pane: pane.clone(),
-                    tab: tab.id.clone(),
-                })
-            });
+        });
         let command_context = crate::command_dispatch::context(
             &snapshot,
             &self.shell.scope,
@@ -7129,9 +7469,21 @@ impl eframe::App for NativeApplication {
                 },
             ),
         );
-        self.terminal_views
-            .set_command_context(command_context.clone());
-        let mut document_edits = std::mem::take(&mut self.document_edits);
+        (
+            target,
+            editor_project.cloned(),
+            focused_view,
+            command_context,
+        )
+    }
+
+    fn reconcile_editor_features(
+        &mut self,
+        context: &egui::Context,
+        snapshot: &taide_native_ui::snapshot::ShellSnapshot,
+        scopes: &[WindowScope],
+    ) -> (Vec<(TabId, DocumentEdit)>, Vec<(TabId, FoldCommand)>) {
+        let document_edits = std::mem::take(&mut self.document_edits);
         self.editor_find
             .retain(|view, _| self.store.views().get(*view).is_some());
         self.editor_problems.retain(&self.store);
@@ -7147,7 +7499,7 @@ impl eframe::App for NativeApplication {
                 })
             });
         self.editor_locations
-            .retain_active(&snapshot.layouts, &self.shell.scope);
+            .retain_active(&snapshot.layouts, scopes);
         self.editor_locations.detach_retired(&mut self.store);
         let inlay_hint_previews = self.editor_locations.preview_views();
         self.editor_selection_ranges.reconcile(
@@ -7158,7 +7510,9 @@ impl eframe::App for NativeApplication {
                         || inlay_hint_previews.contains(&request.source))
                     && snapshot.layouts.iter().any(|(project, layout)| {
                         projects.contains(project)
-                            && request.is_active(project, layout, &self.shell.scope)
+                            && scopes
+                                .iter()
+                                .any(|scope| request.is_active(project, layout, scope))
                     })
             },
             |project, document| {
@@ -7179,7 +7533,9 @@ impl eframe::App for NativeApplication {
                     && snapshot
                         .layouts
                         .get(&request.project)
-                        .is_some_and(|layout| request.is_active(layout, &self.shell.scope))
+                        .is_some_and(|layout| {
+                            scopes.iter().any(|scope| request.is_active(layout, scope))
+                        })
             },
             |project, document| {
                 self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
@@ -7197,7 +7553,9 @@ impl eframe::App for NativeApplication {
                     && snapshot
                         .layouts
                         .get(&request.project)
-                        .is_some_and(|layout| request.is_active(layout, &self.shell.scope))
+                        .is_some_and(|layout| {
+                            scopes.iter().any(|scope| request.is_active(layout, scope))
+                        })
             },
             |project, document| {
                 self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
@@ -7211,10 +7569,9 @@ impl eframe::App for NativeApplication {
                 self.closing.is_none()
                     && request.project.as_ref().is_none_or(|project| {
                         projects.contains(project)
-                            && snapshot
-                                .layouts
-                                .get(project)
-                                .is_some_and(|layout| request.is_active(layout, &self.shell.scope))
+                            && snapshot.layouts.get(project).is_some_and(|layout| {
+                                scopes.iter().any(|scope| request.is_active(layout, scope))
+                            })
                     })
             },
             |project, document| {
@@ -7230,7 +7587,9 @@ impl eframe::App for NativeApplication {
                 snapshot
                     .layouts
                     .get(&request.project)
-                    .is_some_and(|layout| request.is_active(layout, &self.shell.scope))
+                    .is_some_and(|layout| {
+                        scopes.iter().any(|scope| request.is_active(layout, scope))
+                    })
             },
             |project, document, kind| {
                 self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
@@ -7245,7 +7604,9 @@ impl eframe::App for NativeApplication {
                 snapshot
                     .layouts
                     .get(&request.project)
-                    .is_some_and(|layout| request.is_active(layout, &self.shell.scope))
+                    .is_some_and(|layout| {
+                        scopes.iter().any(|scope| request.is_active(layout, scope))
+                    })
             },
             |project, document| {
                 self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
@@ -7265,14 +7626,15 @@ impl eframe::App for NativeApplication {
             |origin| {
                 projects.contains(&origin.project)
                     && snapshot.layouts.get(&origin.project).is_some_and(|layout| {
-                        crate::symbol_sidebar::window_tree(
-                            &origin.project,
-                            layout,
-                            &self.shell.scope,
-                        )
-                        .is_some_and(|(root, _)| {
-                            taide_native_ui::snapshot::active_tab(root, &origin.owner_key.pane)
-                                .is_some_and(|tab| tab.id == origin.owner_key.tab)
+                        scopes.iter().any(|scope| {
+                            crate::symbol_sidebar::window_tree(&origin.project, layout, scope)
+                                .is_some_and(|(root, _)| {
+                                    taide_native_ui::snapshot::active_tab(
+                                        root,
+                                        &origin.owner_key.pane,
+                                    )
+                                    .is_some_and(|tab| tab.id == origin.owner_key.tab)
+                                })
                         })
                     })
             },
@@ -7283,14 +7645,15 @@ impl eframe::App for NativeApplication {
                 .reconcile(&self.store, &self.services, |origin| {
                     projects.contains(&origin.project)
                         && snapshot.layouts.get(&origin.project).is_some_and(|layout| {
-                            crate::symbol_sidebar::window_tree(
-                                &origin.project,
-                                layout,
-                                &self.shell.scope,
-                            )
-                            .is_some_and(|(root, _)| {
-                                taide_native_ui::snapshot::active_tab(root, &origin.owner_key.pane)
-                                    .is_some_and(|tab| tab.id == origin.owner_key.tab)
+                            scopes.iter().any(|scope| {
+                                crate::symbol_sidebar::window_tree(&origin.project, layout, scope)
+                                    .is_some_and(|(root, _)| {
+                                        taide_native_ui::snapshot::active_tab(
+                                            root,
+                                            &origin.owner_key.pane,
+                                        )
+                                        .is_some_and(|tab| tab.id == origin.owner_key.tab)
+                                    })
                             })
                         })
                 });
@@ -7346,7 +7709,27 @@ impl eframe::App for NativeApplication {
         if let Some(delay) = self.peek_models.next_expiry(Instant::now()) {
             context.request_repaint_after(delay);
         }
-        let mut fold_commands = std::mem::take(&mut self.fold_commands);
+        (document_edits, std::mem::take(&mut self.fold_commands))
+    }
+
+    fn show_window(
+        &mut self,
+        ui: &mut Ui,
+        frame: &mut eframe::Frame,
+        frame_pass: &mut WindowPass,
+    ) -> bool {
+        let context = ui.ctx().clone();
+        let snapshot = frame_pass.snapshot.clone();
+        self.breadcrumbs.reconcile(
+            &context,
+            &snapshot.layouts,
+            snapshot.shell.tree.as_ref(),
+            &self.shell.scope,
+        );
+        let (target, editor_project, focused_view, command_context) =
+            self.window_command_context(&context, &snapshot);
+        self.terminal_views
+            .set_command_context(command_context.clone());
         let mut command_errors = Vec::new();
         let mut commands = Vec::new();
         let mut load_settings = Vec::new();
@@ -7355,7 +7738,6 @@ impl eframe::App for NativeApplication {
         let mut settings_errors = Vec::new();
         let mut theme_errors = Vec::new();
         let mut snippet_notices = Vec::new();
-        self.settings_views.begin_frame();
         let mut keymap_actions = Vec::new();
         let mut keymap_editor_scope = None;
         let mut keymap_documents = HashMap::new();
@@ -7376,7 +7758,11 @@ impl eframe::App for NativeApplication {
         let mut load_untitled = Vec::new();
         let mut banner_actions = Vec::new();
         let mut changed_documents = std::mem::take(&mut self.editor_menu_changes);
-        let mut new_focus = self.focused.clone();
+        let mut new_focus = if context.viewport_id() == egui::ViewportId::ROOT {
+            self.focused.clone()
+        } else {
+            self.auxiliary_windows.focused_editor(context.viewport_id())
+        };
         let mut status = self.status.take();
         let is_workspace_busy = self.workspace_busy();
         let is_enabled = self.closing.is_none()
@@ -7425,7 +7811,7 @@ impl eframe::App for NativeApplication {
                     .keymap_overrides
                     .as_deref(),
                 &mut keymap_actions,
-                snapshot.focused_project().is_some(),
+                editor_project.is_some(),
                 |id| {
                     let (view, _) = self.editor_keymap_targets.get(&(viewport, id))?;
                     if crate::editor_context_menu::body(&context, *view).is_some_and(|editor| {
@@ -7505,8 +7891,8 @@ impl eframe::App for NativeApplication {
             status_ide_icons: &mut self.status_ide_icons,
             status_view: focused_view.clone(),
             command_context: &command_context,
-            document_edits: &mut document_edits,
-            fold_commands: &mut fold_commands,
+            document_edits: &mut frame_pass.document_edits,
+            fold_commands: &mut frame_pass.fold_commands,
             command_errors: &mut command_errors,
             lsp_summary,
             lsp_status_appearance: &self.lsp_status_appearance,
@@ -7614,6 +8000,8 @@ impl eframe::App for NativeApplication {
             projects: &snapshot.projects,
             layouts: &snapshot.layouts,
             scope: &self.shell.scope,
+            auxiliary_windows: &self.auxiliary_windows,
+            title_branches: &self.title_branches,
             commands: &mut commands,
             load_files: &mut load_files,
             load_trees: &mut load_trees,
@@ -7642,35 +8030,15 @@ impl eframe::App for NativeApplication {
                 ),
             );
         }
-        self.focused = new_focus;
         self.status = status;
-        let now = Instant::now();
-        for request in self.editor_ide_selection.finish_frame(&self.store, now) {
-            match request {
-                Ok(request) => {
-                    if !self.submit(HostCommand::EditorIdeSelection(request.clone())) {
-                        self.editor_ide_selection.retry(request, now);
-                    }
-                }
-                Err(error) => self.report(&editor_error(error)),
-            }
+        if context.viewport_id() == egui::ViewportId::ROOT {
+            self.focused = new_focus;
+            frame_pass.web_placements = web_placements;
+            frame_pass.root_enabled = is_enabled;
+        } else {
+            self.auxiliary_windows
+                .set_focused_editor(context.viewport_id(), new_focus);
         }
-        if let Some(deadline) = self.editor_ide_selection.next_deadline() {
-            context.request_repaint_after(deadline.saturating_duration_since(now));
-        }
-        if self.system_usage.detail_open
-            && crate::system_usage_view::show_detail(
-                &context,
-                &self.locale,
-                &self.system_usage_appearance,
-                self.system_usage.processes(),
-            )
-        {
-            self.system_usage.detail_open = false;
-            context.request_repaint();
-        }
-        self.settings_views.finish_frame();
-        self.sync_theme_preview(&context);
         for error in settings_errors {
             self.toasts
                 .settings_failed(&self.locale, &error, Instant::now());
@@ -7734,18 +8102,21 @@ impl eframe::App for NativeApplication {
                         .keymap_overrides
                         .as_deref(),
                     &mut keymap_actions,
-                    snapshot.focused_project().is_some(),
+                    editor_project.is_some(),
                 ) {
                     self.status = Some(error.to_string());
                 }
             }
-            keymap_actions.append(&mut self.palette_commands);
+            if context.viewport_id() == frame_pass.overlay {
+                keymap_actions.append(&mut self.palette_commands);
+            }
             intents.extend(keymap_actions.into_iter().filter_map(|action| {
                 crate::command_dispatch::intent_with_editor(
                     &action,
                     &command_context,
                     &snapshot,
                     focused_view.as_ref(),
+                    &self.shell.scope,
                 )
             }));
             let now = Instant::now();
@@ -7762,7 +8133,7 @@ impl eframe::App for NativeApplication {
                 && !self.palette.is_open()
                 && context
                     .input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::N))
-                && let Some(project) = snapshot.focused_project()
+                && let Some(project) = editor_project.as_ref()
                 && let Some(pane) = target.as_ref()
             {
                 commands.push(HostCommand::NewUntitled {
@@ -7888,7 +8259,7 @@ impl eframe::App for NativeApplication {
                     }
                 }
                 context.request_repaint();
-                return;
+                return false;
             }
             for (project, request) in create_entries {
                 self.create_entry(project, request);
@@ -8026,6 +8397,10 @@ impl eframe::App for NativeApplication {
                         self.fold_commands.push((tab, command));
                         context.request_repaint();
                     }
+                    ShellIntent::ToggleAuxiliaryExplorer { project, slot } => {
+                        self.auxiliary_windows.toggle_explorer(&project, slot);
+                        context.request_repaint();
+                    }
                     ShellIntent::OpenSettings => {
                         let owner = match &self.shell.scope {
                             WindowScope::Main => snapshot.focused_project().and_then(|project| {
@@ -8102,9 +8477,40 @@ impl eframe::App for NativeApplication {
                         }
                         self.submit(HostCommand::RevealExplorerPath {
                             project,
+                            mount: slot,
                             path,
                             rename,
                         });
+                    }
+                    ShellIntent::RevealInAuxiliaryExplorer {
+                        project,
+                        slot,
+                        path,
+                        rename,
+                    } => {
+                        if let Some(explorer) = self.auxiliary_windows.show_explorer(&project, slot)
+                        {
+                            self.symbol_sidebars.entry(&project, &explorer).view =
+                                crate::symbol_sidebar::View::Files;
+                            self.submit(HostCommand::RevealExplorerPath {
+                                project,
+                                mount: explorer,
+                                path,
+                                rename,
+                            });
+                        }
+                    }
+                    ShellIntent::MoveTabToWindow { tab, target } => {
+                        let label = matches!(target, TabWindowTarget::NewAuxiliary)
+                            .then(|| self.auxiliary_windows.reserve());
+                        if !self.submit(HostCommand::MoveTabToWindow {
+                            tab,
+                            target,
+                            label: label.clone(),
+                        }) && let Some(label) = label
+                        {
+                            self.auxiliary_windows.release(&label);
+                        }
                     }
                     ShellIntent::ReopenWith { path, preview } => {
                         self.open_with.set(
@@ -8291,6 +8697,68 @@ impl eframe::App for NativeApplication {
             }
             self.flush_observations();
         }
+        let is_project_display_open = self.project_display_dialog.is_open();
+        let is_project_group_open =
+            self.project_group_dialog.is_open() || self.project_group_delete.is_open();
+        if context.viewport_id() == frame_pass.overlay {
+            self.show_overlays(&context, frame, &snapshot, &command_context, is_enabled);
+        } else {
+            self.tooltips.finish_frame(&context);
+        }
+        if matches!(self.shell.scope, WindowScope::Main)
+            && crate::zen::escape(
+                &context,
+                snapshot.shell.window_chrome.zen,
+                is_enabled
+                    && !self.keybindings.is_open()
+                    && !self.palette.is_open()
+                    && !is_project_display_open
+                    && !is_project_group_open
+                    && self.pending_tab_close.is_none()
+                    && self.pending_entry_delete.is_none()
+                    && !self.deleting_entry
+                    && self.saving_missing_draft.is_none()
+                    && self.saving_untitled.is_none()
+                    && self.pending_disk_choice.is_none(),
+                keymap_editor_scope == Some(true),
+            )
+            && let Err(error) = self.controller.submit(ShellMutation::SetWindowChrome(
+                taide_model::project::WindowChromePatch {
+                    zen: Some(false),
+                    ..Default::default()
+                },
+            ))
+        {
+            self.report(&error);
+        }
+        if let Err(error) =
+            self.terminal_views
+                .finish_frame(self.terminals.hub(), &self.services, &context)
+        {
+            self.status = Some(error.to_string());
+        }
+        true
+    }
+
+    fn show_overlays(
+        &mut self,
+        context: &egui::Context,
+        frame: &mut eframe::Frame,
+        snapshot: &taide_native_ui::snapshot::ShellSnapshot,
+        command_context: &CommandContext,
+        is_enabled: bool,
+    ) {
+        if self.system_usage.detail_open
+            && crate::system_usage_view::show_detail(
+                context,
+                &self.locale,
+                &self.system_usage_appearance,
+                self.system_usage.processes(),
+            )
+        {
+            self.system_usage.detail_open = false;
+            context.request_repaint();
+        }
         let keybindings_enabled = is_enabled
             && !self.system_usage.detail_open
             && self.pending_tab_close.is_none()
@@ -8301,7 +8769,7 @@ impl eframe::App for NativeApplication {
             && self.pending_disk_choice.is_none();
         let raw_overrides = self.services.state.settings.read().keymap_overrides.clone();
         match self.keybindings.show(
-            &context,
+            context,
             &self.locale,
             raw_overrides.as_deref(),
             keybindings_enabled && !self.palette.is_open(),
@@ -8309,7 +8777,7 @@ impl eframe::App for NativeApplication {
             Ok(output) => {
                 output.show_tooltips(&self.locale, &self.tooltips, &self.tooltip_appearance);
                 if output.started_capture {
-                    self.terminal_views.clear_keymap_chord(&context);
+                    self.terminal_views.clear_keymap_chord(context);
                 }
                 for warning in output.warnings {
                     self.toasts.warning(warning, Instant::now());
@@ -8321,15 +8789,15 @@ impl eframe::App for NativeApplication {
             Err(error) => self.status = Some(error.to_string()),
         }
         self.show_palette(
-            &context,
-            &snapshot,
-            &command_context,
+            context,
+            snapshot,
+            command_context,
             raw_overrides.as_deref(),
             keybindings_enabled,
         );
-        self.tooltips.finish_frame(&context);
+        self.tooltips.finish_frame(context);
         if let Some(pending) = self.pending_entry_delete.as_mut() {
-            let choice = pending.show(&context, &self.locale).choice;
+            let choice = pending.show(context, &self.locale).choice;
             if let Some(confirmed) = choice {
                 let request = self
                     .pending_entry_delete
@@ -8355,8 +8823,8 @@ impl eframe::App for NativeApplication {
                 context.request_repaint();
             }
         }
-        self.tab_close_dialog(&context, frame);
-        if let Some(path) = self.open_path_dialog.show(&context, &self.locale)
+        self.tab_close_dialog(context, frame);
+        if let Some(path) = self.open_path_dialog.show(context, &self.locale)
             && !self.submit(HostCommand::OpenProjectByPath(path))
         {
             self.open_path_dialog.finish(false);
@@ -8368,12 +8836,11 @@ impl eframe::App for NativeApplication {
         {
             self.project_display_dialog.close();
         }
-        let is_project_display_open = self.project_display_dialog.is_open();
         let locale = &self.locale;
         let icons = &mut self.explorer_icons;
         let status = &mut self.status;
         let saved = self.project_display_dialog.show(
-            &context,
+            context,
             &self.shell.colors,
             &|key| presentation::message(locale, key, &[]),
             &mut |ui, rect, icon, color| paint_rail_icon(icons, status, ui, rect, icon, color),
@@ -8383,39 +8850,21 @@ impl eframe::App for NativeApplication {
         {
             self.project_display_dialog.finish(false);
         }
-        let is_project_group_open =
-            self.project_group_dialog.is_open() || self.project_group_delete.is_open();
-        self.project_group_dialogs(&context, &snapshot);
-        if crate::zen::escape(
-            &context,
-            snapshot.shell.window_chrome.zen,
-            is_enabled
-                && !self.keybindings.is_open()
-                && !self.palette.is_open()
-                && !is_project_display_open
-                && !is_project_group_open
-                && self.pending_tab_close.is_none()
-                && self.pending_entry_delete.is_none()
-                && !self.deleting_entry
-                && self.saving_missing_draft.is_none()
-                && self.saving_untitled.is_none()
-                && self.pending_disk_choice.is_none(),
-            keymap_editor_scope == Some(true),
-        ) && let Err(error) = self.controller.submit(ShellMutation::SetWindowChrome(
-            taide_model::project::WindowChromePatch {
-                zen: Some(false),
-                ..Default::default()
-            },
-        )) {
-            self.report(&error);
-        }
-        if let Err(error) =
-            self.terminal_views
-                .finish_frame(self.terminals.hub(), &self.services, &context)
-        {
-            self.status = Some(error.to_string());
-        }
-        self.flush_persistence(&context);
+        self.project_group_dialogs(context, snapshot);
+    }
+
+    fn finish_frame(
+        &mut self,
+        context: &egui::Context,
+        frame: &mut eframe::Frame,
+        frame_pass: WindowPass,
+    ) {
+        let WindowPass {
+            web_placements,
+            root_enabled: is_enabled,
+            ..
+        } = frame_pass;
+        self.flush_persistence(context);
         let live = self
             .web_preview_paths()
             .into_iter()
@@ -8431,13 +8880,13 @@ impl eframe::App for NativeApplication {
             && !self.palette.is_open()
             && self.pending_tab_close.is_none()
             && self.pending_entry_delete.is_none()
-            && !egui::Popup::is_any_open(&context)
-            && !egui::DragAndDrop::has_any_payload(&context)
-            && !taide_native_ui::project_drag::is_dragging(&context)
-            && !taide_native_ui::tab_drag::is_dragging(&context);
-        if let Err(error) =
-            self.web_views
-                .sync(frame, &context, &live, &web_placements, web_enabled)
+            && !egui::Popup::is_any_open(context)
+            && !egui::DragAndDrop::has_any_payload(context)
+            && !taide_native_ui::project_drag::is_dragging(context)
+            && !taide_native_ui::tab_drag::is_dragging(context);
+        if let Err(error) = self
+            .web_views
+            .sync(frame, context, &live, &web_placements, web_enabled)
         {
             self.web_views.clear();
             for placement in web_placements {
@@ -8450,7 +8899,7 @@ impl eframe::App for NativeApplication {
         let toast_position = self.services.state.settings.read().toast_position.clone();
         let toast_enabled = self.toast_interaction_enabled();
         if let Err(error) = self.toasts.show(
-            &context,
+            context,
             self.toast_theme,
             &toast_position,
             Instant::now(),
@@ -8462,7 +8911,7 @@ impl eframe::App for NativeApplication {
         self.fulfill_view_states();
     }
 
-    fn on_exit(&mut self) {
+    fn exit_application(&mut self) {
         if self.is_exit_ready {
             return;
         }
@@ -8788,6 +9237,8 @@ struct AppSurfaces<'a> {
     projects: &'a [taide_model::project::ProjectRef],
     layouts: &'a HashMap<ProjectId, taide_model::layout::ProjectLayout>,
     scope: &'a WindowScope,
+    auxiliary_windows: &'a crate::auxiliary_windows::Windows,
+    title_branches: &'a crate::title_branch::Branches,
     commands: &'a mut Vec<HostCommand>,
     load_files: &'a mut Vec<(String, TabId)>,
     load_trees: &'a mut Vec<ProjectId>,
@@ -8836,8 +9287,36 @@ impl ShellSurfaces for AppSurfaces<'_> {
     fn text_with_args(&self, key: &str, arguments: &[(&str, &str)]) -> String {
         presentation::message(self.locale, key, arguments)
     }
-    fn branch(&self, _: &ProjectId) -> Option<&str> {
-        None
+    fn branch(&self, project: &ProjectId) -> Option<&str> {
+        self.title_branches.branch(project)
+    }
+    fn title_branch_icon(&mut self, ui: &Ui, rect: egui::Rect, color: egui::Color32) {
+        if let Err(error) = self.explorer_icons.paint(
+            ui,
+            rect,
+            crate::problems_icons::Glyph::GitBranch,
+            color,
+            0.0,
+        ) {
+            *self.status = Some(error.to_string());
+        }
+    }
+    fn is_auxiliary_explorer_open(&self, project: &ProjectId, slot: u32) -> bool {
+        self.auxiliary_windows
+            .find(project, slot)
+            .is_some_and(|window| window.is_explorer_open)
+    }
+    fn auxiliary_explorer(
+        &mut self,
+        ui: &mut Ui,
+        project: &ProjectId,
+        slot: u32,
+        intents: &mut Vec<ShellIntent>,
+    ) {
+        if let Some(window) = self.auxiliary_windows.find(project, slot) {
+            let mount = window.explorer.clone();
+            self.explorer(ui, project, &mount, intents);
+        }
     }
     fn problems_open(&self, slot: &ShellSlotId) -> bool {
         self.problems.is_open(slot)
@@ -9011,6 +9490,7 @@ impl ShellSurfaces for AppSurfaces<'_> {
         let explorer = self.explorers.entry(project.clone()).or_default();
         explorer.replace_clipboard(self.explorer_clipboards.clipboard(owner).cloned());
         if let Some(path) = self.explorer_clipboards.take_reveal(owner) {
+            explorer.address_requests(slot);
             explorer.paste_finished(false, Some(path));
         }
         if let Some(project) = self.projects.iter().find(|entry| &entry.id == project) {
@@ -9020,6 +9500,7 @@ impl ShellSurfaces for AppSurfaces<'_> {
         let output = explorer.show_with_icons(
             ui,
             project,
+            slot,
             page,
             self.locale,
             crate::explorer::RowIcons {
@@ -9036,6 +9517,14 @@ impl ShellSurfaces for AppSurfaces<'_> {
             self.tooltips,
             self.tooltip_appearance,
         );
+        let window_pane = match self.scope {
+            WindowScope::Main => None,
+            WindowScope::Auxiliary { .. } => self
+                .layouts
+                .get(project)
+                .and_then(|layout| crate::symbol_sidebar::window_tree(project, layout, self.scope))
+                .map(|(_, focused)| focused.clone()),
+        };
         for action in output.actions {
             match action {
                 crate::explorer::Action::Toggle(path) => {
@@ -9047,7 +9536,7 @@ impl ShellSurfaces for AppSurfaces<'_> {
                 crate::explorer::Action::Open { path, preview } => {
                     self.commands.push(HostCommand::OpenFileTab {
                         project: project.clone(),
-                        pane: None,
+                        pane: window_pane.clone(),
                         path,
                         preview,
                     })
@@ -9066,7 +9555,7 @@ impl ShellSurfaces for AppSurfaces<'_> {
                     self.open_with.set(row.path.clone(), mode);
                     self.commands.push(HostCommand::OpenFileTab {
                         project: project.clone(),
-                        pane: None,
+                        pane: window_pane.clone(),
                         path: row.path,
                         preview: false,
                     });
@@ -10448,6 +10937,10 @@ mod tab_menu_tests;
 #[cfg(all(test, unix))]
 #[path = "application-tab-drag-tests.rs"]
 mod tab_drag_tests;
+
+#[cfg(all(test, unix))]
+#[path = "application-auxiliary-window-tests.rs"]
+mod auxiliary_window_tests;
 
 #[cfg(test)]
 mod close_all_tests {

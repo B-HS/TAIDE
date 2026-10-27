@@ -3,7 +3,7 @@ use std::path::Path;
 
 use eframe::egui::{self, Color32, Id, Key, Modifiers, Response, Ui};
 use taide_model::error::{AppError, AppResult};
-use taide_model::ids::ProjectId;
+use taide_model::ids::{ProjectId, ShellSlotId};
 use taide_model::locale::ResolvedLocale;
 use taide_model::theme::ResolvedTheme;
 use taide_model::tree::{TreeEntryKind, TreeRow, TreeRowPage};
@@ -277,7 +277,14 @@ struct DraftOutput {
 }
 
 impl RenameDraft {
-    fn show(&mut self, ui: &mut Ui, locale: &ResolvedLocale, id: Id, pending: bool) -> DraftOutput {
+    fn show(
+        &mut self,
+        ui: &mut Ui,
+        locale: &ResolvedLocale,
+        id: Id,
+        pending: bool,
+        owns_focus_request: bool,
+    ) -> DraftOutput {
         let owns_focus = ui.memory(|memory| memory.has_focus(id));
         let mut ime_frame = false;
         let mut enter_pressed = false;
@@ -329,7 +336,7 @@ impl RenameDraft {
             ))
             .show(ui);
         let response = output.response.response;
-        if self.focus && ui.is_enabled() {
+        if self.focus && owns_focus_request && ui.is_enabled() {
             self.focus = false;
             response.request_focus();
             output
@@ -395,7 +402,8 @@ pub struct Explorer {
     typeahead_deadline: Option<f64>,
     composing: bool,
     clipboard: Option<crate::explorer_clipboard::Entry>,
-    scroll_offset: f32,
+    mount: Option<ShellSlotId>,
+    request_mount: Option<ShellSlotId>,
 }
 
 fn revealing_scroll_offset(current: f32, viewport_height: f32, index: usize) -> Option<f32> {
@@ -410,6 +418,20 @@ fn revealing_scroll_offset(current: f32, viewport_height: f32, index: usize) -> 
 impl Explorer {
     pub fn clipboard(&self) -> Option<&crate::explorer_clipboard::Entry> {
         self.clipboard.as_ref()
+    }
+
+    pub fn address_requests(&mut self, mount: &ShellSlotId) {
+        self.request_mount = Some(mount.clone());
+    }
+
+    fn claim_requests(&mut self) {
+        if self.mount.is_some() {
+            self.request_mount.clone_from(&self.mount);
+        }
+    }
+
+    fn owns_requests(&self) -> bool {
+        self.request_mount.is_none() || self.request_mount == self.mount
     }
 
     pub fn replace_clipboard(&mut self, entry: Option<crate::explorer_clipboard::Entry>) {
@@ -535,6 +557,7 @@ impl Explorer {
         if let Some(row) = index.and_then(|index| rows.get(index)) {
             self.select_only(Some(row.path.clone()));
             self.reveal = self.selected.clone();
+            self.claim_requests();
         }
     }
 
@@ -559,6 +582,7 @@ impl Explorer {
         {
             return None;
         }
+        self.claim_requests();
         let selected = self
             .selected
             .as_ref()
@@ -669,6 +693,7 @@ impl Explorer {
         };
         draft.input.error = None;
         self.pending_create = Some(request.clone());
+        self.claim_requests();
         Some(request)
     }
 
@@ -742,6 +767,7 @@ impl Explorer {
             composing: false,
         });
         self.reveal = Some(row.path.clone());
+        self.claim_requests();
     }
 
     pub fn cancel_rename(&mut self) {
@@ -781,6 +807,7 @@ impl Explorer {
         };
         draft.error = None;
         self.pending = Some(request.clone());
+        self.claim_requests();
         Some(request)
     }
 
@@ -869,21 +896,37 @@ impl Explorer {
         page: &TreeRowPage,
         locale: &ResolvedLocale,
     ) -> Output {
-        self.render(ui, project, page, locale, None)
+        self.render(ui, project, None, page, locale, None)
     }
 
     pub fn show_with_icons(
         &mut self,
         ui: &mut Ui,
         project: &ProjectId,
+        mount: &ShellSlotId,
         page: &TreeRowPage,
         locale: &ResolvedLocale,
         icons: RowIcons<'_>,
     ) -> Output {
-        self.render(ui, project, page, locale, Some(icons))
+        self.render(ui, project, Some(mount), page, locale, Some(icons))
     }
 
     fn render(
+        &mut self,
+        ui: &mut Ui,
+        project: &ProjectId,
+        mount: Option<&ShellSlotId>,
+        page: &TreeRowPage,
+        locale: &ResolvedLocale,
+        icons: Option<RowIcons<'_>>,
+    ) -> Output {
+        self.mount = mount.cloned();
+        let output = self.render_mounted(ui, project, page, locale, icons);
+        self.mount = None;
+        output
+    }
+
+    fn render_mounted(
         &mut self,
         ui: &mut Ui,
         project: &ProjectId,
@@ -1065,6 +1108,8 @@ impl Explorer {
         let row_count = page.rows.len()
             + usize::from(draft_row.is_some())
             + usize::from(create_index.is_some());
+        let owns_requests = self.owns_requests();
+        let mount = self.mount.clone();
         let reveal_index = self
             .create
             .as_ref()
@@ -1077,11 +1122,18 @@ impl Explorer {
                         .chain(draft_row.iter())
                         .position(|row| &row.path == path)
                 })
-            });
-        let mut area = egui::ScrollArea::vertical().id_salt(("native-tree", project));
-        if let Some(offset) = reveal_index.and_then(|index| {
-            revealing_scroll_offset(self.scroll_offset, ui.available_height(), index)
-        }) {
+            })
+            .filter(|_| owns_requests);
+        let tree_scroll = ("native-tree", project);
+        let scroll_offset = egui::scroll_area::State::load(
+            ui.ctx(),
+            ui.make_persistent_id(egui::IdSalt::new(tree_scroll)),
+        )
+        .map_or(0.0, |state| state.offset.y);
+        let mut area = egui::ScrollArea::vertical().id_salt(tree_scroll);
+        if let Some(offset) = reveal_index
+            .and_then(|index| revealing_scroll_offset(scroll_offset, ui.available_height(), index))
+        {
             area = area.vertical_scroll_offset(offset);
         }
         let mut start_rename = None;
@@ -1107,8 +1159,9 @@ impl Explorer {
                                 let result = draft.input.show(
                                     ui,
                                     locale,
-                                    Id::new(("native-create-input", project)),
+                                    Id::new(("native-create-input", project, &mount)),
                                     self.pending_create.is_some(),
+                                    owns_requests,
                                 );
                                 commit |= result.commit;
                                 cancel |= result.cancel;
@@ -1145,8 +1198,14 @@ impl Explorer {
                                     let result = draft.show(
                                         ui,
                                         locale,
-                                        Id::new(("native-rename-input", project, &row.path)),
+                                        Id::new((
+                                            "native-rename-input",
+                                            project,
+                                            &mount,
+                                            &row.path,
+                                        )),
                                         self.pending.is_some(),
+                                        owns_requests,
                                     );
                                     commit |= result.commit;
                                     cancel |= result.cancel;
@@ -1405,7 +1464,6 @@ impl Explorer {
                         });
                     }
                 });
-        self.scroll_offset = area.state.offset.y;
         if self.rename.is_none() && self.create.is_none() {
             let content_bottom = area.inner_rect.top() + area.content_size.y - area.state.offset.y;
             let blank_top = content_bottom.clamp(area.inner_rect.top(), area.inner_rect.bottom());
@@ -1447,7 +1505,9 @@ impl Explorer {
             });
             output.blank = Some(response);
         }
-        self.reveal = None;
+        if owns_requests {
+            self.reveal = None;
+        }
         if let Some((path, kind)) = context_create {
             self.select_only(Some(path));
             if let Some(action) = self.start_create(kind, page) {
@@ -1479,13 +1539,19 @@ impl Explorer {
             output.validation_error = self
                 .create
                 .as_ref()
-                .filter(|_| input.id == Id::new(("native-create-input", project)))
+                .filter(|_| input.id == Id::new(("native-create-input", project, &mount)))
                 .and_then(|draft| draft.input.error.clone())
                 .or_else(|| {
                     self.rename
                         .as_ref()
                         .filter(|draft| {
-                            input.id == Id::new(("native-rename-input", project, &draft.row.path))
+                            input.id
+                                == Id::new((
+                                    "native-rename-input",
+                                    project,
+                                    &mount,
+                                    &draft.row.path,
+                                ))
                         })
                         .and_then(|draft| draft.error.clone())
                 });

@@ -4,7 +4,9 @@ use egui::{
 };
 use taide_model::agent::{AgentActivity, DetectedAgent};
 use taide_model::ids::{PaneId, ProjectGroupId, ProjectId, ShellSlotId, TabId};
-use taide_model::layout::{DropEdge, PaneNode, SplitDir, Tab, TabKind};
+use taide_model::layout::{
+    AuxWindowLayout, DropEdge, PaneNode, SplitDir, Tab, TabKind, TabWindowTarget,
+};
 use taide_model::project::{ProjectGroup, ProjectRef, ShellSlotEdge, ShellSlotTree};
 
 use crate::commands::{ShellIntent, ShellMutation, request_close_tab};
@@ -34,6 +36,13 @@ pub const EXPLORER_DEFAULT_WIDTH: f32 = 240.0;
 pub const EXPLORER_MIN_WIDTH: f32 = 180.0;
 pub const EXPLORER_MAX_FRACTION: f32 = 0.4;
 pub const TRAFFIC_LIGHT_INSET: f32 = 78.0;
+const TITLE_SECONDARY_MIN_WIDTH: f32 = 768.0;
+const TITLE_BRANCH_MIN_WIDTH: f32 = 1024.0;
+const TITLE_SECONDARY_OPACITY: f32 = 0.7;
+const TITLE_GAP: f32 = 6.0;
+const TITLE_BRANCH_ICON_SIZE: f32 = 12.0;
+const TITLE_BRANCH_ICON_GAP: f32 = 4.0;
+const TITLE_BRANCH_MAX_WIDTH: f32 = 96.0;
 const ICON_SIZE: f32 = 16.0;
 const ICON_INSET: f32 = 4.0;
 const RAIL_BUTTON_SIZE: f32 = 40.0;
@@ -197,6 +206,19 @@ pub trait ShellSurfaces {
         false
     }
     fn rail_icon(&mut self, _ui: &Ui, _rect: Rect, _icon: RailIcon<'_>, _color: Color32) {}
+    /// Paints the title bar's branch glyph (`title-bar.tsx` `GitBranch`).
+    fn title_branch_icon(&mut self, _ui: &Ui, _rect: Rect, _color: Color32) {}
+    fn is_auxiliary_explorer_open(&self, _project: &ProjectId, _slot: u32) -> bool {
+        false
+    }
+    fn auxiliary_explorer(
+        &mut self,
+        _ui: &mut Ui,
+        _project: &ProjectId,
+        _slot: u32,
+        _intents: &mut Vec<ShellIntent>,
+    ) {
+    }
 }
 
 pub struct NativeShell {
@@ -209,6 +231,8 @@ pub struct NativeShell {
 struct PaneViewContext<'a> {
     project: &'a ProjectId,
     slot: Option<&'a ShellSlotId>,
+    window: Option<u32>,
+    auxiliary_windows: &'a [AuxWindowLayout],
     root: Option<&'a str>,
     has_closed_tabs: bool,
     focused_pane: &'a PaneId,
@@ -262,14 +286,30 @@ impl NativeShell {
                         .iter()
                         .find(|window| &window.slot == slot)
                 {
-                    let body = self.title_bar(
+                    let branch = surfaces.branch(project).map(str::to_owned);
+                    let mut body = self.title_bar(
                         ui,
                         rect,
                         snapshot.project(project),
                         active_tab(&window.root, &window.focused_pane),
-                        surfaces.branch(project),
+                        branch.as_deref(),
                         surfaces,
                     );
+                    if surfaces.is_auxiliary_explorer_open(project, *slot) {
+                        child(ui, body, ("auxiliary-explorer", project, *slot), |ui| {
+                            egui::Panel::left(Id::new(("auxiliary-explorer", project, *slot)))
+                                .default_size(EXPLORER_DEFAULT_WIDTH)
+                                .min_size(
+                                    EXPLORER_MIN_WIDTH.min(body.width() * EXPLORER_MAX_FRACTION),
+                                )
+                                .max_size(body.width() * EXPLORER_MAX_FRACTION)
+                                .frame(egui::Frame::NONE.fill(self.colors.sidebar))
+                                .show(ui, |ui| {
+                                    surfaces.auxiliary_explorer(ui, project, *slot, &mut intents)
+                                });
+                            body = ui.available_rect_before_wrap();
+                        });
+                    }
                     self.pane_tree(
                         ui,
                         body,
@@ -277,6 +317,8 @@ impl NativeShell {
                         PaneViewContext {
                             project,
                             slot: None,
+                            window: Some(*slot),
+                            auxiliary_windows: &layout.auxiliary_windows,
                             root: snapshot
                                 .project(project)
                                 .map(|project| project.root.as_str()),
@@ -307,8 +349,17 @@ impl NativeShell {
     ) {
         let focused = snapshot.focused_project();
         let project = focused.and_then(|project| snapshot.project(project));
-        let branch = focused.and_then(|project| surfaces.branch(project));
-        let mut body = self.title_bar(ui, rect, project, snapshot.focused_tab(), branch, surfaces);
+        let branch = focused
+            .and_then(|project| surfaces.branch(project))
+            .map(str::to_owned);
+        let mut body = self.title_bar(
+            ui,
+            rect,
+            project,
+            snapshot.focused_tab(),
+            branch.as_deref(),
+            surfaces,
+        );
         let zen = snapshot.shell.window_chrome.zen;
         if !(zen && snapshot.hide_status_in_zen) {
             let status = Rect::from_min_max(
@@ -506,7 +557,7 @@ impl NativeShell {
         project: Option<&ProjectRef>,
         tab: Option<&Tab>,
         branch: Option<&str>,
-        surfaces: &impl ShellSurfaces,
+        surfaces: &mut impl ShellSurfaces,
     ) -> Rect {
         if !self.has_title_bar {
             return rect;
@@ -533,29 +584,91 @@ impl NativeShell {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
         }
         let text_rect = title.shrink2(vec2(TRAFFIC_LIGHT_INSET.min(title.width() / 2.0), 0.0));
+        let primary = tab
+            .map(|tab| tab.title.as_str())
+            .or(project.map(|project| project.name.as_str()))
+            .filter(|primary| !primary.is_empty());
+        let secondary = tab
+            .filter(|tab| !tab.title.is_empty())
+            .and(project.filter(|project| !project.name.is_empty()))
+            .filter(|_| title.width() >= TITLE_SECONDARY_MIN_WIDTH);
+        let branch =
+            branch.filter(|branch| !branch.is_empty() && title.width() >= TITLE_BRANCH_MIN_WIDTH);
         child(ui, text_rect, "title", |ui| {
-            ui.with_layout(
-                Layout::centered_and_justified(egui::Direction::LeftToRight),
-                |ui| {
-                    let mut text = tab
-                        .map(|tab| tab.title.clone())
-                        .or_else(|| project.map(|project| project.name.clone()))
-                        .unwrap_or_default();
-                    if tab.is_some()
-                        && let Some(project) = project
-                    {
-                        text.push_str(&format!(
-                            " {} {}",
-                            surfaces.text("window.titleSeparator"),
-                            project.name
-                        ));
-                    }
-                    if let Some(branch) = branch {
-                        text.push_str(&format!("  {branch}"));
-                    }
-                    ui.add(egui::Label::new(text).truncate().selectable(false));
-                },
+            let mut job = egui::text::LayoutJob::default();
+            if let Some(primary) = primary {
+                RichText::new(primary)
+                    .color(self.colors.foreground)
+                    .append_to(
+                        &mut job,
+                        ui.style(),
+                        egui::FontSelection::Default,
+                        Align::Center,
+                    );
+            }
+            if let Some(project) = secondary {
+                RichText::new(format!(
+                    " {} {}",
+                    surfaces.text("window.titleSeparator"),
+                    project.name
+                ))
+                .color(
+                    self.colors
+                        .foreground
+                        .gamma_multiply(TITLE_SECONDARY_OPACITY),
+                )
+                .append_to(
+                    &mut job,
+                    ui.style(),
+                    egui::FontSelection::Default,
+                    Align::Center,
+                );
+            }
+            let branch = branch.map(|branch| {
+                egui::WidgetText::from(RichText::new(branch).color(self.colors.muted)).into_galley(
+                    ui,
+                    Some(egui::TextWrapMode::Truncate),
+                    TITLE_BRANCH_MAX_WIDTH,
+                    egui::TextStyle::Body,
+                )
+            });
+            let gap = if primary.is_some() { TITLE_GAP } else { 0.0 };
+            let branch_width = branch.as_ref().map_or(0.0, |galley| {
+                gap + TITLE_BRANCH_ICON_SIZE + TITLE_BRANCH_ICON_GAP + galley.size().x
+            });
+            let text = egui::WidgetText::from(job).into_galley(
+                ui,
+                Some(egui::TextWrapMode::Truncate),
+                (text_rect.width() - branch_width).max(0.0),
+                egui::TextStyle::Body,
             );
+            let left =
+                (text_rect.center().x - (text.size().x + branch_width) / 2.0).max(text_rect.left());
+            let text_right = left + text.size().x;
+            if primary.is_some() {
+                ui.put(
+                    Rect::from_x_y_ranges(left..=text_right, text_rect.y_range()),
+                    egui::Label::new(text).selectable(false),
+                );
+            }
+            if let Some(galley) = branch {
+                let icon = Rect::from_center_size(
+                    pos2(
+                        text_right + gap + TITLE_BRANCH_ICON_SIZE / 2.0,
+                        text_rect.center().y,
+                    ),
+                    Vec2::splat(TITLE_BRANCH_ICON_SIZE),
+                );
+                surfaces.title_branch_icon(ui, icon, self.colors.muted);
+                let branch_left = icon.right() + TITLE_BRANCH_ICON_GAP;
+                ui.put(
+                    Rect::from_x_y_ranges(
+                        branch_left..=branch_left + galley.size().x,
+                        text_rect.y_range(),
+                    ),
+                    egui::Label::new(galley).selectable(false),
+                );
+            }
         });
         Rect::from_min_max(pos2(rect.left(), title.bottom()), rect.max)
     }
@@ -1105,6 +1218,8 @@ impl NativeShell {
             PaneViewContext {
                 project,
                 slot: Some(slot),
+                window: None,
+                auxiliary_windows: &layout.auxiliary_windows,
                 root: snapshot
                     .project(project)
                     .map(|project| project.root.as_str()),
@@ -1155,6 +1270,8 @@ impl NativeShell {
         let PaneViewContext {
             project,
             slot,
+            window,
+            auxiliary_windows,
             root,
             has_closed_tabs,
             focused_pane,
@@ -1231,6 +1348,8 @@ impl NativeShell {
                                 let menu = TabMenuContext {
                                     project,
                                     slot,
+                                    window,
+                                    auxiliary_windows,
                                     pane: id,
                                     root,
                                     tabs,
@@ -1311,6 +1430,8 @@ impl NativeShell {
                                 &TabMenuContext {
                                     project,
                                     slot,
+                                    window,
+                                    auxiliary_windows,
                                     pane: id,
                                     root,
                                     tabs,
@@ -1645,6 +1766,8 @@ impl NativeShell {
 struct TabMenuContext<'a> {
     project: &'a ProjectId,
     slot: Option<&'a ShellSlotId>,
+    window: Option<u32>,
+    auxiliary_windows: &'a [AuxWindowLayout],
     pane: &'a PaneId,
     root: Option<&'a str>,
     tabs: &'a [Tab],
@@ -1839,8 +1962,7 @@ fn split_menu(
 }
 
 /// The tab's own context menu (`tab-context-menu.tsx`). Entries whose native consumer does not
-/// exist yet (Git changes/history, window moves, and explorer reveal/rename outside a main-window
-/// slot) are not shown.
+/// exist yet (Git changes/history) are not shown.
 fn tab_menu(
     ui: &mut Ui,
     tab: &Tab,
@@ -1887,15 +2009,25 @@ fn tab_menu(
         if menu_item(ui, surfaces.text("explorer.revealInFinder")) {
             intents.push(ShellIntent::RevealPath(path.clone()));
         }
-        if let Some(slot) = menu.slot {
+        let reveal = |rename| match (menu.slot, menu.window) {
+            (Some(slot), _) => Some(ShellIntent::RevealInExplorer {
+                project: menu.project.clone(),
+                slot: slot.clone(),
+                path: path.clone(),
+                rename,
+            }),
+            (None, Some(window)) => Some(ShellIntent::RevealInAuxiliaryExplorer {
+                project: menu.project.clone(),
+                slot: window,
+                path: path.clone(),
+                rename,
+            }),
+            (None, None) => None,
+        };
+        if menu.slot.is_some() || menu.window.is_some() {
             for (key, rename) in [("tab.revealInExplorerView", false), ("tab.rename", true)] {
                 if menu_item(ui, surfaces.text(key)) {
-                    intents.push(ShellIntent::RevealInExplorer {
-                        project: menu.project.clone(),
-                        slot: slot.clone(),
-                        path: path.clone(),
-                        rename,
-                    });
+                    intents.extend(reveal(rename));
                 }
             }
         }
@@ -1917,6 +2049,31 @@ fn tab_menu(
     }
     ui.separator();
     split_menu(ui, menu.pane, &tab.id, surfaces, intents);
+    ui.separator();
+    let move_to = |target| ShellIntent::MoveTabToWindow {
+        tab: tab.id.clone(),
+        target,
+    };
+    if menu_item(ui, surfaces.text("tab.moveToNewWindow")) {
+        intents.push(move_to(TabWindowTarget::NewAuxiliary));
+    }
+    if menu.window.is_some() && menu_item(ui, surfaces.text("tab.moveToMainWindow")) {
+        intents.push(move_to(TabWindowTarget::Main));
+    }
+    for slot in menu
+        .auxiliary_windows
+        .iter()
+        .map(|window| window.slot)
+        .filter(|slot| Some(*slot) != menu.window)
+    {
+        let label = surfaces.text_with_args(
+            "tab.moveToWindowNumbered",
+            &[("slot", slot.to_string().as_str())],
+        );
+        if menu_item(ui, label) {
+            intents.push(move_to(TabWindowTarget::Existing { slot }));
+        }
+    }
 }
 
 /// The tab bar's empty-space menu (`tab-bar-context-menu.tsx`, `buildTabBarMenuItems`).

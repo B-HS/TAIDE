@@ -6,7 +6,7 @@ use taide_model::agent::{AgentActivity, BlockedReason, DetectedAgent};
 use taide_model::app_event::AppEvent;
 use taide_model::ids::{PaneId, ProjectGroupId, ProjectId, ShellSlotId, TabId};
 use taide_model::layout::{
-    AuxWindowLayout, DropEdge, PaneNode, ProjectLayout, SplitDir, Tab, TabKind,
+    AuxWindowLayout, DropEdge, PaneNode, ProjectLayout, SplitDir, Tab, TabKind, TabWindowTarget,
 };
 use taide_model::paths::AppPaths;
 use taide_model::project::{
@@ -18,7 +18,8 @@ use taide_native_ui::presentation::{apply_visuals, visuals};
 use taide_native_ui::project_drag::{DRAGGING_OPACITY, is_dragging, slot_drop_preview};
 use taide_native_ui::project_rail::{RailColors, RailIcon};
 use taide_native_ui::shell::{
-    NativeShell, PROJECT_RAIL_WIDTH, SLOT_HEADER_HEIGHT, STATUS_HEIGHT, ShellColors, ShellSurfaces,
+    EXPLORER_DEFAULT_WIDTH, EXPLORER_MAX_FRACTION, EXPLORER_MIN_WIDTH, NativeShell,
+    PROJECT_RAIL_WIDTH, SLOT_HEADER_HEIGHT, STATUS_HEIGHT, ShellColors, ShellSurfaces, TAB_HEIGHT,
     TITLE_HEIGHT, WelcomeContent, WelcomeRecent, WelcomeShortcutRow, WindowScope,
 };
 use taide_native_ui::snapshot::{ShellSnapshot, project_group_sections};
@@ -84,6 +85,11 @@ const EGUI_ITEM_SPACING: f32 = 8.0;
 const AUTO_SCROLL_EDGE_PROBE: f32 = 24.0;
 const AUTO_SCROLL_HOLD_FRAMES: usize = 6;
 const TAB_ROW_GAP_PROBE: f32 = TAB_ICON_SIDE + TAB_ICON_GAP + EGUI_ITEM_SPACING / 2.0;
+const PANEL_SETTLE_FRAMES: usize = 2;
+const PANEL_SEPARATOR_WIDTH: f32 = 1.0;
+const SYNTHETIC_BRANCH: &str = "synthetic/title-branch";
+const TITLE_BRANCH_ICON_SIDE: f32 = 12.0;
+const TITLE_CENTER_TOLERANCE: f32 = 4.0;
 
 #[derive(Default)]
 struct Sink(Mutex<Vec<AppEvent>>);
@@ -110,9 +116,31 @@ struct Surfaces {
     is_badge_disabled: bool,
     is_reduced_motion: bool,
     rail_icons: Vec<(String, Rect, Color32, f32)>,
+    is_auxiliary_explorer_open: bool,
+    auxiliary_explorers: Vec<(ProjectId, u32, Rect)>,
+    branch: Option<&'static str>,
+    title_branch_icons: Vec<(Rect, Color32)>,
 }
 
 impl ShellSurfaces for Surfaces {
+    fn title_branch_icon(&mut self, _: &Ui, rect: Rect, color: Color32) {
+        self.title_branch_icons.push((rect, color));
+    }
+    fn is_auxiliary_explorer_open(&self, _: &ProjectId, _: u32) -> bool {
+        self.is_auxiliary_explorer_open
+    }
+    fn auxiliary_explorer(
+        &mut self,
+        ui: &mut Ui,
+        project: &ProjectId,
+        slot: u32,
+        _: &mut Vec<ShellIntent>,
+    ) {
+        self.auxiliary_explorers
+            .push((project.clone(), slot, ui.available_rect_before_wrap()));
+        ui.label("test-only auxiliary explorer");
+        ui.allocate_space(ui.available_size());
+    }
     fn rail_recent_projects(&self) -> Vec<WelcomeRecent> {
         self.rail.clone()
     }
@@ -139,7 +167,7 @@ impl ShellSurfaces for Surfaces {
         format!("{key}: {arguments:?}")
     }
     fn branch(&self, _: &ProjectId) -> Option<&str> {
-        None
+        self.branch
     }
     fn problems_open(&self, slot: &ShellSlotId) -> bool {
         self.problems_open.contains(slot)
@@ -2082,7 +2110,7 @@ fn 탭_메뉴는_주창_파일탭에_탐색기_reveal_rename과_미리보기파�
     assert!(position("tab.revealInExplorerView") < position("tab.rename"));
     assert!(position("tab.rename") < position("tab.reopenEditorWith"));
     assert!(position("tab.reopenEditorWith") < position("tab.split"));
-    for hidden in ["tab.openChanges", "git.fileHistory", "tab.moveToNewWindow"] {
+    for hidden in ["tab.openChanges", "git.fileHistory"] {
         assert!(!texts.iter().any(|text| text == hidden), "{hidden}");
     }
     let intents = driver.choose(&main, &snapshot, &menu, "tab.revealInExplorerView");
@@ -2163,13 +2191,290 @@ fn 탭_메뉴는_주창_파일탭에_탐색기_reveal_rename과_미리보기파�
     };
     let menu = driver.open_menu(&auxiliary, &snapshot, "pic.png");
     let texts = texts_of(&menu);
+    for shown in [
+        "tab.reopenEditorWith",
+        "tab.revealInExplorerView",
+        "tab.rename",
+    ] {
+        assert!(texts.iter().any(|text| text == shown), "{shown}: {texts:?}");
+    }
+}
+
+fn move_to_window_label(slot: u32) -> String {
+    format!(
+        "tab.moveToWindowNumbered: {:?}",
+        [("slot", slot.to_string().as_str())]
+    )
+}
+
+#[test]
+fn 탭_메뉴는_새창_메인창_다른창_이동과_보조창_탐색기_reveal_rename을_요청한다() {
+    const OTHER_AUX_SLOT: u32 = AUX_SLOT + 1;
+    let source = synthetic_tab(
+        "lib.rs",
+        TabKind::File {
+            path: "/synthetic/root/src/lib.rs".into(),
+        },
+    );
+    let terminal = synthetic_tab("term-tab", terminal_kind("synthetic-shell"));
+    let (mut snapshot, project, _) = single_slot_snapshot(vec![source.clone(), terminal]);
+    let mut driver = MenuDriver {
+        context: egui::Context::default(),
+        time: 0.0,
+        surfaces: Surfaces::default,
+    };
+    let main = WindowScope::Main;
+    let moved = |intents: &[ShellIntent], expected: &TabWindowTarget| {
+        intents.iter().any(|intent| {
+            matches!(
+                intent,
+                ShellIntent::MoveTabToWindow { tab, target } if tab == &source.id && target == expected
+            )
+        })
+    };
+
+    let menu = driver.open_menu(&main, &snapshot, "lib.rs");
+    let texts = texts_of(&menu);
+    let position = |texts: &[String], key: &str| {
+        texts
+            .iter()
+            .position(|text| text == key)
+            .unwrap_or_else(|| panic!("{key}: {texts:?}"))
+    };
+    assert!(position(&texts, "tab.split") < position(&texts, "tab.moveToNewWindow"));
+    assert!(!texts.iter().any(|text| text == "tab.moveToMainWindow"));
     assert!(
-        texts.iter().any(|text| text == "tab.reopenEditorWith"),
+        !texts
+            .iter()
+            .any(|text| text.starts_with("tab.moveToWindowNumbered")),
         "{texts:?}"
     );
+    let intents = driver.choose(&main, &snapshot, &menu, "tab.moveToNewWindow");
+    assert!(
+        moved(&intents, &TabWindowTarget::NewAuxiliary),
+        "{intents:?}"
+    );
+
+    let layout = snapshot.layouts.get_mut(&project).unwrap();
+    for slot in [AUX_SLOT, OTHER_AUX_SLOT] {
+        let root = layout.root.clone();
+        layout.auxiliary_windows.push(AuxWindowLayout {
+            slot,
+            root,
+            focused_pane: layout.focused_pane.clone(),
+        });
+    }
+    let menu = driver.open_menu(&main, &snapshot, "lib.rs");
+    let texts = texts_of(&menu);
+    assert!(
+        position(&texts, "tab.moveToNewWindow") < position(&texts, &move_to_window_label(AUX_SLOT))
+    );
+    assert!(
+        position(&texts, &move_to_window_label(AUX_SLOT))
+            < position(&texts, &move_to_window_label(OTHER_AUX_SLOT))
+    );
+    assert!(!texts.iter().any(|text| text == "tab.moveToMainWindow"));
+    let intents = driver.choose(
+        &main,
+        &snapshot,
+        &menu,
+        &move_to_window_label(OTHER_AUX_SLOT),
+    );
+    assert!(
+        moved(
+            &intents,
+            &TabWindowTarget::Existing {
+                slot: OTHER_AUX_SLOT
+            }
+        ),
+        "{intents:?}"
+    );
+
+    let auxiliary = WindowScope::Auxiliary {
+        project: project.clone(),
+        slot: AUX_SLOT,
+    };
+    let menu = driver.open_menu(&auxiliary, &snapshot, "lib.rs");
+    let texts = texts_of(&menu);
+    assert!(
+        position(&texts, "explorer.revealInFinder") < position(&texts, "tab.revealInExplorerView")
+    );
+    assert!(position(&texts, "tab.revealInExplorerView") < position(&texts, "tab.rename"));
+    assert!(position(&texts, "tab.moveToNewWindow") < position(&texts, "tab.moveToMainWindow"));
+    assert!(
+        position(&texts, "tab.moveToMainWindow")
+            < position(&texts, &move_to_window_label(OTHER_AUX_SLOT))
+    );
+    assert!(
+        !texts
+            .iter()
+            .any(|text| text == &move_to_window_label(AUX_SLOT)),
+        "{texts:?}"
+    );
+    let intents = driver.choose(&auxiliary, &snapshot, &menu, "tab.moveToMainWindow");
+    assert!(moved(&intents, &TabWindowTarget::Main), "{intents:?}");
+    for (key, expected_rename) in [("tab.revealInExplorerView", false), ("tab.rename", true)] {
+        let menu = driver.open_menu(&auxiliary, &snapshot, "lib.rs");
+        let intents = driver.choose(&auxiliary, &snapshot, &menu, key);
+        assert!(
+            intents.iter().any(|intent| matches!(
+                intent,
+                ShellIntent::RevealInAuxiliaryExplorer { project: owner, slot, path, rename }
+                    if owner == &project
+                        && *slot == AUX_SLOT
+                        && path == "/synthetic/root/src/lib.rs"
+                        && *rename == expected_rename
+            )),
+            "{key}: {intents:?}"
+        );
+        assert!(
+            !intents
+                .iter()
+                .any(|intent| matches!(intent, ShellIntent::RevealInExplorer { .. })),
+            "{key}: {intents:?}"
+        );
+    }
+
+    let menu = driver.open_menu(&auxiliary, &snapshot, "term-tab");
+    let texts = texts_of(&menu);
+    for shown in ["tab.moveToNewWindow", "tab.moveToMainWindow"] {
+        assert!(texts.iter().any(|text| text == shown), "{shown}: {texts:?}");
+    }
     for hidden in ["tab.revealInExplorerView", "tab.rename"] {
         assert!(!texts.iter().any(|text| text == hidden), "{hidden}");
     }
+}
+
+fn title_frame(
+    context: &egui::Context,
+    scope: WindowScope,
+    snapshot: &ShellSnapshot,
+    width: f32,
+) -> (Surfaces, egui::FullOutput) {
+    let shell = shell(scope);
+    let mut surfaces = Surfaces {
+        branch: Some(SYNTHETIC_BRANCH),
+        ..Default::default()
+    };
+    let mut output = context.run_ui(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                pos2(0.0, 0.0),
+                vec2(width, WINDOW_SIZE[1]),
+            )),
+            ..Default::default()
+        },
+        |ui| {
+            shell.show(ui, snapshot, &mut surfaces);
+        },
+    );
+    output.textures_delta.clear();
+    (surfaces, output)
+}
+
+#[test]
+fn 제목줄은_branch를_아이콘과_보이고_창폭이_좁으면_branch와_프로젝트를_차례로_숨긴다() {
+    const WIDE: f32 = 1100.0;
+    const MEDIUM: f32 = 900.0;
+    const NARROW: f32 = 700.0;
+    let source = synthetic_tab(
+        "lib.rs",
+        TabKind::File {
+            path: "/synthetic/root/src/lib.rs".into(),
+        },
+    );
+    let (mut snapshot, project, _) = single_slot_snapshot(vec![source]);
+    let name = snapshot.projects[0].name.clone();
+    let combined = format!("lib.rs window.titleSeparator {name}");
+    let layout = snapshot.layouts.get_mut(&project).unwrap();
+    let root = layout.root.clone();
+    layout.auxiliary_windows.push(AuxWindowLayout {
+        slot: AUX_SLOT,
+        root,
+        focused_pane: layout.focused_pane.clone(),
+    });
+    let scopes = [
+        WindowScope::Main,
+        WindowScope::Auxiliary {
+            project: project.clone(),
+            slot: AUX_SLOT,
+        },
+    ];
+    for scope in scopes {
+        let context = egui::Context::default();
+        let (wide, output) = title_frame(&context, scope.clone(), &snapshot, WIDE);
+        let (_, title) =
+            text_shape(&output, &combined).unwrap_or_else(|| panic!("{:?}", texts_of(&output)));
+        let (_, branch) = text_shape(&output, SYNTHETIC_BRANCH)
+            .unwrap_or_else(|| panic!("{:?}", texts_of(&output)));
+        let [(icon, color)] = wide.title_branch_icons.as_slice() else {
+            panic!("{:?}", wide.title_branch_icons)
+        };
+        assert_eq!(*color, COLOR);
+        assert_eq!(
+            icon.size(),
+            vec2(TITLE_BRANCH_ICON_SIDE, TITLE_BRANCH_ICON_SIDE)
+        );
+        assert!(title.right() <= icon.left(), "{title:?} {icon:?}");
+        assert!(icon.right() <= branch.left(), "{icon:?} {branch:?}");
+        assert!(
+            icon.top() >= 0.0 && icon.bottom() <= TITLE_HEIGHT,
+            "{icon:?}"
+        );
+        assert!(branch.bottom() <= TITLE_HEIGHT, "{branch:?}");
+        let center = (title.left() + branch.right()) / 2.0;
+        assert!(
+            (center - WIDE / 2.0).abs() <= TITLE_CENTER_TOLERANCE,
+            "{title:?} {branch:?}"
+        );
+
+        let (medium, output) = title_frame(&context, scope.clone(), &snapshot, MEDIUM);
+        assert!(
+            text_shape(&output, &combined).is_some(),
+            "{:?}",
+            texts_of(&output)
+        );
+        assert!(text_shape(&output, SYNTHETIC_BRANCH).is_none());
+        assert!(medium.title_branch_icons.is_empty());
+
+        let (narrow, output) = title_frame(&context, scope, &snapshot, NARROW);
+        let texts = texts_of(&output);
+        assert!(!texts.iter().any(|text| text == &combined), "{texts:?}");
+        let (_, title) = text_shape(&output, "lib.rs").unwrap_or_else(|| panic!("{texts:?}"));
+        assert!(title.bottom() <= TITLE_HEIGHT, "{title:?}");
+        assert!(text_shape(&output, SYNTHETIC_BRANCH).is_none());
+        assert!(narrow.title_branch_icons.is_empty());
+    }
+}
+
+#[test]
+fn 제목줄은_탭_제목이_비면_프로젝트_보조_텍스트를_붙이지_않는다() {
+    const WIDE: f32 = 1100.0;
+    let untitled = synthetic_tab(
+        "",
+        TabKind::File {
+            path: "/synthetic/root/src/lib.rs".into(),
+        },
+    );
+    let (snapshot, _, _) = single_slot_snapshot(vec![untitled]);
+    let context = egui::Context::default();
+    let (surfaces, output) = title_frame(&context, WindowScope::Main, &snapshot, WIDE);
+    let texts = texts_of(&output);
+    assert!(
+        !texts
+            .iter()
+            .any(|text| text.contains("window.titleSeparator")),
+        "{texts:?}"
+    );
+    let (_, branch) = text_shape(&output, SYNTHETIC_BRANCH).unwrap_or_else(|| panic!("{texts:?}"));
+    let [(icon, _)] = surfaces.title_branch_icons.as_slice() else {
+        panic!("{:?}", surfaces.title_branch_icons)
+    };
+    let center = (icon.left() + branch.right()) / 2.0;
+    assert!(
+        (center - WIDE / 2.0).abs() <= TITLE_CENTER_TOLERANCE,
+        "{icon:?} {branch:?}"
+    );
 }
 
 #[test]
@@ -4286,4 +4591,212 @@ fn 넘친_탭바는_탭을_오른쪽_가장자리로_끌면_자동으로_스크�
         "the hovered tab bar scrolls toward the edge it is held at"
     );
     assert!(tab_drops(&intents).is_empty(), "{intents:?}");
+}
+
+fn auxiliary_snapshot() -> (ShellSnapshot, ProjectRef, Tab, PaneId) {
+    let mut snapshot = fixture();
+    let project = snapshot.projects[0].clone();
+    let auxiliary = surface_layout();
+    let PaneNode::Leaf { tabs, active, id } = &auxiliary.root else {
+        panic!("expected leaf")
+    };
+    let tab = tabs
+        .iter()
+        .find(|tab| Some(&tab.id) == active.as_ref())
+        .unwrap()
+        .clone();
+    let pane = id.clone();
+    snapshot
+        .layouts
+        .get_mut(&project.id)
+        .unwrap()
+        .auxiliary_windows
+        .push(AuxWindowLayout {
+            slot: AUX_SLOT,
+            root: auxiliary.root,
+            focused_pane: auxiliary.focused_pane,
+        });
+    (snapshot, project, tab, pane)
+}
+
+#[test]
+fn 보조창_셸은_제목줄과_보기전용_탐색기와_편집기만_그리고_접으면_편집기가_왼쪽부터_시작한다() {
+    let (snapshot, project, tab, pane) = auxiliary_snapshot();
+    let shell = shell(WindowScope::Auxiliary {
+        project: project.id.clone(),
+        slot: AUX_SLOT,
+    });
+    let run = |is_open: bool| {
+        let context = egui::Context::default();
+        let mut surfaces = Surfaces::default();
+        let mut output = egui::FullOutput::default();
+        for _ in 0..PANEL_SETTLE_FRAMES {
+            surfaces = Surfaces {
+                is_auxiliary_explorer_open: is_open,
+                ..Default::default()
+            };
+            output = context.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(
+                        pos2(0.0, 0.0),
+                        vec2(WINDOW_SIZE[0], WINDOW_SIZE[1]),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    shell.show(ui, &snapshot, &mut surfaces);
+                },
+            );
+            output.textures_delta.clear();
+        }
+        let texts: Vec<String> = output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect();
+        (surfaces, texts)
+    };
+
+    let (open, texts) = run(true);
+    let [(owner, slot, explorer)] = open.auxiliary_explorers.as_slice() else {
+        panic!("{:?}", open.auxiliary_explorers)
+    };
+    assert_eq!((owner, *slot), (&project.id, AUX_SLOT));
+    assert_eq!(explorer.left(), 0.0);
+    assert_eq!(explorer.top(), TITLE_HEIGHT);
+    assert!(
+        explorer.width() <= EXPLORER_DEFAULT_WIDTH
+            && EXPLORER_DEFAULT_WIDTH - explorer.width() <= PANEL_SEPARATOR_WIDTH
+            && EXPLORER_MIN_WIDTH < EXPLORER_DEFAULT_WIDTH
+            && EXPLORER_DEFAULT_WIDTH < WINDOW_SIZE[0] * EXPLORER_MAX_FRACTION,
+        "{explorer:?}"
+    );
+    let [(pane_project, shown_pane, shown_tab, content)] = open.panes.as_slice() else {
+        panic!("{:?}", open.panes)
+    };
+    assert_eq!(
+        (pane_project, shown_pane, shown_tab),
+        (&project.id, &pane, &tab.id)
+    );
+    assert!(
+        content.left() >= explorer.right(),
+        "{content:?} {explorer:?}"
+    );
+    assert_eq!(content.top(), TITLE_HEIGHT + TAB_HEIGHT);
+    assert!(open.explorers.is_empty());
+    assert!(open.status_projects.is_empty());
+    assert!(open.rail_icons.is_empty());
+    assert!(open.problems.is_empty());
+    let title = format!("{} window.titleSeparator {}", tab.title, project.name);
+    assert!(texts.contains(&title), "{texts:?}");
+
+    let (collapsed, _) = run(false);
+    assert!(collapsed.auxiliary_explorers.is_empty());
+    let [(_, _, _, content)] = collapsed.panes.as_slice() else {
+        panic!("{:?}", collapsed.panes)
+    };
+    assert_eq!(content.left(), 0.0);
+}
+
+#[test]
+fn 탭_drag_상태는_viewport별이라_보조창_패스가_메인창_drag를_끊지_않는다() {
+    let titles = ["a.rs", "b.rs", "c.rs"];
+    let tabs: Vec<Tab> = titles
+        .iter()
+        .map(|title| synthetic_tab(title, TabKind::Settings))
+        .collect();
+    let dragged = tabs[1].id.clone();
+    let (mut snapshot, project, _) = single_slot_snapshot(tabs);
+    let pane = leaf_id(&snapshot.layouts[&project].root);
+    let auxiliary = surface_layout();
+    snapshot
+        .layouts
+        .get_mut(&project)
+        .unwrap()
+        .auxiliary_windows
+        .push(AuxWindowLayout {
+            slot: AUX_SLOT,
+            root: auxiliary.root,
+            focused_pane: auxiliary.focused_pane,
+        });
+    let main = shell(WindowScope::Main);
+    let auxiliary = shell(WindowScope::Auxiliary {
+        project: project.clone(),
+        slot: AUX_SLOT,
+    });
+    let auxiliary_viewport = egui::ViewportId::from_hash_of("workbench-auxiliary");
+    let auxiliary_passes = std::rc::Rc::new(std::cell::Cell::new(0_usize));
+    let counted = auxiliary_passes.clone();
+    egui::Context::set_immediate_viewport_renderer(move |context, mut viewport| {
+        counted.set(counted.get() + 1);
+        let mut output = context.run_ui(
+            egui::RawInput {
+                viewport_id: viewport.ids.this,
+                viewports: std::iter::once((viewport.ids.this, Default::default())).collect(),
+                screen_rect: Some(Rect::from_min_size(
+                    pos2(0.0, 0.0),
+                    vec2(WINDOW_SIZE[0], WINDOW_SIZE[1]),
+                )),
+                ..Default::default()
+            },
+            |ui| (viewport.viewport_ui_cb)(ui),
+        );
+        output.textures_delta.clear();
+    });
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    context.set_embed_viewports(false);
+    let mut time = 0.0;
+    let mut step = |events: Vec<egui::Event>| {
+        time += FRAME_SECONDS;
+        let mut intents = Vec::new();
+        let mut output = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    pos2(0.0, 0.0),
+                    vec2(WINDOW_SIZE[0], WINDOW_SIZE[1]),
+                )),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                intents = main.show(ui, &snapshot, &mut Surfaces::default());
+                ui.ctx().show_viewport_immediate(
+                    auxiliary_viewport,
+                    egui::ViewportBuilder::default(),
+                    |ui, class| {
+                        assert!(class == egui::ViewportClass::Immediate);
+                        auxiliary.show(ui, &snapshot, &mut Surfaces::default());
+                    },
+                );
+            },
+        );
+        output.textures_delta.clear();
+        (intents, output)
+    };
+    let (_, output) = step(Vec::new());
+    let nodes: Vec<Rect> = titles
+        .iter()
+        .map(|title| tab_node(&output, title))
+        .collect();
+    let mut intents = Vec::new();
+    for events in [
+        primary_button(nodes[1].center(), true),
+        vec![egui::Event::PointerMoved(
+            nodes[1].center() + vec2(0.0, ABOVE_ACTIVATION_DISTANCE),
+        )],
+        vec![egui::Event::PointerMoved(nodes[2].center())],
+    ] {
+        intents.extend(step(events).0);
+    }
+    assert!(tab_drag::is_dragging(&context));
+    intents.extend(step(primary_button(nodes[2].center(), false)).0);
+    intents.extend(step(Vec::new()).0);
+    assert!(!tab_drag::is_dragging(&context));
+    assert!(auxiliary_passes.get() > titles.len());
+    assert!(is_moved(&intents, &dragged, &pane, 2), "{intents:?}");
 }

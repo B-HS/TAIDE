@@ -1,8 +1,8 @@
 use taide_model::error::{AppError, AppResult};
 use taide_model::ids::{PaneId, ProjectGroupId, ProjectId, ShellSlotId, TabId};
-use taide_model::layout::DropEdge;
 #[cfg(feature = "native-host")]
 use taide_model::layout::ShellViewPatch;
+use taide_model::layout::{DropEdge, TabWindowTarget};
 use taide_model::project::{ProjectDisplayPatch, ShellSlotEdge, WindowChromePatch};
 #[cfg(feature = "native-host")]
 use taide_runtime::{AppState, EventSink, layout_actions, project_actions};
@@ -84,6 +84,16 @@ pub enum ShellIntent {
         path: String,
         rename: bool,
     },
+    RevealInAuxiliaryExplorer {
+        project: ProjectId,
+        slot: u32,
+        path: String,
+        rename: bool,
+    },
+    MoveTabToWindow {
+        tab: TabId,
+        target: TabWindowTarget,
+    },
     ReopenWith {
         path: String,
         preview: bool,
@@ -151,6 +161,10 @@ pub enum ShellIntent {
     FoldDocument {
         tab: TabId,
         command: FoldCommand,
+    },
+    ToggleAuxiliaryExplorer {
+        project: ProjectId,
+        slot: u32,
     },
 }
 
