@@ -342,3 +342,75 @@ fn 자동_스크롤은_가장자리_오분의일_띠에서_움직인_방향으�
         "a pointer that never moved forward does not scroll forward"
     );
 }
+
+const SCREEN: Rect = Rect {
+    min: Pos2 { x: 0.0, y: 0.0 },
+    max: Pos2 { x: 800.0, y: 600.0 },
+};
+const OUTSIDE: Pos2 = Pos2 { x: 500.0, y: 300.0 };
+
+fn release(fixture: &Fixture, press: &Press, at: Pos2, escape: bool) -> Option<ShellMutation> {
+    let context = Context::default();
+    let mut events = vec![
+        egui::Event::PointerMoved(at),
+        egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        },
+    ];
+    if escape {
+        events.push(egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    let mut request = None;
+    let mut output = context.run_ui(
+        egui::RawInput {
+            screen_rect: Some(SCREEN),
+            events,
+            ..Default::default()
+        },
+        |ui| {
+            with_memory(ui.ctx(), |memory| {
+                memory.press = Some(press.clone());
+                memory.frame = fixture.frame.clone();
+            });
+            request = end_frame(ui.ctx()).request;
+        },
+    );
+    output.textures_delta.clear();
+    request
+}
+
+#[test]
+fn 해제_프레임은_escape를_먼저_판정하고_대상_밖에서_놓으면_직전_대상으로_옮기지_않는다() {
+    let fixture = fixture();
+    let [_, a, _, c] = [0, 1, 2, 3].map(|index| fixture.tabs[index].clone());
+    let over_c = TabDropTarget::Tab {
+        pane: fixture.pane.clone(),
+        tab: c.id.clone(),
+    };
+    let held = Press {
+        content: SCREEN,
+        ..press(&fixture, &a, Some(over_c))
+    };
+    let on_c = fixture.frame.tabs[3].rect.center();
+    assert_eq!(
+        moved_to(release(&fixture, &held, on_c, false)),
+        Some((a.id.clone(), fixture.pane.clone(), 3))
+    );
+    assert!(
+        release(&fixture, &held, OUTSIDE, false).is_none(),
+        "a release over nothing drops nowhere even though c was the last target"
+    );
+    assert!(
+        release(&fixture, &held, on_c, true).is_none(),
+        "Escape in the release frame cancels before the drop"
+    );
+}

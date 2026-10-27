@@ -6,6 +6,8 @@ use egui::text::{CCursor, CCursorRange, LayoutJob, TextFormat, TextWrapping};
 use egui::{Color32, Event, FontFamily, FontId, Galley, Id, Key, Modifiers, Sense, Stroke, Ui};
 use taide_model::error::AppResult;
 use taide_model::locale::ResolvedLocale;
+#[cfg(feature = "native-host")]
+use taide_model::task::{Task, TaskSource};
 use taide_model::theme::ResolvedTheme;
 
 use crate::command_palette_file_match::{relative_path, split_for_display};
@@ -58,6 +60,9 @@ const DISABLED_OPACITY: f32 = 0.5;
 const ELLIPSIS: char = '…';
 #[cfg(feature = "native-host")]
 const MAX_INDENTATION_SIZE: u32 = 8;
+const PALETTE_TITLE_KEY: &str = "palette.title";
+#[cfg(feature = "native-host")]
+const TASK_RUNNER_TITLE_KEY: &str = "task.runTask";
 
 pub struct Appearance {
     modal_background: Color32,
@@ -176,6 +181,11 @@ pub enum Action {
     OpenWorkspaceSymbol {
         generation: u64,
         index: usize,
+    },
+    #[cfg(feature = "native-host")]
+    RunTask {
+        generation: u64,
+        task: Task,
     },
 }
 
@@ -303,6 +313,12 @@ struct CodeLensPicker {
     titles: Vec<String>,
 }
 
+#[cfg(feature = "native-host")]
+struct TaskPicker {
+    generation: u64,
+    tasks: Option<Vec<Task>>,
+}
+
 pub struct Palette {
     is_open: bool,
     query: String,
@@ -325,6 +341,8 @@ pub struct Palette {
     indentation: Option<IndentationPicker>,
     #[cfg(feature = "native-host")]
     code_lenses: Option<CodeLensPicker>,
+    #[cfg(feature = "native-host")]
+    tasks: Option<TaskPicker>,
     #[cfg(any(test, feature = "inspection"))]
     inspection: Inspection,
 }
@@ -361,6 +379,8 @@ impl Palette {
             indentation: None,
             #[cfg(feature = "native-host")]
             code_lenses: None,
+            #[cfg(feature = "native-host")]
+            tasks: None,
             #[cfg(any(test, feature = "inspection"))]
             inspection: Inspection::default(),
         })
@@ -370,9 +390,14 @@ impl Palette {
         self.is_open
     }
 
+    #[cfg(feature = "native-host")]
+    fn has_picker(&self) -> bool {
+        self.indentation.is_some() || self.code_lenses.is_some() || self.tasks.is_some()
+    }
+
     pub fn observes_files(&self) -> bool {
         #[cfg(feature = "native-host")]
-        if self.indentation.is_some() || self.code_lenses.is_some() {
+        if self.has_picker() {
             return false;
         }
         self.is_open && parse(&self.query).mode == Mode::Files
@@ -380,19 +405,13 @@ impl Palette {
 
     #[cfg(feature = "native-host")]
     pub fn observes_symbols(&self) -> bool {
-        self.is_open
-            && self.indentation.is_none()
-            && self.code_lenses.is_none()
-            && parse(&self.query).mode == Mode::Symbol
+        self.is_open && !self.has_picker() && parse(&self.query).mode == Mode::Symbol
     }
 
     #[cfg(feature = "native-host")]
     pub fn workspace_query(&self) -> Option<&str> {
         let query = parse(&self.query);
-        (self.is_open
-            && self.indentation.is_none()
-            && self.code_lenses.is_none()
-            && query.mode == Mode::WorkspaceSymbol)
+        (self.is_open && !self.has_picker() && query.mode == Mode::WorkspaceSymbol)
             .then_some(query.search_term)
     }
 
@@ -450,6 +469,35 @@ impl Palette {
     }
 
     #[cfg(feature = "native-host")]
+    pub fn open_tasks(&mut self, context: &egui::Context, generation: u64) {
+        self.open(context, PaletteEntry::Commands);
+        self.tasks = Some(TaskPicker {
+            generation,
+            tasks: None,
+        });
+        self.set_query(String::new());
+        self.selected = None;
+        self.listed_query = None;
+        self.should_reset_scroll = true;
+    }
+
+    #[cfg(feature = "native-host")]
+    pub fn show_tasks(&mut self, generation: u64, tasks: Vec<Task>) {
+        if let Some(picker) = self
+            .tasks
+            .as_mut()
+            .filter(|picker| picker.generation == generation)
+        {
+            picker.tasks = Some(tasks);
+        }
+    }
+
+    #[cfg(feature = "native-host")]
+    pub fn is_picking_tasks(&self) -> bool {
+        self.is_open && self.tasks.is_some()
+    }
+
+    #[cfg(feature = "native-host")]
     pub fn dismiss(&mut self, context: &egui::Context) {
         self.close(context, true);
     }
@@ -472,6 +520,7 @@ impl Palette {
         {
             self.indentation = None;
             self.code_lenses = None;
+            self.tasks = None;
         }
         if !self.is_open {
             self.focus_return.capture(context);
@@ -594,7 +643,7 @@ impl Palette {
                 match run {
                     Some(Run::OpenPalette(entry)) => self.set_query(entry_query(entry)),
                     #[cfg(feature = "native-host")]
-                    Some(Run::ChooseIndentation(_)) => {
+                    Some(Run::ChooseIndentation(_) | Run::OpenTaskRunner) => {
                         output.action = Some(Action::RunCommand(id));
                     }
                     Some(_) => {
@@ -610,7 +659,7 @@ impl Palette {
                 self.close(context, true);
             }
             #[cfg(feature = "native-host")]
-            Some(action @ Action::CodeLensCommand { .. }) => {
+            Some(action @ (Action::CodeLensCommand { .. } | Action::RunTask { .. })) => {
                 output.action = Some(action);
                 self.close(context, true);
             }
@@ -707,15 +756,25 @@ impl Palette {
             egui::TextEdit::store_state(ui.ctx(), id, state);
         }
         #[cfg(feature = "native-host")]
-        let placeholder_key = if self.code_lenses.is_some() {
+        let placeholder_key = if self.tasks.is_some() {
+            TASK_RUNNER_TITLE_KEY
+        } else if self.code_lenses.is_some() {
             "palette.codeLensPlaceholder"
         } else if self.indentation.is_some() {
             "palette.indentationPlaceholder"
         } else {
             parse(&self.query).mode.placeholder_key()
         };
+        #[cfg(feature = "native-host")]
+        let title_key = if self.tasks.is_some() {
+            TASK_RUNNER_TITLE_KEY
+        } else {
+            PALETTE_TITLE_KEY
+        };
         #[cfg(not(feature = "native-host"))]
         let placeholder_key = parse(&self.query).mode.placeholder_key();
+        #[cfg(not(feature = "native-host"))]
+        let title_key = PALETTE_TITLE_KEY;
         let placeholder = message(scope.locale, placeholder_key, &[]);
         self.trace_input(&placeholder, row);
         let is_enabled = ui.is_enabled();
@@ -740,7 +799,7 @@ impl Palette {
             egui::WidgetInfo::labeled(
                 egui::WidgetType::TextEdit,
                 is_enabled,
-                message(scope.locale, "palette.title", &[]),
+                message(scope.locale, title_key, &[]),
             )
         });
         if is_enabled && !response.has_focus() {
@@ -750,6 +809,58 @@ impl Palette {
     }
 
     fn listing(&mut self, scope: &Scope<'_>) -> AppResult<Listing> {
+        #[cfg(feature = "native-host")]
+        if let Some(picker) = &self.tasks {
+            let items = picker.tasks.as_deref().map_or_else(Vec::new, |tasks| {
+                self.matcher
+                    .filter(
+                        &self.query,
+                        tasks.iter().enumerate(),
+                        |(_, task)| Cow::Borrowed(task.label.as_str()),
+                        None,
+                    )
+                    .into_iter()
+                    .map(|ranked| {
+                        let (index, task) = ranked.item;
+                        let source_key = match task.source {
+                            TaskSource::Npm => "task.sourceNpm",
+                            TaskSource::Make => "task.sourceMake",
+                            TaskSource::Cargo => "task.sourceCargo",
+                        };
+                        Item {
+                            key: format!("task/{}/{index}", picker.generation),
+                            action: Action::RunTask {
+                                generation: picker.generation,
+                                task: task.clone(),
+                            },
+                            icon: Icon::Terminal,
+                            label: ranked.label,
+                            indices: ranked.matched.indices,
+                            detail: Some((message(scope.locale, source_key, &[]), Vec::new())),
+                            shortcut: None,
+                            is_enabled: true,
+                            is_truncated: true,
+                        }
+                    })
+                    .collect()
+            });
+            return Ok(Listing {
+                group: Some(Group {
+                    heading: None,
+                    refreshing: None,
+                    items,
+                }),
+                empty_message: message(
+                    scope.locale,
+                    if picker.tasks.is_some() {
+                        "task.noTasksFound"
+                    } else {
+                        "common.loading"
+                    },
+                    &[],
+                ),
+            });
+        }
         #[cfg(feature = "native-host")]
         if let Some(picker) = &self.code_lenses {
             let items = self
@@ -1312,6 +1423,7 @@ impl Palette {
                 | Action::OpenWorkspaceSymbol { .. }
                 | Action::IndentationSize(_)
                 | Action::CodeLensCommand { .. }
+                | Action::RunTask { .. }
         );
         #[cfg(not(feature = "native-host"))]
         let inline_detail = false;

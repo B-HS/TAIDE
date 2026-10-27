@@ -26,7 +26,12 @@ pub enum HostCommand {
     EditorContextMenu(crate::editor_context_menu::Request),
     EditorClipboard(crate::editor_context_menu::ClipboardRequest),
     RunEditorText(crate::editor_context_menu::TerminalRequest),
+    RunTask(crate::editor_context_menu::TerminalDestination),
     WriteEditorText(crate::editor_context_menu::TerminalDelivery),
+    DetectTasks {
+        project: ProjectId,
+        generation: u64,
+    },
     CodeActions {
         project: ProjectId,
         source: taide_native_editor::view::ViewId,
@@ -298,6 +303,10 @@ pub enum HostReply {
     EditorTerminalTarget(
         taide_model::error::AppResult<crate::editor_context_menu::TerminalDelivery>,
     ),
+    TasksDetected {
+        generation: u64,
+        result: AppResult<Vec<taide_model::task::Task>>,
+    },
     EditorClipboard {
         request: crate::editor_context_menu::ClipboardRequest,
         result: AppResult<Option<String>>,
@@ -768,6 +777,21 @@ async fn dispatch(
         HostCommand::RunEditorText(request) => Some(HostReply::EditorTerminalTarget(
             crate::editor_context_menu::terminal_target(services, request).await,
         )),
+        HostCommand::RunTask(destination) => Some(HostReply::EditorTerminalTarget(
+            crate::editor_context_menu::destination_terminal_target(services, destination).await,
+        )),
+        HostCommand::DetectTasks {
+            project,
+            generation,
+        } => Some(HostReply::TasksDetected {
+            generation,
+            result: taide_runtime::task_actions::detect_tasks(
+                &services.state,
+                &services.tasks,
+                project,
+            )
+            .await,
+        }),
         HostCommand::WriteEditorText(delivery) => {
             let result = async {
                 let id = delivery.session(services).ok_or_else(|| {

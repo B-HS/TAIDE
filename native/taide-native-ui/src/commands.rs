@@ -166,6 +166,16 @@ pub enum ShellIntent {
         project: ProjectId,
         slot: u32,
     },
+    ShowExplorer {
+        project: ProjectId,
+        slot: ShellSlotId,
+    },
+    ShowAuxiliaryExplorer {
+        project: ProjectId,
+        slot: u32,
+    },
+    #[cfg(feature = "native-host")]
+    OpenTaskRunner(ProjectId),
 }
 
 #[cfg(feature = "native-host")]

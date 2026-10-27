@@ -117,14 +117,14 @@ fn 파일과_아웃라인_진입_버튼은_실제_높이와_focus와_클릭_선�
         );
         output.textures_delta.clear();
         if frame == 2 {
-            assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Rect(painted) if painted.rect == responses[1].1.rect && painted.fill == appearance.selected)), "클릭한 프레임에 아웃라인이 선택색이어야 한다");
+            assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Rect(painted) if painted.rect == responses[3].1.rect && painted.fill == appearance.selected)), "클릭한 프레임에 아웃라인이 선택색이어야 한다");
         }
-        assert_eq!(responses.len(), 2);
+        assert_eq!(responses.len(), 4);
         assert!(responses.iter().all(|(_, response)| response.rect.size()
             == vec2(BUTTON_SIZE, BUTTON_SIZE)
             && response.sense.is_focusable()));
         if frame == 0 {
-            let pos = responses[1].1.rect.center();
+            let pos = responses[3].1.rect.center();
             events = vec![
                 egui::Event::PointerMoved(pos),
                 egui::Event::PointerButton {
@@ -136,7 +136,7 @@ fn 파일과_아웃라인_진입_버튼은_실제_높이와_focus와_클릭_선�
             ];
         }
         if frame == 1 {
-            let pos = responses[1].1.rect.center();
+            let pos = responses[3].1.rect.center();
             events = vec![egui::Event::PointerButton {
                 pos,
                 button: egui::PointerButton::Primary,
@@ -148,6 +148,115 @@ fn 파일과_아웃라인_진입_버튼은_실제_높이와_focus와_클릭_선�
     assert_eq!(views.entry(&project, &slot).view, View::Outline);
     assert_eq!(
         ctx.memory(|memory| memory.focused()),
-        Some(responses[1].1.id)
+        Some(responses[3].1.id)
     );
+}
+
+#[test]
+fn 네_보기_전환은_원본_순서_탭목록_이름과_키보드_선택을_slot별로_보존한다() {
+    const SCREEN_WIDTH: f32 = 300.0;
+    const SCREEN_HEIGHT: f32 = 140.0;
+    let state = taide_runtime::AppState::new(AppPaths::new(
+        std::env::temp_dir().join(format!("taide-sidebar-views-{}", ProjectId::new())),
+    ));
+    let theme =
+        taide_runtime::theme_actions::theme_get(&state, "vscode-dark-modern".into()).unwrap();
+    let appearance = Appearance::new(&theme).unwrap();
+    let locale = ResolvedLocale {
+        id: "en".into(),
+        name: "English".into(),
+        warnings: Vec::new(),
+        messages: serde_json::from_str(include_str!(
+            "../../../crates/taide-locale/resources/locales/en.json"
+        ))
+        .unwrap(),
+    };
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut icons = Icons::new().unwrap();
+    let mut views = Views::default();
+    let project = ProjectId::new();
+    let slot = ShellSlotId::new();
+    let other = ShellSlotId::new();
+    let mut run = |views: &mut Views, slot: &ShellSlotId, events: Vec<egui::Event>| {
+        let mut responses = Vec::new();
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    vec2(SCREEN_WIDTH, SCREEN_HEIGHT),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                responses = views
+                    .entry(&project, slot)
+                    .switch(
+                        ui,
+                        Id::new(("sidebar-views", slot)),
+                        &locale,
+                        &appearance,
+                        &mut icons,
+                    )
+                    .unwrap();
+            },
+        );
+        output.textures_delta.clear();
+        (responses, output)
+    };
+    let (responses, output) = run(&mut views, &slot, Vec::new());
+    assert_eq!(
+        responses.iter().map(|(view, _)| *view).collect::<Vec<_>>(),
+        [View::Files, View::Search, View::Git, View::Outline]
+    );
+    for (index, (_, response)) in responses.iter().enumerate() {
+        assert_eq!(
+            response.rect.left(),
+            PADDING + index as f32 * (BUTTON_SIZE + GAP)
+        );
+    }
+    let nodes = &output.platform_output.accesskit_update.unwrap().nodes;
+    assert!(
+        nodes
+            .iter()
+            .any(|(_, node)| node.role() == egui::accesskit::Role::TabList
+                && node.label() == Some("Switch sidebar view")),
+        "the switcher is the original tablist with its label"
+    );
+    let labels = ["Explorer", "Search", "Git", "Outline"];
+    for label in labels {
+        assert!(
+            nodes
+                .iter()
+                .any(|(_, node)| node.role() == egui::accesskit::Role::Tab
+                    && node.label() == Some(label)),
+            "{label}"
+        );
+    }
+    ctx.memory_mut(|memory| memory.request_focus(responses[2].1.id));
+    let _ = run(&mut views, &slot, Vec::new());
+    let enter = [true, false]
+        .into_iter()
+        .map(|pressed| egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        })
+        .collect();
+    let _ = run(&mut views, &slot, enter);
+    let (responses, output) = run(&mut views, &slot, Vec::new());
+    assert_eq!(views.entry(&project, &slot).view, View::Git);
+    assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Rect(painted) if painted.rect == responses[2].1.rect && painted.fill == appearance.selected)));
+    let nodes = &output.platform_output.accesskit_update.unwrap().nodes;
+    assert!(nodes.iter().any(|(_, node)| node.label() == Some("Git")
+        && node.role() == egui::accesskit::Role::Tab
+        && node.is_selected() == Some(true)));
+    let _ = run(&mut views, &other, Vec::new());
+    assert_eq!(views.entry(&project, &other).view, View::Files);
+    views.entry(&project, &other).view = View::Search;
+    assert_eq!(views.entry(&project, &slot).view, View::Git);
+    assert_eq!(views.entry(&project, &other).view, View::Search);
 }

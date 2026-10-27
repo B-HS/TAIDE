@@ -25,6 +25,8 @@ pub(crate) enum Icon {
     ListTree,
     FolderTree,
     FolderInput,
+    Search,
+    GitBranch,
 }
 
 const EXTRA_SOURCES: &[(Icon, &[u8])] = &[
@@ -61,6 +63,10 @@ const EXTRA_SOURCES: &[(Icon, &[u8])] = &[
         Icon::FolderInput,
         include_bytes!("../resources/icons/folder-input.svg"),
     ),
+    (
+        Icon::Search,
+        include_bytes!("../resources/icons/search.svg"),
+    ),
 ];
 
 impl Icon {
@@ -87,6 +93,7 @@ impl Icon {
             Self::Box => Some(Glyph::Box),
             Self::Component => Some(Glyph::Component),
             Self::ChevronRight => Some(Glyph::ChevronRight),
+            Self::GitBranch => Some(Glyph::GitBranch),
             _ => None,
         }
     }

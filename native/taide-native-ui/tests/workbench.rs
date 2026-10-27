@@ -21,7 +21,8 @@ use taide_native_ui::project_rail::{RailColors, RailIcon};
 use taide_native_ui::shell::{
     EXPLORER_DEFAULT_WIDTH, EXPLORER_MAX_FRACTION, EXPLORER_MIN_WIDTH, ExplorerMount, NativeShell,
     PROJECT_RAIL_WIDTH, SLOT_HEADER_HEIGHT, STATUS_HEIGHT, ShellColors, ShellSurfaces, TAB_HEIGHT,
-    TITLE_HEIGHT, WelcomeContent, WelcomeRecent, WelcomeShortcutRow, WindowScope,
+    TITLE_HEIGHT, TOOLTIP_ICON_SIZE, TooltipLine, WelcomeContent, WelcomeRecent,
+    WelcomeShortcutRow, WindowScope, egui_tooltip,
 };
 use taide_native_ui::snapshot::{ShellSnapshot, project_group_sections};
 use taide_native_ui::split::{MIN_PANE_SIZE, child_rects, normalized_sizes, resized_pair};
@@ -92,6 +93,11 @@ const PANEL_SEPARATOR_WIDTH: f32 = 1.0;
 const SYNTHETIC_BRANCH: &str = "synthetic/title-branch";
 const TITLE_BRANCH_ICON_SIDE: f32 = 12.0;
 const TITLE_CENTER_TOLERANCE: f32 = 4.0;
+const SLOT_HEADER_PADDING: f32 = 8.0;
+const SLOT_HEADER_GAP: f32 = 4.0;
+const SLOT_HEADER_ICON_SIDE: f32 = 12.0;
+const SLOT_HEADER_FONT_SIZE: f32 = 12.0;
+const SLOT_HEADER_LABEL_OPACITY: f32 = 0.7;
 
 #[derive(Default)]
 struct Sink(Mutex<Vec<AppEvent>>);
@@ -129,6 +135,7 @@ struct Surfaces {
     explorer_rects: Vec<Rect>,
     explorer_begins: usize,
     explorer_discards: Vec<String>,
+    tooltips: Vec<(Rect, egui::RectAlign, Vec<TooltipLine>)>,
 }
 
 enum ExplorerRecord {
@@ -296,6 +303,15 @@ impl ShellSurfaces for Surfaces {
     }
     fn discard_status_bar(&mut self) {
         self.status_discards += 1;
+    }
+    fn tooltip(
+        &mut self,
+        response: &egui::Response,
+        align: egui::RectAlign,
+        lines: Vec<TooltipLine>,
+    ) {
+        self.tooltips.push((response.rect, align, lines.clone()));
+        egui_tooltip(self, response, align, &lines);
     }
 }
 
@@ -1637,7 +1653,7 @@ fn 탭바_하단선은_layout의_포커스_pane만_focus_border로_그린다() {
         let half = WINDOW_SIZE[0] / 2.0;
         let lines = lines
             .into_iter()
-            .filter(|(start, _, _)| start.x < half)
+            .filter(|(start, _, _)| start.x < half && start.y >= TITLE_HEIGHT + SLOT_HEADER_HEIGHT)
             .collect::<Vec<_>>();
         let focus = lines
             .iter()
@@ -2800,14 +2816,19 @@ fn 프로젝트_rail은_라벨_아이콘_기본_glyph와_사용자색_root누락
             .contains_rect(label_rect)
     );
     assert!(text_shape(&output, &names[0][..1]).is_none());
-    assert_eq!(surfaces.rail_icons.len(), 2);
-    let (icon, rect, color, opacity) = &surfaces.rail_icons[0];
+    let rail_icons: Vec<_> = surfaces
+        .rail_icons
+        .iter()
+        .filter(|(_, rect, ..)| rect.right() <= PROJECT_RAIL_WIDTH)
+        .collect();
+    assert_eq!(rail_icons.len(), 2);
+    let (icon, rect, color, opacity) = rail_icons[0];
     assert_eq!(icon, &format!("{:?}", RailIcon::Project(Some("rocket"))));
     assert_eq!(*color, COLOR);
     assert_eq!(*opacity, 1.0);
     assert_eq!(rect.size(), egui::Vec2::splat(RAIL_GLYPH_ICON_SIDE));
     assert!((rect.center() - buttons[1].0.center()).length() < PIXEL_SNAP_TOLERANCE);
-    let (icon, rect, _, _) = &surfaces.rail_icons[1];
+    let (icon, rect, _, _) = rail_icons[1];
     assert_eq!(icon, &format!("{:?}", RailIcon::Project(None)));
     assert!((rect.center() - buttons[2].0.center()).length() < PIXEL_SNAP_TOLERANCE);
     let rects: Vec<_> = output
@@ -3085,6 +3106,196 @@ fn 프로젝트_rail_tooltip은_이름_root누락_경로와_모든_에이전트_
         .unwrap();
     assert!(button.contains_rect(*rect));
     assert_eq!(*opacity, ROOT_MISSING_OPACITY);
+}
+
+fn labeled_nodes(output: &egui::FullOutput, label: &str) -> usize {
+    output
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .map_or(0, |update| {
+            update
+                .nodes
+                .iter()
+                .filter(|(_, node)| node.label() == Some(label))
+                .count()
+        })
+}
+
+#[test]
+fn 슬롯_헤더는_여러_슬롯에서만_root누락_경고와_tooltip_흐린_작은_이름_닫기와_하단선을_보인다() {
+    let mut snapshot = fixture();
+    snapshot.projects[0].root_missing = true;
+    let names: Vec<String> = snapshot
+        .projects
+        .iter()
+        .map(|project| project.name.clone())
+        .collect();
+    let body = Rect::from_min_max(
+        pos2(PROJECT_RAIL_WIDTH, TITLE_HEIGHT),
+        pos2(WINDOW_SIZE[0], WINDOW_SIZE[1] - STATUS_HEIGHT),
+    );
+    let headers: Vec<Rect> =
+        child_rects(body, SplitDir::Horizontal, &[50.0, 50.0], SPLIT_THICKNESS)
+            .into_iter()
+            .map(|region| Rect::from_min_size(region.min, vec2(region.width(), SLOT_HEADER_HEIGHT)))
+            .collect();
+    let shell = shell(WindowScope::Main);
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let root_missing = format!("{:?}", RailIcon::RootMissing);
+    let (surfaces, output) = frame(&context, &shell, &snapshot, 0.0, Vec::new());
+    let warnings: Vec<_> = surfaces
+        .rail_icons
+        .iter()
+        .filter(|(icon, ..)| icon == &root_missing)
+        .collect();
+    assert_eq!(warnings.len(), 1, "{:?}", surfaces.rail_icons);
+    let (_, icon, color, opacity) = warnings[0];
+    assert_eq!(icon.size(), egui::Vec2::splat(SLOT_HEADER_ICON_SIDE));
+    assert!(headers[0].contains_rect(*icon));
+    assert!(
+        (icon.left() - (headers[0].left() + SLOT_HEADER_PADDING)).abs() <= PIXEL_SNAP_TOLERANCE
+    );
+    assert!((icon.center().y - headers[0].center().y).abs() <= PIXEL_SNAP_TOLERANCE);
+    assert_eq!((*color, *opacity), (COLOR, 1.0));
+    let (warning_node, _) = access_node(&output, "app.recentProjectRootMissing").unwrap();
+    assert!((warning_node.center() - icon.center()).length() <= PIXEL_SNAP_TOLERANCE);
+    let label = |output: &egui::FullOutput, index: usize| {
+        output
+            .shapes
+            .iter()
+            .find_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(shape)
+                    if shape.galley.text() == names[index]
+                        && headers[index].contains(shape.pos) =>
+                {
+                    Some(shape.clone())
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("slot header label {index}"))
+    };
+    for index in 0..names.len() {
+        let format = &label(&output, index).galley.job.sections[0].format;
+        assert_eq!(format.font_id.size, SLOT_HEADER_FONT_SIZE);
+        assert_eq!(
+            format.color,
+            COLOR.gamma_multiply(SLOT_HEADER_LABEL_OPACITY)
+        );
+    }
+    assert!(
+        (label(&output, 0).pos.x - (icon.right() + SLOT_HEADER_GAP)).abs() <= PIXEL_SNAP_TOLERANCE
+    );
+    assert!(
+        (label(&output, 1).pos.x - (headers[1].left() + SLOT_HEADER_PADDING)).abs()
+            <= PIXEL_SNAP_TOLERANCE
+    );
+    assert_eq!(labeled_nodes(&output, "shellSlot.close"), headers.len());
+    for header in &headers {
+        assert!(output.shapes.iter().any(|clipped| matches!(&clipped.shape,
+            egui::Shape::LineSegment { points, stroke }
+                if stroke.color == COLOR
+                    && (points[0].x - header.left()).abs() <= PIXEL_SNAP_TOLERANCE
+                    && (points[1].x - header.right()).abs() <= PIXEL_SNAP_TOLERANCE
+                    && (points[0].y - header.bottom()).abs() <= CSS_BORDER_WIDTH)));
+    }
+
+    let _ = frame(
+        &context,
+        &shell,
+        &snapshot,
+        TOOLTIP_HOVER_SECONDS,
+        vec![egui::Event::PointerMoved(icon.center())],
+    );
+    let _ = frame(
+        &context,
+        &shell,
+        &snapshot,
+        TOOLTIP_HOVER_SECONDS + TOOLTIP_SETTLE_SECONDS,
+        Vec::new(),
+    );
+    let (_, hovered) = frame(
+        &context,
+        &shell,
+        &snapshot,
+        TOOLTIP_HOVER_SECONDS + TOOLTIP_SETTLE_SECONDS + TOOLTIP_FADE_SECONDS,
+        Vec::new(),
+    );
+    let (_, tooltip) = text_shape(&hovered, "app.recentProjectRootMissing")
+        .expect("the warning carries its tooltip");
+    assert!(tooltip.top() >= icon.bottom());
+
+    let Some(ShellSlotTree::Split { children, .. }) = &snapshot.shell.tree else {
+        panic!("fixture splits two slots")
+    };
+    let ShellSlotTree::Leaf { slot_id: first, .. } = &children[0] else {
+        panic!("fixture leaf")
+    };
+    let name = label(&output, 0).visual_bounding_rect();
+    let close = output
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.label() == Some("shellSlot.close"))
+        .filter_map(|(_, node)| node.bounds())
+        .map(|bounds| {
+            Rect::from_min_max(
+                pos2(bounds.x0 as f32, bounds.y0 as f32),
+                pos2(bounds.x1 as f32, bounds.y1 as f32),
+            )
+        })
+        .find(|rect| headers[0].contains_rect(*rect))
+        .unwrap();
+    let click = |position: egui::Pos2| {
+        let context = egui::Context::default();
+        let _ = rail_frame(&context, &snapshot, Surfaces::default(), 0.0, Vec::new());
+        rail_frame(
+            &context,
+            &snapshot,
+            Surfaces::default(),
+            CLICK_INTERVAL_SECONDS,
+            pointer(position, egui::PointerButton::Primary),
+        )
+        .1
+    };
+    let intents = click(name.center());
+    assert!(
+        intents.iter().any(|intent| matches!(intent,
+            ShellIntent::Mutate(ShellMutation::FocusSlot(slot)) if slot == first)),
+        "{intents:?}"
+    );
+    let intents = click(close.center());
+    assert!(
+        matches!(intents.as_slice(),
+            [ShellIntent::Mutate(ShellMutation::CloseSlot(slot))] if slot == first),
+        "{intents:?}"
+    );
+
+    let mut single = snapshot.clone();
+    single.projects[1].root_missing = true;
+    single.shell.tree = Some(ShellSlotTree::Leaf {
+        slot_id: single.shell.focused.clone().unwrap(),
+        project_id: single.projects[1].id.clone(),
+    });
+    let mut zen = snapshot.clone();
+    zen.shell.window_chrome.zen = true;
+    for hidden in [&single, &zen] {
+        let context = egui::Context::default();
+        context.enable_accesskit();
+        let (surfaces, output) = frame(&context, &shell, hidden, 0.0, Vec::new());
+        assert_eq!(labeled_nodes(&output, "shellSlot.close"), 0);
+        assert_eq!(labeled_nodes(&output, "app.recentProjectRootMissing"), 0);
+        assert!(
+            !surfaces
+                .rail_icons
+                .iter()
+                .any(|(icon, ..)| icon == &root_missing)
+        );
+    }
 }
 
 fn menu_step(
@@ -5470,4 +5681,105 @@ fn 보조창_사이드바_패널_panic은_탐색기만_fallback으로_바꾸고_
     assert!(alert_node(&output).is_none());
     assert_eq!(surfaces.auxiliary_explorers.len(), 1);
     assert!(has_text(&output, "test-only auxiliary explorer"));
+}
+
+#[test]
+fn 셸_tooltip은_모두_공통_채널에_원본_방향과_줄을_매_프레임_넘긴다() {
+    let mut snapshot = fixture();
+    snapshot.projects[0].root_missing = true;
+    let project = snapshot.projects[0].clone();
+    let terminal = synthetic_tab("busy", terminal_kind("busy"));
+    let PaneNode::Leaf { tabs, active, .. } =
+        &mut snapshot.layouts.get_mut(&project.id).unwrap().root
+    else {
+        panic!("expected leaf")
+    };
+    tabs.push(terminal.clone());
+    *active = Some(terminal.id.clone());
+    let agents = std::collections::HashMap::from([(
+        project.id.clone(),
+        vec![rail_agent("busy", "claude", AgentActivity::Working, None)],
+    )]);
+    let context = egui::Context::default();
+    let (surfaces, _, _) = scoped_frame(
+        &context,
+        WindowScope::Main,
+        &snapshot,
+        Surfaces {
+            agents,
+            ..Default::default()
+        },
+        0.0,
+        Vec::new(),
+    );
+    let calls = |text: &str| {
+        surfaces
+            .tooltips
+            .iter()
+            .filter(|(_, _, lines)| lines.iter().any(|line| line.text == text))
+            .collect::<Vec<_>>()
+    };
+    let session = format!(
+        "agent.sessionTooltip: {:?}",
+        [("name", "claude"), ("status", "agent.status.working")]
+    );
+    let rail = calls(&project.name)
+        .into_iter()
+        .find(|(rect, ..)| rect.right() <= PROJECT_RAIL_WIDTH)
+        .expect("the rail button's tooltip");
+    assert_eq!(rail.1, egui::RectAlign::RIGHT);
+    assert_eq!(
+        rail.2,
+        vec![
+            TooltipLine::text(project.name.clone()),
+            TooltipLine {
+                icon: Some(RailIcon::RootMissing),
+                ..TooltipLine::text("app.recentProjectRootMissing")
+            },
+            TooltipLine {
+                opacity: TOOLTIP_SECONDARY_OPACITY,
+                ..TooltipLine::text("/synthetic")
+            },
+            TooltipLine {
+                opacity: TOOLTIP_SECONDARY_OPACITY,
+                ..TooltipLine::text(session.clone())
+            },
+        ]
+    );
+    let only = |text: &str, align: egui::RectAlign| {
+        let found = surfaces
+            .tooltips
+            .iter()
+            .filter(|(_, _, lines)| lines == &vec![TooltipLine::text(text)])
+            .collect::<Vec<_>>();
+        assert!(!found.is_empty(), "{text}");
+        assert!(found.iter().all(|(_, side, _)| *side == align), "{text}");
+        found
+            .into_iter()
+            .map(|(rect, ..)| *rect)
+            .collect::<Vec<_>>()
+    };
+    let add = only("sidebar.addProjectMenu", egui::RectAlign::RIGHT);
+    assert!(add.iter().all(|rect| rect.right() <= PROJECT_RAIL_WIDTH));
+    let warning = only("app.recentProjectRootMissing", egui::RectAlign::BOTTOM);
+    assert_eq!(warning.len(), 1, "only the root-missing slot header warns");
+    assert_eq!(
+        warning[0].size(),
+        vec2(TOOLTIP_ICON_SIZE, TOOLTIP_ICON_SIZE)
+    );
+    assert_eq!(
+        only("shellSlot.close", egui::RectAlign::BOTTOM).len(),
+        snapshot.projects.len()
+    );
+    assert_eq!(
+        only("tab.newTabMenu", egui::RectAlign::BOTTOM).len(),
+        snapshot.projects.len()
+    );
+    only(
+        &format!("tab.closeAriaLabel: {:?}", [("title", "busy")]),
+        egui::RectAlign::BOTTOM,
+    );
+    let agent = only(&session, egui::RectAlign::BOTTOM);
+    assert_eq!(agent.len(), 1);
+    assert_eq!(agent[0].size(), vec2(TAB_ICON_SIDE, TAB_ICON_SIDE));
 }

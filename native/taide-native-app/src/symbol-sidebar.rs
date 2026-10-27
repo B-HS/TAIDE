@@ -25,13 +25,20 @@ const BORDER_WIDTH: f32 = 1.0;
 pub(crate) enum View {
     #[default]
     Files,
+    Search,
+    Git,
     Outline,
 }
+
+const VIEWS: [View; 4] = [View::Files, View::Search, View::Git, View::Outline];
+const SWITCH_LABEL: &str = "explorer.sidebarSwitchLabel";
 
 impl View {
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Files => "explorer.title",
+            Self::Search => "search.title",
+            Self::Git => "git.title",
             Self::Outline => "outline.title",
         }
     }
@@ -39,6 +46,8 @@ impl View {
     fn icon(self) -> Icon {
         match self {
             Self::Files => Icon::FolderTree,
+            Self::Search => Icon::Search,
+            Self::Git => Icon::GitBranch,
             Self::Outline => Icon::ListTree,
         }
     }
@@ -146,14 +155,24 @@ impl Sidebar {
             ime_frame
         });
         let width = ui.available_width();
-        let (rect, _) = ui.allocate_exact_size(vec2(width, HEADER_HEIGHT), Sense::hover());
+        let (rect, header) = ui.allocate_exact_size(vec2(width, HEADER_HEIGHT), Sense::hover());
+        ui.ctx().accesskit_node_builder(header.id, |node| {
+            node.set_role(egui::accesskit::Role::TabList);
+            node.set_label(crate::presentation::message(locale, SWITCH_LABEL, &[]));
+            node.set_bounds(egui::accesskit::Rect {
+                x0: rect.left().into(),
+                y0: rect.top().into(),
+                x1: rect.right().into(),
+                y1: rect.bottom().into(),
+            });
+        });
         ui.painter().rect_filled(rect, 0.0, appearance.sidebar);
         ui.painter().hline(
             rect.x_range(),
             rect.bottom(),
             egui::Stroke::new(BORDER_WIDTH, appearance.sidebar_border),
         );
-        let responses = [View::Files, View::Outline]
+        let responses = VIEWS
             .into_iter()
             .enumerate()
             .map(|(index, view)| {
@@ -168,6 +187,9 @@ impl Sidebar {
                     vec2(BUTTON_SIZE, BUTTON_SIZE),
                 );
                 let response = ui.interact(button, id.with(view.label()), Sense::click());
+                if response.is_pointer_button_down_on() {
+                    response.request_focus();
+                }
                 let activated = ui.is_enabled()
                     && !ime_frame
                     && !self.composing

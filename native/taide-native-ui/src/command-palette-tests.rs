@@ -374,6 +374,131 @@ fn code_lens_빈목록_취소와_조합은_명령을_실행하지_않는다() {
     );
 }
 
+#[cfg(feature = "native-host")]
+fn synthetic_task(label: &str, source: TaskSource) -> Task {
+    Task {
+        label: label.into(),
+        command: format!("synthetic {label}"),
+        source,
+        cwd: ROOT.into(),
+    }
+}
+
+#[test]
+#[cfg(feature = "native-host")]
+fn 태스크_실행기는_로딩과_현재_세대_목록_출처_fuzzy_실행과_포커스_복원을_보존한다() {
+    let mut scene = Scene::new().with_project(&["README.md"]);
+    scene.focus_previous();
+    scene.palette.open_tasks(&scene.context, 1);
+    scene.frame(Vec::new());
+    scene.frame(Vec::new());
+    assert!(scene.palette.is_picking_tasks());
+    let loading = scene.inspection();
+    assert!(loading.has_input_focus);
+    assert_eq!(loading.query, "");
+    assert_eq!(loading.placeholder, "Run Task");
+    assert_eq!(loading.heading, None);
+    assert_eq!(loading.empty_message.as_deref(), Some("Loading..."));
+    assert!(!scene.palette.observes_files() && !scene.palette.observes_symbols());
+    assert!(scene.palette.workspace_query().is_none());
+    let tasks = vec![
+        synthetic_task("build", TaskSource::Npm),
+        synthetic_task("test", TaskSource::Cargo),
+        synthetic_task("lint", TaskSource::Make),
+    ];
+    scene
+        .palette
+        .show_tasks(2, vec![synthetic_task("stale", TaskSource::Npm)]);
+    scene.frame(Vec::new());
+    assert_eq!(
+        scene.inspection().empty_message.as_deref(),
+        Some("Loading...")
+    );
+    scene.palette.show_tasks(1, tasks.clone());
+    scene.frame(Vec::new());
+    let listed = scene.inspection();
+    assert_eq!(scene.labels(), ["build", "test", "lint"]);
+    assert_eq!(
+        listed
+            .rows
+            .iter()
+            .map(|row| row.detail.as_deref())
+            .collect::<Vec<_>>(),
+        [
+            Some("npm script"),
+            Some("Cargo task"),
+            Some("Makefile target")
+        ]
+    );
+    assert!(listed.rows.iter().all(|row| row.icon == Icon::Terminal
+        && row.icon_rect.width() == LIST_ITEM_ICON_SIDE
+        && row.rect.height() == SINGLE_LINE_ROW_HEIGHT));
+    assert_eq!(scene.selected().as_deref(), Some("task/1/0"));
+    scene.type_text("tes");
+    assert_eq!(scene.labels(), ["test"]);
+    assert_eq!(
+        scene.press(Key::Enter).action,
+        Some(Action::RunTask {
+            generation: 1,
+            task: tasks[1].clone()
+        })
+    );
+    scene.frame(Vec::new());
+    assert!(!scene.palette.is_open());
+    assert_eq!(scene.focused(), Some(Id::new(PREVIOUS_FOCUS)));
+}
+
+#[test]
+#[cfg(feature = "native-host")]
+fn 태스크_실행기는_빈결과_안내와_취소를_실행없이_처리하고_명령에서_원래_포커스를_이어받는다() {
+    let mut scene = Scene::new().with_project(&["README.md"]);
+    scene.focus_previous();
+    scene.palette.open_tasks(&scene.context, 1);
+    scene.palette.show_tasks(1, Vec::new());
+    scene.frame(Vec::new());
+    scene.frame(Vec::new());
+    assert_eq!(
+        scene.inspection().empty_message.as_deref(),
+        Some("No tasks found in this project")
+    );
+    assert_eq!(scene.press(Key::Enter), Output::default());
+    assert_eq!(scene.press(Key::Escape), Output::default());
+    assert!(!scene.palette.is_open());
+    settle(&mut scene);
+    assert_eq!(scene.focused(), Some(Id::new(PREVIOUS_FOCUS)));
+
+    scene.open(PaletteEntry::Commands);
+    scene.type_text("Run Task");
+    assert_eq!(scene.selected().as_deref(), Some("task.runTask"));
+    assert_eq!(
+        scene.press(Key::Enter).action,
+        Some(Action::RunCommand("task.runTask".into()))
+    );
+    assert!(scene.palette.is_open());
+    scene.palette.open_tasks(&scene.context, 2);
+    scene.frame(Vec::new());
+    scene.frame(Vec::new());
+    assert!(scene.palette.is_picking_tasks());
+    assert_eq!(scene.palette.source_focus(), Some(Id::new(PREVIOUS_FOCUS)));
+    scene
+        .palette
+        .show_tasks(2, vec![synthetic_task("build", TaskSource::Npm)]);
+    settle(&mut scene);
+    let row = scene.inspection().rows[0].rect.center();
+    assert_eq!(
+        scene.click(row).action,
+        Some(Action::RunTask {
+            generation: 2,
+            task: synthetic_task("build", TaskSource::Npm)
+        })
+    );
+    scene.frame(Vec::new());
+    assert_eq!(scene.focused(), Some(Id::new(PREVIOUS_FOCUS)));
+    scene.open(PaletteEntry::Files);
+    assert!(!scene.palette.is_picking_tasks());
+    assert!(scene.palette.observes_files());
+}
+
 #[test]
 #[cfg(feature = "native-host")]
 fn 수동_들여쓰기_목록은_현재_기본_폭과_단일_행을_표시하고_포커스를_복원한다() {

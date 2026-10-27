@@ -158,6 +158,14 @@ impl Refresh {
         self.pending = None;
         self.attempted = None;
     }
+
+    /// A load error banner's retry (`refetch`): the next [`Refresh::next`] asks again for the same
+    /// inputs, unless a request is still in flight and will answer anyway.
+    pub(crate) fn retry(&mut self) {
+        if self.pending.is_none() {
+            self.attempted = None;
+        }
+    }
 }
 
 pub(crate) struct Appearances {

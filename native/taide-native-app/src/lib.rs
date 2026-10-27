@@ -258,6 +258,8 @@ mod snippet_host_tests;
 mod status_chord;
 #[path = "status-editor.rs"]
 mod status_editor;
+#[path = "status-error-banner.rs"]
+mod status_error_banner;
 #[path = "status-ide.rs"]
 mod status_ide;
 #[path = "symbol-location-host.rs"]

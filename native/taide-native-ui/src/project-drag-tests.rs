@@ -238,6 +238,92 @@ fn 드롭_결과는_슬롯_분할_교체와_자기교체_무동작을_원본처�
     assert_eq!(resolve_drop(&project(&projects[1]), None, &snapshot), None);
 }
 
+const SCREEN: Rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(1200.0, 700.0));
+const OUTSIDE: Pos2 = pos2(1100.0, 300.0);
+
+fn release(
+    snapshot: &ShellSnapshot,
+    frame: &Frame,
+    press: &Press,
+    at: Pos2,
+    escape: bool,
+) -> Option<DropRequest> {
+    let context = Context::default();
+    let mut events = vec![
+        egui::Event::PointerMoved(at),
+        egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        },
+    ];
+    if escape {
+        events.push(egui::Event::Key {
+            key: Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    let mut request = None;
+    let mut output = context.run_ui(
+        egui::RawInput {
+            screen_rect: Some(SCREEN),
+            events,
+            ..Default::default()
+        },
+        |ui| {
+            with_memory(ui.ctx(), |memory| {
+                memory.press = Some(press.clone());
+                memory.frame = frame.clone();
+            });
+            request = end_frame(ui.ctx(), snapshot).request;
+        },
+    );
+    output.textures_delta.clear();
+    request
+}
+
+#[test]
+fn 해제_프레임은_escape를_먼저_판정하고_대상_밖에서_놓으면_직전_대상으로_보내지_않는다() {
+    let Fixture {
+        snapshot,
+        projects,
+        slots,
+        ..
+    } = fixture();
+    let frame = collision_frame(&projects[0], &slots[0]);
+    let held = Press {
+        item: project(&projects[2]),
+        origin: RAIL_ICON.center(),
+        rect: RAIL_ICON,
+        content: SCREEN,
+        phase: Phase::Active,
+        over: Some(slot_target(&slots[0], DropEdge::Right)),
+        layout: frame.items.clone(),
+    };
+    assert_eq!(
+        release(&snapshot, &frame, &held, SLOT_CENTER, false),
+        Some(DropRequest::OpenInSlot {
+            project: projects[2].clone(),
+            slot: slots[0].clone(),
+            edge: ShellSlotEdge::Replace,
+        })
+    );
+    assert_eq!(
+        release(&snapshot, &frame, &held, OUTSIDE, false),
+        None,
+        "a release over nothing drops nowhere even though the right edge was the last target"
+    );
+    assert_eq!(
+        release(&snapshot, &frame, &held, SLOT_CENTER, true),
+        None,
+        "Escape in the release frame cancels before the drop"
+    );
+}
+
 #[test]
 fn 재정렬은_전역_프로젝트_순서와_그룹_순서를_따로_쓰고_두_단은_섞이지_않는다() {
     let Fixture {

@@ -317,6 +317,51 @@ fn 실제_app_보조_창은_viewport로_복원되어_자기_셸과_키맵과_닫
             .sidebar_collapsed
     );
 
+    let first_explorer = application
+        .auxiliary_windows
+        .find(&alpha, FIRST_SLOT)
+        .unwrap()
+        .explorer
+        .clone();
+    application
+        .symbol_sidebars
+        .entry(&alpha, &first_explorer)
+        .view = crate::symbol_sidebar::View::Outline;
+    viewports.borrow_mut().events.insert(
+        first,
+        key(
+            egui::Key::E,
+            egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+        ),
+    );
+    step_until(
+        application,
+        &context,
+        "auxiliary explorer key reopens its files view",
+        |application, _| {
+            application
+                .auxiliary_windows
+                .find(&alpha, FIRST_SLOT)
+                .unwrap()
+                .is_explorer_open
+        },
+    );
+    assert_eq!(
+        application
+            .symbol_sidebars
+            .entry(&alpha, &first_explorer)
+            .view,
+        crate::symbol_sidebar::View::Files
+    );
+    step_until(application, &context, "auxiliary files view", |_, _| {
+        viewports.borrow().shows(first, "other.txt")
+    });
+    assert!(
+        services.state.layouts.read()[&alpha]
+            .shell_view
+            .sidebar_collapsed
+    );
+
     let row = {
         let viewports = viewports.borrow();
         node_rect(

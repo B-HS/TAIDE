@@ -1,5 +1,5 @@
 #[cfg(not(test))]
-pub use taide_native_ui::tooltips::{Appearance, Provider, Trigger};
+pub use taide_native_ui::tooltips::{Appearance, Icon, Line, Provider, Trigger};
 
 #[cfg(test)]
 use eframe::egui;
@@ -7,7 +7,7 @@ use eframe::egui;
 use taide_native_ui::tooltip_trigger;
 
 #[cfg(test)]
-pub use compatibility::{Appearance, Provider, Trigger};
+pub use compatibility::{Appearance, Icon, Line, Provider, Trigger};
 
 #[cfg(test)]
 mod compatibility {

@@ -421,12 +421,12 @@ pub(crate) fn end_frame(context: &Context) -> TabDragFeedback {
         if !input.is_down {
             let request = press
                 .take()
-                .filter(|current| current.phase == Phase::Active)
+                .filter(|current| current.phase == Phase::Active && !input.cancels(current.content))
                 .and_then(|current| {
-                    let over = input
-                        .pointer
-                        .and_then(|pointer| resolve_target(frame, &current.area, pointer))
-                        .or_else(|| current.over.clone());
+                    let over = match input.pointer {
+                        Some(pointer) => resolve_target(frame, &current.area, pointer),
+                        None => current.over.clone(),
+                    };
                     resolve_drop(&current, over.as_ref(), &frame.panes)
                 });
             return TabDragFeedback {

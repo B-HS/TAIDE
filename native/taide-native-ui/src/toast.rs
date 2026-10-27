@@ -994,9 +994,9 @@ impl<A: Clone> Toasts<A> {
             .copied()
             .reduce(Rect::union)
             .expect("native toast list has visible entries");
-        egui::Area::new(Id::new("native-notification-area"))
-            .fixed_pos(bounds.min)
-            .order(egui::Order::Tooltip)
+        let area = egui::Area::new(Id::new("native-notification-area")).order(egui::Order::Tooltip);
+        context.move_to_top(area.layer());
+        area.fixed_pos(bounds.min)
             .constrain(false)
             .fade_in(false)
             .show(context, |ui| {

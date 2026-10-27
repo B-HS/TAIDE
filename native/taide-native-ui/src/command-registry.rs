@@ -158,6 +158,9 @@ pub enum Run {
     ReopenClosedTab,
     CloseTab,
     ToggleSidebar,
+    ShowExplorer,
+    #[cfg(feature = "native-host")]
+    OpenTaskRunner,
     Split,
     CycleTab(TabCycle),
     SaveActiveTab,
@@ -438,6 +441,8 @@ fn execution(id: &str, keymap_id: Option<&str>) -> Execution {
         "monaco.editor.action.toggleStickyScroll" => Some(Run::ToggleEditorStickyScroll),
         #[cfg(feature = "native-host")]
         "monaco.taide.toggleMinimap" => Some(Run::ToggleEditorMinimap),
+        #[cfg(feature = "native-host")]
+        "task.runTask" => Some(Run::OpenTaskRunner),
         "settings.open" => Some(Run::OpenSettingsTab),
         "app.openSettingsFile" => Some(Run::OpenSettingsFile),
         "monaco.deleteAllLeft" => Some(Run::EditDocument(DocumentEdit::DeleteAllLeft)),
@@ -615,6 +620,7 @@ pub fn keymap_run(keymap_id: &str) -> Option<Run> {
         "open-keybindings-editor" => Run::OpenKeybindingsEditor,
         "close-tab" => Run::CloseTab,
         "toggle-sidebar" => Run::ToggleSidebar,
+        "explorer" => Run::ShowExplorer,
         "split" => Run::Split,
         "tab-cycle-next" | "editor-next" => Run::CycleTab(TabCycle::Next),
         "tab-cycle-prev" | "editor-previous" => Run::CycleTab(TabCycle::Previous),
@@ -833,7 +839,7 @@ mod tests {
         "editor.action.moveCarretRightAction",
     ];
     const KEYMAP_COUNT: usize = 41;
-    const NATIVE_KEYMAP_COUNT: usize = 34 + EDITOR_FIND_AVAILABLE as usize;
+    const NATIVE_KEYMAP_COUNT: usize = 35 + EDITOR_FIND_AVAILABLE as usize;
     const FOLD_COMMAND_COUNT: usize = if cfg!(feature = "native-host") {
         19
     } else {
@@ -940,7 +946,7 @@ mod tests {
     ];
     const SAVE_ACTION: &str = "taide.saveFile";
     const FOLDING_CATEGORY: &str = "keymap.category.editorFolding";
-    const NATIVE_COMMANDS: [(&str, Run); 35] = [
+    const NATIVE_COMMANDS: [(&str, Run); 36] = [
         ("settings.open", Run::OpenSettingsTab),
         ("app.openSettingsFile", Run::OpenSettingsFile),
         ("keybindings.open", Run::OpenKeybindingsEditor),
@@ -949,6 +955,7 @@ mod tests {
         ("file.quickOpen", Run::OpenPalette(PaletteEntry::Files)),
         ("tab.close", Run::CloseTab),
         ("view.toggleSidebar", Run::ToggleSidebar),
+        ("view.explorer", Run::ShowExplorer),
         ("editor.split", Run::Split),
         ("tab.cycleNext", Run::CycleTab(TabCycle::Next)),
         ("tab.cyclePrev", Run::CycleTab(TabCycle::Previous)),
@@ -1184,6 +1191,8 @@ mod tests {
                 #[cfg(feature = "native-host")]
                 Execution::Native(Run::ToggleEditorMinimap) => None,
                 #[cfg(feature = "native-host")]
+                Execution::Native(Run::OpenTaskRunner) => None,
+                #[cfg(feature = "native-host")]
                 Execution::Native(Run::ChooseIndentation(_)) => None,
                 #[cfg(feature = "native-host")]
                 Execution::Native(Run::FormatEditor(_)) => None,
@@ -1249,7 +1258,30 @@ mod tests {
                 keymap_run("monaco.editor.action.rename"),
                 Some(Run::RenameEditor)
             );
+            let run_task = registry.command("task.runTask").unwrap();
+            assert_eq!(run_task.execution, Execution::Native(Run::OpenTaskRunner));
+            assert!(run_task.runnable(&CommandContext::default()).is_none());
+            assert_eq!(
+                run_task.runnable(&CommandContext {
+                    active_project: Some(ProjectId::new()),
+                    ..Default::default()
+                }),
+                Some(Run::OpenTaskRunner)
+            );
         }
+        #[cfg(not(feature = "native-host"))]
+        assert_eq!(
+            registry.command("task.runTask").unwrap().execution,
+            Execution::Unavailable
+        );
+        assert_eq!(keymap_run("explorer"), Some(Run::ShowExplorer));
+        assert_eq!(
+            registry
+                .command("view.explorer")
+                .unwrap()
+                .runnable(&CommandContext::default()),
+            Some(Run::ShowExplorer)
+        );
         let defaults: Vec<Value> = serde_json::from_str(KEYMAP_DEFAULTS).unwrap();
         assert_eq!(defaults.len(), KEYMAP_COUNT);
         let keymap_ids = defaults
@@ -1274,7 +1306,6 @@ mod tests {
             "find",
             "search",
             "search-replace",
-            "explorer",
             "git",
             "terminal-jump-to-previous-command",
             "terminal-jump-to-next-command",
@@ -1762,6 +1793,15 @@ mod tests {
                         taide_native_editor::completion::Command::TriggerEdit
                     )))
                 );
+                assert_eq!(
+                    contexts.map(|context| command.is_runnable(context)),
+                    allowed
+                );
+                continue;
+            }
+            #[cfg(feature = "native-host")]
+            if id == "task.runTask" {
+                assert_eq!(command.execution, Execution::Native(Run::OpenTaskRunner));
                 assert_eq!(
                     contexts.map(|context| command.is_runnable(context)),
                     allowed

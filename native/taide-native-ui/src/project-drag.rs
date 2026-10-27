@@ -143,7 +143,7 @@ impl PointerInput {
     /// Cancellation on Escape or a window resize (`AbstractPointerSensor` `handleKeydown` and its
     /// `resize` listener) and activation past [`DRAG_ACTIVATION_DISTANCE`].
     pub(crate) fn advance(&self, phase: &mut Phase, origin: Pos2, content: Rect) -> Gesture {
-        if self.is_escape || self.content != content {
+        if self.cancels(content) {
             if *phase == Phase::Pending {
                 return Gesture::Abandoned;
             }
@@ -161,6 +161,12 @@ impl PointerInput {
         } else {
             Gesture::Held
         }
+    }
+
+    /// Whether this frame cancels a press made with the window content at `content`: Escape or a
+    /// window resize, checked on the release frame too before its drop.
+    pub(crate) fn cancels(&self, content: Rect) -> bool {
+        self.is_escape || self.content != content
     }
 }
 
@@ -537,14 +543,14 @@ pub(crate) fn end_frame(context: &Context, snapshot: &ShellSnapshot) -> DragFeed
         if !input.is_down {
             let request = press
                 .take()
-                .filter(|current| current.phase == Phase::Active)
+                .filter(|current| current.phase == Phase::Active && !input.cancels(current.content))
                 .and_then(|current| {
-                    let over = input
-                        .pointer
-                        .and_then(|pointer| {
+                    let over = match input.pointer {
+                        Some(pointer) => {
                             resolve_target(frame, &current.item, pointer, current.dragged(pointer))
-                        })
-                        .or(current.over);
+                        }
+                        None => current.over,
+                    };
                     resolve_drop(&current.item, over.as_ref(), snapshot)
                 });
             return DragFeedback {

@@ -32,6 +32,10 @@ pub const TITLE_HEIGHT: f32 = 28.0;
 pub const STATUS_HEIGHT: f32 = 24.0;
 pub const PROJECT_RAIL_WIDTH: f32 = 56.0;
 pub const SLOT_HEADER_HEIGHT: f32 = 24.0;
+const SLOT_HEADER_GAP: f32 = 4.0;
+const SLOT_HEADER_ICON_SIZE: f32 = 12.0;
+const SLOT_HEADER_FONT_SIZE: f32 = 12.0;
+const SLOT_HEADER_LABEL_OPACITY: f32 = 0.7;
 pub const TAB_HEIGHT: f32 = 36.0;
 pub const TAB_MIN_WIDTH: f32 = 96.0;
 pub const TAB_MAX_WIDTH: f32 = 208.0;
@@ -74,9 +78,9 @@ const RAIL_BUTTON_RADIUS: f32 = 6.0;
 const RAIL_ACTIVE_INDICATOR_SIZE: Vec2 = vec2(2.0, 20.0);
 const RAIL_ACTIVE_INDICATOR_OFFSET: f32 = 6.0;
 const RAIL_ROOT_MISSING_OPACITY: f32 = 0.5;
-const RAIL_TOOLTIP_ICON_SIZE: f32 = 12.0;
-const RAIL_TOOLTIP_ICON_GAP: f32 = 4.0;
-const RAIL_TOOLTIP_SECONDARY_OPACITY: f32 = 0.7;
+pub const TOOLTIP_ICON_SIZE: f32 = 12.0;
+const TOOLTIP_ICON_GAP: f32 = 4.0;
+const TOOLTIP_SECONDARY_OPACITY: f32 = 0.7;
 const GROUP_HEADER_WIDTH: f32 = 44.0;
 const GROUP_HEADER_HEIGHT: f32 = 17.5;
 const GROUP_HEADER_PADDING_X: f32 = 4.0;
@@ -148,6 +152,74 @@ impl Default for WelcomeContent {
 pub enum WindowScope {
     Main,
     Auxiliary { project: ProjectId, slot: u32 },
+}
+
+/// One row of a shell tooltip: an optional [`TOOLTIP_ICON_SIZE`] glyph, then the text at
+/// `opacity` (`sortable-project-icon.tsx` 145-154).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TooltipLine {
+    pub icon: Option<RailIcon<'static>>,
+    pub text: String,
+    pub opacity: f32,
+}
+
+impl TooltipLine {
+    pub fn text(text: impl Into<String>) -> Self {
+        Self {
+            icon: None,
+            text: text.into(),
+            opacity: 1.0,
+        }
+    }
+
+    fn secondary(text: impl Into<String>) -> Self {
+        Self {
+            opacity: TOOLTIP_SECONDARY_OPACITY,
+            ..Self::text(text)
+        }
+    }
+}
+
+/// [`ShellSurfaces::tooltip`] without a host tooltip owner: an egui tooltip of the rows, the icons
+/// drawn through [`ShellSurfaces::rail_icon`].
+pub fn egui_tooltip<S: ShellSurfaces + ?Sized>(
+    surfaces: &mut S,
+    response: &egui::Response,
+    align: egui::RectAlign,
+    lines: &[TooltipLine],
+) {
+    let mut tooltip = egui::Tooltip::for_enabled(response);
+    tooltip.popup = tooltip.popup.align(align);
+    tooltip.show(|ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        for line in lines {
+            let foreground = ui.visuals().text_color();
+            let mut text = RichText::new(&line.text);
+            if line.opacity < 1.0 {
+                text = text.color(foreground.gamma_multiply(line.opacity));
+            }
+            let Some(icon) = line.icon else {
+                ui.label(text);
+                continue;
+            };
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = TOOLTIP_ICON_GAP;
+                let (rect, _) =
+                    ui.allocate_exact_size(Vec2::splat(TOOLTIP_ICON_SIZE), Sense::hover());
+                let painter = ui.painter().clone();
+                let slot = painter.add(egui::Shape::Noop);
+                surfaces.rail_icon(&painter, slot, rect, icon, foreground);
+                ui.label(text);
+            });
+        }
+    });
+}
+
+/// A tooltip a read-only region asked for, shown once the region's render is kept.
+struct DeferredTooltip {
+    response: egui::Response,
+    align: egui::RectAlign,
+    lines: Vec<TooltipLine>,
 }
 
 pub trait ShellSurfaces {
@@ -243,6 +315,17 @@ pub trait ShellSurfaces {
     fn is_auxiliary_explorer_open(&self, _project: &ProjectId, _slot: u32) -> bool {
         false
     }
+    /// Every shell tooltip goes through here, called each frame for its trigger: the host's one
+    /// tooltip owner stands in for `app-providers.tsx`'s `TooltipProvider` (400ms delay, opening on
+    /// keyboard focus, `tooltip.background`/`tooltip.border` and `text-xs`).
+    fn tooltip(
+        &mut self,
+        response: &egui::Response,
+        align: egui::RectAlign,
+        lines: Vec<TooltipLine>,
+    ) {
+        egui_tooltip(self, response, align, &lines);
+    }
 }
 
 /// Where a sidebar panel is mounted: a main window shell slot or an auxiliary window.
@@ -296,6 +379,7 @@ struct ProblemsRegions {
 struct RailOutput {
     intents: Vec<ShellIntent>,
     icons: Vec<DeferredIcon>,
+    tooltips: Vec<DeferredTooltip>,
 }
 
 enum RailGlyph {
@@ -521,6 +605,9 @@ impl NativeShell {
                 intents.extend(output.intents);
                 for icon in output.icons {
                     icon.paint(&mut *surfaces);
+                }
+                for tooltip in output.tooltips {
+                    surfaces.tooltip(&tooltip.response, tooltip.align, tooltip.lines);
                 }
             }
             body.min.x = rail.right();
@@ -920,7 +1007,7 @@ impl NativeShell {
                             output,
                         );
                     }
-                    self.add_project_menu(ui, surfaces, &mut output.intents);
+                    self.add_project_menu(ui, surfaces, output);
                 });
             },
         );
@@ -1014,8 +1101,9 @@ impl NativeShell {
         &self,
         ui: &mut Ui,
         surfaces: &impl ShellSurfaces,
-        intents: &mut Vec<ShellIntent>,
+        output: &mut RailOutput,
     ) {
+        let intents = &mut output.intents;
         let label = surfaces.text("sidebar.addProjectMenu");
         let response = ui.add_sized(
             Vec2::splat(RAIL_BUTTON_SIZE),
@@ -1028,7 +1116,11 @@ impl NativeShell {
         let stroke = Stroke::new(RAIL_ADD_ICON_STROKE, self.colors.muted);
         ui.painter().hline(icon.x_range(), icon.center().y, stroke);
         ui.painter().vline(icon.center().x, icon.y_range(), stroke);
-        let response = response.on_hover_text(label);
+        output.tooltips.push(DeferredTooltip {
+            response: response.clone(),
+            align: egui::RectAlign::RIGHT,
+            lines: vec![TooltipLine::text(label)],
+        });
         egui::Popup::menu(&response)
             .align(egui::RectAlign::RIGHT_START)
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
@@ -1205,7 +1297,11 @@ impl NativeShell {
                     &mut output.intents,
                 )
             });
-            project_tooltip(&response, project, &agents, surfaces, &mut output.icons);
+            output.tooltips.push(DeferredTooltip {
+                response: response.clone(),
+                align: egui::RectAlign::RIGHT,
+                lines: project_tooltip(project, &agents, surfaces),
+            });
         });
     }
 
@@ -1298,6 +1394,8 @@ impl NativeShell {
     ) {
         let (slot, project) = target;
         let zen = snapshot.shell.window_chrome.zen;
+        let slot_area = rect;
+        let mut focus_ignored = None;
         if !zen
             && snapshot
                 .shell
@@ -1313,29 +1411,69 @@ impl NativeShell {
                 ),
             );
             ui.painter().rect_filled(header, 0.0, self.colors.sidebar);
+            ui.painter().hline(
+                header.x_range(),
+                header.bottom() - BORDER_WIDTH / 2.0,
+                Stroke::new(BORDER_WIDTH, self.colors.tab_border),
+            );
+            let project_ref = snapshot.project(project);
             child(
                 ui,
                 header.shrink2(vec2(PADDING, 0.0)),
                 ("slot-header", slot),
                 |ui| {
-                    ui.horizontal(|ui| {
+                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing.x = SLOT_HEADER_GAP;
+                        if project_ref.is_some_and(|project| project.root_missing) {
+                            let warning = surfaces.text("app.recentProjectRootMissing");
+                            let (rect, response) = ui.allocate_exact_size(
+                                Vec2::splat(SLOT_HEADER_ICON_SIZE),
+                                Sense::hover(),
+                            );
+                            response.widget_info(|| {
+                                egui::WidgetInfo::labeled(egui::WidgetType::Image, true, &warning)
+                            });
+                            let painter = ui.painter();
+                            let icon = painter.add(egui::Shape::Noop);
+                            surfaces.rail_icon(
+                                painter,
+                                icon,
+                                rect,
+                                RailIcon::RootMissing,
+                                self.colors.muted,
+                            );
+                            surfaces.tooltip(
+                                &response,
+                                egui::RectAlign::BOTTOM,
+                                vec![TooltipLine::text(warning)],
+                            );
+                        }
                         ui.add(
                             egui::Label::new(
-                                snapshot
-                                    .project(project)
-                                    .map(|project| project.name.as_str())
-                                    .unwrap_or(project.as_str()),
+                                RichText::new(
+                                    project_ref
+                                        .map(|project| project.name.as_str())
+                                        .unwrap_or(project.as_str()),
+                                )
+                                .size(SLOT_HEADER_FONT_SIZE)
+                                .color(
+                                    self.colors
+                                        .foreground
+                                        .gamma_multiply(SLOT_HEADER_LABEL_OPACITY),
+                                ),
                             )
                             .truncate(),
                         );
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            if close_button(
-                                ui,
-                                &surfaces.text("shellSlot.close"),
-                                self.colors.foreground,
-                            )
-                            .clicked()
-                            {
+                            let label = surfaces.text("shellSlot.close");
+                            let close = close_button(ui, &label, self.colors.foreground);
+                            surfaces.tooltip(
+                                &close,
+                                egui::RectAlign::BOTTOM,
+                                vec![TooltipLine::text(label)],
+                            );
+                            focus_ignored = Some(close.rect);
+                            if close.clicked() {
                                 intents.push(ShellIntent::Mutate(ShellMutation::CloseSlot(
                                     slot.clone(),
                                 )));
@@ -1350,7 +1488,6 @@ impl NativeShell {
         let Some(layout) = snapshot.layouts.get(project) else {
             return;
         };
-        let body = rect;
         let start = intents.len();
         if !zen && !layout.shell_view.sidebar_collapsed {
             child(ui, rect, ("project-explorer", slot), |ui| {
@@ -1439,10 +1576,10 @@ impl NativeShell {
         }
         let pointer_in_body = ui.input(|input| {
             input.pointer.any_pressed()
-                && input
-                    .pointer
-                    .interact_pos()
-                    .is_some_and(|position| body.contains(position))
+                && input.pointer.interact_pos().is_some_and(|position| {
+                    slot_area.contains(position)
+                        && !focus_ignored.is_some_and(|ignored: Rect| ignored.contains(position))
+                })
         });
         let widget_activated = !intents[start..].is_empty();
         if (pointer_in_body || widget_activated) && snapshot.shell.focused.as_ref() != Some(slot) {
@@ -1618,7 +1755,11 @@ impl NativeShell {
                             ],
                             stroke,
                         );
-                        let response = response.on_hover_text(label);
+                        surfaces.tooltip(
+                            &response,
+                            egui::RectAlign::BOTTOM,
+                            vec![TooltipLine::text(label)],
+                        );
                         response.context_menu(|ui| {
                             tab_bar_menu(
                                 ui,
@@ -1796,18 +1937,17 @@ impl NativeShell {
                         if let Some(agent) = agent {
                             let hover =
                                 ui.interact(icon, ui.id().with("agent-icon"), Sense::hover());
-                            let mut tooltip = egui::Tooltip::for_enabled(&hover);
-                            tooltip.popup = tooltip.popup.align(egui::RectAlign::BOTTOM);
-                            tooltip.show(|ui| {
-                                let status = surfaces.text(agent_status_label_key(
-                                    agent.activity,
-                                    agent.blocked_reason,
-                                ));
-                                ui.label(surfaces.text_with_args(
-                                    "agent.sessionTooltip",
-                                    &[("name", &agent.name), ("status", &status)],
-                                ));
-                            });
+                            let status = surfaces
+                                .text(agent_status_label_key(agent.activity, agent.blocked_reason));
+                            let label = surfaces.text_with_args(
+                                "agent.sessionTooltip",
+                                &[("name", &agent.name), ("status", &status)],
+                            );
+                            surfaces.tooltip(
+                                &hover,
+                                egui::RectAlign::BOTTOM,
+                                vec![TooltipLine::text(label)],
+                            );
                         }
                         if response.clicked() && !drag.suppresses_click {
                             intents.push(ShellIntent::Mutate(ShellMutation::ActivateTab(
@@ -1831,6 +1971,11 @@ impl NativeShell {
                         };
                         let label = surfaces.text_with_args(label_key, &[("title", &tab.title)]);
                         let trailing = tab_action_button(ui, &label, tab, self.colors.foreground);
+                        surfaces.tooltip(
+                            &trailing,
+                            egui::RectAlign::BOTTOM,
+                            vec![TooltipLine::text(label)],
+                        );
                         if trailing.clicked() && !drag.suppresses_click {
                             if tab.pinned {
                                 intents.push(ShellIntent::Mutate(ShellMutation::PinTab {
@@ -2367,49 +2512,28 @@ fn welcome_recent_row(
     clicked
 }
 
+/// The rail button's tooltip column (`sortable-project-icon.tsx` 145-154).
 fn project_tooltip(
-    response: &egui::Response,
     project: &ProjectRef,
     agents: &[DetectedAgent],
     surfaces: &impl ShellSurfaces,
-    icons: &mut Vec<DeferredIcon>,
-) {
-    let mut tooltip = egui::Tooltip::for_enabled(response);
-    tooltip.popup = tooltip.popup.align(egui::RectAlign::RIGHT);
-    tooltip.show(|ui| {
-        ui.spacing_mut().item_spacing.y = 0.0;
-        let secondary = ui
-            .visuals()
-            .text_color()
-            .gamma_multiply(RAIL_TOOLTIP_SECONDARY_OPACITY);
-        ui.label(&project.name);
-        if project.root_missing {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = RAIL_TOOLTIP_ICON_GAP;
-                let (icon, _) =
-                    ui.allocate_exact_size(Vec2::splat(RAIL_TOOLTIP_ICON_SIZE), Sense::hover());
-                icons.push(DeferredIcon::reserve(
-                    ui,
-                    icon,
-                    RailIcon::RootMissing,
-                    ui.visuals().text_color(),
-                ));
-                ui.label(surfaces.text("app.recentProjectRootMissing"));
-            });
-        }
-        ui.label(RichText::new(&project.root).color(secondary));
-        for agent in agents {
-            let status =
-                surfaces.text(agent_status_label_key(agent.activity, agent.blocked_reason));
-            ui.label(
-                RichText::new(surfaces.text_with_args(
-                    "agent.sessionTooltip",
-                    &[("name", &agent.name), ("status", &status)],
-                ))
-                .color(secondary),
-            );
-        }
-    });
+) -> Vec<TooltipLine> {
+    let mut lines = vec![TooltipLine::text(&project.name)];
+    if project.root_missing {
+        lines.push(TooltipLine {
+            icon: Some(RailIcon::RootMissing),
+            ..TooltipLine::text(surfaces.text("app.recentProjectRootMissing"))
+        });
+    }
+    lines.push(TooltipLine::secondary(&project.root));
+    lines.extend(agents.iter().map(|agent| {
+        let status = surfaces.text(agent_status_label_key(agent.activity, agent.blocked_reason));
+        TooltipLine::secondary(surfaces.text_with_args(
+            "agent.sessionTooltip",
+            &[("name", &agent.name), ("status", &status)],
+        ))
+    }));
+    lines
 }
 
 fn child<R>(
@@ -2443,14 +2567,14 @@ fn close_button(ui: &mut Ui, label: &str, color: Color32) -> egui::Response {
         [rect.right_top(), rect.left_bottom()],
         Stroke::new(BORDER_WIDTH, color),
     );
-    response.on_hover_text(label)
+    response
 }
 
 fn tab_action_button(ui: &mut Ui, label: &str, tab: &Tab, color: Color32) -> egui::Response {
     let response = ui.add_sized(Vec2::splat(ICON_SIZE), egui::Button::new(""));
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
     paint_tab_action(ui.painter(), response.rect, tab, color, response.hovered());
-    response.on_hover_text(label)
+    response
 }
 
 fn paint_tab_action(

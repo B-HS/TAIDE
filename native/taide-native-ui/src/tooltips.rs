@@ -22,6 +22,7 @@ const RADIUS: u8 = 6;
 const HORIZONTAL_PADDING: i8 = 12;
 const VERTICAL_PADDING: i8 = 6;
 const LINE_HEIGHT: f32 = 16.0;
+const ICON_GAP: f32 = 4.0;
 
 #[derive(Clone, Copy)]
 pub struct Appearance {
@@ -40,6 +41,45 @@ impl Appearance {
             foreground: crate::presentation::color(theme, "app.foreground")?,
         })
     }
+
+    /// The text color a [`Line`]'s icon is drawn in.
+    pub fn foreground(&self) -> Color32 {
+        self.foreground
+    }
+}
+
+/// A glyph already shaped at the origin, drawn before a [`Line`]'s text.
+#[derive(Clone)]
+pub struct Icon {
+    pub size: egui::Vec2,
+    pub shape: egui::Shape,
+}
+
+/// One row of a tooltip's column: an optional icon `gap-1` before its text, the text at `opacity`
+/// of the foreground (`sortable-project-icon.tsx` 145-154).
+#[derive(Clone)]
+pub struct Line {
+    pub icon: Option<Icon>,
+    pub text: String,
+    pub opacity: f32,
+}
+
+impl Line {
+    pub fn text(text: impl Into<String>) -> Self {
+        Self {
+            icon: None,
+            text: text.into(),
+            opacity: 1.0,
+        }
+    }
+}
+
+fn accessible_label(lines: &[Line]) -> String {
+    lines
+        .iter()
+        .map(|line| line.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[derive(Clone, Default)]
@@ -73,7 +113,7 @@ struct KeyboardClose {
 
 struct Pending {
     response: Response,
-    label: String,
+    lines: Vec<Line>,
     align: egui::RectAlign,
     appearance: Appearance,
     is_controlled: bool,
@@ -534,13 +574,13 @@ impl Provider {
             self.content(response, None);
             return;
         };
-        self.queue(response, label, align, appearance, true);
+        self.queue(response, vec![Line::text(label)], align, appearance, true);
     }
 
     fn queue(
         &self,
         response: &Response,
-        label: &str,
+        lines: Vec<Line>,
         align: egui::RectAlign,
         appearance: &Appearance,
         is_controlled: bool,
@@ -549,7 +589,7 @@ impl Provider {
         let viewport = viewports.get_mut(&response.ctx.viewport_id()).unwrap();
         viewport.pending.push(Pending {
             response: response.clone(),
-            label: label.into(),
+            lines,
             align,
             appearance: *appearance,
             is_controlled,
@@ -564,7 +604,7 @@ impl Provider {
                 response,
                 pending
                     .appearance
-                    .render_controlled(response, &pending.label, pending.align),
+                    .render_controlled(response, &pending.lines, pending.align),
             );
             return;
         }
@@ -593,7 +633,7 @@ impl Provider {
             response,
             pending
                 .appearance
-                .render(response, &pending.label, pending.align, motion),
+                .render(response, &pending.lines, pending.align, motion),
         );
     }
 
@@ -610,7 +650,7 @@ impl Provider {
         for trigger in triggers {
             self.show_with_focus_target(
                 &trigger.response,
-                &trigger.label,
+                vec![Line::text(&trigger.label)],
                 trigger.align,
                 appearance,
                 trigger.focus_target,
@@ -625,13 +665,25 @@ impl Provider {
         align: egui::RectAlign,
         appearance: &Appearance,
     ) {
-        self.show_with_focus_target(response, label, align, appearance, None);
+        self.show_lines(response, vec![Line::text(label)], align, appearance);
+    }
+
+    /// [`Provider::show`] with a column of rows, some led by an icon (`TooltipContent` holding a
+    /// `flex-col`).
+    pub fn show_lines(
+        &self,
+        response: &Response,
+        lines: Vec<Line>,
+        align: egui::RectAlign,
+        appearance: &Appearance,
+    ) {
+        self.show_with_focus_target(response, lines, align, appearance, None);
     }
 
     fn show_with_focus_target(
         &self,
         response: &Response,
-        label: &str,
+        lines: Vec<Line>,
         align: egui::RectAlign,
         appearance: &Appearance,
         focus_target: Option<Id>,
@@ -640,7 +692,7 @@ impl Provider {
             Some(target) => self.is_open_with_focus_target(response, Some(target)),
             None => self.is_open(response),
         };
-        self.queue(response, label, align, appearance, false);
+        self.queue(response, lines, align, appearance, false);
     }
 }
 
@@ -652,14 +704,14 @@ impl Appearance {
         label: &str,
         align: egui::RectAlign,
     ) -> Option<Rect> {
-        self.render_controlled(response, label, align)
+        self.render_controlled(response, &[Line::text(label)], align)
             .map(|painted| painted.bounds)
     }
 
     fn render_controlled(
         &self,
         response: &Response,
-        label: &str,
+        lines: &[Line],
         align: egui::RectAlign,
     ) -> Option<Painted> {
         let id = tooltip_id(&response.ctx, response.id);
@@ -672,16 +724,18 @@ impl Appearance {
             .filter(|_| visible)
             .and_then(|state| state.last_became_visible_at)
             .unwrap_or(now);
-        self.render(response, label, align, Motion::new(true, started))
+        self.render(response, lines, align, Motion::new(true, started))
     }
 
     fn render(
         &self,
         response: &Response,
-        label: &str,
+        lines: &[Line],
         align: egui::RectAlign,
         motion: Motion,
     ) -> Option<Painted> {
+        let label = accessible_label(lines);
+        let label = label.as_str();
         let id = tooltip_id(&response.ctx, response.id);
         let expected = egui::AreaState::load(&response.ctx, id).and_then(|state| state.size);
         let clip = response.ctx.content_rect();
@@ -724,16 +778,33 @@ impl Appearance {
                         VERTICAL_PADDING,
                     ))
                     .show(ui, |ui| {
-                        ui.add(
-                            egui::Label::new(
-                                egui::RichText::new(label)
-                                    .font(FontId::proportional(FONT_SIZE))
-                                    .color(self.foreground)
-                                    .line_height(Some(LINE_HEIGHT)),
-                            )
-                            .wrap_mode(egui::TextWrapMode::Extend)
-                            .selectable(false),
-                        )
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        lines
+                            .iter()
+                            .map(|line| {
+                                let text = egui::Label::new(
+                                    egui::RichText::new(&line.text)
+                                        .font(FontId::proportional(FONT_SIZE))
+                                        .color(self.foreground.gamma_multiply(line.opacity))
+                                        .line_height(Some(LINE_HEIGHT)),
+                                )
+                                .wrap_mode(egui::TextWrapMode::Extend)
+                                .selectable(false);
+                                let Some(icon) = &line.icon else {
+                                    return ui.add(text);
+                                };
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = ICON_GAP;
+                                    let (rect, _) =
+                                        ui.allocate_exact_size(icon.size, egui::Sense::hover());
+                                    let mut shape = icon.shape.clone();
+                                    shape.translate(rect.min.to_vec2());
+                                    ui.painter().add(shape);
+                                    ui.add(text)
+                                })
+                                .inner
+                            })
+                            .collect::<Vec<_>>()
                     });
                 let arrow = placement.arrow(response.rect, frame.response.rect);
                 if let Some(arrow) = arrow {
@@ -758,15 +829,17 @@ impl Appearance {
                                 || arrow.is_some_and(|arrow| arrow.contains(point)))
                     });
                 ui.interact(input_bounds, id.with("pointer-region"), egui::Sense::CLICK);
-                let text_bounds = transform * frame.inner.rect;
-                ui.ctx().accesskit_node_builder(frame.inner.id, |node| {
-                    node.set_bounds(egui::accesskit::Rect {
-                        x0: text_bounds.left().into(),
-                        y0: text_bounds.top().into(),
-                        x1: text_bounds.right().into(),
-                        y1: text_bounds.bottom().into(),
+                for text in &frame.inner {
+                    let text_bounds = transform * text.rect;
+                    ui.ctx().accesskit_node_builder(text.id, |node| {
+                        node.set_bounds(egui::accesskit::Rect {
+                            x0: text_bounds.left().into(),
+                            y0: text_bounds.top().into(),
+                            x1: text_bounds.right().into(),
+                            y1: text_bounds.bottom().into(),
+                        });
                     });
-                });
+                }
                 ui.ctx().graphics_mut(|graphics| {
                     let list = graphics.entry(ui.layer_id());
                     let end = list.next_idx();

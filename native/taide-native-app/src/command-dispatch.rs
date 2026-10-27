@@ -667,13 +667,14 @@ mod tests {
         ("command-palette", PaletteEntry::Commands),
         ("workspace-symbol", PaletteEntry::WorkspaceSymbols),
     ];
-    const KEYMAP_ACTIONS: [&str; 34] = [
+    const KEYMAP_ACTIONS: [&str; 35] = [
         "quick-open",
         "command-palette",
         "workspace-symbol",
         "open-keybindings-editor",
         "close-tab",
         "toggle-sidebar",
+        "explorer",
         "split",
         "tab-cycle-next",
         "tab-cycle-prev",
@@ -703,11 +704,12 @@ mod tests {
         "move-tab-to-group-left",
         "move-tab-to-group-right",
     ];
-    const PROJECTLESS_KEYMAP_ACTIONS: [&str; 10] = [
+    const PROJECTLESS_KEYMAP_ACTIONS: [&str; 11] = [
         "quick-open",
         "command-palette",
         "workspace-symbol",
         "toggle-sidebar",
+        "explorer",
         "open-keybindings-editor",
         "new-terminal",
         "reopen-closed-tab",
@@ -789,7 +791,6 @@ mod tests {
             "find",
             "search",
             "search-replace",
-            "explorer",
             "git",
             "terminal-jump-to-previous-command",
             "terminal-jump-to-next-command",
@@ -800,11 +801,12 @@ mod tests {
             "tab.moveToNewWindow",
             "sync.uploadNow",
             "git.revertHead",
-            "task.runTask",
             "monaco.editor.action.commentLine",
         ] {
             assert!(!accepts(unavailable, true, &project), "{unavailable}");
         }
+        assert!(accepts("task.runTask", true, &project));
+        assert!(!accepts("task.runTask", true, &context));
         for command in ["settings.open", "app.openSettingsFile", "file.quickOpen"] {
             assert!(accepts(command, false, &context), "{command}");
         }

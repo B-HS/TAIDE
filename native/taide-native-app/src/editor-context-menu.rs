@@ -78,12 +78,20 @@ impl TerminalDelivery {
     }
 }
 
+pub struct TerminalDestination {
+    pub(crate) project: ProjectId,
+    pub(crate) scope: WindowScope,
+    pub(crate) pane: taide_model::ids::PaneId,
+    pub(crate) cwd: Option<String>,
+    pub(crate) payload: String,
+    pub(crate) title: String,
+}
+
 pub(crate) async fn terminal_target(
     services: &taide_runtime::AppServices,
     request: TerminalRequest,
 ) -> taide_model::error::AppResult<TerminalDelivery> {
     use taide_model::error::AppError;
-    use taide_model::layout::{PaneNode, Tab, TabKind};
     let _guard = services.state.begin_mutation().await;
     if services.state.is_shutting_down() || !request.target.is_active(&services.state) {
         return Err(AppError::NotFound(
@@ -94,13 +102,52 @@ pub(crate) async fn terminal_target(
         .target
         .project
         .ok_or_else(|| AppError::NotFound("native editor terminal project is missing".into()))?;
-    let pane = request.target.owner_key.pane;
+    open_terminal_target(
+        services,
+        TerminalDestination {
+            project,
+            scope: request.target.scope,
+            pane: request.target.owner_key.pane,
+            cwd: None,
+            payload: request.payload,
+            title: request.title,
+        },
+    )
+}
+
+pub(crate) async fn destination_terminal_target(
+    services: &taide_runtime::AppServices,
+    destination: TerminalDestination,
+) -> taide_model::error::AppResult<TerminalDelivery> {
+    let _guard = services.state.begin_mutation().await;
+    if services.state.is_shutting_down() {
+        return Err(taide_model::error::AppError::NotFound(
+            "native terminal destination is no longer active".into(),
+        ));
+    }
+    open_terminal_target(services, destination)
+}
+
+fn open_terminal_target(
+    services: &taide_runtime::AppServices,
+    destination: TerminalDestination,
+) -> taide_model::error::AppResult<TerminalDelivery> {
+    use taide_model::error::AppError;
+    use taide_model::layout::{PaneNode, Tab, TabKind};
+    let TerminalDestination {
+        project,
+        scope,
+        pane,
+        cwd,
+        payload,
+        title,
+    } = destination;
     let mut layouts = services.state.layouts.read().clone();
     let layout = layouts
         .get_mut(&project)
         .ok_or_else(|| AppError::NotFound("native editor terminal layout is missing".into()))?;
     let existing = {
-        let (root, _) = crate::symbol_sidebar::window_tree(&project, layout, &request.target.scope)
+        let (root, _) = crate::symbol_sidebar::window_tree(&project, layout, &scope)
             .ok_or_else(|| AppError::NotFound("native editor terminal window is missing".into()))?;
         let Some(PaneNode::Leaf { tabs, active, .. }) =
             taide_layout::service::find_leaf(root, &pane)
@@ -136,9 +183,9 @@ pub(crate) async fn terminal_target(
             id: taide_model::ids::TabId::new(),
             kind: TabKind::Terminal {
                 session_id: String::new(),
-                cwd: None,
+                cwd,
             },
-            title: request.title,
+            title,
             pinned: false,
             preview: false,
             dirty: false,
@@ -158,10 +205,10 @@ pub(crate) async fn terminal_target(
     *services.state.layouts.write() = layouts;
     Ok(TerminalDelivery {
         project,
-        scope: request.target.scope,
+        scope,
         pane,
         tab,
-        payload: request.payload,
+        payload,
         initial_session,
     })
 }

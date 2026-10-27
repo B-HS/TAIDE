@@ -67,6 +67,7 @@ pub(crate) fn runs_without_focused_project(action: &str) -> bool {
         Some(
             Run::OpenPalette(_)
                 | Run::ToggleSidebar
+                | Run::ShowExplorer
                 | Run::OpenKeybindingsEditor
                 | Run::OpenTerminalTab
                 | Run::ReopenClosedTab
@@ -114,6 +115,9 @@ pub(crate) fn intent(
         Run::OpenTerminalTab if project.is_none() => {
             return Some(ShellIntent::ShowOpenProjectNotice);
         }
+        Run::OpenTaskRunner => {
+            return project.map(|project| ShellIntent::OpenTaskRunner(project.clone()));
+        }
         _ => (),
     }
     let project = project?;
@@ -139,6 +143,18 @@ pub(crate) fn intent(
                 project: project.clone(),
                 collapsed: !layout.shell_view.sidebar_collapsed,
             }));
+        }
+        Run::ShowExplorer => {
+            if let WindowScope::Auxiliary { slot, .. } = scope {
+                return Some(ShellIntent::ShowAuxiliaryExplorer {
+                    project: project.clone(),
+                    slot: *slot,
+                });
+            }
+            return Some(ShellIntent::ShowExplorer {
+                project: project.clone(),
+                slot: snapshot.shell.focused.clone()?,
+            });
         }
         Run::FocusGroup(target) => {
             let target = match target {
@@ -359,6 +375,15 @@ mod tests {
         assert!(matches!(
             auxiliary("toggle-sidebar"),
             Some(ShellIntent::ToggleAuxiliaryExplorer { project: owner, slot: AUXILIARY_SLOT }) if owner == project
+        ));
+        assert!(matches!(
+            auxiliary("explorer"),
+            Some(ShellIntent::ShowAuxiliaryExplorer { project: owner, slot: AUXILIARY_SLOT }) if owner == project
+        ));
+        assert!(auxiliary("git").is_none());
+        assert!(matches!(
+            super::intent(Run::OpenTaskRunner, &snapshot, &scope),
+            Some(ShellIntent::OpenTaskRunner(owner)) if owner == project
         ));
         assert!(matches!(
             auxiliary("split"),
@@ -1272,11 +1297,28 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(split.layouts[&background], original_background);
+        assert!(supports("explorer") && runs_without_focused_project("explorer"));
+        assert!(!supports("git"));
+        let focused_slot = split.shell.focused.clone();
+        assert!(matches!(
+            action("explorer", &split),
+            Some(ShellIntent::ShowExplorer { project, slot }) if project == focused && focused_slot.as_ref() == Some(&slot)
+        ));
+        assert!(matches!(
+            intent(Run::OpenTaskRunner, &split, &WindowScope::Main),
+            Some(ShellIntent::OpenTaskRunner(project)) if project == focused
+        ));
         let mut zen = split.as_ref().clone();
         zen.shell.window_chrome.zen = true;
         assert!(action("toggle-sidebar", &zen).is_none());
+        assert!(matches!(
+            action("explorer", &zen),
+            Some(ShellIntent::ShowExplorer { .. })
+        ));
         zen.shell.focused = None;
         assert!(action("split", &zen).is_none());
+        assert!(action("explorer", &zen).is_none());
+        assert!(intent(Run::OpenTaskRunner, &zen, &WindowScope::Main).is_none());
         drop(controller);
         tokio::time::timeout(DEADLINE, connection.worker)
             .await

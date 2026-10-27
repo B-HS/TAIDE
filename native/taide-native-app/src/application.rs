@@ -211,6 +211,7 @@ pub struct NativeApplication {
     palette_files: crate::command_palette::FileIndexes,
     palette_file_changes: Arc<crate::command_palette::FileIndexChanges>,
     palette_commands: Vec<String>,
+    task_runner: Option<(u64, ProjectId)>,
     indentation_request: Option<crate::editor_indentation::Request>,
     editor_formatting: crate::editor_formatting::State,
     editor_rename: crate::editor_rename_controller::Controller,
@@ -225,6 +226,7 @@ pub struct NativeApplication {
     motion_preference: crate::motion_preference::Preference,
     presentation_changes: Arc<crate::presentation_refresh::Changes>,
     presentation_refresh: crate::presentation_refresh::Refresh,
+    presentation_failures: crate::status_error_banner::Failures,
     presentation_system_language: String,
     editor: NativeEditor,
     editor_find: HashMap<ViewId, taide_native_ui::editor_find::EditorFind>,
@@ -625,6 +627,7 @@ impl NativeApplication {
             palette_files: Default::default(),
             palette_file_changes,
             palette_commands: Vec::new(),
+            task_runner: None,
             indentation_request: None,
             editor_formatting: crate::editor_formatting::State::new(egui.clone()),
             editor_rename: Default::default(),
@@ -642,6 +645,7 @@ impl NativeApplication {
                 presentation_inputs,
                 presentation_revision,
             ),
+            presentation_failures: Default::default(),
             presentation_system_language: system_language,
             editor,
             editor_find: HashMap::new(),
@@ -973,16 +977,33 @@ impl NativeApplication {
                                         self.presentation_appearance = appearances.presentation;
                                         self.spreadsheet_appearance = appearances.spreadsheet;
                                         self.toast_theme = appearances.toast;
+                                        self.presentation_failures.theme = false;
                                     }
-                                    Err(error) => self.status = Some(error.to_string()),
+                                    Err(error) => {
+                                        log::warn!("native theme load failed: {error}");
+                                        self.presentation_failures.theme = true;
+                                    }
                                 }
                                 match resolved.locale {
-                                    Ok(locale) => self.locale = locale,
-                                    Err(error) => self.status = Some(error.to_string()),
+                                    Ok(locale) => {
+                                        self.locale = locale;
+                                        self.presentation_failures.locale = false;
+                                    }
+                                    Err(error) => {
+                                        log::warn!("native locale load failed: {error}");
+                                        self.presentation_failures.locale = true;
+                                    }
                                 }
                             }
-                            Err(error) => self.status = Some(error.to_string()),
+                            Err(error) => {
+                                log::warn!("native presentation load failed: {error}");
+                                self.presentation_failures = crate::status_error_banner::Failures {
+                                    theme: true,
+                                    locale: true,
+                                };
+                            }
                         }
+                        context.request_repaint();
                     }
                 }
                 HostReply::TerminalFileLinks {
@@ -1210,6 +1231,13 @@ impl NativeApplication {
                     Ok(_) => {}
                     Err(error) => self.report(&error),
                 },
+                HostReply::TasksDetected { generation, result } => {
+                    let tasks = result.unwrap_or_else(|error| {
+                        log::warn!("native task detection failed: {:?}", error.kind());
+                        Vec::new()
+                    });
+                    self.palette.show_tasks(generation, tasks);
+                }
                 HostReply::TerminalAttached { tab, result } => {
                     if result.is_err() {
                         self.editor_terminal_writes
@@ -2052,6 +2080,36 @@ impl NativeApplication {
 
     fn notify_open_project_first(&mut self) {
         crate::toast::open_project_first(&mut self.toasts, &self.locale, Instant::now());
+    }
+
+    fn show_explorer_files(
+        &mut self,
+        snapshot: &taide_native_ui::snapshot::ShellSnapshot,
+        project: &ProjectId,
+        slot: &ShellSlotId,
+    ) {
+        self.symbol_sidebars.entry(project, slot).view = crate::symbol_sidebar::View::Files;
+        if snapshot
+            .layouts
+            .get(project)
+            .is_some_and(|layout| layout.shell_view.sidebar_collapsed)
+            && let Err(error) = self.controller.submit(ShellMutation::SetSidebarCollapsed {
+                project: project.clone(),
+                collapsed: false,
+            })
+        {
+            self.report(&error);
+        }
+    }
+
+    fn show_auxiliary_explorer_files(
+        &mut self,
+        project: &ProjectId,
+        slot: u32,
+    ) -> Option<ShellSlotId> {
+        let explorer = self.auxiliary_windows.show_explorer(project, slot)?;
+        self.symbol_sidebars.entry(project, &explorer).view = crate::symbol_sidebar::View::Files;
+        Some(explorer)
     }
 
     fn report_create_failure(
@@ -6295,6 +6353,28 @@ impl NativeApplication {
                     context.request_repaint();
                 }
             }
+            Some(crate::command_palette::Action::RunTask { generation, task }) => {
+                let destination = self
+                    .task_runner
+                    .as_ref()
+                    .filter(|(current, _)| *current == generation)
+                    .and_then(|(_, project)| {
+                        let layout = snapshot.layouts.get(project)?;
+                        let (_, pane) =
+                            crate::symbol_sidebar::window_tree(project, layout, &self.shell.scope)?;
+                        Some(crate::editor_context_menu::TerminalDestination {
+                            project: project.clone(),
+                            scope: self.shell.scope.clone(),
+                            pane: pane.clone(),
+                            cwd: Some(task.cwd),
+                            payload: format!("{}\n", task.command),
+                            title: presentation::message(&self.locale, "terminal.title", &[]),
+                        })
+                    });
+                if let Some(destination) = destination {
+                    self.submit(HostCommand::RunTask(destination));
+                }
+            }
             Some(crate::command_palette::Action::IndentationSize(size)) => {
                 if let Some(request) = self.indentation_request.take() {
                     let configuration = crate::presentation_refresh::indent_configuration(
@@ -8182,6 +8262,21 @@ impl NativeApplication {
                 });
             }
         }
+        match crate::status_error_banner::show(
+            &context,
+            self.presentation_failures,
+            self.preview_theme.as_ref().unwrap_or(&self.resolved_theme),
+            &self.locale,
+            &mut self.explorer_icons,
+            is_enabled && !self.keybindings.is_open() && !self.palette.is_open(),
+        ) {
+            Ok(true) => {
+                self.presentation_refresh.retry();
+                context.request_repaint();
+            }
+            Ok(false) => {}
+            Err(error) => status = Some(error.to_string()),
+        }
         self.status = status;
         if context.viewport_id() == egui::ViewportId::ROOT {
             self.focused = new_focus;
@@ -8607,26 +8702,37 @@ impl NativeApplication {
                     ShellIntent::RevealPath(path) => {
                         self.submit(HostCommand::RevealPath(path));
                     }
+                    ShellIntent::ShowExplorer { project, slot } => {
+                        self.show_explorer_files(&snapshot, &project, &slot);
+                        context.request_repaint();
+                    }
+                    ShellIntent::ShowAuxiliaryExplorer { project, slot } => {
+                        self.show_auxiliary_explorer_files(&project, slot);
+                        context.request_repaint();
+                    }
+                    ShellIntent::OpenTaskRunner(project) => {
+                        let generation = self
+                            .task_runner
+                            .as_ref()
+                            .map_or(0, |(generation, _)| *generation)
+                            + 1;
+                        self.task_runner = Some((generation, project.clone()));
+                        self.indentation_request = None;
+                        self.palette.open_tasks(&context, generation);
+                        if !self.submit(HostCommand::DetectTasks {
+                            project,
+                            generation,
+                        }) {
+                            self.palette.show_tasks(generation, Vec::new());
+                        }
+                    }
                     ShellIntent::RevealInExplorer {
                         project,
                         slot,
                         path,
                         rename,
                     } => {
-                        self.symbol_sidebars.entry(&project, &slot).view =
-                            crate::symbol_sidebar::View::Files;
-                        if snapshot
-                            .layouts
-                            .get(&project)
-                            .is_some_and(|layout| layout.shell_view.sidebar_collapsed)
-                            && let Err(error) =
-                                self.controller.submit(ShellMutation::SetSidebarCollapsed {
-                                    project: project.clone(),
-                                    collapsed: false,
-                                })
-                        {
-                            self.report(&error);
-                        }
+                        self.show_explorer_files(&snapshot, &project, &slot);
                         self.submit(HostCommand::RevealExplorerPath {
                             project,
                             mount: slot,
@@ -8640,10 +8746,7 @@ impl NativeApplication {
                         path,
                         rename,
                     } => {
-                        if let Some(explorer) = self.auxiliary_windows.show_explorer(&project, slot)
-                        {
-                            self.symbol_sidebars.entry(&project, &explorer).view =
-                                crate::symbol_sidebar::View::Files;
+                        if let Some(explorer) = self.show_auxiliary_explorer_files(&project, slot) {
                             self.submit(HostCommand::RevealExplorerPath {
                                 project,
                                 mount: explorer,
@@ -9525,6 +9628,49 @@ impl ShellSurfaces for AppSurfaces<'_> {
             .find(project, slot)
             .is_some_and(|window| window.is_explorer_open)
     }
+    fn tooltip(
+        &mut self,
+        response: &egui::Response,
+        align: egui::RectAlign,
+        lines: Vec<taide_native_ui::shell::TooltipLine>,
+    ) {
+        let size = egui::Vec2::splat(taide_native_ui::shell::TOOLTIP_ICON_SIZE);
+        let origin = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+        let foreground = self.tooltip_appearance.foreground();
+        let lines = lines
+            .into_iter()
+            .map(|line| {
+                let icon = line.icon.and_then(|icon| {
+                    let glyph = rail_glyph(icon);
+                    match self
+                        .explorer_icons
+                        .prepare(&response.ctx, size, glyph)
+                        .and_then(|()| {
+                            self.explorer_icons.shape(
+                                &response.ctx,
+                                origin,
+                                glyph,
+                                foreground.gamma_multiply(line.opacity),
+                                0.0,
+                            )
+                        }) {
+                        Ok(shape) => Some(crate::tooltips::Icon { size, shape }),
+                        Err(error) => {
+                            *self.status = Some(error.to_string());
+                            None
+                        }
+                    }
+                });
+                crate::tooltips::Line {
+                    icon,
+                    text: line.text,
+                    opacity: line.opacity,
+                }
+            })
+            .collect();
+        self.tooltips
+            .show_lines(response, lines, align, self.tooltip_appearance);
+    }
     fn problems_open(&self, slot: &ShellSlotId) -> bool {
         self.problems.is_open(slot)
     }
@@ -9634,6 +9780,12 @@ impl ShellSurfaces for AppSurfaces<'_> {
                 }
             }
             Err(error) => errors.push(error.to_string()),
+        }
+        if matches!(
+            sidebar.view,
+            crate::symbol_sidebar::View::Search | crate::symbol_sidebar::View::Git
+        ) {
+            return;
         }
         if sidebar.view == crate::symbol_sidebar::View::Outline {
             let active = self
@@ -11330,6 +11482,14 @@ mod file_drop_tests;
 #[cfg(all(test, unix))]
 #[path = "application-error-boundary-tests.rs"]
 mod error_boundary_tests;
+
+#[cfg(all(test, unix))]
+#[path = "application-shell-dialogs-tests.rs"]
+mod shell_dialogs_tests;
+
+#[cfg(all(test, unix))]
+#[path = "application-explorer-views-tests.rs"]
+mod explorer_views_tests;
 
 #[cfg(test)]
 mod close_all_tests {
