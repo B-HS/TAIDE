@@ -1,5 +1,6 @@
 # Rust-native 전환 배치 운영 지식
 
+> 2026-10-28: 1절·3절·4절은 `docs/memory/2026-10-28-native-lane-operations.md`(병렬 lane 방식)로 대체됐습니다. 5절·6절은 유효합니다.
 > 최종 갱신일: 2026-10-09 · 대응 커밋: `bf5175ca`
 > 2026-10-06~07 세션에서 배치 1~7을 돌리며 굳어진 운영 방법입니다. 항상 적용하는 재사용 지식이며, 사용자 결정은 `docs/acknowledge/2026-10-06-native-transition-decisions.md`가 정본입니다.
 

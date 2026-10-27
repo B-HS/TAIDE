@@ -19,9 +19,15 @@
 - [x] D. 보조 창 — `2a99bab0` `8a73788f`. shell-4·6·7·8·61 complete, shell-5 partial(보조 창 WKWebView·터미널 raw input hook·theme preview·탐색기 선택 상태 창별 분리), shell-78 partial(Git 항목만 배치 26). 리뷰 차단 4건(LSP 범위 Main 고정, 메인 패스 실패 시 보조 창 생략, 탭 복귀 실패 무시, 보조 창 reveal이 메인 탐색기에서 소비) 수정. 종료 대기 시간 초과 startup 2건은 HEAD에서도 같은 위치(tasks=2)로 실패해 기존 실패로 확인. 주의: 작업자가 금지된 `tests/explorer-delete.rs`를 2회 실행해 합성 파일 `delete-synthetic.txt`가 사용자 휴지통에 들어갔을 수 있음(휴지통은 건드리지 않음, 사용자 보고 대상). QA `2026-10-27-native-auxiliary-window{,-moves}.md`
 - [x] E. 앱 수준 — `a03166b3` `3696f78a`. 사용자 "implement만 끝내고 멈춰"로 정지 뒤 "재개, 전부 추천안대로"로 같은 run을 리뷰부터 재개. shell-8 complete, shell-3(크기만)·25(mirror prune 잔여)·9(실기 대기)·22(WKWebView 위 drop 잔여) partial, shell-12 missing. 리뷰 차단 1건(보조 창 메뉴 Cut/Copy/Paste 미전달, vendored eframe immediate viewport drain) 수정. 결정 3건 추천안 채택(acknowledge 기록)
 - [x] E2. 결정 반영 — `2bef8712` `8027c523`. shell-25 complete, shell-3 partial(macOS zoom 상태 미갱신·실기), shell-12 partial(공용 경계 + Welcome·rail·상태 표시줄·사이드바 패널 적용, 편집기 영역·루트 경계는 편집기 입력을 render 밖 트랜잭션으로 나누는 별도 설계가 필요해 배치 31 구조 정리로 보류), shell-22 partial(실기). 리뷰 차단 3건(mirror sweep 제출 실패 재시도, panic intent 폐기 단언 무효, 영역 실패 상태 영구 잔류) 수정. 관찰: 앱 lib 병렬 실행에서 project_rail 그룹 검사가 host 큐(64) 포화로 실패, 단독 통과 — 배치 게이트에서 재확인
-- [ ] F. 셸 기타 — shell-21·24·54, shell-59·94·98
-- [ ] G. 통합 — shell-90·92·93, shell-91·96
-- [ ] H. 배치 24 통합 게이트 — 변경 크레이트 전체 대상 `--no-fail-fast` 1회, 기능표 합계 갱신
+- [ ] F. 셸 기타 — shell-21·24·54, shell-59·94·98 (기존 방식으로 실행 중, 끝나면 커밋)
+
+2026-10-28 운영 방식 변경: 사용자 지시로 남은 작업을 영역 lane 병렬로 진행합니다(`docs/memory/2026-10-28-native-lane-operations.md`). 단계 G와 H는 wave 1의 shell lane과 병합 게이트로 흡수합니다.
+
+- [ ] W0. lane 경계 — `domains/<영역>.rs` 분리, HostCommand·HostReply·ShellIntent 영역 하위 enum, dev 프로필 debuginfo 축소, 기존 fmt 차이 정리, target 정리와 한 벌 크기 측정
+- [ ] W1. shell(배치 24 잔여: G 통합 shell-90·91·92·93·96 포함) · explorer-search(25) · terminal-agent(27) · editor+preview(23·30)
+- [ ] W2. git(26) · settings(28)
+- [ ] W3. commands-ui(29)·진입 잔여·shell-89
+- [ ] W4. 배치 31 구조·전체 게이트(편집기 장애 경계 설계 포함). 32·33은 사용자 허락 뒤
 - 보류: shell-15(실제 사용자 데이터 경로 — 허락 필요), shell-89(배치 25·26 뒤)
 
 ## 진행: 배치 23 — 편집기의 나머지 기능 (2026-10-10)

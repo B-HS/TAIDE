@@ -32,3 +32,11 @@
 | shell-12 장애 격리 | A안: 영역 render를 'snapshot 읽기 + 영역 소유 상태 + intent 출력'으로 바꾼 영역에만 `catch_unwind` 경계를 둡니다. panic 시 그 영역 상태와 그 pass의 intent를 버리고 fallback을 그리며 재시도는 새 상태로 다시 그립니다. Welcome·Activity Bar·상태 표시줄부터 적용하고, 편집기·사이드바 패널은 공유 상태 변경을 render 밖 트랜잭션으로 옮긴 뒤 적용합니다 |
 | shell-3 모니터 목록 | A안: 이미 lock에 있는 `winit =0.30.13`을 앱의 일반 의존으로 올리고 `eframe::create_native`로 이벤트 루프를 만들어 모니터 위치·크기·배율을 읽습니다 |
 | Edit 메뉴 단축키 표시 | A안: 메뉴에 단축키를 달지 않고 기존 egui 키 입력 경로를 유지합니다. 메뉴 클릭만 포커스 입력에 전달합니다 |
+
+## 운영 방식 변경 (2026-10-28)
+
+사용자 지시: "crate도 나눠놨는데 말이야 지금 작업방식이 너무 비효율적이야. 문서부터 바꿔 최대한 효율적으로, 정확하게, 완벽하게, 신속하게 처리할수있는방법으로". 앞서 "전체 한 달 내내 잡고 있는 것"을 지적했습니다.
+
+- 실행을 영역 lane 병렬(worktree·브랜치·target 분리)로 바꿉니다. 정본은 `docs/memory/2026-10-28-native-lane-operations.md`입니다.
+- 완료 기준은 낮추지 않습니다. 줄이는 것은 반복 조사(영역 사양 1회), 잘게 나눈 리뷰(lane 끝 1회), 직렬 대기(통합 지점 분리 뒤 병렬)입니다.
+- lane용 `lane/<영역>` 브랜치와 `/Users/hyunseokbyun/development/TAIDE-lanes/` worktree를 메인이 만들고 병합 뒤 지웁니다.
