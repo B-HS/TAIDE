@@ -108,6 +108,19 @@ impl ClipboardOwners {
             .find(|mount| mount.owner == owner)
             .and_then(|mount| mount.reveal.take())
     }
+
+    pub fn reveal(&self, owner: Owner) -> Option<&String> {
+        self.mounts
+            .values()
+            .find(|mount| mount.owner == owner)
+            .and_then(|mount| mount.reveal.as_ref())
+    }
+
+    /// Drops the slot's mount; the next [`ClipboardOwners::mount`] is a new owner whose paste
+    /// replies no reply addressed to the dropped one can reach.
+    pub fn unmount(&mut self, slot: &ShellSlotId) {
+        self.mounts.remove(slot);
+    }
 }
 
 fn collect_slots(tree: &ShellSlotTree, slots: &mut HashSet<ShellSlotId>) {

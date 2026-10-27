@@ -1,6 +1,8 @@
 use egui::emath::GuiRounding as _;
+use egui::layers::ShapeIdx;
 use egui::{
-    Align, Color32, Id, Layout, Rect, RichText, Sense, Stroke, Ui, UiBuilder, Vec2, pos2, vec2,
+    Align, Color32, Id, Layout, Painter, Rect, RichText, Sense, Stroke, Ui, UiBuilder, Vec2, pos2,
+    vec2,
 };
 use taide_model::agent::{AgentActivity, DetectedAgent};
 use taide_model::ids::{PaneId, ProjectGroupId, ProjectId, ShellSlotId, TabId};
@@ -10,6 +12,7 @@ use taide_model::layout::{
 use taide_model::project::{ProjectGroup, ProjectRef, ShellSlotEdge, ShellSlotTree};
 
 use crate::commands::{ShellIntent, ShellMutation, request_close_tab};
+use crate::error_boundary::{FallbackColors, Outcome, Region};
 use crate::project_drag::{self, DRAGGING_OPACITY, DropRequest, RailItem, RailTier};
 use crate::project_rail::{
     ProjectDisplayResolution, RailColors, RailIcon, agent_status_label_key,
@@ -153,12 +156,34 @@ pub trait ShellSurfaces {
     fn branch(&self, project: &ProjectId) -> Option<&str>;
     fn problems_open(&self, slot: &ShellSlotId) -> bool;
     fn problems_panel(&mut self, ui: &mut Ui, project: &ProjectId, slot: &ShellSlotId);
+    /// State a sidebar panel render may change. It is taken out before the panel's error boundary
+    /// (`project-shell.tsx` 150, `auxiliary-window-shell.tsx` 132) so the render only reads the
+    /// host and returns its requests inside this value.
+    type Explorer;
+    fn begin_explorer(&mut self, project: &ProjectId, mount: ExplorerMount<'_>) -> Self::Explorer;
     fn explorer(
-        &mut self,
+        &self,
         ui: &mut Ui,
         project: &ProjectId,
-        slot: &ShellSlotId,
+        mount: ExplorerMount<'_>,
+        explorer: &mut Self::Explorer,
         intents: &mut Vec<ShellIntent>,
+    );
+    /// Puts the state back and applies the requests of a render that finished (or did not run).
+    fn finish_explorer(
+        &mut self,
+        context: &egui::Context,
+        project: &ProjectId,
+        mount: ExplorerMount<'_>,
+        explorer: Self::Explorer,
+    );
+    /// A render panicked: `explorer` may be inconsistent and its requests are dropped; the panel
+    /// starts over like the remount after the original boundary's retry.
+    fn discard_explorer(
+        &mut self,
+        project: &ProjectId,
+        mount: ExplorerMount<'_>,
+        explorer: Self::Explorer,
     );
     fn tab_content(
         &mut self,
@@ -182,12 +207,11 @@ pub trait ShellSurfaces {
     fn can_reopen_with(&self, _path: &str) -> bool {
         false
     }
-    fn status_bar(
-        &mut self,
-        ui: &mut Ui,
-        project: Option<&ProjectId>,
-        intents: &mut Vec<ShellIntent>,
-    );
+    type StatusOutput: Default;
+    fn prepare_status_bar(&mut self, _context: &egui::Context) {}
+    fn status_bar(&self, ui: &mut Ui, project: Option<&ProjectId>, output: &mut Self::StatusOutput);
+    fn apply_status_bar(&mut self, output: Self::StatusOutput);
+    fn discard_status_bar(&mut self) {}
     /// Recent projects (already excluding `project` and limited) and shortcut rows to show.
     fn welcome_content(&self, _project: Option<&ProjectId>) -> WelcomeContent {
         WelcomeContent::default()
@@ -205,20 +229,27 @@ pub trait ShellSurfaces {
     fn is_reduced_motion(&self) -> bool {
         false
     }
-    fn rail_icon(&mut self, _ui: &Ui, _rect: Rect, _icon: RailIcon<'_>, _color: Color32) {}
+    fn rail_icon(
+        &mut self,
+        _painter: &Painter,
+        _slot: ShapeIdx,
+        _rect: Rect,
+        _icon: RailIcon<'_>,
+        _color: Color32,
+    ) {
+    }
     /// Paints the title bar's branch glyph (`title-bar.tsx` `GitBranch`).
     fn title_branch_icon(&mut self, _ui: &Ui, _rect: Rect, _color: Color32) {}
     fn is_auxiliary_explorer_open(&self, _project: &ProjectId, _slot: u32) -> bool {
         false
     }
-    fn auxiliary_explorer(
-        &mut self,
-        _ui: &mut Ui,
-        _project: &ProjectId,
-        _slot: u32,
-        _intents: &mut Vec<ShellIntent>,
-    ) {
-    }
+}
+
+/// Where a sidebar panel is mounted: a main window shell slot or an auxiliary window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExplorerMount<'a> {
+    Slot(&'a ShellSlotId),
+    Auxiliary(u32),
 }
 
 pub struct NativeShell {
@@ -259,6 +290,51 @@ struct ProblemsRegions {
     extent: f32,
     minimum: f32,
     maximum: f32,
+}
+
+#[derive(Default)]
+struct RailOutput {
+    intents: Vec<ShellIntent>,
+    icons: Vec<DeferredIcon>,
+}
+
+enum RailGlyph {
+    Project(Option<String>),
+    RootMissing,
+}
+
+struct DeferredIcon {
+    painter: Painter,
+    slot: ShapeIdx,
+    rect: Rect,
+    glyph: RailGlyph,
+    color: Color32,
+}
+
+impl DeferredIcon {
+    fn reserve(ui: &Ui, rect: Rect, icon: RailIcon<'_>, color: Color32) -> Self {
+        let painter = ui.painter().clone();
+        let slot = painter.add(egui::Shape::Noop);
+        let glyph = match icon {
+            RailIcon::Project(name) => RailGlyph::Project(name.map(str::to_owned)),
+            RailIcon::RootMissing => RailGlyph::RootMissing,
+        };
+        Self {
+            painter,
+            slot,
+            rect,
+            glyph,
+            color,
+        }
+    }
+
+    fn paint(self, surfaces: &mut impl ShellSurfaces) {
+        let icon = match &self.glyph {
+            RailGlyph::Project(name) => RailIcon::Project(name.as_deref()),
+            RailGlyph::RootMissing => RailIcon::RootMissing,
+        };
+        surfaces.rail_icon(&self.painter, self.slot, self.rect, icon, self.color);
+    }
 }
 
 impl NativeShell {
@@ -305,7 +381,13 @@ impl NativeShell {
                                 .max_size(body.width() * EXPLORER_MAX_FRACTION)
                                 .frame(egui::Frame::NONE.fill(self.colors.sidebar))
                                 .show(ui, |ui| {
-                                    surfaces.auxiliary_explorer(ui, project, *slot, &mut intents)
+                                    self.sidebar_panel(
+                                        ui,
+                                        project,
+                                        ExplorerMount::Auxiliary(*slot),
+                                        surfaces,
+                                        &mut intents,
+                                    )
                                 });
                             body = ui.available_rect_before_wrap();
                         });
@@ -361,24 +443,57 @@ impl NativeShell {
             surfaces,
         );
         let zen = snapshot.shell.window_chrome.zen;
+        let fallback = self.fallback_colors();
         if !(zen && snapshot.hide_status_in_zen) {
             let status = Rect::from_min_max(
                 pos2(body.left(), (body.bottom() - STATUS_HEIGHT).max(body.top())),
                 body.max,
             );
-            ui.painter().rect_filled(status, 0.0, self.colors.sidebar);
-            ui.painter().hline(
-                status.x_range(),
-                status.top(),
-                Stroke::new(BORDER_WIDTH, self.colors.border),
+            surfaces.prepare_status_bar(ui.ctx());
+            let reader = &*surfaces;
+            let shown = crate::error_boundary::show(
+                ui,
+                status,
+                Region::StatusBar,
+                fallback,
+                &|key| reader.text(key),
+                |ui| {
+                    ui.painter().rect_filled(status, 0.0, self.colors.sidebar);
+                    ui.painter().hline(
+                        status.x_range(),
+                        status.top(),
+                        Stroke::new(BORDER_WIDTH, self.colors.border),
+                    );
+                    let mut output = Default::default();
+                    child(ui, status.shrink2(vec2(PADDING, 0.0)), "status", |ui| {
+                        reader.status_bar(ui, focused, &mut output)
+                    });
+                    output
+                },
             );
-            child(ui, status.shrink2(vec2(PADDING, 0.0)), "status", |ui| {
-                surfaces.status_bar(ui, focused, intents)
-            });
+            match shown {
+                Outcome::Shown(output) => surfaces.apply_status_bar(output),
+                Outcome::Caught => surfaces.discard_status_bar(),
+                Outcome::Fallback => {}
+            }
             body.max.y = status.top();
         }
         if snapshot.projects.is_empty() {
-            self.welcome(ui, body, None, surfaces, intents);
+            let reader = &*surfaces;
+            if let Outcome::Shown(welcome) = crate::error_boundary::show(
+                ui,
+                body,
+                Region::Welcome,
+                fallback,
+                &|key| reader.text(key),
+                |ui| {
+                    let mut welcome = Vec::new();
+                    self.welcome(ui, body, None, reader, &mut welcome);
+                    welcome
+                },
+            ) {
+                intents.extend(welcome);
+            }
             return;
         }
         if !zen && !snapshot.shell.window_chrome.sidebar_rail_collapsed {
@@ -390,7 +505,24 @@ impl NativeShell {
                 ),
             );
             project_drag::register_rail(ui.ctx(), rail);
-            self.project_rail(ui, rail, snapshot, surfaces, intents);
+            let reader = &*surfaces;
+            if let Outcome::Shown(output) = crate::error_boundary::show(
+                ui,
+                rail,
+                Region::ActivityBar,
+                fallback,
+                &|key| reader.text(key),
+                |ui| {
+                    let mut output = RailOutput::default();
+                    self.project_rail(ui, rail, snapshot, reader, &mut output);
+                    output
+                },
+            ) {
+                intents.extend(output.intents);
+                for icon in output.icons {
+                    icon.paint(&mut *surfaces);
+                }
+            }
             body.min.x = rail.right();
         }
         let Some(tree) = snapshot.shell.tree.as_ref() else {
@@ -402,6 +534,53 @@ impl NativeShell {
             return;
         };
         self.slot_tree(ui, body, (tree, &[]), snapshot, surfaces, intents);
+    }
+
+    fn fallback_colors(&self) -> FallbackColors {
+        FallbackColors {
+            background: self.colors.background,
+            foreground: self.colors.foreground,
+            muted: self.colors.muted,
+        }
+    }
+
+    /// The sidebar panel's error boundary inside the explorer `Panel` (`project-shell.tsx`
+    /// 150-152, `auxiliary-window-shell.tsx` 132-134).
+    fn sidebar_panel(
+        &self,
+        ui: &mut Ui,
+        project: &ProjectId,
+        mount: ExplorerMount<'_>,
+        surfaces: &mut impl ShellSurfaces,
+        intents: &mut Vec<ShellIntent>,
+    ) {
+        let mut explorer = surfaces.begin_explorer(project, mount);
+        let instance = match mount {
+            ExplorerMount::Slot(slot) => Id::new(slot),
+            ExplorerMount::Auxiliary(slot) => Id::new((project, slot)),
+        };
+        let rect = ui.max_rect();
+        let reader = &*surfaces;
+        let shown = crate::error_boundary::show_instance(
+            ui,
+            rect,
+            (Region::SidebarPanel, instance),
+            self.fallback_colors(),
+            &|key| reader.text(key),
+            |ui| {
+                let mut panel = Vec::new();
+                reader.explorer(ui, project, mount, &mut explorer, &mut panel);
+                panel
+            },
+        );
+        match shown {
+            Outcome::Shown(panel) => {
+                intents.extend(panel);
+                surfaces.finish_explorer(ui.ctx(), project, mount, explorer);
+            }
+            Outcome::Caught => surfaces.discard_explorer(project, mount, explorer),
+            Outcome::Fallback => surfaces.finish_explorer(ui.ctx(), project, mount, explorer),
+        }
     }
 
     /// The window's single project drag (`use-project-drag.ts` 79-142, `app-shell.tsx` 192-224):
@@ -448,7 +627,9 @@ impl NativeShell {
                 rect,
                 &display,
                 color,
-                &mut |ui, rect, icon, color| surfaces.rail_icon(ui, rect, icon, color),
+                &mut |ui, rect, icon, color| {
+                    DeferredIcon::reserve(ui, rect, icon, color).paint(&mut *surfaces)
+                },
             );
         }
         intents.extend(feedback.request.map(|request| match request {
@@ -678,8 +859,8 @@ impl NativeShell {
         ui: &mut Ui,
         rect: Rect,
         snapshot: &ShellSnapshot,
-        surfaces: &mut impl ShellSurfaces,
-        intents: &mut Vec<ShellIntent>,
+        surfaces: &impl ShellSurfaces,
+        output: &mut RailOutput,
     ) {
         ui.painter().rect_filled(rect, 0.0, self.colors.sidebar);
         ui.painter().vline(
@@ -703,7 +884,7 @@ impl NativeShell {
                     )
                     .clicked()
                 {
-                    intents.push(ShellIntent::OpenSettings);
+                    output.intents.push(ShellIntent::OpenSettings);
                 }
             });
         });
@@ -715,7 +896,7 @@ impl NativeShell {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     let rail = project_group_sections(&snapshot.projects, &snapshot.groups);
                     for (group, members) in rail.sections {
-                        self.group_header(ui, group, rect.x_range(), &*surfaces, intents);
+                        self.group_header(ui, group, rect.x_range(), surfaces, &mut output.intents);
                         if !group.collapsed {
                             for project in members {
                                 self.project_button(
@@ -724,7 +905,7 @@ impl NativeShell {
                                     snapshot,
                                     (rect.x_range(), RailTier::Members(group.id.clone())),
                                     surfaces,
-                                    intents,
+                                    output,
                                 );
                             }
                         }
@@ -736,10 +917,10 @@ impl NativeShell {
                             snapshot,
                             (rect.x_range(), RailTier::Ungrouped),
                             surfaces,
-                            intents,
+                            output,
                         );
                     }
-                    self.add_project_menu(ui, &*surfaces, intents);
+                    self.add_project_menu(ui, surfaces, &mut output.intents);
                 });
             },
         );
@@ -882,8 +1063,8 @@ impl NativeShell {
         project: &ProjectRef,
         snapshot: &ShellSnapshot,
         placement: (egui::Rangef, RailTier),
-        surfaces: &mut impl ShellSurfaces,
-        intents: &mut Vec<ShellIntent>,
+        surfaces: &impl ShellSurfaces,
+        output: &mut RailOutput,
     ) {
         let (rail, tier) = placement;
         let active = snapshot.focused_project() == Some(&project.id);
@@ -975,7 +1156,11 @@ impl NativeShell {
                         rect,
                         &display,
                         glyph_color,
-                        &mut |ui, rect, icon, color| surfaces.rail_icon(ui, rect, icon, color),
+                        &mut |ui, rect, icon, color| {
+                            output
+                                .icons
+                                .push(DeferredIcon::reserve(ui, rect, icon, color))
+                        },
                     );
                     if let Some((activity, _)) = &badge {
                         let is_pulsing =
@@ -1001,9 +1186,11 @@ impl NativeShell {
                 })
                 .inner;
             if response.clicked() && !drag.suppresses_click {
-                intents.push(ShellIntent::Mutate(ShellMutation::ActivateProject(
-                    project.id.clone(),
-                )));
+                output
+                    .intents
+                    .push(ShellIntent::Mutate(ShellMutation::ActivateProject(
+                        project.id.clone(),
+                    )));
             }
             response.context_menu(|ui| {
                 project_menu(
@@ -1014,11 +1201,11 @@ impl NativeShell {
                         groups: &snapshot.groups,
                         focused_slot: snapshot.focused_slot(),
                     },
-                    &*surfaces,
-                    intents,
+                    surfaces,
+                    &mut output.intents,
                 )
             });
-            project_tooltip(&response, project, &agents, surfaces);
+            project_tooltip(&response, project, &agents, surfaces, &mut output.icons);
         });
     }
 
@@ -1172,7 +1359,15 @@ impl NativeShell {
                     .min_size(EXPLORER_MIN_WIDTH.min(rect.width() * EXPLORER_MAX_FRACTION))
                     .max_size(rect.width() * EXPLORER_MAX_FRACTION)
                     .frame(egui::Frame::NONE.fill(self.colors.sidebar))
-                    .show(ui, |ui| surfaces.explorer(ui, project, slot, intents));
+                    .show(ui, |ui| {
+                        self.sidebar_panel(
+                            ui,
+                            project,
+                            ExplorerMount::Slot(slot),
+                            surfaces,
+                            intents,
+                        )
+                    });
                 rect = ui.available_rect_before_wrap();
             });
         }
@@ -2176,7 +2371,8 @@ fn project_tooltip(
     response: &egui::Response,
     project: &ProjectRef,
     agents: &[DetectedAgent],
-    surfaces: &mut impl ShellSurfaces,
+    surfaces: &impl ShellSurfaces,
+    icons: &mut Vec<DeferredIcon>,
 ) {
     let mut tooltip = egui::Tooltip::for_enabled(response);
     tooltip.popup = tooltip.popup.align(egui::RectAlign::RIGHT);
@@ -2192,7 +2388,12 @@ fn project_tooltip(
                 ui.spacing_mut().item_spacing.x = RAIL_TOOLTIP_ICON_GAP;
                 let (icon, _) =
                     ui.allocate_exact_size(Vec2::splat(RAIL_TOOLTIP_ICON_SIZE), Sense::hover());
-                surfaces.rail_icon(ui, icon, RailIcon::RootMissing, ui.visuals().text_color());
+                icons.push(DeferredIcon::reserve(
+                    ui,
+                    icon,
+                    RailIcon::RootMissing,
+                    ui.visuals().text_color(),
+                ));
                 ui.label(surfaces.text("app.recentProjectRootMissing"));
             });
         }

@@ -170,6 +170,7 @@ pub enum HostCommand {
         tab: TabId,
         expected: Option<taide_model::file::UntitledMirrorEntry>,
     },
+    PruneMirrors(ProjectId),
     SaveMissingDraft {
         tab: TabId,
         draft: crate::missing_draft::MissingDraft,
@@ -1525,6 +1526,12 @@ async fn dispatch(
             Ok(()) => None,
             Err(error) => Some(HostReply::Failed(error)),
         },
+        HostCommand::PruneMirrors(project) => {
+            if let Err(error) = crate::mirror_sweep::prune(services, project).await {
+                log::warn!("native mirror prune failed: {:?}", error.kind());
+            }
+            None
+        }
         HostCommand::SaveMissingDraft {
             tab,
             draft,

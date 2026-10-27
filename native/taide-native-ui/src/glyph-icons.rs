@@ -664,20 +664,22 @@ impl Icons {
         color: Color32,
         angle: f32,
     ) -> AppResult<()> {
-        let scale = ui.ctx().pixels_per_point();
-        let pixels = (rect.width() * scale).ceil();
-        if !pixels.is_finite() || !(1.0..=MAX_RASTER_SIDE).contains(&pixels) {
-            return Err(AppError::Internal(
-                "native glyph icon scale is out of range".into(),
-            ));
-        }
+        self.prepare(ui.ctx(), rect.size(), glyph)?;
+        self.paint_prepared(ui, rect, glyph, color, angle)
+    }
+
+    pub fn prepare(
+        &mut self,
+        context: &egui::Context,
+        size: egui::Vec2,
+        glyph: Glyph,
+    ) -> AppResult<()> {
+        let (scale, side) = raster_side(context, size.x)?;
         if self.scale != Some(scale) {
             self.textures.clear();
             self.scale = Some(scale);
         }
-        let side = pixels as u32;
-        let key = (glyph, side);
-        if let Entry::Vacant(entry) = self.textures.entry(key) {
+        if let Entry::Vacant(entry) = self.textures.entry((glyph, side)) {
             let tree = self
                 .trees
                 .get(&glyph)
@@ -687,12 +689,12 @@ impl Icons {
             resvg::render(
                 tree,
                 tiny_skia::Transform::from_scale(
-                    rect.width() * scale / VIEWBOX,
-                    rect.height() * scale / VIEWBOX,
+                    size.x * scale / VIEWBOX,
+                    size.y * scale / VIEWBOX,
                 ),
                 &mut pixmap.as_mut(),
             );
-            entry.insert(ui.ctx().load_texture(
+            entry.insert(context.load_texture(
                 format!("native-glyph-{glyph:?}-{side}"),
                 ColorImage::from_rgba_unmultiplied(
                     [side as usize, side as usize],
@@ -701,11 +703,58 @@ impl Icons {
                 egui::TextureOptions::LINEAR,
             ));
         }
-        let texture = &self.textures[&key];
-        egui::Image::new((texture.id(), rect.size()))
-            .tint(color)
-            .rotate(angle, egui::Vec2::splat(ROTATION_CENTER))
-            .paint_at(ui, rect);
         Ok(())
     }
+
+    pub fn paint_prepared(
+        &self,
+        ui: &Ui,
+        rect: Rect,
+        glyph: Glyph,
+        color: Color32,
+        angle: f32,
+    ) -> AppResult<()> {
+        ui.painter()
+            .add(self.shape(ui.ctx(), rect, glyph, color, angle)?);
+        Ok(())
+    }
+
+    pub fn shape(
+        &self,
+        context: &egui::Context,
+        rect: Rect,
+        glyph: Glyph,
+        color: Color32,
+        angle: f32,
+    ) -> AppResult<egui::Shape> {
+        let (scale, side) = raster_side(context, rect.width())?;
+        let texture = self
+            .textures
+            .get(&(glyph, side))
+            .filter(|_| self.scale == Some(scale))
+            .ok_or_else(|| AppError::Internal("native glyph icon is not prepared".into()))?;
+        let rect = egui::emath::GuiRounding::round_to_pixels(rect, scale);
+        let mut mesh = egui::Mesh::with_texture(texture.id());
+        mesh.add_rect_with_uv(
+            rect,
+            Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+            color,
+        );
+        mesh.rotate(
+            egui::emath::Rot2::from_angle(angle),
+            rect.min + egui::Vec2::splat(ROTATION_CENTER) * rect.size(),
+        );
+        Ok(egui::Shape::mesh(mesh))
+    }
+}
+
+fn raster_side(context: &egui::Context, width: f32) -> AppResult<(f32, u32)> {
+    let scale = context.pixels_per_point();
+    let pixels = (width * scale).ceil();
+    if !pixels.is_finite() || !(1.0..=MAX_RASTER_SIDE).contains(&pixels) {
+        return Err(AppError::Internal(
+            "native glyph icon scale is out of range".into(),
+        ));
+    }
+    Ok((scale, pixels as u32))
 }

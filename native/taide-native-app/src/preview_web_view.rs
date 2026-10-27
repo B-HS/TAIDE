@@ -47,16 +47,34 @@ struct Child {
     crashed: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
+#[cfg(target_os = "macos")]
+fn handle_drag(drags: &crate::file_drop::WebDrags, tab: &TabId, event: wry::DragDropEvent) -> bool {
+    match event {
+        wry::DragDropEvent::Enter { paths, .. } => drags.enter(tab, &paths),
+        wry::DragDropEvent::Over { .. } => drags.over(tab),
+        wry::DragDropEvent::Drop { paths, .. } => drags.drop_paths(tab, &paths),
+        wry::DragDropEvent::Leave => drags.leave(tab),
+        _ => false,
+    }
+}
+
 #[derive(Default)]
 pub struct Views {
     #[cfg(target_os = "macos")]
     children: HashMap<TabId, Child>,
+    drags: crate::file_drop::WebDrags,
 }
 
 impl Views {
     pub fn clear(&mut self) {
         #[cfg(target_os = "macos")]
-        self.children.clear();
+        for (tab, _) in self.children.drain() {
+            self.drags.forget(&tab);
+        }
+    }
+
+    pub(crate) fn drags(&self) -> &crate::file_drop::WebDrags {
+        &self.drags
     }
 
     #[cfg(target_os = "macos")]
@@ -69,10 +87,14 @@ impl Views {
         enabled: bool,
     ) -> AppResult<()> {
         self.children.retain(|tab, child| {
-            live.get(tab) == Some(&child.source)
+            let is_kept = live.get(tab) == Some(&child.source)
                 && placements
                     .iter()
-                    .any(|placement| &placement.tab == tab && eligible(placement, live))
+                    .any(|placement| &placement.tab == tab && eligible(placement, live));
+            if !is_kept {
+                self.drags.forget(tab);
+            }
+            is_kept
         });
         if self
             .children
@@ -124,6 +146,9 @@ impl Views {
                 let crashed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
                 let report_crash = crashed.clone();
                 let repaint = context.clone();
+                let drags = self.drags.clone();
+                let drag_tab = placement.tab.clone();
+                let drag_repaint = context.clone();
                 let view = wry::WebViewBuilder::new()
                     .with_url(placement.source.as_str())
                     .with_bounds(bounds)
@@ -146,6 +171,11 @@ impl Views {
                     })
                     .with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny)
                     .with_download_started_handler(|_, _| false)
+                    .with_drag_drop_handler(move |event| {
+                        let is_kept = handle_drag(&drags, &drag_tab, event);
+                        drag_repaint.request_repaint();
+                        is_kept
+                    })
                     .build_as_child(frame)
                     .map_err(|_| {
                         AppError::Internal("isolated preview web view could not be created".into())
@@ -265,6 +295,74 @@ mod tests {
             placement.bounds = bounds;
             assert!(!eligible(&placement, &live));
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn 미리보기_web_view의_파일_drag는_앱_drop으로_넘기고_파일이_없는_drag는_기본_처리에_둔다() {
+        let drags = crate::file_drop::WebDrags::default();
+        let tab = TabId::new();
+        let paths = vec![std::path::PathBuf::from("/synthetic/root/a.txt")];
+        let position = (0, 0);
+        assert!(!handle_drag(
+            &drags,
+            &tab,
+            wry::DragDropEvent::Enter {
+                paths: Vec::new(),
+                position
+            }
+        ));
+        assert!(!drags.is_hovering());
+        assert!(!handle_drag(
+            &drags,
+            &tab,
+            wry::DragDropEvent::Over { position }
+        ));
+        assert!(!handle_drag(
+            &drags,
+            &tab,
+            wry::DragDropEvent::Drop {
+                paths: paths.clone(),
+                position
+            }
+        ));
+        assert!(drags.take_dropped().is_empty());
+        let enter = || wry::DragDropEvent::Enter {
+            paths: paths.clone(),
+            position,
+        };
+        assert!(handle_drag(&drags, &tab, enter()));
+        assert!(drags.is_hovering());
+        assert!(handle_drag(
+            &drags,
+            &tab,
+            wry::DragDropEvent::Over { position }
+        ));
+        assert!(handle_drag(&drags, &tab, wry::DragDropEvent::Leave));
+        assert!(!drags.is_hovering());
+        assert!(handle_drag(&drags, &tab, enter()));
+        assert!(handle_drag(
+            &drags,
+            &tab,
+            wry::DragDropEvent::Drop {
+                paths: paths.clone(),
+                position
+            }
+        ));
+        assert!(!drags.is_hovering());
+        assert_eq!(
+            drags.take_dropped(),
+            vec!["/synthetic/root/a.txt".to_owned()]
+        );
+        assert!(drags.take_dropped().is_empty());
+        assert!(handle_drag(&drags, &tab, enter()));
+        drags.forget(&tab);
+        assert!(!drags.is_hovering());
+        assert!(!handle_drag(
+            &drags,
+            &tab,
+            wry::DragDropEvent::Over { position }
+        ));
     }
 
     #[test]

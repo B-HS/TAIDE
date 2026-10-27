@@ -202,6 +202,7 @@ pub struct NativeApplication {
     shell: NativeShell,
     auxiliary_windows: crate::auxiliary_windows::Windows,
     window_state: crate::window_state::Tracker,
+    mirror_sweeps: crate::mirror_sweep::MirrorSweeps,
     auxiliary_pass_root: Option<WindowScope>,
     overlay_viewport: egui::ViewportId,
     zen_fullscreen_state: crate::zen::Fullscreen,
@@ -615,6 +616,7 @@ impl NativeApplication {
             shell,
             auxiliary_windows,
             window_state: crate::window_state::Tracker::new(&state.paths.data_dir),
+            mirror_sweeps: crate::mirror_sweep::MirrorSweeps::default(),
             auxiliary_pass_root: None,
             overlay_viewport: egui::ViewportId::ROOT,
             zen_fullscreen_state,
@@ -6969,6 +6971,16 @@ impl NativeApplication {
                     context.request_repaint();
                 }
             }
+            for project in self.mirror_sweeps.due(
+                snapshot.shell.tree.as_ref(),
+                &self.auxiliary_windows.explorer_mounts(),
+                &snapshot.layouts,
+            ) {
+                if !self.submit(HostCommand::PruneMirrors(project.clone())) {
+                    self.mirror_sweeps.retry(&project);
+                    context.request_repaint();
+                }
+            }
             self.title_branches
                 .invalidate(self.title_branch_changes.take());
             self.title_branches.retain(&open_projects);
@@ -7851,6 +7863,7 @@ impl NativeApplication {
         let mut paste_entries = Vec::new();
         let mut create_entries = Vec::new();
         let mut delete_entries = Vec::new();
+        let mut discarded_explorers = Vec::new();
         let mut load_files = Vec::new();
         let mut load_previews = Vec::new();
         let mut load_pdf_previews = Vec::new();
@@ -8103,6 +8116,7 @@ impl NativeApplication {
             paste_entries: &mut paste_entries,
             create_entries: &mut create_entries,
             delete_entries: &mut delete_entries,
+            discarded_explorers: &mut discarded_explorers,
             projects: &snapshot.projects,
             layouts: &snapshot.layouts,
             scope: &self.shell.scope,
@@ -8116,6 +8130,7 @@ impl NativeApplication {
             reveals: &mut self.reveals,
             status: &mut status,
             is_reduced_motion: self.motion_preference.current().unwrap_or(false),
+            status_ready: StatusReady::default(),
         };
         let mut intents = ui
             .add_enabled_ui(
@@ -8123,6 +8138,13 @@ impl NativeApplication {
                 |ui| self.shell.show(ui, &snapshot, &mut surfaces),
             )
             .inner;
+        if self
+            .pending_entry_delete
+            .as_ref()
+            .is_some_and(|pending| discarded_explorers.contains(&pending.request.project))
+        {
+            self.pending_entry_delete = None;
+        }
         if matches!(self.shell.scope, WindowScope::Main) {
             self.zen_hint.show(
                 ui,
@@ -8136,7 +8158,7 @@ impl NativeApplication {
                 ),
             );
             let window = ui.max_rect();
-            if crate::file_drop::is_hovering(&context)
+            if (crate::file_drop::is_hovering(&context) || self.web_views.drags().is_hovering())
                 && let Err(error) = crate::file_drop::paint_overlay(
                     ui,
                     window,
@@ -8147,7 +8169,8 @@ impl NativeApplication {
             {
                 status = Some(error.to_string());
             }
-            let paths = crate::file_drop::dropped_paths(&context);
+            let mut paths = crate::file_drop::dropped_paths(&context);
+            paths.extend(self.web_views.drags().take_dropped());
             if !paths.is_empty()
                 && self.closing.is_none()
                 && !self.is_exit_ready
@@ -9013,7 +9036,8 @@ impl NativeApplication {
             && !egui::DragAndDrop::has_any_payload(context)
             && !taide_native_ui::project_drag::is_dragging(context)
             && !taide_native_ui::tab_drag::is_dragging(context)
-            && !crate::file_drop::is_hovering(context);
+            && !crate::file_drop::is_hovering(context)
+            && !self.web_views.drags().is_hovering();
         if let Err(error) = self
             .web_views
             .sync(frame, context, &live, &web_placements, web_enabled)
@@ -9222,17 +9246,67 @@ fn paint_rail_icon(
     icon: taide_native_ui::project_rail::RailIcon<'_>,
     color: egui::Color32,
 ) {
-    let glyph = match icon {
+    if let Err(error) = icons.paint(ui, rect, rail_glyph(icon), color, 0.0) {
+        *status = Some(error.to_string());
+    }
+}
+
+fn rail_glyph(icon: taide_native_ui::project_rail::RailIcon<'_>) -> crate::problems_icons::Glyph {
+    match icon {
         taide_native_ui::project_rail::RailIcon::Project(name) => {
             crate::problems_icons::project(name)
         }
         taide_native_ui::project_rail::RailIcon::RootMissing => {
             crate::problems_icons::Glyph::TriangleAlert
         }
-    };
-    if let Err(error) = icons.paint(ui, rect, glyph, color, 0.0) {
-        *status = Some(error.to_string());
     }
+}
+
+#[derive(Default)]
+struct StatusReady {
+    problems: bool,
+    ide: bool,
+    usage: Option<egui::TextureId>,
+}
+
+#[derive(Default)]
+struct StatusBarOutput {
+    problem_toggles: usize,
+    commands: Vec<HostCommand>,
+    is_usage_detail_requested: bool,
+    errors: Vec<String>,
+}
+
+enum OutlineReveal {
+    Untitled {
+        key: ViewKey,
+        document: taide_native_editor::document::DocumentSnapshot,
+        selection: std::ops::Range<usize>,
+    },
+    File {
+        tab: TabId,
+        path: String,
+        viewport: egui::ViewportId,
+        position: crate::editor_reveal::Position,
+    },
+}
+
+/// A sidebar panel's own state, taken out of the app for one render inside the panel's error
+/// boundary, and the requests that render made (applied only if the render finished).
+#[derive(Default)]
+struct ExplorerRegion {
+    mount: Option<ShellSlotId>,
+    owner: Option<crate::explorer_clipboard_owners::Owner>,
+    sidebar: Option<crate::symbol_sidebar::Sidebar>,
+    explorer: Option<crate::explorer::Explorer>,
+    icons: crate::navigation_icons::Deferred,
+    outline_reveal: Option<OutlineReveal>,
+    is_tree_requested: bool,
+    is_reveal_taken: bool,
+    is_files_shown: bool,
+    window_pane: Option<PaneId>,
+    actions: Vec<crate::explorer::Action>,
+    errors: Vec<String>,
 }
 
 struct AppSurfaces<'a> {
@@ -9364,6 +9438,7 @@ struct AppSurfaces<'a> {
     paste_entries: &'a mut Vec<(ProjectId, crate::explorer_clipboard::Request)>,
     create_entries: &'a mut Vec<(ProjectId, crate::explorer::CreateRequest)>,
     delete_entries: &'a mut Vec<crate::explorer_delete::Request>,
+    discarded_explorers: &'a mut Vec<ProjectId>,
     projects: &'a [taide_model::project::ProjectRef],
     layouts: &'a HashMap<ProjectId, taide_model::layout::ProjectLayout>,
     scope: &'a WindowScope,
@@ -9377,9 +9452,12 @@ struct AppSurfaces<'a> {
     reveals: &'a mut crate::editor_reveal::Reveals,
     status: &'a mut Option<String>,
     is_reduced_motion: bool,
+    status_ready: StatusReady,
 }
 
 impl ShellSurfaces for AppSurfaces<'_> {
+    type StatusOutput = StatusBarOutput;
+    type Explorer = ExplorerRegion;
     fn text(&self, key: &str) -> String {
         presentation::message(self.locale, key, &[])
     }
@@ -9407,12 +9485,23 @@ impl ShellSurfaces for AppSurfaces<'_> {
     }
     fn rail_icon(
         &mut self,
-        ui: &Ui,
+        painter: &egui::Painter,
+        slot: egui::layers::ShapeIdx,
         rect: egui::Rect,
         icon: taide_native_ui::project_rail::RailIcon<'_>,
         color: egui::Color32,
     ) {
-        paint_rail_icon(self.explorer_icons, self.status, ui, rect, icon, color);
+        let glyph = rail_glyph(icon);
+        match self
+            .explorer_icons
+            .prepare(painter.ctx(), rect.size(), glyph)
+            .and_then(|()| {
+                self.explorer_icons
+                    .shape(painter.ctx(), rect, glyph, color, 0.0)
+            }) {
+            Ok(shape) => painter.set(slot, shape),
+            Err(error) => *self.status = Some(error.to_string()),
+        }
     }
     fn text_with_args(&self, key: &str, arguments: &[(&str, &str)]) -> String {
         presentation::message(self.locale, key, arguments)
@@ -9435,18 +9524,6 @@ impl ShellSurfaces for AppSurfaces<'_> {
         self.auxiliary_windows
             .find(project, slot)
             .is_some_and(|window| window.is_explorer_open)
-    }
-    fn auxiliary_explorer(
-        &mut self,
-        ui: &mut Ui,
-        project: &ProjectId,
-        slot: u32,
-        intents: &mut Vec<ShellIntent>,
-    ) {
-        if let Some(window) = self.auxiliary_windows.find(project, slot) {
-            let mount = window.explorer.clone();
-            self.explorer(ui, project, &mount, intents);
-        }
     }
     fn problems_open(&self, slot: &ShellSlotId) -> bool {
         self.problems.is_open(slot)
@@ -9486,27 +9563,65 @@ impl ShellSurfaces for AppSurfaces<'_> {
             });
         }
     }
-    fn explorer(
+    fn begin_explorer(
         &mut self,
+        project: &ProjectId,
+        mount: taide_native_ui::shell::ExplorerMount<'_>,
+    ) -> ExplorerRegion {
+        let slot = match mount {
+            taide_native_ui::shell::ExplorerMount::Slot(slot) => Some(slot.clone()),
+            taide_native_ui::shell::ExplorerMount::Auxiliary(slot) => self
+                .auxiliary_windows
+                .find(project, slot)
+                .map(|window| window.explorer.clone()),
+        };
+        let Some(slot) = slot else {
+            return ExplorerRegion::default();
+        };
+        let mut region = ExplorerRegion {
+            sidebar: Some(self.symbol_sidebars.take(project, &slot)),
+            explorer: self.explorers.remove(project),
+            ..Default::default()
+        };
+        match self.explorer_clipboards.mount(&slot) {
+            Ok(owner) => region.owner = Some(owner),
+            Err(error) => region.errors.push(error.to_string()),
+        }
+        region.mount = Some(slot);
+        region
+    }
+    fn explorer(
+        &self,
         ui: &mut Ui,
         project: &ProjectId,
-        slot: &ShellSlotId,
+        _: taide_native_ui::shell::ExplorerMount<'_>,
+        region: &mut ExplorerRegion,
         _: &mut Vec<ShellIntent>,
     ) {
-        let owner = match self.explorer_clipboards.mount(slot) {
-            Ok(owner) => owner,
-            Err(error) => {
-                *self.status = Some(error.to_string());
-                return;
-            }
+        let ExplorerRegion {
+            mount: Some(slot),
+            owner: Some(owner),
+            sidebar: Some(sidebar),
+            explorer,
+            icons,
+            outline_reveal,
+            is_tree_requested,
+            is_reveal_taken,
+            is_files_shown,
+            window_pane,
+            actions,
+            errors,
+        } = region
+        else {
+            return;
         };
-        let sidebar = self.symbol_sidebars.entry(project, slot);
+        let (slot, owner) = (&*slot, *owner);
         match sidebar.switch(
             ui,
             egui::Id::new(("symbol-sidebar", project, slot)),
             self.locale,
             self.navigation_appearance,
-            self.navigation_icons,
+            &mut *icons,
         ) {
             Ok(buttons) => {
                 for (view, response) in buttons {
@@ -9518,7 +9633,7 @@ impl ShellSurfaces for AppSurfaces<'_> {
                     );
                 }
             }
-            Err(error) => *self.status = Some(error.to_string()),
+            Err(error) => errors.push(error.to_string()),
         }
         if sidebar.view == crate::symbol_sidebar::View::Outline {
             let active = self
@@ -9558,7 +9673,7 @@ impl ShellSurfaces for AppSurfaces<'_> {
                 },
                 self.locale,
                 self.navigation_appearance,
-                self.navigation_icons,
+                &mut *icons,
             ) {
                 Ok(output) => {
                     if let (Some((generation, index)), Some((pane, tab)), Some(document)) =
@@ -9568,60 +9683,47 @@ impl ShellSurfaces for AppSurfaces<'_> {
                             .selection(project, document, generation, index)
                     {
                         if matches!(tab.kind, TabKind::Untitled { .. }) {
-                            let key = ViewKey {
-                                window: WINDOW_LABEL.into(),
-                                pane: pane.clone(),
-                                tab: tab.id.clone(),
-                            };
-                            match crate::editor_reveal::reveal_document(
-                                self.store, &key, document, selection,
-                            ) {
-                                Ok(Some(view)) => {
-                                    if let Some(body) =
-                                        crate::editor_context_menu::body(ui.ctx(), view)
-                                    {
-                                        ui.memory_mut(|memory| memory.request_focus(body));
-                                    }
-                                }
-                                Ok(None) => {}
-                                Err(error) => *self.status = Some(editor_error(error).to_string()),
-                            }
+                            *outline_reveal = Some(OutlineReveal::Untitled {
+                                key: ViewKey {
+                                    window: WINDOW_LABEL.into(),
+                                    pane: pane.clone(),
+                                    tab: tab.id.clone(),
+                                },
+                                document: document.clone(),
+                                selection,
+                            });
                         } else if let TabKind::File { path } = &tab.kind
                             && let Some(position) = self
                                 .editor_symbols
                                 .position(project, document, generation, index)
                         {
-                            self.reveals.queue_position(
-                                crate::editor_reveal::Target {
-                                    project,
-                                    tab: &tab.id,
-                                    path,
-                                    viewport: ui.ctx().viewport_id(),
-                                },
+                            *outline_reveal = Some(OutlineReveal::File {
+                                tab: tab.id.clone(),
+                                path: path.clone(),
+                                viewport: ui.ctx().viewport_id(),
                                 position,
-                                self.layouts,
-                                Instant::now(),
-                            );
+                            });
                         }
                         ui.ctx().request_repaint();
                     }
                 }
-                Err(error) => *self.status = Some(error.to_string()),
+                Err(error) => errors.push(error.to_string()),
             }
             return;
         }
         let Some(page) = self.trees.get(project) else {
             if !self.tree_loading.contains(project) {
-                self.load_trees.push(project.clone());
+                *is_tree_requested = true;
             }
             ui.spinner();
             return;
         };
-        let explorer = self.explorers.entry(project.clone()).or_default();
+        let explorer = explorer.get_or_insert_with(Default::default);
         explorer.replace_clipboard(self.explorer_clipboards.clipboard(owner).cloned());
-        if let Some(path) = self.explorer_clipboards.take_reveal(owner) {
+        if let Some(path) = self.explorer_clipboards.reveal(owner) {
             explorer.address_requests(slot);
-            explorer.paste_finished(false, Some(path));
+            explorer.paste_finished(false, Some(path.clone()));
+            *is_reveal_taken = true;
         }
         if let Some(project) = self.projects.iter().find(|entry| &entry.id == project) {
             explorer.root = Some(project.root.clone());
@@ -9634,12 +9736,12 @@ impl ShellSurfaces for AppSurfaces<'_> {
             page,
             self.locale,
             crate::explorer::RowIcons {
-                glyphs: &mut *self.explorer_icons,
+                glyphs: icons,
                 appearance: self.explorer_appearance,
             },
         );
         if let Some(error) = &output.icon_error {
-            *self.status = Some(error.to_string());
+            errors.push(error.to_string());
         }
         crate::explorer_toolbar::show_tooltips(
             &output,
@@ -9647,7 +9749,7 @@ impl ShellSurfaces for AppSurfaces<'_> {
             self.tooltips,
             self.tooltip_appearance,
         );
-        let window_pane = match self.scope {
+        *window_pane = match self.scope {
             WindowScope::Main => None,
             WindowScope::Auxiliary { .. } => self
                 .layouts
@@ -9655,7 +9757,92 @@ impl ShellSurfaces for AppSurfaces<'_> {
                 .and_then(|layout| crate::symbol_sidebar::window_tree(project, layout, self.scope))
                 .map(|(_, focused)| focused.clone()),
         };
-        for action in output.actions {
+        *actions = output.actions;
+        *is_files_shown = true;
+    }
+    fn finish_explorer(
+        &mut self,
+        context: &egui::Context,
+        project: &ProjectId,
+        _: taide_native_ui::shell::ExplorerMount<'_>,
+        region: ExplorerRegion,
+    ) {
+        let ExplorerRegion {
+            mount,
+            owner,
+            sidebar,
+            explorer,
+            icons,
+            outline_reveal,
+            is_tree_requested,
+            is_reveal_taken,
+            is_files_shown,
+            window_pane,
+            actions,
+            errors,
+        } = region;
+        let Some(slot) = mount else {
+            return;
+        };
+        if let Some(sidebar) = sidebar {
+            self.symbol_sidebars.put(slot, sidebar);
+        }
+        if let Some(explorer) = explorer {
+            self.explorers.insert(project.clone(), explorer);
+        }
+        if let Some(error) = errors.into_iter().last() {
+            *self.status = Some(error);
+        }
+        if let Err(error) = icons.fill(&mut *self.explorer_icons, &mut *self.navigation_icons) {
+            *self.status = Some(error.to_string());
+        }
+        if is_tree_requested {
+            self.load_trees.push(project.clone());
+        }
+        match outline_reveal {
+            Some(OutlineReveal::Untitled {
+                key,
+                document,
+                selection,
+            }) => {
+                match crate::editor_reveal::reveal_document(self.store, &key, &document, selection)
+                {
+                    Ok(Some(view)) => {
+                        if let Some(body) = crate::editor_context_menu::body(context, view) {
+                            context.memory_mut(|memory| memory.request_focus(body));
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(error) => *self.status = Some(editor_error(error).to_string()),
+                }
+            }
+            Some(OutlineReveal::File {
+                tab,
+                path,
+                viewport,
+                position,
+            }) => {
+                self.reveals.queue_position(
+                    crate::editor_reveal::Target {
+                        project,
+                        tab: &tab,
+                        path: &path,
+                        viewport,
+                    },
+                    position,
+                    self.layouts,
+                    Instant::now(),
+                );
+            }
+            None => {}
+        }
+        let Some(owner) = owner else {
+            return;
+        };
+        if is_reveal_taken {
+            self.explorer_clipboards.take_reveal(owner);
+        }
+        for action in actions {
             match action {
                 crate::explorer::Action::Toggle(path) => {
                     self.commands.push(HostCommand::TreeToggle {
@@ -9725,8 +9912,25 @@ impl ShellSurfaces for AppSurfaces<'_> {
                     .push(HostCommand::TreeCollapse(project.clone())),
             }
         }
-        self.explorer_clipboards
-            .replace(owner, explorer.clipboard().cloned());
+        if is_files_shown && let Some(explorer) = self.explorers.get(project) {
+            self.explorer_clipboards
+                .replace(owner, explorer.clipboard().cloned());
+        }
+    }
+    fn discard_explorer(
+        &mut self,
+        project: &ProjectId,
+        _: taide_native_ui::shell::ExplorerMount<'_>,
+        region: ExplorerRegion,
+    ) {
+        let Some(slot) = region.mount else {
+            return;
+        };
+        self.discarded_explorers.push(project.clone());
+        self.explorer_clipboards.unmount(&slot);
+        if let Some(explorer) = region.explorer {
+            self.explorers.insert(project.clone(), explorer.remounted());
+        }
     }
     fn tab_content(
         &mut self,
@@ -10154,17 +10358,54 @@ impl ShellSurfaces for AppSurfaces<'_> {
     fn can_reopen_with(&self, path: &str) -> bool {
         crate::open_with::preview_kind(path.rsplit('/').next().unwrap_or_default()).is_some()
     }
-    fn status_bar(&mut self, ui: &mut Ui, _: Option<&ProjectId>, _: &mut Vec<ShellIntent>) {
+    fn prepare_status_bar(&mut self, context: &egui::Context) {
+        self.status_ready = StatusReady::default();
+        match self.problems.prepare_status(context) {
+            Ok(()) => self.status_ready.problems = true,
+            Err(error) => *self.status = Some(error.to_string()),
+        }
+        match self.status_ide_icons.prepare(context) {
+            Ok(()) => self.status_ready.ide = true,
+            Err(error) => *self.status = Some(error.to_string()),
+        }
+        if self.system_usage.summary().is_some() {
+            match self.system_usage_icon.prepare(context) {
+                Ok(texture) => self.status_ready.usage = Some(texture),
+                Err(error) => *self.status = Some(error.to_string()),
+            }
+        }
+    }
+    fn apply_status_bar(&mut self, output: StatusBarOutput) {
+        if let Some(slot) = self.focused_slot {
+            for _ in 0..output.problem_toggles {
+                self.problems.toggle(slot);
+            }
+        }
+        self.commands.extend(output.commands);
+        if output.is_usage_detail_requested {
+            self.system_usage.detail_open = true;
+        }
+        if let Some(error) = output.errors.into_iter().last() {
+            *self.status = Some(error);
+        }
+    }
+    fn discard_status_bar(&mut self) {
+        self.system_usage.detail_open = false;
+    }
+    fn status_bar(&self, ui: &mut Ui, _: Option<&ProjectId>, output: &mut StatusBarOutput) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = crate::lsp::status::ITEM_GAP;
-            if let Err(error) = self.problems.show_status(
-                ui,
-                self.focused_slot,
-                self.diagnostics,
-                self.locale,
-                self.problems_appearance,
-            ) {
-                *self.status = Some(error.to_string());
+            if self.status_ready.problems {
+                match self.problems.status_button(
+                    ui,
+                    self.focused_slot,
+                    self.diagnostics,
+                    self.locale,
+                    self.problems_appearance,
+                ) {
+                    Ok((_, activations)) => output.problem_toggles += activations,
+                    Err(error) => output.errors.push(error.to_string()),
+                }
             }
             crate::lsp::status::show(
                 ui,
@@ -10172,14 +10413,16 @@ impl ShellSurfaces for AppSurfaces<'_> {
                 self.lsp_status_appearance,
                 self.lsp_summary,
             );
-            if let Err(error) = crate::status_ide::show(
-                ui,
-                self.locale,
-                self.status_ide_appearance,
-                self.status_ide_icons,
-                self.services.ide.status(),
-            ) {
-                *self.status = Some(error.to_string());
+            if self.status_ready.ide
+                && let Err(error) = crate::status_ide::show_prepared(
+                    ui,
+                    self.locale,
+                    self.status_ide_appearance,
+                    self.status_ide_icons,
+                    self.services.ide.status(),
+                )
+            {
+                output.errors.push(error.to_string());
             }
             if let Some(status) = &self.status {
                 ui.label(status);
@@ -10201,7 +10444,7 @@ impl ShellSurfaces for AppSurfaces<'_> {
                     self.status_editor_appearance,
                     crate::status_editor::Target::Terminal,
                     terminal_font_size,
-                    self.commands,
+                    &mut output.commands,
                     self.tooltips,
                 );
                 crate::status_editor::show_font(
@@ -10210,23 +10453,23 @@ impl ShellSurfaces for AppSurfaces<'_> {
                     self.status_editor_appearance,
                     crate::status_editor::Target::Editor,
                     editor_font_size,
-                    self.commands,
+                    &mut output.commands,
                     self.tooltips,
                 );
-                match crate::system_usage_view::show_status(
-                    ui,
-                    self.locale,
-                    self.system_usage_appearance,
-                    self.system_usage_icon,
-                    self.system_usage.summary(),
-                    self.tooltips,
-                ) {
-                    Ok(Some(response)) if response.clicked() => {
-                        self.system_usage.detail_open = true;
-                        ui.ctx().request_repaint();
-                    }
-                    Ok(_) => {}
-                    Err(error) => *self.status = Some(error.to_string()),
+                if let (Some(texture), Some(usage)) =
+                    (self.status_ready.usage, self.system_usage.summary())
+                    && crate::system_usage_view::show_prepared_status(
+                        ui,
+                        self.locale,
+                        self.system_usage_appearance,
+                        texture,
+                        usage,
+                        self.tooltips,
+                    )
+                    .clicked()
+                {
+                    output.is_usage_detail_requested = true;
+                    ui.ctx().request_repaint();
                 }
                 crate::status_editor::show_cursor(
                     ui,
@@ -11083,6 +11326,10 @@ mod app_menu_tests;
 #[cfg(all(test, unix))]
 #[path = "application-file-drop-tests.rs"]
 mod file_drop_tests;
+
+#[cfg(all(test, unix))]
+#[path = "application-error-boundary-tests.rs"]
+mod error_boundary_tests;
 
 #[cfg(test)]
 mod close_all_tests {

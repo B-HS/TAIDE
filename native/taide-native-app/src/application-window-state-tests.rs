@@ -7,6 +7,10 @@ const DEADLINE: Duration = Duration::from_secs(10);
 const MAIN_SIZE: [f32; 2] = [1180.0, 760.0];
 const AUXILIARY_SIZE: [f32; 2] = [900.0, 600.0];
 const WINDOW_ORIGIN: [f32; 2] = [64.0, 48.0];
+const MONITOR: crate::window_state::Monitor = crate::window_state::Monitor {
+    position: [0.0, 0.0],
+    size: [1728.0, 1117.0],
+};
 const AUXILIARY_SLOT: u32 = 1;
 const OBSERVED_FRAMES: usize = 4;
 const RESIZED_SLOTS: [f32; 2] = [35.0, 65.0];
@@ -120,7 +124,7 @@ fn saved_window_states(
 }
 
 #[test]
-fn 실제_app은_메인_창_크기만_추적해_종료때_data_dir에_저장하고_보조_창은_원본_기본_크기로_연다() {
+fn 실제_app은_메인_창_상태만_추적해_종료때_data_dir에_저장하고_보조_창은_원본_기본_크기로_연다() {
     let mut fixture = Fixture {
         directory: std::env::temp_dir()
             .join(format!("taide-native-window-state-{}", ProjectId::new())),
@@ -196,16 +200,21 @@ fn 실제_app은_메인_창_크기만_추적해_종료때_data_dir에_저장하�
         crate::window_state::WindowState {
             width: MAIN_SIZE[0],
             height: MAIN_SIZE[1],
+            position: Some(WINDOW_ORIGIN),
             maximized: false,
             fullscreen: false,
         }
     );
-    let restored = crate::window_state::main_viewport(egui::ViewportBuilder::default(), &data);
+    let restored =
+        crate::window_state::main_viewport(egui::ViewportBuilder::default(), &data, &[MONITOR]);
     assert_eq!(
         restored.inner_size,
         Some(egui::vec2(MAIN_SIZE[0], MAIN_SIZE[1]))
     );
-    assert_eq!(restored.position, None);
+    assert_eq!(
+        restored.position,
+        Some(egui::pos2(WINDOW_ORIGIN[0], WINDOW_ORIGIN[1]))
+    );
 }
 
 #[test]
@@ -310,10 +319,15 @@ fn 실제_app_재시작은_프로젝트_slot_트리_zen_보조_창과_메인_창
         ))
         .unwrap();
     assert!(warnings.is_empty(), "{warnings:?}");
-    let restored = crate::window_state::main_viewport(egui::ViewportBuilder::default(), &data);
+    let restored =
+        crate::window_state::main_viewport(egui::ViewportBuilder::default(), &data, &[MONITOR]);
     assert_eq!(
         restored.inner_size,
         Some(egui::vec2(MAIN_SIZE[0], MAIN_SIZE[1]))
+    );
+    assert_eq!(
+        restored.position,
+        Some(egui::pos2(WINDOW_ORIGIN[0], WINDOW_ORIGIN[1]))
     );
     let context = egui::Context::default();
     render_auxiliary_viewports(&context, window_info(AUXILIARY_SIZE));
@@ -389,4 +403,166 @@ fn 실제_app_재시작은_프로젝트_slot_트리_zen_보조_창과_메인_창
         crate::window_state::load(&data).map(|state| [state.width, state.height]),
         Some(MAIN_SIZE)
     );
+}
+
+fn synthetic_tab(kind: TabKind) -> Tab {
+    Tab {
+        id: TabId::new(),
+        title: "synthetic".into(),
+        kind,
+        pinned: false,
+        preview: false,
+        dirty: false,
+        view_state: None,
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn 실제_app은_editor_영역이_프로젝트를_보일_때_열린_탭_밖의_잔여_mirror만_정리한다() {
+    const OPEN_FILE: &str = "open.txt";
+    const STALE_FILE: &str = "stale.txt";
+    const CLOSED_FILE: &str = "closed.txt";
+    const DISK: &str = "synthetic disk\n";
+    const DRAFT: &str = "synthetic draft\n";
+    let mut fixture = Fixture {
+        directory: std::env::temp_dir()
+            .join(format!("taide-native-mirror-prune-{}", ProjectId::new())),
+        application: None,
+    };
+    let data = fixture.directory.join("data");
+    let alpha_root = fixture.directory.join("alpha");
+    let beta_root = fixture.directory.join("beta");
+    for directory in [&data, &alpha_root, &beta_root] {
+        std::fs::create_dir_all(directory).unwrap();
+    }
+    let link = fixture.directory.join("alpha-link");
+    std::os::unix::fs::symlink(&alpha_root, &link).unwrap();
+    for name in [OPEN_FILE, NOTES_FILE, STALE_FILE, CLOSED_FILE] {
+        std::fs::write(alpha_root.join(name), DISK).unwrap();
+    }
+    std::fs::write(beta_root.join(STALE_FILE), DISK).unwrap();
+    let alpha = ProjectId::new();
+    let beta = ProjectId::new();
+    let slot = ShellSlotId::new();
+    let pane = PaneId::new();
+    let open = synthetic_tab(TabKind::File {
+        path: link.join(OPEN_FILE).to_str().unwrap().into(),
+    });
+    let open_untitled = synthetic_tab(TabKind::Untitled { index: 1 });
+    let closed_untitled = synthetic_tab(TabKind::Untitled { index: 2 });
+    let stale_untitled = TabId::new();
+    let state = isolated_state(data.clone());
+    insert_project(&state, &alpha, &alpha_root, "alpha", false);
+    insert_project(&state, &beta, &beta_root, "beta", false);
+    {
+        let mut layouts = state.layouts.write();
+        let layout = layouts.get_mut(&alpha).unwrap();
+        layout.root = PaneNode::Leaf {
+            id: pane.clone(),
+            active: Some(open.id.clone()),
+            tabs: vec![open, open_untitled.clone()],
+        };
+        layout.focused_pane = pane.clone();
+        layout.auxiliary_windows = vec![auxiliary_window(&alpha_root)];
+        layout.closed_tabs = [
+            synthetic_tab(TabKind::File {
+                path: alpha_root.join(CLOSED_FILE).to_str().unwrap().into(),
+            }),
+            closed_untitled.clone(),
+        ]
+        .into_iter()
+        .map(|tab| taide_model::layout::ClosedTab {
+            tab,
+            pane_id: pane.clone(),
+            index: 0,
+        })
+        .collect();
+    }
+    {
+        let mut session = state.session.write();
+        session.projects = vec![
+            project_ref(&alpha, &alpha_root, "alpha"),
+            project_ref(&beta, &beta_root, "beta"),
+        ];
+        session.active_project = Some(alpha.clone());
+        session.shell_slots = Some(ShellSlotTree::Leaf {
+            slot_id: slot.clone(),
+            project_id: alpha.clone(),
+        });
+        session.focused_shell_slot = Some(slot);
+    }
+    let canonical = |path: std::path::PathBuf| path.canonicalize().unwrap();
+    let kept = [
+        canonical(alpha_root.join(OPEN_FILE)),
+        canonical(alpha_root.join(NOTES_FILE)),
+    ];
+    for (project, path) in [
+        (&alpha, kept[0].clone()),
+        (&alpha, kept[1].clone()),
+        (&alpha, canonical(alpha_root.join(STALE_FILE))),
+        (&alpha, canonical(alpha_root.join(CLOSED_FILE))),
+        (&beta, canonical(beta_root.join(STALE_FILE))),
+    ] {
+        taide_file::service::mirror_dirty(
+            &state.paths,
+            project,
+            &path,
+            path.to_str().unwrap(),
+            DRAFT,
+        )
+        .unwrap();
+    }
+    for tab in [&open_untitled.id, &closed_untitled.id, &stale_untitled] {
+        taide_file::service::mirror_untitled(&state.paths, &alpha, tab, DRAFT).unwrap();
+    }
+    let paths = taide_model::paths::AppPaths::new(data.clone());
+    let mirrored = |project: &ProjectId| {
+        taide_file::service::list_mirrors(&paths, project)
+            .unwrap()
+            .into_iter()
+            .map(|mirror| mirror.path)
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    let untitled_mirrored = |project: &ProjectId| {
+        taide_file::service::list_untitled_mirrors(&paths, project)
+            .unwrap()
+            .into_iter()
+            .map(|mirror| mirror.tab_id)
+            .collect::<HashSet<_>>()
+    };
+    let context = launch(&mut fixture, state);
+    render_auxiliary_viewports(&context, window_info(AUXILIARY_SIZE));
+    let application = fixture.application.as_mut().unwrap();
+
+    frame_until(application, &context, "alpha mirror sweep", |_| {
+        mirrored(&alpha).len() == kept.len() && untitled_mirrored(&alpha).len() == 2
+    });
+    assert_eq!(
+        mirrored(&alpha),
+        kept.iter()
+            .map(|path| path.to_str().unwrap().to_owned())
+            .collect()
+    );
+    assert_eq!(
+        untitled_mirrored(&alpha),
+        [open_untitled.id.clone(), closed_untitled.id.clone()]
+            .into_iter()
+            .collect()
+    );
+    assert_eq!(
+        mirrored(&beta).len(),
+        1,
+        "a project no editor area shows keeps its mirrors"
+    );
+
+    application
+        .controller
+        .submit(ShellMutation::ActivateProject(beta.clone()))
+        .unwrap();
+    frame_until(application, &context, "beta mirror sweep", |_| {
+        mirrored(&beta).is_empty()
+    });
+    assert_eq!(mirrored(&alpha).len(), kept.len());
+    assert_eq!(untitled_mirrored(&alpha).len(), 2);
 }

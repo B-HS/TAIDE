@@ -110,7 +110,7 @@ impl Icons {
         })
     }
 
-    fn prepare(&mut self, context: &egui::Context) -> AppResult<()> {
+    pub(crate) fn prepare(&mut self, context: &egui::Context) -> AppResult<()> {
         let scale = context.pixels_per_point();
         if self.scale == Some(scale) {
             return Ok(());
@@ -159,6 +159,7 @@ fn title(locale: &ResolvedLocale, state: State, port: u32) -> Option<String> {
         .then(|| crate::presentation::message(locale, "ide.title", &[("port", &port.to_string())]))
 }
 
+#[cfg(test)]
 pub(crate) fn show(
     ui: &mut Ui,
     locale: &ResolvedLocale,
@@ -167,7 +168,22 @@ pub(crate) fn show(
     status: IdeStatus,
 ) -> AppResult<Response> {
     icons.prepare(ui.ctx())?;
+    show_prepared(ui, locale, appearance, icons, status)
+}
+
+pub(crate) fn show_prepared(
+    ui: &mut Ui,
+    locale: &ResolvedLocale,
+    appearance: &Appearance,
+    icons: &Icons,
+    status: IdeStatus,
+) -> AppResult<Response> {
     let state = State::from_status(status);
+    let texture = icons
+        .textures
+        .get(state.index())
+        .ok_or_else(|| AppError::Internal("native IDE status icon is not prepared".into()))?
+        .id();
     let color = if state == State::Connected {
         appearance.success
     } else {
@@ -180,12 +196,9 @@ pub(crate) fn show(
             });
             ui.spacing_mut().item_spacing.x = ICON_GAP;
             ui.add(
-                egui::Image::new((
-                    icons.textures[state.index()].id(),
-                    vec2(ICON_SIZE, ICON_SIZE),
-                ))
-                .fit_to_exact_size(vec2(ICON_SIZE, ICON_SIZE))
-                .tint(color),
+                egui::Image::new((texture, vec2(ICON_SIZE, ICON_SIZE)))
+                    .fit_to_exact_size(vec2(ICON_SIZE, ICON_SIZE))
+                    .tint(color),
             );
             ui.add(
                 egui::Label::new(

@@ -141,6 +141,8 @@ pub mod lsp;
 pub mod lsp_process;
 pub mod lsp_workspace;
 pub mod lsp_workspace_worker;
+#[path = "mirror-sweep.rs"]
+mod mirror_sweep;
 pub mod missing_draft;
 #[cfg(test)]
 mod modal;

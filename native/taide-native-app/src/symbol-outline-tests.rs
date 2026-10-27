@@ -1,4 +1,5 @@
 use super::*;
+use crate::navigation_icons::Icons;
 use taide_model::{ids::ProjectId, paths::AppPaths};
 use taide_native_editor::document_symbols::{Symbol, SymbolKind};
 use taide_runtime::AppState;

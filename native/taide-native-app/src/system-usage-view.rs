@@ -103,7 +103,7 @@ impl Icon {
         })
     }
 
-    fn prepare(&mut self, context: &egui::Context) -> AppResult<egui::TextureId> {
+    pub(crate) fn prepare(&mut self, context: &egui::Context) -> AppResult<egui::TextureId> {
         let scale = context.pixels_per_point();
         if let Some((previous, texture)) = &self.texture
             && *previous == scale
@@ -155,6 +155,7 @@ fn summary_text(locale: &ResolvedLocale, usage: &SystemUsage) -> String {
     )
 }
 
+#[cfg(test)]
 pub(crate) fn show_status(
     ui: &mut Ui,
     locale: &ResolvedLocale,
@@ -167,6 +168,19 @@ pub(crate) fn show_status(
         return Ok(None);
     };
     let texture = icon.prepare(ui.ctx())?;
+    Ok(Some(show_prepared_status(
+        ui, locale, appearance, texture, usage, tooltips,
+    )))
+}
+
+pub(crate) fn show_prepared_status(
+    ui: &mut Ui,
+    locale: &ResolvedLocale,
+    appearance: &Appearance,
+    texture: egui::TextureId,
+    usage: &SystemUsage,
+    tooltips: &crate::tooltips::Provider,
+) -> Response {
     let text = summary_text(locale, usage);
     let galley = ui.painter().layout_no_wrap(
         text.clone(),
@@ -220,7 +234,7 @@ pub(crate) fn show_status(
         egui::RectAlign::TOP,
         &appearance.tooltip,
     );
-    Ok(Some(response))
+    response
 }
 
 fn columns(ui: &mut Ui, appearance: &Appearance, labels: [&str; 3], header: bool) {

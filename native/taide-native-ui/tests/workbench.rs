@@ -14,11 +14,12 @@ use taide_model::project::{
     WindowChrome,
 };
 use taide_native_ui::commands::{ShellIntent, ShellMutation, dispatch, request_close_tab};
+use taide_native_ui::error_boundary::Region;
 use taide_native_ui::presentation::{apply_visuals, visuals};
 use taide_native_ui::project_drag::{DRAGGING_OPACITY, is_dragging, slot_drop_preview};
 use taide_native_ui::project_rail::{RailColors, RailIcon};
 use taide_native_ui::shell::{
-    EXPLORER_DEFAULT_WIDTH, EXPLORER_MAX_FRACTION, EXPLORER_MIN_WIDTH, NativeShell,
+    EXPLORER_DEFAULT_WIDTH, EXPLORER_MAX_FRACTION, EXPLORER_MIN_WIDTH, ExplorerMount, NativeShell,
     PROJECT_RAIL_WIDTH, SLOT_HEADER_HEIGHT, STATUS_HEIGHT, ShellColors, ShellSurfaces, TAB_HEIGHT,
     TITLE_HEIGHT, WelcomeContent, WelcomeRecent, WelcomeShortcutRow, WindowScope,
 };
@@ -86,6 +87,7 @@ const AUTO_SCROLL_EDGE_PROBE: f32 = 24.0;
 const AUTO_SCROLL_HOLD_FRAMES: usize = 6;
 const TAB_ROW_GAP_PROBE: f32 = TAB_ICON_SIDE + TAB_ICON_GAP + EGUI_ITEM_SPACING / 2.0;
 const PANEL_SETTLE_FRAMES: usize = 2;
+const DISCARDED_FRAME_PASSES: u64 = 2;
 const PANEL_SEPARATOR_WIDTH: f32 = 1.0;
 const SYNTHETIC_BRANCH: &str = "synthetic/title-branch";
 const TITLE_BRANCH_ICON_SIDE: f32 = 12.0;
@@ -120,26 +122,89 @@ struct Surfaces {
     auxiliary_explorers: Vec<(ProjectId, u32, Rect)>,
     branch: Option<&'static str>,
     title_branch_icons: Vec<(Rect, Color32)>,
+    is_status_panicking: bool,
+    is_first_pass_discarded: bool,
+    status_discards: usize,
+    panicking_explorer: Option<ShellSlotId>,
+    explorer_rects: Vec<Rect>,
+    explorer_begins: usize,
+    explorer_discards: Vec<String>,
+}
+
+enum ExplorerRecord {
+    Slot(ProjectId, ShellSlotId, Rect),
+    Auxiliary(ProjectId, u32, Rect),
 }
 
 impl ShellSurfaces for Surfaces {
+    type StatusOutput = Vec<Option<ProjectId>>;
+    type Explorer = Option<ExplorerRecord>;
     fn title_branch_icon(&mut self, _: &Ui, rect: Rect, color: Color32) {
         self.title_branch_icons.push((rect, color));
     }
     fn is_auxiliary_explorer_open(&self, _: &ProjectId, _: u32) -> bool {
         self.is_auxiliary_explorer_open
     }
-    fn auxiliary_explorer(
-        &mut self,
+    fn begin_explorer(&mut self, _: &ProjectId, _: ExplorerMount<'_>) -> Option<ExplorerRecord> {
+        self.explorer_begins += 1;
+        None
+    }
+    fn explorer(
+        &self,
         ui: &mut Ui,
         project: &ProjectId,
-        slot: u32,
+        mount: ExplorerMount<'_>,
+        explorer: &mut Option<ExplorerRecord>,
         _: &mut Vec<ShellIntent>,
     ) {
-        self.auxiliary_explorers
-            .push((project.clone(), slot, ui.available_rect_before_wrap()));
-        ui.label("test-only auxiliary explorer");
-        ui.allocate_space(ui.available_size());
+        match mount {
+            ExplorerMount::Slot(slot) => {
+                *explorer = Some(ExplorerRecord::Slot(
+                    project.clone(),
+                    slot.clone(),
+                    ui.max_rect(),
+                ));
+                ui.label("test-only explorer");
+                if self.panicking_explorer.as_ref() == Some(slot) {
+                    panic!("synthetic sidebar panel panic");
+                }
+            }
+            ExplorerMount::Auxiliary(slot) => {
+                *explorer = Some(ExplorerRecord::Auxiliary(
+                    project.clone(),
+                    slot,
+                    ui.available_rect_before_wrap(),
+                ));
+                ui.label("test-only auxiliary explorer");
+                ui.allocate_space(ui.available_size());
+            }
+        }
+    }
+    fn finish_explorer(
+        &mut self,
+        _: &egui::Context,
+        _: &ProjectId,
+        _: ExplorerMount<'_>,
+        explorer: Option<ExplorerRecord>,
+    ) {
+        match explorer {
+            Some(ExplorerRecord::Slot(project, slot, rect)) => {
+                self.explorers.push((project, slot));
+                self.explorer_rects.push(rect);
+            }
+            Some(ExplorerRecord::Auxiliary(project, slot, rect)) => {
+                self.auxiliary_explorers.push((project, slot, rect))
+            }
+            None => {}
+        }
+    }
+    fn discard_explorer(
+        &mut self,
+        _: &ProjectId,
+        mount: ExplorerMount<'_>,
+        _: Option<ExplorerRecord>,
+    ) {
+        self.explorer_discards.push(format!("{mount:?}"));
     }
     fn rail_recent_projects(&self) -> Vec<WelcomeRecent> {
         self.rail.clone()
@@ -153,9 +218,16 @@ impl ShellSurfaces for Surfaces {
     fn is_reduced_motion(&self) -> bool {
         self.is_reduced_motion
     }
-    fn rail_icon(&mut self, ui: &Ui, rect: Rect, icon: RailIcon<'_>, color: Color32) {
+    fn rail_icon(
+        &mut self,
+        painter: &egui::Painter,
+        _: egui::layers::ShapeIdx,
+        rect: Rect,
+        icon: RailIcon<'_>,
+        color: Color32,
+    ) {
         self.rail_icons
-            .push((format!("{icon:?}"), rect, color, ui.opacity()));
+            .push((format!("{icon:?}"), rect, color, painter.opacity()));
     }
     fn welcome_content(&self, _: Option<&ProjectId>) -> WelcomeContent {
         self.welcome.clone().unwrap_or_default()
@@ -176,16 +248,6 @@ impl ShellSurfaces for Surfaces {
         self.problems
             .push((slot.clone(), ui.available_rect_before_wrap()));
         ui.label("test-only problems");
-    }
-    fn explorer(
-        &mut self,
-        ui: &mut Ui,
-        project: &ProjectId,
-        slot: &ShellSlotId,
-        _: &mut Vec<ShellIntent>,
-    ) {
-        self.explorers.push((project.clone(), slot.clone()));
-        ui.label("test-only explorer");
     }
     fn tab_content(
         &mut self,
@@ -214,9 +276,26 @@ impl ShellSurfaces for Surfaces {
         self.reopen_with_extension
             .is_some_and(|extension| path.ends_with(extension))
     }
-    fn status_bar(&mut self, ui: &mut Ui, project: Option<&ProjectId>, _: &mut Vec<ShellIntent>) {
-        self.status_projects.push(project.cloned());
+    fn status_bar(
+        &self,
+        ui: &mut Ui,
+        project: Option<&ProjectId>,
+        output: &mut Vec<Option<ProjectId>>,
+    ) {
+        output.push(project.cloned());
         ui.label("test-only status");
+        if self.is_first_pass_discarded && ui.ctx().current_pass_index() == 0 {
+            ui.ctx().request_discard("test-only discarded first pass");
+        }
+        if self.is_status_panicking {
+            panic!("synthetic status bar panic");
+        }
+    }
+    fn apply_status_bar(&mut self, output: Vec<Option<ProjectId>>) {
+        self.status_projects.extend(output);
+    }
+    fn discard_status_bar(&mut self) {
+        self.status_discards += 1;
     }
 }
 
@@ -1376,7 +1455,7 @@ fn welcome_frame(
     };
     let mut intents = Vec::new();
     let mut output = context.run_ui(input, |ui| {
-        intents = shell.show(ui, snapshot, &mut surfaces);
+        intents.extend(shell.show(ui, snapshot, &mut surfaces));
     });
     output.textures_delta.clear();
     (intents, output)
@@ -2597,7 +2676,7 @@ fn rail_frame(
     };
     let mut intents = Vec::new();
     let mut output = context.run_ui(input, |ui| {
-        intents = shell(WindowScope::Main).show(ui, snapshot, &mut surfaces);
+        intents.extend(shell(WindowScope::Main).show(ui, snapshot, &mut surfaces));
     });
     output.textures_delta.clear();
     (surfaces, intents, output)
@@ -4799,4 +4878,596 @@ fn 탭_drag_상태는_viewport별이라_보조창_패스가_메인창_drag를_�
     assert!(!tab_drag::is_dragging(&context));
     assert!(auxiliary_passes.get() > titles.len());
     assert!(is_moved(&intents, &dragged, &pane, 2), "{intents:?}");
+}
+
+fn alert_node(output: &egui::FullOutput) -> Option<(Rect, bool)> {
+    let update = output.platform_output.accesskit_update.as_ref()?;
+    update.nodes.iter().find_map(|(id, node)| {
+        (node.role() == egui::accesskit::Role::Alert).then(|| {
+            let bounds = node.bounds()?;
+            Some((
+                Rect::from_min_max(
+                    pos2(bounds.x0 as f32, bounds.y0 as f32),
+                    pos2(bounds.x1 as f32, bounds.y1 as f32),
+                ),
+                update.focus == *id,
+            ))
+        })?
+    })
+}
+
+fn has_text(output: &egui::FullOutput, text: &str) -> bool {
+    texts_of(output).iter().any(|candidate| candidate == text)
+}
+
+fn assert_fallback(output: &egui::FullOutput, label: &str, region: Rect) {
+    for key in [label, "errorBoundary.description", "common.retry"] {
+        assert!(has_text(output, key), "{key}: {:?}", texts_of(output));
+    }
+    let (bounds, is_focused) = alert_node(output).expect("fallback is an alert");
+    assert!(
+        (bounds.min - region.min).length() < PIXEL_SNAP_TOLERANCE,
+        "{bounds:?}"
+    );
+    assert!(
+        (bounds.max - region.max).length() < PIXEL_SNAP_TOLERANCE,
+        "{bounds:?}"
+    );
+    assert!(is_focused);
+    let update = output.platform_output.accesskit_update.as_ref().unwrap();
+    assert!(update.nodes.iter().any(|(_, node)| {
+        node.role() == egui::accesskit::Role::Alert
+            && node.label() == Some(label)
+            && node.description() == Some("errorBoundary.description")
+    }));
+}
+
+fn window_body() -> Rect {
+    Rect::from_min_max(
+        pos2(0.0, TITLE_HEIGHT),
+        pos2(WINDOW_SIZE[0], WINDOW_SIZE[1] - STATUS_HEIGHT),
+    )
+}
+
+fn discarded_frame_click(snapshot: &ShellSnapshot, position: egui::Pos2) -> Vec<ShellIntent> {
+    let context = egui::Context::default();
+    rail_frame(&context, snapshot, Surfaces::default(), 0.0, Vec::new());
+    let passes = context.cumulative_pass_nr();
+    let (_, intents, _) = rail_frame(
+        &context,
+        snapshot,
+        Surfaces {
+            is_first_pass_discarded: true,
+            ..Default::default()
+        },
+        FRAME_SECONDS,
+        pointer(position, egui::PointerButton::Primary),
+    );
+    assert_eq!(
+        context.cumulative_pass_nr() - passes,
+        DISCARDED_FRAME_PASSES
+    );
+    intents
+}
+
+#[test]
+fn 상태표시줄_panic은_그_영역만_fallback으로_바꾸고_출력을_버리며_재시도로_새로_그린다() {
+    let snapshot = fixture();
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let status = Rect::from_min_max(
+        pos2(0.0, WINDOW_SIZE[1] - STATUS_HEIGHT),
+        pos2(WINDOW_SIZE[0], WINDOW_SIZE[1]),
+    );
+    let (surfaces, _, output) =
+        rail_frame(&context, &snapshot, Surfaces::default(), 0.0, Vec::new());
+    assert_eq!(surfaces.status_projects.len(), 1);
+    assert!(alert_node(&output).is_none());
+    let panicking = || Surfaces {
+        is_status_panicking: true,
+        ..Default::default()
+    };
+    let (surfaces, _, output) =
+        rail_frame(&context, &snapshot, panicking(), FRAME_SECONDS, Vec::new());
+    assert!(surfaces.status_projects.is_empty());
+    assert_eq!(surfaces.status_discards, 1);
+    assert!(!has_text(&output, "test-only status"));
+    assert_fallback(&output, "errorBoundary.statusBar", status);
+    assert!(!surfaces.panes.is_empty());
+    for project in &snapshot.projects {
+        assert!(access_node(&output, &project.name).is_some());
+    }
+    let (surfaces, _, output) = rail_frame(
+        &context,
+        &snapshot,
+        panicking(),
+        FRAME_SECONDS * 2.0,
+        Vec::new(),
+    );
+    assert!(surfaces.status_projects.is_empty());
+    assert_eq!(surfaces.status_discards, 0);
+    assert_fallback(&output, "errorBoundary.statusBar", status);
+    let (retry, _) = access_node(&output, "common.retry").expect("retry is a button");
+    assert!(status.contains_rect(retry));
+    rail_frame(
+        &context,
+        &snapshot,
+        Surfaces::default(),
+        FRAME_SECONDS * 3.0,
+        pointer(retry.center(), egui::PointerButton::Primary),
+    );
+    let (surfaces, _, output) = rail_frame(
+        &context,
+        &snapshot,
+        Surfaces::default(),
+        FRAME_SECONDS * 4.0,
+        Vec::new(),
+    );
+    assert_eq!(surfaces.status_projects.len(), 1);
+    assert!(has_text(&output, "test-only status"));
+    assert!(alert_node(&output).is_none());
+}
+
+#[test]
+fn 액티비티바_panic은_rail만_fallback으로_바꾸고_그_pass_출력을_버리며_재시도로_새로_그린다() {
+    let snapshot = fixture();
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let body = window_body();
+    let rail = Rect::from_min_max(body.min, pos2(PROJECT_RAIL_WIDTH, body.bottom()));
+    let (_, _, output) = rail_frame(&context, &snapshot, Surfaces::default(), 0.0, Vec::new());
+    let (project, _) = access_node(&output, &snapshot.projects[0].name).unwrap();
+    let discarded = discarded_frame_click(&snapshot, project.center());
+    assert!(discarded.iter().any(is_activation), "{discarded:?}");
+    taide_native_ui::error_boundary::inject_panic(&context, Region::ActivityBar);
+    let passes = context.cumulative_pass_nr();
+    let (surfaces, intents, output) = rail_frame(
+        &context,
+        &snapshot,
+        Surfaces::default(),
+        FRAME_SECONDS,
+        pointer(project.center(), egui::PointerButton::Primary),
+    );
+    assert_eq!(
+        context.cumulative_pass_nr() - passes,
+        DISCARDED_FRAME_PASSES
+    );
+    assert!(!intents.iter().any(is_activation), "{intents:?}");
+    assert!(surfaces.rail_icons.is_empty());
+    assert_fallback(&output, "errorBoundary.sidebar", rail);
+    assert!(!surfaces.panes.is_empty());
+    assert!(!surfaces.status_projects.is_empty());
+    if cfg!(debug_assertions) {
+        assert!(
+            texts_of(&output)
+                .iter()
+                .any(|text| text.starts_with("panicked at ")
+                    && text.contains("synthetic native error boundary panic in ActivityBar")),
+            "{:?}",
+            texts_of(&output)
+        );
+    }
+    let (retry, _) = access_node(&output, "common.retry").unwrap();
+    rail_frame(
+        &context,
+        &snapshot,
+        Surfaces::default(),
+        FRAME_SECONDS * 2.0,
+        pointer(retry.center(), egui::PointerButton::Primary),
+    );
+    let (surfaces, _, output) = rail_frame(
+        &context,
+        &snapshot,
+        Surfaces::default(),
+        FRAME_SECONDS * 3.0,
+        Vec::new(),
+    );
+    assert!(alert_node(&output).is_none());
+    assert!(!surfaces.rail_icons.is_empty());
+    let (add, _) = access_node(&output, "sidebar.addProjectMenu").unwrap();
+    rail_frame(
+        &context,
+        &snapshot,
+        Surfaces::default(),
+        FRAME_SECONDS * 4.0,
+        pointer(add.center(), egui::PointerButton::Primary),
+    );
+    let (_, _, output) = rail_frame(
+        &context,
+        &snapshot,
+        Surfaces::default(),
+        FRAME_SECONDS * 5.0,
+        Vec::new(),
+    );
+    assert!(egui::Popup::is_any_open(&context));
+    assert!(has_text(&output, "sidebar.openByPath"));
+    taide_native_ui::error_boundary::inject_panic(&context, Region::ActivityBar);
+    let (_, _, output) = rail_frame(
+        &context,
+        &snapshot,
+        Surfaces::default(),
+        FRAME_SECONDS * 6.0,
+        Vec::new(),
+    );
+    assert!(!egui::Popup::is_any_open(&context));
+    assert!(!has_text(&output, "sidebar.openByPath"));
+    let (retry, _) = access_node(&output, "common.retry").unwrap();
+    rail_frame(
+        &context,
+        &snapshot,
+        Surfaces::default(),
+        FRAME_SECONDS * 7.0,
+        pointer(retry.center(), egui::PointerButton::Primary),
+    );
+    rail_frame(
+        &context,
+        &snapshot,
+        Surfaces::default(),
+        FRAME_SECONDS * 8.0,
+        Vec::new(),
+    );
+    let (_, intents, output) = rail_frame(
+        &context,
+        &snapshot,
+        Surfaces::default(),
+        FRAME_SECONDS * 9.0,
+        pointer(project.center(), egui::PointerButton::Primary),
+    );
+    assert!(!egui::Popup::is_any_open(&context));
+    assert!(!has_text(&output, "sidebar.openByPath"));
+    assert!(intents.iter().any(is_activation), "{intents:?}");
+}
+
+#[test]
+fn welcome_panic은_welcome만_fallback으로_바꾸고_상태표시줄을_유지하며_재시도로_새로_그린다() {
+    let mut snapshot = fixture();
+    snapshot.projects.clear();
+    snapshot.shell.tree = None;
+    snapshot.shell.focused = None;
+    snapshot.layouts.clear();
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let (_, output) = welcome_frame(
+        &context,
+        &snapshot,
+        &WelcomeContent::default(),
+        0.0,
+        Vec::new(),
+    );
+    let (open_folder, _) = access_node(&output, "app.openFolder").unwrap();
+    let discarded = discarded_frame_click(&snapshot, open_folder.center());
+    assert!(
+        discarded
+            .iter()
+            .any(|intent| matches!(intent, ShellIntent::OpenFolder)),
+        "{discarded:?}"
+    );
+    taide_native_ui::error_boundary::inject_panic(&context, Region::Welcome);
+    let passes = context.cumulative_pass_nr();
+    let (surfaces, intents, output) = rail_frame(
+        &context,
+        &snapshot,
+        Surfaces::default(),
+        FRAME_SECONDS,
+        pointer(open_folder.center(), egui::PointerButton::Primary),
+    );
+    assert_eq!(
+        context.cumulative_pass_nr() - passes,
+        DISCARDED_FRAME_PASSES
+    );
+    assert!(
+        !intents
+            .iter()
+            .any(|intent| matches!(intent, ShellIntent::OpenFolder)),
+        "{intents:?}"
+    );
+    assert_fallback(&output, "errorBoundary.welcome", window_body());
+    assert!(!has_text(&output, "app.openFolder"));
+    assert!(has_text(&output, "test-only status"));
+    assert!(!surfaces.status_projects.is_empty());
+    let (retry, _) = access_node(&output, "common.retry").unwrap();
+    rail_frame(
+        &context,
+        &snapshot,
+        Surfaces::default(),
+        FRAME_SECONDS * 2.0,
+        pointer(retry.center(), egui::PointerButton::Primary),
+    );
+    welcome_frame(
+        &context,
+        &snapshot,
+        &WelcomeContent::default(),
+        FRAME_SECONDS * 3.0,
+        Vec::new(),
+    );
+    let (intents, output) = welcome_frame(
+        &context,
+        &snapshot,
+        &WelcomeContent::default(),
+        FRAME_SECONDS * 4.0,
+        pointer(open_folder.center(), egui::PointerButton::Primary),
+    );
+    assert!(alert_node(&output).is_none());
+    assert!(
+        intents
+            .iter()
+            .any(|intent| matches!(intent, ShellIntent::OpenFolder)),
+        "{intents:?}"
+    );
+}
+
+#[test]
+fn welcome_fallback은_프로젝트가_생겨_사라졌다가_다시_0개가_되면_새_welcome으로_그린다() {
+    let projects = fixture();
+    let mut empty = projects.clone();
+    empty.projects.clear();
+    empty.shell.tree = None;
+    empty.shell.focused = None;
+    empty.layouts.clear();
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let mut time = 0.0;
+    let mut frame = |snapshot: &ShellSnapshot| {
+        time += FRAME_SECONDS;
+        rail_frame(&context, snapshot, Surfaces::default(), time, Vec::new()).2
+    };
+    frame(&empty);
+    taide_native_ui::error_boundary::inject_panic(&context, Region::Welcome);
+    assert_fallback(&frame(&empty), "errorBoundary.welcome", window_body());
+    let output = frame(&empty);
+    assert!(has_text(&output, "errorBoundary.welcome"));
+    assert!(!has_text(&output, "app.openFolder"));
+    let output = frame(&projects);
+    assert!(alert_node(&output).is_none());
+    assert!(!has_text(&output, "errorBoundary.welcome"));
+    let output = frame(&empty);
+    assert!(alert_node(&output).is_none());
+    assert!(!has_text(&output, "errorBoundary.welcome"));
+    assert!(access_node(&output, "app.openFolder").is_some());
+}
+
+#[test]
+fn 액티비티바와_상태표시줄_fallback은_숨겼다_다시_보이면_새로_그린다() {
+    let snapshot = fixture();
+    let mut zen = snapshot.clone();
+    zen.shell.window_chrome.zen = true;
+    let mut rail_collapsed = snapshot.clone();
+    rail_collapsed.shell.window_chrome.sidebar_rail_collapsed = true;
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let mut time = 0.0;
+    let mut frame = |snapshot: &ShellSnapshot| {
+        time += FRAME_SECONDS;
+        let (surfaces, _, output) =
+            rail_frame(&context, snapshot, Surfaces::default(), time, Vec::new());
+        (surfaces, output)
+    };
+    frame(&snapshot);
+    taide_native_ui::error_boundary::inject_panic(&context, Region::ActivityBar);
+    taide_native_ui::error_boundary::inject_panic(&context, Region::StatusBar);
+    frame(&snapshot);
+    let (surfaces, output) = frame(&snapshot);
+    for label in ["errorBoundary.sidebar", "errorBoundary.statusBar"] {
+        assert!(has_text(&output, label), "{label}: {:?}", texts_of(&output));
+    }
+    assert!(surfaces.status_projects.is_empty());
+    assert!(surfaces.rail_icons.is_empty());
+    let (surfaces, output) = frame(&zen);
+    assert!(alert_node(&output).is_none());
+    assert!(surfaces.status_projects.is_empty());
+    let (surfaces, output) = frame(&snapshot);
+    assert!(alert_node(&output).is_none());
+    assert_eq!(surfaces.status_projects.len(), 1);
+    assert!(has_text(&output, "test-only status"));
+    assert!(!surfaces.rail_icons.is_empty());
+    assert!(access_node(&output, &snapshot.projects[0].name).is_some());
+    taide_native_ui::error_boundary::inject_panic(&context, Region::ActivityBar);
+    let (_, output) = frame(&snapshot);
+    assert!(has_text(&output, "errorBoundary.sidebar"));
+    let (surfaces, output) = frame(&rail_collapsed);
+    assert!(alert_node(&output).is_none());
+    assert_eq!(surfaces.status_projects.len(), 1);
+    let (surfaces, output) = frame(&snapshot);
+    assert!(alert_node(&output).is_none());
+    assert!(!surfaces.rail_icons.is_empty());
+    assert!(access_node(&output, &snapshot.projects[0].name).is_some());
+}
+
+#[test]
+fn 사이드바_패널_fallback은_원본처럼_접었다_펴도_남는다() {
+    let snapshot = fixture();
+    let slot = snapshot.shell.focused.clone().unwrap();
+    let project =
+        taide_native_ui::snapshot::slot_project(snapshot.shell.tree.as_ref().unwrap(), &slot)
+            .unwrap()
+            .clone();
+    let mut collapsed = snapshot.clone();
+    collapsed
+        .layouts
+        .get_mut(&project)
+        .unwrap()
+        .shell_view
+        .sidebar_collapsed = true;
+    let mut zen = snapshot.clone();
+    zen.shell.window_chrome.zen = true;
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let mut time = 0.0;
+    let mut frame = |snapshot: &ShellSnapshot| {
+        time += FRAME_SECONDS;
+        rail_frame(&context, snapshot, Surfaces::default(), time, Vec::new()).2
+    };
+    for _ in 0..PANEL_SETTLE_FRAMES {
+        frame(&snapshot);
+    }
+    taide_native_ui::error_boundary::inject_instance_panic(
+        &context,
+        Region::SidebarPanel,
+        egui::Id::new(&slot),
+    );
+    assert!(has_text(&frame(&snapshot), "errorBoundary.sidebarPanel"));
+    for hidden in [&collapsed, &zen] {
+        assert!(!has_text(&frame(hidden), "errorBoundary.sidebarPanel"));
+        let output = frame(&snapshot);
+        assert!(has_text(&output, "errorBoundary.sidebarPanel"));
+        assert!(alert_node(&output).is_some());
+    }
+}
+
+fn explorer_slots(surfaces: &Surfaces) -> Vec<ShellSlotId> {
+    surfaces
+        .explorers
+        .iter()
+        .map(|(_, slot)| slot.clone())
+        .collect()
+}
+
+#[test]
+fn 사이드바_패널_panic은_그_slot_패널만_fallback으로_바꾸고_그_pass_상태를_버리며_재시도로_새로_그린다()
+ {
+    let snapshot = fixture();
+    let Some(ShellSlotTree::Split { children, .. }) = snapshot.shell.tree.as_ref() else {
+        panic!("expected split")
+    };
+    let slots: Vec<ShellSlotId> = children
+        .iter()
+        .map(|child| match child {
+            ShellSlotTree::Leaf { slot_id, .. } => slot_id.clone(),
+            ShellSlotTree::Split { .. } => panic!("expected leaf"),
+        })
+        .collect();
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let mut time = 0.0;
+    let mut frame = |surfaces: Surfaces, events: Vec<egui::Event>| {
+        time += FRAME_SECONDS;
+        rail_frame(&context, &snapshot, surfaces, time, events)
+    };
+    for _ in 0..PANEL_SETTLE_FRAMES {
+        frame(Surfaces::default(), Vec::new());
+    }
+    let (settled, _, output) = frame(Surfaces::default(), Vec::new());
+    assert_eq!(explorer_slots(&settled), slots);
+    assert!(alert_node(&output).is_none());
+    let panel = settled.explorer_rects[0];
+    let panicking = || Surfaces {
+        panicking_explorer: Some(slots[0].clone()),
+        ..Default::default()
+    };
+    let (surfaces, _, output) = frame(panicking(), Vec::new());
+    assert_eq!(
+        surfaces.explorer_discards,
+        vec![format!("{:?}", ExplorerMount::Slot(&slots[0]))]
+    );
+    assert!(!surfaces.explorers.is_empty());
+    assert!(
+        explorer_slots(&surfaces)
+            .iter()
+            .all(|slot| slot == &slots[1])
+    );
+    assert_eq!(
+        texts_of(&output)
+            .iter()
+            .filter(|text| *text == "test-only explorer")
+            .count(),
+        1
+    );
+    assert_fallback(&output, "errorBoundary.sidebarPanel", panel);
+    assert!(!surfaces.panes.is_empty());
+    assert!(!surfaces.status_projects.is_empty());
+    if cfg!(debug_assertions) {
+        assert!(
+            texts_of(&output)
+                .iter()
+                .any(|text| text.starts_with("panicked at ")
+                    && text.contains("synthetic sidebar panel panic")),
+            "{:?}",
+            texts_of(&output)
+        );
+    }
+    let (surfaces, _, output) = frame(panicking(), Vec::new());
+    assert!(surfaces.explorer_discards.is_empty());
+    assert_eq!(surfaces.explorer_begins, slots.len());
+    assert_eq!(explorer_slots(&surfaces), vec![slots[1].clone()]);
+    assert_fallback(&output, "errorBoundary.sidebarPanel", panel);
+    let (retry, _) = access_node(&output, "common.retry").expect("retry is a button");
+    assert!(panel.contains_rect(retry), "{retry:?} {panel:?}");
+    frame(
+        Surfaces::default(),
+        pointer(retry.center(), egui::PointerButton::Primary),
+    );
+    let (surfaces, _, output) = frame(Surfaces::default(), Vec::new());
+    assert!(alert_node(&output).is_none());
+    assert_eq!(explorer_slots(&surfaces), slots);
+    assert!(
+        (surfaces.explorer_rects[0].min - panel.min).length() < PIXEL_SNAP_TOLERANCE
+            && (surfaces.explorer_rects[0].max - panel.max).length() < PIXEL_SNAP_TOLERANCE,
+        "{:?} {panel:?}",
+        surfaces.explorer_rects
+    );
+}
+
+#[test]
+fn 보조창_사이드바_패널_panic은_탐색기만_fallback으로_바꾸고_편집기를_유지하며_재시도로_새로_그린다()
+ {
+    let (snapshot, project, _, _) = auxiliary_snapshot();
+    let shell = shell(WindowScope::Auxiliary {
+        project: project.id.clone(),
+        slot: AUX_SLOT,
+    });
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let mut time = 0.0;
+    let mut frame = |events: Vec<egui::Event>| {
+        time += FRAME_SECONDS;
+        let mut surfaces = Surfaces {
+            is_auxiliary_explorer_open: true,
+            ..Default::default()
+        };
+        let mut output = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    pos2(0.0, 0.0),
+                    vec2(WINDOW_SIZE[0], WINDOW_SIZE[1]),
+                )),
+                time: Some(time),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                shell.show(ui, &snapshot, &mut surfaces);
+            },
+        );
+        output.textures_delta.clear();
+        (surfaces, output)
+    };
+    for _ in 0..PANEL_SETTLE_FRAMES {
+        frame(Vec::new());
+    }
+    let (settled, output) = frame(Vec::new());
+    let [(_, _, panel)] = settled.auxiliary_explorers.as_slice() else {
+        panic!("{:?}", settled.auxiliary_explorers)
+    };
+    let panel = *panel;
+    assert!(alert_node(&output).is_none());
+    taide_native_ui::error_boundary::inject_instance_panic(
+        &context,
+        Region::SidebarPanel,
+        egui::Id::new((&project.id, AUX_SLOT)),
+    );
+    let (surfaces, output) = frame(Vec::new());
+    assert!(surfaces.auxiliary_explorers.is_empty());
+    assert_eq!(
+        surfaces.explorer_discards,
+        vec![format!("{:?}", ExplorerMount::Auxiliary(AUX_SLOT))]
+    );
+    assert_fallback(&output, "errorBoundary.sidebarPanel", panel);
+    assert!(!has_text(&output, "test-only auxiliary explorer"));
+    assert!(!surfaces.panes.is_empty());
+    let (retry, _) = access_node(&output, "common.retry").expect("retry is a button");
+    frame(pointer(retry.center(), egui::PointerButton::Primary));
+    let (surfaces, output) = frame(Vec::new());
+    assert!(alert_node(&output).is_none());
+    assert_eq!(surfaces.auxiliary_explorers.len(), 1);
+    assert!(has_text(&output, "test-only auxiliary explorer"));
 }

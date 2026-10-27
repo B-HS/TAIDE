@@ -8,7 +8,7 @@ use taide_model::locale::ResolvedLocale;
 use taide_model::theme::ResolvedTheme;
 use taide_model::tree::{TreeEntryKind, TreeRow, TreeRowPage};
 
-use crate::problems_icons::{FileColor, Glyph, Icons, file, folder};
+use crate::problems_icons::{FileColor, Glyph, file, folder};
 
 const ROW_HEIGHT: f32 = 22.0;
 const ROW_INDENT: f32 = 12.0;
@@ -152,8 +152,21 @@ impl Appearance {
     }
 }
 
+/// Paints an icon now (a texture cache) or reserves its place to be filled after a render that
+/// may not mutate the caches.
+pub trait PaintIcon<T> {
+    fn paint(
+        &mut self,
+        ui: &Ui,
+        rect: egui::Rect,
+        icon: T,
+        color: Color32,
+        angle: f32,
+    ) -> AppResult<()>;
+}
+
 pub struct RowIcons<'a> {
-    pub glyphs: &'a mut Icons,
+    pub glyphs: &'a mut dyn PaintIcon<Glyph>,
     pub appearance: &'a Appearance,
 }
 
@@ -416,6 +429,15 @@ fn revealing_scroll_offset(current: f32, viewport_height: f32, index: usize) -> 
 }
 
 impl Explorer {
+    /// A new mount after an error boundary dropped this one. Request tokens keep counting from
+    /// here so a reply to a request this mount made can never match a request of the new one.
+    pub fn remounted(&self) -> Self {
+        Self {
+            serial: self.serial,
+            ..Default::default()
+        }
+    }
+
     pub fn clipboard(&self) -> Option<&crate::explorer_clipboard::Entry> {
         self.clipboard.as_ref()
     }

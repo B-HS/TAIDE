@@ -1,6 +1,6 @@
 use std::collections::{HashMap, hash_map::Entry};
 
-use eframe::egui::{self, Color32, ColorImage, Rect, TextureHandle, Ui};
+use eframe::egui::{self, Color32, ColorImage, Rect, TextureHandle, Ui, layers::ShapeIdx};
 use resvg::{tiny_skia, usvg};
 use taide_model::error::{AppError, AppResult};
 use taide_native_editor::document_symbols::SymbolKind;
@@ -137,8 +137,67 @@ impl Icons {
         if let Some(base) = icon.base() {
             return self.base.paint(ui, rect, base, color, angle);
         }
-        let scale = ui.ctx().pixels_per_point();
-        let pixels = (rect.width() * scale).ceil();
+        let key = self.raster(ui.ctx(), rect.size(), icon)?;
+        egui::Image::new((self.textures[&key].id(), rect.size()))
+            .tint(color)
+            .rotate(angle, egui::Vec2::splat(ROTATION_CENTER))
+            .paint_at(ui, rect);
+        Ok(())
+    }
+
+    pub(crate) fn prepare(
+        &mut self,
+        context: &egui::Context,
+        size: egui::Vec2,
+        icon: Icon,
+    ) -> AppResult<()> {
+        match icon.base() {
+            Some(base) => self.base.prepare(context, size, base),
+            None => self.raster(context, size, icon).map(|_| ()),
+        }
+    }
+
+    /// The mesh [`Icons::paint`] adds, from a texture [`Icons::prepare`] made.
+    pub(crate) fn shape(
+        &self,
+        context: &egui::Context,
+        rect: Rect,
+        icon: Icon,
+        color: Color32,
+        angle: f32,
+    ) -> AppResult<egui::Shape> {
+        if let Some(base) = icon.base() {
+            return self.base.shape(context, rect, base, color, angle);
+        }
+        let scale = context.pixels_per_point();
+        let side = (rect.width() * scale).ceil() as u32;
+        let texture = self
+            .textures
+            .get(&(icon, side))
+            .filter(|_| self.scale == Some(scale))
+            .ok_or_else(|| AppError::Internal("native navigation icon is not prepared".into()))?;
+        let rect = egui::emath::GuiRounding::round_to_pixels(rect, scale);
+        let mut mesh = egui::Mesh::with_texture(texture.id());
+        mesh.add_rect_with_uv(
+            rect,
+            Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+            color,
+        );
+        mesh.rotate(
+            egui::emath::Rot2::from_angle(angle),
+            rect.min + egui::Vec2::splat(ROTATION_CENTER) * rect.size(),
+        );
+        Ok(egui::Shape::mesh(mesh))
+    }
+
+    fn raster(
+        &mut self,
+        context: &egui::Context,
+        size: egui::Vec2,
+        icon: Icon,
+    ) -> AppResult<(Icon, u32)> {
+        let scale = context.pixels_per_point();
+        let pixels = (size.x * scale).ceil();
         if !pixels.is_finite() || !(1.0..=MAX_RASTER_SIDE).contains(&pixels) {
             return Err(AppError::Internal(
                 "native navigation icon scale is out of range".into(),
@@ -160,12 +219,12 @@ impl Icons {
             resvg::render(
                 tree,
                 tiny_skia::Transform::from_scale(
-                    rect.width() * scale / VIEWBOX,
-                    rect.height() * scale / VIEWBOX,
+                    size.x * scale / VIEWBOX,
+                    size.y * scale / VIEWBOX,
                 ),
                 &mut pixmap.as_mut(),
             );
-            entry.insert(ui.ctx().load_texture(
+            entry.insert(context.load_texture(
                 format!("native-navigation-{icon:?}-{side}"),
                 ColorImage::from_rgba_unmultiplied(
                     [side as usize, side as usize],
@@ -174,10 +233,113 @@ impl Icons {
                 egui::TextureOptions::LINEAR,
             ));
         }
-        egui::Image::new((self.textures[&key].id(), rect.size()))
-            .tint(color)
-            .rotate(angle, egui::Vec2::splat(ROTATION_CENTER))
-            .paint_at(ui, rect);
+        Ok(key)
+    }
+}
+
+pub(crate) use crate::explorer::PaintIcon;
+
+impl PaintIcon<Icon> for Icons {
+    fn paint(
+        &mut self,
+        ui: &Ui,
+        rect: Rect,
+        icon: Icon,
+        color: Color32,
+        angle: f32,
+    ) -> AppResult<()> {
+        Icons::paint(self, ui, rect, icon, color, angle)
+    }
+}
+
+impl PaintIcon<crate::problems_icons::Glyph> for crate::problems_icons::Icons {
+    fn paint(
+        &mut self,
+        ui: &Ui,
+        rect: Rect,
+        glyph: crate::problems_icons::Glyph,
+        color: Color32,
+        angle: f32,
+    ) -> AppResult<()> {
+        crate::problems_icons::Icons::paint(self, ui, rect, glyph, color, angle)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Source {
+    Glyph(crate::problems_icons::Glyph),
+    Navigation(Icon),
+}
+
+impl From<crate::problems_icons::Glyph> for Source {
+    fn from(glyph: crate::problems_icons::Glyph) -> Self {
+        Self::Glyph(glyph)
+    }
+}
+
+impl From<Icon> for Source {
+    fn from(icon: Icon) -> Self {
+        Self::Navigation(icon)
+    }
+}
+
+struct Reservation {
+    painter: egui::Painter,
+    slot: ShapeIdx,
+    rect: Rect,
+    source: Source,
+    color: Color32,
+    angle: f32,
+}
+
+/// Icons a render that only reads the texture caches asked for: each keeps its place in the paint
+/// order and is filled by [`Deferred::fill`] once the render is kept.
+#[derive(Default)]
+pub(crate) struct Deferred {
+    reservations: Vec<Reservation>,
+}
+
+impl<T: Into<Source>> PaintIcon<T> for Deferred {
+    fn paint(&mut self, ui: &Ui, rect: Rect, icon: T, color: Color32, angle: f32) -> AppResult<()> {
+        let painter = ui.painter().clone();
+        let slot = painter.add(egui::Shape::Noop);
+        self.reservations.push(Reservation {
+            painter,
+            slot,
+            rect,
+            source: icon.into(),
+            color,
+            angle,
+        });
         Ok(())
+    }
+}
+
+impl Deferred {
+    pub(crate) fn fill(
+        self,
+        glyphs: &mut crate::problems_icons::Icons,
+        icons: &mut Icons,
+    ) -> AppResult<()> {
+        let mut failure = None;
+        for reservation in self.reservations {
+            let context = reservation.painter.ctx();
+            let (size, rect) = (reservation.rect.size(), reservation.rect);
+            let shape = match reservation.source {
+                Source::Glyph(glyph) => glyphs.prepare(context, size, glyph).and_then(|()| {
+                    glyphs.shape(context, rect, glyph, reservation.color, reservation.angle)
+                }),
+                Source::Navigation(icon) => icons.prepare(context, size, icon).and_then(|()| {
+                    icons.shape(context, rect, icon, reservation.color, reservation.angle)
+                }),
+            };
+            match shape {
+                Ok(shape) => reservation.painter.set(reservation.slot, shape),
+                Err(error) => {
+                    failure.get_or_insert(error);
+                }
+            }
+        }
+        failure.map_or(Ok(()), Err)
     }
 }

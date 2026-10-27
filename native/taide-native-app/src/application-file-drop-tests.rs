@@ -216,3 +216,28 @@ fn 실제_app은_놓은_폴더를_프로젝트로_열고_뒤따르는_파일은_
     assert!(file_tab(application, &project, outside.to_str().unwrap()).is_none());
     assert_eq!(application.services.state.projects.read().len(), 1);
 }
+
+#[test]
+fn 실제_app은_미리보기_web_view가_받은_drag에도_안내를_그리고_놓은_폴더를_프로젝트로_연다() {
+    let (mut fixture, root) = fixture("web");
+    let alpha = root.join("alpha");
+    std::fs::create_dir_all(&alpha).unwrap();
+    let state = isolated_state(fixture.directory.join("data"));
+    let context = launch(&mut fixture, state);
+    let application = fixture.application.as_mut().unwrap();
+    let label = presentation::message(&application.locale, "app.dropToOpen", &[]);
+    run(application, &context, input(&[], &[]));
+
+    let preview = TabId::new();
+    let drags = application.web_views.drags().clone();
+    assert!(drags.enter(&preview, std::slice::from_ref(&alpha)));
+    let output = run(application, &context, input(&[], &[]));
+    assert!(has_text(&output, &label), "status={:?}", application.status);
+    assert!(drags.drop_paths(&preview, std::slice::from_ref(&alpha)));
+    let output = run(application, &context, input(&[], &[]));
+    assert!(!has_text(&output, &label));
+    assert!(drags.take_dropped().is_empty());
+    frame_until(application, &context, "web view drop", |application| {
+        project_at(application, &alpha).is_some()
+    });
+}

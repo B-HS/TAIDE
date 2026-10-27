@@ -10,7 +10,7 @@ use taide_model::{
 };
 use taide_native_ui::shell::WindowScope;
 
-use crate::navigation_icons::{Icon, Icons};
+use crate::navigation_icons::{Icon, PaintIcon};
 use crate::symbol_outline::{Appearance, Panel};
 
 const HEADER_HEIGHT: f32 = 36.0;
@@ -70,21 +70,27 @@ impl Views {
     }
 
     pub(crate) fn entry(&mut self, project: &ProjectId, slot: &ShellSlotId) -> &mut Sidebar {
-        let entry = self.entries.entry(slot.clone()).or_insert_with(|| Sidebar {
-            project: project.clone(),
-            view: View::Files,
-            outline: Panel::default(),
-            composing: false,
-        });
+        let entry = self
+            .entries
+            .entry(slot.clone())
+            .or_insert_with(|| Sidebar::new(project));
         if entry.project != *project {
-            *entry = Sidebar {
-                project: project.clone(),
-                view: View::Files,
-                outline: Panel::default(),
-                composing: false,
-            };
+            *entry = Sidebar::new(project);
         }
         entry
+    }
+
+    /// Takes the slot's sidebar out for a render inside the sidebar panel's error boundary;
+    /// [`Views::put`] returns it. A sidebar that is never put back starts over as a new mount.
+    pub(crate) fn take(&mut self, project: &ProjectId, slot: &ShellSlotId) -> Sidebar {
+        self.entries
+            .remove(slot)
+            .filter(|entry| entry.project == *project)
+            .unwrap_or_else(|| Sidebar::new(project))
+    }
+
+    pub(crate) fn put(&mut self, slot: ShellSlotId, sidebar: Sidebar) {
+        self.entries.insert(slot, sidebar);
     }
 }
 
@@ -108,13 +114,22 @@ pub(crate) fn window_tree<'a>(
 }
 
 impl Sidebar {
+    fn new(project: &ProjectId) -> Self {
+        Self {
+            project: project.clone(),
+            view: View::Files,
+            outline: Panel::default(),
+            composing: false,
+        }
+    }
+
     pub(crate) fn switch(
         &mut self,
         ui: &mut Ui,
         id: Id,
         locale: &ResolvedLocale,
         appearance: &Appearance,
-        icons: &mut Icons,
+        icons: &mut impl PaintIcon<Icon>,
     ) -> AppResult<Vec<(View, Response)>> {
         let ime_frame = ui.input(|input| {
             let mut ime_frame = false;

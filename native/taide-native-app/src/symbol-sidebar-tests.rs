@@ -1,4 +1,5 @@
 use super::*;
+use crate::navigation_icons::Icons;
 use taide_model::{ids::PaneId, layout::AuxWindowLayout, paths::AppPaths};
 
 #[test]

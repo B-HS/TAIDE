@@ -1,5 +1,10 @@
+use std::collections::HashSet;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, MutexGuard};
+
 use eframe::egui;
 use taide_model::error::{AppError, AppResult};
+use taide_model::ids::TabId;
 
 const BORDER_WIDTH: f32 = 4.0;
 const DASH_LENGTH: f32 = BORDER_WIDTH * 3.0;
@@ -46,6 +51,68 @@ pub(crate) fn dropped_paths(context: &egui::Context) -> Vec<String> {
             .filter_map(|file| file.path().to_str().map(str::to_owned))
             .collect()
     })
+}
+
+#[derive(Default)]
+struct WebDragState {
+    hovering: HashSet<TabId>,
+    dropped: Vec<String>,
+}
+
+/// OS file drags a preview web view received instead of the window. The original preview lived in
+/// the app's own webview, whose drag-drop events reached `app-shell.tsx` 124-135 like any other.
+/// Each method answers whether the web view should keep the drag from its default handling.
+#[derive(Clone, Default)]
+pub(crate) struct WebDrags(Arc<Mutex<WebDragState>>);
+
+impl WebDrags {
+    fn state(&self) -> MutexGuard<'_, WebDragState> {
+        self.0.lock().unwrap_or_else(|error| error.into_inner())
+    }
+
+    pub(crate) fn enter(&self, tab: &TabId, paths: &[PathBuf]) -> bool {
+        let mut state = self.state();
+        if paths.is_empty() {
+            state.hovering.remove(tab);
+            return false;
+        }
+        state.hovering.insert(tab.clone());
+        true
+    }
+
+    pub(crate) fn over(&self, tab: &TabId) -> bool {
+        self.state().hovering.contains(tab)
+    }
+
+    pub(crate) fn leave(&self, tab: &TabId) -> bool {
+        self.state().hovering.remove(tab)
+    }
+
+    pub(crate) fn drop_paths(&self, tab: &TabId, paths: &[PathBuf]) -> bool {
+        let mut state = self.state();
+        if !state.hovering.remove(tab) {
+            return false;
+        }
+        state.dropped.extend(
+            paths
+                .iter()
+                .filter_map(|path| path.to_str().map(str::to_owned)),
+        );
+        true
+    }
+
+    /// The tab's web view is gone, so no `leave` or drop will come from it.
+    pub(crate) fn forget(&self, tab: &TabId) {
+        self.state().hovering.remove(tab);
+    }
+
+    pub(crate) fn is_hovering(&self) -> bool {
+        !self.state().hovering.is_empty()
+    }
+
+    pub(crate) fn take_dropped(&self) -> Vec<String> {
+        std::mem::take(&mut self.state().dropped)
+    }
 }
 
 pub(crate) fn paint_overlay(

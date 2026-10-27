@@ -29,6 +29,7 @@ const GAP: f32 = 4.0;
 const HEADER_PADDING: f32 = 6.0;
 const PROBLEM_INDENT: f32 = 32.0;
 const INACTIVE_OPACITY: f32 = 0.6;
+const STATUS_SPACES_KEY: &str = "native-problems-status-space";
 
 pub(crate) struct Appearance {
     background: Color32,
@@ -205,7 +206,7 @@ impl Drop for ScrollState {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct SpaceInputs {
     armed: HashMap<egui::ViewportId, Id>,
 }
@@ -214,7 +215,6 @@ pub(crate) struct Views {
     panels: HashMap<ShellSlotId, Panel>,
     collation: crate::keybinding_search::Search,
     icons: Icons,
-    status_spaces: SpaceInputs,
     tooltips: crate::tooltips::Provider,
 }
 
@@ -232,7 +232,6 @@ impl Views {
             panels: HashMap::new(),
             collation: crate::keybinding_search::Search::new(locale)?,
             icons: Icons::new()?,
-            status_spaces: SpaceInputs::default(),
             tooltips,
         })
     }
@@ -267,6 +266,7 @@ impl Views {
         self.panels.retain(|slot, _| slots.contains(slot));
     }
 
+    #[cfg(test)]
     pub(crate) fn show_status(
         &mut self,
         ui: &mut Ui,
@@ -275,6 +275,32 @@ impl Views {
         locale: &ResolvedLocale,
         appearance: &Appearance,
     ) -> AppResult<Response> {
+        self.prepare_status(ui.ctx())?;
+        let (response, activations) = self.status_button(ui, slot, store, locale, appearance)?;
+        if let Some(slot) = slot {
+            for _ in 0..activations {
+                self.toggle(slot);
+            }
+        }
+        Ok(response)
+    }
+
+    pub(crate) fn prepare_status(&mut self, context: &egui::Context) -> AppResult<()> {
+        self.icons.prepare(
+            context,
+            vec2(ICON_SIZE, ICON_SIZE),
+            problems_icons::SEVERITIES[diagnostics::ERROR],
+        )
+    }
+
+    pub(crate) fn status_button(
+        &self,
+        ui: &mut Ui,
+        slot: Option<&ShellSlotId>,
+        store: &Store,
+        locale: &ResolvedLocale,
+        appearance: &Appearance,
+    ) -> AppResult<(Response, usize)> {
         let count = store.counts()[diagnostics::ERROR];
         let selected = slot.is_some_and(|slot| self.is_open(slot));
         let color = if count > 0 {
@@ -286,7 +312,7 @@ impl Views {
         let response = icon_count_button(
             ui,
             appearance,
-            &mut self.icons,
+            &self.icons,
             &self.tooltips,
             CountButton {
                 label: &label,
@@ -302,19 +328,14 @@ impl Views {
                 tooltip_align: egui::RectAlign::TOP,
             },
         )?;
+        let spaces_id = response.id.with(STATUS_SPACES_KEY);
+        let mut spaces = ui
+            .data(|data| data.get_temp::<SpaceInputs>(spaces_id))
+            .unwrap_or_default();
         let mut inputs = ActivationInputs::new(ui);
-        let activations = inputs.activate(
-            ui,
-            &response,
-            &mut self.status_spaces,
-            SpaceActivation::Release,
-        );
-        if let Some(slot) = slot {
-            for _ in activations {
-                self.toggle(slot);
-            }
-        }
-        Ok(response)
+        let activations = inputs.activate(ui, &response, &mut spaces, SpaceActivation::Release);
+        ui.data_mut(|data| data.insert_temp(spaces_id, spaces));
+        Ok((response, activations.len()))
     }
 
     pub(crate) fn show_panel(
@@ -362,6 +383,11 @@ impl Views {
                                 &format!("problems.severity.{key}"),
                                 &[],
                             );
+                            icons.prepare(
+                                ui.ctx(),
+                                vec2(ICON_SIZE, ICON_SIZE),
+                                problems_icons::SEVERITIES[severity],
+                            )?;
                             let response = icon_count_button(
                                 ui,
                                 appearance,
@@ -811,7 +837,7 @@ struct CountButton<'a> {
 fn icon_count_button(
     ui: &mut Ui,
     appearance: &Appearance,
-    icons: &mut Icons,
+    icons: &Icons,
     tooltips: &crate::tooltips::Provider,
     button: CountButton<'_>,
 ) -> AppResult<Response> {
@@ -847,7 +873,7 @@ fn icon_count_button(
             .gamma_multiply(button.opacity),
         );
     }
-    icons.paint(
+    icons.paint_prepared(
         ui,
         Rect::from_center_size(
             rect.left_center() + vec2(button.padding + ICON_SIZE / 2.0, 0.0),

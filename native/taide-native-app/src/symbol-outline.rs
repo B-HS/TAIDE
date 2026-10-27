@@ -5,7 +5,7 @@ use taide_model::{error::AppResult, locale::ResolvedLocale, theme::ResolvedTheme
 use taide_native_editor::document::DocumentKey;
 use taide_native_ui::command_palette::SymbolIndex;
 
-use crate::navigation_icons::{Icon, Icons};
+use crate::navigation_icons::{Icon, PaintIcon};
 use crate::symbol_navigation::{Row, Tree};
 
 const ROW_HEIGHT: f32 = 20.0;
@@ -181,7 +181,7 @@ impl Panel {
         scope: Scope<'_>,
         locale: &ResolvedLocale,
         appearance: &Appearance,
-        icons: &mut Icons,
+        icons: &mut impl PaintIcon<Icon>,
     ) -> AppResult<Output> {
         self.reconcile(&scope);
         let mut output = Output::default();

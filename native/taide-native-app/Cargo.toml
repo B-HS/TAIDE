@@ -54,6 +54,7 @@ regex = "=1.13.1"
 resvg = { version = "=0.48.1", default-features = false, features = ["text", "system-fonts", "raster-images"] }
 skrifa = "=0.44.0"
 eframe = { version = "=0.36.2", path = "../../experiments/native-shell-spike/vendor/eframe", default-features = false, features = ["accesskit", "default_fonts", "wgpu", "preserve_empty_paste_shortcuts"] }
+winit = { version = "=0.30.13", default-features = false }
 sys-locale = "=0.3.2"
 icu_normalizer = "=2.3.0"
 icu_locale_core = "=2.3.0"
@@ -106,7 +107,6 @@ taide-native-ui = { path = "../taide-native-ui", features = ["inspection"] }
 tokio = { version = "1", features = ["test-util"] }
 png = "=0.18.1"
 ravif = { version = "=0.13.0", default-features = false }
-winit = { version = "=0.30.13", default-features = false }
 
 [patch.crates-io]
 egui = { path = "vendor/egui-input" }

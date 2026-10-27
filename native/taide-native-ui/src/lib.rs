@@ -107,6 +107,8 @@ mod editor_scroll;
 #[path = "editor-sticky-scroll.rs"]
 pub mod editor_sticky_scroll;
 pub mod editor_surface;
+#[path = "error-boundary.rs"]
+pub mod error_boundary;
 #[path = "font-families.rs"]
 pub mod font_families;
 #[path = "font-preview.rs"]
