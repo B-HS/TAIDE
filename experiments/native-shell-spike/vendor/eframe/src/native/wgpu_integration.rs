@@ -831,30 +831,7 @@ impl WgpuWinitRunning<'_> {
                 window,
             );
 
-            for action in viewport.actions_requested.drain(..) {
-                match action {
-                    ActionRequested::Screenshot { .. } => {
-                        // already handled above
-                    }
-                    ActionRequested::Cut => {
-                        egui_winit.egui_input_mut().events.push(egui::Event::Cut);
-                    }
-                    ActionRequested::Copy => {
-                        egui_winit.egui_input_mut().events.push(egui::Event::Copy);
-                    }
-                    ActionRequested::Paste => {
-                        if let Some(contents) = egui_winit.clipboard_text() {
-                            let contents = contents.replace("\r\n", "\n");
-                            if !contents.is_empty() {
-                                egui_winit
-                                    .egui_input_mut()
-                                    .events
-                                    .push(egui::Event::Paste(contents));
-                            }
-                        }
-                    }
-                }
-            }
+            push_requested_edits(&mut viewport.actions_requested, egui_winit);
 
             integration.post_rendering(window);
 
@@ -1206,6 +1183,7 @@ fn render_immediate_viewport(
             return;
         };
         egui_winit::update_viewport_info(&mut viewport.info, egui_ctx, window, false);
+        push_requested_edits(&mut viewport.actions_requested, egui_winit);
 
         let mut input = egui_winit.take_egui_input(window);
         input.viewports = viewports
@@ -1284,6 +1262,23 @@ fn render_immediate_viewport(
         painter,
         viewport_from_window,
     );
+}
+
+fn push_requested_edits(actions: &mut Vec<ActionRequested>, egui_winit: &mut egui_winit::State) {
+    actions.retain(|action| {
+        let event = match action {
+            ActionRequested::Screenshot(_) => return true,
+            ActionRequested::Cut => Some(egui::Event::Cut),
+            ActionRequested::Copy => Some(egui::Event::Copy),
+            ActionRequested::Paste => egui_winit
+                .clipboard_text()
+                .map(|contents| contents.replace("\r\n", "\n"))
+                .filter(|contents| !contents.is_empty())
+                .map(egui::Event::Paste),
+        };
+        egui_winit.egui_input_mut().events.extend(event);
+        false
+    });
 }
 
 pub(crate) fn remove_viewports_not_in(

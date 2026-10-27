@@ -68,17 +68,6 @@ fn 복원_계획은_root가_있는_열린_프로젝트의_슬롯만_기록_순�
 }
 
 #[test]
-fn 보조_창_라벨은_사용중인_가장_작은_editor_번호를_쓴다() {
-    assert_eq!(next_label(std::iter::empty()), "editor-1");
-    assert_eq!(next_label(["editor-1", "editor-2"].into_iter()), "editor-3");
-    assert_eq!(next_label(["editor-1", "editor-3"].into_iter()), "editor-2");
-    assert_eq!(
-        next_label(["main", "editor", "editor-x"].into_iter()),
-        "editor-1"
-    );
-}
-
-#[test]
 fn 복원과_닫기는_runtime_창_등록부와_viewport_식별자를_함께_관리한다() {
     let (alive, alive_project) = project("alive", false);
     let projects = HashMap::from([(alive.clone(), alive_project)]);

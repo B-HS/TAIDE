@@ -1382,3 +1382,199 @@ fn 실제_app_보조_창_닫기의_탭_복귀는_host_제출이_실패하면_다
     );
     assert!(!is_window_open(application, &window.project, FIRST_SLOT));
 }
+
+fn main_unfocused_step(
+    application: &mut NativeApplication,
+    context: &egui::Context,
+) -> egui::FullOutput {
+    eframe::App::logic(application, context, &mut eframe::Frame::_new_kittest());
+    let mut output = context.run_ui(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(AUXILIARY_SCREEN[0], AUXILIARY_SCREEN[1]),
+            )),
+            focused: false,
+            ..Default::default()
+        },
+        |ui| eframe::App::ui(application, ui, &mut eframe::Frame::_new_kittest()),
+    );
+    output.textures_delta.clear();
+    output
+}
+
+fn menu_request(
+    application: &mut NativeApplication,
+    context: &egui::Context,
+    viewports: &RefCell<Viewports>,
+    menu: &std::sync::mpsc::Sender<String>,
+    viewport: egui::ViewportId,
+    (id, command, delivered): (&str, egui::ViewportCommand, egui::Event),
+) -> egui::FullOutput {
+    menu.send(id.into()).unwrap();
+    let routed = main_unfocused_step(application, context);
+    let commands = |target| {
+        routed
+            .viewport_output
+            .get(&target)
+            .map_or(Vec::new(), |output| output.commands.clone())
+    };
+    assert!(commands(viewport).contains(&command), "{id}");
+    assert!(!commands(egui::ViewportId::ROOT).contains(&command), "{id}");
+    viewports
+        .borrow_mut()
+        .events
+        .insert(viewport, vec![delivered]);
+    main_unfocused_step(application, context);
+    viewports
+        .borrow_mut()
+        .outputs
+        .remove(&viewport)
+        .expect("the auxiliary pass ran")
+}
+
+#[test]
+fn 실제_app_메뉴_편집은_포커스된_보조_창_편집기로만_간다() {
+    const ORIGINAL: &str = "synthetic\n";
+    const SELECTED: &str = "synthetic";
+    const PASTED: &str = "pasted\n";
+    let mut window = single_window("menu-edit");
+    let application = window.fixture.application.as_mut().unwrap();
+    let viewport = viewport_of(application, &window.project, FIRST_SLOT);
+    let [TabKind::File { path: notes }, TabKind::File { path: main }] =
+        [&window.notes.kind, &window.main.kind]
+    else {
+        panic!("both windows show file tabs");
+    };
+    let text = |application: &NativeApplication, path: &str| {
+        application
+            .store
+            .documents()
+            .snapshot(application.files[path].id)
+            .unwrap()
+            .rope
+            .to_string()
+    };
+    let (menu, events) = std::sync::mpsc::channel();
+    application.app_menu.connect(
+        Box::new(super::app_menu_tests::Recording::default()),
+        events,
+    );
+    step_until(
+        application,
+        &window.context,
+        "auxiliary editor",
+        |application, _| {
+            application.files.contains_key(notes)
+                && application.files.contains_key(main)
+                && application
+                    .editor_keymap_targets
+                    .keys()
+                    .any(|(target, _)| *target == viewport)
+        },
+    );
+    let view = super::inlay_hints_tests::body_view(application, notes, &window.notes.id);
+    let editor = application
+        .editor_keymap_targets
+        .iter()
+        .find_map(|((target_viewport, id), (target, _))| {
+            (*target_viewport == viewport && *target == view).then_some(*id)
+        })
+        .expect("the auxiliary editor registers its keymap target");
+    window.viewports.borrow_mut().focus.insert(viewport, editor);
+    application
+        .store
+        .set_view_state(
+            view,
+            taide_native_editor::view::SelectionSet {
+                primary: 0,
+                selections: vec![taide_native_editor::view::Selection {
+                    anchor: 0,
+                    head: SELECTED.len(),
+                }],
+            },
+            Default::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    main_unfocused_step(application, &window.context);
+
+    let copied = menu_request(
+        application,
+        &window.context,
+        &window.viewports,
+        &menu,
+        viewport,
+        (
+            crate::app_menu::COPY_ID,
+            egui::ViewportCommand::RequestCopy,
+            egui::Event::Copy,
+        ),
+    );
+    assert!(
+        copied
+            .platform_output
+            .commands
+            .contains(&egui::OutputCommand::CopyText(SELECTED.into())),
+        "{:?}",
+        copied.platform_output.commands
+    );
+    assert_eq!(text(application, notes), ORIGINAL);
+
+    menu_request(
+        application,
+        &window.context,
+        &window.viewports,
+        &menu,
+        viewport,
+        (
+            crate::app_menu::PASTE_ID,
+            egui::ViewportCommand::RequestPaste,
+            egui::Event::Paste(PASTED.trim_end().into()),
+        ),
+    );
+    assert_eq!(text(application, notes), PASTED);
+
+    for (id, expected) in [
+        (crate::app_menu::UNDO_ID, ORIGINAL),
+        (crate::app_menu::REDO_ID, PASTED),
+    ] {
+        menu.send(id.into()).unwrap();
+        main_unfocused_step(application, &window.context);
+        assert_eq!(text(application, notes), expected, "{id}");
+    }
+
+    menu.send(crate::app_menu::SELECT_ALL_ID.into()).unwrap();
+    main_unfocused_step(application, &window.context);
+    let selection = &application.store.views().get(view).unwrap().selection;
+    let primary = selection.selections[selection.primary];
+    assert_eq!(
+        (
+            primary.anchor.min(primary.head),
+            primary.anchor.max(primary.head)
+        ),
+        (0, PASTED.len())
+    );
+
+    let cut = menu_request(
+        application,
+        &window.context,
+        &window.viewports,
+        &menu,
+        viewport,
+        (
+            crate::app_menu::CUT_ID,
+            egui::ViewportCommand::RequestCut,
+            egui::Event::Cut,
+        ),
+    );
+    assert!(
+        cut.platform_output
+            .commands
+            .contains(&egui::OutputCommand::CopyText(PASTED.into())),
+        "{:?}",
+        cut.platform_output.commands
+    );
+    assert_eq!(text(application, notes), "");
+    assert_eq!(text(application, main), ORIGINAL);
+}

@@ -7,8 +7,6 @@ use taide_model::project::Project;
 use taide_native_ui::shell::WindowScope;
 use taide_runtime::WindowRegistry;
 
-const LABEL_PREFIX: &str = "editor-";
-const FIRST_LABEL_NUMBER: u32 = 1;
 const VIEWPORT_SALT: &str = "taide-auxiliary-window";
 const TITLE_SEPARATOR: &str = " — ";
 pub(crate) const DEFAULT_SIZE: [f32; 2] = [1_000.0, 700.0];
@@ -158,7 +156,7 @@ impl Windows {
     }
 
     fn next_label(&self) -> String {
-        next_label(
+        taide_window::service::next_auxiliary_label(
             self.open
                 .iter()
                 .map(|window| window.label.as_str())
@@ -219,32 +217,15 @@ pub(crate) fn restoration_plan(
     projects: &HashMap<ProjectId, Project>,
     layouts: &HashMap<ProjectId, ProjectLayout>,
 ) -> Vec<(ProjectId, u32)> {
-    order
-        .iter()
-        .filter(|project| {
-            projects
-                .get(*project)
-                .is_some_and(|project| !project.root_missing)
-        })
-        .filter_map(|project| layouts.get(project).map(|layout| (project, layout)))
-        .flat_map(|(project, layout)| {
-            layout
-                .auxiliary_windows
-                .iter()
-                .map(move |window| (project.clone(), window.slot))
-        })
-        .collect()
-}
-
-pub(crate) fn next_label<'a>(existing: impl Iterator<Item = &'a str>) -> String {
-    let used: HashSet<u32> = existing
-        .filter_map(|label| label.strip_prefix(LABEL_PREFIX))
-        .filter_map(|suffix| suffix.parse::<u32>().ok())
+    let restorable: HashSet<ProjectId> = taide_window::service::restorable_project_ids(projects)
+        .into_iter()
         .collect();
-    let number = (FIRST_LABEL_NUMBER..=u32::MAX)
-        .find(|candidate| !used.contains(candidate))
-        .unwrap_or(FIRST_LABEL_NUMBER);
-    format!("{LABEL_PREFIX}{number}")
+    let ordered: Vec<ProjectId> = order
+        .iter()
+        .filter(|project| restorable.contains(*project))
+        .cloned()
+        .collect();
+    taide_window::service::plan_auxiliary_window_restorations(&ordered, layouts)
 }
 
 pub(crate) fn title(project_name: &str, application_name: &str) -> String {

@@ -1,6 +1,7 @@
 use eframe::egui;
 use taide_native_app::application::NativeApplication;
 use taide_native_app::bootstrap::{LaunchConfig, restore};
+use taide_native_app::window_state;
 use taide_runtime::TaskSupervisor;
 
 const INITIAL_SIZE: [f32; 2] = [1400.0, 900.0];
@@ -24,6 +25,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     let config = LaunchConfig::parse(arguments)?;
+    let viewport = window_state::main_viewport(
+        egui::ViewportBuilder::default()
+            .with_inner_size(INITIAL_SIZE)
+            .with_min_inner_size(MINIMUM_SIZE)
+            .with_fullsize_content_view(true)
+            .with_title_shown(false)
+            .with_titlebar_shown(false),
+        &config.data_dir,
+    );
     let helper_executable = std::env::current_exe()?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -31,26 +41,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tasks = TaskSupervisor::new(runtime.handle().clone());
     let (state, warnings) = runtime.block_on(restore(config, &tasks))?;
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size(INITIAL_SIZE)
-            .with_min_inner_size(MINIMUM_SIZE)
-            .with_fullsize_content_view(true)
-            .with_title_shown(false)
-            .with_titlebar_shown(false),
+        viewport,
         ..Default::default()
     };
     eframe::run_native(
         WINDOW_TITLE,
         options,
         Box::new(move |context| {
-            Ok(Box::new(NativeApplication::new(
+            let application = NativeApplication::new(
                 context,
                 runtime,
                 state,
                 tasks,
                 helper_executable,
                 warnings,
-            )?))
+            )?;
+            #[cfg(target_os = "macos")]
+            let application = application.with_app_menu(&context.egui_ctx);
+            Ok(Box::new(application))
         }),
     )?;
     Ok(())

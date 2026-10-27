@@ -6,6 +6,11 @@ pub mod app_file;
 mod app_file_views;
 #[path = "app-file-write.rs"]
 pub mod app_file_write;
+#[path = "app-menu.rs"]
+mod app_menu;
+#[cfg(target_os = "macos")]
+#[path = "app-menu-bar.rs"]
+mod app_menu_bar;
 pub mod application;
 #[path = "application-ports.rs"]
 pub mod application_ports;
@@ -114,6 +119,8 @@ pub mod explorer_source_missing;
 pub mod explorer_toolbar;
 #[path = "file-dialogs.rs"]
 mod file_dialogs;
+#[path = "file-drop.rs"]
+pub mod file_drop;
 #[path = "file-loading.rs"]
 mod file_loading;
 pub mod file_sync;
@@ -303,6 +310,8 @@ mod ui_fonts;
 #[cfg(test)]
 pub(crate) mod ui_icons;
 pub mod untitled;
+#[path = "window-state.rs"]
+pub mod window_state;
 pub mod workspace_activity;
 pub mod workspace_delete;
 pub mod workspace_rename;

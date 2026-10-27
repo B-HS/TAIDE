@@ -24,6 +24,7 @@ pub(crate) enum Icon {
     ChevronRight,
     ListTree,
     FolderTree,
+    FolderInput,
 }
 
 const EXTRA_SOURCES: &[(Icon, &[u8])] = &[
@@ -55,6 +56,10 @@ const EXTRA_SOURCES: &[(Icon, &[u8])] = &[
     (
         Icon::FolderTree,
         include_bytes!("../resources/icons/folder-tree.svg"),
+    ),
+    (
+        Icon::FolderInput,
+        include_bytes!("../resources/icons/folder-input.svg"),
     ),
 ];
 

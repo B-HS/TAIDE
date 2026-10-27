@@ -52,6 +52,7 @@ struct PaintSink {
     file_indexes: Arc<crate::command_palette::FileIndexChanges>,
     presentation: Arc<crate::presentation_refresh::Changes>,
     title_branches: Arc<crate::title_branch::Changes>,
+    app_menu: Arc<crate::app_menu::Changes>,
 }
 
 impl EventSink for PaintSink {
@@ -60,6 +61,7 @@ impl EventSink for PaintSink {
         self.file_indexes.record(&event);
         self.presentation.record(&event);
         self.title_branches.record(&event);
+        self.app_menu.record(&event);
         self.context.request_repaint();
     }
 }
@@ -154,6 +156,7 @@ pub struct NativeApplication {
     editor_json: crate::editor_json::State,
     editor_json_validation: crate::editor_json_validation::State,
     welcome: crate::welcome::State,
+    app_menu: crate::app_menu::State,
     open_path_dialog: crate::open_path_dialog::OpenPathDialog,
     project_display_dialog: taide_native_ui::project_display_dialog::ProjectDisplayDialog,
     project_group_dialog: taide_native_ui::project_group_dialog::ProjectGroupDialog,
@@ -189,6 +192,7 @@ pub struct NativeApplication {
     problems_appearance: crate::problems::Appearance,
     zen_hint: crate::zen::Hint,
     zen_hint_colors: crate::zen::HintColors,
+    file_drop_colors: crate::file_drop::Colors,
     explorer_appearance: crate::explorer::Appearance,
     explorer_icons: crate::problems_icons::Icons,
     navigation_appearance: crate::symbol_outline::Appearance,
@@ -197,6 +201,7 @@ pub struct NativeApplication {
     breadcrumbs: crate::breadcrumbs::Views,
     shell: NativeShell,
     auxiliary_windows: crate::auxiliary_windows::Windows,
+    window_state: crate::window_state::Tracker,
     auxiliary_pass_root: Option<WindowScope>,
     overlay_viewport: egui::ViewportId,
     zen_fullscreen_state: crate::zen::Fullscreen,
@@ -314,6 +319,19 @@ impl NativeApplication {
         )
     }
 
+    #[cfg(target_os = "macos")]
+    pub fn with_app_menu(mut self, context: &egui::Context) -> Self {
+        let model = crate::app_menu::Model {
+            recent: Vec::new(),
+            ..crate::app_menu::Model::new(&self.locale, &[])
+        };
+        match crate::app_menu_bar::install(context.clone(), &model) {
+            Ok((bar, events)) => self.app_menu.connect(Box::new(bar), events),
+            Err(error) => log::warn!("native app menu install failed: {:?}", error.kind()),
+        }
+        self
+    }
+
     pub(crate) fn new_with_secret_store(
         context: &eframe::CreationContext<'_>,
         runtime: Runtime,
@@ -331,6 +349,7 @@ impl NativeApplication {
         let palette_file_changes = Arc::new(crate::command_palette::FileIndexChanges::default());
         let presentation_changes = Arc::new(crate::presentation_refresh::Changes::default());
         let title_branch_changes = Arc::new(crate::title_branch::Changes::default());
+        let app_menu_changes = Arc::new(crate::app_menu::Changes::default());
         let (mut assembly, connection) = runtime.block_on(bootstrap::connect_shell(
             state.clone(),
             tasks.clone(),
@@ -340,6 +359,7 @@ impl NativeApplication {
                 file_indexes: palette_file_changes.clone(),
                 presentation: presentation_changes.clone(),
                 title_branches: title_branch_changes.clone(),
+                app_menu: app_menu_changes.clone(),
             }),
             repaint.clone(),
         ))?;
@@ -549,6 +569,7 @@ impl NativeApplication {
             editor_json: crate::editor_json::State::default(),
             editor_json_validation: crate::editor_json_validation::State::default(),
             welcome: crate::welcome::State::default(),
+            app_menu: crate::app_menu::State::new(app_menu_changes),
             open_path_dialog: Default::default(),
             project_display_dialog: Default::default(),
             project_group_dialog: Default::default(),
@@ -584,6 +605,7 @@ impl NativeApplication {
             problems_appearance: appearances.problems,
             zen_hint: crate::zen::Hint::default(),
             zen_hint_colors: appearances.zen_hint,
+            file_drop_colors: appearances.file_drop,
             explorer_appearance: appearances.explorer,
             explorer_icons: crate::problems_icons::Icons::new()?,
             navigation_appearance: appearances.navigation,
@@ -592,6 +614,7 @@ impl NativeApplication {
             breadcrumbs: crate::breadcrumbs::Views::default(),
             shell,
             auxiliary_windows,
+            window_state: crate::window_state::Tracker::new(&state.paths.data_dir),
             auxiliary_pass_root: None,
             overlay_viewport: egui::ViewportId::ROOT,
             zen_fullscreen_state,
@@ -936,6 +959,7 @@ impl NativeApplication {
                                         self.status_chord_appearance = appearances.status_chord;
                                         self.problems_appearance = appearances.problems;
                 self.zen_hint_colors = appearances.zen_hint;
+                                        self.file_drop_colors = appearances.file_drop;
                                         self.explorer_appearance = appearances.explorer;
                                         self.navigation_appearance = appearances.navigation;
                                         self.tooltip_appearance = appearances.tooltip;
@@ -1931,6 +1955,17 @@ impl NativeApplication {
                     self.open_path_dialog.finish(result.is_ok());
                     if let Err(error) = result {
                         self.report(&error);
+                    }
+                    context.request_repaint();
+                }
+                HostReply::DroppedPathsOpened(notices) => {
+                    for notice in notices {
+                        match notice {
+                            crate::file_drop::Notice::OpenProjectFirst => {
+                                self.notify_open_project_first()
+                            }
+                            crate::file_drop::Notice::Failed(error) => self.report(&error),
+                        }
                     }
                     context.request_repaint();
                 }
@@ -6579,6 +6614,7 @@ impl NativeApplication {
                 self.status_chord_appearance = appearances.status_chord;
                 self.problems_appearance = appearances.problems;
                 self.zen_hint_colors = appearances.zen_hint;
+                self.file_drop_colors = appearances.file_drop;
                 self.explorer_appearance = appearances.explorer;
                 self.navigation_appearance = appearances.navigation;
                 self.tooltip_appearance = appearances.tooltip;
@@ -6606,6 +6642,25 @@ impl NativeApplication {
                 &self.services.tasks,
                 context,
             );
+        }
+        let menu_actions = self.app_menu.tick(
+            &self.locale,
+            &self.services.state,
+            &self.services.tasks,
+            context,
+        );
+        for count in self.app_menu.take_kept_drafts() {
+            self.toasts.info(
+                presentation::message(
+                    &self.locale,
+                    "project.clearRecentKeptDrafts",
+                    &[("count", &count.to_string())],
+                ),
+                Instant::now(),
+            );
+        }
+        for action in menu_actions {
+            self.run_app_menu_action(context, action);
         }
         self.toasts
             .set_reduced_motion(self.motion_preference.current().unwrap_or(false));
@@ -6879,6 +6934,8 @@ impl NativeApplication {
                 }
             }
         }
+        let zoom_factor = context.zoom_factor();
+        context.input(|input| self.window_state.observe(input.viewport(), zoom_factor));
         let close_requested = context.input(|input| input.viewport().close_requested());
         if close_requested && !self.is_exit_ready {
             context.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -6939,6 +6996,7 @@ impl NativeApplication {
 
 impl eframe::App for NativeApplication {
     fn raw_input_hook(&mut self, context: &egui::Context, input: &mut egui::RawInput) {
+        self.app_menu.inject(input.viewport_id, &mut input.events);
         self.terminal_views.raw_input(context, input);
     }
 
@@ -6948,6 +7006,7 @@ impl eframe::App for NativeApplication {
         input: &mut egui::RawInput,
         replayed_events: usize,
     ) {
+        self.app_menu.inject(input.viewport_id, &mut input.events);
         self.terminal_views
             .raw_input_with_replay(context, input, replayed_events);
     }
@@ -6961,6 +7020,9 @@ impl eframe::App for NativeApplication {
     }
 
     fn on_exit(&mut self) {
+        if let Err(error) = self.window_state.save() {
+            log::warn!("native window state save failed: {:?}", error.kind());
+        }
         self.exit_application();
     }
 }
@@ -7043,6 +7105,7 @@ impl NativeApplication {
         };
         let main_proceeded = self.show_window(ui, frame, &mut pass);
         let auxiliary_proceeded = self.show_auxiliary_windows(&context, frame, &mut pass);
+        self.app_menu.finish_child_passes();
         self.finish_window_frames(&context);
         if main_proceeded && auxiliary_proceeded {
             self.finish_frame(&context, frame, pass);
@@ -7079,6 +7142,46 @@ impl NativeApplication {
                 .windows()
                 .iter()
                 .any(|window| context.input_for(window.viewport, |input| input.raw.focused))
+    }
+
+    fn focused_viewport(&self, context: &egui::Context) -> egui::ViewportId {
+        if context.input(|input| input.raw.focused) {
+            return egui::ViewportId::ROOT;
+        }
+        self.auxiliary_windows
+            .windows()
+            .iter()
+            .find(|window| context.input_for(window.viewport, |input| input.raw.focused))
+            .map_or(egui::ViewportId::ROOT, |window| window.viewport)
+    }
+
+    fn run_app_menu_action(&mut self, context: &egui::Context, action: crate::app_menu::Action) {
+        use crate::app_menu::{Action, Input};
+        let is_live = self.closing.is_none()
+            && !self.is_exit_ready
+            && !self.services.state.is_shutting_down();
+        match action {
+            Action::Quit => {
+                context.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Close)
+            }
+            Action::OpenRecent(project) if is_live => {
+                self.submit(HostCommand::OpenRecentProject(project));
+            }
+            Action::ClearRecent if is_live => {
+                self.submit(HostCommand::ClearRecentProjects);
+            }
+            Action::Edit(edit) => {
+                let viewport = self.focused_viewport(context);
+                match edit.input() {
+                    Input::Request(command) => context.send_viewport_cmd_to(viewport, command),
+                    Input::Chord(key, modifiers) => {
+                        self.app_menu.queue_chord(viewport, key, modifiers)
+                    }
+                }
+                context.request_repaint_of(viewport);
+            }
+            Action::OpenRecent(_) | Action::ClearRecent | Action::Ignored => {}
+        }
     }
 
     fn overlay_viewport(&mut self, context: &egui::Context) -> egui::ViewportId {
@@ -7144,6 +7247,9 @@ impl NativeApplication {
                 window.viewport,
                 crate::auxiliary_windows::builder(title),
                 |ui, _| {
+                    ui.ctx().input_mut(|input| {
+                        self.app_menu.inject(window.viewport, &mut input.events)
+                    });
                     let root = std::mem::replace(&mut self.shell.scope, window.scope());
                     self.auxiliary_pass_root = Some(root.clone());
                     proceeded = self.show_window(ui, frame, pass);
@@ -8029,6 +8135,29 @@ impl NativeApplication {
                     &presentation::message(&self.locale, "zen.hintExit", &[]),
                 ),
             );
+            let window = ui.max_rect();
+            if crate::file_drop::is_hovering(&context)
+                && let Err(error) = crate::file_drop::paint_overlay(
+                    ui,
+                    window,
+                    &self.file_drop_colors,
+                    &presentation::message(&self.locale, "app.dropToOpen", &[]),
+                    &mut self.navigation_icons,
+                )
+            {
+                status = Some(error.to_string());
+            }
+            let paths = crate::file_drop::dropped_paths(&context);
+            if !paths.is_empty()
+                && self.closing.is_none()
+                && !self.is_exit_ready
+                && !self.services.state.is_shutting_down()
+            {
+                self.submit(HostCommand::OpenDroppedPaths {
+                    focused: snapshot.focused_project().cloned(),
+                    paths,
+                });
+            }
         }
         self.status = status;
         if context.viewport_id() == egui::ViewportId::ROOT {
@@ -8883,7 +9012,8 @@ impl NativeApplication {
             && !egui::Popup::is_any_open(context)
             && !egui::DragAndDrop::has_any_payload(context)
             && !taide_native_ui::project_drag::is_dragging(context)
-            && !taide_native_ui::tab_drag::is_dragging(context);
+            && !taide_native_ui::tab_drag::is_dragging(context)
+            && !crate::file_drop::is_hovering(context);
         if let Err(error) = self
             .web_views
             .sync(frame, context, &live, &web_placements, web_enabled)
@@ -10941,6 +11071,18 @@ mod tab_drag_tests;
 #[cfg(all(test, unix))]
 #[path = "application-auxiliary-window-tests.rs"]
 mod auxiliary_window_tests;
+
+#[cfg(all(test, unix))]
+#[path = "application-window-state-tests.rs"]
+mod window_state_tests;
+
+#[cfg(all(test, unix))]
+#[path = "application-app-menu-tests.rs"]
+mod app_menu_tests;
+
+#[cfg(all(test, unix))]
+#[path = "application-file-drop-tests.rs"]
+mod file_drop_tests;
 
 #[cfg(test)]
 mod close_all_tests {

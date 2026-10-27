@@ -182,6 +182,12 @@ pub enum HostCommand {
     SaveMirroredTab(TabId),
     OpenProject(String),
     OpenProjectByPath(String),
+    OpenDroppedPaths {
+        focused: Option<ProjectId>,
+        paths: Vec<String>,
+    },
+    OpenRecentProject(ProjectId),
+    ClearRecentProjects,
     CloseProject(ProjectId),
     OpenProjectInSlot {
         project: ProjectId,
@@ -485,6 +491,7 @@ pub enum HostReply {
     SettingsFailed(AppError),
     Failed(AppError),
     ProjectOpenedByPath(taide_model::error::AppResult<()>),
+    DroppedPathsOpened(Vec<crate::file_drop::Notice>),
     ProjectDisplaySet(taide_model::error::AppResult<()>),
     ProjectClosed(ProjectId),
     ProjectGroupSaved(AppResult<()>),
@@ -1635,6 +1642,46 @@ async fn dispatch(
             .await;
             Some(HostReply::ProjectOpenedByPath(result))
         }
+        HostCommand::OpenDroppedPaths { focused, paths } => {
+            let notices = open_dropped_paths(services, integrations, focused, paths).await;
+            (!notices.is_empty()).then_some(HostReply::DroppedPathsOpened(notices))
+        }
+        HostCommand::OpenRecentProject(project) => {
+            let result = async {
+                let Some(root) =
+                    taide_runtime::project_actions::project_list_recent(&services.state)
+                        .await?
+                        .into_iter()
+                        .find(|candidate| candidate.id == project)
+                        .map(|candidate| candidate.root)
+                else {
+                    log::warn!("native recent menu project record is missing");
+                    return Ok(());
+                };
+                taide_runtime::project_actions::validate_open_root(std::path::Path::new(&root))?;
+                integrations.flush_view_states(services).await?;
+                crate::projects::NativeProjects::new(services.clone())
+                    .open(root)
+                    .await
+                    .map(|_| ())
+            }
+            .await;
+            if let Err(error) = result {
+                log::warn!("native recent menu open failed: {:?}", error.kind());
+            }
+            None
+        }
+        HostCommand::ClearRecentProjects => {
+            if let Err(error) = taide_runtime::project_actions::project_forget_recent(
+                services.events.as_ref(),
+                &services.state,
+            )
+            .await
+            {
+                log::warn!("native clear recent failed: {:?}", error.kind());
+            }
+            None
+        }
         HostCommand::CloseProject(project) => {
             let closed = project.clone();
             let result = async {
@@ -2237,6 +2284,43 @@ async fn open_marker(
             "native problem app-file navigation is not supported".into(),
         )),
     }
+}
+
+async fn open_dropped_paths(
+    services: &Arc<AppServices>,
+    integrations: &HostIntegrations,
+    focused: Option<ProjectId>,
+    paths: Vec<String>,
+) -> Vec<crate::file_drop::Notice> {
+    let mut target = focused;
+    let mut notices = Vec::new();
+    for path in paths {
+        let opened = async {
+            taide_runtime::project_actions::validate_open_root(std::path::Path::new(&path))?;
+            integrations.flush_view_states(services).await?;
+            crate::projects::NativeProjects::new(services.clone())
+                .open(path.clone())
+                .await
+        }
+        .await;
+        if let Ok(project) = opened {
+            target = Some(project.id);
+            continue;
+        }
+        let Some(project) = target.clone() else {
+            notices.push(crate::file_drop::Notice::OpenProjectFirst);
+            continue;
+        };
+        let result = async {
+            integrations.flush_view_states(services).await?;
+            open_file_tab(services, project, None, path, true).await
+        }
+        .await;
+        if let Err(error) = result {
+            notices.push(crate::file_drop::Notice::Failed(error));
+        }
+    }
+    notices
 }
 
 async fn open_file_tab(
