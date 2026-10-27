@@ -78,6 +78,7 @@
 
 ## 남은 범위
 
+- 후속: 아래 위치 복원과 잔여 mirror 정리는 단계 E 결정 A안에 따라 `2026-10-27-native-window-position-mirror-prune.md`에서 구현했습니다.
 - shell-3 위치 복원(결정 필요): 원본은 저장 사각형이 연결된 모니터와 겹칠 때만 위치를 적용합니다. native에서 같은 보정을 하려면 창 생성 전에 모니터 목록이 필요합니다.
     - 현재 의존성으로는 얻을 방법이 없습니다. eframe은 `persistence` 기능이 꺼져 있고, winit은 dev-dependency뿐이고, `objc2-app-kit`의 `NSScreen` 기능은 앱이 선언하지 않았습니다(다른 crate의 기능 통합에 기대는 것은 우회라 쓰지 않음).
     - 보정 없이 위치를 복원하면 모니터를 뺀 뒤 창이 화면 밖에 열릴 수 있습니다. 그래서 위치는 아직 복원하지 않고 OS 기본 배치를 씁니다(winit 0.30.13 macOS `window_delegate.rs` 629-630의 `center`). 원본의 "모니터 없음" 분기와 같은 결과입니다.
