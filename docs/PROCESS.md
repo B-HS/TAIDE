@@ -24,6 +24,10 @@
 2026-10-28 운영 방식 변경: 사용자 지시로 남은 작업을 영역 lane 병렬로 진행합니다(`docs/memory/2026-10-28-native-lane-operations.md`). 단계 G와 H는 wave 1의 shell lane과 병합 게이트로 흡수합니다.
 
 - [ ] W0. lane 경계 — `domains/<영역>.rs` 분리, HostCommand·HostReply·ShellIntent 영역 하위 enum, dev 프로필 debuginfo 축소, 기존 fmt 차이 정리, target 정리와 한 벌 크기 측정
+    - 2026-10-28 사용자 지시("workflow도 seam 단계까지만, review부터는 나중에")로 Seam 작업자 4명 완료 직후 workflow `wf_5a0b1506-cdb`를 정지했습니다. 리뷰 전이라 작업 트리에 미커밋으로 둡니다(파일 84개, `domains/` 9개 모듈, `application.rs` 11,582→7,063줄, `host.rs` 2,477→444줄, 설계 `docs/research/2026-10-28-native-lane-seams.md`). 프로필 축소·fmt 정리·target 정리는 커밋 완료(`186c2d5a` `72065136`)
+    - 이동 결과: shell·commands·preview·explorer_search·git·terminal_agent·settings 이동, editor는 HostCommand/Reply·intent·surface만 이동하고 상태·메서드·tick은 미이동. 탭 내용 분기 hook(검색 편집기·diff·Claude diff) 생성
+    - 재개: 같은 세션이면 script `native-w0-lane-seams-wf_5a0b1506-cdb.js` + `resumeFromRunId: wf_5a0b1506-cdb`(Seam 4건 캐시, Review부터). 새 세션이면 review·fix 단계만 새 workflow로 실행한 뒤 메인이 앱·UI 전체 테스트(`--test-threads=4`)와 remote-web Wasm check로 동작 불변을 확인하고 커밋
+    - 관찰: 작업자 보고 중 앱 lib 병렬 흔들림 `context_menu_tests::실제_추가_경계_보조창_메뉴는…` 1건(이동과 무관하다는 작업자 판단, 미확인)
 - [ ] W1. shell(배치 24 잔여: G 통합 shell-90·91·92·93·96 포함) · explorer-search(25) · terminal-agent(27) · editor+preview(23·30)
 - [ ] W2. git(26) · settings(28)
 - [ ] W3. commands-ui(29)·진입 잔여·shell-89

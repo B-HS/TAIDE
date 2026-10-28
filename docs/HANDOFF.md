@@ -1,7 +1,7 @@
 # HANDOFF — 2026-10-09 세션 스냅샷
 
 > 최종 갱신일: 2026-10-09 · 대응 커밋: `bf5175ca` (브랜치 `to_rust_native`, `origin/to_rust_native`와 동일, 작업 트리 깨끗)
-> 2026-10-26 주의: 이 스냅샷 이후 배치 8~23이 진행됐고 배치 24가 진행 중입니다. "배치 7까지만" 지시는 해제됐습니다. 현재 상태는 `docs/PROCESS.md` 맨 위 절과 `docs/quality-assurance/2026-10-10-native-remaining-batch-plan.md`가 정본입니다.
+> 2026-10-28 주의: 이 스냅샷은 낡았습니다. 현재 상태와 재개 방법은 `docs/PROCESS.md` 맨 위 절(배치 24 → lane 개편, W0 일시정지)과 `docs/memory/2026-10-28-native-lane-operations.md`가 정본입니다. 재개 시 workflow 사용 여부를 다시 묻습니다.
 > 이 문서는 새 세션의 단일 진입점입니다. 이전 HANDOFF(2026-10-06, 이전 에이전트의 스니펫 작업 기록 849줄)는 덮어썼고 Git 이력(`bf5175ca:docs/HANDOFF.md`)에 남아 있습니다.
 
 ## 1. 프로젝트 한 줄 정의
