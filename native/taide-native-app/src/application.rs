@@ -2860,6 +2860,9 @@ mod missing_draft_tests;
 #[cfg(all(test, unix))]
 #[path = "application-markdown-tests.rs"]
 mod markdown_tests;
+#[cfg(all(test, unix))]
+#[path = "application-preview-tests.rs"]
+mod preview_tests;
 
 #[cfg(all(test, unix))]
 #[path = "application-ai-completion-tests.rs"]

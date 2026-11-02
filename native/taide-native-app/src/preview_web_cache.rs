@@ -18,6 +18,7 @@ struct Entry {
     loading: Option<u64>,
     has_source: bool,
     needs_read: bool,
+    restyled: bool,
 }
 
 impl Default for Entry {
@@ -29,6 +30,7 @@ impl Default for Entry {
             loading: None,
             has_source: false,
             needs_read: true,
+            restyled: false,
         }
     }
 }
@@ -41,6 +43,7 @@ impl Entry {
         self.loading = None;
         self.has_source = false;
         self.needs_read = true;
+        self.restyled = false;
     }
 }
 
@@ -88,13 +91,17 @@ impl Cache {
         self.active = None;
     }
 
-    pub fn invalidate_media(&mut self) {
+    pub fn restyle_media(&mut self, restyled: &HashSet<String>) {
         for (path, entry) in &mut self.entries {
             if matches!(
                 crate::open_with::preview_kind(path),
                 Some(crate::open_with::PreviewKind::Audio | crate::open_with::PreviewKind::Video)
             ) {
-                entry.invalidate();
+                if restyled.contains(path) && entry.ready.is_some() {
+                    entry.restyled = true;
+                } else {
+                    entry.invalidate();
+                }
             }
         }
         if self.active.as_ref().is_some_and(|request| {
@@ -104,6 +111,25 @@ impl Cache {
             )
         }) {
             self.active = None;
+        }
+    }
+
+    pub fn release_restyled<'a>(&mut self, placed: impl IntoIterator<Item = (&'a str, bool)>) {
+        let (viewed, fresh): (Vec<_>, Vec<_>) =
+            placed.into_iter().partition(|(_, has_view)| *has_view);
+        let fresh = fresh
+            .into_iter()
+            .map(|(path, _)| path)
+            .collect::<HashSet<_>>();
+        let kept = viewed
+            .into_iter()
+            .map(|(path, _)| path)
+            .filter(|path| !fresh.contains(path))
+            .collect::<HashSet<_>>();
+        for (path, entry) in &mut self.entries {
+            if entry.restyled && !kept.contains(path.as_str()) {
+                entry.invalidate();
+            }
         }
     }
 
@@ -347,5 +373,75 @@ mod tests {
         assert!(matches!(cache.error(path), Some(Failure::Read(_))));
         cache.reconcile(&HashMap::new());
         assert!(cache.source(path).is_none());
+    }
+
+    #[test]
+    fn web_cache_restyle은_새_색을_받은_view만_유지하고_새_view나_닫힘이면_다시_읽는다() {
+        let fixture = Fixture(
+            std::env::temp_dir().join(format!("taide-web-cache-restyle-{}", ProjectId::new())),
+        );
+        let root = fixture.0.join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        let state = AppState::new(AppPaths::new(fixture.0.join("data")));
+        let project = ProjectId::new();
+        state.projects.write().insert(
+            project.clone(),
+            Project {
+                id: project,
+                root: root.to_str().unwrap().into(),
+                name: "synthetic restyle".into(),
+                capabilities: Vec::new(),
+                root_missing: false,
+                last_opened_at: 0.0,
+                display: Default::default(),
+            },
+        );
+        let mut cache = Cache::default();
+        let [shown, hidden, page] = ["shown.mp3", "hidden.mp4", "page.html"].map(|name| {
+            let source = root.join(name);
+            std::fs::write(&source, b"synthetic").unwrap();
+            let request = cache.begin(source.to_str().unwrap()).unwrap();
+            cache.source_ready(&request);
+            let document = prepared(&state, &source);
+            let owner = document.owner.scope();
+            cache.accept(request, Ok(document), 0);
+            (source.to_str().unwrap().to_owned(), owner)
+        });
+        let shown_source = cache.source(&shown.0).cloned();
+        assert!(shown_source.is_some());
+
+        cache.restyle_media(&HashSet::from([shown.0.clone()]));
+        assert_eq!(cache.source(&shown.0).cloned(), shown_source);
+        assert!(!shown.1.is_closed());
+        assert!(cache.source(&hidden.0).is_none());
+        assert!(hidden.1.is_closed());
+        assert!(cache.source(&page.0).is_some());
+
+        let reread = |cache: &mut Cache, path: &str| {
+            let request = cache.begin(path).unwrap();
+            cache.source_ready(&request);
+            let document = prepared(&state, Path::new(path));
+            let owner = document.owner.scope();
+            cache.accept(request, Ok(document), 0);
+            owner
+        };
+
+        cache.release_restyled([(shown.0.as_str(), true)]);
+        assert_eq!(cache.source(&shown.0).cloned(), shown_source);
+        cache.release_restyled([(shown.0.as_str(), true), (shown.0.as_str(), false)]);
+        assert!(cache.source(&shown.0).is_none());
+        assert!(shown.1.is_closed());
+        assert!(!page.1.is_closed());
+
+        let reread_owner = reread(&mut cache, &shown.0);
+        cache.restyle_media(&HashSet::from([shown.0.clone()]));
+        assert!(!reread_owner.is_closed());
+        cache.release_restyled([]);
+        assert!(cache.source(&shown.0).is_none());
+        assert!(reread_owner.is_closed());
+
+        reread(&mut cache, &shown.0);
+        cache.release_restyled([]);
+        assert!(cache.source(&shown.0).is_some());
     }
 }

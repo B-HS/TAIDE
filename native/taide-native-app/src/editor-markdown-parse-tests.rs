@@ -24,6 +24,34 @@ fn 인접한_code_요소와_요소_안의_스타일_경계는_보존된다() {
 }
 
 #[test]
+fn kbd와_samp는_monospace지만_code_요소_박스가_아니다() {
+    let document = parse(
+        "<p><kbd>Ctrl</kbd> <samp>out</samp> <code>value</code> <code><kbd>inner</kbd></code></p>",
+        None,
+    )
+    .unwrap();
+    let Block::Paragraph(values) = &document.blocks[0] else {
+        panic!("expected paragraph")
+    };
+    let span = |text: &str| {
+        values
+            .iter()
+            .find_map(|value| match value {
+                Inline::Text(span) if span.text == text => Some(span),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{text}"))
+    };
+    for text in ["Ctrl", "out"] {
+        assert!(span(text).style.code, "{text}");
+        assert_eq!(span(text).code_element, None, "{text}");
+    }
+    assert!(span("value").code_element.is_some());
+    assert!(span("inner").code_element.is_some());
+    assert_ne!(span("value").code_element, span("inner").code_element);
+}
+
+#[test]
 fn 표_제목의_flow_구조와_셀없는_표의_이미지_링크를_보존한다() {
     let document = parse(
         "<table><caption><p>first</p><p>https://example.com/caption</p><ol start='-1'><li>item</li></ol><pre><code>first code\nsecond code</code></pre><blockquote><p><img src='./caption.png'><a href='./next.md'>next</a></p></blockquote></caption></table>",

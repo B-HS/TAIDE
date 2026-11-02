@@ -42,6 +42,22 @@ fn color([red, green, blue, alpha]: [u8; 4]) -> String {
     format!("#{red:02x}{green:02x}{blue:02x}{alpha:02x}")
 }
 
+fn style(appearance: Appearance) -> String {
+    format!(
+        "{STYLES}body{{background:{};color:{}}}.audio svg{{color:{}}}",
+        color(appearance.background),
+        color(appearance.foreground),
+        color(appearance.muted)
+    )
+}
+
+pub fn restyle_script(appearance: Appearance) -> String {
+    format!(
+        "document.querySelector('style').textContent={};",
+        serde_json::Value::String(style(appearance))
+    )
+}
+
 pub fn document(
     kind: PreviewKind,
     source: &Url,
@@ -65,12 +81,7 @@ pub fn document(
     let dom = Document::from(template);
     dom.select_single(selector).set_attr("src", source.as_str());
     dom.select_single("span").set_text(file_name);
-    dom.select_single("style").set_text(&format!(
-        "{STYLES}body{{background:{};color:{}}}.audio svg{{color:{}}}",
-        color(appearance.background),
-        color(appearance.foreground),
-        color(appearance.muted)
-    ));
+    dom.select_single("style").set_text(&style(appearance));
     let html = prepare_html(dom.html().as_bytes(), source)?;
     if html.len() > MAX_DOCUMENT_BYTES {
         return Err(invalid("media document exceeds its output budget"));
@@ -182,5 +193,27 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn web_media_restyle_script는_문서와_같은_style만_새_색으로_바꾼다() {
+        let source = Url::parse("http://127.0.0.1:32101/prj-synthetic/root/clip.mp4").unwrap();
+        let changed = Appearance {
+            background: [1, 2, 3, 4],
+            foreground: [5, 6, 7, 8],
+            muted: [9, 10, 11, 12],
+        };
+        let html = document(PreviewKind::Video, &source, "clip.mp4", changed).unwrap();
+        let expected = Document::from(html.as_str())
+            .select_single("style")
+            .text()
+            .to_string();
+        let script = restyle_script(changed);
+        let (prefix, literal) = script.strip_suffix(';').unwrap().split_once('=').unwrap();
+        assert_eq!(prefix, "document.querySelector('style').textContent");
+        assert_eq!(serde_json::from_str::<String>(literal).unwrap(), expected);
+        assert!(expected.contains("background:#01020304;color:#05060708"));
+        assert!(expected.contains(".audio svg{color:#090a0b0c}"));
+        assert_ne!(restyle_script(Appearance::default()), script);
     }
 }

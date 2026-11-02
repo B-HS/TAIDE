@@ -264,6 +264,44 @@ impl Views {
     }
 }
 
+impl Views {
+    /// The tabs whose web view is open, shown or hidden.
+    #[cfg(target_os = "macos")]
+    pub fn open_tabs(&self) -> std::collections::HashSet<TabId> {
+        self.children.keys().cloned().collect()
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn open_tabs(&self) -> std::collections::HashSet<TabId> {
+        std::collections::HashSet::new()
+    }
+
+    /// Runs a host script in the open web views of `tabs` and returns the tabs it reached.
+    #[cfg(target_os = "macos")]
+    pub fn evaluate(
+        &self,
+        tabs: &std::collections::HashSet<TabId>,
+        script: &str,
+    ) -> std::collections::HashSet<TabId> {
+        self.children
+            .iter()
+            .filter(|(tab, child)| {
+                tabs.contains(*tab) && child.view.evaluate_script(script).is_ok()
+            })
+            .map(|(tab, _)| tab.clone())
+            .collect()
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn evaluate(
+        &self,
+        _: &std::collections::HashSet<TabId>,
+        _: &str,
+    ) -> std::collections::HashSet<TabId> {
+        std::collections::HashSet::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

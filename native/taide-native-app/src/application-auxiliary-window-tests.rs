@@ -1665,3 +1665,147 @@ fn 실제_app_메뉴_편집은_포커스된_보조_창_편집기로만_간다() 
     assert_eq!(text(application, notes), "");
     assert_eq!(text(application, main), ORIGINAL);
 }
+
+#[test]
+fn 실제_app_보조_창_파일_탭_메뉴의_다시열기는_편집기와_미리보기를_전환한다() {
+    const IMAGE_FILE: &str = "pic.png";
+    const IMAGE_TEXT: &str = "synthetic-image-bytes";
+    let mut fixture = Fixture {
+        directory: std::env::temp_dir().join(format!(
+            "taide-native-auxiliary-reopen-{}",
+            ProjectId::new()
+        )),
+        application: None,
+    };
+    let data = fixture.directory.join("data");
+    let root = fixture.directory.join("alpha");
+    for directory in [&data, &root] {
+        std::fs::create_dir_all(directory).unwrap();
+    }
+    std::fs::write(root.join(IMAGE_FILE), IMAGE_TEXT).unwrap();
+    let image = file_tab(&root.join(IMAGE_FILE));
+    let image_path = root.join(IMAGE_FILE).to_str().unwrap().to_owned();
+    let alpha = ProjectId::new();
+    let slot = ShellSlotId::new();
+    let state = isolated_state(data);
+    insert_project(&state, &alpha, &root, "alpha", false);
+    {
+        let mut layouts = state.layouts.write();
+        let layout = layouts.get_mut(&alpha).unwrap();
+        let main_pane = PaneId::new();
+        layout.root = PaneNode::Leaf {
+            id: main_pane.clone(),
+            tabs: Vec::new(),
+            active: None,
+        };
+        layout.focused_pane = main_pane;
+        layout.shell_view.sidebar_collapsed = true;
+        layout.auxiliary_windows = vec![auxiliary_window(FIRST_SLOT, &image)];
+    }
+    {
+        let mut session = state.session.write();
+        session.projects = vec![project_ref(&alpha, &root, "alpha")];
+        session.active_project = Some(alpha.clone());
+        session.shell_slots = Some(ShellSlotTree::Leaf {
+            slot_id: slot.clone(),
+            project_id: alpha.clone(),
+        });
+        session.focused_shell_slot = Some(slot);
+    }
+    let context = launch(&mut fixture, state);
+    let viewports = install_viewports(&context);
+    let application = fixture.application.as_mut().unwrap();
+    let viewport = viewport_of(application, &alpha, FIRST_SLOT);
+    let send = |application: &mut NativeApplication, events: Vec<egui::Event>| {
+        viewports.borrow_mut().events.insert(viewport, events);
+        step(application, &context, Vec::new());
+        viewports
+            .borrow()
+            .outputs
+            .get(&viewport)
+            .cloned()
+            .unwrap_or_default()
+    };
+    let wait = |application: &mut NativeApplication,
+                phase: &str,
+                ready: &dyn Fn(&egui::FullOutput) -> Option<egui::Rect>| {
+        let deadline = Instant::now() + DEADLINE;
+        loop {
+            if let Some(rect) = ready(&send(application, Vec::new())) {
+                return rect;
+            }
+            assert!(Instant::now() < deadline, "phase={phase}");
+            std::thread::yield_now();
+        }
+    };
+    let submenu_label = presentation::message(&application.locale, "tab.reopenEditorWith", &[]);
+    let submenu = |output: &egui::FullOutput| {
+        output
+            .platform_output
+            .accesskit_update
+            .as_ref()?
+            .nodes
+            .iter()
+            .filter(|(_, node)| {
+                node.label()
+                    .is_some_and(|text| text.starts_with(&submenu_label))
+            })
+            .find_map(|(_, node)| node.bounds())
+            .map(|bounds| {
+                egui::Rect::from_min_max(
+                    egui::pos2(bounds.x0 as f32, bounds.y0 as f32),
+                    egui::pos2(bounds.x1 as f32, bounds.y1 as f32),
+                )
+            })
+    };
+
+    assert_eq!(
+        application.preview_state.open_with.surface(&image_path),
+        crate::open_with::Surface::Preview(crate::open_with::PreviewKind::Image)
+    );
+    for (key, expected) in [
+        ("explorer.openWithEditor", crate::open_with::Surface::Editor),
+        (
+            "explorer.openWithPreview",
+            crate::open_with::Surface::Preview(crate::open_with::PreviewKind::Image),
+        ),
+    ] {
+        let tab = wait(application, "auxiliary tab", &|output| {
+            node_rect(output, IMAGE_FILE, tab_bar())
+        });
+        send(
+            application,
+            pointer(tab.center(), egui::PointerButton::Secondary),
+        );
+        let parent = wait(application, "reopen submenu", &submenu);
+        send(
+            application,
+            vec![egui::Event::PointerMoved(parent.center())],
+        );
+        let label = presentation::message(&application.locale, key, &[]);
+        let beside = egui::Rect::from_min_max(
+            egui::pos2(parent.right(), 0.0),
+            egui::pos2(f32::INFINITY, f32::INFINITY),
+        );
+        let item = wait(application, key, &|output| {
+            node_rect(output, &label, beside)
+        });
+        send(
+            application,
+            pointer(item.center(), egui::PointerButton::Primary),
+        );
+        assert_eq!(
+            application.preview_state.open_with.surface(&image_path),
+            expected,
+            "{key}"
+        );
+        if expected == crate::open_with::Surface::Editor {
+            wait(application, "auxiliary editor body", &|_| {
+                viewports
+                    .borrow()
+                    .shows(viewport, IMAGE_TEXT)
+                    .then_some(egui::Rect::NOTHING)
+            });
+        }
+    }
+}
