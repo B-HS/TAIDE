@@ -209,11 +209,15 @@ async fn 터미널_선택_복사_실패는_toast를_만들지_않고_탐색기_�
     let now = Instant::now();
     let mut toasts = Toasts::with_actions().unwrap();
     bridge
-        .submit(HostCommand::CopyTerminalSelection(
-            "synthetic selection".into(),
+        .submit(HostCommand::TerminalAgent(
+            crate::domains::terminal_agent::Command::CopyTerminalSelection(
+                "synthetic selection".into(),
+            ),
         ))
         .unwrap();
-    let HostReply::TerminalSelectionCopied { result } = host_reply(&mut bridge, &ready).await
+    let HostReply::TerminalAgent(crate::domains::terminal_agent::Reply::TerminalSelectionCopied {
+        result,
+    }) = host_reply(&mut bridge, &ready).await
     else {
         panic!("expected terminal selection copy reply")
     };
@@ -221,9 +225,13 @@ async fn 터미널_선택_복사_실패는_toast를_만들지_않고_탐색기_�
     copy_finished(&mut toasts, &locale, CopyOrigin::Terminal, &result, now);
     assert!(toasts.inspection().is_empty());
     bridge
-        .submit(HostCommand::CopyText("/synthetic/root/file.rs".into()))
+        .submit(HostCommand::Shell(
+            crate::domains::shell::Command::CopyText("/synthetic/root/file.rs".into()),
+        ))
         .unwrap();
-    let HostReply::CopiedText { result } = host_reply(&mut bridge, &ready).await else {
+    let HostReply::Shell(crate::domains::shell::Reply::CopiedText { result }) =
+        host_reply(&mut bridge, &ready).await
+    else {
         panic!("expected explorer copy reply")
     };
     assert!(result.is_err());

@@ -102,7 +102,9 @@ fn 실제_project_open_restore_file_tab_전체_tree와_exit가_같은_소유권�
     runtime.block_on(async {
         let root = fixture.0.join("root").to_str().unwrap().to_owned();
         bridge
-            .submit(HostCommand::OpenProject(root.clone()))
+            .submit(HostCommand::Shell(
+                taide_native_app::domains::shell::Command::OpenProject(root.clone()),
+            ))
             .unwrap();
         let project = loop {
             let project = state.projects.read().values().next().cloned();
@@ -118,12 +120,18 @@ fn 실제_project_open_restore_file_tab_전체_tree와_exit가_같은_소유권�
         };
         let id = project.id;
         bridge
-            .submit(HostCommand::TreeRows {
-                project: id.clone(),
-                offset: 0,
-            })
+            .submit(HostCommand::ExplorerSearch(
+                taide_native_app::domains::explorer_search::Command::TreeRows {
+                    project: id.clone(),
+                    offset: 0,
+                },
+            ))
             .unwrap();
-        let HostReply::Tree { result, .. } = reply(&mut bridge, &signal).await else {
+        let HostReply::ExplorerSearch(taide_native_app::domains::explorer_search::Reply::Tree {
+            result,
+            ..
+        }) = reply(&mut bridge, &signal).await
+        else {
             panic!("tree reply")
         };
         let page = result.unwrap();
@@ -150,23 +158,30 @@ fn 실제_project_open_restore_file_tab_전체_tree와_exit가_같은_소유권�
             .to_owned();
         for _ in 0..2 {
             bridge
-                .submit(HostCommand::OpenFileTab {
-                    project: id.clone(),
-                    pane: None,
-                    path: first.clone(),
-                    preview: true,
-                })
+                .submit(HostCommand::Editor(
+                    taide_native_app::domains::editor::Command::OpenFileTab {
+                        project: id.clone(),
+                        pane: None,
+                        path: first.clone(),
+                        preview: true,
+                    },
+                ))
                 .unwrap();
         }
         bridge
-            .submit(HostCommand::TreeRows {
-                project: id.clone(),
-                offset: 0,
-            })
+            .submit(HostCommand::ExplorerSearch(
+                taide_native_app::domains::explorer_search::Command::TreeRows {
+                    project: id.clone(),
+                    offset: 0,
+                },
+            ))
             .unwrap();
         assert!(matches!(
             reply(&mut bridge, &signal).await,
-            HostReply::Tree { result: Ok(_), .. }
+            HostReply::ExplorerSearch(taide_native_app::domains::explorer_search::Reply::Tree {
+                result: Ok(_),
+                ..
+            })
         ));
         let tab = file_tab(&state, &id, &first);
         let tab_count = match &state.layouts.read()[&id].root {
@@ -174,28 +189,37 @@ fn 실제_project_open_restore_file_tab_전체_tree와_exit가_같은_소유권�
             _ => panic!("pane"),
         };
         bridge
-            .submit(HostCommand::SetDirty {
-                tab: tab.clone(),
-                dirty: true,
-            })
+            .submit(HostCommand::Editor(
+                taide_native_app::domains::editor::Command::SetDirty {
+                    tab: tab.clone(),
+                    dirty: true,
+                },
+            ))
             .unwrap();
         bridge
-            .submit(HostCommand::OpenFileTab {
-                project: id.clone(),
-                pane: None,
-                path: second.clone(),
-                preview: true,
-            })
+            .submit(HostCommand::Editor(
+                taide_native_app::domains::editor::Command::OpenFileTab {
+                    project: id.clone(),
+                    pane: None,
+                    path: second.clone(),
+                    preview: true,
+                },
+            ))
             .unwrap();
         bridge
-            .submit(HostCommand::TreeRows {
-                project: id.clone(),
-                offset: 0,
-            })
+            .submit(HostCommand::ExplorerSearch(
+                taide_native_app::domains::explorer_search::Command::TreeRows {
+                    project: id.clone(),
+                    offset: 0,
+                },
+            ))
             .unwrap();
         assert!(matches!(
             reply(&mut bridge, &signal).await,
-            HostReply::Tree { result: Ok(_), .. }
+            HostReply::ExplorerSearch(taide_native_app::domains::explorer_search::Reply::Tree {
+                result: Ok(_),
+                ..
+            })
         ));
         assert_eq!(file_tab(&state, &id, &first), tab);
         assert_ne!(file_tab(&state, &id, &second), tab);
@@ -221,12 +245,19 @@ fn 실제_project_open_restore_file_tab_전체_tree와_exit가_같은_소유권�
         let added = fixture.0.join("root/added.rs");
         std::fs::write(&added, "new").unwrap();
         bridge
-            .submit(HostCommand::RefreshTree {
-                project: id.clone(),
-                dirs: None,
-            })
+            .submit(HostCommand::ExplorerSearch(
+                taide_native_app::domains::explorer_search::Command::RefreshTree {
+                    project: id.clone(),
+                    dirs: None,
+                },
+            ))
             .unwrap();
-        let HostReply::TreeSynced { result, errors, .. } = reply(&mut bridge, &signal).await else {
+        let HostReply::ExplorerSearch(
+            taide_native_app::domains::explorer_search::Reply::TreeSynced {
+                result, errors, ..
+            },
+        ) = reply(&mut bridge, &signal).await
+        else {
             panic!("rescan reply")
         };
         assert!(errors.is_empty());
@@ -240,12 +271,14 @@ fn 실제_project_open_restore_file_tab_전체_tree와_exit가_같은_소유권�
         let outside = fixture.0.join("outside.rs");
         std::fs::write(&outside, "denied").unwrap();
         bridge
-            .submit(HostCommand::OpenFileTab {
-                project: id.clone(),
-                pane: None,
-                path: outside.to_str().unwrap().into(),
-                preview: false,
-            })
+            .submit(HostCommand::Editor(
+                taide_native_app::domains::editor::Command::OpenFileTab {
+                    project: id.clone(),
+                    pane: None,
+                    path: outside.to_str().unwrap().into(),
+                    preview: false,
+                },
+            ))
             .unwrap();
         assert!(matches!(
             reply(&mut bridge, &signal).await,

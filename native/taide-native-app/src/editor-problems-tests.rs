@@ -142,7 +142,9 @@ impl Fixture {
 
     fn request(&mut self) -> Request {
         match self.commands.pop().unwrap() {
-            crate::host::HostCommand::OpenMarker(request) => request,
+            crate::host::HostCommand::Editor(crate::domains::editor::Command::OpenMarker(
+                request,
+            )) => request,
             _ => panic!("unexpected host command"),
         }
     }

@@ -39,22 +39,26 @@ impl EventSink for Sink {
 }
 
 async fn reply(host: &mut HostBridge, ready: &Notify, request: Request) -> Result<Page, Failure> {
-    host.submit(HostCommand::ReadHwpPreview(request.clone()))
-        .unwrap();
+    host.submit(HostCommand::Preview(
+        taide_native_app::domains::preview::Command::ReadHwpPreview(request.clone()),
+    ))
+    .unwrap();
     tokio::time::timeout(TIMEOUT, async {
         let mut saw_source = false;
         loop {
             if let Some(reply) = host.poll() {
                 match reply {
-                    HostReply::HwpSourceReady(progress) => {
+                    HostReply::Preview(
+                        taide_native_app::domains::preview::Reply::HwpSourceReady(progress),
+                    ) => {
                         assert_eq!(progress, request);
                         assert!(!saw_source);
                         saw_source = true;
                     }
-                    HostReply::HwpPreview {
+                    HostReply::Preview(taide_native_app::domains::preview::Reply::HwpPreview {
                         request: returned,
                         result,
-                    } => {
+                    }) => {
                         assert_eq!(returned, request);
                         if !matches!(result, Err(Failure::Read(_))) {
                             assert!(saw_source);

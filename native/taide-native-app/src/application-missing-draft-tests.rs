@@ -18,12 +18,14 @@ fn 실제_untitled_저장도_같은_picker의_취소와_요청_설정_저장을_
     let application = fixture.application.as_mut().unwrap();
     let context = &fixture.context;
     assert!(
-        application.submit(HostCommand::NewUntitled {
-            project: fixture.project.clone(),
-            pane: application.controller.snapshot().layouts[&fixture.project]
-                .focused_pane
-                .clone()
-        })
+        application.submit(HostCommand::Editor(
+            crate::domains::editor::Command::NewUntitled {
+                project: fixture.project.clone(),
+                pane: application.controller.snapshot().layouts[&fixture.project]
+                    .focused_pane
+                    .clone()
+            }
+        ))
     );
     wait(application, context, "untitled document", |application| {
         application.untitled.values().any(|document| {
@@ -537,11 +539,13 @@ fn 실제_보조_영역의_삭제_초안은_현재_창에_새_파일을_열고_�
         DRAFT
     );
     let destination = fixture.directory.join("project/recovered.txt");
-    assert!(application.submit(HostCommand::SaveMissingDraft {
-        tab: tab.clone(),
-        draft: application.missing_drafts[&fixture.peek_path].clone(),
-        destination: destination.to_str().unwrap().into(),
-    }));
+    assert!(application.submit(HostCommand::Editor(
+        crate::domains::editor::Command::SaveMissingDraft {
+            tab: tab.clone(),
+            draft: application.missing_drafts[&fixture.peek_path].clone(),
+            destination: destination.to_str().unwrap().into(),
+        }
+    )));
     wait(application, context, "missing draft saved", |application| {
         !application.missing_drafts.contains_key(&fixture.peek_path)
     });

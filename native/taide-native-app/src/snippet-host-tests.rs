@@ -121,7 +121,9 @@ fn snippet_host의_승인된_실제_저장은_큐_대기중_unmount에도_보존
     };
     let list = show(&mut editor, Vec::new()).requests.pop().unwrap();
     bridge
-        .submit(HostCommand::SnippetEdit(list.clone()))
+        .submit(HostCommand::Settings(
+            crate::domains::settings::Command::SnippetEdit(list.clone()),
+        ))
         .unwrap();
     let receive = |bridge: &mut HostBridge| {
         runtime.block_on(async {
@@ -137,7 +139,9 @@ fn snippet_host의_승인된_실제_저장은_큐_대기중_unmount에도_보존
             .unwrap()
         })
     };
-    let HostReply::SnippetEdit(reply) = receive(&mut bridge) else {
+    let HostReply::Settings(crate::domains::settings::Reply::SnippetEdit(reply)) =
+        receive(&mut bridge)
+    else {
         panic!("expected snippet list");
     };
     assert!(matches!(&reply.result, Ok(Outcome::Listed(files)) if files.is_empty()));
@@ -174,7 +178,9 @@ fn snippet_host의_승인된_실제_저장은_큐_대기중_unmount에도_보존
     .pop()
     .unwrap();
     bridge
-        .submit(HostCommand::CopyText("synthetic gate".into()))
+        .submit(HostCommand::Shell(
+            crate::domains::shell::Command::CopyText("synthetic gate".into()),
+        ))
         .unwrap();
     runtime.block_on(async {
         tokio::time::timeout(DEADLINE, ready)
@@ -183,18 +189,28 @@ fn snippet_host의_승인된_실제_저장은_큐_대기중_unmount에도_보존
             .unwrap()
     });
     bridge
-        .submit(HostCommand::SnippetEdit(save.clone()))
+        .submit(HostCommand::Settings(
+            crate::domains::settings::Command::SnippetEdit(save.clone()),
+        ))
         .unwrap();
     drop(editor);
     state.layouts.write().clear();
     assert!(!save.is_active());
-    assert!(bridge.submit(HostCommand::SnippetEdit(list)).is_err());
+    assert!(
+        bridge
+            .submit(HostCommand::Settings(
+                crate::domains::settings::Command::SnippetEdit(list)
+            ))
+            .is_err()
+    );
     release.send(()).unwrap();
     assert!(matches!(
         receive(&mut bridge),
-        HostReply::CopiedText { result: Ok(()) }
+        HostReply::Shell(crate::domains::shell::Reply::CopiedText { result: Ok(()) })
     ));
-    let HostReply::SnippetEdit(reply) = receive(&mut bridge) else {
+    let HostReply::Settings(crate::domains::settings::Reply::SnippetEdit(reply)) =
+        receive(&mut bridge)
+    else {
         panic!("expected snippet save");
     };
     assert!(matches!(&reply.result, Ok(Outcome::Saved(file)) if file.file_name == "rust.json"));
@@ -301,7 +317,9 @@ fn snippet_전역_catalog는_settings없이_실제_host를_조회하고_변경_�
         let request = views.next_snippet_read().unwrap();
         assert!(views.next_snippet_read().is_none());
         bridge
-            .submit(HostCommand::ReadSnippetCatalog(request))
+            .submit(HostCommand::Settings(
+                crate::domains::settings::Command::ReadSnippetCatalog(request),
+            ))
             .unwrap();
         let reply = runtime.block_on(async {
             tokio::time::timeout(DEADLINE, async {
@@ -315,7 +333,8 @@ fn snippet_전역_catalog는_settings없이_실제_host를_조회하고_변경_�
             .await
             .unwrap()
         });
-        let HostReply::SnippetCatalog(reply) = reply else {
+        let HostReply::Settings(crate::domains::settings::Reply::SnippetCatalog(reply)) = reply
+        else {
             panic!("expected app-global snippet catalog");
         };
         assert!(views.accept_snippet_catalog(reply, std::time::Instant::now()));

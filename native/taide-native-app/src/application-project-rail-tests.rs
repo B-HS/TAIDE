@@ -455,7 +455,7 @@ fn 실제_app_rail_메뉴는_슬롯열기_그룹제거_표시초기화_표시dia
     for _ in 0..DIALOG_SETTLE_FRAMES {
         step(application, &context, Vec::new());
     }
-    assert!(application.project_display_dialog.is_open());
+    assert!(application.shell_state.project_display_dialog.is_open());
     let text = |key: &str| presentation::message(&application.locale, key, &[]);
     let (mode, save) = (text("project.displayModeLabel"), text("common.save"));
     click_label(application, &context, &mode, dialog_area);
@@ -467,7 +467,7 @@ fn 실제_app_rail_메뉴는_슬롯열기_그룹제거_표시초기화_표시dia
     let is_saved = || alpha_display().as_ref() == Some(&saved_display);
     paint_until(application, &context, "dialog save", |_| {}, |_| is_saved());
     let deadline = Instant::now() + DEADLINE;
-    while application.project_display_dialog.is_open() {
+    while application.shell_state.project_display_dialog.is_open() {
         assert!(Instant::now() < deadline, "saved display dialog closes");
         step(application, &context, Vec::new());
         std::thread::yield_now();
@@ -487,10 +487,12 @@ fn 실제_app_rail_메뉴는_슬롯열기_그룹제거_표시초기화_표시dia
             .map(|tab| tab.id.clone())
     };
     assert!(beta_untitled(application).is_none());
-    assert!(application.submit(HostCommand::NewUntitled {
-        project: beta.clone(),
-        pane,
-    }));
+    assert!(application.submit(HostCommand::Editor(
+        crate::domains::editor::Command::NewUntitled {
+            project: beta.clone(),
+            pane,
+        }
+    )));
     let deadline = Instant::now() + DEADLINE;
     let tab = loop {
         step(application, &context, Vec::new());
@@ -694,7 +696,7 @@ fn 실제_app_그룹은_새그룹_생성_그룹추가_수정_열기결과_toast�
     let new_group = label(application, "projectGroup.newGroup");
     choose_group_submenu(application, &context, "alpha", &new_group);
     settle_frames(application, &context);
-    assert!(application.project_group_dialog.is_open());
+    assert!(application.shell_state.project_group_dialog.is_open());
     step(
         application,
         &context,
@@ -716,7 +718,7 @@ fn 실제_app_그룹은_새그룹_생성_그룹추가_수정_열기결과_toast�
         },
     );
     let deadline = Instant::now() + DEADLINE;
-    while application.project_group_dialog.is_open() {
+    while application.shell_state.project_group_dialog.is_open() {
         assert!(Instant::now() < deadline, "created group dialog closes");
         step(application, &context, Vec::new());
         std::thread::yield_now();
@@ -734,7 +736,7 @@ fn 실제_app_그룹은_새그룹_생성_그룹추가_수정_열기결과_toast�
 
     choose_rail_menu(application, &context, "QA team", "projectGroup.edit");
     settle_frames(application, &context);
-    assert!(application.project_group_dialog.is_open());
+    assert!(application.shell_state.project_group_dialog.is_open());
     step(application, &context, vec![egui::Event::Text(" 2".into())]);
     click_label(application, &context, &lane_three, &group_dialog);
     let save = label(application, "common.save");
@@ -750,16 +752,18 @@ fn 실제_app_그룹은_새그룹_생성_그룹추가_수정_열기결과_toast�
         },
     );
     let deadline = Instant::now() + DEADLINE;
-    while application.project_group_dialog.is_open() {
+    while application.shell_state.project_group_dialog.is_open() {
         assert!(Instant::now() < deadline, "edited group dialog closes");
         step(application, &context, Vec::new());
         std::thread::yield_now();
     }
 
-    assert!(application.submit(HostCommand::SetProjectGroupMembers {
-        group: group.clone(),
-        members: ids.to_vec(),
-    }));
+    assert!(application.submit(HostCommand::Shell(
+        crate::domains::shell::Command::SetProjectGroupMembers {
+            group: group.clone(),
+            members: ids.to_vec(),
+        }
+    )));
     paint_until(
         application,
         &context,
@@ -803,7 +807,7 @@ fn 실제_app_그룹은_새그룹_생성_그룹추가_수정_열기결과_toast�
 
     choose_rail_menu(application, &context, "QA team 2", "projectGroup.delete");
     settle_frames(application, &context);
-    assert!(application.project_group_delete.is_open());
+    assert!(application.shell_state.project_group_delete.is_open());
     let delete = label(application, "projectGroup.delete");
     click_label(application, &context, &delete, &delete_dialog);
     paint_until(
@@ -813,7 +817,7 @@ fn 실제_app_그룹은_새그룹_생성_그룹추가_수정_열기결과_toast�
         |_| {},
         |_| groups().is_empty(),
     );
-    assert!(!application.project_group_delete.is_open());
+    assert!(!application.shell_state.project_group_delete.is_open());
     assert!(
         ids.iter()
             .all(|id| services.state.projects.read().contains_key(id)),

@@ -222,63 +222,15 @@ struct DeferredTooltip {
     lines: Vec<TooltipLine>,
 }
 
-pub trait ShellSurfaces {
+pub trait ShellSurfaces:
+    crate::surfaces::editor::EditorSurfaces
+    + crate::surfaces::explorer_search::ExplorerSearchSurfaces
+    + crate::surfaces::git::GitSurfaces
+    + crate::surfaces::preview::PreviewSurfaces
+    + crate::surfaces::terminal_agent::TerminalAgentSurfaces
+{
     fn text(&self, key: &str) -> String;
     fn text_with_args(&self, key: &str, arguments: &[(&str, &str)]) -> String;
-    fn branch(&self, project: &ProjectId) -> Option<&str>;
-    fn problems_open(&self, slot: &ShellSlotId) -> bool;
-    fn problems_panel(&mut self, ui: &mut Ui, project: &ProjectId, slot: &ShellSlotId);
-    /// State a sidebar panel render may change. It is taken out before the panel's error boundary
-    /// (`project-shell.tsx` 150, `auxiliary-window-shell.tsx` 132) so the render only reads the
-    /// host and returns its requests inside this value.
-    type Explorer;
-    fn begin_explorer(&mut self, project: &ProjectId, mount: ExplorerMount<'_>) -> Self::Explorer;
-    fn explorer(
-        &self,
-        ui: &mut Ui,
-        project: &ProjectId,
-        mount: ExplorerMount<'_>,
-        explorer: &mut Self::Explorer,
-        intents: &mut Vec<ShellIntent>,
-    );
-    /// Puts the state back and applies the requests of a render that finished (or did not run).
-    fn finish_explorer(
-        &mut self,
-        context: &egui::Context,
-        project: &ProjectId,
-        mount: ExplorerMount<'_>,
-        explorer: Self::Explorer,
-    );
-    /// A render panicked: `explorer` may be inconsistent and its requests are dropped; the panel
-    /// starts over like the remount after the original boundary's retry.
-    fn discard_explorer(
-        &mut self,
-        project: &ProjectId,
-        mount: ExplorerMount<'_>,
-        explorer: Self::Explorer,
-    );
-    fn tab_content(
-        &mut self,
-        ui: &mut Ui,
-        project: &ProjectId,
-        pane: &PaneId,
-        tab: &Tab,
-        intents: &mut Vec<ShellIntent>,
-    );
-    /// Paints the tab's kind icon; `agent_color` is the activity color of the agent detected in a
-    /// terminal tab, which then shows the agent glyph instead (`pane-tab-bar.tsx` `getTabIcon`).
-    fn tab_icon(
-        &mut self,
-        ui: &Ui,
-        rect: Rect,
-        tab: &Tab,
-        agent_color: Option<Color32>,
-        title_color: Color32,
-    );
-    /// Whether a file tab can be reopened between the editor and a preview (`resolvePreviewKind`).
-    fn can_reopen_with(&self, _path: &str) -> bool {
-        false
-    }
     type StatusOutput: Default;
     fn prepare_status_bar(&mut self, _context: &egui::Context) {}
     fn status_bar(&self, ui: &mut Ui, project: Option<&ProjectId>, output: &mut Self::StatusOutput);
@@ -292,12 +244,6 @@ pub trait ShellSurfaces {
     fn rail_recent_projects(&self) -> Vec<WelcomeRecent> {
         Vec::new()
     }
-    fn project_agents(&self, _project: &ProjectId) -> Vec<DetectedAgent> {
-        Vec::new()
-    }
-    fn is_agent_status_badge_enabled(&self) -> bool {
-        true
-    }
     fn is_reduced_motion(&self) -> bool {
         false
     }
@@ -309,11 +255,6 @@ pub trait ShellSurfaces {
         _icon: RailIcon<'_>,
         _color: Color32,
     ) {
-    }
-    /// Paints the title bar's branch glyph (`title-bar.tsx` `GitBranch`).
-    fn title_branch_icon(&mut self, _ui: &Ui, _rect: Rect, _color: Color32) {}
-    fn is_auxiliary_explorer_open(&self, _project: &ProjectId, _slot: u32) -> bool {
-        false
     }
     /// Every shell tooltip goes through here, called each frame for its trigger: the host's one
     /// tooltip owner stands in for `app-providers.tsx`'s `TooltipProvider` (400ms delay, opening on
@@ -971,7 +912,9 @@ impl NativeShell {
                     )
                     .clicked()
                 {
-                    output.intents.push(ShellIntent::OpenSettings);
+                    output.intents.push(ShellIntent::Settings(
+                        crate::intents::settings::Intent::OpenSettings,
+                    ));
                 }
             });
         });
@@ -1713,10 +1656,12 @@ impl NativeShell {
                                     filler.rect.intersect(ui.clip_rect()),
                                 );
                                 if filler.double_clicked() {
-                                    intents.push(ShellIntent::NewUntitled {
-                                        project: project.clone(),
-                                        pane: id.clone(),
-                                    });
+                                    intents.push(ShellIntent::Editor(
+                                        crate::intents::editor::Intent::NewUntitled {
+                                            project: project.clone(),
+                                            pane: id.clone(),
+                                        },
+                                    ));
                                 }
                                 filler
                                     .context_menu(|ui| tab_bar_menu(ui, &menu, surfaces, intents));
@@ -1781,17 +1726,21 @@ impl NativeShell {
                         });
                         egui::Popup::menu(&response).show(|ui| {
                             if ui.button(surfaces.text("tab.newUntitledFile")).clicked() {
-                                intents.push(ShellIntent::NewUntitled {
-                                    project: project.clone(),
-                                    pane: id.clone(),
-                                });
+                                intents.push(ShellIntent::Editor(
+                                    crate::intents::editor::Intent::NewUntitled {
+                                        project: project.clone(),
+                                        pane: id.clone(),
+                                    },
+                                ));
                                 ui.close();
                             }
                             if ui.button(surfaces.text("tab.newTerminal")).clicked() {
-                                intents.push(ShellIntent::NewTerminal {
-                                    project: project.clone(),
-                                    pane: id.clone(),
-                                });
+                                intents.push(ShellIntent::TerminalAgent(
+                                    crate::intents::terminal_agent::Intent::NewTerminal {
+                                        project: project.clone(),
+                                        pane: id.clone(),
+                                    },
+                                ));
                                 ui.close();
                             }
                         });
@@ -2039,10 +1988,12 @@ impl NativeShell {
                         .clicked()
                         && let Some((project, pane)) = target
                     {
-                        intents.push(ShellIntent::NewTerminal {
-                            project: project.clone(),
-                            pane: pane.clone(),
-                        });
+                        intents.push(ShellIntent::TerminalAgent(
+                            crate::intents::terminal_agent::Intent::NewTerminal {
+                                project: project.clone(),
+                                pane: pane.clone(),
+                            },
+                        ));
                     }
                 });
                 if target.is_none() {
@@ -2350,18 +2301,22 @@ fn tab_menu(
             intents.push(ShellIntent::RevealPath(path.clone()));
         }
         let reveal = |rename| match (menu.slot, menu.window) {
-            (Some(slot), _) => Some(ShellIntent::RevealInExplorer {
-                project: menu.project.clone(),
-                slot: slot.clone(),
-                path: path.clone(),
-                rename,
-            }),
-            (None, Some(window)) => Some(ShellIntent::RevealInAuxiliaryExplorer {
-                project: menu.project.clone(),
-                slot: window,
-                path: path.clone(),
-                rename,
-            }),
+            (Some(slot), _) => Some(ShellIntent::ExplorerSearch(
+                crate::intents::explorer_search::Intent::RevealInExplorer {
+                    project: menu.project.clone(),
+                    slot: slot.clone(),
+                    path: path.clone(),
+                    rename,
+                },
+            )),
+            (None, Some(window)) => Some(ShellIntent::ExplorerSearch(
+                crate::intents::explorer_search::Intent::RevealInAuxiliaryExplorer {
+                    project: menu.project.clone(),
+                    slot: window,
+                    path: path.clone(),
+                    rename,
+                },
+            )),
             (None, None) => None,
         };
         if menu.slot.is_some() || menu.window.is_some() {
@@ -2378,10 +2333,12 @@ fn tab_menu(
                     ("explorer.openWithPreview", true),
                 ] {
                     if menu_item(ui, surfaces.text(key)) {
-                        intents.push(ShellIntent::ReopenWith {
-                            path: path.clone(),
-                            preview,
-                        });
+                        intents.push(ShellIntent::Preview(
+                            crate::intents::preview::Intent::ReopenWith {
+                                path: path.clone(),
+                                preview,
+                            },
+                        ));
                     }
                 }
             });
@@ -2424,16 +2381,20 @@ fn tab_bar_menu(
     intents: &mut Vec<ShellIntent>,
 ) {
     if menu_item(ui, surfaces.text("tab.newUntitledFile")) {
-        intents.push(ShellIntent::NewUntitled {
-            project: menu.project.clone(),
-            pane: menu.pane.clone(),
-        });
+        intents.push(ShellIntent::Editor(
+            crate::intents::editor::Intent::NewUntitled {
+                project: menu.project.clone(),
+                pane: menu.pane.clone(),
+            },
+        ));
     }
     if menu_item(ui, surfaces.text("tab.newTerminal")) {
-        intents.push(ShellIntent::NewTerminal {
-            project: menu.project.clone(),
-            pane: menu.pane.clone(),
-        });
+        intents.push(ShellIntent::TerminalAgent(
+            crate::intents::terminal_agent::Intent::NewTerminal {
+                project: menu.project.clone(),
+                pane: menu.pane.clone(),
+            },
+        ));
     }
     if menu.has_closed_tabs {
         ui.separator();

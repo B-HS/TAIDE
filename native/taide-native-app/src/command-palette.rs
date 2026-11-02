@@ -542,14 +542,14 @@ mod tests {
                         )
                         .unwrap();
                     for action in &actions {
-                        if let Some(ShellIntent::OpenPalette(entry)) =
-                            crate::command_dispatch::intent(
-                                action,
-                                &commands,
-                                &snapshot,
-                                &WindowScope::Main,
-                            )
-                        {
+                        if let Some(ShellIntent::Commands(
+                            taide_native_ui::intents::commands::Intent::OpenPalette(entry),
+                        )) = crate::command_dispatch::intent(
+                            action,
+                            &commands,
+                            &snapshot,
+                            &WindowScope::Main,
+                        ) {
                             palette.open(ui.ctx(), entry);
                         }
                     }

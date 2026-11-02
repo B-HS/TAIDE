@@ -3,6 +3,7 @@ use taide_model::{
     layout::{DropEdge, PaneNode, SplitDir, TabKind},
 };
 use taide_native_ui::commands::{ShellIntent, ShellMutation};
+use taide_native_ui::intents;
 use taide_native_ui::shell::WindowScope;
 use taide_native_ui::snapshot::ShellSnapshot;
 
@@ -95,10 +96,26 @@ pub(crate) fn intent(
         WindowScope::Auxiliary { project, .. } => Some(project),
     };
     match run {
-        Run::OpenPalette(entry) => return Some(ShellIntent::OpenPalette(entry)),
-        Run::OpenKeybindingsEditor => return Some(ShellIntent::OpenKeybindings),
-        Run::OpenSettingsTab => return Some(ShellIntent::OpenSettings),
-        Run::OpenSettingsFile => return Some(ShellIntent::OpenSettingsFile),
+        Run::OpenPalette(entry) => {
+            return Some(ShellIntent::Commands(
+                intents::commands::Intent::OpenPalette(entry),
+            ));
+        }
+        Run::OpenKeybindingsEditor => {
+            return Some(ShellIntent::Commands(
+                intents::commands::Intent::OpenKeybindings,
+            ));
+        }
+        Run::OpenSettingsTab => {
+            return Some(ShellIntent::Settings(
+                intents::settings::Intent::OpenSettings,
+            ));
+        }
+        Run::OpenSettingsFile => {
+            return Some(ShellIntent::Settings(
+                intents::settings::Intent::OpenSettingsFile,
+            ));
+        }
         Run::ToggleZenMode => {
             return matches!(scope, WindowScope::Main).then(|| {
                 ShellIntent::Mutate(ShellMutation::SetWindowChrome(
@@ -110,13 +127,17 @@ pub(crate) fn intent(
             });
         }
         Run::ChangeEditorFontSize { increase } => {
-            return Some(ShellIntent::ChangeEditorFontSize { increase });
+            return Some(ShellIntent::Settings(
+                intents::settings::Intent::ChangeEditorFontSize { increase },
+            ));
         }
         Run::OpenTerminalTab if project.is_none() => {
             return Some(ShellIntent::ShowOpenProjectNotice);
         }
         Run::OpenTaskRunner => {
-            return project.map(|project| ShellIntent::OpenTaskRunner(project.clone()));
+            return project.map(|project| {
+                ShellIntent::Commands(intents::commands::Intent::OpenTaskRunner(project.clone()))
+            });
         }
         _ => (),
     }
@@ -131,10 +152,12 @@ pub(crate) fn intent(
         }
         Run::ToggleSidebar => {
             if let WindowScope::Auxiliary { slot, .. } = scope {
-                return Some(ShellIntent::ToggleAuxiliaryExplorer {
-                    project: project.clone(),
-                    slot: *slot,
-                });
+                return Some(ShellIntent::ExplorerSearch(
+                    taide_native_ui::intents::explorer_search::Intent::ToggleAuxiliaryExplorer {
+                        project: project.clone(),
+                        slot: *slot,
+                    },
+                ));
             }
             if snapshot.shell.window_chrome.zen {
                 return None;
@@ -146,15 +169,19 @@ pub(crate) fn intent(
         }
         Run::ShowExplorer => {
             if let WindowScope::Auxiliary { slot, .. } = scope {
-                return Some(ShellIntent::ShowAuxiliaryExplorer {
-                    project: project.clone(),
-                    slot: *slot,
-                });
+                return Some(ShellIntent::ExplorerSearch(
+                    taide_native_ui::intents::explorer_search::Intent::ShowAuxiliaryExplorer {
+                        project: project.clone(),
+                        slot: *slot,
+                    },
+                ));
             }
-            return Some(ShellIntent::ShowExplorer {
-                project: project.clone(),
-                slot: snapshot.shell.focused.clone()?,
-            });
+            return Some(ShellIntent::ExplorerSearch(
+                taide_native_ui::intents::explorer_search::Intent::ShowExplorer {
+                    project: project.clone(),
+                    slot: snapshot.shell.focused.clone()?,
+                },
+            ));
         }
         Run::FocusGroup(target) => {
             let target = match target {
@@ -176,10 +203,12 @@ pub(crate) fn intent(
         return None;
     };
     if run == Run::OpenTerminalTab {
-        return Some(ShellIntent::NewTerminal {
-            project: project.clone(),
-            pane: focused.clone(),
-        });
+        return Some(ShellIntent::TerminalAgent(
+            intents::terminal_agent::Intent::NewTerminal {
+                project: project.clone(),
+                pane: focused.clone(),
+            },
+        ));
     }
     if run == Run::ToggleTerminal {
         let active_terminal = tabs.iter().any(|tab| {
@@ -194,9 +223,11 @@ pub(crate) fn intent(
                 target.id.clone(),
             )));
         }
-        return (!active_terminal).then(|| ShellIntent::NewTerminal {
-            project: project.clone(),
-            pane: focused.clone(),
+        return (!active_terminal).then(|| {
+            ShellIntent::TerminalAgent(intents::terminal_agent::Intent::NewTerminal {
+                project: project.clone(),
+                pane: focused.clone(),
+            })
         });
     }
     if run == Run::CloseAllTabs {
@@ -231,34 +262,50 @@ pub(crate) fn intent(
         TabKind::File { .. } | TabKind::AppFile { .. } | TabKind::Untitled { .. }
     );
     match run {
-        Run::SaveActiveTab if has_document => Some(ShellIntent::RequestSaveTab(tab.id.clone())),
-        Run::ToggleEditorStickyScroll if has_document => {
-            Some(ShellIntent::ToggleEditorStickyScroll)
+        Run::SaveActiveTab if has_document => Some(ShellIntent::Editor(
+            intents::editor::Intent::RequestSaveTab(tab.id.clone()),
+        )),
+        Run::ToggleEditorStickyScroll if has_document => Some(ShellIntent::Editor(
+            intents::editor::Intent::ToggleEditorStickyScroll,
+        )),
+        Run::ToggleEditorMinimap if has_document => Some(ShellIntent::Settings(
+            intents::settings::Intent::ToggleEditorMinimap,
+        )),
+        Run::ChooseIndentation(command) if has_document => Some(ShellIntent::Editor(
+            intents::editor::Intent::ChooseIndentation {
+                tab: tab.id.clone(),
+                command,
+            },
+        )),
+        Run::FormatEditor(command) if has_document => {
+            Some(ShellIntent::Editor(intents::editor::Intent::FormatEditor {
+                tab: tab.id.clone(),
+                command,
+            }))
         }
-        Run::ToggleEditorMinimap if has_document => Some(ShellIntent::ToggleEditorMinimap),
-        Run::ChooseIndentation(command) if has_document => Some(ShellIntent::ChooseIndentation {
-            tab: tab.id.clone(),
-            command,
-        }),
-        Run::FormatEditor(command) if has_document => Some(ShellIntent::FormatEditor {
-            tab: tab.id.clone(),
-            command,
-        }),
-        Run::RenameEditor if has_document => Some(ShellIntent::RenameEditor {
-            tab: tab.id.clone(),
-        }),
-        Run::CodeActions(command) if has_document => Some(ShellIntent::CodeActions {
-            tab: tab.id.clone(),
-            command,
-        }),
-        Run::EditDocument(edit) if has_document => Some(ShellIntent::EditDocument {
-            tab: tab.id.clone(),
-            edit,
-        }),
-        Run::FoldDocument(command) if has_document => Some(ShellIntent::FoldDocument {
-            tab: tab.id.clone(),
-            command,
-        }),
+        Run::RenameEditor if has_document => {
+            Some(ShellIntent::Editor(intents::editor::Intent::RenameEditor {
+                tab: tab.id.clone(),
+            }))
+        }
+        Run::CodeActions(command) if has_document => {
+            Some(ShellIntent::Editor(intents::editor::Intent::CodeActions {
+                tab: tab.id.clone(),
+                command,
+            }))
+        }
+        Run::EditDocument(edit) if has_document => {
+            Some(ShellIntent::Editor(intents::editor::Intent::EditDocument {
+                tab: tab.id.clone(),
+                edit,
+            }))
+        }
+        Run::FoldDocument(command) if has_document => {
+            Some(ShellIntent::Editor(intents::editor::Intent::FoldDocument {
+                tab: tab.id.clone(),
+                command,
+            }))
+        }
         Run::CloseTab => Some(ShellIntent::RequestCloseTab(tab.id.clone())),
         Run::Split => Some(ShellIntent::Mutate(ShellMutation::SplitTab {
             pane: focused.clone(),
@@ -374,16 +421,16 @@ mod tests {
         );
         assert!(matches!(
             auxiliary("toggle-sidebar"),
-            Some(ShellIntent::ToggleAuxiliaryExplorer { project: owner, slot: AUXILIARY_SLOT }) if owner == project
+            Some(ShellIntent::ExplorerSearch(intents::explorer_search::Intent::ToggleAuxiliaryExplorer { project: owner, slot: AUXILIARY_SLOT })) if owner == project
         ));
         assert!(matches!(
             auxiliary("explorer"),
-            Some(ShellIntent::ShowAuxiliaryExplorer { project: owner, slot: AUXILIARY_SLOT }) if owner == project
+            Some(ShellIntent::ExplorerSearch(intents::explorer_search::Intent::ShowAuxiliaryExplorer { project: owner, slot: AUXILIARY_SLOT })) if owner == project
         ));
         assert!(auxiliary("git").is_none());
         assert!(matches!(
             super::intent(Run::OpenTaskRunner, &snapshot, &scope),
-            Some(ShellIntent::OpenTaskRunner(owner)) if owner == project
+            Some(ShellIntent::Commands(intents::commands::Intent::OpenTaskRunner(owner))) if owner == project
         ));
         assert!(matches!(
             auxiliary("split"),
@@ -399,7 +446,7 @@ mod tests {
         ));
         assert!(matches!(
             auxiliary("new-terminal"),
-            Some(ShellIntent::NewTerminal { project: owner, pane }) if owner == project && pane == left
+            Some(ShellIntent::TerminalAgent(taide_native_ui::intents::terminal_agent::Intent::NewTerminal { project: owner, pane })) if owner == project && pane == left
         ));
         assert!(auxiliary("toggle-zen-mode").is_none());
         assert!(action("close-tab", &snapshot).is_none());
@@ -503,7 +550,7 @@ mod tests {
         let new_tab = |snapshot: &ShellSnapshot, key| {
             assert!(supports(key));
             assert!(
-                matches!(action(key, snapshot), Some(ShellIntent::NewTerminal { project: target, pane: target_pane }) if target == project && target_pane == pane)
+                matches!(action(key, snapshot), Some(ShellIntent::TerminalAgent(taide_native_ui::intents::terminal_agent::Intent::NewTerminal { project: target, pane: target_pane })) if target == project && target_pane == pane)
             );
         };
         new_tab(&snapshot, "new-terminal");
@@ -579,17 +626,20 @@ mod tests {
         .unwrap();
         let mut previous = snapshot.clone();
         for _ in [false, true] {
-            let Some(ShellIntent::NewTerminal { project, pane }) =
-                action("new-terminal", &previous)
+            let Some(ShellIntent::TerminalAgent(
+                taide_native_ui::intents::terminal_agent::Intent::NewTerminal { project, pane },
+            )) = action("new-terminal", &previous)
             else {
                 panic!("expected new terminal")
             };
             bridge
-                .submit(HostCommand::NewTerminal {
-                    project,
-                    pane,
-                    title: "synthetic new terminal".into(),
-                })
+                .submit(HostCommand::TerminalAgent(
+                    crate::domains::terminal_agent::Command::NewTerminal {
+                        project,
+                        pane,
+                        title: "synthetic new terminal".into(),
+                    },
+                ))
                 .unwrap();
             tokio::time::timeout(DEADLINE, ready.notified())
                 .await
@@ -1302,18 +1352,20 @@ mod tests {
         let focused_slot = split.shell.focused.clone();
         assert!(matches!(
             action("explorer", &split),
-            Some(ShellIntent::ShowExplorer { project, slot }) if project == focused && focused_slot.as_ref() == Some(&slot)
+            Some(ShellIntent::ExplorerSearch(intents::explorer_search::Intent::ShowExplorer { project, slot })) if project == focused && focused_slot.as_ref() == Some(&slot)
         ));
         assert!(matches!(
             intent(Run::OpenTaskRunner, &split, &WindowScope::Main),
-            Some(ShellIntent::OpenTaskRunner(project)) if project == focused
+            Some(ShellIntent::Commands(intents::commands::Intent::OpenTaskRunner(project))) if project == focused
         ));
         let mut zen = split.as_ref().clone();
         zen.shell.window_chrome.zen = true;
         assert!(action("toggle-sidebar", &zen).is_none());
         assert!(matches!(
             action("explorer", &zen),
-            Some(ShellIntent::ShowExplorer { .. })
+            Some(ShellIntent::ExplorerSearch(
+                intents::explorer_search::Intent::ShowExplorer { .. }
+            ))
         ));
         zen.shell.focused = None;
         assert!(action("split", &zen).is_none());

@@ -217,9 +217,14 @@ fn 실제_host의_충돌_선택은_공유_layout_stale_초안과_mirror_버전�
             })
             .unwrap();
             bridge
-                .submit(HostCommand::OpenDocument(fixture.path()))
+                .submit(HostCommand::Editor(
+                    taide_native_app::domains::editor::Command::OpenDocument(fixture.path()),
+                ))
                 .unwrap();
-            let HostReply::Opened { result, .. } = reply(&mut bridge, &ready).await else {
+            let HostReply::Editor(taide_native_app::domains::editor::Reply::Opened {
+                result, ..
+            }) = reply(&mut bridge, &ready).await
+            else {
                 panic!("expected document");
             };
             let admitted = result.unwrap().commit_with_notice(&mut store).unwrap();
@@ -254,12 +259,18 @@ fn 실제_host의_충돌_선택은_공유_layout_stale_초안과_mirror_버전�
                 .unwrap();
             std::fs::write(&fixture.canonical, "external").unwrap();
             bridge
-                .submit(HostCommand::ObserveFile {
-                    path: fixture.path(),
-                    document,
-                })
+                .submit(HostCommand::Editor(
+                    taide_native_app::domains::editor::Command::ObserveFile {
+                        path: fixture.path(),
+                        document,
+                    },
+                ))
                 .unwrap();
-            let HostReply::ObservedFile { result, .. } = reply(&mut bridge, &ready).await else {
+            let HostReply::Editor(taide_native_app::domains::editor::Reply::ObservedFile {
+                result,
+                ..
+            }) = reply(&mut bridge, &ready).await
+            else {
                 panic!("expected observation");
             };
             assert!(
@@ -279,14 +290,20 @@ fn 실제_host의_충돌_선택은_공유_layout_stale_초안과_mirror_버전�
             );
             let revision = store.documents().snapshot(document).unwrap().revision;
             bridge
-                .submit(HostCommand::ChooseDisk {
-                    path: fixture.path(),
-                    document,
-                    revision,
-                    choice: DiskChoice::KeepMine,
-                })
+                .submit(HostCommand::Editor(
+                    taide_native_app::domains::editor::Command::ChooseDisk {
+                        path: fixture.path(),
+                        document,
+                        revision,
+                        choice: DiskChoice::KeepMine,
+                    },
+                ))
                 .unwrap();
-            let HostReply::DiskChosen { result, .. } = reply(&mut bridge, &ready).await else {
+            let HostReply::Editor(taide_native_app::domains::editor::Reply::DiskChosen {
+                result,
+                ..
+            }) = reply(&mut bridge, &ready).await
+            else {
                 panic!("expected keep mine");
             };
             let kept = result
@@ -314,14 +331,20 @@ fn 실제_host의_충돌_선택은_공유_layout_stale_초안과_mirror_버전�
             );
             std::fs::write(&fixture.canonical, "second external").unwrap();
             bridge
-                .submit(HostCommand::ChooseDisk {
-                    path: fixture.path(),
-                    document,
-                    revision,
-                    choice: DiskChoice::ViewDisk,
-                })
+                .submit(HostCommand::Editor(
+                    taide_native_app::domains::editor::Command::ChooseDisk {
+                        path: fixture.path(),
+                        document,
+                        revision,
+                        choice: DiskChoice::ViewDisk,
+                    },
+                ))
                 .unwrap();
-            let HostReply::DiskChosen { result, .. } = reply(&mut bridge, &ready).await else {
+            let HostReply::Editor(taide_native_app::domains::editor::Reply::DiskChosen {
+                result,
+                ..
+            }) = reply(&mut bridge, &ready).await
+            else {
                 panic!("expected guarded stale choice");
             };
             let prepared = result.unwrap();
@@ -355,14 +378,20 @@ fn 실제_host의_충돌_선택은_공유_layout_stale_초안과_mirror_버전�
             );
             let revision = store.documents().snapshot(document).unwrap().revision;
             bridge
-                .submit(HostCommand::ChooseDisk {
-                    path: fixture.path(),
-                    document,
-                    revision,
-                    choice: DiskChoice::ViewDisk,
-                })
+                .submit(HostCommand::Editor(
+                    taide_native_app::domains::editor::Command::ChooseDisk {
+                        path: fixture.path(),
+                        document,
+                        revision,
+                        choice: DiskChoice::ViewDisk,
+                    },
+                ))
                 .unwrap();
-            let HostReply::DiskChosen { result, .. } = reply(&mut bridge, &ready).await else {
+            let HostReply::Editor(taide_native_app::domains::editor::Reply::DiskChosen {
+                result,
+                ..
+            }) = reply(&mut bridge, &ready).await
+            else {
                 panic!("expected view disk");
             };
             let viewed = result
@@ -415,12 +444,18 @@ fn 실제_host의_충돌_선택은_공유_layout_stale_초안과_mirror_버전�
                     .is_empty()
             );
             bridge
-                .submit(HostCommand::ObserveFile {
-                    path: fixture.path(),
-                    document,
-                })
+                .submit(HostCommand::Editor(
+                    taide_native_app::domains::editor::Command::ObserveFile {
+                        path: fixture.path(),
+                        document,
+                    },
+                ))
                 .unwrap();
-            let HostReply::ObservedFile { result, .. } = reply(&mut bridge, &ready).await else {
+            let HostReply::Editor(taide_native_app::domains::editor::Reply::ObservedFile {
+                result,
+                ..
+            }) = reply(&mut bridge, &ready).await
+            else {
                 panic!("expected droppable observation");
             };
             drop(result.unwrap());

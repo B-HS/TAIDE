@@ -205,8 +205,10 @@ async fn app_file_save_host는_공유_pending과_reconcile_대기_추가편집_�
             }),
         )
         .unwrap();
-        host.submit(HostCommand::WriteAppFile(request.clone()))
-            .unwrap();
+        host.submit(HostCommand::Settings(
+            crate::domains::settings::Command::WriteAppFile(request.clone()),
+        ))
+        .unwrap();
         entered.notified().await;
         assert!(host.poll().is_none());
         assert!(store.documents().snapshot(document).unwrap().dirty);
@@ -220,10 +222,10 @@ async fn app_file_save_host는_공유_pending과_reconcile_대기_추가편집_�
         replace_app_file_draft(&mut store, document, format!("{content}{LATE_EDIT}"));
         release.notify_one();
         ready.notified().await;
-        let HostReply::AppFileWritten {
+        let HostReply::Settings(crate::domains::settings::Reply::AppFileWritten {
             request: reply,
             result,
-        } = host.poll().unwrap()
+        }) = host.poll().unwrap()
         else {
             panic!("expected typed write completion");
         };
@@ -266,10 +268,16 @@ async fn app_file_save_host는_공유_pending과_reconcile_대기_추가편집_�
             .begin_write(&fixture.auxiliary, &mut store)
             .unwrap()
             .unwrap();
-        host.submit(HostCommand::WriteAppFile(invalid.clone()))
-            .unwrap();
+        host.submit(HostCommand::Settings(
+            crate::domains::settings::Command::WriteAppFile(invalid.clone()),
+        ))
+        .unwrap();
         ready.notified().await;
-        let HostReply::AppFileWritten { request, result } = host.poll().unwrap() else {
+        let HostReply::Settings(crate::domains::settings::Reply::AppFileWritten {
+            request,
+            result,
+        }) = host.poll().unwrap()
+        else {
             panic!("expected typed invalid write completion");
         };
         assert!(request.same_request(&invalid));
@@ -305,13 +313,15 @@ async fn app_file_save_host는_공유_pending과_reconcile_대기_추가편집_�
         )
         .unwrap();
         disconnected
-            .submit(HostCommand::WriteAppFile(request.clone()))
+            .submit(HostCommand::Settings(
+                crate::domains::settings::Command::WriteAppFile(request.clone()),
+            ))
             .unwrap();
         ready.notified().await;
-        let HostReply::AppFileWritten {
+        let HostReply::Settings(crate::domains::settings::Reply::AppFileWritten {
             request: reply,
             result,
-        } = disconnected.poll().unwrap()
+        }) = disconnected.poll().unwrap()
         else {
             panic!("expected missing integration rejection");
         };
@@ -513,7 +523,12 @@ async fn native_app_file_host는_창별설정열기와_읽기실패_폐기수명
             },
         ] {
             let command = settings_command(&fixture.main.project, &layout, &scope).unwrap();
-            let HostCommand::OpenAppFile { pane, target, .. } = &command else {
+            let HostCommand::Settings(crate::domains::settings::Command::OpenAppFile {
+                pane,
+                target,
+                ..
+            }) = &command
+            else {
                 panic!("expected app file open");
             };
             assert_eq!(*target, AppFileTarget::Settings);
@@ -545,13 +560,15 @@ async fn native_app_file_host는_창별설정열기와_읽기실패_폐기수명
         let mut views = Views::default();
         let request = views.begin(&fixture.main, &store, true).unwrap();
         bridge
-            .submit(HostCommand::ReadAppFile(request.clone()))
+            .submit(HostCommand::Settings(
+                crate::domains::settings::Command::ReadAppFile(request.clone()),
+            ))
             .unwrap();
         ready.notified().await;
-        let Some(HostReply::AppFile {
+        let Some(HostReply::Settings(crate::domains::settings::Reply::AppFile {
             request: reply_request,
             result,
-        }) = bridge.poll()
+        })) = bridge.poll()
         else {
             panic!("expected app file read reply");
         };

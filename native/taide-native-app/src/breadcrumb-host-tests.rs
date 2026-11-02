@@ -311,8 +311,8 @@ async fn breadcrumb_실제_host_tree_reveal은_현재파일의_형제를_공급�
     )
     .unwrap();
     bridge
-        .submit(crate::host::HostCommand::RevealBreadcrumbTree(
-            f.source.clone(),
+        .submit(crate::host::HostCommand::ExplorerSearch(
+            crate::domains::explorer_search::Command::RevealBreadcrumbTree(f.source.clone()),
         ))
         .unwrap();
     let reply = tokio::time::timeout(DEADLINE, async {
@@ -325,7 +325,10 @@ async fn breadcrumb_실제_host_tree_reveal은_현재파일의_형제를_공급�
     })
     .await
     .unwrap();
-    let crate::host::HostReply::BreadcrumbTree { source, result } = reply else {
+    let crate::host::HostReply::ExplorerSearch(
+        crate::domains::explorer_search::Reply::BreadcrumbTree { source, result },
+    ) = reply
+    else {
         panic!("breadcrumb tree reply")
     };
     assert_eq!(source, f.source);

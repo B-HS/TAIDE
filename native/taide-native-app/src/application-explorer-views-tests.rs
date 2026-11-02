@@ -252,6 +252,7 @@ fn 실제_app_사이드바는_네_보기를_slot별로_전환하고_검색과_gi
     );
     let view = |application: &mut NativeApplication, index: usize| {
         application
+            .explorer_search_state
             .symbol_sidebars
             .entry(&projects[index], &slots[index])
             .view
@@ -334,7 +335,11 @@ fn 실제_app은_테마와_로케일_로드_실패를_상단_배너로_쌓고_�
     let output = clock.until(application, &context, "both banners", |_, output| {
         has_text(output, locale_message) && has_text(output, &theme_message)
     });
-    let error = presentation::color(&application.resolved_theme, "statusIndicator.error").unwrap();
+    let error = presentation::color(
+        &application.settings_state.resolved_theme,
+        "statusIndicator.error",
+    )
+    .unwrap();
     let mut backgrounds = output
         .shapes
         .iter()
@@ -484,7 +489,7 @@ fn 실제_app_rail_tooltip은_공통_채널로_400ms_지연과_focus로_열고_�
     let output = clock.frame(application, &context, Vec::new());
     let bounds = tooltip(&output).expect("the tooltip stays open");
     assert!(bounds.left() >= button.right(), "side right: {bounds:?}");
-    let theme = &application.resolved_theme;
+    let theme = &application.settings_state.resolved_theme;
     let color = |key| presentation::color(theme, key).unwrap();
     assert!(output.shapes.iter().any(|clipped| matches!(&clipped.shape,
         egui::Shape::Rect(rect) if rect.fill == color("tooltip.background")

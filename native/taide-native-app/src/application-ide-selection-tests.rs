@@ -153,7 +153,7 @@ fn 실제_ide_선택은_초기_reveal을_제외하고_utf16과_readonly_본문_�
     assert!(notifications.try_recv().is_err());
     paint(application, context, key(egui::Key::ArrowRight, SHIFT));
     assert!(application.services.ide.current_selection().is_none());
-    application.system_usage.detail_open = true;
+    application.shell_state.system_usage.detail_open = true;
     paint(application, context, Vec::new());
     wait(
         application,
@@ -168,8 +168,8 @@ fn 실제_ide_선택은_초기_reveal을_제외하고_utf16과_readonly_본문_�
         },
     );
     let selected = application.services.ide.current_selection().unwrap();
-    assert!(application.system_usage.detail_open);
-    application.system_usage.detail_open = false;
+    assert!(application.shell_state.system_usage.detail_open);
+    application.shell_state.system_usage.detail_open = false;
     paint(application, context, Vec::new());
     context.memory_mut(|memory| memory.request_focus(id));
     paint(application, context, Vec::new());
@@ -570,13 +570,21 @@ fn 추가_ide_보조창과_untitled_appfile은_본문_공급_범위를_보존한
         preview_selection
     );
     assert_eq!(application.services.ide.current_selection(), selected);
-    assert!(application.editor_ide_selection.next_deadline().is_none());
+    assert!(
+        application
+            .terminal_agent_state
+            .editor_ide_selection
+            .next_deadline()
+            .is_none()
+    );
     application.editor_locations.close(auxiliary);
     paint(application, context, Vec::new());
-    assert!(application.submit(HostCommand::NewUntitled {
-        project: fixture.project.clone(),
-        pane: pane.clone()
-    }));
+    assert!(application.submit(HostCommand::Editor(
+        crate::domains::editor::Command::NewUntitled {
+            project: fixture.project.clone(),
+            pane: pane.clone()
+        }
+    )));
     wait(application, context, "IDE untitled tab", |application| {
         !application.untitled.is_empty() && application.services.ide.current_selection().is_none()
     });
@@ -609,7 +617,13 @@ fn 추가_ide_보조창과_untitled_appfile은_본문_공급_범위를_보존한
         "scratch"
     );
     assert!(application.services.ide.is_running());
-    assert!(application.editor_ide_selection.next_deadline().is_none());
+    assert!(
+        application
+            .terminal_agent_state
+            .editor_ide_selection
+            .next_deadline()
+            .is_none()
+    );
     assert!(application.services.ide.current_selection().is_none());
     assert_eq!(
         application.services.ide.latest_selection().unwrap().text,
@@ -618,12 +632,14 @@ fn 추가_ide_보조창과_untitled_appfile은_본문_공급_범위를_보존한
     let settings_path = application.services.state.paths.settings_file();
     std::fs::write(&settings_path, "{\n  \"editorFontSize\": 14\n}\n").unwrap();
     let settings_before = std::fs::read(&settings_path).unwrap();
-    assert!(application.submit(HostCommand::OpenAppFile {
-        project: fixture.project.clone(),
-        pane: pane.clone(),
-        target: AppFileTarget::Settings,
-        title: "settings.json".into()
-    }));
+    assert!(application.submit(HostCommand::Settings(
+        crate::domains::settings::Command::OpenAppFile {
+            project: fixture.project.clone(),
+            pane: pane.clone(),
+            target: AppFileTarget::Settings,
+            title: "settings.json".into()
+        }
+    )));
     wait(application, context, "IDE appfile body", |application| {
         application
             .store
@@ -658,7 +674,13 @@ fn 추가_ide_보조창과_untitled_appfile은_본문_공급_범위를_보존한
     focus(application, context, appfile);
     paint(application, context, key(egui::Key::ArrowRight, SHIFT));
     assert!(application.services.ide.is_running());
-    assert!(application.editor_ide_selection.next_deadline().is_none());
+    assert!(
+        application
+            .terminal_agent_state
+            .editor_ide_selection
+            .next_deadline()
+            .is_none()
+    );
     assert!(application.services.ide.current_selection().is_none());
     assert_eq!(
         application.services.ide.latest_selection().unwrap().text,

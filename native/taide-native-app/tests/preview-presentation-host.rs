@@ -72,22 +72,28 @@ async fn reply(
     request: Request,
     cache: &mut Cache,
 ) -> Result<Outline, Failure> {
-    host.submit(HostCommand::ReadPresentationPreview(request.clone()))
-        .unwrap();
+    host.submit(HostCommand::Preview(
+        taide_native_app::domains::preview::Command::ReadPresentationPreview(request.clone()),
+    ))
+    .unwrap();
     tokio::time::timeout(TIMEOUT, async {
         let mut saw_source = false;
         loop {
             match host.poll() {
-                Some(HostReply::PresentationSourceReady(progress)) => {
+                Some(HostReply::Preview(
+                    taide_native_app::domains::preview::Reply::PresentationSourceReady(progress),
+                )) => {
                     assert_eq!(progress, request);
                     assert!(!saw_source);
                     saw_source = true;
                     cache.source_ready(&progress);
                 }
-                Some(HostReply::PresentationPreview {
-                    request: returned,
-                    result,
-                }) => {
+                Some(HostReply::Preview(
+                    taide_native_app::domains::preview::Reply::PresentationPreview {
+                        request: returned,
+                        result,
+                    },
+                )) => {
                     assert_eq!(returned, request);
                     assert_eq!(saw_source, !matches!(result, Err(Failure::Read(_))));
                     return result;

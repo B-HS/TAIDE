@@ -178,7 +178,7 @@ fn 실제_app_탭은_에이전트_터미널_glyph와_다시열기_탐색기_reve
     });
 
     assert_eq!(
-        application.open_with.surface(&image_path),
+        application.preview_state.open_with.surface(&image_path),
         crate::open_with::Surface::Preview(crate::open_with::PreviewKind::Image)
     );
     for (key, expected) in [
@@ -213,29 +213,44 @@ fn 실제_app_탭은_에이전트_터미널_glyph와_다시열기_탐색기_reve
             pointer(item.center(), egui::PointerButton::Primary),
         );
         assert_eq!(
-            application.open_with.surface(&image_path),
+            application.preview_state.open_with.surface(&image_path),
             expected,
             "{key}"
         );
     }
 
-    application.symbol_sidebars.entry(&project, &slot).view = crate::symbol_sidebar::View::Outline;
+    application
+        .explorer_search_state
+        .symbol_sidebars
+        .entry(&project, &slot)
+        .view = crate::symbol_sidebar::View::Outline;
     open_tab_menu(application, &context, "deep.rs");
     let label = presentation::message(&application.locale, "tab.revealInExplorerView", &[]);
     click_label(application, &context, &label, |_| egui::Rect::EVERYTHING);
     step_until(application, &context, "reveal", |application, _| {
-        application.explorers.get(&project).is_some_and(|explorer| {
-            explorer.selected.as_deref() == Some(source_path.as_str()) && explorer.rename.is_none()
-        }) && application
-            .trees
+        application
+            .explorer_search_state
+            .explorers
             .get(&project)
-            .is_some_and(|page| page.rows.iter().any(|row| row.path == source_path))
+            .is_some_and(|explorer| {
+                explorer.selected.as_deref() == Some(source_path.as_str())
+                    && explorer.rename.is_none()
+            })
+            && application
+                .explorer_search_state
+                .trees
+                .get(&project)
+                .is_some_and(|page| page.rows.iter().any(|row| row.path == source_path))
             && !services.state.layouts.read()[&project]
                 .shell_view
                 .sidebar_collapsed
     });
     assert_eq!(
-        application.symbol_sidebars.entry(&project, &slot).view,
+        application
+            .explorer_search_state
+            .symbol_sidebars
+            .entry(&project, &slot)
+            .view,
         crate::symbol_sidebar::View::Files
     );
 
@@ -243,11 +258,15 @@ fn 실제_app_탭은_에이전트_터미널_glyph와_다시열기_탐색기_reve
     let label = presentation::message(&application.locale, "tab.rename", &[]);
     click_label(application, &context, &label, |_| egui::Rect::EVERYTHING);
     step_until(application, &context, "rename", |application, _| {
-        application.explorers.get(&project).is_some_and(|explorer| {
-            explorer
-                .rename
-                .as_ref()
-                .is_some_and(|draft| draft.row.path == source_path && draft.name == "deep.rs")
-        })
+        application
+            .explorer_search_state
+            .explorers
+            .get(&project)
+            .is_some_and(|explorer| {
+                explorer
+                    .rename
+                    .as_ref()
+                    .is_some_and(|draft| draft.row.path == source_path && draft.name == "deep.rs")
+            })
     });
 }

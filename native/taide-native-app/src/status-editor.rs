@@ -41,8 +41,12 @@ impl Target {
 
     fn command(self, value: u32) -> HostCommand {
         match self {
-            Self::Editor => HostCommand::SetEditorFontSize(value),
-            Self::Terminal => HostCommand::SetTerminalFontSize(value),
+            Self::Editor => {
+                HostCommand::Settings(crate::domains::settings::Command::SetEditorFontSize(value))
+            }
+            Self::Terminal => HostCommand::Settings(
+                crate::domains::settings::Command::SetTerminalFontSize(value),
+            ),
         }
     }
 
@@ -805,10 +809,14 @@ mod tests {
                 let value = operation.value(target, current);
                 let command = commands.pop().unwrap();
                 match &command {
-                    HostCommand::SetEditorFontSize(size) if target == Target::Editor => {
+                    HostCommand::Settings(
+                        crate::domains::settings::Command::SetEditorFontSize(size),
+                    ) if target == Target::Editor => {
                         assert_eq!(*size, value)
                     }
-                    HostCommand::SetTerminalFontSize(size) if target == Target::Terminal => {
+                    HostCommand::Settings(
+                        crate::domains::settings::Command::SetTerminalFontSize(size),
+                    ) if target == Target::Terminal => {
                         assert_eq!(*size, value)
                     }
                     _ => panic!("wrong status font target"),

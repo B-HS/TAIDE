@@ -102,7 +102,7 @@ fn ai_edit_peek(from_palette: bool) {
     );
     if from_palette {
         super::selection_ranges_tests::run_palette(application, context, "ai.inlineEdit");
-        assert!(!application.palette.is_open());
+        assert!(!application.commands_state.palette.is_open());
     } else {
         paint(
             application,
@@ -284,17 +284,19 @@ fn ai_edit_body(with_ime_and_mouse: bool, with_split: bool) {
             .key
             .pane
             .clone();
-        assert!(application.submit(HostCommand::OpenFileToSide(
-            taide_model::layout::OpenTabInSplitRequest {
-                project_id: fixture.project.clone(),
-                target_pane: pane,
-                edge: taide_model::layout::DropEdge::Right,
-                kind: TabKind::File {
-                    path: fixture.path.clone()
-                },
-                title: "current.rs".into(),
-                preview: false,
-            }
+        assert!(application.submit(HostCommand::Editor(
+            crate::domains::editor::Command::OpenFileToSide(
+                taide_model::layout::OpenTabInSplitRequest {
+                    project_id: fixture.project.clone(),
+                    target_pane: pane,
+                    edge: taide_model::layout::DropEdge::Right,
+                    kind: TabKind::File {
+                        path: fixture.path.clone()
+                    },
+                    title: "current.rs".into(),
+                    preview: false,
+                }
+            )
         )));
         wait(
             application,

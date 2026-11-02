@@ -107,12 +107,14 @@ fn 실제_markdown_표_셀은_문단_목록_코드와_중첩_표를_분리해_�
     let path = path.to_str().unwrap().to_owned();
     let application = fixture.application.as_mut().unwrap();
     let context = &fixture.context;
-    assert!(application.submit(HostCommand::OpenFileTab {
-        project: fixture.project.clone(),
-        pane: None,
-        path: path.clone(),
-        preview: false,
-    }));
+    assert!(application.submit(HostCommand::Editor(
+        crate::domains::editor::Command::OpenFileTab {
+            project: fixture.project.clone(),
+            pane: None,
+            path: path.clone(),
+            preview: false,
+        }
+    )));
     wait(
         application,
         context,
@@ -206,10 +208,12 @@ fn 실제_markdown_표_셀은_문단_목록_코드와_중첩_표를_분리해_�
             .to_string(),
         CONTENT
     );
-    assert!(application.submit(HostCommand::CloseTab {
-        tab: key.tab,
-        discard: false
-    }));
+    assert!(application.submit(HostCommand::Editor(
+        crate::domains::editor::Command::CloseTab {
+            tab: key.tab,
+            discard: false
+        }
+    )));
     wait(application, context, "table blocks closed", |application| {
         !application.files.contains_key(&path)
     });
@@ -244,12 +248,14 @@ fn 실제_markdown_토글은_편집기_식별자와_입력_undo_최신_본문을
     let path = path.to_str().unwrap().to_owned();
     let application = fixture.application.as_mut().unwrap();
     let context = &fixture.context;
-    assert!(application.submit(HostCommand::OpenFileTab {
-        project: fixture.project.clone(),
-        pane: None,
-        path: path.clone(),
-        preview: false,
-    }));
+    assert!(application.submit(HostCommand::Editor(
+        crate::domains::editor::Command::OpenFileTab {
+            project: fixture.project.clone(),
+            pane: None,
+            path: path.clone(),
+            preview: false,
+        }
+    )));
     wait(application, context, "markdown live view", |application| {
         application.files.get(&path).is_some_and(|document| {
             application
@@ -284,6 +290,7 @@ fn 실제_markdown_토글은_편집기_식별자와_입력_undo_최신_본문을
         settings.theme_id = CHANGED_THEME.into();
     }
     application
+        .settings_state
         .presentation_changes
         .record(&AppEvent::ThemeChanged {
             theme_id: CHANGED_THEME.into(),
@@ -293,13 +300,16 @@ fn 실제_markdown_토글은_편집기_식별자와_입력_undo_최신_본문을
         context,
         "markdown theme and editor font changed",
         |application| {
-            application.resolved_theme.id == CHANGED_THEME
+            application.settings_state.resolved_theme.id == CHANGED_THEME
                 && application.editor.appearance.font.size == CHANGED_EDITOR_FONT_SIZE as f32
         },
     );
     assert_eq!(
         application.editor_markdown_colors,
-        taide_native_ui::presentation::editor_markdown_colors(&application.resolved_theme).unwrap()
+        taide_native_ui::presentation::editor_markdown_colors(
+            &application.settings_state.resolved_theme
+        )
+        .unwrap()
     );
     paint(application, context, Vec::new());
     assert!(
@@ -539,12 +549,14 @@ fn 실제_markdown_토글은_편집기_식별자와_입력_undo_최신_본문을
     let other = PathBuf::from(&path).with_file_name("other.md");
     std::fs::write(&other, "# Other heading").unwrap();
     let other = other.to_str().unwrap().to_owned();
-    assert!(application.submit(HostCommand::OpenFileTab {
-        project: fixture.project.clone(),
-        pane: Some(pane.clone()),
-        path: other.clone(),
-        preview: false,
-    }));
+    assert!(application.submit(HostCommand::Editor(
+        crate::domains::editor::Command::OpenFileTab {
+            project: fixture.project.clone(),
+            pane: Some(pane.clone()),
+            path: other.clone(),
+            preview: false,
+        }
+    )));
     wait(
         application,
         context,
@@ -579,10 +591,12 @@ fn 실제_markdown_토글은_편집기_식별자와_입력_undo_최신_본문을
             .2
             .is_some()
     );
-    assert!(application.submit(HostCommand::CloseTab {
-        tab: other_tab,
-        discard: false
-    }));
+    assert!(application.submit(HostCommand::Editor(
+        crate::domains::editor::Command::CloseTab {
+            tab: other_tab,
+            discard: false
+        }
+    )));
     wait(
         application,
         context,
@@ -632,12 +646,14 @@ fn 실제_markdown_두_뷰는_토글과_본문_미리보기_scroll을_분리하�
     let path = path.to_str().unwrap().to_owned();
     let application = fixture.application.as_mut().unwrap();
     let context = &fixture.context;
-    assert!(application.submit(HostCommand::OpenFileTab {
-        project: fixture.project.clone(),
-        pane: None,
-        path: path.clone(),
-        preview: false,
-    }));
+    assert!(application.submit(HostCommand::Editor(
+        crate::domains::editor::Command::OpenFileTab {
+            project: fixture.project.clone(),
+            pane: None,
+            path: path.clone(),
+            preview: false,
+        }
+    )));
     wait(application, context, "markdown main view", |application| {
         application.files.get(&path).is_some_and(|document| {
             application
@@ -657,15 +673,17 @@ fn 실제_markdown_두_뷰는_토글과_본문_미리보기_scroll을_분리하�
         .unwrap()
         .clone();
     let main_body = crate::editor_context_menu::body(context, main.id).unwrap();
-    assert!(application.submit(HostCommand::OpenFileToSide(
-        taide_model::layout::OpenTabInSplitRequest {
-            project_id: fixture.project.clone(),
-            target_pane: main.key.pane.clone(),
-            edge: taide_model::layout::DropEdge::Right,
-            kind: TabKind::File { path: path.clone() },
-            title: "scroll.md".into(),
-            preview: false,
-        },
+    assert!(application.submit(HostCommand::Editor(
+        crate::domains::editor::Command::OpenFileToSide(
+            taide_model::layout::OpenTabInSplitRequest {
+                project_id: fixture.project.clone(),
+                target_pane: main.key.pane.clone(),
+                edge: taide_model::layout::DropEdge::Right,
+                kind: TabKind::File { path: path.clone() },
+                title: "scroll.md".into(),
+                preview: false,
+            },
+        )
     )));
     wait(
         application,
@@ -897,12 +915,14 @@ fn 실제_markdown_lossy_readonly는_미리보기_scroll과_선택을_허용하�
     let path = path.to_str().unwrap().to_owned();
     let application = fixture.application.as_mut().unwrap();
     let context = &fixture.context;
-    assert!(application.submit(HostCommand::OpenFileTab {
-        project: fixture.project.clone(),
-        pane: None,
-        path: path.clone(),
-        preview: false,
-    }));
+    assert!(application.submit(HostCommand::Editor(
+        crate::domains::editor::Command::OpenFileTab {
+            project: fixture.project.clone(),
+            pane: None,
+            path: path.clone(),
+            preview: false,
+        }
+    )));
     wait(
         application,
         context,
@@ -993,10 +1013,12 @@ fn 실제_markdown_lossy_readonly는_미리보기_scroll과_선택을_허용하�
     assert_eq!(after.dirty, before.dirty);
     assert!(after.metadata.read_only && after.metadata.lossy);
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
-    assert!(application.submit(HostCommand::CloseTab {
-        tab: view.key.tab.clone(),
-        discard: false
-    }));
+    assert!(application.submit(HostCommand::Editor(
+        crate::domains::editor::Command::CloseTab {
+            tab: view.key.tab.clone(),
+            discard: false
+        }
+    )));
     wait(
         application,
         context,

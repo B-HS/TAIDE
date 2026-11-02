@@ -165,9 +165,13 @@ mod tests {
         })
         .unwrap();
         bridge
-            .submit(HostCommand::OpenDocument(path.clone()))
+            .submit(HostCommand::Editor(
+                crate::domains::editor::Command::OpenDocument(path.clone()),
+            ))
             .unwrap();
-        let HostReply::Opened { result, .. } = reply(&mut bridge, &ready).await else {
+        let HostReply::Editor(crate::domains::editor::Reply::Opened { result, .. }) =
+            reply(&mut bridge, &ready).await
+        else {
             panic!("expected document")
         };
         let document = result.unwrap().commit(&mut store).unwrap();
@@ -306,7 +310,7 @@ mod tests {
         );
         let shell = ShellSnapshot::read(&state).await;
         assert!(
-            matches!(crate::shell_keymap::action("save", &shell, &taide_native_ui::shell::WindowScope::Main), Some(ShellIntent::RequestSaveTab(id)) if id == tab.id)
+            matches!(crate::shell_keymap::action("save", &shell, &taide_native_ui::shell::WindowScope::Main), Some(ShellIntent::Editor(taide_native_ui::intents::editor::Intent::RequestSaveTab(id))) if id == tab.id)
         );
         assert!(keymap_request(&tab, None, &mut store).unwrap().is_none());
         let Some(KeymapSave::File {
@@ -330,12 +334,14 @@ mod tests {
         .unwrap()
         .unwrap();
         bridge
-            .submit(HostCommand::Save {
+            .submit(HostCommand::Editor(crate::domains::editor::Command::Save {
                 path: target,
                 snapshot: prepared.snapshot,
-            })
+            }))
             .unwrap();
-        let HostReply::Saved { snapshot, result } = reply(&mut bridge, &ready).await else {
+        let HostReply::Editor(crate::domains::editor::Reply::Saved { snapshot, result }) =
+            reply(&mut bridge, &ready).await
+        else {
             panic!("expected file save")
         };
         let written = result.unwrap();

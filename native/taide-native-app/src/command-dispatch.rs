@@ -90,10 +90,12 @@ pub(crate) fn intent_with_editor(
     scope: &WindowScope,
 ) -> Option<ShellIntent> {
     if let Some(Run::EditDocument(edit)) = command_run(id, context) {
-        return Some(ShellIntent::EditDocument {
-            tab: focused_view?.tab.clone(),
-            edit,
-        });
+        return Some(ShellIntent::Editor(
+            taide_native_ui::intents::editor::Intent::EditDocument {
+                tab: focused_view?.tab.clone(),
+                edit,
+            },
+        ));
     }
     intent(id, context, snapshot, scope)
 }
@@ -913,11 +915,15 @@ mod tests {
         for scope in [&snapshot, &unfocused] {
             assert!(matches!(
                 intent("settings.open", &main, scope),
-                Some(ShellIntent::OpenSettings)
+                Some(ShellIntent::Settings(
+                    taide_native_ui::intents::settings::Intent::OpenSettings
+                ))
             ));
             assert!(matches!(
                 intent("app.openSettingsFile", &main, scope),
-                Some(ShellIntent::OpenSettingsFile)
+                Some(ShellIntent::Settings(
+                    taide_native_ui::intents::settings::Intent::OpenSettingsFile
+                ))
             ));
         }
         for unavailable in ["sync.uploadNow", "tab.close", "unknown.future"] {
@@ -934,7 +940,7 @@ mod tests {
                 assert!(
                     matches!(
                         intent(id, &main, scope),
-                        Some(ShellIntent::OpenPalette(opened)) if opened == entry
+                        Some(ShellIntent::Commands(taide_native_ui::intents::commands::Intent::OpenPalette(opened))) if opened == entry
                     ),
                     "{id}"
                 );
@@ -959,14 +965,14 @@ mod tests {
         ] {
             assert!(matches!(
                 intent(id, &writable, &snapshot),
-                Some(ShellIntent::EditDocument { tab, edit }) if tab == editor.id && edit == expected
+                Some(ShellIntent::Editor(taide_native_ui::intents::editor::Intent::EditDocument { tab, edit })) if tab == editor.id && edit == expected
             ));
             assert!(intent(id, &main, &snapshot).is_none(), "{id}");
         }
         for save in ["monaco.taide.saveFile", "editor.save", "save"] {
             assert!(matches!(
                 intent(save, &writable, &snapshot),
-                Some(ShellIntent::RequestSaveTab(tab)) if tab == editor.id
+                Some(ShellIntent::Editor(taide_native_ui::intents::editor::Intent::RequestSaveTab(tab))) if tab == editor.id
             ));
         }
         for (action, expected) in FOLD_ACTIONS {
@@ -974,7 +980,7 @@ mod tests {
             assert!(
                 matches!(
                     intent(&fold, &writable, &snapshot),
-                    Some(ShellIntent::FoldDocument { tab, command })
+                    Some(ShellIntent::Editor(taide_native_ui::intents::editor::Intent::FoldDocument { tab, command }))
                         if tab == editor.id && command == expected
                 ),
                 "{fold}"

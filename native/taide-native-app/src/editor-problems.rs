@@ -408,8 +408,9 @@ impl taide_native_ui::editor_problems::Provider for Provider<'_> {
         };
         session.shown = None;
         self.state.pending.insert(view, request.clone());
-        self.commands
-            .push(crate::host::HostCommand::OpenMarker(request));
+        self.commands.push(crate::host::HostCommand::Editor(
+            crate::domains::editor::Command::OpenMarker(request),
+        ));
         Ok(true)
     }
 }

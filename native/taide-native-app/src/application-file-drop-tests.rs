@@ -126,6 +126,7 @@ fn 실제_app은_끄는_동안_drop_안내를_그리고_프로젝트_없이_놓�
     let output = run(application, &context, input(&[&loose], &[]));
     assert!(has_text(&output, &label), "status={:?}", application.status);
     let background = application
+        .shell_state
         .file_drop_colors
         .background
         .gamma_multiply(OVERLAY_OPACITY);
@@ -133,7 +134,7 @@ fn 실제_app은_끄는_동안_drop_안내를_그리고_프로젝트_없이_놓�
         &clipped.shape,
         egui::Shape::Rect(shape) if shape.rect == screen() && shape.fill == background
     )));
-    let accent = application.file_drop_colors.accent;
+    let accent = application.shell_state.file_drop_colors.accent;
     let dashes = output
         .shapes
         .iter()
@@ -229,7 +230,7 @@ fn 실제_app은_미리보기_web_view가_받은_drag에도_안내를_그리고_
     run(application, &context, input(&[], &[]));
 
     let preview = TabId::new();
-    let drags = application.web_views.drags().clone();
+    let drags = application.preview_state.web_views.drags().clone();
     assert!(drags.enter(&preview, std::slice::from_ref(&alpha)));
     let output = run(application, &context, input(&[], &[]));
     assert!(has_text(&output, &label), "status={:?}", application.status);

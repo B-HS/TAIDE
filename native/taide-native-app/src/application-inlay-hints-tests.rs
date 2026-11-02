@@ -225,6 +225,7 @@ pub(super) fn fixture_with_language(text: &str, extension: &str) -> Fixture {
         extension,
         |application, path, _, _| {
             application
+                .preview_state
                 .open_with
                 .set(path.into(), crate::open_with::Mode::Editor)
         },

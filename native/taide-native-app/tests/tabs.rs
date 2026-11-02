@@ -129,14 +129,19 @@ fn 실제_host_닫기는_pinned_dirty와_공유_mirror를_보호하고_폐기나
         .await
         .unwrap();
         bridge
-            .submit(HostCommand::CloseTab {
-                tab: tab.id.clone(),
-                discard: true,
-            })
+            .submit(HostCommand::Editor(
+                taide_native_app::domains::editor::Command::CloseTab {
+                    tab: tab.id.clone(),
+                    discard: true,
+                },
+            ))
             .unwrap();
         assert!(matches!(
             reply(&mut bridge, &signal).await,
-            HostReply::Closed { result: Err(_), .. }
+            HostReply::Editor(taide_native_app::domains::editor::Reply::Closed {
+                result: Err(_),
+                ..
+            })
         ));
         assert_eq!(find(&fixture.state, &fixture.id, &fixture.path).id, tab.id);
         layout_actions::layout_pin_tab(
@@ -165,14 +170,19 @@ fn 실제_host_닫기는_pinned_dirty와_공유_mirror를_보호하고_폐기나
         .await
         .unwrap();
         bridge
-            .submit(HostCommand::CloseTab {
-                tab: tab.id.clone(),
-                discard: false,
-            })
+            .submit(HostCommand::Editor(
+                taide_native_app::domains::editor::Command::CloseTab {
+                    tab: tab.id.clone(),
+                    discard: false,
+                },
+            ))
             .unwrap();
         assert!(matches!(
             reply(&mut bridge, &signal).await,
-            HostReply::Closed { result: Err(_), .. }
+            HostReply::Editor(taide_native_app::domains::editor::Reply::Closed {
+                result: Err(_),
+                ..
+            })
         ));
         assert_eq!(
             file_actions::file_list_mirrors(&fixture.state, fixture.id.clone())
@@ -206,12 +216,16 @@ fn 실제_host_닫기는_pinned_dirty와_공유_mirror를_보호하고_폐기나
                 focused_pane: pane,
             });
         bridge
-            .submit(HostCommand::CloseTab {
-                tab: tab.id.clone(),
-                discard: true,
-            })
+            .submit(HostCommand::Editor(
+                taide_native_app::domains::editor::Command::CloseTab {
+                    tab: tab.id.clone(),
+                    discard: true,
+                },
+            ))
             .unwrap();
-        let HostReply::Closed { result, .. } = reply(&mut bridge, &signal).await else {
+        let HostReply::Editor(taide_native_app::domains::editor::Reply::Closed { result, .. }) =
+            reply(&mut bridge, &signal).await
+        else {
             panic!("close reply")
         };
         let closed = result.unwrap();
@@ -226,29 +240,40 @@ fn 실제_host_닫기는_pinned_dirty와_공유_mirror를_보호하고_폐기나
         );
         assert!(find(&fixture.state, &fixture.id, &fixture.path).dirty);
         bridge
-            .submit(HostCommand::SaveMirroredTab(shared.id.clone()))
+            .submit(HostCommand::Editor(
+                taide_native_app::domains::editor::Command::SaveMirroredTab(shared.id.clone()),
+            ))
             .unwrap();
         assert!(matches!(
             reply(&mut bridge, &signal).await,
-            HostReply::MirrorSaved { result: Ok(()), .. }
+            HostReply::Editor(taide_native_app::domains::editor::Reply::MirrorSaved {
+                result: Ok(()),
+                ..
+            })
         ));
         assert_eq!(
             std::fs::read_to_string(&fixture.path).unwrap(),
             "saved draft"
         );
         bridge
-            .submit(HostCommand::SetDirty {
-                tab: shared.id.clone(),
-                dirty: false,
-            })
+            .submit(HostCommand::Editor(
+                taide_native_app::domains::editor::Command::SetDirty {
+                    tab: shared.id.clone(),
+                    dirty: false,
+                },
+            ))
             .unwrap();
         bridge
-            .submit(HostCommand::CloseTab {
-                tab: shared.id,
-                discard: false,
-            })
+            .submit(HostCommand::Editor(
+                taide_native_app::domains::editor::Command::CloseTab {
+                    tab: shared.id,
+                    discard: false,
+                },
+            ))
             .unwrap();
-        let HostReply::Closed { result, .. } = reply(&mut bridge, &signal).await else {
+        let HostReply::Editor(taide_native_app::domains::editor::Reply::Closed { result, .. }) =
+            reply(&mut bridge, &signal).await
+        else {
             panic!("close reply")
         };
         assert!(!result.unwrap().has_remaining_file);

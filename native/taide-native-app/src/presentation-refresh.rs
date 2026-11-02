@@ -437,8 +437,10 @@ mod tests {
         changes.record(&AppEvent::SettingsChanged {
             settings: Box::new(state.settings.read().clone()),
         });
-        host.submit(HostCommand::RefreshPresentation(Box::new(request)))
-            .unwrap();
+        host.submit(HostCommand::Settings(
+            crate::domains::settings::Command::RefreshPresentation(Box::new(request)),
+        ))
+        .unwrap();
         runtime.block_on(async {
             let next_reply = |host: &mut HostBridge| host.poll();
             let first = tokio::time::timeout(DEADLINE, async {
@@ -451,10 +453,10 @@ mod tests {
             })
             .await
             .unwrap();
-            let HostReply::Presentation {
+            let HostReply::Settings(crate::domains::settings::Reply::Presentation {
                 request: first_request,
                 result,
-            } = first
+            }) = first
             else {
                 panic!("wrong reply")
             };
@@ -467,8 +469,10 @@ mod tests {
             refresh.submitted(latest.clone());
             assert!(!refresh.finish(&first_request, &current, changes.revision()));
             assert!(refresh.next(current.clone(), changes.revision()).is_none());
-            host.submit(HostCommand::RefreshPresentation(Box::new(latest)))
-                .unwrap();
+            host.submit(HostCommand::Settings(
+                crate::domains::settings::Command::RefreshPresentation(Box::new(latest)),
+            ))
+            .unwrap();
             let reply = tokio::time::timeout(DEADLINE, async {
                 loop {
                     if let Some(reply) = host.poll() {
@@ -479,7 +483,11 @@ mod tests {
             })
             .await
             .unwrap();
-            let HostReply::Presentation { request, result } = reply else {
+            let HostReply::Settings(crate::domains::settings::Reply::Presentation {
+                request,
+                result,
+            }) = reply
+            else {
                 panic!("wrong reply")
             };
             let resolved = result.unwrap();
@@ -508,8 +516,10 @@ mod tests {
             );
             let request = refresh.next(invalid.clone(), changes.revision()).unwrap();
             refresh.submitted(request.clone());
-            host.submit(HostCommand::RefreshPresentation(Box::new(request)))
-                .unwrap();
+            host.submit(HostCommand::Settings(
+                crate::domains::settings::Command::RefreshPresentation(Box::new(request)),
+            ))
+            .unwrap();
             let reply = tokio::time::timeout(DEADLINE, async {
                 loop {
                     if let Some(reply) = host.poll() {
@@ -520,7 +530,11 @@ mod tests {
             })
             .await
             .unwrap();
-            let HostReply::Presentation { request, result } = reply else {
+            let HostReply::Settings(crate::domains::settings::Reply::Presentation {
+                request,
+                result,
+            }) = reply
+            else {
                 panic!("wrong reply")
             };
             let resolved = result.unwrap();

@@ -520,7 +520,7 @@ fn actual_app의_rename은_f2와_peek에서_현재_문서만_편집하고_undo�
         .unwrap();
     let owner_before = application.store.documents().snapshot(document).unwrap();
     context.memory_mut(|memory| memory.request_focus(focus));
-    application.palette.open(
+    application.commands_state.palette.open(
         &context,
         taide_native_ui::command_registry::PaletteEntry::Commands,
     );
@@ -534,6 +534,7 @@ fn actual_app의_rename은_f2와_peek에서_현재_문서만_편집하고_undo�
     paint(application, vec![egui::Event::Text(label)]);
     assert!(
         application
+            .commands_state
             .palette
             .inspection()
             .rows
@@ -542,7 +543,7 @@ fn actual_app의_rename은_f2와_peek에서_현재_문서만_편집하고_undo�
                 && row.is_enabled
                 && row.is_selected),
         "palette={:?}",
-        application.palette.inspection()
+        application.commands_state.palette.inspection()
     );
     paint(application, vec![key(egui::Key::Enter)]);
     wait_for(
@@ -1318,7 +1319,7 @@ fn actual_app의_문서_선택_peek와_저장_포맷은_현재_편집_폭과_소
                 "input phase={phase}; requested={focus:?}; focused={:?}; before={:?}; palette={}",
                 context.memory(|memory| memory.focused()),
                 context.keyboard_focus_before_events(),
-                application.palette.is_open()
+                application.commands_state.palette.is_open()
             );
             let expected = format!("{}{formatted}", before.rope);
             wait_for(application, &context, phase, |application| {
@@ -1511,7 +1512,7 @@ fn actual_app의_문서_선택_peek와_저장_포맷은_현재_편집_폭과_소
     let owner_before = application.store.documents().snapshot(document).unwrap();
     assert!(owner_before.metadata.read_only && owner_before.metadata.lossy);
     context.memory_mut(|memory| memory.request_focus(peek_focus));
-    application.palette.open(
+    application.commands_state.palette.open(
         &context,
         taide_native_ui::command_registry::PaletteEntry::Commands,
     );
@@ -1525,6 +1526,7 @@ fn actual_app의_문서_선택_peek와_저장_포맷은_현재_편집_폭과_소
     paint(application, vec![egui::Event::Text(label)]);
     assert!(
         application
+            .commands_state
             .palette
             .inspection()
             .rows
@@ -1533,9 +1535,9 @@ fn actual_app의_문서_선택_peek와_저장_포맷은_현재_편집_폭과_소
                 && row.is_enabled
                 && row.is_selected),
         "palette={:?}; source={:?}; focus={:?}; preview={:?}",
-        application.palette.inspection(),
+        application.commands_state.palette.inspection(),
         application.focused_editor_source(&context, &tab, Some(document)),
-        application.palette.source_focus(),
+        application.commands_state.palette.source_focus(),
         preview
     );
     paint(
@@ -1687,7 +1689,7 @@ fn actual_app_constructor는_bundle_startup_settings_file_save와_정상_exit_ow
     let application = fixture.application.as_mut().unwrap();
     let services = application.services.clone();
     let ports = Arc::downgrade(&application.application_ports);
-    let hub = Arc::downgrade(application.terminals.hub());
+    let hub = Arc::downgrade(application.terminal_agent_state.terminals.hub());
     assert_eq!(
         (application.application_ports.remote.assets)("index.html")
             .unwrap()
@@ -1702,14 +1704,25 @@ fn actual_app_constructor는_bundle_startup_settings_file_save와_정상_exit_ow
     assert!(services.agent_hooks.server_info().is_none());
     assert!((application.application_ports.remote.assets)("bundle-manifest.json").is_none());
     let read = application
+        .settings_state
         .app_file_views
         .begin(&owner, &application.store, true)
         .unwrap();
-    assert!(application.submit(HostCommand::ReadAppFile(read)));
+    assert!(application.submit(HostCommand::Settings(
+        crate::domains::settings::Command::ReadAppFile(read)
+    )));
     wait_for(application, &context, "app-file-read", |application| {
-        application.app_file_views.document(&owner).is_some()
+        application
+            .settings_state
+            .app_file_views
+            .document(&owner)
+            .is_some()
     });
-    let document = application.app_file_views.document(&owner).unwrap();
+    let document = application
+        .settings_state
+        .app_file_views
+        .document(&owner)
+        .unwrap();
     let mut settings = services.state.settings.read().clone();
     settings.remote_access_enabled = false;
     settings.editor_font_size = SAVED_FONT;
@@ -1730,7 +1743,7 @@ fn actual_app_constructor는_bundle_startup_settings_file_save와_정상_exit_ow
             },
         )
         .unwrap();
-    application.app_file_views.changed(document);
+    application.settings_state.app_file_views.changed(document);
     application.request_tab_save(
         owner.tab.clone(),
         Some(document),
@@ -2087,10 +2100,13 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
             true,
         ),
     ] {
-        application.palette_commands.push(id.into());
+        application.commands_state.palette_commands.push(id.into());
         paint(application, Vec::new());
         paint(application, Vec::new());
-        assert!(application.palette.is_picking_indentation(), "{id}");
+        assert!(
+            application.commands_state.palette.is_picking_indentation(),
+            "{id}"
+        );
         paint(
             application,
             vec![
@@ -2113,7 +2129,7 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
             ],
         );
         paint(application, Vec::new());
-        assert!(!application.palette.is_open(), "{id}");
+        assert!(!application.commands_state.palette.is_open(), "{id}");
         assert!(application.indentation_request.is_none());
         let snapshot = application.store.documents().snapshot(document).unwrap();
         let options = snapshot.model_indentation(application.editor.indent_options(&snapshot));
@@ -2222,7 +2238,11 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
             Vec::new(),
         )
         .unwrap();
-    application.symbol_sidebars.entry(&project, &slot).view = crate::symbol_sidebar::View::Outline;
+    application
+        .explorer_search_state
+        .symbol_sidebars
+        .entry(&project, &slot)
+        .view = crate::symbol_sidebar::View::Outline;
     let output = paint(application, Vec::new());
     let labels = output
         .shapes
@@ -2285,20 +2305,26 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
         .unwrap(),
     );
     application.reconcile_lsp();
-    application.palette.open(
+    application.commands_state.palette.open(
         &context,
         taide_native_ui::command_registry::PaletteEntry::WorkspaceSymbols,
     );
     paint(application, Vec::new());
     paint(application, Vec::new());
     paint(application, vec![egui::Event::Text("query".into())]);
-    assert_eq!(application.palette.workspace_query(), Some("query"));
+    assert_eq!(
+        application.commands_state.palette.workspace_query(),
+        Some("query")
+    );
     runtime.block_on(async {
         tokio::time::timeout(DEADLINE, async {
             loop {
                 eframe::App::logic(application, &context, &mut eframe::Frame::_new_kittest());
                 paint(application, Vec::new());
-                let index = application.workspace_symbols.index(Some(&project));
+                let index = application
+                    .explorer_search_state
+                    .workspace_symbols
+                    .index(Some(&project));
                 if !index.is_pending && index.entries.is_some_and(|symbols| symbols.len() == 2) {
                     assert_eq!(index.entries.unwrap()[1].name, "Workspace:query");
                     break;
@@ -2324,7 +2350,7 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
             modifiers: egui::Modifiers::NONE,
         }],
     );
-    assert!(!application.palette.is_open());
+    assert!(!application.commands_state.palette.is_open());
     runtime.block_on(async {
         tokio::time::timeout(DEADLINE, async {
             loop {
@@ -2862,10 +2888,12 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
         .key
         .tab
         .clone();
-    application.submit(HostCommand::SetDirty {
-        tab: preview_tab.clone(),
-        dirty: true,
-    });
+    application.submit(HostCommand::Editor(
+        crate::domains::editor::Command::SetDirty {
+            tab: preview_tab.clone(),
+            dirty: true,
+        },
+    ));
     assert!(!application.pending_dirty.contains_key(&preview_tab));
     application.pending_dirty.insert(preview_tab.clone(), true);
     assert!(application.flush_dirty());
@@ -3084,7 +3112,10 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
             ],
         );
         paint(application, Vec::new());
-        assert!(application.palette.is_picking_indentation(), "{key:?}");
+        assert!(
+            application.commands_state.palette.is_picking_indentation(),
+            "{key:?}"
+        );
         paint(
             application,
             vec![
@@ -3106,7 +3137,7 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
             ],
         );
         paint(application, Vec::new());
-        assert!(!application.palette.is_open());
+        assert!(!application.commands_state.palette.is_open());
         assert!(context.memory(|memory| memory.has_focus(focus)));
         let snapshot = application
             .store
@@ -3629,6 +3660,7 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
     assert!(context.memory(|memory| memory.has_focus(focus)));
     assert!(
         application
+            .terminal_agent_state
             .terminal_views
             .chord_status(&context, Instant::now())
             .shortcut
@@ -3757,6 +3789,7 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
     assert!(application.editor_locations.current(view).unwrap().shown);
     assert!(
         application
+            .terminal_agent_state
             .terminal_views
             .chord_status(&context, Instant::now())
             .shortcut
@@ -4176,11 +4209,12 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
         .snapshot(peek_document)
         .unwrap();
     application
+        .commands_state
         .palette_commands
         .push("monaco.editor.action.indentUsingTabs".into());
     paint(application, Vec::new());
     paint(application, Vec::new());
-    assert!(application.palette.is_picking_indentation());
+    assert!(application.commands_state.palette.is_picking_indentation());
     paint(
         application,
         vec![
@@ -4203,7 +4237,7 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
         ],
     );
     paint(application, Vec::new());
-    assert!(!application.palette.is_open());
+    assert!(!application.commands_state.palette.is_open());
     let readonly_indentation_after = application
         .store
         .documents()
@@ -4446,6 +4480,7 @@ fn actual_app의_아웃라인_workspace_심볼과_구문_접기는_현재_pane�
     );
     assert!(
         application
+            .terminal_agent_state
             .terminal_views
             .chord_status(&context, Instant::now())
             .shortcut

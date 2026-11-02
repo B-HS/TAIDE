@@ -380,10 +380,12 @@ fn 실제_저장은_fix_all_resolve_edit_command_server_apply_edit_imports_forma
             )
             .unwrap()
             .unwrap();
-            host.submit(taide_native_app::host::HostCommand::Save {
-                path: path.to_str().unwrap().into(),
-                snapshot: prepared.snapshot,
-            })
+            host.submit(taide_native_app::host::HostCommand::Editor(
+                taide_native_app::domains::editor::Command::Save {
+                    path: path.to_str().unwrap().into(),
+                    snapshot: prepared.snapshot,
+                },
+            ))
             .unwrap();
             let saved = tokio::time::timeout(TIMEOUT, async {
                 loop {
@@ -395,7 +397,10 @@ fn 실제_저장은_fix_all_resolve_edit_command_server_apply_edit_imports_forma
             })
             .await
             .unwrap();
-            let taide_native_app::host::HostReply::Saved { result, .. } = saved else {
+            let taide_native_app::host::HostReply::Editor(
+                taide_native_app::domains::editor::Reply::Saved { result, .. },
+            ) = saved
+            else {
                 panic!("expected saved file")
             };
             result.unwrap();

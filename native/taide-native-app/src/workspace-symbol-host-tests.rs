@@ -301,8 +301,10 @@ async fn workspace_실제_host_bridge는_검색파일을_열고_현재_응답만
     )
     .unwrap();
     bridge
-        .submit(crate::host::HostCommand::OpenWorkspaceSymbol(
-            f.request(f.target.clone()),
+        .submit(crate::host::HostCommand::ExplorerSearch(
+            crate::domains::explorer_search::Command::OpenWorkspaceSymbol(
+                f.request(f.target.clone()),
+            ),
         ))
         .unwrap();
     let reply = tokio::time::timeout(DEADLINE, async {
@@ -315,7 +317,10 @@ async fn workspace_실제_host_bridge는_검색파일을_열고_현재_응답만
     })
     .await
     .unwrap();
-    let crate::host::HostReply::WorkspaceSymbolOpened { result } = reply else {
+    let crate::host::HostReply::ExplorerSearch(
+        crate::domains::explorer_search::Reply::WorkspaceSymbolOpened { result },
+    ) = reply
+    else {
         panic!("workspace symbol reply")
     };
     let opened = result.unwrap();

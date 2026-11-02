@@ -1942,10 +1942,14 @@ fn terminal_context_menu(ui: &Ui, view: &mut View, request: MenuRequest<'_>) -> 
                         .transpose()
                         .map(Option::flatten)
                 })?? {
-                    commands.push(HostCommand::CopyTerminalSelection(text));
+                    commands.push(HostCommand::TerminalAgent(
+                        crate::domains::terminal_agent::Command::CopyTerminalSelection(text),
+                    ));
                 }
             }
-            MenuAction::Paste => commands.push(HostCommand::ReadTerminalClipboard(paste)),
+            MenuAction::Paste => commands.push(HostCommand::TerminalAgent(
+                crate::domains::terminal_agent::Command::ReadTerminalClipboard(paste),
+            )),
             MenuAction::SelectAll => {
                 view.selection = Some(session.snapshot(|state| full_selection(state.core))??);
                 view.is_all_selected = true;
@@ -1956,21 +1960,27 @@ fn terminal_context_menu(ui: &Ui, view: &mut View, request: MenuRequest<'_>) -> 
                 session.snapshot(|state| reconcile_view(state.core, view))??;
                 view.offset = 0;
             }
-            MenuAction::Split(edge) => commands.push(HostCommand::TerminalMenu {
-                target,
-                operation: crate::terminal_tabs::MenuOperation::Split(edge),
-                title: label("terminal.title"),
-            }),
-            MenuAction::New => commands.push(HostCommand::TerminalMenu {
-                target,
-                operation: crate::terminal_tabs::MenuOperation::New,
-                title: label("terminal.title"),
-            }),
-            MenuAction::Kill => commands.push(HostCommand::TerminalMenu {
-                target,
-                operation: crate::terminal_tabs::MenuOperation::Kill,
-                title: String::new(),
-            }),
+            MenuAction::Split(edge) => commands.push(HostCommand::TerminalAgent(
+                crate::domains::terminal_agent::Command::TerminalMenu {
+                    target,
+                    operation: crate::terminal_tabs::MenuOperation::Split(edge),
+                    title: label("terminal.title"),
+                },
+            )),
+            MenuAction::New => commands.push(HostCommand::TerminalAgent(
+                crate::domains::terminal_agent::Command::TerminalMenu {
+                    target,
+                    operation: crate::terminal_tabs::MenuOperation::New,
+                    title: label("terminal.title"),
+                },
+            )),
+            MenuAction::Kill => commands.push(HostCommand::TerminalAgent(
+                crate::domains::terminal_agent::Command::TerminalMenu {
+                    target,
+                    operation: crate::terminal_tabs::MenuOperation::Kill,
+                    title: String::new(),
+                },
+            )),
         }
     }
     if view.menu.is_some() && !response.context_menu_opened() {
@@ -3334,11 +3344,13 @@ impl Views {
                 let geometry = Arc::new(Mutex::new(window));
                 self.attaching_geometry
                     .insert(tab.clone(), geometry.clone());
-                commands.push(HostCommand::AttachTerminal {
-                    tab: tab.clone(),
-                    size,
-                    ports: effect_ports(ui, appearance, geometry, self.palette.clone()),
-                });
+                commands.push(HostCommand::TerminalAgent(
+                    crate::domains::terminal_agent::Command::AttachTerminal {
+                        tab: tab.clone(),
+                        size,
+                        ports: effect_ports(ui, appearance, geometry, self.palette.clone()),
+                    },
+                ));
             }
             if self.attaching.contains(tab) && (starting_focused || has_starting_input) {
                 self.focus_view(
@@ -3431,11 +3443,13 @@ impl Views {
                 let geometry = Arc::new(Mutex::new(window));
                 self.attaching_geometry
                     .insert(tab.clone(), geometry.clone());
-                commands.push(HostCommand::RestartTerminal {
-                    tab: tab.clone(),
-                    size,
-                    ports: effect_ports(ui, appearance, geometry, self.palette.clone()),
-                });
+                commands.push(HostCommand::TerminalAgent(
+                    crate::domains::terminal_agent::Command::RestartTerminal {
+                        tab: tab.clone(),
+                        size,
+                        ports: effect_ports(ui, appearance, geometry, self.palette.clone()),
+                    },
+                ));
             }
             return Ok(response);
         }
@@ -3459,10 +3473,12 @@ impl Views {
                 })? = window;
             }
             if size != current_size && self.resizing.insert(session_id.into()) {
-                commands.push(HostCommand::ResizeTerminal {
-                    session: session_id.into(),
-                    size,
-                });
+                commands.push(HostCommand::TerminalAgent(
+                    crate::domains::terminal_agent::Command::ResizeTerminal {
+                        session: session_id.into(),
+                        size,
+                    },
+                ));
             }
         }
         let outbox = self.outboxes.entry(session_id.into()).or_default().clone();
@@ -4722,13 +4738,13 @@ fn show_external_link(
         if crate::terminal_links::external_at(core, point)?.is_none() {
             let row = crate::terminal_links::read_row(core, point.line)?;
             if let Some(resolution) = view.file_links.request(&cwd, &row)? {
-                request
-                    .commands
-                    .push(HostCommand::ResolveTerminalFileLinks {
+                request.commands.push(HostCommand::TerminalAgent(
+                    crate::domains::terminal_agent::Command::ResolveTerminalFileLinks {
                         owner: owner.clone(),
                         source: source.clone(),
                         request: resolution,
-                    });
+                    },
+                ));
             }
         }
     }
@@ -4793,16 +4809,20 @@ fn show_external_link(
             continue;
         }
         let command = match link {
-            crate::terminal_file_links::Link::External(link) => HostCommand::OpenTerminalUrl {
-                owner: owner.clone(),
-                source: source.clone(),
-                uri: link.uri,
-            },
-            crate::terminal_file_links::Link::File(link) => HostCommand::OpenTerminalFile {
-                owner: owner.clone(),
-                source: source.clone(),
-                link,
-            },
+            crate::terminal_file_links::Link::External(link) => HostCommand::TerminalAgent(
+                crate::domains::terminal_agent::Command::OpenTerminalUrl {
+                    owner: owner.clone(),
+                    source: source.clone(),
+                    uri: link.uri,
+                },
+            ),
+            crate::terminal_file_links::Link::File(link) => HostCommand::TerminalAgent(
+                crate::domains::terminal_agent::Command::OpenTerminalFile {
+                    owner: owner.clone(),
+                    source: source.clone(),
+                    link,
+                },
+            ),
         };
         request.commands.push(command);
     }

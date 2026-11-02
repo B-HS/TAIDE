@@ -9,6 +9,7 @@ use taide_model::{
     ids::ProjectId,
     paths::AppPaths,
 };
+use taide_native_app::domains::settings;
 use taide_native_app::host::{HostBridge, HostCommand, HostReply};
 use taide_native_app::settings_controls::{Change, Numeric, NumericDraft, Position, Switch};
 use taide_runtime::{AppState, EventSink, TaskSupervisor};
@@ -179,7 +180,7 @@ fn native_settings_controls_host는_저장과_theme이벤트_오류원본을_보
         for switch in Switch::ALL {
             let before = state.settings.read().clone();
             let count = events.0.lock().unwrap().len();
-            bridge.submit(HostCommand::UpdateSettings(Change::Switch(switch, !switch.value(&before)))).unwrap();
+            bridge.submit(HostCommand::Settings(settings::Command::UpdateSettings(Change::Switch(switch, !switch.value(&before))))).unwrap();
             tokio::time::timeout(DEADLINE, ready.notified()).await.unwrap();
             assert!(bridge.poll().is_none());
             assert_eq!(switch.value(&state.settings.read()), !switch.value(&before));
@@ -188,7 +189,7 @@ fn native_settings_controls_host는_저장과_theme이벤트_오류원본을_보
             assert_eq!(emitted.len(), count + 1);
             assert!(matches!(&emitted[count], AppEvent::SettingsChanged { settings } if settings.as_ref() == &*state.settings.read()));
         }
-        bridge.submit(HostCommand::UpdateSettings(Change::Theme("taide-light".into()))).unwrap();
+        bridge.submit(HostCommand::Settings(settings::Command::UpdateSettings(Change::Theme("taide-light".into())))).unwrap();
         tokio::time::timeout(DEADLINE, ready.notified()).await.unwrap();
         assert!(bridge.poll().is_none());
         assert_eq!(state.settings.read().theme_id, "taide-light");
@@ -200,7 +201,7 @@ fn native_settings_controls_host는_저장과_theme이벤트_오류원본을_보
             assert!(matches!(&emitted[emitted.len() - 1], AppEvent::ThemeChanged { theme_id } if theme_id == "taide-light"));
         }
         for change in [Change::Language("ja".into()), Change::Position(Position::ALL[0]), Change::Numeric(Numeric::ResizerThickness, u32::MAX), Change::Numeric(Numeric::SearchOnTypeDebounce, 0)] {
-            bridge.submit(HostCommand::UpdateSettings(change)).unwrap();
+            bridge.submit(HostCommand::Settings(settings::Command::UpdateSettings(change))).unwrap();
             tokio::time::timeout(DEADLINE, ready.notified()).await.unwrap();
             assert!(bridge.poll().is_none());
         }
@@ -211,9 +212,11 @@ fn native_settings_controls_host는_저장과_theme이벤트_오류원본을_보
         assert_eq!(state.settings.read().agent_hooks_enabled, initial.agent_hooks_enabled);
         assert_eq!(state.settings.read().ide_integration_enabled, initial.ide_integration_enabled);
         for command in [
-            HostCommand::SetEditorFontSize(EDITOR_FONT),
-            HostCommand::SetTerminalFontSize(TERMINAL_FONT),
-            HostCommand::SetKeymapOverrides(taide_native_app::keymap::catalog::Overrides::default()),
+            HostCommand::Settings(settings::Command::SetEditorFontSize(EDITOR_FONT)),
+            HostCommand::Settings(settings::Command::SetTerminalFontSize(TERMINAL_FONT)),
+            HostCommand::Commands(taide_native_app::domains::commands::Command::SetKeymapOverrides(
+                taide_native_app::keymap::catalog::Overrides::default(),
+            )),
         ] {
             let before = state.settings.read().clone();
             let count = reconciled.lock().unwrap().len();
@@ -230,7 +233,7 @@ fn native_settings_controls_host는_저장과_theme이벤트_오류원본을_보
         let before_minimap = state.settings.read().clone();
         let before_count = reconciled.lock().unwrap().len();
         for _ in 0..QUEUED_MINIMAP_TOGGLES {
-            bridge.submit(HostCommand::ToggleEditorMinimap).unwrap();
+            bridge.submit(HostCommand::Settings(settings::Command::ToggleEditorMinimap)).unwrap();
         }
         tokio::time::timeout(DEADLINE, async {
             while reconciled.lock().unwrap().len() < before_count + QUEUED_MINIMAP_TOGGLES {
@@ -252,7 +255,7 @@ fn native_settings_controls_host는_저장과_theme이벤트_오류원본을_보
             let before = state.settings.read().clone();
             let count = events.0.lock().unwrap().len();
             let reconcile_count = reconciled.lock().unwrap().len();
-            bridge.submit(HostCommand::UpdateSettings(change)).unwrap();
+            bridge.submit(HostCommand::Settings(settings::Command::UpdateSettings(change))).unwrap();
             tokio::time::timeout(DEADLINE, ready.notified()).await.unwrap();
             assert!(matches!(bridge.poll(), Some(HostReply::SettingsFailed(error)) if error.kind() == AppErrorKind::InvalidArgument));
             assert_eq!(*state.settings.read(), before);
@@ -261,7 +264,7 @@ fn native_settings_controls_host는_저장과_theme이벤트_오류원본을_보
         }
         let before = state.settings.read().clone();
         let reconcile_count = reconciled.lock().unwrap().len();
-        bridge.submit(HostCommand::UpdateSettings(Change::Theme("missing-native-theme".into()))).unwrap();
+        bridge.submit(HostCommand::Settings(settings::Command::UpdateSettings(Change::Theme("missing-native-theme".into())))).unwrap();
         tokio::time::timeout(DEADLINE, ready.notified()).await.unwrap();
         assert!(matches!(bridge.poll(), Some(HostReply::SettingsFailed(AppError::NotFound(_)))));
         assert_eq!(*state.settings.read(), before);
@@ -270,7 +273,7 @@ fn native_settings_controls_host는_저장과_theme이벤트_오류원본을_보
         let settings_file = state.paths.settings_file();
         std::fs::rename(&settings_file, directory.join("previous-settings.json")).unwrap();
         std::fs::create_dir(&settings_file).unwrap();
-        bridge.submit(HostCommand::UpdateSettings(Change::Language("ko".into()))).unwrap();
+        bridge.submit(HostCommand::Settings(settings::Command::UpdateSettings(Change::Language("ko".into())))).unwrap();
         tokio::time::timeout(DEADLINE, ready.notified()).await.unwrap();
         assert!(matches!(bridge.poll(), Some(HostReply::SettingsFailed(_))));
         assert_eq!(*state.settings.read(), before);

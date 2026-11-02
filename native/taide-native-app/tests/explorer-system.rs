@@ -8,6 +8,7 @@ use taide_model::ids::ProjectId;
 use taide_model::paths::AppPaths;
 use taide_model::project::Project;
 use taide_native_app::bootstrap::{platform_url, services};
+use taide_native_app::domains::shell;
 use taide_native_app::host::{ClipboardWriter, HostBridge, HostCommand, HostReply};
 use taide_runtime::{AppState, EventSink, PlatformServices, PlatformServicesState, TaskSupervisor};
 use tokio::sync::Notify;
@@ -150,8 +151,12 @@ fn 경로메뉴_host는_검증된_platform_호출_복사실패와_worker_회수�
             )
             .unwrap();
             for text in ["文 #100%.HTML", "deny", "last successful copy"] {
-                bridge.submit(HostCommand::CopyText(text.into())).unwrap();
-                let HostReply::CopiedText { result } = reply(&mut bridge, &signal).await else {
+                bridge
+                    .submit(HostCommand::Shell(shell::Command::CopyText(text.into())))
+                    .unwrap();
+                let HostReply::Shell(shell::Reply::CopiedText { result }) =
+                    reply(&mut bridge, &signal).await
+                else {
                     panic!("copy reply");
                 };
                 assert_eq!(result.is_ok(), text != "deny");
@@ -162,11 +167,13 @@ fn 경로메뉴_host는_검증된_platform_호출_복사실패와_worker_회수�
             );
             let path = root.join("文 #100%.HTML");
             for command in [
-                HostCommand::RevealPath(path.to_str().unwrap().into()),
-                HostCommand::OpenInBrowser(path.to_str().unwrap().into()),
+                HostCommand::Shell(shell::Command::RevealPath(path.to_str().unwrap().into())),
+                HostCommand::Shell(shell::Command::OpenInBrowser(path.to_str().unwrap().into())),
             ] {
                 bridge.submit(command).unwrap();
-                let HostReply::SystemFinished { result } = reply(&mut bridge, &signal).await else {
+                let HostReply::Shell(shell::Reply::SystemFinished { result }) =
+                    reply(&mut bridge, &signal).await
+                else {
                     panic!("system reply");
                 };
                 result.unwrap();
@@ -183,11 +190,15 @@ fn 경로메뉴_host는_검증된_platform_호출_복사실패와_worker_회수�
                 path
             );
             for command in [
-                HostCommand::RevealPath(fixture.0.join("outside.html").to_str().unwrap().into()),
-                HostCommand::OpenInBrowser("relative.html".into()),
+                HostCommand::Shell(shell::Command::RevealPath(
+                    fixture.0.join("outside.html").to_str().unwrap().into(),
+                )),
+                HostCommand::Shell(shell::Command::OpenInBrowser("relative.html".into())),
             ] {
                 bridge.submit(command).unwrap();
-                let HostReply::SystemFinished { result } = reply(&mut bridge, &signal).await else {
+                let HostReply::Shell(shell::Reply::SystemFinished { result }) =
+                    reply(&mut bridge, &signal).await
+                else {
                     panic!("refused system reply");
                 };
                 assert!(result.is_err());
@@ -198,20 +209,26 @@ fn 경로메뉴_host는_검증된_platform_호출_복사실패와_worker_회수�
                 let alias = root.join("escape.html");
                 std::os::unix::fs::symlink(fixture.0.join("outside.html"), &alias).unwrap();
                 bridge
-                    .submit(HostCommand::OpenInBrowser(alias.to_str().unwrap().into()))
+                    .submit(HostCommand::Shell(shell::Command::OpenInBrowser(
+                        alias.to_str().unwrap().into(),
+                    )))
                     .unwrap();
-                let HostReply::SystemFinished { result } = reply(&mut bridge, &signal).await else {
+                let HostReply::Shell(shell::Reply::SystemFinished { result }) =
+                    reply(&mut bridge, &signal).await
+                else {
                     panic!("alias refusal");
                 };
                 assert!(result.is_err());
                 assert_eq!(platform.0.lock().unwrap().len(), calls.len());
             }
             bridge
-                .submit(HostCommand::RevealPath(
+                .submit(HostCommand::Shell(shell::Command::RevealPath(
                     root.join("fail.html").to_str().unwrap().into(),
-                ))
+                )))
                 .unwrap();
-            let HostReply::SystemFinished { result } = reply(&mut bridge, &signal).await else {
+            let HostReply::Shell(shell::Reply::SystemFinished { result }) =
+                reply(&mut bridge, &signal).await
+            else {
                 panic!("platform failure reply");
             };
             assert!(result.is_err());

@@ -291,21 +291,27 @@ async fn hwp3_host_reply(
         preview_hwp::Failure,
     };
 
-    host.submit(HostCommand::ReadHwpPreview(request.clone()))
-        .unwrap();
+    host.submit(HostCommand::Preview(
+        taide_native_app::domains::preview::Command::ReadHwpPreview(request.clone()),
+    ))
+    .unwrap();
     tokio::time::timeout(HOST_TIMEOUT, async {
         let mut saw_source = false;
         loop {
             match host.poll() {
-                Some(HostReply::HwpSourceReady(returned)) => {
+                Some(HostReply::Preview(
+                    taide_native_app::domains::preview::Reply::HwpSourceReady(returned),
+                )) => {
                     assert_eq!(returned, request);
                     assert!(!saw_source);
                     saw_source = true;
                 }
-                Some(HostReply::HwpPreview {
-                    request: returned,
-                    result,
-                }) => {
+                Some(HostReply::Preview(
+                    taide_native_app::domains::preview::Reply::HwpPreview {
+                        request: returned,
+                        result,
+                    },
+                )) => {
                     assert_eq!(returned, request);
                     if !matches!(result, Err(Failure::Read(_))) {
                         assert!(saw_source);

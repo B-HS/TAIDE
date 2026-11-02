@@ -20,7 +20,9 @@ pub(crate) fn show_refused(
                 &[],
             ));
             let button = ui.button(presentation::message(locale, "editor.openExternally", &[]));
-            let command = button.clicked().then(|| HostCommand::OpenPath(path.into()));
+            let command = button
+                .clicked()
+                .then(|| HostCommand::Shell(crate::domains::shell::Command::OpenPath(path.into())));
             (button, command)
         },
     )
@@ -97,7 +99,7 @@ mod tests {
             }],
         );
         assert!(
-            matches!(command, Some(HostCommand::OpenPath(path)) if path == "/synthetic/refused.rs")
+            matches!(command, Some(HostCommand::Shell(crate::domains::shell::Command::OpenPath(path))) if path == "/synthetic/refused.rs")
         );
         assert!(render(&context, &locale, Vec::new()).1.is_none());
     }

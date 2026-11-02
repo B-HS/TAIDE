@@ -868,10 +868,10 @@ fn 실제_preview의_직렬_본문_명령과_저장은_대상_문서와_포커�
     );
     assert_eq!(changed.get(&target_document), Some(&preview));
     assert_eq!(commands.len(), 1);
-    let crate::host::HostCommand::Save {
+    let crate::host::HostCommand::Editor(crate::domains::editor::Command::Save {
         path: saved_path,
         snapshot,
-    } = &commands[0]
+    }) = &commands[0]
     else {
         panic!("unexpected preview command");
     };

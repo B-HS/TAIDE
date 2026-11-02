@@ -193,13 +193,19 @@ fn 실제_app의_클릭_서버명령_갱신과_client_참조명령은_본문과_
         })
         .unwrap();
     context.memory_mut(|memory| memory.request_focus(peek_id));
-    application.palette.open(
+    application.commands_state.palette.open(
         context,
         taide_native_ui::command_registry::PaletteEntry::Commands,
     );
     paint(application, context, Vec::new());
     paint(application, context, Vec::new());
-    assert!(application.palette.inspection().has_input_focus);
+    assert!(
+        application
+            .commands_state
+            .palette
+            .inspection()
+            .has_input_focus
+    );
     assert_eq!(
         application.focused_editor_source(context, &fixture.tab, Some(document)),
         Some((preview, view))
@@ -213,13 +219,14 @@ fn 실제_app의_클릭_서버명령_갱신과_client_참조명령은_본문과_
     paint(application, context, vec![egui::Event::Text(label)]);
     assert!(
         application
+            .commands_state
             .palette
             .inspection()
             .rows
             .iter()
             .any(|row| row.key == command && row.is_enabled && row.is_selected),
         "{:?}",
-        application.palette.inspection()
+        application.commands_state.palette.inspection()
     );
     paint(
         application,
@@ -230,11 +237,11 @@ fn 실제_app의_클릭_서버명령_갱신과_client_참조명령은_본문과_
         application,
         context,
         "peek command picker preserves source",
-        |application| application.palette.is_picking_code_lenses(),
+        |application| application.commands_state.palette.is_picking_code_lenses(),
     );
     paint(application, context, Vec::new());
     assert_eq!(
-        application.palette.inspection().rows[0].label,
+        application.commands_state.palette.inspection().rows[0].label,
         "Resolved v0"
     );
     paint(
@@ -311,16 +318,19 @@ fn 실제_app의_현재줄_선택_설정_편집_readonly_tier와_종료는_렌�
         .document_edits
         .push((fixture.tab.clone(), DocumentEdit::CodeLens));
     wait(application, context, "current line picker", |application| {
-        application.palette.is_picking_code_lenses()
+        application.commands_state.palette.is_picking_code_lenses()
     });
     paint(application, context, Vec::new());
     assert_eq!(
-        application.palette.inspection().placeholder,
+        application.commands_state.palette.inspection().placeholder,
         "Select a command"
     );
-    assert_eq!(application.palette.inspection().rows.len(), 1);
     assert_eq!(
-        application.palette.inspection().rows[0].label,
+        application.commands_state.palette.inspection().rows.len(),
+        1
+    );
+    assert_eq!(
+        application.commands_state.palette.inspection().rows[0].label,
         "Resolved v0"
     );
     paint(
@@ -333,7 +343,8 @@ fn 실제_app의_현재줄_선택_설정_편집_readonly_tier와_종료는_렌�
         context,
         "selected server command",
         |application| {
-            !application.palette.is_open() && diagnostic(application, "synthetic lens executed")
+            !application.commands_state.palette.is_open()
+                && diagnostic(application, "synthetic lens executed")
         },
     );
     let initial = application
@@ -447,7 +458,7 @@ fn 실제_app의_현재줄_선택_설정_편집_readonly_tier와_종료는_렌�
                 application,
                 context,
                 "readonly current line picker",
-                |application| application.palette.is_picking_code_lenses(),
+                |application| application.commands_state.palette.is_picking_code_lenses(),
             );
             paint(
                 application,

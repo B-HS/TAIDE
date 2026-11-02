@@ -76,13 +76,19 @@ pub(super) fn run_palette(
     context: &egui::Context,
     command: &str,
 ) {
-    application.palette.open(
+    application.commands_state.palette.open(
         context,
         taide_native_ui::command_registry::PaletteEntry::Commands,
     );
     paint(application, context, Vec::new());
     paint(application, context, Vec::new());
-    assert!(application.palette.inspection().has_input_focus);
+    assert!(
+        application
+            .commands_state
+            .palette
+            .inspection()
+            .has_input_focus
+    );
     let label = crate::command_registry::registry()
         .unwrap()
         .command(command)
@@ -91,13 +97,14 @@ pub(super) fn run_palette(
     paint(application, context, vec![egui::Event::Text(label)]);
     assert!(
         application
+            .commands_state
             .palette
             .inspection()
             .rows
             .iter()
             .any(|row| row.key == command && row.is_enabled && row.is_selected),
         "{:?}",
-        application.palette.inspection()
+        application.commands_state.palette.inspection()
     );
     paint(
         application,

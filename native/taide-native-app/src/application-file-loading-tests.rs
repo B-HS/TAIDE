@@ -30,12 +30,14 @@ fn 실제_파일_크기_등급은_host_로딩과_본문_입력에서_편집_읽�
         std::fs::write(&path, &text).unwrap();
         let application = fixture.application.as_mut().unwrap();
         let context = &fixture.context;
-        assert!(application.submit(HostCommand::OpenFileTab {
-            project: fixture.project.clone(),
-            pane: None,
-            path: path.clone(),
-            preview: false
-        }));
+        assert!(application.submit(HostCommand::Editor(
+            crate::domains::editor::Command::OpenFileTab {
+                project: fixture.project.clone(),
+                pane: None,
+                path: path.clone(),
+                preview: false
+            }
+        )));
         wait(application, context, "actual tier loaded", |application| {
             application.files.contains_key(&path)
         });
@@ -90,12 +92,14 @@ fn 실제_거절_캐시는_보조_mirror의_수명_파일_변경과_프로젝트
     std::fs::write(&fixture.peek_path, BINARY).unwrap();
     let application = fixture.application.as_mut().unwrap();
     let context = &fixture.context;
-    assert!(application.submit(HostCommand::OpenFileTab {
-        project: fixture.project.clone(),
-        pane: None,
-        path: fixture.peek_path.clone(),
-        preview: false
-    }));
+    assert!(application.submit(HostCommand::Editor(
+        crate::domains::editor::Command::OpenFileTab {
+            project: fixture.project.clone(),
+            pane: None,
+            path: fixture.peek_path.clone(),
+            preview: false
+        }
+    )));
     wait(application, context, "refused cache", |application| {
         application.refused.contains(&fixture.peek_path)
     });
@@ -201,12 +205,14 @@ fn 실제_거절_캐시는_보조_mirror의_수명_파일_변경과_프로젝트
         .to_owned();
     std::fs::write(&rejected, BINARY).unwrap();
     application.shell.scope = WindowScope::Main;
-    assert!(application.submit(HostCommand::OpenFileTab {
-        project: fixture.project.clone(),
-        pane: None,
-        path: rejected.clone(),
-        preview: false
-    }));
+    assert!(application.submit(HostCommand::Editor(
+        crate::domains::editor::Command::OpenFileTab {
+            project: fixture.project.clone(),
+            pane: None,
+            path: rejected.clone(),
+            preview: false
+        }
+    )));
     wait(
         application,
         context,
@@ -259,12 +265,14 @@ fn 실제_거절_파일은_전용_안내와_외부_열기를_표시하고_문서
         } else {
             std::fs::write(&fixture.peek_path, BINARY).unwrap();
         }
-        assert!(application.submit(HostCommand::OpenFileTab {
-            project: fixture.project.clone(),
-            pane: None,
-            path: fixture.peek_path.clone(),
-            preview: false,
-        }));
+        assert!(application.submit(HostCommand::Editor(
+            crate::domains::editor::Command::OpenFileTab {
+                project: fixture.project.clone(),
+                pane: None,
+                path: fixture.peek_path.clone(),
+                preview: false,
+            }
+        )));
         let had_loading = AtomicBool::new(false);
         wait(application, context, "refused file loaded", |application| {
             if application.loading.contains(&fixture.peek_path) {
@@ -369,12 +377,14 @@ fn 실제_읽기_실패_탭을_마지막으로_닫고_다시_열면_오류_캐�
         "last failed tab retained a stale error"
     );
     std::fs::write(&failed_path, TEXT).unwrap();
-    assert!(application.submit(HostCommand::OpenFileTab {
-        project: fixture.project.clone(),
-        pane: None,
-        path: failed_path.clone(),
-        preview: false
-    }));
+    assert!(application.submit(HostCommand::Editor(
+        crate::domains::editor::Command::OpenFileTab {
+            project: fixture.project.clone(),
+            pane: None,
+            path: failed_path.clone(),
+            preview: false
+        }
+    )));
     wait(
         application,
         context,

@@ -101,7 +101,9 @@ fn native_settings_catalog는_소유자와_mount_독립결과를_보존한다() 
     .unwrap();
     runtime.block_on(async {
         bridge
-            .submit(HostCommand::ReadSettingsCatalog(request.clone()))
+            .submit(HostCommand::Settings(
+                crate::domains::settings::Command::ReadSettingsCatalog(request.clone()),
+            ))
             .unwrap();
         let reply = tokio::time::timeout(DEADLINE, async {
             loop {
@@ -113,10 +115,10 @@ fn native_settings_catalog는_소유자와_mount_독립결과를_보존한다() 
         })
         .await
         .unwrap();
-        let HostReply::SettingsCatalog {
+        let HostReply::Settings(crate::domains::settings::Reply::SettingsCatalog {
             request: completed,
             result,
-        } = reply
+        }) = reply
         else {
             panic!("unexpected reply");
         };
@@ -730,11 +732,13 @@ fn native_settings_open_host는_선택pane와_중복_aux_거절을_보존한다(
     runtime.block_on(async {
         for target in [&pane, &pane, &aux_pane] {
             bridge
-                .submit(HostCommand::OpenSettings {
-                    project: project.clone(),
-                    pane: target.clone(),
-                    title: "Synthetic settings".into(),
-                })
+                .submit(HostCommand::Settings(
+                    crate::domains::settings::Command::OpenSettings {
+                        project: project.clone(),
+                        pane: target.clone(),
+                        title: "Synthetic settings".into(),
+                    },
+                ))
                 .unwrap();
             tokio::time::timeout(DEADLINE, ready.notified())
                 .await
@@ -751,11 +755,13 @@ fn native_settings_open_host는_선택pane와_중복_aux_거절을_보존한다(
             assert!(!settings[0].preview && !settings[0].dirty);
         }
         bridge
-            .submit(HostCommand::OpenSettings {
-                project: project.clone(),
-                pane: PaneId::new(),
-                title: "Invalid pane".into(),
-            })
+            .submit(HostCommand::Settings(
+                crate::domains::settings::Command::OpenSettings {
+                    project: project.clone(),
+                    pane: PaneId::new(),
+                    title: "Invalid pane".into(),
+                },
+            ))
             .unwrap();
         tokio::time::timeout(DEADLINE, ready.notified())
             .await
@@ -895,7 +901,11 @@ fn native_settings_theme는_실제_create_host와_목록갱신_닫힘을_연결�
     )
     .unwrap();
     runtime.block_on(async {
-        bridge.submit(HostCommand::ThemeEdit(command)).unwrap();
+        bridge
+            .submit(HostCommand::Settings(
+                crate::domains::settings::Command::ThemeEdit(command),
+            ))
+            .unwrap();
         let reply = next_theme_reply(&mut bridge, &ready).await;
         assert!(views.accept_theme(reply).is_none());
         let loaded = frame(
@@ -932,7 +942,11 @@ fn native_settings_theme는_실제_create_host와_목록갱신_닫힘을_연결�
         .0;
         assert_eq!(output.themes.len(), 1);
         let command = output.themes.pop().unwrap();
-        bridge.submit(HostCommand::ThemeEdit(command)).unwrap();
+        bridge
+            .submit(HostCommand::Settings(
+                crate::domains::settings::Command::ThemeEdit(command),
+            ))
+            .unwrap();
         assert!(
             views
                 .accept_theme(next_theme_reply(&mut bridge, &ready).await)
@@ -1026,7 +1040,11 @@ fn native_settings_theme는_실제_create_host와_목록갱신_닫힘을_연결�
         .themes
         .pop()
         .unwrap();
-        bridge.submit(HostCommand::ThemeEdit(command)).unwrap();
+        bridge
+            .submit(HostCommand::Settings(
+                crate::domains::settings::Command::ThemeEdit(command),
+            ))
+            .unwrap();
         assert!(
             views
                 .accept_theme(next_theme_reply(&mut bridge, &ready).await)
@@ -1073,7 +1091,9 @@ fn native_settings_theme는_실제_create_host와_목록갱신_닫힘을_연결�
         .0;
         assert_eq!(output.themes.len(), 1);
         bridge
-            .submit(HostCommand::ThemeEdit(output.themes.pop().unwrap()))
+            .submit(HostCommand::Settings(
+                crate::domains::settings::Command::ThemeEdit(output.themes.pop().unwrap()),
+            ))
             .unwrap();
         assert!(
             views
@@ -1239,7 +1259,7 @@ async fn next_theme_reply(
     })
     .await
     .unwrap();
-    let HostReply::ThemeEdit(reply) = reply else {
+    let HostReply::Settings(crate::domains::settings::Reply::ThemeEdit(reply)) = reply else {
         panic!("expected theme edit reply");
     };
     reply

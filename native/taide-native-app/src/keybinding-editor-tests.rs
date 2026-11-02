@@ -953,7 +953,9 @@ mod tests {
         assert_eq!(output.saves.len(), 1);
         let encoded = output.saves[0].json().unwrap();
         assert!(encoded.contains("font-size-up") && encoded.contains("\"key\":\"k\""));
-        let _command = HostCommand::SetKeymapOverrides(output.saves[0].clone());
+        let _command = HostCommand::Commands(crate::domains::commands::Command::SetKeymapOverrides(
+            output.saves[0].clone(),
+        ));
         assert!(!editor.is_capturing());
         let (_, drawing) = frame(
             &mut editor,

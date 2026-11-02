@@ -226,11 +226,13 @@ fn 실제_host는_jpeg_gif_webp_bmp_svg와_exif_및_비신뢰_svg_경계를_읽�
                 .unwrap()
                 .to_owned();
             std::fs::write(&path, &bytes).unwrap();
-            host.submit(HostCommand::ReadPreview(Request {
-                path,
-                token: 1,
-                max_side: MAX_SIDE,
-            }))
+            host.submit(HostCommand::Preview(
+                taide_native_app::domains::preview::Command::ReadPreview(Request {
+                    path,
+                    token: 1,
+                    max_side: MAX_SIDE,
+                }),
+            ))
             .unwrap();
             let reply = tokio::time::timeout(TIMEOUT, async {
                 loop {
@@ -242,7 +244,11 @@ fn 실제_host는_jpeg_gif_webp_bmp_svg와_exif_및_비신뢰_svg_경계를_읽�
             })
             .await
             .unwrap();
-            let HostReply::Preview { result, .. } = reply else {
+            let HostReply::Preview(taide_native_app::domains::preview::Reply::Preview {
+                result,
+                ..
+            }) = reply
+            else {
                 panic!("wrong format reply");
             };
             let raster = result.unwrap();

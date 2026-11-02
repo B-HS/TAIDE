@@ -15,6 +15,7 @@ use taide_model::project::{
 };
 use taide_native_ui::commands::{ShellIntent, ShellMutation, dispatch, request_close_tab};
 use taide_native_ui::error_boundary::Region;
+use taide_native_ui::intents::explorer_search;
 use taide_native_ui::presentation::{apply_visuals, visuals};
 use taide_native_ui::project_drag::{DRAGGING_OPACITY, is_dragging, slot_drop_preview};
 use taide_native_ui::project_rail::{RailColors, RailIcon};
@@ -26,6 +27,11 @@ use taide_native_ui::shell::{
 };
 use taide_native_ui::snapshot::{ShellSnapshot, project_group_sections};
 use taide_native_ui::split::{MIN_PANE_SIZE, child_rects, normalized_sizes, resized_pair};
+use taide_native_ui::surfaces::editor::EditorSurfaces;
+use taide_native_ui::surfaces::explorer_search::ExplorerSearchSurfaces;
+use taide_native_ui::surfaces::git::GitSurfaces;
+use taide_native_ui::surfaces::preview::PreviewSurfaces;
+use taide_native_ui::surfaces::terminal_agent::TerminalAgentSurfaces;
 use taide_native_ui::tab_drag;
 use taide_runtime::{AppState, EventSink, theme_actions};
 
@@ -145,10 +151,66 @@ enum ExplorerRecord {
 
 impl ShellSurfaces for Surfaces {
     type StatusOutput = Vec<Option<ProjectId>>;
-    type Explorer = Option<ExplorerRecord>;
-    fn title_branch_icon(&mut self, _: &Ui, rect: Rect, color: Color32) {
-        self.title_branch_icons.push((rect, color));
+    fn rail_recent_projects(&self) -> Vec<WelcomeRecent> {
+        self.rail.clone()
     }
+    fn is_reduced_motion(&self) -> bool {
+        self.is_reduced_motion
+    }
+    fn rail_icon(
+        &mut self,
+        painter: &egui::Painter,
+        _: egui::layers::ShapeIdx,
+        rect: Rect,
+        icon: RailIcon<'_>,
+        color: Color32,
+    ) {
+        self.rail_icons
+            .push((format!("{icon:?}"), rect, color, painter.opacity()));
+    }
+    fn welcome_content(&self, _: Option<&ProjectId>) -> WelcomeContent {
+        self.welcome.clone().unwrap_or_default()
+    }
+    fn text(&self, key: &str) -> String {
+        key.to_owned()
+    }
+    fn text_with_args(&self, key: &str, arguments: &[(&str, &str)]) -> String {
+        format!("{key}: {arguments:?}")
+    }
+    fn status_bar(
+        &self,
+        ui: &mut Ui,
+        project: Option<&ProjectId>,
+        output: &mut Vec<Option<ProjectId>>,
+    ) {
+        output.push(project.cloned());
+        ui.label("test-only status");
+        if self.is_first_pass_discarded && ui.ctx().current_pass_index() == 0 {
+            ui.ctx().request_discard("test-only discarded first pass");
+        }
+        if self.is_status_panicking {
+            panic!("synthetic status bar panic");
+        }
+    }
+    fn apply_status_bar(&mut self, output: Vec<Option<ProjectId>>) {
+        self.status_projects.extend(output);
+    }
+    fn discard_status_bar(&mut self) {
+        self.status_discards += 1;
+    }
+    fn tooltip(
+        &mut self,
+        response: &egui::Response,
+        align: egui::RectAlign,
+        lines: Vec<TooltipLine>,
+    ) {
+        self.tooltips.push((response.rect, align, lines.clone()));
+        egui_tooltip(self, response, align, &lines);
+    }
+}
+
+impl ExplorerSearchSurfaces for Surfaces {
+    type Explorer = Option<ExplorerRecord>;
     fn is_auxiliary_explorer_open(&self, _: &ProjectId, _: u32) -> bool {
         self.is_auxiliary_explorer_open
     }
@@ -213,41 +275,18 @@ impl ShellSurfaces for Surfaces {
     ) {
         self.explorer_discards.push(format!("{mount:?}"));
     }
-    fn rail_recent_projects(&self) -> Vec<WelcomeRecent> {
-        self.rail.clone()
-    }
-    fn project_agents(&self, project: &ProjectId) -> Vec<DetectedAgent> {
-        self.agents.get(project).cloned().unwrap_or_default()
-    }
-    fn is_agent_status_badge_enabled(&self) -> bool {
-        !self.is_badge_disabled
-    }
-    fn is_reduced_motion(&self) -> bool {
-        self.is_reduced_motion
-    }
-    fn rail_icon(
-        &mut self,
-        painter: &egui::Painter,
-        _: egui::layers::ShapeIdx,
-        rect: Rect,
-        icon: RailIcon<'_>,
-        color: Color32,
-    ) {
-        self.rail_icons
-            .push((format!("{icon:?}"), rect, color, painter.opacity()));
-    }
-    fn welcome_content(&self, _: Option<&ProjectId>) -> WelcomeContent {
-        self.welcome.clone().unwrap_or_default()
-    }
-    fn text(&self, key: &str) -> String {
-        key.to_owned()
-    }
-    fn text_with_args(&self, key: &str, arguments: &[(&str, &str)]) -> String {
-        format!("{key}: {arguments:?}")
+}
+
+impl GitSurfaces for Surfaces {
+    fn title_branch_icon(&mut self, _: &Ui, rect: Rect, color: Color32) {
+        self.title_branch_icons.push((rect, color));
     }
     fn branch(&self, _: &ProjectId) -> Option<&str> {
         self.branch
     }
+}
+
+impl EditorSurfaces for Surfaces {
     fn problems_open(&self, slot: &ShellSlotId) -> bool {
         self.problems_open.contains(slot)
     }
@@ -279,39 +318,21 @@ impl ShellSurfaces for Surfaces {
         self.tab_icons.push((tab.id.clone(), rect, title_color));
         self.agent_tab_icons.push((tab.id.clone(), agent_color));
     }
+}
+
+impl PreviewSurfaces for Surfaces {
     fn can_reopen_with(&self, path: &str) -> bool {
         self.reopen_with_extension
             .is_some_and(|extension| path.ends_with(extension))
     }
-    fn status_bar(
-        &self,
-        ui: &mut Ui,
-        project: Option<&ProjectId>,
-        output: &mut Vec<Option<ProjectId>>,
-    ) {
-        output.push(project.cloned());
-        ui.label("test-only status");
-        if self.is_first_pass_discarded && ui.ctx().current_pass_index() == 0 {
-            ui.ctx().request_discard("test-only discarded first pass");
-        }
-        if self.is_status_panicking {
-            panic!("synthetic status bar panic");
-        }
+}
+
+impl TerminalAgentSurfaces for Surfaces {
+    fn project_agents(&self, project: &ProjectId) -> Vec<DetectedAgent> {
+        self.agents.get(project).cloned().unwrap_or_default()
     }
-    fn apply_status_bar(&mut self, output: Vec<Option<ProjectId>>) {
-        self.status_projects.extend(output);
-    }
-    fn discard_status_bar(&mut self) {
-        self.status_discards += 1;
-    }
-    fn tooltip(
-        &mut self,
-        response: &egui::Response,
-        align: egui::RectAlign,
-        lines: Vec<TooltipLine>,
-    ) {
-        self.tooltips.push((response.rect, align, lines.clone()));
-        egui_tooltip(self, response, align, &lines);
+    fn is_agent_status_badge_enabled(&self) -> bool {
+        !self.is_badge_disabled
     }
 }
 
@@ -1909,7 +1930,7 @@ fn 탭_메뉴와_빈공간_메뉴는_원본_항목과_고정탭_제외_닫기와
     assert!(
         intents.iter().any(|intent| matches!(
             intent,
-            ShellIntent::NewUntitled { pane: target, .. } if target == &pane
+            ShellIntent::Editor(taide_native_ui::intents::editor::Intent::NewUntitled { pane: target, .. }) if target == &pane
         )),
         "{intents:?}"
     );
@@ -2212,7 +2233,7 @@ fn 탭_메뉴는_주창_파일탭에_탐색기_reveal_rename과_미리보기파�
     assert!(
         intents.iter().any(|intent| matches!(
             intent,
-            ShellIntent::RevealInExplorer { project: owner, slot: target, path, rename: false }
+            ShellIntent::ExplorerSearch(explorer_search::Intent::RevealInExplorer { project: owner, slot: target, path, rename: false })
                 if owner == &project && target == &slot && path == "/synthetic/root/assets/pic.png"
         )),
         "{intents:?}"
@@ -2222,7 +2243,7 @@ fn 탭_메뉴는_주창_파일탭에_탐색기_reveal_rename과_미리보기파�
     assert!(
         intents.iter().any(|intent| matches!(
             intent,
-            ShellIntent::RevealInExplorer { project: owner, slot: target, path, rename: true }
+            ShellIntent::ExplorerSearch(explorer_search::Intent::RevealInExplorer { project: owner, slot: target, path, rename: true })
                 if owner == &project && target == &slot && path == "/synthetic/root/assets/pic.png"
         )),
         "{intents:?}"
@@ -2246,7 +2267,7 @@ fn 탭_메뉴는_주창_파일탭에_탐색기_reveal_rename과_미리보기파�
         assert!(
             intents.iter().any(|intent| matches!(
                 intent,
-                ShellIntent::ReopenWith { path, preview }
+                ShellIntent::Preview(taide_native_ui::intents::preview::Intent::ReopenWith { path, preview })
                     if path == "/synthetic/root/assets/pic.png" && *preview == expected_preview
             )),
             "{key}: {intents:?}"
@@ -2414,7 +2435,7 @@ fn 탭_메뉴는_새창_메인창_다른창_이동과_보조창_탐색기_reveal
         assert!(
             intents.iter().any(|intent| matches!(
                 intent,
-                ShellIntent::RevealInAuxiliaryExplorer { project: owner, slot, path, rename }
+                ShellIntent::ExplorerSearch(explorer_search::Intent::RevealInAuxiliaryExplorer { project: owner, slot, path, rename })
                     if owner == &project
                         && *slot == AUX_SLOT
                         && path == "/synthetic/root/src/lib.rs"
@@ -2423,9 +2444,10 @@ fn 탭_메뉴는_새창_메인창_다른창_이동과_보조창_탐색기_reveal
             "{key}: {intents:?}"
         );
         assert!(
-            !intents
-                .iter()
-                .any(|intent| matches!(intent, ShellIntent::RevealInExplorer { .. })),
+            !intents.iter().any(|intent| matches!(
+                intent,
+                ShellIntent::ExplorerSearch(explorer_search::Intent::RevealInExplorer { .. })
+            )),
             "{key}: {intents:?}"
         );
     }

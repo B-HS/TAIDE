@@ -117,9 +117,14 @@ fn 실제_저장은_editorconfig_자동_커서_보호_수동_정리와_늦은_�
             })
             .unwrap();
             bridge
-                .submit(HostCommand::OpenDocument(path.clone()))
+                .submit(HostCommand::Editor(
+                    taide_native_app::domains::editor::Command::OpenDocument(path.clone()),
+                ))
                 .unwrap();
-            let HostReply::Opened { result, .. } = reply(&mut bridge, &ready).await else {
+            let HostReply::Editor(taide_native_app::domains::editor::Reply::Opened {
+                result, ..
+            }) = reply(&mut bridge, &ready).await
+            else {
                 panic!("expected document");
             };
             let document = result.unwrap().commit(&mut store).unwrap();
@@ -198,14 +203,20 @@ fn 실제_저장은_editorconfig_자동_커서_보호_수동_정리와_늦은_�
             );
             let epoch = DraftEpoch::default();
             bridge
-                .submit(HostCommand::SaveTracked {
-                    path: path.clone(),
-                    snapshot: prepared.snapshot,
-                    epoch: epoch.clone(),
-                })
+                .submit(HostCommand::Editor(
+                    taide_native_app::domains::editor::Command::SaveTracked {
+                        path: path.clone(),
+                        snapshot: prepared.snapshot,
+                        epoch: epoch.clone(),
+                    },
+                ))
                 .unwrap();
             replace_selections(&mut store, view, "later", None).unwrap();
-            let HostReply::Saved { snapshot, result } = reply(&mut bridge, &ready).await else {
+            let HostReply::Editor(taide_native_app::domains::editor::Reply::Saved {
+                snapshot,
+                result,
+            }) = reply(&mut bridge, &ready).await
+            else {
                 panic!("expected saved snapshot");
             };
             let written = result.unwrap();
@@ -257,13 +268,19 @@ fn 실제_저장은_editorconfig_자동_커서_보호_수동_정리와_늦은_�
                 "draft next head\r\n尾 \tlater\r\n"
             );
             bridge
-                .submit(HostCommand::SaveTracked {
-                    path: path.clone(),
-                    snapshot: prepared.snapshot,
-                    epoch: DraftEpoch::default(),
-                })
+                .submit(HostCommand::Editor(
+                    taide_native_app::domains::editor::Command::SaveTracked {
+                        path: path.clone(),
+                        snapshot: prepared.snapshot,
+                        epoch: DraftEpoch::default(),
+                    },
+                ))
                 .unwrap();
-            let HostReply::Saved { snapshot, result } = reply(&mut bridge, &ready).await else {
+            let HostReply::Editor(taide_native_app::domains::editor::Reply::Saved {
+                snapshot,
+                result,
+            }) = reply(&mut bridge, &ready).await
+            else {
                 panic!("expected explicit save");
             };
             let written = result.unwrap();

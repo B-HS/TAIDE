@@ -265,9 +265,14 @@ fn 실제_worker는_저장뒤_stale_mirror_늦은_초안_readonly_실패와_unti
                     .unwrap();
             let mut store = store();
             bridge
-                .submit(HostCommand::OpenDocument(path.clone()))
+                .submit(HostCommand::Editor(
+                    taide_native_app::domains::editor::Command::OpenDocument(path.clone()),
+                ))
                 .unwrap();
-            let HostReply::Opened { result, .. } = reply(&mut bridge, &ready).await else {
+            let HostReply::Editor(taide_native_app::domains::editor::Reply::Opened {
+                result, ..
+            }) = reply(&mut bridge, &ready).await
+            else {
                 panic!("expected document");
             };
             let document = result.unwrap().commit(&mut store).unwrap();
@@ -304,9 +309,15 @@ fn 실제_worker는_저장뒤_stale_mirror_늦은_초안_readonly_실패와_unti
                 )
                 .unwrap();
             bridge
-                .submit(HostCommand::MirrorDraft(old.clone()))
+                .submit(HostCommand::Editor(
+                    taide_native_app::domains::editor::Command::MirrorDraft(old.clone()),
+                ))
                 .unwrap();
-            let HostReply::DraftMirrored { result, .. } = reply(&mut bridge, &ready).await else {
+            let HostReply::Editor(taide_native_app::domains::editor::Reply::DraftMirrored {
+                result,
+                ..
+            }) = reply(&mut bridge, &ready).await
+            else {
                 panic!("expected mirror");
             };
             assert!(result.unwrap());
@@ -316,14 +327,18 @@ fn 실제_worker는_저장뒤_stale_mirror_늦은_초안_readonly_실패와_unti
             );
             let epoch = persistence.begin_save(document).unwrap();
             bridge
-                .submit(HostCommand::SaveTracked {
-                    path: path.clone(),
-                    snapshot: store.save_snapshot(document).unwrap(),
-                    epoch: epoch.clone(),
-                })
+                .submit(HostCommand::Editor(
+                    taide_native_app::domains::editor::Command::SaveTracked {
+                        path: path.clone(),
+                        snapshot: store.save_snapshot(document).unwrap(),
+                        epoch: epoch.clone(),
+                    },
+                ))
                 .unwrap();
             bridge
-                .submit(HostCommand::MirrorDraft(old.clone()))
+                .submit(HostCommand::Editor(
+                    taide_native_app::domains::editor::Command::MirrorDraft(old.clone()),
+                ))
                 .unwrap();
             replace_selections(&mut store, view, "late ", None).unwrap();
             persistence.changed(
@@ -333,13 +348,21 @@ fn 실제_worker는_저장뒤_stale_mirror_늦은_초안_readonly_실패와_unti
                 true,
                 AUTO_SAVE,
             );
-            let HostReply::Saved { snapshot, result } = reply(&mut bridge, &ready).await else {
+            let HostReply::Editor(taide_native_app::domains::editor::Reply::Saved {
+                snapshot,
+                result,
+            }) = reply(&mut bridge, &ready).await
+            else {
                 panic!("expected save");
             };
             let disk = result.unwrap();
             assert!(!epoch.is_current());
             assert!(!store.mark_saved(snapshot, Some(disk.modified_ms)).unwrap());
-            let HostReply::DraftMirrored { result, .. } = reply(&mut bridge, &ready).await else {
+            let HostReply::Editor(taide_native_app::domains::editor::Reply::DraftMirrored {
+                result,
+                ..
+            }) = reply(&mut bridge, &ready).await
+            else {
                 panic!("expected stale mirror");
             };
             assert!(!result.unwrap());
@@ -357,9 +380,15 @@ fn 실제_worker는_저장뒤_stale_mirror_늦은_초안_readonly_실패와_unti
                 )
                 .unwrap();
             bridge
-                .submit(HostCommand::MirrorDraft(fresh.clone()))
+                .submit(HostCommand::Editor(
+                    taide_native_app::domains::editor::Command::MirrorDraft(fresh.clone()),
+                ))
                 .unwrap();
-            let HostReply::DraftMirrored { result, .. } = reply(&mut bridge, &ready).await else {
+            let HostReply::Editor(taide_native_app::domains::editor::Reply::DraftMirrored {
+                result,
+                ..
+            }) = reply(&mut bridge, &ready).await
+            else {
                 panic!("expected late draft mirror");
             };
             assert!(result.unwrap());
@@ -371,13 +400,18 @@ fn 실제_worker는_저장뒤_stale_mirror_늦은_초안_readonly_실패와_unti
             let snapshot = store.save_snapshot(document).unwrap();
             std::fs::write(&path, [u8::MAX]).unwrap();
             bridge
-                .submit(HostCommand::SaveTracked {
-                    path: path.clone(),
-                    snapshot,
-                    epoch: epoch.clone(),
-                })
+                .submit(HostCommand::Editor(
+                    taide_native_app::domains::editor::Command::SaveTracked {
+                        path: path.clone(),
+                        snapshot,
+                        epoch: epoch.clone(),
+                    },
+                ))
                 .unwrap();
-            let HostReply::Saved { result, .. } = reply(&mut bridge, &ready).await else {
+            let HostReply::Editor(taide_native_app::domains::editor::Reply::Saved {
+                result, ..
+            }) = reply(&mut bridge, &ready).await
+            else {
                 panic!("expected refused readonly save");
             };
             assert!(result.is_err());
@@ -412,9 +446,15 @@ fn 실제_worker는_저장뒤_stale_mirror_늦은_초안_readonly_실패와_unti
                 )
                 .unwrap();
             bridge
-                .submit(HostCommand::MirrorDraft(job.clone()))
+                .submit(HostCommand::Editor(
+                    taide_native_app::domains::editor::Command::MirrorDraft(job.clone()),
+                ))
                 .unwrap();
-            let HostReply::DraftMirrored { result, .. } = reply(&mut bridge, &ready).await else {
+            let HostReply::Editor(taide_native_app::domains::editor::Reply::DraftMirrored {
+                result,
+                ..
+            }) = reply(&mut bridge, &ready).await
+            else {
                 panic!("expected untitled mirror");
             };
             assert!(result.unwrap());
@@ -424,8 +464,16 @@ fn 실제_worker는_저장뒤_stale_mirror_늦은_초안_readonly_실패와_unti
                 "untitled draft"
             );
             persistence.settled(untitled);
-            bridge.submit(HostCommand::MirrorDraft(job)).unwrap();
-            let HostReply::DraftMirrored { result, .. } = reply(&mut bridge, &ready).await else {
+            bridge
+                .submit(HostCommand::Editor(
+                    taide_native_app::domains::editor::Command::MirrorDraft(job),
+                ))
+                .unwrap();
+            let HostReply::Editor(taide_native_app::domains::editor::Reply::DraftMirrored {
+                result,
+                ..
+            }) = reply(&mut bridge, &ready).await
+            else {
                 panic!("expected cancelled untitled mirror");
             };
             assert!(!result.unwrap());

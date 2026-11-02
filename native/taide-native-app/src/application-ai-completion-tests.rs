@@ -23,7 +23,7 @@ fn 실제_ai_inline의_후보확장은_미리보기_설정과_독립적으로_�
                 r#"{"Console":{"prefix":"con","body":"console"}}"#.into(),
             )
             .unwrap();
-            application.settings_views.refresh_snippets();
+            application.settings_state.settings_views.refresh_snippets();
         },
     );
     let application = fixture.application.as_mut().unwrap();
@@ -36,6 +36,7 @@ fn 실제_ai_inline의_후보확장은_미리보기_설정과_독립적으로_�
         "AI candidate catalog",
         |application| {
             !application
+                .settings_state
                 .settings_views
                 .snippet_catalog()
                 .files()
@@ -178,17 +179,19 @@ fn 실제_ai_inline의_split은_활성뷰만_표시하고_mirror_수락과_undo�
         .key
         .pane
         .clone();
-    assert!(application.submit(HostCommand::OpenFileToSide(
-        taide_model::layout::OpenTabInSplitRequest {
-            project_id: fixture.project.clone(),
-            target_pane: pane,
-            edge: taide_model::layout::DropEdge::Right,
-            kind: TabKind::File {
-                path: fixture.path.clone()
-            },
-            title: "current.rs".into(),
-            preview: false,
-        }
+    assert!(application.submit(HostCommand::Editor(
+        crate::domains::editor::Command::OpenFileToSide(
+            taide_model::layout::OpenTabInSplitRequest {
+                project_id: fixture.project.clone(),
+                target_pane: pane,
+                edge: taide_model::layout::DropEdge::Right,
+                kind: TabKind::File {
+                    path: fixture.path.clone()
+                },
+                title: "current.rs".into(),
+                preview: false,
+            }
+        )
     )));
     wait(application, context, "AI split mirror", |application| {
         application.store.views().for_document(document).count() > 1

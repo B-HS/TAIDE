@@ -1195,8 +1195,8 @@ impl Provider<'_, '_> {
             return Ok(false);
         };
         let (source, token, cancelled) = self.state.begin_open(store, view)?;
-        self.commands
-            .push(crate::host::HostCommand::OpenSymbolLocation(
+        self.commands.push(crate::host::HostCommand::Editor(
+            crate::domains::editor::Command::OpenSymbolLocation(
                 crate::symbol_location_host::Request {
                     source,
                     token,
@@ -1208,7 +1208,8 @@ impl Provider<'_, '_> {
                     scope: self.scope.clone(),
                     viewport: self.viewport,
                 },
-            ));
+            ),
+        ));
         Ok(true)
     }
 }
@@ -1333,8 +1334,9 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
         byte: usize,
     ) -> Option<taide_native_ui::editor_locations::LinkPreview> {
         if let Some((request, paths)) = self.state.preload(store, self.models, view, Mode::Hover) {
-            self.commands
-                .push(crate::host::HostCommand::ReadPeekModels { request, paths });
+            self.commands.push(crate::host::HostCommand::Editor(
+                crate::domains::editor::Command::ReadPeekModels { request, paths },
+            ));
         }
         let session = self.state.hover(view)?;
         let current = store.views().get(view)?;
@@ -1485,8 +1487,9 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
         view: ViewId,
     ) -> Option<taide_native_ui::editor_locations::Widget> {
         if let Some((request, paths)) = self.state.preload(store, self.models, view, Mode::Peek) {
-            self.commands
-                .push(crate::host::HostCommand::ReadPeekModels { request, paths });
+            self.commands.push(crate::host::HostCommand::Editor(
+                crate::domains::editor::Command::ReadPeekModels { request, paths },
+            ));
         }
         self.state.widget(store, view)
     }
@@ -1744,10 +1747,12 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
                         if let taide_native_editor::document::DocumentKey::File(path) =
                             snapshot.key()
                         {
-                            self.commands.push(crate::host::HostCommand::Save {
-                                path: path.to_string_lossy().into_owned(),
-                                snapshot,
-                            });
+                            self.commands.push(crate::host::HostCommand::Editor(
+                                crate::domains::editor::Command::Save {
+                                    path: path.to_string_lossy().into_owned(),
+                                    snapshot,
+                                },
+                            ));
                         }
                     }
                     _ => {}
@@ -1983,10 +1988,12 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
                                     && let taide_native_editor::document::DocumentKey::File(path) =
                                         snapshot.key()
                                 {
-                                    commands.push(crate::host::HostCommand::Save {
-                                        path: path.to_string_lossy().into_owned(),
-                                        snapshot,
-                                    });
+                                    commands.push(crate::host::HostCommand::Editor(
+                                        crate::domains::editor::Command::Save {
+                                            path: path.to_string_lossy().into_owned(),
+                                            snapshot,
+                                        },
+                                    ));
                                 }
                                 return true;
                             }
@@ -2016,12 +2023,14 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
                                     && self.lsp.is_some()
                                     && let Some(project) = &self.project
                                 {
-                                    commands.push(crate::host::HostCommand::CodeActions {
-                                        project: project.clone(),
-                                        source: preview,
-                                        owner: view,
-                                        command,
-                                    });
+                                    commands.push(crate::host::HostCommand::Editor(
+                                        crate::domains::editor::Command::CodeActions {
+                                            project: project.clone(),
+                                            source: preview,
+                                            owner: view,
+                                            command,
+                                        },
+                                    ));
                                     ui.ctx().request_repaint();
                                     return true;
                                 }
@@ -2032,11 +2041,13 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
                                     && self.lsp.is_some()
                                     && let Some(project) = &self.project
                                 {
-                                    commands.push(crate::host::HostCommand::RenameEditor {
-                                        project: project.clone(),
-                                        source: preview,
-                                        owner: view,
-                                    });
+                                    commands.push(crate::host::HostCommand::Editor(
+                                        crate::domains::editor::Command::RenameEditor {
+                                            project: project.clone(),
+                                            source: preview,
+                                            owner: view,
+                                        },
+                                    ));
                                     ui.ctx().request_repaint();
                                     return true;
                                 }
@@ -2051,7 +2062,7 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
                             }
                             if edit == crate::command_registry::DocumentEdit::RunSelectedText {
                                 match crate::editor_context_menu::Request::run_selected_text(ui.ctx(), store, view, self.project.as_ref(), self.scope) {
-                                    Ok(request) => commands.push(crate::host::HostCommand::EditorContextMenu(request)),
+                                    Ok(request) => commands.push(crate::host::HostCommand::Editor(crate::domains::editor::Command::EditorContextMenu(request))),
                                     Err(error) => errors.push(error),
                                 }
                                 return true;
@@ -2232,12 +2243,14 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
         if let Some(project) = &self.project {
             self.commands
                 .extend(output.formatting_inputs.into_iter().map(|input| {
-                    crate::host::HostCommand::FormatEditorInput {
-                        project: project.clone(),
-                        source: preview,
-                        owner: view,
-                        input,
-                    }
+                    crate::host::HostCommand::Editor(
+                        crate::domains::editor::Command::FormatEditorInput {
+                            project: project.clone(),
+                            source: preview,
+                            owner: view,
+                            input,
+                        },
+                    )
                 }));
         }
         if let Some(colors) = colors

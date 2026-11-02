@@ -468,15 +468,15 @@ fn assert_json_file_save(
     );
     let snapshot = application.store.save_snapshot(document).unwrap();
     let command = if auto_save {
-        HostCommand::AutoSave {
+        HostCommand::Editor(crate::domains::editor::Command::AutoSave {
             path: path.to_str().unwrap().into(),
             snapshot,
-        }
+        })
     } else {
-        HostCommand::Save {
+        HostCommand::Editor(crate::domains::editor::Command::Save {
             path: path.to_str().unwrap().into(),
             snapshot,
-        }
+        })
     };
     assert!(application.submit(command));
     wait(application, context, |application| {
@@ -516,10 +516,12 @@ fn assert_json_file_save(
     );
     if application.lsp.is_none() && !auto_save {
         let snapshot = application.store.save_snapshot(document).unwrap();
-        assert!(application.submit(HostCommand::Save {
-            path: path.to_str().unwrap().into(),
-            snapshot
-        }));
+        assert!(
+            application.submit(HostCommand::Editor(crate::domains::editor::Command::Save {
+                path: path.to_str().unwrap().into(),
+                snapshot
+            }))
+        );
         application.pending_format_saves[&document]
             .epoch
             .invalidate();
@@ -547,10 +549,12 @@ fn assert_json_file_save(
     }
     replace_json_text(application, document, view, &original);
     let snapshot = application.store.save_snapshot(document).unwrap();
-    assert!(application.submit(HostCommand::Save {
-        path: path.to_str().unwrap().into(),
-        snapshot
-    }));
+    assert!(
+        application.submit(HostCommand::Editor(crate::domains::editor::Command::Save {
+            path: path.to_str().unwrap().into(),
+            snapshot
+        }))
+    );
     wait(application, context, |application| {
         !application
             .store
@@ -668,10 +672,12 @@ fn assert_json_untitled_save(
         .cloned()
         .unwrap();
     assert!(!saved_tab.dirty);
-    assert!(application.submit(HostCommand::CloseTab {
-        tab: file_tab.clone(),
-        discard: false
-    }));
+    assert!(application.submit(HostCommand::Editor(
+        crate::domains::editor::Command::CloseTab {
+            tab: file_tab.clone(),
+            discard: false
+        }
+    )));
     wait(application, context, |application| {
         !application.has_layout_tab(&file_tab)
             && !application.editor_json.documents().contains(&document)
@@ -715,10 +721,12 @@ fn new_json_untitled(
         .flat_map(crate::tabs::tabs_in)
         .map(|tab| tab.id.clone())
         .collect::<HashSet<_>>();
-    assert!(application.submit(HostCommand::NewUntitled {
-        project: project.clone(),
-        pane: pane.clone()
-    }));
+    assert!(application.submit(HostCommand::Editor(
+        crate::domains::editor::Command::NewUntitled {
+            project: project.clone(),
+            pane: pane.clone()
+        }
+    )));
     let runtime = application.runtime.handle().clone();
     let tab = runtime.block_on(async {
         tokio::time::timeout(DEADLINE, async {
@@ -1160,12 +1168,16 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
         before.key,
         taide_native_editor::document::DocumentKey::Untitled(untitled)
     );
-    application.palette.open(
+    application.commands_state.palette.open(
         &context,
         taide_native_ui::command_registry::PaletteEntry::Files,
     );
     wait(application, &context, |application| {
-        application.palette.inspection().has_input_focus
+        application
+            .commands_state
+            .palette
+            .inspection()
+            .has_input_focus
     });
     super::inlay_hints_tests::paint(
         application,
@@ -1175,6 +1187,7 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
     paint(application, &context);
     assert_eq!(
         application
+            .commands_state
             .palette
             .inspection()
             .rows
@@ -1183,7 +1196,7 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
             .collect::<Vec<_>>(),
         ["value"],
         "palette={:?}; model={:?}",
-        application.palette.inspection(),
+        application.commands_state.palette.inspection(),
         application
             .editor_symbols
             .palette(Some(&project), Some(&before))
@@ -1195,7 +1208,7 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
         super::inlay_hints_tests::key(egui::Key::Enter, egui::Modifiers::NONE),
     );
     paint(application, &context);
-    assert!(!application.palette.is_open());
+    assert!(!application.commands_state.palette.is_open());
     assert_eq!(
         application
             .store
@@ -1215,7 +1228,11 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
         .focused_shell_slot
         .clone()
         .unwrap();
-    application.symbol_sidebars.entry(&project, &slot).view = crate::symbol_sidebar::View::Outline;
+    application
+        .explorer_search_state
+        .symbol_sidebars
+        .entry(&project, &slot)
+        .view = crate::symbol_sidebar::View::Outline;
     paint(application, &context);
     let outline = egui::Id::new(("symbol-outline", &project, &slot));
     assert!(context.read_response(outline).is_some());
@@ -1544,10 +1561,12 @@ fn actual_app의_json은_외부서버없이_심볼_접기와_변경된_결과를
         (other_after.revision, other_after.rope.to_string()),
         (other_before.revision, OTHER_JSON.into())
     );
-    assert!(application.submit(HostCommand::CloseTab {
-        tab: other_tab.clone(),
-        discard: true
-    }));
+    assert!(application.submit(HostCommand::Editor(
+        crate::domains::editor::Command::CloseTab {
+            tab: other_tab.clone(),
+            discard: true
+        }
+    )));
     wait(application, &context, |application| {
         !application.untitled.contains_key(&other_tab)
             && !application

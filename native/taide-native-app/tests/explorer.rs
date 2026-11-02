@@ -2590,11 +2590,11 @@ fn 실제_탐색기_생성은_파일의_고정탭_폴더선택_충돌과_root경
         let host_notify = Arc::new(Notify::new());
         let notify = host_notify.clone();
         let mut host = taide_native_app::host::HostBridge::connect(services.clone(), Arc::new(move || notify.notify_one())).unwrap();
-        host.submit(taide_native_app::host::HostCommand::TreeCollapse(project.clone())).unwrap();
+        host.submit(taide_native_app::host::HostCommand::ExplorerSearch(taide_native_app::domains::explorer_search::Command::TreeCollapse(project.clone()))).unwrap();
         let collapsed = tokio::time::timeout(TIMEOUT, async {
             loop {
                 if let Some(reply) = host.poll() {
-                    let taide_native_app::host::HostReply::Tree {result, ..} = reply else {panic!("unexpected collapse reply");};
+                    let taide_native_app::host::HostReply::ExplorerSearch(taide_native_app::domains::explorer_search::Reply::Tree {result, ..}) = reply else {panic!("unexpected collapse reply");};
                     break result.unwrap();
                 }
                 host_notify.notified().await;
@@ -2668,19 +2668,23 @@ fn 접힌_생성_parent는_실제_host의_일치하는_펼치기_완료만_기�
                 Arc::new(move || signal.notify_one()),
             )
             .unwrap();
-            host.submit(taide_native_app::host::HostCommand::TreeToggle {
-                project: project.clone(),
-                path: path.clone(),
-            })
+            host.submit(taide_native_app::host::HostCommand::ExplorerSearch(
+                taide_native_app::domains::explorer_search::Command::TreeToggle {
+                    project: project.clone(),
+                    path: path.clone(),
+                },
+            ))
             .unwrap();
             let (reply_path, page) = tokio::time::timeout(TIMEOUT, async {
                 loop {
                     if let Some(reply) = host.poll() {
-                        let taide_native_app::host::HostReply::TreeToggled {
-                            project: reply_project,
-                            path,
-                            result,
-                        } = reply
+                        let taide_native_app::host::HostReply::ExplorerSearch(
+                            taide_native_app::domains::explorer_search::Reply::TreeToggled {
+                                project: reply_project,
+                                path,
+                                result,
+                            },
+                        ) = reply
                         else {
                             panic!("expected correlated toggle reply");
                         };

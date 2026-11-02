@@ -227,8 +227,10 @@ fn 실제_host의_gif_apng_webp는_frame과_repeat_texture_close를_연결한다
             let context = Context::default();
             let mut cache = Cache::default();
             let request = cache.begin(&path, MAX_SIDE).unwrap();
-            host.submit(HostCommand::ReadPreview(request.clone()))
-                .unwrap();
+            host.submit(HostCommand::Preview(
+                taide_native_app::domains::preview::Command::ReadPreview(request.clone()),
+            ))
+            .unwrap();
             let reply = tokio::time::timeout(TIMEOUT, async {
                 loop {
                     if let Some(reply) = host.poll() {
@@ -239,10 +241,10 @@ fn 실제_host의_gif_apng_webp는_frame과_repeat_texture_close를_연결한다
             })
             .await
             .unwrap();
-            let HostReply::Preview {
+            let HostReply::Preview(taide_native_app::domains::preview::Reply::Preview {
                 request: returned,
                 result,
-            } = reply
+            }) = reply
             else {
                 panic!("wrong reply");
             };

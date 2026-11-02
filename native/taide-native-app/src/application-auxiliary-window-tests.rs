@@ -155,6 +155,7 @@ fn viewport_of(
     slot: u32,
 ) -> egui::ViewportId {
     application
+        .shell_state
         .auxiliary_windows
         .find(project, slot)
         .unwrap_or_else(|| panic!("auxiliary window {slot} is open"))
@@ -302,6 +303,7 @@ fn 실제_app_보조_창은_viewport로_복원되어_자기_셸과_키맵과_닫
         "auxiliary explorer collapse",
         |application, _| {
             !application
+                .shell_state
                 .auxiliary_windows
                 .find(&alpha, FIRST_SLOT)
                 .unwrap()
@@ -318,12 +320,14 @@ fn 실제_app_보조_창은_viewport로_복원되어_자기_셸과_키맵과_닫
     );
 
     let first_explorer = application
+        .shell_state
         .auxiliary_windows
         .find(&alpha, FIRST_SLOT)
         .unwrap()
         .explorer
         .clone();
     application
+        .explorer_search_state
         .symbol_sidebars
         .entry(&alpha, &first_explorer)
         .view = crate::symbol_sidebar::View::Outline;
@@ -340,6 +344,7 @@ fn 실제_app_보조_창은_viewport로_복원되어_자기_셸과_키맵과_닫
         "auxiliary explorer key reopens its files view",
         |application, _| {
             application
+                .shell_state
                 .auxiliary_windows
                 .find(&alpha, FIRST_SLOT)
                 .unwrap()
@@ -348,6 +353,7 @@ fn 실제_app_보조_창은_viewport로_복원되어_자기_셸과_키맵과_닫
     );
     assert_eq!(
         application
+            .explorer_search_state
             .symbol_sidebars
             .entry(&alpha, &first_explorer)
             .view,
@@ -407,6 +413,7 @@ fn 실제_app_보조_창은_viewport로_복원되어_자기_셸과_키맵과_닫
     let returned = step(application, &context, Vec::new());
     assert!(
         application
+            .shell_state
             .auxiliary_windows
             .find(&alpha, SECOND_SLOT)
             .is_none()
@@ -429,7 +436,13 @@ fn 실제_app_보조_창은_viewport로_복원되어_자기_셸과_키맵과_닫
         },
     );
     let closed = step(application, &context, Vec::new());
-    assert!(application.auxiliary_windows.windows().is_empty());
+    assert!(
+        application
+            .shell_state
+            .auxiliary_windows
+            .windows()
+            .is_empty()
+    );
     assert!(services.windows.label_for(&alpha, FIRST_SLOT).is_none());
     assert!(!closed.viewport_output.contains_key(&first));
     let layouts = services.state.layouts.read();
@@ -440,11 +453,16 @@ fn 실제_app_보조_창은_viewport로_복원되어_자기_셸과_키맵과_닫
 }
 
 fn is_window_open(application: &NativeApplication, project: &ProjectId, slot: u32) -> bool {
-    application.auxiliary_windows.find(project, slot).is_some()
+    application
+        .shell_state
+        .auxiliary_windows
+        .find(project, slot)
+        .is_some()
 }
 
 fn is_explorer_open(application: &NativeApplication, project: &ProjectId, slot: u32) -> bool {
     application
+        .shell_state
         .auxiliary_windows
         .find(project, slot)
         .is_some_and(|window| window.is_explorer_open)
@@ -615,6 +633,7 @@ fn 실제_app_탭_메뉴는_탭을_새창_기존창_메인창으로_옮기고_�
     });
     assert_eq!(
         application
+            .shell_state
             .auxiliary_windows
             .find(&alpha, FIRST_SLOT)
             .unwrap()
@@ -719,12 +738,17 @@ fn 실제_app_탭_메뉴는_탭을_새창_기존창_메인창으로_옮기고_�
         |application, _| !is_explorer_open(application, &alpha, SECOND_SLOT),
     );
     let mount = application
+        .shell_state
         .auxiliary_windows
         .find(&alpha, SECOND_SLOT)
         .unwrap()
         .explorer
         .clone();
-    application.symbol_sidebars.entry(&alpha, &mount).view = crate::symbol_sidebar::View::Outline;
+    application
+        .explorer_search_state
+        .symbol_sidebars
+        .entry(&alpha, &mount)
+        .view = crate::symbol_sidebar::View::Outline;
     choose_tab_menu(
         application,
         &context,
@@ -738,10 +762,16 @@ fn 실제_app_탭_메뉴는_탭을_새창_기존창_메인창으로_옮기고_�
         &context,
         "auxiliary reveal",
         |application, _| {
-            let is_selected = application.explorers.get(&alpha).is_some_and(|explorer| {
-                explorer.selected.as_deref() == Some(a_path.as_str()) && explorer.rename.is_none()
-            });
+            let is_selected = application
+                .explorer_search_state
+                .explorers
+                .get(&alpha)
+                .is_some_and(|explorer| {
+                    explorer.selected.as_deref() == Some(a_path.as_str())
+                        && explorer.rename.is_none()
+                });
             let is_loaded = application
+                .explorer_search_state
                 .trees
                 .get(&alpha)
                 .is_some_and(|page| page.rows.iter().any(|row| row.path == a_path));
@@ -749,7 +779,11 @@ fn 실제_app_탭_메뉴는_탭을_새창_기존창_메인창으로_옮기고_�
         },
     );
     assert_eq!(
-        application.symbol_sidebars.entry(&alpha, &mount).view,
+        application
+            .explorer_search_state
+            .symbol_sidebars
+            .entry(&alpha, &mount)
+            .view,
         crate::symbol_sidebar::View::Files
     );
     assert!(
@@ -771,12 +805,16 @@ fn 실제_app_탭_메뉴는_탭을_새창_기존창_메인창으로_옮기고_�
         &context,
         "auxiliary rename",
         |application, _| {
-            application.explorers.get(&alpha).is_some_and(|explorer| {
-                explorer
-                    .rename
-                    .as_ref()
-                    .is_some_and(|draft| draft.row.path == a_path && draft.name == "a.txt")
-            })
+            application
+                .explorer_search_state
+                .explorers
+                .get(&alpha)
+                .is_some_and(|explorer| {
+                    explorer
+                        .rename
+                        .as_ref()
+                        .is_some_and(|draft| draft.row.path == a_path && draft.name == "a.txt")
+                })
         },
     );
 }
@@ -886,6 +924,7 @@ fn 실제_app_보조_창_탐색기_reveal_rename은_메인_사이드바가_열�
     };
     let is_selected = |application: &NativeApplication, path: &str| {
         application
+            .explorer_search_state
             .explorers
             .get(&alpha)
             .is_some_and(|explorer| explorer.selected.as_deref() == Some(path))
@@ -970,12 +1009,15 @@ fn 실제_app_보조_창_탐색기_reveal_rename은_메인_사이드바가_열�
         &context,
         "typing goes to the auxiliary rename input",
         |application, _| {
-            application.explorers.get(&alpha).is_some_and(|explorer| {
-                explorer
-                    .rename
-                    .as_ref()
-                    .is_some_and(|draft| draft.row.path == first_path && draft.name == RENAMED_FILE)
-            })
+            application
+                .explorer_search_state
+                .explorers
+                .get(&alpha)
+                .is_some_and(|explorer| {
+                    explorer.rename.as_ref().is_some_and(|draft| {
+                        draft.row.path == first_path && draft.name == RENAMED_FILE
+                    })
+                })
         },
     );
 }
@@ -1052,7 +1094,7 @@ fn 실제_app_제목줄은_프로젝트_git_branch를_읽고_git_변경_뒤_다�
         let deadline = Instant::now() + DEADLINE;
         loop {
             let output = wide_step(application, &context);
-            if application.title_branches.branch(&alpha) == Some(branch)
+            if application.git_state.title_branches.branch(&alpha) == Some(branch)
                 && title_shows(&output, branch)
             {
                 return;
@@ -1141,7 +1183,7 @@ fn 실제_app_보조_창_제목줄_branch는_메인에_보이지_않는_프로�
         &context,
         "auxiliary-only project branch",
         |application, _| {
-            application.title_branches.branch(&beta) == Some(FIRST_BRANCH)
+            application.git_state.title_branches.branch(&beta) == Some(FIRST_BRANCH)
                 && viewports.borrow().shows(viewport, "notes.txt")
         },
     );
@@ -1501,7 +1543,7 @@ fn 실제_app_메뉴_편집은_포커스된_보조_창_편집기로만_간다() 
             .to_string()
     };
     let (menu, events) = std::sync::mpsc::channel();
-    application.app_menu.connect(
+    application.shell_state.app_menu.connect(
         Box::new(super::app_menu_tests::Recording::default()),
         events,
     );

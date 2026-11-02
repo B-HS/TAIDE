@@ -293,7 +293,7 @@ fn actual_emmet(original: &str, expected: &str, extension: &str, language: &str)
         application.store.views().get(view).unwrap().selection,
         application.document_edits,
         application.services.state.settings.read().emmet_enabled,
-        application.open_with.surface(&fixture.path)
+        application.preview_state.open_with.surface(&fixture.path)
     );
     wait(application, context, "Emmet candidate", |application| {
         application

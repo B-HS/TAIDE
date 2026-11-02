@@ -387,13 +387,15 @@ pub(crate) fn show(
             .ok_or(EditorError::NotFound)?
             .key
             .clone();
-        commands.push(crate::host::HostCommand::EditorContextMenu(Request {
-            invocation: invocation.clone(),
-            context: ui.ctx().clone(),
-            project: environment.project.cloned(),
-            scope: environment.scope.clone(),
-            owner_key,
-        }));
+        commands.push(crate::host::HostCommand::Editor(
+            crate::domains::editor::Command::EditorContextMenu(Request {
+                invocation: invocation.clone(),
+                context: ui.ctx().clone(),
+                project: environment.project.cloned(),
+                scope: environment.scope.clone(),
+                owner_key,
+            }),
+        ));
     }
     Ok(output)
 }

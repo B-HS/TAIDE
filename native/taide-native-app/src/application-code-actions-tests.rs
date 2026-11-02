@@ -609,7 +609,7 @@ fn 실제_app의_여섯_수정_명령은_키와_팔레트에서_편집_후_명�
         ("monaco.editor.action.fixAll", "all:", false),
     ] {
         focus(application, context, view);
-        application.palette.open(
+        application.commands_state.palette.open(
             context,
             taide_native_ui::command_registry::PaletteEntry::Commands,
         );
@@ -623,13 +623,14 @@ fn 실제_app의_여섯_수정_명령은_키와_팔레트에서_편집_후_명�
         paint(application, context, vec![egui::Event::Text(label)]);
         assert!(
             application
+                .commands_state
                 .palette
                 .inspection()
                 .rows
                 .iter()
                 .any(|row| row.key == id && row.is_enabled && row.is_selected),
             "{:?}",
-            application.palette.inspection()
+            application.commands_state.palette.inspection()
         );
         paint(
             application,

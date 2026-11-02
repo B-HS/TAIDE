@@ -653,7 +653,10 @@ async fn 연속_참조_이동은_같은_파일로_돌아와도_앞선_파일_열
             .unwrap()
     );
     assert!(f.locations.current(source.source).is_some());
-    let crate::host::HostCommand::OpenSymbolLocation(request) = commands.remove(0) else {
+    let crate::host::HostCommand::Editor(crate::domains::editor::Command::OpenSymbolLocation(
+        request,
+    )) = commands.remove(0)
+    else {
         panic!("expected location open");
     };
     let before = f.services.state.layouts.read().clone();

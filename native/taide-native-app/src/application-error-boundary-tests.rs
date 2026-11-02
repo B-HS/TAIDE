@@ -117,10 +117,10 @@ fn 실제_app은_상태표시줄과_rail_panic을_그_영역만_fallback으로_�
         node_rect(output, "alpha", rail).is_some()
             && node_rect(output, &problems, egui::Rect::EVERYTHING).is_some()
     });
-    application.system_usage.detail_open = true;
+    application.shell_state.system_usage.detail_open = true;
     inject_panic(&context, Region::StatusBar);
     let output = step(application, &context, Vec::new());
-    assert!(!application.system_usage.detail_open);
+    assert!(!application.shell_state.system_usage.detail_open);
     assert_fallback(application, &output, Region::StatusBar);
     assert!(node_rect(&output, &problems, egui::Rect::EVERYTHING).is_none());
     assert!(node_rect(&output, "alpha", rail).is_some());
@@ -268,7 +268,9 @@ fn 실제_app은_사이드바_패널_panic을_그_패널만_fallback으로_바�
         pointer(row.center(), egui::PointerButton::Primary),
     );
     assert_eq!(
-        application.explorers[&alpha].selected.as_deref(),
+        application.explorer_search_state.explorers[&alpha]
+            .selected
+            .as_deref(),
         Some(path.as_str())
     );
     let delete = vec![egui::Event::Key {
@@ -278,16 +280,36 @@ fn 실제_app은_사이드바_패널_panic을_그_패널만_fallback으로_바�
         repeat: false,
         modifiers: egui::Modifiers::COMMAND,
     }];
-    let owner = application.explorer_clipboards.mount(&slot).unwrap();
+    let owner = application
+        .explorer_search_state
+        .explorer_clipboards
+        .mount(&slot)
+        .unwrap();
     inject_instance_panic(&context, Region::SidebarPanel, egui::Id::new(&slot));
     let output = step(application, &context, delete.clone());
     assert_fallback(application, &output, Region::SidebarPanel);
     assert!(node_rect(&output, "a.txt", panel).is_none());
     assert!(node_rect(&output, "alpha", rail).is_some());
     assert!(node_rect(&output, &problems, egui::Rect::EVERYTHING).is_some());
-    assert!(application.pending_entry_delete.is_none());
-    assert!(application.explorers[&alpha].selected.is_none());
-    assert_ne!(application.explorer_clipboards.mount(&slot).unwrap(), owner);
+    assert!(
+        application
+            .explorer_search_state
+            .pending_entry_delete
+            .is_none()
+    );
+    assert!(
+        application.explorer_search_state.explorers[&alpha]
+            .selected
+            .is_none()
+    );
+    assert_ne!(
+        application
+            .explorer_search_state
+            .explorer_clipboards
+            .mount(&slot)
+            .unwrap(),
+        owner
+    );
     retry(application, &context, &output);
     let output = step_until(application, &context, "remount", |output| {
         node_rect(output, "a.txt", panel).is_some()
@@ -302,18 +324,32 @@ fn 실제_app은_사이드바_패널_panic을_그_패널만_fallback으로_바�
     step(application, &context, delete);
     assert!(
         application
+            .explorer_search_state
             .pending_entry_delete
             .as_ref()
             .is_some_and(|pending| pending.request.path == path)
     );
-    application.symbol_sidebars.entry(&alpha, &slot).view = crate::symbol_sidebar::View::Outline;
+    application
+        .explorer_search_state
+        .symbol_sidebars
+        .entry(&alpha, &slot)
+        .view = crate::symbol_sidebar::View::Outline;
     step(application, &context, Vec::new());
     inject_instance_panic(&context, Region::SidebarPanel, egui::Id::new(&slot));
     let output = step(application, &context, Vec::new());
     assert_fallback(application, &output, Region::SidebarPanel);
-    assert!(application.pending_entry_delete.is_none());
+    assert!(
+        application
+            .explorer_search_state
+            .pending_entry_delete
+            .is_none()
+    );
     assert_eq!(
-        application.symbol_sidebars.entry(&alpha, &slot).view,
+        application
+            .explorer_search_state
+            .symbol_sidebars
+            .entry(&alpha, &slot)
+            .view,
         crate::symbol_sidebar::View::Files
     );
 }

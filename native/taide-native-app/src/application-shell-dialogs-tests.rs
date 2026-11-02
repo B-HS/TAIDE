@@ -50,7 +50,11 @@ fn sidebar_view(
     project: &ProjectId,
     slot: &ShellSlotId,
 ) -> crate::symbol_sidebar::View {
-    application.symbol_sidebars.entry(project, slot).view
+    application
+        .explorer_search_state
+        .symbol_sidebars
+        .entry(project, slot)
+        .view
 }
 
 #[test]
@@ -110,8 +114,11 @@ fn 실제_app_탐색기_키는_포커스_슬롯만_접힘을_풀고_파일_보�
     let services = application.services.clone();
     settle(application, &context);
     for (project, slot) in projects.iter().zip(&slots) {
-        application.symbol_sidebars.entry(project, slot).view =
-            crate::symbol_sidebar::View::Outline;
+        application
+            .explorer_search_state
+            .symbol_sidebars
+            .entry(project, slot)
+            .view = crate::symbol_sidebar::View::Outline;
     }
     let collapsed = |index: usize| {
         services.state.layouts.read()[&projects[index]]
@@ -189,7 +196,12 @@ fn 실제_app_태스크_실행은_팔레트_명령에서_포커스_프로젝트_
 
     step(application, &context, key(egui::Key::P, command_shift()));
     step_until(application, &context, "command palette", |application| {
-        application.palette.is_open() && application.palette.inspection().has_input_focus
+        application.commands_state.palette.is_open()
+            && application
+                .commands_state
+                .palette
+                .inspection()
+                .has_input_focus
     });
     let title = presentation::message(&application.locale, "task.runTask", &[]);
     step(
@@ -199,6 +211,7 @@ fn 실제_app_태스크_실행은_팔레트_명령에서_포커스_프로젝트_
     );
     step_until(application, &context, "run task command", |application| {
         application
+            .commands_state
             .palette
             .inspection()
             .rows
@@ -211,9 +224,15 @@ fn 실제_app_태스크_실행은_팔레트_명령에서_포커스_프로젝트_
         key(egui::Key::Enter, egui::Modifiers::NONE),
     );
     step_until(application, &context, "detected tasks", |application| {
-        application.palette.is_picking_tasks() && !application.palette.inspection().rows.is_empty()
+        application.commands_state.palette.is_picking_tasks()
+            && !application
+                .commands_state
+                .palette
+                .inspection()
+                .rows
+                .is_empty()
     });
-    let inspection = application.palette.inspection().clone();
+    let inspection = application.commands_state.palette.inspection().clone();
     assert_eq!(inspection.placeholder, title);
     assert_eq!(inspection.heading, None);
     let message = |key: &str| presentation::message(&application.locale, key, &[]);
@@ -236,7 +255,7 @@ fn 실제_app_태스크_실행은_팔레트_명령에서_포커스_프로젝트_
         vec![egui::Event::Text("lint".into())],
     );
     step_until(application, &context, "filtered task", |application| {
-        let rows = &application.palette.inspection().rows;
+        let rows = &application.commands_state.palette.inspection().rows;
         rows.len() == 1 && rows[0].label == "lint" && rows[0].is_selected
     });
     step(
@@ -244,7 +263,7 @@ fn 실제_app_태스크_실행은_팔레트_명령에서_포커스_프로젝트_
         &context,
         key(egui::Key::Enter, egui::Modifiers::NONE),
     );
-    assert!(!application.palette.is_open());
+    assert!(!application.commands_state.palette.is_open());
     let deadline = Instant::now() + DEADLINE;
     while !application
         .editor_terminal_writes

@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -8,17 +9,18 @@ use taide_model::app_event::AppEvent;
 use taide_model::error::{AppError, AppResult};
 use taide_model::file::REFUSED_FILE_BYTES;
 use taide_model::ids::{PaneId, ProjectId, ShellSlotId, TabId};
-use taide_model::layout::{Tab, TabKind, TabWindowTarget};
+use taide_model::layout::Tab;
+#[cfg(test)]
+use taide_model::layout::TabKind;
 use taide_model::locale::ResolvedLocale;
 use taide_model::tree::TreeRowPage;
-use taide_native_editor::document::DiskChoice;
 use taide_native_editor::document::DocumentId;
 use taide_native_editor::store::{EditorLimits, EditorStore};
 use taide_native_editor::view::{ViewId, ViewKey};
 use taide_native_ui::commands::{ShellIntent, ShellMutation};
 use taide_native_ui::conflict_banner::{BannerAction, BannerAppearance, BannerVariant};
 use taide_native_ui::controller::ShellController;
-use taide_native_ui::editor_surface::{EditorRequest, EditorTokens, FoldControl, NativeEditor};
+use taide_native_ui::editor_surface::NativeEditor;
 use taide_native_ui::shell::{NativeShell, ShellSurfaces, WindowScope};
 use taide_runtime::{AppServices, AppState, EventSink, ExitDrain, TaskSupervisor, file_actions};
 use tokio::runtime::Runtime;
@@ -28,6 +30,9 @@ use crate::bootstrap;
 use crate::command_registry::{CommandContext, DocumentEdit, FoldCommand};
 use crate::host::{HostBridge, HostCommand, HostReply};
 use crate::presentation;
+
+#[path = "domains/mod.rs"]
+pub mod domains;
 
 const WINDOW_LABEL: &str = "native-main";
 const APPLICATION_NAME: &str = "TAIDE";
@@ -39,10 +44,6 @@ const TERMINAL_FRAME_BYTES: usize = 4 * 1024 * 1024;
 const TERMINAL_QUEUE_COUNT: usize = 64;
 const TERMINAL_FRAME_VISITS: usize = 1_000_000;
 const TERMINAL_WRITER_BYTES: usize = 1024 * 1024;
-const WEB_CONNECTIONS: usize = 16;
-const WEB_HEADER_TIMEOUT: Duration = Duration::from_secs(5);
-const WEB_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
-const WEB_HELPER_TIMEOUT: Duration = Duration::from_secs(30);
 const UNAVAILABLE_TAB_FONT_SIZE: f32 = 14.0;
 const UNAVAILABLE_TAB_TEXT_OPACITY: f32 = 0.6;
 
@@ -135,15 +136,9 @@ pub struct NativeApplication {
     application_ports: Arc<crate::application_ports::Ports>,
     controller: ShellController,
     bridge: Option<HostBridge>,
-    terminals: Arc<crate::terminal_tabs::Tabs>,
-    terminal_views: crate::terminal_surface::Views,
-    terminal_appearance: crate::terminal_surface::Appearance,
-    terminal_fonts: crate::terminal_fonts::Loader,
-    web_bridge: Option<crate::preview_web_host::Bridge>,
-    helper_executable: PathBuf,
+    terminal_agent_state: domains::terminal_agent::State,
+    preview_state: domains::preview::State,
     save_picker: crate::file_dialogs::SavePicker,
-    web_previews: crate::preview_web_cache::Cache,
-    web_views: crate::preview_web_view::Views,
     lsp: Option<crate::lsp::LspBridge>,
     pending_format_saves: HashMap<DocumentId, PendingFormatSave>,
     workspace_activity: Option<crate::workspace_activity::Activity>,
@@ -155,12 +150,7 @@ pub struct NativeApplication {
     editor_folding: crate::editor_folding::State,
     editor_json: crate::editor_json::State,
     editor_json_validation: crate::editor_json_validation::State,
-    welcome: crate::welcome::State,
-    app_menu: crate::app_menu::State,
-    open_path_dialog: crate::open_path_dialog::OpenPathDialog,
-    project_display_dialog: taide_native_ui::project_display_dialog::ProjectDisplayDialog,
-    project_group_dialog: taide_native_ui::project_group_dialog::ProjectGroupDialog,
-    project_group_delete: taide_native_ui::project_group_dialog::ProjectGroupDeleteDialog,
+    shell_state: domains::shell::State,
     problem_opens: Vec<crate::problems::Open>,
     editor_locations: crate::editor_locations::State,
     editor_documentation: crate::editor_documentation::State,
@@ -169,7 +159,6 @@ pub struct NativeApplication {
     editor_inlay_hints: crate::editor_inlay_hints::State,
     editor_code_lenses: crate::editor_code_lenses::State,
     editor_selection_ranges: crate::editor_selection_ranges::State,
-    editor_ide_selection: crate::editor_ide_selection::State,
     editor_view_state: crate::editor_view_state::State,
     editor_markdown: crate::editor_markdown::State,
     view_state_flush: Arc<crate::editor_view_state_sync::Shared>,
@@ -177,57 +166,25 @@ pub struct NativeApplication {
     editor_menu_changes: HashMap<DocumentId, ViewId>,
     editor_terminal_writes: Vec<crate::editor_context_menu::TerminalDelivery>,
     peek_models: crate::peek_models::Models,
-    workspace_symbols: crate::workspace_symbols::State,
+    explorer_search_state: domains::explorer_search::State,
     lsp_status_appearance: crate::lsp::status::Appearance,
     status_editor_appearance: crate::status_editor::Appearance,
-    status_ide_appearance: crate::status_ide::Appearance,
-    status_ide_icons: crate::status_ide::Icons,
-    system_usage: crate::system_usage::Sampler,
-    system_usage_appearance: crate::system_usage_view::Appearance,
-    system_usage_icon: crate::system_usage_view::Icon,
     status_chord_appearance: crate::status_chord::Appearance,
     problems: crate::problems::Views,
     tooltips: crate::tooltips::Provider,
     tooltip_appearance: crate::tooltips::Appearance,
     problems_appearance: crate::problems::Appearance,
-    zen_hint: crate::zen::Hint,
-    zen_hint_colors: crate::zen::HintColors,
-    file_drop_colors: crate::file_drop::Colors,
-    explorer_appearance: crate::explorer::Appearance,
-    explorer_icons: crate::problems_icons::Icons,
-    navigation_appearance: crate::symbol_outline::Appearance,
-    navigation_icons: crate::navigation_icons::Icons,
-    symbol_sidebars: crate::symbol_sidebar::Views,
-    breadcrumbs: crate::breadcrumbs::Views,
     shell: NativeShell,
-    auxiliary_windows: crate::auxiliary_windows::Windows,
-    window_state: crate::window_state::Tracker,
     mirror_sweeps: crate::mirror_sweep::MirrorSweeps,
-    auxiliary_pass_root: Option<WindowScope>,
-    overlay_viewport: egui::ViewportId,
-    zen_fullscreen_state: crate::zen::Fullscreen,
-    keybindings: crate::keybinding_editor::Editor,
-    palette: crate::command_palette::Palette,
-    palette_files: crate::command_palette::FileIndexes,
-    palette_file_changes: Arc<crate::command_palette::FileIndexChanges>,
-    palette_commands: Vec<String>,
-    task_runner: Option<(u64, ProjectId)>,
+    commands_state: domains::commands::State,
     indentation_request: Option<crate::editor_indentation::Request>,
     editor_formatting: crate::editor_formatting::State,
     editor_rename: crate::editor_rename_controller::Controller,
     editor_code_actions: crate::editor_code_actions_controller::Controller,
-    settings_views: crate::settings_view::Views,
-    app_file_views: crate::app_file_views::Views,
-    settings_appearance: crate::settings_view::Appearance,
-    resolved_theme: taide_model::theme::ResolvedTheme,
-    preview_theme: Option<taide_model::theme::ResolvedTheme>,
+    settings_state: domains::settings::State,
     toasts: crate::toast::Toasts,
     toast_theme: taide_model::theme::ThemeType,
     motion_preference: crate::motion_preference::Preference,
-    presentation_changes: Arc<crate::presentation_refresh::Changes>,
-    presentation_refresh: crate::presentation_refresh::Refresh,
-    presentation_failures: crate::status_error_banner::Failures,
-    presentation_system_language: String,
     editor: NativeEditor,
     editor_find: HashMap<ViewId, taide_native_ui::editor_find::EditorFind>,
     editor_problems: crate::editor_problems::State,
@@ -261,15 +218,6 @@ pub struct NativeApplication {
     locale: ResolvedLocale,
     store: EditorStore,
     files: HashMap<String, FileDocument>,
-    open_with: crate::open_with::Registry,
-    previews: crate::preview::Cache,
-    hwp_previews: crate::preview_hwp::Cache,
-    pdf_previews: crate::preview_pdf::Cache,
-    pdf_appearance: crate::preview_pdf_surface::Appearance,
-    presentation_previews: crate::preview_presentation_cache::Cache,
-    presentation_appearance: crate::preview_presentation_surface::Appearance,
-    spreadsheet_previews: crate::preview_spreadsheet_cache::Cache,
-    spreadsheet_appearance: crate::preview_spreadsheet_surface::Appearance,
     untitled: HashMap<TabId, UntitledDocument>,
     untitled_loading: HashSet<TabId>,
     untitled_failed: HashMap<TabId, AppError>,
@@ -279,15 +227,7 @@ pub struct NativeApplication {
     loading: HashSet<String>,
     failed: HashMap<String, AppError>,
     refused: HashSet<String>,
-    trees: HashMap<ProjectId, TreeRowPage>,
-    explorers: HashMap<ProjectId, crate::explorer::Explorer>,
-    explorer_clipboards: crate::explorer_clipboard_owners::ClipboardOwners,
-    pending_entry_delete: Option<crate::delete_dialog::Confirmation>,
-    deleting_entry: bool,
-    tree_loading: HashSet<ProjectId>,
-    tree_changes: Arc<crate::events::TreeChanges>,
-    title_branch_changes: Arc<crate::title_branch::Changes>,
-    title_branches: crate::title_branch::Branches,
+    git_state: domains::git::State,
     pending_dirty: HashMap<TabId, bool>,
     persistence: crate::persistence::Persistence,
     last_edited_views: HashMap<DocumentId, ViewId>,
@@ -329,7 +269,7 @@ impl NativeApplication {
             ..crate::app_menu::Model::new(&self.locale, &[])
         };
         match crate::app_menu_bar::install(context.clone(), &model) {
-            Ok((bar, events)) => self.app_menu.connect(Box::new(bar), events),
+            Ok((bar, events)) => self.shell_state.app_menu.connect(Box::new(bar), events),
             Err(error) => log::warn!("native app menu install failed: {:?}", error.kind()),
         }
         self
@@ -478,7 +418,7 @@ impl NativeApplication {
             },
             &application_ports,
         )?;
-        let web_bridge = connect_web(
+        let web_bridge = domains::preview::connect_web(
             services.clone(),
             &egui,
             helper_executable.clone(),
@@ -497,7 +437,9 @@ impl NativeApplication {
             &services,
             usage_labels,
         ));
-        host.submit(HostCommand::RestoreWatchers)?;
+        host.submit(HostCommand::ExplorerSearch(
+            domains::explorer_search::Command::RestoreWatchers,
+        ))?;
         let bridge = Some(host);
         let editor_sticky_scroll = taide_native_ui::editor_sticky_scroll::StickySetting::new(
             services.state.settings.read().editor_sticky_scroll_enabled,
@@ -545,21 +487,39 @@ impl NativeApplication {
             &state.layouts.read(),
             &services.windows,
         );
+        let status_ide_icons = crate::status_ide::Icons::with_tooltips(tooltips.clone())?;
+        let system_usage_icon = crate::system_usage_view::Icon::new()?;
         let application = Self {
             runtime,
             services,
             application_ports,
             controller: connection.controller,
             bridge,
-            terminals,
-            terminal_views,
-            terminal_appearance,
-            terminal_fonts: crate::terminal_fonts::Loader::new(font_families),
-            web_bridge: Some(web_bridge),
-            helper_executable,
+            terminal_agent_state: domains::terminal_agent::State {
+                terminals,
+                terminal_views,
+                terminal_appearance,
+                terminal_fonts: crate::terminal_fonts::Loader::new(font_families),
+                editor_ide_selection: crate::editor_ide_selection::State::default(),
+                status_ide_appearance: appearances.status_ide,
+                status_ide_icons,
+            },
+            preview_state: domains::preview::State {
+                web_bridge: Some(web_bridge),
+                helper_executable,
+                web_previews: crate::preview_web_cache::Cache::default(),
+                web_views: crate::preview_web_view::Views::default(),
+                open_with: crate::open_with::Registry::default(),
+                previews: crate::preview::Cache::default(),
+                hwp_previews: crate::preview_hwp::Cache::default(),
+                pdf_previews: crate::preview_pdf::Cache::default(),
+                pdf_appearance,
+                presentation_previews: crate::preview_presentation_cache::Cache::default(),
+                presentation_appearance,
+                spreadsheet_previews: crate::preview_spreadsheet_cache::Cache::default(),
+                spreadsheet_appearance,
+            },
             save_picker: Arc::new(crate::file_dialogs::save),
-            web_previews: crate::preview_web_cache::Cache::default(),
-            web_views: crate::preview_web_view::Views::default(),
             lsp: Some(lsp),
             pending_format_saves: HashMap::new(),
             workspace_activity: None,
@@ -571,12 +531,6 @@ impl NativeApplication {
             editor_folding: crate::editor_folding::State::default(),
             editor_json: crate::editor_json::State::default(),
             editor_json_validation: crate::editor_json_validation::State::default(),
-            welcome: crate::welcome::State::default(),
-            app_menu: crate::app_menu::State::new(app_menu_changes),
-            open_path_dialog: Default::default(),
-            project_display_dialog: Default::default(),
-            project_group_dialog: Default::default(),
-            project_group_delete: Default::default(),
             problem_opens: Vec::new(),
             editor_locations: crate::editor_locations::State::default(),
             editor_documentation: crate::editor_documentation::State::default(),
@@ -585,7 +539,6 @@ impl NativeApplication {
             editor_inlay_hints: crate::editor_inlay_hints::State::default(),
             editor_code_lenses: crate::editor_code_lenses::State::default(),
             editor_selection_ranges: crate::editor_selection_ranges::State::default(),
-            editor_ide_selection: crate::editor_ide_selection::State::default(),
             editor_view_state: crate::editor_view_state::State::default(),
             editor_markdown: crate::editor_markdown::State::default(),
             view_state_flush,
@@ -593,60 +546,81 @@ impl NativeApplication {
             editor_menu_changes: HashMap::new(),
             editor_terminal_writes: Vec::new(),
             peek_models: crate::peek_models::Models::default(),
-            workspace_symbols: crate::workspace_symbols::State::default(),
             lsp_status_appearance: appearances.lsp_status,
             status_editor_appearance: appearances.status_editor,
-            status_ide_appearance: appearances.status_ide,
-            status_ide_icons: crate::status_ide::Icons::with_tooltips(tooltips.clone())?,
-            system_usage,
-            system_usage_appearance: appearances.system_usage,
-            system_usage_icon: crate::system_usage_view::Icon::new()?,
             status_chord_appearance: appearances.status_chord,
             problems: crate::problems::Views::with_tooltips(&collation_locale, tooltips.clone())?,
             tooltips,
             tooltip_appearance: appearances.tooltip,
             problems_appearance: appearances.problems,
-            zen_hint: crate::zen::Hint::default(),
-            zen_hint_colors: appearances.zen_hint,
-            file_drop_colors: appearances.file_drop,
-            explorer_appearance: appearances.explorer,
-            explorer_icons: crate::problems_icons::Icons::new()?,
-            navigation_appearance: appearances.navigation,
-            navigation_icons: crate::navigation_icons::Icons::new()?,
-            symbol_sidebars: crate::symbol_sidebar::Views::default(),
-            breadcrumbs: crate::breadcrumbs::Views::default(),
+            explorer_search_state: domains::explorer_search::State {
+                workspace_symbols: crate::workspace_symbols::State::default(),
+                explorer_appearance: appearances.explorer,
+                explorer_icons: crate::problems_icons::Icons::new()?,
+                navigation_appearance: appearances.navigation,
+                navigation_icons: crate::navigation_icons::Icons::new()?,
+                symbol_sidebars: crate::symbol_sidebar::Views::default(),
+                breadcrumbs: crate::breadcrumbs::Views::default(),
+                trees: HashMap::new(),
+                explorers: HashMap::new(),
+                explorer_clipboards: crate::explorer_clipboard_owners::ClipboardOwners::new(
+                    egui.viewport_id(),
+                ),
+                pending_entry_delete: None,
+                deleting_entry: false,
+                tree_loading: HashSet::new(),
+                tree_changes,
+            },
             shell,
-            auxiliary_windows,
-            window_state: crate::window_state::Tracker::new(&state.paths.data_dir),
+            shell_state: domains::shell::State {
+                welcome: crate::welcome::State::default(),
+                app_menu: crate::app_menu::State::new(app_menu_changes),
+                open_path_dialog: Default::default(),
+                project_display_dialog: Default::default(),
+                project_group_dialog: Default::default(),
+                project_group_delete: Default::default(),
+                system_usage,
+                system_usage_appearance: appearances.system_usage,
+                system_usage_icon,
+                zen_hint: crate::zen::Hint::default(),
+                zen_hint_colors: appearances.zen_hint,
+                file_drop_colors: appearances.file_drop,
+                auxiliary_windows,
+                window_state: crate::window_state::Tracker::new(&state.paths.data_dir),
+                auxiliary_pass_root: None,
+                overlay_viewport: egui::ViewportId::ROOT,
+                zen_fullscreen_state,
+            },
             mirror_sweeps: crate::mirror_sweep::MirrorSweeps::default(),
-            auxiliary_pass_root: None,
-            overlay_viewport: egui::ViewportId::ROOT,
-            zen_fullscreen_state,
-            keybindings,
-            palette,
-            palette_files: Default::default(),
-            palette_file_changes,
-            palette_commands: Vec::new(),
-            task_runner: None,
+            commands_state: domains::commands::State {
+                keybindings,
+                palette,
+                palette_files: Default::default(),
+                palette_file_changes,
+                palette_commands: Vec::new(),
+                task_runner: None,
+            },
             indentation_request: None,
             editor_formatting: crate::editor_formatting::State::new(egui.clone()),
             editor_rename: Default::default(),
             editor_code_actions: Default::default(),
-            settings_views,
-            app_file_views: crate::app_file_views::Views::default(),
-            settings_appearance: appearances.settings,
-            resolved_theme: theme,
-            preview_theme: None,
+            settings_state: domains::settings::State {
+                settings_views,
+                app_file_views: crate::app_file_views::Views::default(),
+                settings_appearance: appearances.settings,
+                resolved_theme: theme,
+                preview_theme: None,
+                presentation_changes,
+                presentation_refresh: crate::presentation_refresh::Refresh::new(
+                    presentation_inputs,
+                    presentation_revision,
+                ),
+                presentation_failures: Default::default(),
+                presentation_system_language: system_language,
+            },
             toasts,
             toast_theme,
             motion_preference: crate::motion_preference::Preference::new(egui.clone()),
-            presentation_changes,
-            presentation_refresh: crate::presentation_refresh::Refresh::new(
-                presentation_inputs,
-                presentation_revision,
-            ),
-            presentation_failures: Default::default(),
-            presentation_system_language: system_language,
             editor,
             editor_find: HashMap::new(),
             editor_problems: crate::editor_problems::State::default(),
@@ -680,15 +654,6 @@ impl NativeApplication {
             locale,
             store,
             files: HashMap::new(),
-            open_with: crate::open_with::Registry::default(),
-            previews: crate::preview::Cache::default(),
-            hwp_previews: crate::preview_hwp::Cache::default(),
-            pdf_previews: crate::preview_pdf::Cache::default(),
-            pdf_appearance,
-            presentation_previews: crate::preview_presentation_cache::Cache::default(),
-            presentation_appearance,
-            spreadsheet_previews: crate::preview_spreadsheet_cache::Cache::default(),
-            spreadsheet_appearance,
             untitled: HashMap::new(),
             untitled_loading: HashSet::new(),
             untitled_failed: HashMap::new(),
@@ -698,17 +663,10 @@ impl NativeApplication {
             loading: HashSet::new(),
             failed: HashMap::new(),
             refused: HashSet::new(),
-            trees: HashMap::new(),
-            explorers: HashMap::new(),
-            explorer_clipboards: crate::explorer_clipboard_owners::ClipboardOwners::new(
-                egui.viewport_id(),
-            ),
-            pending_entry_delete: None,
-            deleting_entry: false,
-            tree_loading: HashSet::new(),
-            tree_changes,
-            title_branch_changes,
-            title_branches: Default::default(),
+            git_state: domains::git::State {
+                title_branch_changes,
+                title_branches: Default::default(),
+            },
             pending_dirty: HashMap::new(),
             persistence: crate::persistence::Persistence::default(),
             last_edited_views: HashMap::new(),
@@ -732,1311 +690,89 @@ impl NativeApplication {
     }
 
     fn poll(&mut self, context: &egui::Context) {
-        while let Some(reply) = self
-            .web_bridge
-            .as_mut()
-            .and_then(crate::preview_web_host::Bridge::poll)
-        {
-            self.reconcile_previews();
-            match reply {
-                crate::preview_web_host::Reply::SourceReady(request) => {
-                    self.web_previews.source_ready(&request)
-                }
-                crate::preview_web_host::Reply::Prepared { request, result } => {
-                    if self.closing.is_some() || self.services.state.is_shutting_down() {
-                        self.web_previews.cancelled(&request);
-                    } else {
-                        let other_bytes = self
-                            .previews
-                            .retained_bytes()
-                            .saturating_add(self.hwp_previews.retained_bytes())
-                            .saturating_add(self.pdf_previews.retained_bytes())
-                            .saturating_add(self.presentation_previews.retained_bytes())
-                            .saturating_add(self.spreadsheet_previews.retained_bytes());
-                        self.web_previews.accept(request, result, other_bytes);
-                    }
-                }
-            }
-        }
+        self.poll_preview_web();
         if let Some(error) = self.controller.take_error() {
             self.report(&error);
         }
-        self.settings_views
-            .observe_theme_revision(self.presentation_changes.theme_revision());
-        self.app_file_views
-            .observe_settings_revision(self.presentation_changes.settings_revision());
-        if let Err(error) = self
-            .app_file_views
-            .reconcile(&self.services.state, &mut self.store)
-        {
-            self.status = Some(editor_error(error).to_string());
-        }
+        self.poll_settings_revisions();
         while let Some(reply) = self.bridge.as_mut().and_then(HostBridge::poll) {
             match reply {
-                HostReply::PeekModels { request, files } => {
-                    if self.closing.is_none() && self.editor_locations.is_current(&request) {
-                        for file in files.into_iter().flatten() {
-                            let Ok((owner, _)) =
-                                taide_infra::root_guard::resolve_owning_project_or_cli_opened(
-                                    &self.services.state.projects.read(),
-                                    &self.services.state.cli_opened_paths.read(),
-                                    std::path::Path::new(&file.path),
-                                )
-                            else {
-                                continue;
-                            };
-                            if request.mode == taide_native_editor::symbol_locations::Mode::Hover
-                                && !request.describes(&self.store, true)
-                            {
-                                continue;
-                            }
-                            match self
-                                .peek_models
-                                .admit(&mut self.store, file, Instant::now())
-                            {
-                                Ok(Some(document)) => self.peek_models.associate(document, owner),
-                                Ok(None) => {}
-                                Err(error) => self.status = Some(editor_error(error).to_string()),
-                            }
-                        }
-                        context.request_repaint();
-                    }
+                HostReply::Shell(reply) => self.apply_shell_reply(context, reply),
+                HostReply::Commands(reply) => self.apply_commands_reply(reply),
+                HostReply::Editor(reply) => self.apply_editor_reply(context, reply),
+                HostReply::ExplorerSearch(reply) => {
+                    self.apply_explorer_search_reply(context, reply)
                 }
-                HostReply::SymbolLocationOpened { request, result } => {
-                    if self.closing.is_none()
-                        && self.editor_locations.is_current_open(&request)
-                        && request.source.describes(&self.store, true)
-                    {
-                        self.editor_locations.cancel_open(request.source.source);
-                        match result {
-                            Ok(opened)
-                                if crate::editor_problems::reply_is_current(
-                                    &opened,
-                                    &self.services.state.layouts.read(),
-                                ) =>
-                            {
-                                self.controller.apply_layouts(HashMap::from([(
-                                    opened.project.clone(),
-                                    opened.layout.clone(),
-                                )]));
-                                self.reveals.queue(
-                                    &opened,
-                                    &self.services.state.layouts.read(),
-                                    Instant::now(),
-                                );
-                                self.editor_locations.queue_navigation(
-                                    &opened,
-                                    request.target.clone(),
-                                    Instant::now(),
-                                );
-                                if request.keep_peek {
-                                    self.editor_locations.rehome(
-                                        request.source.source,
-                                        &opened,
-                                        Instant::now(),
-                                    );
-                                } else if !request.side {
-                                    self.editor_locations.close(request.source.source);
-                                }
-                                context.request_repaint_after(crate::editor_reveal::REVEAL_TTL);
-                            }
-                            Ok(_) => {}
-                            Err(error) => self.report(&error),
-                        }
-                    }
-                }
-                HostReply::AppFileWritten { request, result } => {
-                    if self.closing.is_none()
-                        && let Some(result) =
-                            self.app_file_views
-                                .accept_write(&request, result, &mut self.store)
-                    {
-                        match result {
-                            Ok(document) => {
-                                if let Ok(snapshot) = self.store.documents().snapshot(document) {
-                                    for tab in crate::app_file_views::target_tabs(
-                                        &self.services.state,
-                                        request.owner().target,
-                                    ) {
-                                        self.pending_dirty.insert(tab, snapshot.dirty);
-                                    }
-                                }
-                            }
-                            Err(error) => self.toasts.app_file_failed(
-                                &self.locale,
-                                request.owner().target,
-                                &error,
-                                Instant::now(),
-                            ),
-                        }
-                    }
-                }
-                HostReply::AppFile { request, result } => {
-                    if self.closing.is_none() {
-                        self.app_file_views
-                            .accept(&request, result, &mut self.store);
-                    }
-                }
-                HostReply::ThemeEdit(reply) => {
-                    if self.closing.is_none()
-                        && reply.owner().is_active(&self.services.state)
-                        && let Some(error) = self.settings_views.accept_theme(reply)
-                    {
-                        self.toasts.ipc_error(&self.locale, &error, Instant::now());
-                    }
-                }
-                HostReply::SnippetEdit(reply) => {
-                    if self.closing.is_none() {
-                        self.settings_views.accept_snippet(reply);
-                    }
-                }
-                HostReply::SnippetCatalog(reply) => {
-                    if self.closing.is_none() {
-                        self.settings_views
-                            .accept_snippet_catalog(reply, Instant::now());
-                    }
-                }
-                HostReply::SettingsCatalog { request, result } => {
-                    if self.closing.is_none() && request.is_active(&self.services.state) {
-                        self.settings_views.accept(&request, result);
-                    }
-                }
-                HostReply::SettingsResource(reply) => {
-                    if self.closing.is_none() && reply.request().can_read(&self.services.state) {
-                        self.settings_views.accept_resource(reply);
-                    }
-                }
-                HostReply::Presentation { request, result } => {
-                    let inputs = self.presentation_inputs(context);
-                    if self.presentation_refresh.finish(
-                        &request,
-                        &inputs,
-                        self.presentation_changes.revision(),
-                    ) && self.closing.is_none()
-                        && !self.is_exit_ready
-                        && !self.services.state.is_shutting_down()
-                    {
-                        match result {
-                            Ok(resolved) => {
-                                match resolved.theme.and_then(|theme| {
-                                    let appearances =
-                                        crate::presentation_refresh::Appearances::new(
-                                            &theme,
-                                            &inputs.settings,
-                                        )?;
-                                    self.terminal_views.set_palette(&appearances.terminal)?;
-                                    Ok((appearances, theme))
-                                }) {
-                                    Ok((appearances, theme)) => {
-                                        self.resolved_theme = theme;
-                                        self.preview_theme = None;
-                                        presentation::apply_visuals(context, &appearances.visuals);
-                                        self.shell.colors = appearances.shell;
-                                        self.editor.appearance = appearances.editor;
-                                        self.find_appearance = appearances.find;
-                                        self.editor_display_colors = appearances.editor_display;
-                                        self.editor_bracket_colors = appearances.editor_brackets;
-                                        self.editor_sticky_colors = appearances.editor_sticky;
-                                        self.editor_minimap_colors = appearances.editor_minimap;
-                                        self.editor_diagnostic_colors =
-                                            appearances.editor_diagnostics;
-                                        self.editor_overview_colors = appearances.editor_overview;
-                                        self.editor_problem_colors = appearances.editor_problems;
-                                        self.editor_location_colors = appearances.editor_locations;
-                                        self.editor_documentation_colors =
-                                            appearances.editor_documentation;
-                                        self.editor_markdown_colors = appearances.editor_markdown;
-                                        self.editor_completion_colors =
-                                            appearances.editor_completion;
-                                        self.editor_ai_edit_colors = appearances.editor_ai_edit;
-                                        self.editor_highlight_colors =
-                                            appearances.editor_highlights;
-                                        self.editor_code_action_colors =
-                                            appearances.editor_code_actions;
-                                        self.editor_inlay_hint_colors =
-                                            appearances.editor_inlay_hints;
-                                        self.editor_code_lens_colors =
-                                            appearances.editor_code_lenses;
-                                        self.banner_appearance = appearances.banner;
-                                        self.lsp_status_appearance = appearances.lsp_status;
-                                        self.status_editor_appearance = appearances.status_editor;
-                                        self.status_ide_appearance = appearances.status_ide;
-                                        self.system_usage_appearance = appearances.system_usage;
-                                        self.status_chord_appearance = appearances.status_chord;
-                                        self.problems_appearance = appearances.problems;
-                                        self.zen_hint_colors = appearances.zen_hint;
-                                        self.file_drop_colors = appearances.file_drop;
-                                        self.explorer_appearance = appearances.explorer;
-                                        self.navigation_appearance = appearances.navigation;
-                                        self.tooltip_appearance = appearances.tooltip;
-                                        self.terminal_appearance = appearances.terminal;
-                                        self.keybindings.set_appearance(appearances.keybindings);
-                                        self.palette.set_appearance(appearances.palette);
-                                        self.settings_appearance = appearances.settings;
-                                        self.pdf_appearance = appearances.pdf;
-                                        self.presentation_appearance = appearances.presentation;
-                                        self.spreadsheet_appearance = appearances.spreadsheet;
-                                        self.toast_theme = appearances.toast;
-                                        self.presentation_failures.theme = false;
-                                    }
-                                    Err(error) => {
-                                        log::warn!("native theme load failed: {error}");
-                                        self.presentation_failures.theme = true;
-                                    }
-                                }
-                                match resolved.locale {
-                                    Ok(locale) => {
-                                        self.locale = locale;
-                                        self.presentation_failures.locale = false;
-                                    }
-                                    Err(error) => {
-                                        log::warn!("native locale load failed: {error}");
-                                        self.presentation_failures.locale = true;
-                                    }
-                                }
-                            }
-                            Err(error) => {
-                                log::warn!("native presentation load failed: {error}");
-                                self.presentation_failures = crate::status_error_banner::Failures {
-                                    theme: true,
-                                    locale: true,
-                                };
-                            }
-                        }
-                        context.request_repaint();
-                    }
-                }
-                HostReply::TerminalFileLinks {
-                    owner,
-                    request,
-                    result,
-                } => {
-                    if self.closing.is_none() && !self.services.state.is_shutting_down() {
-                        self.terminal_views
-                            .accept_file_links(&owner, &request, result);
-                    }
-                }
-                HostReply::TerminalFileOpened { result } | HostReply::ProblemOpened { result } => {
-                    if self.closing.is_none() && !self.services.state.is_shutting_down() {
-                        match result {
-                            Ok(opened) => {
-                                if let Some(layout) = self
-                                    .services
-                                    .state
-                                    .layouts
-                                    .read()
-                                    .get(&opened.project)
-                                    .cloned()
-                                {
-                                    self.controller.apply_layouts(HashMap::from([(
-                                        opened.project.clone(),
-                                        layout,
-                                    )]));
-                                }
-                                self.reveals.queue(
-                                    &opened,
-                                    &self.services.state.layouts.read(),
-                                    Instant::now(),
-                                );
-                                context.request_repaint_after(crate::editor_reveal::REVEAL_TTL);
-                            }
-                            Err(error) => self.report(&error),
-                        }
-                    }
-                }
-                HostReply::DocumentationFileOpened { result }
-                | HostReply::BreadcrumbOpened { result }
-                | HostReply::WorkspaceSymbolOpened { result } => {
-                    if self.closing.is_none() && !self.services.state.is_shutting_down() {
-                        match result {
-                            Ok(opened)
-                                if crate::editor_problems::reply_is_current(
-                                    &opened,
-                                    &self.services.state.layouts.read(),
-                                ) =>
-                            {
-                                self.controller.apply_layouts(HashMap::from([(
-                                    opened.project.clone(),
-                                    opened.layout.clone(),
-                                )]));
-                                self.reveals.queue(
-                                    &opened,
-                                    &self.services.state.layouts.read(),
-                                    Instant::now(),
-                                );
-                                context.request_repaint_after(crate::editor_reveal::REVEAL_TTL);
-                            }
-                            Ok(_) => {}
-                            Err(error) => self.report(&error),
-                        }
-                    }
-                }
-                HostReply::BreadcrumbTree { source, result } => {
-                    let current = self.store.documents().snapshot(source.document).ok();
-                    let generation = self
-                        .editor_symbols
-                        .palette(Some(&source.project), current.as_ref())
-                        .generation;
-                    if self.closing.is_none()
-                        && !self.services.state.is_shutting_down()
-                        && self
-                            .services
-                            .state
-                            .layouts
-                            .read()
-                            .get(&source.project)
-                            .is_some_and(|layout| source.is_active(layout))
-                        && current
-                            .as_ref()
-                            .is_some_and(|current| source.describes(current, generation))
-                    {
-                        match result {
-                            Ok(page) => {
-                                self.trees.insert(source.project, page);
-                                context.request_repaint();
-                            }
-                            Err(error) => self.report(&error),
-                        }
-                    }
-                }
-                HostReply::MarkerOpened { request, result } => {
-                    let owns_source = !matches!(
-                        request.key,
-                        taide_native_editor::document::DocumentKey::Untitled(_)
-                    ) || self
-                        .services
-                        .state
-                        .layouts
-                        .read()
-                        .get(&request.project)
-                        .is_some_and(|layout| request.source_is_owned(layout));
-                    if !owns_source {
-                        self.editor_problems.failed(&request);
-                    } else if self.closing.is_none()
-                        && !self.services.state.is_shutting_down()
-                        && self.editor_problems.accepts(&request, &self.store)
-                    {
-                        match result {
-                            Ok(opened)
-                                if crate::editor_problems::document_reply_is_current(
-                                    &opened,
-                                    &self.services.state.layouts.read(),
-                                ) =>
-                            {
-                                match self.editor_problems.opened(
-                                    &request,
-                                    &opened,
-                                    &mut self.store,
-                                    &self.lsp_diagnostics,
-                                ) {
-                                    Ok(true) => {
-                                        self.controller.apply_layouts(HashMap::from([(
-                                            opened.project,
-                                            opened.layout,
-                                        )]));
-                                        context.request_repaint();
-                                    }
-                                    Ok(false) => {}
-                                    Err(error) => {
-                                        self.status = Some(editor_error(error).to_string())
-                                    }
-                                }
-                            }
-                            Ok(_) => self.editor_problems.failed(&request),
-                            Err(error) => {
-                                self.editor_problems.failed(&request);
-                                self.report(&error);
-                            }
-                        }
-                    }
-                }
-                HostReply::EditorClipboard { request, result } => {
-                    if self.closing.is_none()
-                        && !self.services.state.is_shutting_down()
-                        && request.target.is_active(&self.services.state)
-                        && self.editor_clipboard.finish(&request, &self.store)
-                    {
-                        match result {
-                            Ok(text) => {
-                                if let Err(error) = self.apply_editor_menu_clipboard(&request, text)
-                                {
-                                    self.report(&error);
-                                }
-                            }
-                            Err(error) => self.report(&error),
-                        }
-                    }
-                }
-                HostReply::CompletionClipboard { request, result } => {
-                    let active = self
-                        .services
-                        .state
-                        .layouts
-                        .read()
-                        .get(&request.project)
-                        .is_some_and(|layout| {
-                            self.active_window_scope(|scope| request.is_active(layout, scope))
-                                .is_some()
-                        });
-                    if self.closing.is_none()
-                        && active
-                        && !self.services.state.is_shutting_down()
-                        && self.editor_completion.is_current(&request)
-                        && request.describes(&self.store)
-                    {
-                        match result {
-                            Ok(text) => {
-                                self.editor_completion.accept_clipboard(
-                                    &self.store,
-                                    &request,
-                                    text,
-                                );
-                            }
-                            Err(error) => {
-                                self.editor_completion.close(request.source);
-                                self.report(&error);
-                            }
-                        }
-                    }
-                }
-                HostReply::TerminalClipboard { target, result } => {
-                    if self.closing.is_none() && !self.services.state.is_shutting_down() {
-                        match result {
-                            Ok(text) => {
-                                if let Err(error) = self.terminal_views.accept_paste(
-                                    &target,
-                                    &text,
-                                    self.terminals.hub(),
-                                    &self.services,
-                                ) {
-                                    log::warn!("native terminal paste failed: {:?}", error.kind());
-                                }
-                            }
-                            Err(error) if target.is_alive() => {
-                                log::warn!(
-                                    "native terminal clipboard read failed: {:?}",
-                                    error.kind()
-                                )
-                            }
-                            Err(_) => {}
-                        }
-                    }
-                }
-                HostReply::EditorTerminalTarget(result) => match result {
-                    Ok(delivery)
-                        if self.closing.is_none() && delivery.session(&self.services).is_some() =>
-                    {
-                        self.editor_terminal_writes.push(delivery)
-                    }
-                    Ok(_) => {}
-                    Err(error) => self.report(&error),
-                },
-                HostReply::TasksDetected { generation, result } => {
-                    let tasks = result.unwrap_or_else(|error| {
-                        log::warn!("native task detection failed: {:?}", error.kind());
-                        Vec::new()
-                    });
-                    self.palette.show_tasks(generation, tasks);
-                }
-                HostReply::TerminalAttached { tab, result } => {
-                    if result.is_err() {
-                        self.editor_terminal_writes
-                            .retain(|delivery| delivery.tab != tab);
-                    }
-                    self.terminal_views.attached(
-                        tab,
-                        &result,
-                        self.terminals.hub(),
-                        &self.services,
-                    );
-                    if let Err(error) = result {
-                        self.report(&error);
-                    }
-                }
-                HostReply::TerminalResized { session, result } => {
-                    self.terminal_views.resized(&session);
-                    if let Err(error) = result {
-                        log::warn!("native terminal resize failed: {error}");
-                    }
-                }
-                HostReply::HwpSourceReady(request) => {
-                    self.reconcile_previews();
-                    if self.closing.is_none() && !self.services.state.is_shutting_down() {
-                        self.hwp_previews.source_ready(&request);
-                    }
-                }
-                HostReply::HwpPreview { request, result } => {
-                    self.reconcile_previews();
-                    if self.closing.is_some() || self.services.state.is_shutting_down() {
-                        self.hwp_previews.cancelled(&request);
-                    } else {
-                        self.hwp_previews.accept(
-                            context,
-                            request,
-                            result,
-                            self.previews
-                                .retained_bytes()
-                                .saturating_add(self.pdf_previews.retained_bytes())
-                                .saturating_add(self.presentation_previews.retained_bytes())
-                                .saturating_add(self.spreadsheet_previews.retained_bytes())
-                                .saturating_add(self.web_previews.retained_bytes()),
-                        );
-                    }
-                }
-                HostReply::SpreadsheetSourceReady(request) => {
-                    self.reconcile_previews();
-                    if self.closing.is_none() && !self.services.state.is_shutting_down() {
-                        self.spreadsheet_previews.source_ready(&request);
-                    }
-                }
-                HostReply::SpreadsheetPreview { request, result } => {
-                    self.reconcile_previews();
-                    if self.closing.is_some() || self.services.state.is_shutting_down() {
-                        self.spreadsheet_previews.cancelled(&request);
-                    } else {
-                        self.spreadsheet_previews.accept(
-                            request,
-                            result,
-                            self.previews
-                                .retained_bytes()
-                                .saturating_add(self.pdf_previews.retained_bytes())
-                                .saturating_add(self.presentation_previews.retained_bytes())
-                                .saturating_add(self.hwp_previews.retained_bytes())
-                                .saturating_add(self.web_previews.retained_bytes()),
-                        );
-                    }
-                }
-                HostReply::PresentationSourceReady(request) => {
-                    self.reconcile_previews();
-                    if self.closing.is_none() && !self.services.state.is_shutting_down() {
-                        self.presentation_previews.source_ready(&request);
-                    }
-                }
-                HostReply::PresentationPreview { request, result } => {
-                    self.reconcile_previews();
-                    if self.closing.is_some() || self.services.state.is_shutting_down() {
-                        self.presentation_previews.cancelled(&request);
-                    } else {
-                        self.presentation_previews.accept(
-                            request,
-                            result,
-                            self.previews
-                                .retained_bytes()
-                                .saturating_add(self.pdf_previews.retained_bytes())
-                                .saturating_add(self.spreadsheet_previews.retained_bytes())
-                                .saturating_add(self.hwp_previews.retained_bytes())
-                                .saturating_add(self.web_previews.retained_bytes()),
-                        );
-                    }
-                }
-                HostReply::PdfSourceReady(request) => {
-                    self.reconcile_previews();
-                    if self.closing.is_none() && !self.services.state.is_shutting_down() {
-                        self.pdf_previews.source_ready(&request);
-                    }
-                }
-                HostReply::PdfPreview { request, result } => {
-                    self.reconcile_previews();
-                    if self.closing.is_some() || self.services.state.is_shutting_down() {
-                        self.pdf_previews.cancelled(&request);
-                    } else {
-                        self.pdf_previews.accept(
-                            context,
-                            request,
-                            result,
-                            self.previews
-                                .retained_bytes()
-                                .saturating_add(self.presentation_previews.retained_bytes())
-                                .saturating_add(self.spreadsheet_previews.retained_bytes())
-                                .saturating_add(self.hwp_previews.retained_bytes())
-                                .saturating_add(self.web_previews.retained_bytes()),
-                        );
-                    }
-                }
-                HostReply::Preview { request, result } => {
-                    self.reconcile_previews();
-                    if self.closing.is_some() || self.services.state.is_shutting_down() {
-                        self.previews.cancelled(&request);
-                    } else {
-                        self.previews.accept_with_other_bytes(
-                            context,
-                            request,
-                            result,
-                            self.pdf_previews
-                                .retained_bytes()
-                                .saturating_add(self.presentation_previews.retained_bytes())
-                                .saturating_add(self.spreadsheet_previews.retained_bytes())
-                                .saturating_add(self.hwp_previews.retained_bytes())
-                                .saturating_add(self.web_previews.retained_bytes()),
-                        );
-                    }
-                }
-                HostReply::DraftMirrored { job, result } => {
-                    self.persistence.mirror_finished(
-                        &job,
-                        result.as_ref().is_ok_and(|applied| *applied),
-                        Instant::now(),
-                    );
-                    if let Err(error) = result {
-                        log::warn!("native draft mirror failed: {error}");
-                    }
-                }
-                HostReply::ObservedFile {
-                    path,
-                    document,
-                    result,
-                } => {
-                    self.observing_files.remove(&document);
-                    if self.store.documents().snapshot(document).is_err() {
-                        continue;
-                    }
-                    match result
-                        .and_then(|prepared| prepared.commit_observation(&mut self.store, document))
-                    {
-                        Ok(_) => {
-                            let dirty = self
-                                .store
-                                .documents()
-                                .snapshot(document)
-                                .is_ok_and(|snapshot| snapshot.dirty);
-                            if !dirty {
-                                self.persistence.settled(document);
-                            }
-                            let tabs = self
-                                .store
-                                .views()
-                                .for_document(document)
-                                .map(|view| view.key.tab.clone())
-                                .collect::<Vec<_>>();
-                            for tab in tabs {
-                                self.submit(HostCommand::SetDirty { tab, dirty });
-                            }
-                        }
-                        Err(error) => {
-                            if error.kind() == taide_model::error::AppErrorKind::NotFound {
-                                self.persistence.disable_auto_save(document);
-                            }
-                            self.status = Some(format!("{path}: {error}"));
-                        }
-                    }
-                }
-                HostReply::DiskChosen {
-                    document,
-                    revision,
-                    choice,
-                    result,
-                } => {
-                    self.pending_disk_choice = None;
-                    match result.and_then(|prepared| {
-                        prepared.commit_disk_choice(
-                            &mut self.store,
-                            document,
-                            revision,
-                            choice,
-                            self.services.events.as_ref(),
-                        )
-                    }) {
-                        Ok(committed) => {
-                            if choice == DiskChoice::ViewDisk {
-                                self.persistence.settled(document);
-                            }
-                            let tabs = self
-                                .store
-                                .views()
-                                .for_document(document)
-                                .map(|view| view.key.tab.clone())
-                                .collect::<Vec<_>>();
-                            for tab in tabs {
-                                self.restore_notices.remove(&tab);
-                            }
-                            if choice == DiskChoice::ViewDisk
-                                && let Some(project) = committed.project
-                            {
-                                self.submit(HostCommand::CleanupFileMirror {
-                                    project,
-                                    canonical: committed.canonical,
-                                    expected: committed.mirror,
-                                });
-                            }
-                        }
-                        Err(error) => self.status = Some(error.to_string()),
-                    }
-                }
-                HostReply::UntitledOpened { tab, result } => {
-                    self.untitled_loading.remove(&tab);
-                    match result.and_then(|prepared| {
-                        let project = prepared.project.clone();
-                        prepared
-                            .commit(&mut self.store)
-                            .map(|id| UntitledDocument { id, project })
-                    }) {
-                        Ok(document) => {
-                            let dirty = self
-                                .store
-                                .documents()
-                                .snapshot(document.id)
-                                .is_ok_and(|snapshot| snapshot.dirty);
-                            self.untitled_failed.remove(&tab);
-                            self.untitled.insert(tab.clone(), document);
-                            self.submit(HostCommand::SetDirty { tab, dirty });
-                        }
-                        Err(error) => {
-                            self.untitled_failed.insert(tab, error);
-                        }
-                    }
-                }
-                HostReply::UntitledSaved { tab, result } => {
-                    self.saving_untitled = None;
-                    match result.and_then(|prepared| prepared.commit(&mut self.store)) {
-                        Ok(converted) => {
-                            self.persistence.settled(converted.document);
-                            self.pending_dirty.remove(&converted.source_tab);
-                            self.pending_dirty
-                                .insert(converted.file_tab.clone(), !converted.clean);
-                            self.untitled.remove(&converted.source_tab);
-                            self.untitled_failed.remove(&converted.source_tab);
-                            self.untitled_loading.remove(&converted.source_tab);
-                            if let Some(previous) = converted.merged_document {
-                                self.persistence.settled(previous);
-                                self.last_edited_views.remove(&previous);
-                                for file in
-                                    self.files.values_mut().filter(|file| file.id == previous)
-                                {
-                                    file.id = converted.document;
-                                }
-                            }
-                            let project = taide_infra::root_guard::resolve_owning_project(
-                                &self.services.state.projects.read(),
-                                &converted.canonical,
-                            )
-                            .ok()
-                            .map(|(project, _)| project);
-                            if let Some(path) = converted.canonical.to_str() {
-                                self.files.insert(
-                                    path.into(),
-                                    FileDocument {
-                                        id: converted.document,
-                                        project,
-                                    },
-                                );
-                                self.failed.remove(path);
-                                self.loading.remove(path);
-                            }
-                            self.focused = None;
-                            let file_tab = self
-                                .services
-                                .state
-                                .layouts
-                                .read()
-                                .values()
-                                .flat_map(taide_layout::service::all_roots)
-                                .flat_map(crate::tabs::tabs_in)
-                                .find(|candidate| candidate.id == converted.file_tab)
-                                .cloned();
-                            if let Some(pending) = self
-                                .pending_tab_close
-                                .as_mut()
-                                .filter(|pending| pending.tab.id == tab)
-                                && let Some(file_tab) = file_tab
-                            {
-                                pending.tab = file_tab;
-                                pending.phase = if converted.clean {
-                                    TabClosePhase::Ready { discard: false }
-                                } else {
-                                    TabClosePhase::Confirm
-                                };
-                            }
-                            self.submit(HostCommand::CleanupUntitledMirror {
-                                project: converted.project,
-                                tab: converted.source_tab,
-                                expected: converted.mirror,
-                            });
-                        }
-                        Err(error) => {
-                            self.report(&error);
-                            if let Some(pending) = self
-                                .pending_tab_close
-                                .as_mut()
-                                .filter(|pending| pending.tab.id == tab)
-                            {
-                                pending.phase = TabClosePhase::Confirm;
-                            }
-                        }
-                    }
-                }
-                HostReply::MissingDraft { path, prepared } => {
-                    self.loading.remove(&path);
-                    self.loading_file_tabs.remove(&path);
-                    match prepared.commit() {
-                        Ok(draft) => {
-                            self.failed.remove(&path);
-                            self.missing_drafts.insert(path.clone(), draft);
-                            let tabs = self.controller.snapshot().layouts.values()
-                                .flat_map(taide_layout::service::all_roots).flat_map(crate::tabs::tabs_in)
-                                .filter(|tab| matches!(&tab.kind, TabKind::File { path: tab_path } if tab_path == &path))
-                                .map(|tab| tab.id.clone()).collect::<Vec<_>>();
-                            for tab in tabs {
-                                self.submit(HostCommand::SetDirty { tab, dirty: true });
-                            }
-                        }
-                        Err(error) => {
-                            self.failed.insert(path, error);
-                        }
-                    }
-                }
-                HostReply::MissingDraftSaved { tab, path, result } => {
-                    self.saving_missing_draft = None;
-                    match result {
-                        Ok(saved) => {
-                            let key = taide_native_editor::document::DocumentKey::File(
-                                saved.destination.clone(),
-                            );
-                            if let Some(document) = self.store.documents().find(&key)
-                                && let Err(error) = self.store.refresh_clean_file(
-                                    document,
-                                    &saved.destination,
-                                    saved.opened,
-                                )
-                            {
-                                self.status = Some(editor_error(error).to_string());
-                            }
-                            let paths = self
-                                .missing_drafts
-                                .iter()
-                                .filter(|(_, draft)| draft.canonical == saved.source)
-                                .map(|(path, _)| path.clone())
-                                .collect::<Vec<_>>();
-                            for path in paths {
-                                self.missing_drafts.remove(&path);
-                                self.failed.remove(&path);
-                                self.loading.remove(&path);
-                            }
-                            self.failed.remove(&path);
-                            if let Some(pending) = self
-                                .pending_tab_close
-                                .as_mut()
-                                .filter(|pending| pending.tab.id == tab)
-                            {
-                                pending.phase = TabClosePhase::Ready { discard: false };
-                            }
-                        }
-                        Err(error) => {
-                            self.report(&error);
-                            if let Some(pending) = self
-                                .pending_tab_close
-                                .as_mut()
-                                .filter(|pending| pending.tab.id == tab)
-                            {
-                                pending.phase = TabClosePhase::Confirm;
-                            }
-                            if self.closing.is_none()
-                                && !self.services.state.is_shutting_down()
-                                && self.missing_drafts.contains_key(&path)
-                                && self.loading.insert(path.clone())
-                            {
-                                self.loading_file_tabs.insert(path.clone(), tab.clone());
-                                if !self.submit(HostCommand::OpenDocument(path.clone())) {
-                                    self.loading.remove(&path);
-                                    self.loading_file_tabs.remove(&path);
-                                }
-                            }
-                        }
-                    }
-                }
-                HostReply::Closed { tab, result } => {
-                    let approved = self
-                        .pending_tab_close
-                        .as_ref()
-                        .filter(|pending| pending.tab.id == tab)
-                        .and_then(|pending| pending.approved_discard);
-                    let mut batch = if self
-                        .pending_tab_close
-                        .as_ref()
-                        .is_some_and(|pending| pending.tab.id == tab)
-                    {
-                        self.pending_tab_close
-                            .take()
-                            .and_then(|pending| pending.batch)
-                    } else {
-                        None
-                    };
-                    match result {
-                        Ok(closed) => {
-                            self.restore_notices.remove(&tab);
-                            self.pending_dirty.remove(&tab);
-                            if let Err(error) = self.release_tab(closed, approved) {
-                                self.report_close_failure(batch.as_mut(), &error);
-                            }
-                        }
-                        Err(AppError::NotFound(_)) if batch.is_some() => (),
-                        Err(error) => self.report_close_failure(batch.as_mut(), &error),
-                    }
-                    if let Some(batch) = batch {
-                        self.advance_close_batch(batch);
-                    }
-                }
-                HostReply::MirrorSaved { tab, result } => match result {
-                    Ok(()) => {
-                        self.submit(HostCommand::SetDirty {
-                            tab: tab.clone(),
-                            dirty: false,
-                        });
-                        if let Some(pending) = self
-                            .pending_tab_close
-                            .as_mut()
-                            .filter(|pending| pending.tab.id == tab)
-                        {
-                            pending.phase = TabClosePhase::Ready { discard: false };
-                        }
-                    }
-                    Err(error) => {
-                        self.report(&error);
-                        if let Some(pending) = self
-                            .pending_tab_close
-                            .as_mut()
-                            .filter(|pending| pending.tab.id == tab)
-                        {
-                            pending.phase = TabClosePhase::Confirm;
-                        }
-                    }
-                },
-                HostReply::TreeSynced {
-                    project,
-                    result,
-                    errors,
-                } => {
-                    match result {
-                        Ok(page) => {
-                            self.trees.insert(project, page);
-                        }
-                        Err(error) => self.status = Some(error.to_string()),
-                    }
-                    if !errors.is_empty() {
-                        self.status = Some(
-                            errors
-                                .iter()
-                                .map(ToString::to_string)
-                                .collect::<Vec<_>>()
-                                .join("\n"),
-                        );
-                    }
-                }
-                HostReply::Opened {
-                    path,
-                    project,
-                    result,
-                } => {
-                    self.loading.remove(&path);
-                    let source_tab = self.loading_file_tabs.remove(&path);
-                    match result.and_then(|prepared| prepared.commit_file(&mut self.store)) {
-                        Ok(taide_native_ui::document_admission::CommittedFile::Document(
-                            committed,
-                        )) => {
-                            self.failed.remove(&path);
-                            self.refused.remove(&path);
-                            self.peek_models.adopt(committed.document);
-                            self.missing_drafts.remove(&path);
-                            if let Some(conflict) = committed.restored_conflict
-                                && let Some(tab) = source_tab
-                            {
-                                self.restore_notices.insert(
-                                    tab,
-                                    if conflict {
-                                        BannerVariant::MirrorRestoredConflict
-                                    } else {
-                                        BannerVariant::MirrorRestored
-                                    },
-                                );
-                            }
-                            self.files.insert(
-                                path,
-                                FileDocument {
-                                    id: committed.document,
-                                    project,
-                                },
-                            );
-                            let tabs = self.controller.snapshot().layouts.values().flat_map(|layout| crate::tabs::tabs_in(&layout.root).into_iter()
-                                .chain(layout.auxiliary_windows.iter().flat_map(|window| crate::tabs::tabs_in(&window.root))))
-                                .filter(|tab| matches!(&tab.kind, TabKind::File { path: tab_path } if self.files.get(tab_path).is_some_and(|file| file.id == committed.document)))
-                                .map(|tab| tab.id.clone()).collect::<Vec<_>>();
-                            let dirty = self
-                                .store
-                                .documents()
-                                .snapshot(committed.document)
-                                .is_ok_and(|document| document.dirty);
-                            for tab in tabs {
-                                self.submit(HostCommand::SetDirty { tab, dirty });
-                            }
-                        }
-                        Ok(taide_native_ui::document_admission::CommittedFile::Refused) => {
-                            self.failed.remove(&path);
-                            self.missing_drafts.remove(&path);
-                            self.refused.insert(path);
-                        }
-                        Err(error) => {
-                            self.refused.remove(&path);
-                            self.failed.insert(path, error);
-                        }
-                    }
-                }
-                HostReply::Saved { snapshot, result } => {
-                    let document = snapshot.document();
-                    let was_saved = result.is_ok();
-                    if was_saved {
-                        self.reconcile_lsp();
-                        if let Some(lsp) = &self.lsp
-                            && let Err(error) = lsp.saved(document)
-                        {
-                            log::warn!("native save notification failed: {error}");
-                        }
-                    }
-                    let key = snapshot.key().clone();
-                    match result.and_then(|file| {
-                        self.store
-                            .mark_saved(snapshot, Some(file.modified_ms))
-                            .map_err(editor_error)?;
-                        let taide_native_editor::document::DocumentKey::File(canonical) = key
-                        else {
-                            return Err(editor_error(
-                                taide_native_editor::document::EditorError::InvalidIdentity,
-                            ));
-                        };
-                        self.store
-                            .observe_file(document, &canonical, file)
-                            .map_err(editor_error)?;
-                        self.store
-                            .documents()
-                            .snapshot(document)
-                            .map(|snapshot| !snapshot.dirty)
-                            .map_err(editor_error)
-                    }) {
-                        Ok(clean) => {
-                            self.deleted_documents.remove(&document);
-                            let tabs: Vec<_> = self
-                                .store
-                                .views()
-                                .for_document(document)
-                                .map(|view| view.key.tab.clone())
-                                .collect();
-                            let dirty = self
-                                .store
-                                .documents()
-                                .snapshot(document)
-                                .is_ok_and(|snapshot| snapshot.dirty);
-                            for tab in tabs {
-                                self.restore_notices.remove(&tab);
-                                self.submit(HostCommand::SetDirty { tab, dirty });
-                            }
-                            if let Some(pending) = self.pending_tab_close.as_mut()
-                                && matches!(pending.phase, TabClosePhase::Saving(Some(id)) if id == document)
-                            {
-                                if clean {
-                                    pending.phase = TabClosePhase::Ready { discard: false };
-                                } else {
-                                    pending.phase = TabClosePhase::Confirm;
-                                    self.status =
-                                        Some("native document changed during close save".into());
-                                }
-                            }
-                        }
-                        Err(error) => {
-                            self.report(&error);
-                            if let Some(pending) = self.pending_tab_close.as_mut()
-                                && matches!(pending.phase, TabClosePhase::Saving(Some(id)) if id == document)
-                            {
-                                pending.phase = TabClosePhase::Confirm;
-                            }
-                        }
-                    }
-                    if let Ok(snapshot) = self.store.documents().snapshot(document) {
-                        let mirror = self.draft_project(document).is_some();
-                        let auto_save = if was_saved {
-                            self.auto_save_delay(document)
-                        } else {
-                            Duration::ZERO
-                        };
-                        self.persistence.save_finished(
-                            document,
-                            Instant::now(),
-                            snapshot.dirty,
-                            mirror,
-                            auto_save,
-                        );
-                    } else {
-                        self.persistence.settled(document);
-                    }
-                }
-                HostReply::Tree {
-                    project,
-                    offset,
-                    result,
-                } => {
-                    self.tree_loading.remove(&project);
-                    match result {
-                        Ok(page) if offset == 0 => {
-                            self.trees.insert(project, page);
-                        }
-                        Ok(page) => {
-                            if let Some(current) = self.trees.get_mut(&project) {
-                                current.rows.extend(page.rows);
-                                current.total = page.total;
-                            }
-                        }
-                        Err(error) => self.status = Some(error.to_string()),
-                    }
-                }
-                HostReply::TreeToggled {
-                    project,
-                    path,
-                    result,
-                } => {
-                    if let Some(explorer) = self.explorers.get_mut(&project) {
-                        explorer.toggle_finished(&path, result.as_ref().ok());
-                    }
-                    match result {
-                        Ok(page) => {
-                            self.trees.insert(project, page);
-                        }
-                        Err(error) => self.status = Some(error.to_string()),
-                    }
-                }
-                HostReply::ExplorerPathRevealed {
-                    project,
-                    mount,
-                    path,
-                    rename,
-                    result,
-                } => match result {
-                    Ok(page) => {
-                        let explorer = self.explorers.entry(project.clone()).or_default();
-                        explorer.address_requests(&mount);
-                        explorer.select_path(&page.rows, &path);
-                        if rename && let Some(row) = page.rows.iter().find(|row| row.path == path) {
-                            explorer.start_rename(row);
-                        }
-                        self.trees.insert(project, page);
-                        context.request_repaint();
-                    }
-                    Err(error) => self.status = Some(error.to_string()),
-                },
-                HostReply::TabMovedToWindow { label, result } => {
-                    if let Some(label) = label {
-                        match &result {
-                            Ok(Some((project, slot))) => {
-                                self.auxiliary_windows.adopt(project.clone(), *slot, label)
-                            }
-                            _ => self.auxiliary_windows.release(&label),
-                        }
-                    }
-                    if let Err(error) = result {
-                        self.report(&error);
-                    }
-                    context.request_repaint();
-                }
-                HostReply::GitBranch { project, branch } => {
-                    self.title_branches.finish(&project, branch);
-                    context.request_repaint();
-                }
-                HostReply::CopiedText { result } => crate::toast::copy_finished(
-                    &mut self.toasts,
-                    &self.locale,
-                    crate::toast::CopyOrigin::Explorer,
-                    &result,
-                    Instant::now(),
-                ),
-                HostReply::TerminalSelectionCopied { result } => crate::toast::copy_finished(
-                    &mut self.toasts,
-                    &self.locale,
-                    crate::toast::CopyOrigin::Terminal,
-                    &result,
-                    Instant::now(),
-                ),
-                HostReply::TerminalUrlOpened { result } => {
-                    if result.is_err() {
-                        crate::toast::open_link_failed(
-                            &mut self.toasts,
-                            &self.locale,
-                            Instant::now(),
-                        );
-                    }
-                }
-                HostReply::SystemFinished { result } => {
-                    if let Err(error) = result {
-                        self.report(&error);
-                    }
-                }
+                HostReply::Git(reply) => self.apply_git_reply(context, reply),
+                HostReply::TerminalAgent(reply) => self.apply_terminal_agent_reply(context, reply),
+                HostReply::Settings(reply) => self.apply_settings_reply(context, reply),
+                HostReply::Preview(reply) => self.apply_preview_reply(context, reply),
                 HostReply::SettingsFailed(error) => {
                     self.toasts
                         .settings_failed(&self.locale, &error, Instant::now())
                 }
-                HostReply::ProjectFiles { project, result } => {
-                    self.palette_files.accept(&project, result, Instant::now());
-                }
-                HostReply::PaletteFileOpened { project, result } => {
-                    if let Err(error) = result {
-                        if error.kind() == taide_model::error::AppErrorKind::NotFound {
-                            self.palette_files.invalidate(&project);
-                        }
-                        self.toasts.ipc_error(&self.locale, &error, Instant::now());
-                    }
-                }
                 HostReply::Failed(error) => self.report(&error),
-                HostReply::ProjectOpenedByPath(result) => {
-                    self.open_path_dialog.finish(result.is_ok());
-                    if let Err(error) = result {
-                        self.report(&error);
+            }
+        }
+    }
+
+    fn apply_file_link_reply(
+        &mut self,
+        context: &egui::Context,
+        result: AppResult<crate::terminal_tabs::OpenedFileLink>,
+    ) {
+        if self.closing.is_none() && !self.services.state.is_shutting_down() {
+            match result {
+                Ok(opened) => {
+                    if let Some(layout) = self
+                        .services
+                        .state
+                        .layouts
+                        .read()
+                        .get(&opened.project)
+                        .cloned()
+                    {
+                        self.controller
+                            .apply_layouts(HashMap::from([(opened.project.clone(), layout)]));
                     }
-                    context.request_repaint();
+                    self.reveals.queue(
+                        &opened,
+                        &self.services.state.layouts.read(),
+                        Instant::now(),
+                    );
+                    context.request_repaint_after(crate::editor_reveal::REVEAL_TTL);
                 }
-                HostReply::DroppedPathsOpened(notices) => {
-                    for notice in notices {
-                        match notice {
-                            crate::file_drop::Notice::OpenProjectFirst => {
-                                self.notify_open_project_first()
-                            }
-                            crate::file_drop::Notice::Failed(error) => self.report(&error),
-                        }
-                    }
-                    context.request_repaint();
+                Err(error) => self.report(&error),
+            }
+        }
+    }
+
+    fn apply_current_file_link_reply(
+        &mut self,
+        context: &egui::Context,
+        result: AppResult<crate::terminal_tabs::OpenedFileLink>,
+    ) {
+        if self.closing.is_none() && !self.services.state.is_shutting_down() {
+            match result {
+                Ok(opened)
+                    if crate::editor_problems::reply_is_current(
+                        &opened,
+                        &self.services.state.layouts.read(),
+                    ) =>
+                {
+                    self.controller.apply_layouts(HashMap::from([(
+                        opened.project.clone(),
+                        opened.layout.clone(),
+                    )]));
+                    self.reveals.queue(
+                        &opened,
+                        &self.services.state.layouts.read(),
+                        Instant::now(),
+                    );
+                    context.request_repaint_after(crate::editor_reveal::REVEAL_TTL);
                 }
-                HostReply::ProjectDisplaySet(result) => {
-                    self.project_display_dialog.finish(result.is_ok());
-                    if let Err(error) = result {
-                        self.report(&error);
-                    }
-                    context.request_repaint();
-                }
-                HostReply::ProjectClosed(project) => {
-                    self.release_project_documents(&project);
-                    context.request_repaint();
-                }
-                HostReply::ProjectGroupSaved(result) => {
-                    self.project_group_dialog.finish(result.is_ok());
-                    if let Err(error) = result {
-                        self.report(&error);
-                    }
-                    context.request_repaint();
-                }
-                HostReply::ProjectGroupOpened(result) => {
-                    match result {
-                        Ok(result) => {
-                            let (opened, skipped) = (
-                                result.opened.len().to_string(),
-                                result.skipped.len().to_string(),
-                            );
-                            self.toasts.success(
-                                presentation::message(
-                                    &self.locale,
-                                    "projectGroup.openResult",
-                                    &[("opened", &opened), ("skipped", &skipped)],
-                                ),
-                                Instant::now(),
-                            );
-                        }
-                        Err(error) => self.report(&error),
-                    }
-                    context.request_repaint();
-                }
+                Ok(_) => {}
+                Err(error) => self.report(&error),
             }
         }
     }
@@ -2082,102 +818,6 @@ impl NativeApplication {
         crate::toast::open_project_first(&mut self.toasts, &self.locale, Instant::now());
     }
 
-    fn show_explorer_files(
-        &mut self,
-        snapshot: &taide_native_ui::snapshot::ShellSnapshot,
-        project: &ProjectId,
-        slot: &ShellSlotId,
-    ) {
-        self.symbol_sidebars.entry(project, slot).view = crate::symbol_sidebar::View::Files;
-        if snapshot
-            .layouts
-            .get(project)
-            .is_some_and(|layout| layout.shell_view.sidebar_collapsed)
-            && let Err(error) = self.controller.submit(ShellMutation::SetSidebarCollapsed {
-                project: project.clone(),
-                collapsed: false,
-            })
-        {
-            self.report(&error);
-        }
-    }
-
-    fn show_auxiliary_explorer_files(
-        &mut self,
-        project: &ProjectId,
-        slot: u32,
-    ) -> Option<ShellSlotId> {
-        let explorer = self.auxiliary_windows.show_explorer(project, slot)?;
-        self.symbol_sidebars.entry(project, &explorer).view = crate::symbol_sidebar::View::Files;
-        Some(explorer)
-    }
-
-    fn report_create_failure(
-        &mut self,
-        project: &ProjectId,
-        request: &crate::explorer::CreateRequest,
-        error: &AppError,
-    ) {
-        let message = crate::toast::describe_error(&self.locale, error);
-        if let Some(explorer) = self.explorers.get_mut(project) {
-            explorer.create_finished(request, Err(message.clone()));
-        }
-        crate::toast::entry_failed(
-            &mut self.toasts,
-            &self.locale,
-            message,
-            crate::toast::Action::RetryCreate {
-                project: project.clone(),
-                request: request.clone(),
-            },
-            Instant::now(),
-        );
-    }
-
-    fn report_rename_failure(
-        &mut self,
-        project: &ProjectId,
-        request: &crate::explorer::RenameRequest,
-        error: &AppError,
-    ) {
-        let message = crate::toast::describe_error(&self.locale, error);
-        if let Some(explorer) = self.explorers.get_mut(project) {
-            explorer.rename_finished(request, Err(message.clone()));
-        }
-        crate::toast::entry_failed(
-            &mut self.toasts,
-            &self.locale,
-            message,
-            crate::toast::Action::RetryRename {
-                project: project.clone(),
-                request: request.clone(),
-            },
-            Instant::now(),
-        );
-    }
-
-    fn create_entry(&mut self, project: ProjectId, request: crate::explorer::CreateRequest) {
-        let result = self
-            .lsp
-            .as_ref()
-            .ok_or_else(|| AppError::Internal("native workspace host is unavailable".into()))
-            .and_then(|bridge| bridge.create_entry(project.clone(), request.clone()));
-        if let Err(error) = result {
-            self.report_create_failure(&project, &request, &error);
-        }
-    }
-
-    fn rename_entry(&mut self, project: ProjectId, request: crate::explorer::RenameRequest) {
-        let result = self
-            .lsp
-            .as_ref()
-            .ok_or_else(|| AppError::Internal("native workspace host is unavailable".into()))
-            .and_then(|bridge| bridge.rename_entry(project.clone(), request.clone()));
-        if let Err(error) = result {
-            self.report_rename_failure(&project, &request, &error);
-        }
-    }
-
     fn run_toast_actions(&mut self) {
         for action in self.toasts.take_actions() {
             if !self.flush_dirty() {
@@ -2185,25 +825,31 @@ impl NativeApplication {
             }
             match action {
                 crate::toast::Action::RetryCreate { project, request } => {
-                    let retried = self.trees.get(&project).and_then(|page| {
-                        self.explorers.get_mut(&project)?.retry_create(
-                            &request,
-                            &page.rows,
-                            &self.locale,
-                        )
-                    });
+                    let retried = self
+                        .explorer_search_state
+                        .trees
+                        .get(&project)
+                        .and_then(|page| {
+                            self.explorer_search_state
+                                .explorers
+                                .get_mut(&project)?
+                                .retry_create(&request, &page.rows, &self.locale)
+                        });
                     if let Some(request) = retried {
                         self.create_entry(project, request);
                     }
                 }
                 crate::toast::Action::RetryRename { project, request } => {
-                    let retried = self.trees.get(&project).and_then(|page| {
-                        self.explorers.get_mut(&project)?.retry_rename(
-                            &request,
-                            &page.rows,
-                            &self.locale,
-                        )
-                    });
+                    let retried = self
+                        .explorer_search_state
+                        .trees
+                        .get(&project)
+                        .and_then(|page| {
+                            self.explorer_search_state
+                                .explorers
+                                .get_mut(&project)?
+                                .retry_rename(&request, &page.rows, &self.locale)
+                        });
                     if let Some(request) = retried {
                         self.rename_entry(project, request);
                     }
@@ -2213,321 +859,43 @@ impl NativeApplication {
     }
 
     fn submit(&mut self, command: HostCommand) -> bool {
-        if let HostCommand::EditorContextMenu(request) = command {
-            #[cfg(test)]
-            let context = request.context.clone();
-            let result = self.run_editor_context_menu(request);
-            #[cfg(test)]
-            context.data_mut(|data| {
-                data.insert_temp(
-                    egui::Id::new("native-editor-context-menu-result"),
-                    format!("{result:?}"),
-                )
-            });
-            return match result {
-                Ok(handled) => handled,
-                Err(error) => {
-                    self.report(&error);
-                    false
-                }
-            };
-        }
-        if let HostCommand::CodeActions {
-            project,
-            source,
-            owner,
-            command,
-        } = command
-        {
-            self.request_editor_code_actions_from_source(
-                project,
-                source,
-                owner,
-                crate::editor_code_actions::Invocation {
-                    command,
-                    automatic: false,
-                },
-            );
-            return true;
-        }
-        if let HostCommand::RenameEditor {
-            project,
-            source,
-            owner,
-        } = command
-        {
-            self.request_editor_rename_from_source(project, source, owner);
-            return true;
-        }
-        if let HostCommand::FormatEditorInput {
-            project,
-            source,
-            owner,
-            input,
-        } = command
-        {
-            return self.request_editor_input_formatting(project, source, owner, input);
-        }
-        if let HostCommand::SnippetEdit(request) = &command
-            && matches!(request.kind(), taide_native_ui::snippet_edit::Kind::List)
-        {
-            if !request.is_active() || !request.owner().is_active(&self.services.state) {
-                self.settings_views
-                    .accept_snippet(request.clone().failed(AppError::Forbidden(
-                        "native snippet observer owner is no longer active".into(),
-                    )));
-                return false;
-            }
-            self.settings_views
-                .observe_snippet_list(request.clone(), Instant::now());
-            return true;
-        }
-        let is_settings = matches!(
-            &command,
-            HostCommand::SetKeymapOverrides(_)
-                | HostCommand::SetEditorFontSize(_)
-                | HostCommand::ToggleEditorMinimap
-                | HostCommand::UpdateSettings(_)
-                | HostCommand::OpenSettingsFolder(_)
-        );
-        if let HostCommand::SetDirty { tab, dirty } = command {
-            if self.has_layout_tab(&tab) {
-                self.pending_dirty.insert(tab, dirty);
-            }
-            return true;
-        }
-        let command = match command {
-            HostCommand::SaveUntitled {
-                tab,
-                destination,
-                snapshot,
-            } => {
-                let document = snapshot.document();
-                if self.pending_format_saves.contains_key(&document) {
-                    return false;
-                }
-                let resumed = self.resumed_save_epochs.remove(&document);
-                if resumed.as_ref().is_some_and(|epoch| !epoch.is_current()) {
-                    return false;
-                }
-                let current = self.store.documents().snapshot(document).ok();
-                let should_format = self.services.state.settings.read().format_on_save;
-                if resumed.is_none()
-                    && should_format
-                    && let Some(current) = current.filter(|current| {
-                        current.key == *snapshot.key()
-                            && current.revision == snapshot.revision()
-                            && crate::editor_json_formatting::is_eligible(current)
-                    })
-                {
-                    let options = match self.save_formatting_options(document) {
-                        Ok(options) => options,
-                        Err(error) => {
-                            self.report_save_failure(error, false);
-                            return false;
-                        }
-                    };
-                    let Some(epoch) = self.persistence.begin_save(document) else {
-                        return false;
-                    };
-                    self.queue_native_save(
-                        current,
-                        PendingFormatSave::new(destination, false, epoch, Some(tab)),
-                        options,
-                    );
-                    return true;
-                }
-                let snapshot = match self.prepare_untitled_cleanup(snapshot) {
-                    Ok(snapshot) => snapshot,
-                    Err(error) => {
-                        self.report_save_failure(error, false);
-                        return false;
-                    }
-                };
-                HostCommand::SaveUntitled {
-                    tab,
-                    destination,
-                    snapshot,
-                }
-            }
-            other => other,
+        let command = match self.intercept_editor_command(command) {
+            ControlFlow::Continue(command) => command,
+            ControlFlow::Break(submitted) => return submitted,
         };
-        let mut tracked_save = None;
-        let (save, command) = match command {
-            HostCommand::Save { path, snapshot } => (Some((path, snapshot, false)), None),
-            HostCommand::AutoSave { path, snapshot } => (Some((path, snapshot, true)), None),
-            other => (None, Some(other)),
+        let command = match self.intercept_settings_command(command) {
+            ControlFlow::Continue(command) => command,
+            ControlFlow::Break(submitted) => return submitted,
         };
-        let command = if let Some((path, snapshot, auto_save)) = save {
-            let document = snapshot.document();
-            if self.pending_format_saves.contains_key(&document) {
-                return false;
-            }
-            let (should_format, actions) = {
-                let settings = self.services.state.settings.read();
-                (
-                    settings.format_on_save,
-                    crate::lsp::SaveActionFlags {
-                        fix_all: !auto_save && settings.fix_all_on_save,
-                        organize_imports: !auto_save && settings.organize_imports_on_save,
-                    },
-                )
-            };
-            if !self.resumed_save_epochs.contains_key(&document)
-                && (should_format || actions.fix_all || actions.organize_imports)
-                && self
-                    .store
-                    .documents()
-                    .snapshot(document)
-                    .is_ok_and(|current| current.dirty && !current.metadata.read_only)
-                && (self.lsp.is_some()
-                    || should_format
-                        && self
-                            .store
-                            .documents()
-                            .snapshot(document)
-                            .is_ok_and(|current| {
-                                crate::editor_json_formatting::is_eligible(&current)
-                            }))
-            {
-                self.reconcile_lsp();
-                let Some(epoch) = self.persistence.begin_save(document) else {
-                    return false;
-                };
-                let options = match self.save_formatting_options(document) {
-                    Ok(options) => options,
-                    Err(_) => {
-                        self.persistence.submission_failed(document);
-                        return false;
-                    }
-                };
-                let current = match self.store.documents().snapshot(document) {
-                    Ok(current)
-                        if current.revision == snapshot.revision()
-                            && &current.key == snapshot.key() =>
-                    {
-                        current
-                    }
-                    _ => {
-                        self.persistence.submission_failed(document);
-                        return false;
-                    }
-                };
-                let native = should_format
-                    && crate::editor_json_formatting::is_eligible(&current)
-                    && self
-                        .lsp
-                        .as_ref()
-                        .is_none_or(|lsp| !lsp.has_save_formatter(&current));
-                let mut pending =
-                    PendingFormatSave::new(path.clone(), auto_save, epoch.clone(), None);
-                if native && self.lsp.is_none() {
-                    self.queue_native_save(current, pending, options);
-                    return true;
-                }
-                let result = self
-                    .lsp
-                    .as_ref()
-                    .expect("save participation has a bridge")
-                    .participate(
-                        current.clone(),
-                        (should_format && !native).then_some(options.clone()),
-                        actions,
-                    );
-                match result {
-                    Ok(()) => {
-                        pending.native_options = native.then_some(options);
-                        self.pending_format_saves.insert(document, pending);
-                        return true;
-                    }
-                    Err(error) => {
-                        log::warn!("native save participation failed: {error}");
-                        if native {
-                            self.queue_native_save(current, pending, options);
-                            return true;
-                        }
-                        self.resumed_save_epochs.insert(document, epoch);
-                    }
-                }
-            }
-            let Some(epoch) = self
-                .resumed_save_epochs
-                .remove(&document)
-                .or_else(|| self.persistence.begin_save(document))
-            else {
-                return false;
-            };
-            let view = self.save_view(document);
-            let flags = {
-                let settings = self.services.state.settings.read();
-                taide_native_editor::save_cleanup::CleanupFlags {
-                    trim_trailing_whitespace: settings.trim_trailing_whitespace_on_save,
-                    insert_final_newline: settings.insert_final_newline_on_save,
-                }
-            };
-            self.editor_syntax
-                .supply_save_cleanup(&mut self.store, document, flags);
-            let prepared =
-                match crate::save::prepare(&mut self.store, snapshot, view, flags, auto_save) {
-                    Ok(Some(prepared)) => prepared,
-                    Ok(None) => {
-                        self.persistence.settled(document);
-                        for view in self.store.views().for_document(document) {
-                            self.pending_dirty.insert(view.key.tab.clone(), false);
-                        }
-                        return true;
-                    }
-                    Err(error) => {
-                        self.persistence.submission_failed(document);
-                        self.report_save_failure(error, auto_save);
-                        return false;
-                    }
-                };
-            if prepared.changed {
-                let mirror = self.draft_project(document).is_some();
-                self.persistence.changed(
-                    document,
-                    prepared.snapshot.revision(),
-                    Instant::now(),
-                    mirror,
-                    Duration::ZERO,
-                );
-                let dirty = self
-                    .store
-                    .documents()
-                    .snapshot(document)
-                    .is_ok_and(|snapshot| snapshot.dirty);
-                for view in self.store.views().for_document(document) {
-                    self.pending_dirty.insert(view.key.tab.clone(), dirty);
-                }
-            }
-            tracked_save = Some(document);
-            HostCommand::SaveTracked {
-                path,
-                snapshot: prepared.snapshot,
-                epoch,
-            }
-        } else if let Some(command) = command {
-            command
-        } else {
-            return false;
+        let is_settings = domains::settings::is_settings_command(&command);
+        let (command, tracked_save) = match self.prepare_editor_submission(command) {
+            ControlFlow::Continue(prepared) => prepared,
+            ControlFlow::Break(submitted) => return submitted,
         };
         let file_resolution = match &command {
-            HostCommand::ResolveTerminalFileLinks { owner, request, .. } => {
-                Some((owner.clone(), request.clone()))
-            }
+            HostCommand::TerminalAgent(
+                domains::terminal_agent::Command::ResolveTerminalFileLinks {
+                    owner, request, ..
+                },
+            ) => Some((owner.clone(), request.clone())),
             _ => None,
         };
         let theme_operation = match &command {
-            HostCommand::ThemeEdit(command) => Some(command.clone()),
+            HostCommand::Settings(domains::settings::Command::ThemeEdit(command)) => {
+                Some(command.clone())
+            }
             _ => None,
         };
         let snippet_operation = match &command {
-            HostCommand::SnippetEdit(request) => Some(request.clone()),
+            HostCommand::Settings(domains::settings::Command::SnippetEdit(request)) => {
+                Some(request.clone())
+            }
             _ => None,
         };
         let snippet_catalog = match &command {
-            HostCommand::ReadSnippetCatalog(request) => Some(request.clone()),
+            HostCommand::Settings(domains::settings::Command::ReadSnippetCatalog(request)) => {
+                Some(request.clone())
+            }
             _ => None,
         };
         let result = self
@@ -2537,21 +905,28 @@ impl NativeApplication {
             .and_then(|bridge| bridge.submit(command));
         if let Err(error) = result {
             if let Some(request) = snippet_catalog {
-                self.settings_views
+                self.settings_state
+                    .settings_views
                     .accept_snippet_catalog(request.failed(error), Instant::now());
                 return false;
             }
             if let Some(request) = snippet_operation {
-                self.settings_views.accept_snippet(request.failed(error));
+                self.settings_state
+                    .settings_views
+                    .accept_snippet(request.failed(error));
                 return false;
             }
             if let Some(command) = theme_operation {
                 self.toasts.ipc_error(&self.locale, &error, Instant::now());
-                self.settings_views.accept_theme(command.failed(error));
+                self.settings_state
+                    .settings_views
+                    .accept_theme(command.failed(error));
                 return false;
             }
             if let Some((owner, request)) = file_resolution {
-                self.terminal_views.cancel_file_links(&owner, &request);
+                self.terminal_agent_state
+                    .terminal_views
+                    .cancel_file_links(&owner, &request);
             }
             if let Some(document) = tracked_save {
                 self.persistence.submission_failed(document);
@@ -2565,380 +940,6 @@ impl NativeApplication {
             return false;
         }
         true
-    }
-
-    fn run_editor_context_menu(
-        &mut self,
-        request: crate::editor_context_menu::Request,
-    ) -> AppResult<bool> {
-        #[cfg(test)]
-        {
-            let trace = (
-                request.invocation.action.id().to_owned(),
-                request.matches(&self.store),
-                request.is_active(&self.services.state),
-            );
-            request.context.data_mut(|data| {
-                data.insert_temp(
-                    egui::Id::new("native-editor-context-menu-invocation"),
-                    trace,
-                )
-            });
-        }
-        if self.closing.is_some()
-            || self.services.state.is_shutting_down()
-            || !request.matches(&self.store)
-            || !request.is_active(&self.services.state)
-        {
-            return Ok(false);
-        }
-        use taide_native_ui::editor_context_menu::Action;
-        let source = request.invocation.session.source;
-        let owner = request.invocation.session.owner;
-        let view =
-            self.store.views().get(source).ok_or_else(|| {
-                editor_error(taide_native_editor::document::EditorError::NotFound)
-            })?;
-        let snapshot = self
-            .store
-            .documents()
-            .snapshot(view.document)
-            .map_err(editor_error)?;
-        match request.invocation.action {
-            action @ (Action::Copy | Action::Cut | Action::Paste) => {
-                use crate::editor_context_menu::ClipboardOperation;
-                let operation = if action == Action::Paste {
-                    ClipboardOperation::Paste
-                } else {
-                    let Some(text) = taide_native_editor::editing::clipboard_text(
-                        &self.store,
-                        source,
-                        request.context.os() == egui::os::OperatingSystem::Windows,
-                    )
-                    .map_err(editor_error)?
-                    else {
-                        return Ok(false);
-                    };
-                    if action == Action::Cut {
-                        ClipboardOperation::Cut(text)
-                    } else {
-                        ClipboardOperation::Copy(text)
-                    }
-                };
-                let clipboard = self.editor_clipboard.begin(request, operation);
-                let submitted = self.submit(HostCommand::EditorClipboard(clipboard.clone()));
-                if !submitted {
-                    self.editor_clipboard.finish(&clipboard, &self.store);
-                }
-                Ok(submitted)
-            }
-            Action::ToggleMinimap => Ok(self.submit(HostCommand::ToggleEditorMinimap)),
-            Action::RunSelectedText => {
-                let selection = view.selection.selections[view.selection.primary];
-                let text = if selection.anchor == selection.head {
-                    snapshot
-                        .rope
-                        .line(snapshot.rope.byte_to_line(selection.head))
-                        .to_string()
-                        .trim_end_matches(['\r', '\n'])
-                        .to_owned()
-                } else {
-                    snapshot
-                        .rope
-                        .byte_slice(
-                            selection.anchor.min(selection.head)
-                                ..selection.anchor.max(selection.head),
-                        )
-                        .to_string()
-                };
-                let title = presentation::message(&self.locale, "terminal.title", &[]);
-                Ok(self.submit(HostCommand::RunEditorText(
-                    crate::editor_context_menu::TerminalRequest {
-                        target: request,
-                        payload: format!("{text}\n"),
-                        title,
-                    },
-                )))
-            }
-            Action::Command(id) => {
-                use crate::command_registry::{DocumentEdit, Execution, Run};
-                let execution = crate::command_registry::registry()?
-                    .command(&format!("monaco.{id}"))
-                    .map(|command| command.execution);
-                match execution {
-                    Some(Execution::Native(Run::RenameEditor)) => {
-                        if let Some(project) = request.project {
-                            self.request_editor_rename_from_source(project, source, owner);
-                            return Ok(true);
-                        }
-                    }
-                    Some(Execution::Native(Run::CodeActions(command))) => {
-                        if let Some(project) = request.project {
-                            self.request_editor_code_actions_from_source(
-                                project,
-                                source,
-                                owner,
-                                crate::editor_code_actions::Invocation {
-                                    command,
-                                    automatic: false,
-                                },
-                            );
-                            return Ok(true);
-                        }
-                    }
-                    Some(Execution::Native(Run::FormatEditor(command))) => {
-                        self.request_editor_formatting(
-                            &request.context,
-                            &request.owner_key.tab,
-                            Some(snapshot.id),
-                            command,
-                            Some((source, owner)),
-                        );
-                        return Ok(true);
-                    }
-                    Some(Execution::Native(Run::EditDocument(DocumentEdit::Cursor(command)))) => {
-                        let context = taide_native_editor::line_commands::LineCommandContext {
-                            indent: self.editor.indent_options(&snapshot),
-                            language: None,
-                            syntax: &taide_native_editor::language_configuration::UntokenizedLines,
-                            compare: None,
-                            transforms: None,
-                            word_rules: crate::editor_syntax::language_rules(
-                                &snapshot.metadata.language_id,
-                            )
-                            .or_else(|| crate::editor_syntax::language_rules("plaintext")),
-                        };
-                        taide_native_editor::cursor_commands::run_cursor_command(
-                            &mut self.store,
-                            source,
-                            command,
-                            context,
-                        )
-                        .map_err(editor_error)?;
-                        request.context.request_repaint();
-                        return Ok(true);
-                    }
-                    Some(Execution::Native(Run::EditDocument(DocumentEdit::Location(
-                        taide_native_editor::symbol_locations::Command::Request { kind, mode },
-                    )))) => {
-                        let Some((project, lsp)) = request.project.zip(self.lsp.as_ref()) else {
-                            return Ok(false);
-                        };
-                        let providers = lsp.location_providers(&project, &snapshot, kind);
-                        if providers.is_empty() {
-                            return Ok(false);
-                        }
-                        if mode == taide_native_editor::symbol_locations::Mode::Peek
-                            && self
-                                .editor_locations
-                                .current(source)
-                                .is_some_and(|session| {
-                                    session.shown
-                                        && session.request.kind == kind
-                                        && session.request.selection == view.selection
-                                })
-                        {
-                            self.editor_locations.close(source);
-                            return Ok(true);
-                        }
-                        let mut location = self
-                            .editor_locations
-                            .begin(project, &self.store, source, kind, mode, providers, None)
-                            .map_err(editor_error)?;
-                        self.editor_locations
-                            .set_viewport(&mut location, request.invocation.session.viewport);
-                        if lsp.symbol_locations(location.clone()).is_err() {
-                            self.editor_locations.close_request(&location);
-                            return Ok(false);
-                        }
-                        return Ok(true);
-                    }
-                    _ => {
-                        return Err(AppError::Internal(format!(
-                            "native editor menu command is unavailable: {id}"
-                        )));
-                    }
-                }
-                Ok(false)
-            }
-        }
-    }
-
-    fn apply_editor_menu_clipboard(
-        &mut self,
-        request: &crate::editor_context_menu::ClipboardRequest,
-        text: Option<String>,
-    ) -> AppResult<()> {
-        use crate::editor_context_menu::ClipboardOperation;
-        let source = request.target.invocation.session.source;
-        let owner = request.target.invocation.session.owner;
-        let view = self
-            .store
-            .views()
-            .get(source)
-            .ok_or_else(|| editor_error(taide_native_editor::document::EditorError::NotFound))?
-            .clone();
-        let snapshot = self
-            .store
-            .documents()
-            .snapshot(view.document)
-            .map_err(editor_error)?;
-        let mut formatting = None;
-        let changed = match &request.operation {
-            ClipboardOperation::Copy(copied) => {
-                taide_native_ui::editor_surface::remember_clipboard(
-                    &request.target.context,
-                    copied.clone(),
-                );
-                false
-            }
-            ClipboardOperation::Cut(copied) => {
-                let changed = taide_native_editor::editing::cut(&mut self.store, source)
-                    .map_err(editor_error)?;
-                taide_native_ui::editor_surface::remember_clipboard(
-                    &request.target.context,
-                    copied.clone(),
-                );
-                changed
-            }
-            ClipboardOperation::Paste => {
-                let text = text.ok_or_else(|| {
-                    AppError::Internal("native editor paste response has no text".into())
-                })?;
-                let selection = view.selection.selections[view.selection.primary];
-                let start = taide_native_editor::lsp::byte_to_position(
-                    &snapshot,
-                    selection.anchor.min(selection.head),
-                )
-                .map_err(editor_error)?;
-                let clipboard = taide_native_ui::editor_surface::clipboard_source(
-                    &request.target.context,
-                    &text,
-                );
-                self.store
-                    .set_composition(source, None)
-                    .map_err(editor_error)?;
-                let changed = taide_native_editor::editing::paste(
-                    &mut self.store,
-                    source,
-                    &text,
-                    clipboard.as_ref(),
-                )
-                .map_err(editor_error)?;
-                if changed {
-                    formatting = taide_native_ui::editor_formatting_input::Input::pasted(
-                        &self.store,
-                        source,
-                        start,
-                    )
-                    .map_err(editor_error)?;
-                }
-                changed
-            }
-        };
-        if changed {
-            self.editor_menu_changes.insert(snapshot.id, source);
-            let current = self
-                .store
-                .documents()
-                .snapshot(snapshot.id)
-                .map_err(editor_error)?;
-            let tabs: Vec<_> =
-                if let taide_native_editor::document::DocumentKey::AppFile(target) = current.key {
-                    self.app_file_views.changed(snapshot.id);
-                    crate::app_file_views::target_tabs(&self.services.state, target)
-                } else {
-                    self.store
-                        .views()
-                        .for_document(snapshot.id)
-                        .map(|view| view.key.tab.clone())
-                        .collect()
-                };
-            for tab in tabs {
-                self.pending_dirty.insert(tab, current.dirty);
-            }
-            if let Some(project) = &request.target.project {
-                if let Some(input) = formatting {
-                    self.submit(HostCommand::FormatEditorInput {
-                        project: project.clone(),
-                        source,
-                        owner,
-                        input,
-                    });
-                }
-            }
-        }
-        request.target.context.request_repaint();
-        Ok(())
-    }
-
-    fn flush_dirty(&mut self) -> bool {
-        let queued = std::mem::take(&mut self.editor_terminal_writes);
-        for delivery in queued {
-            if self.closing.is_some() {
-                continue;
-            }
-            let Some(id) = delivery.session(&self.services) else {
-                continue;
-            };
-            if self.terminals.hub().get(&id).is_some() {
-                self.submit(HostCommand::WriteEditorText(delivery));
-            } else {
-                self.editor_terminal_writes.push(delivery);
-            }
-        }
-        let pending: Vec<_> = self
-            .pending_dirty
-            .iter()
-            .map(|(tab, dirty)| (tab.clone(), *dirty))
-            .collect();
-        for (tab, dirty) in pending {
-            if !self.has_layout_tab(&tab) {
-                self.pending_dirty.remove(&tab);
-                continue;
-            }
-            let result = self
-                .bridge
-                .as_ref()
-                .ok_or_else(|| AppError::Forbidden("native host is closing".into()))
-                .and_then(|bridge| {
-                    bridge.submit(HostCommand::SetDirty {
-                        tab: tab.clone(),
-                        dirty,
-                    })
-                });
-            if let Err(error) = result {
-                self.report_once(&error);
-                return false;
-            }
-            self.pending_dirty.remove(&tab);
-        }
-        true
-    }
-
-    fn has_layout_tab(&self, tab: &TabId) -> bool {
-        self.services.state.layouts.read().values().any(|layout| {
-            taide_layout::service::all_roots(layout)
-                .any(|root| taide_layout::service::find_tab(root, tab).is_some())
-        })
-    }
-
-    fn capture_view_states(&mut self) -> crate::editor_view_state_sync::Captures {
-        self.editor_view_state
-            .capture(
-                &self.store,
-                &self.services.state.layouts.read(),
-                WINDOW_LABEL,
-            )
-            .map(Arc::from)
-            .map_err(editor_error)
-    }
-
-    fn fulfill_view_states(&mut self) {
-        if self.view_state_flush.has_pending() {
-            let captured = self.capture_view_states();
-            self.view_state_flush.publish(captured);
-        }
     }
 
     fn close(&mut self, context: &egui::Context) {
@@ -2959,7 +960,7 @@ impl NativeApplication {
         }
         let view_states = self.capture_view_states();
         self.view_state_flush.finish(view_states.clone());
-        self.app_file_views.clear();
+        self.settings_state.app_file_views.clear();
         self.editor_completion.clear();
         self.editor_highlights.clear();
         self.editor_inlay_hints.clear();
@@ -2976,13 +977,14 @@ impl NativeApplication {
         let bridge = self.bridge.take().map(HostBridge::disconnect);
         let lsp = self.lsp.take().map(crate::lsp::LspBridge::disconnect);
         let web = self
+            .preview_state
             .web_bridge
             .take()
             .map(crate::preview_web_host::Bridge::disconnect);
         self.clear_builtin_json();
         let syntax = self.editor_syntax.disconnect();
-        self.web_previews.invalidate_all();
-        self.web_views.clear();
+        self.preview_state.web_previews.invalidate_all();
+        self.preview_state.web_views.clear();
         let drafts = self.drafts();
         let services = self.services.clone();
         let repaint = context.clone();
@@ -2997,3753 +999,20 @@ impl NativeApplication {
             repaint.request_repaint();
         });
     }
-
-    fn request_tab_close(&mut self, tab: TabId) {
-        if self.pending_tab_close.is_some() {
-            return;
-        }
-        let snapshot = self.controller.snapshot();
-        let candidate = snapshot
-            .layouts
-            .values()
-            .flat_map(|layout| {
-                crate::tabs::tabs_in(&layout.root).into_iter().chain(
-                    layout
-                        .auxiliary_windows
-                        .iter()
-                        .flat_map(|window| crate::tabs::tabs_in(&window.root)),
-                )
-            })
-            .find(|candidate| candidate.id == tab)
-            .cloned();
-        let Some(tab) = candidate else {
-            return;
-        };
-        if tab.pinned {
-            crate::toast::pinned_close_blocked(
-                &mut self.toasts,
-                &self.locale,
-                &tab.title,
-                Instant::now(),
-            );
-            return;
-        }
-        let dirty = self.is_dirty_close_tab(&tab);
-        self.pending_tab_close = Some(PendingTabClose {
-            tab,
-            approved_discard: None,
-            batch: None,
-            automatic_choice: None,
-            phase: if dirty {
-                TabClosePhase::Confirm
-            } else {
-                TabClosePhase::Ready { discard: false }
-            },
-        });
-    }
-
-    fn is_dirty_close_tab(&self, tab: &Tab) -> bool {
-        if let TabKind::File { path } = &tab.kind {
-            self.missing_drafts.contains_key(path)
-                || self
-                    .files
-                    .get(path)
-                    .and_then(|file| self.store.documents().snapshot(file.id).ok())
-                    .map(|doc| doc.dirty)
-                    .unwrap_or(tab.dirty)
-        } else if matches!(tab.kind, TabKind::Untitled { .. }) {
-            self.untitled
-                .get(&tab.id)
-                .and_then(|document| self.store.documents().snapshot(document.id).ok())
-                .map(|snapshot| snapshot.dirty)
-                .unwrap_or(tab.dirty)
-        } else {
-            false
-        }
-    }
-
-    fn request_close_tabs(&mut self, ids: Vec<TabId>) {
-        if self.pending_tab_close.is_some() {
-            return;
-        }
-        let snapshot = self.controller.snapshot();
-        let tabs = ids
-            .iter()
-            .filter_map(|id| {
-                snapshot
-                    .layouts
-                    .values()
-                    .flat_map(taide_layout::service::all_roots)
-                    .flat_map(crate::tabs::tabs_in)
-                    .find(|tab| &tab.id == id)
-            })
-            .map(|tab| {
-                let mut tab = tab.clone();
-                tab.dirty = self.is_dirty_close_tab(&tab);
-                tab
-            })
-            .collect();
-        if let Some(batch) = crate::tab_close_batch::Batch::new(tabs) {
-            self.advance_close_batch(batch);
-        }
-    }
-
-    fn advance_close_batch(&mut self, mut batch: crate::tab_close_batch::Batch) {
-        use crate::tab_close_batch::Task;
-        let Some(task) = batch.next() else {
-            if let Some(failure) = batch.failure {
-                self.toasts.error(failure, Instant::now());
-            }
-            return;
-        };
-        let (tab, phase, approved_discard, automatic_choice) = match task {
-            Task::Confirm(tab) => (tab, TabClosePhase::Confirm, None, None),
-            Task::Prepare(tab, choice) => (tab, TabClosePhase::Confirm, None, Some(choice)),
-            Task::Close(prepared) => (
-                prepared.tab,
-                TabClosePhase::Ready {
-                    discard: prepared.discard,
-                },
-                prepared.approved,
-                None,
-            ),
-        };
-        self.pending_tab_close = Some(PendingTabClose {
-            tab,
-            phase,
-            approved_discard,
-            automatic_choice,
-            batch: Some(batch),
-        });
-    }
-
-    fn cancel_failed_batch_prepare(&mut self) {
-        if self
-            .pending_tab_close
-            .as_ref()
-            .is_some_and(PendingTabClose::failed_batch_prepare)
-        {
-            self.pending_tab_close = None;
-        }
-    }
-
-    fn request_tab_save(
-        &mut self,
-        tab: TabId,
-        document: Option<DocumentId>,
-        frame: &eframe::Frame,
-    ) {
-        if let Some(owner) = self.app_file_views.save_owner(&tab, document) {
-            match self.app_file_views.begin_write(&owner, &mut self.store) {
-                Ok(Some(request)) => {
-                    if !self.submit(HostCommand::WriteAppFile(request.clone())) {
-                        self.app_file_views.cancel_write(&request);
-                    }
-                }
-                Ok(None) => (),
-                Err(error) => {
-                    self.toasts
-                        .app_file_failed(&self.locale, owner.target, &error, Instant::now())
-                }
-            }
-            return;
-        }
-        let snapshot = self.controller.snapshot();
-        let tab = snapshot
-            .layouts
-            .values()
-            .flat_map(|layout| crate::tabs::tabs_in(&layout.root))
-            .find(|candidate| candidate.id == tab);
-        let Some(tab) = tab else {
-            return;
-        };
-        if let TabKind::File { path } = &tab.kind
-            && document.is_some_and(|id| self.files.get(path).is_none_or(|file| file.id != id))
-        {
-            return;
-        }
-        match crate::save::keymap_request(tab, document, &mut self.store) {
-            Ok(Some(crate::save::KeymapSave::File { path, snapshot })) => {
-                self.submit(HostCommand::Save { path, snapshot });
-            }
-            Ok(Some(crate::save::KeymapSave::Untitled(tab))) => self.save_untitled(&tab, frame),
-            Ok(None) => (),
-            Err(error) => self.report_save_failure(error, false),
-        }
-    }
-
-    fn release_tab(
-        &mut self,
-        closed: crate::tabs::ClosedNativeTab,
-        approved: Option<(DocumentId, u64)>,
-    ) -> AppResult<()> {
-        if matches!(closed.tab.kind, TabKind::AppFile { .. }) {
-            return self
-                .app_file_views
-                .release_closed(&closed.tab, &mut self.store)
-                .map_err(editor_error);
-        }
-        if matches!(closed.tab.kind, TabKind::Untitled { .. }) {
-            if let Some(document) = self.untitled.get(&closed.tab.id) {
-                let id = document.id;
-                let views = self
-                    .store
-                    .views()
-                    .for_document(id)
-                    .map(|view| view.id)
-                    .collect::<Vec<_>>();
-                for view in views {
-                    self.store.detach_view(view).map_err(editor_error)?;
-                }
-                if closed.discarded {
-                    let expected = approved
-                        .filter(|(document, _)| *document == id)
-                        .map(|(_, revision)| revision)
-                        .unwrap_or(0);
-                    self.store
-                        .discard_document(id, expected)
-                        .map_err(editor_error)?;
-                } else {
-                    self.store.release_document(id).map_err(editor_error)?;
-                }
-                self.untitled.remove(&closed.tab.id);
-                self.persistence.settled(id);
-                self.last_edited_views.remove(&id);
-            }
-            self.untitled_failed.remove(&closed.tab.id);
-            self.untitled_loading.remove(&closed.tab.id);
-            return Ok(());
-        }
-        let TabKind::File { path } = &closed.tab.kind else {
-            return Ok(());
-        };
-        if let Some(layout) = self.services.state.layouts.read().get(&closed.project) {
-            self.open_with.close_path(path, layout);
-        }
-        if !closed.has_remaining_file {
-            self.previews.invalidate(path);
-            self.cancel_web(Some(std::path::Path::new(path)));
-            self.web_previews.invalidate(path);
-        }
-        self.pdf_previews.reconcile(&self.pdf_preview_paths());
-        self.presentation_previews
-            .reconcile(&self.preview_tab_paths(crate::open_with::PreviewKind::Presentation));
-        self.spreadsheet_previews
-            .reconcile(&self.preview_tab_paths(crate::open_with::PreviewKind::Spreadsheet));
-        if !closed.has_remaining_file {
-            let source = self
-                .missing_drafts
-                .get(path)
-                .map(|draft| draft.canonical.clone());
-            if let Some(source) = source {
-                self.missing_drafts
-                    .retain(|_, draft| draft.canonical != source);
-            }
-        }
-        let Some(file) = self.files.get(path) else {
-            if !closed.has_remaining_file {
-                self.failed.remove(path);
-                self.refused.remove(path);
-            }
-            return Ok(());
-        };
-        let document = file.id;
-        let views: Vec<_> = self
-            .store
-            .views()
-            .for_document(document)
-            .filter(|view| view.key.tab == closed.tab.id)
-            .map(|view| view.id)
-            .collect();
-        for view in views {
-            self.store.detach_view(view).map_err(editor_error)?;
-        }
-        if closed.has_remaining_file {
-            return Ok(());
-        }
-        if closed.discarded {
-            let revision = match approved {
-                Some((id, revision)) if id == document => revision,
-                Some(_) => {
-                    return Err(editor_error(
-                        taide_native_editor::document::EditorError::InvalidIdentity,
-                    ));
-                }
-                None => 0,
-            };
-            self.store
-                .discard_document(document, revision)
-                .map_err(editor_error)?;
-        } else {
-            self.store
-                .release_document(document)
-                .map_err(editor_error)?;
-        }
-        self.files.retain(|_, file| file.id != document);
-        self.persistence.settled(document);
-        self.last_edited_views.remove(&document);
-        self.failed.remove(path);
-        Ok(())
-    }
-
-    fn tab_close_dialog(&mut self, context: &egui::Context, frame: &eframe::Frame) {
-        self.cancel_failed_batch_prepare();
-        let Some(pending) = self.pending_tab_close.as_ref() else {
-            return;
-        };
-        let tab = pending.tab.clone();
-        let busy = !matches!(pending.phase, TabClosePhase::Confirm);
-        let automatic_choice = pending.automatic_choice;
-        let choice = if automatic_choice.is_some() {
-            automatic_choice
-        } else if matches!(
-            pending.phase,
-            TabClosePhase::Confirm | TabClosePhase::Saving(_)
-        ) {
-            let titles = pending
-                .batch
-                .as_ref()
-                .map(|batch| batch.titles().to_vec())
-                .unwrap_or_else(|| vec![tab.title.clone()]);
-            crate::close_dialog::show_titles(context, &self.locale, &titles, busy)
-        } else {
-            None
-        };
-        if let Some(pending) = self.pending_tab_close.as_mut() {
-            pending.automatic_choice = None;
-        }
-        if matches!(
-            choice,
-            Some(
-                crate::close_dialog::CloseChoice::Save | crate::close_dialog::CloseChoice::Discard
-            )
-        ) && self
-            .pending_tab_close
-            .as_ref()
-            .and_then(|pending| pending.batch.as_ref())
-            .is_some_and(|batch| !batch.is_preparing())
-        {
-            if let Some(mut batch) = self
-                .pending_tab_close
-                .take()
-                .and_then(|pending| pending.batch)
-            {
-                batch.choose(choice.unwrap());
-                self.advance_close_batch(batch);
-            }
-            context.request_repaint();
-            return;
-        }
-        match choice {
-            Some(crate::close_dialog::CloseChoice::Cancel) => {
-                self.pending_tab_close = None;
-            }
-            Some(crate::close_dialog::CloseChoice::Discard) => {
-                if self
-                    .pending_tab_close
-                    .as_ref()
-                    .is_some_and(|pending| pending.batch.is_some())
-                {
-                    self.pending_dirty.insert(tab.id.clone(), false);
-                }
-                let approved = if let TabKind::File { path } = &tab.kind {
-                    self.files
-                        .get(path)
-                        .and_then(|file| self.store.documents().snapshot(file.id).ok())
-                        .map(|snapshot| (snapshot.id, snapshot.revision))
-                } else {
-                    self.untitled
-                        .get(&tab.id)
-                        .and_then(|document| self.store.documents().snapshot(document.id).ok())
-                        .map(|snapshot| (snapshot.id, snapshot.revision))
-                };
-                if let Some(pending) = self.pending_tab_close.as_mut() {
-                    pending.phase = TabClosePhase::Ready { discard: true };
-                    pending.approved_discard = approved;
-                }
-            }
-            Some(crate::close_dialog::CloseChoice::Save) => {
-                if matches!(tab.kind, TabKind::Untitled { .. }) {
-                    self.save_untitled(&tab.id, frame);
-                    self.cancel_failed_batch_prepare();
-                    return;
-                }
-                if let TabKind::File { path } = &tab.kind
-                    && self.missing_drafts.contains_key(path)
-                {
-                    self.save_missing_draft(&tab.id, frame);
-                    self.cancel_failed_batch_prepare();
-                    return;
-                }
-                let result = match &tab.kind {
-                    TabKind::File { path } => {
-                        if let Some(document) = self.files.get(path) {
-                            let id = document.id;
-                            self.store
-                                .save_snapshot(id)
-                                .map_err(crate::toast::save_error)
-                                .map(|snapshot| {
-                                    (
-                                        Some(id),
-                                        HostCommand::Save {
-                                            path: path.clone(),
-                                            snapshot,
-                                        },
-                                    )
-                                })
-                        } else {
-                            Ok((None, HostCommand::SaveMirroredTab(tab.id.clone())))
-                        }
-                    }
-                    _ => Err(AppError::Forbidden(
-                        "native untitled Save As is not connected".into(),
-                    )),
-                };
-                match result {
-                    Ok((document, command)) => {
-                        if self.submit(command)
-                            && let Some(pending) = self.pending_tab_close.as_mut()
-                        {
-                            pending.phase = if document.is_some_and(|id| {
-                                self.store
-                                    .documents()
-                                    .snapshot(id)
-                                    .is_ok_and(|snapshot| !snapshot.dirty)
-                            }) {
-                                TabClosePhase::Ready { discard: false }
-                            } else {
-                                TabClosePhase::Saving(document)
-                            };
-                        }
-                    }
-                    Err(error) => self.report(&error),
-                }
-            }
-            None => {}
-        }
-        let ready = self.pending_tab_close.as_ref().and_then(|pending| {
-            if let TabClosePhase::Ready { discard } = pending.phase {
-                return Some((pending.tab.id.clone(), discard));
-            }
-            None
-        });
-        if let Some((tab, discard)) = ready {
-            if self
-                .pending_tab_close
-                .as_ref()
-                .and_then(|pending| pending.batch.as_ref())
-                .is_some_and(|batch| batch.is_preparing())
-            {
-                if let Some(pending) = self.pending_tab_close.take()
-                    && let Some(mut batch) = pending.batch
-                {
-                    batch.prepared(crate::tab_close_batch::Prepared {
-                        tab: pending.tab,
-                        discard,
-                        approved: pending.approved_discard,
-                    });
-                    self.advance_close_batch(batch);
-                }
-                context.request_repaint();
-                return;
-            }
-            if self.flush_dirty() && self.submit(HostCommand::CloseTab { tab, discard }) {
-                if let Some(pending) = self.pending_tab_close.as_mut() {
-                    pending.phase = TabClosePhase::Closing;
-                }
-            } else {
-                context.request_repaint();
-            }
-        }
-    }
-
-    fn save_untitled(&mut self, tab: &TabId, frame: &eframe::Frame) {
-        if self.saving_untitled.is_some() || self.saving_missing_draft.is_some() {
-            return;
-        }
-        let Some(document) = self.untitled.get(tab) else {
-            self.status = Some("native untitled document is not loaded".into());
-            return;
-        };
-        let document_id = document.id;
-        let project = document.project.clone();
-        let root = self
-            .services
-            .state
-            .projects
-            .read()
-            .get(&project)
-            .map(|project| project.root.clone());
-        let title = self
-            .controller
-            .snapshot()
-            .layouts
-            .values()
-            .flat_map(taide_layout::service::all_roots)
-            .flat_map(crate::tabs::tabs_in)
-            .find(|candidate| &candidate.id == tab)
-            .map(|candidate| candidate.title.clone());
-        let (Some(root), Some(title)) = (root, title) else {
-            return;
-        };
-        let selected = (self.save_picker)(
-            frame,
-            crate::file_dialogs::SaveRequest {
-                directory: root.into(),
-                name: title,
-                title: presentation::message(&self.locale, "tab.saveAsTitle", &[]),
-            },
-        );
-        let Some(selected) = selected else {
-            return;
-        };
-        let target = match taide_infra::root_guard::resolve_owning_project(
-            &self.services.state.projects.read(),
-            &selected,
-        ) {
-            Ok((_, target)) => target,
-            Err(error) => {
-                self.toasts.ipc_error(&self.locale, &error, Instant::now());
-                return;
-            }
-        };
-        if let Some(existing) = self
-            .store
-            .documents()
-            .find(&taide_native_editor::document::DocumentKey::File(target))
-            && self
-                .store
-                .documents()
-                .snapshot(existing)
-                .is_ok_and(|snapshot| snapshot.dirty)
-        {
-            self.status = Some("save the destination's unsaved draft before replacing it".into());
-            return;
-        }
-        let destination = match selected.into_os_string().into_string() {
-            Ok(path) => path,
-            Err(_) => {
-                self.status = Some("native untitled save destination is not UTF-8".into());
-                return;
-            }
-        };
-        if !self.flush_dirty() {
-            return;
-        }
-        let snapshot = match self.store.save_snapshot(document_id) {
-            Ok(snapshot) => snapshot,
-            Err(error) => {
-                self.report_save_failure(error, false);
-                return;
-            }
-        };
-        if self.submit(HostCommand::SaveUntitled {
-            tab: tab.clone(),
-            destination,
-            snapshot,
-        }) {
-            self.saving_untitled = Some(tab.clone());
-            if let Some(pending) = self
-                .pending_tab_close
-                .as_mut()
-                .filter(|pending| &pending.tab.id == tab)
-            {
-                pending.phase = TabClosePhase::Saving(Some(document_id));
-            }
-        }
-    }
-
-    fn save_missing_draft(&mut self, tab: &TabId, frame: &eframe::Frame) {
-        if self.saving_missing_draft.is_some() {
-            return;
-        }
-        let path = self
-            .controller
-            .snapshot()
-            .layouts
-            .values()
-            .flat_map(taide_layout::service::all_roots)
-            .flat_map(crate::tabs::tabs_in)
-            .find_map(|candidate| {
-                if &candidate.id != tab {
-                    return None;
-                }
-                match &candidate.kind {
-                    TabKind::File { path } => Some(path.clone()),
-                    _ => None,
-                }
-            });
-        let Some(path) = path else {
-            return;
-        };
-        if self.loading.contains(&path) {
-            return;
-        }
-        let Some(draft) = self.missing_drafts.get(&path).cloned() else {
-            return;
-        };
-        let original = std::path::Path::new(&path);
-        let Some(parent) = original.parent() else {
-            return;
-        };
-        let Some(name) = original.file_name().and_then(|name| name.to_str()) else {
-            return;
-        };
-        let selected = (self.save_picker)(
-            frame,
-            crate::file_dialogs::SaveRequest {
-                directory: parent.into(),
-                name: name.into(),
-                title: presentation::message(&self.locale, "tab.saveAsTitle", &[]),
-            },
-        );
-        let Some(selected) = selected else {
-            return;
-        };
-        let target = match taide_infra::root_guard::resolve_owning_project(
-            &self.services.state.projects.read(),
-            &selected,
-        ) {
-            Ok((_, target)) => target,
-            Err(error) => {
-                self.toasts.ipc_error(&self.locale, &error, Instant::now());
-                return;
-            }
-        };
-        if let Some(document) = self
-            .store
-            .documents()
-            .find(&taide_native_editor::document::DocumentKey::File(target))
-            && self
-                .store
-                .documents()
-                .snapshot(document)
-                .is_ok_and(|snapshot| snapshot.dirty)
-        {
-            self.status = Some("save the destination's unsaved draft before replacing it".into());
-            return;
-        }
-        let destination = match selected.into_os_string().into_string() {
-            Ok(path) => path,
-            Err(_) => {
-                self.status = Some("native save destination is not UTF-8".into());
-                return;
-            }
-        };
-        if !self.flush_dirty() {
-            return;
-        }
-        if self.submit(HostCommand::SaveMissingDraft {
-            tab: tab.clone(),
-            draft,
-            destination,
-        }) {
-            self.saving_missing_draft = Some(tab.clone());
-            if let Some(pending) = self
-                .pending_tab_close
-                .as_mut()
-                .filter(|pending| &pending.tab.id == tab)
-            {
-                pending.phase = TabClosePhase::Saving(None);
-            }
-        }
-    }
-
-    /// The rail's group dialogs: creating a group for the project whose menu asked (`app-sidebar.tsx`
-    /// 124-128), editing a group (`sortable-project-group-header.tsx` 79-87) and confirming its
-    /// deletion (129-144). A group that disappears closes its dialogs, as the header unmounts.
-    fn project_group_dialogs(
-        &mut self,
-        context: &egui::Context,
-        snapshot: &taide_native_ui::snapshot::ShellSnapshot,
-    ) {
-        use taide_native_ui::project_group_dialog::{GroupEdit, Target};
-        let stored = |group: &taide_model::ids::ProjectGroupId| {
-            snapshot.groups.iter().find(|item| &item.id == group)
-        };
-        if let Some(Target::Edit(group)) = self.project_group_dialog.target()
-            && stored(group).is_none()
-        {
-            self.project_group_dialog.close();
-        }
-        if self
-            .project_group_delete
-            .group()
-            .is_some_and(|group| stored(group).is_none())
-        {
-            self.project_group_delete.close();
-        }
-        let submission = self
-            .project_group_dialog
-            .show(context, &self.shell.colors, &|key| {
-                presentation::message(&self.locale, key, &[])
-            });
-        if let Some(submission) = submission {
-            let color = submission.color.map(str::to_owned);
-            let command = match submission.target {
-                Target::Create(project) => Some(HostCommand::CreateProjectGroup {
-                    name: submission.name,
-                    color,
-                    members: vec![project],
-                }),
-                Target::Edit(group) => stored(&group)
-                    .map(|stored| GroupEdit::new(stored, &submission.name, submission.color))
-                    .filter(|edit| !edit.is_empty())
-                    .map(|edit| HostCommand::EditProjectGroup {
-                        group,
-                        name: edit.name,
-                        color: edit.color,
-                    }),
-            };
-            match command {
-                Some(command) => {
-                    if !self.submit(command) {
-                        self.project_group_dialog.finish(false);
-                    }
-                }
-                None => self.project_group_dialog.finish(true),
-            }
-        }
-        let deleted = self.project_group_delete.show(context, &|key, arguments| {
-            presentation::message(&self.locale, key, arguments)
-        });
-        if let Some(group) = deleted {
-            self.submit(HostCommand::DeleteProjectGroup(group));
-        }
-    }
-
-    /// Original `project_close` first has every window mirror the project's dirty buffers
-    /// (`await_project_flush`); the host queue is serial, so the mirrors submitted here land before
-    /// the close removes the project root they are written under.
-    fn close_project(&mut self, project: ProjectId) {
-        if !self.flush_dirty() {
-            return;
-        }
-        let documents: Vec<_> = self
-            .files
-            .values()
-            .filter(|file| file.project.as_ref() == Some(&project))
-            .map(|file| file.id)
-            .chain(
-                self.untitled
-                    .values()
-                    .filter(|draft| draft.project == project)
-                    .map(|draft| draft.id),
-            )
-            .collect();
-        for document in documents {
-            let Ok(snapshot) = self.store.documents().snapshot(document) else {
-                continue;
-            };
-            if let Some(job) = self.persistence.mirror_job(snapshot, project.clone()) {
-                if !self.submit(HostCommand::MirrorDraft(job.clone())) {
-                    return;
-                }
-                self.persistence.mirror_started(&job);
-            }
-        }
-        self.submit(HostCommand::CloseProject(project));
-    }
-
-    fn release_project_documents(&mut self, project: &ProjectId) {
-        let live_tabs = self
-            .services
-            .state
-            .layouts
-            .read()
-            .values()
-            .flat_map(taide_layout::service::all_roots)
-            .flat_map(crate::tabs::tabs_in)
-            .map(|tab| tab.id.clone())
-            .collect::<HashSet<_>>();
-        let documents = self
-            .files
-            .values()
-            .filter(|file| file.project.as_ref() == Some(project))
-            .map(|file| file.id)
-            .chain(
-                self.untitled
-                    .values()
-                    .filter(|draft| &draft.project == project)
-                    .map(|draft| draft.id),
-            )
-            .collect::<HashSet<_>>();
-        for document in documents {
-            let closed_views = self
-                .store
-                .views()
-                .for_document(document)
-                .filter(|view| !live_tabs.contains(&view.key.tab))
-                .map(|view| view.id)
-                .collect::<Vec<_>>();
-            for view in closed_views {
-                if let Err(error) = self.store.detach_view(view) {
-                    self.report(&editor_error(error));
-                }
-            }
-            if self.store.views().for_document(document).next().is_some() {
-                let owners = self
-                    .files
-                    .iter()
-                    .filter(|(_, file)| file.id == document)
-                    .map(|(path, _)| {
-                        let owner = taide_infra::root_guard::resolve_owning_project(
-                            &self.services.state.projects.read(),
-                            std::path::Path::new(path),
-                        )
-                        .ok()
-                        .map(|(owner, _)| owner);
-                        (path.clone(), owner)
-                    })
-                    .collect::<Vec<_>>();
-                for (path, owner) in owners {
-                    if let Some(file) = self.files.get_mut(&path) {
-                        file.project = owner;
-                    }
-                }
-                continue;
-            }
-            let released = match self.store.documents().snapshot(document) {
-                Ok(snapshot) if snapshot.dirty => {
-                    self.store.discard_document(document, snapshot.revision)
-                }
-                Ok(_) => self.store.release_document(document),
-                Err(_) => Ok(()),
-            };
-            if let Err(error) = released {
-                self.report(&editor_error(error));
-                continue;
-            }
-            self.files.retain(|_, file| file.id != document);
-            self.untitled.retain(|_, draft| draft.id != document);
-            self.persistence.settled(document);
-            self.last_edited_views.remove(&document);
-            self.lsp_diagnostics.remove_document(document);
-            self.observing_files.remove(&document);
-            self.pending_file_observations.remove(&document);
-        }
-    }
-
-    fn drafts(&self) -> AppResult<Vec<Draft>> {
-        let mut seen = HashSet::new();
-        let mut drafts = Vec::new();
-        for (path, document) in &self.files {
-            if !seen.insert(document.id) {
-                continue;
-            }
-            let snapshot = self
-                .store
-                .documents()
-                .snapshot(document.id)
-                .map_err(editor_error)?;
-            if !snapshot.dirty {
-                continue;
-            }
-            let project = document.project.clone().ok_or_else(|| {
-                AppError::Forbidden("save the external native document before closing".into())
-            })?;
-            drafts.push(Draft {
-                project,
-                target: DraftTarget::File(path.clone()),
-                content: snapshot.rope.to_string(),
-            });
-        }
-        for (tab, document) in &self.untitled {
-            let snapshot = self
-                .store
-                .documents()
-                .snapshot(document.id)
-                .map_err(editor_error)?;
-            if snapshot.dirty {
-                drafts.push(Draft {
-                    project: document.project.clone(),
-                    target: DraftTarget::Untitled(tab.clone()),
-                    content: snapshot.rope.to_string(),
-                });
-            }
-        }
-        Ok(drafts)
-    }
-
-    fn choose_disk(&mut self, tab: &TabId, action: BannerAction) {
-        if action == BannerAction::Dismiss {
-            self.restore_notices.remove(tab);
-            return;
-        }
-        if self.pending_disk_choice.is_some() || self.pending_tab_close.is_some() {
-            return;
-        }
-        let selected = self
-            .controller
-            .snapshot()
-            .layouts
-            .values()
-            .flat_map(taide_layout::service::all_roots)
-            .flat_map(crate::tabs::tabs_in)
-            .find_map(|candidate| {
-                if &candidate.id != tab {
-                    return None;
-                }
-                match &candidate.kind {
-                    TabKind::File { path } => Some(path.clone()),
-                    _ => None,
-                }
-            });
-        let Some(path) = selected else {
-            return;
-        };
-        let Some(file) = self.files.get(&path) else {
-            return;
-        };
-        let document = file.id;
-        let live = match self.store.documents().snapshot(document) {
-            Ok(live) => live,
-            Err(error) => {
-                self.status = Some(editor_error(error).to_string());
-                return;
-            }
-        };
-        let choice = match action {
-            BannerAction::ViewDisk => DiskChoice::ViewDisk,
-            BannerAction::KeepMine => DiskChoice::KeepMine,
-            BannerAction::Dismiss => return,
-        };
-        if !self.flush_dirty() {
-            return;
-        }
-        if self.submit(HostCommand::ChooseDisk {
-            path,
-            document,
-            revision: live.revision,
-            choice,
-        }) {
-            self.pending_disk_choice = Some(document);
-        }
-    }
-
-    fn queue_project_observations(&mut self, project: &ProjectId) {
-        for file in self
-            .files
-            .values()
-            .filter(|file| file.project.as_ref() == Some(project))
-        {
-            if let Ok(snapshot) = self.store.documents().snapshot(file.id)
-                && let taide_native_editor::document::DocumentKey::File(canonical) = snapshot.key
-                && let Some(path) = canonical.to_str()
-            {
-                self.pending_file_observations.insert(file.id, path.into());
-            }
-        }
-    }
-
-    fn flush_observations(&mut self) {
-        if self.closing.is_some()
-            || self.is_exit_ready
-            || self.services.state.is_shutting_down()
-            || self.pending_disk_choice.is_some()
-            || self.pending_tab_close.is_some()
-            || self.saving_untitled.is_some()
-            || self.saving_missing_draft.is_some()
-        {
-            return;
-        }
-        let pending = self
-            .pending_file_observations
-            .iter()
-            .map(|(document, path)| (*document, path.clone()))
-            .collect::<Vec<_>>();
-        for (document, path) in pending {
-            if self.observing_files.contains(&document) {
-                continue;
-            }
-            if self.store.documents().snapshot(document).is_err() {
-                self.pending_file_observations.remove(&document);
-                continue;
-            }
-            if self.submit(HostCommand::ObserveFile { path, document }) {
-                self.pending_file_observations.remove(&document);
-                self.observing_files.insert(document);
-            } else {
-                break;
-            }
-        }
-    }
-
-    fn draft_project(&self, document: DocumentId) -> Option<ProjectId> {
-        self.files
-            .values()
-            .find(|file| file.id == document)
-            .and_then(|file| file.project.clone())
-            .or_else(|| {
-                self.untitled
-                    .values()
-                    .find(|draft| draft.id == document)
-                    .map(|draft| draft.project.clone())
-            })
-            .or_else(|| self.peek_models.project(document))
-    }
-
-    fn auto_save_delay(&self, document: DocumentId) -> Duration {
-        if self.peek_models.owns(document) {
-            return Duration::ZERO;
-        }
-        if self.deleted_documents.contains(&document) {
-            return Duration::ZERO;
-        }
-        if self
-            .store
-            .documents()
-            .snapshot(document)
-            .is_ok_and(|snapshot| {
-                self.missing_drafts.values().any(|draft| {
-                    snapshot.key
-                        == taide_native_editor::document::DocumentKey::File(draft.canonical.clone())
-                })
-            })
-        {
-            return Duration::ZERO;
-        }
-        if self
-            .store
-            .documents()
-            .snapshot(document)
-            .is_ok_and(|snapshot| {
-                matches!(
-                    snapshot.key,
-                    taide_native_editor::document::DocumentKey::File(_)
-                ) && !snapshot.metadata.read_only
-            })
-        {
-            return Duration::from_millis(u64::from(
-                self.services.state.settings.read().auto_save_delay_ms,
-            ));
-        }
-        Duration::ZERO
-    }
-
-    fn flush_persistence(&mut self, context: &egui::Context) {
-        if self.closing.is_some()
-            || self.is_exit_ready
-            || self.services.state.is_shutting_down()
-            || self.pending_tab_close.is_some()
-            || self.pending_disk_choice.is_some()
-            || self.saving_untitled.is_some()
-            || self.saving_missing_draft.is_some()
-        {
-            return;
-        }
-        let now = Instant::now();
-        for due in self.persistence.due(now) {
-            if self.observing_files.contains(&due.document) {
-                continue;
-            }
-            let Ok(snapshot) = self.store.documents().snapshot(due.document) else {
-                self.persistence.settled(due.document);
-                continue;
-            };
-            if due.save {
-                if let taide_native_editor::document::DocumentKey::File(canonical) = &snapshot.key
-                    && !snapshot.metadata.read_only
-                    && !self.auto_save_delay(due.document).is_zero()
-                {
-                    let path = self
-                        .files
-                        .iter()
-                        .find(|(_, file)| file.id == due.document)
-                        .map(|(path, _)| path.clone())
-                        .or_else(|| canonical.to_str().map(String::from));
-                    if let Some(path) = path {
-                        match self.store.save_snapshot(due.document) {
-                            Ok(snapshot) => {
-                                if !self.submit(HostCommand::AutoSave { path, snapshot }) {
-                                    context
-                                        .request_repaint_after(crate::persistence::MIRROR_DEBOUNCE);
-                                    return;
-                                }
-                            }
-                            Err(error) => self.report_save_failure(error, true),
-                        }
-                    }
-                    continue;
-                }
-                self.persistence.disable_auto_save(due.document);
-            }
-            if due.mirror
-                && let Some(project) = self.draft_project(due.document)
-            {
-                match self.store.documents().snapshot(due.document) {
-                    Ok(snapshot) => {
-                        if let Some(job) = self.persistence.mirror_job(snapshot, project) {
-                            if !self.submit(HostCommand::MirrorDraft(job.clone())) {
-                                context.request_repaint_after(crate::persistence::MIRROR_DEBOUNCE);
-                                return;
-                            }
-                            self.persistence.mirror_started(&job);
-                        }
-                    }
-                    Err(error) => log::warn!("native draft mirror snapshot failed: {error:?}"),
-                }
-            }
-        }
-        if let Some(deadline) = self.persistence.next_wake() {
-            let wait = deadline.saturating_duration_since(now);
-            context.request_repaint_after(if wait.is_zero() {
-                crate::persistence::MIRROR_DEBOUNCE
-            } else {
-                wait
-            });
-        }
-    }
 }
 
 impl NativeApplication {
-    fn save_view(&self, document: DocumentId) -> Option<ViewId> {
-        self.last_edited_views
-            .get(&document)
-            .copied()
-            .filter(|view| {
-                self.store
-                    .views()
-                    .get(*view)
-                    .is_some_and(|view| view.document == document)
-            })
-            .or_else(|| {
-                self.store
-                    .views()
-                    .for_document(document)
-                    .find(|view| {
-                        self.focused.as_ref().is_some_and(|(pane, tab)| {
-                            &view.key.pane == pane && &view.key.tab == tab
-                        })
-                    })
-                    .map(|view| view.id)
-            })
-            .or_else(|| {
-                self.store
-                    .views()
-                    .for_document(document)
-                    .next()
-                    .map(|view| view.id)
-            })
-    }
-
-    fn focused_editor_source(
-        &self,
-        context: &egui::Context,
-        tab: &TabId,
-        fallback: Option<DocumentId>,
-    ) -> Option<(ViewId, ViewId)> {
-        let focused = self
-            .palette
-            .source_focus()
-            .filter(|_| self.palette.is_open())
-            .or_else(|| context.memory(|memory| memory.focused()));
-        focused
-            .and_then(|id| self.editor_keymap_targets.get(&(context.viewport_id(), id)))
-            .and_then(|(source, _)| {
-                let owner = self
-                    .editor_locations
-                    .preview_owner(*source)
-                    .unwrap_or(*source);
-                let owner_view = self.store.views().get(owner)?;
-                (owner_view.key.tab == *tab && self.store.views().get(*source).is_some())
-                    .then_some((*source, owner))
-            })
-            .or_else(|| {
-                fallback.and_then(|document| {
-                    self.store
-                        .views()
-                        .for_document(document)
-                        .find(|view| view.key.tab == *tab)
-                        .map(|view| (view.id, view.id))
-                })
-            })
-    }
-
-    fn request_editor_code_actions(
-        &mut self,
-        context: &egui::Context,
-        tab: &TabId,
-        fallback: Option<DocumentId>,
-        command: taide_native_ui::editor_code_actions::Command,
-        source: Option<(ViewId, ViewId)>,
-    ) {
-        let Some((source, owner)) =
-            source.or_else(|| self.focused_editor_source(context, tab, fallback))
-        else {
-            return;
-        };
-        let snapshot = self.controller.snapshot();
-        let Some(project) = snapshot.layouts.iter().find_map(|(project, layout)| {
-            taide_layout::service::all_roots(layout)
-                .any(|root| {
-                    crate::tabs::tabs_in(root)
-                        .iter()
-                        .any(|candidate| candidate.id == *tab)
-                })
-                .then_some(project.clone())
-        }) else {
-            return;
-        };
-        self.request_editor_code_actions_from_source(
-            project,
-            source,
-            owner,
-            crate::editor_code_actions::Invocation {
-                command,
-                automatic: false,
-            },
-        );
-    }
-
-    fn request_editor_code_actions_from_source(
-        &mut self,
-        project: ProjectId,
-        source: ViewId,
-        owner: ViewId,
-        invocation: crate::editor_code_actions::Invocation,
-    ) {
-        if self.closing.is_some() || self.is_exit_ready || self.services.state.is_shutting_down() {
-            return;
-        }
-        if source != owner && self.editor_locations.preview_owner(source) != Some(owner) {
-            return;
-        }
-        let shell = self.controller.snapshot();
-        if !self.store.views().get(owner).is_some_and(|owner| {
-            shell.layouts.get(&project).is_some_and(|layout| {
-                taide_layout::service::all_roots(layout).any(|root| {
-                    taide_native_ui::snapshot::active_tab(root, &owner.key.pane)
-                        .is_some_and(|tab| tab.id == owner.key.tab)
-                })
-            })
-        }) {
-            return;
-        }
-        self.reconcile_lsp();
-        let Some(lsp) = &self.lsp else {
-            return;
-        };
-        match self
-            .editor_code_actions
-            .begin(&self.store, project, source, owner, invocation, lsp)
-        {
-            Ok(_) | Err(taide_native_editor::document::EditorError::ReadOnly) => (),
-            Err(error) => self.status = Some(editor_error(error).to_string()),
-        }
-    }
-
-    fn request_editor_rename(
-        &mut self,
-        context: &egui::Context,
-        tab: &TabId,
-        fallback: Option<DocumentId>,
-        source: Option<(ViewId, ViewId)>,
-    ) {
-        let Some((source, owner)) =
-            source.or_else(|| self.focused_editor_source(context, tab, fallback))
-        else {
-            return;
-        };
-        let snapshot = self.controller.snapshot();
-        let Some(project) = snapshot.layouts.iter().find_map(|(project, layout)| {
-            taide_layout::service::all_roots(layout)
-                .any(|root| {
-                    crate::tabs::tabs_in(root)
-                        .iter()
-                        .any(|candidate| candidate.id == *tab)
-                })
-                .then_some(project.clone())
-        }) else {
-            return;
-        };
-        self.request_editor_rename_from_source(project, source, owner);
-    }
-
-    fn request_editor_rename_from_source(
-        &mut self,
-        project: ProjectId,
-        source: ViewId,
-        owner: ViewId,
-    ) {
-        if self.closing.is_some() || self.is_exit_ready || self.services.state.is_shutting_down() {
-            return;
-        }
-        if source != owner && self.editor_locations.preview_owner(source) != Some(owner) {
-            return;
-        }
-        let snapshot = self.controller.snapshot();
-        let active = self.store.views().get(owner).is_some_and(|owner| {
-            snapshot.layouts.get(&project).is_some_and(|layout| {
-                taide_layout::service::all_roots(layout).any(|root| {
-                    taide_native_ui::snapshot::active_tab(root, &owner.key.pane)
-                        .is_some_and(|tab| tab.id == owner.key.tab)
-                })
-            })
-        });
-        if !active {
-            return;
-        }
-        self.reconcile_lsp();
-        let Some(lsp) = &self.lsp else {
-            return;
-        };
-        match self
-            .editor_rename
-            .begin(&self.store, project, source, owner, lsp)
-        {
-            Ok(_) | Err(taide_native_editor::document::EditorError::ReadOnly) => (),
-            Err(error) => self.status = Some(editor_error(error).to_string()),
-        }
-    }
-
-    fn formatted_document(&mut self, document: DocumentId) {
-        if let Ok(current) = self.store.documents().snapshot(document) {
-            let mirror = self.draft_project(current.id).is_some();
-            self.persistence.changed(
-                current.id,
-                current.revision,
-                Instant::now(),
-                mirror,
-                Duration::ZERO,
-            );
-            for view in self.store.views().for_document(current.id) {
-                self.pending_dirty.insert(view.key.tab.clone(), true);
-            }
-        }
-        self.reconcile_lsp();
-    }
-
-    fn save_formatting_options(
-        &mut self,
-        document: DocumentId,
-    ) -> Result<
-        taide_lsp::native::protocol::lsp_types::FormattingOptions,
-        taide_native_editor::document::EditorError,
-    > {
-        let configuration =
-            crate::presentation_refresh::indent_configuration(&self.services.state.settings.read());
-        let fallback = self.store.configure_indentation(document, configuration)?;
-        let current = self.store.documents().snapshot(document)?;
-        let indent = current.model_indentation(fallback).formatting_options();
-        Ok(taide_lsp::native::protocol::lsp_types::FormattingOptions {
-            tab_size: indent.tab_size,
-            insert_spaces: indent.insert_spaces,
-            ..Default::default()
-        })
-    }
-
-    fn prepare_untitled_cleanup(
-        &mut self,
-        snapshot: taide_native_editor::store::SaveSnapshot,
-    ) -> Result<taide_native_editor::store::SaveSnapshot, taide_native_editor::document::EditorError>
-    {
-        let document = snapshot.document();
-        let current = self.store.documents().snapshot(document)?;
-        if current.key != *snapshot.key() || current.revision != snapshot.revision() {
-            return Err(taide_native_editor::document::EditorError::StaleRevision);
-        }
-        let settings = self.services.state.settings.read();
-        let flags = taide_native_editor::save_cleanup::CleanupFlags {
-            trim_trailing_whitespace: settings.trim_trailing_whitespace_on_save,
-            insert_final_newline: settings.insert_final_newline_on_save,
-        };
-        drop(settings);
-        let view = self.save_view(document);
-        self.editor_syntax
-            .supply_save_cleanup(&mut self.store, document, flags);
-        let result =
-            taide_native_editor::save_cleanup::run(&mut self.store, document, view, flags, false)?;
-        if result.changed {
-            self.formatted_document(document);
-        }
-        self.store.save_snapshot(document)
-    }
-
-    fn queue_native_save(
-        &mut self,
-        snapshot: taide_native_editor::document::DocumentSnapshot,
-        mut pending: PendingFormatSave,
-        options: taide_lsp::native::protocol::lsp_types::FormattingOptions,
-    ) {
-        let document = snapshot.id;
-        pending.native_options = None;
-        pending.native_token = Some(self.editor_formatting.begin_native_save(snapshot, options));
-        self.pending_format_saves.insert(document, pending);
-    }
-
-    fn poll_native_formatting(&mut self) {
-        for (request, result) in self
-            .editor_formatting
-            .tick_native_saves(&self.store, &self.services.tasks)
-        {
-            if self
-                .pending_format_saves
-                .get(&request.snapshot.id)
-                .is_none_or(|pending| pending.native_token != Some(request.token))
-            {
-                continue;
-            }
-            let result = if self.services.state.settings.read().format_on_save {
-                result.map(Some).map_err(|error| {
-                    if error != taide_native_editor::document::EditorError::StaleRevision {
-                        log::warn!("native JSON save formatter failed: {error:?}");
-                    }
-                    taide_lsp::native::Failure::StaleRevision
-                })
-            } else {
-                Ok(None)
-            };
-            self.finish_formatted_save(request.snapshot, result);
-        }
-        for (request, result) in self.editor_formatting.tick_native(&self.services.tasks) {
-            if self.closing.is_some()
-                || self.services.state.is_shutting_down()
-                || !request.enabled(&self.services.state.settings.read())
-            {
-                self.editor_formatting.reject(&request);
-                continue;
-            }
-            let providers = self
-                .lsp
-                .as_ref()
-                .map(|lsp| lsp.formatting_request_providers(&request))
-                .unwrap_or_default();
-            match self
-                .editor_formatting
-                .accept_native(&mut self.store, &request, providers, result)
-            {
-                Ok(true) => self.formatted_document(request.snapshot.id),
-                Ok(false) => (),
-                Err(error) => log::warn!("native JSON formatter edit failed: {error:?}"),
-            }
-        }
-    }
-
-    fn request_editor_formatting(
-        &mut self,
-        context: &egui::Context,
-        tab: &TabId,
-        fallback: Option<DocumentId>,
-        command: taide_native_editor::formatting::Command,
-        source: Option<(ViewId, ViewId)>,
-    ) {
-        let Some((source, owner)) =
-            source.or_else(|| self.focused_editor_source(context, tab, fallback))
-        else {
-            return;
-        };
-        if !self
-            .store
-            .views()
-            .get(owner)
-            .is_some_and(|owner| owner.key.tab == *tab)
-        {
-            return;
-        }
-        let snapshot = self.controller.snapshot();
-        let Some(project) = snapshot.layouts.iter().find_map(|(project, layout)| {
-            crate::symbol_sidebar::window_tree(project, layout, &self.shell.scope)
-                .into_iter()
-                .flat_map(|(root, _)| crate::tabs::tabs_in(root))
-                .any(|candidate| candidate.id == *tab)
-                .then_some(project.clone())
-        }) else {
-            return;
-        };
-        let Some(document) = self.store.views().get(source).map(|source| source.document) else {
-            return;
-        };
-        let configuration =
-            crate::presentation_refresh::indent_configuration(&self.services.state.settings.read());
-        let Ok(fallback) = self.store.configure_indentation(document, configuration) else {
-            return;
-        };
-        self.reconcile_lsp();
-        let providers = self
-            .store
-            .documents()
-            .snapshot(document)
-            .ok()
-            .and_then(|snapshot| {
-                self.lsp
-                    .as_ref()
-                    .map(|lsp| lsp.formatting_providers(&project, &snapshot, command))
-            })
-            .unwrap_or_default();
-        match self.editor_formatting.begin(
-            &self.store,
-            project,
-            source,
-            owner,
-            command,
-            fallback,
-            providers,
-        ) {
-            Ok(Some(request)) if request.native_json => context.request_repaint(),
-            Ok(Some(request)) => {
-                if let Some(lsp) = &self.lsp
-                    && let Err(error) = lsp.format_editor(request.clone())
-                {
-                    self.editor_formatting.reject(&request);
-                    self.status = Some(error.to_string());
-                }
-            }
-            Ok(None) | Err(taide_native_editor::document::EditorError::ReadOnly) => (),
-            Err(error) => log::warn!("native formatter request refused: {error:?}"),
-        }
-    }
-
-    fn request_editor_input_formatting(
-        &mut self,
-        project: ProjectId,
-        source: ViewId,
-        owner: ViewId,
-        input: taide_native_ui::editor_formatting_input::Input,
-    ) -> bool {
-        if self.closing.is_some()
-            || self.services.state.is_shutting_down()
-            || (source != owner && self.editor_locations.preview_owner(source) != Some(owner))
-        {
-            return false;
-        }
-        let Some(owner_view) = self.store.views().get(owner) else {
-            return false;
-        };
-        let shell = self.controller.snapshot();
-        let valid_owner = shell.layouts.get(&project).is_some_and(|layout| {
-            self.active_window_scope(|scope| {
-                crate::symbol_sidebar::window_tree(&project, layout, scope).is_some_and(
-                    |(root, _)| {
-                        crate::tabs::tabs_in(root).iter().any(|tab| {
-                            tab.id == owner_view.key.tab
-                                && matches!(
-                                    tab.kind,
-                                    TabKind::File { .. } | TabKind::Untitled { .. }
-                                )
-                        })
-                    },
-                )
-            })
-            .is_some()
-        });
-        if !valid_owner {
-            return false;
-        }
-        if !self.store.views().get(source).is_some_and(|source| {
-            source.document == input.document
-                && self
-                    .store
-                    .documents()
-                    .snapshot(input.document)
-                    .is_ok_and(|snapshot| snapshot.revision == input.revision)
-        }) {
-            return false;
-        }
-        let settings = self.services.state.settings.read();
-        let enabled = match input.kind {
-            taide_native_ui::editor_formatting_input::Kind::Type { .. } => {
-                settings.editor_format_on_type
-            }
-            taide_native_ui::editor_formatting_input::Kind::Paste { .. } => {
-                settings.editor_format_on_paste
-            }
-        };
-        let configuration = crate::presentation_refresh::indent_configuration(&settings);
-        drop(settings);
-        if !enabled {
-            return false;
-        }
-        let Ok(fallback) = self
-            .store
-            .configure_indentation(input.document, configuration)
-        else {
-            return false;
-        };
-        self.reconcile_lsp();
-        let providers = self
-            .store
-            .documents()
-            .snapshot(input.document)
-            .ok()
-            .and_then(|snapshot| {
-                self.lsp
-                    .as_ref()
-                    .map(|lsp| lsp.automatic_formatting_providers(&project, &snapshot, &input.kind))
-            })
-            .unwrap_or_default();
-        match self.editor_formatting.begin_automatic(
-            &self.store,
-            project,
-            source,
-            owner,
-            &input,
-            fallback,
-            providers,
-        ) {
-            Ok(Some(request)) if request.native_json => true,
-            Ok(Some(request)) => {
-                if let Some(lsp) = &self.lsp {
-                    if lsp.format_editor(request.clone()).is_ok() {
-                        return true;
-                    }
-                    self.editor_formatting.reject(&request);
-                }
-                false
-            }
-            Ok(None) | Err(taide_native_editor::document::EditorError::ReadOnly) => false,
-            Err(error) => {
-                log::warn!("native input formatter request refused: {error:?}");
-                false
-            }
-        }
-    }
-
-    fn reconcile_lsp(&mut self) {
-        self.editor_clipboard
-            .reconcile(&self.store, &self.services.state);
-        if self.closing.is_some() || self.services.state.is_shutting_down() {
-            self.editor_clipboard.clear();
-            self.editor_formatting.clear();
-            self.editor_rename.clear();
-            self.editor_code_actions.clear();
-            return;
-        }
-        self.lsp_diagnostics.retain_documents(
-            self.store
-                .documents()
-                .snapshots()
-                .map(|model| model.id)
-                .collect(),
-        );
-        let scopes = self.window_scopes();
-        let Some(lsp) = self.lsp.as_mut() else {
-            self.editor_formatting
-                .reconcile(&self.store, |_| HashSet::new());
-            self.editor_rename.clear();
-            self.editor_code_actions.clear();
-            self.editor_symbols.retain(&HashSet::new());
-            self.editor_folding.retain(&HashSet::new());
-            return;
-        };
-        self.editor_formatting.reconcile(&self.store, |request| {
-            if !request.enabled(&self.services.state.settings.read()) {
-                return HashSet::new();
-            }
-            lsp.formatting_request_providers(request)
-        });
-        let rename_shell = self.controller.snapshot();
-        self.editor_rename.reconcile(&self.store, lsp, |request| {
-            self.store.views().get(request.owner).is_some_and(|owner| {
-                rename_shell
-                    .layouts
-                    .get(&request.project)
-                    .is_some_and(|layout| {
-                        taide_layout::service::all_roots(layout).any(|root| {
-                            taide_native_ui::snapshot::active_tab(root, &owner.key.pane)
-                                .is_some_and(|tab| tab.id == owner.key.tab)
-                        })
-                    })
-            })
-        });
-        self.editor_code_actions
-            .reconcile(&self.store, lsp, |request| {
-                self.store.views().get(request.owner).is_some_and(|owner| {
-                    rename_shell
-                        .layouts
-                        .get(&request.project)
-                        .is_some_and(|layout| {
-                            scopes.iter().any(|scope| {
-                                crate::symbol_sidebar::window_tree(&request.project, layout, scope)
-                                    .is_some_and(|(root, _)| {
-                                        taide_native_ui::snapshot::active_tab(root, &owner.key.pane)
-                                            .is_some_and(|tab| tab.id == owner.key.tab)
-                                    })
-                            })
-                        })
-                }) && (request.source == request.owner
-                    || self.editor_locations.preview_owner(request.source) == Some(request.owner))
-            });
-        if let Err(error) = lsp.reconcile_models(&mut self.store) {
-            self.status = Some(error.to_string());
-            return;
-        }
-        let shell = self.controller.snapshot();
-        if let Err(error) = lsp.retain_projects(
-            &shell
-                .projects
-                .iter()
-                .map(|project| project.id.clone())
-                .collect(),
-        ) {
-            self.status = Some(error.to_string());
-            return;
-        }
-        let mut retained = HashSet::new();
-        let mut fold_retained = HashSet::new();
-        let visible: Vec<_> = scopes
-            .iter()
-            .flat_map(|scope| crate::lsp::visible_files(&shell, scope))
-            .collect();
-        for (project, path) in visible {
-            if self.loading.contains(path)
-                || self.failed.contains_key(path)
-                || self.missing_drafts.contains_key(path)
-            {
-                continue;
-            }
-            let Some(file) = self.files.get(path) else {
-                continue;
-            };
-            if !retained.insert((project.clone(), file.id)) {
-                continue;
-            }
-            if let Ok(snapshot) = self.store.documents().snapshot(file.id) {
-                if let Err(error) = lsp.sync(project.clone(), snapshot.clone()) {
-                    self.status = Some(error.to_string());
-                    continue;
-                }
-                if let Some(request) = self.editor_symbols.observe(
-                    project,
-                    snapshot.clone(),
-                    lsp.symbol_providers(project, file.id),
-                    Instant::now(),
-                ) && let Err(error) = lsp.document_symbols(request.clone())
-                {
-                    self.editor_symbols.failed(&request);
-                    self.status = Some(error.to_string());
-                }
-                if taide_native_ui::presentation::editor_folding(snapshot.metadata.tier) {
-                    fold_retained.insert((project.clone(), file.id));
-                    if let Some(request) = self.editor_folding.observe(
-                        project,
-                        snapshot,
-                        lsp.symbol_providers(project, file.id),
-                        Instant::now(),
-                    ) && let Err(error) = lsp.syntax_folding(request.clone())
-                    {
-                        self.editor_folding.failed(&request);
-                        self.status = Some(error.to_string());
-                    }
-                }
-            }
-        }
-        for (project, document) in self.editor_locations.preview_bindings(&self.store) {
-            if retained.contains(&(project.clone(), document))
-                || !shell.projects.iter().any(|entry| entry.id == project)
-            {
-                continue;
-            }
-            let Ok(snapshot) = self.store.documents().snapshot(document) else {
-                continue;
-            };
-            let taide_native_editor::document::DocumentKey::File(path) = &snapshot.key else {
-                continue;
-            };
-            let within_root = taide_infra::root_guard::project_root(
-                &self.services.state.projects.read(),
-                &project,
-            )
-            .and_then(|root| taide_infra::root_guard::ensure_within_root(&root, path))
-            .is_ok_and(|canonical| canonical == *path);
-            if !within_root {
-                continue;
-            }
-            if let Err(error) = lsp.sync(project.clone(), snapshot) {
-                self.status = Some(error.to_string());
-                continue;
-            }
-            retained.insert((project, document));
-        }
-        if let Err(error) = lsp.retain_bindings(&retained) {
-            self.status = Some(error.to_string());
-        }
-        self.editor_symbols.retain(&retained);
-        self.editor_folding.retain(&fold_retained);
-    }
-
-    fn clear_builtin_json(&mut self) {
-        self.editor_json.clear();
-        self.editor_json_validation.clear();
-        self.welcome.clear();
-        self.lsp_diagnostics
-            .retain_builtin(&self.store, HashSet::new());
-        self.problem_opens.clear();
-        self.editor_symbols.retain_builtin(&HashSet::new());
-        self.editor_folding.retain_builtin(&HashSet::new());
-    }
-
-    fn reconcile_builtin_json(&mut self, context: &egui::Context) {
-        if self.closing.is_some() || self.is_exit_ready || self.services.state.is_shutting_down() {
-            self.clear_builtin_json();
-            return;
-        }
-        for open in std::mem::take(&mut self.problem_opens) {
-            let Ok(snapshot) = self.store.documents().snapshot(open.document) else {
-                continue;
-            };
-            if snapshot.key != open.key || snapshot.revision != open.revision {
-                continue;
-            }
-            let taide_native_editor::document::DocumentKey::Untitled(tab) = &open.key else {
-                continue;
-            };
-            let destination =
-                self.controller
-                    .snapshot()
-                    .layouts
-                    .iter()
-                    .find_map(|(project, layout)| {
-                        let (root, _) =
-                            crate::symbol_sidebar::window_tree(project, layout, &self.shell.scope)?;
-                        let (pane, _) = taide_layout::service::find_tab(root, tab)?;
-                        let actual = crate::tabs::tabs_in(root)
-                            .into_iter()
-                            .find(|entry| entry.id == *tab)?;
-                        matches!(actual.kind, TabKind::Untitled { .. })
-                            .then(|| (project.clone(), pane.clone()))
-                    });
-            let Some((project, pane)) = destination else {
-                continue;
-            };
-            let key = ViewKey {
-                window: WINDOW_LABEL.into(),
-                pane,
-                tab: tab.clone(),
-            };
-            if let Err(error) = self.store.attach_view(key.clone(), snapshot.id) {
-                self.report(&editor_error(error));
-                continue;
-            }
-            let position = taide_native_editor::lsp::Position::new(
-                u32::try_from(open.line.saturating_sub(1)).unwrap_or(u32::MAX),
-                u32::try_from(open.column.saturating_sub(1)).unwrap_or(u32::MAX),
-            );
-            let result =
-                taide_native_editor::lsp::position_to_byte(&snapshot, position).and_then(|byte| {
-                    crate::editor_reveal::reveal_document(
-                        &mut self.store,
-                        &key,
-                        &snapshot,
-                        byte..byte,
-                    )
-                });
-            match result {
-                Ok(Some(view)) => {
-                    if matches!(self.shell.scope, WindowScope::Main)
-                        && let Err(error) = self
-                            .controller
-                            .submit(ShellMutation::ActivateProject(project))
-                    {
-                        self.report(&error);
-                        continue;
-                    }
-                    for command in [
-                        ShellMutation::FocusPane(key.pane.clone()),
-                        ShellMutation::ActivateTab(key.tab.clone()),
-                    ] {
-                        if let Err(error) = self.controller.submit(command) {
-                            self.report(&error);
-                        }
-                    }
-                    if let Some(body) = crate::editor_context_menu::body(context, view) {
-                        context.memory_mut(|memory| memory.request_focus(body));
-                    }
-                    context.request_repaint();
-                }
-                Ok(None) => {}
-                Err(error) => self.report(&editor_error(error)),
-            }
-        }
-        let diagnostics = self.editor_json_validation.tick(
-            &self.store,
-            &self.services.tasks,
-            context,
-            Instant::now(),
-        );
-        self.lsp_diagnostics
-            .retain_builtin(&self.store, self.editor_json_validation.documents());
-        for (snapshot, result) in diagnostics {
-            match result {
-                Ok(markers) => {
-                    let title = match &snapshot.key {
-                        taide_native_editor::document::DocumentKey::File(path) => path
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .into_owned(),
-                        taide_native_editor::document::DocumentKey::Untitled(tab) => self
-                            .controller
-                            .snapshot()
-                            .layouts
-                            .values()
-                            .flat_map(taide_layout::service::all_roots)
-                            .flat_map(crate::tabs::tabs_in)
-                            .find(|entry| entry.id == *tab)
-                            .map(|entry| entry.title.clone())
-                            .unwrap_or_default(),
-                        _ => String::new(),
-                    };
-                    if let Err(error) = self
-                        .lsp_diagnostics
-                        .publish_builtin(&snapshot, markers, title)
-                    {
-                        self.lsp_diagnostics.remove_builtin(snapshot.id);
-                        self.report(&editor_error(error));
-                    }
-                }
-                Err(error) => {
-                    self.lsp_diagnostics.remove_builtin(snapshot.id);
-                    self.report(&editor_error(error));
-                }
-            }
-        }
-        let completed = self
-            .editor_json
-            .tick(&self.store, &self.services.tasks, context);
-        let documents = self.editor_json.documents();
-        self.editor_symbols.retain_builtin(&documents);
-        self.editor_folding.retain_builtin(&documents);
-        for (snapshot, result) in completed {
-            match result {
-                Ok(models) => {
-                    if let Err(error) = self
-                        .editor_symbols
-                        .install_builtin(&snapshot, models.symbols)
-                    {
-                        self.editor_symbols.fail_builtin(&snapshot);
-                        self.report(&editor_error(error));
-                    }
-                    self.editor_folding.install_builtin(&snapshot, models.folds);
-                }
-                Err(error) => {
-                    self.editor_symbols.fail_builtin(&snapshot);
-                    self.report(&editor_error(error));
-                }
-            }
-        }
-    }
-
-    fn dispatch_completion(&mut self, context: &egui::Context) {
-        for request in self.editor_completion.take_queued() {
-            let active = self
-                .services
-                .state
-                .layouts
-                .read()
-                .get(&request.project)
-                .is_some_and(|layout| {
-                    self.active_window_scope(|scope| request.is_active(layout, scope))
-                        .is_some()
-                });
-            if self.closing.is_some() || !active || !request.describes(&self.store) {
-                if self.editor_completion.is_current(&request) {
-                    self.editor_completion.close(request.source);
-                }
-                continue;
-            }
-            let providers = self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
-                lsp.completion_providers(&request.project, &request.snapshot)
-            });
-            if providers != request.providers {
-                self.editor_completion.close(request.source);
-                continue;
-            }
-            let repaint = context.clone();
-            self.editor_completion.supply(
-                &self.store,
-                &request,
-                self.settings_views.snippet_catalog().files(),
-                &self.services.tasks,
-                Arc::new(move || repaint.request_repaint()),
-            );
-            if request.query_providers.is_empty() {
-                if let Err(error) = self.editor_completion.accept(
-                    &self.store,
-                    &request,
-                    providers,
-                    Ok(crate::editor_completion::Response { groups: Vec::new() }),
-                ) {
-                    self.status = Some(format!("native editor completion: {error:?}"));
-                }
-            } else if let Some(lsp) = &self.lsp
-                && let Err(error) = lsp.completion(request.clone())
-            {
-                self.editor_completion.close(request.source);
-                self.status = Some(error.to_string());
-            }
-        }
-        for request in self.editor_completion.take_clipboard_requests(&self.store) {
-            let active = self
-                .services
-                .state
-                .layouts
-                .read()
-                .get(&request.project)
-                .is_some_and(|layout| {
-                    self.active_window_scope(|scope| request.is_active(layout, scope))
-                        .is_some()
-                });
-            if self.closing.is_some()
-                || !active
-                || !self.submit(HostCommand::ReadCompletionClipboard(request.clone()))
-            {
-                self.editor_completion.close(request.source);
-            }
-        }
-    }
-
-    fn consume_code_action_navigation(&mut self, finished: crate::editor_code_actions::Finished) {
-        self.consume_editor_command_navigation(
-            finished.request.project,
-            finished.request.source,
-            finished.provider,
-            finished.navigation,
-        );
-    }
-
-    fn consume_editor_command_navigation(
-        &mut self,
-        project: ProjectId,
-        source: taide_native_editor::view::ViewId,
-        provider: crate::editor_symbols::ProviderIdentity,
-        navigation: crate::editor_code_actions::Navigation,
-    ) {
-        use taide_lsp::native::protocol::lsp_types;
-        use taide_native_editor::symbol_locations::{Kind, Mode};
-        let Some(view) = self.store.views().get(source) else {
-            return;
-        };
-        let Ok(snapshot) = self.store.documents().snapshot(view.document) else {
-            return;
-        };
-        let same = crate::editor_locations::file_path(&navigation.uri).is_some_and(|path| {
-            snapshot.key == taide_native_editor::document::DocumentKey::File(path)
-        });
-        let position = if same {
-            Some(navigation.position)
-        } else {
-            None
-        };
-        let providers = HashSet::from([provider]);
-        let Ok(request) = self.editor_locations.begin(
-            project,
-            &self.store,
-            source,
-            Kind::References,
-            navigation.mode,
-            providers.clone(),
-            position,
-        ) else {
-            return;
-        };
-        let response = crate::editor_locations::Response {
-            groups: vec![crate::editor_locations::Group {
-                provider: provider,
-                targets: navigation.targets,
-            }],
-        };
-        let Ok(Some(model)) =
-            self.editor_locations
-                .accept(&request, &self.store, providers, Ok(response))
-        else {
-            return;
-        };
-        if request.mode == Mode::GoTo {
-            self.consume_location_model(request, model);
-            return;
-        }
-        if same {
-            self.editor_locations.show(source);
-            return;
-        }
-        let Some((revision, scope)) = self.request_window(&request) else {
-            return;
-        };
-        let Ok((source, token, cancelled)) = self.editor_locations.begin_open(&self.store, source)
-        else {
-            return;
-        };
-        let viewport = request.viewport;
-        let target =
-            taide_native_editor::symbol_locations::Target::from_location(lsp_types::Location {
-                uri: navigation.uri,
-                range: lsp_types::Range::new(navigation.position, navigation.position),
-            });
-        self.submit(HostCommand::OpenSymbolLocation(
-            crate::symbol_location_host::Request {
-                source,
-                token,
-                cancelled,
-                target,
-                side: false,
-                keep_peek: true,
-                revision,
-                scope,
-                viewport,
-            },
-        ));
-    }
-
-    fn request_window(
-        &self,
-        request: &crate::editor_locations::Request,
-    ) -> Option<(u32, WindowScope)> {
-        let layouts = self.services.state.layouts.read();
-        let layout = layouts.get(&request.project)?;
-        let scope = self
-            .active_window_scope(|scope| request.is_active(layout, scope))
-            .unwrap_or_else(|| self.shell.scope.clone());
-        Some((layout.revision, scope))
-    }
-
-    fn consume_location_model(
-        &mut self,
-        request: crate::editor_locations::Request,
-        model: Arc<taide_native_editor::symbol_locations::Locations>,
-    ) {
-        use taide_native_editor::symbol_locations::{Kind, Mode};
-        if request.mode == Mode::Hover {
-            return;
-        }
-        if request.source == request.owner
-            && (request.mode == Mode::Peek || model.targets().len() > 1)
-        {
-            self.editor_locations.show(request.source);
-            return;
-        }
-        let Some(target) = model
-            .first()
-            .and_then(|index| model.targets().get(index))
-            .cloned()
-        else {
-            self.status = Some(format!("No {} found", request.kind.title().to_lowercase()));
-            self.editor_locations.close(request.source);
-            return;
-        };
-        let same = crate::editor_locations::file_path(&target.uri).is_some_and(|path| {
-            request.snapshot.key == taide_native_editor::document::DocumentKey::File(path)
-        });
-        if same
-            && target.selection.start <= request.position
-            && request.position <= target.selection.end
-            && matches!(
-                request.kind,
-                Kind::Definition | Kind::Declaration | Kind::TypeDefinition
-            )
-        {
-            if let Some(lsp) = self.lsp.as_ref() {
-                let providers =
-                    lsp.location_providers(&request.project, &request.snapshot, Kind::References);
-                if !providers.is_empty()
-                    && let Ok(next) = self.editor_locations.begin(
-                        request.project.clone(),
-                        &self.store,
-                        request.source,
-                        Kind::References,
-                        request.mode,
-                        providers,
-                        Some(request.position),
-                    )
-                {
-                    if let Err(error) = lsp.symbol_locations(next) {
-                        self.status = Some(error.to_string());
-                    }
-                    return;
-                }
-            }
-        }
-        if same && request.mode != Mode::Aside {
-            if let Err(error) = self.editor_locations.navigate(
-                &mut self.store,
-                request.source,
-                &target,
-                Instant::now(),
-            ) {
-                self.status = Some(editor_error(error).to_string());
-            }
-            self.editor_locations.close(request.source);
-            return;
-        }
-        if let Some((revision, scope)) = self.request_window(&request) {
-            let viewport = request.viewport;
-            let side = request.mode == Mode::Aside;
-            if let Ok((source, token, cancelled)) = self
-                .editor_locations
-                .begin_open(&self.store, request.source)
-            {
-                self.submit(HostCommand::OpenSymbolLocation(
-                    crate::symbol_location_host::Request {
-                        source,
-                        token,
-                        cancelled,
-                        target,
-                        side,
-                        keep_peek: false,
-                        revision,
-                        scope,
-                        viewport,
-                    },
-                ));
-            }
-        }
-    }
-
-    fn is_current_code_lens_request(&self, request: &crate::editor_code_lenses::Request) -> bool {
-        self.closing.is_none()
-            && self.services.state.settings.read().editor_code_lens_enabled
-            && request.describes(&self.store)
-            && (request.source == request.owner
-                || self
-                    .editor_locations
-                    .preview_views()
-                    .contains(&request.source))
-            && self
-                .services
-                .state
-                .layouts
-                .read()
-                .get(&request.project)
-                .is_some_and(|layout| {
-                    self.active_window_scope(|scope| request.is_active(layout, scope))
-                        .is_some()
-                })
-    }
-
-    fn is_current_selection_range_request(
-        &self,
-        request: &crate::editor_selection_ranges::Request,
-    ) -> bool {
-        self.closing.is_none()
-            && request.describes(&self.store)
-            && (request.source == request.owner
-                || self
-                    .editor_locations
-                    .preview_views()
-                    .contains(&request.source))
-            && self
-                .services
-                .state
-                .layouts
-                .read()
-                .iter()
-                .any(|(project, layout)| {
-                    self.active_window_scope(|scope| request.is_active(project, layout, scope))
-                        .is_some()
-                })
-    }
-
-    fn poll_lsp(&mut self) {
-        if let Some(bindings) = self
-            .lsp
-            .as_mut()
-            .and_then(crate::lsp::LspBridge::diagnostic_bindings)
-        {
-            self.lsp_diagnostics.reconcile(bindings);
-        }
-        while let Some(reply) = self.lsp.as_mut().and_then(crate::lsp::LspBridge::poll) {
-            match reply {
-                crate::lsp::Reply::SelectionRanges { request, result } => {
-                    let providers = request
-                        .project
-                        .as_ref()
-                        .zip(self.lsp.as_ref())
-                        .map_or_else(HashSet::new, |(project, lsp)| {
-                            lsp.selection_range_providers(project, &request.snapshot)
-                        });
-                    if self.is_current_selection_range_request(&request) {
-                        self.editor_selection_ranges.accept(
-                            &self.store,
-                            &request,
-                            providers,
-                            result,
-                        );
-                    }
-                }
-                crate::lsp::Reply::CodeLenses { request, result } => {
-                    let providers = self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
-                        lsp.code_lens_providers(&request.project, &request.snapshot)
-                    });
-                    if self.is_current_code_lens_request(&request) {
-                        self.editor_code_lenses.accept(
-                            &self.store,
-                            &request,
-                            providers,
-                            result,
-                            Instant::now(),
-                        );
-                    }
-                }
-                crate::lsp::Reply::CodeLensResolved { request, result } => {
-                    if self.is_current_code_lens_request(&request.request)
-                        && self.lsp.as_ref().is_some_and(|lsp| {
-                            lsp.code_lens_providers(
-                                &request.request.project,
-                                &request.request.snapshot,
-                            )
-                            .contains(&request.provider)
-                        })
-                    {
-                        self.editor_code_lenses
-                            .resolved(&self.store, &request, result);
-                    }
-                }
-                crate::lsp::Reply::CodeLensExecuted { request, result } => {
-                    if self.is_current_code_lens_request(&request.request)
-                        && self.lsp.as_ref().is_some_and(|lsp| {
-                            lsp.code_lens_providers(
-                                &request.request.project,
-                                &request.request.snapshot,
-                            )
-                            .contains(&request.provider)
-                        })
-                        && self.editor_code_lenses.executed(&self.store, &request)
-                    {
-                        match result {
-                            Ok(Some(navigation)) => self.consume_editor_command_navigation(
-                                request.request.project,
-                                request.request.source,
-                                request.provider,
-                                navigation,
-                            ),
-                            Ok(None) => {}
-                            Err(error) => self.status = Some(error.to_string()),
-                        }
-                    }
-                }
-                crate::lsp::Reply::CodeLensRefresh { project, provider } => {
-                    self.editor_code_lenses
-                        .refresh(&project, provider, Instant::now());
-                }
-                crate::lsp::Reply::InlayHints { request, result } => {
-                    let providers = self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
-                        lsp.inlay_hint_providers(&request.project, &request.snapshot)
-                    });
-                    let active = (request.source == request.owner
-                        || self
-                            .editor_locations
-                            .preview_views()
-                            .contains(&request.source))
-                        && self
-                            .services
-                            .state
-                            .layouts
-                            .read()
-                            .get(&request.project)
-                            .is_some_and(|layout| {
-                                self.active_window_scope(|scope| request.is_active(layout, scope))
-                                    .is_some()
-                            });
-                    if active && self.closing.is_none() {
-                        self.editor_inlay_hints
-                            .accept(&self.store, &request, providers, result);
-                    } else {
-                        self.editor_inlay_hints.reject(&request);
-                    }
-                }
-                crate::lsp::Reply::Highlights { request, result } => {
-                    let providers = request
-                        .project
-                        .as_ref()
-                        .zip(self.lsp.as_ref())
-                        .map_or_else(HashSet::new, |(project, lsp)| {
-                            lsp.highlight_providers(project, &request.snapshot)
-                        });
-                    let active = request.project.as_ref().is_some_and(|project| {
-                        self.services
-                            .state
-                            .layouts
-                            .read()
-                            .get(project)
-                            .is_some_and(|layout| {
-                                self.active_window_scope(|scope| request.is_active(layout, scope))
-                                    .is_some()
-                            })
-                    });
-                    if active && self.closing.is_none() {
-                        self.editor_highlights
-                            .accept(&self.store, &request, providers, result);
-                    } else {
-                        self.editor_highlights.reject(&request);
-                    }
-                }
-                crate::lsp::Reply::Completion { request, result } => {
-                    let providers = self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
-                        lsp.completion_providers(&request.project, &request.snapshot)
-                    });
-                    let active = self
-                        .services
-                        .state
-                        .layouts
-                        .read()
-                        .get(&request.project)
-                        .is_some_and(|layout| {
-                            self.active_window_scope(|scope| request.is_active(layout, scope))
-                                .is_some()
-                        });
-                    if active && self.closing.is_none() {
-                        if let Err(error) =
-                            self.editor_completion
-                                .accept(&self.store, &request, providers, result)
-                        {
-                            self.status = Some(format!("native editor completion: {error:?}"));
-                        }
-                    } else if self.editor_completion.is_current(&request) {
-                        self.editor_completion.close(request.source);
-                    }
-                }
-                crate::lsp::Reply::Documentation { request, result } => {
-                    let providers = self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
-                        lsp.documentation_providers(
-                            &request.project,
-                            &request.snapshot,
-                            request.kind,
-                        )
-                    });
-                    let active = self
-                        .services
-                        .state
-                        .layouts
-                        .read()
-                        .get(&request.project)
-                        .is_some_and(|layout| {
-                            self.active_window_scope(|scope| request.is_active(layout, scope))
-                                .is_some()
-                        });
-                    if active && self.closing.is_none() {
-                        if let Err(error) = self.editor_documentation.accept(
-                            &self.store,
-                            &request,
-                            providers,
-                            result,
-                        ) {
-                            self.status = Some(format!("native editor documentation: {error:?}"));
-                        }
-                    } else if self.editor_documentation.is_current(&request) {
-                        self.editor_documentation
-                            .close(request.source, request.kind);
-                    }
-                }
-                crate::lsp::Reply::SymbolLocations { request, result } => {
-                    let providers = self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
-                        lsp.location_providers(&request.project, &request.snapshot, request.kind)
-                    });
-                    let active = self
-                        .services
-                        .state
-                        .layouts
-                        .read()
-                        .get(&request.project)
-                        .is_some_and(|layout| {
-                            self.active_window_scope(|scope| request.is_active(layout, scope))
-                                .is_some()
-                        });
-                    if active && self.closing.is_none() {
-                        match self
-                            .editor_locations
-                            .accept(&request, &self.store, providers, result)
-                        {
-                            Ok(Some(model)) => self.consume_location_model(request, model),
-                            Ok(None) => {}
-                            Err(error) => {
-                                self.status = Some(format!("native symbol locations: {error:?}"))
-                            }
-                        }
-                    } else {
-                        self.editor_locations.close_request(&request);
-                    }
-                }
-                crate::lsp::Reply::SyntaxFolding { request, result } => {
-                    if let Ok(current) = self.store.documents().snapshot(request.snapshot.id) {
-                        let providers = self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
-                            lsp.symbol_providers(&request.project, current.id)
-                        });
-                        self.editor_folding
-                            .accept(&request, &current, providers, result);
-                    }
-                }
-                crate::lsp::Reply::WorkspaceSymbols { request, result } => {
-                    let providers = self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
-                        lsp.workspace_providers(&request.project)
-                    });
-                    if self
-                        .services
-                        .state
-                        .projects
-                        .read()
-                        .contains_key(&request.project)
-                    {
-                        self.workspace_symbols.accept(&request, providers, result);
-                    }
-                }
-                crate::lsp::Reply::DocumentSymbols { request, result } => {
-                    if let Ok(current) = self.store.documents().snapshot(request.snapshot.id) {
-                        let providers = self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
-                            lsp.symbol_providers(&request.project, current.id)
-                        });
-                        if let Err(error) = self
-                            .editor_symbols
-                            .accept(&request, &current, providers, result)
-                        {
-                            self.status = Some(format!("native document symbols: {error:?}"));
-                        }
-                    }
-                }
-                crate::lsp::Reply::ExplorerPasted(event) => {
-                    let path = match event.result {
-                        Ok(pasted) => {
-                            if self
-                                .services
-                                .state
-                                .projects
-                                .read()
-                                .contains_key(&event.project)
-                            {
-                                self.trees.insert(event.project.clone(), pasted.page);
-                                Some(pasted.path)
-                            } else {
-                                None
-                            }
-                        }
-                        Err(error) => {
-                            self.report(&error);
-                            None
-                        }
-                    };
-                    self.explorer_clipboards.paste_finished(
-                        event.request.owner,
-                        event.clear_cut,
-                        path,
-                    );
-                }
-                crate::lsp::Reply::ExplorerCreated(event) => match event.result {
-                    Ok(created) => {
-                        if self
-                            .services
-                            .state
-                            .projects
-                            .read()
-                            .contains_key(&event.project)
-                        {
-                            self.trees.insert(event.project.clone(), created.page);
-                            if let Some(layout) = created.layout {
-                                self.controller.apply_layouts(HashMap::from([(
-                                    event.project.clone(),
-                                    layout,
-                                )]));
-                            }
-                            if let Some(explorer) = self.explorers.get_mut(&event.project) {
-                                explorer.create_finished(&event.request, Ok(()));
-                            }
-                        }
-                    }
-                    Err(error) => {
-                        self.report_create_failure(&event.project, &event.request, &error)
-                    }
-                },
-                crate::lsp::Reply::ExplorerRenamed(event) => match event.result {
-                    Ok(page) => {
-                        self.trees.insert(event.project.clone(), page);
-                        if let Some(explorer) = self.explorers.get_mut(&event.project) {
-                            explorer.rename_finished(&event.request, Ok(()));
-                        }
-                    }
-                    Err(error) => {
-                        self.report_rename_failure(&event.project, &event.request, &error)
-                    }
-                },
-                crate::lsp::Reply::RenamePrepare(event) => {
-                    let result = if self.closing.is_some()
-                        || self.workspace_busy()
-                        || self.pending_tab_close.is_some()
-                        || self.pending_disk_choice.is_some()
-                        || self.saving_missing_draft.is_some()
-                        || self.saving_untitled.is_some()
-                        || !event.activity.is_active()
-                    {
-                        Err(AppError::Forbidden(
-                            "native workspace editor is busy".into(),
-                        ))
-                    } else {
-                        let paths = self
-                            .files
-                            .iter()
-                            .map(|(path, file)| (path.clone(), file.id))
-                            .collect();
-                        crate::workspace_rename::prepare_documents(&self.store, &event.from, &paths)
-                    };
-                    if let Ok(documents) = &result {
-                        self.workspace_activity = Some(event.activity);
-                        let mut suspended = documents
-                            .iter()
-                            .map(|document| document.snapshot.id)
-                            .collect::<HashSet<_>>();
-                        suspended.extend(self.store.documents().snapshots().filter_map(|document| {
-                            matches!(&document.key, taide_native_editor::document::DocumentKey::File(path) if path.starts_with(&event.to)).then_some(document.id)
-                        }));
-                        self.suspend_workspace_documents(suspended);
-                    }
-                    let _result = event.completion.send(result);
-                }
-                crate::lsp::Reply::Renamed(event) => {
-                    let displaced = event
-                        .documents
-                        .iter()
-                        .filter_map(|document| {
-                            self.store
-                                .documents()
-                                .find(&taide_native_editor::document::DocumentKey::File(
-                                    document.canonical.clone(),
-                                ))
-                                .filter(|target| *target != document.requested.id)
-                                .map(|target| (target, document.requested.id))
-                        })
-                        .collect::<HashMap<_, _>>();
-                    let result = crate::workspace_rename::commit_documents(&mut self.store, &event);
-                    if let Ok(documents) = &result {
-                        let files = std::mem::take(&mut self.files);
-                        let mut moved_files = Vec::new();
-                        for (path, mut file) in files {
-                            if let Some(source) = displaced.get(&file.id) {
-                                file.id = *source;
-                            }
-                            if let Some(next) = crate::workspace_rename::moved_path(
-                                std::path::Path::new(&path),
-                                &event.from,
-                                &event.to,
-                            ) {
-                                moved_files.push((next.to_string_lossy().into_owned(), file));
-                            } else {
-                                self.files.insert(path, file);
-                            }
-                        }
-                        self.files.extend(moved_files);
-                        self.loading
-                            .retain(|path| !std::path::Path::new(path).starts_with(&event.from));
-                        self.failed
-                            .retain(|path, _| !std::path::Path::new(path).starts_with(&event.from));
-                        self.loading_file_tabs
-                            .retain(|path, _| !std::path::Path::new(path).starts_with(&event.from));
-                        self.missing_drafts
-                            .retain(|path, _| !std::path::Path::new(path).starts_with(&event.from));
-                        self.missing_drafts.extend(event.survivor_drafts);
-                        for document in displaced.keys() {
-                            self.persistence.settled(*document);
-                            self.last_edited_views.remove(document);
-                            self.lsp_diagnostics.remove_document(*document);
-                            self.observing_files.remove(document);
-                            self.pending_file_observations.remove(document);
-                        }
-                        for document in documents {
-                            self.observing_files.remove(&document.id);
-                            self.pending_file_observations.remove(&document.id);
-                            self.lsp_diagnostics.remove_document(document.id);
-                            for view in self.store.views().for_document(document.id) {
-                                self.pending_dirty
-                                    .insert(view.key.tab.clone(), document.dirty);
-                            }
-                        }
-                        self.controller.apply_layouts(event.layouts);
-                        for explorer in self.explorers.values_mut() {
-                            explorer.moved(&event.from, &event.to);
-                        }
-                        self.reconcile_lsp();
-                        if let Some(error) = event.warnings.first() {
-                            self.status = Some(error.to_string());
-                        }
-                    } else if let Err(error) = &result {
-                        self.status = Some(error.to_string());
-                    }
-                    let _result = event.completion.send(result);
-                }
-                crate::lsp::Reply::DeletePrepare(event) => {
-                    let result = if self.closing.is_some()
-                        || self.workspace_busy()
-                        || self.pending_tab_close.is_some()
-                        || self.pending_disk_choice.is_some()
-                        || self.saving_missing_draft.is_some()
-                        || self.saving_untitled.is_some()
-                        || !event.activity.is_active()
-                    {
-                        Err(AppError::Forbidden(
-                            "native workspace editor is busy".into(),
-                        ))
-                    } else {
-                        let additional = self
-                            .files
-                            .iter()
-                            .filter(|(path, _)| std::path::Path::new(path).starts_with(&event.path))
-                            .map(|(_, file)| file.id)
-                            .collect::<HashSet<_>>();
-                        crate::workspace_delete::prepare_documents(
-                            &self.store,
-                            &event.path,
-                            &additional,
-                        )
-                    };
-                    if let Ok(documents) = &result {
-                        self.workspace_activity = Some(event.activity);
-                        self.suspend_workspace_documents(
-                            documents.iter().map(|document| document.id).collect(),
-                        );
-                    }
-                    let _result = event.completion.send(result);
-                }
-                crate::lsp::Reply::ExplorerDeletePrepare(event)
-                | crate::lsp::Reply::ExplorerMovePrepare(event) => {
-                    let result = if self.closing.is_some()
-                        || self.workspace_busy()
-                        || self.pending_tab_close.is_some()
-                        || self.pending_disk_choice.is_some()
-                        || self.saving_missing_draft.is_some()
-                        || self.saving_untitled.is_some()
-                        || !event.activity.is_active()
-                    {
-                        Err(AppError::Forbidden(
-                            "native workspace editor is busy".into(),
-                        ))
-                    } else {
-                        let additional = self
-                            .files
-                            .iter()
-                            .filter(|(path, _)| std::path::Path::new(path).starts_with(&event.path))
-                            .map(|(_, file)| file.id)
-                            .collect();
-                        Ok(crate::explorer_delete::prepare_documents(
-                            &self.store,
-                            &event.path,
-                            &additional,
-                        ))
-                    };
-                    if let Ok(documents) = &result {
-                        self.workspace_activity = Some(event.activity);
-                        self.suspend_workspace_documents(
-                            documents.iter().map(|document| document.id).collect(),
-                        );
-                    }
-                    let _result = event.completion.send(result);
-                }
-                crate::lsp::Reply::ExplorerDeleted(event)
-                | crate::lsp::Reply::ExplorerMoved(event) => {
-                    self.deleted_documents
-                        .extend(event.documents.iter().map(|document| document.id));
-                    let retained = self
-                        .files
-                        .iter()
-                        .filter(|(path, _)| !std::path::Path::new(path).starts_with(&event.path))
-                        .map(|(_, file)| file.id)
-                        .collect();
-                    let result = crate::explorer_delete::commit_documents(
-                        &mut self.store,
-                        &event,
-                        &retained,
-                    );
-                    if let Ok(released) = &result {
-                        self.files
-                            .retain(|path, _| !std::path::Path::new(path).starts_with(&event.path));
-                        for document in released {
-                            self.deleted_documents.remove(document);
-                            self.persistence.settled(*document);
-                            self.last_edited_views.remove(document);
-                            self.lsp_diagnostics.remove_document(*document);
-                            self.observing_files.remove(document);
-                            self.pending_file_observations.remove(document);
-                        }
-                        self.loading
-                            .retain(|path| !std::path::Path::new(path).starts_with(&event.path));
-                        self.failed
-                            .retain(|path, _| !std::path::Path::new(path).starts_with(&event.path));
-                        self.loading_file_tabs
-                            .retain(|path, _| !std::path::Path::new(path).starts_with(&event.path));
-                        self.missing_drafts
-                            .retain(|path, _| !std::path::Path::new(path).starts_with(&event.path));
-                        self.missing_drafts.extend(event.drafts);
-                        let tabs = event
-                            .layouts
-                            .values()
-                            .flat_map(taide_layout::service::all_roots)
-                            .flat_map(crate::tabs::tabs_in)
-                            .map(|tab| tab.id.clone())
-                            .collect::<HashSet<_>>();
-                        self.pending_dirty.retain(|tab, _| tabs.contains(tab));
-                        self.restore_notices.retain(|tab, _| tabs.contains(tab));
-                        self.controller.apply_layouts(event.layouts);
-                        self.reconcile_lsp();
-                    } else if let Err(error) = &result {
-                        self.status = Some(error.to_string());
-                    }
-                    let _result = event.completion.send(result);
-                }
-                crate::lsp::Reply::ExplorerDeleteFinished { request, result } => {
-                    self.deleting_entry = false;
-                    match result {
-                        Ok(_) => {
-                            let parent = std::path::Path::new(&request.path)
-                                .parent()
-                                .and_then(|parent| parent.to_str())
-                                .map(String::from);
-                            if self
-                                .services
-                                .state
-                                .projects
-                                .read()
-                                .contains_key(&request.project)
-                            {
-                                self.submit(HostCommand::RefreshTree {
-                                    project: request.project,
-                                    dirs: parent
-                                        .map(|parent| std::collections::BTreeSet::from([parent])),
-                                });
-                            }
-                        }
-                        Err(error) => self.report(&error),
-                    }
-                }
-                crate::lsp::Reply::Deleted(event) => {
-                    let retained = self
-                        .files
-                        .iter()
-                        .filter(|(path, _)| !std::path::Path::new(path).starts_with(&event.path))
-                        .map(|(_, file)| file.id)
-                        .collect::<HashSet<_>>();
-                    let result = crate::workspace_delete::commit_documents(
-                        &mut self.store,
-                        &event,
-                        &retained,
-                    );
-                    if let Ok(released) = &result {
-                        self.files
-                            .retain(|path, _| !std::path::Path::new(path).starts_with(&event.path));
-                        for document in released {
-                            self.persistence.settled(*document);
-                            self.last_edited_views.remove(document);
-                            self.lsp_diagnostics.remove_document(*document);
-                            self.observing_files.remove(document);
-                            self.pending_file_observations.remove(document);
-                        }
-                        self.loading
-                            .retain(|path| !std::path::Path::new(path).starts_with(&event.path));
-                        self.failed
-                            .retain(|path, _| !std::path::Path::new(path).starts_with(&event.path));
-                        self.loading_file_tabs
-                            .retain(|path, _| !std::path::Path::new(path).starts_with(&event.path));
-                        self.missing_drafts
-                            .retain(|path, _| !std::path::Path::new(path).starts_with(&event.path));
-                        let tabs = event
-                            .layouts
-                            .values()
-                            .flat_map(taide_layout::service::all_roots)
-                            .flat_map(crate::tabs::tabs_in)
-                            .map(|tab| tab.id.clone())
-                            .collect::<HashSet<_>>();
-                        self.pending_dirty.retain(|tab, _| tabs.contains(tab));
-                        self.restore_notices.retain(|tab, _| tabs.contains(tab));
-                        self.controller.apply_layouts(event.layouts);
-                        self.reconcile_lsp();
-                    } else if let Err(error) = &result {
-                        self.status = Some(error.to_string());
-                    }
-                    let _result = event.completion.send(result);
-                }
-                crate::lsp::Reply::DocumentQuery { path, completion } => {
-                    let document = self
-                        .store
-                        .documents()
-                        .find(&taide_native_editor::document::DocumentKey::File(path))
-                        .and_then(|document| self.store.documents().snapshot(document).ok());
-                    let _result = completion.send(document);
-                }
-                crate::lsp::Reply::WorkspaceEdit(event) => {
-                    if self.workspace_busy() {
-                        let _result = event.completion.send(false);
-                        continue;
-                    }
-                    let outcome = crate::lsp_workspace::apply_open(&mut self.store, &event);
-                    for document in outcome.changed {
-                        if let Ok(snapshot) = self.store.documents().snapshot(document) {
-                            let mirror = self.draft_project(document).is_some();
-                            self.persistence.changed(
-                                document,
-                                snapshot.revision,
-                                Instant::now(),
-                                mirror,
-                                Duration::ZERO,
-                            );
-                            for view in self.store.views().for_document(document) {
-                                self.pending_dirty
-                                    .insert(view.key.tab.clone(), snapshot.dirty);
-                            }
-                        }
-                    }
-                    self.reconcile_lsp();
-                    let applied = outcome.failure.is_none();
-                    if let Some(error) = outcome.failure {
-                        self.status = Some(format!("native workspace edit: {error:?}"));
-                    }
-                    let _result = event.completion.send(applied);
-                }
-                crate::lsp::Reply::Synced { .. } => {}
-                crate::lsp::Reply::Failed { error, .. } => self.status = Some(error.to_string()),
-                crate::lsp::Reply::Diagnostics {
-                    owner,
-                    document,
-                    revision,
-                    diagnostics,
-                } => {
-                    if let Some(bindings) = self
-                        .lsp
-                        .as_mut()
-                        .and_then(crate::lsp::LspBridge::diagnostic_bindings)
-                    {
-                        self.lsp_diagnostics.reconcile(bindings);
-                    }
-                    if let Ok(snapshot) = self.store.documents().snapshot(document)
-                        && snapshot.revision == revision
-                    {
-                        self.lsp_diagnostics
-                            .publish(owner, &snapshot, diagnostics.diagnostics);
-                    }
-                }
-                crate::lsp::Reply::EditorFormatted { request, result } => {
-                    let providers = self
-                        .lsp
-                        .as_ref()
-                        .filter(|_| request.enabled(&self.services.state.settings.read()))
-                        .map(|lsp| lsp.formatting_request_providers(&request))
-                        .unwrap_or_default();
-                    match self.editor_formatting.accept(
-                        &mut self.store,
-                        &request,
-                        providers,
-                        result,
-                    ) {
-                        Ok(true) => self.formatted_document(request.snapshot.id),
-                        Ok(false) => (),
-                        Err(error) => log::warn!("native formatter edit failed: {error:?}"),
-                    }
-                }
-                crate::lsp::Reply::Formatted { snapshot, result } => {
-                    self.finish_formatted_save(snapshot, result)
-                }
-            }
-        }
-    }
-
-    fn finish_formatted_save(
-        &mut self,
-        snapshot: taide_native_editor::document::DocumentSnapshot,
-        result: Result<
-            Option<Vec<taide_lsp::native::protocol::lsp_types::TextEdit>>,
-            taide_lsp::native::Failure,
-        >,
-    ) {
-        let document = snapshot.id;
-        let Some(mut pending) = self.pending_format_saves.remove(&document) else {
-            return;
-        };
-        if !pending.epoch.is_current() {
-            if pending.untitled.is_some() {
-                self.saving_untitled = None;
-            }
-            self.persistence.submission_failed(document);
-            return;
-        }
-        let should_format = self.services.state.settings.read().format_on_save;
-        if let Some(options) = pending.native_options.take()
-            && should_format
-        {
-            self.queue_native_save(snapshot, pending, options);
-            return;
-        }
-        match result {
-            Ok(Some(edits)) => {
-                let view = self.save_view(document);
-                match taide_native_editor::formatting::apply_edits(
-                    &mut self.store,
-                    &snapshot,
-                    view,
-                    edits,
-                ) {
-                    Ok(true) => {
-                        if let Ok(current) = self.store.documents().snapshot(document) {
-                            let mirror = self.draft_project(document).is_some();
-                            self.persistence.changed(
-                                document,
-                                current.revision,
-                                Instant::now(),
-                                mirror,
-                                Duration::ZERO,
-                            );
-                            for view in self.store.views().for_document(document) {
-                                self.pending_dirty.insert(view.key.tab.clone(), true);
-                            }
-                        }
-                    }
-                    Ok(false) => {}
-                    Err(taide_native_editor::document::EditorError::StaleRevision) => {}
-                    Err(error) => {
-                        log::warn!("native save formatter edit failed: {error:?}")
-                    }
-                }
-            }
-            Ok(None) | Err(taide_lsp::native::Failure::StaleRevision) => {}
-            Err(error) => log::warn!("native save formatter failed: {error:?}"),
-        }
-        self.resumed_save_epochs.insert(document, pending.epoch);
-        match self.store.save_snapshot(document) {
-            Ok(snapshot) => {
-                let command = if let Some(tab) = pending.untitled.clone() {
-                    HostCommand::SaveUntitled {
-                        tab,
-                        destination: pending.path,
-                        snapshot,
-                    }
-                } else if pending.auto_save {
-                    HostCommand::AutoSave {
-                        path: pending.path,
-                        snapshot,
-                    }
-                } else {
-                    HostCommand::Save {
-                        path: pending.path,
-                        snapshot,
-                    }
-                };
-                if !self.submit(command) {
-                    if pending.untitled.is_some() {
-                        self.saving_untitled = None;
-                    }
-                    self.persistence.submission_failed(document);
-                    if let Some(close) = self.pending_tab_close.as_mut()
-                        && matches!(close.phase, TabClosePhase::Saving(Some(id)) if id == document)
-                    {
-                        close.phase = TabClosePhase::Confirm;
-                    }
-                }
-            }
-            Err(error) => {
-                self.resumed_save_epochs.remove(&document);
-                if pending.untitled.is_some() {
-                    self.saving_untitled = None;
-                }
-                self.persistence.submission_failed(document);
-                self.report_save_failure(error, pending.auto_save);
-                if let Some(close) = self.pending_tab_close.as_mut()
-                    && matches!(close.phase, TabClosePhase::Saving(Some(id)) if id == document)
-                {
-                    close.phase = TabClosePhase::Confirm;
-                }
-            }
-        }
-    }
-
-    fn workspace_busy(&self) -> bool {
-        self.workspace_activity
-            .as_ref()
-            .is_some_and(crate::workspace_activity::Activity::is_active)
-    }
-
-    fn reconcile_previews(&mut self) {
-        let invalidation = self.tree_changes.take_previews();
-        if invalidation.all {
-            self.failed.clear();
-            self.refused.clear();
-            self.cancel_web(None);
-            self.previews.invalidate_all();
-            self.hwp_previews.invalidate_all();
-            self.pdf_previews.invalidate_all();
-            self.presentation_previews.invalidate_all();
-            self.spreadsheet_previews.invalidate_all();
-            self.web_previews.invalidate_all();
-        } else {
-            for path in invalidation.paths {
-                self.failed.remove(&path);
-                self.refused.remove(&path);
-                self.cancel_web(Some(std::path::Path::new(&path)));
-                self.previews.invalidate(&path);
-                self.hwp_previews.invalidate(&path);
-                self.pdf_previews.invalidate(&path);
-                self.presentation_previews.invalidate(&path);
-                self.spreadsheet_previews.invalidate(&path);
-                self.web_previews.invalidate(&path);
-            }
-            let projects = self.services.state.projects.read();
-            for project in invalidation.projects {
-                if let Some(project) = projects.get(&project) {
-                    self.failed
-                        .retain(|path, _| !std::path::Path::new(path).starts_with(&project.root));
-                    self.refused
-                        .retain(|path| !std::path::Path::new(path).starts_with(&project.root));
-                    self.cancel_web(Some(std::path::Path::new(&project.root)));
-                    self.previews.invalidate_root(&project.root);
-                    self.hwp_previews.invalidate_root(&project.root);
-                    self.pdf_previews.invalidate_root(&project.root);
-                    self.presentation_previews.invalidate_root(&project.root);
-                    self.spreadsheet_previews.invalidate_root(&project.root);
-                    self.web_previews.invalidate_root(&project.root);
-                }
-            }
-        }
-        let layouts = self.services.state.layouts.read().clone();
-        if !self.failed.is_empty() || !self.refused.is_empty() {
-            let live = layouts
-                .values()
-                .flat_map(taide_layout::service::all_roots)
-                .flat_map(crate::tabs::tabs_in)
-                .filter_map(|tab| match &tab.kind {
-                    TabKind::File { path } => Some(path),
-                    _ => None,
-                })
-                .collect::<HashSet<_>>();
-            self.failed.retain(|path, _| live.contains(path));
-            self.refused.retain(|path| live.contains(path));
-        }
-        self.open_with.reconcile(&layouts);
-        let projects = self.services.state.projects.read();
-        let paths = layouts
-            .iter()
-            .filter(|(project, _)| projects.contains_key(*project))
-            .flat_map(|(_, layout)| taide_layout::service::all_roots(layout))
-            .flat_map(crate::tabs::tabs_in)
-            .filter_map(|tab| match &tab.kind {
-                TabKind::File { path }
-                    if self.open_with.surface(path)
-                        == crate::open_with::Surface::Preview(
-                            crate::open_with::PreviewKind::Image,
-                        ) =>
-                {
-                    Some(path.clone())
-                }
-                _ => None,
-            })
-            .collect();
-        self.previews.retain(&paths);
-        drop(projects);
-        self.pdf_previews.reconcile(&self.pdf_preview_paths());
-        self.hwp_previews
-            .reconcile(&self.preview_tab_paths(crate::open_with::PreviewKind::Hwp));
-        self.presentation_previews
-            .reconcile(&self.preview_tab_paths(crate::open_with::PreviewKind::Presentation));
-        self.spreadsheet_previews
-            .reconcile(&self.preview_tab_paths(crate::open_with::PreviewKind::Spreadsheet));
-        let paths = self.web_preview_paths();
-        if self
-            .web_previews
-            .active_request()
-            .is_some_and(|request| !paths.values().any(|path| path == &request.path))
-        {
-            self.cancel_web(None);
-        }
-        self.web_previews.reconcile(&paths);
-    }
-
-    fn cancel_web(&self, changed: Option<&std::path::Path>) {
-        if let Some(request) = self.web_previews.active_request()
-            && changed.is_none_or(|path| std::path::Path::new(&request.path).starts_with(path))
-            && let Some(bridge) = &self.web_bridge
-        {
-            bridge.cancel_through(request.token);
-        }
-    }
-
-    fn pdf_preview_paths(&self) -> HashMap<TabId, String> {
-        self.preview_tab_paths(crate::open_with::PreviewKind::Pdf)
-    }
-
-    fn web_preview_paths(&self) -> HashMap<TabId, String> {
-        [
-            crate::open_with::PreviewKind::Html,
-            crate::open_with::PreviewKind::Audio,
-            crate::open_with::PreviewKind::Video,
-        ]
-        .into_iter()
-        .flat_map(|kind| self.preview_tab_paths(kind))
-        .collect()
-    }
-
-    fn preview_tab_paths(&self, kind: crate::open_with::PreviewKind) -> HashMap<TabId, String> {
-        let layouts = self.services.state.layouts.read().clone();
-        let projects = self.services.state.projects.read();
-        layouts
-            .iter()
-            .filter(|(project, _)| projects.contains_key(*project))
-            .flat_map(|(_, layout)| taide_layout::service::all_roots(layout))
-            .flat_map(crate::tabs::tabs_in)
-            .filter_map(|tab| match &tab.kind {
-                TabKind::File { path }
-                    if self.open_with.surface(path) == crate::open_with::Surface::Preview(kind) =>
-                {
-                    Some((tab.id.clone(), path.clone()))
-                }
-                _ => None,
-            })
-            .collect()
-    }
-
-    fn suspend_workspace_documents(&mut self, documents: HashSet<DocumentId>) {
-        for document in documents {
-            self.workspace_suspended.insert(document);
-            self.persistence.settled(document);
-            if let Some(pending) = self.pending_format_saves.remove(&document) {
-                pending.epoch.invalidate();
-            }
-            if let Some(epoch) = self.resumed_save_epochs.remove(&document) {
-                epoch.invalidate();
-            }
-        }
-    }
-
-    fn presentation_inputs(&self, context: &egui::Context) -> crate::presentation_refresh::Inputs {
-        let system_theme = match context.system_theme() {
-            Some(egui::Theme::Light) => "light",
-            Some(egui::Theme::Dark) | None => "dark",
-        };
-        crate::presentation_refresh::Inputs::new(
-            self.services.state.settings.read().clone(),
-            system_theme,
-            &self.presentation_system_language,
-        )
-    }
-
-    fn observe_workspace_symbols(
-        &mut self,
-        context: &egui::Context,
-        project: Option<&ProjectId>,
-        enabled: bool,
-    ) {
-        let providers = project
-            .zip(self.lsp.as_ref())
-            .map_or_else(HashSet::new, |(project, lsp)| {
-                lsp.workspace_providers(project)
-            });
-        let query = self.palette.workspace_query().filter(|_| enabled);
-        let now = Instant::now();
-        if let Some(request) =
-            self.workspace_symbols
-                .observe(project, query, providers.clone(), now)
-        {
-            let sent = self
-                .lsp
-                .as_ref()
-                .is_some_and(|lsp| lsp.workspace_symbols(request.clone()).is_ok());
-            if !sent {
-                self.workspace_symbols.accept(
-                    &request,
-                    providers,
-                    Err(taide_lsp::native::Failure::TransportClosed),
-                );
-            }
-        }
-        if let Some(delay) = self.workspace_symbols.delay(now) {
-            context.request_repaint_after(delay);
-        }
-    }
-
-    fn show_palette(
-        &mut self,
-        context: &egui::Context,
-        snapshot: &taide_native_ui::snapshot::ShellSnapshot,
-        command_context: &CommandContext,
-        keymap_overrides: Option<&str>,
-        enabled: bool,
-    ) {
-        if self.palette.is_picking_code_lenses()
-            && !self.editor_code_lenses.picker_is_current(&self.store)
-        {
-            self.palette.dismiss(context);
-            self.editor_code_lenses.cancel_picker();
-        }
-        if let Some(picker) = self.editor_code_lenses.picker(&self.store) {
-            self.palette
-                .open_code_lenses(context, picker.generation, picker.titles);
-        }
-        let now = Instant::now();
-        let project = command_context.active_project.as_ref();
-        self.observe_workspace_symbols(context, project, enabled);
-        if let Some(stale) = self
-            .palette_files
-            .observe(project, self.palette.observes_files(), now)
-            && !self.submit(HostCommand::ListProjectFiles(stale.clone()))
-        {
-            self.palette_files.accept(
-                &stale,
-                Err(AppError::Forbidden(
-                    "native file index host is disconnected or full".into(),
-                )),
-                now,
-            );
-        }
-        let active_editor = project
-            .and_then(|project| {
-                let layout = snapshot.layouts.get(project)?;
-                crate::symbol_sidebar::window_tree(project, layout, &self.shell.scope)
-            })
-            .and_then(|(root, focused)| {
-                taide_native_ui::snapshot::active_tab(root, focused).map(|tab| (focused, tab))
-            });
-        let active_file = active_editor.and_then(|(_, tab)| match &tab.kind {
-            TabKind::File { path } => Some((tab, path.as_str())),
-            _ => None,
-        });
-        let root = project
-            .and_then(|project| snapshot.project(project))
-            .map(|project| project.root.as_str());
-        let active_document = active_editor.and_then(|(_, tab)| {
-            let document = match &tab.kind {
-                TabKind::File { path } => self.files.get(path).map(|file| file.id),
-                TabKind::Untitled { .. } => self.untitled.get(&tab.id).map(|document| document.id),
-                _ => None,
-            }?;
-            self.store.documents().snapshot(document).ok()
-        });
-        let mut symbols = self
-            .editor_symbols
-            .palette(project, active_document.as_ref());
-        if let Some((_, path)) = active_file
-            && active_document.is_none()
-        {
-            symbols.is_pending = !self.failed.contains_key(path);
-        }
-        self.palette
-            .set_reduced_motion(self.motion_preference.current().unwrap_or(false));
-        let formatting_source = active_file.and_then(|(tab, _)| {
-            self.focused_editor_source(
-                context,
-                &tab.id,
-                active_document.as_ref().map(|document| document.id),
-            )
-        });
-        let output = self.palette.show(
-            context,
-            crate::command_palette::Scope {
-                locale: &self.locale,
-                commands: command_context,
-                keymap_overrides,
-                files: self.palette_files.view(project, root),
-                active_file: active_file.map(|(_, path)| path),
-                symbols,
-                workspace_symbols: self.workspace_symbols.index(project),
-            },
-            enabled,
-        );
-        let action = match output {
-            Ok(output) => output.action,
-            Err(error) => {
-                self.status = Some(error.to_string());
-                return;
-            }
-        };
-        match action {
-            Some(crate::command_palette::Action::CodeLensCommand { generation, index }) => {
-                if let Some(request) =
-                    self.editor_code_lenses
-                        .choose(&self.store, generation, index)
-                {
-                    if self
-                        .lsp
-                        .as_ref()
-                        .is_none_or(|lsp| lsp.execute_code_lens(request.clone()).is_err())
-                    {
-                        self.editor_code_lenses.executed(&self.store, &request);
-                        self.status = Some(
-                            editor_error(taide_native_editor::document::EditorError::NotFound)
-                                .to_string(),
-                        );
-                    }
-                    context.request_repaint();
-                }
-            }
-            Some(crate::command_palette::Action::RunTask { generation, task }) => {
-                let destination = self
-                    .task_runner
-                    .as_ref()
-                    .filter(|(current, _)| *current == generation)
-                    .and_then(|(_, project)| {
-                        let layout = snapshot.layouts.get(project)?;
-                        let (_, pane) =
-                            crate::symbol_sidebar::window_tree(project, layout, &self.shell.scope)?;
-                        Some(crate::editor_context_menu::TerminalDestination {
-                            project: project.clone(),
-                            scope: self.shell.scope.clone(),
-                            pane: pane.clone(),
-                            cwd: Some(task.cwd),
-                            payload: format!("{}\n", task.command),
-                            title: presentation::message(&self.locale, "terminal.title", &[]),
-                        })
-                    });
-                if let Some(destination) = destination {
-                    self.submit(HostCommand::RunTask(destination));
-                }
-            }
-            Some(crate::command_palette::Action::IndentationSize(size)) => {
-                if let Some(request) = self.indentation_request.take() {
-                    let configuration = crate::presentation_refresh::indent_configuration(
-                        &self.services.state.settings.read(),
-                    );
-                    if let Err(error) = request.apply(&mut self.store, configuration, size) {
-                        self.status = Some(editor_error(error).to_string());
-                    }
-                    context.request_repaint();
-                }
-            }
-            Some(crate::command_palette::Action::RunCommand(id)) => {
-                let inline_command = if id == "ai.inlineEdit" {
-                    Some(taide_native_editor::completion::Command::TriggerEdit)
-                } else {
-                    taide_native_editor::completion::Command::from_action(
-                        id.strip_prefix("monaco.").unwrap_or(&id),
-                    )
-                    .filter(|command| {
-                        matches!(
-                            command,
-                            taide_native_editor::completion::Command::TriggerEdit
-                                | taide_native_editor::completion::Command::TriggerInline
-                        )
-                    })
-                };
-                if let Some(command) = inline_command
-                    && let Some((source, _)) = formatting_source
-                {
-                    self.editor_completion.queue_command(source, command);
-                    context.request_repaint();
-                    return;
-                }
-                if id == "monaco.editor.action.showContextMenu" {
-                    if let Some((source, owner)) = formatting_source {
-                        if let Err(error) = crate::editor_context_menu::request_palette(
-                            context,
-                            &self.store,
-                            source,
-                            owner,
-                        ) {
-                            self.report(&editor_error(error));
-                            return;
-                        }
-                        if let Some(owner) = self.store.views().get(owner) {
-                            self.document_edits
-                                .push((owner.key.tab.clone(), DocumentEdit::ContextMenu));
-                        }
-                    }
-                    context.request_repaint();
-                    return;
-                }
-                if matches!(
-                    id.as_str(),
-                    "monaco.editor.action.smartSelect.expand"
-                        | "monaco.editor.action.smartSelect.shrink"
-                ) {
-                    if let Some((source, owner)) = formatting_source {
-                        if let Err(error) = self.editor_selection_ranges.queue(
-                            &self.store,
-                            crate::editor_selection_ranges::Context {
-                                project: project.cloned(),
-                                owner,
-                                source,
-                                viewport: context.viewport_id(),
-                            },
-                            id == "monaco.editor.action.smartSelect.expand",
-                        ) {
-                            self.status = Some(editor_error(error).to_string());
-                        }
-                        context.request_repaint();
-                    }
-                    return;
-                }
-                if id == "monaco.codelens.showLensesInCurrentLine" {
-                    if let Some((source, _)) = formatting_source {
-                        self.editor_code_lenses.begin_picker(
-                            &self.store,
-                            context.viewport_id(),
-                            source,
-                        );
-                        context.request_repaint();
-                    }
-                    return;
-                }
-                if let Some(command) =
-                    taide_native_ui::editor_code_actions::Command::from_action(&id)
-                    && let Some((tab, _)) = active_file
-                {
-                    self.request_editor_code_actions(
-                        context,
-                        &tab.id,
-                        active_document.as_ref().map(|document| document.id),
-                        command,
-                        formatting_source,
-                    );
-                    context.request_repaint();
-                    return;
-                }
-                if id == "monaco.editor.action.rename"
-                    && let Some((tab, _)) = active_file
-                {
-                    self.request_editor_rename(
-                        context,
-                        &tab.id,
-                        active_document.as_ref().map(|document| document.id),
-                        formatting_source,
-                    );
-                    context.request_repaint();
-                    return;
-                }
-                if let Some(command) = taide_native_editor::formatting::Command::from_action(
-                    id.strip_prefix("monaco.").unwrap_or(&id),
-                ) && let Some((tab, _)) = active_file
-                {
-                    self.request_editor_formatting(
-                        context,
-                        &tab.id,
-                        active_document.as_ref().map(|document| document.id),
-                        command,
-                        formatting_source,
-                    );
-                    context.request_repaint();
-                    return;
-                }
-                self.palette_commands.push(id);
-                context.request_repaint();
-            }
-            Some(crate::command_palette::Action::OpenFile(path)) => {
-                let Some(project) = project else {
-                    self.notify_open_project_first();
-                    return;
-                };
-                let pane =
-                    snapshot
-                        .layouts
-                        .get(project)
-                        .and_then(|layout| match &self.shell.scope {
-                            WindowScope::Main => {
-                                crate::command_palette::file_tab_pane(layout, &path)
-                            }
-                            WindowScope::Auxiliary { .. } => crate::symbol_sidebar::window_tree(
-                                project,
-                                layout,
-                                &self.shell.scope,
-                            )
-                            .map(|(_, focused)| focused.clone()),
-                        });
-                self.submit(HostCommand::OpenPaletteFile {
-                    project: project.clone(),
-                    pane,
-                    path,
-                });
-            }
-            Some(crate::command_palette::Action::OpenWorkspaceSymbol { generation, index }) => {
-                if let Some(project) = project
-                    && let Some(symbol) = self
-                        .workspace_symbols
-                        .selected(project, generation, index)
-                        .cloned()
-                    && let Some(layout) = snapshot.layouts.get(project)
-                    && let Some((_, focused)) =
-                        crate::symbol_sidebar::window_tree(project, layout, &self.shell.scope)
-                    && let Some(pane) = crate::workspace_symbol_host::destination(
-                        layout,
-                        project,
-                        &self.shell.scope,
-                        &symbol.path,
-                    )
-                {
-                    self.submit(HostCommand::OpenWorkspaceSymbol(
-                        crate::workspace_symbol_host::Request {
-                            project: project.clone(),
-                            pane,
-                            focused: focused.clone(),
-                            revision: layout.revision,
-                            scope: self.shell.scope.clone(),
-                            path: symbol.path,
-                            line: symbol.line,
-                            column: symbol.column,
-                            viewport: context.viewport_id(),
-                        },
-                    ));
-                }
-            }
-            Some(crate::command_palette::Action::RevealLine(target)) => {
-                if let Some(project) = project
-                    && let Some((tab, path)) = active_file
-                {
-                    self.reveals.queue_position(
-                        crate::editor_reveal::Target {
-                            project,
-                            tab: &tab.id,
-                            path,
-                            viewport: context.viewport_id(),
-                        },
-                        crate::editor_reveal::Position {
-                            line: target.line,
-                            column: target.column,
-                        },
-                        &snapshot.layouts,
-                        now,
-                    );
-                    context.request_repaint();
-                }
-            }
-            Some(crate::command_palette::Action::RevealSymbol { generation, index }) => {
-                if let (Some(project), Some((pane, tab)), Some(document)) =
-                    (project, active_editor, active_document.as_ref())
-                    && matches!(tab.kind, TabKind::Untitled { .. })
-                    && let Some(selection) = self
-                        .editor_symbols
-                        .selection(project, document, generation, index)
-                {
-                    let key = ViewKey {
-                        window: WINDOW_LABEL.into(),
-                        pane: pane.clone(),
-                        tab: tab.id.clone(),
-                    };
-                    match crate::editor_reveal::reveal_document(
-                        &mut self.store,
-                        &key,
-                        document,
-                        selection,
-                    ) {
-                        Ok(Some(view)) => {
-                            if let Some(body) = crate::editor_context_menu::body(context, view) {
-                                context.memory_mut(|memory| memory.request_focus(body));
-                            }
-                            context.request_repaint();
-                        }
-                        Ok(None) => {}
-                        Err(error) => self.report(&editor_error(error)),
-                    }
-                }
-                if let (Some(project), Some((tab, path)), Some(document)) =
-                    (project, active_file, active_document.as_ref())
-                    && let Some(position) = self
-                        .editor_symbols
-                        .position(project, document, generation, index)
-                {
-                    self.reveals.queue_position(
-                        crate::editor_reveal::Target {
-                            project,
-                            tab: &tab.id,
-                            path,
-                            viewport: context.viewport_id(),
-                        },
-                        position,
-                        &snapshot.layouts,
-                        now,
-                    );
-                    context.request_repaint();
-                }
-            }
-            None => (),
-        }
-        if !self.palette.is_picking_indentation() {
-            self.indentation_request = None;
-        }
-        self.observe_workspace_symbols(context, project, enabled);
-    }
-
     fn toast_interaction_enabled(&self) -> bool {
         self.closing.is_none()
-            && !self.system_usage.detail_open
-            && !self.keybindings.is_open()
-            && !self.palette.is_open()
+            && !self.shell_state.system_usage.detail_open
+            && !self.commands_state.keybindings.is_open()
+            && !self.commands_state.palette.is_open()
             && self.pending_tab_close.is_none()
-            && self.pending_entry_delete.is_none()
-    }
-
-    fn sync_theme_preview(&mut self, context: &egui::Context) {
-        let preview = if self.closing.is_none() && !self.services.state.is_shutting_down() {
-            self.settings_views
-                .preview(context.viewport_id(), &self.services.state)
-                .cloned()
-        } else {
-            None
-        };
-        if preview == self.preview_theme {
-            return;
-        }
-        let theme = preview.as_ref().unwrap_or(&self.resolved_theme);
-        let settings = self.services.state.settings.read().clone();
-        let result = crate::presentation_refresh::Appearances::new(theme, &settings).and_then(
-            |appearances| {
-                self.terminal_views.set_palette(&appearances.terminal)?;
-                Ok(appearances)
-            },
-        );
-        match result {
-            Ok(appearances) => {
-                presentation::apply_visuals(context, &appearances.visuals);
-                self.shell.colors = appearances.shell;
-                self.editor.appearance = appearances.editor;
-                self.find_appearance = appearances.find;
-                self.editor_display_colors = appearances.editor_display;
-                self.editor_bracket_colors = appearances.editor_brackets;
-                self.editor_sticky_colors = appearances.editor_sticky;
-                self.editor_minimap_colors = appearances.editor_minimap;
-                self.editor_diagnostic_colors = appearances.editor_diagnostics;
-                self.editor_overview_colors = appearances.editor_overview;
-                self.editor_problem_colors = appearances.editor_problems;
-                self.editor_location_colors = appearances.editor_locations;
-                self.editor_documentation_colors = appearances.editor_documentation;
-                self.editor_markdown_colors = appearances.editor_markdown;
-                self.editor_completion_colors = appearances.editor_completion;
-                self.editor_ai_edit_colors = appearances.editor_ai_edit;
-                self.editor_highlight_colors = appearances.editor_highlights;
-                self.editor_code_action_colors = appearances.editor_code_actions;
-                self.editor_inlay_hint_colors = appearances.editor_inlay_hints;
-                self.editor_code_lens_colors = appearances.editor_code_lenses;
-                self.banner_appearance = appearances.banner;
-                self.lsp_status_appearance = appearances.lsp_status;
-                self.status_editor_appearance = appearances.status_editor;
-                self.status_ide_appearance = appearances.status_ide;
-                self.system_usage_appearance = appearances.system_usage;
-                self.status_chord_appearance = appearances.status_chord;
-                self.problems_appearance = appearances.problems;
-                self.zen_hint_colors = appearances.zen_hint;
-                self.file_drop_colors = appearances.file_drop;
-                self.explorer_appearance = appearances.explorer;
-                self.navigation_appearance = appearances.navigation;
-                self.tooltip_appearance = appearances.tooltip;
-                self.terminal_appearance = appearances.terminal;
-                self.keybindings.set_appearance(appearances.keybindings);
-                self.palette.set_appearance(appearances.palette);
-                self.settings_appearance = appearances.settings;
-                self.pdf_appearance = appearances.pdf;
-                self.presentation_appearance = appearances.presentation;
-                self.spreadsheet_appearance = appearances.spreadsheet;
-                self.toast_theme = appearances.toast;
-                self.preview_theme = preview;
-                context.request_repaint();
-            }
-            Err(error) => self.status = Some(error.to_string()),
-        }
+            && self.explorer_search_state.pending_entry_delete.is_none()
     }
 
     fn background_tick(&mut self, context: &egui::Context) {
-        if self.closing.is_none() && !self.services.state.is_shutting_down() {
-            let snapshot = self.controller.snapshot();
-            self.welcome.tick(
-                &snapshot,
-                &self.services.state,
-                &self.services.tasks,
-                context,
-            );
-        }
-        let menu_actions = self.app_menu.tick(
-            &self.locale,
-            &self.services.state,
-            &self.services.tasks,
-            context,
-        );
-        for count in self.app_menu.take_kept_drafts() {
-            self.toasts.info(
-                presentation::message(
-                    &self.locale,
-                    "project.clearRecentKeptDrafts",
-                    &[("count", &count.to_string())],
-                ),
-                Instant::now(),
-            );
-        }
-        for action in menu_actions {
-            self.run_app_menu_action(context, action);
-        }
+        self.tick_shell_menus(context);
         self.toasts
             .set_reduced_motion(self.motion_preference.current().unwrap_or(false));
         let toast_enabled = self.toast_interaction_enabled();
@@ -6753,92 +1022,63 @@ impl NativeApplication {
             .set_position(context, &toast_position, toast_now, toast_enabled);
         self.toasts.tick(context, toast_now, toast_enabled);
         if self.closing.is_some() || self.services.state.is_shutting_down() {
-            self.terminal_views.cancel_inputs();
+            self.terminal_agent_state.terminal_views.cancel_inputs();
             self.reveals.clear();
-        } else if let Err(error) =
-            self.terminal_views
-                .flush_inputs(self.terminals.hub(), &self.services, context)
-        {
+        } else if let Err(error) = self.terminal_agent_state.terminal_views.flush_inputs(
+            self.terminal_agent_state.terminals.hub(),
+            &self.services,
+            context,
+        ) {
             self.status = Some(error.to_string());
         }
-        if self.closing.is_none() && !self.is_exit_ready && !self.services.state.is_shutting_down()
-        {
-            let families = crate::editor_fonts::Families::new(&self.services.state.settings.read());
-            if let Some(result) =
-                self.terminal_fonts
-                    .update(families, context, &self.services.tasks)
-            {
-                match result {
-                    Ok(warnings) => {
-                        for warning in warnings {
-                            log::warn!("{warning}");
-                        }
-                    }
-                    Err(error) => self.status = Some(error.to_string()),
-                }
-            }
-        } else {
-            self.terminal_fonts.cancel();
-        }
-        let font_size = self.services.state.settings.read().terminal_font_size;
-        if self.terminal_appearance.set_font_size(font_size) {
-            context.request_repaint();
-        }
+        self.tick_terminal_agent_fonts(context);
         let editor_font_size = self.services.state.settings.read().editor_font_size;
         if presentation::update_editor_font_size(&mut self.editor.appearance, editor_font_size) {
             context.request_repaint();
         }
-        match self.terminals.hub().configure_cursors() {
-            Ok(true) => context.request_repaint(),
-            Ok(false) => {}
-            Err(error) => self.status = Some(error.to_string()),
-        }
+        self.tick_terminal_agent_cursors(context);
         self.reconcile_previews();
         self.poll(context);
         self.sync_theme_preview(context);
         if self.closing.is_some() || self.is_exit_ready || self.services.state.is_shutting_down() {
-            self.presentation_refresh.cancel();
-            self.settings_views.clear();
-            self.app_file_views.clear();
+            self.settings_state.presentation_refresh.cancel();
+            self.settings_state.settings_views.clear();
+            self.settings_state.app_file_views.clear();
         } else {
             self.editor_syntax.follow_plugins(
                 &self.services.state,
                 &self.services.plugin,
                 &self.services.tasks,
             );
-            let syntax_theme = self.preview_theme.as_ref().unwrap_or(&self.resolved_theme);
+            let syntax_theme = self
+                .settings_state
+                .preview_theme
+                .as_ref()
+                .unwrap_or(&self.settings_state.resolved_theme);
             if let Some(delay) = self
                 .editor_syntax
                 .tick(&self.store, syntax_theme, Instant::now())
             {
                 context.request_repaint_after(delay);
             }
-            if let Some(request) = self.settings_views.next_snippet_read() {
-                self.submit(HostCommand::ReadSnippetCatalog(request));
-            }
-            let inputs = self.presentation_inputs(context);
-            if let Some(request) = self
-                .presentation_refresh
-                .next(inputs, self.presentation_changes.revision())
-                && self.submit(HostCommand::RefreshPresentation(Box::new(request.clone())))
-            {
-                self.presentation_refresh.submitted(request);
-            }
+            self.tick_settings_reads(context);
         }
         self.reveals
             .reconcile(&self.services.state.layouts.read(), Instant::now());
-        let auxiliary_explorers = self.auxiliary_windows.explorer_mounts();
-        self.explorer_clipboards.reconcile_windows(
-            self.controller.snapshot().shell.tree.as_ref(),
-            &auxiliary_explorers.keys().cloned().collect(),
-        );
+        let auxiliary_explorers = self.shell_state.auxiliary_windows.explorer_mounts();
+        self.explorer_search_state
+            .explorer_clipboards
+            .reconcile_windows(
+                self.controller.snapshot().shell.tree.as_ref(),
+                &auxiliary_explorers.keys().cloned().collect(),
+            );
         self.problems
             .reconcile(self.controller.snapshot().shell.tree.as_ref());
-        self.symbol_sidebars.reconcile(
+        self.explorer_search_state.symbol_sidebars.reconcile(
             self.controller.snapshot().shell.tree.as_ref(),
             &auxiliary_explorers,
         );
-        self.breadcrumbs.reconcile(
+        self.explorer_search_state.breadcrumbs.reconcile(
             context,
             &self.services.state.layouts.read(),
             self.controller.snapshot().shell.tree.as_ref(),
@@ -6879,25 +1119,10 @@ impl NativeApplication {
                 self.consume_code_action_navigation(finished);
             }
         }
-        self.terminal_views.chord_status(context, Instant::now());
-        let (show_usage, hide_in_zen) = {
-            let settings = self.services.state.settings.read();
-            (settings.show_system_usage, settings.zen_hide_status_bar)
-        };
-        let status_mounted = !(self.services.state.session.read().window_chrome.zen && hide_in_zen);
-        let usage_visible = status_mounted && show_usage;
-        if !status_mounted {
-            self.system_usage.unmount(Instant::now());
-        }
-        if self.closing.is_some() || self.is_exit_ready {
-            self.system_usage.detail_open = false;
-        }
-        self.system_usage.tick(
-            &self.services,
-            context,
-            usage_visible && self.closing.is_none() && !self.is_exit_ready,
-            Instant::now(),
-        );
+        self.terminal_agent_state
+            .terminal_views
+            .chord_status(context, Instant::now());
+        self.tick_shell_system_usage(context);
         if !self.workspace_busy() {
             self.workspace_activity = None;
             for document in std::mem::take(&mut self.workspace_suspended) {
@@ -6930,33 +1155,17 @@ impl NativeApplication {
                     self.view_state_flush.resume();
                     if !self.services.state.is_shutting_down() {
                         self.loading.clear();
-                        self.tree_loading.clear();
-                        self.title_branches.cancel_fetches();
-                        self.auxiliary_windows.settle_reserved(
-                            &self.services.state.layouts.read(),
-                            &self.services.windows,
-                        );
-                        self.palette_files.cancel_fetches();
-                        self.previews.reset_pending();
-                        self.hwp_previews.reset_pending();
-                        self.pdf_previews.reset_pending();
-                        self.presentation_previews.reset_pending();
-                        self.spreadsheet_previews.reset_pending();
-                        match connect_web(
-                            self.services.clone(),
-                            context,
-                            self.helper_executable.clone(),
-                            &self.pdf_appearance,
-                        ) {
-                            Ok(bridge) => self.web_bridge = Some(bridge),
-                            Err(error) => self.status = Some(error.to_string()),
-                        }
+                        self.reconnect_explorer_search();
+                        self.reconnect_git();
+                        self.reconnect_shell();
+                        self.reconnect_commands();
+                        self.reconnect_preview(context);
                         let repaint_context = context.clone();
                         match HostBridge::connect_with_application_ports(
                             self.services.clone(),
                             Arc::new(move || repaint_context.request_repaint()),
                             crate::host::Terminals {
-                                tabs: self.terminals.clone(),
+                                tabs: self.terminal_agent_state.terminals.clone(),
                                 environment: crate::terminal_environment::provider(),
                             },
                             &self.application_ports,
@@ -7017,7 +1226,11 @@ impl NativeApplication {
             }
         }
         let zoom_factor = context.zoom_factor();
-        context.input(|input| self.window_state.observe(input.viewport(), zoom_factor));
+        context.input(|input| {
+            self.shell_state
+                .window_state
+                .observe(input.viewport(), zoom_factor)
+        });
         let close_requested = context.input(|input| input.viewport().close_requested());
         if close_requested && !self.is_exit_ready {
             context.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -7029,55 +1242,24 @@ impl NativeApplication {
             self.close_request_active = false;
         }
         let snapshot = self.controller.snapshot();
-        for project in self.palette_file_changes.take() {
-            self.palette_files.invalidate(&project);
-        }
-        self.palette_files
-            .retain(|project| snapshot.layouts.contains_key(project));
+        self.tick_commands_files(&snapshot);
         if self.closing.is_none() && !self.is_exit_ready && !self.services.state.is_shutting_down()
         {
             let open_projects: HashSet<_> = snapshot.layouts.keys().cloned().collect();
-            for (project, dirs) in self.tree_changes.take(open_projects.iter().cloned()) {
-                if !open_projects.contains(&project) {
-                    continue;
-                }
-                if self.submit(HostCommand::RefreshTree {
-                    project: project.clone(),
-                    dirs: dirs.clone(),
-                }) {
-                    self.queue_project_observations(&project);
-                } else {
-                    self.tree_changes.merge(project, dirs);
-                    context.request_repaint();
-                }
-            }
+            self.tick_explorer_search_trees(context, &open_projects);
             for project in self.mirror_sweeps.due(
                 snapshot.shell.tree.as_ref(),
-                &self.auxiliary_windows.explorer_mounts(),
+                &self.shell_state.auxiliary_windows.explorer_mounts(),
                 &snapshot.layouts,
             ) {
-                if !self.submit(HostCommand::PruneMirrors(project.clone())) {
+                if !self.submit(HostCommand::Editor(domains::editor::Command::PruneMirrors(
+                    project.clone(),
+                ))) {
                     self.mirror_sweeps.retry(&project);
                     context.request_repaint();
                 }
             }
-            self.title_branches
-                .invalidate(self.title_branch_changes.take());
-            self.title_branches.retain(&open_projects);
-            if self.shell.has_title_bar {
-                let shown = snapshot.focused_project().cloned().into_iter().chain(
-                    self.auxiliary_windows
-                        .windows()
-                        .iter()
-                        .map(|window| window.project.clone()),
-                );
-                for project in self.title_branches.requests(shown) {
-                    if !self.submit(HostCommand::GitBranch(project.clone())) {
-                        self.title_branches.retry(&project);
-                        context.request_repaint();
-                    }
-                }
-            }
+            self.tick_git_title_branches(context, &snapshot, &open_projects);
         }
         if !self.workspace_busy() {
             self.flush_observations();
@@ -7088,8 +1270,12 @@ impl NativeApplication {
 
 impl eframe::App for NativeApplication {
     fn raw_input_hook(&mut self, context: &egui::Context, input: &mut egui::RawInput) {
-        self.app_menu.inject(input.viewport_id, &mut input.events);
-        self.terminal_views.raw_input(context, input);
+        self.shell_state
+            .app_menu
+            .inject(input.viewport_id, &mut input.events);
+        self.terminal_agent_state
+            .terminal_views
+            .raw_input(context, input);
     }
 
     fn raw_input_hook_with_replay(
@@ -7098,8 +1284,11 @@ impl eframe::App for NativeApplication {
         input: &mut egui::RawInput,
         replayed_events: usize,
     ) {
-        self.app_menu.inject(input.viewport_id, &mut input.events);
-        self.terminal_views
+        self.shell_state
+            .app_menu
+            .inject(input.viewport_id, &mut input.events);
+        self.terminal_agent_state
+            .terminal_views
             .raw_input_with_replay(context, input, replayed_events);
     }
 
@@ -7112,14 +1301,14 @@ impl eframe::App for NativeApplication {
     }
 
     fn on_exit(&mut self) {
-        if let Err(error) = self.window_state.save() {
+        if let Err(error) = self.shell_state.window_state.save() {
             log::warn!("native window state save failed: {:?}", error.kind());
         }
         self.exit_application();
     }
 }
 
-struct WindowPass {
+pub(crate) struct WindowPass {
     snapshot: Arc<taide_native_ui::snapshot::ShellSnapshot>,
     document_edits: Vec<(TabId, DocumentEdit)>,
     fold_commands: Vec<(TabId, FoldCommand)>,
@@ -7132,61 +1321,31 @@ impl NativeApplication {
     fn frame_ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
         let context = ui.ctx().clone();
         if !self.is_any_window_focused(&context) {
-            self.terminal_views.clear_keymap_chord(&context);
+            self.terminal_agent_state
+                .terminal_views
+                .clear_keymap_chord(&context);
         }
-        if let Some(bridge) = &self.web_bridge
-            && bridge.set_media_appearance(media_appearance(&self.pdf_appearance))
-        {
-            if let Some(request) = self.web_previews.active_request()
-                && matches!(
-                    crate::open_with::preview_kind(&request.path),
-                    Some(
-                        crate::open_with::PreviewKind::Audio | crate::open_with::PreviewKind::Video
-                    )
-                )
-            {
-                bridge.cancel_through(request.token);
-            }
-            self.web_previews.invalidate_media();
-        }
+        self.tick_preview_media();
         let snapshot = self.controller.snapshot();
-        self.editor_ide_selection
+        self.terminal_agent_state
+            .editor_ide_selection
             .begin_frame(self.services.ide.is_running());
         self.editor_view_state.begin_frame(&self.store);
         self.editor_markdown
             .reconcile(&context, &snapshot.layouts, &self.store);
-        let auxiliary_explorers = self.auxiliary_windows.explorer_mounts();
-        self.explorer_clipboards.reconcile_windows(
-            snapshot.shell.tree.as_ref(),
-            &auxiliary_explorers.keys().cloned().collect(),
-        );
+        self.tick_explorer_search_clipboards(&snapshot);
         if self.closing.is_none() && !self.services.state.is_shutting_down() {
-            self.zen_fullscreen_state.reconcile(
+            self.shell_state.zen_fullscreen_state.reconcile(
                 &context,
                 snapshot.shell.window_chrome.zen,
                 self.services.state.settings.read().zen_fullscreen,
             );
         }
-        let terminal_tabs = snapshot
-            .layouts
-            .values()
-            .flat_map(taide_layout::service::all_roots)
-            .flat_map(crate::tabs::tabs_in)
-            .filter(|tab| matches!(tab.kind, TabKind::Terminal { .. }))
-            .collect::<Vec<_>>();
-        let live_tabs = terminal_tabs.iter().map(|tab| tab.id.clone()).collect();
-        let live_sessions = terminal_tabs
-            .iter()
-            .filter_map(|tab| match &tab.kind {
-                TabKind::Terminal { session_id, .. } => Some(session_id.clone()),
-                _ => None,
-            })
-            .collect();
-        self.terminal_views.retain(&live_tabs, &live_sessions);
+        self.tick_terminal_agent_views(&snapshot);
         let scopes = self.window_scopes();
         let (document_edits, fold_commands) =
             self.reconcile_editor_features(&context, &snapshot, &scopes);
-        self.settings_views.begin_frame();
+        self.settings_state.settings_views.begin_frame();
         let mut pass = WindowPass {
             snapshot,
             document_edits,
@@ -7197,229 +1356,16 @@ impl NativeApplication {
         };
         let main_proceeded = self.show_window(ui, frame, &mut pass);
         let auxiliary_proceeded = self.show_auxiliary_windows(&context, frame, &mut pass);
-        self.app_menu.finish_child_passes();
+        self.shell_state.app_menu.finish_child_passes();
         self.finish_window_frames(&context);
         if main_proceeded && auxiliary_proceeded {
             self.finish_frame(&context, frame, pass);
         }
     }
 
-    fn window_scopes(&self) -> Vec<WindowScope> {
-        let root = self
-            .auxiliary_pass_root
-            .as_ref()
-            .unwrap_or(&self.shell.scope);
-        let mut scopes = vec![root.clone()];
-        if matches!(root, WindowScope::Main) {
-            scopes.extend(
-                self.auxiliary_windows
-                    .windows()
-                    .iter()
-                    .map(crate::auxiliary_windows::Window::scope),
-            );
-        }
-        scopes
-    }
-
-    fn active_window_scope(&self, is_active: impl Fn(&WindowScope) -> bool) -> Option<WindowScope> {
-        self.window_scopes()
-            .into_iter()
-            .find(|scope| is_active(scope))
-    }
-
-    fn is_any_window_focused(&self, context: &egui::Context) -> bool {
-        context.input(|input| input.raw.focused)
-            || self
-                .auxiliary_windows
-                .windows()
-                .iter()
-                .any(|window| context.input_for(window.viewport, |input| input.raw.focused))
-    }
-
-    fn focused_viewport(&self, context: &egui::Context) -> egui::ViewportId {
-        if context.input(|input| input.raw.focused) {
-            return egui::ViewportId::ROOT;
-        }
-        self.auxiliary_windows
-            .windows()
-            .iter()
-            .find(|window| context.input_for(window.viewport, |input| input.raw.focused))
-            .map_or(egui::ViewportId::ROOT, |window| window.viewport)
-    }
-
-    fn run_app_menu_action(&mut self, context: &egui::Context, action: crate::app_menu::Action) {
-        use crate::app_menu::{Action, Input};
-        let is_live = self.closing.is_none()
-            && !self.is_exit_ready
-            && !self.services.state.is_shutting_down();
-        match action {
-            Action::Quit => {
-                context.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Close)
-            }
-            Action::OpenRecent(project) if is_live => {
-                self.submit(HostCommand::OpenRecentProject(project));
-            }
-            Action::ClearRecent if is_live => {
-                self.submit(HostCommand::ClearRecentProjects);
-            }
-            Action::Edit(edit) => {
-                let viewport = self.focused_viewport(context);
-                match edit.input() {
-                    Input::Request(command) => context.send_viewport_cmd_to(viewport, command),
-                    Input::Chord(key, modifiers) => {
-                        self.app_menu.queue_chord(viewport, key, modifiers)
-                    }
-                }
-                context.request_repaint_of(viewport);
-            }
-            Action::OpenRecent(_) | Action::ClearRecent | Action::Ignored => {}
-        }
-    }
-
-    fn overlay_viewport(&mut self, context: &egui::Context) -> egui::ViewportId {
-        let windows = self.auxiliary_windows.windows();
-        if !windows
-            .iter()
-            .any(|window| window.viewport == self.overlay_viewport)
-        {
-            self.overlay_viewport = egui::ViewportId::ROOT;
-        }
-        let has_overlay = self.keybindings.is_open()
-            || self.palette.is_open()
-            || self.pending_tab_close.is_some()
-            || self.pending_entry_delete.is_some()
-            || self.system_usage.detail_open
-            || self.open_path_dialog.is_open()
-            || self.project_display_dialog.is_open()
-            || self.project_group_dialog.is_open()
-            || self.project_group_delete.is_open();
-        if !has_overlay {
-            if context.input(|input| input.raw.focused) {
-                self.overlay_viewport = egui::ViewportId::ROOT;
-            } else if let Some(window) = windows
-                .iter()
-                .find(|window| context.input_for(window.viewport, |input| input.raw.focused))
-            {
-                self.overlay_viewport = window.viewport;
-            }
-        }
-        self.overlay_viewport
-    }
-
-    fn show_auxiliary_windows(
-        &mut self,
-        context: &egui::Context,
-        frame: &mut eframe::Frame,
-        pass: &mut WindowPass,
-    ) -> bool {
-        if !matches!(self.shell.scope, WindowScope::Main) {
-            return true;
-        }
-        self.submit_auxiliary_window_returns();
-        let is_live = self.closing.is_none()
-            && !self.is_exit_ready
-            && !self.services.state.is_shutting_down();
-        let mut all_proceeded = true;
-        for window in self.auxiliary_windows.windows().to_vec() {
-            if !window.is_alive(&self.services.state.layouts.read()) {
-                if is_live {
-                    self.close_auxiliary_window(&window.label);
-                }
-                continue;
-            }
-            let title = crate::auxiliary_windows::title(
-                pass.snapshot
-                    .project(&window.project)
-                    .map_or(window.project.as_str(), |project| project.name.as_str()),
-                APPLICATION_NAME,
-            );
-            let mut proceeded = true;
-            let mut close_requested = false;
-            context.show_viewport_immediate(
-                window.viewport,
-                crate::auxiliary_windows::builder(title),
-                |ui, _| {
-                    ui.ctx().input_mut(|input| {
-                        self.app_menu.inject(window.viewport, &mut input.events)
-                    });
-                    let root = std::mem::replace(&mut self.shell.scope, window.scope());
-                    self.auxiliary_pass_root = Some(root.clone());
-                    proceeded = self.show_window(ui, frame, pass);
-                    self.auxiliary_pass_root = None;
-                    self.shell.scope = root;
-                    close_requested = ui.input(|input| input.viewport().close_requested());
-                },
-            );
-            if close_requested && is_live {
-                self.close_auxiliary_window(&window.label);
-            }
-            all_proceeded &= proceeded;
-        }
-        all_proceeded
-    }
-
-    fn submit_auxiliary_window_returns(&mut self) {
-        for (project, slot) in self.auxiliary_windows.pending_returns() {
-            if !self.submit(HostCommand::ReturnAuxiliaryWindowTabs {
-                project: project.clone(),
-                slot,
-            }) {
-                return;
-            }
-            self.auxiliary_windows.returned(&project, slot);
-        }
-    }
-
-    fn close_auxiliary_window(&mut self, label: &str) {
-        let Some(window) = self.auxiliary_windows.close(label, &self.services.windows) else {
-            return;
-        };
-        if self.overlay_viewport == window.viewport {
-            self.overlay_viewport = egui::ViewportId::ROOT;
-        }
-        let layouts = self.services.state.layouts.read();
-        let documents: Vec<DocumentId> = window
-            .layout(&layouts)
-            .map(|layout| crate::tabs::tabs_in(&layout.root))
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|tab| match &tab.kind {
-                TabKind::File { path } => self.files.get(path).map(|file| file.id),
-                TabKind::Untitled { .. } => self.untitled.get(&tab.id).map(|document| document.id),
-                _ => None,
-            })
-            .collect();
-        drop(layouts);
-        for document in documents {
-            let Some(project) = self.draft_project(document) else {
-                continue;
-            };
-            if let Ok(snapshot) = self.store.documents().snapshot(document)
-                && let Some(job) = self.persistence.mirror_job(snapshot, project)
-                && self.submit(HostCommand::MirrorDraft(job.clone()))
-            {
-                self.persistence.mirror_started(&job);
-            }
-        }
-        self.submit_auxiliary_window_returns();
-    }
-
     fn finish_window_frames(&mut self, context: &egui::Context) {
-        let now = Instant::now();
-        for request in self.editor_ide_selection.finish_frame(&self.store, now) {
-            match request {
-                Ok(request) => {
-                    if !self.submit(HostCommand::EditorIdeSelection(request.clone())) {
-                        self.editor_ide_selection.retry(request, now);
-                    }
-                }
-                Err(error) => self.report(&editor_error(error)),
-            }
-        }
-        if let Some(deadline) = self.editor_ide_selection.next_deadline() {
-            context.request_repaint_after(deadline.saturating_duration_since(now));
-        }
-        self.settings_views.finish_frame();
+        self.tick_terminal_agent_ide_selection(context);
+        self.settings_state.settings_views.finish_frame();
         self.sync_theme_preview(context);
     }
 
@@ -7675,241 +1621,6 @@ impl NativeApplication {
         )
     }
 
-    fn reconcile_editor_features(
-        &mut self,
-        context: &egui::Context,
-        snapshot: &taide_native_ui::snapshot::ShellSnapshot,
-        scopes: &[WindowScope],
-    ) -> (Vec<(TabId, DocumentEdit)>, Vec<(TabId, FoldCommand)>) {
-        let document_edits = std::mem::take(&mut self.document_edits);
-        self.editor_find
-            .retain(|view, _| self.store.views().get(*view).is_some());
-        self.editor_problems.retain(&self.store);
-        let projects = snapshot
-            .projects
-            .iter()
-            .map(|project| project.id.clone())
-            .collect();
-        self.editor_locations
-            .reconcile(&self.store, &projects, |project, document, kind| {
-                self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
-                    lsp.location_providers(project, document, kind)
-                })
-            });
-        self.editor_locations
-            .retain_active(&snapshot.layouts, scopes);
-        self.editor_locations.detach_retired(&mut self.store);
-        let inlay_hint_previews = self.editor_locations.preview_views();
-        self.editor_selection_ranges.reconcile(
-            &mut self.store,
-            |request| {
-                self.closing.is_none()
-                    && (request.source == request.owner
-                        || inlay_hint_previews.contains(&request.source))
-                    && snapshot.layouts.iter().any(|(project, layout)| {
-                        projects.contains(project)
-                            && scopes
-                                .iter()
-                                .any(|scope| request.is_active(project, layout, scope))
-                    })
-            },
-            |project, document| {
-                self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
-                    lsp.selection_range_providers(project, document)
-                })
-            },
-        );
-        let code_lens_enabled = self.services.state.settings.read().editor_code_lens_enabled;
-        self.editor_code_lenses.reconcile(
-            &self.store,
-            |request| {
-                code_lens_enabled
-                    && self.closing.is_none()
-                    && (request.source == request.owner
-                        || inlay_hint_previews.contains(&request.source))
-                    && projects.contains(&request.project)
-                    && snapshot
-                        .layouts
-                        .get(&request.project)
-                        .is_some_and(|layout| {
-                            scopes.iter().any(|scope| request.is_active(layout, scope))
-                        })
-            },
-            |project, document| {
-                self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
-                    lsp.code_lens_providers(project, document)
-                })
-            },
-        );
-        self.editor_inlay_hints.reconcile(
-            &self.store,
-            |request| {
-                self.closing.is_none()
-                    && (request.source == request.owner
-                        || inlay_hint_previews.contains(&request.source))
-                    && projects.contains(&request.project)
-                    && snapshot
-                        .layouts
-                        .get(&request.project)
-                        .is_some_and(|layout| {
-                            scopes.iter().any(|scope| request.is_active(layout, scope))
-                        })
-            },
-            |project, document| {
-                self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
-                    lsp.inlay_hint_providers(project, document)
-                })
-            },
-        );
-        self.editor_highlights.reconcile(
-            &self.store,
-            |request| {
-                self.closing.is_none()
-                    && request.project.as_ref().is_none_or(|project| {
-                        projects.contains(project)
-                            && snapshot.layouts.get(project).is_some_and(|layout| {
-                                scopes.iter().any(|scope| request.is_active(layout, scope))
-                            })
-                    })
-            },
-            |project, document| {
-                self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
-                    lsp.highlight_providers(project, document)
-                })
-            },
-        );
-        self.editor_documentation.reconcile(
-            &self.store,
-            &projects,
-            |request| {
-                snapshot
-                    .layouts
-                    .get(&request.project)
-                    .is_some_and(|layout| {
-                        scopes.iter().any(|scope| request.is_active(layout, scope))
-                    })
-            },
-            |project, document, kind| {
-                self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
-                    lsp.documentation_providers(project, document, kind)
-                })
-            },
-        );
-        self.editor_completion.reconcile(
-            &self.store,
-            &projects,
-            |request| {
-                snapshot
-                    .layouts
-                    .get(&request.project)
-                    .is_some_and(|layout| {
-                        scopes.iter().any(|scope| request.is_active(layout, scope))
-                    })
-            },
-            |project, document| {
-                self.lsp.as_ref().map_or_else(HashSet::new, |lsp| {
-                    lsp.completion_providers(project, document)
-                })
-            },
-        );
-        if self.editor_completion.poll_supply(&self.store) {
-            context.request_repaint();
-        }
-        self.editor_completion
-            .inline
-            .reconcile_credentials(&self.services);
-        self.editor_completion.inline.reconcile(
-            &self.store,
-            &self.services.state.settings.read(),
-            |origin| {
-                projects.contains(&origin.project)
-                    && snapshot.layouts.get(&origin.project).is_some_and(|layout| {
-                        scopes.iter().any(|scope| {
-                            crate::symbol_sidebar::window_tree(&origin.project, layout, scope)
-                                .is_some_and(|(root, _)| {
-                                    taide_native_ui::snapshot::active_tab(
-                                        root,
-                                        &origin.owner_key.pane,
-                                    )
-                                    .is_some_and(|tab| tab.id == origin.owner_key.tab)
-                                })
-                        })
-                    })
-            },
-        );
-        let cancelled_edits =
-            self.editor_completion
-                .inline_edit
-                .reconcile(&self.store, &self.services, |origin| {
-                    projects.contains(&origin.project)
-                        && snapshot.layouts.get(&origin.project).is_some_and(|layout| {
-                            scopes.iter().any(|scope| {
-                                crate::symbol_sidebar::window_tree(&origin.project, layout, scope)
-                                    .is_some_and(|(root, _)| {
-                                        taide_native_ui::snapshot::active_tab(
-                                            root,
-                                            &origin.owner_key.pane,
-                                        )
-                                        .is_some_and(|tab| tab.id == origin.owner_key.tab)
-                                    })
-                            })
-                        })
-                });
-        if cancelled_edits > 0 {
-            self.editor_completion
-                .edit_notices
-                .push(crate::editor_completion::EditNotice::Cancelled);
-        }
-        for notice in std::mem::take(&mut self.editor_completion.edit_notices) {
-            match notice {
-                crate::editor_completion::EditNotice::Cancelled => self.toasts.info(
-                    presentation::message(&self.locale, "ai.inlineEditCancelled", &[]),
-                    Instant::now(),
-                ),
-                crate::editor_completion::EditNotice::Empty => self.toasts.error(
-                    presentation::message(&self.locale, "ai.inlineEditEmptyResponse", &[]),
-                    Instant::now(),
-                ),
-                crate::editor_completion::EditNotice::Failed(error) => self.toasts.notify(
-                    taide_native_ui::toast::Kind::Error,
-                    presentation::message(&self.locale, "ai.inlineEditFailed", &[]),
-                    taide_native_ui::toast::Options {
-                        description: Some(crate::toast::describe_error(&self.locale, &error)),
-                        ..Default::default()
-                    },
-                    Instant::now(),
-                ),
-            }
-        }
-        if let Err(error) = self.editor_documentation.prepare_code(
-            &mut self.store,
-            &mut self.editor_syntax,
-            self.services.plugin.0.read().as_deref().unwrap_or_default(),
-        ) {
-            self.status = Some(editor_error(error).to_string());
-        }
-        self.editor_documentation
-            .prepare_images(&self.store, &context, &self.services);
-        if let Err(error) = self.editor_completion.prepare_code(
-            &mut self.store,
-            &mut self.editor_syntax,
-            self.services.plugin.0.read().as_deref().unwrap_or_default(),
-        ) {
-            self.status = Some(editor_error(error).to_string());
-        }
-        self.editor_completion
-            .prepare_images(&self.store, &context, &self.services);
-        self.peek_models.sweep(
-            &mut self.store,
-            &self.editor_locations.preview_views(),
-            Instant::now(),
-        );
-        if let Some(delay) = self.peek_models.next_expiry(Instant::now()) {
-            context.request_repaint_after(delay);
-        }
-        (document_edits, std::mem::take(&mut self.fold_commands))
-    }
-
     fn show_window(
         &mut self,
         ui: &mut Ui,
@@ -7918,41 +1629,22 @@ impl NativeApplication {
     ) -> bool {
         let context = ui.ctx().clone();
         let snapshot = frame_pass.snapshot.clone();
-        self.breadcrumbs.reconcile(
-            &context,
-            &snapshot.layouts,
-            snapshot.shell.tree.as_ref(),
-            &self.shell.scope,
-        );
+        self.tick_explorer_search_breadcrumbs(&context, &snapshot);
         let (target, editor_project, focused_view, command_context) =
             self.window_command_context(&context, &snapshot);
-        self.terminal_views
+        self.terminal_agent_state
+            .terminal_views
             .set_command_context(command_context.clone());
         let mut command_errors = Vec::new();
         let mut commands = Vec::new();
-        let mut load_settings = Vec::new();
-        let mut load_settings_resources = Vec::new();
-        let mut load_app_files = Vec::new();
-        let mut settings_errors = Vec::new();
-        let mut theme_errors = Vec::new();
-        let mut snippet_notices = Vec::new();
+        let mut settings_output = domains::settings::FrameOutput::default();
         let mut keymap_actions = Vec::new();
         let mut keymap_editor_scope = None;
         let mut keymap_documents = HashMap::new();
-        let mut rename_entries = Vec::new();
-        let mut paste_entries = Vec::new();
-        let mut create_entries = Vec::new();
-        let mut delete_entries = Vec::new();
-        let mut discarded_explorers = Vec::new();
+        let mut explorer_output = domains::explorer_search::FrameOutput::default();
         let mut load_files = Vec::new();
-        let mut load_previews = Vec::new();
-        let mut load_pdf_previews = Vec::new();
-        let mut load_hwp_previews = Vec::new();
-        let mut load_presentation_previews = Vec::new();
-        let mut load_spreadsheet_previews = Vec::new();
-        let mut load_web_previews = Vec::new();
+        let mut preview_output = domains::preview::FrameOutput::default();
         let mut web_placements = Vec::new();
-        let mut load_trees = Vec::new();
         let mut save_missing_drafts = Vec::new();
         let mut load_untitled = Vec::new();
         let mut banner_actions = Vec::new();
@@ -7960,14 +1652,16 @@ impl NativeApplication {
         let mut new_focus = if context.viewport_id() == egui::ViewportId::ROOT {
             self.focused.clone()
         } else {
-            self.auxiliary_windows.focused_editor(context.viewport_id())
+            self.shell_state
+                .auxiliary_windows
+                .focused_editor(context.viewport_id())
         };
         let mut status = self.status.take();
         let is_workspace_busy = self.workspace_busy();
         let is_enabled = self.closing.is_none()
-            && !self.system_usage.detail_open
-            && self.pending_entry_delete.is_none()
-            && !self.deleting_entry
+            && !self.shell_state.system_usage.detail_open
+            && self.explorer_search_state.pending_entry_delete.is_none()
+            && !self.explorer_search_state.deleting_entry
             && !is_workspace_busy
             && !self.services.state.is_shutting_down()
             && self.pending_tab_close.is_none()
@@ -7977,9 +1671,10 @@ impl NativeApplication {
         let viewport = context.viewport_id();
         let pass = context.cumulative_frame_nr();
         let palette_focus = self
+            .commands_state
             .palette
             .source_focus()
-            .filter(|_| self.palette.is_open());
+            .filter(|_| self.commands_state.palette.is_open());
         self.editor_keymap_targets
             .retain(|(owner_viewport, id), (view, previous)| {
                 (*owner_viewport != viewport
@@ -7999,45 +1694,48 @@ impl NativeApplication {
                         }))
             });
         if is_enabled
-            && !self.keybindings.is_capturing()
+            && !self.commands_state.keybindings.is_capturing()
             && context.input(|input| input.raw.focused)
-            && let Err(error) = self.terminal_views.capture_window_keymap_with_local(
-                &context,
-                self.services
-                    .state
-                    .settings
-                    .read()
-                    .keymap_overrides
-                    .as_deref(),
-                &mut keymap_actions,
-                editor_project.is_some(),
-                |id| {
-                    let (view, _) = self.editor_keymap_targets.get(&(viewport, id))?;
-                    if crate::editor_context_menu::body(&context, *view).is_some_and(|editor| {
-                        taide_native_ui::editor_ai_edit::is_control(&context, editor, id)
-                    }) {
-                        return None;
-                    }
-                    Some(self.store.views().get(*view)?.composition.is_some())
-                },
-                |id, event| {
-                    self.editor_keymap_targets
-                        .get(&(viewport, id))
-                        .is_some_and(|(view, _)| {
-                            crate::editor_context_menu::body(&context, *view).is_some_and(
-                                |editor| {
-                                    taide_native_ui::editor_ai_edit::owns_event(
-                                        &context, editor, id, event,
-                                    )
-                                },
-                            ) || self
-                                .editor_code_actions
-                                .local_key(&self.store, *view, event)
-                                || self.editor_rename.local_key(*view, event)
-                                || self.editor_locations.local_key(*view, event)
-                        })
-                },
-            )
+            && let Err(error) = self
+                .terminal_agent_state
+                .terminal_views
+                .capture_window_keymap_with_local(
+                    &context,
+                    self.services
+                        .state
+                        .settings
+                        .read()
+                        .keymap_overrides
+                        .as_deref(),
+                    &mut keymap_actions,
+                    editor_project.is_some(),
+                    |id| {
+                        let (view, _) = self.editor_keymap_targets.get(&(viewport, id))?;
+                        if crate::editor_context_menu::body(&context, *view).is_some_and(|editor| {
+                            taide_native_ui::editor_ai_edit::is_control(&context, editor, id)
+                        }) {
+                            return None;
+                        }
+                        Some(self.store.views().get(*view)?.composition.is_some())
+                    },
+                    |id, event| {
+                        self.editor_keymap_targets
+                            .get(&(viewport, id))
+                            .is_some_and(|(view, _)| {
+                                crate::editor_context_menu::body(&context, *view).is_some_and(
+                                    |editor| {
+                                        taide_native_ui::editor_ai_edit::owns_event(
+                                            &context, editor, id, event,
+                                        )
+                                    },
+                                ) || self
+                                    .editor_code_actions
+                                    .local_key(&self.store, *view, event)
+                                    || self.editor_rename.local_key(*view, event)
+                                    || self.editor_locations.local_key(*view, event)
+                            })
+                    },
+                )
         {
             status = Some(error.to_string());
         }
@@ -8045,7 +1743,7 @@ impl NativeApplication {
         let lsp_summary = snapshot
             .focused_project()
             .and_then(|project| self.lsp.as_ref().and_then(|lsp| lsp.summary(project)));
-        let welcome_shortcuts = match self.welcome.shortcuts(
+        let welcome_shortcuts = match self.shell_state.welcome.shortcuts(
             self.services
                 .state
                 .settings
@@ -8062,7 +1760,7 @@ impl NativeApplication {
             }
         };
         let mut surfaces = AppSurfaces {
-            welcome: &self.welcome,
+            welcome: &self.shell_state.welcome,
             open_projects: &snapshot.projects,
             welcome_shortcuts: &welcome_shortcuts,
             problem_opens: &mut self.problem_opens,
@@ -8070,24 +1768,27 @@ impl NativeApplication {
             tooltip_appearance: &self.tooltip_appearance,
             problems: &mut self.problems,
             problems_appearance: &self.problems_appearance,
-            explorer_appearance: &self.explorer_appearance,
-            explorer_icons: &mut self.explorer_icons,
-            navigation_appearance: &self.navigation_appearance,
-            navigation_icons: &mut self.navigation_icons,
-            symbol_sidebars: &mut self.symbol_sidebars,
-            breadcrumbs: &mut self.breadcrumbs,
+            explorer_appearance: &self.explorer_search_state.explorer_appearance,
+            explorer_icons: &mut self.explorer_search_state.explorer_icons,
+            navigation_appearance: &self.explorer_search_state.navigation_appearance,
+            navigation_icons: &mut self.explorer_search_state.navigation_icons,
+            symbol_sidebars: &mut self.explorer_search_state.symbol_sidebars,
+            breadcrumbs: &mut self.explorer_search_state.breadcrumbs,
             diagnostics: &self.lsp_diagnostics,
             editor_symbols: &self.editor_symbols,
             editor_folding: &self.editor_folding,
             focused_slot: snapshot.shell.focused.as_ref(),
-            chord_status: self.terminal_views.chord_status(&context, Instant::now()),
+            chord_status: self
+                .terminal_agent_state
+                .terminal_views
+                .chord_status(&context, Instant::now()),
             status_chord_appearance: &self.status_chord_appearance,
-            system_usage: &mut self.system_usage,
-            system_usage_appearance: &self.system_usage_appearance,
-            system_usage_icon: &mut self.system_usage_icon,
+            system_usage: &mut self.shell_state.system_usage,
+            system_usage_appearance: &self.shell_state.system_usage_appearance,
+            system_usage_icon: &mut self.shell_state.system_usage_icon,
             status_editor_appearance: &self.status_editor_appearance,
-            status_ide_appearance: &self.status_ide_appearance,
-            status_ide_icons: &mut self.status_ide_icons,
+            status_ide_appearance: &self.terminal_agent_state.status_ide_appearance,
+            status_ide_icons: &mut self.terminal_agent_state.status_ide_icons,
             status_view: focused_view.clone(),
             command_context: &command_context,
             document_edits: &mut frame_pass.document_edits,
@@ -8095,22 +1796,17 @@ impl NativeApplication {
             command_errors: &mut command_errors,
             lsp_summary,
             lsp_status_appearance: &self.lsp_status_appearance,
-            app_file_views: &mut self.app_file_views,
-            load_app_files: &mut load_app_files,
-            settings_views: &mut self.settings_views,
-            settings_appearance: &self.settings_appearance,
-            load_settings: &mut load_settings,
-            load_settings_resources: &mut load_settings_resources,
-            settings_errors: &mut settings_errors,
-            theme_errors: &mut theme_errors,
-            snippet_notices: &mut snippet_notices,
-            terminals: &self.terminals,
-            terminal_views: &mut self.terminal_views,
+            app_file_views: &mut self.settings_state.app_file_views,
+            settings_output: &mut settings_output,
+            settings_views: &mut self.settings_state.settings_views,
+            settings_appearance: &self.settings_state.settings_appearance,
+            terminals: &self.terminal_agent_state.terminals,
+            terminal_views: &mut self.terminal_agent_state.terminal_views,
             keymap_actions: &mut keymap_actions,
             keymap_editor_scope: &mut keymap_editor_scope,
             editor_keymap_targets: &mut self.editor_keymap_targets,
             keymap_documents: &mut keymap_documents,
-            terminal_appearance: &self.terminal_appearance,
+            terminal_appearance: &self.terminal_agent_state.terminal_appearance,
             services: &self.services,
             locale: &self.locale,
             store: &mut self.store,
@@ -8126,7 +1822,7 @@ impl NativeApplication {
             editor_inlay_hints: &mut self.editor_inlay_hints,
             editor_code_lenses: &mut self.editor_code_lenses,
             editor_selection_ranges: &mut self.editor_selection_ranges,
-            editor_ide_selection: &mut self.editor_ide_selection,
+            editor_ide_selection: &mut self.terminal_agent_state.editor_ide_selection,
             editor_view_state: &mut self.editor_view_state,
             editor_markdown: &mut self.editor_markdown,
             peek_models: &self.peek_models,
@@ -8162,22 +1858,17 @@ impl NativeApplication {
             banner_actions: &mut banner_actions,
             changed_documents: &mut changed_documents,
             files: &self.files,
-            open_with: &mut self.open_with,
-            previews: &mut self.previews,
-            load_previews: &mut load_previews,
-            pdf_previews: &mut self.pdf_previews,
-            hwp_previews: &mut self.hwp_previews,
-            load_hwp_previews: &mut load_hwp_previews,
-            pdf_appearance: &self.pdf_appearance,
-            load_pdf_previews: &mut load_pdf_previews,
-            presentation_previews: &mut self.presentation_previews,
-            presentation_appearance: &self.presentation_appearance,
-            load_presentation_previews: &mut load_presentation_previews,
-            spreadsheet_previews: &mut self.spreadsheet_previews,
-            spreadsheet_appearance: &self.spreadsheet_appearance,
-            load_spreadsheet_previews: &mut load_spreadsheet_previews,
-            web_previews: &self.web_previews,
-            load_web_previews: &mut load_web_previews,
+            open_with: &mut self.preview_state.open_with,
+            previews: &mut self.preview_state.previews,
+            preview_output: &mut preview_output,
+            pdf_previews: &mut self.preview_state.pdf_previews,
+            hwp_previews: &mut self.preview_state.hwp_previews,
+            pdf_appearance: &self.preview_state.pdf_appearance,
+            presentation_previews: &mut self.preview_state.presentation_previews,
+            presentation_appearance: &self.preview_state.presentation_appearance,
+            spreadsheet_previews: &mut self.preview_state.spreadsheet_previews,
+            spreadsheet_appearance: &self.preview_state.spreadsheet_appearance,
+            web_previews: &self.preview_state.web_previews,
             web_placements: &mut web_placements,
             untitled: &self.untitled,
             untitled_loading: &self.untitled_loading,
@@ -8188,23 +1879,18 @@ impl NativeApplication {
             loading: &self.loading,
             failed: &self.failed,
             refused: &self.refused,
-            trees: &self.trees,
-            tree_loading: &self.tree_loading,
-            explorers: &mut self.explorers,
-            explorer_clipboards: &mut self.explorer_clipboards,
-            rename_entries: &mut rename_entries,
-            paste_entries: &mut paste_entries,
-            create_entries: &mut create_entries,
-            delete_entries: &mut delete_entries,
-            discarded_explorers: &mut discarded_explorers,
+            trees: &self.explorer_search_state.trees,
+            tree_loading: &self.explorer_search_state.tree_loading,
+            explorers: &mut self.explorer_search_state.explorers,
+            explorer_clipboards: &mut self.explorer_search_state.explorer_clipboards,
+            explorer_output: &mut explorer_output,
             projects: &snapshot.projects,
             layouts: &snapshot.layouts,
             scope: &self.shell.scope,
-            auxiliary_windows: &self.auxiliary_windows,
-            title_branches: &self.title_branches,
+            auxiliary_windows: &self.shell_state.auxiliary_windows,
+            title_branches: &self.git_state.title_branches,
             commands: &mut commands,
             load_files: &mut load_files,
-            load_trees: &mut load_trees,
             target: target.as_ref(),
             focused: &mut new_focus,
             reveals: &mut self.reveals,
@@ -8214,64 +1900,68 @@ impl NativeApplication {
         };
         let mut intents = ui
             .add_enabled_ui(
-                is_enabled && !self.keybindings.is_open() && !self.palette.is_open(),
+                is_enabled
+                    && !self.commands_state.keybindings.is_open()
+                    && !self.commands_state.palette.is_open(),
                 |ui| self.shell.show(ui, &snapshot, &mut surfaces),
             )
             .inner;
-        if self
-            .pending_entry_delete
-            .as_ref()
-            .is_some_and(|pending| discarded_explorers.contains(&pending.request.project))
-        {
-            self.pending_entry_delete = None;
-        }
+        self.close_explorer_search_discarded_delete(&explorer_output.discarded_explorers);
         if matches!(self.shell.scope, WindowScope::Main) {
-            self.zen_hint.show(
+            self.shell_state.zen_hint.show(
                 ui,
                 ui.max_rect(),
                 snapshot.shell.window_chrome.zen,
                 Instant::now(),
-                &self.zen_hint_colors,
+                &self.shell_state.zen_hint_colors,
                 (
                     &presentation::message(&self.locale, "zen.hint", &[]),
                     &presentation::message(&self.locale, "zen.hintExit", &[]),
                 ),
             );
             let window = ui.max_rect();
-            if (crate::file_drop::is_hovering(&context) || self.web_views.drags().is_hovering())
+            if (crate::file_drop::is_hovering(&context)
+                || self.preview_state.web_views.drags().is_hovering())
                 && let Err(error) = crate::file_drop::paint_overlay(
                     ui,
                     window,
-                    &self.file_drop_colors,
+                    &self.shell_state.file_drop_colors,
                     &presentation::message(&self.locale, "app.dropToOpen", &[]),
-                    &mut self.navigation_icons,
+                    &mut self.explorer_search_state.navigation_icons,
                 )
             {
                 status = Some(error.to_string());
             }
             let mut paths = crate::file_drop::dropped_paths(&context);
-            paths.extend(self.web_views.drags().take_dropped());
+            paths.extend(self.preview_state.web_views.drags().take_dropped());
             if !paths.is_empty()
                 && self.closing.is_none()
                 && !self.is_exit_ready
                 && !self.services.state.is_shutting_down()
             {
-                self.submit(HostCommand::OpenDroppedPaths {
-                    focused: snapshot.focused_project().cloned(),
-                    paths,
-                });
+                self.submit(HostCommand::Shell(
+                    domains::shell::Command::OpenDroppedPaths {
+                        focused: snapshot.focused_project().cloned(),
+                        paths,
+                    },
+                ));
             }
         }
         match crate::status_error_banner::show(
             &context,
-            self.presentation_failures,
-            self.preview_theme.as_ref().unwrap_or(&self.resolved_theme),
+            self.settings_state.presentation_failures,
+            self.settings_state
+                .preview_theme
+                .as_ref()
+                .unwrap_or(&self.settings_state.resolved_theme),
             &self.locale,
-            &mut self.explorer_icons,
-            is_enabled && !self.keybindings.is_open() && !self.palette.is_open(),
+            &mut self.explorer_search_state.explorer_icons,
+            is_enabled
+                && !self.commands_state.keybindings.is_open()
+                && !self.commands_state.palette.is_open(),
         ) {
             Ok(true) => {
-                self.presentation_refresh.retry();
+                self.settings_state.presentation_refresh.retry();
                 context.request_repaint();
             }
             Ok(false) => {}
@@ -8283,62 +1973,45 @@ impl NativeApplication {
             frame_pass.web_placements = web_placements;
             frame_pass.root_enabled = is_enabled;
         } else {
-            self.auxiliary_windows
+            self.shell_state
+                .auxiliary_windows
                 .set_focused_editor(context.viewport_id(), new_focus);
         }
-        for error in settings_errors {
+        for error in settings_output.settings_errors {
             self.toasts
                 .settings_failed(&self.locale, &error, Instant::now());
         }
-        for error in theme_errors.into_iter().chain(command_errors) {
+        for error in settings_output
+            .theme_errors
+            .into_iter()
+            .chain(command_errors)
+        {
             self.toasts.ipc_error(&self.locale, &error, Instant::now());
         }
-        for notice in snippet_notices {
+        for notice in settings_output.snippet_notices {
             self.toasts.snippet(&self.locale, notice, Instant::now());
         }
-        for request in load_settings {
-            if !self.submit(HostCommand::ReadSettingsCatalog(request.clone())) {
-                self.settings_views.accept(
-                    &request,
-                    Err(AppError::Forbidden(
-                        "native Settings host is disconnected or full".into(),
-                    )),
-                );
-            }
-        }
-        for request in load_settings_resources {
-            if !self.submit(HostCommand::ReadSettingsResource(request.clone())) {
-                self.settings_views
-                    .accept_resource(request.failed(AppError::Forbidden(
-                        "native Settings resource host is disconnected or full".into(),
-                    )));
-            }
-        }
-        for request in load_app_files {
-            if !self.submit(HostCommand::ReadAppFile(request.clone())) {
-                self.app_file_views.accept(
-                    &request,
-                    Err(AppError::Forbidden(
-                        "native app file host is disconnected or full".into(),
-                    )),
-                    &mut self.store,
-                );
-            }
-        }
-        if let Err(error) =
-            self.terminal_views
-                .finish_frame(self.terminals.hub(), &self.services, &context)
-        {
-            self.status = Some(error.to_string());
-        }
-        if is_enabled && !self.system_usage.detail_open {
-            if !self.keybindings.is_capturing() && context.input(|input| input.raw.focused) {
+        self.load_settings_requests(
+            settings_output.load_settings,
+            settings_output.load_settings_resources,
+            settings_output.load_app_files,
+        );
+        self.finish_terminal_agent_frame(&context);
+        if is_enabled && !self.shell_state.system_usage.detail_open {
+            if !self.commands_state.keybindings.is_capturing()
+                && context.input(|input| input.raw.focused)
+            {
                 let scope = crate::keymap::Context {
-                    terminal: self.terminal_views.has_keyboard_focus(&context),
+                    terminal: self
+                        .terminal_agent_state
+                        .terminal_views
+                        .has_keyboard_focus(&context),
                     editor: keymap_editor_scope.is_some(),
                 };
-                self.keybindings.observe_closed(scope, Instant::now());
-                if let Err(error) = self.terminal_views.route_window_keys(
+                self.commands_state
+                    .keybindings
+                    .observe_closed(scope, Instant::now());
+                if let Err(error) = self.terminal_agent_state.terminal_views.route_window_keys(
                     &context,
                     scope,
                     keymap_editor_scope == Some(true),
@@ -8355,7 +2028,7 @@ impl NativeApplication {
                 }
             }
             if context.viewport_id() == frame_pass.overlay {
-                keymap_actions.append(&mut self.palette_commands);
+                keymap_actions.append(&mut self.commands_state.palette_commands);
             }
             intents.extend(keymap_actions.into_iter().filter_map(|action| {
                 crate::command_dispatch::intent_with_editor(
@@ -8376,21 +2049,23 @@ impl NativeApplication {
                         .changed(document, snapshot.revision, now, mirror, auto_save);
                 }
             }
-            if !self.keybindings.is_capturing()
-                && !self.palette.is_open()
+            if !self.commands_state.keybindings.is_capturing()
+                && !self.commands_state.palette.is_open()
                 && context
                     .input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::N))
                 && let Some(project) = editor_project.as_ref()
                 && let Some(pane) = target.as_ref()
             {
-                commands.push(HostCommand::NewUntitled {
+                commands.push(HostCommand::Editor(domains::editor::Command::NewUntitled {
                     project: project.clone(),
                     pane: pane.clone(),
-                });
+                }));
             }
             for tab in load_untitled {
                 if self.untitled_loading.insert(tab.clone())
-                    && !self.submit(HostCommand::OpenUntitled(tab.clone()))
+                    && !self.submit(HostCommand::Editor(domains::editor::Command::OpenUntitled(
+                        tab.clone(),
+                    )))
                 {
                     self.untitled_loading.remove(&tab);
                     context.request_repaint();
@@ -8402,85 +2077,24 @@ impl NativeApplication {
             for (path, tab) in load_files {
                 if self.loading.insert(path.clone()) {
                     self.loading_file_tabs.insert(path.clone(), tab);
-                    if !self.submit(HostCommand::OpenDocument(path.clone())) {
+                    if !self.submit(HostCommand::Editor(domains::editor::Command::OpenDocument(
+                        path.clone(),
+                    ))) {
                         self.loading.remove(&path);
                         self.loading_file_tabs.remove(&path);
                         context.request_repaint();
                     }
                 }
             }
-            for (path, max_side) in load_previews {
-                if let Some(request) = self.previews.begin(&path, max_side)
-                    && !self.submit(HostCommand::ReadPreview(request.clone()))
-                {
-                    self.previews.cancelled(&request);
-                    context.request_repaint();
-                }
-            }
-            for (tab, path, max_side) in load_pdf_previews {
-                if let Some(request) = self.pdf_previews.begin(&tab, &path, max_side)
-                    && !self.submit(HostCommand::ReadPdfPreview(request.clone()))
-                {
-                    self.pdf_previews.cancelled(&request);
-                    context.request_repaint();
-                }
-            }
-            for (tab, path, max_side) in load_hwp_previews {
-                if let Some(request) = self.hwp_previews.begin(&tab, &path, max_side)
-                    && !self.submit(HostCommand::ReadHwpPreview(request.clone()))
-                {
-                    self.hwp_previews.cancelled(&request);
-                    context.request_repaint();
-                }
-            }
-            for (tab, path) in load_presentation_previews {
-                if let Some(request) = self.presentation_previews.begin(&tab, &path)
-                    && !self.submit(HostCommand::ReadPresentationPreview(request.clone()))
-                {
-                    self.presentation_previews.cancelled(&request);
-                    context.request_repaint();
-                }
-            }
-            for (tab, path) in load_spreadsheet_previews {
-                if let Some(request) = self.spreadsheet_previews.begin(&tab, &path)
-                    && !self.submit(HostCommand::ReadSpreadsheetPreview(request.clone()))
-                {
-                    self.spreadsheet_previews.cancelled(&request);
-                    break;
-                }
-            }
-            for path in load_web_previews {
-                if let Some(request) = self.web_previews.begin(&path) {
-                    let result = self
-                        .web_bridge
-                        .as_ref()
-                        .ok_or_else(|| {
-                            AppError::Forbidden("native web preview host is disconnected".into())
-                        })
-                        .and_then(|bridge| bridge.submit(request.clone()));
-                    if let Err(error) = result {
-                        self.web_previews.accept(request, Err(error), 0);
-                    }
-                }
-            }
-            for project in load_trees {
-                if self.tree_loading.insert(project.clone())
-                    && !self.submit(HostCommand::TreeRows {
-                        project: project.clone(),
-                        offset: 0,
-                    })
-                {
-                    self.tree_loading.remove(&project);
-                    context.request_repaint();
-                }
-            }
+            self.load_preview_requests(&context, preview_output);
+            self.load_explorer_search_trees(&context, explorer_output.load_trees);
             let mut actions = Vec::new();
             for command in commands {
                 if matches!(
                     command,
-                    HostCommand::SetDirty { .. }
-                        | HostCommand::ThemeEdit(_)
-                        | HostCommand::SnippetEdit(_)
+                    HostCommand::Editor(domains::editor::Command::SetDirty { .. })
+                        | HostCommand::Settings(domains::settings::Command::ThemeEdit(_))
+                        | HostCommand::Settings(domains::settings::Command::SnippetEdit(_))
                 ) {
                     self.submit(command);
                 } else {
@@ -8488,473 +2102,55 @@ impl NativeApplication {
                 }
             }
             if !self.flush_dirty() {
-                self.terminal_views.submission_failed();
-                for (project, request) in create_entries {
-                    if let Some(explorer) = self.explorers.get_mut(&project) {
-                        explorer.create_finished(
-                            &request,
-                            Err("native dirty tab update is unavailable".into()),
-                        );
-                    }
-                }
-                for (project, request) in rename_entries {
-                    if let Some(explorer) = self.explorers.get_mut(&project) {
-                        explorer.rename_finished(
-                            &request,
-                            Err("native dirty tab update is unavailable".into()),
-                        );
-                    }
-                }
+                self.terminal_agent_state.terminal_views.submission_failed();
+                self.fail_explorer_search_entries(
+                    explorer_output.create_entries,
+                    explorer_output.rename_entries,
+                );
                 context.request_repaint();
                 return false;
             }
-            for (project, request) in create_entries {
-                self.create_entry(project, request);
-            }
-            for (project, request) in rename_entries {
-                self.rename_entry(project, request);
-            }
-            for (project, request) in paste_entries {
-                let result = self
-                    .lsp
-                    .as_ref()
-                    .ok_or_else(|| {
-                        AppError::Internal("native workspace host is unavailable".into())
-                    })
-                    .and_then(|bridge| bridge.paste_entry(project, request));
-                if let Err(error) = result {
-                    self.report(&error);
-                }
-            }
+            self.submit_explorer_search_entries(
+                explorer_output.create_entries,
+                explorer_output.rename_entries,
+                explorer_output.paste_entries,
+            );
             for command in actions {
                 if !self.submit(command) {
-                    self.terminal_views.submission_failed();
+                    self.terminal_agent_state.terminal_views.submission_failed();
                     break;
                 }
             }
             for intent in intents {
                 match intent {
-                    ShellIntent::OpenSettingsFile => {
-                        let project = match &self.shell.scope {
-                            WindowScope::Main => snapshot.focused_project(),
-                            WindowScope::Auxiliary { project, .. } => Some(project),
-                        };
-                        let command = project.and_then(|project| {
-                            crate::app_file_views::settings_command(
-                                project,
-                                snapshot.layouts.get(project)?,
-                                &self.shell.scope,
-                            )
-                        });
-                        if let Some(command) = command {
-                            self.submit(command);
-                        } else {
-                            self.notify_open_project_first();
-                        }
+                    ShellIntent::Commands(intent) => self.apply_commands_intent(intent, &context),
+                    ShellIntent::Editor(intent) => self.apply_editor_intent(
+                        intent,
+                        &context,
+                        frame,
+                        &snapshot,
+                        &command_context,
+                        &keymap_documents,
+                    ),
+                    ShellIntent::ExplorerSearch(intent) => {
+                        self.apply_explorer_search_intent(intent, &context, &snapshot)
                     }
-                    ShellIntent::EditDocument { tab, edit } => {
-                        if edit == DocumentEdit::RunSelectedText {
-                            let project = command_context.active_project.as_ref();
-                            let owner = project
-                                .and_then(|project| {
-                                    crate::symbol_sidebar::window_tree(
-                                        project,
-                                        snapshot.layouts.get(project)?,
-                                        &self.shell.scope,
-                                    )
-                                })
-                                .and_then(|(_, pane)| {
-                                    self.store.views().find(&ViewKey {
-                                        window: WINDOW_LABEL.into(),
-                                        pane: pane.clone(),
-                                        tab: tab.clone(),
-                                    })
-                                });
-                            if let Some(owner) = owner {
-                                match crate::editor_context_menu::Request::run_selected_text(
-                                    &context,
-                                    &self.store,
-                                    owner,
-                                    project,
-                                    &self.shell.scope,
-                                ) {
-                                    Ok(request) => {
-                                        self.submit(HostCommand::EditorContextMenu(request));
-                                    }
-                                    Err(error) => self.report(&editor_error(error)),
-                                }
-                            }
-                            continue;
-                        }
-                        self.document_edits.push((tab, edit));
-                        context.request_repaint();
-                    }
-                    ShellIntent::ChooseIndentation { tab, command } => {
-                        let focused = self
-                            .palette
-                            .source_focus()
-                            .filter(|_| self.palette.is_open())
-                            .or_else(|| context.memory(|memory| memory.focused()));
-                        let source = focused
-                            .and_then(|id| {
-                                self.editor_keymap_targets.get(&(context.viewport_id(), id))
-                            })
-                            .and_then(|(source, _)| {
-                                let owner = self
-                                    .editor_locations
-                                    .preview_owner(*source)
-                                    .unwrap_or(*source);
-                                let owner = self.store.views().get(owner)?;
-                                (owner.key.tab == tab)
-                                    .then(|| {
-                                        self.store.views().get(*source).map(|view| view.document)
-                                    })
-                                    .flatten()
-                            })
-                            .or_else(|| keymap_documents.get(&tab).copied());
-                        let configuration = crate::presentation_refresh::indent_configuration(
-                            &self.services.state.settings.read(),
-                        );
-                        match source.map(|document| {
-                            crate::editor_indentation::Request::new(
-                                &mut self.store,
-                                document,
-                                configuration,
-                                command,
-                            )
-                        }) {
-                            Some(Ok((request, current_size))) => {
-                                self.indentation_request = Some(request);
-                                self.palette.open_indentation(
-                                    &context,
-                                    current_size,
-                                    configuration.defaults.tab_size,
-                                );
-                            }
-                            result => {
-                                self.indentation_request = None;
-                                self.palette.dismiss(&context);
-                                if let Some(Err(error)) = result {
-                                    self.status = Some(editor_error(error).to_string());
-                                }
-                            }
-                        }
-                    }
-                    ShellIntent::FoldDocument { tab, command } => {
-                        self.fold_commands.push((tab, command));
-                        context.request_repaint();
-                    }
-                    ShellIntent::ToggleAuxiliaryExplorer { project, slot } => {
-                        self.auxiliary_windows.toggle_explorer(&project, slot);
-                        context.request_repaint();
-                    }
-                    ShellIntent::OpenSettings => {
-                        let owner = match &self.shell.scope {
-                            WindowScope::Main => snapshot.focused_project().and_then(|project| {
-                                snapshot
-                                    .layouts
-                                    .get(project)
-                                    .map(|layout| (project.clone(), layout.focused_pane.clone()))
-                            }),
-                            WindowScope::Auxiliary { project, slot } => {
-                                snapshot.layouts.get(project).and_then(|layout| {
-                                    layout
-                                        .auxiliary_windows
-                                        .iter()
-                                        .find(|window| window.slot == *slot)
-                                        .map(|window| {
-                                            (project.clone(), window.focused_pane.clone())
-                                        })
-                                })
-                            }
-                        };
-                        if let Some((project, pane)) = owner {
-                            self.submit(HostCommand::OpenSettings {
-                                project,
-                                pane,
-                                title: presentation::message(&self.locale, "settings.title", &[]),
-                            });
-                        } else {
-                            self.notify_open_project_first();
-                        }
-                    }
-                    ShellIntent::OpenKeybindings => self.keybindings.open(&context),
-                    ShellIntent::OpenPalette(entry) => {
-                        self.indentation_request = None;
-                        self.palette.open(&context, entry);
-                    }
-                    ShellIntent::NewTerminal { project, pane } => {
-                        self.submit(HostCommand::NewTerminal {
-                            project,
-                            pane,
-                            title: presentation::message(&self.locale, "terminal.title", &[]),
-                        });
-                    }
-                    ShellIntent::NewUntitled { project, pane } => {
-                        self.submit(HostCommand::NewUntitled { project, pane });
-                    }
-                    ShellIntent::OpenWelcome { project, pane } => {
-                        self.submit(HostCommand::OpenWelcome { project, pane });
-                    }
-                    ShellIntent::CopyText(text) => {
-                        self.submit(HostCommand::CopyText(text));
-                    }
-                    ShellIntent::RevealPath(path) => {
-                        self.submit(HostCommand::RevealPath(path));
-                    }
-                    ShellIntent::ShowExplorer { project, slot } => {
-                        self.show_explorer_files(&snapshot, &project, &slot);
-                        context.request_repaint();
-                    }
-                    ShellIntent::ShowAuxiliaryExplorer { project, slot } => {
-                        self.show_auxiliary_explorer_files(&project, slot);
-                        context.request_repaint();
-                    }
-                    ShellIntent::OpenTaskRunner(project) => {
-                        let generation = self
-                            .task_runner
-                            .as_ref()
-                            .map_or(0, |(generation, _)| *generation)
-                            + 1;
-                        self.task_runner = Some((generation, project.clone()));
-                        self.indentation_request = None;
-                        self.palette.open_tasks(&context, generation);
-                        if !self.submit(HostCommand::DetectTasks {
-                            project,
-                            generation,
-                        }) {
-                            self.palette.show_tasks(generation, Vec::new());
-                        }
-                    }
-                    ShellIntent::RevealInExplorer {
-                        project,
-                        slot,
-                        path,
-                        rename,
-                    } => {
-                        self.show_explorer_files(&snapshot, &project, &slot);
-                        self.submit(HostCommand::RevealExplorerPath {
-                            project,
-                            mount: slot,
-                            path,
-                            rename,
-                        });
-                    }
-                    ShellIntent::RevealInAuxiliaryExplorer {
-                        project,
-                        slot,
-                        path,
-                        rename,
-                    } => {
-                        if let Some(explorer) = self.show_auxiliary_explorer_files(&project, slot) {
-                            self.submit(HostCommand::RevealExplorerPath {
-                                project,
-                                mount: explorer,
-                                path,
-                                rename,
-                            });
-                        }
-                    }
-                    ShellIntent::MoveTabToWindow { tab, target } => {
-                        let label = matches!(target, TabWindowTarget::NewAuxiliary)
-                            .then(|| self.auxiliary_windows.reserve());
-                        if !self.submit(HostCommand::MoveTabToWindow {
-                            tab,
-                            target,
-                            label: label.clone(),
-                        }) && let Some(label) = label
-                        {
-                            self.auxiliary_windows.release(&label);
-                        }
-                    }
-                    ShellIntent::ReopenWith { path, preview } => {
-                        self.open_with.set(
-                            path,
-                            if preview {
-                                crate::open_with::Mode::Preview
-                            } else {
-                                crate::open_with::Mode::Editor
-                            },
-                        );
-                        context.request_repaint();
-                    }
-                    ShellIntent::OpenPath(path) => {
-                        self.submit(HostCommand::OpenPath(path));
-                    }
-                    ShellIntent::CloseProject(project) => self.close_project(project),
-                    ShellIntent::OpenProjectInSlot {
-                        project,
-                        slot,
-                        edge,
-                    } => {
-                        self.submit(HostCommand::OpenProjectInSlot {
-                            project,
-                            slot,
-                            edge,
-                        });
-                    }
-                    ShellIntent::SetProjectGroupMembers { group, members } => {
-                        self.submit(HostCommand::SetProjectGroupMembers { group, members });
-                    }
-                    ShellIntent::ReorderProjects(ids) => {
-                        self.submit(HostCommand::ReorderProjects(ids));
-                    }
-                    ShellIntent::ReorderProjectGroups(ids) => {
-                        self.submit(HostCommand::ReorderProjectGroups(ids));
-                    }
-                    ShellIntent::NewProjectGroup(project) => {
-                        if snapshot.project(&project).is_some() {
-                            self.project_group_dialog.create(project);
-                        }
-                    }
-                    ShellIntent::OpenProjectGroup(group) => {
-                        self.submit(HostCommand::OpenProjectGroup(group));
-                    }
-                    ShellIntent::EditProjectGroup(group) => {
-                        if let Some(group) = snapshot.groups.iter().find(|item| item.id == group) {
-                            self.project_group_dialog.edit(group);
-                        }
-                    }
-                    ShellIntent::DeleteProjectGroup(group) => {
-                        if let Some(group) = snapshot.groups.iter().find(|item| item.id == group) {
-                            self.project_group_delete.open(group);
-                        }
-                    }
-                    ShellIntent::EditProjectDisplay(project) => {
-                        if let Some(project) = snapshot.project(&project) {
-                            self.project_display_dialog.open(project);
-                        }
-                    }
-                    ShellIntent::SetProjectDisplay { project, patch } => {
-                        self.submit(HostCommand::SetProjectDisplay { project, patch });
-                    }
-                    ShellIntent::ShowOpenProjectNotice => self.notify_open_project_first(),
-                    ShellIntent::FormatEditor { tab, command } => {
-                        self.request_editor_formatting(
-                            &context,
-                            &tab,
-                            keymap_documents.get(&tab).copied(),
-                            command,
-                            None,
-                        );
-                        context.request_repaint();
-                    }
-                    ShellIntent::CodeActions { tab, command } => {
-                        self.request_editor_code_actions(
-                            &context,
-                            &tab,
-                            keymap_documents.get(&tab).copied(),
-                            command,
-                            None,
-                        );
-                        context.request_repaint();
-                    }
-                    ShellIntent::RenameEditor { tab } => {
-                        self.request_editor_rename(
-                            &context,
-                            &tab,
-                            keymap_documents.get(&tab).copied(),
-                            None,
-                        );
-                        context.request_repaint();
-                    }
-                    ShellIntent::ToggleEditorStickyScroll => {
-                        self.editor_sticky_scroll.toggle(
-                            self.services
-                                .state
-                                .settings
-                                .read()
-                                .editor_sticky_scroll_enabled,
-                        );
-                        context.request_repaint();
-                    }
-                    ShellIntent::ToggleEditorMinimap => {
-                        self.submit(HostCommand::ToggleEditorMinimap);
-                    }
-                    ShellIntent::ChangeEditorFontSize { increase } => {
-                        let current = self.services.state.settings.read().editor_font_size;
-                        self.submit(HostCommand::SetEditorFontSize(
-                            presentation::next_editor_font_size(current, increase),
-                        ));
-                    }
-                    ShellIntent::RequestCloseTab(tab) => self.request_tab_close(tab),
-                    ShellIntent::RequestCloseTabs(tabs) => self.request_close_tabs(tabs),
-                    ShellIntent::RequestSaveTab(tab) => {
-                        let document = keymap_documents.get(&tab).copied();
-                        self.request_tab_save(tab, document, frame);
-                    }
-                    ShellIntent::SelectRecentProject { project, root } => {
-                        if self.services.state.projects.read().contains_key(&project) {
-                            if let Err(error) = self
-                                .controller
-                                .submit(ShellMutation::ActivateProject(project))
-                            {
-                                self.report(&error);
-                            }
-                        } else {
-                            self.submit(HostCommand::OpenProject(root));
-                        }
-                    }
-                    ShellIntent::OpenProjectByPath => self.open_path_dialog.open(),
-                    ShellIntent::OpenFolder => {
-                        if let Some(path) = rfd::FileDialog::new().set_parent(frame).pick_folder() {
-                            match path.into_os_string().into_string() {
-                                Ok(path) => {
-                                    self.submit(HostCommand::OpenProject(path));
-                                }
-                                Err(_) => {
-                                    self.status = Some("native project path is not UTF-8".into())
-                                }
-                            }
-                        }
-                    }
-                    ShellIntent::OpenFile { project, pane } => {
-                        let root = self
-                            .services
-                            .state
-                            .projects
-                            .read()
-                            .get(&project)
-                            .map(|project| project.root.clone());
-                        if let Some(root) = root
-                            && let Some(path) = rfd::FileDialog::new()
-                                .set_parent(frame)
-                                .set_directory(root)
-                                .pick_file()
-                        {
-                            match path.into_os_string().into_string() {
-                                Ok(path) => {
-                                    self.submit(HostCommand::OpenFileTab {
-                                        project,
-                                        pane: Some(pane),
-                                        path,
-                                        preview: false,
-                                    });
-                                }
-                                Err(_) => {
-                                    self.status = Some("native file path is not UTF-8".into())
-                                }
-                            }
-                        }
-                    }
-                    ShellIntent::Mutate(command) => {
-                        if let Err(error) = self.controller.submit(command) {
-                            self.report(&error);
-                        }
-                    }
+                    ShellIntent::Git(intent) => self.apply_git_intent(intent),
+                    ShellIntent::TerminalAgent(intent) => self.apply_terminal_agent_intent(intent),
+                    ShellIntent::Settings(intent) => self.apply_settings_intent(intent, &snapshot),
+                    ShellIntent::Preview(intent) => self.apply_preview_intent(intent, &context),
+                    intent => self.apply_shell_intent(intent, frame, &snapshot),
                 }
             }
             for (tab, action) in banner_actions {
                 self.choose_disk(&tab, action);
             }
-            if let Some(request) = delete_entries.into_iter().next() {
-                self.pending_entry_delete = Some(crate::delete_dialog::Confirmation::new(request));
-            }
+            self.queue_explorer_search_delete(explorer_output.delete_entries);
             self.flush_observations();
         }
-        let is_project_display_open = self.project_display_dialog.is_open();
-        let is_project_group_open =
-            self.project_group_dialog.is_open() || self.project_group_delete.is_open();
+        let is_project_display_open = self.shell_state.project_display_dialog.is_open();
+        let is_project_group_open = self.shell_state.project_group_dialog.is_open()
+            || self.shell_state.project_group_delete.is_open();
         if context.viewport_id() == frame_pass.overlay {
             self.show_overlays(&context, frame, &snapshot, &command_context, is_enabled);
         } else {
@@ -8965,13 +2161,13 @@ impl NativeApplication {
                 &context,
                 snapshot.shell.window_chrome.zen,
                 is_enabled
-                    && !self.keybindings.is_open()
-                    && !self.palette.is_open()
+                    && !self.commands_state.keybindings.is_open()
+                    && !self.commands_state.palette.is_open()
                     && !is_project_display_open
                     && !is_project_group_open
                     && self.pending_tab_close.is_none()
-                    && self.pending_entry_delete.is_none()
-                    && !self.deleting_entry
+                    && self.explorer_search_state.pending_entry_delete.is_none()
+                    && !self.explorer_search_state.deleting_entry
                     && self.saving_missing_draft.is_none()
                     && self.saving_untitled.is_none()
                     && self.pending_disk_choice.is_none(),
@@ -8986,12 +2182,7 @@ impl NativeApplication {
         {
             self.report(&error);
         }
-        if let Err(error) =
-            self.terminal_views
-                .finish_frame(self.terminals.hub(), &self.services, &context)
-        {
-            self.status = Some(error.to_string());
-        }
+        self.finish_terminal_agent_frame(&context);
         true
     }
 
@@ -9003,109 +2194,12 @@ impl NativeApplication {
         command_context: &CommandContext,
         is_enabled: bool,
     ) {
-        if self.system_usage.detail_open
-            && crate::system_usage_view::show_detail(
-                context,
-                &self.locale,
-                &self.system_usage_appearance,
-                self.system_usage.processes(),
-            )
-        {
-            self.system_usage.detail_open = false;
-            context.request_repaint();
-        }
-        let keybindings_enabled = is_enabled
-            && !self.system_usage.detail_open
-            && self.pending_tab_close.is_none()
-            && self.pending_entry_delete.is_none()
-            && !self.deleting_entry
-            && self.saving_untitled.is_none()
-            && self.saving_missing_draft.is_none()
-            && self.pending_disk_choice.is_none();
-        let raw_overrides = self.services.state.settings.read().keymap_overrides.clone();
-        match self.keybindings.show(
-            context,
-            &self.locale,
-            raw_overrides.as_deref(),
-            keybindings_enabled && !self.palette.is_open(),
-        ) {
-            Ok(output) => {
-                output.show_tooltips(&self.locale, &self.tooltips, &self.tooltip_appearance);
-                if output.started_capture {
-                    self.terminal_views.clear_keymap_chord(context);
-                }
-                for warning in output.warnings {
-                    self.toasts.warning(warning, Instant::now());
-                }
-                for overrides in output.saves {
-                    self.submit(HostCommand::SetKeymapOverrides(overrides));
-                }
-            }
-            Err(error) => self.status = Some(error.to_string()),
-        }
-        self.show_palette(
-            context,
-            snapshot,
-            command_context,
-            raw_overrides.as_deref(),
-            keybindings_enabled,
-        );
+        self.show_shell_usage_detail(context);
+        self.show_commands_overlays(context, snapshot, command_context, is_enabled);
         self.tooltips.finish_frame(context);
-        if let Some(pending) = self.pending_entry_delete.as_mut() {
-            let choice = pending.show(context, &self.locale).choice;
-            if let Some(confirmed) = choice {
-                let request = self
-                    .pending_entry_delete
-                    .take()
-                    .expect("delete confirmation exists")
-                    .request;
-                context.memory_mut(|memory| {
-                    memory.request_focus(egui::Id::new(("native-tree-focus", &request.project)))
-                });
-                if confirmed && self.flush_dirty() {
-                    let result = self
-                        .lsp
-                        .as_ref()
-                        .ok_or_else(|| {
-                            AppError::Internal("native workspace host is unavailable".into())
-                        })
-                        .and_then(|bridge| bridge.delete_entry(request));
-                    match result {
-                        Ok(()) => self.deleting_entry = true,
-                        Err(error) => self.report(&error),
-                    }
-                }
-                context.request_repaint();
-            }
-        }
+        self.show_explorer_search_delete_dialog(context);
         self.tab_close_dialog(context, frame);
-        if let Some(path) = self.open_path_dialog.show(context, &self.locale)
-            && !self.submit(HostCommand::OpenProjectByPath(path))
-        {
-            self.open_path_dialog.finish(false);
-        }
-        if self
-            .project_display_dialog
-            .project()
-            .is_some_and(|project| snapshot.project(project).is_none())
-        {
-            self.project_display_dialog.close();
-        }
-        let locale = &self.locale;
-        let icons = &mut self.explorer_icons;
-        let status = &mut self.status;
-        let saved = self.project_display_dialog.show(
-            context,
-            &self.shell.colors,
-            &|key| presentation::message(locale, key, &[]),
-            &mut |ui, rect, icon, color| paint_rail_icon(icons, status, ui, rect, icon, color),
-        );
-        if let Some((project, patch)) = saved
-            && !self.submit(HostCommand::SetProjectDisplay { project, patch })
-        {
-            self.project_display_dialog.finish(false);
-        }
-        self.project_group_dialogs(context, snapshot);
+        self.show_shell_dialogs(context, snapshot);
     }
 
     fn finish_frame(
@@ -9120,39 +2214,7 @@ impl NativeApplication {
             ..
         } = frame_pass;
         self.flush_persistence(context);
-        let live = self
-            .web_preview_paths()
-            .into_iter()
-            .filter_map(|(tab, path)| {
-                self.web_previews
-                    .source(&path)
-                    .cloned()
-                    .map(|source| (tab, source))
-            })
-            .collect();
-        let web_enabled = is_enabled
-            && !self.keybindings.is_open()
-            && !self.palette.is_open()
-            && self.pending_tab_close.is_none()
-            && self.pending_entry_delete.is_none()
-            && !egui::Popup::is_any_open(context)
-            && !egui::DragAndDrop::has_any_payload(context)
-            && !taide_native_ui::project_drag::is_dragging(context)
-            && !taide_native_ui::tab_drag::is_dragging(context)
-            && !crate::file_drop::is_hovering(context)
-            && !self.web_views.drags().is_hovering();
-        if let Err(error) = self
-            .web_views
-            .sync(frame, context, &live, &web_placements, web_enabled)
-        {
-            self.web_views.clear();
-            for placement in web_placements {
-                if let Some(path) = self.web_preview_paths().get(&placement.tab) {
-                    self.web_previews.renderer_failed(path);
-                }
-            }
-            self.status = Some(error.to_string());
-        }
+        self.show_preview_web_views(context, frame, web_placements, is_enabled);
         let toast_position = self.services.state.settings.read().toast_position.clone();
         let toast_enabled = self.toast_interaction_enabled();
         if let Err(error) = self.toasts.show(
@@ -9190,13 +2252,14 @@ impl NativeApplication {
         let bridge = self.bridge.take().map(HostBridge::disconnect);
         let lsp = self.lsp.take().map(crate::lsp::LspBridge::disconnect);
         let web = self
+            .preview_state
             .web_bridge
             .take()
             .map(crate::preview_web_host::Bridge::disconnect);
         self.clear_builtin_json();
         let syntax = self.editor_syntax.disconnect();
-        self.web_previews.invalidate_all();
-        self.web_views.clear();
+        self.preview_state.web_previews.invalidate_all();
+        self.preview_state.web_views.clear();
         let drafts = self.drafts();
         let services = self.services.clone();
         self.runtime.block_on(async move {
@@ -9225,7 +2288,7 @@ enum DraftTarget {
     Untitled(TabId),
 }
 
-struct Draft {
+pub(crate) struct Draft {
     project: ProjectId,
     target: DraftTarget,
     content: String,
@@ -9380,38 +2443,6 @@ struct StatusBarOutput {
     errors: Vec<String>,
 }
 
-enum OutlineReveal {
-    Untitled {
-        key: ViewKey,
-        document: taide_native_editor::document::DocumentSnapshot,
-        selection: std::ops::Range<usize>,
-    },
-    File {
-        tab: TabId,
-        path: String,
-        viewport: egui::ViewportId,
-        position: crate::editor_reveal::Position,
-    },
-}
-
-/// A sidebar panel's own state, taken out of the app for one render inside the panel's error
-/// boundary, and the requests that render made (applied only if the render finished).
-#[derive(Default)]
-struct ExplorerRegion {
-    mount: Option<ShellSlotId>,
-    owner: Option<crate::explorer_clipboard_owners::Owner>,
-    sidebar: Option<crate::symbol_sidebar::Sidebar>,
-    explorer: Option<crate::explorer::Explorer>,
-    icons: crate::navigation_icons::Deferred,
-    outline_reveal: Option<OutlineReveal>,
-    is_tree_requested: bool,
-    is_reveal_taken: bool,
-    is_files_shown: bool,
-    window_pane: Option<PaneId>,
-    actions: Vec<crate::explorer::Action>,
-    errors: Vec<String>,
-}
-
 struct AppSurfaces<'a> {
     welcome: &'a crate::welcome::State,
     open_projects: &'a [taide_model::project::ProjectRef],
@@ -9447,14 +2478,9 @@ struct AppSurfaces<'a> {
     lsp_summary: Option<crate::lsp::status::Summary>,
     lsp_status_appearance: &'a crate::lsp::status::Appearance,
     app_file_views: &'a mut crate::app_file_views::Views,
-    load_app_files: &'a mut Vec<crate::app_file::ReadRequest>,
+    settings_output: &'a mut domains::settings::FrameOutput,
     settings_views: &'a mut crate::settings_view::Views,
     settings_appearance: &'a crate::settings_view::Appearance,
-    load_settings: &'a mut Vec<crate::settings_view::Request>,
-    load_settings_resources: &'a mut Vec<taide_native_ui::settings_resources::Request>,
-    settings_errors: &'a mut Vec<AppError>,
-    theme_errors: &'a mut Vec<AppError>,
-    snippet_notices: &'a mut Vec<taide_native_ui::snippet_editor::Notice>,
     terminals: &'a crate::terminal_tabs::Tabs,
     terminal_views: &'a mut crate::terminal_surface::Views,
     keymap_actions: &'a mut Vec<String>,
@@ -9509,20 +2535,15 @@ struct AppSurfaces<'a> {
     files: &'a HashMap<String, FileDocument>,
     open_with: &'a mut crate::open_with::Registry,
     previews: &'a mut crate::preview::Cache,
-    load_previews: &'a mut Vec<(String, usize)>,
+    preview_output: &'a mut domains::preview::FrameOutput,
     pdf_previews: &'a mut crate::preview_pdf::Cache,
     hwp_previews: &'a mut crate::preview_hwp::Cache,
-    load_hwp_previews: &'a mut Vec<(TabId, String, usize)>,
     pdf_appearance: &'a crate::preview_pdf_surface::Appearance,
-    load_pdf_previews: &'a mut Vec<(TabId, String, usize)>,
     presentation_previews: &'a mut crate::preview_presentation_cache::Cache,
     presentation_appearance: &'a crate::preview_presentation_surface::Appearance,
-    load_presentation_previews: &'a mut Vec<(TabId, String)>,
     spreadsheet_previews: &'a mut crate::preview_spreadsheet_cache::Cache,
     spreadsheet_appearance: &'a crate::preview_spreadsheet_surface::Appearance,
-    load_spreadsheet_previews: &'a mut Vec<(TabId, String)>,
     web_previews: &'a crate::preview_web_cache::Cache,
-    load_web_previews: &'a mut Vec<String>,
     web_placements: &'a mut Vec<crate::preview_web_view::Placement>,
     untitled: &'a HashMap<TabId, UntitledDocument>,
     untitled_loading: &'a HashSet<TabId>,
@@ -9537,11 +2558,7 @@ struct AppSurfaces<'a> {
     tree_loading: &'a HashSet<ProjectId>,
     explorers: &'a mut HashMap<ProjectId, crate::explorer::Explorer>,
     explorer_clipboards: &'a mut crate::explorer_clipboard_owners::ClipboardOwners,
-    rename_entries: &'a mut Vec<(ProjectId, crate::explorer::RenameRequest)>,
-    paste_entries: &'a mut Vec<(ProjectId, crate::explorer_clipboard::Request)>,
-    create_entries: &'a mut Vec<(ProjectId, crate::explorer::CreateRequest)>,
-    delete_entries: &'a mut Vec<crate::explorer_delete::Request>,
-    discarded_explorers: &'a mut Vec<ProjectId>,
+    explorer_output: &'a mut domains::explorer_search::FrameOutput,
     projects: &'a [taide_model::project::ProjectRef],
     layouts: &'a HashMap<ProjectId, taide_model::layout::ProjectLayout>,
     scope: &'a WindowScope,
@@ -9549,7 +2566,6 @@ struct AppSurfaces<'a> {
     title_branches: &'a crate::title_branch::Branches,
     commands: &'a mut Vec<HostCommand>,
     load_files: &'a mut Vec<(String, TabId)>,
-    load_trees: &'a mut Vec<ProjectId>,
     target: Option<&'a PaneId>,
     focused: &'a mut Option<(PaneId, TabId)>,
     reveals: &'a mut crate::editor_reveal::Reveals,
@@ -9560,7 +2576,6 @@ struct AppSurfaces<'a> {
 
 impl ShellSurfaces for AppSurfaces<'_> {
     type StatusOutput = StatusBarOutput;
-    type Explorer = ExplorerRegion;
     fn text(&self, key: &str) -> String {
         presentation::message(self.locale, key, &[])
     }
@@ -9572,16 +2587,6 @@ impl ShellSurfaces for AppSurfaces<'_> {
     }
     fn rail_recent_projects(&self) -> Vec<taide_native_ui::shell::WelcomeRecent> {
         self.welcome.rail(self.open_projects)
-    }
-    fn project_agents(&self, project: &ProjectId) -> Vec<taide_model::agent::DetectedAgent> {
-        self.services.agents.agents_for(project)
-    }
-    fn is_agent_status_badge_enabled(&self) -> bool {
-        self.services
-            .state
-            .settings
-            .read()
-            .agent_status_badge_enabled
     }
     fn is_reduced_motion(&self) -> bool {
         self.is_reduced_motion
@@ -9608,25 +2613,6 @@ impl ShellSurfaces for AppSurfaces<'_> {
     }
     fn text_with_args(&self, key: &str, arguments: &[(&str, &str)]) -> String {
         presentation::message(self.locale, key, arguments)
-    }
-    fn branch(&self, project: &ProjectId) -> Option<&str> {
-        self.title_branches.branch(project)
-    }
-    fn title_branch_icon(&mut self, ui: &Ui, rect: egui::Rect, color: egui::Color32) {
-        if let Err(error) = self.explorer_icons.paint(
-            ui,
-            rect,
-            crate::problems_icons::Glyph::GitBranch,
-            color,
-            0.0,
-        ) {
-            *self.status = Some(error.to_string());
-        }
-    }
-    fn is_auxiliary_explorer_open(&self, project: &ProjectId, slot: u32) -> bool {
-        self.auxiliary_windows
-            .find(project, slot)
-            .is_some_and(|window| window.is_explorer_open)
     }
     fn tooltip(
         &mut self,
@@ -9670,845 +2656,6 @@ impl ShellSurfaces for AppSurfaces<'_> {
             .collect();
         self.tooltips
             .show_lines(response, lines, align, self.tooltip_appearance);
-    }
-    fn problems_open(&self, slot: &ShellSlotId) -> bool {
-        self.problems.is_open(slot)
-    }
-    fn problems_panel(&mut self, ui: &mut Ui, project: &ProjectId, slot: &ShellSlotId) {
-        let opens = match self.problems.show_panel(
-            ui,
-            slot,
-            self.diagnostics,
-            self.locale,
-            self.problems_appearance,
-        ) {
-            Ok(open) => open,
-            Err(error) => {
-                *self.status = Some(error.to_string());
-                return;
-            }
-        };
-        for open in opens {
-            if matches!(
-                open.key,
-                taide_native_editor::document::DocumentKey::Untitled(_)
-            ) {
-                self.problem_opens.push(open);
-                ui.ctx().request_repaint();
-                continue;
-            }
-            let taide_native_editor::document::DocumentKey::File(path) = open.key else {
-                continue;
-            };
-            self.commands.push(HostCommand::OpenProblem {
-                project: project.clone(),
-                path: path.to_string_lossy().into_owned(),
-                line: open.line,
-                column: open.column,
-                viewport: ui.ctx().viewport_id(),
-            });
-        }
-    }
-    fn begin_explorer(
-        &mut self,
-        project: &ProjectId,
-        mount: taide_native_ui::shell::ExplorerMount<'_>,
-    ) -> ExplorerRegion {
-        let slot = match mount {
-            taide_native_ui::shell::ExplorerMount::Slot(slot) => Some(slot.clone()),
-            taide_native_ui::shell::ExplorerMount::Auxiliary(slot) => self
-                .auxiliary_windows
-                .find(project, slot)
-                .map(|window| window.explorer.clone()),
-        };
-        let Some(slot) = slot else {
-            return ExplorerRegion::default();
-        };
-        let mut region = ExplorerRegion {
-            sidebar: Some(self.symbol_sidebars.take(project, &slot)),
-            explorer: self.explorers.remove(project),
-            ..Default::default()
-        };
-        match self.explorer_clipboards.mount(&slot) {
-            Ok(owner) => region.owner = Some(owner),
-            Err(error) => region.errors.push(error.to_string()),
-        }
-        region.mount = Some(slot);
-        region
-    }
-    fn explorer(
-        &self,
-        ui: &mut Ui,
-        project: &ProjectId,
-        _: taide_native_ui::shell::ExplorerMount<'_>,
-        region: &mut ExplorerRegion,
-        _: &mut Vec<ShellIntent>,
-    ) {
-        let ExplorerRegion {
-            mount: Some(slot),
-            owner: Some(owner),
-            sidebar: Some(sidebar),
-            explorer,
-            icons,
-            outline_reveal,
-            is_tree_requested,
-            is_reveal_taken,
-            is_files_shown,
-            window_pane,
-            actions,
-            errors,
-        } = region
-        else {
-            return;
-        };
-        let (slot, owner) = (&*slot, *owner);
-        match sidebar.switch(
-            ui,
-            egui::Id::new(("symbol-sidebar", project, slot)),
-            self.locale,
-            self.navigation_appearance,
-            &mut *icons,
-        ) {
-            Ok(buttons) => {
-                for (view, response) in buttons {
-                    self.tooltips.show(
-                        &response,
-                        &presentation::message(self.locale, view.label(), &[]),
-                        egui::RectAlign::BOTTOM,
-                        self.tooltip_appearance,
-                    );
-                }
-            }
-            Err(error) => errors.push(error.to_string()),
-        }
-        if matches!(
-            sidebar.view,
-            crate::symbol_sidebar::View::Search | crate::symbol_sidebar::View::Git
-        ) {
-            return;
-        }
-        if sidebar.view == crate::symbol_sidebar::View::Outline {
-            let active = self
-                .layouts
-                .get(project)
-                .and_then(|layout| crate::symbol_sidebar::window_tree(project, layout, self.scope))
-                .and_then(|(root, focused)| {
-                    taide_native_ui::snapshot::active_tab(root, focused).map(|tab| (focused, tab))
-                });
-            let document = active.and_then(|(_, tab)| {
-                let id = match &tab.kind {
-                    TabKind::File { path } => self.files.get(path).map(|file| file.id),
-                    TabKind::Untitled { .. } => {
-                        self.untitled.get(&tab.id).map(|document| document.id)
-                    }
-                    _ => None,
-                }?;
-                self.store.documents().snapshot(id).ok()
-            });
-            let key = active.and_then(|(_, tab)| match &tab.kind {
-                TabKind::File { path } => Some(taide_native_editor::document::DocumentKey::File(
-                    path.into(),
-                )),
-                TabKind::Untitled { .. } => Some(
-                    taide_native_editor::document::DocumentKey::Untitled(tab.id.clone()),
-                ),
-                _ => None,
-            });
-            match sidebar.outline.show(
-                ui,
-                egui::Id::new(("symbol-outline", project, slot)),
-                crate::symbol_outline::Scope {
-                    key,
-                    symbols: self
-                        .editor_symbols
-                        .palette(Some(project), document.as_ref()),
-                },
-                self.locale,
-                self.navigation_appearance,
-                &mut *icons,
-            ) {
-                Ok(output) => {
-                    if let (Some((generation, index)), Some((pane, tab)), Some(document)) =
-                        (output.reveal, active, document.as_ref())
-                        && let Some(selection) = self
-                            .editor_symbols
-                            .selection(project, document, generation, index)
-                    {
-                        if matches!(tab.kind, TabKind::Untitled { .. }) {
-                            *outline_reveal = Some(OutlineReveal::Untitled {
-                                key: ViewKey {
-                                    window: WINDOW_LABEL.into(),
-                                    pane: pane.clone(),
-                                    tab: tab.id.clone(),
-                                },
-                                document: document.clone(),
-                                selection,
-                            });
-                        } else if let TabKind::File { path } = &tab.kind
-                            && let Some(position) = self
-                                .editor_symbols
-                                .position(project, document, generation, index)
-                        {
-                            *outline_reveal = Some(OutlineReveal::File {
-                                tab: tab.id.clone(),
-                                path: path.clone(),
-                                viewport: ui.ctx().viewport_id(),
-                                position,
-                            });
-                        }
-                        ui.ctx().request_repaint();
-                    }
-                }
-                Err(error) => errors.push(error.to_string()),
-            }
-            return;
-        }
-        let Some(page) = self.trees.get(project) else {
-            if !self.tree_loading.contains(project) {
-                *is_tree_requested = true;
-            }
-            ui.spinner();
-            return;
-        };
-        let explorer = explorer.get_or_insert_with(Default::default);
-        explorer.replace_clipboard(self.explorer_clipboards.clipboard(owner).cloned());
-        if let Some(path) = self.explorer_clipboards.reveal(owner) {
-            explorer.address_requests(slot);
-            explorer.paste_finished(false, Some(path.clone()));
-            *is_reveal_taken = true;
-        }
-        if let Some(project) = self.projects.iter().find(|entry| &entry.id == project) {
-            explorer.root = Some(project.root.clone());
-            explorer.title = Some(project.name.clone());
-        }
-        let output = explorer.show_with_icons(
-            ui,
-            project,
-            slot,
-            page,
-            self.locale,
-            crate::explorer::RowIcons {
-                glyphs: icons,
-                appearance: self.explorer_appearance,
-            },
-        );
-        if let Some(error) = &output.icon_error {
-            errors.push(error.to_string());
-        }
-        crate::explorer_toolbar::show_tooltips(
-            &output,
-            self.locale,
-            self.tooltips,
-            self.tooltip_appearance,
-        );
-        *window_pane = match self.scope {
-            WindowScope::Main => None,
-            WindowScope::Auxiliary { .. } => self
-                .layouts
-                .get(project)
-                .and_then(|layout| crate::symbol_sidebar::window_tree(project, layout, self.scope))
-                .map(|(_, focused)| focused.clone()),
-        };
-        *actions = output.actions;
-        *is_files_shown = true;
-    }
-    fn finish_explorer(
-        &mut self,
-        context: &egui::Context,
-        project: &ProjectId,
-        _: taide_native_ui::shell::ExplorerMount<'_>,
-        region: ExplorerRegion,
-    ) {
-        let ExplorerRegion {
-            mount,
-            owner,
-            sidebar,
-            explorer,
-            icons,
-            outline_reveal,
-            is_tree_requested,
-            is_reveal_taken,
-            is_files_shown,
-            window_pane,
-            actions,
-            errors,
-        } = region;
-        let Some(slot) = mount else {
-            return;
-        };
-        if let Some(sidebar) = sidebar {
-            self.symbol_sidebars.put(slot, sidebar);
-        }
-        if let Some(explorer) = explorer {
-            self.explorers.insert(project.clone(), explorer);
-        }
-        if let Some(error) = errors.into_iter().last() {
-            *self.status = Some(error);
-        }
-        if let Err(error) = icons.fill(&mut *self.explorer_icons, &mut *self.navigation_icons) {
-            *self.status = Some(error.to_string());
-        }
-        if is_tree_requested {
-            self.load_trees.push(project.clone());
-        }
-        match outline_reveal {
-            Some(OutlineReveal::Untitled {
-                key,
-                document,
-                selection,
-            }) => {
-                match crate::editor_reveal::reveal_document(self.store, &key, &document, selection)
-                {
-                    Ok(Some(view)) => {
-                        if let Some(body) = crate::editor_context_menu::body(context, view) {
-                            context.memory_mut(|memory| memory.request_focus(body));
-                        }
-                    }
-                    Ok(None) => {}
-                    Err(error) => *self.status = Some(editor_error(error).to_string()),
-                }
-            }
-            Some(OutlineReveal::File {
-                tab,
-                path,
-                viewport,
-                position,
-            }) => {
-                self.reveals.queue_position(
-                    crate::editor_reveal::Target {
-                        project,
-                        tab: &tab,
-                        path: &path,
-                        viewport,
-                    },
-                    position,
-                    self.layouts,
-                    Instant::now(),
-                );
-            }
-            None => {}
-        }
-        let Some(owner) = owner else {
-            return;
-        };
-        if is_reveal_taken {
-            self.explorer_clipboards.take_reveal(owner);
-        }
-        for action in actions {
-            match action {
-                crate::explorer::Action::Toggle(path) => {
-                    self.commands.push(HostCommand::TreeToggle {
-                        project: project.clone(),
-                        path,
-                    })
-                }
-                crate::explorer::Action::Open { path, preview } => {
-                    self.commands.push(HostCommand::OpenFileTab {
-                        project: project.clone(),
-                        pane: window_pane.clone(),
-                        path,
-                        preview,
-                    })
-                }
-                crate::explorer::Action::OpenToSide(row) => {
-                    if let Some(request) = crate::explorer::open_to_side_request(
-                        project,
-                        &row,
-                        self.layouts.get(project),
-                        self.scope,
-                    ) {
-                        self.commands.push(HostCommand::OpenFileToSide(request));
-                    }
-                }
-                crate::explorer::Action::OpenWith { row, mode } => {
-                    self.open_with.set(row.path.clone(), mode);
-                    self.commands.push(HostCommand::OpenFileTab {
-                        project: project.clone(),
-                        pane: window_pane.clone(),
-                        path: row.path,
-                        preview: false,
-                    });
-                }
-                crate::explorer::Action::Rename(request) => {
-                    self.rename_entries.push((project.clone(), request))
-                }
-                crate::explorer::Action::Create(request) => {
-                    self.create_entries.push((project.clone(), request))
-                }
-                crate::explorer::Action::Paste(mut request) => {
-                    request.owner = Some(owner);
-                    self.paste_entries.push((project.clone(), request))
-                }
-                crate::explorer::Action::RequestDelete(row) => {
-                    self.delete_entries.push(crate::explorer_delete::Request {
-                        project: project.clone(),
-                        path: row.path,
-                        name: row.name,
-                    })
-                }
-                crate::explorer::Action::CopyText(text) => {
-                    self.commands.push(HostCommand::CopyText(text));
-                }
-                crate::explorer::Action::RevealPath(path) => {
-                    self.commands.push(HostCommand::RevealPath(path));
-                }
-                crate::explorer::Action::OpenInBrowser(path) => {
-                    self.commands.push(HostCommand::OpenInBrowser(path));
-                }
-                crate::explorer::Action::Refresh => self.commands.push(HostCommand::RefreshTree {
-                    project: project.clone(),
-                    dirs: None,
-                }),
-                crate::explorer::Action::Collapse => self
-                    .commands
-                    .push(HostCommand::TreeCollapse(project.clone())),
-            }
-        }
-        if is_files_shown && let Some(explorer) = self.explorers.get(project) {
-            self.explorer_clipboards
-                .replace(owner, explorer.clipboard().cloned());
-        }
-    }
-    fn discard_explorer(
-        &mut self,
-        project: &ProjectId,
-        _: taide_native_ui::shell::ExplorerMount<'_>,
-        region: ExplorerRegion,
-    ) {
-        let Some(slot) = region.mount else {
-            return;
-        };
-        self.discarded_explorers.push(project.clone());
-        self.explorer_clipboards.unmount(&slot);
-        if let Some(explorer) = region.explorer {
-            self.explorers.insert(project.clone(), explorer.remounted());
-        }
-    }
-    fn tab_content(
-        &mut self,
-        ui: &mut Ui,
-        project: &ProjectId,
-        pane: &PaneId,
-        tab: &Tab,
-        intents: &mut Vec<ShellIntent>,
-    ) {
-        if matches!(tab.kind, TabKind::Settings) {
-            if self.target == Some(pane) {
-                *self.focused = None;
-            }
-            let settings = self.services.state.settings.read().clone();
-            let output = self.settings_views.show(
-                ui,
-                crate::settings_view::Owner {
-                    project: project.clone(),
-                    pane: pane.clone(),
-                    tab: tab.id.clone(),
-                },
-                &settings,
-                self.locale,
-                self.settings_appearance,
-            );
-            self.tooltips
-                .show_triggers(&output.tooltips, self.tooltip_appearance);
-            if let Some(request) = output.load {
-                self.load_settings.push(request);
-            }
-            self.load_settings_resources.extend(output.resources);
-            self.commands
-                .extend(output.changes.into_iter().map(HostCommand::UpdateSettings));
-            self.commands
-                .extend(output.themes.into_iter().map(HostCommand::ThemeEdit));
-            self.commands
-                .extend(output.snippets.into_iter().map(HostCommand::SnippetEdit));
-            self.snippet_notices.extend(output.snippet_notices);
-            self.commands.extend(
-                output
-                    .folders
-                    .into_iter()
-                    .map(HostCommand::OpenSettingsFolder),
-            );
-            if let Some(error) = output.error {
-                self.settings_errors.push(error);
-            }
-            if let Some(error) = output.theme_error {
-                self.theme_errors.push(error);
-            }
-            if output.open_keybindings {
-                intents.push(ShellIntent::OpenKeybindings);
-            }
-            if output.open_settings_file
-                && let Some(layout) = self.layouts.get(project)
-                && let Some(command) =
-                    crate::app_file_views::settings_command(project, layout, self.scope)
-            {
-                self.commands.push(command);
-            }
-            return;
-        }
-        if let TabKind::AppFile { target } = tab.kind {
-            let owner = crate::app_file::Owner {
-                project: project.clone(),
-                pane: pane.clone(),
-                tab: tab.id.clone(),
-                target,
-            };
-            if let Some(request) = self
-                .app_file_views
-                .begin(&owner, self.store, ui.is_enabled())
-            {
-                self.load_app_files.push(request);
-            }
-            if let Some(document) = self.app_file_views.document(&owner) {
-                self.show_document(ui, pane, tab, document, None, intents);
-            } else {
-                let rect = ui.available_rect_before_wrap();
-                ui.painter()
-                    .rect_filled(rect, 0.0, self.editor.appearance.background);
-                if self.app_file_views.failed(&owner) {
-                    ui.allocate_ui_with_layout(
-                        rect.size(),
-                        egui::Layout::centered_and_justified(egui::Direction::TopDown),
-                        |ui| {
-                            ui.colored_label(
-                                self.banner_appearance.error,
-                                presentation::message(self.locale, "editor.openFailed", &[]),
-                            );
-                        },
-                    );
-                } else {
-                    ui.allocate_rect(rect, egui::Sense::hover());
-                }
-            }
-            return;
-        }
-        if let TabKind::Terminal { session_id, .. } = &tab.kind {
-            let request_focus = self.target == Some(pane)
-                && self
-                    .focused
-                    .as_ref()
-                    .is_none_or(|(old_pane, old_tab)| old_pane != pane || old_tab != &tab.id);
-            let keymap_actions = &mut *self.keymap_actions;
-            let has_focused_shell = self.target.is_some();
-            let command_context = self.command_context;
-            match self.terminal_views.show_with_keymap(
-                ui,
-                crate::terminal_surface::Request {
-                    pane,
-                    tab: &tab.id,
-                    session_id,
-                    hub: self.terminals.hub(),
-                    services: self.services,
-                    appearance: self.terminal_appearance,
-                    locale: self.locale,
-                    request_focus,
-                    commands: self.commands,
-                },
-                |action| {
-                    if !crate::command_dispatch::accepts(action, has_focused_shell, command_context)
-                    {
-                        return false;
-                    }
-                    keymap_actions.push(action.into());
-                    true
-                },
-            ) {
-                Ok(response) => {
-                    if response.has_focus() {
-                        *self.focused = Some((pane.clone(), tab.id.clone()));
-                    }
-                    if response.clicked() {
-                        intents.push(ShellIntent::Mutate(ShellMutation::FocusPane(pane.clone())));
-                    }
-                }
-                Err(error) => *self.status = Some(error.to_string()),
-            }
-            return;
-        }
-        if matches!(tab.kind, TabKind::Untitled { .. }) {
-            if let Some(error) = self.untitled_failed.get(&tab.id) {
-                ui.label(error.to_string());
-                return;
-            }
-            let Some(document) = self.untitled.get(&tab.id) else {
-                if !self.untitled_loading.contains(&tab.id) {
-                    self.load_untitled.push(tab.id.clone());
-                }
-                ui.spinner();
-                return;
-            };
-            self.show_document(ui, pane, tab, document.id, None, intents);
-            return;
-        }
-        let TabKind::File { path } = &tab.kind else {
-            let rect = ui.available_rect_before_wrap();
-            ui.painter()
-                .rect_filled(rect, 0.0, self.editor.appearance.background);
-            ui.allocate_ui_with_layout(
-                rect.size(),
-                egui::Layout::centered_and_justified(egui::Direction::TopDown),
-                |ui| {
-                    ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(format!(
-                                "{}\n{}",
-                                tab.title,
-                                presentation::message(self.locale, "tab.contentUnavailable", &[])
-                            ))
-                            .size(UNAVAILABLE_TAB_FONT_SIZE)
-                            .color(
-                                self.editor
-                                    .appearance
-                                    .foreground
-                                    .gamma_multiply(UNAVAILABLE_TAB_TEXT_OPACITY),
-                            ),
-                        )
-                        .halign(egui::Align::Center),
-                    );
-                },
-            );
-            return;
-        };
-        if let crate::open_with::Surface::Preview(kind) = self.open_with.surface(path) {
-            if self.target == Some(pane) {
-                *self.focused = None;
-            }
-            let response = ui
-                .allocate_ui(ui.available_size(), |ui| {
-                    if kind == crate::open_with::PreviewKind::Hwp {
-                        let output = crate::preview_hwp_surface::show_with_tooltips(
-                            ui,
-                            self.hwp_previews,
-                            &tab.id,
-                            path,
-                            &tab.title,
-                            self.locale,
-                            self.pdf_appearance,
-                        );
-                        self.tooltips
-                            .show_triggers(&output.tooltips, self.tooltip_appearance);
-                        if output.external {
-                            self.commands.push(HostCommand::OpenPath(path.clone()));
-                        }
-                        self.load_hwp_previews.push((
-                            tab.id.clone(),
-                            path.clone(),
-                            ui.input(|input| input.max_texture_side),
-                        ));
-                        return;
-                    }
-                    if kind == crate::open_with::PreviewKind::Pdf {
-                        let output = crate::preview_pdf_surface::show_with_tooltips(
-                            ui,
-                            self.pdf_previews,
-                            &tab.id,
-                            path,
-                            &tab.title,
-                            self.locale,
-                            self.pdf_appearance,
-                        );
-                        self.tooltips
-                            .show_triggers(&output.tooltips, self.tooltip_appearance);
-                        if output.external {
-                            self.commands.push(HostCommand::OpenPath(path.clone()));
-                        }
-                        self.load_pdf_previews.push((
-                            tab.id.clone(),
-                            path.clone(),
-                            ui.input(|input| input.max_texture_side),
-                        ));
-                        return;
-                    }
-                    if kind == crate::open_with::PreviewKind::Presentation {
-                        if crate::preview_presentation_surface::show(
-                            ui,
-                            self.presentation_previews,
-                            &tab.id,
-                            path,
-                            &tab.title,
-                            self.locale,
-                            self.presentation_appearance,
-                        ) {
-                            self.commands.push(HostCommand::OpenPath(path.clone()));
-                        }
-                        self.load_presentation_previews
-                            .push((tab.id.clone(), path.clone()));
-                        return;
-                    }
-                    if kind == crate::open_with::PreviewKind::Spreadsheet {
-                        if crate::preview_spreadsheet_surface::show(
-                            ui,
-                            self.spreadsheet_previews,
-                            &tab.id,
-                            path,
-                            &tab.title,
-                            self.locale,
-                            self.spreadsheet_appearance,
-                        ) {
-                            self.commands.push(HostCommand::OpenPath(path.clone()));
-                        }
-                        self.load_spreadsheet_previews
-                            .push((tab.id.clone(), path.clone()));
-                        return;
-                    }
-                    if kind != crate::open_with::PreviewKind::Image {
-                        if matches!(
-                            kind,
-                            crate::open_with::PreviewKind::Html
-                                | crate::open_with::PreviewKind::Audio
-                                | crate::open_with::PreviewKind::Video
-                        ) {
-                            if let Some(source) = self.web_previews.source(path) {
-                                let bounds =
-                                    ui.available_rect_before_wrap().intersect(ui.clip_rect());
-                                self.web_placements
-                                    .push(crate::preview_web_view::Placement {
-                                        tab: tab.id.clone(),
-                                        source: source.clone(),
-                                        bounds,
-                                        background: self
-                                            .pdf_appearance
-                                            .background
-                                            .to_srgba_unmultiplied(),
-                                        focused: self.target == Some(pane),
-                                    });
-                                ui.allocate_rect(bounds, egui::Sense::hover());
-                            } else {
-                                let appearance = crate::preview_status::Appearance {
-                                    background: self.pdf_appearance.background,
-                                    border: self.pdf_appearance.border,
-                                    foreground: self.pdf_appearance.foreground,
-                                    muted: self.pdf_appearance.muted,
-                                };
-                                if crate::preview_status::show(
-                                    ui,
-                                    &tab.id,
-                                    self.web_previews.error(path),
-                                    &tab.title,
-                                    self.locale,
-                                    &appearance,
-                                    "preview.notSupported",
-                                ) {
-                                    self.commands.push(HostCommand::OpenPath(path.clone()));
-                                }
-                                self.load_web_previews.push(path.clone());
-                            }
-                            return;
-                        }
-                        ui.label(format!(
-                            "native preview provider is not connected: {kind:?}"
-                        ));
-                        return;
-                    }
-                    if let Some(error) = self.previews.error(path) {
-                        ui.label(presentation::message(
-                            self.locale,
-                            "preview.notSupported",
-                            &[],
-                        ));
-                        ui.label(&tab.title);
-                        ui.label(error.to_string());
-                        if ui
-                            .button(presentation::message(
-                                self.locale,
-                                "preview.openExternally",
-                                &[],
-                            ))
-                            .clicked()
-                        {
-                            self.commands.push(HostCommand::OpenPath(path.clone()));
-                        }
-                        return;
-                    }
-                    if let Some(texture) = self.previews.advance(path, ui.ctx()) {
-                        crate::preview::show_image(
-                            ui,
-                            texture,
-                            path.rsplit('/').next().unwrap_or_default(),
-                        );
-                        return;
-                    }
-                    self.load_previews
-                        .push((path.clone(), ui.input(|input| input.max_texture_side)));
-                })
-                .response;
-            if response.contains_pointer() && ui.input(|input| input.pointer.any_pressed()) {
-                intents.push(ShellIntent::Mutate(ShellMutation::FocusPane(pane.clone())));
-            }
-            return;
-        }
-        if let Some(draft) = self.missing_drafts.get(path) {
-            ui.horizontal(|ui| {
-                ui.colored_label(
-                    ui.visuals().error_fg_color,
-                    presentation::message(self.locale, "editor.sourceDeleted", &[]),
-                );
-                if ui
-                    .button(presentation::message(
-                        self.locale,
-                        "editor.saveDraftAs",
-                        &[],
-                    ))
-                    .clicked()
-                {
-                    self.save_missing_drafts.push(tab.id.clone());
-                }
-            });
-            egui::ScrollArea::vertical()
-                .id_salt(("native-missing-draft", &tab.id))
-                .show(ui, |ui| {
-                    ui.label(egui::RichText::new(&draft.mirror.content).monospace());
-                });
-            return;
-        }
-        if self.refused.contains(path) {
-            let (_, command) = crate::file_loading::show_refused(ui, self.locale, path);
-            if let Some(command) = command {
-                self.commands.push(command);
-            }
-            return;
-        }
-        if let Some(error) = self.failed.get(path) {
-            ui.allocate_ui_with_layout(
-                ui.available_size(),
-                egui::Layout::top_down(egui::Align::Center).with_main_align(egui::Align::Center),
-                |ui| {
-                    ui.colored_label(
-                        ui.visuals().error_fg_color,
-                        crate::toast::describe_error(self.locale, error),
-                    );
-                },
-            );
-            return;
-        }
-        let Some(document) = self.files.get(path) else {
-            if !self.loading.contains(path) {
-                self.load_files.push((path.clone(), tab.id.clone()));
-            }
-            ui.spinner();
-            return;
-        };
-        self.show_document(ui, pane, tab, document.id, Some(path), intents);
-    }
-    fn tab_icon(
-        &mut self,
-        ui: &Ui,
-        rect: egui::Rect,
-        tab: &Tab,
-        agent_color: Option<egui::Color32>,
-        title_color: egui::Color32,
-    ) {
-        let (glyph, color) = crate::problems_icons::tab(&tab.kind, agent_color.is_some());
-        let color = agent_color.unwrap_or_else(|| {
-            color.map_or(title_color, |color| {
-                self.explorer_appearance.file_color(color)
-            })
-        });
-        if let Err(error) = self.explorer_icons.paint(ui, rect, glyph, color, 0.0) {
-            *self.status = Some(error.to_string());
-        }
-    }
-    fn can_reopen_with(&self, path: &str) -> bool {
-        crate::open_with::preview_kind(path.rsplit('/').next().unwrap_or_default()).is_some()
     }
     fn prepare_status_bar(&mut self, context: &egui::Context) {
         self.status_ready = StatusReady::default();
@@ -10635,760 +2782,38 @@ impl ShellSurfaces for AppSurfaces<'_> {
 }
 
 impl AppSurfaces<'_> {
-    fn show_breadcrumbs(
-        &mut self,
-        ui: &mut Ui,
-        pane: &PaneId,
-        tab: &Tab,
-        view: ViewId,
-        snapshot: &taide_native_editor::document::DocumentSnapshot,
-        intents: &mut Vec<ShellIntent>,
-    ) -> AppResult<()> {
-        let owner = self
-            .layouts
-            .iter()
-            .find(|(_, layout)| {
-                taide_layout::service::all_roots(layout)
-                    .any(|root| taide_layout::service::find_leaf(root, pane).is_some())
-            })
-            .map(|(project, _)| project);
-        let project =
-            owner.and_then(|owner| self.projects.iter().find(|project| &project.id == owner));
-        let symbols = self.editor_symbols.palette(owner, Some(snapshot));
-        let source = match (&tab.kind, project) {
-            (TabKind::File { path }, Some(project)) => Some(crate::breadcrumbs::Source {
-                project: project.id.clone(),
-                pane: pane.clone(),
-                tab: tab.id.clone(),
-                path: path.clone(),
-                document: snapshot.id,
-                revision: snapshot.revision,
-                language: snapshot.metadata.language_id.clone(),
-                generation: symbols.generation,
-            }),
-            _ => None,
-        };
-        let caret = self
-            .store
-            .views()
-            .get(view)
-            .and_then(|state| state.selection.selections.get(state.selection.primary))
-            .map(|selection| selection.head);
-        let rows = owner
-            .and_then(|project| self.trees.get(project))
-            .map_or(&[][..], |page| page.rows.as_slice());
-        let mut empty = crate::breadcrumbs::Bar::default();
-        let bar = match &source {
-            Some(source) => self.breadcrumbs.entry(ui.ctx().viewport_id(), source),
-            None => &mut empty,
-        };
-        let output = bar.show(
-            ui,
-            egui::Id::new(("breadcrumbs", ui.ctx().viewport_id(), pane, &tab.id)),
-            crate::breadcrumbs::Scope {
-                source,
-                root: project.map_or("", |project| project.root.as_str()),
-                caret,
-                symbols,
-                rows,
-            },
-            self.locale,
-            self.navigation_appearance,
-            self.navigation_icons,
-        )?;
-        if output
-            .segments
-            .iter()
-            .chain(&output.entries)
-            .any(|response| response.has_focus())
-        {
-            *self.focused = Some((pane.clone(), tab.id.clone()));
-            if Some(pane) != self.target {
-                intents.push(ShellIntent::Mutate(ShellMutation::FocusPane(pane.clone())));
-            }
-        }
-        for action in output.actions {
-            match action {
-                crate::breadcrumbs::Action::RevealTree(source) => self
-                    .commands
-                    .push(HostCommand::RevealBreadcrumbTree(source)),
-                crate::breadcrumbs::Action::OpenFile { source, path } => {
-                    self.commands.push(HostCommand::OpenBreadcrumbFile {
-                        source,
-                        path,
-                        viewport: ui.ctx().viewport_id(),
-                    })
-                }
-                crate::breadcrumbs::Action::RevealSymbol { source, index } => {
-                    if let Some(position) = self.editor_symbols.position(
-                        &source.project,
-                        snapshot,
-                        source.generation,
-                        index,
-                    ) {
-                        self.reveals.queue_position(
-                            crate::editor_reveal::Target {
-                                project: &source.project,
-                                tab: &source.tab,
-                                path: &source.path,
-                                viewport: ui.ctx().viewport_id(),
-                            },
-                            position,
-                            self.layouts,
-                            Instant::now(),
-                        );
-                        ui.ctx().request_repaint();
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn show_document(
-        &mut self,
-        ui: &mut Ui,
-        pane: &PaneId,
-        tab: &Tab,
-        document: DocumentId,
-        path: Option<&str>,
-        intents: &mut Vec<ShellIntent>,
-    ) {
-        let key = ViewKey {
-            window: WINDOW_LABEL.into(),
-            pane: pane.clone(),
-            tab: tab.id.clone(),
-        };
-        let result = self
-            .store
-            .attach_view(key, document)
-            .map_err(editor_error)
-            .and_then(|view| {
-                self.editor_view_state.restore(self.store, view, tab.view_state.as_deref()).map_err(editor_error)?;
-                let indent_configuration = crate::presentation_refresh::indent_configuration(
-                    &self.services.state.settings.read(),
-                );
-                let indent = self.store.configure_indentation(document, indent_configuration)
-                    .map_err(editor_error)?;
-                let snapshot = self
-                    .store
-                    .documents()
-                    .snapshot(document)
-                    .map_err(editor_error)?;
-                self.show_breadcrumbs(ui, pane, tab, view, &snapshot, intents)?;
-                let mut focus = Some(pane) == self.target
-                    && self
-                        .focused
-                        .as_ref()
-                        .is_none_or(|(old_pane, old_tab)| old_pane != pane || old_tab != &tab.id);
-                if path.is_some() {
-                    if snapshot.metadata.read_only {
-                        let key = if snapshot.metadata.lossy {
-                            "editor.readOnlyLossyEncoding"
-                        } else {
-                            "editor.readOnlyLargeFile"
-                        };
-                        ui.colored_label(
-                            self.banner_appearance.warning,
-                            presentation::message(self.locale, key, &[]),
-                        );
-                    }
-                    let variant = if self.store.has_disk_conflict(document).unwrap_or(false) {
-                        Some(BannerVariant::ChangedOnDisk)
-                    } else {
-                        self.restore_notices.get(&tab.id).copied()
-                    };
-                    if let Some(variant) = variant {
-                        let output = taide_native_ui::conflict_banner::show(
-                            ui,
-                            self.locale,
-                            self.banner_appearance,
-                            variant,
-                        );
-                        if let Some(action) = output.action {
-                            self.banner_actions.push((tab.id.clone(), action));
-                        }
-                    }
-                }
-                self.editor_markdown.toolbar(ui, pane, &snapshot.metadata.language_id,
-                    &presentation::message(self.locale, "editor.toggleMarkdownPreview", &[]));
-                let (editor_rect, _) = self.editor_markdown.regions(ui, pane,
-                    &snapshot.metadata.language_id,
-                    self.services.state.settings.read().resizer_thickness as f32,
-                    self.editor_markdown_colors.border);
-                let parent_ui = ui;
-                let mut editor_ui = parent_ui.new_child(egui::UiBuilder::new().id(parent_ui.id()).max_rect(editor_rect));
-                editor_ui.set_clip_rect(editor_rect.intersect(parent_ui.clip_rect()));
-                let ui = &mut editor_ui;
-                let settings = self.services.state.settings.read();
-                let mut editor_presentation =
-                    crate::presentation_refresh::editor_presentation(&settings);
-                editor_presentation.options.colors = Some(self.editor_display_colors);
-                editor_presentation.options.bracket_colors = Some(self.editor_bracket_colors);
-                editor_presentation.options.sticky_colors = Some(self.editor_sticky_colors);
-                let editor_project = self.layouts.iter().find_map(|(project, layout)| {
-                    taide_layout::service::all_roots(layout).any(|root| taide_layout::service::find_leaf(root, pane).is_some()).then_some(project)
-                });
-                let syntax_folds = editor_project.and_then(|project| self.editor_folding.model(project, &snapshot))
-                    .or_else(|| self.editor_folding.builtin_model(&snapshot));
-                editor_presentation.options.sticky_model = editor_project.and_then(|project| self.editor_symbols.sticky(project, &snapshot))
-                    .or_else(|| self.editor_symbols.builtin_sticky(&snapshot));
-                editor_presentation.options.minimap_colors = Some(self.editor_minimap_colors);
-                editor_presentation.options.diagnostic_colors = Some(self.editor_diagnostic_colors);
-                editor_presentation.options.overview_colors = Some(self.editor_overview_colors);
-                editor_presentation.options.problem_colors = Some(self.editor_problem_colors);
-                editor_presentation.options.location_colors = Some(self.editor_location_colors);
-                editor_presentation.options.documentation_colors = Some(self.editor_documentation_colors);
-                editor_presentation.options.completion_colors = Some(self.editor_completion_colors);
-                editor_presentation.options.sticky_scroll = self.editor_sticky_scroll;
-                editor_presentation.options.sticky_toggle_label = Some(presentation::message(self.locale, "settings.editorStickyScroll", &[]));
-                drop(settings);
-                editor_presentation.options.folding =
-                    taide_native_ui::presentation::editor_folding(snapshot.metadata.tier);
-                editor_presentation.options.bracket_pair_colorization &=
-                    taide_native_ui::presentation::editor_folding(snapshot.metadata.tier);
-                let editor = self.editor.with_indent(indent);
-                if ui.is_enabled()
-                    && let Some(path) = path
-                    && let Some(position) =
-                        self.reveals
-                            .consume(&tab.id, path, ui.ctx().viewport_id(), Instant::now())
-                {
-                    if let Some(target) = self.editor_locations.take_navigation(&tab.id, path, ui.ctx().viewport_id(), Instant::now()) {
-                        self.editor_locations.navigate(self.store, view, &target, Instant::now()).map_err(editor_error)?;
-                    } else {
-                    let tokens = self.editor_syntax.tokens(self.store, document);
-                    editor
-                        .reveal_tokenized(
-                            ui,
-                            self.store,
-                            view,
-                            position.line,
-                            position.column,
-                            &editor_presentation,
-                            tokens,
-                        )
-                        .map_err(editor_error)?;
-                    }
-                    focus = true;
-                }
-                if let Some(path) = path && let Some(project) = editor_project {
-                    self.editor_locations.adopt_pending(self.store, view, project, path, ui.ctx().viewport_id(), Instant::now()).map_err(editor_error)?;
-                }
-                let mut next = 0;
-                let mut problem_provider = crate::editor_problems::Provider {
-                    state: &mut *self.editor_problems, diagnostics: self.diagnostics,
-                    project: self.layouts.iter().find(|(_, layout)| taide_layout::service::all_roots(layout).any(|root| taide_layout::service::find_leaf(root, pane).is_some())).map(|(project, _)| project.clone()),
-                    commands: &mut *self.commands, viewport: ui.ctx().viewport_id(), scope: self.scope,
-                };
-                if ui.is_enabled() {
-                    for (_, edit) in self.document_edits.extract_if(.., |(owner, edit)| owner == &tab.id && matches!(edit, DocumentEdit::Problem(_))) {
-                        if let DocumentEdit::Problem(command) = edit && let Err(error) = taide_native_ui::editor_problems::Provider::execute(&mut problem_provider, self.store, view, command) {
-                            *self.status = Some(editor_error(error).to_string());
-                        }
-                    }
-                }
-                let mut edit_errors = Vec::new();
-                let text_resources = crate::editor_command_text::resources()?;
-                let compare = |left: &str, right: &str| text_resources.compare(left, right);
-                let preview_document = self.editor_locations.prepare_preview(self.store, view).map_err(editor_error)?;
-                let preview_tokens = preview_document.and_then(|document| self.editor_syntax.peek_tokens(self.store, document));
-                let hover_tokens = self.editor_locations.hover_document(self.store, view).and_then(|document| self.editor_syntax.peek_tokens(self.store, document));
-                let preview_presentation = editor_presentation.clone();
-                let navigation_highlight = self.editor_locations.highlight(self.store, view, Instant::now(), self.editor_location_colors.highlight.to_array());
-                if let Some((_, delay)) = &navigation_highlight { ui.ctx().request_repaint_after(*delay); }
-                let mut location_commands = Vec::new();
-                let documentation_state = std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_documentation));
-                let highlight_consumer = crate::editor_highlights::Consumer {
-                    state: std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_highlights)),
-                    lsp: self.lsp,
-                    context: ui.ctx().clone(),
-                    colors: self.editor_highlight_colors,
-                };
-                if ui.is_enabled() {
-                    let highlight_commands = self.document_edits.extract_if(.., |(owner, edit)| owner == &tab.id && matches!(edit, DocumentEdit::Highlight(_)))
-                        .filter_map(|(_, edit)| if let DocumentEdit::Highlight(command) = edit { Some(command) } else { None }).collect::<Vec<_>>();
-                    for command in highlight_commands {
-                        let source = highlight_consumer.state.borrow().source_for_owner(self.store, ui.ctx().viewport_id(), view);
-                        if let Err(error) = highlight_consumer.execute(self.store, editor_project, view, source, command) {
-                            *self.status = Some(editor_error(error).to_string());
-                        }
-                    }
-                }
-                let completion_consumer = crate::editor_completion::Consumer {
-                    state: std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_completion)),
-                    services: self.services,
-                    files: self.settings_views.snippet_catalog().snapshot().unwrap_or_default(),
-                    locale: Some(self.locale), edit_colors: Some(self.editor_ai_edit_colors),
-                    context: ui.ctx().clone(),
-                };
-                let code_lens_consumer = crate::editor_code_lenses::Consumer {
-                    state: std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_code_lenses)),
-                    lsp: self.lsp, context: ui.ctx().clone(), colors: self.editor_code_lens_colors,
-                    enabled: self.services.state.settings.read().editor_code_lens_enabled,
-                };
-                let selection_range_consumer = crate::editor_selection_ranges::Consumer {
-                    state: std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_selection_ranges)),
-                    lsp: self.lsp, context: ui.ctx().clone(),
-                };
-                let selection_range_preview = self.editor_locations.current(view).and_then(|session| session.preview);
-                let selection_range_source = ui.memory(|memory| memory.focused()).and_then(|id| self.editor_keymap_targets.get(&(ui.ctx().viewport_id(), id))).and_then(|(source, _)| {
-                    (*source == view || selection_range_preview == Some(*source)).then_some(*source)
-                }).unwrap_or(view);
-                if ui.is_enabled() {
-                    for _ in self.document_edits.extract_if(.., |(owner, edit)| owner == &tab.id && *edit == DocumentEdit::CodeLens) {
-                        let preview = self.editor_locations.current(view).and_then(|session| session.preview);
-                        let source = ui.memory(|memory| memory.focused()).and_then(|id| self.editor_keymap_targets.get(&(ui.ctx().viewport_id(), id))).and_then(|(source, _)| {
-                            (*source == view || preview == Some(*source)).then_some(*source)
-                        }).unwrap_or(view);
-                        code_lens_consumer.before(self.store, editor_project, view, source);
-                        code_lens_consumer.state.borrow_mut().begin_picker(self.store, ui.ctx().viewport_id(), source);
-                        ui.ctx().request_repaint();
-                    }
-                }
-                let inlay_consumer = crate::editor_inlay_hints::Consumer {
-                    state: std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_inlay_hints)),
-                    lsp: self.lsp, context: ui.ctx().clone(), colors: self.editor_inlay_hint_colors,
-                };
-                let mut documentation_host_commands = Vec::new();
-                let mut documentation_provider = crate::editor_documentation::Provider {
-                    state: documentation_state.clone(), project: editor_project.cloned(), owner: view,
-                    owner_key: self.store.views().get(view).ok_or_else(|| editor_error(taide_native_editor::document::EditorError::NotFound))?.key.clone(),
-                    lsp: self.lsp, viewport: ui.ctx().viewport_id(), commands: &mut documentation_host_commands,
-                    appearance: &editor.appearance, language: snapshot.metadata.language_id.clone(),
-                };
-                let documentation_commands = if ui.is_enabled() {
-                    self.document_edits.extract_if(.., |(owner, edit)| owner == &tab.id && matches!(edit, DocumentEdit::Documentation(_)))
-                        .filter_map(|(_, edit)| if let DocumentEdit::Documentation(command) = edit { Some(command) } else { None }).collect::<Vec<_>>()
-                } else { Vec::new() };
-                let completion_commands = if ui.is_enabled() {
-                    self.document_edits.extract_if(.., |(owner, edit)| owner == &tab.id && matches!(edit, DocumentEdit::Completion(_)))
-                        .filter_map(|(_, edit)| if let DocumentEdit::Completion(command) = edit { Some(command) } else { None }).collect::<Vec<_>>()
-                } else { Vec::new() };
-                let mut preview_focus_targets = Vec::new();
-                let mut preview_shown_lines = Vec::new();
-                let preview_overrides = self.services.state.settings.read().keymap_overrides.clone();
-                let mut location_provider = crate::editor_locations::Provider {
-                    state: &mut *self.editor_locations, models: self.peek_models, project: editor_project.cloned(), lsp: self.lsp,
-                    symbols: Some(self.editor_symbols), folding: Some(self.editor_folding), diagnostics: Some(self.diagnostics),
-                    layout: editor_project.and_then(|project| self.layouts.get(project)), scope: self.scope,
-                    commands: &mut location_commands, viewport: ui.ctx().viewport_id(), editor: &editor,
-                    indentation: indent_configuration,
-                    presentation: &preview_presentation, tokens: preview_tokens, hover_tokens, shown_lines: &mut preview_shown_lines, changed: &mut *self.changed_documents,
-                    overrides: preview_overrides.as_deref(), focus_targets: &mut preview_focus_targets,
-                    find_history: None, find_appearance: None,
-                    documentation: Some(documentation_state),
-                    completion: Some(completion_consumer.clone()),
-                    highlights: Some(highlight_consumer.clone()),
-                    inlay_hints: Some(inlay_consumer.clone()),
-                    code_lenses: Some(code_lens_consumer.clone()),
-                    selection_ranges: Some(selection_range_consumer.clone()),
-                    rename: Some(crate::editor_rename_controller::Consumer(std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_rename)))),
-                    code_actions: Some(crate::editor_code_actions_controller::Consumer(std::rc::Rc::new(std::cell::RefCell::new(&mut *self.editor_code_actions)))),
-                    code_action_colors: Some(self.editor_code_action_colors),
-                };
-                let mut code_action_provider = crate::editor_code_actions_controller::Provider { consumer: location_provider.code_actions.as_ref().expect("code action consumer").clone(), lsp: self.lsp, context: ui.ctx().clone(), font: editor.appearance.font.clone(), tab_size: editor.indent_options(&snapshot).tab_size };
-                let mut rename_provider = crate::editor_rename_controller::Provider {
-                    consumer: location_provider.rename.as_ref().expect("rename consumer").clone(), lsp: self.lsp,
-                };
-                if ui.is_enabled() {
-                    for (_, edit) in self.document_edits.extract_if(.., |(owner, edit)| owner == &tab.id && matches!(edit, DocumentEdit::Location(_))) {
-                        if let DocumentEdit::Location(command) = edit && let Err(error) = taide_native_ui::editor_locations::Provider::execute(&mut location_provider, self.store, view, command) {
-                            *self.status = Some(editor_error(error).to_string());
-                        }
-                    }
-                }
-                let syntax_lease =
-                    crate::editor_syntax::SyntaxLease::new(&mut *self.editor_syntax, document);
-                let language = crate::editor_syntax::language_rules(&snapshot.metadata.language_id)
-                    .map(
-                        |rules| taide_native_editor::language_configuration::Language {
-                            rules,
-                            syntax: &syntax_lease,
-                        },
-                    );
-                let mut completion_host_commands = Vec::new();
-                if ui.is_enabled() {
-                    selection_range_consumer.before(self.store, editor_project, view, view,
-                        taide_native_editor::line_commands::LineCommandContext {
-                            indent: editor.indent_options(&snapshot), language, syntax: &syntax_lease,
-                            compare: Some(&compare), transforms: Some(&text_resources.transforms),
-                            word_rules: language.map(|language| language.rules).or_else(|| crate::editor_syntax::language_rules("plaintext")),
-                        }).map_err(editor_error)?;
-                }
-                let mut completion_provider = crate::editor_completion::Provider {
-                    consumer: completion_consumer.clone(), project: editor_project.cloned(), owner: view,
-                    owner_key: self.store.views().get(view).ok_or_else(|| editor_error(taide_native_editor::document::EditorError::NotFound))?.key.clone(),
-                    lsp: self.lsp, viewport: ui.ctx().viewport_id(), commands: &mut completion_host_commands,
-                    editor: &editor, syntax: &syntax_lease, language: snapshot.metadata.language_id.clone(),
-                    model_path: match &snapshot.key {
-                        taide_native_editor::document::DocumentKey::File(path) => path.to_string_lossy().into_owned(),
-                        taide_native_editor::document::DocumentKey::Untitled(tab) => tab.to_string(),
-                        taide_native_editor::document::DocumentKey::AppFile(_) => path.unwrap_or(&tab.title).to_owned(),
-                    },
-                };
-                let mut menu_keyboard_open = false;
-                if ui.is_enabled() {
-                    for _ in self.document_edits.extract_if(.., |(owner, edit)| owner == &tab.id && *edit == DocumentEdit::ContextMenu) {
-                        let preview = location_provider.state.current(view).and_then(|session| session.preview);
-                        let request = crate::editor_context_menu::take_palette(ui.ctx(), view);
-                        if request.as_ref().is_some_and(|request| {
-                            !request.matches(self.store, request.source, view, ui.ctx().viewport_id())
-                        }) {
-                            continue;
-                        }
-                        let source = request.map(|request| request.source).or_else(|| {
-                            ui.memory(|memory| memory.focused()).and_then(|id| {
-                                self.editor_keymap_targets.get(&(ui.ctx().viewport_id(), id))
-                                    .map(|(source, _)| *source).filter(|source| Some(*source) == preview)
-                            })
-                        }).unwrap_or(view);
-                        if source == view {
-                            menu_keyboard_open = true;
-                        } else if Some(source) == preview
-                            && let Some(body) = crate::editor_context_menu::body(ui.ctx(), source)
-                        {
-                            taide_native_ui::editor_context_menu::request_keyboard(ui.ctx(), body, usize::MAX);
-                        }
-                    }
-                }
-                let edited = ui.is_enabled()
-                    && crate::command_dispatch::apply_document_edits_with_cursor(
-                        self.store,
-                        view,
-                        &tab.id,
-                        taide_native_editor::line_commands::LineCommandContext {
-                            indent: editor.indent_options(&snapshot),
-                            language,
-                            syntax: &syntax_lease,
-                            compare: Some(&compare),
-                            transforms: Some(&text_resources.transforms),
-                            word_rules: language
-                                .map(|language| language.rules)
-                                .or_else(|| crate::editor_syntax::language_rules("plaintext")),
-                        },
-                        indent_configuration,
-                        self.document_edits,
-                        &mut edit_errors,
-                        |store, command, context| {
-                            if matches!(command, taide_native_editor::cursor_commands::CursorCommand::Expand | taide_native_editor::cursor_commands::CursorCommand::Shrink) {
-                                selection_range_consumer.queue(store, editor_project, view, selection_range_source,
-                                    command == taide_native_editor::cursor_commands::CursorCommand::Expand)?;
-                                if selection_range_source == view {
-                                    selection_range_consumer.before(store, editor_project, view, view, context)?;
-                                }
-                                return Ok(false);
-                            }
-                            taide_native_editor::cursor_commands::run_cursor_command(store, view, command, context)
-                        },
-                    );
-                self.command_errors
-                    .extend(edit_errors.into_iter().map(editor_error));
-                let find = self.editor_find.entry(view).or_default();
-                let compiler = taide_native_syntax::MonacoFindPatternCompiler;
-                let rules = language.map(|language| language.rules).or_else(|| crate::editor_syntax::language_rules("plaintext"));
-                let mut find_edited = false;
-                if ui.is_enabled() {
-                    for (_, edit) in self.document_edits.extract_if(.., |(owner, edit)| owner == &tab.id && matches!(edit, DocumentEdit::Find(_))) {
-                        if let DocumentEdit::Find(command) = edit {
-                            match find.execute(command, self.store, view, &compiler, rules) {
-                                Ok(changed) => find_edited |= changed,
-                                Err(error) => *self.status = Some(error.to_string()),
-                            }
-                        }
-                    }
-                }
-                let before_find = self.store.documents().snapshot(document).map_err(editor_error)?.revision;
-                let mut find_keymap_index = 0;
-                let find_output = taide_native_ui::editor_find_widget::show(ui, find, self.find_history, self.store, view, &compiler, rules, self.find_appearance, |ui, event, composing| {
-                    let index = crate::keymap::event_index(ui.ctx(), event, &mut find_keymap_index);
-                    match self.terminal_views.route_find_keymap(
-                        crate::keymap::Route {
-                            context: ui.ctx(), event, index,
-                            scope: crate::keymap::Context { terminal: false, editor: true },
-                            composing,
-                            overrides: self.services.state.settings.read().keymap_overrides.as_deref(),
-                        }, self.keymap_actions, self.target.is_some(),
-                    ) {
-                        Ok(handled) => handled,
-                        Err(error) => { *self.status = Some(error.to_string()); true },
-                    }
-                })
-                    .map_err(|error| AppError::Internal(error.to_string()))?;
-                find_edited |= before_find != self.store.documents().snapshot(document).map_err(editor_error)?.revision;
-                focus |= find_output.request_editor_focus;
-                if find_output.focused { *self.focused = Some((pane.clone(), tab.id.clone())); }
-                editor_presentation.options.bracket_widget_focus = find_output.focused;
-                if find_output.reserved_height > 0.0 { ui.allocate_space(egui::vec2(ui.available_width(), find_output.reserved_height)); }
-                let find_decorations = find.decorations(&self.store.views().get(view).ok_or_else(|| editor_error(taide_native_editor::document::EditorError::NotFound))?.selection,
-                    self.find_appearance.highlight, self.find_appearance.current_match, self.find_appearance.scope);
-                let scroll_decorations = find.scroll_decorations(self.editor_overview_colors);
-                let document_highlights = highlight_consumer.display(self.store, view);
-                let find_layers = find_decorations.iter().chain(scroll_decorations.iter()).chain(navigation_highlight.as_ref().map(|(layer, _)| layer)).chain(document_highlights.as_ref().map(|display| &display.layer)).collect::<Vec<_>>();
-                editor_presentation.options.diagnostics = self.diagnostics.display(self.store, &self.store.documents().snapshot(document).map_err(editor_error)?);
-                let fold_commands = if ui.is_enabled() {
-                    crate::command_dispatch::take_fold_commands(&tab.id, self.fold_commands)
-                } else {
-                    Vec::new()
-                };
-                let terminal_views = &mut *self.terminal_views;
-                let keymap_actions = &mut *self.keymap_actions;
-                let services = self.services;
-                let status = &mut *self.status;
-                let has_focused_shell = self.target.is_some();
-                let find_visible = find.visible;
-                let find_read_only = snapshot.metadata.read_only;
-                let document_edits = &mut *self.document_edits;
-                let chevrons = &mut *self.explorer_icons;
-                let mut fold_control_error = None;
-                let mut paint_fold_control = |ui: &Ui, control: FoldControl| {
-                    let painted = chevrons.paint(
-                        ui,
-                        control.rect,
-                        crate::problems_icons::Glyph::ChevronRight,
-                        control.color,
-                        control.chevron_rotation,
-                    );
-                    if let Err(error) = painted {
-                        fold_control_error.get_or_insert(error);
-                    }
-                };
-                location_provider.find_history = Some(self.find_history);
-                location_provider.find_appearance = Some(self.find_appearance);
-                let inlay_hints = inlay_consumer.display(self.store, view);
-                let code_lenses = code_lens_consumer.before(self.store, editor_project, view, view);
-                let output = editor
-                    .show_request_with_code_lenses(
-                        ui,
-                        self.store,
-                        view,
-                        EditorRequest {
-                            request_focus: focus,
-                            keymap: |ui: &Ui, event: &egui::Event, composing: bool| {
-                                let index = crate::keymap::event_index(ui.ctx(), event, &mut next);
-                                let before = keymap_actions.len();
-                                let routed = terminal_views.route_editor_keymap(
-                                    crate::keymap::Route {
-                                        context: ui.ctx(),
-                                        event,
-                                        index,
-                                        scope: crate::keymap::Context {
-                                            terminal: false,
-                                            editor: true,
-                                        },
-                                        composing,
-                                        overrides: services
-                                            .state
-                                            .settings
-                                            .read()
-                                            .keymap_overrides
-                                            .as_deref(),
-                                    },
-                                    keymap_actions,
-                                    has_focused_shell,
-                                    &completion_consumer,
-                                    view,
-                                );
-                                if keymap_actions.get(before).is_some_and(|id| id == "monaco.editor.action.showContextMenu") {
-                                    keymap_actions.remove(before);
-                                    taide_native_ui::editor_context_menu::request_keyboard(ui.ctx(), ui.make_persistent_id(("native-code-editor", view)), index);
-                                }
-                                match routed {
-                                    Ok(true) => true,
-                                    Ok(false) => {
-                                        if !composing && let Some(command) = taide_native_ui::editor_find_widget::editor_shortcut(event, ui.ctx().os().is_mac(), find_visible) && (!command.requires_write() || !find_read_only) {
-                                            document_edits.push((tab.id.clone(), DocumentEdit::Find(command)));
-                                            ui.ctx().request_repaint();
-                                            return true;
-                                        }
-                                        false
-                                    },
-                                    Err(error) => {
-                                        *status = Some(error.to_string());
-                                        true
-                                    }
-                                }
-                            },
-                            route: |response: &egui::Response| {
-                                response.ctx.keyboard_input_route(response.id)
-                            },
-                            presentation: &editor_presentation,
-                            tokens: tokens_supplier(|store| syntax_lease.frame_tokens(store)),
-                            language,
-                            decorations: &find_layers,
-                            fold_commands: &fold_commands,
-                            syntax_folds: syntax_folds.clone(),
-                            documentation: Some(&mut documentation_provider),
-                            documentation_commands: &documentation_commands,
-                            completion: Some(&mut completion_provider),
-                            completion_commands: &completion_commands,
-                            fold_controls: Some(&mut paint_fold_control),
-                            problems: Some(&mut problem_provider),
-                            locations: Some(&mut location_provider),
-                        },
-                        |_, _, _, _, _| false,
-                        Some((&mut rename_provider, self.find_appearance.into())),
-                        Some((&mut code_action_provider, self.editor_code_action_colors)),
-                        inlay_hints,
-                        code_lenses,
+    fn show_unavailable_tab(&mut self, ui: &mut Ui, tab: &Tab) {
+        let rect = ui.available_rect_before_wrap();
+        ui.painter()
+            .rect_filled(rect, 0.0, self.editor.appearance.background);
+        ui.allocate_ui_with_layout(
+            rect.size(),
+            egui::Layout::centered_and_justified(egui::Direction::TopDown),
+            |ui| {
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(format!(
+                            "{}\n{}",
+                            tab.title,
+                            presentation::message(self.locale, "tab.contentUnavailable", &[])
+                        ))
+                        .size(UNAVAILABLE_TAB_FONT_SIZE)
+                        .color(
+                            self.editor
+                                .appearance
+                                .foreground
+                                .gamma_multiply(UNAVAILABLE_TAB_TEXT_OPACITY),
+                        ),
                     )
-                    .map_err(editor_error)?;
-                let menu = crate::editor_context_menu::show(
-                    ui, self.store,
-                    taide_native_ui::editor_context_menu::Request {
-                        source: view, owner: view, response: &output.response, geometry: &output.geometry,
-                        keyboard_open: menu_keyboard_open, excluded: &[],
-                    },
-                    crate::editor_context_menu::Environment {
-                        project: editor_project, lsp: self.lsp, locale: Some(self.locale),
-                        overrides: preview_overrides.as_deref(), scope: self.scope, embedded: false,
-                    }, self.commands,
-                ).map_err(editor_error)?;
-                if menu.opened {
-                    *self.focused = Some((pane.clone(), tab.id.clone()));
-                    intents.push(ShellIntent::Mutate(ShellMutation::FocusPane(pane.clone())));
-                }
-                self.commands.append(&mut location_commands);
-                self.commands.append(&mut documentation_host_commands);
-                self.commands.append(&mut completion_host_commands);
-                if matches!(tab.kind, TabKind::File { .. } | TabKind::Untitled { .. }) && let Some(project) = editor_project {
-                    self.commands.extend(output.formatting_inputs.into_iter().map(|input| HostCommand::FormatEditorInput { project: project.clone(), source: view, owner: view, input }));
-                }
-                if let Some(display) = &document_highlights { display.paint(ui, &output.geometry); }
-                inlay_consumer.observe(self.store, editor_project, view, view, output.rendered_lines.clone());
-                self.editor_view_state.observe(self.store, view, &tab.kind, &output.geometry);
-                code_lens_consumer.after(self.store, view, &output.code_lenses);
-                selection_range_consumer.after(self.store, view);
-                if let TabKind::File { path } = &tab.kind && let Some(project) = editor_project {
-                    self.editor_ide_selection.observe(self.store, project, self.scope, view, path, Instant::now());
-                }
-                if output.response.has_focus() || ui.memory(|memory| output.focus_ids.iter().any(|id| {
-                    memory.has_focus(*id) && !preview_focus_targets.iter().any(|(target, _)| target == id)
-                })) {
-                    highlight_consumer.observe(self.store, editor_project, view, view);
-                    code_action_provider.consumer.observe(self.store, editor_project, view, view, self.lsp, Instant::now());
-                    if let Some(delay) = code_action_provider.consumer.0.borrow().next_refresh(Instant::now()) { ui.ctx().request_repaint_after(delay); }
-                }
-                if let Some(error) = fold_control_error {
-                    *self.status = Some(error.to_string());
-                }
-                self.editor_syntax
-                    .show_lines(document, output.rendered_lines.clone());
-                for (document, lines) in preview_shown_lines { self.editor_syntax.show_lines(document, lines); }
-                if output.toggle_sticky_scroll {
-                    intents.push(ShellIntent::ToggleEditorStickyScroll);
-                }
-                self.keymap_documents.insert(tab.id.clone(), document);
-                if output.response.enabled() {
-                    for id in &output.focus_ids {
-                        self.editor_keymap_targets.insert(
-                            (ui.ctx().viewport_id(), *id),
-                            (preview_focus_targets.iter().find(|(target, _)| target == id).map_or(view, |(_, preview)| *preview), ui.ctx().cumulative_frame_nr()),
-                        );
-                    }
-                    self.editor_keymap_targets.insert(
-                        (ui.ctx().viewport_id(), output.response.id),
-                        (view, ui.ctx().cumulative_frame_nr()),
-                    );
-                }
-                let ai_control_focused = ui.memory(|memory| memory.focused()).is_some_and(|id| taide_native_ui::editor_ai_edit::is_control(ui.ctx(), output.response.id, id));
-                if !ai_control_focused && (output.response.has_focus() || ui.memory(|memory| output.focus_ids.iter().any(|id| memory.has_focus(*id)))) {
-                    *self.keymap_editor_scope = Some(
-                        self.store
-                            .views()
-                            .get(view)
-                            .is_some_and(|view| view.composition.is_some()),
-                    );
-                }
-                if focus {
-                    *self.focused = Some((pane.clone(), tab.id.clone()));
-                }
-                if output.response.clicked() {
-                    intents.push(ShellIntent::Mutate(ShellMutation::FocusPane(pane.clone())));
-                }
-                if output.changed || edited || find_edited || self.changed_documents.contains_key(&document) {
-                    if matches!(tab.kind, TabKind::AppFile { .. }) {
-                        self.app_file_views.changed(document);
-                    }
-                    self.changed_documents.insert(document, view);
-                    let snapshot = self
-                        .store
-                        .documents()
-                        .snapshot(document)
-                        .map_err(editor_error)?;
-                    let tabs: Vec<_> = if let TabKind::AppFile { target } = tab.kind {
-                        crate::app_file_views::target_tabs(&self.services.state, target)
-                    } else {
-                        self.store
-                            .views()
-                            .for_document(document)
-                            .map(|view| view.key.tab.clone())
-                            .collect()
-                    };
-                    for tab in tabs {
-                        self.commands.push(HostCommand::SetDirty {
-                            tab,
-                            dirty: snapshot.dirty,
-                        });
-                    }
-                }
-                for error in output.errors {
-                    *self.status = Some(format!("native editor: {error:?}"));
-                }
-                let latest = self.store.documents().snapshot(document).map_err(editor_error)?;
-                let owner = &self.store.views().get(view).ok_or_else(|| editor_error(taide_native_editor::document::EditorError::NotFound))?.key;
-                self.editor_markdown.show(parent_ui, pane, owner, editor_project, &latest,
-                    &editor.appearance, self.editor_markdown_colors, self.locale, self.services, self.commands);
-                Ok(())
-            });
-        if let Err(error) = result {
-            *self.status = Some(error.to_string());
-        }
+                    .halign(egui::Align::Center),
+                );
+            },
+        );
     }
 }
 
 fn editor_error(error: taide_native_editor::document::EditorError) -> AppError {
     AppError::Internal(format!("native editor: {error:?}"))
-}
-
-fn tokens_supplier<'tokens, Supplier>(supplier: Supplier) -> Supplier
-where
-    Supplier: FnOnce(&EditorStore) -> Option<EditorTokens<'tokens>>,
-{
-    supplier
-}
-
-fn connect_web(
-    services: Arc<AppServices>,
-    context: &egui::Context,
-    executable: PathBuf,
-    appearance: &crate::preview_pdf_surface::Appearance,
-) -> AppResult<crate::preview_web_host::Bridge> {
-    let repaint = context.clone();
-    let bridge = crate::preview_web_host::Bridge::connect_lazy(
-        services,
-        Arc::new(move || repaint.request_repaint()),
-        executable,
-        WEB_HELPER_TIMEOUT,
-        crate::preview_web_http::Limits {
-            connections: WEB_CONNECTIONS,
-            sources: MAX_DOCUMENTS,
-            header_timeout: WEB_HEADER_TIMEOUT,
-            idle_timeout: WEB_IDLE_TIMEOUT,
-        },
-    )?;
-    bridge.set_media_appearance(media_appearance(appearance));
-    Ok(bridge)
-}
-
-fn media_appearance(
-    appearance: &crate::preview_pdf_surface::Appearance,
-) -> crate::preview_web_media::Appearance {
-    crate::preview_web_media::Appearance {
-        background: appearance.background.to_srgba_unmultiplied(),
-        foreground: appearance.foreground.to_srgba_unmultiplied(),
-        muted: appearance.muted.to_srgba_unmultiplied(),
-    }
 }
 
 #[cfg(test)]

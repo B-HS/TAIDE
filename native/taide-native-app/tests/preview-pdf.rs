@@ -98,19 +98,27 @@ fn document() -> Vec<u8> {
 }
 
 async fn reply(host: &mut HostBridge, ready: &Notify, request: Request) -> Result<Page, Failure> {
-    host.submit(HostCommand::ReadPdfPreview(request.clone()))
-        .unwrap();
+    host.submit(HostCommand::Preview(
+        taide_native_app::domains::preview::Command::ReadPdfPreview(request.clone()),
+    ))
+    .unwrap();
     let reply = tokio::time::timeout(TIMEOUT, async {
         let mut saw_source = false;
         loop {
             if let Some(reply) = host.poll() {
-                if let HostReply::PdfSourceReady(progress) = reply {
+                if let HostReply::Preview(
+                    taide_native_app::domains::preview::Reply::PdfSourceReady(progress),
+                ) = reply
+                {
                     assert_eq!(progress, request);
                     assert!(!saw_source, "source progress must arrive once");
                     saw_source = true;
                     continue;
                 }
-                if let HostReply::PdfPreview { result, .. } = &reply
+                if let HostReply::Preview(taide_native_app::domains::preview::Reply::PdfPreview {
+                    result,
+                    ..
+                }) = &reply
                     && !matches!(result, Err(Failure::Read(_)))
                 {
                     assert!(
@@ -125,10 +133,10 @@ async fn reply(host: &mut HostBridge, ready: &Notify, request: Request) -> Resul
     })
     .await
     .unwrap();
-    let HostReply::PdfPreview {
+    let HostReply::Preview(taide_native_app::domains::preview::Reply::PdfPreview {
         request: returned,
         result,
-    } = reply
+    }) = reply
     else {
         panic!("wrong PDF reply");
     };

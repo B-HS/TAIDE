@@ -316,8 +316,10 @@ async fn production_graph는_실제_dispatch_persist_event와_lazy_ports_소유�
         &ports,
     )
     .unwrap();
-    host.submit(crate::host::HostCommand::SetTerminalFontSize(TERMINAL_FONT))
-        .unwrap();
+    host.submit(crate::host::HostCommand::Settings(
+        crate::domains::settings::Command::SetTerminalFontSize(TERMINAL_FONT),
+    ))
+    .unwrap();
     tokio::time::timeout(DEADLINE, ready.notified())
         .await
         .unwrap();

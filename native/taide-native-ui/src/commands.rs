@@ -7,8 +7,6 @@ use taide_model::project::{ProjectDisplayPatch, ShellSlotEdge, WindowChromePatch
 #[cfg(feature = "native-host")]
 use taide_runtime::{AppState, EventSink, layout_actions, project_actions};
 
-use crate::command_registry::{DocumentEdit, FoldCommand, PaletteEntry};
-
 #[derive(Debug, Clone)]
 pub enum ShellMutation {
     ActivateProject(ProjectId),
@@ -64,39 +62,15 @@ pub enum ShellIntent {
         project: ProjectId,
         pane: PaneId,
     },
-    NewUntitled {
-        project: ProjectId,
-        pane: PaneId,
-    },
-    NewTerminal {
-        project: ProjectId,
-        pane: PaneId,
-    },
     OpenWelcome {
         project: ProjectId,
         pane: PaneId,
     },
     CopyText(String),
     RevealPath(String),
-    RevealInExplorer {
-        project: ProjectId,
-        slot: ShellSlotId,
-        path: String,
-        rename: bool,
-    },
-    RevealInAuxiliaryExplorer {
-        project: ProjectId,
-        slot: u32,
-        path: String,
-        rename: bool,
-    },
     MoveTabToWindow {
         tab: TabId,
         target: TabWindowTarget,
-    },
-    ReopenWith {
-        path: String,
-        preview: bool,
     },
     OpenPath(String),
     CloseProject(ProjectId),
@@ -120,62 +94,17 @@ pub enum ShellIntent {
         project: ProjectId,
         patch: ProjectDisplayPatch,
     },
-    OpenSettings,
-    OpenSettingsFile,
-    OpenKeybindings,
-    OpenPalette(PaletteEntry),
-    #[cfg(feature = "native-host")]
-    ChooseIndentation {
-        tab: TabId,
-        command: crate::command_registry::IndentationCommand,
-    },
-    #[cfg(feature = "native-host")]
-    FormatEditor {
-        tab: TabId,
-        command: taide_native_editor::formatting::Command,
-    },
-    #[cfg(feature = "native-host")]
-    RenameEditor {
-        tab: TabId,
-    },
-    #[cfg(feature = "native-host")]
-    CodeActions {
-        tab: TabId,
-        command: crate::editor_code_actions::Command,
-    },
     ShowOpenProjectNotice,
-    ChangeEditorFontSize {
-        increase: bool,
-    },
-    #[cfg(feature = "native-host")]
-    ToggleEditorStickyScroll,
-    #[cfg(feature = "native-host")]
-    ToggleEditorMinimap,
     RequestCloseTab(TabId),
     RequestCloseTabs(Vec<TabId>),
-    RequestSaveTab(TabId),
-    EditDocument {
-        tab: TabId,
-        edit: DocumentEdit,
-    },
-    FoldDocument {
-        tab: TabId,
-        command: FoldCommand,
-    },
-    ToggleAuxiliaryExplorer {
-        project: ProjectId,
-        slot: u32,
-    },
-    ShowExplorer {
-        project: ProjectId,
-        slot: ShellSlotId,
-    },
-    ShowAuxiliaryExplorer {
-        project: ProjectId,
-        slot: u32,
-    },
-    #[cfg(feature = "native-host")]
-    OpenTaskRunner(ProjectId),
+    Shell(crate::intents::shell::Intent),
+    Commands(crate::intents::commands::Intent),
+    Editor(crate::intents::editor::Intent),
+    ExplorerSearch(crate::intents::explorer_search::Intent),
+    Git(crate::intents::git::Intent),
+    TerminalAgent(crate::intents::terminal_agent::Intent),
+    Settings(crate::intents::settings::Intent),
+    Preview(crate::intents::preview::Intent),
 }
 
 #[cfg(feature = "native-host")]

@@ -402,7 +402,7 @@ fn 실제_새_app은_디스크에서_선택_scroll과_접힌_펼친_수동_영�
             fixture.project.clone(),
         ))
         .unwrap();
-    let helper = application.helper_executable.clone();
+    let helper = application.preview_state.helper_executable.clone();
     eframe::App::on_exit(&mut application);
     assert_eq!(services.tasks.tracked_count(), 0);
     drop(services);
@@ -1096,7 +1096,9 @@ fn 실제_remote_슬롯_전환_닫힘과_host_프로젝트_열기는_최신_위�
     let root = application.services.state.projects.read()[&fixture.project]
         .root
         .clone();
-    assert!(application.submit(HostCommand::OpenProject(root)));
+    assert!(application.submit(HostCommand::Shell(
+        crate::domains::shell::Command::OpenProject(root)
+    )));
     wait(
         application,
         context,
@@ -1191,12 +1193,14 @@ fn 실제_preview_교체_뒤_같은_메모리_모델을_다시_열면_마지막_
         .snapshot(previous.document)
         .unwrap();
     let pane = previous.key.pane.clone();
-    assert!(application.submit(HostCommand::OpenFileTab {
-        project: fixture.project.clone(),
-        pane: Some(pane.clone()),
-        path: fixture.peek_path.clone(),
-        preview: true
-    }));
+    assert!(application.submit(HostCommand::Editor(
+        crate::domains::editor::Command::OpenFileTab {
+            project: fixture.project.clone(),
+            pane: Some(pane.clone()),
+            path: fixture.peek_path.clone(),
+            preview: true
+        }
+    )));
     wait(application, context, "preview replaced", |application| {
         let snapshot = application.controller.snapshot();
         !crate::tabs::tabs_in(&snapshot.layouts[&fixture.project].root)
@@ -1204,12 +1208,14 @@ fn 실제_preview_교체_뒤_같은_메모리_모델을_다시_열면_마지막_
             .any(|tab| tab.id == fixture.tab)
             && application.files.contains_key(&fixture.peek_path)
     });
-    assert!(application.submit(HostCommand::OpenFileTab {
-        project: fixture.project.clone(),
-        pane: Some(pane),
-        path: fixture.path.clone(),
-        preview: true
-    }));
+    assert!(application.submit(HostCommand::Editor(
+        crate::domains::editor::Command::OpenFileTab {
+            project: fixture.project.clone(),
+            pane: Some(pane),
+            path: fixture.path.clone(),
+            preview: true
+        }
+    )));
     wait(
         application,
         context,
@@ -1342,12 +1348,14 @@ fn 실제_셸_탭_전환과_host_preview_열기는_이전_본문의_최신_위�
             .pane
             .clone();
         if is_host {
-            assert!(application.submit(HostCommand::OpenFileTab {
-                project: fixture.project.clone(),
-                pane: Some(pane),
-                path: fixture.peek_path.clone(),
-                preview: true
-            }));
+            assert!(application.submit(HostCommand::Editor(
+                crate::domains::editor::Command::OpenFileTab {
+                    project: fixture.project.clone(),
+                    pane: Some(pane),
+                    path: fixture.peek_path.clone(),
+                    preview: true
+                }
+            )));
         } else {
             application
                 .controller

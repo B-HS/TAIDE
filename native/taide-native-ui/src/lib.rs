@@ -116,6 +116,7 @@ pub mod font_preview;
 #[path = "fuzzy-match.rs"]
 pub mod fuzzy_match;
 pub mod icons;
+pub mod intents;
 #[path = "keybinding-editor.rs"]
 pub mod keybinding_editor;
 #[path = "keybinding-search.rs"]
@@ -156,6 +157,7 @@ pub mod snippet_editor;
 #[path = "snippet-editor-state.rs"]
 pub mod snippet_editor_state;
 pub mod split;
+pub mod surfaces;
 #[path = "tab-drag.rs"]
 pub mod tab_drag;
 #[path = "keybinding-icons.rs"]

@@ -134,6 +134,7 @@ fn 실제_app_메뉴는_최근_목록을_그리고_열기_지우기_편집_종�
     let bar = Recording::default();
     let (sender, receiver) = std::sync::mpsc::channel();
     application
+        .shell_state
         .app_menu
         .connect(Box::new(bar.clone()), receiver);
     let initial = Model::new(

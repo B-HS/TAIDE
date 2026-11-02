@@ -10,6 +10,7 @@ use taide_model::{
 };
 use taide_native_app::{
     bootstrap::services,
+    domains::terminal_agent,
     terminal_dispatch::EffectPorts,
     terminal_frames,
     terminal_host::{Hub, InputResult, Limits},
@@ -719,11 +720,19 @@ async fn terminal_links는_실제_hover_click과_승인_host_수명과_pty회수
         );
         let links = std::mem::take(&mut commands)
             .into_iter()
-            .filter(|command| matches!(command, HostCommand::OpenTerminalUrl { .. }))
+            .filter(|command| {
+                matches!(
+                    command,
+                    HostCommand::TerminalAgent(terminal_agent::Command::OpenTerminalUrl { .. })
+                )
+            })
             .collect::<Vec<_>>();
         assert_eq!(links.len(), usize::from(expected.is_some()));
         if let Some(expected) = expected {
-            let HostCommand::OpenTerminalUrl { uri, .. } = &links[0] else {
+            let HostCommand::TerminalAgent(terminal_agent::Command::OpenTerminalUrl {
+                uri, ..
+            }) = &links[0]
+            else {
                 unreachable!()
             };
             assert_eq!(uri, expected);
@@ -748,11 +757,10 @@ async fn terminal_links는_실제_hover_click과_승인_host_수명과_pty회수
         ],
         true,
     );
-    assert!(
-        !commands
-            .iter()
-            .any(|command| matches!(command, HostCommand::OpenTerminalUrl { .. }))
-    );
+    assert!(!commands.iter().any(|command| matches!(
+        command,
+        HostCommand::TerminalAgent(terminal_agent::Command::OpenTerminalUrl { .. })
+    )));
     draw(
         &mut views,
         &mut commands,
@@ -764,11 +772,10 @@ async fn terminal_links는_실제_hover_click과_승인_host_수명과_pty회수
         ],
         true,
     );
-    assert!(
-        !commands
-            .iter()
-            .any(|command| matches!(command, HostCommand::OpenTerminalUrl { .. }))
-    );
+    assert!(!commands.iter().any(|command| matches!(
+        command,
+        HostCommand::TerminalAgent(terminal_agent::Command::OpenTerminalUrl { .. })
+    )));
     let owner = views
         .paste_target(egui::ViewportId::ROOT, &pane, &tab)
         .unwrap();
@@ -799,7 +806,7 @@ async fn terminal_links는_실제_hover_click과_승인_host_수명과_pty회수
         .unwrap();
         assert!(matches!(
             result,
-            HostReply::TerminalUrlOpened { result: Ok(()) }
+            HostReply::TerminalAgent(terminal_agent::Reply::TerminalUrlOpened { result: Ok(()) })
         ));
     }
     assert_eq!(*platform.0.lock().unwrap(), [OSC_URI, PLAIN_URI]);
@@ -809,11 +816,13 @@ async fn terminal_links는_실제_hover_click과_승인_host_수명과_pty회수
         "https://trusted.example@evil.example/",
         "https://example.com/\u{202e}spoof",
     ] {
-        host.submit(HostCommand::OpenTerminalUrl {
-            owner: owner.clone(),
-            source: source.clone(),
-            uri: uri.into(),
-        })
+        host.submit(HostCommand::TerminalAgent(
+            terminal_agent::Command::OpenTerminalUrl {
+                owner: owner.clone(),
+                source: source.clone(),
+                uri: uri.into(),
+            },
+        ))
         .unwrap();
         let result = timeout(TIMEOUT, async {
             loop {
@@ -827,7 +836,7 @@ async fn terminal_links는_실제_hover_click과_승인_host_수명과_pty회수
         .unwrap();
         assert!(matches!(
             result,
-            HostReply::TerminalUrlOpened { result: Err(_) }
+            HostReply::TerminalAgent(terminal_agent::Reply::TerminalUrlOpened { result: Err(_) })
         ));
     }
     if let PaneNode::Leaf { active, .. } = &mut fixture
@@ -841,11 +850,13 @@ async fn terminal_links는_실제_hover_click과_승인_host_수명과_pty회수
     {
         *active = None
     }
-    host.submit(HostCommand::OpenTerminalUrl {
-        owner: owner.clone(),
-        source: source.clone(),
-        uri: OSC_URI.into(),
-    })
+    host.submit(HostCommand::TerminalAgent(
+        terminal_agent::Command::OpenTerminalUrl {
+            owner: owner.clone(),
+            source: source.clone(),
+            uri: OSC_URI.into(),
+        },
+    ))
     .unwrap();
     let result = timeout(TIMEOUT, async {
         loop {
@@ -859,7 +870,7 @@ async fn terminal_links는_실제_hover_click과_승인_host_수명과_pty회수
     .unwrap();
     assert!(matches!(
         result,
-        HostReply::TerminalUrlOpened { result: Err(_) }
+        HostReply::TerminalAgent(terminal_agent::Reply::TerminalUrlOpened { result: Err(_) })
     ));
     fixture
         .services
@@ -873,11 +884,13 @@ async fn terminal_links는_실제_hover_click과_승인_host_수명과_pty회수
             .unwrap()
     });
     rendered.textures_delta.clear();
-    host.submit(HostCommand::OpenTerminalUrl {
-        owner,
-        source,
-        uri: OSC_URI.into(),
-    })
+    host.submit(HostCommand::TerminalAgent(
+        terminal_agent::Command::OpenTerminalUrl {
+            owner,
+            source,
+            uri: OSC_URI.into(),
+        },
+    ))
     .unwrap();
     let result = timeout(TIMEOUT, async {
         loop {
@@ -891,7 +904,7 @@ async fn terminal_links는_실제_hover_click과_승인_host_수명과_pty회수
     .unwrap();
     assert!(matches!(
         result,
-        HostReply::TerminalUrlOpened { result: Err(_) }
+        HostReply::TerminalAgent(terminal_agent::Reply::TerminalUrlOpened { result: Err(_) })
     ));
     assert_eq!(platform.0.lock().unwrap().len(), 2);
     let InputResult::Write(receipt) = session
@@ -1126,13 +1139,20 @@ async fn file_link는_실제_pty_worker_현재project_preview_tab과_utf16_revea
     draw(&mut views, &mut commands, vec![Event::PointerMoved(point)]);
     let resolution = std::mem::take(&mut commands)
         .into_iter()
-        .find(|command| matches!(command, HostCommand::ResolveTerminalFileLinks { .. }))
+        .find(|command| {
+            matches!(
+                command,
+                HostCommand::TerminalAgent(
+                    terminal_agent::Command::ResolveTerminalFileLinks { .. }
+                )
+            )
+        })
         .unwrap();
-    let HostCommand::ResolveTerminalFileLinks {
+    let HostCommand::TerminalAgent(terminal_agent::Command::ResolveTerminalFileLinks {
         owner,
         source,
         request,
-    } = &resolution
+    }) = &resolution
     else {
         unreachable!()
     };
@@ -1154,11 +1174,11 @@ async fn file_link는_실제_pty_worker_현재project_preview_tab과_utf16_revea
     )
     .unwrap();
     host.submit(resolution).unwrap();
-    let HostReply::TerminalFileLinks {
+    let HostReply::TerminalAgent(terminal_agent::Reply::TerminalFileLinks {
         owner: reply_owner,
         request: reply_request,
         result,
-    } = next_reply(&mut host, &signal).await
+    }) = next_reply(&mut host, &signal).await
     else {
         panic!("missing resolution")
     };
@@ -1170,11 +1190,10 @@ async fn file_link는_실제_pty_worker_현재project_preview_tab과_utf16_revea
         rendered.platform_output.cursor_icon,
         egui::CursorIcon::PointingHand
     );
-    assert!(
-        !commands
-            .iter()
-            .any(|command| matches!(command, HostCommand::ResolveTerminalFileLinks { .. }))
-    );
+    assert!(!commands.iter().any(|command| matches!(
+        command,
+        HostCommand::TerminalAgent(terminal_agent::Command::ResolveTerminalFileLinks { .. })
+    )));
     std::fs::write(root.join("ghost.rs"), "created after the cached null").unwrap();
     let rendered = draw(
         &mut views,
@@ -1185,11 +1204,10 @@ async fn file_link는_실제_pty_worker_현재project_preview_tab과_utf16_revea
         rendered.platform_output.cursor_icon,
         egui::CursorIcon::PointingHand
     );
-    assert!(
-        !commands
-            .iter()
-            .any(|command| matches!(command, HostCommand::ResolveTerminalFileLinks { .. }))
-    );
+    assert!(!commands.iter().any(|command| matches!(
+        command,
+        HostCommand::TerminalAgent(terminal_agent::Command::ResolveTerminalFileLinks { .. })
+    )));
     let click = |pressed, modifiers| Event::PointerButton {
         pos: point,
         button: egui::PointerButton::Primary,
@@ -1205,11 +1223,10 @@ async fn file_link는_실제_pty_worker_현재project_preview_tab과_utf16_revea
             click(false, Modifiers::NONE),
         ],
     );
-    assert!(
-        !commands
-            .iter()
-            .any(|command| matches!(command, HostCommand::OpenTerminalFile { .. }))
-    );
+    assert!(!commands.iter().any(|command| matches!(
+        command,
+        HostCommand::TerminalAgent(terminal_agent::Command::OpenTerminalFile { .. })
+    )));
     draw(
         &mut views,
         &mut commands,
@@ -1217,14 +1234,23 @@ async fn file_link는_실제_pty_worker_현재project_preview_tab과_utf16_revea
     );
     let command = std::mem::take(&mut commands)
         .into_iter()
-        .find(|command| matches!(command, HostCommand::OpenTerminalFile { .. }))
+        .find(|command| {
+            matches!(
+                command,
+                HostCommand::TerminalAgent(terminal_agent::Command::OpenTerminalFile { .. })
+            )
+        })
         .unwrap();
-    let HostCommand::OpenTerminalFile { link, .. } = &command else {
+    let HostCommand::TerminalAgent(terminal_agent::Command::OpenTerminalFile { link, .. }) =
+        &command
+    else {
         unreachable!()
     };
     let link = link.clone();
     host.submit(command).unwrap();
-    let HostReply::TerminalFileOpened { result } = next_reply(&mut host, &signal).await else {
+    let HostReply::TerminalAgent(terminal_agent::Reply::TerminalFileOpened { result }) =
+        next_reply(&mut host, &signal).await
+    else {
         panic!("missing file open")
     };
     let opened = result.unwrap();
@@ -1249,13 +1275,17 @@ async fn file_link는_실제_pty_worker_현재project_preview_tab과_utf16_revea
         fixture.services.state.settings.write().enable_preview_tabs = preview;
         let mut request_link = link.clone();
         request_link.path = new_path.canonicalize().unwrap().to_str().unwrap().into();
-        host.submit(HostCommand::OpenTerminalFile {
-            owner: owner.clone(),
-            source: source.clone(),
-            link: request_link,
-        })
+        host.submit(HostCommand::TerminalAgent(
+            terminal_agent::Command::OpenTerminalFile {
+                owner: owner.clone(),
+                source: source.clone(),
+                link: request_link,
+            },
+        ))
         .unwrap();
-        let HostReply::TerminalFileOpened { result } = next_reply(&mut host, &signal).await else {
+        let HostReply::TerminalAgent(terminal_agent::Reply::TerminalFileOpened { result }) =
+            next_reply(&mut host, &signal).await
+        else {
             panic!("missing preview open")
         };
         let opened = result.unwrap();
@@ -1277,15 +1307,17 @@ async fn file_link는_실제_pty_worker_현재project_preview_tab과_utf16_revea
     let mut outside_link = link.clone();
     outside_link.path = outside.to_str().unwrap().into();
     let before = fixture.services.state.layouts.read().clone();
-    host.submit(HostCommand::OpenTerminalFile {
-        owner: owner.clone(),
-        source: source.clone(),
-        link: outside_link,
-    })
+    host.submit(HostCommand::TerminalAgent(
+        terminal_agent::Command::OpenTerminalFile {
+            owner: owner.clone(),
+            source: source.clone(),
+            link: outside_link,
+        },
+    ))
     .unwrap();
     assert!(matches!(
         next_reply(&mut host, &signal).await,
-        HostReply::TerminalFileOpened { result: Err(_) }
+        HostReply::TerminalAgent(terminal_agent::Reply::TerminalFileOpened { result: Err(_) })
     ));
     assert_eq!(*fixture.services.state.layouts.read(), before);
     let mut hidden = context.run_ui(Default::default(), |ui| {
@@ -1295,32 +1327,38 @@ async fn file_link는_실제_pty_worker_현재project_preview_tab과_utf16_revea
     });
     hidden.textures_delta.clear();
     assert!(!views.accept_file_links(&reply_owner, &reply_request, Ok(resolved)));
-    host.submit(HostCommand::OpenTerminalFile {
-        owner: owner.clone(),
-        source: source.clone(),
-        link: link.clone(),
-    })
+    host.submit(HostCommand::TerminalAgent(
+        terminal_agent::Command::OpenTerminalFile {
+            owner: owner.clone(),
+            source: source.clone(),
+            link: link.clone(),
+        },
+    ))
     .unwrap();
     assert!(matches!(
         next_reply(&mut host, &signal).await,
-        HostReply::TerminalFileOpened { result: Err(_) }
+        HostReply::TerminalAgent(terminal_agent::Reply::TerminalFileOpened { result: Err(_) })
     ));
-    host.submit(HostCommand::ResolveTerminalFileLinks {
-        owner,
-        source,
-        request,
-    })
+    host.submit(HostCommand::TerminalAgent(
+        terminal_agent::Command::ResolveTerminalFileLinks {
+            owner,
+            source,
+            request,
+        },
+    ))
     .unwrap();
     assert!(matches!(
         next_reply(&mut host, &signal).await,
-        HostReply::TerminalFileLinks { result: Err(_), .. }
+        HostReply::TerminalAgent(terminal_agent::Reply::TerminalFileLinks { result: Err(_), .. })
     ));
     assert_eq!(*fixture.services.state.layouts.read(), before);
-    host.submit(HostCommand::OpenDocument(path.clone()))
-        .unwrap();
-    let HostReply::Opened {
+    host.submit(HostCommand::Editor(
+        taide_native_app::domains::editor::Command::OpenDocument(path.clone()),
+    ))
+    .unwrap();
+    let HostReply::Editor(taide_native_app::domains::editor::Reply::Opened {
         project, result, ..
-    } = next_reply(&mut host, &signal).await
+    }) = next_reply(&mut host, &signal).await
     else {
         panic!("missing document admission")
     };
@@ -1635,11 +1673,17 @@ async fn clipboard_paste는_빈내용_상한_숨김_수명과_active_identity를
     )
     .unwrap();
     for oversized in [false, true] {
-        host.submit(HostCommand::ReadTerminalClipboard(first.clone()))
-            .unwrap();
+        host.submit(HostCommand::TerminalAgent(
+            terminal_agent::Command::ReadTerminalClipboard(first.clone()),
+        ))
+        .unwrap();
         let (target, result) = timeout(TIMEOUT, async {
             loop {
-                if let Some(HostReply::TerminalClipboard { target, result }) = host.poll() {
+                if let Some(HostReply::TerminalAgent(terminal_agent::Reply::TerminalClipboard {
+                    target,
+                    result,
+                })) = host.poll()
+                {
                     return (target, result);
                 }
                 ready.notified().await;
@@ -1697,11 +1741,17 @@ async fn clipboard_paste는_빈내용_상한_숨김_수명과_active_identity를
             .accept_paste(&first, "poison", &hub, &fixture.services)
             .unwrap()
     );
-    host.submit(HostCommand::ReadTerminalClipboard(first))
-        .unwrap();
+    host.submit(HostCommand::TerminalAgent(
+        terminal_agent::Command::ReadTerminalClipboard(first),
+    ))
+    .unwrap();
     timeout(TIMEOUT, async {
         loop {
-            if let Some(HostReply::TerminalClipboard { result, .. }) = host.poll() {
+            if let Some(HostReply::TerminalAgent(terminal_agent::Reply::TerminalClipboard {
+                result,
+                ..
+            })) = host.poll()
+            {
                 assert!(result.is_err());
                 break;
             }
@@ -1715,11 +1765,17 @@ async fn clipboard_paste는_빈내용_상한_숨김_수명과_active_identity를
     let current = views
         .paste_target(egui::ViewportId::ROOT, &pane, &tab)
         .unwrap();
-    host.submit(HostCommand::ReadTerminalClipboard(current))
-        .unwrap();
+    host.submit(HostCommand::TerminalAgent(
+        terminal_agent::Command::ReadTerminalClipboard(current),
+    ))
+    .unwrap();
     let accepted = timeout(TIMEOUT, async {
         loop {
-            if let Some(HostReply::TerminalClipboard { target, result }) = host.poll() {
+            if let Some(HostReply::TerminalAgent(terminal_agent::Reply::TerminalClipboard {
+                target,
+                result,
+            })) = host.poll()
+            {
                 break views
                     .accept_paste(&target, &result.unwrap(), &hub, &fixture.services)
                     .unwrap();
@@ -1936,11 +1992,10 @@ async fn verify_terminal_menu_host(is_keyboard: bool) {
         tab: tab.clone(),
         session: id.clone(),
     };
-    assert!(
-        commands
-            .iter()
-            .all(|command| matches!(command, HostCommand::ResizeTerminal { .. }))
-    );
+    assert!(commands.iter().all(|command| matches!(
+        command,
+        HostCommand::TerminalAgent(terminal_agent::Command::ResizeTerminal { .. })
+    )));
     commands.clear();
     let signal = Arc::new(Notify::new());
     let wake = signal.clone();
@@ -2052,11 +2107,11 @@ async fn verify_terminal_menu_host(is_keyboard: bool) {
             .pop()
             .expect("actual menu keydown must queue a terminal command");
         assert!(commands.is_empty());
-        if let HostCommand::TerminalMenu {
+        if let HostCommand::TerminalAgent(terminal_agent::Command::TerminalMenu {
             target,
             operation,
             title,
-        } = &command
+        }) = &command
         {
             keyboard_targets.push(
                 target.project == fixture.project
@@ -2084,9 +2139,9 @@ async fn verify_terminal_menu_host(is_keyboard: bool) {
         let before = fixture.services.state.layouts.read()[&fixture.project].clone();
         if let Some(host) = &mut host {
             let command = choose("tab.split", Some(label), key);
-            keyboard_edges.push(matches!(&command, HostCommand::TerminalMenu {
+            keyboard_edges.push(matches!(&command, HostCommand::TerminalAgent(terminal_agent::Command::TerminalMenu {
                 operation: MenuOperation::Split(actual), ..
-            } if *actual == edge));
+            }) if *actual == edge));
             host.submit(command).unwrap();
             timeout(TIMEOUT, signal.notified()).await.unwrap();
             assert!(host.poll().is_none());
@@ -2212,7 +2267,11 @@ async fn verify_terminal_menu_host(is_keyboard: bool) {
         host.submit(choose("terminal.kill", None, egui::Key::Enter))
             .unwrap();
         timeout(TIMEOUT, signal.notified()).await.unwrap();
-        let Some(HostReply::Closed { result, .. }) = host.poll() else {
+        let Some(HostReply::Editor(taide_native_app::domains::editor::Reply::Closed {
+            result,
+            ..
+        })) = host.poll()
+        else {
             panic!("actual menu kill must return a Closed reply")
         };
         result.unwrap()
@@ -2945,11 +3004,13 @@ async fn verify_terminal_menu_batch(
         let selections: Vec<_> = commands
             .iter()
             .filter_map(|command| {
-                if let taide_native_app::host::HostCommand::TerminalMenu {
-                    target,
-                    operation,
-                    title,
-                } = command
+                if let taide_native_app::host::HostCommand::TerminalAgent(
+                    terminal_agent::Command::TerminalMenu {
+                        target,
+                        operation,
+                        title,
+                    },
+                ) = command
                 {
                     Some((target, operation, title))
                 } else {
@@ -3349,7 +3410,10 @@ async fn verify_terminal_menu_actions(keyboard: Option<eframe::egui::Key>) {
             )
         };
         if key == "terminal.copy" && !copied {
-            if let Some(HostCommand::CopyTerminalSelection(text)) = commands.pop() {
+            if let Some(HostCommand::TerminalAgent(
+                terminal_agent::Command::CopyTerminalSelection(text),
+            )) = commands.pop()
+            {
                 assert!(text.contains("한𐐀e\u{301}"));
                 copied = true;
             } else {
@@ -3380,7 +3444,10 @@ async fn verify_terminal_menu_actions(keyboard: Option<eframe::egui::Key>) {
                 .unwrap();
         }
         if key == "terminal.paste" {
-            let Some(HostCommand::ReadTerminalClipboard(target)) = commands.pop() else {
+            let Some(HostCommand::TerminalAgent(terminal_agent::Command::ReadTerminalClipboard(
+                target,
+            ))) = commands.pop()
+            else {
                 panic!("menu paste did not queue its target")
             };
             pasted = Some(target);
@@ -5113,11 +5180,11 @@ async fn headless_surface의_measured_attach와_ime_확정은_실제_pty에_연�
         &mut commands,
     ));
     drop(frame("", Vec::new(), &mut views, &mut commands));
-    let HostCommand::AttachTerminal {
+    let HostCommand::TerminalAgent(terminal_agent::Command::AttachTerminal {
         tab: attached,
         size,
         ports,
-    } = commands.pop().unwrap()
+    }) = commands.pop().unwrap()
     else {
         panic!("measured surface did not attach")
     };
@@ -5168,11 +5235,11 @@ async fn headless_surface의_measured_attach와_ime_확정은_실제_pty에_연�
         &mut views,
         &mut commands,
     ));
-    let HostCommand::AttachTerminal {
+    let HostCommand::TerminalAgent(terminal_agent::Command::AttachTerminal {
         tab: retry,
         size,
         mut ports,
-    } = commands.pop().unwrap()
+    }) = commands.pop().unwrap()
     else {
         panic!("failed surface did not retry")
     };
@@ -5255,11 +5322,11 @@ async fn headless_surface의_measured_attach와_ime_확정은_실제_pty에_연�
         &mut views,
         &mut commands,
     ));
-    let HostCommand::RestartTerminal {
+    let HostCommand::TerminalAgent(terminal_agent::Command::RestartTerminal {
         tab: restarted,
         size,
         mut ports,
-    } = commands.pop().unwrap()
+    }) = commands.pop().unwrap()
     else {
         panic!("exited surface did not restart")
     };
@@ -5724,11 +5791,13 @@ async fn 실제_new_terminal은_독립탭을_만들고_native_attach는_같은_c
     )
     .unwrap();
     for count in [1, 2] {
-        host.submit(HostCommand::NewTerminal {
-            project: fixture.project.clone(),
-            pane: pane.clone(),
-            title: "합성 터미널".into(),
-        })
+        host.submit(HostCommand::TerminalAgent(
+            terminal_agent::Command::NewTerminal {
+                project: fixture.project.clone(),
+                pane: pane.clone(),
+                title: "합성 터미널".into(),
+            },
+        ))
         .unwrap();
         timeout(TIMEOUT, async {
             loop {
@@ -5927,14 +5996,16 @@ async fn 실제_host_attach와_close는_공유_hub와_원본_환경을_사용한
     )
     .unwrap();
     let output = Output::default();
-    host.submit(HostCommand::AttachTerminal {
-        tab: tab.clone(),
-        size: Size {
-            columns: COLUMNS,
-            rows: ROWS,
+    host.submit(HostCommand::TerminalAgent(
+        terminal_agent::Command::AttachTerminal {
+            tab: tab.clone(),
+            size: Size {
+                columns: COLUMNS,
+                rows: ROWS,
+            },
+            ports: output.ports(),
         },
-        ports: output.ports(),
-    })
+    ))
     .unwrap();
     let reply = timeout(TIMEOUT, async {
         loop {
@@ -5946,10 +6017,10 @@ async fn 실제_host_attach와_close는_공유_hub와_원본_환경을_사용한
     })
     .await
     .unwrap();
-    let HostReply::TerminalAttached {
+    let HostReply::TerminalAgent(terminal_agent::Reply::TerminalAttached {
         tab: attached,
         result,
-    } = reply
+    }) = reply
     else {
         panic!("unexpected terminal reply")
     };
@@ -5967,10 +6038,12 @@ async fn 실제_host_attach와_close는_공유_hub와_원본_환경을_사용한
         ]
     );
     let view = native.hub().get(&id).unwrap();
-    host.submit(HostCommand::CloseTab {
-        tab,
-        discard: false,
-    })
+    host.submit(HostCommand::Editor(
+        taide_native_app::domains::editor::Command::CloseTab {
+            tab,
+            discard: false,
+        },
+    ))
     .unwrap();
     let reply = timeout(TIMEOUT, async {
         loop {
@@ -5982,7 +6055,8 @@ async fn 실제_host_attach와_close는_공유_hub와_원본_환경을_사용한
     })
     .await
     .unwrap();
-    let HostReply::Closed { result, .. } = reply else {
+    let HostReply::Editor(taide_native_app::domains::editor::Reply::Closed { result, .. }) = reply
+    else {
         panic!("unexpected close reply")
     };
     result.unwrap();
@@ -6223,10 +6297,10 @@ async fn 포커스없는_단일_view는_측정_크기로_resize를_요청하고_
     frame(&[(&sole, false)], &mut views, &mut commands);
     assert_eq!(context.memory(|memory| memory.focused()), None);
     let [
-        HostCommand::ResizeTerminal {
+        HostCommand::TerminalAgent(terminal_agent::Command::ResizeTerminal {
             session,
             size: sole_size,
-        },
+        }),
     ] = commands.as_slice()
     else {
         panic!("unfocused sole view did not request its measured size")
@@ -6261,10 +6335,10 @@ async fn 포커스없는_단일_view는_측정_크기로_resize를_요청하고_
         &mut commands,
     );
     let [
-        HostCommand::ResizeTerminal {
+        HostCommand::TerminalAgent(terminal_agent::Command::ResizeTerminal {
             session,
             size: owner_size,
-        },
+        }),
     ] = commands.as_slice()
     else {
         panic!("focused view of a shared session did not own the size")

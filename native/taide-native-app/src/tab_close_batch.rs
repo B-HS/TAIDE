@@ -279,23 +279,29 @@ mod tests {
             let id = current.tab.id;
             if id == clean.id {
                 bridge
-                    .submit(HostCommand::CloseTab {
-                        tab: id.clone(),
-                        discard: false,
-                    })
+                    .submit(HostCommand::Editor(
+                        crate::domains::editor::Command::CloseTab {
+                            tab: id.clone(),
+                            discard: false,
+                        },
+                    ))
                     .unwrap();
                 assert!(matches!(
                     reply(&mut bridge, &ready).await,
-                    HostReply::Closed { result: Ok(_), .. }
+                    HostReply::Editor(crate::domains::editor::Reply::Closed { result: Ok(_), .. })
                 ));
             }
             bridge
-                .submit(HostCommand::CloseTab {
-                    tab: id.clone(),
-                    discard: current.discard,
-                })
+                .submit(HostCommand::Editor(
+                    crate::domains::editor::Command::CloseTab {
+                        tab: id.clone(),
+                        discard: current.discard,
+                    },
+                ))
                 .unwrap();
-            let HostReply::Closed { tab, result } = reply(&mut bridge, &ready).await else {
+            let HostReply::Editor(crate::domains::editor::Reply::Closed { tab, result }) =
+                reply(&mut bridge, &ready).await
+            else {
                 panic!("expected close result")
             };
             assert_eq!(tab, id);

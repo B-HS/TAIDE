@@ -78,8 +78,10 @@ fn 실제_host_png는_승인경로와_픽셀_상한_stale_close_및_texture표�
     runtime.block_on(async {
         let request = cache.begin(&path, MAX_SIDE).unwrap();
         assert!(cache.begin(&outside, MAX_SIDE).is_none());
-        host.submit(HostCommand::ReadPreview(request.clone()))
-            .unwrap();
+        host.submit(HostCommand::Preview(
+            taide_native_app::domains::preview::Command::ReadPreview(request.clone()),
+        ))
+        .unwrap();
         let response = tokio::time::timeout(TIMEOUT, async {
             loop {
                 if let Some(reply) = host.poll() {
@@ -90,10 +92,10 @@ fn 실제_host_png는_승인경로와_픽셀_상한_stale_close_및_texture표�
         })
         .await
         .unwrap();
-        let HostReply::Preview {
+        let HostReply::Preview(taide_native_app::domains::preview::Reply::Preview {
             request: returned,
             result,
-        } = response
+        }) = response
         else {
             panic!("wrong preview reply");
         };
@@ -189,11 +191,13 @@ fn 실제_host_png는_승인경로와_픽셀_상한_stale_close_및_texture표�
             (malformed, MAX_SIDE),
             (path.clone(), 1),
         ] {
-            host.submit(HostCommand::ReadPreview(Request {
-                path,
-                token: 0,
-                max_side,
-            }))
+            host.submit(HostCommand::Preview(
+                taide_native_app::domains::preview::Command::ReadPreview(Request {
+                    path,
+                    token: 0,
+                    max_side,
+                }),
+            ))
             .unwrap();
             let response = tokio::time::timeout(TIMEOUT, async {
                 loop {
@@ -207,7 +211,10 @@ fn 실제_host_png는_승인경로와_픽셀_상한_stale_close_및_texture표�
             .unwrap();
             assert!(matches!(
                 response,
-                HostReply::Preview { result: Err(_), .. }
+                HostReply::Preview(taide_native_app::domains::preview::Reply::Preview {
+                    result: Err(_),
+                    ..
+                })
             ));
         }
         state.projects.write().remove(&project);

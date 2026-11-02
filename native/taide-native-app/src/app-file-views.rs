@@ -336,12 +336,14 @@ pub(crate) fn settings_command(
                 .clone()
         }
     };
-    Some(crate::host::HostCommand::OpenAppFile {
-        project: project.clone(),
-        pane,
-        target: AppFileTarget::Settings,
-        title: "settings.json".into(),
-    })
+    Some(crate::host::HostCommand::Settings(
+        crate::domains::settings::Command::OpenAppFile {
+            project: project.clone(),
+            pane,
+            target: AppFileTarget::Settings,
+            title: "settings.json".into(),
+        },
+    ))
 }
 
 #[cfg(test)]

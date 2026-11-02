@@ -6,6 +6,7 @@ use taide_model::ids::{PaneId, ProjectId, TabId};
 use taide_model::paths::AppPaths;
 use taide_model::project::Project;
 use taide_native_app::bootstrap::{LaunchConfig, services};
+use taide_native_app::domains::{commands, explorer_search, shell};
 use taide_native_app::host::{HostBridge, HostCommand, HostReply};
 use taide_native_editor::editing::replace_selections;
 use taide_native_editor::store::{EditorLimits, EditorStore};
@@ -106,12 +107,17 @@ async fn 초기_watcher_복원의_등록_대기는_후속_host_요청을_막지_
     )
     .unwrap();
     let guard = fixture.state.begin_mutation().await;
-    host.submit(HostCommand::RestoreWatchers).unwrap();
-    host.submit(HostCommand::CopyText("synthetic queued request".into()))
-        .unwrap();
+    host.submit(HostCommand::ExplorerSearch(
+        explorer_search::Command::RestoreWatchers,
+    ))
+    .unwrap();
+    host.submit(HostCommand::Shell(shell::Command::CopyText(
+        "synthetic queued request".into(),
+    )))
+    .unwrap();
     let delivered = tokio::time::timeout(TIMEOUT, async {
         loop {
-            if let Some(HostReply::CopiedText { result }) = host.poll() {
+            if let Some(HostReply::Shell(shell::Reply::CopiedText { result })) = host.poll() {
                 return result;
             }
             ready.notified().await;
@@ -162,15 +168,19 @@ async fn 실제_problems_open은_preview_tab과_reveal_경계_거절_호스트�
     let viewport = eframe::egui::ViewportId::ROOT;
     let mut previous_tab = None;
     for line in [3, 7] {
-        host.submit(HostCommand::OpenProblem {
-            project: fixture.project.clone(),
-            path: path.clone(),
-            line,
-            column: 8,
-            viewport,
-        })
+        host.submit(HostCommand::Editor(
+            taide_native_app::domains::editor::Command::OpenProblem {
+                project: fixture.project.clone(),
+                path: path.clone(),
+                line,
+                column: 8,
+                viewport,
+            },
+        ))
         .unwrap();
-        let HostReply::ProblemOpened { result } = reply(&mut host, &ready).await else {
+        let HostReply::Editor(taide_native_app::domains::editor::Reply::ProblemOpened { result }) =
+            reply(&mut host, &ready).await
+        else {
             panic!("expected Problems completion");
         };
         let opened = result.unwrap();
@@ -208,15 +218,19 @@ async fn 실제_problems_open은_preview_tab과_reveal_경계_거절_호스트�
         (outside.to_string_lossy().into_owned(), 1),
         (path.clone(), 0),
     ] {
-        host.submit(HostCommand::OpenProblem {
-            project: fixture.project.clone(),
-            path: candidate,
-            line,
-            column: 1,
-            viewport,
-        })
+        host.submit(HostCommand::Editor(
+            taide_native_app::domains::editor::Command::OpenProblem {
+                project: fixture.project.clone(),
+                path: candidate,
+                line,
+                column: 1,
+                viewport,
+            },
+        ))
         .unwrap();
-        let HostReply::ProblemOpened { result } = reply(&mut host, &ready).await else {
+        let HostReply::Editor(taide_native_app::domains::editor::Reply::ProblemOpened { result }) =
+            reply(&mut host, &ready).await
+        else {
             panic!("expected Problems rejection");
         };
         let error = result
@@ -271,9 +285,13 @@ async fn 실제_host는_프로젝트_파일_목록과_팔레트_파일_열기의
     )
     .unwrap();
 
-    host.submit(HostCommand::ListProjectFiles(fixture.project.clone()))
-        .unwrap();
-    let HostReply::ProjectFiles { project, result } = reply(&mut host, &ready).await else {
+    host.submit(HostCommand::Commands(commands::Command::ListProjectFiles(
+        fixture.project.clone(),
+    )))
+    .unwrap();
+    let HostReply::Commands(commands::Reply::ProjectFiles { project, result }) =
+        reply(&mut host, &ready).await
+    else {
         panic!("expected project file listing");
     };
     assert_eq!(project, fixture.project);
@@ -282,9 +300,13 @@ async fn 실제_host는_프로젝트_파일_목록과_팔레트_파일_열기의
     assert_eq!(listed, [fixture.path.clone(), nested.clone()]);
 
     let closed = ProjectId::new();
-    host.submit(HostCommand::ListProjectFiles(closed.clone()))
-        .unwrap();
-    let HostReply::ProjectFiles { project, result } = reply(&mut host, &ready).await else {
+    host.submit(HostCommand::Commands(commands::Command::ListProjectFiles(
+        closed.clone(),
+    )))
+    .unwrap();
+    let HostReply::Commands(commands::Reply::ProjectFiles { project, result }) =
+        reply(&mut host, &ready).await
+    else {
         panic!("expected project file listing failure");
     };
     assert_eq!(project, closed);
@@ -294,13 +316,15 @@ async fn 실제_host는_프로젝트_파일_목록과_팔레트_파일_열기의
     );
 
     let before = fixture.state.layouts.read()[&fixture.project].clone();
-    host.submit(HostCommand::OpenPaletteFile {
+    host.submit(HostCommand::Commands(commands::Command::OpenPaletteFile {
         project: fixture.project.clone(),
         pane: None,
         path: missing,
-    })
+    }))
     .unwrap();
-    let HostReply::PaletteFileOpened { project, result } = reply(&mut host, &ready).await else {
+    let HostReply::Commands(commands::Reply::PaletteFileOpened { project, result }) =
+        reply(&mut host, &ready).await
+    else {
         panic!("expected stale palette row rejection");
     };
     assert_eq!(project, fixture.project);
@@ -310,13 +334,15 @@ async fn 실제_host는_프로젝트_파일_목록과_팔레트_파일_열기의
     );
     assert_eq!(fixture.state.layouts.read()[&fixture.project], before);
 
-    host.submit(HostCommand::OpenPaletteFile {
+    host.submit(HostCommand::Commands(commands::Command::OpenPaletteFile {
         project: fixture.project.clone(),
         pane: None,
         path: nested.clone(),
-    })
+    }))
     .unwrap();
-    let HostReply::PaletteFileOpened { project, result } = reply(&mut host, &ready).await else {
+    let HostReply::Commands(commands::Reply::PaletteFileOpened { project, result }) =
+        reply(&mut host, &ready).await
+    else {
         panic!("expected palette file open");
     };
     assert_eq!(project, fixture.project);
@@ -383,7 +409,10 @@ fn 실제_host_옆으로열기는_빈그룹과_중복파일을_원본_단일muta
             let request = taide_native_app::explorer::open_to_side_request(
                 &fixture.project, &row, Some(&before), &taide_native_ui::shell::WindowScope::Main,
             ).unwrap();
-            host.submit(HostCommand::OpenFileToSide(request)).unwrap();
+            host.submit(HostCommand::Editor(
+                taide_native_app::domains::editor::Command::OpenFileToSide(request),
+            ))
+            .unwrap();
             let after = tokio::time::timeout(TIMEOUT, async {
                 loop {
                     if let Some(reply) = host.poll() {
@@ -415,7 +444,10 @@ fn 실제_host_옆으로열기는_빈그룹과_중복파일을_원본_단일muta
             &fixture.project, &row, Some(&before), &taide_native_ui::shell::WindowScope::Main,
         ).unwrap();
         request.kind = taide_model::layout::TabKind::File { path: fixture.dir.join("outside.rs").to_str().unwrap().into() };
-        host.submit(HostCommand::OpenFileToSide(request)).unwrap();
+        host.submit(HostCommand::Editor(
+                taide_native_app::domains::editor::Command::OpenFileToSide(request),
+            ))
+            .unwrap();
         assert!(matches!(reply(&mut host, &ready).await, HostReply::Failed(_)));
         assert_eq!(fixture.state.layouts.read()[&fixture.project], before);
         assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), "abc");
@@ -447,9 +479,16 @@ fn native_save는_retarget된_symlink에_이전_문서의_초안을_쓰지_않�
             )
             .unwrap();
             bridge
-                .submit(HostCommand::OpenDocument(alias.to_str().unwrap().into()))
+                .submit(HostCommand::Editor(
+                    taide_native_app::domains::editor::Command::OpenDocument(
+                        alias.to_str().unwrap().into(),
+                    ),
+                ))
                 .unwrap();
-            let HostReply::Opened { result, .. } = reply(&mut bridge, &ready).await else {
+            let HostReply::Editor(taide_native_app::domains::editor::Reply::Opened {
+                result, ..
+            }) = reply(&mut bridge, &ready).await
+            else {
                 panic!("expected alias document");
             };
             let mut store = EditorStore::new(EditorLimits {
@@ -474,12 +513,17 @@ fn native_save는_retarget된_symlink에_이전_문서의_초안을_쓰지_않�
             std::fs::remove_file(&alias).unwrap();
             std::os::unix::fs::symlink(&other, &alias).unwrap();
             bridge
-                .submit(HostCommand::Save {
-                    path: alias.to_str().unwrap().into(),
-                    snapshot: store.save_snapshot(document).unwrap(),
-                })
+                .submit(HostCommand::Editor(
+                    taide_native_app::domains::editor::Command::Save {
+                        path: alias.to_str().unwrap().into(),
+                        snapshot: store.save_snapshot(document).unwrap(),
+                    },
+                ))
                 .unwrap();
-            let HostReply::Saved { result, .. } = reply(&mut bridge, &ready).await else {
+            let HostReply::Editor(taide_native_app::domains::editor::Reply::Saved {
+                result, ..
+            }) = reply(&mut bridge, &ready).await
+            else {
                 panic!("expected save result");
             };
             assert!(
@@ -536,13 +580,15 @@ fn 실제_native_host는_열기_편집_저장_live_mirror_보호와_미소비_to
         })
         .unwrap();
         bridge
-            .submit(HostCommand::OpenDocument(fixture.path.clone()))
+            .submit(HostCommand::Editor(
+                taide_native_app::domains::editor::Command::OpenDocument(fixture.path.clone()),
+            ))
             .unwrap();
-        let HostReply::Opened {
+        let HostReply::Editor(taide_native_app::domains::editor::Reply::Opened {
             path,
             project,
             result,
-        } = reply(&mut bridge, &ready).await
+        }) = reply(&mut bridge, &ready).await
         else {
             panic!("expected opened document")
         };
@@ -562,12 +608,16 @@ fn 실제_native_host는_열기_편집_저장_live_mirror_보호와_미소비_to
         replace_selections(&mut store, view, "한", None).unwrap();
         let snapshot = store.save_snapshot(document).unwrap();
         bridge
-            .submit(HostCommand::Save {
-                path: fixture.path.clone(),
-                snapshot,
-            })
+            .submit(HostCommand::Editor(
+                taide_native_app::domains::editor::Command::Save {
+                    path: fixture.path.clone(),
+                    snapshot,
+                },
+            ))
             .unwrap();
-        let HostReply::Saved { snapshot, result } = reply(&mut bridge, &ready).await else {
+        let HostReply::Editor(taide_native_app::domains::editor::Reply::Saved { snapshot, result }) =
+            reply(&mut bridge, &ready).await
+        else {
             panic!("expected saved document")
         };
         result.unwrap();
@@ -583,9 +633,13 @@ fn 실제_native_host는_열기_편집_저장_live_mirror_보호와_미소비_to
         .await
         .unwrap();
         bridge
-            .submit(HostCommand::OpenDocument(fixture.path.clone()))
+            .submit(HostCommand::Editor(
+                taide_native_app::domains::editor::Command::OpenDocument(fixture.path.clone()),
+            ))
             .unwrap();
-        let HostReply::Opened { result, .. } = reply(&mut bridge, &ready).await else {
+        let HostReply::Editor(taide_native_app::domains::editor::Reply::Opened { result, .. }) =
+            reply(&mut bridge, &ready).await
+        else {
             panic!("expected guarded document")
         };
         let admitted = result.unwrap().commit_with_notice(&mut store).unwrap();
@@ -615,7 +669,9 @@ fn 실제_native_host는_열기_편집_저장_live_mirror_보호와_미소비_to
         .await
         .unwrap();
         bridge
-            .submit(HostCommand::OpenDocument(fixture.path.clone()))
+            .submit(HostCommand::Editor(
+                taide_native_app::domains::editor::Command::OpenDocument(fixture.path.clone()),
+            ))
             .unwrap();
         tokio::time::timeout(TIMEOUT, async {
             while bridge.pending_replies() == 0 {
@@ -679,9 +735,13 @@ fn 실제_native_host_mirror_복원은_disk_baseline_conflict와_공유_draft를
         })
         .unwrap();
         bridge
-            .submit(HostCommand::OpenDocument(fixture.path.clone()))
+            .submit(HostCommand::Editor(
+                taide_native_app::domains::editor::Command::OpenDocument(fixture.path.clone()),
+            ))
             .unwrap();
-        let HostReply::Opened { result, .. } = reply(&mut bridge, &ready).await else {
+        let HostReply::Editor(taide_native_app::domains::editor::Reply::Opened { result, .. }) =
+            reply(&mut bridge, &ready).await
+        else {
             panic!("opened")
         };
         let admitted = result.unwrap().commit_with_notice(&mut store).unwrap();
@@ -713,8 +773,14 @@ fn 실제_native_host_mirror_복원은_disk_baseline_conflict와_공유_draft를
             .to_str()
             .unwrap()
             .to_owned();
-        bridge.submit(HostCommand::OpenDocument(alias)).unwrap();
-        let HostReply::Opened { result, .. } = reply(&mut bridge, &ready).await else {
+        bridge
+            .submit(HostCommand::Editor(
+                taide_native_app::domains::editor::Command::OpenDocument(alias),
+            ))
+            .unwrap();
+        let HostReply::Editor(taide_native_app::domains::editor::Reply::Opened { result, .. }) =
+            reply(&mut bridge, &ready).await
+        else {
             panic!("opened alias")
         };
         let duplicate = result.unwrap().commit_with_notice(&mut store).unwrap();
@@ -726,12 +792,16 @@ fn 실제_native_host_mirror_복원은_disk_baseline_conflict와_공유_draft를
         );
         let snapshot = store.save_snapshot(admitted.document).unwrap();
         bridge
-            .submit(HostCommand::Save {
-                path: fixture.path.clone(),
-                snapshot,
-            })
+            .submit(HostCommand::Editor(
+                taide_native_app::domains::editor::Command::Save {
+                    path: fixture.path.clone(),
+                    snapshot,
+                },
+            ))
             .unwrap();
-        let HostReply::Saved { snapshot, result } = reply(&mut bridge, &ready).await else {
+        let HostReply::Editor(taide_native_app::domains::editor::Reply::Saved { snapshot, result }) =
+            reply(&mut bridge, &ready).await
+        else {
             panic!("saved draft")
         };
         result.unwrap();

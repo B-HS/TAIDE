@@ -869,7 +869,9 @@ pub(crate) fn open_link(
             let Some(request) = FileRequest::new(project, owner.clone(), &uri, viewport) else {
                 return false;
             };
-            commands.push(crate::host::HostCommand::OpenDocumentationFile(request));
+            commands.push(crate::host::HostCommand::Editor(
+                crate::domains::editor::Command::OpenDocumentationFile(request),
+            ));
             true
         }
         _ => false,

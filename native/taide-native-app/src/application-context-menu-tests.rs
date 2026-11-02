@@ -121,7 +121,7 @@ fn clipboard(application: &mut NativeApplication, context: &egui::Context) -> Ar
             }),
             Arc::new(move || Ok(reader.text.read().unwrap().clone())),
             Some(crate::host::Terminals {
-                tabs: application.terminals.clone(),
+                tabs: application.terminal_agent_state.terminals.clone(),
                 environment: crate::terminal_environment::provider(),
             }),
         )
@@ -529,7 +529,11 @@ fn terminal_text_in_scope(
     let session = crate::tabs::tabs_in(root)
         .into_iter()
         .find_map(|tab| match &tab.kind {
-            TabKind::Terminal { session_id, .. } => application.terminals.hub().get(session_id),
+            TabKind::Terminal { session_id, .. } => application
+                .terminal_agent_state
+                .terminals
+                .hub()
+                .get(session_id),
             _ => None,
         })?;
     session
@@ -616,6 +620,7 @@ fn run_terminal_command(
         return;
     }
     application
+        .commands_state
         .palette
         .open(context, crate::command_registry::PaletteEntry::Commands);
     paint(application, context, Vec::new());
@@ -626,7 +631,7 @@ fn run_terminal_command(
         .unwrap()
         .label(&application.locale);
     paint(application, context, vec![egui::Event::Text(label)]);
-    let rows = &application.palette.inspection().rows;
+    let rows = &application.commands_state.palette.inspection().rows;
     let target = rows
         .iter()
         .position(|row| row.key == command && row.is_enabled)
@@ -642,6 +647,7 @@ fn run_terminal_command(
     }
     assert!(
         application
+            .commands_state
             .palette
             .inspection()
             .rows
@@ -795,12 +801,14 @@ fn 실제_터미널_실행의_추가_문서종류와_readonly는_내용을_보�
         let tab = match kind {
             TabKind::File { .. } => fixture.tab.clone(),
             TabKind::AppFile { target } => {
-                assert!(application.submit(HostCommand::OpenAppFile {
-                    project: fixture.project.clone(),
-                    pane: pane.clone(),
-                    target,
-                    title: "settings.json".into(),
-                }));
+                assert!(application.submit(HostCommand::Settings(
+                    crate::domains::settings::Command::OpenAppFile {
+                        project: fixture.project.clone(),
+                        pane: pane.clone(),
+                        target,
+                        title: "settings.json".into(),
+                    }
+                )));
                 wait(
                     application,
                     context,
@@ -828,10 +836,12 @@ fn 실제_터미널_실행의_추가_문서종류와_readonly는_내용을_보�
                 .clone()
             }
             TabKind::Untitled { .. } => {
-                assert!(application.submit(HostCommand::NewUntitled {
-                    project: fixture.project.clone(),
-                    pane: pane.clone(),
-                }));
+                assert!(application.submit(HostCommand::Editor(
+                    crate::domains::editor::Command::NewUntitled {
+                        project: fixture.project.clone(),
+                        pane: pane.clone(),
+                    }
+                )));
                 wait(
                     application,
                     context,
@@ -868,6 +878,7 @@ fn 실제_터미널_실행의_추가_문서종류와_readonly는_내용을_보�
             if command.starts_with("monaco.") && !matches!(kind, TabKind::File { .. }) {
                 focus(application, context, view);
                 application
+                    .commands_state
                     .palette
                     .open(context, crate::command_registry::PaletteEntry::Commands);
                 paint(application, context, Vec::new());
@@ -880,6 +891,7 @@ fn 실제_터미널_실행의_추가_문서종류와_readonly는_내용을_보�
                 paint(application, context, vec![egui::Event::Text(label)]);
                 assert!(
                     application
+                        .commands_state
                         .palette
                         .inspection()
                         .rows
@@ -1249,8 +1261,8 @@ fn 실제_추가_팔레트_메뉴는_본문과_peek의_원래_입력_대상을_�
     assert!(
         text_contains(&output, "Copy"),
         "body palette menu missing; palette={:?}; commands={:?}; edits={:?}; menu={:?}; selection={:?}; focus={:?}",
-        application.palette.inspection(),
-        application.palette_commands,
+        application.commands_state.palette.inspection(),
+        application.commands_state.palette_commands,
         application.document_edits,
         context.data(
             |data| data.get_temp::<String>(egui::Id::new("native-editor-context-menu-result"))
@@ -1820,9 +1832,16 @@ fn 실제_추가_경계_종료한_터미널과_앱은_대기_전달을_회수한
             application.services.state.begin_shutdown();
         } else {
             runtime
-                .block_on(application.terminals.close(&session))
+                .block_on(application.terminal_agent_state.terminals.close(&session))
                 .unwrap();
-            assert!(application.terminals.hub().get(&session).is_none());
+            assert!(
+                application
+                    .terminal_agent_state
+                    .terminals
+                    .hub()
+                    .get(&session)
+                    .is_none()
+            );
             assert!(
                 application
                     .services
@@ -1956,13 +1975,19 @@ fn 실제_peek_팔레트는_원본의_위치_명령_활성_조건과_선택을_�
         ("monaco.editor.action.goToImplementation", true),
     ] {
         focus(application, context, preview);
-        application.palette.open(
+        application.commands_state.palette.open(
             context,
             taide_native_ui::command_registry::PaletteEntry::Commands,
         );
         paint(application, context, Vec::new());
         paint(application, context, Vec::new());
-        assert!(application.palette.inspection().has_input_focus);
+        assert!(
+            application
+                .commands_state
+                .palette
+                .inspection()
+                .has_input_focus
+        );
         let label = crate::command_registry::registry()
             .unwrap()
             .command(command)
@@ -1970,6 +1995,7 @@ fn 실제_peek_팔레트는_원본의_위치_명령_활성_조건과_선택을_�
             .label(&application.locale);
         paint(application, context, vec![egui::Event::Text(label)]);
         let row = application
+            .commands_state
             .palette
             .inspection()
             .rows

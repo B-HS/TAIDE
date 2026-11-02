@@ -258,11 +258,17 @@ fn missing_draft_host는_초안을_복원하고_다른_경로_저장후_원래_�
         )
         .unwrap();
         bridge
-            .submit(HostCommand::OpenDocument(
-                fixture.path.to_str().unwrap().into(),
+            .submit(HostCommand::Editor(
+                taide_native_app::domains::editor::Command::OpenDocument(
+                    fixture.path.to_str().unwrap().into(),
+                ),
             ))
             .unwrap();
-        let HostReply::MissingDraft { prepared, .. } = reply(&mut bridge, &ready).await else {
+        let HostReply::Editor(taide_native_app::domains::editor::Reply::MissingDraft {
+            prepared,
+            ..
+        }) = reply(&mut bridge, &ready).await
+        else {
             panic!("expected missing draft");
         };
         let draft = prepared.commit().unwrap();
@@ -271,13 +277,19 @@ fn missing_draft_host는_초안을_복원하고_다른_경로_저장후_원래_�
         assert_eq!(fixture.mirror_content(), DRAFT);
         let target = fixture.path.with_file_name("saved.rs");
         bridge
-            .submit(HostCommand::SaveMissingDraft {
-                tab: fixture.tab.clone(),
-                draft,
-                destination: target.to_str().unwrap().into(),
-            })
+            .submit(HostCommand::Editor(
+                taide_native_app::domains::editor::Command::SaveMissingDraft {
+                    tab: fixture.tab.clone(),
+                    draft,
+                    destination: target.to_str().unwrap().into(),
+                },
+            ))
             .unwrap();
-        let HostReply::MissingDraftSaved { result, .. } = reply(&mut bridge, &ready).await else {
+        let HostReply::Editor(taide_native_app::domains::editor::Reply::MissingDraftSaved {
+            result,
+            ..
+        }) = reply(&mut bridge, &ready).await
+        else {
             panic!("expected completed save");
         };
         let saved = result.unwrap();

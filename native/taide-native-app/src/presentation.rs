@@ -91,7 +91,9 @@ mod tests {
         for overrides in [assigned, unbound, reset, Overrides::default()] {
             let json = overrides.json().unwrap();
             bridge
-                .submit(HostCommand::SetKeymapOverrides(overrides))
+                .submit(HostCommand::Commands(
+                    crate::domains::commands::Command::SetKeymapOverrides(overrides),
+                ))
                 .unwrap();
             tokio::time::timeout(DEADLINE, ready.notified())
                 .await
@@ -112,8 +114,10 @@ mod tests {
         std::fs::rename(&settings_file, directory.0.join("previous-settings.json")).unwrap();
         std::fs::create_dir(&settings_file).unwrap();
         bridge
-            .submit(HostCommand::SetKeymapOverrides(
-                original.assign("save", &binding),
+            .submit(HostCommand::Commands(
+                crate::domains::commands::Command::SetKeymapOverrides(
+                    original.assign("save", &binding),
+                ),
             ))
             .unwrap();
         tokio::time::timeout(DEADLINE, ready.notified())
@@ -144,7 +148,7 @@ mod tests {
         for (id, increase) in [("font-size-up", true), ("font-size-down", false)] {
             assert!(crate::shell_keymap::supports(id));
             assert!(
-                matches!(crate::shell_keymap::action(id, &snapshot, &taide_native_ui::shell::WindowScope::Main), Some(ShellIntent::ChangeEditorFontSize { increase: value }) if value == increase)
+                matches!(crate::shell_keymap::action(id, &snapshot, &taide_native_ui::shell::WindowScope::Main), Some(ShellIntent::Settings(taide_native_ui::intents::settings::Intent::ChangeEditorFontSize { increase: value })) if value == increase)
             );
         }
         assert_eq!(
@@ -223,7 +227,11 @@ mod tests {
             MAX_CODE_FONT_SIZE,
             MIN_CODE_FONT_SIZE,
         ] {
-            bridge.submit(HostCommand::SetEditorFontSize(size)).unwrap();
+            bridge
+                .submit(HostCommand::Settings(
+                    crate::domains::settings::Command::SetEditorFontSize(size),
+                ))
+                .unwrap();
             tokio::time::timeout(DEADLINE, ready.notified())
                 .await
                 .unwrap();
@@ -334,7 +342,9 @@ mod tests {
         std::fs::rename(&settings_file, directory.0.join("previous-settings.json")).unwrap();
         std::fs::create_dir(&settings_file).unwrap();
         bridge
-            .submit(HostCommand::SetEditorFontSize(MAX_CODE_FONT_SIZE))
+            .submit(HostCommand::Settings(
+                crate::domains::settings::Command::SetEditorFontSize(MAX_CODE_FONT_SIZE),
+            ))
             .unwrap();
         tokio::time::timeout(DEADLINE, ready.notified())
             .await

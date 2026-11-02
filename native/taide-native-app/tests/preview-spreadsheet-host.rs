@@ -521,22 +521,28 @@ async fn reply(
     request: Request,
     cache: &mut Cache,
 ) -> Result<Workbook, Failure> {
-    host.submit(HostCommand::ReadSpreadsheetPreview(request.clone()))
-        .unwrap();
+    host.submit(HostCommand::Preview(
+        taide_native_app::domains::preview::Command::ReadSpreadsheetPreview(request.clone()),
+    ))
+    .unwrap();
     tokio::time::timeout(TIMEOUT, async {
         let mut saw_source = false;
         loop {
             match host.poll() {
-                Some(HostReply::SpreadsheetSourceReady(progress)) => {
+                Some(HostReply::Preview(
+                    taide_native_app::domains::preview::Reply::SpreadsheetSourceReady(progress),
+                )) => {
                     assert_eq!(progress, request);
                     assert!(!saw_source);
                     saw_source = true;
                     cache.source_ready(&progress);
                 }
-                Some(HostReply::SpreadsheetPreview {
-                    request: returned,
-                    result,
-                }) => {
+                Some(HostReply::Preview(
+                    taide_native_app::domains::preview::Reply::SpreadsheetPreview {
+                        request: returned,
+                        result,
+                    },
+                )) => {
                     assert_eq!(returned, request);
                     assert_eq!(saw_source, !matches!(result, Err(Failure::Read(_))));
                     return result;

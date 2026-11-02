@@ -160,6 +160,7 @@ fn 실제_app은_메인_창_상태만_추적해_종료때_data_dir에_저장하�
     render_auxiliary_viewports(&context, window_info(AUXILIARY_SIZE));
     let application = fixture.application.as_mut().unwrap();
     let auxiliary = application
+        .shell_state
         .auxiliary_windows
         .find(&alpha, AUXILIARY_SLOT)
         .expect("the persisted auxiliary window is restored")
@@ -298,7 +299,7 @@ fn 실제_app_재시작은_프로젝트_slot_트리_zen_보조_창과_메인_창
     for _ in 0..OBSERVED_FRAMES {
         frame(application, &context, Some(&main));
     }
-    let helper = application.helper_executable.clone();
+    let helper = application.preview_state.helper_executable.clone();
     let mut application = fixture.application.take().unwrap();
     eframe::App::on_exit(&mut application);
     assert_eq!(services.tasks.tracked_count(), 0);
@@ -392,6 +393,7 @@ fn 실제_app_재시작은_프로젝트_slot_트리_zen_보조_창과_메인_창
     );
     assert!(
         application
+            .shell_state
             .auxiliary_windows
             .find(&alpha, AUXILIARY_SLOT)
             .is_some()

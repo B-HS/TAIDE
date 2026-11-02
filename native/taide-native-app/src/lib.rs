@@ -326,3 +326,5 @@ pub mod workspace_symbol_host;
 #[path = "workspace-symbols.rs"]
 pub mod workspace_symbols;
 mod zen;
+
+pub use application::domains;

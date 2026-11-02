@@ -1415,12 +1415,14 @@ fn native_completion_clipboard는_값이_준비되기_전_수락가능한_목록
     )
     .unwrap();
     bridge
-        .submit(crate::host::HostCommand::ReadCompletionClipboard(
-            requests[0].clone(),
+        .submit(crate::host::HostCommand::Editor(
+            crate::domains::editor::Command::ReadCompletionClipboard(requests[0].clone()),
         ))
         .unwrap();
-    let crate::host::HostReply::CompletionClipboard { request, result } =
-        fixture.receive(&mut bridge)
+    let crate::host::HostReply::Editor(crate::domains::editor::Reply::CompletionClipboard {
+        request,
+        result,
+    }) = fixture.receive(&mut bridge)
     else {
         panic!("expected completion clipboard reply");
     };
@@ -1525,22 +1527,30 @@ fn native_completion_clipboard_host는_읽는중_취소와_이미취소한_요�
     )
     .unwrap();
     bridge
-        .submit(crate::host::HostCommand::ReadCompletionClipboard(
-            request.clone(),
+        .submit(crate::host::HostCommand::Editor(
+            crate::domains::editor::Command::ReadCompletionClipboard(request.clone()),
         ))
         .unwrap();
     ready.recv_timeout(CLIPBOARD_DEADLINE).unwrap();
     fixture.state.close(fixture.view);
     release.send(()).unwrap();
-    let crate::host::HostReply::CompletionClipboard { result, .. } = fixture.receive(&mut bridge)
+    let crate::host::HostReply::Editor(crate::domains::editor::Reply::CompletionClipboard {
+        result,
+        ..
+    }) = fixture.receive(&mut bridge)
     else {
         panic!("expected completion clipboard cancellation");
     };
     assert!(result.is_err());
     bridge
-        .submit(crate::host::HostCommand::ReadCompletionClipboard(request))
+        .submit(crate::host::HostCommand::Editor(
+            crate::domains::editor::Command::ReadCompletionClipboard(request),
+        ))
         .unwrap();
-    let crate::host::HostReply::CompletionClipboard { result, .. } = fixture.receive(&mut bridge)
+    let crate::host::HostReply::Editor(crate::domains::editor::Reply::CompletionClipboard {
+        result,
+        ..
+    }) = fixture.receive(&mut bridge)
     else {
         panic!("expected cancelled completion clipboard reply");
     };

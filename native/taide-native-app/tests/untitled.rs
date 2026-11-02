@@ -170,10 +170,12 @@ fn untitled_host는_새_탭_mirror_편집_저장_guarded_전환과_cleanup을_�
                 .focused_pane
                 .clone();
             bridge
-                .submit(HostCommand::NewUntitled {
-                    project: fixture.project.clone(),
-                    pane: pane.clone(),
-                })
+                .submit(HostCommand::Editor(
+                    taide_native_app::domains::editor::Command::NewUntitled {
+                        project: fixture.project.clone(),
+                        pane: pane.clone(),
+                    },
+                ))
                 .unwrap();
             tokio::time::timeout(TIMEOUT, ready.notified())
                 .await
@@ -193,9 +195,15 @@ fn untitled_host는_새_탭_mirror_편집_저장_guarded_전환과_cleanup을_�
             .await
             .unwrap();
             bridge
-                .submit(HostCommand::OpenUntitled(tab.clone()))
+                .submit(HostCommand::Editor(
+                    taide_native_app::domains::editor::Command::OpenUntitled(tab.clone()),
+                ))
                 .unwrap();
-            let HostReply::UntitledOpened { result, .. } = reply(&mut bridge, &ready).await else {
+            let HostReply::Editor(taide_native_app::domains::editor::Reply::UntitledOpened {
+                result,
+                ..
+            }) = reply(&mut bridge, &ready).await
+            else {
                 panic!("expected untitled admission");
             };
             let mut store = store();
@@ -219,13 +227,19 @@ fn untitled_host는_새_탭_mirror_편집_저장_guarded_전환과_cleanup을_�
                 .rope
                 .to_string();
             bridge
-                .submit(HostCommand::SaveUntitled {
-                    tab: tab.clone(),
-                    destination: fixture.destination(),
-                    snapshot: store.save_snapshot(document).unwrap(),
-                })
+                .submit(HostCommand::Editor(
+                    taide_native_app::domains::editor::Command::SaveUntitled {
+                        tab: tab.clone(),
+                        destination: fixture.destination(),
+                        snapshot: store.save_snapshot(document).unwrap(),
+                    },
+                ))
                 .unwrap();
-            let HostReply::UntitledSaved { result, .. } = reply(&mut bridge, &ready).await else {
+            let HostReply::Editor(taide_native_app::domains::editor::Reply::UntitledSaved {
+                result,
+                ..
+            }) = reply(&mut bridge, &ready).await
+            else {
                 panic!("expected prepared untitled save");
             };
             let prepared = result.unwrap();
