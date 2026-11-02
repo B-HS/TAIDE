@@ -134,15 +134,19 @@ pub fn decode(bytes: &[u8], max_side: usize) -> AppResult<Raster> {
     })
 }
 
-pub async fn read(services: &AppServices, request: &Request) -> AppResult<Raster> {
+pub async fn read(services: &AppServices, request: &Request) -> Result<Raster, Failure> {
     let max_side = request.max_side;
-    read_approved(
+    let result = read_approved(
         services,
         request.path.clone(),
         "native-preview",
-        move |source| decode(&taide_file::service::read_raw(source)?, max_side),
+        move |source| Ok(decode(&taide_file::service::read_raw(source)?, max_side)),
     )
-    .await
+    .await;
+    match result {
+        Ok(result) => result.map_err(Failure::Decode),
+        Err(error) => Err(Failure::Read(error)),
+    }
 }
 
 pub(crate) async fn read_approved<T, F>(
@@ -200,7 +204,7 @@ enum Entry {
         playback: Option<Playback>,
         bytes: usize,
     },
-    Failed(AppError),
+    Failed(Failure),
 }
 
 #[derive(Default)]
@@ -260,7 +264,12 @@ impl Cache {
         }
     }
 
-    pub fn accept(&mut self, context: &egui::Context, request: Request, result: AppResult<Raster>) {
+    pub fn accept(
+        &mut self,
+        context: &egui::Context,
+        request: Request,
+        result: Result<Raster, Failure>,
+    ) {
         self.accept_with_other_bytes(context, request, result, 0);
     }
 
@@ -278,7 +287,7 @@ impl Cache {
         &mut self,
         context: &egui::Context,
         request: Request,
-        result: AppResult<Raster>,
+        result: Result<Raster, Failure>,
         other_bytes: usize,
     ) {
         if self.active.as_ref() != Some(&request) {
@@ -289,7 +298,7 @@ impl Cache {
         {
             return;
         }
-        let result = result.and_then(|raster| {
+        let admit = |raster: Raster| -> AppResult<Entry> {
             let mut first = raster.rgba;
             let renderer_side = context.input(|input| input.max_texture_side);
             let mut bytes = rgba_bytes(raster.size, renderer_side.min(request.max_side))?;
@@ -346,7 +355,8 @@ impl Cache {
                 playback,
                 bytes,
             })
-        });
+        };
+        let result = result.and_then(|raster| admit(raster).map_err(Failure::Decode));
         self.entries.insert(
             request.path,
             match result {
@@ -392,9 +402,9 @@ impl Cache {
         Some(texture)
     }
 
-    pub fn error(&self, path: &str) -> Option<&AppError> {
+    pub fn error(&self, path: &str) -> Option<&Failure> {
         match self.entries.get(path) {
-            Some(Entry::Failed(error)) => Some(error),
+            Some(Entry::Failed(failure)) => Some(failure),
             _ => None,
         }
     }

@@ -1,6 +1,7 @@
 #![cfg(unix)]
 
 use std::{
+    collections::HashSet,
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::Arc,
@@ -252,7 +253,7 @@ async fn media_host는_helper_없이_문서와_range_theme_cache_인가와_회�
         ..appearance
     };
     assert!(bridge.set_media_appearance(changed));
-    cache.invalidate_media();
+    cache.restyle_media(&HashSet::new());
     assert_eq!(cache.active_request(), Some(&html_request));
     assert!(audio_scope.is_closed());
     assert!(video_scope.is_closed());

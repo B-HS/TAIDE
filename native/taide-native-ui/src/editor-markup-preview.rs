@@ -131,8 +131,8 @@ fn inline_widths(
     for (index, inline) in cell.iter().enumerate() {
         if let Inline::Text(span) = inline
             && span.style.code
-            && (span.code_element.is_none()
-                || !matches!(index.checked_sub(1).and_then(|previous| cell.get(previous)), Some(Inline::Text(previous)) if previous.code_element == span.code_element && previous.style.code))
+            && span.code_element.is_some()
+            && !matches!(index.checked_sub(1).and_then(|previous| cell.get(previous)), Some(Inline::Text(previous)) if previous.code_element == span.code_element && previous.style.code)
         {
             min += code_padding;
             max += code_padding;
