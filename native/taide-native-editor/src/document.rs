@@ -14,6 +14,22 @@ pub enum DocumentKey {
     File(PathBuf),
     Untitled(TabId),
     AppFile(AppFileTarget),
+    Virtual(VirtualKey),
+}
+
+/// Which text of a two-sided surface (a diff) a virtual document holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum VirtualSide {
+    Original,
+    Modified,
+}
+
+/// An in-memory document owned by a surface rather than a file: never saved, mirrored, sent to a
+/// language server or restored.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct VirtualKey {
+    pub owner: TabId,
+    pub side: VirtualSide,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

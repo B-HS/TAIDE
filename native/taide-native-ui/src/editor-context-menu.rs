@@ -65,7 +65,13 @@ pub struct Context {
     pub range_formatting: bool,
     pub refactor: bool,
     pub source_actions: bool,
+    /// A file tab's own editor, which carries the Git actions (`EditorPane`).
+    pub git: bool,
 }
+
+const TOGGLE_BLAME: &str = "taide.toggleBlame";
+const STAGE_SELECTION: &str = "taide.gitStageSelection";
+const OPEN_FILE_HISTORY: &str = "taide.openFileHistory";
 
 pub fn groups(
     context: Context,
@@ -81,6 +87,12 @@ pub fn groups(
         }
     };
     let mut navigation = Vec::new();
+    if context.git {
+        navigation.push(Entry::Item(item(
+            Action::Command(TOGGLE_BLAME),
+            "Toggle Blame",
+        )));
+    }
     let mut peek = Vec::new();
     for (available, command, label, peek_command, peek_title) in [
         (
@@ -182,6 +194,17 @@ pub fn groups(
         Group {
             id: "9_cutcopypaste",
             entries: clipboard,
+        },
+        Group {
+            id: "9_git",
+            entries: if context.git {
+                vec![
+                    Entry::Item(item(Action::Command(STAGE_SELECTION), "Stage Changes")),
+                    Entry::Item(item(Action::Command(OPEN_FILE_HISTORY), "File History")),
+                ]
+            } else {
+                Vec::new()
+            },
         },
         Group {
             id: "9_terminal",

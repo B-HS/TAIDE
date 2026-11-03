@@ -669,7 +669,7 @@ mod tests {
         ("command-palette", PaletteEntry::Commands),
         ("workspace-symbol", PaletteEntry::WorkspaceSymbols),
     ];
-    const KEYMAP_ACTIONS: [&str; 35] = [
+    const KEYMAP_ACTIONS: [&str; 36] = [
         "quick-open",
         "command-palette",
         "workspace-symbol",
@@ -677,6 +677,7 @@ mod tests {
         "close-tab",
         "toggle-sidebar",
         "explorer",
+        "git",
         "split",
         "tab-cycle-next",
         "tab-cycle-prev",
@@ -706,12 +707,13 @@ mod tests {
         "move-tab-to-group-left",
         "move-tab-to-group-right",
     ];
-    const PROJECTLESS_KEYMAP_ACTIONS: [&str; 11] = [
+    const PROJECTLESS_KEYMAP_ACTIONS: [&str; 12] = [
         "quick-open",
         "command-palette",
         "workspace-symbol",
         "toggle-sidebar",
         "explorer",
+        "git",
         "open-keybindings-editor",
         "new-terminal",
         "reopen-closed-tab",
@@ -793,7 +795,6 @@ mod tests {
             "find",
             "search",
             "search-replace",
-            "git",
             "terminal-jump-to-previous-command",
             "terminal-jump-to-next-command",
             "unknown.future",
@@ -802,13 +803,14 @@ mod tests {
             "tab.close",
             "tab.moveToNewWindow",
             "sync.uploadNow",
-            "git.revertHead",
             "monaco.editor.action.commentLine",
         ] {
             assert!(!accepts(unavailable, true, &project), "{unavailable}");
         }
-        assert!(accepts("task.runTask", true, &project));
-        assert!(!accepts("task.runTask", true, &context));
+        for command in ["task.runTask", "git.revertHead", "git.createTagOnHead"] {
+            assert!(accepts(command, true, &project), "{command}");
+            assert!(!accepts(command, true, &context), "{command}");
+        }
         for command in ["settings.open", "app.openSettingsFile", "file.quickOpen"] {
             assert!(accepts(command, false, &context), "{command}");
         }

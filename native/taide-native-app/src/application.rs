@@ -53,6 +53,7 @@ struct PaintSink {
     file_indexes: Arc<crate::command_palette::FileIndexChanges>,
     presentation: Arc<crate::presentation_refresh::Changes>,
     title_branches: Arc<crate::title_branch::Changes>,
+    git_cache: Arc<crate::git_cache::Changes>,
     app_menu: Arc<crate::app_menu::Changes>,
 }
 
@@ -62,6 +63,7 @@ impl EventSink for PaintSink {
         self.file_indexes.record(&event);
         self.presentation.record(&event);
         self.title_branches.record(&event);
+        self.git_cache.record(&event);
         self.app_menu.record(&event);
         self.context.request_repaint();
     }
@@ -292,6 +294,7 @@ impl NativeApplication {
         let palette_file_changes = Arc::new(crate::command_palette::FileIndexChanges::default());
         let presentation_changes = Arc::new(crate::presentation_refresh::Changes::default());
         let title_branch_changes = Arc::new(crate::title_branch::Changes::default());
+        let git_cache_changes = Arc::new(crate::git_cache::Changes::default());
         let app_menu_changes = Arc::new(crate::app_menu::Changes::default());
         let (mut assembly, connection) = runtime.block_on(bootstrap::connect_shell(
             state.clone(),
@@ -302,6 +305,7 @@ impl NativeApplication {
                 file_indexes: palette_file_changes.clone(),
                 presentation: presentation_changes.clone(),
                 title_branches: title_branch_changes.clone(),
+                git_cache: git_cache_changes.clone(),
                 app_menu: app_menu_changes.clone(),
             }),
             repaint.clone(),
@@ -666,6 +670,22 @@ impl NativeApplication {
             git_state: domains::git::State {
                 title_branch_changes,
                 title_branches: Default::default(),
+                cache_changes: git_cache_changes,
+                cache: Default::default(),
+                panels: Default::default(),
+                appearance: None,
+                initializing: Default::default(),
+                init: domains::git::runtime_init(),
+                stashing: Default::default(),
+                syncing: Default::default(),
+                commit: Default::default(),
+                diffs: Default::default(),
+                diff_appearance: None,
+                claude: Default::default(),
+                claude_appearance: None,
+                histories: Default::default(),
+                history_appearance: None,
+                editors: Default::default(),
             },
             pending_dirty: HashMap::new(),
             persistence: crate::persistence::Persistence::default(),
@@ -1889,6 +1909,7 @@ impl NativeApplication {
             scope: &self.shell.scope,
             auxiliary_windows: &self.shell_state.auxiliary_windows,
             title_branches: &self.git_state.title_branches,
+            git: &self.git_state,
             commands: &mut commands,
             load_files: &mut load_files,
             target: target.as_ref(),
@@ -2135,7 +2156,7 @@ impl NativeApplication {
                     ShellIntent::ExplorerSearch(intent) => {
                         self.apply_explorer_search_intent(intent, &context, &snapshot)
                     }
-                    ShellIntent::Git(intent) => self.apply_git_intent(intent),
+                    ShellIntent::Git(intent) => self.apply_git_intent(intent, &context, &snapshot),
                     ShellIntent::TerminalAgent(intent) => self.apply_terminal_agent_intent(intent),
                     ShellIntent::Settings(intent) => self.apply_settings_intent(intent, &snapshot),
                     ShellIntent::Preview(intent) => self.apply_preview_intent(intent, &context),
@@ -2148,6 +2169,7 @@ impl NativeApplication {
             self.queue_explorer_search_delete(explorer_output.delete_entries);
             self.flush_observations();
         }
+        self.show_git_file_history(&context);
         let is_project_display_open = self.shell_state.project_display_dialog.is_open();
         let is_project_group_open = self.shell_state.project_group_dialog.is_open()
             || self.shell_state.project_group_delete.is_open();
@@ -2564,6 +2586,7 @@ struct AppSurfaces<'a> {
     scope: &'a WindowScope,
     auxiliary_windows: &'a crate::auxiliary_windows::Windows,
     title_branches: &'a crate::title_branch::Branches,
+    git: &'a domains::git::State,
     commands: &'a mut Vec<HostCommand>,
     load_files: &'a mut Vec<(String, TabId)>,
     target: Option<&'a PaneId>,

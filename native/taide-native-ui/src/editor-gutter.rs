@@ -179,6 +179,18 @@ impl Gutter {
     }
 }
 
+/// The line decorations column (where lane marks sit) of a gutter drawn in `gutter_rect`.
+#[cfg(feature = "native-host")]
+pub(crate) fn lane_column(gutter_rect: Rect, has_folding: bool) -> Rangef {
+    let folding_controls_width = if has_folding {
+        FOLDING_CONTROLS_WIDTH
+    } else {
+        0.0
+    };
+    let left = gutter_rect.right() - LINE_DECORATIONS_WIDTH - folding_controls_width;
+    Rangef::new(left, left + LINE_DECORATIONS_WIDTH)
+}
+
 fn max_digit_width(painter: &Painter, appearance: &EditorAppearance) -> f32 {
     let width = painter
         .layout_no_wrap(DIGITS.into(), appearance.font.clone(), appearance.muted)

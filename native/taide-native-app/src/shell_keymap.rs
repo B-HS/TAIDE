@@ -69,6 +69,7 @@ pub(crate) fn runs_without_focused_project(action: &str) -> bool {
             Run::OpenPalette(_)
                 | Run::ToggleSidebar
                 | Run::ShowExplorer
+                | Run::ShowGit
                 | Run::OpenKeybindingsEditor
                 | Run::OpenTerminalTab
                 | Run::ReopenClosedTab
@@ -139,6 +140,11 @@ pub(crate) fn intent(
                 ShellIntent::Commands(intents::commands::Intent::OpenTaskRunner(project.clone()))
             });
         }
+        Run::Git(crate::command_registry::GitRun::RevertHead) => {
+            return project.map(|project| {
+                ShellIntent::Git(intents::git::Intent::RevertHead(project.clone()))
+            });
+        }
         _ => (),
     }
     let project = project?;
@@ -180,6 +186,60 @@ pub(crate) fn intent(
                 taide_native_ui::intents::explorer_search::Intent::ShowExplorer {
                     project: project.clone(),
                     slot: snapshot.shell.focused.clone()?,
+                },
+            ));
+        }
+        Run::ShowGit => {
+            if let WindowScope::Auxiliary { slot, .. } = scope {
+                return Some(ShellIntent::Git(intents::git::Intent::ShowAuxiliaryView {
+                    project: project.clone(),
+                    slot: *slot,
+                }));
+            }
+            return Some(ShellIntent::Git(intents::git::Intent::ShowView {
+                project: project.clone(),
+                slot: snapshot.shell.focused.clone()?,
+            }));
+        }
+        Run::Git(crate::command_registry::GitRun::CreateTagOnHead) => {
+            if let WindowScope::Auxiliary { slot, .. } = scope {
+                return Some(ShellIntent::Git(
+                    intents::git::Intent::CreateAuxiliaryTagOnHead {
+                        project: project.clone(),
+                        slot: *slot,
+                    },
+                ));
+            }
+            return Some(ShellIntent::Git(intents::git::Intent::CreateTagOnHead {
+                project: project.clone(),
+                slot: snapshot.shell.focused.clone()?,
+            }));
+        }
+        Run::Git(crate::command_registry::GitRun::OpenFileHistory) => {
+            let TabKind::File { path } =
+                &taide_native_ui::snapshot::active_tab(root, focused)?.kind
+            else {
+                return None;
+            };
+            return Some(ShellIntent::Git(intents::git::Intent::OpenFileHistory {
+                project: project.clone(),
+                path: path.clone(),
+            }));
+        }
+        Run::Git(
+            command @ (crate::command_registry::GitRun::ToggleBlame
+            | crate::command_registry::GitRun::StageSelection),
+        ) => {
+            let tab = taide_native_ui::snapshot::active_tab(root, focused)?;
+            if !matches!(tab.kind, TabKind::File { .. }) {
+                return None;
+            }
+            let (pane, tab) = (focused.clone(), tab.id.clone());
+            return Some(ShellIntent::Git(
+                if command == crate::command_registry::GitRun::ToggleBlame {
+                    intents::git::Intent::ToggleBlame { pane, tab }
+                } else {
+                    intents::git::Intent::StageSelection { pane, tab }
                 },
             ));
         }
@@ -427,10 +487,21 @@ mod tests {
             auxiliary("explorer"),
             Some(ShellIntent::ExplorerSearch(intents::explorer_search::Intent::ShowAuxiliaryExplorer { project: owner, slot: AUXILIARY_SLOT })) if owner == project
         ));
-        assert!(auxiliary("git").is_none());
+        assert!(matches!(
+            auxiliary("git"),
+            Some(ShellIntent::Git(intents::git::Intent::ShowAuxiliaryView { project: owner, slot: AUXILIARY_SLOT })) if owner == project
+        ));
         assert!(matches!(
             super::intent(Run::OpenTaskRunner, &snapshot, &scope),
             Some(ShellIntent::Commands(intents::commands::Intent::OpenTaskRunner(owner))) if owner == project
+        ));
+        assert!(matches!(
+            super::intent(Run::Git(crate::command_registry::GitRun::RevertHead), &snapshot, &scope),
+            Some(ShellIntent::Git(intents::git::Intent::RevertHead(owner))) if owner == project
+        ));
+        assert!(matches!(
+            super::intent(Run::Git(crate::command_registry::GitRun::CreateTagOnHead), &snapshot, &scope),
+            Some(ShellIntent::Git(intents::git::Intent::CreateAuxiliaryTagOnHead { project: owner, slot: AUXILIARY_SLOT })) if owner == project
         ));
         assert!(matches!(
             auxiliary("split"),
@@ -1348,8 +1419,12 @@ mod tests {
         .unwrap();
         assert_eq!(split.layouts[&background], original_background);
         assert!(supports("explorer") && runs_without_focused_project("explorer"));
-        assert!(!supports("git"));
+        assert!(supports("git") && runs_without_focused_project("git"));
         let focused_slot = split.shell.focused.clone();
+        assert!(matches!(
+            action("git", &split),
+            Some(ShellIntent::Git(intents::git::Intent::ShowView { project, slot })) if project == focused && focused_slot.as_ref() == Some(&slot)
+        ));
         assert!(matches!(
             action("explorer", &split),
             Some(ShellIntent::ExplorerSearch(intents::explorer_search::Intent::ShowExplorer { project, slot })) if project == focused && focused_slot.as_ref() == Some(&slot)
@@ -1370,6 +1445,7 @@ mod tests {
         zen.shell.focused = None;
         assert!(action("split", &zen).is_none());
         assert!(action("explorer", &zen).is_none());
+        assert!(action("git", &zen).is_none());
         assert!(intent(Run::OpenTaskRunner, &zen, &WindowScope::Main).is_none());
         drop(controller);
         tokio::time::timeout(DEADLINE, connection.worker)

@@ -988,7 +988,7 @@ impl ExplorerSearchSurfaces for AppSurfaces<'_> {
         project: &ProjectId,
         _: taide_native_ui::shell::ExplorerMount<'_>,
         region: &mut ExplorerRegion,
-        _: &mut Vec<ShellIntent>,
+        intents: &mut Vec<ShellIntent>,
     ) {
         let ExplorerRegion {
             mount: Some(slot),
@@ -1026,6 +1026,9 @@ impl ExplorerSearchSurfaces for AppSurfaces<'_> {
                 }
             }
             Err(error) => errors.push(error.to_string()),
+        }
+        if sidebar.view == crate::symbol_sidebar::View::Git {
+            self.show_git_view(ui, project, slot, &mut *icons, errors, intents);
         }
         if matches!(
             sidebar.view,
@@ -1156,6 +1159,18 @@ impl ExplorerSearchSurfaces for AppSurfaces<'_> {
                 .map(|(_, focused)| focused.clone()),
         };
         *actions = output.actions;
+        actions.retain(|action| {
+            let crate::explorer::Action::FileHistory(path) = action else {
+                return true;
+            };
+            intents.push(ShellIntent::Git(
+                taide_native_ui::intents::git::Intent::OpenFileHistory {
+                    project: project.clone(),
+                    path: path.clone(),
+                },
+            ));
+            false
+        });
         *is_files_shown = true;
     }
     fn finish_explorer(
@@ -1330,6 +1345,24 @@ impl ExplorerSearchSurfaces for AppSurfaces<'_> {
                             project.clone(),
                         )))
                 }
+                crate::explorer::Action::SelectForCompare(path) => {
+                    if let Some(explorer) = self.explorers.get_mut(project) {
+                        explorer.compare_source = Some(path);
+                    }
+                }
+                crate::explorer::Action::CompareWithSelected(path) => {
+                    if let Some(command) = self
+                        .explorers
+                        .get_mut(project)
+                        .and_then(|explorer| explorer.compare_source.take())
+                        .map(|source| {
+                            crate::domains::git::compare_tab(project.clone(), source, path)
+                        })
+                    {
+                        self.commands.push(command);
+                    }
+                }
+                crate::explorer::Action::FileHistory(_) => {}
             }
         }
         if is_files_shown && let Some(explorer) = self.explorers.get(project) {

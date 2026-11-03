@@ -1870,7 +1870,8 @@ impl taide_native_ui::editor_locations::Provider for Provider<'_, '_> {
                         taide_native_editor::document::DocumentKey::Untitled(tab) => {
                             tab.to_string()
                         }
-                        taide_native_editor::document::DocumentKey::AppFile(_) => String::new(),
+                        taide_native_editor::document::DocumentKey::AppFile(_)
+                        | taide_native_editor::document::DocumentKey::Virtual(_) => String::new(),
                     },
                     language: snapshot.metadata.language_id.clone(),
                 });

@@ -101,7 +101,10 @@ impl State {
             .filter(|snapshot| {
                 snapshot.metadata.language_id == "json"
                     && snapshot.metadata.tier == FileSizeTier::Normal
-                    && !matches!(snapshot.key, DocumentKey::AppFile(_))
+                    && !matches!(
+                        snapshot.key,
+                        DocumentKey::AppFile(_) | DocumentKey::Virtual(_)
+                    )
                     && store.views().for_document(snapshot.id).next().is_some()
             })
             .collect::<Vec<_>>();
@@ -191,7 +194,9 @@ fn build(snapshot: &DocumentSnapshot, cancelled: &AtomicBool) -> Result<Models, 
             .map_err(|_| EditorError::InvalidIdentity)?
             .to_string(),
         DocumentKey::Untitled(tab) => format!("untitled:{tab}"),
-        DocumentKey::AppFile(_) => return Err(EditorError::InvalidIdentity),
+        DocumentKey::AppFile(_) | DocumentKey::Virtual(_) => {
+            return Err(EditorError::InvalidIdentity);
+        }
     };
     let native = json_symbols::document_symbols(&text, &uri, true, SYMBOL_LIMITS)?;
     if cancelled.load(Ordering::Acquire) {

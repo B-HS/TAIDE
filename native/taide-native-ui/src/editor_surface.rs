@@ -178,6 +178,25 @@ pub struct FoldControl {
 
 pub type FoldControlPainter<'a> = dyn FnMut(&Ui, FoldControl) + 'a;
 
+/// A blank band a caller places between document lines, such as a diff's filler rows.
+#[cfg(feature = "native-host")]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ExtraZone {
+    /// The document line the band follows; `None` places it above the first line.
+    pub after_line: Option<usize>,
+    pub height: f32,
+}
+
+/// Caller-owned layout additions for [`NativeEditor::show_request_with_extras`].
+#[cfg(feature = "native-host")]
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SurfaceExtras {
+    pub zones: Vec<ExtraZone>,
+    /// Document line ranges (0-based, end exclusive) hidden on top of folds, such as a diff's
+    /// collapsed unchanged regions.
+    pub hidden_lines: Vec<Range<usize>>,
+}
+
 pub struct EditorRequest<'a, Keymap, Route, Tokens> {
     pub request_focus: bool,
     pub keymap: Keymap,
@@ -331,6 +350,10 @@ struct InputState {
     scrollbar_drag: Option<ScrollbarDrag>,
     scrolled_at: Option<f64>,
     rendered_viewport: Option<RenderedViewport>,
+    #[cfg(feature = "native-host")]
+    rendered_extra_zones: Vec<ExtraZone>,
+    #[cfg(feature = "native-host")]
+    rendered_hidden_lines: Vec<Range<usize>>,
     fold_regions: Option<FoldRegionCache>,
     #[cfg(feature = "native-host")]
     syntax_folds: Option<Arc<taide_native_editor::syntax_folding::SyntaxFolds>>,
@@ -562,6 +585,12 @@ struct Projection<'a> {
     problem_zone: Option<(usize, f32)>,
     #[cfg(feature = "native-host")]
     ai_edit_zone: Option<(usize, f32)>,
+    #[cfg(feature = "native-host")]
+    extra_zones: Vec<ExtraZone>,
+    #[cfg(feature = "native-host")]
+    rendered_extra_zones: Vec<ExtraZone>,
+    #[cfg(feature = "native-host")]
+    extra_hidden_lines: Vec<Range<usize>>,
     preview_views: Vec<taide_native_editor::completion_preview_view::ViewData>,
     #[cfg(feature = "native-host")]
     inlay_hints: Option<&'a crate::editor_inlay_hints::Presentation>,
@@ -577,6 +606,7 @@ fn preview_layout(
     line_height: f32,
     display: &DisplayMap,
     #[cfg(feature = "native-host")] ai_edit_zone: Option<(usize, f32)>,
+    #[cfg(feature = "native-host")] extra_zones: &[ExtraZone],
 ) -> VerticalLayout {
     let zones = display.preview_views().iter().map(|view| {
         let rows = display.rows_of_line(view.line);
@@ -599,7 +629,32 @@ fn preview_layout(
             height,
         )
     }));
-    VerticalLayout::new(line_height, display.row_count()).with_additional_zones(zones)
+    #[cfg(feature = "native-host")]
+    let zones = zones.chain(extra_zones.iter().filter_map(|zone| {
+        let rows = display.rows_of_line(zone.after_line?);
+        Some((
+            if rows.is_empty() {
+                usize::MAX
+            } else {
+                rows.end - 1
+            },
+            zone.height,
+        ))
+    }));
+    let layout = VerticalLayout::new(line_height, display.row_count()).with_additional_zones(zones);
+    #[cfg(feature = "native-host")]
+    let leading = extra_zones
+        .iter()
+        .filter(|zone| zone.after_line.is_none())
+        .map(|zone| zone.height)
+        .sum::<f32>();
+    #[cfg(feature = "native-host")]
+    let layout = if leading > 0.0 {
+        layout.with_before_zones([(0, leading)])
+    } else {
+        layout
+    };
+    layout
 }
 
 impl Projection<'_> {
@@ -626,7 +681,8 @@ impl Projection<'_> {
                         document,
                         self.appearance,
                     )
-        }) || self.code_lenses != self.rendered_code_lenses;
+        }) || self.code_lenses != self.rendered_code_lenses
+            || self.rendered_extra_zones != self.extra_zones;
         #[cfg(not(feature = "native-host"))]
         let zone_changed = false;
         let wrap = self.wrap_tab_size.map(|tab_size| {
@@ -648,6 +704,17 @@ impl Projection<'_> {
             hidden_lines(&document.rope, folds)
         } else {
             Vec::new()
+        };
+        #[cfg(feature = "native-host")]
+        let hidden = if self.extra_hidden_lines.is_empty() {
+            hidden
+        } else {
+            taide_native_editor::display_map::merged_line_ranges(
+                hidden
+                    .into_iter()
+                    .chain(self.extra_hidden_lines.iter().cloned()),
+                document.rope.len_lines(),
+            )
         };
         #[cfg(feature = "native-host")]
         let retained_hints = if self.retain_cached_hints {
@@ -686,6 +753,8 @@ impl Projection<'_> {
                     stale,
                     #[cfg(feature = "native-host")]
                     rendered.ai_edit_zone,
+                    #[cfg(feature = "native-host")]
+                    &self.rendered_extra_zones,
                 );
                 #[cfg(feature = "native-host")]
                 let layout = crate::editor_code_lenses::layout(
@@ -735,6 +804,8 @@ impl Projection<'_> {
                 map,
                 #[cfg(feature = "native-host")]
                 self.ai_edit_zone,
+                #[cfg(feature = "native-host")]
+                &self.extra_zones,
             );
             #[cfg(feature = "native-host")]
             let layout = crate::editor_code_lenses::layout(
@@ -785,6 +856,10 @@ pub struct EditorOutput {
     pub toggle_sticky_scroll: bool,
     #[cfg(feature = "native-host")]
     pub code_lenses: crate::editor_code_lenses::Output,
+    /// Screen rects of [`SurfaceExtras::zones`] in the same order; `None` for a band the layout
+    /// could not place.
+    #[cfg(feature = "native-host")]
+    pub extra_zones: Vec<Option<Rect>>,
     #[cfg(all(feature = "native-host", feature = "inspection"))]
     pub documentation_geometry: crate::editor_documentation::Geometry,
     #[cfg(all(feature = "native-host", feature = "inspection"))]
@@ -1050,12 +1125,30 @@ impl NativeEditor {
             data.get_temp::<InputState>(ui.make_persistent_id(("native-code-editor", view)))
                 .and_then(|input| input.code_lens_presentation)
         });
+        #[cfg(feature = "native-host")]
+        let rendered_extra_zones = ui
+            .ctx()
+            .data(|data| {
+                data.get_temp::<InputState>(ui.make_persistent_id(("native-code-editor", view)))
+            })
+            .map_or_else(Vec::new, |input| input.rendered_extra_zones);
         let mut projection = Projection {
             painter: ui.painter().clone(),
             appearance,
             width: rect.width(),
             wrap_tab_size: presentation.options.word_wrap.then_some(tab_size),
             has_folding: presentation.options.folding,
+            #[cfg(feature = "native-host")]
+            extra_zones: rendered_extra_zones.clone(),
+            #[cfg(feature = "native-host")]
+            rendered_extra_zones: rendered_extra_zones.clone(),
+            #[cfg(feature = "native-host")]
+            extra_hidden_lines: ui
+                .ctx()
+                .data(|data| {
+                    data.get_temp::<InputState>(ui.make_persistent_id(("native-code-editor", view)))
+                })
+                .map_or_else(Vec::new, |input| input.rendered_hidden_lines),
             preview_views: Vec::new(),
             #[cfg(feature = "native-host")]
             inlay_hints: None,
@@ -1085,6 +1178,8 @@ impl NativeEditor {
             display,
             #[cfg(feature = "native-host")]
             ai_edit_zone,
+            #[cfg(feature = "native-host")]
+            &rendered_extra_zones,
         );
         #[cfg(feature = "native-host")]
         let layout = crate::editor_code_lenses::layout(
@@ -1319,6 +1414,38 @@ impl NativeEditor {
             None,
             #[cfg(feature = "native-host")]
             None,
+            #[cfg(feature = "native-host")]
+            &SurfaceExtras::default(),
+        )
+    }
+
+    /// Renders like [`Self::show_request_with_editor_keymap`] with caller-owned layout additions.
+    #[cfg(feature = "native-host")]
+    pub fn show_request_with_extras<'tokens>(
+        &self,
+        ui: &mut Ui,
+        store: &mut EditorStore,
+        view: ViewId,
+        request: EditorRequest<
+            '_,
+            impl FnMut(&Ui, &Event, bool) -> bool,
+            impl FnOnce(&Response) -> Option<KeyboardInputRoute>,
+            impl FnOnce(&EditorStore) -> Option<EditorTokens<'tokens>>,
+        >,
+        editor_keymap: impl FnMut(&Ui, &mut EditorStore, ViewId, &Event, bool) -> bool,
+        extras: &SurfaceExtras,
+    ) -> Result<EditorOutput, EditorError> {
+        self.show_request_inner(
+            ui,
+            store,
+            view,
+            request,
+            editor_keymap,
+            None,
+            None,
+            None,
+            None,
+            extras,
         )
     }
 
@@ -1350,6 +1477,7 @@ impl NativeEditor {
             None,
             None,
             None,
+            &SurfaceExtras::default(),
         )
     }
 
@@ -1385,6 +1513,7 @@ impl NativeEditor {
             code_actions,
             None,
             None,
+            &SurfaceExtras::default(),
         )
     }
 
@@ -1421,6 +1550,7 @@ impl NativeEditor {
             code_actions,
             inlay_hints,
             None,
+            &SurfaceExtras::default(),
         )
     }
 
@@ -1458,6 +1588,7 @@ impl NativeEditor {
             code_actions,
             inlay_hints,
             code_lenses,
+            &SurfaceExtras::default(),
         )
     }
 
@@ -1487,6 +1618,7 @@ impl NativeEditor {
         #[cfg(feature = "native-host")] code_lenses: Option<
             crate::editor_code_lenses::Presentation,
         >,
+        #[cfg(feature = "native-host")] extras: &SurfaceExtras,
     ) -> Result<EditorOutput, EditorError> {
         let EditorRequest {
             request_focus,
@@ -1738,6 +1870,12 @@ impl NativeEditor {
                 width: (rect.width() - minimap_width).max(0.0),
                 wrap_tab_size: presentation.options.word_wrap.then_some(indent.tab_size),
                 has_folding: presentation.options.folding,
+                #[cfg(feature = "native-host")]
+                extra_zones: extras.zones.clone(),
+                #[cfg(feature = "native-host")]
+                rendered_extra_zones: input_state.rendered_extra_zones.clone(),
+                #[cfg(feature = "native-host")]
+                extra_hidden_lines: extras.hidden_lines.clone(),
                 preview_views: cached
                     .as_ref()
                     .filter(|map| map.revision() == previous.revision)
@@ -2375,6 +2513,8 @@ impl NativeEditor {
         let zone_position = projection.problem_zone;
         #[cfg(feature = "native-host")]
         let ai_edit_zone = projection.ai_edit_zone;
+        #[cfg(feature = "native-host")]
+        let extra_zones = projection.extra_zones.clone();
         let (display, stable_scroll_top) =
             projection.map_with_stable_scroll_top(&document, &state.folds)?;
         let wrap_column = display.wrap_settings().map(|settings| settings.wrap_column);
@@ -2404,6 +2544,8 @@ impl NativeEditor {
             display,
             #[cfg(feature = "native-host")]
             ai_edit_zone,
+            #[cfg(feature = "native-host")]
+            &extra_zones,
         );
         #[cfg(feature = "native-host")]
         let ai_edit_zone_order = display.preview_views().len();
@@ -3807,6 +3949,28 @@ impl NativeEditor {
             .chain(input_state.locations.focus_ids())
             .collect();
         store.set_display(view, projection.cached)?;
+        #[cfg(feature = "native-host")]
+        let extra_zone_rects = {
+            let mut after_order = ai_edit_zone_order + usize::from(ai_edit_zone.is_some())..;
+            extra_zones
+                .iter()
+                .map(|zone| {
+                    let band = match zone.after_line {
+                        Some(_) => layout.additional_zone(after_order.next()?),
+                        None => layout.before_zone(0),
+                    }?;
+                    Some(Rect::from_min_max(
+                        pos2(text_rect.left(), rect.top() + band.start - state.scroll.y),
+                        pos2(editor_right, rect.top() + band.end - state.scroll.y),
+                    ))
+                })
+                .collect::<Vec<_>>()
+        };
+        #[cfg(feature = "native-host")]
+        {
+            input_state.rendered_extra_zones = extra_zones;
+            input_state.rendered_hidden_lines = extras.hidden_lines.clone();
+        }
         input_state.rendered_viewport = Some(RenderedViewport {
             scroll_top: state.scroll.y,
             line_height: appearance.line_height,
@@ -4007,6 +4171,8 @@ impl NativeEditor {
             toggle_sticky_scroll,
             #[cfg(feature = "native-host")]
             code_lenses: code_lens_output,
+            #[cfg(feature = "native-host")]
+            extra_zones: extra_zone_rects,
             #[cfg(all(feature = "native-host", feature = "inspection"))]
             documentation_geometry,
             #[cfg(all(feature = "native-host", feature = "inspection"))]

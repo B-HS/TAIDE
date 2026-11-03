@@ -30,11 +30,11 @@ const LAST_FILE: &str = "z.txt";
 const RENAMED_FILE: &str = "renamed.txt";
 
 #[derive(Default)]
-struct Viewports {
-    events: HashMap<egui::ViewportId, Vec<egui::Event>>,
+pub(super) struct Viewports {
+    pub(super) events: HashMap<egui::ViewportId, Vec<egui::Event>>,
     close: HashSet<egui::ViewportId>,
     focus: HashMap<egui::ViewportId, egui::Id>,
-    outputs: HashMap<egui::ViewportId, egui::FullOutput>,
+    pub(super) outputs: HashMap<egui::ViewportId, egui::FullOutput>,
 }
 
 impl Viewports {
@@ -59,7 +59,7 @@ impl Viewports {
     }
 }
 
-fn install_viewports(context: &egui::Context) -> Rc<RefCell<Viewports>> {
+pub(super) fn install_viewports(context: &egui::Context) -> Rc<RefCell<Viewports>> {
     let viewports = Rc::new(RefCell::new(Viewports::default()));
     let shared = viewports.clone();
     context.set_embed_viewports(false);
@@ -122,7 +122,7 @@ fn step_until(
     }
 }
 
-fn file_tab(path: &std::path::Path) -> Tab {
+pub(super) fn file_tab(path: &std::path::Path) -> Tab {
     Tab {
         id: TabId::new(),
         kind: TabKind::File {
@@ -136,7 +136,7 @@ fn file_tab(path: &std::path::Path) -> Tab {
     }
 }
 
-fn auxiliary_window(slot: u32, tab: &Tab) -> AuxWindowLayout {
+pub(super) fn auxiliary_window(slot: u32, tab: &Tab) -> AuxWindowLayout {
     let pane = PaneId::new();
     AuxWindowLayout {
         slot,
@@ -149,7 +149,7 @@ fn auxiliary_window(slot: u32, tab: &Tab) -> AuxWindowLayout {
     }
 }
 
-fn viewport_of(
+pub(super) fn viewport_of(
     application: &NativeApplication,
     project: &ProjectId,
     slot: u32,

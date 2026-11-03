@@ -261,6 +261,7 @@ pub async fn write_mirror(services: &Arc<AppServices>, job: MirrorJob) -> AppRes
             DocumentKey::AppFile(_) => {
                 return Err(AppError::Forbidden("native app files cannot be mirrored".into()));
             }
+            DocumentKey::Virtual(_) => return Ok(false),
         }
         Ok(true)
     }).await
