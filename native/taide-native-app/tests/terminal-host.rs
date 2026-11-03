@@ -157,6 +157,21 @@ fn limits() -> Limits {
     }
 }
 
+fn status_theme_colors() -> std::collections::BTreeMap<&'static str, &'static str> {
+    const STATUS_COLOR: &str = "#ddeeff";
+    [
+        "statusIndicator.error",
+        "appSidebar.iconDefault",
+        "app.background",
+        "app.border",
+        "list.hoverBackground",
+        "list.foreground",
+    ]
+    .into_iter()
+    .map(|key| (key, STATUS_COLOR))
+    .collect()
+}
+
 fn terminal_appearance() -> taide_native_app::terminal_surface::Appearance {
     const FONT_SIZE: u32 = 13;
     let colors = [
@@ -184,7 +199,7 @@ fn terminal_appearance() -> taide_native_app::terminal_surface::Appearance {
     .into_iter()
     .map(|key| (key, "#aabbcc"))
     .collect::<std::collections::BTreeMap<_, _>>();
-    let theme = serde_json::from_value(serde_json::json!({"id":"synthetic", "name":"synthetic", "type":"dark", "colors":{}, "syntax":{}, "terminal":colors})).unwrap();
+    let theme = serde_json::from_value(serde_json::json!({"id":"synthetic", "name":"synthetic", "type":"dark", "colors":status_theme_colors(), "syntax":{}, "terminal":colors})).unwrap();
     taide_native_app::terminal_surface::Appearance::new(&theme, FONT_SIZE).unwrap()
 }
 
@@ -5122,7 +5137,7 @@ async fn headless_surface의_measured_attach와_ime_확정은_실제_pty에_연�
     .into_iter()
     .map(|key| (key, "#aabbcc"))
     .collect::<std::collections::BTreeMap<_, _>>();
-    let theme = serde_json::from_value(serde_json::json!({"id":"synthetic", "name":"synthetic", "type":"dark", "colors":{}, "syntax":{}, "terminal":colors})).unwrap();
+    let theme = serde_json::from_value(serde_json::json!({"id":"synthetic", "name":"synthetic", "type":"dark", "colors":status_theme_colors(), "syntax":{}, "terminal":colors})).unwrap();
     let appearance = Appearance::new(&theme, FONT_SIZE).unwrap();
     let locale = taide_model::locale::ResolvedLocale {
         id: "en".into(),
@@ -6346,5 +6361,283 @@ async fn 포커스없는_단일_view는_측정_크기로_resize를_요청하고_
     assert_eq!(session, &id);
     assert_ne!(*owner_size, sole_size);
     timeout(TIMEOUT, hub.close(&id)).await.unwrap().unwrap();
+    fixture.finish().await;
+}
+
+#[tokio::test]
+async fn option_as_meta는_실제_views에서_esc_접두를_보내고_조합문자를_억제한다() {
+    use eframe::egui::{self, Event, ImeEvent, Key, Modifiers, Rect, pos2, vec2};
+    use taide_model::layout::{PaneNode, TabKind};
+    use taide_native_app::terminal_surface::{Request, Views};
+    let fixture = Fixture::new();
+    let hub = Hub::new(fixture.services.clone(), limits()).unwrap();
+    let output = Output::default();
+    let id = hub
+        .spawn(
+            fixture.opts(),
+            HISTORY,
+            async { vec![("TAIDE_NATIVE_FIXTURE_META".into(), "1".into())] },
+            output.ports(),
+        )
+        .await
+        .unwrap();
+    output.wait_ready().await;
+    let mut layout = taide_layout::service::default_layout();
+    let pane = layout.focused_pane.clone();
+    let PaneNode::Leaf { active, tabs, .. } = &mut layout.root else {
+        panic!("fixture root must be leaf")
+    };
+    let source = tabs
+        .iter_mut()
+        .find(|candidate| matches!(candidate.kind, TabKind::Terminal { .. }))
+        .unwrap();
+    source.kind = TabKind::Terminal {
+        session_id: id.clone(),
+        cwd: None,
+    };
+    let tab = source.id.clone();
+    *active = Some(tab.clone());
+    fixture
+        .services
+        .state
+        .layouts
+        .write()
+        .insert(fixture.project.clone(), layout);
+    let locale = taide_model::locale::ResolvedLocale {
+        id: "en".into(),
+        name: "English".into(),
+        messages: Default::default(),
+        warnings: Vec::new(),
+    };
+    let appearance = terminal_appearance();
+    let context = egui::Context::default();
+    let mut views = Views::default();
+    let mut commands = Vec::new();
+    let mut frame = |events: Vec<Event>, request_focus| {
+        let mut raw = egui::RawInput {
+            events,
+            screen_rect: Some(Rect::from_min_size(
+                pos2(0.0, 0.0),
+                vec2(MENU_SCREEN[0], MENU_SCREEN[1]),
+            )),
+            ..Default::default()
+        };
+        views.raw_input(&context, &mut raw);
+        let mut rendered = context.run_ui(raw, |ui| {
+            views
+                .show(
+                    ui,
+                    Request {
+                        pane: &pane,
+                        tab: &tab,
+                        session_id: &id,
+                        hub: &hub,
+                        services: &fixture.services,
+                        appearance: &appearance,
+                        locale: &locale,
+                        request_focus,
+                        commands: &mut commands,
+                    },
+                )
+                .unwrap();
+            views
+                .finish_frame(&hub, &fixture.services, &context)
+                .unwrap();
+        });
+        rendered.textures_delta.clear();
+    };
+    let alt = |key, shift| Event::Key {
+        key,
+        physical_key: Some(key),
+        pressed: true,
+        repeat: false,
+        modifiers: Modifiers {
+            alt: true,
+            shift,
+            ..Default::default()
+        },
+    };
+    frame(Vec::new(), true);
+    frame(Vec::new(), false);
+    frame(vec![alt(Key::B, false), Event::Text("∫".into())], false);
+    frame(vec![alt(Key::B, true), Event::Text("ı".into())], false);
+    frame(vec![alt(Key::Num1, true), Event::Text("⁄".into())], false);
+    frame(
+        vec![alt(Key::Space, false), Event::Text("\u{a0}".into())],
+        false,
+    );
+    frame(
+        vec![
+            alt(Key::E, false),
+            Event::Ime(ImeEvent::Preedit {
+                text: "´".into(),
+                active_range_chars: None,
+            }),
+        ],
+        false,
+    );
+    frame(vec![Event::Text("x".into())], false);
+    frame(vec![alt(Key::ArrowLeft, false)], false);
+    frame(
+        vec![Event::Key {
+            key: Key::A,
+            physical_key: Some(Key::A),
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers {
+                alt: true,
+                ctrl: true,
+                ..Default::default()
+            },
+        }],
+        false,
+    );
+    output.wait_title("native-meta-finished").await;
+    timeout(TIMEOUT, hub.close(&id)).await.unwrap().unwrap();
+    fixture.finish().await;
+}
+
+#[tokio::test]
+async fn 실행중_scrollback_변경은_hub의_실행중_세션_core에_적용된다() {
+    use taide_native_terminal::GridDimensions;
+    const LIVE_SCROLLBACK: u32 = 32;
+    let fixture = Fixture::new();
+    let hub = Hub::new(fixture.services.clone(), limits()).unwrap();
+    let output = Output::default();
+    let id = hub
+        .spawn(
+            fixture.opts(),
+            HISTORY,
+            async { Vec::new() },
+            output.ports(),
+        )
+        .await
+        .unwrap();
+    output.wait_ready().await;
+    let session = hub.get(&id).unwrap();
+    fixture.services.state.settings.write().terminal_scrollback = LIVE_SCROLLBACK;
+    assert!(hub.configure_history());
+    assert!(!hub.configure_history());
+    assert_eq!(
+        session
+            .snapshot(|snapshot| snapshot.core.history())
+            .unwrap(),
+        LIVE_SCROLLBACK as usize
+    );
+    let InputResult::Write(receipt) = session
+        .input(
+            &fixture.services,
+            NativeInput::CommittedText("continue\n"),
+            BYTES,
+        )
+        .unwrap()
+    else {
+        panic!("expected fixture input")
+    };
+    receipt.wait().await.unwrap();
+    output.wait_title("native-finished").await;
+    timeout(TIMEOUT, session.wait_dispatch())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        session
+            .snapshot(|snapshot| snapshot.core.grid().unwrap().history_size())
+            .unwrap(),
+        LIVE_SCROLLBACK as usize
+    );
+    timeout(TIMEOUT, hub.close(&id)).await.unwrap().unwrap();
+    fixture.finish().await;
+}
+
+#[tokio::test]
+async fn 숨은_세션의_새_명령은_hub로_전파된_현재_명령_색을_쓴다() {
+    use taide_native_terminal::{CommandColors, GridDimensions, Line};
+    const FIRST_SUCCESS: Rgb = Rgb { r: 1, g: 2, b: 3 };
+    const FIRST_FAILURE: Rgb = Rgb { r: 4, g: 5, b: 6 };
+    const NEXT_SUCCESS: Rgb = Rgb { r: 7, g: 8, b: 9 };
+    const NEXT_FAILURE: Rgb = Rgb {
+        r: 10,
+        g: 11,
+        b: 12,
+    };
+    const SESSIONS: usize = 2;
+    let fixture = Fixture::new();
+    let hub = Hub::new(
+        fixture.services.clone(),
+        Limits {
+            sessions: SESSIONS,
+            ..limits()
+        },
+    )
+    .unwrap();
+    let spawn = async |output: &Output| {
+        let mut ports = output.ports();
+        ports.command_colors = CommandColors {
+            success: Some(FIRST_SUCCESS),
+            failure: Some(FIRST_FAILURE),
+        };
+        let id = hub
+            .spawn(
+                fixture.opts(),
+                HISTORY,
+                async { vec![("TAIDE_NATIVE_FIXTURE_LINES".into(), "1".into())] },
+                ports,
+            )
+            .await
+            .unwrap();
+        output.wait_ready().await;
+        id
+    };
+    let visible_output = Output::default();
+    let hidden_output = Output::default();
+    let visible = spawn(&visible_output).await;
+    let hidden = spawn(&hidden_output).await;
+    let run = async |id: &str, output: &Output, exit: u8, title: &str| {
+        let session = hub.get(id).unwrap();
+        let line =
+            format!("\x1b]133;A\x07\x1b]133;C\x07{title}\x1b]133;D;{exit}\x07\x1b]2;{title}\x07\n");
+        let InputResult::Write(receipt) = session
+            .input(&fixture.services, NativeInput::CommittedText(&line), BYTES)
+            .unwrap()
+        else {
+            panic!("expected fixture input")
+        };
+        receipt.wait().await.unwrap();
+        output.wait_title(title).await;
+        session
+            .snapshot(|snapshot| {
+                let grid = snapshot.core.grid().unwrap();
+                snapshot
+                    .core
+                    .command_decorations(
+                        Line(-(grid.history_size() as i32))..Line(grid.screen_lines() as i32),
+                    )
+                    .unwrap()
+                    .into_iter()
+                    .map(|decoration| (decoration.id, decoration.color))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap()
+    };
+    assert_eq!(
+        run(&visible, &visible_output, 0, "visible-first").await,
+        [(1, FIRST_SUCCESS)]
+    );
+    hub.configure_command_colors(CommandColors {
+        success: Some(NEXT_SUCCESS),
+        failure: Some(NEXT_FAILURE),
+    });
+    assert_eq!(
+        run(&hidden, &hidden_output, 1, "hidden-first").await,
+        [(1, NEXT_FAILURE)]
+    );
+    assert_eq!(
+        run(&visible, &visible_output, 0, "visible-next").await,
+        [(1, FIRST_SUCCESS), (2, NEXT_SUCCESS)]
+    );
+    for id in [&visible, &hidden] {
+        timeout(TIMEOUT, hub.close(id)).await.unwrap().unwrap();
+    }
     fixture.finish().await;
 }

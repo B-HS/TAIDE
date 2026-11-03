@@ -186,6 +186,19 @@ pub enum Run {
     CodeActions(crate::editor_code_actions::Command),
     EditDocument(DocumentEdit),
     FoldDocument(FoldCommand),
+    #[cfg(feature = "native-host")]
+    Cli(crate::intents::terminal_agent::CliAction),
+    #[cfg(feature = "native-host")]
+    OpenWelcomeTab,
+    #[cfg(feature = "native-host")]
+    MoveFocusedTab(WindowMove),
+}
+
+#[cfg(feature = "native-host")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowMove {
+    NewWindow,
+    MainWindow,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -443,11 +456,29 @@ fn execution(id: &str, keymap_id: Option<&str>) -> Execution {
         "monaco.taide.toggleMinimap" => Some(Run::ToggleEditorMinimap),
         #[cfg(feature = "native-host")]
         "task.runTask" => Some(Run::OpenTaskRunner),
+        #[cfg(feature = "native-host")]
+        "cli.connectExternalEditor" => Some(Run::Cli(
+            crate::intents::terminal_agent::CliAction::ConnectExternalEditor,
+        )),
+        #[cfg(feature = "native-host")]
+        "cli.installShellCommand" => {
+            Some(Run::Cli(crate::intents::terminal_agent::CliAction::Install))
+        }
+        #[cfg(feature = "native-host")]
+        "cli.uninstallShellCommand" => Some(Run::Cli(
+            crate::intents::terminal_agent::CliAction::Uninstall,
+        )),
         "settings.open" => Some(Run::OpenSettingsTab),
         "app.openSettingsFile" => Some(Run::OpenSettingsFile),
         "monaco.deleteAllLeft" => Some(Run::EditDocument(DocumentEdit::DeleteAllLeft)),
         "monaco.editor.action.outdentLines" => Some(Run::EditDocument(DocumentEdit::OutdentLines)),
         "monaco.taide.saveFile" => Some(Run::SaveActiveTab),
+        #[cfg(feature = "native-host")]
+        "view.welcome" => Some(Run::OpenWelcomeTab),
+        #[cfg(feature = "native-host")]
+        "tab.moveToNewWindow" => Some(Run::MoveFocusedTab(WindowMove::NewWindow)),
+        #[cfg(feature = "native-host")]
+        "tab.moveToMainWindow" => Some(Run::MoveFocusedTab(WindowMove::MainWindow)),
         _ => id
             .strip_prefix(EDITOR_ACTION_PREFIX)
             .and_then(fold_command)
@@ -1180,6 +1211,124 @@ mod tests {
     }
 
     #[test]
+    fn cli_세_명령은_mac_전용_셸_명령_범주로_native_host에서만_cli_실행경로를_갖는다() {
+        let registry = registry().unwrap();
+        let contexts = [
+            CommandContext::default(),
+            CommandContext {
+                window: WindowKind::Auxiliary,
+                ..Default::default()
+            },
+            CommandContext {
+                active_project: Some(ProjectId::new()),
+                ..Default::default()
+            },
+        ];
+        #[cfg(feature = "native-host")]
+        let expected = [
+            (
+                "cli.connectExternalEditor",
+                Some(Run::Cli(
+                    crate::intents::terminal_agent::CliAction::ConnectExternalEditor,
+                )),
+            ),
+            (
+                "cli.installShellCommand",
+                Some(Run::Cli(crate::intents::terminal_agent::CliAction::Install)),
+            ),
+            (
+                "cli.uninstallShellCommand",
+                Some(Run::Cli(
+                    crate::intents::terminal_agent::CliAction::Uninstall,
+                )),
+            ),
+        ];
+        #[cfg(not(feature = "native-host"))]
+        let expected = [
+            ("cli.connectExternalEditor", None),
+            ("cli.installShellCommand", None),
+            ("cli.uninstallShellCommand", None),
+        ];
+        for (id, run) in expected {
+            let command = registry.command(id).unwrap();
+            assert!(command.is_mac_only, "{id}");
+            assert!(command.is_registered(true), "{id}");
+            assert!(!command.is_registered(false), "{id}");
+            assert!(command.runs_via_command(), "{id}");
+            assert_eq!(
+                command.category_key.as_deref(),
+                Some("keymap.category.shellCommand"),
+                "{id}"
+            );
+            assert_eq!(command.enablement, Enablement::Always, "{id}");
+            assert_eq!(
+                command.execution,
+                run.map_or(Execution::Unavailable, Execution::Native),
+                "{id}"
+            );
+            for context in &contexts {
+                assert_eq!(command.runnable(context), run, "{id}");
+            }
+        }
+    }
+
+    #[test]
+    fn welcome과_탭_창이동_명령은_native_host에서만_실행되고_메인창_이동은_보조창에서만_활성이다() {
+        let registry = registry().unwrap();
+        let contexts = [
+            CommandContext::default(),
+            CommandContext {
+                window: WindowKind::Auxiliary,
+                active_project: Some(ProjectId::new()),
+                ..Default::default()
+            },
+            CommandContext {
+                active_project: Some(ProjectId::new()),
+                ..Default::default()
+            },
+        ];
+        #[cfg(feature = "native-host")]
+        let runs = [
+            Some(Run::OpenWelcomeTab),
+            Some(Run::MoveFocusedTab(WindowMove::NewWindow)),
+            Some(Run::MoveFocusedTab(WindowMove::MainWindow)),
+        ];
+        #[cfg(not(feature = "native-host"))]
+        let runs = [None; 3];
+        for ((id, enablement, allowed), run) in [
+            ("view.welcome", Enablement::Always, [true, true, true]),
+            (
+                "tab.moveToNewWindow",
+                Enablement::Always,
+                [true, true, true],
+            ),
+            (
+                "tab.moveToMainWindow",
+                Enablement::AuxiliaryWindow,
+                [false, true, false],
+            ),
+        ]
+        .into_iter()
+        .zip(runs)
+        {
+            let command = registry.command(id).unwrap();
+            assert!(command.runs_via_command(), "{id}");
+            assert!(command.keymap_id.is_none(), "{id}");
+            assert_eq!(command.enablement, enablement, "{id}");
+            assert_eq!(
+                command.execution,
+                run.map_or(Execution::Unavailable, Execution::Native),
+                "{id}"
+            );
+            assert_eq!(
+                contexts.each_ref().map(|context| command.runnable(context)),
+                allowed.map(|allowed| run.filter(|_| allowed)),
+                "{id}"
+            );
+        }
+    }
+
+    #[test]
     fn 실행경로는_native동작이_있는_명령과_keymap액션만_typed요청으로_구분한다() {
         let registry = registry().unwrap();
         let native = registry
@@ -1192,6 +1341,10 @@ mod tests {
                 Execution::Native(Run::ToggleEditorMinimap) => None,
                 #[cfg(feature = "native-host")]
                 Execution::Native(Run::OpenTaskRunner) => None,
+                #[cfg(feature = "native-host")]
+                Execution::Native(Run::Cli(_)) => None,
+                #[cfg(feature = "native-host")]
+                Execution::Native(Run::OpenWelcomeTab | Run::MoveFocusedTab(_)) => None,
                 #[cfg(feature = "native-host")]
                 Execution::Native(Run::ChooseIndentation(_)) => None,
                 #[cfg(feature = "native-host")]
@@ -1802,6 +1955,18 @@ mod tests {
             #[cfg(feature = "native-host")]
             if id == "task.runTask" {
                 assert_eq!(command.execution, Execution::Native(Run::OpenTaskRunner));
+                assert_eq!(
+                    contexts.map(|context| command.is_runnable(context)),
+                    allowed
+                );
+                continue;
+            }
+            #[cfg(feature = "native-host")]
+            if id == "tab.moveToMainWindow" {
+                assert_eq!(
+                    command.execution,
+                    Execution::Native(Run::MoveFocusedTab(WindowMove::MainWindow))
+                );
                 assert_eq!(
                     contexts.map(|context| command.is_runnable(context)),
                     allowed

@@ -68,6 +68,10 @@ const HIDDEN_WHEEL_FILL: usize = 64;
 const HIDDEN_WHEEL_UP: &[u8] = b"\x1bOA";
 const HIDDEN_WHEEL_READY: &[u8] = b"\x1b]2;native-hidden-wheel-ready\x07";
 const HIDDEN_WHEEL_END: &[u8] = b"\x1bOBz";
+const META_ENV: &str = "TAIDE_NATIVE_FIXTURE_META";
+const META_INPUT: &[u8] = b"\x1bb\x1bB\x1b!\x1b \x1bex\x1b[1;3D\x1b\x01";
+const META_FINISHED: &[u8] = b"\x1b]2;native-meta-finished\x07";
+const LINES_ENV: &str = "TAIDE_NATIVE_FIXTURE_LINES";
 
 fn main() -> io::Result<()> {
     if std::env::args_os().count() != 1 {
@@ -103,6 +107,8 @@ fn main() -> io::Result<()> {
         std::env::var_os(QUERY_ORDER_ENV).as_deref() == Some(std::ffi::OsStr::new("1"));
     let is_hidden_wheel =
         std::env::var_os(HIDDEN_WHEEL_ENV).as_deref() == Some(std::ffi::OsStr::new("1"));
+    let is_meta = std::env::var_os(META_ENV).as_deref() == Some(std::ffi::OsStr::new("1"));
+    let is_lines = std::env::var_os(LINES_ENV).as_deref() == Some(std::ffi::OsStr::new("1"));
     let menu_key_mode = std::env::var_os(MENU_KEY_ENV);
     let is_menu_prefix = menu_key_mode.as_deref() == Some(std::ffi::OsStr::new("2"));
     let is_menu_mouse = menu_key_mode.as_deref() == Some(std::ffi::OsStr::new("4"));
@@ -121,6 +127,8 @@ fn main() -> io::Result<()> {
         is_query_order,
         is_hidden_wheel,
         is_menu_key,
+        is_meta,
+        is_lines,
     ]
     .into_iter()
     .filter(|enabled| *enabled)
@@ -143,6 +151,7 @@ fn main() -> io::Result<()> {
         || is_query_order
         || is_hidden_wheel
         || is_menu_key
+        || is_meta
     {
         setup.args(["-icanon", "min", "1", "time", "0"]);
     }
@@ -208,6 +217,24 @@ fn main() -> io::Result<()> {
         }
         output.write_all(WHEEL_FINISHED)?;
         return output.flush();
+    }
+    if is_meta {
+        let mut input = [0; META_INPUT.len()];
+        io::stdin().lock().read_exact(&mut input)?;
+        if input != META_INPUT {
+            return Err(io::Error::other("option as meta input was not escaped"));
+        }
+        output.write_all(META_FINISHED)?;
+        return output.flush();
+    }
+    if is_lines {
+        let mut line = String::new();
+        while io::stdin().lock().read_line(&mut line)? != 0 {
+            write!(output, "{}\r\n", line.trim_end_matches('\n'))?;
+            output.flush()?;
+            line.clear();
+        }
+        return Ok(());
     }
     if is_query_order {
         let mut start = [0];
