@@ -31,6 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?;
         return Ok(());
     }
+    taide_infra::perf::init(std::iter::empty());
     let Launch {
         config,
         relay_arguments,

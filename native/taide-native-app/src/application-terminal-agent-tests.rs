@@ -876,6 +876,7 @@ fn 실제_app_agent_상태_변경은_zen_메인창과_보조창_탭바에_다시
         title_branches: Arc::default(),
         app_menu: Arc::default(),
         providers: Arc::default(),
+        settings: Arc::default(),
     };
     let mut fixture = workspace_fixture("agent-display");
     let root = fixture.directory.join("alpha");

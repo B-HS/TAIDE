@@ -143,6 +143,8 @@ pub mod settings_controls;
 pub mod settings_owner;
 #[path = "settings-resources.rs"]
 pub mod settings_resources;
+#[path = "settings-sections-data.rs"]
+pub mod settings_sections_data;
 #[path = "settings-view.rs"]
 pub mod settings_view;
 pub mod shell;

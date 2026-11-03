@@ -34,6 +34,12 @@ pub enum Icon {
     File,
     CornerDownLeft,
     Loader,
+    CircleCheck,
+    CircleX,
+    Import,
+    RefreshCw,
+    ExternalLink,
+    Bell,
     #[cfg(feature = "native-host")]
     Braces,
     #[cfg(feature = "native-host")]
@@ -58,6 +64,12 @@ const ICONS: &[Icon] = &[
     Icon::File,
     Icon::CornerDownLeft,
     Icon::Loader,
+    Icon::CircleCheck,
+    Icon::CircleX,
+    Icon::Import,
+    Icon::RefreshCw,
+    Icon::ExternalLink,
+    Icon::Bell,
     #[cfg(feature = "native-host")]
     Icon::Braces,
     #[cfg(feature = "native-host")]
@@ -84,10 +96,16 @@ impl Icon {
             Self::File => 14,
             Self::CornerDownLeft => 15,
             Self::Loader => 16,
+            Self::CircleCheck => 17,
+            Self::CircleX => 18,
+            Self::Import => 19,
+            Self::RefreshCw => 20,
+            Self::ExternalLink => 21,
+            Self::Bell => 22,
             #[cfg(feature = "native-host")]
-            Self::Braces => 17,
+            Self::Braces => 23,
             #[cfg(feature = "native-host")]
-            Self::Hash => 18,
+            Self::Hash => 24,
         }
     }
 
@@ -104,7 +122,13 @@ impl Icon {
             | Self::FileJson
             | Self::Trash
             | Self::Plus
-            | Self::FolderOpen => KEYBOARD_ICON,
+            | Self::FolderOpen
+            | Self::CircleCheck
+            | Self::CircleX
+            | Self::Import
+            | Self::RefreshCw
+            | Self::ExternalLink
+            | Self::Bell => KEYBOARD_ICON,
             Self::Close => CLOSE_ICON,
         }
     }
@@ -145,6 +169,20 @@ impl Icon {
             Self::Loader => {
                 include_bytes!("../../taide-native-app/resources/icons/loader-circle.svg")
             }
+            Self::CircleCheck => {
+                include_bytes!("../../taide-native-app/resources/problems/circle-check.svg")
+            }
+            Self::CircleX => {
+                include_bytes!("../../taide-native-app/resources/problems/circle-x.svg")
+            }
+            Self::Import => include_bytes!("../../taide-native-app/resources/icons/import.svg"),
+            Self::RefreshCw => {
+                include_bytes!("../../taide-native-app/resources/icons/refresh-cw.svg")
+            }
+            Self::ExternalLink => {
+                include_bytes!("../../taide-native-app/resources/icons/external-link.svg")
+            }
+            Self::Bell => include_bytes!("../../taide-native-app/resources/icons/bell.svg"),
             #[cfg(feature = "native-host")]
             Self::Braces => include_bytes!("../../taide-native-app/resources/icons/braces.svg"),
             #[cfg(feature = "native-host")]

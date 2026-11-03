@@ -5,11 +5,11 @@ use crate::settings_code_controls::{
 use crate::settings_resources::Resources;
 
 const TEXT_WIDTH: f32 = 224.0;
-const OPTION_WIDTH: f32 = 128.0;
+pub(crate) const OPTION_WIDTH: f32 = 128.0;
 const COMBO_INSET_X: f32 = 11.0;
 const COMBO_ICON_GAP: f32 = 6.0;
-const INPUT_PADDING_X: i8 = 8;
-const INPUT_PADDING_Y: i8 = 4;
+pub(crate) const INPUT_PADDING_X: i8 = 8;
+pub(crate) const INPUT_PADDING_Y: i8 = 4;
 const LIST_PADDING: i8 = 4;
 const LIST_ROW_HEIGHT: f32 = 28.0;
 const SHELL_INSET_X: f32 = 13.0;
@@ -43,8 +43,8 @@ const POPUP_EVENTS: egui::EventFilter = egui::EventFilter {
 };
 
 pub(super) struct Appearance {
-    input_background: Color32,
-    input_border: Color32,
+    pub(super) input_background: Color32,
+    pub(super) input_border: Color32,
     popup_background: Color32,
     popup_border: Color32,
     popup_separator: Color32,
@@ -344,7 +344,7 @@ fn hint(ui: &mut Ui, key: &str, locale: &ResolvedLocale, appearance: &super::App
     );
 }
 
-fn left_label(
+pub(crate) fn left_label(
     ui: &mut Ui,
     width: f32,
     key: &str,
@@ -378,38 +378,63 @@ fn text_field(
     appearance: &super::Appearance,
     output: &mut Output,
 ) {
-    let stored = field.value(settings);
+    let placeholder = match field {
+        Text::Rulers => message(locale, "settings.editorRulersPlaceholder", &[]),
+        Text::Shell => "/bin/zsh".into(),
+    };
+    if labeled_text(
+        ui,
+        field.label(),
+        placeholder,
+        field.value(settings),
+        draft,
+        locale,
+        appearance,
+        output,
+    )
+    .lost_focus()
+    {
+        output.changes.push(Change::Code(draft.commit(field)));
+    }
+}
+
+pub(crate) fn labeled_text(
+    ui: &mut Ui,
+    label_key: &'static str,
+    placeholder: String,
+    stored: String,
+    draft: &mut TextDraft,
+    locale: &ResolvedLocale,
+    appearance: &super::Appearance,
+    _output: &mut Output,
+) -> egui::Response {
     draft.sync(stored.clone());
-    ui.push_id(field.label(), |ui| {
+    ui.push_id(label_key, |ui| {
         let width = ui.available_width();
         ui.horizontal(|ui| {
             left_label(
                 ui,
                 (width - TEXT_WIDTH - CONTROL_GAP).max(0.0),
-                field.label(),
+                label_key,
                 locale,
                 appearance,
             );
-            let placeholder = match field {
-                Text::Rulers => message(locale, "settings.editorRulersPlaceholder", &[]),
-                Text::Shell => "/bin/zsh".into(),
-            };
             let response = ui.add_sized(
                 [TEXT_WIDTH, LINE_HEIGHT],
                 egui::TextEdit::singleline(&mut draft.text)
-                    .id_salt((field.label(), &stored))
+                    .id_salt((label_key, &stored))
                     .return_key(None)
                     .font(FontId::proportional(TEXT_SIZE))
                     .hint_text(placeholder)
                     .margin(egui::Margin::symmetric(INPUT_PADDING_X, INPUT_PADDING_Y)),
             );
             #[cfg(any(test, feature = "inspection"))]
-            output.traces.push(Trace::capture(field.label(), &response));
-            if response.lost_focus() {
-                output.changes.push(Change::Code(draft.commit(field)));
-            }
-        });
-    });
+            _output.traces.push(Trace::capture(label_key, &response));
+            response
+        })
+        .inner
+    })
+    .inner
 }
 
 fn shell_profiles(
@@ -547,6 +572,7 @@ pub(crate) struct Picker {
     layer: Option<(egui::Context, egui::LayerId)>,
     restore_focus: bool,
     content_focused: bool,
+    pub(crate) is_placeholder: bool,
 }
 
 impl Drop for Picker {
@@ -696,7 +722,9 @@ impl Picker {
             active_text,
             active_font,
             label_rect,
-            if trigger.hovered() {
+            if self.is_placeholder {
+                appearance.muted
+            } else if trigger.hovered() {
                 appearance.code.list_foreground
             } else {
                 appearance.foreground

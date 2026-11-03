@@ -39,3 +39,24 @@ pub struct VsixThemeExtractionResult {
     pub extension: VsixExtensionInfo,
     pub themes: Vec<VsixExtractedTheme>,
 }
+
+/// Why a VSIX theme cannot be imported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VsixThemeImportFailure {
+    Parse,
+    Incomplete,
+    Contrast,
+}
+
+/// One theme of a VSIX converted to the TAIDE format and ready for the import dialog.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VsixThemeCandidate {
+    pub key: String,
+    pub label: String,
+    pub id: String,
+    pub theme_type: crate::theme::ThemeType,
+    pub id_collides: bool,
+    pub warning_count: usize,
+    pub theme: Option<crate::theme::Theme>,
+    pub failure: Option<VsixThemeImportFailure>,
+}

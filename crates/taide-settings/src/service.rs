@@ -4,7 +4,7 @@ use taide_infra::persist;
 use taide_model::ai::AiProviderId;
 use taide_model::error::{AppError, AppErrorKind, AppResult};
 use taide_model::paths::AppPaths;
-use taide_model::remote::ALLOWED_HOST_WILDCARD_PREFIX;
+use taide_model::remote::is_valid_allowed_host;
 use taide_model::settings::{
     EditorCursorBlinking, EditorCursorStyle, EditorRenderWhitespace, Settings, SettingsPatch, TerminalCursorStyle,
 };
@@ -172,8 +172,6 @@ fn backup_corrupted(path: &std::path::Path) {
 
 const EDITOR_TAB_SIZE_MIN: u32 = 1;
 const EDITOR_TAB_SIZE_MAX: u32 = 8;
-const DNS_HOSTNAME_MAX_LEN: usize = 253;
-const DNS_LABEL_MAX_LEN: usize = 63;
 const TERMINAL_SCROLLBACK_MIN: u32 = 100;
 const TERMINAL_SCROLLBACK_MAX: u32 = 100_000;
 const RESIZER_THICKNESS_MIN: u32 = 0;
@@ -238,46 +236,6 @@ fn sanitize_optional_url(value: Option<String>) -> Option<String> {
         }
         Some(v.trim_end_matches('/').to_string())
     })
-}
-
-fn is_valid_dns_label(label: &str) -> bool {
-    !label.is_empty()
-        && label.len() <= DNS_LABEL_MAX_LEN
-        && !label.starts_with('-')
-        && !label.ends_with('-')
-        && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
-}
-
-/// Accepts only a bare hostname or IPv4 literal for a `remote_allowed_hosts`
-/// entry — no scheme, userinfo, path/query, whitespace, or port — with one
-/// exception: a leading `*.` marks the entry as an RFC 6125 single-label
-/// wildcard (`remote::service::host_matches_allowed_entry` is the matcher).
-/// `remote::service::is_allowed_host` matches entries against the `Host`
-/// header's hostname alone, and `remote::service::format_issue_link_url`
-/// interpolates the first non-wildcard entry verbatim into `https://{host}/...`;
-/// anything else either never matches (silently disabling the tunnel) or
-/// corrupts the issued link (a scheme yields `https://https://...`, and
-/// `real.example.com@attacker.example` would make a browser send the link's
-/// one-time token to `attacker.example` as if `real.example.com` were
-/// userinfo). See `docs/acknowledge/2026-08-15-wave-b-hardening-contract.md` §6.
-///
-/// The wildcard's remainder is validated the same way a bare hostname is,
-/// plus one extra requirement: it must itself contain at least one more `.`
-/// (i.e. two or more labels), so a bare `*` (no `*.` prefix, falls through to
-/// the non-wildcard branch and fails there since `*` isn't a valid DNS label)
-/// and `*.com` (single-label remainder) are both rejected — the latter would
-/// otherwise register a wildcard broad enough to match almost any TLD-only
-/// hostname. A wildcard elsewhere than the very front (`foo.*.com`) or fused
-/// into a label (`*foo.com`) never matches the literal `*.` prefix check at
-/// all, so both fall through to the non-wildcard branch and are rejected
-/// there too (`*` isn't a valid DNS label).
-fn is_valid_allowed_host(value: &str) -> bool {
-    match value.strip_prefix(ALLOWED_HOST_WILDCARD_PREFIX) {
-        Some(remainder) => {
-            remainder.contains('.') && remainder.len() <= DNS_HOSTNAME_MAX_LEN && remainder.split('.').all(is_valid_dns_label)
-        }
-        None => !value.is_empty() && value.len() <= DNS_HOSTNAME_MAX_LEN && value.split('.').all(is_valid_dns_label),
-    }
 }
 
 /// Trims, lower-cases, and drops malformed entries from a

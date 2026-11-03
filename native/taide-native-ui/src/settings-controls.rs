@@ -1,3 +1,4 @@
+use taide_model::ai::AiProviderId;
 use taide_model::error::{AppError, AppResult};
 use taide_model::settings::{Settings, SettingsPatch};
 
@@ -24,6 +25,12 @@ pub enum Section {
     Snippets,
     Terminal,
     Keymap,
+    Lsp,
+    Ai,
+    Plugins,
+    Sync,
+    Remote,
+    Performance,
 }
 
 impl Section {
@@ -38,6 +45,8 @@ impl Section {
         Self::Keymap,
     ];
 
+    pub const HOSTED: [Self; 5] = [Self::Lsp, Self::Ai, Self::Plugins, Self::Sync, Self::Remote];
+
     pub fn title(self) -> &'static str {
         match self {
             Self::Appearance => "settings.appearance",
@@ -48,6 +57,22 @@ impl Section {
             Self::Snippets => "settings.snippetsSectionTitle",
             Self::Terminal => "settings.terminal",
             Self::Keymap => "settings.keymap",
+            Self::Lsp => "settings.lspStatus",
+            Self::Ai => "settings.aiSectionTitle",
+            Self::Plugins => "settings.plugins",
+            Self::Sync => "settings.syncSectionTitle",
+            Self::Remote => "remote.title",
+            Self::Performance => "settings.performance",
+        }
+    }
+
+    pub fn description(self) -> Option<&'static str> {
+        match self {
+            Self::Keymap => Some("settings.keymapDescription"),
+            Self::Lsp => Some("settings.lspDescription"),
+            Self::Remote => Some("remote.description"),
+            Self::Performance => Some("settings.performanceDescription"),
+            _ => None,
         }
     }
 }
@@ -498,6 +523,72 @@ pub enum Change {
     Numeric(Numeric, u32),
     Code(crate::settings_code_controls::Change),
     KeymapOverrides(String),
+    Hosted(HostedChange),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HostedChange {
+    AiProvider(AiProviderId),
+    AiModel {
+        provider: AiProviderId,
+        model: String,
+    },
+    AiAutoTab {
+        provider: AiProviderId,
+        enabled: bool,
+    },
+    AiOmlxBaseUrl(String),
+    RemoteAccess(bool),
+    RemotePasswordOnly(bool),
+    RemoteAllowedHosts(Vec<String>),
+    AgentHooks(bool),
+    IdeIntegration(bool),
+}
+
+impl HostedChange {
+    pub fn patch(&self) -> SettingsPatch {
+        match self {
+            Self::AgentHooks(enabled) => SettingsPatch {
+                agent_hooks_enabled: Some(*enabled),
+                ..Default::default()
+            },
+            Self::IdeIntegration(enabled) => SettingsPatch {
+                ide_integration_enabled: Some(*enabled),
+                ..Default::default()
+            },
+            Self::AiProvider(provider) => SettingsPatch {
+                ai_provider: Some(*provider),
+                ai_model: Some(String::new()),
+                ..Default::default()
+            },
+            Self::AiModel { provider, model } => SettingsPatch {
+                ai_provider: Some(*provider),
+                ai_model: Some(model.clone()),
+                ..Default::default()
+            },
+            Self::AiAutoTab { provider, enabled } => SettingsPatch {
+                ai_provider: Some(*provider),
+                ai_auto_tab_enabled: Some(*enabled),
+                ..Default::default()
+            },
+            Self::AiOmlxBaseUrl(value) => SettingsPatch {
+                ai_omlx_base_url: Some(value.clone()),
+                ..Default::default()
+            },
+            Self::RemoteAccess(enabled) => SettingsPatch {
+                remote_access_enabled: Some(*enabled),
+                ..Default::default()
+            },
+            Self::RemotePasswordOnly(enabled) => SettingsPatch {
+                remote_password_only_login: Some(*enabled),
+                ..Default::default()
+            },
+            Self::RemoteAllowedHosts(hosts) => SettingsPatch {
+                remote_allowed_hosts: Some(hosts.clone()),
+                ..Default::default()
+            },
+        }
+    }
 }
 
 impl Change {
@@ -519,6 +610,7 @@ impl Change {
                 keymap_overrides: Some(value.clone()),
                 ..Default::default()
             }),
+            Self::Hosted(change) => Some(change.patch()),
         }
     }
 }

@@ -55,6 +55,7 @@ struct PaintSink {
     title_branches: Arc<crate::title_branch::Changes>,
     app_menu: Arc<crate::app_menu::Changes>,
     providers: Arc<crate::provider_events::Inbox>,
+    settings: Arc<domains::settings::Events>,
 }
 
 impl EventSink for PaintSink {
@@ -65,6 +66,7 @@ impl EventSink for PaintSink {
         self.title_branches.record(&event);
         self.app_menu.record(&event);
         self.providers.record(&event);
+        self.settings.record(&event);
         self.context.request_repaint();
     }
 }
@@ -327,6 +329,7 @@ impl NativeApplication {
         let title_branch_changes = Arc::new(crate::title_branch::Changes::default());
         let app_menu_changes = Arc::new(crate::app_menu::Changes::default());
         let provider_events = Arc::new(crate::provider_events::Inbox::default());
+        let settings_events = Arc::new(domains::settings::Events::default());
         let (mut assembly, connection) = runtime.block_on(bootstrap::connect_shell(
             state.clone(),
             tasks.clone(),
@@ -338,6 +341,7 @@ impl NativeApplication {
                 title_branches: title_branch_changes.clone(),
                 app_menu: app_menu_changes.clone(),
                 providers: provider_events.clone(),
+                settings: settings_events.clone(),
             }),
             repaint.clone(),
         ))?;
@@ -667,6 +671,9 @@ impl NativeApplication {
                 ),
                 presentation_failures,
                 presentation_system_language: system_language,
+                sections_ports: Arc::new(crate::settings_ports::Ports::default()),
+                sections_events: settings_events,
+                reported_failures: Default::default(),
             },
             toasts,
             toast_theme,
@@ -2060,6 +2067,7 @@ impl NativeApplication {
         for notice in settings_output.snippet_notices {
             self.toasts.snippet(&self.locale, notice, Instant::now());
         }
+        self.pick_settings_files(frame);
         self.load_settings_requests(
             settings_output.load_settings,
             settings_output.load_settings_resources,
