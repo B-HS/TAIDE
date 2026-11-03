@@ -841,7 +841,14 @@ impl NativeApplication {
             "search.replaceDone",
             &[("files", &files), ("matches", &matches)],
         );
-        self.toasts.success(summary, now);
+        self.toasts.success(summary.clone(), now);
+        self.notify_event(
+            context,
+            taide_model::notification::NotificationCategory::SearchReplace,
+            Some(&project),
+            "notification.searchReplaceDone",
+            summary,
+        );
         if let Some(report) = crate::search_panel::skip_report(&replaced, &self.locale) {
             self.toasts.notify(
                 taide_native_ui::toast::Kind::Warning,

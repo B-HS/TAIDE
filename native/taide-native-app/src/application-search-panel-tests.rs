@@ -30,8 +30,18 @@ pub(super) struct Launched {
     pub(super) root: std::path::PathBuf,
 }
 
-pub(super) fn launch_project(name: &str, files: &[(&str, &str)], with_auxiliary: bool) -> Launched {
-    let mut fixture = Fixture {
+pub(super) fn project_state(
+    name: &str,
+    files: &[(&str, &str)],
+    with_auxiliary: bool,
+) -> (
+    Fixture,
+    AppState,
+    ProjectId,
+    ShellSlotId,
+    std::path::PathBuf,
+) {
+    let fixture = Fixture {
         directory: std::env::temp_dir().join(format!("taide-native-{name}-{}", ProjectId::new())),
         application: None,
     };
@@ -68,6 +78,11 @@ pub(super) fn launch_project(name: &str, files: &[(&str, &str)], with_auxiliary:
         session.projects = vec![project_ref(&project, &root, "alpha")];
         session.focused_shell_slot = Some(slot.clone());
     }
+    (fixture, state, project, slot, root)
+}
+
+pub(super) fn launch_project(name: &str, files: &[(&str, &str)], with_auxiliary: bool) -> Launched {
+    let (mut fixture, state, project, slot, root) = project_state(name, files, with_auxiliary);
     let context = launch(&mut fixture, state);
     Launched {
         fixture,
@@ -766,6 +781,88 @@ fn 실제_app_모두_바꾸기는_확인한_파일만_바꾸고_요약과_건너
     step_until(application, &context, "re-run", |_, output| {
         texts(output).contains(&rerun)
     });
+}
+
+#[cfg(unix)]
+#[test]
+fn 실제_app_모두_바꾸기_성공은_프로젝트_제목과_요약으로_os_알림을_한_번_보낸다() {
+    use crate::application::domains::shell::notifications_tests::{
+        FakePlatform, launch_with_platform,
+    };
+    let (mut fixture, state, ..) = project_state("search-replace-notify", &MAIN_FILES[..2], false);
+    {
+        let mut settings = state.settings.write();
+        settings.notifications_enabled = true;
+        settings.notify_search_replace = true;
+        settings.notifications_only_when_unfocused = false;
+        settings.search_on_type = false;
+    }
+    let platform = Arc::new(FakePlatform::default());
+    let context = launch_with_platform(&mut fixture, state, platform.clone());
+    context.enable_accesskit();
+    let application = fixture.application.as_mut().unwrap();
+    step_until(application, &context, "tree", |_, output| {
+        node_rect(output, "a.txt", egui::Rect::EVERYTHING).is_some()
+    });
+    open_search_view(application, &context);
+    search(application, &context, NEEDLE);
+    let summary = message(
+        application,
+        "search.matchCount",
+        &[("count", "3"), ("files", "2")],
+    );
+    let output = step_until(application, &context, "results", |_, output| {
+        texts(output).contains(&summary)
+    });
+
+    let toggle = message(application, "search.replaceToggle", &[]);
+    let toggle_rect = node_rect(&output, &toggle, egui::Rect::EVERYTHING).unwrap();
+    settle_pointer(application, &context, toggle_rect.center());
+    click(application, &context, toggle_rect);
+    let placeholder = message(application, "search.replacePlaceholder", &[]);
+    let output = step_until(application, &context, "replace input", |_, output| {
+        role_rect(output, egui::accesskit::Role::TextInput, &placeholder).is_some()
+    });
+    let input = role_rect(&output, egui::accesskit::Role::TextInput, &placeholder).unwrap();
+    settle_pointer(application, &context, input.center());
+    click(application, &context, input);
+    step(
+        application,
+        &context,
+        vec![egui::Event::Text(REPLACEMENT.into())],
+    );
+
+    let replace_all = message(application, "search.replaceAll", &[]);
+    let output = step(application, &context, Vec::new());
+    click(
+        application,
+        &context,
+        node_rect(&output, &replace_all, egui::Rect::EVERYTHING).unwrap(),
+    );
+    let confirm = message(application, "common.confirm", &[]);
+    let output = step_until(application, &context, "confirm", |_, output| {
+        role_rect(output, egui::accesskit::Role::Button, &confirm).is_some()
+    });
+    click(
+        application,
+        &context,
+        role_rect(&output, egui::accesskit::Role::Button, &confirm).unwrap(),
+    );
+
+    step_until(application, &context, "notification", |_, _| {
+        !platform.sent().is_empty()
+    });
+    assert_eq!(
+        platform.sent(),
+        vec![(
+            "alpha".to_owned(),
+            message(
+                application,
+                "search.replaceDone",
+                &[("files", "2"), ("matches", "3")]
+            )
+        )]
+    );
 }
 
 #[test]

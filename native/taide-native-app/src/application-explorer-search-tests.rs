@@ -556,6 +556,7 @@ const MENU_FILES: [(&str, &str); 3] = [
     ("node_modules/pkg/inner.txt", "needle inner\n"),
 ];
 const IGNORED_FOLDER: &str = "node_modules";
+const ROW_CLICK_INSET: f32 = 8.0;
 
 fn terminal_cwds(application: &NativeApplication, project: &ProjectId) -> Vec<String> {
     let layouts = application.services.state.layouts.read();
@@ -566,6 +567,68 @@ fn terminal_cwds(application: &NativeApplication, project: &ProjectId) -> Vec<St
             _ => None,
         })
         .collect()
+}
+
+fn sidebar_node(output: &egui::FullOutput, label: &str) -> Option<egui::Rect> {
+    output
+        .platform_output
+        .accesskit_update
+        .as_ref()?
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.label() == Some(label))
+        .filter_map(|(_, node)| node.bounds())
+        .map(|bounds| {
+            egui::Rect::from_min_max(
+                egui::pos2(bounds.x0 as f32, bounds.y0 as f32),
+                egui::pos2(bounds.x1 as f32, bounds.y1 as f32),
+            )
+        })
+        .min_by(|left, right| left.left().total_cmp(&right.left()))
+}
+
+fn choose_row_menu(
+    application: &mut NativeApplication,
+    context: &egui::Context,
+    row: &str,
+    item: &str,
+) {
+    let output = step_until(application, context, row, |_, output| {
+        sidebar_node(output, row).is_some()
+    });
+    let row_rect = sidebar_node(&output, row).unwrap();
+    let point = egui::pos2(row_rect.left() + ROW_CLICK_INSET, row_rect.center().y);
+    step(
+        application,
+        context,
+        pointer(point, egui::PointerButton::Secondary),
+    );
+    let output = step_until(application, context, item, |_, output| {
+        node_rect(output, item, egui::Rect::EVERYTHING).is_some()
+    });
+    let item_rect = node_rect(&output, item, egui::Rect::EVERYTHING).unwrap();
+    step(
+        application,
+        context,
+        pointer(item_rect.center(), egui::PointerButton::Primary),
+    );
+}
+
+fn active_terminal_cwd(
+    application: &NativeApplication,
+    project: &ProjectId,
+    title: &str,
+) -> Option<String> {
+    let layouts = application.services.state.layouts.read();
+    let layout = &layouts[project];
+    taide_native_ui::snapshot::active_tab(&layout.root, &layout.focused_pane).and_then(|tab| {
+        (!tab.preview && tab.title == title)
+            .then(|| match &tab.kind {
+                TabKind::Terminal { session_id, cwd } if session_id.is_empty() => cwd.clone(),
+                _ => None,
+            })
+            .flatten()
+    })
 }
 
 #[test]
@@ -587,42 +650,31 @@ fn 실제_app_터미널에서_열기는_그_폴더를_cwd로_한_고정_터미�
         node_rect(output, IGNORED_FOLDER, egui::Rect::EVERYTHING).is_some()
     });
     let folder_text = root.join(IGNORED_FOLDER).to_str().unwrap().to_owned();
+    let root_text = root.to_str().unwrap().to_owned();
     let title = message(application, "terminal.title", &[]);
+    let open_in_terminal = message(application, "explorer.openInTerminal", &[]);
+    let find_in_folder = message(application, "explorer.findInFolder", &[]);
     let before = terminal_cwds(application, &project).len();
-    application.submit(HostCommand::ExplorerSearch(
-        domains::explorer_search::Command::OpenTerminalAt {
-            project: project.clone(),
-            pane: None,
-            cwd: folder_text.clone(),
-            title: title.clone(),
-        },
-    ));
+    choose_row_menu(application, &context, IGNORED_FOLDER, &open_in_terminal);
     step_until(
         application,
         &context,
         "folder terminal",
         |application, _| {
-            let count = terminal_cwds(application, &project).len();
-            let layouts = application.services.state.layouts.read();
-            let layout = &layouts[&project];
-            count == before + 1
-            && taide_native_ui::snapshot::active_tab(&layout.root, &layout.focused_pane)
-                .is_some_and(|tab| {
-                    !tab.preview
-                        && tab.title == title
-                        && matches!(&tab.kind, TabKind::Terminal { session_id, cwd } if session_id.is_empty() && cwd.as_deref() == Some(folder_text.as_str()))
-                })
+            terminal_cwds(application, &project).len() == before + 1
+                && active_terminal_cwd(application, &project, &title).as_deref()
+                    == Some(folder_text.as_str())
         },
     );
 
-    application
-        .explorer_search_state
-        .symbol_sidebars
-        .entry(&project, &slot)
-        .request_search(crate::search_panel::Request {
-            scope_dir: Some(IGNORED_FOLDER.into()),
-            ..Default::default()
-        });
+    choose_row_menu(application, &context, "note.txt", &open_in_terminal);
+    step_until(application, &context, "file terminal", |application, _| {
+        terminal_cwds(application, &project).len() == before + 2
+            && active_terminal_cwd(application, &project, &title).as_deref()
+                == Some(root_text.as_str())
+    });
+
+    choose_row_menu(application, &context, IGNORED_FOLDER, &find_in_folder);
     let chip = message(
         application,
         "explorer.searchScopeLabel",
