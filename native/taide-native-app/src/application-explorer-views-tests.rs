@@ -550,3 +550,123 @@ fn 실제_app_rail_tooltip은_공통_채널로_400ms_지연과_focus로_열고_�
         "keyboard focus opens it without the delay"
     );
 }
+
+/// Synthetic data whose chosen theme file holds `theme_json` and whose chosen language pack is
+/// broken, so the launch's theme and locale loads go through the startup fallback.
+pub(super) fn broken_presentation_state(data: PathBuf, theme_json: &str) -> AppState {
+    let state = isolated_state(data);
+    let theme_file = state.paths.themes_dir().join(format!("{THEME_ID}.json"));
+    let locale_file = state.paths.locales_dir().join(format!("{LOCALE_ID}.json"));
+    for (file, contents) in [(&theme_file, theme_json), (&locale_file, BROKEN_JSON)] {
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, contents).unwrap();
+    }
+    {
+        let mut settings = state.settings.write();
+        settings.follow_system_theme = false;
+        settings.theme_id = THEME_ID.into();
+        settings.language = LOCALE_ID.into();
+        std::fs::write(
+            state.paths.settings_file(),
+            serde_json::to_vec(&*settings).unwrap(),
+        )
+        .unwrap();
+    }
+    state
+}
+
+pub(super) const UNPAINTABLE_THEME_JSON: &str = r##"{"version":1,"id":"synthetic-broken-theme","name":"Synthetic","type":"dark","extends":"vscode-dark-modern","colors":{"editor.background":"not-a-color"}}"##;
+
+fn shell_background_painted(output: &egui::FullOutput, background: egui::Color32) -> bool {
+    output
+        .shapes
+        .iter()
+        .any(|clipped| matches!(&clipped.shape, egui::Shape::Rect(rect) if rect.fill == background))
+}
+
+#[test]
+fn 실제_app은_시작_때_테마와_로케일_로드가_실패해도_번들_기본값으로_띄우고_배너를_보인다() {
+    let mut fixture = Fixture {
+        directory: std::env::temp_dir()
+            .join(format!("taide-native-startup-banner-{}", ProjectId::new())),
+        application: None,
+    };
+    let data = fixture.directory.join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    let state = broken_presentation_state(data, BROKEN_JSON);
+    let context = launch(&mut fixture, state.clone());
+    let application = fixture.application.as_mut().unwrap();
+    let bundled_locale = taide_runtime::locale_actions::locale_get(&state, "en".into()).unwrap();
+    assert_eq!(application.locale.id, bundled_locale.id);
+    assert_eq!(
+        application.settings_state.resolved_theme.id,
+        taide_model::settings::DEFAULT_THEME_ID
+    );
+    let bundled_background = egui::Color32::from_rgb(0x1e, 0x1e, 0x2e);
+    assert_eq!(application.shell.colors.background, bundled_background);
+    let mut clock = Clock(0.0);
+    let output = clock.frame(application, &context, Vec::new());
+    let theme_message = presentation::message(&bundled_locale, "theme.loadFailed", &[]);
+    let locale_message = crate::status_error_banner::LOCALE_MESSAGE;
+    let (_, locale_text) = text_shapes(&output, locale_message).next().unwrap();
+    let (_, theme_text) = text_shapes(&output, &theme_message).next().unwrap();
+    assert!(text_rect(locale_text).bottom() <= BANNER_STACK_OFFSET);
+    assert!(text_rect(theme_text).top() >= BANNER_STACK_OFFSET);
+    assert!(shell_background_painted(&output, bundled_background));
+
+    let theme_file = state.paths.themes_dir().join(format!("{THEME_ID}.json"));
+    std::fs::write(&theme_file, THEME_JSON).unwrap();
+    let user_theme = taide_runtime::theme_actions::theme_get(&state, THEME_ID.into()).unwrap();
+    let user_background = presentation::color(&user_theme, "app.background").unwrap();
+    assert_ne!(user_background, bundled_background);
+    let retry = label(application, "common.retry");
+    let retries = nodes(&output, egui::accesskit::Role::Button)
+        .into_iter()
+        .filter(|(_, node)| node.label() == Some(retry.as_str()))
+        .filter_map(|(_, node)| rect_of(node))
+        .collect::<Vec<_>>();
+    assert_eq!(retries.len(), 2, "{retries:?}");
+    let theme_retry = retries
+        .iter()
+        .find(|rect| rect.top() >= BANNER_STACK_OFFSET)
+        .unwrap()
+        .center();
+    clock.click(application, &context, theme_retry);
+    let output = clock.until(application, &context, "theme retried", |_, output| {
+        !has_text(output, &theme_message)
+    });
+    assert!(has_text(&output, locale_message));
+    assert_eq!(application.settings_state.resolved_theme.id, THEME_ID);
+    assert_eq!(application.shell.colors.background, user_background);
+    assert!(shell_background_painted(&output, user_background));
+}
+
+#[test]
+fn 실제_app은_시작_때_사용자_테마를_그릴_수_없으면_번들_테마로_띄우고_테마_배너를_보인다() {
+    let mut fixture = Fixture {
+        directory: std::env::temp_dir().join(format!(
+            "taide-native-startup-unpaintable-{}",
+            ProjectId::new()
+        )),
+        application: None,
+    };
+    let data = fixture.directory.join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    let state = broken_presentation_state(data, UNPAINTABLE_THEME_JSON);
+    taide_runtime::theme_actions::theme_get(&state, THEME_ID.into()).unwrap();
+    let context = launch(&mut fixture, state);
+    let application = fixture.application.as_mut().unwrap();
+    assert_eq!(
+        application.settings_state.resolved_theme.id,
+        taide_model::settings::DEFAULT_THEME_ID
+    );
+    assert_eq!(
+        application.settings_state.presentation_failures,
+        crate::status_error_banner::Failures {
+            theme: true,
+            locale: true,
+        }
+    );
+    let output = Clock(0.0).frame(application, &context, Vec::new());
+    assert!(has_text(&output, &label(application, "theme.loadFailed")));
+}

@@ -631,7 +631,7 @@ impl NativeApplication {
             && !egui::Popup::is_any_open(context)
             && !egui::DragAndDrop::has_any_payload(context)
             && !taide_native_ui::project_drag::is_dragging(context)
-            && !taide_native_ui::tab_drag::is_dragging(context)
+            && !self.is_any_window_tab_dragging(context)
             && !crate::file_drop::is_hovering(context)
             && !self.preview_state.web_views.drags().is_hovering();
         if let Err(error) =

@@ -84,6 +84,7 @@ impl Fixture {
         );
         let actions = LayoutActions {
             view_states: Arc::default(),
+            wait_markers: Arc::default(),
             open_file_tab: |services, project, path, title, preview| {
                 Box::pin(async move {
                     layout_actions::layout_open_tab(

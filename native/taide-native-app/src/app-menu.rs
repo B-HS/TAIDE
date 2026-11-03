@@ -350,6 +350,18 @@ impl State {
         self.drawn = None;
     }
 
+    /// [`State::connect`] for a bar installed already showing `model`, so a first read of the same
+    /// list draws nothing again.
+    pub(crate) fn connect_installed(
+        &mut self,
+        bar: Box<dyn Bar>,
+        events: mpsc::Receiver<String>,
+        model: Model,
+    ) {
+        self.connect(bar, events);
+        self.drawn = Some(model);
+    }
+
     pub(crate) fn tick(
         &mut self,
         locale: &ResolvedLocale,

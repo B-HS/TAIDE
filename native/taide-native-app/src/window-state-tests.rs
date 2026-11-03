@@ -88,7 +88,7 @@ fn 저장된_상태가_없으면_기본_창_크기를_그대로_쓰고_저장하
     assert_eq!(builder.position, None);
 
     let mut tracker = Tracker::new(&directory);
-    tracker.observe(&egui::ViewportInfo::default(), 1.0);
+    tracker.observe(&egui::ViewportInfo::default(), 1.0, None);
     tracker.save().unwrap();
     assert!(!path(&directory).exists());
     std::fs::remove_dir_all(directory).unwrap();
@@ -98,8 +98,8 @@ fn 저장된_상태가_없으면_기본_창_크기를_그대로_쓰고_저장하
 fn 메인_창_크기를_추적해_data_dir에_저장하고_다음_실행의_viewport에_복원한다() {
     let directory = directory("roundtrip");
     let mut tracker = Tracker::new(&directory);
-    tracker.observe(&info(INITIAL_SIZE), 1.0);
-    tracker.observe(&info(MOVED_SIZE), 1.0);
+    tracker.observe(&info(INITIAL_SIZE), 1.0, None);
+    tracker.observe(&info(MOVED_SIZE), 1.0, None);
     tracker.save().unwrap();
 
     let saved: BTreeMap<String, WindowState> =
@@ -131,10 +131,10 @@ fn 메인_창_크기를_추적해_data_dir에_저장하고_다음_실행의_view
 fn 최대화와_전체_화면_동안에는_이전_창_크기를_지키고_상태만_기록한다() {
     let directory = directory("maximized");
     let mut tracker = Tracker::new(&directory);
-    tracker.observe(&info(MOVED_SIZE), 1.0);
+    tracker.observe(&info(MOVED_SIZE), 1.0, None);
     let mut maximized = info(MAXIMIZED_SIZE);
     maximized.maximized = Some(true);
-    tracker.observe(&maximized, 1.0);
+    tracker.observe(&maximized, 1.0, None);
     tracker.save().unwrap();
     let builder = main_viewport(default_builder(), &directory, &[]);
     assert_eq!(
@@ -145,10 +145,10 @@ fn 최대화와_전체_화면_동안에는_이전_창_크기를_지키고_상태
 
     let mut fullscreen = info(MAXIMIZED_SIZE);
     fullscreen.fullscreen = Some(true);
-    tracker.observe(&fullscreen, 1.0);
+    tracker.observe(&fullscreen, 1.0, None);
     let mut minimized = info(MAXIMIZED_SIZE);
     minimized.minimized = Some(true);
-    tracker.observe(&minimized, 1.0);
+    tracker.observe(&minimized, 1.0, None);
     tracker.save().unwrap();
     let builder = main_viewport(default_builder(), &directory, &[]);
     assert_eq!(
@@ -167,8 +167,8 @@ fn 최대화와_전체_화면_동안에는_이전_창_크기를_지키고_상태
 fn 화면_확대_배율을_곱한_논리_크기로_저장하고_빈_크기는_무시한다() {
     let directory = directory("zoom");
     let mut tracker = Tracker::new(&directory);
-    tracker.observe(&info(MOVED_SIZE), ZOOM);
-    tracker.observe(&info([0.0, MOVED_SIZE[1]]), 1.0);
+    tracker.observe(&info(MOVED_SIZE), ZOOM, None);
+    tracker.observe(&info([0.0, MOVED_SIZE[1]]), 1.0, None);
     assert_eq!(
         tracker.current.map(|state| [state.width, state.height]),
         Some([MOVED_SIZE[0] * ZOOM, MOVED_SIZE[1] * ZOOM])
@@ -186,7 +186,7 @@ fn 손상된_상태_파일은_기본_창으로_시작하고_다음_저장이_덮
         Some(egui::vec2(INITIAL_SIZE[0], INITIAL_SIZE[1]))
     );
     let mut tracker = Tracker::new(&directory);
-    tracker.observe(&info(MOVED_SIZE), 1.0);
+    tracker.observe(&info(MOVED_SIZE), 1.0, None);
     tracker.save().unwrap();
     assert_eq!(
         load(&directory).map(|state| [state.width, state.height]),
@@ -199,8 +199,8 @@ fn 손상된_상태_파일은_기본_창으로_시작하고_다음_저장이_덮
 fn 메인_창_위치를_추적해_저장_사각형이_연결된_모니터와_겹칠_때만_복원한다() {
     let directory = directory("position");
     let mut tracker = Tracker::new(&directory);
-    tracker.observe(&placed_info(INITIAL_SIZE, [40.0, 30.0]), 1.0);
-    tracker.observe(&placed_info(MOVED_SIZE, MOVED_ORIGIN), 1.0);
+    tracker.observe(&placed_info(INITIAL_SIZE, [40.0, 30.0]), 1.0, None);
+    tracker.observe(&placed_info(MOVED_SIZE, MOVED_ORIGIN), 1.0, None);
     tracker.save().unwrap();
     assert_eq!(load(&directory), Some(saved_at(MOVED_ORIGIN)));
 
@@ -278,16 +278,16 @@ fn 모니터의_물리_위치와_크기는_그_모니터_배율로_나눈_논리
 fn 최대화_전체_화면_최소화_동안에는_직전_일반_창_위치를_유지한다() {
     let directory = directory("position-maximized");
     let mut tracker = Tracker::new(&directory);
-    tracker.observe(&placed_info(MOVED_SIZE, MOVED_ORIGIN), 1.0);
+    tracker.observe(&placed_info(MOVED_SIZE, MOVED_ORIGIN), 1.0, None);
     let mut maximized = placed_info(MAXIMIZED_SIZE, [0.0, 0.0]);
     maximized.maximized = Some(true);
-    tracker.observe(&maximized, 1.0);
+    tracker.observe(&maximized, 1.0, None);
     let mut fullscreen = placed_info(MAXIMIZED_SIZE, [0.0, 0.0]);
     fullscreen.fullscreen = Some(true);
-    tracker.observe(&fullscreen, 1.0);
+    tracker.observe(&fullscreen, 1.0, None);
     let mut minimized = placed_info(MOVED_SIZE, DETACHED_ORIGIN);
     minimized.minimized = Some(true);
-    tracker.observe(&minimized, 1.0);
+    tracker.observe(&minimized, 1.0, None);
     assert_eq!(
         tracker.current.and_then(|state| state.position),
         Some(MOVED_ORIGIN)
@@ -295,13 +295,13 @@ fn 최대화_전체_화면_최소화_동안에는_직전_일반_창_위치를_�
 
     let mut unplaced = info(MOVED_SIZE);
     unplaced.outer_rect = None;
-    tracker.observe(&unplaced, 1.0);
+    tracker.observe(&unplaced, 1.0, None);
     assert_eq!(
         tracker.current.and_then(|state| state.position),
         Some(MOVED_ORIGIN)
     );
 
-    tracker.observe(&placed_info(MOVED_SIZE, MOVED_ORIGIN), ZOOM);
+    tracker.observe(&placed_info(MOVED_SIZE, MOVED_ORIGIN), ZOOM, None);
     assert_eq!(
         tracker.current.and_then(|state| state.position),
         Some([MOVED_ORIGIN[0] * ZOOM, MOVED_ORIGIN[1] * ZOOM])
@@ -331,7 +331,7 @@ fn 위치가_없는_이전_상태_파일도_크기를_복원한다() {
 fn 창_생성_hook은_이벤트_루프가_나중에_채운_모니터_목록으로_위치를_정한다() {
     let directory = directory("hook");
     let mut tracker = Tracker::new(&directory);
-    tracker.observe(&placed_info(MOVED_SIZE, MOVED_ORIGIN), 1.0);
+    tracker.observe(&placed_info(MOVED_SIZE, MOVED_ORIGIN), 1.0, None);
     tracker.save().unwrap();
 
     let unprobed = Monitors::default();
@@ -351,4 +351,39 @@ fn 창_생성_hook은_이벤트_루프가_나중에_채운_모니터_목록으�
         Some(egui::pos2(MOVED_ORIGIN[0], MOVED_ORIGIN[1]))
     );
     std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn appkit_zoom은_egui가_최대화를_모를_때도_최대화로_기록하고_직전_일반_크기와_위치를_지킨다() {
+    let directory = directory("zoomed");
+    let mut tracker = Tracker::new(&directory);
+    tracker.observe(&placed_info(MOVED_SIZE, MOVED_ORIGIN), 1.0, Some(false));
+    tracker.observe(&placed_info(MAXIMIZED_SIZE, [0.0, 0.0]), 1.0, Some(true));
+    tracker.save().unwrap();
+    assert_eq!(
+        load(&directory),
+        Some(WindowState {
+            maximized: true,
+            ..saved_at(MOVED_ORIGIN)
+        })
+    );
+
+    tracker.observe(&placed_info(INITIAL_SIZE, [40.0, 30.0]), 1.0, None);
+    tracker.save().unwrap();
+    assert_eq!(
+        load(&directory),
+        Some(WindowState {
+            width: INITIAL_SIZE[0],
+            height: INITIAL_SIZE[1],
+            position: Some([40.0, 30.0]),
+            maximized: false,
+            fullscreen: false,
+        })
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn 창_핸들이_없는_frame의_zoom_상태는_알_수_없음이다() {
+    assert_eq!(is_zoomed(&eframe::Frame::_new_kittest()), None);
 }

@@ -74,6 +74,16 @@ pub enum Command {
         project: ProjectId,
         patch: taide_model::project::ProjectDisplayPatch,
     },
+    Notify(crate::native_notifications::Request),
+    ResolveIdeSave {
+        request: String,
+        saved: bool,
+    },
+    PublishIdeDiagnostics {
+        project: ProjectId,
+        items: Vec<taide_model::ide::IdeDiagnostic>,
+    },
+    ProcessExternalOpens,
 }
 
 pub enum Reply {
@@ -93,6 +103,8 @@ pub enum Reply {
     ProjectClosed(ProjectId),
     ProjectGroupSaved(AppResult<()>),
     ProjectGroupOpened(AppResult<taide_model::project::ProjectGroupOpenResult>),
+    NotificationSent(AppResult<taide_model::notification::NotificationDelivery>),
+    ExternalOpensProcessed(Vec<crate::external_open::Outcome>),
 }
 
 pub(crate) struct State {
@@ -115,6 +127,10 @@ pub(crate) struct State {
     pub(crate) auxiliary_pass_root: Option<WindowScope>,
     pub(crate) overlay_viewport: egui::ViewportId,
     pub(crate) zen_fullscreen_state: crate::zen::Fullscreen,
+    pub(crate) provider_events: Arc<crate::provider_events::Inbox>,
+    pub(crate) notifications: crate::native_notifications::Tracker,
+    pub(crate) ide_sync: crate::ide_sync::State,
+    pub(crate) main_window_zoomed: Option<bool>,
 }
 
 pub(crate) async fn dispatch(worker: &HostWorker<'_>, command: Command) -> Option<HostReply> {
@@ -458,6 +474,48 @@ pub(crate) async fn dispatch(worker: &HostWorker<'_>, command: Command) -> Optio
                 .await,
             )))
         }
+        Command::Notify(request) => {
+            let task_services = services.clone();
+            let result = services
+                .tasks
+                .run_blocking_result("native-notification", move || {
+                    if task_services.state.is_shutting_down() {
+                        return Err(stopped());
+                    }
+                    taide_runtime::notification_actions::notification_notify(
+                        &task_services.state,
+                        task_services.platform.0.as_ref(),
+                        request.category,
+                        &request.title,
+                        &request.body,
+                        || request.any_window_focused,
+                    )
+                })
+                .await;
+            Some(HostReply::Shell(Reply::NotificationSent(result)))
+        }
+        Command::ResolveIdeSave { request, saved } => {
+            if let Err(error) =
+                taide_runtime::ide_actions::ide_resolve_save(&services.ide, request, saved).await
+            {
+                log::warn!("native IDE save resolve failed: {:?}", error.kind());
+            }
+            None
+        }
+        Command::PublishIdeDiagnostics { project, items } => {
+            if let Err(error) =
+                taide_runtime::ide_actions::ide_publish_diagnostics(&services.ide, project, items)
+                    .await
+            {
+                log::warn!("native IDE diagnostics push failed: {:?}", error.kind());
+            }
+            None
+        }
+        Command::ProcessExternalOpens => {
+            let outcomes = crate::external_open::process(services, integrations).await;
+            (!outcomes.is_empty())
+                .then_some(HostReply::Shell(Reply::ExternalOpensProcessed(outcomes)))
+        }
     }
 }
 
@@ -540,9 +598,9 @@ impl NativeApplication {
                 for notice in notices {
                     match notice {
                         crate::file_drop::Notice::OpenProjectFirst => {
-                            self.notify_open_project_first()
+                            self.notify_open_project_first_on_main()
                         }
-                        crate::file_drop::Notice::Failed(error) => self.report(&error),
+                        crate::file_drop::Notice::Failed(error) => self.report_on_main(&error),
                     }
                 }
                 context.request_repaint();
@@ -557,7 +615,7 @@ impl NativeApplication {
                 context.request_repaint();
             }
             Reply::ProjectClosed(project) => {
-                self.release_project_documents(&project);
+                self.forget_closed_project(&project);
                 context.request_repaint();
             }
             Reply::ProjectGroupSaved(result) => {
@@ -574,7 +632,7 @@ impl NativeApplication {
                             result.opened.len().to_string(),
                             result.skipped.len().to_string(),
                         );
-                        self.toasts.success(
+                        self.toasts.main().success(
                             presentation::message(
                                 &self.locale,
                                 "projectGroup.openResult",
@@ -583,7 +641,36 @@ impl NativeApplication {
                             Instant::now(),
                         );
                     }
-                    Err(error) => self.report(&error),
+                    Err(error) => self.report_on_main(&error),
+                }
+                context.request_repaint();
+            }
+            Reply::NotificationSent(result) => match result {
+                Ok(taide_model::notification::NotificationDelivery::Delivered)
+                    if !self.shell_state.notifications.has_announced_delivery =>
+                {
+                    self.shell_state.notifications.has_announced_delivery = true;
+                    self.toasts.main().info(
+                        presentation::message(&self.locale, "notification.enableHint", &[]),
+                        Instant::now(),
+                    );
+                    context.request_repaint();
+                }
+                Ok(_) => {}
+                Err(error) => log::warn!("native notification failed: {:?}", error.kind()),
+            },
+            Reply::ExternalOpensProcessed(outcomes) => {
+                use crate::external_open::Outcome;
+                for outcome in outcomes {
+                    match outcome {
+                        Outcome::OpenProjectFirst => self.notify_open_project_first_on_main(),
+                        Outcome::Failed(error) => self.report_on_main(&error),
+                        Outcome::WaitRegistered => self.toasts.main().info(
+                            presentation::message(&self.locale, "app.externalEditorTabHint", &[]),
+                            Instant::now(),
+                        ),
+                        Outcome::ProjectOpened | Outcome::Opened => {}
+                    }
                 }
                 context.request_repaint();
             }
@@ -746,6 +833,8 @@ impl NativeApplication {
     }
 
     pub(crate) fn tick_shell_menus(&mut self, context: &egui::Context) {
+        let focused = self.focused_viewport(context);
+        self.toasts.focus(focused);
         if self.closing.is_none() && !self.services.state.is_shutting_down() {
             let snapshot = self.controller.snapshot();
             self.shell_state.welcome.tick(
@@ -762,7 +851,7 @@ impl NativeApplication {
             context,
         );
         for count in self.shell_state.app_menu.take_kept_drafts() {
-            self.toasts.info(
+            self.toasts.main().info(
                 presentation::message(
                     &self.locale,
                     "project.clearRecentKeptDrafts",
@@ -951,7 +1040,10 @@ impl NativeApplication {
             let Ok(snapshot) = self.store.documents().snapshot(document) else {
                 continue;
             };
-            if let Some(job) = self.persistence.mirror_job(snapshot, project.clone()) {
+            if let Some(job) = self
+                .persistence
+                .closing_mirror_job(snapshot, project.clone())
+            {
                 if !self.submit(HostCommand::Editor(
                     crate::domains::editor::Command::MirrorDraft(job.clone()),
                 )) {
@@ -961,6 +1053,289 @@ impl NativeApplication {
             }
         }
         self.submit(HostCommand::Shell(Command::CloseProject(project)));
+    }
+
+    /// Original `projectClosed` handling (`ipc-sync-provider.tsx` 313-331): the project's documents
+    /// are released, its explorer caches go so a reopen starts from a fresh tree, and peek buffers
+    /// it owned are re-resolved. Safe to repeat, since a rail close arrives as reply and event.
+    pub(crate) fn forget_closed_project(&mut self, project: &ProjectId) {
+        self.release_project_documents(project);
+        let explorer = &mut self.explorer_search_state;
+        explorer.trees.remove(project);
+        explorer.explorers.remove(project);
+        explorer.tree_loading.remove(project);
+        if !explorer.deleting_entry
+            && explorer
+                .pending_entry_delete
+                .as_ref()
+                .is_some_and(|confirmation| &confirmation.request.project == project)
+        {
+            explorer.pending_entry_delete = None;
+        }
+        let projects = self.services.state.projects.read().clone();
+        self.peek_models.reassign_project(project, |path| {
+            taide_infra::root_guard::resolve_owning_project(&projects, path)
+                .ok()
+                .map(|(owner, _)| owner)
+        });
+    }
+
+    /// Queues the launch's own external-open request for the first tick, as the original drains the
+    /// queue when its provider mounts.
+    pub fn with_external_open(
+        self,
+        request: Option<taide_model::agent::ExternalOpenRequest>,
+    ) -> Self {
+        if let Some(request) = request {
+            crate::external_open::queue(&self.services, request);
+        }
+        self.shell_state.provider_events.request_external_opens();
+        self
+    }
+
+    /// Serves later launches of the same data directory through the claimed relay socket.
+    #[cfg(unix)]
+    pub fn with_relay(self, listener: Option<std::os::unix::net::UnixListener>) -> Self {
+        if let Some(listener) = listener {
+            crate::single_instance::serve(
+                self.services.clone(),
+                self.shell_state.provider_events.clone(),
+                listener,
+            );
+        }
+        self
+    }
+
+    /// The app-level providers of the original (`ipc-sync-provider.tsx`,
+    /// `native-notification-provider.tsx`, `ide-sync-provider.tsx`) reacting to the events
+    /// recorded since the last tick. Runs after host replies so a close reply is applied first.
+    pub(crate) fn consume_provider_events(&mut self, context: &egui::Context, now: Instant) {
+        use crate::provider_events::Event;
+        let pending = self.shell_state.provider_events.take();
+        if self.closing.is_some() || self.is_exit_ready || self.services.state.is_shutting_down() {
+            return;
+        }
+        if pending.raise_main_window {
+            context
+                .send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Visible(true));
+            context.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Focus);
+        }
+        if pending.external_opens && !self.submit(HostCommand::Shell(Command::ProcessExternalOpens))
+        {
+            self.shell_state.provider_events.request_external_opens();
+        }
+        for event in pending.events {
+            match event {
+                Event::Agents { project, agents } => {
+                    self.notify_agent_completions(context, &project, &agents, now)
+                }
+                Event::CommandFinished {
+                    session,
+                    cwd,
+                    exit_code,
+                    duration_ms,
+                } => self.notify_command_finished(context, &session, cwd, exit_code, duration_ms),
+                Event::LspInstallFinished {
+                    server,
+                    succeeded,
+                    message,
+                } => {
+                    let (category, title) = if succeeded {
+                        (
+                            taide_model::notification::NotificationCategory::LspInstall,
+                            "notification.lspInstallSucceeded",
+                        )
+                    } else {
+                        (
+                            taide_model::notification::NotificationCategory::Error,
+                            "notification.lspInstallFailed",
+                        )
+                    };
+                    self.notify_event(context, category, None, title, message.unwrap_or(server));
+                }
+                Event::IdeSave {
+                    request,
+                    project,
+                    path,
+                } => self.resolve_ide_save(request, &project, &path),
+                Event::ProjectClosed(project) => {
+                    self.shell_state.notifications.forget(&project);
+                    if !self.services.state.projects.read().contains_key(&project) {
+                        self.forget_closed_project(&project);
+                    }
+                }
+            }
+        }
+        self.push_ide_diagnostics(context, now);
+    }
+
+    /// The app's one path to the OS notification center: the project title rule, the code point
+    /// cap, the focus input of the settings gate and the host submission. Completion events of
+    /// every domain go through here.
+    pub(crate) fn notify_event(
+        &mut self,
+        context: &egui::Context,
+        category: taide_model::notification::NotificationCategory,
+        project: Option<&ProjectId>,
+        fallback_title_key: &str,
+        body: String,
+    ) {
+        use crate::native_notifications::{
+            NOTIFICATION_TEXT_MAX_CODE_POINTS, project_title, truncate,
+        };
+        let title = project_title(
+            &self.controller.snapshot().projects,
+            project,
+            presentation::message(&self.locale, fallback_title_key, &[]),
+        );
+        let request = crate::native_notifications::Request {
+            category,
+            title: truncate(&title, NOTIFICATION_TEXT_MAX_CODE_POINTS),
+            body: truncate(&body, NOTIFICATION_TEXT_MAX_CODE_POINTS),
+            any_window_focused: self.is_any_window_focused(context),
+        };
+        self.submit(HostCommand::Shell(Command::Notify(request)));
+    }
+
+    fn notify_agent_completions(
+        &mut self,
+        context: &egui::Context,
+        project: &ProjectId,
+        agents: &[taide_model::agent::DetectedAgent],
+        now: Instant,
+    ) {
+        let completed = self.shell_state.notifications.observe(project, agents, now);
+        if completed.is_empty() {
+            return;
+        }
+        let snapshot = self.controller.snapshot();
+        for completion in completed {
+            let tab = snapshot.layouts.get(project).and_then(|layout| {
+                crate::native_notifications::terminal_tab_title(layout, &completion.session)
+            });
+            let body = crate::native_notifications::agent_body(&self.locale, &completion, tab);
+            self.notify_event(
+                context,
+                crate::native_notifications::agent_category(&completion),
+                Some(project),
+                "notification.agentCompleted",
+                body,
+            );
+        }
+    }
+
+    fn notify_command_finished(
+        &mut self,
+        context: &egui::Context,
+        session: &str,
+        cwd: Option<String>,
+        exit_code: Option<i32>,
+        duration_ms: u32,
+    ) {
+        use taide_model::notification::NotificationCategory;
+        if duration_ms < crate::native_notifications::TASK_COMPLETION_NOTIFY_MIN_DURATION_MS {
+            return;
+        }
+        let succeeded = exit_code.is_none_or(|code| code == 0);
+        let snapshot = self.controller.snapshot();
+        let owner = crate::native_notifications::session_owner(
+            &snapshot.projects,
+            &snapshot.layouts,
+            session,
+        )
+        .map(|(project, title)| (project, title.to_owned()));
+        let target = match &owner {
+            Some((_, title)) => title.clone(),
+            None => {
+                cwd.unwrap_or_else(|| presentation::message(&self.locale, "terminal.title", &[]))
+            }
+        };
+        let body =
+            crate::native_notifications::task_body(&self.locale, &target, exit_code, duration_ms);
+        let (category, title) = if succeeded {
+            (
+                NotificationCategory::TaskCompleted,
+                "notification.taskCompletedSucceeded",
+            )
+        } else {
+            (
+                NotificationCategory::Error,
+                "notification.taskCompletedFailed",
+            )
+        };
+        let project = owner.map(|(project, _)| project);
+        self.notify_event(context, category, project.as_ref(), title, body);
+    }
+
+    /// Original `ideSaveRequested` (`ide-sync-provider.tsx` 70-129): a file tab of that path in
+    /// any tree of the project is saved from the shared document; no tab or a clean buffer answers
+    /// `true` (read-only or not), a missing buffer or a dirty read-only one answers `false`.
+    fn resolve_ide_save(&mut self, request: String, project: &ProjectId, path: &str) {
+        let has_tab = self
+            .services
+            .state
+            .layouts
+            .read()
+            .get(project)
+            .is_some_and(|layout| crate::tabs::project_has_file_tab(layout, path));
+        let document = self.files.get(path).map(|file| file.id);
+        let saved = match (has_tab, document) {
+            (false, _) => true,
+            (true, None) => false,
+            (true, Some(document)) => match self.store.documents().snapshot(document) {
+                Ok(snapshot) if !snapshot.dirty => true,
+                Ok(snapshot) if snapshot.metadata.read_only => false,
+                Ok(_) => match self.store.save_snapshot(document) {
+                    Ok(snapshot) => {
+                        if self.submit(HostCommand::Editor(crate::domains::editor::Command::Save {
+                            path: path.to_owned(),
+                            snapshot,
+                        })) {
+                            self.shell_state.ide_sync.wait_for_save(document, request);
+                            return;
+                        }
+                        false
+                    }
+                    Err(_) => false,
+                },
+                Err(_) => false,
+            },
+        };
+        self.submit(HostCommand::Shell(Command::ResolveIdeSave {
+            request,
+            saved,
+        }));
+    }
+
+    /// Answers the IDE save requests that waited on this document's save reply.
+    pub(crate) fn finish_ide_saves(&mut self, document: DocumentId, saved: bool) {
+        for request in self.shell_state.ide_sync.take_saves(document) {
+            self.submit(HostCommand::Shell(Command::ResolveIdeSave {
+                request,
+                saved,
+            }));
+        }
+    }
+
+    fn push_ide_diagnostics(&mut self, context: &egui::Context, now: Instant) {
+        let project = self.controller.snapshot().focused_project().cloned();
+        let running = self.services.ide.is_running();
+        match self.shell_state.ide_sync.diagnostics_push(
+            self.lsp_diagnostics.revision(),
+            project.as_ref(),
+            running,
+            now,
+        ) {
+            crate::ide_sync::Push::Idle => {}
+            crate::ide_sync::Push::Wait(delay) => context.request_repaint_after(delay),
+            crate::ide_sync::Push::Due(project) => {
+                let items = crate::ide_sync::diagnostics(&self.lsp_diagnostics);
+                self.submit(HostCommand::Shell(Command::PublishIdeDiagnostics {
+                    project,
+                    items,
+                }));
+            }
+        }
     }
 
     pub(crate) fn window_scopes(&self) -> Vec<WindowScope> {
@@ -999,6 +1374,54 @@ impl NativeApplication {
                 .windows()
                 .iter()
                 .any(|window| context.input_for(window.viewport, |input| input.raw.focused))
+    }
+
+    fn report_on_main(&mut self, error: &AppError) {
+        self.toasts
+            .main()
+            .ipc_error(&self.locale, error, Instant::now());
+    }
+
+    fn notify_open_project_first_on_main(&mut self) {
+        crate::toast::open_project_first(self.toasts.main(), &self.locale, Instant::now());
+    }
+
+    fn is_auxiliary_toast_enabled(&self, viewport: egui::ViewportId) -> bool {
+        self.closing.is_none()
+            && (self.toast_interaction_enabled() || self.shell_state.overlay_viewport != viewport)
+    }
+
+    fn tick_auxiliary_toasts(&mut self, context: &egui::Context, viewport: egui::ViewportId) {
+        let enabled = self.is_auxiliary_toast_enabled(viewport);
+        if let Some(layer) = self.toasts.auxiliary(viewport) {
+            layer.tick(context, Instant::now(), enabled);
+        }
+    }
+
+    fn show_auxiliary_toasts(&mut self, context: &egui::Context, viewport: egui::ViewportId) {
+        let enabled = self.is_auxiliary_toast_enabled(viewport);
+        let position = self.services.state.settings.read().toast_position.clone();
+        let theme = self.toast_theme;
+        let Some(layer) = self.toasts.auxiliary(viewport) else {
+            return;
+        };
+        if let Err(error) = layer.show(context, theme, &position, Instant::now(), enabled) {
+            self.status = Some(error.to_string());
+        }
+    }
+
+    /// Whether a tab drag is active in any window; web views of every window hide meanwhile, as
+    /// each original window covers its frames with a pointer-catching layer while a tab drags.
+    pub(crate) fn is_any_window_tab_dragging(&self, context: &egui::Context) -> bool {
+        std::iter::once(egui::ViewportId::ROOT)
+            .chain(
+                self.shell_state
+                    .auxiliary_windows
+                    .windows()
+                    .iter()
+                    .map(|window| window.viewport),
+            )
+            .any(|viewport| taide_native_ui::tab_drag::is_dragging_in(context, viewport))
     }
 
     pub(crate) fn focused_viewport(&self, context: &egui::Context) -> egui::ViewportId {
@@ -1098,6 +1521,9 @@ impl NativeApplication {
                 }
                 continue;
             }
+            if let Err(error) = self.toasts.mount(window.viewport) {
+                self.status = Some(error.to_string());
+            }
             let title = crate::auxiliary_windows::title(
                 pass.snapshot
                     .project(&window.project)
@@ -1115,11 +1541,13 @@ impl NativeApplication {
                             .app_menu
                             .inject(window.viewport, &mut input.events)
                     });
+                    self.tick_auxiliary_toasts(ui.ctx(), window.viewport);
                     let root = std::mem::replace(&mut self.shell.scope, window.scope());
                     self.shell_state.auxiliary_pass_root = Some(root.clone());
                     proceeded = self.show_window(ui, frame, pass);
                     self.shell_state.auxiliary_pass_root = None;
                     self.shell.scope = root;
+                    self.show_auxiliary_toasts(ui.ctx(), window.viewport);
                     close_requested = ui.input(|input| input.viewport().close_requested());
                 },
             );
@@ -1154,6 +1582,7 @@ impl NativeApplication {
         if self.shell_state.overlay_viewport == window.viewport {
             self.shell_state.overlay_viewport = egui::ViewportId::ROOT;
         }
+        self.toasts.retain(|viewport| viewport != window.viewport);
         let layouts = self.services.state.layouts.read();
         let documents: Vec<DocumentId> = window
             .layout(&layouts)
@@ -1182,4 +1611,33 @@ impl NativeApplication {
         }
         self.submit_auxiliary_window_returns();
     }
+
+    /// The menu bar's first `Open Recent` rows, read now like `build_file_submenu`'s
+    /// `recent_entries_now` (`menu.rs` 169-181); a failed read builds the empty list.
+    #[cfg(any(target_os = "macos", test))]
+    pub(crate) fn initial_app_menu_model(&self) -> crate::app_menu::Model {
+        let recent = self
+            .runtime
+            .block_on(taide_runtime::project_actions::project_list_recent(
+                &self.services.state,
+            ))
+            .unwrap_or_else(|error| {
+                log::warn!("native recent menu read failed: {:?}", error.kind());
+                Vec::new()
+            });
+        crate::app_menu::Model::new(&self.locale, &recent)
+    }
 }
+
+#[cfg(all(test, unix))]
+#[path = "../application-external-open-tests.rs"]
+mod external_open_tests;
+#[cfg(all(test, unix))]
+#[path = "../application-ide-sync-tests.rs"]
+mod ide_sync_tests;
+#[cfg(all(test, unix))]
+#[path = "../application-ipc-sync-tests.rs"]
+mod ipc_sync_tests;
+#[cfg(all(test, unix))]
+#[path = "../application-notifications-tests.rs"]
+mod notifications_tests;

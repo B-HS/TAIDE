@@ -177,6 +177,7 @@ async fn 실제_app_exit는_서버_세션_pending_lockfile과_감독_소유권�
             let ide_ports = Arc::new(crate::ide_server::Ports::with_test_directory(
                 crate::ide_tools::LayoutActions {
                     view_states: Arc::default(),
+                    wait_markers: Arc::default(),
                     open_file_tab: |_, _, _, _, _| {
                         Box::pin(async { panic!("exit fixture must not open a tab") })
                     },

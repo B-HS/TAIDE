@@ -4,7 +4,7 @@ use std::sync::Arc;
 use taide_model::error::{AppError, AppResult};
 use taide_model::ide::IdeDiffOutcome;
 use taide_model::ids::{ProjectId, TabId};
-use taide_model::layout::{PaneNode, Tab, TabKind};
+use taide_model::layout::{PaneNode, ProjectLayout, Tab, TabKind};
 use taide_runtime::{AppServices, layout_actions};
 
 pub struct ClosedNativeTab {
@@ -19,6 +19,14 @@ pub fn tabs_in(node: &PaneNode) -> Vec<&Tab> {
         PaneNode::Leaf { tabs, .. } => tabs.iter().collect(),
         PaneNode::Split { children, .. } => children.iter().flat_map(tabs_in).collect(),
     }
+}
+
+/// Whether any tree of the project's layout, auxiliary windows included, holds a file tab opened
+/// with exactly `path`.
+pub fn project_has_file_tab(layout: &ProjectLayout, path: &str) -> bool {
+    taide_layout::service::all_roots(layout)
+        .flat_map(tabs_in)
+        .any(|tab| matches!(&tab.kind, TabKind::File { path: open } if open == path))
 }
 
 pub async fn close(

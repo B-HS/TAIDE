@@ -60,6 +60,7 @@ pub struct Ports {
     pub remote: Arc<crate::remote_http::Ports>,
     pub dispatch: Arc<Dispatch>,
     pub reconcile: Reconcile,
+    pub(crate) wait_markers: Arc<crate::external_open::WaitMarkers>,
 }
 
 impl Ports {
@@ -99,9 +100,11 @@ impl Ports {
         loading_assets: Option<Arc<crate::remote_assets::Catalog>>,
     ) -> Self {
         let view_states = Arc::new(crate::editor_view_state_sync::Shared::default());
+        let layout_actions = crate::ide_tools::LayoutActions::new(terminal.terminals.clone())
+            .with_view_states(view_states.clone());
+        let wait_markers = layout_actions.wait_markers.clone();
         let ide = Arc::new(crate::ide_server::Ports::new(
-            crate::ide_tools::LayoutActions::new(terminal.terminals.clone())
-                .with_view_states(view_states.clone()),
+            layout_actions,
             info.version.clone(),
         ));
         let mut connections = None;
@@ -145,6 +148,7 @@ impl Ports {
             remote,
             dispatch,
             reconcile,
+            wait_markers,
         }
     }
 

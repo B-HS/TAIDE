@@ -80,16 +80,19 @@ fn with_event_loop<R>(
 struct WinitAppWrapper<T: WinitApp> {
     windows_next_repaint_times: HashMap<WindowId, Instant>,
     winit_app: T,
-    return_result: Result<(), crate::Error>,
+    return_result: SharedResult,
     run_and_return: bool,
 }
+
+/// The error that stopped the event loop, shared with whoever drives the wrapper.
+type SharedResult = std::rc::Rc<core::cell::RefCell<Result<(), crate::Error>>>;
 
 impl<T: WinitApp> WinitAppWrapper<T> {
     fn new(winit_app: T, run_and_return: bool) -> Self {
         Self {
             windows_next_repaint_times: HashMap::default(),
             winit_app,
-            return_result: Ok(()),
+            return_result: SharedResult::new(core::cell::RefCell::new(Ok(()))),
             run_and_return,
         }
     }
@@ -161,7 +164,7 @@ impl<T: WinitApp> WinitAppWrapper<T> {
         if let Err(err) = combined_result {
             log::error!("Exiting because of error: {err}");
             exit = true;
-            self.return_result = Err(err);
+            *self.return_result.borrow_mut() = Err(err);
         }
 
         if save {
@@ -391,7 +394,7 @@ fn run_and_return(event_loop: &mut EventLoop<UserEvent>, winit_app: impl WinitAp
     let mut app = WinitAppWrapper::new(winit_app, true);
     event_loop.run_app_on_demand(&mut app)?;
     log::debug!("eframe window closed");
-    app.return_result
+    app.return_result.replace(Ok(()))
 }
 
 fn run_and_exit(event_loop: EventLoop<UserEvent>, winit_app: impl WinitApp) -> Result {
@@ -437,11 +440,11 @@ pub fn create_glow<'a>(
     native_options: epi::NativeOptions,
     app_creator: epi::AppCreator<'a>,
     event_loop: &EventLoop<UserEvent>,
-) -> impl ApplicationHandler<UserEvent> + 'a {
+) -> EframeWinitApplication<'a> {
     use super::glow_integration::GlowWinitApp;
 
     let glow_eframe = GlowWinitApp::new(event_loop, app_name, native_options, None, app_creator);
-    WinitAppWrapper::new(glow_eframe, true)
+    EframeWinitApplication::new(WinitAppWrapper::new(glow_eframe, true))
 }
 
 // ----------------------------------------------------------------------------
@@ -476,11 +479,11 @@ pub fn create_wgpu<'a>(
     native_options: epi::NativeOptions,
     app_creator: epi::AppCreator<'a>,
     event_loop: &EventLoop<UserEvent>,
-) -> impl ApplicationHandler<UserEvent> + 'a {
+) -> EframeWinitApplication<'a> {
     use super::wgpu_integration::WgpuWinitApp;
 
     let wgpu_eframe = WgpuWinitApp::new(event_loop, app_name, native_options, None, app_creator);
-    WinitAppWrapper::new(wgpu_eframe, true)
+    EframeWinitApplication::new(WinitAppWrapper::new(wgpu_eframe, true))
 }
 
 // ----------------------------------------------------------------------------
@@ -492,6 +495,7 @@ pub fn create_wgpu<'a>(
 pub struct EframeWinitApplication<'a> {
     wrapper: Box<dyn ApplicationHandler<UserEvent> + 'a>,
     control_flow: ControlFlow,
+    result: SharedResult,
 }
 
 impl ApplicationHandler<UserEvent> for EframeWinitApplication<'_> {
@@ -544,11 +548,21 @@ impl ApplicationHandler<UserEvent> for EframeWinitApplication<'_> {
 }
 
 impl<'a> EframeWinitApplication<'a> {
-    pub(crate) fn new<T: ApplicationHandler<UserEvent> + 'a>(app: T) -> Self {
+    fn new<T: WinitApp + 'a>(app: WinitAppWrapper<T>) -> Self {
         Self {
+            result: app.return_result.clone(),
             wrapper: Box::new(app),
             control_flow: ControlFlow::default(),
         }
+    }
+
+    /// Takes the error that made eframe leave the event loop, such as a failed paint after the
+    /// window was created, leaving `Ok(())` behind.
+    ///
+    /// # Errors
+    /// The error eframe stopped on, if any.
+    pub fn take_result(&mut self) -> Result {
+        self.result.replace(Ok(()))
     }
 
     /// Pump the `EventLoop` to check for and dispatch pending events to this application.

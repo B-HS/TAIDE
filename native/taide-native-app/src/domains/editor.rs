@@ -473,6 +473,13 @@ pub(crate) async fn dispatch(worker: &HostWorker<'_>, command: Command) -> Optio
             let result = async {
                 integrations.flush_view_states(services).await?;
                 let closed = crate::tabs::close(services, tab.clone(), discard).await?;
+                crate::external_open::release_closed_tab(
+                    services,
+                    &integrations.wait_markers,
+                    &closed.project,
+                    &closed.tab,
+                )
+                .await;
                 if let TabKind::Terminal { session_id, .. } = &closed.tab.kind
                     && let Some(terminals) = terminals
                 {
@@ -1382,6 +1389,7 @@ impl NativeApplication {
                 } else {
                     self.persistence.settled(document);
                 }
+                self.finish_ide_saves(document, was_saved);
             }
         }
     }

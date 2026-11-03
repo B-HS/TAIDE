@@ -136,6 +136,14 @@ impl<'a> MonitorProbe<'a> {
             monitors,
         }
     }
+
+    /// The error that stopped eframe after the window was created, if any.
+    ///
+    /// # Errors
+    /// Returns that eframe error.
+    pub fn take_result(&mut self) -> eframe::Result {
+        self.application.take_result()
+    }
 }
 
 impl ApplicationHandler<eframe::UserEvent> for MonitorProbe<'_> {
@@ -188,6 +196,30 @@ impl ApplicationHandler<eframe::UserEvent> for MonitorProbe<'_> {
     }
 }
 
+/// Whether AppKit reports the frame's window as zoomed, which egui-winit leaves out of
+/// [`egui::ViewportInfo::maximized`] after launch; `None` without an AppKit window handle.
+#[cfg(target_os = "macos")]
+pub(crate) fn is_zoomed(frame: &eframe::Frame) -> Option<bool> {
+    use objc2::runtime::AnyObject;
+    use wry::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    let RawWindowHandle::AppKit(handle) = frame.window_handle().ok()?.as_raw() else {
+        return None;
+    };
+    let view = handle.ns_view.as_ptr().cast::<AnyObject>();
+    let window: *mut AnyObject = unsafe { objc2::msg_send![view, window] };
+    if window.is_null() {
+        return None;
+    }
+    Some(unsafe { objc2::msg_send![window, isZoomed] })
+}
+
+/// Other platforms report maximized windows through egui itself.
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn is_zoomed(_frame: &eframe::Frame) -> Option<bool> {
+    None
+}
+
 pub(crate) struct Tracker {
     path: PathBuf,
     current: Option<WindowState>,
@@ -201,7 +233,12 @@ impl Tracker {
         }
     }
 
-    pub(crate) fn observe(&mut self, info: &egui::ViewportInfo, zoom_factor: f32) {
+    pub(crate) fn observe(
+        &mut self,
+        info: &egui::ViewportInfo,
+        zoom_factor: f32,
+        is_zoomed: Option<bool>,
+    ) {
         if info.minimized == Some(true) {
             return;
         }
@@ -216,7 +253,7 @@ impl Tracker {
             .outer_rect
             .map(|outer| outer.min.to_vec2() * zoom_factor)
             .map(|position| [position.x, position.y]);
-        let maximized = info.maximized == Some(true);
+        let maximized = info.maximized == Some(true) || is_zoomed == Some(true);
         let fullscreen = info.fullscreen == Some(true);
         let state = self.current.get_or_insert(WindowState {
             width: size.x,

@@ -393,3 +393,65 @@ async fn 연결된_메뉴바는_최근_목록을_그리고_변경에_다시_그�
     .unwrap();
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[tokio::test]
+async fn 설치할_때_그린_최근_목록과_첫_조회가_같으면_다시_그리지_않고_다르면_그린다() {
+    let directory =
+        std::env::temp_dir().join(format!("taide-app-menu-installed-{}", ProjectId::new()));
+    let paths = AppPaths::new(directory.join("data"));
+    let older = Project {
+        root: directory.join("older").to_str().unwrap().into(),
+        ..project("older", 1.0)
+    };
+    std::fs::create_dir_all(&older.root).unwrap();
+    let file = paths.project_file(&older.id);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, serde_json::to_vec(&older).unwrap()).unwrap();
+    let app = AppState::new(AppPaths::new(directory.join("data")));
+    let tasks = TaskSupervisor::new(tokio::runtime::Handle::current());
+    let context = egui::Context::default();
+    let locale = locale("en");
+    let loaded = |state: &State| state.loaded.is_some();
+
+    let mut state = State::new(Arc::new(Changes::default()));
+    let bar = Recording::default();
+    let (_sender, receiver) = mpsc::channel();
+    state.connect_installed(
+        Box::new(bar.clone()),
+        receiver,
+        Model::new(&locale, std::slice::from_ref(&older)),
+    );
+    tokio::time::timeout(DEADLINE, async {
+        while !loaded(&state) {
+            state.tick(&locale, &app, &tasks, &context);
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    state.tick(&locale, &app, &tasks, &context);
+    assert_eq!(bar.count(), 0, "the installed rows already match");
+
+    let mut stale = State::new(Arc::new(Changes::default()));
+    let (_sender, receiver) = mpsc::channel();
+    stale.connect_installed(Box::new(bar.clone()), receiver, Model::new(&locale, &[]));
+    let fixture = Drawing {
+        bar: &bar,
+        locale: &locale,
+        app: &app,
+        tasks: &tasks,
+        context: &context,
+    };
+    fixture
+        .until(&mut stale, std::slice::from_ref(&older))
+        .await;
+    assert_eq!(bar.count(), 1);
+    tokio::time::timeout(DEADLINE, async {
+        while tasks.tracked_count() != 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    std::fs::remove_dir_all(directory).unwrap();
+}

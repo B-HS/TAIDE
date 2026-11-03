@@ -115,6 +115,10 @@ impl WebDrags {
     }
 }
 
+pub(crate) fn overlay_layer() -> egui::LayerId {
+    egui::LayerId::new(egui::Order::Middle, egui::Id::new(OVERLAY_LAYER))
+}
+
 pub(crate) fn paint_overlay(
     ui: &mut egui::Ui,
     rect: egui::Rect,
@@ -124,10 +128,7 @@ pub(crate) fn paint_overlay(
 ) -> AppResult<()> {
     let overlay = ui.new_child(
         egui::UiBuilder::new()
-            .layer_id(egui::LayerId::new(
-                egui::Order::Middle,
-                egui::Id::new(OVERLAY_LAYER),
-            ))
+            .layer_id(overlay_layer())
             .max_rect(rect),
     );
     let painter = overlay.painter();

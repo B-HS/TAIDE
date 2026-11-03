@@ -459,12 +459,16 @@ pub(crate) fn end_frame(context: &Context) -> TabDragFeedback {
 /// Whether a tab drag is past its activation distance; a host hides native overlays such as web
 /// previews meanwhile so the pane drop zones stay visible and keep the pointer.
 pub fn is_dragging(context: &Context) -> bool {
-    with_memory(context, |memory| {
-        memory
-            .press
-            .as_ref()
-            .is_some_and(|press| press.phase == Phase::Active)
-    })
+    is_dragging_in(context, context.viewport_id())
+}
+
+/// [`is_dragging`] for the window of `viewport`, read from any pass; a tab drag can leave its
+/// window, so a host hides the overlays of every window while any window drags.
+pub fn is_dragging_in(context: &Context, viewport: egui::ViewportId) -> bool {
+    context
+        .data(|data| data.get_temp::<Memory>(Id::new(MEMORY_KEY).with(viewport)))
+        .and_then(|memory| memory.press)
+        .is_some_and(|press| press.phase == Phase::Active)
 }
 
 #[cfg(test)]

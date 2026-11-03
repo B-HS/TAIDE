@@ -32,11 +32,16 @@ impl Changes {
     pub(crate) fn record(&self, event: &AppEvent) {
         if matches!(
             event,
-            AppEvent::SettingsChanged { .. } | AppEvent::ThemeChanged { .. }
+            AppEvent::SettingsChanged { .. }
+                | AppEvent::ThemeChanged { .. }
+                | AppEvent::SyncStateChanged { .. }
         ) {
             self.revision.fetch_add(1, Ordering::AcqRel);
         }
-        if matches!(event, AppEvent::ThemeChanged { .. }) {
+        if matches!(
+            event,
+            AppEvent::ThemeChanged { .. } | AppEvent::SyncStateChanged { .. }
+        ) {
             self.themes.fetch_add(1, Ordering::AcqRel);
         }
         if matches!(event, AppEvent::SettingsChanged { .. }) {
@@ -382,6 +387,22 @@ mod tests {
         assert_eq!(changes.revision(), 2);
         assert_eq!(changes.theme_revision(), 1);
         assert_eq!(changes.settings_revision(), 1);
+    }
+
+    #[test]
+    fn native_presentation_sync_적용은_테마_로케일을_다시_읽고_설정탭은_건드리지_않는다() {
+        let changes = Changes::default();
+        changes.record(&AppEvent::SyncStateChanged {
+            status: taide_model::sync::SyncStatus {
+                connected: true,
+                has_gist: true,
+                last_synced_at: None,
+                remote_newer: None,
+            },
+        });
+        assert_eq!(changes.revision(), 1);
+        assert_eq!(changes.theme_revision(), 1);
+        assert_eq!(changes.settings_revision(), 0);
     }
 
     #[test]
