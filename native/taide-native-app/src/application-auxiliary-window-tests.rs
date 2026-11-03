@@ -30,15 +30,15 @@ const LAST_FILE: &str = "z.txt";
 const RENAMED_FILE: &str = "renamed.txt";
 
 #[derive(Default)]
-struct Viewports {
-    events: HashMap<egui::ViewportId, Vec<egui::Event>>,
+pub(super) struct Viewports {
+    pub(super) events: HashMap<egui::ViewportId, Vec<egui::Event>>,
     close: HashSet<egui::ViewportId>,
     focus: HashMap<egui::ViewportId, egui::Id>,
-    outputs: HashMap<egui::ViewportId, egui::FullOutput>,
+    pub(super) outputs: HashMap<egui::ViewportId, egui::FullOutput>,
 }
 
 impl Viewports {
-    fn texts(&self, viewport: egui::ViewportId) -> Vec<String> {
+    pub(super) fn texts(&self, viewport: egui::ViewportId) -> Vec<String> {
         self.outputs
             .get(&viewport)
             .map(|output| {
@@ -59,7 +59,7 @@ impl Viewports {
     }
 }
 
-fn install_viewports(context: &egui::Context) -> Rc<RefCell<Viewports>> {
+pub(super) fn install_viewports(context: &egui::Context) -> Rc<RefCell<Viewports>> {
     let viewports = Rc::new(RefCell::new(Viewports::default()));
     let shared = viewports.clone();
     context.set_embed_viewports(false);
@@ -105,7 +105,7 @@ fn install_viewports(context: &egui::Context) -> Rc<RefCell<Viewports>> {
     viewports
 }
 
-fn step_until(
+pub(super) fn step_until(
     application: &mut NativeApplication,
     context: &egui::Context,
     phase: &str,
@@ -122,7 +122,7 @@ fn step_until(
     }
 }
 
-fn file_tab(path: &std::path::Path) -> Tab {
+pub(super) fn file_tab(path: &std::path::Path) -> Tab {
     Tab {
         id: TabId::new(),
         kind: TabKind::File {
@@ -136,7 +136,7 @@ fn file_tab(path: &std::path::Path) -> Tab {
     }
 }
 
-fn auxiliary_window(slot: u32, tab: &Tab) -> AuxWindowLayout {
+pub(super) fn auxiliary_window(slot: u32, tab: &Tab) -> AuxWindowLayout {
     let pane = PaneId::new();
     AuxWindowLayout {
         slot,
@@ -149,7 +149,7 @@ fn auxiliary_window(slot: u32, tab: &Tab) -> AuxWindowLayout {
     }
 }
 
-fn viewport_of(
+pub(super) fn viewport_of(
     application: &NativeApplication,
     project: &ProjectId,
     slot: u32,
@@ -765,8 +765,8 @@ fn 실제_app_탭_메뉴는_탭을_새창_기존창_메인창으로_옮기고_�
             let is_selected = application
                 .explorer_search_state
                 .explorers
-                .get(&alpha)
-                .is_some_and(|explorer| {
+                .of_project(&alpha)
+                .any(|explorer| {
                     explorer.selected.as_deref() == Some(a_path.as_str())
                         && explorer.rename.is_none()
                 });
@@ -808,8 +808,8 @@ fn 실제_app_탭_메뉴는_탭을_새창_기존창_메인창으로_옮기고_�
             application
                 .explorer_search_state
                 .explorers
-                .get(&alpha)
-                .is_some_and(|explorer| {
+                .of_project(&alpha)
+                .any(|explorer| {
                     explorer
                         .rename
                         .as_ref()
@@ -829,7 +829,9 @@ fn auxiliary_explorer_column() -> egui::Rect {
     )
 }
 
-fn focused_text_input(output: &egui::FullOutput) -> Option<(String, [usize; 2], egui::Rect)> {
+pub(super) fn focused_text_input(
+    output: &egui::FullOutput,
+) -> Option<(String, [usize; 2], egui::Rect)> {
     let update = output.platform_output.accesskit_update.as_ref()?;
     let (_, node) = update.nodes.iter().find(|(id, _)| *id == update.focus)?;
     if node.role() != egui::accesskit::Role::TextInput {
@@ -909,6 +911,7 @@ fn 실제_app_보조_창_탐색기_reveal_rename은_메인_사이드바가_열�
         });
         session.focused_shell_slot = Some(slot);
     }
+    state.settings.write().explorer_auto_reveal = false;
     let context = launch(&mut fixture, state);
     let viewports = install_viewports(&context);
     let application = fixture.application.as_mut().unwrap();
@@ -923,11 +926,18 @@ fn 실제_app_보조_창_탐색기_reveal_rename은_메인_사이드바가_열�
             .is_some_and(|output| node_rect(output, name, auxiliary_explorer_column()).is_some())
     };
     let is_selected = |application: &NativeApplication, path: &str| {
+        let explorers = &application.explorer_search_state.explorers;
         application
-            .explorer_search_state
-            .explorers
-            .get(&alpha)
+            .shell_state
+            .auxiliary_windows
+            .find(&alpha, FIRST_SLOT)
+            .and_then(|window| explorers.get(&window.explorer))
             .is_some_and(|explorer| explorer.selected.as_deref() == Some(path))
+            && explorers
+                .of_project(&alpha)
+                .filter(|explorer| explorer.selected.as_deref() == Some(path))
+                .count()
+                == 1
     };
 
     let main_output = step_until(application, &context, "both explorers", |_, output| {
@@ -1012,8 +1022,8 @@ fn 실제_app_보조_창_탐색기_reveal_rename은_메인_사이드바가_열�
             application
                 .explorer_search_state
                 .explorers
-                .get(&alpha)
-                .is_some_and(|explorer| {
+                .of_project(&alpha)
+                .any(|explorer| {
                     explorer.rename.as_ref().is_some_and(|draft| {
                         draft.row.path == first_path && draft.name == RENAMED_FILE
                     })

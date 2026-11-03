@@ -240,7 +240,7 @@ fn 실제_app은_앱_밖에서_닫힌_프로젝트의_문서와_탐색기_캐시
     });
     let explorer = &application.explorer_search_state;
     assert!(!explorer.trees.contains_key(&project));
-    assert!(!explorer.explorers.contains_key(&project));
+    assert!(explorer.explorers.of_project(&project).next().is_none());
     assert!(!explorer.tree_loading.contains(&project));
     assert!(
         application
@@ -274,7 +274,9 @@ fn 실제_app은_rail_닫기_뒤_다시_연_프로젝트를_새_tree와_빈_선�
                 && application
                     .explorer_search_state
                     .explorers
-                    .contains_key(&project)
+                    .of_project(&project)
+                    .next()
+                    .is_some()
         },
     );
     let rows = application.explorer_search_state.trees[&project]
@@ -283,7 +285,8 @@ fn 실제_app은_rail_닫기_뒤_다시_연_프로젝트를_새_tree와_빈_선�
     if let Some(explorer) = application
         .explorer_search_state
         .explorers
-        .get_mut(&project)
+        .of_project_mut(&project)
+        .next()
     {
         explorer.select_path(&rows, &paths[0]);
         assert!(!explorer.selected_paths().is_empty());
@@ -302,7 +305,9 @@ fn 실제_app은_rail_닫기_뒤_다시_연_프로젝트를_새_tree와_빈_선�
         !application
             .explorer_search_state
             .explorers
-            .contains_key(&project)
+            .of_project(&project)
+            .next()
+            .is_some()
     );
     assert!(
         !application
@@ -339,7 +344,7 @@ fn 실제_app은_rail_닫기_뒤_다시_연_프로젝트를_새_tree와_빈_선�
         application
             .explorer_search_state
             .explorers
-            .values()
+            .all_mut()
             .all(|explorer| explorer.selected_paths().is_empty())
     );
 }

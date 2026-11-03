@@ -6039,6 +6039,9 @@ impl AppSurfaces<'_> {
                             .is_some_and(|view| view.composition.is_some()),
                     );
                 }
+                if find_output.focused || ai_control_focused {
+                    self.explorer_output.is_editor_widget_focused = true;
+                }
                 if focus {
                     *self.focused = Some((pane.clone(), tab.id.clone()));
                 }

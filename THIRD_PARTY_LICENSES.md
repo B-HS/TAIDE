@@ -698,6 +698,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   SVG files in `native/taide-native-app/resources/icons` carry geometry from
   `lucide-react` 1.28.0 under the same adjacent ISC license.
 
+- The search panel and search editor SVG files `case-sensitive.svg`,
+  `check.svg`, `eye-off.svg`, `history.svg`, `regex.svg`, `replace-all.svg`
+  and `whole-word.svg` in `native/taide-native-app/resources/icons` carry
+  geometry from `lucide-react` 1.28.0 (ISC, Copyright (c) Lucide Icons and
+  Contributors) under the same adjacent `resources/icons/LICENSE.txt`.
+
 - The project display icon SVG files in
   `native/taide-native-app/resources/project-icons` carry geometry from
   `lucide-react` 1.28.0 (ISC, Copyright (c) Lucide Icons and Contributors); the

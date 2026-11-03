@@ -53,13 +53,16 @@ pub(crate) fn context(
     }
 }
 
+const SEARCH_KEYMAP: &str = "search";
+
 fn command_run(id: &str, context: &CommandContext) -> Option<Run> {
     registry().ok()?.command(id)?.runnable(context)
 }
 
 pub(crate) fn accepts(id: &str, has_focused_shell: bool, context: &CommandContext) -> bool {
     if id == "find" {
-        return command_run("editor.find", context).is_some();
+        return command_run("editor.find", context).is_some()
+            || accepts(SEARCH_KEYMAP, has_focused_shell, context);
     }
     if crate::shell_keymap::supports(id) {
         return has_focused_shell || crate::shell_keymap::runs_without_focused_project(id);
@@ -82,13 +85,19 @@ pub(crate) fn intent(
     crate::shell_keymap::intent(command_run(id, context)?, snapshot, scope)
 }
 
+/// Routes one command or keymap action; `find` opens the project search instead of the editor's
+/// find widget when no editor (body or its widgets) holds keyboard focus (`editor-area.tsx` 291-297).
 pub(crate) fn intent_with_editor(
     id: &str,
     context: &CommandContext,
     snapshot: &ShellSnapshot,
     focused_view: Option<&ViewKey>,
+    is_editor_focused: bool,
     scope: &WindowScope,
 ) -> Option<ShellIntent> {
+    if id == "find" && !is_editor_focused {
+        return intent(SEARCH_KEYMAP, context, snapshot, scope);
+    }
     if let Some(Run::EditDocument(edit)) = command_run(id, context) {
         return Some(ShellIntent::Editor(
             taide_native_ui::intents::editor::Intent::EditDocument {
@@ -669,7 +678,7 @@ mod tests {
         ("command-palette", PaletteEntry::Commands),
         ("workspace-symbol", PaletteEntry::WorkspaceSymbols),
     ];
-    const KEYMAP_ACTIONS: [&str; 35] = [
+    const KEYMAP_ACTIONS: [&str; 38] = [
         "quick-open",
         "command-palette",
         "workspace-symbol",
@@ -677,6 +686,9 @@ mod tests {
         "close-tab",
         "toggle-sidebar",
         "explorer",
+        "find",
+        "search",
+        "search-replace",
         "split",
         "tab-cycle-next",
         "tab-cycle-prev",
@@ -790,9 +802,6 @@ mod tests {
             ..Default::default()
         };
         for unavailable in [
-            "find",
-            "search",
-            "search-replace",
             "git",
             "terminal-jump-to-previous-command",
             "terminal-jump-to-next-command",
@@ -928,6 +937,81 @@ mod tests {
             Some(ShellIntent::Mutate(ShellMutation::SetSidebarCollapsed { project: target, .. })) if target == project
         ));
         assert!(intent("toggle-sidebar", &main, &unfocused).is_none());
+        let search_find = CommandContext {
+            active_editor_actions: editor_context(false).active_editor_actions,
+            ..main.clone()
+        };
+        let focused_view = ViewKey {
+            window: "main".into(),
+            pane: pane.clone(),
+            tab: editor.id.clone(),
+        };
+        let open_search = |action: &str, context: &CommandContext, is_editor_focused: bool| {
+            intent_with_editor(
+                action,
+                context,
+                &snapshot,
+                Some(&focused_view),
+                is_editor_focused,
+                &WindowScope::Main,
+            )
+        };
+        for (action, expected) in [
+            ("search", false),
+            ("search.find", false),
+            ("search-replace", true),
+            ("search.replace", true),
+            ("find", false),
+        ] {
+            assert!(
+                matches!(
+                    open_search(action, &main, false),
+                    Some(ShellIntent::ExplorerSearch(taide_native_ui::intents::explorer_search::Intent::OpenSearch { project: target, slot: focused, replace }))
+                        if target == project && focused == slot && replace == expected
+                ),
+                "{action}"
+            );
+        }
+        assert!(matches!(
+            open_search("find", &search_find, false),
+            Some(ShellIntent::ExplorerSearch(
+                taide_native_ui::intents::explorer_search::Intent::OpenSearch { .. }
+            ))
+        ));
+        assert!(matches!(
+            open_search("find", &search_find, true),
+            Some(ShellIntent::Editor(taide_native_ui::intents::editor::Intent::EditDocument { tab, .. })) if tab == editor.id
+        ));
+        let mut with_auxiliary = snapshot.clone();
+        let layout = with_auxiliary.layouts.get_mut(&project).unwrap();
+        layout
+            .auxiliary_windows
+            .push(taide_model::layout::AuxWindowLayout {
+                slot: AUXILIARY_SLOT,
+                root: layout.root.clone(),
+                focused_pane: layout.focused_pane.clone(),
+            });
+        let auxiliary_scope = WindowScope::Auxiliary {
+            project: project.clone(),
+            slot: AUXILIARY_SLOT,
+        };
+        assert!(matches!(
+            intent_with_editor(
+                "search-replace",
+                &context(&with_auxiliary, &auxiliary_scope, None),
+                &with_auxiliary,
+                None,
+                false,
+                &auxiliary_scope,
+            ),
+            Some(ShellIntent::ExplorerSearch(taide_native_ui::intents::explorer_search::Intent::OpenAuxiliarySearch { project: target, slot: AUXILIARY_SLOT, replace: true }))
+                if target == project
+        ));
+        assert!(open_search("search", &main, false).is_some());
+        assert!(
+            intent_with_editor("search", &main, &unfocused, None, false, &WindowScope::Main)
+                .is_none()
+        );
         for scope in [&snapshot, &unfocused] {
             assert!(matches!(
                 intent("settings.open", &main, scope),

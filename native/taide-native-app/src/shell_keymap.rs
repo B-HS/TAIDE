@@ -191,6 +191,24 @@ pub(crate) fn intent(
                 },
             ));
         }
+        Run::OpenSearch { replace } => {
+            if let WindowScope::Auxiliary { slot, .. } = scope {
+                return Some(ShellIntent::ExplorerSearch(
+                    taide_native_ui::intents::explorer_search::Intent::OpenAuxiliarySearch {
+                        project: project.clone(),
+                        slot: *slot,
+                        replace,
+                    },
+                ));
+            }
+            return Some(ShellIntent::ExplorerSearch(
+                taide_native_ui::intents::explorer_search::Intent::OpenSearch {
+                    project: project.clone(),
+                    slot: snapshot.shell.focused.clone()?,
+                    replace,
+                },
+            ));
+        }
         Run::FocusGroup(target) => {
             let target = match target {
                 GroupTarget::Direction(direction) => adjacent(root, focused, drop_edge(direction)),

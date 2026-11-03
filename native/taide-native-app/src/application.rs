@@ -603,7 +603,7 @@ impl NativeApplication {
                 symbol_sidebars: crate::symbol_sidebar::Views::default(),
                 breadcrumbs: crate::breadcrumbs::Views::default(),
                 trees: HashMap::new(),
-                explorers: HashMap::new(),
+                explorers: crate::explorer_mounts::Mounts::default(),
                 explorer_clipboards: crate::explorer_clipboard_owners::ClipboardOwners::new(
                     egui.viewport_id(),
                 ),
@@ -611,6 +611,11 @@ impl NativeApplication {
                 deleting_entry: false,
                 tree_loading: HashSet::new(),
                 tree_changes,
+                tree_failures: HashSet::new(),
+                git_decorations: crate::explorer_git_decorations::GitDecorations::default(),
+                search_streams: Default::default(),
+                search_history: Default::default(),
+                search_editors: Default::default(),
             },
             shell,
             shell_state: domains::shell::State {
@@ -877,7 +882,7 @@ impl NativeApplication {
                         .and_then(|page| {
                             self.explorer_search_state
                                 .explorers
-                                .get_mut(&project)?
+                                .get_mut(&project, request.mount.as_ref()?)?
                                 .retry_create(&request, &page.rows, &self.locale)
                         });
                     if let Some(request) = retried {
@@ -892,7 +897,7 @@ impl NativeApplication {
                         .and_then(|page| {
                             self.explorer_search_state
                                 .explorers
-                                .get_mut(&project)?
+                                .get_mut(&project, request.mount.as_ref()?)?
                                 .retry_rename(&request, &page.rows, &self.locale)
                         });
                     if let Some(request) = retried {
@@ -1934,6 +1939,14 @@ impl NativeApplication {
             explorers: &mut self.explorer_search_state.explorers,
             explorer_clipboards: &mut self.explorer_search_state.explorer_clipboards,
             explorer_output: &mut explorer_output,
+            explorer_inputs: domains::explorer_search::ExplorerInputs {
+                tree_failures: &self.explorer_search_state.tree_failures,
+                git_decorations: &self.explorer_search_state.git_decorations,
+                is_auto_reveal_enabled: self.services.state.settings.read().explorer_auto_reveal,
+                search_streams: &self.explorer_search_state.search_streams,
+                search_history: &mut self.explorer_search_state.search_history,
+                search_editors: &mut self.explorer_search_state.search_editors,
+            },
             projects: &snapshot.projects,
             layouts: &snapshot.layouts,
             scope: &self.shell.scope,
@@ -2092,6 +2105,7 @@ impl NativeApplication {
                     &command_context,
                     &snapshot,
                     focused_view.as_ref(),
+                    keymap_editor_scope.is_some() || explorer_output.is_editor_widget_focused,
                     &self.shell.scope,
                 )
             }));
@@ -2612,9 +2626,10 @@ struct AppSurfaces<'a> {
     refused: &'a HashSet<String>,
     trees: &'a HashMap<ProjectId, TreeRowPage>,
     tree_loading: &'a HashSet<ProjectId>,
-    explorers: &'a mut HashMap<ProjectId, crate::explorer::Explorer>,
+    explorers: &'a mut crate::explorer_mounts::Mounts,
     explorer_clipboards: &'a mut crate::explorer_clipboard_owners::ClipboardOwners,
     explorer_output: &'a mut domains::explorer_search::FrameOutput,
+    explorer_inputs: domains::explorer_search::ExplorerInputs<'a>,
     projects: &'a [taide_model::project::ProjectRef],
     layouts: &'a HashMap<ProjectId, taide_model::layout::ProjectLayout>,
     scope: &'a WindowScope,
@@ -2978,6 +2993,14 @@ mod explorer_views_tests;
 #[cfg(all(test, target_os = "macos"))]
 #[path = "application-terminal-agent-tests.rs"]
 mod terminal_agent_tests;
+
+#[cfg(test)]
+#[path = "application-explorer-search-tests.rs"]
+mod explorer_search_tests;
+
+#[cfg(test)]
+#[path = "application-search-panel-tests.rs"]
+mod search_panel_tests;
 
 #[cfg(test)]
 mod close_all_tests {

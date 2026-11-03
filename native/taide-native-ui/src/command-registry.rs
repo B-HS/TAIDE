@@ -159,6 +159,9 @@ pub enum Run {
     CloseTab,
     ToggleSidebar,
     ShowExplorer,
+    OpenSearch {
+        replace: bool,
+    },
     #[cfg(feature = "native-host")]
     OpenTaskRunner,
     Split,
@@ -652,6 +655,8 @@ pub fn keymap_run(keymap_id: &str) -> Option<Run> {
         "close-tab" => Run::CloseTab,
         "toggle-sidebar" => Run::ToggleSidebar,
         "explorer" => Run::ShowExplorer,
+        "search" => Run::OpenSearch { replace: false },
+        "search-replace" => Run::OpenSearch { replace: true },
         "split" => Run::Split,
         "tab-cycle-next" | "editor-next" => Run::CycleTab(TabCycle::Next),
         "tab-cycle-prev" | "editor-previous" => Run::CycleTab(TabCycle::Previous),
@@ -870,7 +875,7 @@ mod tests {
         "editor.action.moveCarretRightAction",
     ];
     const KEYMAP_COUNT: usize = 41;
-    const NATIVE_KEYMAP_COUNT: usize = 35 + EDITOR_FIND_AVAILABLE as usize;
+    const NATIVE_KEYMAP_COUNT: usize = 37 + EDITOR_FIND_AVAILABLE as usize;
     const FOLD_COMMAND_COUNT: usize = if cfg!(feature = "native-host") {
         19
     } else {
@@ -977,7 +982,7 @@ mod tests {
     ];
     const SAVE_ACTION: &str = "taide.saveFile";
     const FOLDING_CATEGORY: &str = "keymap.category.editorFolding";
-    const NATIVE_COMMANDS: [(&str, Run); 36] = [
+    const NATIVE_COMMANDS: [(&str, Run); 38] = [
         ("settings.open", Run::OpenSettingsTab),
         ("app.openSettingsFile", Run::OpenSettingsFile),
         ("keybindings.open", Run::OpenKeybindingsEditor),
@@ -986,6 +991,8 @@ mod tests {
         ("file.quickOpen", Run::OpenPalette(PaletteEntry::Files)),
         ("tab.close", Run::CloseTab),
         ("view.toggleSidebar", Run::ToggleSidebar),
+        ("search.find", Run::OpenSearch { replace: false }),
+        ("search.replace", Run::OpenSearch { replace: true }),
         ("view.explorer", Run::ShowExplorer),
         ("editor.split", Run::Split),
         ("tab.cycleNext", Run::CycleTab(TabCycle::Next)),
@@ -1435,6 +1442,24 @@ mod tests {
                 .runnable(&CommandContext::default()),
             Some(Run::ShowExplorer)
         );
+        for (keymap_id, command_id, replace) in [
+            ("search", "search.find", false),
+            ("search-replace", "search.replace", true),
+        ] {
+            assert_eq!(
+                keymap_run(keymap_id),
+                Some(Run::OpenSearch { replace }),
+                "{keymap_id}"
+            );
+            assert_eq!(
+                registry
+                    .command(command_id)
+                    .unwrap()
+                    .runnable(&CommandContext::default()),
+                Some(Run::OpenSearch { replace }),
+                "{command_id}"
+            );
+        }
         let defaults: Vec<Value> = serde_json::from_str(KEYMAP_DEFAULTS).unwrap();
         assert_eq!(defaults.len(), KEYMAP_COUNT);
         let keymap_ids = defaults
@@ -1457,8 +1482,6 @@ mod tests {
         }
         for pending in [
             "find",
-            "search",
-            "search-replace",
             "git",
             "terminal-jump-to-previous-command",
             "terminal-jump-to-next-command",

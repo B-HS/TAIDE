@@ -1062,7 +1062,7 @@ impl NativeApplication {
         self.release_project_documents(project);
         let explorer = &mut self.explorer_search_state;
         explorer.trees.remove(project);
-        explorer.explorers.remove(project);
+        explorer.explorers.forget_project(project);
         explorer.tree_loading.remove(project);
         if !explorer.deleting_entry
             && explorer

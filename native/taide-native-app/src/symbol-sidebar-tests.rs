@@ -117,7 +117,7 @@ fn 파일과_아웃라인_진입_버튼은_실제_높이와_focus와_클릭_선�
         );
         output.textures_delta.clear();
         if frame == 2 {
-            assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Rect(painted) if painted.rect == responses[3].1.rect && painted.fill == appearance.selected)), "클릭한 프레임에 아웃라인이 선택색이어야 한다");
+            assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Rect(painted) if painted.rect == responses[3].1.rect && painted.fill == appearance.selected && painted.corner_radius == egui::CornerRadius::same(BUTTON_RADIUS))), "클릭한 프레임에 아웃라인이 4px 모서리 선택색이어야 한다");
         }
         assert_eq!(responses.len(), 4);
         assert!(responses.iter().all(|(_, response)| response.rect.size()
@@ -259,4 +259,48 @@ fn 네_보기_전환은_원본_순서_탭목록_이름과_키보드_선택을_sl
     views.entry(&project, &other).view = View::Search;
     assert_eq!(views.entry(&project, &slot).view, View::Git);
     assert_eq!(views.entry(&project, &other).view, View::Search);
+}
+
+fn running_panel(
+    streams: &crate::search_stream::Streams,
+    slot: &ShellSlotId,
+) -> crate::search_panel::Panel {
+    let mut panel = crate::search_panel::Panel::new(crate::search_stream::Session {
+        owner: "native-main".into(),
+        id: format!("search-panel-{slot}"),
+    });
+    panel.begin_unsubmitted_run(streams);
+    panel
+}
+
+#[test]
+fn 검색_요청은_slot의_프로젝트가_바뀌면_버려지고_실행_중인_검색은_취소_목록에_남는다() {
+    let streams = crate::search_stream::Streams::default();
+    let mut views = Views::default();
+    let (first, second, slot) = (ProjectId::new(), ProjectId::new(), ShellSlotId::new());
+    let sidebar = views.entry(&first, &slot);
+    sidebar.search_request = Some(crate::search_panel::Request {
+        scope_dir: Some("src".into()),
+        ..Default::default()
+    });
+    sidebar.search = Some(running_panel(&streams, &slot));
+    assert!(views.entry(&first, &slot).search_request.is_some());
+    assert!(views.take_cancelled().is_empty());
+
+    assert!(views.entry(&second, &slot).search_request.is_none());
+    let cancelled = views.take_cancelled();
+    assert_eq!(cancelled.len(), 1);
+    assert_eq!(cancelled[0].id, format!("search-panel-{slot}"));
+
+    views.entry(&second, &slot).search = Some(running_panel(&streams, &slot));
+    views.reconcile(None, &HashMap::new());
+    assert_eq!(views.take_cancelled().len(), 1);
+    views.entry(&second, &slot).search = Some(crate::search_panel::Panel::new(
+        crate::search_stream::Session {
+            owner: "native-main".into(),
+            id: "idle".into(),
+        },
+    ));
+    views.reconcile(None, &HashMap::new());
+    assert!(views.take_cancelled().is_empty());
 }
