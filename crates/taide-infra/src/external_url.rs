@@ -33,7 +33,7 @@ const UNICODE_SPOOFING_CONTROL_CHARS: &[char] = &[
 /// through to the OS opener. A userinfo segment (`@`) before the host is rejected too — browsers
 /// still navigate `https://trusted.example@evil.example/` to `evil.example`, so without this a
 /// URL that *displays* a trusted-looking prefix can open a completely different site (the same
-/// spoofing pattern `settings::service::is_valid_allowed_host` already rejects for allowed-host
+/// spoofing pattern `taide_model::remote::is_valid_allowed_host` already rejects for allowed-host
 /// entries).
 pub fn validate_external_url(url: &str) -> AppResult<String> {
     let trimmed = url.trim();

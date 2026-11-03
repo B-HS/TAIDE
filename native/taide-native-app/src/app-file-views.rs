@@ -319,6 +319,22 @@ pub(crate) fn settings_command(
     layout: &taide_model::layout::ProjectLayout,
     scope: &taide_native_ui::shell::WindowScope,
 ) -> Option<crate::host::HostCommand> {
+    open_command(
+        project,
+        layout,
+        scope,
+        AppFileTarget::Settings,
+        "settings.json".into(),
+    )
+}
+
+pub(crate) fn open_command(
+    project: &taide_model::ids::ProjectId,
+    layout: &taide_model::layout::ProjectLayout,
+    scope: &taide_native_ui::shell::WindowScope,
+    target: AppFileTarget,
+    title: String,
+) -> Option<crate::host::HostCommand> {
     let pane = match scope {
         taide_native_ui::shell::WindowScope::Main => layout.focused_pane.clone(),
         taide_native_ui::shell::WindowScope::Auxiliary {
@@ -340,8 +356,8 @@ pub(crate) fn settings_command(
         crate::domains::settings::Command::OpenAppFile {
             project: project.clone(),
             pane,
-            target: AppFileTarget::Settings,
-            title: "settings.json".into(),
+            target,
+            title,
         },
     ))
 }

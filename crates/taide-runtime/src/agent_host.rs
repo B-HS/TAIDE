@@ -1,14 +1,16 @@
 #[cfg(unix)]
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use taide_agent::service::{self, DetectedAgentProbe};
 use taide_agent::store::AgentStore;
 use taide_model::agent::CliInstallStatus;
-use taide_model::error::AppResult;
+use taide_model::error::{AppError, AppResult};
 
 use crate::{agent_probe, TaskSupervisor};
 
+const CLI_BUNDLE_ONLY: &str = "taide CLI shell command is only available in the installed TAIDE.app (not a dev build)";
+const CLI_NOT_MANAGED: &str = "the existing 'taide' command is not managed by TAIDE and was not removed";
 #[cfg(unix)]
 const PS_OUTPUT_FORMAT: &str = "pid=,comm=,args=";
 #[cfg(unix)]
@@ -107,6 +109,87 @@ pub fn cli_install_status(target: &Path) -> CliInstallStatus {
         }
         Err(_) => service::build_cli_install_status(&target_path, false, None, false),
     }
+}
+
+/// How an administrator AppleScript for the `taide` shell command ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdminPrompt {
+    Completed,
+    Cancelled,
+}
+
+/// The `taide` shell command state after an install or uninstall request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CliCommandOutcome {
+    pub status: CliInstallStatus,
+    /// True when the user dismissed the administrator prompt, which leaves the command unchanged.
+    pub is_cancelled: bool,
+}
+
+fn cli_command_outcome(source: &Path, prompt: AdminPrompt) -> CliCommandOutcome {
+    CliCommandOutcome {
+        status: cli_install_status(source),
+        is_cancelled: prompt == AdminPrompt::Cancelled,
+    }
+}
+
+fn cli_install_target(exe: &Path) -> AppResult<PathBuf> {
+    service::resolve_cli_install_target(exe).ok_or_else(|| AppError::InvalidArgument(CLI_BUNDLE_ONLY.to_string()))
+}
+
+/// Links `source` to the CLI sidecar of the app bundle that runs `exe`, asking for administrator
+/// rights through `run_script` unless the link already points there.
+pub fn cli_install(exe: &Path, source: &Path, run_script: impl FnOnce(&str) -> AppResult<AdminPrompt>) -> AppResult<CliCommandOutcome> {
+    let target = cli_install_target(exe)?;
+    let already_linked = std::fs::read_link(source).is_ok_and(|existing| existing == target);
+    let prompt = if already_linked {
+        AdminPrompt::Completed
+    } else {
+        run_script(&service::build_cli_install_apple_script(&target, source))?
+    };
+    Ok(cli_command_outcome(source, prompt))
+}
+
+/// Removes the TAIDE-owned `source` link, asking for administrator rights through `run_script`
+/// only when a plain removal is denied.
+pub fn cli_uninstall(exe: &Path, source: &Path, run_script: impl FnOnce(&str) -> AppResult<AdminPrompt>) -> AppResult<CliCommandOutcome> {
+    cli_install_target(exe)?;
+    match std::fs::symlink_metadata(source) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(cli_command_outcome(source, AdminPrompt::Completed));
+        }
+        Err(error) => return Err(AppError::from(error)),
+    }
+    let owned = std::fs::read_link(source).is_ok_and(|link_target| service::is_cli_symlink_owned(&link_target));
+    if !owned {
+        return Err(AppError::InvalidArgument(CLI_NOT_MANAGED.to_string()));
+    }
+    let prompt = match std::fs::remove_file(source) {
+        Ok(()) => AdminPrompt::Completed,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => AdminPrompt::Completed,
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            run_script(&service::build_cli_uninstall_apple_script(source))?
+        }
+        Err(error) => return Err(AppError::from(error)),
+    };
+    Ok(cli_command_outcome(source, prompt))
+}
+
+/// Runs an administrator AppleScript with `program` (`osascript`); a dismissed password prompt is
+/// [`AdminPrompt::Cancelled`] rather than an error.
+pub fn run_admin_osascript(program: &Path, script: &str) -> AppResult<AdminPrompt> {
+    let output = std::process::Command::new(program)
+        .args(service::build_osascript_args(script))
+        .output()?;
+    if output.status.success() {
+        return Ok(AdminPrompt::Completed);
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if service::is_osascript_user_cancelled(output.status.code(), &stderr) {
+        return Ok(AdminPrompt::Cancelled);
+    }
+    Err(AppError::Internal(format!("osascript failed: {stderr}")))
 }
 
 #[cfg(test)]

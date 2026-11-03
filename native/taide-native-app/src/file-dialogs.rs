@@ -18,3 +18,21 @@ pub(crate) fn save(frame: &eframe::Frame, request: SaveRequest) -> Option<PathBu
         .set_title(request.title)
         .save_file()
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct OpenRequest {
+    pub filter_name: &'static str,
+    pub extensions: &'static [&'static str],
+    pub title: String,
+}
+
+pub(crate) type OpenPicker =
+    Arc<dyn Fn(&eframe::Frame, OpenRequest) -> Option<PathBuf> + Send + Sync>;
+
+pub(crate) fn open(frame: &eframe::Frame, request: OpenRequest) -> Option<PathBuf> {
+    rfd::FileDialog::new()
+        .set_parent(frame)
+        .add_filter(request.filter_name, request.extensions)
+        .set_title(request.title)
+        .pick_file()
+}

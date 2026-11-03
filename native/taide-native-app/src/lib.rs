@@ -249,6 +249,10 @@ pub mod save;
 pub mod settings_controls;
 #[path = "settings-integrations.rs"]
 pub mod settings_integrations;
+#[path = "settings-ports.rs"]
+pub mod settings_ports;
+#[path = "settings-sync-time.rs"]
+mod settings_sync_time;
 #[path = "settings-view.rs"]
 pub mod settings_view;
 mod shell_keymap;

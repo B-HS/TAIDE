@@ -323,6 +323,14 @@ fn valid_color(value: &str) -> bool {
 }
 
 fn unique_id(name: &str, themes: &[ThemeSummary]) -> String {
+    let used = themes
+        .iter()
+        .map(|theme| theme.id.clone())
+        .collect::<std::collections::HashSet<_>>();
+    unique_theme_id(name, &used)
+}
+
+pub(crate) fn unique_theme_id(name: &str, used: &std::collections::HashSet<String>) -> String {
     let mut slug = String::new();
     for character in name.trim().to_lowercase().chars() {
         if character.is_ascii_alphanumeric() {
@@ -337,7 +345,7 @@ fn unique_id(name: &str, themes: &[ThemeSummary]) -> String {
     } else {
         slug
     };
-    if !themes.iter().any(|theme| theme.id == base) {
+    if !used.contains(base) {
         return base.into();
     }
     loop {
@@ -350,7 +358,7 @@ fn unique_id(name: &str, themes: &[ThemeSummary]) -> String {
             .take(ID_SUFFIX_LENGTH)
             .collect();
         let id = format!("{base}-{suffix}");
-        if !themes.iter().any(|theme| theme.id == id) {
+        if !used.contains(&id) {
             return id;
         }
     }

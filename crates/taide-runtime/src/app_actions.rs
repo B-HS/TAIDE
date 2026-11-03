@@ -1,11 +1,22 @@
 use std::future::Future;
 
 use taide_app::service;
-use taide_model::app::AppFileTarget;
+use taide_infra::perf::PerfRegistry;
+use taide_model::app::{AppFileTarget, PerfSnapshot};
 use taide_model::error::AppResult;
 use taide_model::settings::Settings;
 
 use crate::AppState;
+
+/// Reads the instrumentation numbers accumulated in `registry`.
+pub fn perf_snapshot(registry: &PerfRegistry) -> PerfSnapshot {
+    service::perf_snapshot(registry)
+}
+
+/// Starts a fresh measurement window in `registry`, keeping its gate and command table.
+pub fn perf_reset(registry: &PerfRegistry) {
+    registry.reset();
+}
 
 pub async fn app_file_read(state: &AppState, target: AppFileTarget) -> AppResult<String> {
     let current_settings = state.settings.read().clone();

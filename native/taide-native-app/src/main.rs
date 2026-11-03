@@ -28,6 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?;
         return Ok(());
     }
+    taide_infra::perf::init(std::iter::empty());
     let config = LaunchConfig::parse(arguments)?;
     let monitors = window_state::Monitors::default();
     let window_builder = window_state::main_window_hook(config.data_dir.clone(), monitors.clone());
