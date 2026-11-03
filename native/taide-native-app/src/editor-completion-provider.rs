@@ -495,9 +495,29 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
         view: ViewId,
         event: &Event,
     ) -> Result<bool, EditorError> {
+        let language = inline_language(store, view);
         let mut state = self.consumer.state.borrow_mut();
         state.inline.reconcile_credentials(self.consumer.services);
-        state.inline.event(store, view, event)
+        state.inline.event(store, view, event, language)
+    }
+
+    fn inline_command(
+        &mut self,
+        store: &mut EditorStore,
+        view: ViewId,
+        command: taide_native_editor::completion::Command,
+    ) -> Result<bool, EditorError> {
+        if !self.available(store, view) {
+            return Ok(false);
+        }
+        let language = inline_language(store, view);
+        let mut state = self.consumer.state.borrow_mut();
+        state.inline.reconcile_credentials(self.consumer.services);
+        state.inline.command(store, view, command, language)
+    }
+
+    fn inline_suggestion_count(&self, view: ViewId) -> Option<usize> {
+        self.consumer.state.borrow().inline.suggestion_count(view)
     }
 
     fn dismiss_inline(&mut self, view: ViewId) {
@@ -542,6 +562,12 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
         let providers = self.lsp.map_or_else(HashSet::new, |lsp| {
             lsp.completion_providers(&project, &document)
         });
+        let retrigger = self
+            .consumer
+            .state
+            .borrow_mut()
+            .automatic_triggers
+            .remove(&view);
         let request = self.consumer.state.borrow_mut().begin(
             store,
             Context {
@@ -550,7 +576,7 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
                 owner: self.owner,
                 word: supply::word_at(&document, byte)?,
                 viewport: self.viewport,
-                automatic: trigger != Trigger::Manual,
+                automatic: trigger != Trigger::Manual || retrigger,
             },
             providers,
         )?;
@@ -909,12 +935,7 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
     }
 
     fn take_commands(&mut self, view: ViewId) -> Vec<taide_native_editor::completion::Command> {
-        self.consumer
-            .state
-            .borrow_mut()
-            .commands
-            .remove(&view)
-            .unwrap_or_default()
+        self.consumer.state.borrow_mut().take_commands(view)
     }
 
     fn accept(
@@ -987,6 +1008,23 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
             state.close(view);
             return Ok(true);
         }
+        let retrigger = self
+            .consumer
+            .state
+            .borrow()
+            .entries
+            .get(&view)
+            .and_then(|entry| entry.model.clone())
+            .is_some_and(|model| {
+                model
+                    .borrow()
+                    .candidate(candidate)
+                    .and_then(|candidate| candidate.item.command.as_ref())
+                    .and_then(|command| {
+                        taide_native_editor::completion::Command::from_action(&command.command)
+                    })
+                    == Some(taide_native_editor::completion::Command::Trigger)
+            });
         let document = store.documents().snapshot(origin.snapshot.id)?;
         let options = PreparationOptions {
             alternate,
@@ -1060,6 +1098,10 @@ impl taide_native_ui::editor_completion::Provider for Provider<'_, '_> {
             }
         }
         state.close(view);
+        if retrigger {
+            state.retriggers.insert(view);
+            self.consumer.context.request_repaint();
+        }
         Ok(store.documents().snapshot(document.id)?.revision != before)
     }
 
@@ -1255,4 +1297,19 @@ impl taide_native_ui::editor_markup::Provider for Provider<'_, '_> {
             self.commands,
         )
     }
+}
+
+fn inline_language(
+    store: &EditorStore,
+    view: ViewId,
+) -> Option<&'static taide_native_syntax::MonacoLanguage> {
+    let document = store.views().get(view)?.document;
+    supply::language(
+        &store
+            .documents()
+            .snapshot(document)
+            .ok()?
+            .metadata
+            .language_id,
+    )
 }

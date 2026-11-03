@@ -1949,3 +1949,132 @@ fn assert_json_peek(read_only: bool) {
     eframe::App::on_exit(application);
     assert_eq!(application.services.tasks.tracked_count(), 0);
 }
+
+#[test]
+fn actual_app의_json_완성은_내장_meta_schema_속성을_공급하고_수락과_undo를_연결한다() {
+    use super::inlay_hints_tests as harness;
+    let prefix = "{\"$schema\": \"http://json-schema.org/draft-07/schema#\", \"tit";
+    let original = format!("{prefix}\"}}");
+    let mut fixture = harness::fixture_with_language(&original, "json");
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let view = harness::body_view(application, &fixture.path, &fixture.tab);
+    let document = application.store.views().get(view).unwrap().document;
+    let state = application.store.views().get(view).unwrap().clone();
+    application
+        .store
+        .set_view_state(
+            view,
+            taide_native_editor::view::SelectionSet {
+                primary: 0,
+                selections: vec![taide_native_editor::view::Selection {
+                    anchor: prefix.len(),
+                    head: prefix.len(),
+                }],
+            },
+            state.scroll,
+            state.folds,
+        )
+        .unwrap();
+    application.document_edits.push((
+        fixture.tab.clone(),
+        DocumentEdit::Completion(taide_native_editor::completion::Command::Trigger),
+    ));
+    let body = crate::editor_context_menu::body(context, view).unwrap();
+    context.memory_mut(|memory| memory.request_focus(body));
+    harness::paint(application, context, Vec::new());
+    harness::wait(
+        application,
+        context,
+        "JSON schema candidate",
+        |application| {
+            application
+                .editor_completion
+                .candidates(&application.store, view)
+                .is_some_and(|items| {
+                    items
+                        .iter()
+                        .any(|candidate| candidate.item.label == "title")
+                })
+        },
+    );
+    let candidates = application
+        .editor_completion
+        .candidates(&application.store, view)
+        .unwrap()
+        .into_iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    let label = |label: &str| {
+        candidates
+            .iter()
+            .find(|candidate| candidate.item.label == label)
+            .unwrap_or_else(|| panic!("missing {label}"))
+    };
+    let title = label("title");
+    assert_eq!(title.text(), "\"title\": \"$1\"");
+    assert!(title.is_snippet());
+    assert_eq!(title.item.filter_text.as_deref(), Some("\"title\""));
+    assert_eq!(
+        title.item.kind,
+        Some(taide_native_editor::completion::CompletionItemKind::PROPERTY)
+    );
+    let string_start = prefix.len() - "\"tit".len();
+    assert_eq!(title.replace, string_start..original.len() - 1);
+    assert_eq!(label("readOnly").text(), "\"readOnly\": ${1:false}");
+    assert!(
+        !candidates
+            .iter()
+            .any(|candidate| candidate.item.label == "$schema")
+    );
+    harness::paint(application, context, Vec::new());
+    harness::paint(
+        application,
+        context,
+        harness::key(egui::Key::Tab, egui::Modifiers::NONE),
+    );
+    let accepted = format!("{}\"title\": \"\"}}", &prefix[..string_start]);
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        accepted
+    );
+    let cursor = accepted.len() - "\"}".len();
+    assert_eq!(
+        application
+            .store
+            .views()
+            .get(view)
+            .unwrap()
+            .selection
+            .selections,
+        [taide_native_editor::view::Selection {
+            anchor: cursor,
+            head: cursor
+        }]
+    );
+    assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), original);
+    assert!(application.store.undo(document).unwrap());
+    assert_eq!(
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string(),
+        original
+    );
+    eframe::App::on_exit(application);
+    assert_eq!(application.services.tasks.tracked_count(), 0);
+}
+
+#[path = "application-css-tests.rs"]
+mod css_tests;
+#[path = "application-html-tests.rs"]
+mod html_tests;

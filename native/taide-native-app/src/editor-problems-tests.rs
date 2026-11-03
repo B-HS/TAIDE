@@ -578,6 +578,74 @@ fn 파일의_다음_문제는_실제_untitled_요청과_추적된_위치로_이�
     assert!(!fixture.state.accepts(&request, &fixture.store));
 }
 
+#[test]
+fn untitled_문제_대상은_요청한_창의_편집기에_있을_때만_도착하고_다른_창이면_무동작이다() {
+    use taide_model::layout::{AuxWindowLayout, PaneNode, Tab};
+    let mut fixture = Fixture::new(false);
+    let source = fixture.source;
+    for _ in 0..3 {
+        fixture.execute(source, Command::NextInFiles);
+    }
+    let mut request = fixture.request();
+    let untitled = TabId::new();
+    let tab = |id: &TabId, kind: TabKind| Tab {
+        id: id.clone(),
+        kind,
+        title: "problem".into(),
+        pinned: false,
+        preview: false,
+        dirty: false,
+        view_state: None,
+    };
+    let leaf = |pane: PaneId, tabs: Vec<Tab>| PaneNode::Leaf {
+        id: pane,
+        active: tabs.first().map(|tab| tab.id.clone()),
+        tabs,
+    };
+    let window = |slot: u32, root: PaneNode| AuxWindowLayout {
+        slot,
+        focused_pane: PaneId::new(),
+        root,
+    };
+    let source_tab = tab(
+        &request.source_key.tab,
+        TabKind::File {
+            path: "/synthetic/a.rs".into(),
+        },
+    );
+    let untitled_tab = tab(&untitled, TabKind::Untitled { index: 1 });
+    let project = fixture.project.clone();
+    let mut layout = problem_layout(&request.source_key, source_tab.kind.clone());
+    layout.root = leaf(
+        request.source_key.pane.clone(),
+        vec![source_tab.clone(), untitled_tab.clone()],
+    );
+    assert!(request.allows_destination(&layout, &project, &layout, &untitled));
+    layout.root = leaf(request.source_key.pane.clone(), vec![source_tab.clone()]);
+    layout
+        .auxiliary_windows
+        .push(window(1, leaf(PaneId::new(), vec![untitled_tab.clone()])));
+    assert!(!request.allows_destination(&layout, &project, &layout, &untitled));
+    let source_pane = request.source_key.pane.clone();
+    layout.root = leaf(PaneId::new(), vec![untitled_tab.clone()]);
+    layout.auxiliary_windows = vec![window(
+        1,
+        leaf(source_pane.clone(), vec![source_tab.clone()]),
+    )];
+    request.scope = taide_native_ui::shell::WindowScope::Auxiliary {
+        project: project.clone(),
+        slot: 1,
+    };
+    assert!(!request.allows_destination(&layout, &project, &layout, &untitled));
+    layout
+        .auxiliary_windows
+        .push(window(2, leaf(PaneId::new(), vec![untitled_tab.clone()])));
+    assert!(!request.allows_destination(&layout, &project, &layout, &untitled));
+    layout.auxiliary_windows = vec![window(1, leaf(source_pane, vec![source_tab, untitled_tab]))];
+    assert!(request.allows_destination(&layout, &project, &layout, &untitled));
+    assert!(!request.allows_destination(&layout, &ProjectId::new(), &layout, &untitled));
+}
+
 fn problem_layout(key: &ViewKey, kind: TabKind) -> ProjectLayout {
     let mut layout = taide_layout::service::default_layout();
     layout.focused_pane = key.pane.clone();

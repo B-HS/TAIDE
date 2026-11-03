@@ -355,34 +355,66 @@ impl Scanner<'_> {
 }
 
 pub fn scan(input: &str, ignore_trivia: bool, limits: Limits) -> Result<Vec<Token>, EditorError> {
+    tokens(input, ignore_trivia, limits)?.collect()
+}
+
+/// Lazily yields the tokens of `input` in order (`createScanner(input)` followed by repeated
+/// `scan()` calls), so callers that need only a prefix can stop early. The `End` token is last.
+pub fn tokens(input: &str, ignore_trivia: bool, limits: Limits) -> Result<Tokens<'_>, EditorError> {
     if input.len() > limits.max_bytes {
         return Err(EditorError::Capacity);
     }
-    let mut scanner = Scanner {
-        input,
-        byte: 0,
-        utf16: 0,
-        line: 0,
-        line_start: 0,
-    };
-    let mut tokens = Vec::new();
-    let mut scanned = 0usize;
-    let mut value_units = 0usize;
-    loop {
-        let token = scanner.next(limits.max_value_units - value_units);
-        scanned = scanned.checked_add(1).ok_or(EditorError::Capacity)?;
-        value_units = value_units
-            .checked_add(token.value.len())
-            .ok_or(EditorError::Capacity)?;
-        if scanned > limits.max_tokens || value_units > limits.max_value_units {
-            return Err(EditorError::Capacity);
+    Ok(Tokens {
+        scanner: Scanner {
+            input,
+            byte: 0,
+            utf16: 0,
+            line: 0,
+            line_start: 0,
+        },
+        ignore_trivia,
+        limits,
+        scanned: 0,
+        value_units: 0,
+        finished: false,
+    })
+}
+
+/// Lazy token sequence returned by [`tokens`].
+pub struct Tokens<'a> {
+    scanner: Scanner<'a>,
+    ignore_trivia: bool,
+    limits: Limits,
+    scanned: usize,
+    value_units: usize,
+    finished: bool,
+}
+
+impl Iterator for Tokens<'_> {
+    type Item = Result<Token, EditorError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while !self.finished {
+            let token = self
+                .scanner
+                .next(self.limits.max_value_units - self.value_units);
+            let counted = self
+                .scanned
+                .checked_add(1)
+                .zip(self.value_units.checked_add(token.value.len()));
+            let Some((scanned, value_units)) = counted.filter(|(scanned, value_units)| {
+                *scanned <= self.limits.max_tokens && *value_units <= self.limits.max_value_units
+            }) else {
+                self.finished = true;
+                return Some(Err(EditorError::Capacity));
+            };
+            self.scanned = scanned;
+            self.value_units = value_units;
+            self.finished = token.kind == Kind::End;
+            if !self.ignore_trivia || !token.kind.is_trivia() {
+                return Some(Ok(token));
+            }
         }
-        let end = token.kind == Kind::End;
-        if !ignore_trivia || !token.kind.is_trivia() {
-            tokens.push(token);
-        }
-        if end {
-            return Ok(tokens);
-        }
+        None
     }
 }

@@ -3806,6 +3806,16 @@ impl NativeEditor {
             .chain(input_state.problems.focus_ids())
             .chain(input_state.locations.focus_ids())
             .collect();
+        #[cfg(feature = "native-host")]
+        let inline_suggest_zones = (0..display.preview_views().len())
+            .filter_map(|index| layout.additional_zone(index))
+            .map(|zone| {
+                Rect::from_min_max(
+                    pos2(text_rect.left(), rect.top() + zone.start - state.scroll.y),
+                    pos2(text_rect.right(), rect.top() + zone.end - state.scroll.y),
+                )
+            })
+            .collect::<Vec<_>>();
         store.set_display(view, projection.cached)?;
         input_state.rendered_viewport = Some(RenderedViewport {
             scroll_top: state.scroll.y,
@@ -3951,6 +3961,33 @@ impl NativeEditor {
                     .completion
                     .paint(ui, store, view, id, &geometry, appearance, colors, provider)?,
             );
+            let ghosts = if provider.current(store, view).is_none() {
+                preview.views.as_slice()
+            } else {
+                &[]
+            };
+            if let Some(command) = crate::editor_inline_suggest_toolbar::show(
+                ui,
+                id,
+                crate::editor_inline_suggest_toolbar::Request {
+                    geometry: &geometry,
+                    document: &document,
+                    ghosts,
+                    zones: &inline_suggest_zones,
+                    colors: colors.documentation,
+                    count: provider.inline_suggestion_count(view),
+                },
+            ) {
+                if let Err(error) = input_state
+                    .completion
+                    .command(ui, store, view, id, provider, command)
+                {
+                    output.errors.push(error);
+                }
+                ui.memory_mut(|memory| memory.request_focus(id));
+                input_state.rendered_viewport = None;
+                ui.ctx().request_repaint();
+            }
         }
         #[cfg(feature = "native-host")]
         if let Some(provider) = documentation.as_deref_mut()

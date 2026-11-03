@@ -49,8 +49,12 @@ const FOLD_LIMITS: json_folding::Limits = json_folding::Limits {
 };
 
 pub(crate) struct Models {
-    pub symbols: Arc<DocumentSymbols>,
+    pub symbols: Option<Arc<DocumentSymbols>>,
     pub folds: Arc<SyntaxFolds>,
+}
+
+fn provides_symbols(snapshot: &DocumentSnapshot) -> bool {
+    snapshot.metadata.language_id == "json" || crate::editor_html::is_html(snapshot)
 }
 
 struct Entry {
@@ -89,6 +93,14 @@ impl State {
         self.entries.keys().copied().collect()
     }
 
+    pub(crate) fn symbol_documents(&self) -> HashSet<DocumentId> {
+        self.entries
+            .iter()
+            .filter(|(_, entry)| provides_symbols(&entry.snapshot))
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
     pub(crate) fn tick(
         &mut self,
         store: &EditorStore,
@@ -99,7 +111,7 @@ impl State {
             .documents()
             .snapshots()
             .filter(|snapshot| {
-                snapshot.metadata.language_id == "json"
+                (provides_symbols(snapshot) || crate::editor_css::dialect(snapshot).is_some())
                     && snapshot.metadata.tier == FileSizeTier::Normal
                     && !matches!(snapshot.key, DocumentKey::AppFile(_))
                     && store.views().for_document(snapshot.id).next().is_some()
@@ -182,6 +194,15 @@ impl State {
 }
 
 fn build(snapshot: &DocumentSnapshot, cancelled: &AtomicBool) -> Result<Models, EditorError> {
+    if let Some(dialect) = crate::editor_css::dialect(snapshot) {
+        return Ok(Models {
+            symbols: None,
+            folds: crate::editor_css::folds(snapshot, dialect, cancelled)?,
+        });
+    }
+    if crate::editor_html::is_html(snapshot) {
+        return crate::editor_html::models(snapshot, cancelled);
+    }
     if snapshot.rope.len_bytes() > SCANNER_LIMITS.max_bytes {
         return Err(EditorError::Capacity);
     }
@@ -251,7 +272,7 @@ fn build(snapshot: &DocumentSnapshot, cancelled: &AtomicBool) -> Result<Models, 
         return Err(EditorError::StaleRevision);
     }
     Ok(Models {
-        symbols,
+        symbols: Some(symbols),
         folds: Arc::new(SyntaxFolds::new(snapshot, vec![folds.ranges])),
     })
 }

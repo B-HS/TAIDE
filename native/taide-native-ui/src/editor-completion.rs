@@ -152,6 +152,17 @@ pub trait Provider: editor_markup::Provider {
     ) -> Result<bool, EditorError> {
         Ok(false)
     }
+    fn inline_command(
+        &mut self,
+        _store: &mut EditorStore,
+        _view: ViewId,
+        _command: Command,
+    ) -> Result<bool, EditorError> {
+        Ok(false)
+    }
+    fn inline_suggestion_count(&self, _view: ViewId) -> Option<usize> {
+        None
+    }
     fn is_embedded(&self, _view: ViewId) -> bool {
         false
     }
@@ -458,6 +469,7 @@ pub(crate) struct State {
     details_focused: bool,
     details_focus_requested: bool,
     release_at: Option<usize>,
+    inline_claimed_text: Option<usize>,
     scroll: f32,
     reveal: bool,
     details_scroll: Vec2,
@@ -890,6 +902,7 @@ impl State {
         commands: &[Command],
     ) -> Result<(), EditorError> {
         self.release_at = None;
+        self.inline_claimed_text = None;
         let details = details_key(ui);
         self.details_open = ui
             .ctx()
@@ -1014,6 +1027,16 @@ impl State {
         if command == Command::TriggerInline {
             return provider.request_inline(store, view);
         }
+        if matches!(
+            command,
+            Command::CommitInline
+                | Command::AcceptNextWord
+                | Command::AcceptNextLine
+                | Command::ShowNextInline
+                | Command::ShowPreviousInline
+        ) {
+            return provider.inline_command(store, view, command);
+        }
         if command == Command::ResetSize {
             self.resizing = None;
             let key = size_key(ui, provider.is_embedded(view));
@@ -1092,7 +1115,14 @@ impl State {
                 self.reveal = true;
                 self.details_scroll = Vec2::ZERO;
             }
-            Command::ResetSize | Command::TriggerInline | Command::TriggerEdit => {}
+            Command::ResetSize
+            | Command::TriggerInline
+            | Command::TriggerEdit
+            | Command::CommitInline
+            | Command::AcceptNextWord
+            | Command::AcceptNextLine
+            | Command::ShowNextInline
+            | Command::ShowPreviousInline => {}
         }
         ui.ctx().request_repaint();
         Ok(true)
@@ -1109,8 +1139,16 @@ impl State {
         index: usize,
         composing: bool,
     ) -> Result<bool, EditorError> {
+        if matches!(event, Event::Text(_))
+            && self
+                .inline_claimed_text
+                .take()
+                .is_some_and(|claimed| claimed.checked_add(1) == Some(index))
+        {
+            return Ok(true);
+        }
         if matches!(event, Event::WindowFocused(false))
-            || matches!(event, Event::PointerButton { pos, pressed: true, .. } if !self.geometry.list.is_some_and(|rect| rect.contains(*pos)) && !self.geometry.details.is_some_and(|rect| rect.contains(*pos)) && !self.geometry.resize_handles.iter().any(|rect| rect.contains(*pos)))
+            || matches!(event, Event::PointerButton { pos, pressed: true, .. } if !self.geometry.list.is_some_and(|rect| rect.contains(*pos)) && !self.geometry.details.is_some_and(|rect| rect.contains(*pos)) && !self.geometry.resize_handles.iter().any(|rect| rect.contains(*pos)) && !crate::editor_inline_suggest_toolbar::contains(ui, body, *pos))
         {
             provider.dismiss_inline(view);
             self.close(ui, body, provider, view);
@@ -1184,7 +1222,13 @@ impl State {
         if provider.snippet_event(store, view, event)? {
             return Ok(true);
         }
-        provider.inline_event(store, view, event)
+        let handled = provider.inline_event(store, view, event)?;
+        if handled
+            && matches!(event, Event::Key { pressed: true, modifiers, .. } if modifiers.alt && !modifiers.ctrl && !modifiers.command && !modifiers.mac_cmd)
+        {
+            self.inline_claimed_text = Some(index);
+        }
+        Ok(handled)
     }
 
     pub(crate) fn after_event(

@@ -2168,3 +2168,125 @@ fn 실제_peek_메뉴의_다른_파일_정의_이동은_소유_pane의_목적_�
         assert_eq!(std::fs::read_to_string(path).unwrap(), TEXT);
     }
 }
+
+#[test]
+fn 실제_보조창_정의_이동은_그_창의_포커스_pane에_preview_탭을_열고_주창을_바꾸지_않는다() {
+    use taide_model::layout::{AuxWindowLayout, PaneNode};
+    const DEFINITION_BYTE: usize = 12;
+    let mut fixture = location_fixture("--native-locations-cross-file");
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let pane = PaneId::new();
+    let auxiliary_tab = TabId::new();
+    let mut layout = application.services.state.layouts.read()[&fixture.project].clone();
+    let main_root = layout.root.clone();
+    let main_focused = layout.focused_pane.clone();
+    layout.auxiliary_windows.push(AuxWindowLayout {
+        slot: AUXILIARY_SLOT,
+        root: PaneNode::Leaf {
+            id: pane.clone(),
+            tabs: vec![Tab {
+                id: auxiliary_tab.clone(),
+                kind: TabKind::File {
+                    path: fixture.path.clone(),
+                },
+                title: "current.rs".into(),
+                pinned: false,
+                preview: false,
+                dirty: false,
+                view_state: None,
+            }],
+            active: Some(auxiliary_tab.clone()),
+        },
+        focused_pane: pane.clone(),
+    });
+    taide_runtime::layout_actions::finish_mutation(
+        application.services.events.as_ref(),
+        &application.services.state,
+        &fixture.project,
+        &mut layout,
+    );
+    application
+        .services
+        .state
+        .layouts
+        .write()
+        .insert(fixture.project.clone(), layout.clone());
+    application
+        .controller
+        .apply_layouts(HashMap::from([(fixture.project.clone(), layout)]));
+    application.shell.scope = WindowScope::Auxiliary {
+        project: fixture.project.clone(),
+        slot: AUXILIARY_SLOT,
+    };
+    wait(application, context, "auxiliary body view", |application| {
+        application
+            .store
+            .views()
+            .for_document(application.files[&fixture.path].id)
+            .any(|view| view.key.tab == auxiliary_tab)
+    });
+    let view = body_view(application, &fixture.path, &auxiliary_tab);
+    select(application, view, 0, 0);
+    focus(application, context, view);
+    paint(application, context, key(egui::Key::F12, EMPTY));
+    let preview = application
+        .services
+        .state
+        .settings
+        .read()
+        .enable_preview_tabs;
+    let peek_path = fixture.peek_path.clone();
+    wait(
+        application,
+        context,
+        "auxiliary cross-file definition",
+        |application| {
+            let layout = application.services.state.layouts.read()[&fixture.project].clone();
+            let Some(window) = layout
+                .auxiliary_windows
+                .iter()
+                .find(|window| window.slot == AUXILIARY_SLOT)
+            else {
+                return false;
+            };
+            let Some(tab) =
+                taide_native_ui::snapshot::active_tab(&window.root, &window.focused_pane)
+            else {
+                return false;
+            };
+            let Some(file) = application.files.get(&peek_path) else {
+                return false;
+            };
+            window.focused_pane == pane
+                && tab.kind
+                    == (TabKind::File {
+                        path: peek_path.clone(),
+                    })
+                && tab.preview == preview
+                && application.store.views().for_document(file.id).any(|view| {
+                    view.key.pane == pane
+                        && view.key.tab == tab.id
+                        && view.selection.selections
+                            == vec![Selection {
+                                anchor: DEFINITION_BYTE,
+                                head: DEFINITION_BYTE,
+                            }]
+                })
+        },
+    );
+    let layout = application.services.state.layouts.read()[&fixture.project].clone();
+    assert_eq!(layout.root, main_root);
+    assert_eq!(layout.focused_pane, main_focused);
+    let window = layout
+        .auxiliary_windows
+        .iter()
+        .find(|window| window.slot == AUXILIARY_SLOT)
+        .unwrap();
+    assert_eq!(taide_layout::service::collect_leaves(&window.root).len(), 1);
+    assert!(
+        crate::tabs::tabs_in(&window.root)
+            .iter()
+            .any(|tab| tab.id == auxiliary_tab)
+    );
+}

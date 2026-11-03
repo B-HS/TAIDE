@@ -110,7 +110,18 @@ pub(super) fn refresh(entry: &mut Entry, store: &EditorStore) -> Result<bool, Ed
     if word.start != tracked.items()[0].bytes.start {
         return Ok(false);
     }
-    if entry.model.is_none() && entry.complete {
+    if position.character > request.position.character
+        && entry
+            .groups
+            .get(&super::json::ORDINAL)
+            .is_some_and(|group| {
+                group.candidates.is_incomplete && !group.candidates.items.is_empty()
+            })
+    {
+        entry.groups.remove(&super::json::ORDINAL);
+        entry.model = None;
+    }
+    if entry.model.is_none() && entry.complete && entry.json.is_none() {
         let mut candidates = entry
             .groups
             .values()
@@ -141,7 +152,11 @@ pub(super) fn refresh(entry: &mut Entry, store: &EditorStore) -> Result<bool, Ed
     let incomplete = entry
         .groups
         .values()
-        .filter(|group| group.candidates.is_incomplete && !group.candidates.items.is_empty())
+        .filter(|group| {
+            request.providers.contains(&group.provider)
+                && group.candidates.is_incomplete
+                && !group.candidates.items.is_empty()
+        })
         .map(|group| group.provider)
         .collect::<std::collections::HashSet<_>>();
     let restart = entry.model.is_none() || position.character < entry.origin_position.character;
@@ -179,6 +194,7 @@ pub(super) fn refresh(entry: &mut Entry, store: &EditorStore) -> Result<bool, Ed
         entry.words.clear();
     }
     entry.word_result = None;
+    entry.json = None;
     if !entry.emmet.is_empty() {
         entry.model = None;
         entry.preview = None;
