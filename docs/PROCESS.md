@@ -29,7 +29,8 @@
     - lane: shell(묶음 2) · explorer-search(3) · terminal-agent(3 + commands-ui W1-A·B) · editor(E1·E3·E4·E5) · preview(E2) · git(G1~G8) · settings(S2·S3·S4·S1·S5). 끝나는 lane부터 메인이 커밋·병합·게이트
     - 2026-11-03 병합: preview `e87b053c`, shell `4fa4beff`, terminal-agent `446964b7`, editor, explorer-search `6dba64f9`. 충돌 4곳(테스트 공존, host.rs 필드 공존, 기능표 행)과 의미 충돌 3종(ToastLayers, PaintSink.providers, 탐색기 mount 분리) 해결. 게이트(`docs/utils/2026-11-03-native-merge-gate.sh`): 앱 66 대상 통과·lib 5건 실패 중 4건 직렬 재실행 통과(부하 흔들림), editor_fonts 1건 기존 실패. UI 30·editor 72·syntax 20·terminal 13 대상 통과, remote-web Wasm·fmt 통과
     - 기능표: 599행 중 complete 405·partial 59·unwired 75·missing 40·n-a 18·frozen 1, 기능 분모 580 중 69.8% 완료(세션 시작 53.4%)
-    - 실행 중: git(G5~G8·리뷰), settings(S1·S5·리뷰). 병합 뒤 연결: git-38 → explorer-search-7 Git 장식 공급, git-7·settings 알림 → shell `notify_event`
+    - 2026-11-03 settings 병합 `3864e1db`: 충돌(application.rs 이벤트 필드, main.rs 실행 인자·perf init, 기능표 2행) 해결. 게이트: 앱 lib 흔들림 2건 직렬 통과·editor_fonts 기존 실패, 다른 crate 통과. 공용 crate 6개 테스트 중 `taide-runtime/tests/agent_probe.rs` 소스 문자열 단언 1건 실패 — `81e96198`부터 있던 기존 실패(이번 병합이 두 파일을 바꾸지 않음). 루트 workspace check 통과
+    - 실행 중: git(G5~G8·리뷰). 병합 뒤 연결: git-38 → explorer-search-7 Git 장식 공급, git-7 → shell `notify_event`
 - [ ] W2. git(26) · settings(28)
 - [ ] W3. commands-ui(29)·진입 잔여·shell-89
 - [ ] W4. 배치 31 구조·전체 게이트(편집기 장애 경계 설계 포함). 32·33은 사용자 허락 뒤
