@@ -1,8 +1,8 @@
 # 12. 남은 작업: explorer-search 영역
 
 > 작성일 2026-11-03 · 대상 영역 `explorer-search`(탐색기·검색 패널·검색 편집기·아웃라인·Problems)
-> 기준 코드: 메인 작업 트리 `/Users/hyunseokbyun/development/TAIDE`(브랜치 `to_rust_native`, HEAD `0c52b438`, explorer-search lane 병합 `6dba64f9`·shell lane 병합 `4fa4beff`·settings lane 병합 `3864e1db` 포함). Git 관련 코드·QA·기능표는 병합 중인 worktree `/Users/hyunseokbyun/development/TAIDE-lanes/git`(브랜치 `lane/git`, 마지막 커밋 `50892b59`, 지금 `to_rust_native`를 받아들이는 병합 충돌 해결 중)을 기준으로 읽었습니다.
-> 이 문서는 정적 읽기로 작성했습니다. cargo·앱 실행은 하지 않았습니다. 줄 번호는 위 HEAD 기준이며 바뀔 수 있으니 항상 심볼 이름으로 다시 찾으십시오.
+> 기준 코드: 메인 작업 트리 `/Users/hyunseokbyun/development/TAIDE`(브랜치 `to_rust_native`, HEAD `7be1ad14`, explorer-search lane 병합 `6dba64f9`·shell lane 병합 `4fa4beff`·settings lane 병합 `3864e1db`·git lane 병합 `f3a5b5d0` 포함).
+> 이 문서는 정적 읽기로 작성했습니다. cargo·앱 실행은 하지 않았습니다. 줄 번호는 `0c52b438` 기준이며 현재 HEAD에서는 심볼 이름으로 찾습니다.
 
 ---
 
@@ -22,7 +22,7 @@
 | `docs/memory/2026-10-28-native-lane-operations.md` | lane 운영·작업자 공통 금지 |
 | `docs/memory/2026-10-07-native-transition-operations.md` 5·6절 | 화면 캡처 방법, 반복된 함정 |
 | `docs/utils/2026-11-03-native-merge-gate.sh` | 병합 게이트 명령 |
-| lane/git worktree의 `docs/quality-assurance/2026-11-02-native-lane-git-g1-base.md`·`-g5-diff.md`·`-g7-commit-claude-diff.md` | explorer-search-7·22·23의 Git 쪽 근거 |
+| `docs/quality-assurance/2026-11-02-native-lane-git-g1-base.md`·`-g5-diff.md`·`-g7-commit-claude-diff.md` | explorer-search-7·22·23의 Git 쪽 근거 |
 
 ### 0.2 egui 0.36 최소 지식 (이 저장소에서 쓰는 형태)
 
@@ -36,7 +36,7 @@
 
 - 두 앱 crate는 `edition = "2024"`, `rust-version = "1.95"`입니다(`native/taide-native-app/Cargo.toml` 4-5행). `if let Some(x) = a && cond { .. }` 같은 let chain과 `let Some(x) = y else { return; };`(let-else)를 흔히 씁니다.
 - 파일 이름은 kebab-case이고 모듈 이름은 snake_case라 `#[path = "search-panel.rs"] mod search_panel;`처럼 `#[path]`로 잇습니다. 단위 검사는 같은 이름 뒤에 `-tests.rs`를 붙인 파일을 `#[cfg(test)] #[path = "..-tests.rs"] mod tests;`로 붙입니다(예: `explorer-git-decorations.rs` 201-203행).
-- 실제 App 검사 파일은 `application-<주제>-tests.rs`이고 `application.rs` 끝에서 `#[cfg(test)] #[path = "application-explorer-search-tests.rs"] mod explorer_search_tests;`처럼 선언합니다(`application.rs` 3004-3011행). git 영역 검사는 `domains/git.rs` 끝에서 선언합니다(lane/git `domains/git.rs` 2985-3029행).
+- 실제 App 검사 파일은 `application-<주제>-tests.rs`이고 `application.rs` 끝에서 `#[cfg(test)] #[path = "application-explorer-search-tests.rs"] mod explorer_search_tests;`처럼 선언합니다(`application.rs` 3004-3011행). git 영역 검사는 `domains/git.rs` 끝에서 선언합니다(`domains/git.rs` 끝).
 - 검사 함수 이름은 한국어 문장입니다(예: `실제_app_삭제_뒤_부모_갱신이_실패하면_오류_toast로_알린다`). 검사 필터는 이 이름의 앞부분이나 모듈 경로(`application::explorer_search_tests`)를 씁니다.
 - 코드 주석은 쓰지 않고 공개 API에만 영어 `///`를 씁니다. 매직넘버는 `const`로 둡니다. 사용자 문자열은 `crates/taide-locale/resources/locales/{ko,en,ja}.json`의 원본과 같은 키를 `crate::presentation::message(locale, "키", &[("이름", 값)])`로 꺼냅니다. 카탈로그 키는 점이 들어간 평면 키입니다(예: `"notification.searchReplaceDone": "파일에서 바꾸기 완료"`, ko.json 476행).
 - 금지: GUI 실행, 사용자 데이터·OS 설정·클립보드·Keychain·휴지통, 실제 OS 알림, 합성 OS 입력, `@ts-ignore`류 우회와 `#[allow]`, 검사 기대값 조작(`docs/memory/2026-10-28-native-lane-operations.md` 4절, `docs/utils/2026-11-02-native-lane-workflow.js` `RULES`).
@@ -51,21 +51,17 @@
 
 | 기준 | complete | partial | unwired | missing | not-applicable | frozen | 남은 행 |
 | --- | --: | --: | --: | --: | --: | --: | --- |
-| `to_rust_native` 기능표(메인 작업 트리) | 37 | 5 | 0 | 2 | 1 | 0 | 7행: 7, 16, 20, 21, 33(partial), 22, 23(missing) |
-| `lane/git` 기능표(Git 관련 최신, 병합 충돌 해결 중) | 39 | 5 | 0 | 0 | 1 | 0 | 5행: 7, 16, 20, 21, 33(partial) |
+| 메인 기능표 | 40 | 4 | 0 | 0 | 1 | 0 | 4행: 16, 20, 21, 33 |
 
-- 22·23은 lane/git에서 git lane이 구현하고 complete로 판정했습니다(근거 `2026-11-02-native-lane-git-g5-diff.md` 19행, `-g7-commit-claude-diff.md` 18행). lane/git worktree의 기능표는 지금 이 두 행에서 충돌 표식(`<<<<<<< ours` = lane/git의 complete, `>>>>>>> theirs` = to_rust_native의 missing)을 가지고 있습니다. 병합을 끝낼 때 ours(complete) 행을 남겨야 합니다(3.6·3.7절).
-- 따라서 실제로 남은 구현 작업은 5행입니다. 이 문서는 7행 모두를 3장에서 같은 형식으로 다룹니다.
+- 실제 남은 구현 작업은 4행입니다. 이 문서는 4행을 3장에서 같은 형식으로 다룹니다.
+- explorer-search-7, 22, 23은 complete입니다(`2026-11-03-native-git-lane-merge.md` 3절 (a)).
 
 | ID | 기능 | 남은 것(실제 코드로 재확인) | 막는 요소 |
 | --- | --- | --- | --- |
 | explorer-search-33 | 검색 교체 | OS 알림 한 줄(`notify_event` 호출)과 그 검사 | 없음. shell lane의 `notify_event`가 이미 병합됨(`domains/shell.rs` 1175행) |
-| explorer-search-7 | 탐색기 Git 장식 | `GitCache` status를 `GitDecorations`에 공급하는 연결(git-38)과 실제 App 검사 | lane/git 병합이 먼저 끝나야 함(`git-cache.rs`가 to_rust_native에 없음) |
-| explorer-search-20 | 행 메뉴 "터미널에서 열기" | 실제 App에서 행 우클릭 → 메뉴 항목 → `finish_explorer` 구간 자동 검사 | 없음(권장: lane/git 병합 뒤) |
-| explorer-search-21 | 행 메뉴 "폴더에서 찾기" | 20과 같은 구간 자동 검사 | 없음(권장: lane/git 병합 뒤) |
+| explorer-search-20 | 행 메뉴 "터미널에서 열기" | 실제 App에서 행 우클릭 → 메뉴 항목 → `finish_explorer` 구간 자동 검사 | 없음 |
+| explorer-search-21 | 행 메뉴 "폴더에서 찾기" | 20과 같은 구간 자동 검사 | 없음 |
 | explorer-search-16 | 삭제 + 확인 대화상자 | 실제 휴지통을 쓰는 `tests/explorer-delete.rs` 실행 | 사용자 허락 P1 |
-| explorer-search-22 | 비교 메뉴 | 없음(lane/git complete). 병합 뒤 행 판정 유지 확인 | lane/git 병합 |
-| explorer-search-23 | 파일 히스토리 메뉴 | 없음(lane/git complete). 병합 뒤 행 판정 유지 확인 | lane/git 병합 |
 
 ### 1.2 현재 구현 위치
 
@@ -79,31 +75,28 @@
 | Problems | `problems.rs`, `problems-icons.rs` | 41-45행(모두 complete) |
 | UI crate | `native/taide-native-ui/src/intents/explorer_search.rs`(`Intent` 8변형), `src/surfaces/explorer_search.rs`(`ExplorerSearchSurfaces` trait) | 셸이 영역에 넘기는 의도와 렌더 경계 |
 | 공용 crate(수정 금지 대상) | `crates/taide-runtime/src/{search_actions,tree_actions,layout_actions,notification_actions}.rs`, `crates/taide-search`, `crates/taide-file/src/service.rs` `delete_entry`(190행, macOS 휴지통) | crate를 바꾸면 `src-tauri`도 영향을 받으므로 바꿀 일이 생기면 멈추고 메인에 알립니다(사양 2.0.1) |
-| Git 쪽(lane/git) | `src/git-cache.rs`(`GitCache::observe`·`status_result`·`fetched_at`, `Key::Status`), `src/domains/git.rs`(`tick_git_cache`, `compare_tab`) | explorer-search-7의 공급자 |
+| Git 쪽 | `src/git-cache.rs`(`GitCache::observe`·`status_result`·`fetched_at`, `Key::Status`), `src/domains/git.rs`(`tick_git_cache`, `compare_tab`) | explorer-search-7의 공급자 |
 
 ### 1.3 다른 영역과의 의존·소유 경계
 
 | 필요한 것 | 소유 | 현재 상태 | 영향 행 |
 | --- | --- | --- | --- |
 | OS 알림 공통 진입점 `NativeApplication::notify_event` | shell(shell-91) | to_rust_native에 있음(`domains/shell.rs` 1175-1198행) | 33 |
-| 프로젝트별 git status 캐시 `GitCache` | git(git-64, git-38) | lane/git에만 있음 | 7 |
-| 비교 탭 본문(git-45), 파일 히스토리 dialog(git-53~55) | git | lane/git complete | 22, 23 |
+| 프로젝트별 git status 캐시 `GitCache` | git(git-64, git-38) | 메인에 있음 | 7(complete) |
+| 비교 탭 본문(git-45), 파일 히스토리 dialog(git-53~55) | git | complete | 22, 23 |
 | 설정 범주 7종 묶음 알림 검사(settings-23) | 메인 통합 | 33·git-7 연결 뒤 메인이 추가(기능표 settings-23 비고) | 33 완료 뒤 settings-23 비고 갱신 |
 | 실제 휴지통 실행 허락 | 사용자 | 미허락(P1) | 16 |
 
 - 결정 D1 A(`docs/acknowledge/2026-10-28-native-lane-spec-decisions.md` 10행): 탐색기 Git 장식의 파생·행 렌더·주입점은 explorer-search, `git-cache` 공급 연결은 git lane. 결정 D2·D3 A: 파일 히스토리·비교 메뉴는 git lane.
-- 결정 2.0.4(사양)와 git 사양이 말하는 `git-status-supply.rs`는 만들어지지 않았습니다. 실제 공개 API는 `GitDecorations::{set, mounted_projects, get}`입니다(`explorer-git-decorations.rs` 149-198행). lane/git QA(`-git-g1-base.md` 55·95행)의 "그 lane의 `git-status-supply.rs`·`GitStatus(project)` host 명령"은 존재하지 않는 대상이니 무시합니다.
+- 결정 2.0.4(사양)와 git 사양이 말하는 `git-status-supply.rs`는 만들어지지 않았습니다. 실제 공개 API는 `GitDecorations::{set, mounted_projects, get}`입니다(`explorer-git-decorations.rs` 149-198행). git QA(`-git-g1-base.md` 55·95행)의 "그 lane의 `git-status-supply.rs`·`GitStatus(project)` host 명령"은 존재하지 않는 대상이니 무시합니다.
 - 공용 파일 규칙(`docs/research/2026-10-28-native-lane-seams.md` 1.4절): `application.rs`·`lib.rs`·enum 루트·locale 카탈로그는 영역 블록 끝에 추가만 합니다. lane이 모두 병합된 뒤의 남은 작업은 메인 작업 트리에서 하므로 이 규칙은 충돌 예방 지침으로 따릅니다.
 
 ### 1.4 권장 구현 순서
 
-1. lane/git 병합이 to_rust_native에 커밋될 때까지 기다립니다. 확인: `git -C /Users/hyunseokbyun/development/TAIDE log --oneline -5`에 `merge(native): git lane 병합`류 커밋이 있고 `ls /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/src/git-cache.rs`가 존재. 이유: 33·20·21이 고칠 `domains/explorer_search.rs`·`explorer.rs`·`application-explorer-search-tests.rs`가 지금 lane/git 병합 충돌 면적입니다(lane/git `git status --short`에서 `domains/explorer_search.rs`·`explorer.rs` UU).
-2. 병합 직후 기능표에서 22·23이 complete로 남았는지 확인합니다(3.6·3.7절).
-3. explorer-search-33(3.1절): 한 줄 연결 + App 검사. 가장 작고 독립적입니다.
-4. explorer-search-7(3.2절): git 쪽 tick에 공급 연결 + App 검사. git-38과 함께 닫습니다.
-5. explorer-search-20·21(3.3·3.4절): 기존 App 검사의 직접 주입 단계를 실제 행 우클릭 → 메뉴 클릭으로 바꿉니다.
-6. explorer-search-16(3.5절): 사용자 허락을 받은 경우에만 실행합니다. 허락이 없으면 partial로 둡니다.
-7. 각 단계 뒤 기능표 해당 행·QA 문서를 갱신하고, 마지막에 settings-23 비고(검색 치환 생산자 연결)를 갱신합니다.
+1. explorer-search-33(3.1절): 한 줄 연결 + App 검사. 가장 작고 독립적입니다.
+2. explorer-search-20·21(3.3·3.4절): 기존 App 검사의 직접 주입 단계를 실제 행 우클릭 → 메뉴 클릭으로 바꿉니다.
+3. explorer-search-16(3.5절): 사용자 허락을 받은 경우에만 실행합니다. 허락이 없으면 partial로 둡니다.
+4. 각 단계 뒤 기능표 해당 행·QA 문서를 갱신하고, 마지막에 settings-23 비고(검색 치환 생산자 연결)를 갱신합니다.
 
 ---
 
@@ -127,7 +120,7 @@
 
 1. `background_tick` 안
     - `tick_explorer_search_trees`(1310행 호출): watcher가 기록한 `tree_changes`마다 `HostCommand::ExplorerSearch(Command::RefreshTree{origin: Watcher})`를 제출합니다.
-    - `tick_git_title_branches`(1323행 호출) → lane/git에서는 그 안에서 `tick_git_cache`가 git 캐시 무효화·요청을 처리합니다. explorer-search-7의 공급 연결 지점입니다(3.2절).
+    - `tick_git_title_branches`(1323행 호출) → 그 안에서 `tick_git_cache`가 git 캐시 무효화·요청을 처리합니다. explorer-search-7의 공급 연결 지점입니다(complete, `domains/git.rs`의 `git_decorations.set`).
 2. `frame_ui` 안
     - `tick_explorer_search_clipboards`(1398행 호출, 정의 `domains/explorer_search.rs` 1150행): mount 정리(`explorers.reconcile`), 지금 Files 보기로 보이는 프로젝트를 `git_decorations.mount(..)`에 알림(`visible_explorer_files` 1192행), 사라진 검색 패널·검색 편집기 탭의 실행 취소(`CancelSearch`).
     - 셸 렌더가 사이드바 region을 그립니다(아래 2.3).
@@ -176,7 +169,7 @@ fn 보조_창은_같은_프로젝트의_메인_슬롯이_problems를_열어도_p
 }
 ```
 
-- 남은 5행은 UI crate를 바꾸지 않으므로 UI 하네스 검사는 회귀 확인용으로만 씁니다.
+- 남은 4행은 UI crate를 바꾸지 않으므로 UI 하네스 검사는 회귀 확인용으로만 씁니다.
 
 #### 2.4.2 앱 lib 실제 App 검사 (`native/taide-native-app`, `--lib`)
 
@@ -195,8 +188,8 @@ fn 보조_창은_같은_프로젝트의_메인_슬롯이_problems를_열어도_p
 | `Launched{fixture, context, project, slot, root}` / `launch_project(name, files, with_auxiliary)` | `application-search-panel-tests.rs` 25·33행 | 파일을 쓴 한 프로젝트·한 slot·사이드바 펼침으로 기동 |
 | `click(app, context, rect)`, `role_rect(output, role, label)`, `message(app, key, args)`, `texts(output)`, `settle_pointer(app, context, at)` | 같은 파일 121·92·113·81·632행 | 클릭(포인터를 먼저 옮김), role로 구분, 문구, 텍스트 shape, tooltip 닫힘 대기(40프레임) |
 | `FakePlatform{sent}` / `launch_with_platform(fixture, state, platform)` / `frame(app, context, focused)` / `frame_until(..)` | `application-notifications-tests.rs` 25·55·84·102행(모듈 `domains::shell::notifications_tests`, `#[cfg(all(test, unix))]`, 지금은 `pub(super)`) | OS 알림을 기록하는 가짜 플랫폼 |
-| lane/git: `Workspace`, `frame`, `until`, `nodes`, `node`, `settle`, `text`, `has_text` | lane/git `application-git-base-tests.rs` 40·118·136·185·208·153·164·181행(모듈 `domains::git::base_tests`) | git 저장소 fixture와 프레임 helper |
-| lane/git: `fixture::{git, init, repository}` | lane/git `application-git-fixture.rs` | 전역 설정을 끈 git CLI로 합성 저장소 생성(결정 문서 15행이 허용) |
+| git 영역: `Workspace`, `frame`, `until`, `nodes`, `node`, `settle`, `text`, `has_text` | `application-git-base-tests.rs` 40·118·136·185·208·153·164·181행(모듈 `domains::git::base_tests`) | git 저장소 fixture와 프레임 helper |
+| git 영역: `fixture::{git, init, repository}` | `application-git-fixture.rs` | 전역 설정을 끈 git CLI로 합성 저장소 생성(결정 문서 15행이 허용) |
 
 실제 예시(explorer-search-20·21의 현재 App 검사, `application-explorer-search-tests.rs` 572행):
 
@@ -232,7 +225,7 @@ step_until(application, &context, "tree", |_, output| {
 
 - `cargo check --quiet --manifest-path /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/Cargo.toml --all-targets --locked --offline --target-dir /Users/hyunseokbyun/development/TAIDE/experiments/native-shell-spike/target`(기존 경고: `zen.rs` unused mut, `editor-code-actions.rs` `is_applying`, inlay 검사 `fixture_with_emmet_peek`, vendor `wry-preview`)
 - `cargo fmt --manifest-path /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/Cargo.toml -- --check`
-- UI crate를 바꿨다면 remote-web Wasm check(`docs/utils/2026-11-03-native-merge-gate.sh` 17행). 남은 5행은 UI crate를 바꾸지 않을 것으로 봅니다.
+- UI crate를 바꿨다면 remote-web Wasm check(`docs/utils/2026-11-03-native-merge-gate.sh` 17행). 남은 4행은 UI crate를 바꾸지 않을 것으로 봅니다.
 - 병합 단위 전체 게이트는 `docs/utils/2026-11-03-native-merge-gate.sh <로그 디렉터리>`(메인이 실행). 알려진 기존 실패: 앱 lib `editor_fonts` 1건, `crates/taide-runtime/tests/agent_probe.rs` 소스 문자열 단언 1건(PROCESS.md 상단).
 
 ---
@@ -243,7 +236,7 @@ step_until(application, &context, "tree", |_, output| {
 
 #### (a) ID·기능·상태
 
-- explorer-search-33 · 교체(토글, 입력, 파일별 체크, 확인 대화상자, 질의 일치 전에는 비활성+안내, 결과 요약 토스트, 건너뜀 보고, 네이티브 알림, 교체 후 재검색) · **partial**(to_rust_native·lane/git 같음, 기능표 411행)
+- explorer-search-33 · 교체(토글, 입력, 파일별 체크, 확인 대화상자, 질의 일치 전에는 비활성+안내, 결과 요약 토스트, 건너뜀 보고, 네이티브 알림, 교체 후 재검색) · **partial**(기능표 411행)
 
 #### (b) 원본 TS 동작
 
@@ -271,11 +264,11 @@ step_until(application, &context, "tree", |_, output| {
     - `search-panel.rs`: 바꾸기 줄·체크·확인 모달·`is_same_query`·`skip_report`·`is_replacing`·`replace_finished`.
     - `domains/explorer_search.rs`: `Command::ReplaceSearch` → `spawn_transient` → `search_actions::search_replace` → `Reply::SearchReplaced`(470-513행), `apply_search_replaced`(810-865행: 바꾸기를 시작한 패널에만 적용, 실패 `report`, 성공 `toasts.success(summary, now)`(844행), 건너뜀 warning, 같은 질의 재검색).
     - 실제 App 검사 `실제_app_모두_바꾸기는_확인한_파일만_바꾸고_요약과_건너뜀_toast를_띄운_뒤_같은_질의로_다시_검색한다`(`application-search-panel-tests.rs` 643행), `실제_app_바꾸기를_시작하지_않은_새_패널은_늦게_온_바꾸기_응답을_무시한다`(1193행).
-- 빠진 것(코드로 재확인): `apply_search_replaced` 성공 분기에 OS 알림 호출이 없습니다. `grep -n "notify_event(" native/taide-native-app/src` 결과는 `domains/shell.rs`의 3곳뿐입니다. 묶음 C 당시 이 worktree에 `notify_event`가 없어 넣지 않았고(QA 77행), 지금은 shell lane 병합으로 `NativeApplication::notify_event(&mut self, context, category, project: Option<&ProjectId>, fallback_title_key: &str, body: String)`이 있습니다(`domains/shell.rs` 1175-1198행). 이 함수는 원본 `resolveProjectNotificationTitle`과 같은 제목 규칙(`native-notifications.rs` `project_title` 225행: 표시 라벨 → 이름 → 대체 키)과 200 코드 포인트 자르기를 적용해 `HostCommand::Shell(Command::Notify(..))`를 제출합니다.
+- 빠진 것(코드로 재확인): `apply_search_replaced` 성공 분기에 OS 알림 호출이 없습니다. `grep -n "notify_event(" native/taide-native-app/src` 결과는 `domains/shell.rs`의 3곳과 git pull/push 알림(`domains/git.rs` `notify_git_remote`)뿐이고 `domains/explorer_search.rs`에는 없습니다. 묶음 C 당시 이 worktree에 `notify_event`가 없어 넣지 않았고(QA 77행), 지금은 shell lane 병합으로 `NativeApplication::notify_event(&mut self, context, category, project: Option<&ProjectId>, fallback_title_key: &str, body: String)`이 있습니다(`domains/shell.rs` 1175-1198행). 이 함수는 원본 `resolveProjectNotificationTitle`과 같은 제목 규칙(`native-notifications.rs` `project_title` 225행: 표시 라벨 → 이름 → 대체 키)과 200 코드 포인트 자르기를 적용해 `HostCommand::Shell(Command::Notify(..))`를 제출합니다.
 
 #### (d) 구현 방법
 
-1. 작업 트리가 lane/git 병합 뒤인지 확인합니다(1.4절 1번).
+1. `git -C /Users/hyunseokbyun/development/TAIDE log --oneline -1`이 `7be1ad14` 이후인지 확인합니다(git lane 병합 포함).
 2. `native/taide-native-app/src/domains/explorer_search.rs`의 `apply_search_replaced`에서 성공 요약 toast 줄을 찾습니다(`grep -n "self.toasts.success(summary, now);"`). 그 줄을 다음으로 바꿉니다. 순서는 원본처럼 success toast → OS 알림 → 건너뜀 warning → 재검색입니다.
 
 ```rust
@@ -321,88 +314,12 @@ self.notify_event(
 #### (g) 막는 요소
 
 - 실제 OS 알림 센터 표시는 자동 검사로 보지 않습니다(허락 P2, 배치 31 실기). 가짜 플랫폼 기록까지가 자동 검사 범위입니다.
-- lane/git 병합 전에 손대면 `domains/explorer_search.rs` 충돌이 하나 더 생깁니다. 병합 뒤에 합니다.
 
 ---
 
 ### 3.2 explorer-search-7 Git 데코레이션
 
-#### (a) ID·기능·상태
-
-- explorer-search-7 · Git 데코레이션(행 색, A/M/D/R/U/! 배지, 폴더 점, 조상 전파) · **partial**(기능표 385행, lane/git 389행 같음). 짝 행 git-38(lane/git 527행, partial).
-
-#### (b) 원본 TS 동작
-
-- 공급: `src/widgets/explorer/explorer-container.tsx` 65행 `useQuery(gitStatusQueryOptions(projectId))`, 90-91행 `buildFileTreeGitStatusByPath(gitStatus?.rows ?? [], project?.root ?? null)`로 행마다 장식. `src/entities/git/git.query.ts` 105-111행 `retry: false`. 무효화는 `src/app/providers/ipc-sync-provider.tsx` 399행(`gitStatusChanged`)과 531행(`fs:changed`에서 `QUERY_KEY.GIT.STATUS(projectId)` 무효화). 실패·저장소 아님이면 `data`가 없어 장식이 없고 탐색기 쪽 오류 표시는 없습니다.
-- 파생: `src/widgets/explorer/file-tree-git-status.ts` 7-15행(종류 매핑, `typeChange` → modified), 24-31행(우선순위 conflicted 6 > added 5 > untracked 4 > renamed 3 > modified 2 > deleted 1), 33-38행(행 하나는 충돌이면 conflicted, 아니면 staged·unstaged 중 높은 쪽), 48-66행(키는 절대 경로 `absPath`, 파일 자리와 `projectRoot + '/'` 아래 모든 조상 디렉터리에 더 높은 우선순위만 기록, root 자신 제외, 형제 접두사 분리, root 없으면 빈 맵).
-- 표시: `src/features/explorer/file-tree-row.tsx` 25-33행(행 글자색 class: added `text-explorer-git-added`, modified `…-modified`, deleted `…-deleted`, renamed `text-git-renamed`, untracked `…-untracked`, conflicted `text-git-conflicted`), 35-42행(배지 A/M/D/R/U/!), 77-81행(오른쪽 끝 `ml-auto pl-1`, 파일은 글자, 디렉터리는 6px 원 `bg-current`, `aria-label`은 상태 이름). `ignored`는 파생하지 않습니다.
-- 사용자 문자열: 없음(배지는 글자 기호, 접근성 이름은 영어 상태 이름 `added` 등 원본 그대로).
-
-#### (c) native 현재 자산과 빠진 것
-
-- 있음(to_rust_native, QA `-explorer-rows.md` 41-46행):
-    - `explorer-git-decorations.rs`: `Decoration`(6종, `badge`, `name`, `theme_key`), `build(rows, root)`, `GitDecorations{entries, mounted}`의 `set(project, Option<&GitStatus>)`(행 목록이 바뀐 때만 재계산, `None`이면 지움), `mounted_projects()`, `get(project)`, `mount(..)`(root가 바뀌면 재파생), `forget(project)`.
-    - 렌더: `explorer.rs` `render_mounted`가 `RowIcons.decorations`로 이름·chevron 색, 파일 배지, 디렉터리 점, 접근성 description을 그립니다(1440-1505행 부근). 색은 `Appearance::git_color(decoration)`(210행).
-    - 주입점: `tick_explorer_search_clipboards`가 매 프레임 `git_decorations.mount(visible_explorer_files(snapshot))`(1164-1165행). `visible_explorer_files`(1192-1234행)는 메인 창(zen 아님·사이드바 펼침·Files 보기)과 보조 창(탐색기 열림·Files 보기)의 프로젝트와 root를 돌려줍니다. region은 `self.explorer_inputs.git_decorations.get(project)`를 읽습니다(1862행).
-    - 검사: 단위 10건, 렌더 1건(`explorer-tests.rs` 194행).
-- lane/git에 있음: `git-cache.rs` `GitCache::observe(project, key, now)`(119행), `status_result(project) -> Option<Result<&GitStatus, &AppError>>`(417행), `fetched_at`(144행), 무효화 `Changes::record`(55-73행: `GitStatusChanged`·`GitRefsChanged`·`FsRescanRequired`는 저장소 전체, `FsChanged`는 경로 — `Key::Status`는 모든 경로 변경에 무효화, `follows_worktree` 339행), `STALE_AFTER` 60초 규칙(`requests` 161-195행).
-- 빠진 것(코드로 재확인): `GitDecorations::set`을 부르는 곳이 저장소 어디에도 없습니다(lane/git에서 `grep -rn "git_decorations" native/taide-native-app/src`는 선언·`mount`·`forget`·`get`뿐). 그래서 실제 App에서 장식은 늘 비어 있고, 실제 저장소로 확인한 App 검사가 없습니다.
-
-#### (d) 구현 방법 (lane/git 병합 뒤, git 영역 파일에서)
-
-1. 확인: `grep -n "fn tick_git_cache" /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/src/domains/git.rs`와 `grep -n "pub(crate) fn status_result" .../src/git-cache.rs`가 결과를 내야 합니다.
-2. `domains/git.rs` `tick_git_cache`에서 `for request in self.git_state.cache.requests(Instant::now())` 루프(lane/git 2638행) **바로 앞**에 다음을 넣습니다. `now`는 같은 함수 앞부분에서 이미 `let now = Instant::now();`로 선언돼 있습니다. `Key`는 이 파일 24행에서 import돼 있습니다.
-
-```rust
-for project in self.explorer_search_state.git_decorations.mounted_projects() {
-    self.git_state.cache.observe(&project, Key::Status, now);
-    let status = self
-        .git_state
-        .cache
-        .status_result(&project)
-        .and_then(Result::ok);
-    self.explorer_search_state
-        .git_decorations
-        .set(&project, status);
-}
-```
-
-   - 순서 근거: `observe`가 먼저여야 같은 tick의 `requests`가 처음 보는 프로젝트의 status 조회를 만듭니다. 응답은 `apply_git_reply`의 `Read` 처리에서 `cache.finish`로 들어가고, 다음 tick의 `set`이 반영합니다(한 프레임 지연).
-   - 빌림: `self.git_state.cache`(불변)와 `self.explorer_search_state.git_decorations`(가변)는 서로 다른 필드라 한 함수 안에서 동시에 빌릴 수 있습니다. 메서드(`self.something()`)로 감싸면 빌림 오류가 나므로 필드에 직접 접근합니다.
-   - 비용: `set`은 행 목록이 같으면 `Vec<StatusRow>` 비교 뒤 바로 반환합니다(`explorer-git-decorations.rs` 167-169행). 변경 행이 수천 개인 저장소에서 프레임 비용이 측정으로 확인되면 그때 `cache.fetched_at(&project, &Key::Status)`가 바뀐 프로젝트만 `set`하도록 바꿉니다(측정 근거 없이 미리 최적화하지 않습니다).
-   - 원본과의 차이(QA에 기록): TanStack Query는 재조회가 실패해도 마지막 성공 `data`를 유지하므로 원본은 `.git`이 사라진 뒤에도 옛 장식이 남을 수 있습니다. native는 `status_result`가 `Err`이면 `set(None)`으로 지웁니다. 사양 2.0.4("실패하거나 저장소가 아니면 장식이 비고")를 따르고, 낡은 장식 유지는 원본 결함으로 보고 재현하지 않습니다.
-   - 원본은 사이드바가 Search·Git·Outline 보기일 때도 컨테이너가 status를 구독하지만 장식은 Files 보기에서만 보입니다. native는 Files 보기 mount만 관찰합니다. 화면 결과는 같고 조회 시점만 다릅니다.
-3. 쓰지 않는 코드 정리: 없음. `title-branch.rs`의 제목줄 branch 조회를 캐시로 옮기는 일은 git 영역 몫이며 이 행과 무관합니다.
-
-#### (e) 자동 검사
-
-- 위치: lane/git의 `native/taide-native-app/src/application-git-base-tests.rs`(git-38은 G1 범위) 끝에 새 검사 1건. 모듈 경로 `domains::git::base_tests`.
-- 이름 예: `실제_app_탐색기는_git_status로_행_색과_배지와_폴더_점을_그리고_변경이_사라지면_지운다`
-- 절차
-    1. `let mut workspace = Workspace::new("explorer-decorations", &["alpha"]);`
-    2. **root 정규화**: `workspace.roots[0] = workspace.roots[0].canonicalize().unwrap();` 이유: macOS `temp_dir()`은 `/var/folders/..`이고 libgit2 workdir는 `/private/var/..`로 정규화돼 `StatusRow.abs_path`가 정규 경로입니다(`crates/taide-git/src/service.rs` 2289-2298행 검사). 프로젝트 root가 정규 경로가 아니면 `build`의 `root + "/"` 접두사와 `TreeRow.path`가 맞지 않아 장식이 붙지 않습니다. 실제 사용 경로는 `validate_open_root`(`crates/taide-project/src/service.rs` 414행)가 정규화합니다.
-    3. `fixture::repository(&root, &workspace.empty, &[("a.txt", "one\n")])` 뒤 `a.txt`를 `"two\n"`로 고치고(modified), `src/new.rs`를 만듭니다(untracked).
-    4. `let state = workspace.state(isolated_state(workspace.data.clone())); let context = launch(&mut workspace.fixture, state);`
-    5. `until(application, &context, "decorations", |application, output| ..)` 조건:
-        - `application.explorer_search_state.git_decorations.get(&project)`에 `"<root>/a.txt" → Decoration::Modified`, `"<root>/src/new.rs" → Untracked`, `"<root>/src" → Untracked`가 있고 `"<root>"` 키가 없음.
-        - 화면: 텍스트 shape `"M"`의 색이 `application.explorer_search_state.explorer_appearance.git_color(Decoration::Modified)`, `src` 행 안에 반지름이 장식 점 상수와 같은 `egui::Shape::Circle`이 있고 색이 untracked 색(`explorer-tests.rs` 194행 검사의 단언과 같은 방식).
-        - 접근성: label `"a.txt"` 노드의 `description()`이 `Some("modified")`.
-    6. `std::fs::remove_file(root.join("src/new.rs"))` 뒤 `application.services.events.publish(AppEvent::FsChanged { project_id, change: FsChange { kind: FsChangeKind::Removed, paths: vec![<경로>], from_app: false } })`(lane/git `application-git-base-tests.rs` 619-626행과 같은 주입).
-    7. `until`: `get(&project)`에 `src`·`src/new.rs` 키가 없고 `src` 행의 원이 없음.
-    8. 비저장소 사례(선택): `.git`이 없는 두 번째 프로젝트는 `get(&project)`이 `None`이고 배지 텍스트가 없음.
-- `FsChangeKind` 변형은 `Created`·`Modified`·`Removed`·`Renamed`입니다(`crates/taide-model/src/file.rs` 122-127행). 삭제 주입에는 `Removed`를 씁니다.
-- 실행: `cargo test --quiet --manifest-path /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/Cargo.toml --lib --locked --offline --target-dir /Users/hyunseokbyun/development/TAIDE/experiments/native-shell-spike/target -- --test-threads=2 domains::git::base_tests explorer_git_decorations explorer::tests` 뒤 2.4.5절.
-
-#### (f) 완료 판정
-
-- 새 App 검사와 기존 단위·렌더 검사, git `base_tests` 회귀 통과.
-- 기능표 explorer-search-7과 git-38을 함께 complete로(비고: 공급 `tick_git_cache`의 `mounted_projects` 관찰, 검사 이름, Err 시 지움 차이).
-
-#### (g) 막는 요소
-
-- lane/git 병합 선행(`git-cache.rs`가 to_rust_native에 없음).
-- 소유: 수정 파일 `domains/git.rs`·git 검사 파일은 git 영역입니다. explorer-search 파일(`explorer-git-decorations.rs`, `explorer.rs`)은 바꾸지 않습니다. 결정 D1 A와 같습니다.
-- 검사의 git CLI 사용은 결정 문서 15행이 허용한 fixture 방식(`application-git-fixture.rs` `git`이 `GIT_CONFIG_GLOBAL=/dev/null`·`GIT_CONFIG_NOSYSTEM=1`·hooks 경로 고정)만 씁니다.
+explorer-search-7 complete(`tick_git_cache`가 `GitDecorations::set` 공급, 검사 `실제_app_탐색기_git_장식은_git_cache_status로_파일_배지와_상위_폴더를_그리고_git_변경_뒤_갱신한다`) — 작업 없음.
 
 ---
 
@@ -410,7 +327,7 @@ for project in self.explorer_search_state.git_decorations.mounted_projects() {
 
 #### (a) ID·기능·상태
 
-- explorer-search-20 · 컨텍스트 메뉴: 터미널에서 열기 · **partial**(기능표 398행, lane/git 402행 같음)
+- explorer-search-20 · 컨텍스트 메뉴: 터미널에서 열기 · **partial**(기능표 398행)
 
 #### (b) 원본 TS 동작
 
@@ -425,7 +342,7 @@ for project in self.explorer_search_state.git_decorations.mounted_projects() {
     - 동작 `finish_explorer`의 `Action::OpenInTerminal(row)`(`domains/explorer_search.rs` 2161-2184행): 폴더면 자기 경로, 파일이면 `Path::parent()`, 없으면 프로젝트 root, `Command::OpenTerminalAt{project, pane: window_pane, cwd, title: terminal.title}`. host `dispatch`(529-546행)가 `layout_open_tab(.., TabKind::Terminal{session_id: "", cwd: Some(cwd)}, title, pane, false)`.
     - 검사: 통합 `tests/explorer.rs` 2999행(메뉴 순서·구분선·`Action::OpenInTerminal`), App `실제_app_터미널에서_열기는_그_폴더를_cwd로_한_고정_터미널_탭을_열고_폴더에서_찾기_요청은_기본_제외_폴더_안만_검색한다`(`application-explorer-search-tests.rs` 572행). 이 App 검사는 메뉴를 거치지 않고 `application.submit(HostCommand::ExplorerSearch(Command::OpenTerminalAt{..}))`를 직접 제출합니다(592-599행).
 - 빠진 것: 실제 App에서 "행 우클릭 → 메뉴 표시 → 항목 클릭 → `finish_explorer` → host → 터미널 탭"을 한 검사로 잇는 것. QA(`-search-entry-editor.md` 85행)는 App 하네스로 행을 우클릭했을 때 `egui::Popup::is_any_open`이 false였고 원인을 확인하지 못했다고 적었습니다.
-- 새 근거(이 문서 작성 중 확인): lane/git의 실제 App 검사 두 건이 같은 하네스로 탐색기 행 메뉴를 열고 항목을 눌렀습니다.
+- 새 근거(이 문서 작성 중 확인): 메인의 git 영역 실제 App 검사 두 건이 같은 하네스로 탐색기 행 메뉴를 열고 항목을 눌렀습니다.
     - `application-git-diff-tests.rs` `실제_app_탐색기_비교_메뉴는_선택한_파일과_대상_파일의_preview_비교_탭을_연다`(380행, helper 391행): `sidebar_row`(같은 label 노드 중 `left()`가 가장 작은 rect) → `frame(pointer(rect.center(), Secondary))` → `until(.., |_, output| node(output, item).is_some())`로 메뉴 항목 노드가 나타날 때까지 프레임 반복 → `frame(pointer(item.center(), Primary))` → `settle`.
     - `application-git-claude-history-tests.rs` `실제_app_파일_이력은_명령_탭_메뉴로_열리고_항목을_inline_diff로_보여준다`(466행, 탐색기 단계 629-670행): 같은 방식.
   따라서 메뉴는 App 하네스에서도 열립니다. explorer-search lane 시도가 실패한 원인은 기록이 없어 확정할 수 없지만, 같은 이름 노드가 여러 개일 때 `node_rect(.., Rect::EVERYTHING)`가 첫 노드(탭 제목·breadcrumb·행 안의 Label 등)를 고를 수 있다는 점과, 우클릭 직후 한 프레임만 보고 판정했을 가능성이 차이입니다.
@@ -434,7 +351,7 @@ for project in self.explorer_search_state.git_decorations.mounted_projects() {
 
 제품 코드 변경은 예상하지 않습니다. 검사를 실제 경로로 바꿉니다.
 
-1. lane/git 병합 뒤 작업합니다(메뉴에 비교·히스토리 항목이 더해지고 `application-explorer-search-tests.rs`가 병합 면적이기 때문).
+1. 병합은 완료됐으므로 메인 트리에서 바로 작업합니다(메뉴에 비교·히스토리 항목이 이미 더해져 있습니다).
 2. `application-explorer-search-tests.rs`에 지역 helper를 둡니다(git 검사 helper는 `domains::git::base_tests`의 비공개 모듈이라 가져올 수 없습니다).
 
 ```rust
@@ -510,7 +427,7 @@ fn choose_row_menu(
 
 #### (a) ID·기능·상태
 
-- explorer-search-21 · 컨텍스트 메뉴: 폴더에서 찾기 · **partial**(기능표 399행, lane/git 403행 같음)
+- explorer-search-21 · 컨텍스트 메뉴: 폴더에서 찾기 · **partial**(기능표 399행)
 
 #### (b) 원본 TS 동작
 
@@ -547,7 +464,7 @@ fn choose_row_menu(
 
 #### (a) ID·기능·상태
 
-- explorer-search-16 · 삭제(⌘⌫, 메뉴) + 확인 대화상자 · **partial**(기능표 394행, lane/git 398행 같음)
+- explorer-search-16 · 삭제(⌘⌫, 메뉴) + 확인 대화상자 · **partial**(기능표 394행)
 
 #### (b) 원본 TS 동작
 
@@ -588,60 +505,11 @@ fn choose_row_menu(
 
 ### 3.6 explorer-search-22 컨텍스트 메뉴: 비교 대상 선택 / 선택 항목과 비교
 
-#### (a) ID·기능·상태
-
-- to_rust_native 기능표 400행: **missing**(lane 표기 panel-git, "D3 A: git lane이 git-45와 함께 구현·판정").
-- lane/git 기능표 405행(충돌 ours): **complete**(panel-search).
-
-#### (b) 원본 TS 동작
-
-- 메뉴 `file-tree-context-menu.tsx` 132-139행: 파일만. `explorer.selectForCompare`(`FileDiff` 아이콘), `explorer.compareWithSelected`(`GitCompare`, 대상이 없으면 비활성).
-- 실행 `explorer-container.tsx` 182-195행·211-212행: 대상 경로는 컨테이너 상태 `compareSourcePath`. 비교 시 `TabKind diff { path: row.path, staged: false, compareWith: 대상 }`, 제목 `${fileNameOf(대상)} vs ${fileNameOf(row.path)}`, `preview: true`, `target: null`, 호출 직후 대상 해제. 실패 toast.
-
-#### (c) native 현재 자산과 빠진 것
-
-- lane/git에 있음: `explorer.rs` `Action::SelectForCompare(String)`·`CompareWithSelected(String)`(94-95행), `Explorer.compare_source`(475행), 메뉴 항목(1536·1632-1656행), `domains/explorer_search.rs` 2219-2240행 처리, `domains/git.rs` `compare_tab(project, source, path, target)`(미스테이지 변경으로 `target: Option<PaneId>` 인자가 막 추가됨). 검사 `application-git-diff-tests.rs` 380행.
-- 빠진 것: 없음. to_rust_native에는 아직 병합되지 않았습니다.
-
-#### (d) 구현 방법
-
-1. lane/git 병합 충돌을 해결할 때 기능표 22행은 ours(complete) 줄을 남기고 theirs(missing) 줄을 지웁니다.
-2. lane/git의 미스테이지 변경(`domains/git.rs` `compare_tab`의 `target` 인자)이 병합 커밋에 들어갔는지 확인합니다: 병합 뒤 `grep -n "pub(crate) fn compare_tab" -A 6 native/taide-native-app/src/domains/git.rs`.
-
-#### (e) 자동 검사
-
-- 병합 게이트에서 `domains::git::diff_tests`와 `tests/explorer.rs` 회귀.
-
-#### (f) 완료 판정
-
-- 병합 뒤 to_rust_native 기능표에서 complete, 위 검사 통과.
-
-#### (g) 막는 요소
-
-- lane/git 병합(메인 진행 중).
-
----
+explorer-search-22 complete(`2026-11-03-native-git-lane-merge.md` 5절) — 작업 없음.
 
 ### 3.7 explorer-search-23 컨텍스트 메뉴: 파일 히스토리
 
-#### (a) ID·기능·상태
-
-- to_rust_native 기능표 401행: **missing**(panel-git, "D2 A").
-- lane/git 기능표 410행(충돌 ours): **complete**.
-
-#### (b) 원본 TS 동작
-
-- 메뉴 `file-tree-context-menu.tsx` 140-143행: 파일만, `git.fileHistory`, `History` 아이콘(파일 묶음 끝).
-- 실행 `explorer-container.tsx` 214행: `requestOpenFileHistory(row.path)` → 파일 히스토리 패널(git-53·54).
-
-#### (c) native 현재 자산과 빠진 것
-
-- lane/git에 있음: `Action::FileHistory(String)`(`explorer.rs` 96행), 메뉴 항목(1659-1665행), region에서 `taide_native_ui::intents::git::Intent::OpenFileHistory`로 변환(`domains/explorer_search.rs` 1946-1950행), 검사 `application-git-claude-history-tests.rs` 466행(탐색기 행 우클릭 → History → 그 파일 dialog, 631-656행).
-- 빠진 것: 없음.
-
-#### (d)~(g)
-
-- 3.6절과 같습니다. 병합 충돌 해결 때 기능표 23행 ours(complete)를 남기고, 병합 게이트에서 `domains::git::claude_history_tests`가 통과하는지 확인합니다.
+explorer-search-23 complete(`2026-11-03-native-git-lane-merge.md` 5절) — 작업 없음.
 
 ---
 

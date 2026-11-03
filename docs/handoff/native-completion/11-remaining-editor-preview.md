@@ -1,8 +1,8 @@
 # 11. 남은 작업 — editor·preview 영역
 
-> 작성일: 2026-11-04 · 기준: 메인 작업 트리 `/Users/hyunseokbyun/development/TAIDE`(브랜치 `to_rust_native`, HEAD `0c52b438`), Git 영역은 병합 중인 worktree `/Users/hyunseokbyun/development/TAIDE-lanes/git`(브랜치 `lane/git`, HEAD `50892b59` 위에 메인을 병합하는 중. `git status`에서 `UU`인 파일은 `docs/quality-assurance/2026-10-09-native-function-matrix.md`, `native/taide-native-ui/src/command-registry.rs`, `native/taide-native-app/src/application-explorer-views-tests.rs`이며 세 파일 모두 충돌 표식(`<<<<<<<`)은 이미 없습니다).
+> 작성일: 2026-11-04 · 기준: 메인 작업 트리 `/Users/hyunseokbyun/development/TAIDE`(브랜치 `to_rust_native`, HEAD `7be1ad14`, git lane 병합 `f3a5b5d0` 포함).
 > 독자: 이 저장소를 처음 보는 구현 작업자(사람 또는 AI). egui 0.36·Rust 2024 edition·이 저장소의 관례를 모른다고 가정했습니다.
-> 모든 사실은 2026-11-04에 실제 파일을 열어 확인했고 "경로:줄" 또는 "경로 + 심볼"로 적었습니다. 줄 번호는 git lane 병합 뒤 크게 움직입니다(git lane은 `UI/editor_surface.rs`에 170줄, `APP/domains/editor.rs`에 git 연결을 더함). 줄 번호가 맞지 않으면 심볼 이름으로 다시 찾으십시오.
+> 모든 사실은 2026-11-04에 실제 파일을 열어 확인했고 "경로:줄" 또는 "경로 + 심볼"로 적었습니다. 줄 번호는 `0c52b438` 기준이며 병합으로 이미 움직였습니다. 줄 번호가 맞지 않으면 심볼 이름으로 다시 찾으십시오.
 > 이 문서와 실제 코드가 다르면 실제 코드가 우선입니다. 사양 문서(`SPEC`)와 이 문서가 다르면 이 문서가 원본 파일을 다시 읽어 정정한 것입니다(정정 목록은 4절 1번).
 
 ---
@@ -28,7 +28,6 @@
 | `MEXT` | `/Users/hyunseokbyun/development/TAIDE/node_modules/monaco-editor/esm/external` (Monaco가 번들한 vscode-json/css/html-languageservice) |
 | `LOC` | `/Users/hyunseokbyun/development/TAIDE/crates/taide-locale/resources/locales/{en,ko,ja}.json` |
 | `MOCK` | `/Users/hyunseokbyun/development/TAIDE/experiments/lsp-coordinator-spike/src/bin/mock-server.rs` (앱 example 이름 `native-lsp-mock`) |
-| `GIT` | `/Users/hyunseokbyun/development/TAIDE-lanes/git` (git lane worktree, 병합 중) |
 | `QA` | `/Users/hyunseokbyun/development/TAIDE/docs/quality-assurance` |
 | `MATRIX` | `QA/2026-10-09-native-function-matrix.md` (기능표) |
 | `SPEC` | `/Users/hyunseokbyun/development/TAIDE/docs/research/2026-10-28-lane-editor-preview-spec.md` (editor·preview lane 사양) |
@@ -79,30 +78,26 @@
 grep -n -E '^\| (editor|preview)-' /Users/hyunseokbyun/development/TAIDE/docs/quality-assurance/2026-10-09-native-function-matrix.md
 ```
 
-결과를 `|`로 나눈 5번째 칸(상태)이 complete·not-applicable·frozen이 아닌 행이 아래 15행입니다. editor-73~76은 Git 영역이므로 `GIT/docs/quality-assurance/2026-10-09-native-function-matrix.md` 272~275줄도 함께 읽었습니다(git lane 기능표가 최신).
+결과를 `|`로 나눈 5번째 칸(상태)이 complete·not-applicable·frozen이 아닌 행이 아래 12행입니다.
 
-| ID | 기능 | 메인 기능표 상태(줄) | git lane 기능표 상태 | 남은 것 한 줄 | 막는 요소 |
-| --- | --- | --- | --- | --- | --- |
-| editor-7 | semantic token 강조 | missing(206) | missing | 전체(SDK 옵션 노출·요청·캐시·delta·refresh·설정·테마·표시) | 없음 |
-| editor-15 | minimap과 토글 액션 | partial(214) | partial | section header(MARK·region), 접힌 영역 배경, 선택 텍스트 발생 강조의 미니맵 표시 | 선택 발생 표시는 3.16 C(본문 기능)가 먼저 |
-| editor-16 | sticky scroll | partial(215) | partial | CSS 문서 심볼(파서 필요), TS/JS 내장 심볼 | editor-57 C1·C2, E6(사용자 허락) |
-| editor-32 | formatOnType·formatOnPaste | partial(231) | partial | TS/JS 내장 붙여넣기·onType 포맷 | E6(사용자 허락) |
-| editor-34 | Monaco 액션 팔레트·키바인딩 | partial(233) | partial | fontZoom·gotoLine·quickOutline·hideHover·hover verbosity·inPlaceReplace·서식 복사·pasteAs·tabFocusMode·openLink·unicodeHighlight 4개·toggleAlwaysShowToolbar 팔레트 실행·색 선택기 | openLink·unicodeHighlight는 3.16 A·B, 색 선택기는 3.16 D |
-| editor-49 | 포맷 | partial(248) | partial | TS/JS 내장 포맷, `<style>` 안 CSS 120열 감싸기 | E6(사용자 허락) |
-| editor-57 | Monaco 내장 언어 서비스 | partial(256) | partial | JSON hover 앱 소비·JSON 색, CSS 파서 이후 서비스 전부, HTML 완성·hover·하이라이트·링크·rename, TS/JS 전체 | E6 사용자 허락, 웹 자료 표 생성에 bun 실행 허락 |
-| editor-72 | Markdown 미리보기 분할 | partial(271) | partial | 결정 7 A 목록 9개 + `kbd` 전용 `[A]` | 없음 |
-| editor-73 | Git gutter·hunk 되돌리기·선택 stage | missing(272) | **complete** | 없음(git lane 병합으로 닫힘) | git lane 병합 |
-| editor-74 | merge conflict 표시·해결 dialog | missing(273) | **complete** | 없음(git lane 병합으로 닫힘) | git lane 병합 |
-| editor-75 | blame | missing(274) | **complete** | 없음(git lane 병합으로 닫힘) | git lane 병합 |
-| editor-76 | diff 편집기 | missing(275) | partial | 문자 단위 강조, ±표시, overview ruler, inline 삭제 줄 구문 색·두 줄 번호 열, ClaudeDiff 거터 "Revert Block" | 소유 git lane(`HO/14-remaining-git.md` 3.3·3.5), git lane 병합 선행 |
-| preview-5 | 외부 저장·이동·삭제 시 미리보기 갱신 | partial(435) | partial | HTML·PDF 외부 수정 `[A]`, 앱 안 rename 뒤 새 경로·override `[A]`, 앱 안 삭제 | 앱 안 삭제는 휴지통이라 허락 필요 |
-| preview-14 | 비디오 재생 | partial(444) | partial | 실제 WKWebView에서 restyle·재생·seek·컨트롤·키보드/AX, `evaluate_script` 성공 판정 창 | GUI 실기 허락 |
-| preview-15 | 오디오 재생 | partial(445) | partial | preview-14와 같음 | GUI 실기 허락 |
+| ID | 기능 | 기능표 상태(줄) | 남은 것 한 줄 | 막는 요소 |
+| --- | --- | --- | --- | --- |
+| editor-7 | semantic token 강조 | missing(206) | 전체(SDK 옵션 노출·요청·캐시·delta·refresh·설정·테마·표시) | 없음 |
+| editor-15 | minimap과 토글 액션 | partial(214) | section header(MARK·region), 접힌 영역 배경, 선택 텍스트 발생 강조의 미니맵 표시 | 선택 발생 표시는 3.16 C(본문 기능)가 먼저 |
+| editor-16 | sticky scroll | partial(215) | CSS 문서 심볼(파서 필요), TS/JS 내장 심볼 | editor-57 C1·C2, E6(사용자 허락) |
+| editor-32 | formatOnType·formatOnPaste | partial(231) | TS/JS 내장 붙여넣기·onType 포맷 | E6(사용자 허락) |
+| editor-34 | Monaco 액션 팔레트·키바인딩 | partial(233) | fontZoom·gotoLine·quickOutline·hideHover·hover verbosity·inPlaceReplace·서식 복사·pasteAs·tabFocusMode·openLink·unicodeHighlight 4개·toggleAlwaysShowToolbar 팔레트 실행·색 선택기 | openLink·unicodeHighlight는 3.16 A·B, 색 선택기는 3.16 D |
+| editor-49 | 포맷 | partial(248) | TS/JS 내장 포맷, `<style>` 안 CSS 120열 감싸기 | E6(사용자 허락) |
+| editor-57 | Monaco 내장 언어 서비스 | partial(256) | JSON hover 앱 소비·JSON 색, CSS 파서 이후 서비스 전부, HTML 완성·hover·하이라이트·링크·rename, TS/JS 전체 | E6 사용자 허락, 웹 자료 표 생성에 bun 실행 허락 |
+| editor-72 | Markdown 미리보기 분할 | partial(271) | 결정 7 A 목록 9개 + `kbd` 전용 `[A]` | 없음 |
+| editor-76 | diff 편집기 | partial(275) | 문자 단위 강조, ±표시, overview ruler, inline 삭제 줄 구문 색·두 줄 번호 열, ClaudeDiff 거터 "Revert Block" | 소유 git 영역(`HO/14-remaining-git.md` 3.3·3.5) |
+| preview-5 | 외부 저장·이동·삭제 시 미리보기 갱신 | partial(435) | HTML·PDF 외부 수정 `[A]`, 앱 안 rename 뒤 새 경로·override `[A]`, 앱 안 삭제 | 앱 안 삭제는 휴지통이라 허락 필요 |
+| preview-14 | 비디오 재생 | partial(444) | 실제 WKWebView에서 restyle·재생·seek·컨트롤·키보드/AX, `evaluate_script` 성공 판정 창 | GUI 실기 허락 |
+| preview-15 | 오디오 재생 | partial(445) | preview-14와 같음 | GUI 실기 허락 |
 
 상태별 수:
 
-- 메인 기능표 기준(지정된 기능표 경로): **15행 = missing 5(editor-7·73·74·75·76) + partial 10(editor-15·16·32·34·49·57·72, preview-5·14·15)**.
-- git lane 병합 뒤 기준: **12행 = missing 1(editor-7) + partial 11**, 그리고 editor-73·74·75 3행은 complete가 됩니다.
+- 미완료 12행 = missing 1(editor-7) + partial 11(editor-15·16·32·34·49·57·72·76, preview-5·14·15)
 
 이 영역에는 기능표에 행이 없지만 원본 Monaco 기본값으로 켜져 있는 기능이 있습니다. `DEC` "채택" 7줄(4.1절 결정은 추천안)과 `SPEC` 4.1 결정 2 A에 따라 "새 행(editor-88~)으로 추가하고 구현"합니다. 3.16절에서 같은 형식으로 다룹니다: A. Unicode 강조, B. 텍스트 링크 감지, C. 선택 텍스트 발생 강조, D. 색 장식·색 선택기. 이번 확인에서 사양 1.4 목록 밖의 기본 기능 3개(E. 선택 텍스트 끌어 옮기기, 읽기 전용 편집 시도 안내, 비정상 줄 끝 문자 확인 대화상자)를 더 찾았습니다. 이 셋은 결정 2의 범위가 아니므로 메인 확인 대상입니다(3.16 E).
 
@@ -130,7 +125,7 @@ grep -n -E '^\| (editor|preview)-' /Users/hyunseokbyun/development/TAIDE/docs/qu
 | Markdown 미리보기 | `APP/editor-markdown.rs`(`PreviewProvider::open_link` 425), `APP/editor-markdown-html.rs`(`BLOCK_TAGS` 12, `REMOVED_TAGS` 38, `inlines` 84~182, `blocks` 279), `UI/editor-markup*.rs` | `ED/documentation.rs` `Block`(47), `Inline`(201), `Span`(220) |
 | 미리보기 영역 | `APP/domains/preview.rs`(928줄) | `State`(59), `apply_preview_intent`(376), `reconcile_previews`(433), `tick_preview_media`(590), `show_preview_web_views`(626), `load_preview_requests`(678), `show_preview_tab`(754) |
 | 미디어 WebView | `APP/preview_web_media.rs`, `APP/preview_web_cache.rs`, `APP/preview_web_view.rs` | `VIDEO_TEMPLATE`(20)·`AUDIO_TEMPLATE`(21)·`STYLES`(22), `style`(45), `restyle_script`(54), `Cache::restyle_media`(94), `release_restyled`(117), `source`(254), `Views::open_tabs`·`evaluate`(266~300) |
-| diff 편집기(git lane) | `GIT/native/taide-native-ui/src/diff-view.rs`(1,028줄), `GIT/native/taide-native-app/src/domains/git.rs`(3,027줄), `git-diff.rs`, `git-claude-diff.rs`, `git-editor.rs`(`editor_layers` 58, `show_git_editor` 472) | `HO/14-remaining-git.md` 3.3·3.5 |
+| diff 편집기(git 영역) | `UI/diff-view.rs`(1,028줄), `APP/domains/git.rs`(3,026줄), `git-diff.rs`, `git-claude-diff.rs`, `git-editor.rs`(`editor_layers` 68, `show_git_editor` 485) | `HO/14-remaining-git.md` 3.3·3.5 |
 | LSP 다리 | `APP/lsp.rs`(3,203줄) | `Reply`(333: `CodeLenses` 338, `CodeLensRefresh` 350), `code_lens_providers`(929), `code_lenses`(937), `ready_feature_providers`(976), `initialize`(1281), `plans`(1310: `DocumentKey::File`만), `notice`(1680: `Refresh(RefreshKind::CodeLens)`만 1697줄, 나머지 1765줄 `Rejected(Unavailable)`) |
 | LSP SDK | `CR/taide-lsp/src/native/feature.rs`, `session.rs`, `capabilities.rs`, `CR/taide-lsp/src/native.rs` | `SemanticTokensDeltaResult`(feature 88), typed 요청 표(203~204), `validate_projection`(307), `SessionSnapshot`(session 45), `publish`(session 599), `completion_options`(native.rs 224), `document_options`(native.rs 253) |
 
@@ -138,10 +133,10 @@ grep -n -E '^\| (editor|preview)-' /Users/hyunseokbyun/development/TAIDE/docs/qu
 
 | 필요한 것 | 소유 | 영향 행 | 처리 |
 | --- | --- | --- | --- |
-| `UI/diff-view.rs`, `domains/git.rs`, `git-claude-diff.rs`의 diff 표면 | git lane | editor-76 | git lane 병합 뒤 그 파일을 고칩니다. 구현 절차의 정본은 `HO/14-remaining-git.md` 3.3(git-40)·3.5(git-50). 이 영역 작업자는 행 판정만 함께 갱신합니다 |
-| `DocumentKey::Virtual`(diff 가상 문서) | git lane(`GIT/native/taide-native-editor/src/document.rs` 17줄, `store.rs` 649·682줄) | 새 내장 서비스 전부, editor-7 | 병합 뒤 새 문서 선별 조건은 `DocumentKey::AppFile(_) \| DocumentKey::Virtual(_)`를 함께 제외합니다(4절 함정 4) |
-| `show_document`의 git 연결(`self.git.editor_layers` 5878줄, `show_git_editor` 6103줄, git lane 기준) | git lane | editor-7·15·3.16 | 병합 뒤 `show_document`를 고칠 때 git 장식 레이어·영역 호출을 지우거나 순서를 바꾸지 않습니다 |
-| `monaco.taide.gitStageSelection`·`toggleBlame`·`openFileHistory` 실행 | git lane(`GIT/native/taide-native-ui/src/command-registry.rs` 476~480줄) | editor-34 | 이미 연결되어 있습니다. 병합 뒤 editor-34 비고에서 git 3개를 빼면 됩니다 |
+| `UI/diff-view.rs`, `domains/git.rs`, `git-claude-diff.rs`의 diff 표면 | git 영역 | editor-76 | 병합 완료(`f3a5b5d0`) 기준으로 그 파일을 고칩니다. 구현 절차의 정본은 `HO/14-remaining-git.md` 3.3(git-40)·3.5(git-50). 이 영역 작업자는 행 판정만 함께 갱신합니다 |
+| `DocumentKey::Virtual`(diff 가상 문서) | git 영역(`ED/document.rs` 17줄, `store.rs` 649·682줄) | 새 내장 서비스 전부, editor-7 | 새 문서 선별 조건은 `DocumentKey::AppFile(_) \| DocumentKey::Virtual(_)`를 함께 제외합니다(4절 함정 4) |
+| `show_document`의 git 연결(`self.git.editor_layers` `APP/domains/editor.rs` 5878줄, `show_git_editor` `APP/git-editor.rs` 485줄) | git 영역 | editor-7·15·3.16 | `show_document`를 고칠 때 git 장식 레이어·영역 호출을 지우거나 순서를 바꾸지 않습니다 |
+| `monaco.taide.gitStageSelection`·`toggleBlame`·`openFileHistory` 실행 | git 영역(`UI/command-registry.rs` 476~480줄) | editor-34 | 이미 연결되어 있습니다. editor-34 비고에서 git 3개를 빼면 됩니다 |
 | `preview_web_view.rs` 구조(`Views.children` 64줄, `sync` 81줄) | shell lane(shell-5 보조 창 WKWebView) | preview-14/15 | 이 영역은 파일 끝 `impl Views` 블록에 메서드만 추가합니다(`SPEC` 2.0.1 마지막 문단) |
 | 팔레트 열기 intent(`intents::commands::Intent::OpenPalette`) | commands-ui | editor-34 gotoLine·quickOutline | `PaletteEntry` 변형 추가만 하고 팔레트 화면은 바꾸지 않습니다 |
 | `CR/taide-lsp`(Tauri 앱과 공유) | 공용 | editor-7 | `SessionSnapshot`에 필드를 추가하면 루트 workspace 검사(0.3의 9번)를 합니다 |
@@ -152,7 +147,7 @@ grep -n -E '^\| (editor|preview)-' /Users/hyunseokbyun/development/TAIDE/docs/qu
 
 ### 1.4 권장 구현 순서
 
-1. **git lane 병합 확인**: `git -C /Users/hyunseokbyun/development/TAIDE log --oneline -5`에 git lane 병합 커밋이 있는지 봅니다. 있으면 `MATRIX`의 editor-73~75가 complete인지, editor-76이 partial인지 확인하고, 내장 서비스 파일(`APP/editor-json.rs`·`editor-json-validation.rs`·`editor-css.rs`·`editor-html.rs`·`editor-completion-json.rs`·`editor-selection-ranges.rs`)의 문서 선별 조건에 `DocumentKey::Virtual(_)`가 있는지 `grep -n "Virtual" <파일>`로 확인합니다(GIT 작업 트리에는 모두 들어가 있습니다).
+1. **내장 서비스의 Virtual 제외 확인**: 내장 서비스 파일(`APP/editor-json.rs`·`editor-json-validation.rs`·`editor-css.rs`·`editor-html.rs`·`editor-completion-json.rs`·`editor-selection-ranges.rs`)의 문서 선별 조건에 `DocumentKey::Virtual(_)`가 있는지 `grep -n "Virtual" <파일>`로 확인합니다(기대: 모두 들어가 있음). editor-73~75는 complete, editor-76은 partial입니다(`MATRIX` 272~275줄).
 2. **editor-7 semantic token**: 다른 영역 선행이 없습니다. SDK(공용 crate)·ED·SYN·UI·APP을 모두 거치는 가장 큰 단일 묶음입니다.
 3. **3.16 C 선택 텍스트 발생 강조 → editor-15**: 미니맵의 선택 발생 표시가 본문 기능을 전제로 합니다. section header·접힌 영역 배경은 독립이므로 C와 병렬 가능합니다.
 4. **3.16 A Unicode 강조, 3.16 B 링크 감지**: editor-34의 `unicodeHighlight.*`·`openLink` 실행 대상이 생깁니다.
@@ -160,7 +155,7 @@ grep -n -E '^\| (editor|preview)-' /Users/hyunseokbyun/development/TAIDE/docs/qu
 6. **editor-57 J1(JSON hover 앱 소비) → C1(CSS 파서) → C2(심볼, editor-16의 CSS 부분 닫힘) → C3(선택 확장) → C4(탐색) → C5(진단) → C6(색) → 3.16 D(색 UI, J2 JSON 색 포함) → C7(완성·hover) → C8(`<style>` 120열, editor-49의 CSS 차이 닫힘) → H1~H4(HTML)**: 같은 공급 경로를 공유하므로 직렬입니다. C7·H4는 bun 허락이 필요합니다.
 7. **editor-72**: preview 계열·Markdown 파일만 고치므로 6과 병렬 가능합니다.
 8. **preview-5 잔여 `[A]`**.
-9. **editor-76**: git lane 소유. git lane 작업자가 맡지 않으면 메인과 소유를 정한 뒤 이 영역 작업자가 병합 뒤 진행합니다.
+9. **editor-76**: editor-76은 git-40·git-50의 남은 범위를 닫으면 함께 complete로 갱신합니다. 구현은 14 문서 3.3·3.5절을 따르고 이 영역 작업자는 행 판정만 갱신합니다.
 10. **E6(TS/JS)**: 사용자 결정 4를 받은 뒤. 그 결과로 editor-16·32·49·57을 닫습니다.
 11. **preview-14/15**: GUI 실기 허락 뒤.
 
@@ -363,7 +358,7 @@ editor-7 · semantic token 강조 · **missing**(`MATRIX` 206줄 비고: "해당
    3. `pub(crate) fn semantic_token_providers(&self, project, snapshot)` = `ready_feature_providers(project, snapshot, "textDocument/semanticTokens/full")`, `pub(crate) fn semantic_tokens(&self, request) -> AppResult<()>`.
    4. 새 파일 `APP/lsp-editor-semantic-tokens.rs`(`APP/lsp.rs` 상단 `#[path]` 목록 39~76줄에 알파벳 위치로 추가): `lsp-editor-code-lenses.rs`의 `document`·`provider`·`identity` 검사를 같은 방식으로 쓰고, 세션 순서는 `Reverse(session.order)`. legend는 `session.client.snapshot().document_semantic_token_options.get(&document.uri)`의 첫 옵션에서 읽고 `target()`으로 `Vec<Option<Target>>`을 만듭니다. 공급자별 문서 캐시 `HashMap<(ProviderIdentity, DocumentId), (String /* resultId */, Vec<u32>)>`를 worker 쪽에 둡니다. delta 조건은 `supports_document(uri, "textDocument/semanticTokens/full/delta")` && 캐시 있음. 응답은 `Reply::SemanticTokens { request, result: Result<Option<Payload>, Failure> }`(`Payload { provider, legend, data, result_id }`), `Ok(None)`이 null입니다. 세대가 바뀐 공급자의 캐시는 버립니다.
 5. **APP 상태 `APP/editor-semantic-tokens.rs`(새 파일, `APP/lib.rs` 편집기 모듈 목록 정렬 위치)**: 상태는 2.2절 8번의 `domains::editor::State` 안에 `semantic: crate::editor_semantic_tokens::State`로 둡니다. 문서별 `Entry { revision, providers, in_flight: Option<Request>, layer: Option<Layer>, due: Instant, failed: bool }`.
-   1. 대상: view가 붙은 문서, `DocumentKey::File`, Normal 등급(LSP 세션 조건과 같음). git lane 병합 뒤에는 `Virtual`이 자연히 빠집니다(File만 고르므로).
+   1. 대상: view가 붙은 문서, `DocumentKey::File`, Normal 등급(LSP 세션 조건과 같음). 병합으로 `Virtual`은 자연히 빠집니다(File만 고르므로).
    2. 일정(원본 그대로): 최초·언어 변경·refresh·설정 켬은 즉시. 내용 변경·공급자 집합 변경·테마 변경은 300ms(원본 적응형 최소값. 최대 2000ms는 요청 시간 측정 기반이라 측정 없이 고정 최소값을 쓰고 QA에 적음). 진행 중 요청은 문서당 1개. 결과 도착 시 revision이 바뀌었으면 layer를 `accept`로 옮겨 적용한 뒤 재예약.
    3. 설정 꺼짐: 요청하지 않고 layer를 모두 지움. 다시 켜면 즉시 요청. 판정은 매 tick `self.services.state.settings.read().editor_semantic_highlighting`.
    4. 테마 변경: layer를 지우고 300ms 뒤 재요청. 감지는 `APP/editor-syntax.rs` `follow_theme`(653줄: 테마가 바뀌면 `TokenTheme::from_resolved` 666줄 → `pipeline.set_theme`)에서 같은 `TokenTheme`의 `semantic_style_table()`을 계산해 세대 번호와 함께 보관하는 메서드를 `editor_syntax` 상태에 추가하고, semantic 상태가 세대 변화를 봅니다.
@@ -521,7 +516,7 @@ editor-34 · Monaco 액션 팔레트·키바인딩 · **partial**(`MATRIX` 233�
 #### (c) native 현재 자산과 빠진 것
 - 있는 것: 명령 메타·키맵·활성 조건(`UI/command-registry.rs` `enablement` 331~358줄, `EDITOR_ACTIONS_WITHOUT_SUPPORT_GATE` 25~47줄은 원본 `MONACO_ACTION2_IDS`와 같은 21개). 실행은 `execution`(360~501줄)이 지원 범주만 `Execution::Native(Run::…)`로, 나머지는 `Execution::Unavailable`로 둡니다. 현재 명령 표 검사에는 일부 id의 `Unavailable`을 단언하는 것이 있습니다(2010줄 근처 `assert_eq!(command.execution, Execution::Unavailable, "{id}")`). inline suggest toolbar 안의 Always Show Toolbar 토글은 editor-77로 구현되었습니다(`UI/editor-inline-suggest-toolbar.rs` `is_always_shown` 68줄·`toggle_always_shown` 76줄, 창별 egui 메모리).
 - 빠진 것(재확인): `grep -rn -i -E "fontZoom|zoom_level|tab_focus_mode|inPlaceReplace|pasteAs|hideHover|HoverVerbosity|gotoLine|quickOutline" APP UI ED`의 결과는 `EDITOR_ACTIONS_WITHOUT_SUPPORT_GATE`의 `toggleTabFocusMode` 문자열 하나뿐입니다. 팔레트에는 `@`(심볼)·`:`(줄) 모드가 이미 있지만(`UI/command-palette-query.rs` 5~6줄 `SYMBOL_MODE_PREFIX`·`LINE_MODE_PREFIX`), `PaletteEntry`(`UI/command-registry.rs` 145~149줄)는 `Files`·`Commands`·`WorkspaceSymbols`뿐이라 명령으로 그 모드를 열 수 없습니다(`entry_query` `UI/command-palette-query.rs` 81~87줄). `ED/documentation.rs` `Command`(27~30줄)에는 `ShowHover`·`Signature`만 있고 hover를 닫는 명령이 없습니다.
-- git 3개(`monaco.taide.gitStageSelection`·`toggleBlame`·`openFileHistory`)는 `GIT`에서 연결되었습니다(1.3 표).
+- git 3개(`monaco.taide.gitStageSelection`·`toggleBlame`·`openFileHistory`)는 git 영역에서 연결되었습니다(1.3 표).
 
 #### (d) 구현 방법
 1. **목록 고정 검사 먼저**: `UI/command-registry.rs` `mod tests`에 `registry().commands()` 중 `id.starts_with("monaco.")`이고 `execution == Execution::Unavailable`인 id를 모아 기대 목록과 `assert_eq!`하는 검사를 만듭니다. 처음에는 현재 실제 목록을 기대값으로 두고(실행해 얻은 목록을 QA에 기록), 아래 액션을 구현할 때마다 기대 목록에서 지웁니다. 마지막에는 결정으로 보류한 항목만 남아야 합니다. 이 검사가 바뀐 `execution`과 충돌하는 기존 `Unavailable` 단언(2010줄 근처)을 함께 고칩니다.
@@ -614,7 +609,7 @@ editor-57 · Monaco 내장 언어 서비스 · **partial**(`MATRIX` 256줄).
 
 #### (d) 구현 방법 — 공통 규칙
 1. 각 언어 서비스는 portable core(`ED`, wasm32 컴파일)와 앱 공급(`APP/editor-css.rs`·`editor-html.rs`)으로 나눕니다.
-2. 앱 공급은 `APP/editor-json.rs`의 문서 작업 규칙을 따릅니다: 별도 worker, revision이 바뀌면 이전 결과 거절, Normal 등급만, readonly(포맷 등 쓰기 기능만 거절), 닫힘·취소·종료 시 회수, AppFile과(git lane 병합 뒤) `Virtual` 제외.
+2. 앱 공급은 `APP/editor-json.rs`의 문서 작업 규칙을 따릅니다: 별도 worker, revision이 바뀌면 이전 결과 거절, Normal 등급만, readonly(포맷 등 쓰기 기능만 거절), 닫힘·취소·종료 시 회수, AppFile과 `Virtual` 제외.
 3. 원본 위치는 UTF-16 offset이므로 byte↔UTF-16 변환과 입력·출력·작업 예산을 둡니다(선례: JSON 서비스들의 `Limits`).
 4. 원본 결함은 oracle에 원본 값을 남기고 교정 기대값을 따로 둡니다(JSON 선례).
 5. 새 crate 의존성 없음(결정 4: CSS/SCSS·HTML 순수 Rust 이식, `QA/…-css-services.md` 4줄).
@@ -756,55 +751,14 @@ editor-72 · Markdown 미리보기 분할 · **partial**(`MATRIX` 271줄: "결�
 #### (g) 막는 요소
 없음. 픽셀 비교 실기는 complete 조건이 아닙니다. Safari 기대값 측정은 사람이 하거나 허락된 방식으로만 합니다(GUI 실행 금지).
 
-### 3.9 editor-73 Git gutter·hunk 되돌리기·선택 stage
+### 3.9~3.11 editor-73·74·75
 
-#### (a) 상태
-editor-73 · Git gutter·hunk 되돌리기·선택 stage · 메인 **missing**(`MATRIX` 272줄), git lane **complete**(`GIT/docs/quality-assurance/2026-10-09-native-function-matrix.md` 272줄: "git lane G8: 파일 편집기 gutter 막대(git-58), lane 누름 hunk discard 대화상자(git-59), 편집기 메뉴·keybinding 선택/커서 hunk stage(git-60)를 실제 App 편집기 그리기 경로(`domains/editor.rs` `show_document` → `State::editor_layers`·`show_git_editor`)로 연결").
-
-#### (b) 원본 동작
-`TS/widgets/editor-pane/use-editor-git-gutter-and-conflicts.ts` 58·224·238·292줄(gutter 장식·hunk discard·선택 stage). 상세는 `HO/14-remaining-git.md`의 git-58~60 절과 `GIT/docs/quality-assurance/2026-11-02-native-lane-git-g8-blame-conflicts.md`.
-
-#### (c) native 현재 자산과 빠진 것
-git lane 작업 트리에 구현되어 있습니다(`GIT/native/taide-native-app/src/git-editor.rs` `editor_layers` 58줄, `show_git_editor` 472줄, `GIT/native/taide-native-app/src/domains/editor.rs` 5878·6103줄 호출). 메인에는 아직 없습니다(병합 전). 이 영역에서 빠진 구현은 없습니다.
-
-#### (d) 구현 방법
-구현하지 않습니다. git lane 병합 뒤 메인 `MATRIX` 272줄이 complete인지 확인하고, 아니면 git lane 기능표의 문장과 근거 문서로 갱신합니다.
-
-#### (e) 자동 검사
-git lane의 `[A]`(`GIT/native/taide-native-app/src/application-git-*-tests.rs`)가 병합 게이트에서 통과하는지 메인이 확인합니다. 이 영역 작업자는 병합 뒤 `show_document`를 고칠 때 0.3의 6번으로 `application::git_` 필터를 함께 돌려 회귀가 없는지 봅니다.
-
-#### (f) 완료 판정
-git lane 병합 + 병합 게이트 통과 → complete.
-
-#### (g) 막는 요소
-git lane 병합(메인 작업). 병합 전에 이 행을 다시 구현하지 마십시오.
-
-### 3.10 editor-74 merge conflict 표시·해결 dialog
-
-#### (a) 상태
-editor-74 · merge conflict 표시·해결 dialog · 메인 **missing**(`MATRIX` 273줄), git lane **complete**(git lane 기능표 273줄: 충돌 영역 배경·시작 줄 lane(git-61), 해결 대화상자와 저장 정착(git-62), ours↔theirs 비교 대화상자(git-63), "해결 대화상자가 열린 동안 문서가 짧아진 경우의 패닉을 고치고 `[C]`·`[A]` 검사를 더했습니다").
-
-#### (b) 원본 동작
-`use-editor-git-gutter-and-conflicts.ts` 211~219줄, `TS/widgets/editor-pane/editor-pane.tsx` 520~533줄. 상세는 `HO/14-remaining-git.md` git-61~63 절.
-
-#### (c)~(g)
-editor-73과 같습니다. 근거 문서는 `GIT/docs/quality-assurance/2026-11-02-native-lane-git-g8-blame-conflicts.md`(6.1절 패닉 수정 포함)입니다.
-
-### 3.11 editor-75 blame
-
-#### (a) 상태
-editor-75 · blame(줄 footer·overlay·토글·파일 이력) · 메인 **missing**(`MATRIX` 274줄), git lane **complete**(git lane 기능표 274줄: 커서 줄 footer(git-56), overlay·`git.toggleBlame`·편집기 메뉴 토글(git-57), 편집기 메뉴 File History(git-55 남은 범위), 파일 이력 패널은 G7(git-53·54)).
-
-#### (b) 원본 동작
-`TS/widgets/editor-pane/use-editor-blame.ts` 54·116~143줄, `TS/features/editor/blame-footer-bar.tsx`. 상세는 `HO/14-remaining-git.md` git-53~57 절.
-
-#### (c)~(g)
-editor-73과 같습니다. 근거 문서는 `GIT/docs/quality-assurance/2026-11-02-native-lane-git-g8-blame-conflicts.md`·`…-g7-commit-claude-diff.md`입니다. editor-34의 `monaco.taide.toggleBlame`·`openFileHistory`도 같은 근거로 닫힙니다(1.3 표).
+editor-73·74·75 complete(`2026-11-03-native-git-lane-merge.md` 5절). 작업 없음.
 
 ### 3.12 editor-76 diff 편집기
 
 #### (a) 상태
-editor-76 · diff 편집기(Git diff·commit diff·Claude diff·conflict 비교) · 메인 **missing**(`MATRIX` 275줄), git lane **partial**(git lane 기능표 275줄: "남은 것: git-40의 문자 단위 강조·±·overview ruler와 git-50 ClaudeDiff revert 화살표(결정 4 A)").
+editor-76 · diff 편집기(Git diff·commit diff·Claude diff·conflict 비교) · **partial**(`MATRIX` 275줄: "남은 것: git-40의 문자 단위 강조·±·overview ruler와 git-50 ClaudeDiff revert 화살표(결정 4 A)").
 
 #### (b) 원본 동작
 - `TS/features/git/diff-view.tsx` 26~83줄: monaco diff editor, `readOnly`, `ignoreTrimWhitespace: false`, `renderSideBySide`, `hideUnchangedRegions`. ClaudeDiff(`TS/widgets/claude-diff-pane/claude-diff-pane.tsx` 58줄)는 옵션을 주지 않아 Monaco 기본 `ignoreTrimWhitespace: true`, 수정 쪽 편집 가능.
@@ -815,22 +769,22 @@ editor-76 · diff 편집기(Git diff·commit diff·Claude diff·conflict 비교)
 - 사용자 문자열: Monaco 영어 고정("Revert Block", "Revert Selection").
 
 #### (c) native 현재 자산과 빠진 것
-git lane이 공용 diff 위젯 `GIT/native/taide-native-ui/src/diff-view.rs`로 Git diff 탭(G5), commit diff(git-47), Claude diff(git-50), 충돌 비교(git-63)를 그립니다: side-by-side·inline·900px 자동 inline·채움 빗금·줄 배경·스크롤 동기화·분할선 끌기·미변경 영역 숨김(`GIT/docs/quality-assurance/2026-11-02-native-lane-git-g5-diff.md`). 편집기 표면에는 `SurfaceExtras`(`ExtraZone`·`hidden_lines`)와 `show_request_with_extras`가 추가되었습니다(git lane 커밋 `5195d415`의 `UI/editor_surface.rs` 변경). 빠진 것(git lane 기능표 git-40·git-50 비고): 문자 단위 강조, ±표시, overview ruler, inline 삭제 줄의 구문 색, inline 원본·수정 두 줄 번호 열, ClaudeDiff 거터 Revert Block·Revert Selection. 줄 계산은 git 사양 결정 7 A로 libgit2 hunk입니다.
+git 영역이 공용 diff 위젯 `UI/diff-view.rs`로 Git diff 탭(G5), commit diff(git-47), Claude diff(git-50), 충돌 비교(git-63)를 그립니다: side-by-side·inline·900px 자동 inline·채움 빗금·줄 배경·스크롤 동기화·분할선 끌기·미변경 영역 숨김(`QA/2026-11-02-native-lane-git-g5-diff.md`). 편집기 표면에는 `SurfaceExtras`(`ExtraZone`·`hidden_lines`)와 `show_request_with_extras`가 추가되었습니다(git lane 커밋 `5195d415`의 `UI/editor_surface.rs` 변경). 빠진 것(기능표 git-40·git-50 비고): 문자 단위 강조, ±표시, overview ruler, inline 삭제 줄의 구문 색, inline 원본·수정 두 줄 번호 열, ClaudeDiff 거터 Revert Block·Revert Selection. 줄 계산은 git 사양 결정 7 A로 libgit2 hunk입니다.
 
-#### (d) 구현 방법(git lane 병합 뒤, 소유자는 git lane)
+#### (d) 구현 방법(소유자는 git 영역)
 정본 절차는 `HO/14-remaining-git.md`의 다음 절입니다. 이 문서에 따로 쓰면 두 문서가 어긋나므로 순서만 옮깁니다.
 1. 3.3.1: Monaco `refineDiff`를 `taide-native-editor`로 이식하고 원본 oracle로 검증합니다(git-40 문자 강조, inline 삭제 줄 문자 강조, git-50 선택 revert, git-42 이동 블록 판정이 공유).
 2. 3.3.2~3.3.7: 문자 강조 → ± 표시와 gutter 배경 → inline 원본 줄 번호 열·삭제 줄 구문 색 → hunk 안 정렬 → overview ruler.
 3. 3.5: ClaudeDiff revert gutter(`Request.revert_blocks`·`is_diff_current`, `Output.revert`, 앱의 되돌리기 편집과 200ms 재계산).
 
 #### (e) 자동 검사
-`HO/14-remaining-git.md` 3.3·3.5의 `[C]`(`refineDiff` oracle)·`[U]`(`GIT/native/taide-native-ui/tests/diff-view.rs`)·`[A]`(`application-git-claude-history-tests.rs` 등)를 따릅니다.
+`HO/14-remaining-git.md` 3.3·3.5의 `[C]`(`refineDiff` oracle)·`[U]`(`UIT/diff-view.rs`)·`[A]`(`application-git-claude-history-tests.rs` 등)를 따릅니다.
 
 #### (f) 완료 판정
 git-40·git-50의 남은 범위가 닫히면 editor-76 complete(git lane 근거로 함께 갱신, 같은 비고 문장을 쓰도록 `HO/14-remaining-git.md` 142줄 "git 행을 닫으면 함께 갱신할 다른 영역 행").
 
 #### (g) 막는 요소
-git lane 병합(선행)과 소유 lane 조정. 이 영역 작업자가 맡으려면 메인과 소유를 먼저 정합니다.
+git-40·git-50 완료(선행). 이 영역 작업자는 행 판정만 갱신합니다.
 
 ### 3.13 preview-5 외부 저장·이동·삭제 시 미리보기 갱신/무효화
 
@@ -1037,7 +991,7 @@ preview-14와 같은 구현·검사·판정·막는 요소입니다. 실기 항�
    - 기능표 머리말 합계 표는 행 값과 다름(1.1).
 2. **oracle 부채(bun 금지)**: 2026-11-02 lane workflow 셸 규칙(`docs/utils/2026-11-02-native-lane-workflow.js` 45줄)에 bun이 없어 JSON 완성·hover, CSS 포맷·접기, 기본 색, HTML 포맷·접기·선택 확장의 기대값을 손으로 계산했습니다. 손 계산 밖 분기(patternProperties 정규식, beautify의 `@`·`insideScssMap`·`grid-template-areas`, 속성 감싸기 정렬, `<!-- beautify ignore -->`)는 원본 대조가 없습니다(`QA/…-json-services.md` 68줄, `…-css-services.md` 91줄, `…-html-services.md` 96줄). bun 한 줄 실행이 허락되면 oracle을 먼저 만드십시오.
 3. **앱 lib 병렬 흔들림**: 실제 App 검사를 많이 동시에 돌리면 host 큐(64) 포화·종료 대기 시간 초과로 실패합니다. `--test-threads=2`(lane)로 제한하고, 실패는 `--exact` 단독 재실행으로 구분합니다(`HO/05-process-and-gates.md` 9.3절 명령). 기존 실패: `editor_fonts::tests::editor_fonts는_터미널이_적재한_정적_face를_공유하고_가변_face는_공유하지_않는다`(시스템 글꼴 fallback 체인 단언), 루트 workspace의 `taide-runtime/tests/agent_probe.rs` 소스 문자열 단언 1건(`81e96198`부터, `docs/PROCESS.md` W1 settings 병합 줄). 이 둘을 자기 작업의 실패로 오인하지 마십시오.
-4. **diff 가상 문서와 내장 서비스**: git lane이 `DocumentKey::Virtual`을 추가했고, 내장 JSON 서비스가 `.json` diff 가상 문서를 처리해 `InvalidIdentity` 오류 toast가 반복되는 결함이 있었습니다(`GIT/docs/quality-assurance/2026-11-02-native-lane-git-g5-diff.md` 6.1). 부정 검사(`!matches!(snapshot.key, DocumentKey::AppFile(_))`)는 컴파일되지만 가상 문서를 흘려보냅니다. 새 내장 서비스(CSS 진단·Unicode·링크·TS 등)의 문서 선별 조건에는 `DocumentKey::AppFile(_) | DocumentKey::Virtual(_)`를 넣으십시오(`HO/05-process-and-gates.md` 228~229줄).
+4. **diff 가상 문서와 내장 서비스**: git lane이 `DocumentKey::Virtual`을 추가했고, 내장 JSON 서비스가 `.json` diff 가상 문서를 처리해 `InvalidIdentity` 오류 toast가 반복되는 결함이 있었습니다(`QA/2026-11-02-native-lane-git-g5-diff.md` 6.1). 부정 검사(`!matches!(snapshot.key, DocumentKey::AppFile(_))`)는 컴파일되지만 가상 문서를 흘려보냅니다. 새 내장 서비스(CSS 진단·Unicode·링크·TS 등)의 문서 선별 조건에는 `DocumentKey::AppFile(_) | DocumentKey::Virtual(_)`를 넣으십시오(`HO/05-process-and-gates.md` 228~229줄).
 5. **내장 진단 게시 집합**: `self.lsp_diagnostics.retain_builtin(&self.store, self.editor_json_validation.documents())`(`APP/domains/editor.rs` 2611~2612줄)는 넘긴 집합 밖의 내장 진단을 지웁니다. CSS·TS 진단을 추가하면 문서 집합을 합쳐 넘기십시오. 같은 이유로 심볼은 `retain_builtin(&symbol_documents)`(2652줄)가 `provides_symbols`로 거르므로 새 언어의 심볼은 `provides_symbols`에 함께 넣어야 합니다.
 6. **mock 실행 파일**: target을 비우면 앱 lib의 LSP 검사 10건 안팎이 `native-lsp-mock` 실행 파일이 없어 실패합니다(`connect_lsp_mock`의 `assert!(mock.is_file())`). 0.3의 1번을 먼저 실행합니다.
 7. **실패 먼저 확인**: lane QA들은 새 `[A]`를 연결 전에 실행해 의도한 실패(대기 시간 초과 등)를 확인하고, 제품 코드를 잠시 되돌려 새 검사가 실패하는지 본 뒤 복구했습니다(preview QA 143~158줄). 같은 방식을 따르되, 되돌린 코드가 남지 않았는지 `git -C <ROOT> diff --stat`로 줄 수를 대조하십시오.

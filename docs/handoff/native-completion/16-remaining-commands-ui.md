@@ -1,8 +1,8 @@
 # 16 — commands-ui 영역 남은 작업 인계
 
 > 작성일: 2026-11-04
-> 기준 코드: 메인 작업 트리 `/Users/hyunseokbyun/development/TAIDE`(브랜치 `to_rust_native`, HEAD `0c52b438`, settings lane 병합 뒤, 코드 변경 없음). Git 영역은 worktree `/Users/hyunseokbyun/development/TAIDE-lanes/git`(브랜치 `lane/git`, HEAD `50892b59`)를 읽었습니다. 이 worktree는 `to_rust_native`(`0c52b438`)를 병합하는 중입니다(`.git/worktrees/git/MERGE_HEAD` = `0c52b438`). `git diff --name-only --diff-filter=U`가 8개 파일(기능표, `application-explorer-views-tests.rs`, `command-dispatch.rs`, `domains/explorer_search.rs`, `explorer.rs`, `navigation-icons.rs`, `shell_keymap.rs`, UI `command-registry.rs`)을 미병합으로 보이지만, 2026-11-04 기준 모든 파일에서 충돌 표식(`<<<<<<<`·`=======`·`>>>>>>>`)은 이미 지워졌고 스테이징만 남았습니다. 아래 `GITWT/` 줄 번호는 그 병합 중 작업 트리의 값이라 병합 커밋 뒤 조금 바뀔 수 있습니다. 반드시 함께 적은 심볼 이름으로 다시 찾습니다.
-> 대상: 기능표 `docs/quality-assurance/2026-10-09-native-function-matrix.md`의 commands-ui 행 중 상태가 complete·not-applicable·frozen이 아닌 35행. 두 트리(메인, git worktree)의 commands-ui 행 상태는 같습니다(두 기능표에서 ID·상태만 뽑아 `diff`한 결과 차이 없음).
+> 기준 코드: 메인 작업 트리 `/Users/hyunseokbyun/development/TAIDE`(브랜치 `to_rust_native`, HEAD `7be1ad14`(git lane 병합 `f3a5b5d0` 포함), 코드 변경 없음). 줄 번호는 `0c52b438` 기준이며 현재 HEAD에서는 심볼 이름으로 찾습니다.
+> 대상: 기능표 `docs/quality-assurance/2026-10-09-native-function-matrix.md`의 commands-ui 행 중 상태가 complete·not-applicable·frozen이 아닌 35행.
 > 이 문서는 저장소를 처음 보는 작업자가 이 문서만 읽고 같은 품질로 구현하도록 쓴 인계서입니다.
 
 ## 0. 읽는 법
@@ -18,7 +18,6 @@
 | `CR/` | `/Users/hyunseokbyun/development/TAIDE/crates/` |
 | `RES/` | `/Users/hyunseokbyun/development/TAIDE/native/taide-native-app/resources/` (아이콘 SVG. `APP/resources`가 아닙니다) |
 | `MON/` | `/Users/hyunseokbyun/development/TAIDE/node_modules/monaco-editor/esm/vs/editor/` (원본 편집기 동작 근거) |
-| `GITWT/` | `/Users/hyunseokbyun/development/TAIDE-lanes/git/` (git lane worktree, 같은 하위 구조) |
 | `QA/` | `/Users/hyunseokbyun/development/TAIDE/docs/quality-assurance/` |
 
 ### 0.2 기준 문서
@@ -74,27 +73,27 @@
 
 분류(2026-11-04 실제 코드 확인 결과):
 - **근거**: 실행 경로·검사가 다른 영역 작업으로 이미 들어왔고 이 영역은 행 갱신(필요하면 검사 1건)만 남음.
-- **git 병합 뒤**: git lane worktree에 실행 경로가 있고 `to_rust_native`에 병합되면 이 영역이 실제 팔레트 검사를 더해 닫음.
+- **git 병합 완료(즉시 가능)**: git 영역의 실행 경로가 메인에 병합됐으므로 이 영역이 실제 팔레트 검사를 더해 닫음.
 - **지금 구현**: 선행이 모두 끝나 지금 구현 가능.
 - **의존 남음**: 이 영역 밖의 미완료 행이 있어 그 행이 끝나야 complete.
 
 | ID | 기능 | 표 상태 | 분류 | 선행(상태) | 사양 묶음 | 이 문서 권장 순서 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `window.reload` | missing | 지금 구현 | 없음 | 7 | 7 |
-| 14 | `view.git` | unwired | git 병합 뒤 | git-1(git lane complete) | 3 | 3 |
+| 14 | `view.git` | unwired | git 병합 완료(즉시 가능) | git-1(git lane complete) | 3 | 3 |
 | 30 | `sync.uploadNow` | unwired | 지금 구현 | settings-46·47(complete, 병합됨) | 4 | 4 |
 | 31 | `sync.downloadNow` | unwired | 지금 구현 | settings-46·47 | 4 | 4 |
 | 32 | `cli.connectExternalEditor` | unwired | 근거 | terminal-agent-56 명령 부분(병합됨) | 4 | 0 |
 | 33 | `cli.installShellCommand` | unwired | 근거 | 같음 | 4 | 0 |
 | 34 | `cli.uninstallShellCommand` | unwired | 근거 | 같음 | 4 | 0 |
-| 36 | `git.revertHead` | unwired | git 병합 뒤 | git-36(git lane complete) | 3 | 3 |
-| 37 | `git.createTagOnHead` | unwired | git 병합 뒤 | git-36, git-1 | 3 | 3 |
-| 38 | `git.toggleBlame` | unwired | git 병합 뒤 | git-57(git lane complete) | 3 | 3 |
-| 39 | `git.openFileHistory` | unwired | git 병합 뒤 | git-55(git lane complete) | 3 | 3 |
+| 36 | `git.revertHead` | unwired | git 병합 완료(즉시 가능) | git-36(git lane complete) | 3 | 3 |
+| 37 | `git.createTagOnHead` | unwired | git 병합 완료(즉시 가능) | git-36, git-1 | 3 | 3 |
+| 38 | `git.toggleBlame` | unwired | git 병합 완료(즉시 가능) | git-57(git lane complete) | 3 | 3 |
+| 39 | `git.openFileHistory` | unwired | git 병합 완료(즉시 가능) | git-55(git lane complete) | 3 | 3 |
 | 43 | `monaco.*` 액션 실행 | partial | 지금 구현(일부) + 의존 남음 | editor 새 행(미등록), editor-57(partial), git-55·57·60 | 8 | 8 |
-| 59 | 키맵 디스패치 대상 41개 | partial | git 병합 뒤 | git-1 | 3 | 3 |
+| 59 | 키맵 디스패치 대상 41개 | partial | git 병합 완료(즉시 가능) | git-1 | 3 | 3 |
 | 61 | find/search/search-replace 키 | partial | 근거 | explorer-search-37(complete, 병합됨) | 3 | 0 |
-| 62 | explorer/git 키 | unwired | git 병합 뒤 | git-1 | 3 | 3 |
+| 62 | explorer/git 키 | unwired | git 병합 완료(즉시 가능) | git-1 | 3 | 3 |
 | 67 | alert-dialog | partial | 지금 구현 | 묶음 5(button·tokens) | 6 | 6 |
 | 68 | button | partial | 지금 구현 | ui-tokens | 5 | 5 |
 | 69 | card | partial | 지금 구현 | ui-tokens | 5 | 5 |
@@ -112,11 +111,11 @@
 | 84 | file-group-header | partial | 지금 구현 | 소비 화면 2곳 병합됨 | 5 | 5 |
 | 85 | toast | partial | 지금 구현 | 30·31과 함께 | 4 | 4 |
 | 86 | 테마 토큰 → 전역 스타일 | partial | 지금 구현 | 없음 | 7 | 5(토큰) + 7(Body 13px) |
-| 87 | global.css 보조 | partial | git 병합 뒤 | git-56~63(git lane complete) | 7 | 7 |
+| 87 | global.css 보조 | partial | git 병합 완료(즉시 가능) | git-56~63(git lane complete) | 7 | 7 |
 | 96 | 비국제화 문자열 | partial | 지금 구현(일부) + 의존 남음 | 다른 영역 `status` 대입 0건(메인 통합) | 7 | 7 |
 | 98 | lucide 아이콘 | partial | 지금 구현(일부) + 의존 남음 | git·preview·terminal 화면 아이콘 | 7 | 7 |
 
-분류별 수: 근거 5(32, 33, 34, 61, 83) + 정정 1(82), git 병합 뒤 8(14, 36, 37, 38, 39, 59, 62, 87), 지금 구현 18(1, 30, 31, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 79, 84, 85, 86), 일부 지금 구현 + 의존 남음 3(43, 96, 98).
+분류별 수: 근거 5(32, 33, 34, 61, 83) + 정정 1(82), git 병합 완료 후 즉시 가능 8(14, 36, 37, 38, 39, 59, 62, 87), 지금 구현 18(1, 30, 31, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 79, 84, 85, 86), 일부 지금 구현 + 의존 남음 3(43, 96, 98).
 
 ### 1.3 현재 구현 위치
 
@@ -144,7 +143,7 @@
 ### 1.4 다른 영역과의 의존·소유 경계
 
 - **소유 원칙**(`docs/memory/2026-10-28-native-lane-operations.md` 2.2, seams 1.4): 이 영역은 `APP/domains/commands.rs`, `UI/intents/commands.rs`, 새 공용 UI 모듈(`UI/ui-*.rs`), `UI/toast.rs`·`UI/modal.rs`·`UI/error-boundary.rs`·`UI/presentation.rs`(commands-ui 근거 묶음 파일), `APP/application-commands-tests.rs`, commands QA만 고칩니다. 공용 파일(`APP/application.rs`, `APP/lib.rs`·`UI/lib.rs` 모듈 목록, `HostCommand`·`ShellIntent` 루트, locale 카탈로그)은 영역 블록 끝에 추가만 합니다. 공용 위젯 이전(3.5·3.6절)은 다른 영역 화면 파일을 고치므로 "그리기 함수만 교체, 동작 불변, 그 화면 기존 검사 전부 통과"가 조건입니다(사양 3절 주의 4).
-- **git**: 14, 36~39, 59(git 부분), 62, 87(gutter·blame·충돌 클래스), 43의 `monaco.taide.{gitStageSelection, toggleBlame, openFileHistory}` 3개, 98의 git 화면 아이콘, 67·71~75의 git 소비 화면. git lane QA가 "commands-ui-14·62는 commands-ui lane이 행을 닫는다"(`GITWT/docs/quality-assurance/2026-11-02-native-lane-git-g1-base.md` 57행), "commands-ui-36~39·87은 wave 3 commands-ui lane이 이 근거로 닫는다(행 미변경)"(`…-g8-blame-conflicts.md` 102행)고 적었습니다.
+- **git**: 14, 36~39, 59(git 부분), 62, 87(gutter·blame·충돌 클래스), 43의 `monaco.taide.{gitStageSelection, toggleBlame, openFileHistory}` 3개, 98의 git 화면 아이콘, 67·71~75의 git 소비 화면. git lane QA가 "commands-ui-14·62는 commands-ui lane이 행을 닫는다"(`docs/quality-assurance/2026-11-02-native-lane-git-g1-base.md` 57행), "commands-ui-36~39·87은 wave 3 commands-ui lane이 이 근거로 닫는다(행 미변경)"(`…-g8-blame-conflicts.md` 102행)고 적었습니다.
 - **settings**: 30·31의 동기화 실행 함수(`APP/domains/settings.rs` `execute_sections`의 `SyncUpload`·`SyncDownload` arm, `download_sync`), 76의 소비 화면(`UI/settings-sections-view.rs` `progress_line`), 70의 VSIX 후보 checkbox, 67·73의 `UI/settings-dialogs.rs`, 79의 스위치, 96의 status 라벨 결정(settings-78).
 - **explorer-search**: 61(완료), 59의 `search`·`search-replace`(완료), 84·70의 검색 결과 그룹 머리(`APP/search-results.rs`), 74의 검색 이력 dropdown, 67의 바꾸기 확인(`APP/search-panel.rs` 1374).
 - **terminal-agent**: 32~34 명령 구현 전부(이 영역은 행만 갱신), 72의 터미널 메뉴 typeahead(`APP/terminal_surface.rs`).
@@ -157,25 +156,24 @@
 순서는 의존 순서입니다. 각 묶음은 "실패 검사 → 구현 → 영역 검사 → 기능표 행 갱신 → QA 문서"로 끝냅니다. 사양 묶음 번호(3~8)를 그대로 쓰고, 근거만 남은 행은 "묶음 0"으로 앞에 모았습니다.
 
 1. **묶음 0(근거 정정, 지금)**: 32, 33, 34(사양 묶음 4), 61(사양 묶음 3), 83(사양 묶음 7)을 기존 검사 근거로 complete, 82를 partial로 정정. 코드 변경 없음. 다른 묶음과 파일이 겹치지 않아 먼저 끝냅니다.
-2. **묶음 3(git 병합 직후)**: 14, 36, 37, 38, 39, 62, 59. git lane이 `to_rust_native`에 병합된 HEAD에서 시작합니다. 87의 git 항목 확인도 여기서 할 수 있습니다. 사양 묶음 3의 11·12는 이미 complete입니다.
+2. **묶음 3**: 14, 36, 37, 38, 39, 62, 59. git 병합이 완료됐으므로 지금 시작합니다. 87의 git 항목 확인도 여기서 할 수 있습니다. 사양 묶음 3의 11·12는 이미 complete입니다.
 3. **묶음 4(지금)**: 30, 31, 85.
 4. **묶음 5(지금)**: `UI/ui-tokens.rs`(86의 토큰 부분)를 먼저 만들고 68, 69, 79, 70, 76, 84, 77.
 5. **묶음 6(묶음 5 뒤)**: 67, 73, 75, 71, 72, 74. alert·menu가 button·token을 쓰므로 5가 먼저입니다.
 6. **묶음 7**: 1, 86(Body 13px), 87(scrim 단언), 96, 98. 82는 wave 4 편집기·루트 경계가 들어오면 complete.
 7. **묶음 8(마지막, 작업량 큼)**: 43.
 
-묶음 3은 git 병합을 기다리지만 4·5·6·7·8은 기다리지 않습니다. git 병합 전에 5·6을 하면 git 소비 화면(대화상자·메뉴)은 (c) 비고로 남기고, 병합 뒤 묶음 3에서 함께 확인합니다.
 
 ### 1.6 선행 행이 끝나면 할 수 있는 행
 
 | 이 영역 행 | 선행 행 | 선행 상태(2026-11-04) | 선행이 끝나면 할 일 |
 | --- | --- | --- | --- |
-| 14, 62 | git-1 | git lane complete, 병합 중 | 실제 팔레트·⌃⇧G App 검사 추가, 행 갱신 |
+| 14, 62 | git-1 | git lane complete, 병합 완료 | 실제 팔레트·⌃⇧G App 검사 추가, 행 갱신 |
 | 36 | git-36 | git lane complete | 실제 팔레트 App 검사 추가, 행 갱신 |
 | 37 | git-36, git-1 | git lane complete | 같음 |
 | 38 | git-57 | git lane complete | 같음 |
 | 39 | git-55 | git lane complete | 같음 |
-| 59 | git-1(`git` 키), explorer-search-37(`search`·`search-replace`) | git lane complete / 병합됨 | `keymap-defaults.json` 41개 전수 단언 |
+| 59 | git-1(`git` 키), explorer-search-37(`search`·`search-replace`) | git lane complete, 병합 완료 | `keymap-defaults.json` 41개 전수 단언 |
 | 87 | git-56~63 | git lane complete | CSS 클래스 대응 표 근거 확인 + scrim 단언 |
 | 43(`monaco.taide.*` 3개) | git-55, git-57, git-60 | git lane complete | 실행 확인(병합으로 이미 `Run::Git`) |
 | 43(결정 5 항목 8개) | editor 새 행(Unicode 강조 4개, 링크 1개, 구문 강조 복사 1개, pasteAs 1개), editor-57 색 선택기 1개 | 새 행 미등록 / editor-57 partial | 그 행이 complete면 실행 연결 |
@@ -187,8 +185,8 @@
 | 83 | shell-94 | complete, 병합됨 | 지금 행 갱신 |
 | 82 | shell-12 | partial(편집기 영역·루트 경계 남음) | wave 4 뒤 complete |
 | 96 | settings-78 결정 3 A와 각 영역 `status` 대입 정리 | settings 영역 0건, 나머지 메인 통합 대기 | 0건이 되면 complete |
-| 67·71·72·73·74·75의 (c) | git 대화상자·메뉴·branch switcher | git lane 구현, 병합 중 | 병합 뒤 그 화면이 공용 모듈을 쓰는지 확인(안 쓰면 그리기 함수만 교체) |
-| 98(일부) | git·preview·terminal 화면의 lucide 아이콘 | git lane이 SVG 11개 추가(병합 중), preview·terminal 일부 미추가 | 그 화면 소유 영역이 SVG 추가 뒤 대조 |
+| 67·71·72·73·74·75의 (c) | git 대화상자·메뉴·branch switcher | git lane 구현, 병합 완료 | 그 화면이 공용 모듈을 쓰는지 확인(안 쓰면 그리기 함수만 교체) |
+| 98(일부) | git·preview·terminal 화면의 lucide 아이콘 | git lane이 SVG 11개 추가(병합 완료), preview·terminal 일부 미추가 | 그 화면 소유 영역이 SVG 추가 뒤 대조 |
 
 ---
 
@@ -199,7 +197,7 @@
 - 언어: Rust 2024 edition, `rust-version = "1.95"`(`native/taide-native-ui/Cargo.toml` 4~5행, 앱 crate도 같음). let-chain(`if let Some(x) = a && cond {}`)을 씁니다(`APP/domains/commands.rs` 263~269 예).
 - UI 라이브러리: egui `=0.36.2`. 저장소는 crates.io egui 대신 fork를 씁니다: 두 crate 모두 `[patch.crates-io] egui = { path = "…/taide-native-app/vendor/egui-input" }`(`native/taide-native-ui/Cargo.toml` 53~54, 앱 `Cargo.toml` 112). eframe도 `experiments/native-shell-spike/vendor/eframe`의 fork입니다(앱 `Cargo.toml` 56). 그래서 egui 공식 문서에 없는 API가 있습니다. 예: `Context::keyboard_focus_before_events`, `Context::raw_event_index`, `Context::keyboard_focus_request_at`(터미널 메뉴 typeahead가 씀, `APP/terminal_surface.rs` 1378~1500). API를 쓰기 전에 `native/taide-native-app/vendor/egui-input/src/`에서 시그니처를 확인합니다. 예: 팝업 닫기 `egui::Popup::close_all(ctx)`(`vendor/egui-input/src/containers/popup.rs` 701), 팝업 상태는 viewport별(`vendor/egui-input/src/memory/mod.rs` 118 `popups: ViewportIdMap<OpenPopup>`).
 - 각 native crate는 독립 workspace이고 각자 `Cargo.lock`이 있습니다. 새 의존성은 이 영역 어느 묶음에도 필요 없습니다(사양 3절). `serde_json`은 두 crate 모두 이미 의존합니다.
-- feature: UI crate `default = ["native-host"]`, `inspection`(검사용 조회 API, `UI/Cargo.toml` 11~14). 앱 crate의 dev-dependency가 UI를 `features = ["inspection"]`로 켜므로(앱 `Cargo.toml` 106) 앱 검사에서 `palette.inspection()`·`toasts.inspection()`을 쓸 수 있습니다. 동결 crate `native/taide-remote-web`은 UI crate를 `default-features = false`로 씁니다. 그래서 native 전용 변형은 `#[cfg(feature = "native-host")]`로 막아야 remote-web의 컴파일 표면이 바뀌지 않습니다(`UI/command-registry.rs` `Run::OpenTaskRunner`·`Cli`·`OpenWelcomeTab` 선례). git lane은 `Run::ShowGit`·`Run::Git(GitRun)`을 cfg 없이 넣었습니다(`GITWT/native/taide-native-ui/src/command-registry.rs` 172~173). UI crate를 바꾸면 remote-web Wasm check를 반드시 돌립니다.
+- feature: UI crate `default = ["native-host"]`, `inspection`(검사용 조회 API, `UI/Cargo.toml` 11~14). 앱 crate의 dev-dependency가 UI를 `features = ["inspection"]`로 켜므로(앱 `Cargo.toml` 106) 앱 검사에서 `palette.inspection()`·`toasts.inspection()`을 쓸 수 있습니다. 동결 crate `native/taide-remote-web`은 UI crate를 `default-features = false`로 씁니다. 그래서 native 전용 변형은 `#[cfg(feature = "native-host")]`로 막아야 remote-web의 컴파일 표면이 바뀌지 않습니다(`UI/command-registry.rs` `Run::OpenTaskRunner`·`Cli`·`OpenWelcomeTab` 선례). git lane은 `Run::ShowGit`·`Run::Git(GitRun)`을 cfg 없이 넣었습니다(`UI/command-registry.rs` 172~173). UI crate를 바꾸면 remote-web Wasm check를 반드시 돌립니다.
 - 앱 crate의 `APP/command-registry.rs`는 `pub use taide_native_ui::command_registry::*;`, `APP/modal.rs`는 `pub use taide_native_ui::modal::*;`입니다. 반면 `APP/keymap.rs`·`APP/keybinding-editor.rs`·`APP/tooltips.rs` 등은 `cfg(test)`에서 `include!("../../taide-native-ui/src/<파일>.rs")`로 UI 소스를 복제 컴파일합니다(`APP/tooltips.rs` 1~14 예). 이 파일들의 앱 검사는 배포 코드와 다른 컴파일 단위를 검증한다는 점을 기억합니다.
 - 한 프레임 흐름(`docs/architecture.md` 9.2): `background_tick`(호스트 응답 수신) → 키맵 → `shell.show` → 오버레이(팔레트·키바인딩 편집기·대화상자·toast) → `ShellMutation`·`HostCommand` 제출. 호스트는 worker 1개 직렬, 큐 용량 64(`APP/host.rs` 10 `HOST_COMMAND_CAPACITY`).
 
@@ -214,8 +212,8 @@
 
 공통 이후:
 4. `APP/command-dispatch.rs` `intent_with_editor`(90~110): `find`이고 편집기 focus가 없으면 `search`로 대체. `Run::EditDocument(edit)`이면 `ShellIntent::Editor(Intent::EditDocument{tab, edit})`. 그 밖은 `intent`(73~86) → `command_run(id, context)`(registry `Command::runnable`) → `crate::shell_keymap::intent(run, snapshot, scope)`.
-5. `APP/shell_keymap.rs` `intent`(89~): 첫 match(98~151)는 프로젝트가 필요 없는 실행, `let (root, focused) = crate::symbol_sidebar::window_tree(project, layout, scope)?;`(154) 뒤 두 번째 match(155~232)는 focused pane이 필요한 실행, 그 뒤(233~)는 focused leaf의 탭이 필요한 실행입니다. git 병합 뒤 줄은 각각 98~157, 160, 161~291로 늘어납니다(`GITWT/…/shell_keymap.rs`).
-6. `APP/application.rs` 2203~2218 intent 루프: `ShellIntent::Commands(intent) => self.apply_commands_intent(intent, &context)`, `ShellIntent::TerminalAgent(intent) => self.apply_terminal_agent_intent(intent)`, `ShellIntent::Git(intent) => self.apply_git_intent(intent)`(git 병합 뒤 `(intent, &context, &snapshot)`), `ShellIntent::Settings(intent) => self.apply_settings_intent(intent, &snapshot)`, 나머지 shell 변형은 `apply_shell_intent`.
+5. `APP/shell_keymap.rs` `intent`(89~): 첫 match(98~151)는 프로젝트가 필요 없는 실행, `let (root, focused) = crate::symbol_sidebar::window_tree(project, layout, scope)?;`(154) 뒤 두 번째 match(155~232)는 focused pane이 필요한 실행, 그 뒤(233~)는 focused leaf의 탭이 필요한 실행입니다. 현재 줄 번호입니다(98~157, 160, 161~291).
+6. `APP/application.rs` 2203~2218 intent 루프: `ShellIntent::Commands(intent) => self.apply_commands_intent(intent, &context)`, `ShellIntent::TerminalAgent(intent) => self.apply_terminal_agent_intent(intent)`, `ShellIntent::Git(intent) => self.apply_git_intent(intent)`(현재 시그니처 `(intent, &context, &snapshot)`), `ShellIntent::Settings(intent) => self.apply_settings_intent(intent, &snapshot)`, 나머지 shell 변형은 `apply_shell_intent`.
 7. 호스트가 필요하면 `self.submit(HostCommand::Commands(Command::X))` → `APP/host.rs` 330~331 `HostCommand::Commands(command) => crate::application::domains::commands::dispatch(worker, command).await` → `HostReply::Commands(Reply::Y)` → 다음 프레임 `poll()`(`APP/application.rs` 749, 758 `HostReply::Commands(reply) => self.apply_commands_reply(reply)`).
 8. 호스트 오류 표시: 원본 `runCommandSafely`(`TS/shared/lib/command-registry.ts` 106~114)는 `toast.error(describeIpcError(error))`입니다. native 대응은 `self.toasts.ipc_error(&self.locale, &error, Instant::now())`(`APP/domains/commands.rs` 141 선례).
 
@@ -232,7 +230,7 @@
 | 장애 경계 상태 | egui temp data, id `(STATE_KEY, region, instance, viewport_id)`(`UI/error-boundary.rs` 115) |
 | tooltip 상태 | `UI/tooltips.rs` `Provider(Arc<Mutex<HashMap<ViewportId, Viewport>>>)`(86), viewport별 `open: Option<Id>`(100) |
 | Welcome 최근 목록 캐시 | `shell_state.welcome: crate::welcome::State`(`APP/welcome.rs` 34, `loaded_for`가 snapshot 세대) |
-| 상태 표시줄 문구 | `NativeApplication.status: Option<String>`. 비검사 앱 코드의 `status = Some(` 97곳(2026-11-04 메인: application.rs 21, domains/editor.rs 51, explorer_search.rs 8, commands.rs 5, terminal_agent.rs 5, shell.rs 4, preview.rs 2, git.rs 1). git worktree는 105곳(git.rs 8) |
+| 상태 표시줄 문구 | `NativeApplication.status: Option<String>`. 비검사 앱 코드의 `status = Some(` 105곳(2026-11-04 `7be1ad14`: application.rs 21, domains/editor.rs 51, explorer_search.rs 8, commands.rs 5, terminal_agent.rs 5, shell.rs 4, preview.rs 2, git.rs 8, git-editor.rs 1) |
 
 다른 영역 상태는 읽기만 하고, 바꿔야 하면 그 영역의 `pub(crate)` 메서드를 부릅니다(seams 1.5). 메서드가 없으면 그 영역 파일에 최소 추가하고 QA에 사유를 적습니다.
 
@@ -379,7 +377,7 @@ pub(super) fn run_palette(application: &mut NativeApplication, context: &egui::C
 - toast: `application.toasts.inspection()`(`Inspection { kind, title, description, action_label, is_dismissed, close, action }`, `UI/toast.rs` 349). action 버튼 클릭은 `inspection[i].action.unwrap().center()`에 `PointerMoved`·`PointerButton{pressed: true/false}`를 보냅니다(`APP/toast-tests.rs` 357~372 선례).
 - 장애 경계 주입: `taide_native_ui::error_boundary::{inject_panic, inject_instance_panic}`(`APP/application-error-boundary-tests.rs`, `assert_fallback` 79).
 - secret store가 필요하면 `NativeApplication::new_with_secret_store(&CreationContext, runtime, state, tasks, cli_path, Vec::new(), Some(SecretStoreState::with_store(Arc::new(<가짜 SecretStore>))))`(`APP/application.rs` 290, 실제 호출은 `APP/application-settings-sections-tests.rs` 126~138).
-- git 저장소 fixture(git 병합 뒤): `crate::application::domains::git::fixture::{git, init, repository}`(`GITWT/native/taide-native-app/src/application-git-fixture.rs`, `domains/git.rs` 2989~2991 `#[cfg(test)] pub(crate) mod fixture;`). `repository(root, empty, &[("a.txt", "one\n")])`는 전역·시스템 git 설정과 hook을 끈 임시 저장소에 첫 commit을 만듭니다. git 검사 모듈(`domains::git::{base_tests, graph_tests, editor_tests, claude_history_tests}`)의 helper(`Workspace`, `show_git`, `until`)는 `mod base_tests;`가 비공개라 commands 검사에서 쓸 수 없습니다.
+- git 저장소 fixture: `crate::application::domains::git::fixture::{git, init, repository}`(`APP/application-git-fixture.rs`, `domains/git.rs` 2989~2991 `#[cfg(test)] pub(crate) mod fixture;`). `repository(root, empty, &[("a.txt", "one\n")])`는 전역·시스템 git 설정과 hook을 끈 임시 저장소에 첫 commit을 만듭니다. git 검사 모듈(`domains::git::{base_tests, graph_tests, editor_tests, claude_history_tests}`)의 helper(`Workspace`, `show_git`, `until`)는 `mod base_tests;`가 비공개라 commands 검사에서 쓸 수 없습니다.
 - commands 영역의 새 App 검사는 모두 `APP/application-commands-tests.rs` 한 파일에 둡니다. 연결은 이미 `APP/domains/commands.rs` 649~651 `#[cfg(all(test, unix))] #[path = "../application-commands-tests.rs"] mod tests;`입니다. 필터는 `domains::commands::tests`.
 - 모듈 가시성 주의: `domains`는 `application`의 자식이라 `crate::application::project_rail_tests` 같은 `application` 직속 검사 모듈은 보이지만, `domains::settings`의 자식 검사 모듈(`settings_sections_tests::{Scene, Keychain}`(1647), `settings_sync_remote_tests::FakeGist`(1655))은 비공개 `mod`라 `domains::commands::tests`에서 보이지 않습니다. 30·31 검사는 3.3절의 방법을 씁니다.
 - 실행: 먼저 `cargo build --quiet --manifest-path /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/Cargo.toml --example native-lsp-mock --locked --offline --target-dir <T>`(LSP 검사용 mock, 없으면 앱 lib 일부가 실패). 그다음 `cargo test --quiet --manifest-path /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/Cargo.toml --lib --locked --offline --target-dir <T> -- <필터> --test-threads=2`.
@@ -459,43 +457,43 @@ pub(super) fn run_palette(application: &mut NativeApplication, context: &egui::C
 
 - 이 행은 3.6절에 전체 형식으로 적었습니다. 묶음 0에서는 비고를 shell-12 근거로 바꾸고 상태를 missing → partial로 올리는 것만 합니다.
 
-### 3.2 묶음 3: Git 병합 뒤 닫는 행
+### 3.2 묶음 3: Git 병합이 끝난 뒤 닫는 행(시작 가능)
 
-시작 조건: `git -C /Users/hyunseokbyun/development/TAIDE log --oneline -5`에 git lane 병합 커밋이 있고, `grep -n "ShowGit\|GitRun" /Users/hyunseokbyun/development/TAIDE/native/taide-native-ui/src/command-registry.rs`가 결과를 냅니다. 아직이면 이 절은 시작하지 않습니다.
+시작 조건: 없음(병합 완료). 확인: `grep -n "ShowGit\|GitRun" /Users/hyunseokbyun/development/TAIDE/native/taide-native-ui/src/command-registry.rs`가 결과를 냅니다.
 
-이 절의 공통 사실(2026-11-04 `GITWT` 검사 본문 확인): git lane의 명령 검사는 모두 실제 팔레트 UI를 거치지 않고 명령 채널에 직접 넣습니다(`application.commands_state.palette_commands.push("view.git".into())` — `GITWT/…/application-git-base-tests.rs` 311~315, `git.revertHead` — `application-git-graph-tests.rs` 792~795, `git.openFileHistory` — `application-git-claude-history-tests.rs` 484~487, 편집기 검사의 `run` helper — `application-git-editor-tests.rs` 195~201). 따라서 이 영역은 행마다 `run_palette`로 실제 팔레트 검사 1건을 더합니다(팔레트 행의 활성 여부와 Enter 선택까지 덮기 위해). 키(⌃⇧G)는 `show_git` helper(`application-git-base-tests.rs` 229~235)가 실제 키 이벤트를 보냅니다.
+이 절의 공통 사실(2026-11-04 검사 본문 확인): git lane의 명령 검사는 모두 실제 팔레트 UI를 거치지 않고 명령 채널에 직접 넣습니다(`application.commands_state.palette_commands.push("view.git".into())` — `APP/application-git-base-tests.rs` 311~315, `git.revertHead` — `application-git-graph-tests.rs` 792~795, `git.openFileHistory` — `application-git-claude-history-tests.rs` 484~487, 편집기 검사의 `run` helper — `application-git-editor-tests.rs` 195~201). 따라서 이 영역은 행마다 `run_palette`로 실제 팔레트 검사 1건을 더합니다(팔레트 행의 활성 여부와 Enter 선택까지 덮기 위해). 키(⌃⇧G)는 `show_git` helper(`application-git-base-tests.rs` 229~235)가 실제 키 이벤트를 보냅니다.
 
-또한 git 병합은 `APP/command-dispatch.rs` 검사를 이미 바꿨습니다(`GITWT/…/command-dispatch.rs`): `KEYMAP_ACTIONS: [&str; 39]`(681, `"git"` 포함), `PROJECTLESS_KEYMAP_ACTIONS: [&str; 12]`(722, `"git"` 포함), unavailable 목록(806~815)에서 `"git"`·`"git.revertHead"` 제거, `for command in ["task.runTask", "git.revertHead", "git.createTagOnHead"]`(818)의 프로젝트 필요 단언 추가.
+또한 git 병합은 `APP/command-dispatch.rs` 검사를 이미 바꿨습니다(`APP/command-dispatch.rs`): `KEYMAP_ACTIONS: [&str; 39]`(681, `"git"` 포함), `PROJECTLESS_KEYMAP_ACTIONS: [&str; 12]`(722, `"git"` 포함), unavailable 목록(806~815)에서 `"git"`·`"git.revertHead"` 제거, `for command in ["task.runTask", "git.revertHead", "git.createTagOnHead"]`(818)의 프로젝트 필요 단언 추가.
 
 #### commands-ui-14 `view.git`
 
 - (a) unwired.
 - (b) 원본 `TS/shared/lib/command-catalog.ts` 94 `{ id: 'view.git', titleKey: 'git.title', categoryKey: KEYMAP_CATEGORY.VIEW, keymapId: 'git', run: () => requestShowExplorerView('git') }`. 키 `git`(⌃⇧G, `UI/keymap-defaults.json` 57). 활성 조건 없음. 프로젝트가 없으면 explorer panel이 없어 무동작. 제목 locale `git.title`("Git").
-- (c) git lane(G1, `GITWT/docs/quality-assurance/2026-11-02-native-lane-git-g1-base.md`):
-    - `GITWT/native/taide-native-ui/src/command-registry.rs`: `Run::ShowGit`(172), `"git" => Run::ShowGit`(677, `keymap_run`), `("view.git", Run::ShowGit)`(1017, `NATIVE_COMMANDS`).
-    - `GITWT/native/taide-native-app/src/shell_keymap.rs` 72(`runs_without_focused_project`에 `ShowGit`), 200~211(`Run::ShowGit` → 메인 `intents::git::Intent::ShowView{project, slot: snapshot.shell.focused}`·보조 창 `ShowAuxiliaryView{project, slot}`). 프로젝트가 없으면 `project?`(158)에서 `None` → 무동작.
-    - 검사: `GITWT/…/application-git-base-tests.rs` 257 `실제_app_git_키와_view_git_명령은_포커스_slot만_git_보기로_바꾸고_접힌_사이드바를_펼친다`(⌃⇧G 키 + `palette_commands.push("view.git")`), 327 `실제_app_보조_창의_git_키는_그_창의_탐색기를_열고_git_보기로_바꾼다`.
+- (c) git lane(G1, `docs/quality-assurance/2026-11-02-native-lane-git-g1-base.md`):
+    - `UI/command-registry.rs`: `Run::ShowGit`(172), `"git" => Run::ShowGit`(677, `keymap_run`), `("view.git", Run::ShowGit)`(1017, `NATIVE_COMMANDS`).
+    - `APP/shell_keymap.rs` 72(`runs_without_focused_project`에 `ShowGit`), 200~211(`Run::ShowGit` → 메인 `intents::git::Intent::ShowView{project, slot: snapshot.shell.focused}`·보조 창 `ShowAuxiliaryView{project, slot}`). 프로젝트가 없으면 `project?`(158)에서 `None` → 무동작.
+    - 검사: `APP/application-git-base-tests.rs` 257 `실제_app_git_키와_view_git_명령은_포커스_slot만_git_보기로_바꾸고_접힌_사이드바를_펼친다`(⌃⇧G 키 + `palette_commands.push("view.git")`), 327 `실제_app_보조_창의_git_키는_그_창의_탐색기를_열고_git_보기로_바꾼다`.
     - 빠진 것: 병합, 실제 팔레트 경로 검사, 행 갱신.
 - (d) 코드 변경 없음(병합된 것 사용).
-- (e) `APP/application-commands-tests.rs`에 1건: 기존 `실제_app_팔레트_view_explorer는_포커스_슬롯만_접힘을_풀고_파일_보기로_바꾼다`(120~195)를 그대로 본떠(두 프로젝트·두 slot·접힘·두 sidebar Outline) `run_palette(application, &context, "view.git")` → `step_until(.., |_| !collapsed(1))` → focused slot만 `View::Git`(`crate::symbol_sidebar::View`의 Git 변형, git 병합 뒤 존재 확인), 다른 slot은 `View::Outline`·접힘 유지. 추가로 프로젝트 없는 fixture에서 `view.git` 행이 활성이고 실행해도 레이아웃 수·toast 변화가 없음을 단언합니다. 실행: `… --lib -- domains::commands::tests base_tests --test-threads=2`.
+- (e) `APP/application-commands-tests.rs`에 1건: 기존 `실제_app_팔레트_view_explorer는_포커스_슬롯만_접힘을_풀고_파일_보기로_바꾼다`(120~195)를 그대로 본떠(두 프로젝트·두 slot·접힘·두 sidebar Outline) `run_palette(application, &context, "view.git")` → `step_until(.., |_| !collapsed(1))` → focused slot만 `View::Git`(`crate::symbol_sidebar::View`의 Git 변형, 병합 완료로 존재함), 다른 slot은 `View::Outline`·접힘 유지. 추가로 프로젝트 없는 fixture에서 `view.git` 행이 활성이고 실행해도 레이아웃 수·toast 변화가 없음을 단언합니다. 실행: `… --lib -- domains::commands::tests base_tests --test-threads=2`.
 - (f) 팔레트 경로 검사 통과 → complete.
-- (g) git lane 병합(다른 작업자가 병합 중).
+- (g) 없음.
 
 #### commands-ui-62 explorer / git 키
 
 - (a) unwired.
 - (b) 원본 explorer-panel-bridge: ⌘⇧E → `requestShowExplorerView('files')`, ⌃⇧G → `requestShowExplorerView('git')`. 둘 다 `whenFocused`(focused slot만).
-- (c) explorer 키는 shell-21 근거(메인 기능표 shell-21 partial, git worktree 기능표 shell-21 complete — 남은 범위가 git 키뿐이어서 git lane이 갱신). git 키는 14와 같은 git lane 경로·검사(`application-git-base-tests.rs` 257의 `show_git`(⌃⇧G 실제 키)·327 보조 창). 빠진 것: 병합과 행 갱신.
+- (c) explorer 키는 shell-21 근거(기능표 shell-21 complete). git 키는 14와 같은 git lane 경로·검사(`application-git-base-tests.rs` 257의 `show_git`(⌃⇧G 실제 키)·327 보조 창). 빠진 것: 행 갱신.
 - (d) 코드 변경 없음.
 - (e) git lane 검사가 실제 키를 보내므로 그 검사 재실행을 근거로 씁니다(`… --lib -- base_tests::실제_app_git_키와 base_tests::실제_app_보조_창의_git_키 --test-threads=2`). 프로젝트 없음 → 키 수락(`runs_without_focused_project`)·무동작은 `command_dispatch` 검사의 `PROJECTLESS_KEYMAP_ACTIONS`가 덮습니다.
 - (f) 통과 → complete.
-- (g) git lane 병합.
+- (g) 없음.
 
 #### commands-ui-36 `git.revertHead`
 
 - (a) unwired.
 - (b) 원본 `TS/entities/git/git.commands.ts` 14~22·32: 활성 = `isProjectActive`(29). `revertGitCommit({ projectId, rev: 'HEAD' })` → `outcome.conflicted`면 `toast.warning(t('git.revertConflict'))`, 아니면 `toast.success(t('git.revertSuccess'))`, 오류 `toast.error(describeIpcError(error))`. 제목 키 `git.revert`("Revert Commit").
-- (c) git lane G6(`GITWT/docs/quality-assurance/2026-11-02-native-lane-git-g6-log-graph.md`): `GitRun::RevertHead`(`GITWT/…/command-registry.rs` 153, 474), 활성 `Enablement::ActiveProject`(362) → `GITWT/…/shell_keymap.rs` 143~147 `intents::git::Intent::RevertHead(project)` → `GITWT/…/domains/git.rs` 2102~2108 `HostCommand::Git(Command::Revert { project, rev: "HEAD", opens_conflict: false })`. 검사 `GITWT/…/application-git-graph-tests.rs` 756 `실제_app_팔레트_git_명령은_head를_revert하고_접힌_그래프에서도_포커스_slot에_head_태그_대화상자를_하나만_연다`(채널 주입). 빠진 것: 병합, 실제 팔레트 경로 검사, 행 갱신.
+- (c) git lane G6(`docs/quality-assurance/2026-11-02-native-lane-git-g6-log-graph.md`): `GitRun::RevertHead`(`UI/command-registry.rs` 153, 474), 활성 `Enablement::ActiveProject`(362) → `APP/shell_keymap.rs` 143~147 `intents::git::Intent::RevertHead(project)` → `APP/domains/git.rs` 2102~2108 `HostCommand::Git(Command::Revert { project, rev: "HEAD", opens_conflict: false })`. 검사 `APP/application-git-graph-tests.rs` 756 `실제_app_팔레트_git_명령은_head를_revert하고_접힌_그래프에서도_포커스_slot에_head_태그_대화상자를_하나만_연다`(채널 주입). 빠진 것: 병합, 실제 팔레트 경로 검사, 행 갱신.
 - (d) 코드 변경 없음.
 - (e) `APP/application-commands-tests.rs`에 1건: `crate::application::domains::git::fixture::repository(&root, &empty, &[("a.txt", "one\n")])`로 임시 저장소를 만들고 두 번째 commit(`b.txt`)을 `fixture::git`으로 추가한 뒤 그 폴더를 프로젝트로 띄웁니다(`insert_project` + `focus_single_slot`). `run_palette(.., "git.revertHead")` → `step_until(.., |application| visible_toasts(application).contains(&(Kind::Success, <git.revertSuccess 문구>)))` → `fixture::git(&root, &empty, &["log", "-1", "--format=%s"])`가 `Revert "<두 번째 메시지>"`, `b.txt` 없음. 프로젝트가 없는 fixture에서는 행이 비활성(`inspection().rows`의 `is_enabled == false`). 실행: `… --lib -- domains::commands::tests::실제_app_팔레트_git --test-threads=2`. 검사는 임시 저장소만 씁니다.
 - (f) 통과 → complete.
@@ -505,7 +503,7 @@ pub(super) fn run_palette(application: &mut NativeApplication, context: &egui::C
 
 - (a) unwired.
 - (b) 원본 `git.commands.ts` 24~27·33: 활성 = `isProjectActive`. `requestShowExplorerView('git')` + `requestOpenCreateTagDialog({ target: 'HEAD' })`. 제목 키 `git.createTag`("Create Tag"). git lane 결정: 원본 결함은 재현하지 않음.
-- (c) `GitRun::CreateTagOnHead`(`GITWT/…/command-registry.rs` 475) → 메인 `Intent::CreateTagOnHead{project, slot}`/보조 창 `CreateAuxiliaryTagOnHead`(`GITWT/…/shell_keymap.rs` 212~224) → `domains/git.rs` 2117~2128: `ShowView` 적용 뒤 `request_tag(&project, &slot, "HEAD")`. 검사는 36과 같은 756행 검사(채널 주입). 빠진 것: 병합, 실제 팔레트 경로 검사, 행 갱신.
+- (c) `GitRun::CreateTagOnHead`(`UI/command-registry.rs` 475) → 메인 `Intent::CreateTagOnHead{project, slot}`/보조 창 `CreateAuxiliaryTagOnHead`(`APP/shell_keymap.rs` 212~224) → `domains/git.rs` 2117~2128: `ShowView` 적용 뒤 `request_tag(&project, &slot, "HEAD")`. 검사는 36과 같은 756행 검사(채널 주입). 빠진 것: 병합, 실제 팔레트 경로 검사, 행 갱신.
 - (d) 코드 변경 없음.
 - (e) 36의 검사에 이어 같은 fixture에서 `run_palette(.., "git.createTagOnHead")` → focused slot sidebar가 `View::Git`이고 태그 대화상자 제목(`git.createTag` 문구)을 담은 accesskit 노드가 1개(`application-project-rail-tests.rs`의 `has_label` 방식). 다시 실행해도 대화상자는 1개(git lane 검사 이름의 "하나만"과 같은 단언).
 - (f) 통과 → complete.
@@ -515,10 +513,10 @@ pub(super) fn run_palette(application: &mut NativeApplication, context: &egui::C
 
 - (a) unwired.
 - (b) 원본 `git.commands.ts` 34~39: 활성 조건 없음(항상 활성), `requestEditorPaneCommand({ type: 'run-monaco-action', actionId: TOGGLE_BLAME_MONACO_ACTION_ID })` = focused 편집기에서 `taide.toggleBlame` 실행. 편집기가 없으면 무동작. 제목 키 `git.toggleBlame`.
-- (c) git lane G8(`GITWT/docs/quality-assurance/2026-11-02-native-lane-git-g8-blame-conflicts.md`): `"git.toggleBlame" | "monaco.taide.toggleBlame" => Some(Run::Git(GitRun::ToggleBlame))`(`GITWT/…/command-registry.rs` 479), `shell_keymap` 237~252(focused pane의 활성 탭이 `TabKind::File`이 아니면 `None` → 무동작, 맞으면 `Intent::ToggleBlame{pane, tab}`) → `GITWT/…/git-editor.rs` 151 → `toggle_git_blame`(248, `git_state.editors.of_tab(pane, tab)`의 `blame.toggle_overlay(line_count)`). 활성 조건: `git.toggleBlame`은 `Always`(원본과 같음, 검사 1984 `("git.toggleBlame", Enablement::Always, [true; 5])`), `monaco.taide.toggleBlame`은 `SupportedEditorAction`. 검사 `GITWT/…/application-git-editor-tests.rs` 270 `실제_app_파일_편집기는_gutter_막대와_blame_footer_overlay를_원본대로_그린다`(채널 주입 `run(.., "git.toggleBlame")` 340). 빠진 것: 병합, 실제 팔레트 경로 검사, 행 갱신.
+- (c) git lane G8(`docs/quality-assurance/2026-11-02-native-lane-git-g8-blame-conflicts.md`): `"git.toggleBlame" | "monaco.taide.toggleBlame" => Some(Run::Git(GitRun::ToggleBlame))`(`UI/command-registry.rs` 479), `shell_keymap` 237~252(focused pane의 활성 탭이 `TabKind::File`이 아니면 `None` → 무동작, 맞으면 `Intent::ToggleBlame{pane, tab}`) → `APP/git-editor.rs` 151 → `toggle_git_blame`(248, `git_state.editors.of_tab(pane, tab)`의 `blame.toggle_overlay(line_count)`). 활성 조건: `git.toggleBlame`은 `Always`(원본과 같음, 검사 1984 `("git.toggleBlame", Enablement::Always, [true; 5])`), `monaco.taide.toggleBlame`은 `SupportedEditorAction`. 검사 `APP/application-git-editor-tests.rs` 270 `실제_app_파일_편집기는_gutter_막대와_blame_footer_overlay를_원본대로_그린다`(채널 주입 `run(.., "git.toggleBlame")` 340). 빠진 것: 병합, 실제 팔레트 경로 검사, 행 갱신.
 - 결정 2와의 관계: 편집기가 없을 때 원본은 활성 행·무동작입니다. 결정 2 A가 나열한 대상은 40·43뿐이고 git lane은 원본대로 `Always`로 두었습니다. 그대로 두고 비고에 "편집기 없음 → 무동작(원본과 같음)"을 적습니다.
 - (d) 코드 변경 없음.
-- (e) `APP/application-commands-tests.rs`에 1건: 36의 저장소 fixture에서 `a.txt` 파일 탭을 연 상태(`file_tab`이 아니라 저장소 안 파일 경로로 `Tab` 생성)로 띄우고 `run_palette(.., "git.toggleBlame")` → `step_until(.., |application| application.git_state.editors.of_tab(&pane, &tab).is_some_and(|editor| editor.blame.overlay().is_some()))`(`GITWT/…/git-blame.rs` 155 `overlay()`, `git-gutter.rs` 247 `of_tab`; `of_tab`은 `&mut self`라 클로저가 아니라 루프 안에서 `application`을 가변으로 빌려 확인). 빈 pane 상태에서 실행 → host 명령·toast 없음(`visible_toasts` 비어 있음).
+- (e) `APP/application-commands-tests.rs`에 1건: 36의 저장소 fixture에서 `a.txt` 파일 탭을 연 상태(`file_tab`이 아니라 저장소 안 파일 경로로 `Tab` 생성)로 띄우고 `run_palette(.., "git.toggleBlame")` → `step_until(.., |application| application.git_state.editors.of_tab(&pane, &tab).is_some_and(|editor| editor.blame.overlay().is_some()))`(`APP/git-blame.rs` 155 `overlay()`, `git-gutter.rs` 247 `of_tab`; `of_tab`은 `&mut self`라 클로저가 아니라 루프 안에서 `application`을 가변으로 빌려 확인). 빈 pane 상태에서 실행 → host 명령·toast 없음(`visible_toasts` 비어 있음).
 - (f) 통과 → complete.
 - (g) 병합.
 
@@ -526,7 +524,7 @@ pub(super) fn run_palette(application: &mut NativeApplication, context: &egui::C
 
 - (a) unwired.
 - (b) 원본 `git.commands.ts` 40~45: 활성 조건 없음, focused 편집기에서 `taide.openFileHistory`. 편집기가 없으면 무동작. 제목 키 `git.fileHistory`("File History").
-- (c) `"git.openFileHistory" | "monaco.taide.openFileHistory" => Some(Run::Git(GitRun::OpenFileHistory))`(`GITWT/…/command-registry.rs` 476~478), `shell_keymap` 226~236(활성 탭이 `TabKind::File{path}`일 때만 `Intent::OpenFileHistory{project, path}`) → `domains/git.rs` 2244~2248 `git_state.histories.open(context.viewport_id(), project, path)`. 검사 `GITWT/…/application-git-claude-history-tests.rs` 466 `실제_app_파일_이력은_명령_탭_메뉴로_열리고_항목을_inline_diff로_보여준다`(채널 주입, 편집기 없음 → `histories.get(window).is_none()` "편집기가 없으면 무동작" 단언 포함). 빠진 것: 병합, 실제 팔레트 경로 검사, 행 갱신.
+- (c) `"git.openFileHistory" | "monaco.taide.openFileHistory" => Some(Run::Git(GitRun::OpenFileHistory))`(`UI/command-registry.rs` 476~478), `shell_keymap` 226~236(활성 탭이 `TabKind::File{path}`일 때만 `Intent::OpenFileHistory{project, path}`) → `domains/git.rs` 2244~2248 `git_state.histories.open(context.viewport_id(), project, path)`. 검사 `APP/application-git-claude-history-tests.rs` 466 `실제_app_파일_이력은_명령_탭_메뉴로_열리고_항목을_inline_diff로_보여준다`(채널 주입, 편집기 없음 → `histories.get(window).is_none()` "편집기가 없으면 무동작" 단언 포함). 빠진 것: 병합, 실제 팔레트 경로 검사, 행 갱신.
 - (d) 코드 변경 없음.
 - (e) 38과 같은 fixture에서 `run_palette(.., "git.openFileHistory")` → `application.git_state.histories.get(egui::ViewportId::ROOT).is_some()`. 편집기 없는 상태에서 실행 → `None` 유지.
 - (f) 통과 → complete.
@@ -536,13 +534,13 @@ pub(super) fn run_palette(application: &mut NativeApplication, context: &egui::C
 
 - (a) partial. 기능표 이름의 "31개"는 옛 값이고 실제 키맵 엔트리는 41개입니다(`grep -c '"id"' UI/keymap-defaults.json` = 41, 원본 `TS/shared/lib/keymap/keymap.ts` 97~243).
 - (b) 원본: 41개 엔트리마다 `useGlobalKeymap` 소비자가 있습니다(편집기 영역·셸·터미널·탐색기).
-- (c) 현재 `to_rust_native`: `keymap_run`(`UI/command-registry.rs` 601~687)이 38개를 받고(`find`는 642~647에서 편집기 찾기), 터미널 점프 2개(`terminal-jump-to-previous-command`, `terminal-jump-to-next-command`)는 `APP/terminal_surface.rs` 3668~3673·4380~4395가 처리합니다(검사는 같은 파일 5268~의 검사 모듈, override JSON 사례 5469 등). 남은 것은 `git` 1개(git 병합 뒤 `Run::ShowGit`). 병합된 `GITWT/…/command-dispatch.rs`는 `KEYMAP_ACTIONS` 39개로 이미 바꿨습니다(3.2절 공통 사실).
-- (d) git 병합 뒤:
-    1. `APP/command-dispatch.rs` 검사 목록이 git 병합 상태(39·12개, unavailable에서 `"git"` 제거)인지 확인만 합니다.
+- (c) 현재 `to_rust_native`: `keymap_run`(`UI/command-registry.rs` 601~687)이 38개를 받고(`find`는 642~647에서 편집기 찾기), 터미널 점프 2개(`terminal-jump-to-previous-command`, `terminal-jump-to-next-command`)는 `APP/terminal_surface.rs` 3668~3673·4380~4395가 처리합니다(검사는 같은 파일 5268~의 검사 모듈, override JSON 사례 5469 등). 남은 것은 없습니다(`git`은 `Run::ShowGit`으로 병합 완료). 병합된 `APP/command-dispatch.rs`는 `KEYMAP_ACTIONS` 39개로 이미 바꿨습니다(3.2절 공통 사실).
+- (d) git 병합 완료:
+    1. `APP/command-dispatch.rs` 검사 목록이 git 병합 상태(39·12개, unavailable에서 `"git"` 제거)인지 확인만 합니다(2026-11-04 현재 이 상태).
     2. 같은 검사 모듈에 전수 단언 1건 추가: `UI/keymap-defaults.json`(`include_str!("../../taide-native-ui/src/keymap-defaults.json")`, 경로는 `APP/` 기준이며 `APP/keymap.rs` 1~20의 `include!` 경로와 같은 방식)을 `serde_json::from_str::<serde_json::Value>`로 파싱해 모든 `id`가 `accepts(id, true, &CommandContext::default())`이거나 터미널 점프 2개 중 하나임을 단언하고, 목록 수가 41임도 단언합니다. 검사 이름 예: `키맵_기본값의_모든_id는_실행경로가_있거나_터미널_점프다`.
 - (e) `… --lib -- command_dispatch::tests --test-threads=2`.
 - (f) 전수 단언 통과 → complete.
-- (g) git 병합.
+- (g) 없음.
 
 ### 3.3 묶음 4: settings 소유 동작을 부르는 명령
 
@@ -707,14 +705,14 @@ pub(super) fn run_palette(application: &mut NativeApplication, context: &egui::C
 | `widgets/theme-editor/theme-editor.tsx` | `UI/theme-editor.rs` | settings |
 | `features/settings/sync-conflict-dialog.tsx`, `widgets/plugin-manager/plugin-uninstall-dialog.tsx`, `widgets/plugin-manager/vsix-import-dialog.tsx`(덮어쓰기), `widgets/settings-view/agent-hooks-project-row.tsx` | `UI/settings-dialogs.rs` `Alert`(87) | settings |
 | `features/search/search-panel.tsx`(바꾸기 확인) | `APP/search-panel.rs` 1374(egui `Modal`) | explorer-search |
-| `features/git/hunk-discard-dialog.tsx`, `features/git/conflict-resolution-dialog.tsx` | `GITWT/…/git-gutter.rs` 22 `alert`(egui `Modal`), `GITWT/…/git-editor.rs` 664 | git |
-| `widgets/git-panel/git-panel.tsx` | `GITWT/…/git-scm.rs` 1579 | git |
+| `features/git/hunk-discard-dialog.tsx`, `features/git/conflict-resolution-dialog.tsx` | `APP/git-gutter.rs` 22 `alert`(egui `Modal`), `APP/git-editor.rs` 664 | git |
+| `widgets/git-panel/git-panel.tsx` | `APP/git-scm.rs` 1579 | git |
 
 - (c) 원본 규칙을 따르는 구현: `UI/settings-dialogs.rs`(settings-view의 자식 모듈 `#[path = "settings-dialogs.rs"]`(settings-view.rs 23), 항목이 `pub(super)`라 밖에서 못 씀. `Focus`(23), `Returning`(55), `settle`(61), `Size`(82), `Alert`(87), `Choice`(97), `Style`(104), `layer`(110), `content_width`(124, 320/512/뷰포트 −32), `button`(134), `header`(169), `focus_first`(192), `PADDING` 24, `CONTENT_GAP` 16, `ALERT_HEADER_GAP` 6, `modal::Layer` 기반), `ProjectGroupDeleteDialog`. 다른 점: `APP/close_dialog.rs`는 egui 기본 `Modal`이라 바깥 클릭으로 닫히고(85 `if !busy && response.should_close()` → Cancel), 버튼이 egui 기본색, busy면 spinner만(51). `APP/delete_dialog.rs`는 Cancel 첫 focus(47)·Escape 취소(77)는 맞지만 버튼 색·폭(`MAX_WIDTH` 512만, 6)·focus 가둠이 없습니다. git lane `alert`도 egui `Modal`입니다.
 - (d)
     1. `UI/ui-dialog.rs`(`#[path = "ui-dialog.rs"] pub mod ui_dialog;`)에 `settings-dialogs.rs`의 `Focus`·`Returning`·`settle`·`Size`·`Choice`·`content_width`·`layer`·`header`·`focus_first`를 공개 API로 옮깁니다(`pub struct AlertDialog { title, description, buttons: Vec<(String, ui_button::Variant)>, size: Size }`, `pub fn show_alert(ctx, id, &mut Focus, &AlertDialog, tokens) -> Option<usize>`). 버튼은 68의 `ui_button`. 내부는 `modal::Layer`(scrim·전환), `modal::trap_focus`, `modal::Composition`, `modal::takes_escape`를 씁니다. 바깥 클릭은 무시합니다.
     2. `settings-dialogs.rs`는 이 모듈을 부르게 바꿉니다(settings 화면 변화 없음, 기존 settings 검사 통과).
-    3. 이전: `close_dialog.rs`(바깥 클릭 무시로 바뀜, 원본과 같아짐. 원본 `close-dirty-tab-dialog.tsx`는 busy 상태가 없고 `dirtyTitles.length > 0` 동안 열려 있으므로, native busy 중에는 대화상자를 연 채 버튼만 비활성으로 둡니다), `delete_dialog.rs`, `ProjectGroupDeleteDialog`, snippet·theme 편집기 확인 대화상자, `search-panel.rs` 바꾸기 확인. git 소비자는 병합 뒤 (c)로 확인하고, egui `Modal` 그대로면 이 묶음에서 그리기 함수만 바꿉니다(영역 밖 최소 수정, QA 기록).
+    3. 이전: `close_dialog.rs`(바깥 클릭 무시로 바뀜, 원본과 같아짐. 원본 `close-dirty-tab-dialog.tsx`는 busy 상태가 없고 `dirtyTitles.length > 0` 동안 열려 있으므로, native busy 중에는 대화상자를 연 채 버튼만 비활성으로 둡니다), `delete_dialog.rs`, `ProjectGroupDeleteDialog`, snippet·theme 편집기 확인 대화상자, `search-panel.rs` 바꾸기 확인. git 소비자는 지금 (c)로 확인하고, egui `Modal` 그대로면 이 묶음에서 그리기 함수만 바꿉니다(영역 밖 최소 수정, QA 기록).
 - (e) UI 단위(`UI/ui-dialog-tests.rs`, `modal-tests.rs` 하네스 방식): 바깥 클릭 무시, Escape = 취소, 첫 focus Cancel, Tab 순환이 대화상자 밖으로 안 나감, 닫힘 후 focus 복귀, sm 폭 320과 2열 footer, default 폭 512. App 1건(`application-commands-tests.rs`): dirty 탭 닫기 → 대화상자 → 바깥 클릭에도 열린 채, Escape → 탭 유지, 버리기 버튼 destructive 색.
 - (f) 2.6절 (a)(b) 충족 → complete. git 소비자는 (c).
 - (g) 없음. VoiceOver·키보드 실기는 배치 31.
@@ -724,7 +722,7 @@ pub(super) fn run_palette(application: &mut NativeApplication, context: &egui::C
 - (a) partial.
 - (b) 원본 `TS/shared/ui/dialog.tsx`(126줄): alert와 같은 틀(74행 `max-w-[calc(100%-2rem)]`, `p-6`, `gap-4`, `rounded-lg`, `shadow-overlay-lg`, fade+zoom 200ms)에 더해 바깥 클릭으로 닫힘, Escape 닫힘(단 IME 조합을 취소하는 Escape는 무시 — 42~72, `onEscapeKeyDown`이 `isImeCompositionKeydown(event)`면 무시(66~71)), 기본으로 오른쪽 위 16px(`top-4 right-4`, 82행)에 닫기 X(아이콘 16px, `opacity-70` hover 100%, 접근성 이름 `common.close`(84)). Header `flex flex-col gap-2`(93, 8px), Footer `flex-col-reverse gap-2 sm:flex-row sm:justify-end`(107).
     - TS 소비자 12곳(`grep -rlE "@shared/ui/dialog'" TS --include='*.tsx'`에서 `shared/ui/command.tsx` 제외): system-usage-modal, file-history-panel, keybindings-editor, task-runner-dialog, command-palette, vsix-import-dialog, conflict-compare-dialog, create-tag-dialog, open-project-by-path-dialog, project-group-dialog, project-display-dialog, new-snippet-file-dialog. X를 끄는 것은 팔레트·task runner·파일 이력(`showCloseButton={false}`).
-- (c) native: X가 있는 것 = 키바인딩 편집기(`UI/keybinding-editor.rs` 1137~1174 `Icon::Close`), 시스템 사용량(`APP/system-usage-view.rs` 365 `common.close`), Settings VSIX 대화상자(`UI/settings-dialogs.rs` 356~380), 새 스니펫 파일(`UI/snippet-editor.rs` 1274~1296). X가 없는 것 = `UI/project-display-dialog.rs`, `UI/project-group-dialog.rs`(생성·편집), `APP/open_path_dialog.rs`(egui `Modal` 51). git: `GITWT/…/git-graph.rs` 572(태그), `git-history.rs` 163(파일 이력, X 없음이 원본), `git-editor.rs`(충돌 비교, X 있음). IME Escape 규칙은 `modal::Composition`(118)이 있지만 화면마다 적용 여부가 다릅니다.
+- (c) native: X가 있는 것 = 키바인딩 편집기(`UI/keybinding-editor.rs` 1137~1174 `Icon::Close`), 시스템 사용량(`APP/system-usage-view.rs` 365 `common.close`), Settings VSIX 대화상자(`UI/settings-dialogs.rs` 356~380), 새 스니펫 파일(`UI/snippet-editor.rs` 1274~1296). X가 없는 것 = `UI/project-display-dialog.rs`, `UI/project-group-dialog.rs`(생성·편집), `APP/open_path_dialog.rs`(egui `Modal` 51). git: `APP/git-graph.rs` 572(태그), `git-history.rs` 163(파일 이력, X 없음이 원본), `git-editor.rs`(충돌 비교, X 있음). IME Escape 규칙은 `modal::Composition`(118)이 있지만 화면마다 적용 여부가 다릅니다.
 - (d) `UI/ui-dialog.rs`에 `pub struct Dialog { title, description: Option<String>, show_close: bool, width: f32 }`, `pub fn show_dialog<R>(ctx, id, &mut Focus, &Dialog, tokens, add_contents) -> DialogOutput<R>`(바깥 클릭 닫힘, IME 조합 중 Escape 무시는 `Composition`, X 버튼 accesskit 이름 `common.close`). 이전: 위 X 없는 세 화면(X 추가)과 X 있는 화면 전부. 팔레트는 별도 구현이고 X가 없어 대상 확인만 합니다.
 - (e) UI 단위(바깥 클릭 닫힘, IME preedit 중 Escape 무시(`modal-tests.rs`의 preedit 이벤트 방식), X 클릭 닫힘·accesskit 이름, focus 가둠·복귀). App: 프로젝트 표시 대화상자 X로 닫힘, 경로로 열기(`open_path_dialog`) 바깥 클릭 닫힘(기존 `APP/open-path-dialog-tests.rs` 확장).
 - (f) complete(git 대화상자는 (c)).
@@ -761,7 +759,7 @@ pub(super) fn run_palette(application: &mut NativeApplication, context: &egui::C
     - Radix 동작: ↑↓ 이동(끝에서 순환 없음), Home/End, Enter·Space 실행, → 하위 메뉴 열기·← 닫기, Escape 닫기, 글자 typeahead(1초 누적).
     - TS 소비자: context-menu 8곳(`widgets/git-panel/git-panel.tsx`, `widgets/git-panel/commit-graph.tsx`, `widgets/app-sidebar/sortable-project-icon.tsx`, `widgets/app-sidebar/sortable-project-group-header.tsx`, `features/tab/tab-bar-context-menu.tsx`, `features/tab/tab-context-menu.tsx`, `features/explorer/file-tree-context-menu.tsx`, `features/terminal/terminal-context-menu.tsx`), dropdown 4곳(`features/editor/breadcrumb-segment.tsx`, `features/tab/tab-bar-add-menu.tsx`, `features/search/search-history-dropdown.tsx`, `features/project/sidebar-add-project-menu.tsx`).
     - 대상 아님: 편집기 우클릭 메뉴(`UI/editor-context-menu-widget.rs`)는 원본도 Monaco 자체 메뉴입니다.
-- (c) native: `UI/shell.rs` `menu_item`(2077)·`enabled_menu_item`(2081)(rail·탭·탭 바·추가 메뉴, egui 기본 `Button`), `APP/terminal_surface.rs` `MenuSearch`(1313)·`menu_item`(1343, accesskit `MenuItem`)·`menu_separator`(1350)·`consume_menu_key`(1359)·`prepare_menu_search`(1378)·`navigate_menu`(1464)(Radix typeahead·방향키 이식, vendored egui 입력 API 사용), `APP/explorer.rs`(탐색기 메뉴), `APP/breadcrumb-menu.rs`, `APP/search-panel.rs`(검색 이력). git: `GITWT/…/git-scm.rs`, `git-graph.rs`. destructive 색·shortcut 칸·inset·하위 메뉴 chevron·typeahead가 화면마다 다르거나 없습니다.
+- (c) native: `UI/shell.rs` `menu_item`(2077)·`enabled_menu_item`(2081)(rail·탭·탭 바·추가 메뉴, egui 기본 `Button`), `APP/terminal_surface.rs` `MenuSearch`(1313)·`menu_item`(1343, accesskit `MenuItem`)·`menu_separator`(1350)·`consume_menu_key`(1359)·`prepare_menu_search`(1378)·`navigate_menu`(1464)(Radix typeahead·방향키 이식, vendored egui 입력 API 사용), `APP/explorer.rs`(탐색기 메뉴), `APP/breadcrumb-menu.rs`, `APP/search-panel.rs`(검색 이력). git: `APP/git-scm.rs`, `git-graph.rs`. destructive 색·shortcut 칸·inset·하위 메뉴 chevron·typeahead가 화면마다 다르거나 없습니다.
 - (d) `UI/ui-menu.rs`:
     - `pub fn frame(tokens, is_sub: bool) -> egui::Frame`, `pub struct Item<'a> { label, icon, shortcut: Option<&'a str>, variant: Variant /* Default | Destructive */, inset: bool, enabled: bool }`, `pub fn item(ui, Item) -> Response`(accesskit `MenuItem`), `pub fn separator(ui)`, `pub fn label(ui, text)`, `pub fn submenu(ui, label, add_contents)`.
     - 키보드: `terminal_surface.rs`의 `MenuSearch`·`prepare_menu_search`·`navigate_menu`·`consume_menu_key`를 이 모듈(UI crate)로 옮겨 모든 메뉴가 같은 typeahead·이동을 씁니다. 이 함수들은 vendored egui 전용 API를 쓰므로 UI crate도 같은 vendored egui(`[patch.crates-io]`)를 쓰는지 확인합니다(이미 같음, 2.1절). 동결 remote-web Wasm check로 UI crate 이동을 확인합니다. 터미널 메뉴는 이 모듈을 부르게 바꿉니다.
@@ -810,7 +808,7 @@ pub(super) fn run_palette(application: &mut NativeApplication, context: &egui::C
     - App(`application-commands-tests.rs`): 문서를 dirty로 만들고, 상태 표시줄 panic 주입(`inject_panic(&context, Region::StatusBar)`) 뒤 fallback 확인, error toast 1개를 띄워 둔 상태에서 `run_palette(.., "window.reload")` → 팔레트 닫힘, fallback 사라지고 상태 표시줄 정상(`application-error-boundary-tests.rs` `assert_fallback`의 반대 단언), `visible_toasts` 비어 있음, 문서 dirty·본문 유지, 터미널 세션 id 유지. 이어서 팔레트를 Files 모드로 다시 열면 `commands_state.palette_files.view(Some(&project), None).is_refreshing`이 참(무효화 뒤 재요청; reload 없이 60초 안에 다시 열면 거짓인 대조군 포함). 표시 재적재는 `application-explorer-views-tests.rs` 314 검사 방식으로 테마 파일을 깨 배너를 띄운 뒤 파일을 고치고 `window.reload` → 재시도 버튼 없이 배너 사라짐. 보조 창에서 `run_auxiliary_palette`로 실행하면 메인 창 팔레트·fallback은 그대로.
     - 실행: `… --lib -- domains::commands::tests::실제_app_window_reload command_dispatch::tests --test-threads=2`, UI `--lib -- error_boundary command_registry toast::tests tooltips`, `--test workbench`(장애 경계 id 변경 회귀).
 - (f) 위 검사 통과 → complete.
-- (g) 없음. git·settings 대화상자 취소는 git 병합 뒤 확인합니다.
+- (g) 없음. git·settings 대화상자 취소는 지금 확인합니다.
 
 #### commands-ui-82 error-boundary(구역 단위 크래시 격리, 재시도, 포커스 이동)
 
@@ -848,15 +846,15 @@ pub(super) fn run_palette(application: &mut NativeApplication, context: &egui::C
 | `shadow-overlay` 0 2px 8px(348~350), `shadow-overlay-lg` 0 8px 24px(352~354) | `UI/presentation.rs` 28~31 `OVERLAY_SHADOW_*`·`DIALOG_SHADOW_*`, 212~220 | 있음(workbench 1018이 값 단언) |
 | `modal-scrim` 그림자색 50%(356~358) | `UI/modal.rs` 15 `SCRIM_OPACITY` 0.5, `Chrome::scrim`(44~45) | 있음(단언 추가 필요) |
 | `scrollbar-hidden`(360~369) | 팔레트 `ScrollBarVisibility::AlwaysHidden`, 77 | 77 |
-| `.taide-gutter-*`(371~408), `.taide-blame-overlay-text`(410~414), `.taide-conflict-*`(416~442), `.taide-diff-gutter-stage`(424~446) | git-56~63(편집기 gutter·blame·충돌, `GITWT/…/git-gutter.rs`·`git-blame.rs`·`git-conflict.rs`) | git lane complete, 병합 중 |
+| `.taide-gutter-*`(371~408), `.taide-blame-overlay-text`(410~414), `.taide-conflict-*`(416~442), `.taide-diff-gutter-stage`(424~446) | git-56~63(편집기 gutter·blame·충돌, `APP/git-gutter.rs`·`git-blame.rs`·`git-conflict.rs`) | git lane complete, 병합 완료 |
 | `.xterm textarea`·`.xterm-viewport`(448~457), `.monaco-tl-twistie`(465~467) | 웹 구현 전용 | 비고에 not-applicable 항목으로 |
 | `[data-sonner-toaster].taide-toaster-middle`(459~463) | `UI/toast.rs` 세로 Middle 위치 | 있음 |
 
-- (c) 빠진 것: git 병합과 scrim 값 단언.
-- (d) 코드 변경 없음. git 병합 뒤 표의 git 항목을 git-56~63 근거로 적습니다.
-- (e) UI 단위 1건(`modal-tests.rs`): `Chrome::scrim(1.0)` = 그림자색의 `gamma_multiply(0.5)`. git 항목은 `GITWT/…/application-git-editor-tests.rs` 270·517 근거(병합 뒤 재실행 `… --lib -- editor_tests --test-threads=2`).
-- (f) git-56~63 병합 + 단언 통과 → complete.
-- (g) git 병합.
+- (c) 빠진 것: scrim 값 단언(git 병합은 완료).
+- (d) 코드 변경 없음. 표의 git 항목을 git-56~63 근거로 적습니다.
+- (e) UI 단위 1건(`modal-tests.rs`): `Chrome::scrim(1.0)` = 그림자색의 `gamma_multiply(0.5)`. git 항목은 `APP/application-git-editor-tests.rs` 270·517 근거(재실행 `… --lib -- editor_tests --test-threads=2`).
+- (f) 단언 통과 → complete(git-56~63은 병합 완료).
+- (g) 없음.
 
 #### commands-ui-96 사용자에게 보이는 비국제화 문자열
 
@@ -865,11 +863,11 @@ pub(super) fn run_palette(application: &mut NativeApplication, context: &egui::C
 - (c) native:
     - UI 리터럴: 비검사 코드의 화면 리터럴은 `UI/shell.rs` 1964 `ui.heading("TAIDE")`(브랜드)와 `UI/editor-documentation.rs` 869 `ui.label("Loading...")`(원본 Monaco와 같음)뿐입니다(`grep -rnE '\.(label|button|heading|small_button|selectable_label)\(\s*"[A-Za-z]|RichText::new\(\s*"[A-Za-z]' UI APP` 결과 중 `#[cfg(test)]` 모듈 안 것 제외: `UI/toast.rs` 1611 이후, `APP/terminal_surface.rs` 5264 이후, `APP/zen.rs` 183 이후, `APP/ui-fonts.rs` 288 이후).
     - 오류 문구: `UI/toast.rs` `describe_error`(1589~1610)가 `Localized`가 아니면 원문을 그대로 돌려줍니다. native 전용 오류(`"native …"` 문자열로 만드는 곳 225개, `grep -rnE 'AppError::(Forbidden|Internal|InvalidArgument|NotFound|Io)\((format!\()?"native' UI APP | grep -v tests | wc -l`)가 toast·status로 가면 원본에 없는 영어 문구가 보입니다.
-    - `status: Option<String>` 상태 표시줄 라벨 대입이 비검사 앱 코드 97곳(2.3절, git 병합 뒤 105곳). 이 영역 파일 `APP/domains/commands.rs`에 5곳(230, 335, 351, 388, 450).
+    - `status: Option<String>` 상태 표시줄 라벨 대입이 비검사 앱 코드 105곳(2.3절, 2026-11-04 병합 뒤 값이며 `grep -c "status = Some("`로 다시 셉니다). 이 영역 파일 `APP/domains/commands.rs`에 5곳(230, 335, 351, 388, 450).
 - (d) settings-78 결정 3 A(채택, settings 영역은 0건으로 처리 완료)와 같은 규칙: TS 대응이 `runCommandSafely`·`toast.error(describeIpcError)`인 실패는 `toasts.ipc_error`, TS 대응이 없는 native 내부 실패(큐 가득 참, surface 미연결, registry 적재 실패 등)는 화면에 띄우지 않고 `log::warn!`.
     1. 이 영역 5곳을 위 규칙으로 바꿉니다: 230(키바인딩 편집기 `show` 오류 = native 내부) → `log::warn!`, 335(팔레트 `show` 오류 = native 내부) → `log::warn!`, 351(code lens 실행 실패, 원본은 Monaco command 실패 — 원본 `TS/shared/lib/lsp/command-relay.ts`의 실패 처리를 확인해 toast면 `toasts.ipc_error`, 무알림이면 `log::warn!`), 388(들여쓰기 적용 실패 = native 편집 오류) → `log::warn!`, 450(selection range 요청 실패) → `log::warn!`. 로그 문구에는 오류 종류(`error.kind()`)만 남기고 경로·본문은 넣지 않습니다(126 선례).
     2. 문자열 감사 검사: 앱 실행이 필요 없는 단위 검사(새 `APP/string-audit-tests.rs`를 `APP/lib.rs`에 `#[cfg(test)] #[path = "string-audit-tests.rs"] mod string_audit_tests;`로 연결)에서 `std::fs::read_dir`로 `UI`·`APP`의 비검사 `.rs`(파일명이 `-tests.rs`·`_tests.rs`로 끝나지 않는 것)를 읽고, 열 0의 `#[cfg(test)]` 또는 `#[cfg(all(test` 줄 다음에 `mod `가 오는 지점 이후를 버린 뒤, 위 정규식에 해당하는 리터럴이 허용 목록(`"TAIDE"`, `"Loading..."`)뿐인지 단언합니다. 경로는 `env!("CARGO_MANIFEST_DIR")` 기준(`APP` = `<manifest>/src`, `UI` = `<manifest>/../taide-native-ui/src`). 정규식 crate를 새로 넣지 않고 문자열 검색(`find(".label(\"")` 등)으로 구현합니다.
-    3. 나머지 영역의 status 92곳(git 병합 뒤 100곳)·native 오류 문구는 각 영역 소유입니다. 기능표 settings-78 비고가 "메인 통합에서 같은 결정으로 처리, 0건이 되면 상태바 라벨과 `status` 필드 제거"라고 적었으므로, 96은 메인 통합 작업이 0건을 만든 뒤 complete로 하고 그 전에는 partial(남은 수 기록)입니다.
+    3. 나머지 영역의 status 100곳(2026-11-04 값, `grep -c`로 다시 셉니다)·native 오류 문구는 각 영역 소유입니다. 기능표 settings-78 비고가 "메인 통합에서 같은 결정으로 처리, 0건이 되면 상태바 라벨과 `status` 필드 제거"라고 적었으므로, 96은 메인 통합 작업이 0건을 만든 뒤 complete로 하고 그 전에는 partial(남은 수 기록)입니다.
 - (e) 감사 검사 통과, 대표 경로 1건(App: 호스트 큐를 가득 채운 상태(`HOST_COMMAND_CAPACITY` 64개 제출)에서 팔레트 Files 모드 → 화면 문구·status 없음).
 - (f) 감사 검사 통과 + status 대입 0건 → complete.
 - (g) 다른 영역 status 대입 정리(메인 통합).
@@ -886,7 +884,7 @@ pub(super) fn run_palette(application: &mut NativeApplication, context: &egui::C
     3. 검사: `UI/glyph-icons-tests.rs`의 "등록된 SVG가 비지 않은 raster를 만든다" 검사를 `Glyph`뿐 아니라 `Icon`(UI)과 `navigation_icons::Icon`(APP, 앱 crate 검사로)까지 넓힙니다(기존 `rasters` helper 72 재사용).
 - (e) `… --features native-host,inspection --lib -- glyph`, 앱 `--lib -- navigation_icons`.
 - (f) native에 있는 모든 화면의 아이콘이 lucide 형상(SVG 또는 path 이식)이고, 화면이 없는 행만 비고로 남으면 complete. git·preview·terminal 화면 아이콘이 아직이면 partial(남은 아이콘 목록을 비고에).
-- (g) git 병합, preview·terminal-agent 영역의 아이콘 추가.
+- (g) preview·terminal-agent 영역의 아이콘 추가(git 병합은 완료).
 
 ### 3.7 묶음 8: 편집기 액션
 
@@ -913,11 +911,11 @@ pub(super) fn run_palette(application: &mut NativeApplication, context: &egui::C
 | `editor.action.inlineSuggest.toggleAlwaysShowToolbar` | 없음 | inline 제안 toolbar 항상 표시 토글 | toolbar는 editor-77로 구현됨(`UI/editor-inline-suggest-toolbar.rs` 76 `toggle_always_shown(context)`). 팔레트 실행 경로만 남음: 원본 Action2라 편집기 조건 없이 항상 활성 → `show_palette`에서 `toggle_always_shown(context)` 호출(기능표 editor-34 비고 "팔레트 실행 경로는 남았습니다") |
 | `editor.action.goToLocation` | 없음 | 인자 없는 실행은 무동작(`MON/contrib/gotoSymbol/browser/goToCommands.js` 591~613) | 결정 2 A: 비활성 유지, 비고 |
 | `editor.action.increaseHoverVerbosityLevel` / `decrease..` | 없음 | 공급자가 verbosity를 지원할 때만 효과, TAIDE hover는 LSP라 무효과 | 결정 2 A: 비활성 유지, 비고 |
-| `taide.gitStageSelection` / `taide.toggleBlame` / `taide.openFileHistory` | 없음 | git 기능 | git 병합으로 `Run::Git(GitRun::{StageSelection, ToggleBlame, OpenFileHistory})`(`GITWT/…/command-registry.rs` 476~480). 병합 뒤 실행 확인만 |
+| `taide.gitStageSelection` / `taide.toggleBlame` / `taide.openFileHistory` | 없음 | git 기능 | 병합으로 `Run::Git(GitRun::{StageSelection, ToggleBlame, OpenFileHistory})`(`UI/command-registry.rs` 476~480). 실행 확인만 |
 
 - 활성 조건 주의: `goToLocation`·`toggleAlwaysShowToolbar`·`showOrFocusStandaloneColorPicker`·`toggleTabFocusMode`·`unicodeHighlight.*`는 원본 Action2(항상 활성)라 `EDITOR_ACTIONS_WITHOUT_SUPPORT_GATE`(`UI/command-registry.rs` 25~47)에 있습니다. 실행 경로가 없으면 `runnable`이 `None`이라 팔레트에서 비활성으로 보입니다. 실행을 연결하면 자동으로 활성이 됩니다. 결정 2 A의 무동작 항목(`goToLocation`)은 실행을 연결하지 않아 비활성으로 남깁니다.
 - (d) 구현 순서:
-    1. 실패 검사 먼저: UI `command_registry` 검사에 "`Unavailable`인 `monaco.*` id 목록 = 이 표에서 '결정'·'의존'으로 남기는 id 집합"을 단언하는 전수 검사(현재 실행되지 않는 25개 목록으로 시작, git 병합 뒤 22개, 구현할 때마다 줄임). 이름 예: `실행되지_않는_monaco_액션은_결정과_의존으로_남긴_목록뿐이다`.
+    1. 실패 검사 먼저: UI `command_registry` 검사에 "`Unavailable`인 `monaco.*` id 목록 = 이 표에서 '결정'·'의존'으로 남기는 id 집합"을 단언하는 전수 검사(현재 실행되지 않는 25개 목록으로 시작, 현재 값 22개(2026-11-04), 구현할 때마다 줄임). 이름 예: `실행되지_않는_monaco_액션은_결정과_의존으로_남긴_목록뿐이다`.
     2. 구현 대상 9개: fontZoom 3, inPlaceReplace 2, toggleTabFocusMode, hideHover, pasteAsText, toggleAlwaysShowToolbar 팔레트 경로. 결정 4 A 2개: gotoLine, quickOutline.
     3. 새 기본 키: 원본 Monaco 기본 키가 있는 항목(inPlaceReplace ⇧⌘,/⇧⌘., toggleTabFocusMode ⌃⇧M, gotoLine ⌃G, quickOutline ⇧⌘O, hideHover Escape)은 `UI/keymap.rs`가 읽는 편집기 기본 키 JSON에 플랫폼별로 추가합니다. 기존 형식은 `UI/editor-documentation-keymap-defaults.json`(`{ "id": "monaco.editor.action.showHover", "key": "k", "mods": ["mod"], "chord": { "key": "i", "mods": ["mod"] } }`) 등 `UI/editor-*-keymap-defaults.json` 10개. 새 파일 `UI/editor-commands-keymap-defaults.json`을 만들면 `UI/keymap.rs`의 `include_str!` 목록(463~584)에 같은 방식으로 추가합니다. 플랫폼별 정확한 키는 각 Monaco 소스의 `kbOpts`에서 옮깁니다(`2048 /* KeyMod.CtrlCmd */` = mod).
     4. 결정 5 항목 7개(pasteAs, 구문 강조 복사, openLink, unicodeHighlight 4)와 색 선택기 1개: 편집기 영역 새 행이 생기고 complete가 되면 실행을 연결합니다. 그 전에는 43을 partial로 두고 비고에 의존 행을 적습니다. 새 행 번호가 아직 없으므로 editor 영역 담당에게 행 등록을 먼저 요청합니다(결정 5 A의 "편집기 영역에 새 행으로 등록").
@@ -950,4 +948,3 @@ QA 문서의 실패 기록·흔들림·리뷰 차단에서 추렸습니다.
 16. **공용 위젯 이전은 화면 동작을 바꾸지 않습니다.** 그리기 함수만 바꾸고 그 화면의 기존 검사가 모두 통과해야 합니다. 원본과 다른 기존 동작을 바로잡는 경우(예: close dirty 대화상자의 바깥 클릭 닫힘)는 원본 근거와 함께 QA에 따로 적습니다. 묶음 끝에 변경 crate 전체 `--no-fail-fast -- --test-threads=4`를 1회 돌립니다.
 17. **레거시 TS 파일을 읽는 검사.** `UI/glyph-icons-tests.rs` 343은 `include_str!("../../../src/shared/icons/project-icon-registry.ts")`로 원본 TS 파일을 읽습니다(commands-ui-evidence QA 리뷰 수정 절). 59의 전수 검사처럼 원본 파일을 `include_str!`로 읽는 검사를 더하면 `src/` 정리 작업이 이 검사를 함께 옮겨야 한다는 사실을 QA에 남깁니다. 59는 native 쪽 `UI/keymap-defaults.json`을 읽으므로 해당 없음.
 18. **사용자 허락 없이 하지 않는 것.** 실제 GitHub gist·Keychain PAT(30·31), `/usr/local/bin/taide` 설치·해제(32~34), 실제 저장소 revert(36), 실제 클립보드(43 pasteAsText), GUI 실행·합성 OS 입력·OS 알림·휴지통(`native/taide-native-app/tests/explorer-delete.rs` 실행 금지), 실기(OS 창 focus, VoiceOver, 픽셀). 검사는 임시 디렉터리·주입 포트·가짜 platform만 씁니다.
-19. **git worktree는 다른 작업자가 병합 중입니다.** 그 worktree를 고치지 않습니다. 묶음 3은 병합이 `to_rust_native`에 들어온 뒤 메인 트리 또는 새 lane worktree에서 시작합니다. 병합 커밋 뒤에는 이 문서의 `GITWT/` 줄 번호를 심볼 이름으로 다시 찾습니다.

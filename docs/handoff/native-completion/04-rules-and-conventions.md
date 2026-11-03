@@ -1,6 +1,6 @@
 # 04. 규칙과 관례 — Rust-native 전환 마무리 작업용
 
-> 작성일: 2026-11-03 · 기준: 브랜치 `to_rust_native` HEAD `0c52b438`, Git 영역은 병합 중인 worktree `/Users/hyunseokbyun/development/TAIDE-lanes/git`(브랜치 `lane/git`, HEAD `50892b59`)
+> 작성일: 2026-11-03 · 기준: 브랜치 `to_rust_native` HEAD `7be1ad14`
 > 이 문서는 사용자 전역 규칙(`/Users/hyunseokbyun/.claude/convention/*.md`)과 이 저장소의 합의(`docs/acknowledge/`, `docs/memory/`, `docs/research/2026-10-28-native-lane-seams.md`, lane workflow script)를 Rust-native 작업에 맞게 모은 것입니다. 원문과 다르면 원문이 정본입니다. 원문 위치는 각 절 끝의 "근거"에 적었습니다.
 
 ## 0. 규칙의 우선순위
@@ -214,9 +214,9 @@ mod notifications_tests;
 | GUI 실행 | 작업자는 앱 창을 띄우지 않음 | headless 실제 App: `eframe::CreationContext::_new_kittest(context)`로 `NativeApplication::new(..)`를 만들고 `eframe::App::logic` + `context.run_ui(..)`로 프레임을 돌림(`application-project-rail-tests.rs`의 `launch`·`step`). 화면 위치는 AccessKit 노드로 찾음(`node_rect`, `context.enable_accesskit()`) |
 | 사용자 실제 데이터 | 실제 앱 데이터 경로·실제 프로젝트 파일에 쓰지 않음 | `isolated_state(<임시 디렉터리>/data)`(`AppState::new(AppPaths::new(data))`, IDE 서버·agent hooks 끔), 임시 디렉터리 `std::env::temp_dir().join(format!("taide-native-<이름>-{}", ProjectId::new()))`. 앱 실행은 `--data-dir` 필수, Keychain 서비스명은 격리용 `net.gumyo.taide.native-isolated`(`docs/architecture.md` 9.3절) |
 | OS 설정·OS 알림·시스템 설정 앱·Finder | osascript·알림 전송·`open` 호출 없음 | `Overrides { platform: Some(Arc<FakePlatform>) }`(`application.rs` `Overrides`), `domains::shell::notifications_tests::FakePlatform`(`src/application-notifications-tests.rs` 26줄)이 `send_notification`을 기록하고 `open_path`·`reveal_item_in_dir`·`open_url`은 `AppError::Forbidden`, 진입은 `launch_with_platform` |
-| 클립보드 | arboard 실제 클립보드 읽기·쓰기 없음 | `HostBridge::connect_with_clipboard`·`connect_with_clipboard_ports`(`host.rs`)에 가짜 `ClipboardWriter`(`Arc<dyn Fn(&str) -> AppResult<()> + Send + Sync>`)·`ClipboardReader`를 넣음. UI 검사는 실행 대신 `ShellIntent::CopyText(..)` 생성만 단언(git lane worktree의 `/Users/hyunseokbyun/development/TAIDE-lanes/git/docs/quality-assurance/2026-11-02-native-lane-git-g2-changes.md` 81줄) |
+| 클립보드 | arboard 실제 클립보드 읽기·쓰기 없음 | `HostBridge::connect_with_clipboard`·`connect_with_clipboard_ports`(`host.rs`)에 가짜 `ClipboardWriter`(`Arc<dyn Fn(&str) -> AppResult<()> + Send + Sync>`)·`ClipboardReader`를 넣음. UI 검사는 실행 대신 `ShellIntent::CopyText(..)` 생성만 단언(`docs/quality-assurance/2026-11-02-native-lane-git-g2-changes.md` 81줄) |
 | Keychain | AI 토큰·GitHub PAT·원격 비밀번호를 실제 키체인에 쓰지 않음 | `Overrides.secret_store`에 `taide_infra::secret::test_support::InMemorySecretStore`(`crates/taide-infra/src/secret.rs` 153줄, `cfg(test)` 또는 feature `test-support`) |
-| 휴지통 | 실제 휴지통으로 옮기는 검사 실행 금지 | 실행 금지 검사 3개: `remote_files::tests::실제_파일14명령과_raw는_plugin_overlay_저장_복사_이동_삭제_mirror를_보존한다`(`src/remote-files-tests.rs` 393), `실제_탐색기_삭제는_확정한_dirty를_회수하고_선택프로젝트만_닫으며_공유초안을_보존한다`(`tests/explorer-delete.rs` 401), `실제_workspace_delete는_dirty_mirror_root를_거절하고_모든_프로젝트_tab과_document를_회수한다`(`tests/lsp-workspace-worker.rs` 387). Git의 추적 안 된 파일 discard도 실검사 금지(추적 파일로만 검사) |
+| 휴지통 | 실제 휴지통으로 옮기는 검사 실행 금지 | 실행 금지 검사 3개: `remote_files::tests::실제_파일14명령과_raw는_plugin_overlay_저장_복사_이동_삭제_mirror를_보존한다`(`src/remote-files-tests.rs` 393), `실제_탐색기_삭제는_확정한_dirty를_회수하고_선택프로젝트만_닫으며_공유초안을_보존한다`(`tests/explorer-delete.rs` 401), `실제_workspace_delete는_dirty_mirror_root를_거절하고_모든_프로젝트_tab과_document를_회수한다`(`tests/lsp-workspace-worker.rs` 387). Git의 추적 안 된 파일 discard도 실검사 금지(추적 파일로만 검사). 루트 workspace 검사 4개도 실제 휴지통을 씁니다: `untracked_파일_discard는_휴지통으로_이동해_워킹트리에서_사라진다`, `tracked와_untracked를_함께_discard해도_각각_처리된다`, `미추적_디렉토리_행은_절대경로로_discard해도_워킹트리에서_사라진다`(`crates/taide-git/src/service.rs`), `링크_개명과_삭제는_원본을_보존한다`(`src-tauri/tests/user-bug-regressions.rs`). `cargo test -p taide-git`나 루트 workspace 전체 `cargo test`에는 이 4개 이름을 `--skip`으로 붙입니다 |
 | 네트워크 | LSP 서버 다운로드, gist, 모델 목록, 실제 원격 push/pull 없음 | loopback 모의 서버 `tokio::net::TcpListener::bind("127.0.0.1:0")`(`src/editor-schema-transport-tests.rs` 293), LSP는 `native-lsp-mock` example 실행 파일, Git 원격은 임시 로컬 bare 저장소 |
 | Git 사용자 설정 | 사용자 전역 설정을 바꾸지 않음 | 임시 저장소 + `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`, `GIT_TERMINAL_PROMPT=0`, local config(`core.hooksPath`, `commit.gpgSign=false`, `credential.helper=""`, `protocol.allow=never` 등)(`src/remote-git-tests.rs` 150-200). git CLI가 사용자 전역 설정을 읽기 전용으로 참조하는 수준은 허용(결정 2026-10-28) |
 | 합성 OS 입력 | CGEvent·AppleScript 키 입력·마우스 클릭 없음(사용자 다른 창으로 갈 수 있음) | 프로세스 안 egui 이벤트 주입은 허용: `step(application, &context, vec![egui::Event::PointerButton { .. }])`, `egui::Event::Text(..)`, `egui::Event::Key { .. }` |
@@ -225,7 +225,7 @@ mod notifications_tests;
 | 실기용 번들 | 지우지 않음 | `experiments/native-shell-spike/target/TAIDE M8 Egui Spike.app`, `TAIDE M8 Iced Spike.app`. `cargo clean --profile dev`는 `debug`만 지워 번들이 남음 |
 | 저장소 밖 | 작업자는 저장소 밖을 탐색하지 않음 | 예외: cargo registry의 crate 소스 읽기, 메인 저장소 `node_modules` 읽기 |
 
-주의: 메인 병합 게이트 스크립트 `docs/utils/2026-11-03-native-merge-gate.sh`는 앱 crate 전체 테스트를 `--skip` 없이 실행합니다. 위 휴지통 검사 3개가 포함되므로 그대로 실행하면 합성 파일(`delete-synthetic.txt` 등)이 사용자 휴지통으로 이동할 수 있습니다. 2026-10-10 배치 게이트는 세 검사를 `--skip`으로 제외했습니다(`docs/quality-assurance/2026-10-10-native-batch18-workspace-symbols.md` 51줄). 게이트 실행 전 처리 방법은 05 문서 9절에 적었습니다.
+병합 게이트 스크립트는 34fb88d7부터 앱 휴지통 검사 3개를 `--skip`합니다(사고 기록 `docs/feedback/2026-11-04-merge-gate-trash-tests.md`). 필터 없는 앱 테스트는 이 스크립트로만 실행합니다.
 
 화면 캡처(메인만): 작업자는 GUI를 띄우지 않습니다. 메인이 창 캡처가 필요하면 `docs/memory/2026-10-07-native-transition-operations.md` 5절 절차(격리 data dir로 실행, `screencapture -x -o -l <창 번호>`, `kill -TERM`)만 쓰고 합성 입력은 쓰지 않습니다. 화면이 잠겨 있으면 빈 화면이 캡처됩니다.
 
@@ -267,7 +267,7 @@ cargo check --quiet --manifest-path /Users/hyunseokbyun/development/TAIDE/native
 
 | 항목 | 규칙 |
 | --- | --- |
-| 브랜치 | native 작업은 `to_rust_native`(upstream `origin/to_rust_native`). lane 브랜치 `lane/<lane>`은 로컬 전용(upstream 없음, `git rev-parse --abbrev-ref lane/git@{u}` 실패로 확인). `main`·`dev`에 직접 커밋하지 않음 |
+| 브랜치 | native 작업은 `to_rust_native`(upstream `origin/to_rust_native`). lane 브랜치 `lane/<lane>`은 로컬 전용(upstream 없음, `git rev-parse --abbrev-ref lane/git@{u}` 실패로 확인. lane 브랜치는 낡았으므로 새 작업에 쓰지 않음). `main`·`dev`에 직접 커밋하지 않음 |
 | 메시지 형식 | Conventional Commits, scope `native`, 설명은 한국어 명사형 종결. 이 브랜치의 실제 type: `feat`, `fix`, `docs`, `refactor`, `build`, `style`, `chore`, 병합 커밋은 `merge(native): <lane> lane 병합` |
 | 예시(실제 로그) | `feat(native): 알림 진입점·외부 열기·단일 인스턴스·IDE 동기화와 창·표시 층 잔여 연결`, `docs(native): shell lane 검증 기록과 기능표 갱신`, `merge(native): shell lane 병합`, `docs(native): lane 5개 병합과 게이트 결과 기록`, `build(native): dev 프로필 debuginfo를 줄 정보로 축소` |
 | AI 트레일러 | `Co-Authored-By`, `Generated with`, 세션 링크 등 금지. author는 사용자 단독 |

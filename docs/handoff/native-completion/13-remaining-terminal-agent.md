@@ -1,9 +1,8 @@
 # 13. 남은 작업: terminal-agent 영역
 
 > 작성일 2026-11-04 · 대상 영역 `terminal-agent`(터미널 표면·터미널 코어·agent 표시·IDE 도구·CLI 명령·hooks·알림 설정 일부)
-> 기준 코드: 메인 작업 트리 `/Users/hyunseokbyun/development/TAIDE`(브랜치 `to_rust_native`, HEAD `0c52b438`. terminal-agent lane 병합 `446964b7`, shell lane 병합 `4fa4beff`, settings lane 병합 `3864e1db` 포함, 미커밋 변경은 `docs/handoff/`뿐).
-> Git 영역은 병합 중인 worktree `/Users/hyunseokbyun/development/TAIDE-lanes/git`(브랜치 `lane/git`, 마지막 커밋 `50892b59`, 지금 `to_rust_native`를 받아들이는 병합을 다른 작업자가 해결 중)을 읽었습니다. 그 worktree의 `git status`에서 `UU` 표시 파일 8개를 grep했을 때 충돌 표식(`<<<<<<<`)은 남아 있지 않았고, terminal-agent 행 5개의 기능표 문구는 메인과 글자 단위로 같았습니다.
-> 이 문서는 정적 읽기로만 작성했습니다(cargo·앱 실행 없음). 줄 번호는 위 기준이며, git lane 병합 뒤 `application.rs`는 약 14줄 밀립니다(예: `frame_ui` 1383 → 1397). 항상 함께 적은 심볼 이름으로 다시 찾으십시오.
+> 기준 코드: 메인 작업 트리 `/Users/hyunseokbyun/development/TAIDE`(브랜치 `to_rust_native`, HEAD `7be1ad14`. terminal-agent lane 병합 `446964b7`, shell lane 병합 `4fa4beff`, settings lane 병합 `3864e1db`, git lane 병합 `f3a5b5d0` 포함, 미커밋 변경은 `docs/handoff/`뿐).
+> 이 문서는 정적 읽기로만 작성했습니다(cargo·앱 실행 없음). 줄 번호는 위 기준이며, `application.rs`는 이미 14줄 밀렸습니다(`frame_ui`는 현재 1397). 줄 번호는 `0c52b438` 기준이며 현재 HEAD에서는 심볼 이름으로 찾습니다. 항상 함께 적은 심볼 이름으로 다시 찾으십시오.
 > 2026-11-03판을 다시 검증해 바꾼 점: 19의 2단계 설계를 shell-5의 vendored eframe 설계(`10-remaining-shell.md` 3.2 (d) 2.1)와 맞춤, 19의 미검증 위험(AppKit 동작)과 완료 조건 명시, 64를 `15-remaining-settings.md` settings-22 설계와 맞춤, 68의 git 행 위치·ClaudeDiff revert 표시(monaco 0.56은 화살표가 아니라 gutter 도구 막대)와 병합 진행 상태 갱신.
 
 ---
@@ -19,7 +18,7 @@
 | `docs/acknowledge/2026-10-28-native-lane-spec-decisions.md` | 사양 결정 채택(4.1 전부 추천안), 중복 범위 소유, CLI 취소 문구 규칙(13행), 보류 표 |
 | `docs/quality-assurance/2026-11-02-native-lane-terminal-agent-{terminal-core,ide-agent-display,commands-run,commands-ui-entry,commands-ui-evidence}.md` | lane 구현 근거와 리뷰 수정 기록 |
 | `docs/quality-assurance/2026-11-02-native-lane-settings-s1-interface-performance.md` | settings-16·17·21·22·82 구현 근거(이 영역 55·56·64가 기대는 행) |
-| `/Users/hyunseokbyun/development/TAIDE-lanes/git/docs/quality-assurance/2026-11-02-native-lane-git-g7-commit-claude-diff.md` | git-49~52 구현 근거(이 영역 68이 기대는 행) |
+| `docs/quality-assurance/2026-11-02-native-lane-git-g7-commit-claude-diff.md` | git-49~52 구현 근거(이 영역 68이 기대는 행) |
 | 같은 폴더의 `10-remaining-shell.md`(shell-5), `14-remaining-git.md`(git-49~52), `15-remaining-settings.md`(settings-22), `30-pending-permissions.md`(P01~P26) | 다른 영역이 소유한 선행 작업의 상세 절차. 이 문서는 그 절차를 반복하지 않고 가리킵니다 |
 | `docs/memory/2026-10-28-native-lane-operations.md`, `docs/memory/2026-10-07-native-transition-operations.md` 5·6절 | 운영 규칙과 반복된 함정 |
 | `docs/utils/2026-11-03-native-merge-gate.sh` | 병합 게이트 명령 |
@@ -35,7 +34,6 @@
 | `TS` | `/Users/hyunseokbyun/development/TAIDE/src`(원본 React 앱) |
 | `TAURI` | `/Users/hyunseokbyun/development/TAIDE/src-tauri/src`(원본 Rust 백엔드) |
 | `NM` | `/Users/hyunseokbyun/development/TAIDE/node_modules` |
-| `GITWT` | `/Users/hyunseokbyun/development/TAIDE-lanes/git`(병합 중 worktree) |
 | `EFRAME` | `/Users/hyunseokbyun/development/TAIDE/experiments/native-shell-spike/vendor/eframe`(vendored eframe 0.36.2) |
 | `EGUI` | `APP/vendor/egui-input`(vendored egui, `APP/Cargo.toml` 111-112 `[patch.crates-io] egui = { path = "vendor/egui-input" }`) |
 | `REG` | `/Users/hyunseokbyun/development/rust/cargo/registry/src/index.crates.io-1949cf8c6b5b557f`(이 기계의 `CARGO_HOME`은 `~/.cargo`가 아니라 `/Users/hyunseokbyun/development/rust/cargo`입니다. winit·egui-winit 소스가 여기 있습니다) |
@@ -72,12 +70,12 @@
 awk -F'|' '/^\| terminal-agent-/ {s=$5; gsub(/ /,"",s); if (s!="complete" && s!="not-applicable" && s!="frozen") print NR": "$2"|"s}' /Users/hyunseokbyun/development/TAIDE/docs/quality-assurance/2026-10-09-native-function-matrix.md
 ```
 
-결과(2026-11-04, 메인 HEAD `0c52b438`): terminal-agent 78행 = complete 69, not-applicable 4(7·26·45·46), 남은 5행.
+결과(2026-11-04, 메인 HEAD `7be1ad14`): terminal-agent 78행 = complete 69, not-applicable 4(7·26·45·46), 남은 5행.
 
 | 상태 | 수 | ID(기능표 줄) |
 | --- | --: | --- |
-| partial | 2 | terminal-agent-19(312), terminal-agent-56(349) |
-| unwired | 2 | terminal-agent-55(348), terminal-agent-68(361) |
+| partial | 3 | terminal-agent-19(312), terminal-agent-56(349), terminal-agent-68(361) |
+| unwired | 1 | terminal-agent-55(348) |
 | missing | 1 | terminal-agent-64(357) |
 | 합계 | 5 | |
 
@@ -91,7 +89,7 @@ awk -F'|' '/^\| terminal-agent-/ {s=$5; gsub(/ /,"",s); if (s!="complete" && s!=
 | 55 | hooks 설치·제거·상태 UI(설정) | unwired | 코드 없음. settings-17(complete)이 같은 기능을 구현·검사했고 이 행 비고만 낡음 | settings | 없음 | complete |
 | 56 | CLI 설치 상태·설치·제거·외부 에디터 연결 명령 | partial | 비고의 남은 범위(설정 CLI 행 = settings-16)가 complete. 행 갱신만 남음. 같은 정책이 두 군데 구현돼 있어 정리를 권장(선택) | terminal-agent(+ settings) | 정리는 메인 결정 3건(3.3 (g)) | complete |
 | 64 | 설정 화면 테스트 알림·시스템 설정 열기 | missing | settings-21 complete, settings-22 partial(전달 성공·플랫폼 오류의 실제 App 검사 없음). 메인에는 플랫폼 주입(`Overrides.platform`)이 있어 검사를 쓸 수 있음 | settings | settings-22 검사(15번 문서) | complete |
-| 68 | openDiff → Claude diff 탭 | unwired | 메인에는 ClaudeDiff 본문이 자리표시(`show_unavailable_tab`)이고 `IdeDiffRequested` 소비자가 없음. git lane이 git-49~52로 구현했고 병합 중 | git | git lane 병합, git-50(수정 쪽 Revert Block)·git-52(보조 창 App 검사) | 병합 직후 partial, git-50·52 complete 뒤 complete |
+| 68 | openDiff → Claude diff 탭 | partial | git-49~52가 구현해 `Event::IdeDiff` 수신함 → ClaudeDiff 탭까지 연결됨. 남은 것은 git-50(수정 쪽 revert 화살표)·git-52(보조 창 App 검사) | git | git-50·git-52 | git-50·52 complete 뒤 complete |
 
 ### 1.3 현재 구현 위치
 
@@ -106,8 +104,7 @@ awk -F'|' '/^\| terminal-agent-/ {s=$5; gsub(/ /,"",s); if (s!="complete" && s!=
 | 설정 화면 CLI·hooks·알림(settings 소유) | `APP/src/settings-ports.rs`, `APP/src/domains/settings.rs`, `UI/src/settings-sections-data.rs`, `UI/src/settings-sections-view.rs` | `OSASCRIPT_PROGRAM = "/usr/bin/osascript"`(14), `CliCommand`(120), `CliPorts`(125), `impl Default for CliPorts`(130), `shell_command`(144), `open_notification_settings`(157), `Ports`(183); `execute_sections`(470)의 `Query::CliStatus`(730)·`Action::CliInstall`(742)·`Query::HooksStatus`(749)·`Action::Hooks`(763)·`Action::OpenNotificationSettings`(799)·`Action::SendTestNotification`(808), `change_shell_command`(846), `accept_sections_reply`의 `Notice` → toast(1108-1138); UI data `STALE_TIME = 60초`(22), `HookTarget`(54), `suppression_label`(198), `cli` 슬롯(568), `send_test_notification`(664), `Reply::TestNotification` → `Notice`(1168-1177), `finish_cli`(1209); UI view `interface`(501), `cli_row`(605), `hooks_list`(688), `hook_project_row`(738), `hook_user_row`(828, CLI 누락 경고 865), `notifications`(891) |
 | IDE 도구 | `APP/src/ide-tools.rs` | `IDE_DIFF_TIMEOUT = 600_000ms`(27), `open_diff`(174-226, `AppEvent::IdeDiffRequested` 발행 209), `close_tab`·`closeAllDiffTabs`(`IdeCloseTabRequested` 337·413) |
 | ClaudeDiff 탭 닫기 응답 | `APP/src/tabs.rs` | 136-140 `TabKind::ClaudeDiff` 닫힘 → `services.ide.take_pending_diff` → `IdeDiffOutcome::TabClosed` |
-| ClaudeDiff 표면(메인) | `APP/src/domains/git.rs` | `AppSurfaces::show_claude_diff_tab(ui, tab)`(141) = `show_unavailable_tab` 자리표시. 호출 `APP/src/domains/editor.rs` 5397-5398 |
-| ClaudeDiff 표면(git lane) | `GITWT/native/taide-native-app/src/git-claude-diff.rs`, `GITWT/.../domains/git.rs`, `GITWT/.../provider-events.rs`, `GITWT/.../domains/shell.rs` | `RECOMPUTE_DELAY`(12), `FALLBACK_LANGUAGE_ID`(13), `BAR_HEIGHT = 32.0`(14), `Event { Requested, Closed }`(27), `State`(57), `bar`(249); `Command::ResolveIdeDiff`, `Reply::IdeDiffResolved`, `accept_claude_diff_event`, `tick_claude_diffs`, `show_claude_diff_tab(ui, project, pane, tab, intents)`; `provider_events::Event::IdeDiff`(37, 기록 90-107); `consume_provider_events`의 `Event::IdeDiff(event) => self.accept_claude_diff_event(event)`(1161) |
+| ClaudeDiff 표면 | `APP/src/git-claude-diff.rs`, `APP/src/domains/git.rs`, `APP/src/provider-events.rs`, `APP/src/domains/shell.rs` | `RECOMPUTE_DELAY`(12), `FALLBACK_LANGUAGE_ID`(13), `BAR_HEIGHT = 32.0`(14), `Event { Requested, Closed }`(27), `State`(57), `bar`(249); `Command::ResolveIdeDiff`, `Reply::IdeDiffResolved`, `accept_claude_diff_event`, `tick_claude_diffs`, `show_claude_diff_tab(ui, project, pane, tab, intents)`; `provider_events::Event::IdeDiff`(37, 기록 90-107); `consume_provider_events`의 `Event::IdeDiff(event) => self.accept_claude_diff_event(event)`(1161) |
 | UI intent·surface | `UI/src/intents/terminal_agent.rs`, `UI/src/surfaces/terminal_agent.rs` | `CliAction { ConnectExternalEditor, Install, Uninstall }`, `Intent::{NewTerminal, #[cfg(feature = "native-host")] Cli}`, `TerminalAgentSurfaces { project_agents, is_agent_status_badge_enabled }` |
 | 명령 레지스트리·키맵 | `UI/src/command-registry.rs`, `APP/src/shell_keymap.rs` | `Run::Cli`(193), `execution`의 `cli.*` 3종(463-471), `Run::Cli(action) => ShellIntent::TerminalAgent(Intent::Cli(action))`(`shell_keymap.rs` 142-146) |
 
@@ -129,9 +126,9 @@ awk -F'|' '/^\| terminal-agent-/ {s=$5; gsub(/ /,"",s); if (s!="complete" && s!=
 1. 55: 근거 재실행과 기능표 행 갱신(막는 것 없음, 코드 없음).
 2. 56: 근거 재실행과 행 갱신(필수). CLI 정책 이중 구현 정리는 메인 결정 뒤 별도 커밋(선택).
 3. 64: settings-22가 아직 partial이면 15번 문서 settings-22 절의 검사를 먼저 끝내고(settings 소유), 같은 근거로 64를 갱신합니다.
-4. 68: git lane 병합 커밋이 `to_rust_native`에 들어온 뒤 확인·행 갱신(partial). git-50·52가 끝나면 complete.
+4. 68: 기능표 행은 병합 때 partial로 이미 갱신됐습니다. git-50·52가 끝나면 complete.
 5. 19 1단계(메인 창 `OptionAsAlt`): 이 영역에서 제품 코드가 바뀌는 유일한 작업이므로 1~4와 섞지 않고 따로 커밋합니다.
-6. 19 2단계(보조 창): shell-5의 `eframe::immediate_viewport_window()`가 병합된 뒤.
+6. 19 2단계(보조 창): shell-5가 complete가 되기 전에는 2단계를 시작하지 않습니다(shell-5의 `eframe::immediate_viewport_window()` 변경이 선행).
 7. 19 실기(P23, 사용자 허락): dead key 동작 확인 뒤 complete 판정.
 
 ---
@@ -281,7 +278,7 @@ let units = view.pending.iter().copied().collect::<Vec<_>>();
     - 보조 창: `route_viewports(context)`(1656, immediate viewport를 직접 `run_ui`로 그리고 viewport별 이벤트 주입·출력 저장), `unfocused_main_step`(1682, 메인 `focused: false`), `auxiliary_until`(1702).
 - settings 검사(모듈 `application::domains::settings::settings_sections_tests`, `APP/src/application-settings-sections-tests.rs`): `Scene::launch(secrets, configure)`(36), `Scene::launch_with(.., is_attached)`(45), 내부 `assemble`(58-146, `NativeApplication::new_with_secret_store` 사용이라 플랫폼 주입 없음), `scene.ports(settings_ports::Ports)`(160), `scene.text(key)`(164), `scene.step(events)`(168), `scene.until(phase, ready)`(186, 30초), `scene.click(pos)`(209), helper `nodes(output, label)`(263, accesskit 노드), `texts_of`(255), `errors`(287), `successes`(297), `missing_cli_agents()`(309). 상호작용 검사는 `APP/src/application-settings-interface-tests.rs`(모듈 `settings_interface_tests`, `click_label`(47), `warnings`(37)).
 - 알림 검사(모듈 `application::domains::shell::notifications_tests`, `APP/src/application-notifications-tests.rs`, `#[cfg(all(test, unix))]`): `FakePlatform`(26, `pub(super)`라 settings 모듈에서 보이지 않음), `launch_with_platform`(55, `new_with_overrides` + `Overrides { platform }`), `frame(application, context, focused)`(84).
-- git Claude diff 검사(병합 뒤 모듈 `application::domains::git::claude_history_tests`, `GITWT/native/taide-native-app/src/application-git-claude-history-tests.rs`, `domains/git.rs` 3018-3019에서 연결): `open_diff(application, path) -> JoinHandle<Value>`(116, 실제 IDE `openDiff` 도구 호출), `answered`(169), `claude_tab`(180), `click`(205), `type_text`(213). 단위 `git_claude_diff::tests::`.
+- git Claude diff 검사(모듈 `application::domains::git::claude_history_tests`, `APP/src/application-git-claude-history-tests.rs`, `domains/git.rs` 3018-3019에서 연결): `open_diff(application, path) -> JoinHandle<Value>`(116, 실제 IDE `openDiff` 도구 호출), `answered`(169), `claude_tab`(180), `click`(205), `type_text`(213). 단위 `git_claude_diff::tests::`.
 
 #### 2.5.4 UI crate 검사 (`UI`, `--features native-host,inspection --lib`)
 
@@ -419,7 +416,7 @@ self.apply_terminal_option_as_alt(&context, frame.winit_window().map(|window| &*
 
 4. `input_event`·`meta_character`는 바꾸지 않습니다. 아래 (e) 2번 단위 검사로 OptionAsAlt 아래의 사건 모양을 고정합니다.
 
-2단계(보조 창, shell-5의 vendored eframe 변경 병합 뒤):
+2단계(보조 창, shell-5가 complete가 되기 전에는 2단계를 시작하지 않는다. shell-5는 아직 partial이라 이 선행조건이 유효합니다):
 
 5. 선행: `10-remaining-shell.md` 3.2 (d) 2.1이 `EFRAME/src/lib.rs`에 `pub fn immediate_viewport_window() -> Option<std::sync::Arc<winit::window::Window>>`(immediate viewport `run_ui` 동안 thread-local로 보관)를 추가합니다. 이 함수가 메인에 들어왔는지 `grep -n "fn immediate_viewport_window" /Users/hyunseokbyun/development/TAIDE/experiments/native-shell-spike/vendor/eframe/src/lib.rs`로 확인합니다. 없으면 2단계를 시작하지 않습니다(같은 vendored 변경을 이 영역에서 따로 만들지 않습니다).
 6. `APP/src/domains/shell.rs` `show_auxiliary_windows`의 viewport 콜백(1535-1550)에서 `self.show_auxiliary_toasts(ui.ctx(), window.viewport);` 다음에 두 줄을 추가합니다(shell 영역 파일, 추가만). 콜백 안이므로 `ui.ctx().viewport_id()`가 그 보조 창입니다.
@@ -631,8 +628,8 @@ self.apply_terminal_option_as_alt(ui.ctx(), native_window.as_deref());
 
 #### (a) ID·기능·상태
 
-- `terminal-agent-68` "openDiff → Claude diff 탭(원본·제안 비교, 제안 편집, 수락·거절, 탭 닫힘 시 거절)", `unwired`, 근거 묶음 `integrations`(기능표 361행, `GITWT` 기능표 361행도 같은 문구).
-- 같은 기능 행(git 영역, `GITWT` 기능표 526-529행. 메인 기능표의 같은 줄은 아직 lane 이전 판정 unwired·missing): git-49 `complete`(요청 수신·탭 생성·`ideAutoOpenDiff`), git-50 `partial`(표면, 남은 것: 수정 쪽 revert 표시와 git-40 공통 장식), git-51 `complete`(Accept/Reject), git-52 `partial`(탭 닫힘 처리, 남은 것: 보조 창 이동 뒤 응답 없음·보조 창 Accept App 검사).
+- `terminal-agent-68` "openDiff → Claude diff 탭(원본·제안 비교, 제안 편집, 수락·거절, 탭 닫힘 시 거절)", 현재 `partial`, 근거 묶음 `integrations`(기능표 361행).
+- 같은 기능 행(git 영역, 기능표 526-529행): git-49 `complete`(요청 수신·탭 생성·`ideAutoOpenDiff`), git-50 `partial`(표면, 남은 것: 수정 쪽 revert 표시와 git-40 공통 장식), git-51 `complete`(Accept/Reject), git-52 `partial`(탭 닫힘 처리, 남은 것: 보조 창 이동 뒤 응답 없음·보조 창 Accept App 검사).
 
 #### (b) 원본 TS 동작
 
@@ -648,43 +645,37 @@ self.apply_terminal_option_as_alt(ui.ctx(), native_window.as_deref());
 
 #### (c) native 현재 자산과 빠진 것
 
-- 메인(`to_rust_native`, HEAD `0c52b438`)
-    - 생산: `APP/src/ide-tools.rs` `open_diff`(174-226)가 프로젝트 밖 경로면 즉시 `Rejected`(194-198), 아니면 대기 diff를 넣고 `AppEvent::IdeDiffRequested`(209)를 발행한 뒤 응답을 `IDE_DIFF_TIMEOUT`(27, 600초)까지 기다리고, 시간이 지나면 대기를 꺼내고 `Rejected`.
-    - 소비: 없습니다. `IdeDiffRequested`를 읽는 제품 코드는 원격 중계 `APP/src/event-relay.rs` 170뿐이고(나머지는 검사), `APP/src/provider-events.rs`는 이 사건을 기록하지 않습니다. `ide_auto_open_diff`를 읽는 제품 코드는 설정 스위치(`UI/src/settings-controls.rs` 203·241)뿐입니다.
-    - 표면: `APP/src/domains/editor.rs` 5397 → `APP/src/domains/git.rs` 141 `show_claude_diff_tab(ui, tab)` = `show_unavailable_tab`.
-    - 결과: 지금 IDE의 `openDiff`는 탭 없이 10분 뒤 거절됩니다.
-- git lane(`GITWT`, 커밋 `5195d415`·`50892b59` + 병합 중 미커밋 변경)
+- 현재 코드(메인 HEAD `7be1ad14`, git lane 병합 `f3a5b5d0` 포함)
     - `git-claude-diff.rs`: `Event::{Requested, Closed}`(27-35), `State`(대기 목록·진행 중·줄 diff, 57-), `bar`(249, 막대), 상수 `BAR_HEIGHT` 32, `RECOMPUTE_DELAY` 200ms, `FALLBACK_LANGUAGE_ID` `"plaintext"`.
     - `domains/git.rs`: `accept_claude_diff_event`(설정 false → 대기 제거 + `Command::ResolveIdeDiff { tab: None, Rejected }`, true → `Command::OpenTab { kind: TabKind::ClaudeDiff { request_id, path }, title, target: None, preview: false }`), `tick_claude_diffs`(200ms 뒤 `Command::Hunks`), `show_claude_diff_tab(ui, project, pane, tab, intents)`, `Command::ResolveIdeDiff` → `Reply::IdeDiffResolved`(성공이면 대기 제거·`ide.diffAccepted` success 또는 `ide.diffRejected` info·탭 닫기 요청, 실패면 오류 toast).
-    - 수신 경로: 병합 작업 트리에서 lane 원래의 `git_cache::Changes.ide`가 shell의 공용 수신함으로 옮겨져 있습니다(`GITWT/.../provider-events.rs` 37 `IdeDiff(crate::git_claude_diff::Event)`, 기록 90-107, `GITWT/.../domains/shell.rs` 1161 `Event::IdeDiff(event) => self.accept_claude_diff_event(event)`, `git-cache.rs`에는 `IdeDiff` 기록이 없음). 병합 커밋 뒤 다시 확인합니다(14번 문서 3.7).
+    - 수신 경로: shell의 공용 수신함입니다(`APP/src/provider-events.rs` 37 `IdeDiff(crate::git_claude_diff::Event)`, 기록 90-107, `APP/src/domains/shell.rs` 1161 `Event::IdeDiff(event) => self.accept_claude_diff_event(event)`, `git-cache.rs`에는 `IdeDiff` 기록이 없음).
     - 검사: `application-git-claude-history-tests.rs`의 `실제_app_ide_open_diff는_claude_diff_탭을_열고_수정_쪽_편집_뒤_accept로_저장한다`(289), `실제_app_claude_diff는_자동_열기_끄기_reject_탭_닫기_ide_close_tab을_원본대로_처리한다`(372), 단위 `git-claude-diff-tests.rs`.
-- 빠진 것: (1) git lane 병합, (2) git-50 수정 쪽 "Revert Block" gutter 도구 막대·git-40 공통 장식, (3) git-52 보조 창 App 검사, (4) 이 행과 69행 갱신.
+- 빠진 것: (1) git-50 수정 쪽 "Revert Block" gutter 도구 막대·git-40 공통 장식, (2) git-52 보조 창 App 검사. 68·69행의 기능표 갱신은 병합 때 이미 반영됐습니다.
 
 #### (d) 구현 방법 (이 영역은 확인과 행 갱신. 코드는 git 영역)
 
-1. 병합 확인: `git -C /Users/hyunseokbyun/development/TAIDE log --oneline -10`에 git lane 병합 커밋(`merge(native): git lane 병합` 형식)이 있고 `ls /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/src/git-claude-diff.rs`가 있으면 진행합니다. 없으면 기다립니다(병합 worktree는 건드리지 않습니다).
+1. 병합은 완료됐습니다(`f3a5b5d0`). `ls /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/src/git-claude-diff.rs`가 존재하면 진행합니다.
 2. 단일 소비자 확인: `grep -rn "IdeDiffRequested" /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/src`의 검사 아닌 결과가 생산(`ide-tools.rs`)·원격 중계(`event-relay.rs`)·수신함 기록(`provider-events.rs`) 3곳뿐이어야 합니다. `git-cache.rs`나 `git-claude-diff.rs`에 기록이 남아 있으면 한 요청이 두 번 소비돼 탭이 둘 생기므로 git 영역에 보고합니다.
 3. 표면 확인: `grep -n "fn show_claude_diff_tab" /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/src/domains/git.rs`가 5인자 버전 하나이고, 그 본문이 ClaudeDiff가 아닐 때만 `show_unavailable_tab`을 부르는지 봅니다.
 4. 검사 실행((e)).
-5. 행 갱신(메인이 14번 문서 3.7 (f)와 같은 커밋에서 하는 것을 권장)
-    - git-50·git-52가 아직 partial이면 68은 `partial`. 비고 예: "git-49~52와 같은 구현(git lane g7): IDE `openDiff` → 공용 수신함(`provider_events::Event::IdeDiff`) → 대기 목록 → `ideAutoOpenDiff` 꺼짐이면 탭 없이 Rejected, 켜짐이면 ClaudeDiff 탭(제목 tab_name, preview false). 표면은 32px Reject/Accept 막대와 diff(원본 = 디스크 읽기 전용, 수정 = 요청 내용 편집 가능, 200ms 재계산), Accept → Saved(편집 결과)·success·탭 닫힘, Reject → Rejected·info, 사용자 탭 닫기 → TabClosed, IDE close_tab → 대기 제거. [A] `실제_app_ide_open_diff는…`, `실제_app_claude_diff는…`. 남은 것: 수정 쪽 Revert Block gutter 도구 막대(git-50), 보조 창 이동 뒤 응답 없음·보조 창 Accept App 검사(git-52). `2026-11-02-native-lane-git-g7-commit-claude-diff.md`."
+5. 행 갱신: 68·69행은 기능표에 이미 반영됨(68 partial, 69 complete·git-49 근거 비고). git-50·52가 끝났을 때만 아래대로 바꿉니다.
+    - 현재 비고(이미 반영됨) 예, git-50·git-52가 아직 partial이면 68은 `partial`. 비고 예: "git-49~52와 같은 구현(git lane g7): IDE `openDiff` → 공용 수신함(`provider_events::Event::IdeDiff`) → 대기 목록 → `ideAutoOpenDiff` 꺼짐이면 탭 없이 Rejected, 켜짐이면 ClaudeDiff 탭(제목 tab_name, preview false). 표면은 32px Reject/Accept 막대와 diff(원본 = 디스크 읽기 전용, 수정 = 요청 내용 편집 가능, 200ms 재계산), Accept → Saved(편집 결과)·success·탭 닫힘, Reject → Rejected·info, 사용자 탭 닫기 → TabClosed, IDE close_tab → 대기 제거. [A] `실제_app_ide_open_diff는…`, `실제_app_claude_diff는…`. 남은 것: 수정 쪽 Revert Block gutter 도구 막대(git-50), 보조 창 이동 뒤 응답 없음·보조 창 Accept App 검사(git-52). `2026-11-02-native-lane-git-g7-commit-claude-diff.md`."
     - git-50·52가 complete가 되면 68을 `complete`로 바꾸고 "남은 것"을 지웁니다.
-6. 69행(`ideAutoOpenDiff` 반영, 지금 complete) 비고를 git-49 근거(설정 false → 탭 없이 Rejected App 검사 `실제_app_claude_diff는_자동_열기_끄기…`)로 바꿉니다. 지금 비고는 "배치 13 회귀 통과" 일반 문구이고 메인에는 실제 소비자가 없었습니다(lane 사양 1.3 "git 사양 1.3은 terminal-agent-69가 실제로는 로컬 소비자가 없다고 적었습니다").
+6. 69행(`ideAutoOpenDiff` 반영, complete)은 비고가 git-49 근거로 이미 갱신됐습니다. 확인만 합니다.
 
 #### (e) 자동 검사 방법
 
-- 병합 뒤 메인 트리에서: `cargo test --manifest-path /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/Cargo.toml --lib --locked --offline --target-dir /Users/hyunseokbyun/development/TAIDE/experiments/native-shell-spike/target -- application::domains::git::claude_history_tests git_claude_diff provider_events application::terminal_agent_tests::실제_app_ide_close_tab --test-threads=2`
+- 메인 트리에서: `cargo test --manifest-path /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/Cargo.toml --lib --locked --offline --target-dir /Users/hyunseokbyun/development/TAIDE/experiments/native-shell-spike/target -- application::domains::git::claude_history_tests git_claude_diff provider_events application::terminal_agent_tests::실제_app_ide_close_tab --test-threads=2`
     - 마지막 필터는 이 영역 terminal-agent-71 검사(`application-terminal-agent-tests.rs` 1181, ClaudeDiff 탭 2개 `closeAllDiffTabs` → `TabClosed`)로, ClaudeDiff 본문이 실제 표면으로 바뀐 뒤에도 닫힘 경로가 그대로인지 확인합니다.
 - 새 검사는 이 영역에서 쓰지 않습니다. git-50·52의 남은 검사는 git 영역이 씁니다(14번 문서 3.5 (e), 3.6 (e)).
 
 #### (f) 완료 판정 기준
 
-- 병합 + 위 검사 통과 → `partial`(git-50·52 남음).
+- 위 검사 통과 → `partial`(git-50·52 남음, 현재 기능표 반영 완료).
 - git-50·52 complete → `complete`.
 
 #### (g) 막는 요소와 처리
 
-- git lane 병합: 다른 작업자가 `GITWT`에서 충돌을 해결 중입니다. 이 영역 작업자는 그 worktree를 고치지 않고, 병합 커밋이 `to_rust_native`에 들어온 뒤 (d)를 진행합니다.
 - git-50 Revert Block: git 사양 결정 4 A안(`docs/research/2026-10-28-lane-git-spec.md` 722행)으로 범위에 포함됐고 git 영역 소유입니다. 아이콘 색은 원본 화면 확인이 필요합니다(14번 문서 3.5 (g)).
 - 실기(P08·P23): 실제 Claude Code 클라이언트와의 openDiff 왕복. complete 조건이 아닙니다.
 
@@ -696,7 +687,7 @@ self.apply_terminal_option_as_alt(ui.ctx(), native_window.as_deref());
 2. 이 기계에는 실제 `/usr/local/bin/taide`가 있습니다. 기본 포트를 쓰는 설정 App 검사는 "Installed" 문구가 섞여 다른 검사의 문구 수·대기 조건이 흔들렸습니다(settings S1 QA 57행). CLI 상태가 화면에 나오는 검사는 `missing_cli_agents()` 또는 주입 포트를 씁니다.
 3. 기본 플랫폼은 실제 OS 알림을 띄웁니다(`bootstrap.rs` 171-184). 시험 알림·알림 생산자 검사는 반드시 `Overrides.platform`으로 가짜 플랫폼을 넣습니다.
 4. hooks App 검사의 프로젝트는 `root_missing`으로 넣습니다. 붙은 프로젝트면 시작 watcher가 `agent_hooks::reconcile_installed`를 실제 `HOME`으로 돌려 사용자 홈 hooks를 고칠 수 있습니다(settings S1 QA 57행).
-5. 실제 osascript·`/usr/local/bin` 쓰기·Keychain·휴지통·GUI 실행·합성 OS 입력은 작업자 금지입니다. `APP/tests/explorer-delete.rs`는 실행하지 않습니다(이전에 합성 파일이 사용자 휴지통에 들어간 기록, `docs/PROCESS.md` 19행. 병합 게이트 스크립트 9행은 이 검사를 빼는 인자가 없으므로 허락(P10) 전에는 `--skip 실제_탐색기_삭제는`를 붙입니다, `30-pending-permissions.md` R1).
+5. 실제 osascript·`/usr/local/bin` 쓰기·Keychain·휴지통·GUI 실행·합성 OS 입력은 작업자 금지입니다. `APP/tests/explorer-delete.rs`는 실행하지 않습니다(이전에 합성 파일이 사용자 휴지통에 들어간 기록, `docs/PROCESS.md` 19행. 병합 게이트 스크립트는 34fb88d7부터 이 검사를 `--skip`하고, 직접 앱 테스트를 돌릴 때는 허락(P10) 전에는 `--skip 실제_탐색기_삭제는`를 붙입니다, `30-pending-permissions.md` R1).
 6. host worker를 막지 않습니다. 관리자 대화상자처럼 사람이 응답할 때까지 걸리는 작업은 `spawn_transient` + `run_blocking_result`로 떼어 냅니다. 56 App 검사는 osascript를 붙잡은 동안 `task.runTask` 감지가 먼저 끝나는지로 이것을 확인합니다.
 7. 새 `egui::Context`는 시작 때 repaint 1회가 예약돼 있습니다(`EGUI/src/context.rs` 362 `outstanding: 1`). "repaint 요청 없음"을 단언하기 전에 프레임을 몇 번 돌려 예약을 비웁니다. 직접 `run_ui`한 출력은 `output.textures_delta.clear()`를 하지 않으면 epaint가 drop 때 panic합니다(ide-agent-display QA "51 검사 수정").
 8. 앱 lib 병렬 실행에서 실제 App 검사가 host 큐(64)를 채워 흔들립니다(PROCESS.md E2 관찰, 2026-11-03 병합 게이트에서 lib 실패 4~5건이 직렬 재실행에서 통과). 필터 실행은 `--test-threads=2`, 게이트는 4로 하고, 실패하면 그 검사만 단독으로 다시 돌려 흔들림과 결함을 가립니다.
@@ -705,12 +696,12 @@ self.apply_terminal_option_as_alt(ui.ctx(), native_window.as_deref());
 11. terminal-agent App 검사 모듈과 `HostBridge::connect_with_agent_cli`는 `#[cfg(all(test, target_os = "macos"))]`이고 `agent-cli-tests.rs`는 `#[cfg(all(test, unix))]`입니다. 이 조건은 lane 리뷰에서 비 unix·비 macOS 검사 빌드 컴파일 오류를 고친 결과입니다(commands-run QA 수정 절 "검사 이식성"). 새 helper도 같은 조건 안에 둡니다.
 12. 통합 검사 fixture 바이트(`TERM/tests/fixtures/session.rs`의 `META_INPUT` 등)는 bin `native-terminal-queue-fixture`와 공유됩니다. 바꾸면 검사와 같은 커밋에서 함께 바꿉니다.
 13. 기능표 판정이 실제 코드보다 앞서거나 뒤처진 사례가 이 영역에 여럿 있었습니다. 다른 lane 병합 직후 관련 행을 다시 확인합니다.
-    - 뒤처짐: 55·56·64는 settings lane 병합 뒤에도 갱신되지 않았습니다. commands-ui-32~34도 56 구현 뒤 `unwired` 그대로입니다.
+    - 뒤처짐: 55·56·64는 settings lane 병합 뒤에도 갱신되지 않았습니다(2026-11-04 현재도 그대로). commands-ui-32~34도 56 구현 뒤 `unwired` 그대로입니다.
     - 앞섬: 69(`ideAutoOpenDiff`)는 `complete`이지만 메인에는 소비자가 없습니다(3.5 (c)). 6·26·45는 lane 전에는 원본에 없는 기능이 missing으로 남아 있었습니다.
     - 비고가 실제와 다름: 56 비고의 "`terminal_agent_state.cli_status` 소비"는 일어나지 않았습니다(3.3 (a)).
     - 기능표 머리말 집계(9행 문장, 15행 표)는 2026-10-14 값입니다. 영역 수는 1.1의 명령으로 셉니다.
 14. 사양과 다른 소유·설계가 실제로 들어간 경우(56의 CLI 백엔드 위치, 68의 수신함 위치)는 사양 문서보다 실제 코드를 따르고 차이를 QA에 남깁니다.
-15. git lane 병합이 이 영역 검사 파일도 바꿉니다: `application-terminal-agent-tests.rs`의 `PaintSink` 리터럴(51 검사, 873행 부근)에서 `title_branches` 필드가 `git_cache`로 바뀝니다(`git -C /Users/hyunseokbyun/development/TAIDE-lanes/git diff`로 확인). 병합 뒤 `application.rs` 줄 번호도 약 14줄 밀립니다. 병합 뒤 이 영역 작업을 시작할 때는 줄 번호가 아니라 심볼로 다시 찾습니다.
+15. git lane 병합이 이 영역 검사 파일도 바꿨습니다: `application-terminal-agent-tests.rs`의 `PaintSink` 리터럴(51 검사, 873행 부근)에서 `title_branches` 필드가 이미 `git_cache`로 바뀌었습니다(병합 완료). 줄 번호는 심볼로 다시 찾습니다.
 16. 같은 vendored 변경을 두 영역이 따로 설계하지 않습니다. 보조 창 창 핸들은 shell-5가 `eframe::immediate_viewport_window()`로 만들고(10번 문서 3.2 (d) 2.1), 19 2단계는 그것을 호출만 합니다. 보조 창 raw input hook(마우스 보고)도 shell-5 범위입니다.
 17. 실행 중 scrollback의 `rejected_history`는 값 기준이라, 좁은 창에서 거절된 값은 창을 넓혀도 설정값이 바뀌기 전까지 다시 적용되지 않습니다(terminal-core QA 테스트 부채). 이 영역 남은 행은 아니지만 터미널 코어를 고칠 때 함께 보는 위험입니다.
 18. 검사 helper에 `///` 설명을 쓰지 않습니다(공개 API가 아님). 기존 settings 검사 helper에 남은 `///`(`application-settings-sections-tests.rs` 43-44·53·307-308)는 범위 밖 기존 주석이라 지우지 않습니다.
@@ -723,6 +714,6 @@ self.apply_terminal_option_as_alt(ui.ctx(), native_window.as_deref());
 | --- | --- | --- | --- |
 | settings-22 | partial | 3.4의 새 App 검사 | settings 영역 행. 15번 문서 settings-22 절. 64와 같은 커밋에서 메인이 갱신 |
 | commands-ui-32·33·34(`cli.*`) | unwired | 56의 명령 경로와 App 검사(`2026-11-02-native-lane-terminal-agent-commands-run.md`) | commands-ui 영역(16번 문서 354행 절) 또는 메인 |
-| terminal-agent-69 | complete(근거 낡음) | git-49(`실제_app_claude_diff는_자동_열기_끄기…`) | git lane 병합 뒤 비고만 갱신(14번 문서 3.7 (f)) |
-| git-49~52 | 메인 기능표는 lane 이전 판정, `GITWT`는 49·51 complete, 50·52 partial | `GITWT` g7 QA | git 영역. 68의 판정이 이 행들을 따름 |
+| terminal-agent-69 | complete(근거 낡음) | git-49(`실제_app_claude_diff는_자동_열기_끄기…`) | 비고는 이미 갱신됨(14번 문서 3.7) |
+| git-49~52 | git-49·51 complete, git-50·52 partial(기능표 526-529행) | g7 QA | git 영역. 68의 판정이 이 행들을 따름 |
 | shell-5 | partial | 19 2단계가 쓰는 vendored eframe 창 접근 | shell 영역(10번 문서 3.2). 19 2단계의 선행 |

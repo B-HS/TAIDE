@@ -1,6 +1,6 @@
 # 05. 작업 방식과 게이트 — lane 병렬, 묶음 절차, 병합, 기능표
 
-> 작성일: 2026-11-03 · 기준: `to_rust_native` HEAD `0c52b438`, Git 영역은 병합 중인 worktree `/Users/hyunseokbyun/development/TAIDE-lanes/git`(`lane/git` HEAD `50892b59`)
+> 작성일: 2026-11-03 · 기준: `to_rust_native` HEAD `7be1ad14`
 > 정본: 운영 방식 `docs/memory/2026-10-28-native-lane-operations.md`, 영역 경계 `docs/research/2026-10-28-native-lane-seams.md`, lane 사양 `docs/research/2026-10-28-lane-*-spec.md`, lane workflow `docs/utils/2026-11-02-native-lane-workflow.js`, 병합 게이트 `docs/utils/2026-11-03-native-merge-gate.sh`, 배치 계획 `docs/quality-assurance/2026-10-10-native-remaining-batch-plan.md`
 > 코드 규칙과 보호 규칙은 04 문서, 사용자 결정은 06 문서에 있습니다.
 
@@ -8,12 +8,11 @@
 
 | 항목 | 상태 | 확인 방법 |
 | --- | --- | --- |
-| 메인 브랜치 | `to_rust_native` `0c52b438`, 작업 트리 clean | `git -C /Users/hyunseokbyun/development/TAIDE status --short`, `git log --oneline -1` |
-| 병합 끝난 lane | preview `e87b053c`, shell `4fa4beff`, terminal-agent `446964b7`, editor `fb43d2ad`, explorer-search `6dba64f9`, settings `3864e1db` | `git -C /Users/hyunseokbyun/development/TAIDE log --merges --format="%h %s"` |
-| 진행 중 | git lane: worktree 안에서 `to_rust_native`(`0c52b438`)를 `lane/git`으로 병합하는 중. 코드 충돌은 작업 트리에서 표식이 사라졌고, 기능표에 충돌 표식 3묶음이 남음 | `cat /Users/hyunseokbyun/development/TAIDE/.git/worktrees/git/MERGE_HEAD`, `git -C /Users/hyunseokbyun/development/TAIDE-lanes/git diff --name-only --diff-filter=U` |
-| 남은 wave | W2 git 병합 마무리, W3 commands-ui(배치 29, 앞 wave 진입 잔여, shell-89), W4 메인(배치 31 구조·전체 게이트), 32·33은 사용자 허락 뒤 | `sed -n 1,40p /Users/hyunseokbyun/development/TAIDE/docs/PROCESS.md` |
-| worktree | 7개가 아직 남아 있음(병합 끝난 6개 포함) | `git -C /Users/hyunseokbyun/development/TAIDE worktree list` |
-| 기능표 | 599행: complete 434, partial 59, unwired 47, missing 40, not-applicable 18, frozen 1. 기능 분모 580 중 434 완료(74.8%). Git lane 병합 전 수치 | 10절 명령 |
+| 메인 브랜치 | `to_rust_native` `7be1ad14`, 작업 트리 clean | `git -C /Users/hyunseokbyun/development/TAIDE status --short`, `git log --oneline -1` |
+| 병합 끝난 lane | preview `e87b053c`, shell `4fa4beff`, terminal-agent `446964b7`, editor `fb43d2ad`, explorer-search `6dba64f9`, settings `3864e1db`, git `f3a5b5d0` | `git -C /Users/hyunseokbyun/development/TAIDE log --merges --format="%h %s"` |
+| 남은 wave | W3 commands-ui(배치 29, 앞 wave 진입 잔여, shell-89), W4 메인(배치 31 구조·전체 게이트), 32·33은 사용자 허락 뒤 | `sed -n 1,40p /Users/hyunseokbyun/development/TAIDE/docs/PROCESS.md` |
+| worktree | 7개, 모두 병합 끝났거나 낡음 | `git -C /Users/hyunseokbyun/development/TAIDE worktree list` |
+| 기능표 | 599행: complete 500, partial 62, unwired 12, missing 5, not-applicable 19, frozen 1. 분모 579 중 500 완료(86.4%) | 10절 명령 |
 | 디스크 | 여유 573Gi(69% 사용) | `df -h /Users/hyunseokbyun/development` |
 
 ## 1. 전체 그림
@@ -28,13 +27,15 @@
 | --- | --- | --- | --- |
 | 0 | 없음(메인 직렬) | lane 경계 구조 이동, dev 프로필 debuginfo 축소, fmt 정리, target 정리 | 완료 |
 | 1 | shell · explorer-search · terminal-agent · editor · preview | 24 잔여, 25, 27, 23+30 | 병합 완료 |
-| 2 | git · settings | 26, 28 | settings 병합 완료, git 병합 중 |
+| 2 | git · settings | 26, 28 | settings·git 병합 완료 |
 | 3 | commands-ui | 29, 앞 wave에서 진입만 남은 행, shell-89 | 대기 |
 | 4 | 메인 | 31(구조·전체 게이트), 32·33은 사용자 허락 뒤 | 대기 |
 
 2026-11-02에는 빌드 한 벌이 25GB여서 W1과 W2를 합쳐 7개 lane을 동시에 돌렸습니다(`docs/PROCESS.md` W1 항목). 운영 문서의 동시 수 규칙은 `min(4, (디스크 여유 − 100GB) / 한 벌 크기)`이고 4는 CPU 18코어·메모리 128GB 기준 상한입니다. 7개를 돌릴 때는 작업자가 앱 lib 실제 App 검사를 `--test-threads=2`로 필터 실행해 부하를 줄였습니다.
 
 ### 1.3 lane 하나의 구성
+
+이 절은 Workflow 도구와 지정 모델을 쓸 수 있는 메인 오케스트레이터용입니다. 단일 에이전트는 00-README 3절 4번의 규칙을 따르십시오.
 
 | 항목 | 값 |
 | --- | --- |
@@ -66,6 +67,8 @@ cargo build --quiet --manifest-path /Users/hyunseokbyun/development/TAIDE-lanes/
 6. 디스크 여유를 확인합니다. 여유가 100GB 아래로 내려가면 lane을 늘리기 전에 정리를 제안합니다(16절).
 
 ## 3. lane workflow 실행
+
+이 절은 Workflow 도구와 지정 모델을 쓸 수 있는 메인 오케스트레이터용입니다. 단일 에이전트는 00-README 3절 4번의 규칙을 따르십시오.
 
 ### 3.1 script와 인자
 
@@ -189,13 +192,9 @@ cargo fmt --manifest-path <worktree>/native/<crate>/Cargo.toml -- --check
 
 2026-11-03 실제 진행: wave 1 다섯 lane을 차례로 병합 커밋한 뒤(`e87b053c` → `4fa4beff` → `446964b7` → `fb43d2ad` → `6dba64f9`) 게이트를 한 번 돌렸고, settings 병합(`3864e1db`)은 그 뒤 따로 게이트를 돌렸습니다. 운영 문서 원칙은 병합마다 게이트 1회입니다. 여러 lane을 묶어 병합할 때도 병합 커밋마다 5번(컴파일 확인)은 하는 것을 권장합니다. 의미 충돌은 컴파일 오류로 먼저 드러나기 때문입니다.
 
-### 8.2 다른 방식: lane worktree 안에서 메인을 병합(git lane의 현재 방식)
+### 8.2 참고: lane worktree 안에서 메인을 먼저 병합
 
-git lane은 `lane/git` worktree에서 `to_rust_native`를 병합하는 중입니다(MERGE_MSG `merge(native): to_rust_native를 git lane에 병합`, MERGE_HEAD `0c52b438`). 이 방식은 충돌 해결 동안 메인 작업 트리를 비워 둘 수 있습니다. 마무리 순서:
-
-1. worktree에서 남은 충돌(현재 기능표 3묶음)을 해결하고, 5번 컴파일 확인을 lane target으로 한 뒤 병합 커밋을 만듭니다.
-2. 메인 작업 트리에서 `git -C /Users/hyunseokbyun/development/TAIDE merge --no-ff lane/git -m "merge(native): git lane 병합"`을 실행합니다. `lane/git`이 이미 `to_rust_native`를 포함하므로 충돌 없이 끝나고, 다른 lane 병합과 같은 first-parent 이력이 됩니다(권장). `to_rust_native`가 `0c52b438`에서 움직이지 않았다면 `--ff-only`도 가능하지만 그때는 병합 커밋의 첫 부모가 `lane/git`이 됩니다.
-3. 게이트는 메인 작업 트리에서 돌립니다. 게이트 스크립트가 `ROOT=/Users/hyunseokbyun/development/TAIDE`와 메인 target을 고정해 쓰기 때문입니다.
+참고: git lane은 lane worktree에서 `to_rust_native`를 먼저 병합한 뒤 메인에서 `f3a5b5d0`으로 병합했습니다. 이 방식은 선택 사항입니다.
 
 ### 8.3 충돌 유형과 해결
 
@@ -224,9 +223,9 @@ git lane은 `lane/git` worktree에서 `to_rust_native`를 병합하는 중입니
 | `explorers.remove(project)` | `explorers.forget_project(project)` |
 
 `.next()`는 그 프로젝트의 첫 mount만 고릅니다. 호출하는 코드가 그 프로젝트의 모든 mount(주 창 slot과 보조 창)를 다뤄야 하면 `.next()` 대신 반복문으로 바꿉니다. 이 판단이 의미 충돌 해결의 핵심입니다.
-4. **`DocumentKey::Virtual`**(git lane 병합에서): git lane이 diff 화면용 가상 문서 `DocumentKey::Virtual(VirtualKey)`를 추가했습니다(`native/taide-native-editor/src/document.rs`, git worktree 기준). 두 종류의 영향이 있습니다.
+4. **`DocumentKey::Virtual`**(git lane 병합에서): git lane이 diff 화면용 가상 문서 `DocumentKey::Virtual(VirtualKey)`를 추가했습니다(`native/taide-native-editor/src/document.rs`). 두 종류의 영향이 있습니다.
     - 완전한 `match`는 컴파일 오류로 드러납니다. 비슷한 위치의 git lane 처리(예: `persistence.rs` `DocumentKey::Virtual(_) => return Ok(false)`, `ide-sync.rs` `=> None`)를 보고 같은 의미의 arm을 넣습니다.
-    - `matches!(snapshot.key, DocumentKey::AppFile(_))` 같은 부정 검사는 컴파일되지만 가상 문서를 내장 언어 서비스·선택 범위·문제 목록에 흘려보냅니다. 다른 lane이 새로 만든 파일까지 찾아 `DocumentKey::AppFile(_) | DocumentKey::Virtual(_)`로 넓힙니다. 검색: `rg -n "DocumentKey::AppFile\(_\)" /Users/hyunseokbyun/development/TAIDE-lanes/git/native`. 현재 worktree에서는 `editor-css.rs` 36, `editor-html.rs` 56, `editor-selection-ranges.rs` 162, `editor-problems.rs` 387이 이미 넓혀져 있습니다. git lane QA(`2026-11-02-native-lane-git-g5-diff.md`)도 `.json` diff 본문의 JSON 서비스 오류 toast를 가상 문서 제외로 고친 사례를 적었습니다.
+    - `matches!(snapshot.key, DocumentKey::AppFile(_))` 같은 부정 검사는 컴파일되지만 가상 문서를 내장 언어 서비스·선택 범위·문제 목록에 흘려보냅니다. 다른 lane이 새로 만든 파일까지 찾아 `DocumentKey::AppFile(_) | DocumentKey::Virtual(_)`로 넓힙니다. 검색: `rg -n "DocumentKey::AppFile\(_\)" /Users/hyunseokbyun/development/TAIDE/native`. 메인에서 `editor-css.rs` 36, `editor-html.rs` 56, `editor-selection-ranges.rs` 162, `editor-problems.rs` 387이 이미 넓혀져 있습니다. git lane QA(`2026-11-02-native-lane-git-g5-diff.md`)도 `.json` diff 본문의 JSON 서비스 오류 toast를 가상 문서 제외로 고친 사례를 적었습니다.
 
 일반 요령: 한 lane이 공용 타입(enum 변형 추가, 필드 타입 교체, 컬렉션 키 변경)을 바꿨으면 병합 직후 그 타입의 모든 사용처를 `rg`로 찾아 다른 lane이 새로 만든 사용처를 확인합니다. 병합 커밋 메시지나 PROCESS에 "의미 충돌 N종(이름)"으로 적습니다.
 
@@ -246,13 +245,7 @@ git lane은 `lane/git` worktree에서 `to_rust_native`를 병합하는 중입니
 
 모든 명령이 `--locked --offline --target-dir /Users/hyunseokbyun/development/TAIDE/experiments/native-shell-spike/target`(메인 target)을 씁니다.
 
-**실행 전 반드시 확인(휴지통 보호)**: 이 스크립트는 앱 crate를 `--skip` 없이 실행하므로 실제 휴지통을 쓰는 검사 3개(04 문서 2절)가 포함됩니다. 2026-10-10 배치 게이트는 세 검사를 `--skip`으로 뺐습니다. 스크립트를 그대로 쓰지 말고, 앱 단계 줄의 `--test-threads=4` 뒤에 아래 세 인자를 붙인 사본을 쓰거나 스크립트 수정을 사용자에게 제안합니다(스크립트 변경은 `docs/utils` 커밋 대상).
-
-```
---skip remote_files::tests::실제_파일14명령과_raw는_plugin_overlay_저장_복사_이동_삭제_mirror를_보존한다 --skip 실제_탐색기_삭제는_확정한_dirty를_회수하고_선택프로젝트만_닫으며_공유초안을_보존한다 --skip 실제_workspace_delete는_dirty_mirror_root를_거절하고_모든_프로젝트_tab과_document를_회수한다
-```
-
-2026-11-03 게이트 두 번은 이 `--skip` 없이 실행됐습니다. 사용자 휴지통에 `delete-synthetic.txt` 같은 합성 파일이 들어갔을 수 있어 사용자 보고 대상입니다(휴지통 자체는 건드리지 않음).
+스크립트는 34fb88d7부터 앱의 휴지통 검사 3개를 `--skip`합니다(`TRASH_TESTS` 배열). 2026-11-03 게이트 세 번은 `--skip` 없이 실행돼 사용자 휴지통에 합성 파일이 들어갔을 수 있습니다(`docs/feedback/2026-11-04-merge-gate-trash-tests.md`, 사용자 보고 대상).
 
 ### 9.2 공용 crate를 바꾼 병합의 추가 검사
 
@@ -262,6 +255,8 @@ lane이 `crates/taide-*`(Tauri 앱과 공유)를 바꿨으면(`git -C /Users/hyu
 cargo test --manifest-path /Users/hyunseokbyun/development/TAIDE/Cargo.toml -p <바뀐 공용 crate> --locked --offline --no-fail-fast
 cargo check --manifest-path /Users/hyunseokbyun/development/TAIDE/Cargo.toml --workspace --locked --offline
 ```
+
+경고: `-p taide-git`은 `crates/taide-git/src/service.rs`의 휴지통 검사 3개(2535·2545·2563행)를 실행합니다. 이 명령은 `--skip` 없이 쓰면 안 됩니다. 이름은 00-README 1절 2번에 있습니다.
 
 ### 9.3 결과 판정
 
@@ -331,15 +326,15 @@ grep -cE '^\| shell-[0-9]+ +\|(\\\||[^|])*\|(\\\||[^|])*\| +partial +\|' M
 
 - 첫 줄은 전체 행 수(현재 599), 둘째 줄은 상태별, 셋째 줄은 영역(`shell`, `editor`, `terminal-agent`, `explorer-search`, `preview`, `git`, `settings`, `commands-ui`)·상태별입니다. 상태는 `complete`, `partial`, `unwired`, `missing`, `not-applicable`, `frozen`.
 - 요구사항 칸 안의 이스케이프된 파이프(`\|`, 예: `git-61`)를 열 구분자로 잘못 세지 않도록 `(\\\||[^|])*` 패턴을 씁니다. 단순 `[^|]*`로 세면 `git-61` 한 행이 빠집니다.
-- 여섯 상태의 합이 전체 행 수와 같아야 합니다. 기능 분모 = 전체 − not-applicable − frozen(현재 599 − 18 − 1 = 580).
-- 2026-11-03 `0c52b438` 직접 집계: complete 434, partial 59, unwired 47, missing 40, not-applicable 18, frozen 1.
+- 여섯 상태의 합이 전체 행 수와 같아야 합니다. 기능 분모 = 전체 − not-applicable − frozen(현재 599 − 19 − 1 = 579).
+- 2026-11-04 `7be1ad14` 직접 집계: complete 500, partial 62, unwired 12, missing 5, not-applicable 19, frozen 1.
 
 ### 10.4 기능표 행 충돌 해결
 
 병합에서 같은 행이 양쪽에서 바뀌면 아래 순서로 한 행을 만듭니다.
 
 1. 그 ID의 소유 lane을 06 문서 5절(중복 범위 소유)로 확인합니다.
-2. 한쪽이 소유 lane의 구현 근거 행이고 다른 쪽이 비소유 lane이 남긴 "다른 lane 소관" 자리표시 행이면 소유 lane 행을 택합니다. 실제 예(2026-11-03 관찰한 git worktree 기능표 404-413줄의 충돌 묶음. 다른 작업자가 해결 중이라 줄 번호는 바뀔 수 있음. ours = `lane/git`, theirs = `to_rust_native`): `explorer-search-22`·`23`은 ours(git lane)가 complete + 실제 App 근거, theirs(explorer-search lane)가 "결정 D3 A: git lane이 구현" missing이므로 ours를 택합니다.
+2. 한쪽이 소유 lane의 구현 근거 행이고 다른 쪽이 비소유 lane이 남긴 "다른 lane 소관" 자리표시 행이면 소유 lane 행을 택합니다. 실제 예(2026-11-03 git lane 병합에서 해결한 충돌, 근거 `2026-11-03-native-git-lane-merge.md` 5절. ours = `lane/git`, theirs = `to_rust_native`): `explorer-search-22`·`23`은 ours(git lane)가 complete + 실제 App 근거, theirs(explorer-search lane)가 "결정 D3 A: git lane이 구현" missing이므로 ours를 택합니다.
 3. 양쪽이 서로 다른 일부를 구현했으면 근거를 합치고, 남은 것은 양쪽 "남은 것"의 교집합으로 다시 씁니다. 남은 것이 없어지면 complete, 남으면 partial입니다. 실제 예(같은 파일 182-186줄): `shell-89`는 ours가 diff·commit diff·claudeDiff 본문 연결(남은 것: searchEditor, ClaudeDiff revert 화살표), theirs가 searchEditor 본문 연결(남은 것: diff 계열)이므로 합치면 남은 것은 ClaudeDiff revert 화살표(git-50)뿐이고 판정은 그 근거를 확인해 정합니다.
 4. "근거 묶음" 열 값은 상단 "현재 근거 지도" 표에 있는 묶음 이름이어야 합니다.
 5. 표식 제거 뒤 10.3절 명령으로 전체 행 수가 바뀌지 않았는지(새 행을 의도적으로 추가한 경우 제외), `grep -c "^| <ID> "`가 1인지 확인합니다.
@@ -433,16 +428,14 @@ ID별 남은 동작, 병합 뒤 연결할 것, 허락 대기, 테스트 부채(�
 | dev 프로필 | 각 native crate `Cargo.toml`에 `[profile.dev] debug = "line-tables-only"`, `[profile.dev.package."*"] debug = false`(`72065136`) |
 | 확인 | 전체 테스트 대상을 빌드하기 전과 병합 뒤 `df -h /Users/hyunseokbyun/development`. 여유 100GB 미만이면 빌드를 늘리기 전에 정리를 제안 |
 | 메인 target 정리 | `cargo clean --manifest-path /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/Cargo.toml --target-dir /Users/hyunseokbyun/development/TAIDE/experiments/native-shell-spike/target --profile dev`(`debug`만 지워 번들 보존). 정리 뒤 첫 앱 검사 전에 `native-lsp-mock`을 다시 빌드 |
-| lane 정리(병합·push 뒤) | `git -C /Users/hyunseokbyun/development/TAIDE worktree remove /Users/hyunseokbyun/development/TAIDE-lanes/<lane>` → `git -C /Users/hyunseokbyun/development/TAIDE branch -d lane/<lane>` → `cargo clean --manifest-path /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/Cargo.toml --target-dir /Users/hyunseokbyun/development/TAIDE-lanes/targets/<lane>` |
+| lane 정리(병합·push 뒤, 사용자 확인 후) | `git -C /Users/hyunseokbyun/development/TAIDE worktree remove /Users/hyunseokbyun/development/TAIDE-lanes/<lane>` → `git -C /Users/hyunseokbyun/development/TAIDE branch -d lane/<lane>` → `cargo clean --manifest-path /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/Cargo.toml --target-dir /Users/hyunseokbyun/development/TAIDE-lanes/targets/<lane>` |
 | 금지 | `rm -rf`(자동 모드가 거부). `cargo clean *`은 사용자가 허용 규칙을 추가해 둠 |
 | 루트 Tauri target | 루트 `target/`는 별도. 2026-10-07에 457GB까지 누적된 적이 있음(`docs/feedback/2026-10-07-build-cache-disk-usage.md`) |
 
-현재 병합이 끝난 lane 6개의 worktree·target이 아직 남아 있습니다. git lane 병합·push가 끝난 뒤 함께 정리하면 lane당 약 25GB를 회수합니다.
+lane 7개 모두 병합이 끝났고 worktree·target이 남아 있습니다. 회수(약 25GB × 7)는 사용자 확인 후에 합니다.
 
 ## 17. 남은 순서(참고)
 
-1. git lane 병합 마무리(8.2절) → 게이트(휴지통 `--skip` 포함) → PROCESS·push.
-2. 병합 뒤 연결: git-38 → explorer-search-7 Git 장식 공급, git-7 → shell `notify_event`(PROCESS W1 항목의 "병합 뒤 연결").
-3. 기능표 상단 합계 갱신(10.3절).
-4. wave 3: commands-ui 사양 보충 절(결정 9 A) → commands-ui lane.
-5. wave 4: 배치 31 구조 정리·전체 게이트(편집기 장애 경계 설계 포함, `docs/PROCESS.md` 단계 E2의 shell-12 보류). 배치 32·33과 허락 대기 항목은 06 문서 9·10절.
+1. 기능표 상단 합계 갱신(10.3절).
+2. wave 3: commands-ui 사양 보충 절(결정 9 A) → commands-ui lane.
+3. wave 4: 배치 31 구조 정리·전체 게이트(편집기 장애 경계 설계 포함, `docs/PROCESS.md` 단계 E2의 shell-12 보류). 배치 32·33과 허락 대기 항목은 06 문서 9·10절.

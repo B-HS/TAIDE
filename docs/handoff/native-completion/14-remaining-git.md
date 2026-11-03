@@ -1,8 +1,8 @@
 # 14. 남은 작업: git 영역
 
 > 작성일 2026-11-04(2026-11-03판을 실제 파일로 다시 대조해 갱신) · 대상 영역 `git`(Source Control 패널, diff 탭·커밋 diff·Claude diff, 파일 이력, blame·gutter·충돌, 탐색기 Git 장식 공급, Sync 알림)
-> 기준 코드: Git 코드·QA·기능표는 worktree `/Users/hyunseokbyun/development/TAIDE-lanes/git`(브랜치 `lane/git`, HEAD `50892b59` "docs(native): git lane 검증 기록과 기능표 갱신")를 읽었습니다. 이 worktree는 `to_rust_native`(HEAD `0c52b438`)를 `lane/git`으로 받아들이는 병합 중입니다(`/Users/hyunseokbyun/development/TAIDE/.git/worktrees/git/MERGE_HEAD` = `0c52b438340cff56285fa8b4fc75eee76b4e5fd6`). 다른 작업자가 충돌을 해결하고 있으며 미커밋 변경이 계속 바뀝니다(0.3절). 메인 저장소 `/Users/hyunseokbyun/development/TAIDE`(브랜치 `to_rust_native`)에는 git lane이 아직 병합되지 않았습니다(메인에는 `native/taide-native-app/src/git-cache.rs`가 없고 `title-branch.rs`가 남아 있음).
-> 이 문서는 정적 읽기로 작성했습니다. cargo·앱 실행은 하지 않았습니다. 줄 번호는 작성 시점 값입니다. 병합으로 계속 바뀌므로 항상 심볼 이름으로 다시 찾으십시오.
+> 기준: `to_rust_native` `7be1ad14`(git lane 병합 `f3a5b5d0` 포함). 이 문서의 `APP/`·`UI/`·`ED/`는 메인 저장소 경로입니다. cargo·앱 실행은 하지 않았습니다. 줄 번호는 `domains/git.rs` 기준 2026-11-04 값이며 심볼로 다시 찾으십시오.
+> 이 문서는 정적 읽기로 작성했습니다. cargo·앱 실행은 하지 않았습니다. 줄 번호는 작성 시점 값입니다. 항상 심볼 이름으로 다시 찾으십시오.
 
 ---
 
@@ -12,7 +12,6 @@
 
 | 표기 | 뜻 |
 | --- | --- |
-| `LANE/` | `/Users/hyunseokbyun/development/TAIDE-lanes/git/` (병합 뒤에는 메인 저장소의 같은 상대 경로) |
 | `APP/` | `native/taide-native-app/src/` |
 | `UI/` | `native/taide-native-ui/src/` |
 | `ED/` | `native/taide-native-editor/src/` |
@@ -27,9 +26,9 @@
 
 | 문서 | 쓰임 |
 | --- | --- |
-| `LANE/docs/quality-assurance/2026-10-09-native-function-matrix.md` 478-542줄(`git-1`~`git-65`) | 행 상태의 단일 출처. git 표 머리(476-477줄)의 열은 `| ID | 요구사항 | TS 근거 | 현재 판정 | 근거 묶음 | 범위/잔여 동작 |` 6개입니다 |
-| `LANE/docs/research/2026-10-28-lane-git-spec.md` | git lane 사양(2.0 공통 설계, ID별 사양, 4.1 결정). 이후 코드는 사양과 다른 부분이 있고 실제 코드가 우선합니다(각 QA 문서의 "사양과 실제 코드 차이" 절) |
-| `LANE/docs/quality-assurance/2026-11-02-native-lane-git-g1-base.md` ~ `g8-blame-conflicts.md`(8개) | 묶음 G1~G8의 구현·검증·남은 범위·리뷰 수정 기록 |
+| `docs/quality-assurance/2026-10-09-native-function-matrix.md` 478-542줄(`git-1`~`git-65`) | 행 상태의 단일 출처. git 표 머리(476-477줄)의 열은 `| ID | 요구사항 | TS 근거 | 현재 판정 | 근거 묶음 | 범위/잔여 동작 |` 6개입니다 |
+| `docs/research/2026-10-28-lane-git-spec.md` | git lane 사양(2.0 공통 설계, ID별 사양, 4.1 결정). 이후 코드는 사양과 다른 부분이 있고 실제 코드가 우선합니다(각 QA 문서의 "사양과 실제 코드 차이" 절) |
+| `docs/quality-assurance/2026-11-02-native-lane-git-g1-base.md` ~ `g8-blame-conflicts.md`(8개) | 묶음 G1~G8의 구현·검증·남은 범위·리뷰 수정 기록 |
 | `docs/acknowledge/2026-10-28-native-lane-spec-decisions.md` | 7개 lane 사양의 4.1 결정은 모두 추천안 채택, OS 알림 진입점은 shell lane `notify_event` 하나, 탐색기 Git 장식은 D1 A(파생·렌더·주입점 explorer-search, 공급 git), git 검사의 git CLI 전역 설정 읽기 허용 |
 | `docs/acknowledge/2026-10-26-native-autonomous-continuation.md` | "결정사항은 큰 변경사항 아니면 다 권장사항대로", 허락이 필요한 것은 보류 |
 | `docs/memory/2026-10-28-native-lane-operations.md` | lane 운영(영역 소유, 공용 파일은 영역 블록 끝에 추가만, 병합 게이트) |
@@ -38,7 +37,7 @@
 | `docs/utils/2026-11-03-native-merge-gate.sh` | 병합 게이트 명령 |
 | `docs/utils/2026-11-02-native-lane-workflow.js` `BACKGROUND`·`RULES`·`DONE` 문자열 | lane 작업자 공통 규칙(셸·git·금지 사항·주석·매직넘버·검증 문서) |
 
-git 사양 4.1 결정(모두 A 채택, `LANE/docs/research/2026-10-28-lane-git-spec.md` 717-725줄)은 이 문서 전체에서 다음 이름으로 부릅니다.
+git 사양 4.1 결정(모두 A 채택, `docs/research/2026-10-28-lane-git-spec.md` 717-725줄)은 이 문서 전체에서 다음 이름으로 부릅니다.
 
 | 결정 | 채택 내용 |
 | --- | --- |
@@ -48,29 +47,9 @@ git 사양 4.1 결정(모두 A 채택, `LANE/docs/research/2026-10-28-lane-git-s
 | 결정 6 A | showMoves는 monaco `computeMovedLines` 규칙을 libgit2 hunk 위에 이식 |
 | 결정 7 A | diff 줄 계산은 libgit2 hunk(`taide_git::service::diff_hunks`)로, stage 백엔드와 같은 경계 |
 
-### 0.3 지금 바뀌고 있는 것 (병합 진행 중) — 꼭 먼저 확인
+### 0.3 git lane 병합 결과 (`f3a5b5d0`)
 
-작성 시점 `git -C LANE status --short`에 `UU`(충돌 미해결) 파일이 있고(예: 기능표, `application-explorer-views-tests.rs`, `command-dispatch.rs`, `domains/explorer_search.rs`, `explorer.rs`, `navigation-icons.rs`, `shell_keymap.rs`, UI `command-registry.rs`), 병합 작업자가 git 영역 파일을 미커밋(` M`)으로 고치고 있습니다. `git -C LANE diff`로 확인한 git 관련 미커밋 변경은 다음과 같습니다. 이 문서의 "병합 결과 확인 필요"는 이 변경을 말합니다.
-
-| 변경 | 파일·심볼 | 관련 행 |
-| --- | --- | --- |
-| pull/push OS 알림 연결 | `APP/domains/git.rs` 상수 `GIT_PULL_NOTIFICATION`·`GIT_PUSH_NOTIFICATION`(35-42줄), 메서드 `notify_git_remote`(1513-1544줄 부근), `apply_git_reply`의 `MutationOp::Pull`·`Push` 분기 첫 줄 호출 | git-7 |
-| 알림 App 검사 | `APP/application-git-header-tests.rs` `실제_app_sync의_pull과_push는_성공과_실패를_프로젝트_제목의_os_알림으로_보낸다`(575줄, 파일 수정 시각 2026-11-04 01:12), helper `commit_ahead`(210줄). `APP/domains/shell.rs` 끝 `pub(in crate::application) mod notifications_tests;`, `APP/application-notifications-tests.rs`의 `FakePlatform`·`FakePlatform::sent`·`launch_with_platform`이 `pub(in crate::application)` | git-7 |
-| 탐색기 장식 공급 | `APP/domains/git.rs` `tick_git_cache` 안 `explorer_search_state.git_decorations.mounted_projects()` 반복 → `cache.observe(.., Key::Status, now)` → `git_decorations.set(.., status_result(..).and_then(Result::ok))`(2631-2644줄) | git-38 |
-| 제목줄 branch를 캐시로 이동 | `APP/title-branch.rs`·`title-branch-tests.rs` 삭제(staged `D`), `State`의 `title_branch_changes`·`title_branches` 필드 삭제, `HostCommand::Git(Command::GitBranch)`·`Reply::GitBranch` 삭제, 새 `State::title_branch(&ProjectId) -> Option<&str>`(299-304줄), `tick_git_title_branches`가 `Key::Status`를 관찰(2509-2529줄), `application.rs`의 `PaintSink.title_branches`·`AppSurfaces.title_branches` 삭제 | git-38(사양 2.0.3) |
-| 장식 App 검사 | `APP/application-git-base-tests.rs` `실제_app_탐색기_git_장식은_git_cache_status로_파일_배지와_상위_폴더를_그리고_git_변경_뒤_갱신한다`(637줄) | git-38 |
-| IDE diff 수신함 이전 | `APP/provider-events.rs` `Event::IdeDiff(crate::git_claude_diff::Event)`와 `Inbox::record`의 `IdeDiffRequested`·`IdeCloseTabRequested { request_id: Some }` arm, 단위 검사 `provider_inbox는_ide_diff_요청과_요청_id가_있는_close_tab만_기록한다`; `APP/domains/shell.rs` `consume_provider_events`의 `Event::IdeDiff(event) => self.accept_claude_diff_event(event)`(1161줄); `APP/domains/git.rs` `accept_claude_diff_event`(2263줄, 옛 `consume_ide_diff_events` 본문을 이벤트 하나 단위로); `APP/git-cache.rs` `Changes.ide` 삭제; `APP/git-claude-diff.rs` `Inbox` 삭제; `tick_claude_diffs` 첫 줄의 `consume_ide_diff_events` 호출 삭제 | git-49 |
-| 탐색기 비교 탭 target | `domains::git::compare_tab(project, source, path, target: Option<PaneId>)`(1185줄), `application-git-diff-tests.rs`의 비교 메뉴 검사가 `explorers.of_project(..)`로 바뀜 | explorer-search-22(본문 git-45) |
-| CSS·HTML diff 가상 문서 검사 | `APP/application-git-diff-tests.rs` `실제_app_css와_html_파일_diff_탭의_가상_문서는_내장_구조_서비스_대상이_아니고_오류_toast가_없다`(상수 `MARKUP_DIFFS`) | 4절 함정 7 |
-| shell lane `LayoutActions` 필드 추가 반영 | `APP/application-git-claude-history-tests.rs` `ide_tool`의 `crate::ide_tools::LayoutActions { .., wait_markers: Arc::default(), .. }` | git-49~52 검사 |
-| 기능표 행 | lane worktree 기능표의 shell-89 행이 이미 "2026-11-03 git lane 병합으로 네 본문이 모두 탭 분기에 연결" 문구와 병합 문서 `2026-11-03-native-git-lane-merge.md`를 참조합니다. 그 QA 파일은 작성 시점에 lane·메인 어디에도 없습니다(`ls docs/quality-assurance | grep merge` 결과 없음) | shell-89 |
-
-구현을 시작하기 전에 다음 순서로 병합 결과를 확인하십시오.
-
-1. `git -C /Users/hyunseokbyun/development/TAIDE log --oneline -5` — `merge(native): git lane 병합` 같은 커밋이 있는지 봅니다. 없으면 아직 병합 전이고, 이 문서의 경로는 `LANE/`에서만 맞습니다.
-2. `grep -n "fn notify_git_remote\|fn accept_claude_diff_event\|git_decorations.set\|fn title_branch" /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/src/domains/git.rs` — 네 심볼이 모두 나오면 병합 결과가 이 절과 같습니다.
-3. `grep -n "^| git-" /Users/hyunseokbyun/development/TAIDE/docs/quality-assurance/2026-10-09-native-function-matrix.md` — 메인 기능표의 git 행이 lane 값(대부분 complete)으로 바뀌었는지 봅니다. 작성 시점 메인 기능표는 lane 작업 전 값(예: `git-1 | ... | missing`)입니다.
-4. `ls /Users/hyunseokbyun/development/TAIDE/docs/quality-assurance/ | grep git-lane-merge` — shell-89 비고가 가리키는 병합 문서가 생겼는지 봅니다.
+git lane 병합은 `f3a5b5d0`으로 완료됐습니다. 연결 결과: git-7은 `notify_git_remote`(`domains/git.rs` 1515줄)로 `notify_event`를 호출합니다. git-38은 `tick_git_cache`의 `git_decorations.set`(2632~2636줄)입니다. git-49는 `provider_events::Inbox`의 `Event::IdeDiff` → `domains/shell.rs` 1161줄 → `accept_claude_diff_event`(2262줄)입니다. 제목줄 branch는 `State::title_branch`(301줄)이고 `title-branch.rs`는 삭제됐습니다. 근거는 `docs/quality-assurance/2026-11-03-native-git-lane-merge.md`입니다.
 
 ### 0.4 egui 0.36·Rust 2024 최소 지식 (이 영역 코드에서 쓰는 형태)
 
@@ -92,32 +71,30 @@ git 사양 4.1 결정(모두 A 채택, `LANE/docs/research/2026-10-28-lane-git-s
 기능표 git 65행의 현재 판정을 직접 셌습니다. 사용한 명령(4열 = 현재 판정):
 
 ```
-awk -F'|' 'NR>=478 && NR<=542 {gsub(/^ +| +$/,"",$2); gsub(/^ +| +$/,"",$5); print $2" => "$5}' /Users/hyunseokbyun/development/TAIDE-lanes/git/docs/quality-assurance/2026-10-09-native-function-matrix.md
+awk -F'|' 'NR>=478 && NR<=542 {gsub(/^ +| +$/,"",$2); gsub(/^ +| +$/,"",$5); print $2" => "$5}' /Users/hyunseokbyun/development/TAIDE/docs/quality-assurance/2026-10-09-native-function-matrix.md
 ```
 
 git-61은 요구사항 문구에 `\|`가 있어 이 명령으로는 열이 밀립니다(4절 함정 14). `sed -n 538p`로 따로 읽어 complete를 확인했습니다.
 
 | 상태 | 수 | ID |
 | --- | --: | --- |
-| complete | 58 | 1~6, 8~14, 16~37, 39, 41, 43~49, 51, 53~65 |
-| partial | 6 | 7, 38, 40, 42, 50, 52 |
+| complete | 60(`git-61` 포함) | 1~14, 16~39, 41, 43~49, 51, 53~65 |
+| partial | 4 | 40, 42, 50, 52 |
 | unwired | 0 | 없음 |
 | missing | 0 | 없음 |
 | not-applicable | 1 | 15 (결정 1 A) |
 | frozen | 0 | 없음 |
 
-이 문서가 다루는 행은 partial 6행입니다. 추가로 complete인 git-49는 병합 때 수신 경로를 옮겨야 해서 3.7절에서 확인 절차를 적습니다.
+이 문서가 다루는 행은 partial 4행입니다.
 
 | ID | 기능 | 상태 | 기능표 줄 | 남은 범위(기능표 비고 요약) | 처리 |
 | --- | --- | --- | --: | --- | --- |
-| git-7 | Sync 버튼(pull 성공 후 push, 진행 스피너, 오류 toast) | partial | 484 | pull/push OS 알림 4종 | 병합 작업자 처리 중 → 병합 결과 확인 필요(3.1) |
-| git-38 | 탐색기 파일 트리 Git 데코레이션 | partial | 515 | 탐색기 표시 프로젝트를 git 캐시에 관찰시키는 공급 연결과 장식 검사 회귀 | 병합 작업자 처리 중 → 병합 결과 확인 필요(3.2) |
 | git-40 | Diff 렌더 | partial | 517 | 문자 단위 강조, ± 표시, diff overview ruler, inline 삭제 줄 구문 색, inline 원본·수정 두 줄 번호 열 | 구현 필요(3.3) |
 | git-42 | `editorDiffHideUnchangedRegions`/`editorDiffShowMoves` 반영 | partial | 519 | showMoves, 가장자리 끌기, 다시 접기 glyph, 가장자리 hover 강조, 막대 outline breadcrumb, diff 재계산 때 펼침 상태 | 구현 필요, 기능표에 없는 확인된 결함 1건 포함(3.4) |
 | git-50 | ClaudeDiffPane 렌더 | partial | 527 | 수정 쪽 revert 화살표(결정 4 A)와 git-40 공통 장식 | 구현 필요(3.5) |
 | git-52 | 탭 닫힘/다른 창 이동 시 암묵적 reject 구분 | partial | 529 | 보조 창 이동 뒤 응답 없음·보조 창 Accept 실제 App 검사 | 검사 추가(3.6) |
 
-주의: 기능표 머리의 영역 요약표(`LANE/...function-matrix.md` 18줄 `| git | 65 | 1 | 1 | 34 | 29 | 0 | 0 |`)는 lane 작업 전 값이라 행 판정과 맞지 않습니다. lane workflow `DONE` 규칙이 "상단 합계 표는 건드리지 않습니다"라서 생긴 차이입니다. 병합 뒤 메인이 행을 다시 세어 요약표를 갱신해야 합니다(5절).
+주의: 기능표 머리의 영역 요약표(기능표 18줄 `| git | 65 | 1 | 1 | 34 | 29 | 0 | 0 |`)는 갱신되지 않았으므로 행으로 셉니다.
 
 ### 1.2 현재 구현 위치
 
@@ -155,7 +132,7 @@ git 행을 닫으면 함께 갱신할 다른 영역 행(lane 기능표 기준 �
 
 ### 1.4 권장 구현 순서
 
-1. **병합 결과 확인(git-7, git-38, git-49)** — 병합 작업자가 끝낸 뒤 0.3절 확인 명령, 3.1·3.2·3.7절 확인 목록, 병합 게이트를 돌립니다. 이 셋은 코드가 이미 쓰여 있어 검증과 기능표 갱신만 남는 것이 정상입니다.
+1. **git-7, git-38, git-49는 complete** — 작업 없음(0.3절, 3.1·3.2·3.7절). 번호는 아래 단계 참조를 위해 유지합니다.
 2. **git-52(검사만)** — 코드 변경 없이 App 검사 1개를 추가합니다. 실패하면 그때 원인을 고칩니다. 다른 작업과 독립이라 먼저 끝내 행을 닫습니다.
 3. **git-42의 확인된 결함과 펼침 상태 규칙** — 3.4.1(전체 파일 영역 판정 누락)과 3.4.2(내용이 바뀌면 펼침 초기화)는 `UI/diff-view.rs` 안의 작은 수정입니다. 이후 작업이 diff 위젯을 크게 바꾸기 전에 고칩니다.
 4. **git-40 기반: 문자 단위 내부 변경 계산 이식**(3.3.1) — monaco `refineDiff`를 `taide-native-editor`에 옮기고 원본 oracle로 검증합니다. git-40 문자 강조, inline 삭제 줄의 문자 삭제 강조, hunk 안 정렬, git-50 선택 영역 revert, git-42 이동 블록의 "with changes" 판정이 모두 이 결과를 씁니다.
@@ -170,11 +147,11 @@ git 행을 닫으면 함께 갱신할 다른 영역 행(lane 기능표 기준 �
 
 ### 2.1 상태가 있는 곳
 
-`NativeApplication.git_state: domains::git::State`(`APP/domains/git.rs` 280-297줄) 하나에 영역 상태가 모여 있습니다. 병합 미커밋 상태 기준 필드:
+`NativeApplication.git_state: domains::git::State`(`APP/domains/git.rs` 280-297줄) 하나에 영역 상태가 모여 있습니다. 병합 후 필드:
 
 | 필드 | 타입 | 내용 |
 | --- | --- | --- |
-| `cache_changes` | `Arc<git_cache::Changes>` | 이벤트 sink(`PaintSink`)가 다른 스레드에서 기록하는 무효화 입력. lane 커밋 `50892b59`에는 `ide: git_claude_diff::Inbox` 필드도 있었고 병합 미커밋에서 삭제됨 |
+| `cache_changes` | `Arc<git_cache::Changes>` | 이벤트 sink(`PaintSink`)가 다른 스레드에서 기록하는 무효화 입력. ide 수신함은 `provider_events::Inbox`로 이전됨 |
 | `cache` | `GitCache<Key, Value>` | 프로젝트별 조회 캐시(status, log, diff, 파일, blame 등) |
 | `panels` | `git_scm::Panels` | slot별 SCM 패널 로컬 상태(접힘, 선택, 그래프 높이, 태그 대화상자) |
 | `appearance`, `diff_appearance`, `claude_appearance`, `history_appearance` | `Option<..Appearance>` | 테마 토큰에서 만든 색 묶음. `tick_git_cache`에서 필요할 때 다시 만듦 |
@@ -186,7 +163,7 @@ git 행을 닫으면 함께 갱신할 다른 영역 행(lane 기능표 기준 �
 | `histories` | `git_history::Panels` | 창별 파일 이력 dialog |
 | `editors` | `git_gutter::Editors` | 편집기 gutter·blame·충돌 상태 |
 
-lane 커밋 `50892b59`에는 `title_branch_changes: Arc<title_branch::Changes>`·`title_branches: title_branch::Branches`가 더 있었고, 병합 미커밋에서 `APP/title-branch.rs`와 함께 삭제되어 `State::title_branch(&ProjectId) -> Option<&str>`(캐시 status의 `branch`, 오류면 `None`)로 바뀌었습니다.
+`title_branch_changes`·`title_branches` 필드와 `APP/title-branch.rs`는 삭제되어 `State::title_branch(&ProjectId) -> Option<&str>`(캐시 status의 `branch`, 오류면 `None`)로 바뀌었습니다.
 
 다른 영역 상태 중 git이 읽거나 쓰는 것: `explorer_search_state.git_decorations`(git-38 공급, 쓰기는 `set` 메서드로만), `store: EditorStore`(diff 가상 문서), `editor_syntax`(가상 문서 토큰), `services.state.settings`(`editor_diff_hide_unchanged_regions`, `editor_diff_show_moves`, `ide_auto_open_diff`, 알림 설정), `services.state.layouts`(ClaudeDiff 탭이 남은 창 트리), `shell_state.auxiliary_windows`(창 목록).
 
@@ -205,8 +182,8 @@ lane 커밋 `50892b59`에는 `title_branch_changes: Arc<title_branch::Changes>`�
 | 단계 | 함수(작성 시점 위치) | git 관련 동작 |
 | --- | --- | --- |
 | `logic` | `NativeApplication::background_tick`(`APP/application.rs` 1085줄) | host 응답 `poll` → `apply_git_reply` |
-| | 같은 함수 안 `consume_provider_events`(1115줄 호출, 정의 `APP/domains/shell.rs` 1112줄) | 병합 뒤: IDE diff 요청·close-tab 알림 → `accept_claude_diff_event` |
-| | 같은 함수의 `if self.closing.is_none() && !self.is_exit_ready && !self.services.state.is_shutting_down()` 블록 끝 `tick_git_title_branches`(1337줄) → `tick_git_cache` → `tick_claude_diffs` | 무효화 소비, 닫힌 프로젝트 정리, 외형 갱신, 숨은 diff 문서 해제, ClaudeDiff 재계산 요청, 병합 뒤 탐색기 장식 공급, 캐시 요청 제출 |
+| | 같은 함수 안 `consume_provider_events`(1115줄 호출, 정의 `APP/domains/shell.rs` 1112줄) | 병합 완료: IDE diff 요청·close-tab 알림 → `accept_claude_diff_event` |
+| | 같은 함수의 `if self.closing.is_none() && !self.is_exit_ready && !self.services.state.is_shutting_down()` 블록 끝 `tick_git_title_branches`(1337줄) → `tick_git_cache` → `tick_claude_diffs` | 무효화 소비, 닫힌 프로젝트 정리, 외형 갱신, 숨은 diff 문서 해제, ClaudeDiff 재계산 요청, 탐색기 장식 공급(병합 완료), 캐시 요청 제출 |
 | `ui` | `NativeApplication::frame_ui`(1397줄) | 앞부분 `tick_explorer_search_clipboards(&snapshot)`(1412줄)가 `git_decorations.mount(..)`(이번 프레임에 Files 보기로 보이는 프로젝트, `domains/explorer_search.rs` 1164-1165줄) |
 | | 셸 그리기 → 탭 내용 `APP/domains/editor.rs` `tab_content`의 `match &tab.kind { .. Diff => show_diff_tab(5405줄), ClaudeDiff => show_claude_diff_tab(5409줄) .. }` | diff 표면 그리기, intent 수집 |
 | | intent 루프 → `apply_git_intent` | 관찰·명령 제출 |
@@ -369,7 +346,7 @@ fn 실제_app_ide_open_diff는_claude_diff_탭을_열고_수정_쪽_편집_뒤_a
 
 보조 창 도구(`APP/application-auxiliary-window-tests.rs`, `pub(super)`): `install_viewports(&context)`(62줄, immediate viewport renderer를 설치해 보조 창 출력을 `Viewports.outputs[viewport]`에 모음, 입력은 `viewports.borrow_mut().events.insert(viewport, events)`), `step_until`(108줄), `file_tab`(125줄), `auxiliary_window(slot, tab)`(139줄), `viewport_of(app, project, slot)`(152줄), `focused_text_input`(832줄). 탭 메뉴 항목 선택 `choose_tab_menu(app, ctx, viewports, viewport: Option<ViewportId>, title, item) -> Vec<String>`(490줄)와 `tab_bar`(471줄)·`labels`(475줄)·`is_window_open`(455줄)은 비공개 `fn`이라 git 검사에서 쓰려면 `pub(super)`로 올려야 합니다(G1에서 같은 파일 helper 4개와 `Viewports`를 `pub(super)`로 올린 선례, `g1-base.md` 4절).
 
-알림 도구(병합 미커밋 기준): `crate::application::domains::shell::notifications_tests::{FakePlatform, launch_with_platform}`(`pub(in crate::application)`). `launch_with_platform`은 accesskit을 켜지 않으므로 호출 뒤 `context.enable_accesskit()`를 부릅니다. 모듈이 `#[cfg(all(test, unix))]`입니다. `FakePlatform::sent()`는 `(제목, 본문)` 목록입니다.
+알림 도구: `crate::application::domains::shell::notifications_tests::{FakePlatform, launch_with_platform}`(`pub(in crate::application)`). `launch_with_platform`은 accesskit을 켜지 않으므로 호출 뒤 `context.enable_accesskit()`를 부릅니다. 모듈이 `#[cfg(all(test, unix))]`입니다. `FakePlatform::sent()`는 `(제목, 본문)` 목록입니다.
 
 실행(필터 실행, 동시 2개):
 
@@ -378,7 +355,7 @@ cargo build --quiet --manifest-path native/taide-native-app/Cargo.toml --example
 cargo test --quiet --manifest-path native/taide-native-app/Cargo.toml --lib --locked --offline --target-dir <TARGET> -- domains::git:: git_cache git_claude_diff --test-threads=2
 ```
 
-`<TARGET>`: 메인 저장소에서는 `/Users/hyunseokbyun/development/TAIDE/experiments/native-shell-spike/target`(병합 게이트와 같음), git lane worktree에서는 `/Users/hyunseokbyun/development/TAIDE-lanes/targets/git`. 첫 줄 mock 빌드를 빼면 LSP를 쓰는 앱 검사가 실패합니다(`docs/memory/2026-10-07-native-transition-operations.md` 6절). `--test-threads=2`는 lane workflow 규칙, 병합 게이트는 4입니다.
+`<TARGET>`: 메인 저장소에서는 `/Users/hyunseokbyun/development/TAIDE/experiments/native-shell-spike/target`(병합 게이트와 같음). 첫 줄 mock 빌드를 빼면 LSP를 쓰는 앱 검사가 실패합니다(`docs/memory/2026-10-07-native-transition-operations.md` 6절). `--test-threads=2`는 lane workflow 규칙, 병합 게이트는 4입니다.
 
 #### 2.5.4 마무리 검증
 
@@ -389,11 +366,11 @@ cargo check --quiet --manifest-path native/taide-remote-web/Cargo.toml --target 
 cargo fmt --manifest-path native/taide-native-<crate>/Cargo.toml -- --check
 ```
 
-병합 뒤 전체 게이트는 `bash /Users/hyunseokbyun/development/TAIDE/docs/utils/2026-11-03-native-merge-gate.sh <로그 디렉터리>`입니다(lsp-mock 빌드, 앱 전체 `--no-fail-fast -- --test-threads=4`, UI `--features native-host,inspection` 전체, editor·syntax·terminal 전체, remote-web Wasm, 5개 crate fmt, 로그별 `test result: ok` 수와 `FAILED`·`error` 줄 요약). `editor_fonts::tests::editor_fonts는_터미널이_적재한_정적_face를_공유하고_가변_face는_공유하지_않는다` 1건은 git과 무관한 기존 실패입니다(`docs/PROCESS.md` W0·W1 기록, `g8-blame-conflicts.md` 4절).
+전체 게이트는 `bash /Users/hyunseokbyun/development/TAIDE/docs/utils/2026-11-03-native-merge-gate.sh <로그 디렉터리>`입니다(lsp-mock 빌드, 앱 전체 `--no-fail-fast -- --test-threads=4`, UI `--features native-host,inspection` 전체, editor·syntax·terminal 전체, remote-web Wasm, 5개 crate fmt, 로그별 `test result: ok` 수와 `FAILED`·`error` 줄 요약). `editor_fonts::tests::editor_fonts는_터미널이_적재한_정적_face를_공유하고_가변_face는_공유하지_않는다` 1건은 git과 무관한 기존 실패입니다(`docs/PROCESS.md` W0·W1 기록, `g8-blame-conflicts.md` 4절).
 
 ### 2.6 금지·허락
 
-- 금지(`LANE/docs/research/2026-10-28-lane-git-spec.md` 2.0.7, lane workflow `RULES`): GUI 실행, 실제 OS 알림 발송, 실제 Keychain·AI provider·clipboard·Finder reveal, **추적 안 된 파일 discard**(백엔드가 사용자 휴지통으로 옮김), 네트워크 원격, 저장소 밖 탐색, 작업 저장소 git 상태 변경, 허용 밖 의존성, `native/taide-native-app/tests/explorer-delete.rs` 실행, 동결 `native/taide-remote-web` 소스·Cargo 파일 변경.
+- 금지(`docs/research/2026-10-28-lane-git-spec.md` 2.0.7, lane workflow `RULES`): GUI 실행, 실제 OS 알림 발송, 실제 Keychain·AI provider·clipboard·Finder reveal, **추적 안 된 파일 discard**(백엔드가 사용자 휴지통으로 옮김), 네트워크 원격, 저장소 밖 탐색, 작업 저장소 git 상태 변경, 허용 밖 의존성, `native/taide-native-app/tests/explorer-delete.rs` 실행, 동결 `native/taide-remote-web` 소스·Cargo 파일 변경.
 - 허용(`2026-10-28-native-lane-spec-decisions.md` 마지막 채택 항목): git 검사의 git CLI가 사용자 전역 설정을 읽기 전용으로 참조하는 수준(fixture local config가 hook·서명·자격 증명을 덮음).
 - 새 crate 의존성 없이 진행합니다. 문자 단위 diff용 crate(`similar`, `imara-diff` 등)는 lockfile에 없습니다(`Cargo.lock`·`native/*/Cargo.lock`의 diff 관련 항목은 `git2 0.21.0`·`libgit2-sys`뿐). monaco 알고리즘은 순수 Rust로 옮기고 `taide-native-editor`에 정규식·외부 의존을 더하지 않습니다(`docs/acknowledge/2026-10-06-native-transition-decisions.md` "기각된 대안과 이유": editor crate에 정규식 의존성을 더하면 동결 remote-web lockfile과 의존 그래프가 바뀜).
 
@@ -401,134 +378,13 @@ cargo fmt --manifest-path native/taide-native-<crate>/Cargo.toml -- --check
 
 ## 3. 행별 상세
 
-### 3.1 git-7 Sync — pull/push OS 알림 (병합 결과 확인 필요)
+### 3.1 git-7 Sync — pull/push OS 알림
 
-#### (a) ID·기능·상태
+git-7 complete(검사 `실제_app_sync의_pull과_push는_성공과_실패를_프로젝트_제목의_os_알림으로_보낸다`) — 작업 없음.
 
-`git-7` Sync 버튼(pull 성공 후 push, 진행 스피너, 오류 toast) — **partial**. 남은 범위: pull/push OS 알림 4종(기능표 484줄, `g3-header-branches.md` 6절).
+### 3.2 git-38 탐색기 Git 장식 공급
 
-#### (b) 원본 TS 동작
-
-- 버튼: `TS/widgets/git-panel/git-panel.tsx` 526-535줄. `hasRemote &&`일 때만 `IconButton`(label `t('git.sync')`, 진행 중 `Loader2 animate-spin` 아니면 `RefreshCw`, `disabled={isSyncing}`, tooltip 아래).
-- 실행: `TS/widgets/git-panel/git-panel-container.tsx` 93-94줄(`usePushGit`, `usePullGit`), 206줄 `handleSync = () => pull(projectId, { onSuccess: () => push(projectId, { onError: notifyError }), onError: notifyError })`. pull이 실패하면 push를 하지 않고 오류 toast.
-- 알림: `TS/entities/git/git.query.ts` 189-192줄 `GIT_REMOTE_NOTIFICATION_TITLE_KEY`(push/pull × succeeded/failed), 213-238줄 `useGitRemoteMutation`. pull·push 각각:
-  - 성공: `notifyNative({ category: 'gitRemote', title: notificationTitle(t(succeeded)), body: joinNotificationBody([t(succeeded), queryClient.getQueryData<GitStatus>(QUERY_KEY.GIT.STATUS(projectId))?.branch]) })`. branch는 새로 조회하지 않고 캐시 값만 씁니다(없으면 본문은 문구만).
-  - 실패: `category: 'error'`, 제목 규칙 같음(`failed` 키), 본문 `[t(failed), describeIpcError(error)]`.
-  - 제목 `resolveProjectNotificationTitle`(`TS/shared/lib/notification-text.ts` 42줄): 프로젝트 표시 label → 프로젝트 이름 → 없으면 fallback 문구.
-  - 본문 연결 `joinNotificationBody`(같은 파일 9·19줄): 빈 값·공백만 있는 값을 빼고 `' · '`로 연결.
-  - 발송은 `TS/entities/notification/notify.ts` 37줄 `notifyNative` → 백엔드가 설정 gate(`notifications_enabled`, 범주 스위치 `notify_git_remote`/`notify_error`, `notifications_only_when_unfocused`)를 적용합니다(`CR/taide-notification/src/service.rs` 17-43줄 `decide_delivery`·`is_category_enabled`).
-- locale 키: `git.sync`, `notification.gitPullSucceeded`("풀 완료"), `notification.gitPullFailed`("풀 실패"), `notification.gitPushSucceeded`("푸시 완료"), `notification.gitPushFailed`("푸시 실패")(`CR/taide-locale/resources/locales/ko.json` 470-473줄, en·ja 같은 키).
-- 순서: hook 수준 `onSuccess`/`onError`(알림)가 먼저, `mutate` 수준 콜백(push 제출, toast)이 뒤입니다.
-
-#### (c) native 현재 자산과 빠진 것
-
-- 완료(g3 문서): `Intent::Sync(project)` → `syncing.insert` → `Command::Pull` → `Reply::Mutated { op: MutationOp::Pull }`에서 성공이면 `Command::Push` 제출(제출 실패면 `syncing` 해제), 실패면 `syncing` 해제·오류 toast. `MutationOp::Push` 응답에서 해제(`domains/git.rs` 1388-1427줄). 진행 중 아이콘 회전(`APP/git-scm.rs` `spinner`, 병합 미커밋에서 `Icon::LoaderCircle` → `Icon::Loader`로 이름만 바뀜).
-- 진입점: shell lane이 만든 `NativeApplication::notify_event(context, category, project: Option<&ProjectId>, fallback_title_key, body)`(`APP/domains/shell.rs` 1176줄). 내부에서 `native_notifications::project_title`(표시 label → 이름 → fallback)과 `truncate(.., NOTIFICATION_TEXT_MAX_CODE_POINTS = 200)`(`APP/native-notifications.rs` 18줄)를 적용하고 `HostCommand::Shell(Command::Notify(Request { category, title, body, any_window_focused }))`를 제출합니다. 본문 연결은 `native_notifications::join_body(&[Option<String>])`(128줄, `NOTIFICATION_BODY_SEPARATOR = " · "`, 원본 `joinNotificationBody`).
-- 병합 미커밋에서 확인한 연결: `notify_git_remote(&mut self, context, project, [succeeded, failed]: [&str; 2], result: &AppResult<()>)`가 성공이면 `(NotificationCategory::GitRemote, succeeded, cache.status_result(project).and_then(Result::ok).and_then(|status| status.branch.clone()))`, 실패면 `(NotificationCategory::Error, failed, Some(crate::toast::describe_error(&self.locale, error)))`로 본문을 만들고 `notify_event`를 부릅니다. `apply_git_reply`의 Pull 분기 첫 줄(1393줄), Push 분기 `syncing.remove` 다음 줄(1418줄)에서 호출합니다.
-
-#### (d) 구현 방법
-
-병합 작업자가 아래와 같이 처리 중입니다. 병합 결과가 다르면 이 단계대로 맞춥니다.
-
-1. `APP/domains/git.rs` 상단 상수 블록에 두 상수를 둡니다.
-
-```rust
-const GIT_PULL_NOTIFICATION: [&str; 2] = [
-    "notification.gitPullSucceeded",
-    "notification.gitPullFailed",
-];
-const GIT_PUSH_NOTIFICATION: [&str; 2] = [
-    "notification.gitPushSucceeded",
-    "notification.gitPushFailed",
-];
-```
-
-2. `impl NativeApplication`(같은 파일)에 `notify_git_remote`를 둡니다. 범주는 `taide_model::notification::NotificationCategory::{GitRemote, Error}`, 본문은 `crate::native_notifications::join_body(&[Some(presentation::message(&self.locale, title_key, &[])), detail])`, 마지막에 `self.notify_event(context, category, Some(project), title_key, body)`.
-3. `apply_git_reply`의 `Reply::Mutated { op: MutationOp::Pull, .. }` 분기 첫 줄에 `self.notify_git_remote(context, &project, GIT_PULL_NOTIFICATION, &result);`, `MutationOp::Push` 분기에는 `syncing.remove` 다음 줄에 `GIT_PUSH_NOTIFICATION`으로 같은 호출. 원본처럼 알림이 toast·push 제출보다 먼저입니다. branch는 무효화 전에 읽어도 뒤에 읽어도 같습니다(`invalidate`는 값을 지우지 않고 stale만 표시).
-4. 검사에서 쓰도록 `APP/domains/shell.rs`의 `mod notifications_tests;`를 `pub(in crate::application) mod notifications_tests;`로, `APP/application-notifications-tests.rs`의 `FakePlatform`·`FakePlatform::sent`·`launch_with_platform`을 `pub(in crate::application)`로 올립니다(shell 영역 파일의 가시성만 바꾸는 최소 수정, QA에 사유 기록).
-5. 판단 기록용 차이: TanStack v5는 status 재조회가 실패해도 `getQueryData`가 마지막 성공 값을 돌려줍니다. native 캐시는 오류도 값으로 저장하므로 직전 status 조회가 실패했으면 성공 알림 본문에 branch가 빠집니다. 원본에서도 실패 직후 branch가 낡은 값이라 의미 있는 차이는 아니며, QA에 적습니다.
-
-#### (e) 자동 검사
-
-`APP/application-git-header-tests.rs`에 `[A]` 1개(병합 미커밋에 같은 이름으로 있음, 실행 결과는 이 문서 작성 시 확인하지 않음): `실제_app_sync의_pull과_push는_성공과_실패를_프로젝트_제목의_os_알림으로_보낸다`.
-
-1. `Workspace::new("sync-notify", &["alpha"])`, `fixture::repository`, `bare_remote(&workspace)`(177줄, 같은 임시 디렉터리의 bare 원격), `branch.main.remote/merge` 설정, `push`·`fetch`, `commit_ahead(&workspace, "b.txt")`.
-2. 상태 설정: `notifications_enabled = true`, `notifications_only_when_unfocused = false`(0.4절의 `focused: true` 때문), `notify_git_remote = true`, `notify_error = true`.
-3. `launch_with_platform(&mut workspace.fixture, state, platform.clone())` 뒤 `context.enable_accesskit()`, `settle`, `show_git`.
-4. Sync 버튼(accesskit label `git.sync`, tooltip 노드 제외 helper `button`)을 누르고 `syncing`이 비고 `platform.sent().len() == 2`가 될 때까지 진행 → `sent == [("alpha", "<gitPullSucceeded> · main"), ("alpha", "<gitPushSucceeded> · main")]`(문구는 `text(app, key)`로 만들어 locale 독립).
-5. push 실패: bare 원격 `objects` 디렉터리 권한을 `0o555`로 바꾸고 다시 Sync → 3번째 `<gitPullSucceeded> · main`, 4번째 제목 `alpha`·본문이 `"<gitPushFailed> · "`로 시작하고 더 김. 권한 복구.
-6. pull 실패: 원격 경로를 `rename`으로 옮기고 Sync → 5번째 본문이 `"<gitPullFailed> · "`로 시작, push 알림 없음(개수 5). 원래 경로로 복구.
-
-실행: `cargo test --quiet --manifest-path native/taide-native-app/Cargo.toml --lib --locked --offline --target-dir <TARGET> -- domains::git::header_tests --test-threads=2`. 이 검사는 `#[cfg(unix)]`입니다.
-
-#### (f) 완료 판정
-
-- 위 검사와 기존 `header_tests`(sync 순서·진행 중 비활성·pull 실패 push 미실행 포함) 통과.
-- 기능표 git-7을 complete로, 비고에 알림 근거(검사 이름, 범주·제목·본문 규칙)를 적습니다. settings-23 행의 "git push/pull" 남은 범위를 이 근거로 지웁니다(settings-23 전체 complete는 검색 치환 범주와 범주 7종 묶음 검사 `application-settings-notifications-tests.rs`가 더 필요하다고 settings-23 비고에 적혀 있음).
-
-#### (g) 막는 요소
-
-- 실제 OS 알림 표시는 사용자 허락 항목(`2026-10-28-native-lane-spec-decisions.md` 보류 표 "실제 OS 알림 표시")이라 가짜 platform으로만 검사합니다. 실기 확인은 하지 않습니다.
-- 병합 진행 중: 병합 작업자가 끝내기 전에는 이 행을 고치지 않습니다. 끝난 뒤 위 검사만 다시 돌려 확인합니다.
-
-### 3.2 git-38 탐색기 Git 장식 공급 (병합 결과 확인 필요)
-
-#### (a) ID·기능·상태
-
-`git-38` Explorer 파일 트리 Git 데코레이션(변경 종류별 색, 폴더로 우선순위 전파) — **partial**(기능표 515줄). explorer-search-7과 같은 기능입니다(D1 A: 파생·렌더·주입점은 explorer-search, 공급은 git).
-
-#### (b) 원본 TS 동작
-
-- 공급: `TS/widgets/explorer/explorer-container.tsx` 65줄 `const { data: gitStatus } = useQuery(gitStatusQueryOptions(projectId))`, 90-91줄 `buildFileTreeGitStatusByPath(gitStatus?.rows ?? [], project?.root ?? null)`로 행마다 `gitStatus`.
-- 파생: `TS/widgets/explorer/file-tree-git-status.ts` 48-66줄. 충돌이면 conflicted, 아니면 staged·unstaged 종류(typeChange→modified) 중 우선순위 높은 것(conflicted 6 > added 5 > untracked 4 > renamed 3 > modified 2 > deleted 1, 24-31줄). 프로젝트 root 아래 조상 디렉터리로 같은 규칙 전파(`startsWith(root + '/')`). 키는 절대 경로.
-- 렌더: `TS/features/explorer/file-tree-row.tsx` 25-42·77-81줄. 글자색 `explorer.gitAdded/gitModified/gitDeleted`, `git.renamed`, `explorer.gitUntracked`, `git.conflicted`. 파일은 오른쪽 배지 A/M/D/R/U/!, 디렉터리는 6px 점.
-- 갱신: git status 쿼리이므로 git 이벤트·fs 이벤트·변경 성공 무효화를 그대로 받습니다(`TS/entities/git/git.query.ts`의 `useGitMutation`, `TS/app/providers/ipc-sync-provider.tsx`).
-
-#### (c) native 현재 자산과 빠진 것
-
-- explorer-search 영역(메인 병합분): `APP/explorer-git-decorations.rs` — `Decoration`(6종, `badge`·`name`·`theme_key`), `build(rows, root)`(114줄), `GitDecorations::{set(project, Option<&GitStatus>)(160줄), mounted_projects()(175줄), get(project), mount(..), forget(project)}`. `set(None)`은 그 프로젝트 장식을 지우고, 같은 행 목록이면 다시 계산하지 않습니다. `mount`는 `tick_explorer_search_clipboards`가 매 프레임 `visible_explorer_files(snapshot)`(Files 보기로 보이는 mount: 메인은 zen 아님·사이드바 펼침, 보조 창은 탐색기 열림)로 부릅니다. 행 렌더는 `APP/explorer.rs`의 `decorations: Option<&HashMap<String, Decoration>>`(234줄)·`icons.decorations?.get(&row.path)`(1441줄)·accesskit description `decoration.name()`(1508줄), 색은 `git_color`(213줄).
-- explorer-search QA(`docs/quality-assurance/2026-11-02-native-lane-explorer-search-explorer-rows.md` 46줄): "공급자는 없습니다(wave 1). git lane이 `domains/git.rs`에서 `mounted_projects()` 각 프로젝트에 `GitCache`를 걸고 `explorer_search_state.git_decorations.set(..)`을 부릅니다." 메인 저장소에는 `set` 호출자가 없습니다(`grep -rn git_decorations native/taide-native-app/src` 결과에 `.set(`이 없음).
-- git 사양 2.0.3과 g1 QA 6절은 `APP/git-status-supply.rs`(공개 API `status`, `generation`)를 전제로 했지만 그 파일은 만들어지지 않았습니다. 실제 API는 위 `GitDecorations`입니다.
-- 병합 미커밋 상태: `tick_git_cache`에 공급 반복이 들어갔고(0.3절), 제목줄 branch도 캐시로 옮겨졌으며(`State::title_branch`), App 검사가 추가됐습니다.
-
-#### (d) 구현 방법 (병합 결과가 다르면 이대로 맞춤)
-
-1. `APP/domains/git.rs` `tick_git_cache`에서 캐시 요청을 내기 직전(`for request in self.git_state.cache.requests(..)` 앞)에 다음 반복을 둡니다. `now`는 함수 앞부분의 `let now = Instant::now();`를 재사용합니다.
-
-```rust
-for project in self.explorer_search_state.git_decorations.mounted_projects() {
-    self.git_state.cache.observe(&project, Key::Status, now);
-    self.explorer_search_state.git_decorations.set(
-        &project,
-        self.git_state
-            .cache
-            .status_result(&project)
-            .and_then(Result::ok),
-    );
-}
-```
-
-2. 관찰은 매 프레임 해야 합니다. `GitCache::requests`는 이번 라운드에 관찰된 항목만 요청하고 관찰 표시를 지웁니다(`std::mem::take(&mut entry.is_observed)`, `APP/git-cache.rs` 159-193줄). 탐색기가 계속 보이는 동안은 "재부착"이 아니므로 시간 stale이 걸리지 않고 이벤트 무효화로만 다시 읽습니다(TanStack 관찰자와 같음, g1 QA 3절 설계 판단).
-3. 제목줄 branch(사양 2.0.3 "공급이 흡수되지 않았으면 이 캐시의 status를 읽도록"): `APP/title-branch.rs`와 `HostCommand::Git(Command::GitBranch)` 경로를 지우고, `tick_git_title_branches`가 제목줄에 보이는 프로젝트(focus 프로젝트 + 보조 창 프로젝트)를 `Key::Status`로 관찰하며, `GitSurfaces::branch`가 `State::title_branch`를 읽습니다. 기존 검사의 `application.git_state.title_branches.branch(&p)`는 `application.git_state.title_branch(&p)`로 바뀝니다(`application-git-base-tests.rs` 416줄, `application-auxiliary-window-tests.rs` 1107·1196줄 — 병합 미커밋에서 이미 바뀜).
-4. 오류 처리 차이(판단 기록용): TanStack v5는 재조회가 실패해도 `data`에 마지막 성공 값을 남기므로 원본 탐색기는 오류 뒤에도 이전 장식을 그립니다. native 캐시는 오류도 값으로 저장해 `status_result`가 `Err`가 되고 `set(None)`으로 장식이 지워집니다. 오류가 성공 뒤에 오는 경우(예: `.git` 삭제)에만 다르며, 원본의 낡은 장식은 결함으로 보고 재현하지 않는 것을 권장합니다. 채택한 쪽을 QA에 적습니다.
-
-#### (e) 자동 검사
-
-- `[A]` `APP/application-git-base-tests.rs` `실제_app_탐색기_git_장식은_git_cache_status로_파일_배지와_상위_폴더를_그리고_git_변경_뒤_갱신한다`(병합 미커밋): root를 `canonicalize`(4절 함정 2), `a.txt` 수정·`docs/new.txt` 추가 → Files 보기에서 `a.txt` 행 accesskit description `"modified"`, `docs` 행 `"untracked"`, 캐시 status `Ok`, 배지 `M`의 글자색 = 테마 `explorer.gitModified` → 테스트 쪽 `git commit -am` + `GitStatusChanged` 주입 → `a.txt` description 없음, `docs`는 그대로.
-- `[C]`·`[U]` 회귀: `APP/explorer-git-decorations-tests.rs`(파생 9사례 + 저장소 1), `APP/explorer-tests.rs` 장식 렌더 검사.
-- 제목줄 회귀: `application::auxiliary_window_tests`의 title branch 검사 2개(1061·1133줄 부근), `base_tests`의 비저장소 검사.
-
-```
-cargo test --quiet --manifest-path native/taide-native-app/Cargo.toml --lib --locked --offline --target-dir <TARGET> -- domains::git::base_tests explorer_git_decorations explorer::tests application::auxiliary_window_tests --test-threads=2
-```
-
-#### (f) 완료 판정
-
-- 위 검사 통과. 기능표 git-38과 explorer-search-7을 같은 근거로 complete. 비고에 공급 경로(`tick_git_cache` → `GitDecorations::set`)와 검사 이름을 적습니다. 오류 처리 차이(d-4)를 QA에 기록합니다.
-
-#### (g) 막는 요소
-
-- 병합 진행 중(0.3절). 병합 작업자가 끝낸 결과를 확인만 합니다.
+git-38 complete(`tick_git_cache`의 `git_decorations.set`, 검사 `실제_app_탐색기_git_장식은_git_cache_status로_파일_배지와_상위_폴더를_그리고_git_변경_뒤_갱신한다`) — 작업 없음.
 
 ### 3.3 git-40 Diff 렌더 — 남은 monaco 기본 장식
 
@@ -904,41 +760,9 @@ cargo test --quiet --manifest-path native/taide-native-app/Cargo.toml --lib --lo
 
 - 없음. 실제 다중 창 focus 실기는 배치 31 실기 범위라 하지 않습니다.
 
-### 3.7 git-49 Claude diff 요청 수신 (complete, 병합 결과 확인 필요)
+### 3.7 git-49 Claude diff 요청 수신
 
-#### (a) ID·기능·상태
-
-`git-49` Claude diff 요청 수신(`ide:diff-requested` → ClaudeDiff 탭, `ideAutoOpenDiff` 존중) — **complete**(기능표 526줄). 단 complete 판정은 사양이 허용한 대체 수신 경로(`git_cache::Changes.ide`) 기준이며 shell lane 수신함 병합 뒤 그 분기로 옮기는 일이 남았습니다(`g7-commit-claude-diff.md` 5절).
-
-#### (b) 원본 TS 동작
-
-`TS/app/providers/ide-sync-provider.tsx` 49-68줄: 요청을 `setPendingClaudeDiff`로 기록 → 설정 `ideAutoOpenDiff`가 false면 지우고 `resolveIdeDiff(rejected)` → 아니면 `openTabInProject({ projectId, kind: claudeDiff { requestId, path: newPath }, title: tabName, target: null, preview: false })`, 실패면 오류 toast. 131-133줄 close-tab 요청이면 대기 목록에서 지움. 대기 목록은 `TS/entities/ide/claude-diff-registry.ts`의 앱 전역 `Map` 하나.
-
-#### (c) native 현재 자산과 병합 미커밋 변경
-
-- lane 커밋: `APP/git-claude-diff.rs` `Inbox::record`가 `AppEvent::IdeDiffRequested`·`IdeCloseTabRequested { request_id: Some }`를 `Event`로 기록, `git_cache::Changes.ide`가 그 `Inbox`, `tick_claude_diffs` 첫 줄 `consume_ide_diff_events`.
-- 병합 미커밋(0.3절): `APP/provider-events.rs` `Event::IdeDiff(git_claude_diff::Event)`(37줄)와 `Inbox::record`의 두 arm(90-107줄), `consume_provider_events`의 `Event::IdeDiff(event) => self.accept_claude_diff_event(event)`, `accept_claude_diff_event`(2263-2295줄), `git_cache::Changes.ide`·`git_claude_diff::Inbox` 삭제.
-
-#### (d) 확인 목록 (병합 결과)
-
-1. `grep -n "IdeDiff" native/taide-native-app/src/provider-events.rs native/taide-native-app/src/domains/shell.rs native/taide-native-app/src/domains/git.rs`로 위 세 지점을 확인합니다.
-2. `grep -n "Inbox\|ide:" native/taide-native-app/src/git-cache.rs native/taide-native-app/src/git-claude-diff.rs` 결과가 없어야 합니다(이중 기록이면 요청마다 탭이 두 번 열림).
-3. 동작 차이 두 가지를 QA에 적습니다.
-   - 수신함 상한: `provider_events::MAX_PROVIDER_EVENTS = 256`(11줄)을 넘으면 가장 오래된(프로젝트 닫힘 제외) 이벤트를 버리고 `log::warn!`합니다(117-127줄). IDE diff 요청이 버려지면 IDE는 `IDE_DIFF_TIMEOUT = 600_000ms`(`APP/ide-tools.rs` 27줄) 뒤 `Rejected`를 받습니다. 원본은 상한이 없습니다. 한 프레임 사이에 256개가 쌓이는 경우만 해당합니다.
-   - 종료 중: `consume_provider_events`는 닫는 중·종료 준비·shutdown이면 꺼낸 이벤트를 처리하지 않고 버립니다(`APP/domains/shell.rs` 1114-1117줄). 그 사이 요청은 IDE 쪽 timeout까지 대기합니다.
-4. `provider-events.rs` 단위 검사 `provider_inbox는_ide_diff_요청과_요청_id가_있는_close_tab만_기록한다`(병합 미커밋에 있음: 요청 1개·`request_id: None`인 close_tab은 무시·`Some`은 `Closed`)가 남아 있는지 봅니다.
-
-#### (e) 자동 검사
-
-기존 `[A]` `실제_app_ide_open_diff는_claude_diff_탭을_열고_수정_쪽_편집_뒤_accept로_저장한다`(289줄), `실제_app_claude_diff는_자동_열기_끄기_reject_탭_닫기_ide_close_tab을_원본대로_처리한다`(372줄)가 새 경로를 그대로 지납니다(이벤트가 같은 `PaintSink`의 `providers` 기록으로 들어감). 실행: 3.6 (e)와 같은 명령에 `provider_events` 필터를 더합니다.
-
-#### (f) 완료 판정
-
-- 위 검사 통과 후 기능표 git-49 비고에서 "대체 경로·이전 남음" 문장을 지우고 새 경로를 적습니다. terminal-agent-68(lane 기능표에서 unwired)·terminal-agent-69·settings-80 IDE diff 부분·shell-92 diff·close 부분을 git-49~52 근거로 갱신합니다(`g7-commit-claude-diff.md` 5절 병합 메모).
-
-#### (g) 막는 요소
-
-- 병합 진행 중. 끝난 결과를 확인만 합니다.
+git-49 complete, 작업 없음. 수신 경로는 `provider-events.rs` 90~107줄의 `Event::IdeDiff` → `domains/shell.rs` 1161줄 → `accept_claude_diff_event`(`domains/git.rs` 2262줄)이며, 검사는 `실제_app_ide_open_diff는_claude_diff_탭을_열고_수정_쪽_편집_뒤_accept로_저장한다`·`실제_app_claude_diff는_자동_열기_끄기_reject_탭_닫기_ide_close_tab을_원본대로_처리한다`입니다. 동작 차이 두 가지는 QA에 이미 기록 대상입니다: 수신함 상한 `MAX_PROVIDER_EVENTS = 256` 초과 시 오래된 이벤트 폐기(IDE는 `IDE_DIFF_TIMEOUT` 600초 뒤 `Rejected`), 종료 중 `consume_provider_events`가 꺼낸 이벤트를 버림.
 
 ---
 
@@ -950,23 +774,21 @@ cargo test --quiet --manifest-path native/taide-native-app/Cargo.toml --lib --lo
 4. **검사 파일 미등록**: 새 `application-git-*-tests.rs`를 `domains/git.rs`에 `#[cfg(test)] #[path]`로 등록하지 않으면 컴파일조차 되지 않아 "통과"처럼 보입니다(`g3` 5절: header_tests가 등록되지 않은 채로 있었음). 추가 뒤 `--lib -- domains::git::<이름>`으로 실행 개수가 0이 아닌지 확인합니다.
 5. **LSP mock 미빌드**: `native-lsp-mock` 예제가 없으면 LSP를 쓰는 앱 검사가 실패합니다(`g1-base.md` 5절). 먼저 빌드합니다.
 6. **부하 흔들림**: 여러 lane·App 검사가 동시에 돌면 host 큐(64) 포화·시간 초과로 실패합니다. `--test-threads=2`(lane) 또는 `4`(게이트)로 실행하고, 시간 초과는 단독 1회 재실행으로 결함과 구분합니다(`docs/PROCESS.md` W1 기록, lane workflow `RULES`).
-7. **가상 문서와 내장 서비스**: view가 붙은 `.json` diff 가상 문서를 내장 JSON 서비스가 처리해 `InvalidIdentity` 오류 toast 4개가 떴습니다(`g5-diff.md` 6.1). 새 문서 소비 서비스(tick 필터)를 만들거나 병합하면 `DocumentKey::Virtual` 제외를 확인합니다. 병합 미커밋에서 `editor-css.rs` 38줄, `editor-html.rs` 58줄, `editor-completion-json.rs` 54줄, `editor-json.rs` 118·218줄, `editor-json-validation.rs` 205·313줄, `editor-json-formatting.rs` 23줄, `editor-problems.rs` 389줄, `editor-selection-ranges.rs` 164줄이 `DocumentKey::AppFile(_) | DocumentKey::Virtual(_)`를 제외하며, CSS·HTML diff App 검사가 추가됐습니다(0.3절).
+7. **가상 문서와 내장 서비스**: view가 붙은 `.json` diff 가상 문서를 내장 JSON 서비스가 처리해 `InvalidIdentity` 오류 toast 4개가 떴습니다(`g5-diff.md` 6.1). 새 문서 소비 서비스(tick 필터)를 만들거나 병합하면 `DocumentKey::Virtual` 제외를 확인합니다. 병합 결과 `editor-css.rs` 38줄, `editor-html.rs` 58줄, `editor-completion-json.rs` 54줄, `editor-json.rs` 118·218줄, `editor-json-validation.rs` 205·313줄, `editor-json-formatting.rs` 23줄, `editor-problems.rs` 389줄, `editor-selection-ranges.rs` 164줄이 `DocumentKey::AppFile(_) | DocumentKey::Virtual(_)`를 제외하며, CSS·HTML diff App 검사가 추가됐습니다(0.3절).
 8. **오래된 영역으로 슬라이스 패닉**: 대화상자가 열린 동안 문서가 짧아지면 저장해 둔 충돌 영역으로 자르다 패닉했습니다(`g8-blame-conflicts.md` 6.1). 사용자 동작을 비동기로 적용할 때는 적용 직전 현재 문서로 다시 검증합니다(3.5의 revert 편집도 revision을 확인).
 9. **원본 백엔드 특성 착각**: rename 행 path가 옛 경로로 와서 rename tooltip·`before_path`의 App 검사를 할 수 없었습니다(`g1-base.md` 4절, git2 0.21 `StatusEntry::path`). blame은 HEAD 기준이라 미커밋 줄 문구가 나오지 않습니다(`g8` 3.5절). 기대값은 원본 백엔드 동작으로 정합니다.
 10. **사양과 실제 코드의 차이**: 사양의 `git-status-supply.rs`, `SurfaceExtras.line_end_texts`·`scroll_override`, `EditorOutput.lane_press`, `git::Command::Diff/Show/FileLog/Status` 등은 실제로 만들어지지 않았거나 다른 형태입니다(각 QA "사양과 실제 코드 차이" 절). 사양 문장보다 실제 코드를 따릅니다.
 11. **UTF-16 길이**: 원본 JavaScript 길이는 UTF-16 단위입니다. blame 요약 50자 자르기에서 char 수로 세어 결과가 달랐습니다(`g8` 6.2). monaco 이식(3.3.1·3.4.3)은 처음부터 UTF-16 단위로 계산합니다.
 12. **즉시 반영 설정**: diff 설정은 매 프레임 `services.state.settings.read()`로 읽어야 열린 탭에 바로 반영됩니다(`show_diff`). 캐시 키에 설정을 넣지 않습니다(showMoves 이동 계산을 항상 하는 이유).
-13. **병합 중 worktree**: 작성 시점 lane worktree에 `UU` 파일이 있고 병합 작업자가 git 파일을 고치고 있습니다. 그 worktree에서 파일을 고치거나 git 상태를 바꾸지 않습니다.
 14. **기능표 셀 안의 `|`**: git-61 요구사항 문구에 `` `\|\|\|\|\|\|\|` ``가 있어 `awk -F'|'` 같은 열 분리로 행을 세면 그 행만 열이 밀립니다(1.1절). 행 상태는 `grep "^| git-61 "`로 따로 확인합니다.
-15. **요약표 갱신 누락**: lane 규칙이 "상단 합계 표는 건드리지 않습니다"라 기능표 18줄 git 요약(1/1/34/29)이 행 판정(58/6/0/0)과 다릅니다. 병합 뒤 메인이 다시 세어야 하며, 요약표 숫자를 진척 근거로 쓰지 않습니다.
-16. **아직 없는 QA 문서 참조**: 병합 미커밋 기능표의 shell-89 비고가 `2026-11-03-native-git-lane-merge.md`를 근거로 적었지만 그 파일이 없습니다(0.3절). 병합 커밋 전에 문서를 쓰거나 비고를 고쳐야 합니다.
+15. **요약표 갱신 누락**: 요약표(기능표 18줄)는 갱신되지 않았음. 행으로 셉니다.
 
 ---
 
 ## 5. 행을 닫을 때 갱신할 문서
 
-1. 기능표(`docs/quality-assurance/2026-10-09-native-function-matrix.md`): 해당 git 행의 판정·비고(근거 QA 파일명과 검사 이름), 같은 근거를 쓰는 다른 영역 행(1.3절 끝 목록), 머리 요약표의 영역별 수와 합계(병합 뒤 행을 다시 세어 갱신, 4절 함정 15).
+1. 기능표(`docs/quality-assurance/2026-10-09-native-function-matrix.md`): 해당 git 행의 판정·비고(근거 QA 파일명과 검사 이름), 같은 근거를 쓰는 다른 영역 행(1.3절 끝 목록), 머리 요약표의 영역별 수와 합계(4절 함정 15).
 2. 새 QA 문서 `docs/quality-assurance/<날짜>-native-git-<주제>.md`: 대상 ID와 판정, 원본 근거, 구현 파일, 사양·대응표와 실제 코드 차이, 실행한 명령과 실제 결과(실패 → 수정 → 재실행 포함), 남은 범위.
 3. monaco 이식이 있으면 `THIRD_PARTY_LICENSES.md`의 "Ported source in `native/taide-native-editor`" 절과 oracle 스크립트(`docs/utils/`).
 4. 범위 결정(3.3.8, 3.4.4의 breadcrumb·커서 펼침·tooltip·fold glyph 위치, 3.5 아이콘 색·애니메이션)을 내렸으면 `docs/acknowledge/<날짜>-native-git-remaining-decisions.md`.
-5. `docs/PROCESS.md` 맨 위 절의 진행 항목(W1·W2 줄의 "실행 중: git" 항목과 "병합 뒤 연결: git-38 → explorer-search-7 Git 장식 공급, git-7 → shell `notify_event`").
+5. `docs/PROCESS.md` 맨 위 절의 진행 항목.

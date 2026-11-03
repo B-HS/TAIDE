@@ -1,6 +1,6 @@
 # 06. 사용자 결정 모음 — Rust-native 전환
 
-> 작성일: 2026-11-03 · 기준: `to_rust_native` HEAD `0c52b438`, Git 영역은 worktree `/Users/hyunseokbyun/development/TAIDE-lanes/git`
+> 작성일: 2026-11-03 · 기준: `to_rust_native` HEAD `7be1ad14`
 > 정본은 각 행의 "근거 문서"입니다. 이 문서는 찾기 쉽게 주제별로 모은 색인이며, 원문과 다르면 원문을 따릅니다.
 
 ## 0. 읽는 법
@@ -36,7 +36,7 @@
 | workflow 모델 | fable 미사용. 구현·설계·수정 opus·xhigh, 리뷰 sonnet·xhigh | `ACK/2026-10-06-native-transition-decisions.md`, `ACK/2026-10-26-native-autonomous-continuation.md` | 2026-10-06, 10-26 |
 | 자율 진행 | "태스크가 없어질 때까지 끝까지 진행, 허락이 필요한 건 보류, 결정은 큰 변경이 아니면 권장사항대로". 작은 결정은 원본에 가장 가까운 안으로 정하고 QA에 근거 | `ACK/2026-10-26-native-autonomous-continuation.md` | 2026-10-26 |
 | 운영 방식 변경 | 영역 lane 병렬(worktree·브랜치·target 분리). 사양 1회, lane 끝 리뷰 1회. 완료 기준 유지 | 같은 문서 "운영 방식 변경", `docs/memory/2026-10-28-native-lane-operations.md` | 2026-10-28 |
-| lane 브랜치·worktree | 메인이 `lane/<영역>`과 `TAIDE-lanes/` worktree를 만들고 병합 뒤 지움 | `ACK/2026-10-26-native-autonomous-continuation.md` | 2026-10-28 |
+| lane 브랜치·worktree | 메인이 `lane/<영역>`과 `TAIDE-lanes/` worktree를 만들고 병합 뒤 지움(지우기는 사용자 확인 후) | `ACK/2026-10-26-native-autonomous-continuation.md` | 2026-10-28 |
 | 진행 보고 | 기능표 기준 진척률과 남은 범위를 함께 보고 | `docs/feedback/2026-10-28-native-serial-step-inefficiency.md` | 2026-10-28 |
 | 중단 해석 | 소요 시간 질문은 정보 요청이며 중단 지시가 아님. 명시적 중단 단어가 있을 때만 정지 | `ACK/2026-10-06-native-transition-decisions.md` 진행 방식 표(10-07 아침), `docs/HANDOFF.md` 5절 3번 | 2026-10-07 |
 | 단계 E 정지·재개 | "implement만 끝내고 멈춰" → 구현 뒤 정지, "재개, 전부 추천안대로" → 같은 run을 리뷰부터 재개 | `docs/PROCESS.md` 단계 E | 2026-10-27 |
@@ -101,7 +101,7 @@
 | IDE diff(shell-92 diff = terminal-agent-68·69 = git-49), git 알림, diff 설정 소비 | git | settings는 행 비고 갱신 |
 | Sync 테마 재로드(`SyncStateChanged`), 보조 창 수명 | shell | settings는 확인·행 갱신 |
 | reveal, searchOnType, 검색 치환 알림, 검색 편집기 본문(editor-81, shell-89의 searchEditor) | explorer-search | editor·shell은 행 갱신 |
-| 탐색기 Git 장식(explorer-search-7 = git-38) | 파생·행 렌더·주입점은 explorer-search, `git-cache` 공급 연결은 git(D1 A) | 병합 뒤 연결 |
+| 탐색기 Git 장식(explorer-search-7 = git-38) | 파생·행 렌더·주입점은 explorer-search, `git-cache` 공급 연결은 git(D1 A) | 완료(`f3a5b5d0`, git-38 → explorer-search-7) |
 | 탐색기 비교 메뉴(explorer-search-22)와 파일 히스토리 메뉴(explorer-search-23) | git(D2·D3 A) | explorer-search는 메뉴 자리만 |
 | 탭 내용 분기 hook(`TabKind::SearchEditor`·`Diff`·`CommitDiff`·`ClaudeDiff`) | wave 0 구조 분리(끝났으면 shell 묶음 1 첫 작업) | editor-preview 결정 5 A |
 | 실행 중 터미널 scrollback(terminal-agent-11·49 = settings-30) | terminal-agent(`set_history`와 전파, App 검사) | settings는 소비·행 갱신(settings 결정 7 A를 대체) |

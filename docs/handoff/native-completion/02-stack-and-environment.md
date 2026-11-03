@@ -1,6 +1,6 @@
 # 02. 스택과 환경: 버전, 디렉터리, 빌드·검사·실행 명령, 알려진 실패
 
-> 작성일: 2026-11-04(2026-11-03 판을 실제 파일로 다시 확인해 갱신) · 기준: `to_rust_native` `0c52b438`(메인 작업 트리), Git lane worktree `lane/git` `50892b59`(병합 진행 중)
+> 작성일: 2026-11-04(2026-11-03 판을 실제 파일로 다시 확인해 갱신) · 기준: `to_rust_native` `7be1ad14`(git lane 병합 `f3a5b5d0` 포함)
 > 모든 버전은 `Cargo.toml`·`Cargo.lock`·`package.json`·rustup 설치 메타데이터·문서에서 확인한 값입니다. 이 문서를 쓰는 동안 cargo·rustc·bun은 실행하지 않았습니다. 실제 작업을 시작하기 전에 직접 `rustc --version`, `cargo --version`, `bun --version`으로 한 번 확인하십시오.
 > 2026-11-03 판과 달라진 중요한 정정: 12.3절의 "실제 휴지통을 쓰는 검사" 이름 3개(이전 판의 `--skip` 목록 중 2개가 틀렸음), 3.1절의 egui 변경 파일 수, 2.1절의 툴체인 근거, 12.1절 `editor_fonts` 실패의 성격.
 
@@ -178,7 +178,7 @@ vendored 소스는 라이선스상 원본 주석·저작권을 보존합니다. 
     - `target/`: 루트 workspace(Tauri 앱·공용 crate)의 기본 cargo target
     - `docs/`: 작업 문서(지도: 01 문서 6절)
     - `node_modules/`: 원본 라이브러리 소스(읽기 전용 참조)
-- `/Users/hyunseokbyun/development/TAIDE-lanes/<lane>`: lane worktree(브랜치 `lane/<lane>`). 2026-11-04 `git -C /Users/hyunseokbyun/development/TAIDE worktree list`에 `editor`, `explorer-search`, `git`, `preview`, `settings`, `shell`, `terminal-agent` 7개가 있습니다
+- `/Users/hyunseokbyun/development/TAIDE-lanes/<lane>`: lane worktree(브랜치 `lane/<lane>`). 2026-11-04 `git -C /Users/hyunseokbyun/development/TAIDE worktree list`에 `editor`, `explorer-search`, `git`, `preview`, `settings`, `shell`, `terminal-agent` 7개가 있습니다. 모두 낡았으므로 사용 금지입니다
 - `/Users/hyunseokbyun/development/TAIDE-lanes/targets/<lane>`: lane 전용 cargo target
 
 ## 7. cargo 사용 원칙
@@ -231,7 +231,7 @@ cargo test --manifest-path /Users/hyunseokbyun/development/TAIDE/native/taide-na
     cargo test --quiet --manifest-path /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/Cargo.toml --lib --locked --offline --target-dir /Users/hyunseokbyun/development/TAIDE/experiments/native-shell-spike/target -- --test-threads=2 domains::shell:: provider_events native_notifications
     ```
 
-    libtest는 공백으로 나열한 필터 중 하나라도 이름에 포함되면 실행합니다. 영역별 필터 목록은 `docs/research/2026-10-28-native-lane-seams.md` 3절 표입니다(Git 영역 필터 `title_branch`는 Git lane 병합으로 `title-branch.rs`가 삭제되므로 병합 뒤에는 `git_` 계열 모듈 이름으로 바꿔 씁니다). 실제 App 검사 모듈 경로는 `application::<주제>_tests::<이름>`(`application.rs` 끝의 `#[path = "application-<주제>-tests.rs"] mod <주제>_tests;`)이거나, 영역 파일에 붙은 것은 `domains::<영역>::<주제>_tests::<이름>`(예: `domains/shell.rs` 끝의 `#[path = "../application-notifications-tests.rs"] mod notifications_tests;`)입니다.
+    libtest는 공백으로 나열한 필터 중 하나라도 이름에 포함되면 실행합니다. 영역별 필터 목록은 `docs/research/2026-10-28-native-lane-seams.md` 3절 표입니다(Git 영역 필터는 `domains::git::`입니다. `title_branch` 필터는 모듈 삭제로 없어졌습니다). 실제 App 검사 모듈 경로는 `application::<주제>_tests::<이름>`(`application.rs` 끝의 `#[path = "application-<주제>-tests.rs"] mod <주제>_tests;`)이거나, 영역 파일에 붙은 것은 `domains::<영역>::<주제>_tests::<이름>`(예: `domains/shell.rs` 끝의 `#[path = "../application-notifications-tests.rs"] mod notifications_tests;`)입니다.
 - 한 검사만 정확히: `-- --exact application::view_state_tests::실제_일괄_닫힘은_주_보조_영역의_독립_위치와_접기를_보존한다`.
 - 통합 검사 대상 하나만: `cargo test --quiet --manifest-path /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/Cargo.toml --test host --locked --offline --target-dir /Users/hyunseokbyun/development/TAIDE/experiments/native-shell-spike/target`. `--test explorer-delete`와 `--test lsp-workspace-worker`는 12.3절 검사를 포함하므로 `--skip` 없이 실행하지 않습니다.
 
@@ -264,6 +264,8 @@ cargo check --workspace --locked --offline --manifest-path /Users/hyunseokbyun/d
 cargo test -p taide-runtime --locked --offline --manifest-path /Users/hyunseokbyun/development/TAIDE/Cargo.toml
 ```
 
+`-p taide-git`(또는 루트 workspace 전체 `cargo test`)는 실제 휴지통을 쓰는 검사 4개를 실행하므로 `-- --skip untracked_파일_discard는_휴지통으로_이동해_워킹트리에서_사라진다 --skip tracked와_untracked를_함께_discard해도_각각_처리된다 --skip 미추적_디렉토리_행은_절대경로로_discard해도_워킹트리에서_사라진다 --skip 링크_개명과_삭제는_원본을_보존한다`를 붙입니다(00-README 1절 2번).
+
 `-p` 뒤에는 바꾼 crate 이름을 씁니다. 루트 workspace는 기본 target(`/Users/hyunseokbyun/development/TAIDE/target`)을 씁니다. 2026-11-03 settings 병합 때 공용 crate 6개 검사와 루트 workspace check를 이렇게 했습니다(`docs/PROCESS.md` 32줄). 루트 check가 CPU 0%로 오래 멈춘 사례가 있습니다(transition 운영 문서 6절 첫 항목, 원인 미확인).
 
 ### 8.7 병합 게이트 스크립트
@@ -272,9 +274,9 @@ cargo test -p taide-runtime --locked --offline --manifest-path /Users/hyunseokby
 bash /Users/hyunseokbyun/development/TAIDE/docs/utils/2026-11-03-native-merge-gate.sh <로그를 쓸 절대 경로 디렉터리>
 ```
 
-스크립트가 하는 일(파일 26줄 전체): LSP mock 빌드 → 앱 전체 검사(`--no-fail-fast -- --test-threads=4`, `app.log`) → UI(`native-host,inspection`, `ui.log`) → editor·syntax·terminal → remote-web Wasm check → 다섯 crate fmt check → 로그마다 `test result: ok` 수와 `... FAILED`·`error` 줄 출력. 각 단계의 종료 코드를 `app 0`처럼 출력합니다. 경로가 메인 작업 트리로 고정돼 있어(3줄 `ROOT=`) lane worktree에서는 그대로 쓸 수 없습니다.
+스크립트가 하는 일(파일 31줄 전체): LSP mock 빌드 → 앱 전체 검사(`--no-fail-fast -- --test-threads=4`, `app.log`) → UI(`native-host,inspection`, `ui.log`) → editor·syntax·terminal → remote-web Wasm check → 다섯 crate fmt check → 로그마다 `test result: ok` 수와 `... FAILED`·`error` 줄 출력. 각 단계의 종료 코드를 `app 0`처럼 출력합니다. 경로가 메인 작업 트리로 고정돼 있어(3줄 `ROOT=`) lane worktree에서는 그대로 쓸 수 없습니다.
 
-주의: 스크립트 9줄의 앱 전체 실행에는 8.3절의 `--skip` 세 개가 없어 12.3절의 실제 휴지통 검사까지 실행합니다. 사용자 휴지통을 건드리지 않으려면 스크립트를 쓰지 말고 8.1~8.5절 명령을 순서대로 직접 실행하거나, 사용자 허락을 받고 스크립트 9줄에 `--skip`을 추가합니다.
+스크립트는 34fb88d7부터 앱의 실제 휴지통 검사 3개를 `--skip`합니다(`TRASH_TESTS` 배열). 루트 workspace의 `taide-git` 휴지통 검사 4개는 스크립트가 실행하지 않으므로 공용 crate 검사(8.6절)에서 직접 `--skip`합니다(00-README 1절 2번).
 
 ### 8.8 검증 범위를 고르는 기준
 
@@ -283,7 +285,7 @@ bash /Users/hyunseokbyun/development/TAIDE/docs/utils/2026-11-03-native-merge-ga
 | 앱 crate 한 영역 파일 | 앱 `cargo check --all-targets` + 해당 영역 필터 lib 검사 + 경로를 바꾼 통합 대상 + 앱 fmt |
 | UI crate | UI check(features) + UI 관련 검사(`--lib --test workbench` 등) + remote-web Wasm check + UI fmt + 그 UI 코드를 쓰는 앱 영역 필터(앱 crate가 일부 UI 소스를 `include!`로 다시 컴파일하므로, 13절) |
 | editor·syntax·terminal crate | 그 crate 전체 검사 + 그 crate를 소비하는 앱 영역 필터 + fmt(editor는 remote-web도 소비하므로 Wasm check 추가) |
-| 공용 crate | 8.6절 + native 앱 check |
+| 공용 crate | 8.6절(`-p taide-git`이면 휴지통 검사 4개 이름을 `--skip`) + native 앱 check |
 | lane 병합 | 8.1~8.5절 전체(휴지통 검사 제외) |
 
 실행하지 않은 검사를 통과했다고 쓰지 않습니다. 같은 입력·코드의 성공 결과는 다시 돌리지 않습니다(사용자 규칙).
@@ -337,7 +339,7 @@ cargo build --manifest-path /Users/hyunseokbyun/development/TAIDE/native/taide-n
 1. 메인 target 정리는 `cargo clean --profile dev --manifest-path /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/Cargo.toml --target-dir /Users/hyunseokbyun/development/TAIDE/experiments/native-shell-spike/target`로 합니다. `--profile dev`는 `debug` 산출물만 지웁니다(`docs/acknowledge/2026-10-06-native-transition-decisions.md` 기각 대안 표 44줄).
 2. 메인 target에 `--profile` 없는 `cargo clean`을 쓰지 않습니다. target 디렉터리 전체가 지워져 그 안의 보호 번들(10절 마지막 항목)까지 사라집니다. 메인 target에는 `debug`, `release`, `tmp`, `wasm32-unknown-unknown`, 보호 번들 두 개가 있습니다.
 3. `rm -rf`는 자동 모드에서 거부되고 쓰지 않습니다. `cargo clean *`은 사용자가 허용 규칙을 추가했습니다(transition 운영 문서 6절).
-4. lane 병합이 끝나면 그 lane의 target을 `cargo clean --manifest-path /Users/hyunseokbyun/development/TAIDE-lanes/<lane>/native/taide-native-app/Cargo.toml --target-dir /Users/hyunseokbyun/development/TAIDE-lanes/targets/<lane>`으로 회수합니다(lane 운영 문서 2.3절 4번). lane target에는 보호 번들이 없습니다.
+4. lane 병합이 끝나면 사용자 확인 후에 그 lane의 target을 `cargo clean --manifest-path /Users/hyunseokbyun/development/TAIDE-lanes/<lane>/native/taide-native-app/Cargo.toml --target-dir /Users/hyunseokbyun/development/TAIDE-lanes/targets/<lane>`으로 회수합니다(lane 운영 문서 2.3절 4번). lane target에는 보호 번들이 없습니다.
 5. 디스크 여유는 `df -h /Users/hyunseokbyun`으로 확인합니다. 동시 lane 수 = min(4, (여유 − 100GB) / 한 벌 크기)입니다(lane 운영 문서 2.2절). 2026-11-02에는 사용자 판단으로 7개 lane을 동시에 돌렸습니다(PROCESS 28줄).
 6. 정리 뒤에는 8.1절 LSP mock을 다시 빌드합니다.
 

@@ -2,8 +2,8 @@
 
 > 작성일: 2026-11-04(2026-11-03 판을 실제 파일로 다시 확인해 갱신)
 > 기준 상태
-> - 메인 작업 트리 `/Users/hyunseokbyun/development/TAIDE`: 브랜치 `to_rust_native`, HEAD `0c52b438`("docs(native): settings lane 병합과 게이트 결과 기록").
-> - Git lane worktree `/Users/hyunseokbyun/development/TAIDE-lanes/git`: 브랜치 `lane/git`, HEAD `50892b59`. 이 worktree는 `to_rust_native`(`MERGE_HEAD` = `0c52b438`)를 병합하는 중입니다. 작성 시점에 작업 트리 파일의 충돌 표식(`<<<<<<<`·`>>>>>>>`)은 모두 사라졌지만 색인에는 8개 경로가 아직 unmerged로 남아 있습니다(3.4절). 다른 작업자가 해결 중이므로 그 worktree의 파일은 계속 바뀝니다.
+> - 메인 작업 트리 `/Users/hyunseokbyun/development/TAIDE`: 브랜치 `to_rust_native`, HEAD `7be1ad14`.
+> - git lane은 `f3a5b5d0`으로 병합 완료. lane worktree는 낡았으므로 읽지 않습니다.
 >
 > 이 폴더의 공통 기반 문서는 세 개입니다. 01(이 문서)은 무엇을 왜 만드는지와 진척·남은 범위, 02는 도구·버전·명령·알려진 실패, 03은 코드 구조와 새 기능 연결 방법입니다. 영역별 남은 작업의 세부는 6절 지도의 문서가 다룹니다.
 
@@ -130,62 +130,30 @@ TAIDE는 macOS(Apple Silicon)용 개인 IDE입니다. 프로젝트·탭·분할�
     grep "^| git-61 " /Users/hyunseokbyun/development/TAIDE/docs/quality-assurance/2026-10-09-native-function-matrix.md | rg -o "\| (complete|partial|unwired|missing|not-applicable|frozen) +\|"
     ```
 
-    메인 기능표에서는 `| missing   |`, Git lane 기능표에서는 `| complete  |`가 나옵니다.
+    `| complete  |`가 나오며, awk 합계 complete에 1을 더합니다.
 
 4. 기능 분모 = 전체 행 − not-applicable − frozen. 2026-10-10 계획 당시에는 not-applicable이 10이라 분모가 588이었고(`2026-10-10-native-remaining-batch-plan.md` 9줄), 이후 lane이 근거와 함께 재분류해 not-applicable이 늘었습니다. 분모는 매번 다시 계산합니다.
 
 5. 백분율은 "행 비율"일 뿐 전체 전환율이 아닙니다. 행마다 규모가 다르고 같은 구현을 여러 행이 참조합니다(기능표 7줄 "행 수로 전체 전환율을 계산하지 않습니다", 계획 문서 47줄). 실기·성능·출시 게이트도 포함하지 않습니다.
 
-### 3.3 메인 작업 트리(`to_rust_native` `0c52b438`)의 집계
-
-| 영역 | 행 | complete | partial | unwired | missing | not-applicable | frozen |
-| --- | --: | --: | --: | --: | --: | --: | --: |
-| shell | 99 | 86 | 10 | 0 | 0 | 3 | 0 |
-| editor | 87 | 72 | 7 | 0 | 5 | 3 | 0 |
-| terminal-agent | 78 | 69 | 2 | 2 | 1 | 4 | 0 |
-| explorer-search | 45 | 37 | 5 | 0 | 2 | 1 | 0 |
-| preview | 40 | 34 | 3 | 0 | 0 | 2 | 1 |
-| git | 65 | 1 | 1 | 34 | 29 | 0 | 0 |
-| settings | 83 | 72 | 10 | 0 | 0 | 1 | 0 |
-| commands-ui | 102 | 63 | 21 | 11 | 3 | 4 | 0 |
-| 합계 | 599 | 434 | 59 | 47 | 40 | 18 | 1 |
-
-- git의 missing 29는 awk가 센 28에 `git-61`(missing) 1을 더한 값입니다.
-- 분모 599 − 18 − 1 = 580, complete 434(행 비율 74.8%), 미완료 146(partial 59 + unwired 47 + missing 40).
-- 교차 확인: `docs/PROCESS.md` 31줄은 settings 병합 직전 값을 "complete 405·partial 59·unwired 75·missing 40·n-a 18·frozen 1"로 적었습니다. 이 여섯 수의 합은 598로 전체 599보다 1 작습니다. 3.2절 3번의 `git-61`을 빼고 센 것으로 보입니다. settings 병합(`3864e1db`)은 settings의 unwired 28행과 missing 1행(2026-10-14 상단 표의 settings 값)을 complete로 바꿨습니다. 405 + 29 = 434, 75 − 28 = 47, missing은 40 − 1 + 1(`git-61`) = 40으로 이 집계와 맞습니다.
-
-### 3.4 Git lane 병합 뒤 예상 집계(`TAIDE-lanes/git` worktree의 기능표)
-
-Git lane worktree의 기능표는 2026-11-03 판 작성 때 충돌 표식이 세 곳(`shell-89`, `explorer-search-22`, `explorer-search-23`) 있었지만, 2026-11-04에는 표식이 없습니다. 확인 명령(출력이 없으면 표식 없음):
-
-```
-grep -nE "^(<<<<<<<|=======|>>>>>>>)" /Users/hyunseokbyun/development/TAIDE-lanes/git/docs/quality-assurance/2026-10-09-native-function-matrix.md
-```
-
-다만 병합은 끝나지 않았습니다. 색인의 unmerged 경로는 다음 명령으로 확인합니다.
-
-```
-git -C /Users/hyunseokbyun/development/TAIDE-lanes/git diff --name-only --diff-filter=U
-```
-
-2026-11-04 결과는 8개입니다: 기능표, 앱 `application-explorer-views-tests.rs`, `command-dispatch.rs`, `domains/explorer_search.rs`, `explorer.rs`, `navigation-icons.rs`, `shell_keymap.rs`, UI `command-registry.rs`. 아래 표는 현재 worktree 파일을 3.2절 방법으로 센 값입니다. 메인이 병합을 커밋한 뒤 다시 세야 확정값이 됩니다.
+### 3.3 메인 작업 트리(`to_rust_native` `7be1ad14`)의 현재 집계
 
 | 영역 | 행 | complete | partial | unwired | missing | not-applicable | frozen |
 | --- | --: | --: | --: | --: | --: | --: | --: |
 | shell | 99 | 87 | 9 | 0 | 0 | 3 | 0 |
 | editor | 87 | 75 | 8 | 0 | 1 | 3 | 0 |
-| terminal-agent | 78 | 69 | 2 | 2 | 1 | 4 | 0 |
-| explorer-search | 45 | 39 | 5 | 0 | 0 | 1 | 0 |
+| terminal-agent | 78 | 69 | 3 | 1 | 1 | 4 | 0 |
+| explorer-search | 45 | 40 | 4 | 0 | 0 | 1 | 0 |
 | preview | 40 | 34 | 3 | 0 | 0 | 2 | 1 |
-| git | 65 | 58 | 6 | 0 | 0 | 1 | 0 |
+| git | 65 | 60 | 4 | 0 | 0 | 1 | 0 |
 | settings | 83 | 72 | 10 | 0 | 0 | 1 | 0 |
 | commands-ui | 102 | 63 | 21 | 11 | 3 | 4 | 0 |
-| 합계 | 599 | 497 | 64 | 13 | 5 | 19 | 1 |
+| 합계 | 599 | 500 | 62 | 12 | 5 | 19 | 1 |
 
-- git의 complete 58은 awk가 센 57에 `git-61`(complete) 1을 더한 값입니다.
-- 분모 599 − 19 − 1 = 579, complete 497(행 비율 85.8%), 미완료 82(partial 64 + unwired 13 + missing 5).
-- 메인 대비 바뀐 행(두 기능표의 같은 행 판정을 비교해 확인): git 57행이 complete로, 5행이 partial로 바뀌고 `git-15`가 not-applicable("TS UI 없음")이 됐습니다. 그 밖에 `editor-73`·`editor-74`·`editor-75`(missing → complete), `editor-76`(missing → partial), `shell-21`(partial → complete), `explorer-search-22`·`explorer-search-23`(missing → complete)입니다. `shell-89`는 양쪽 모두 partial입니다.
-- 작성 시점에 Git lane worktree에는 미커밋 연결 코드가 더 있습니다: `domains/git.rs` `notify_git_remote`(pull/push 결과를 `notify_event`로 보냄, `git-7`)와 `tick_git_cache`의 `explorer_search_state.git_decorations.mounted_projects()` → `git_decorations.set(..)` 공급(`git-38` → `explorer-search-7`). 기능표의 해당 행은 아직 partial입니다. 병합이 커밋되면 이 행들의 판정이 바뀔 수 있으니 다시 셉니다.
+- 이 표의 합계는 awk로 센 값과 일치합니다.
+- git의 complete 60은 awk가 센 59에 `git-61`(complete) 1을 더한 값입니다.
+- 분모 579, complete 500(86.4%), 미완료 79(partial 62 + unwired 12 + missing 5).
+- git lane 병합 결과는 `docs/quality-assurance/2026-11-03-native-git-lane-merge.md`입니다.
 
 ### 3.5 진척 이력(같은 방법의 과거 기록)
 
@@ -194,8 +162,8 @@ git -C /Users/hyunseokbyun/development/TAIDE-lanes/git diff --name-only --diff-f
 | 2026-10-10 계획 고정 | 286(이후 배치 22로 288) | 588 | `2026-10-10-native-remaining-batch-plan.md` 9·45줄 |
 | 2026-10-28 lane 전환 | 338 | 588 | 같은 문서 31줄 |
 | 2026-11-03 wave 1 병합 뒤 | 405 | 580 | `docs/PROCESS.md` 31줄 |
-| 2026-11-03 settings 병합 뒤 | 434 | 580 | 3.3절 |
-| Git lane 병합 뒤(예상) | 497 | 579 | 3.4절 |
+| 2026-11-03 settings 병합 뒤 | 434 | 580 | PROCESS 32줄 |
+| 2026-11-04 Git lane 병합 `f3a5b5d0` | 500 | 579 | 3.3절 |
 
 ## 4. 배치 23~33 계획과 실행 방식
 
@@ -235,31 +203,29 @@ git -C /Users/hyunseokbyun/development/TAIDE-lanes/git diff --name-only --diff-f
 | --- | --- | --- | --- | --- |
 | 0 | 없음(메인 직렬) | lane 경계 구조 이동, dev 프로필 debuginfo 축소, fmt 정리 | 완료 `d5559c46` `87bf1f51` | PROCESS 26줄 |
 | 1 | shell · explorer-search · terminal-agent · editor · preview | 24 잔여, 25, 27, 23+30 | 병합 완료(preview `e87b053c`, shell `4fa4beff`, terminal-agent `446964b7`, editor `fb43d2ad`, explorer-search `6dba64f9`) | PROCESS 30줄, `git -C /Users/hyunseokbyun/development/TAIDE log --oneline` |
-| 2 | settings · git | 28, 26 | settings 병합 완료 `3864e1db`. git은 lane 커밋 `5195d415`·`50892b59` 뒤 `to_rust_native`와 병합하는 중(3.4절) | PROCESS 32·33줄 |
+| 2 | settings · git | 28, 26 | settings `3864e1db`, git `f3a5b5d0` 모두 병합 완료 | PROCESS 32·33줄 |
 | 3 | commands-ui | 29, 앞 wave에서 진입만 남은 행, shell-89 | 시작 전 | PROCESS 35줄 |
 | 4 | 메인 | 31(편집기 장애 경계 설계 포함). 32·33은 사용자 허락 뒤 | 시작 전 | PROCESS 36줄 |
 
-- 2026-11-02에 W1·W2를 합쳐 7개 lane을 동시에 돌렸습니다(빌드 한 벌 25GB, PROCESS 28줄). `git -C /Users/hyunseokbyun/development/TAIDE worktree list`에는 2026-11-04에도 7개 lane worktree가 모두 남아 있습니다. 병합이 끝난 worktree 회수(`git worktree remove`)와 target 정리는 메인이 합니다(lane 운영 문서 2.3절 4번).
-- Git 병합 뒤 바로 이어야 할 연결(PROCESS 33줄): `git-38` → `explorer-search-7`의 탐색기 Git 장식 공급, `git-7` → shell의 `notify_event`(OS 알림 진입점). 3.4절 마지막 항목처럼 Git lane worktree에서 이미 진행 중입니다.
+- 2026-11-02에 W1·W2를 합쳐 7개 lane을 동시에 돌렸습니다(빌드 한 벌 25GB, PROCESS 28줄). `git -C /Users/hyunseokbyun/development/TAIDE worktree list`에는 2026-11-04에도 7개 lane worktree가 모두 남아 있습니다. 모두 낡았으므로 사용 금지이고, 회수는 사용자 확인 후에 합니다. 병합이 끝난 worktree 회수(`git worktree remove`)와 target 정리는 메인이 합니다(lane 운영 문서 2.3절 4번).
+- git-38 → explorer-search-7, git-7 → `notify_event`는 `f3a5b5d0`으로 완료됐습니다.
 
 ## 5. 남은 범위 지도
 
-### 5.1 영역별 미완료 행(Git lane 병합 뒤 예상, 82행)
+### 5.1 영역별 미완료 행(2026-11-04 현재, 79행)
 
-아래 목록은 3.4절 기능표에서 complete·not-applicable·frozen이 아닌 행을 뽑은 것입니다(명령: 3.2절 awk의 조건을 `s!="complete" && s!="not-applicable" && s!="frozen"`으로 바꿔 ID를 출력). ID 옆 괄호가 판정입니다. 각 행의 남은 동작은 기능표 "범위/잔여 동작" 열에 있습니다. "사양"은 `docs/research/2026-10-28-lane-<영역>-spec.md`, "QA"는 `docs/quality-assurance/` 아래 파일입니다.
+아래 목록은 3.3절 기능표에서 complete·not-applicable·frozen이 아닌 행을 뽑은 것입니다(명령: 3.2절 awk의 조건을 `s!="complete" && s!="not-applicable" && s!="frozen"`으로 바꿔 ID를 출력). ID 옆 괄호가 판정입니다. 각 행의 남은 동작은 기능표 "범위/잔여 동작" 열에 있습니다. "사양"은 `docs/research/2026-10-28-lane-<영역>-spec.md`, "QA"는 `docs/quality-assurance/` 아래 파일입니다.
 
 | 영역(배치) | 미완료 행 | 원본·설계 정본 | 최근 구현 기록 |
 | --- | --- | --- | --- |
 | shell(24), 9행 | shell-3 창 위치/크기 복원(partial), shell-5 보조 창 셸(partial), shell-12 전역 ErrorBoundary(partial: 편집기·루트 경계는 배치 31 설계), shell-15 기존 사용자 데이터 디렉터리(partial, 사용자 허락 필요), shell-59 explorer 4개 view 전환(partial), shell-78 탭 context menu(partial), shell-89 탭 내용 diff/commit diff/claudeDiff/searchEditor(partial, 남은 것: ClaudeDiff 수정 쪽 revert 화살표 `git-50`), shell-92 IDE 동기화(partial), shell-93 IPC 동기화(partial) | 사양 `lane-shell-spec.md` | QA `2026-11-02-native-lane-shell-providers.md`, `2026-11-02-native-lane-shell-windows-layers.md`, `2026-10-27-native-*.md` |
 | editor(23), 9행 | editor-7 semantic token(missing), editor-15 minimap 토글(partial), editor-16 sticky scroll(partial), editor-32 formatOnType·formatOnPaste(partial), editor-34 Monaco 액션의 팔레트·키바인딩 노출(partial), editor-49 포맷(partial), editor-57 내장 언어 서비스 JSON·CSS·HTML·TS(partial, TS/JS는 임베디드 JS 엔진 허락 필요), editor-72 Markdown 미리보기 분할(partial), editor-76 diff 편집기(partial) | 사양 `lane-editor-preview-spec.md` | QA `2026-11-02-native-lane-editor-{css-services,html-services,json-services,display-commands}.md` |
-| terminal-agent(27), 5행 | terminal-agent-19 Option-as-Meta(partial), -55 훅 설치·제거·상태 UI(unwired), -56 CLI 설치 상태·외부 에디터 연결(partial), -64 설정 화면 테스트 알림·시스템 설정 열기(missing), -68 openDiff → Claude diff 탭(unwired) | 사양 `lane-terminal-agent-spec.md` | QA `2026-11-02-native-lane-terminal-agent-*.md` |
-| explorer-search(25), 5행 | explorer-search-7 Git 데코레이션(partial, `git-38` 공급 연결 대기), -16 삭제 확인(partial), -20 터미널에서 열기(partial), -21 폴더에서 찾기(partial), -33 교체(partial) | 사양 `lane-explorer-search-spec.md` | QA `2026-11-02-native-lane-explorer-search-*.md` |
+| terminal-agent(27), 5행 | terminal-agent-19 Option-as-Meta(partial), -55 훅 설치·제거·상태 UI(unwired), -56 CLI 설치 상태·외부 에디터 연결(partial), -64 설정 화면 테스트 알림·시스템 설정 열기(missing), -68 openDiff → Claude diff 탭(partial, 남은 것은 git-50·git-52) | 사양 `lane-terminal-agent-spec.md` | QA `2026-11-02-native-lane-terminal-agent-*.md` |
+| explorer-search(25), 4행 | explorer-search-16 삭제 확인(partial), -20 터미널에서 열기(partial), -21 폴더에서 찾기(partial), -33 교체(partial) | 사양 `lane-explorer-search-spec.md` | QA `2026-11-02-native-lane-explorer-search-*.md` |
 | preview(30), 3행 | preview-5 외부 저장·이동·삭제 시 갱신(partial), preview-14 비디오(partial), preview-15 오디오(partial) | 사양 `lane-editor-preview-spec.md` | QA `2026-11-02-native-lane-preview-preview-markdown.md` |
-| git(26), 6행 | git-7 Sync 버튼(partial, `notify_event` 연결), git-38 탐색기 Git 데코레이션 공급(partial), git-40 Diff 렌더(partial: 문자 단위 강조·±·overview ruler), git-42 diff 설정 반영(partial), git-50 ClaudeDiffPane 렌더(partial: revert 화살표), git-52 탭 닫힘/창 이동 시 암묵 reject(partial) | 사양 `lane-git-spec.md` | Git lane worktree의 QA `2026-11-02-native-lane-git-g1-base.md` ~ `g8-blame-conflicts.md`(병합 뒤 메인으로 들어옴) |
+| git(26), 4행 | git-40 Diff 렌더(partial: 문자 단위 강조·±·overview ruler), git-42 diff 설정 반영(partial), git-50 ClaudeDiffPane 렌더(partial: revert 화살표), git-52 탭 닫힘/창 이동 시 암묵 reject(partial) | 사양 `lane-git-spec.md` | `docs/quality-assurance/2026-11-02-native-lane-git-g1-base.md ~ g8-blame-conflicts.md` |
 | settings(28), 10행 | settings-5 탭 소유권(partial), -22 시험 알림(partial), -23 OS 알림 발송 범주(partial), -28 표시·입력 옵션의 편집기 반영(partial), -30 Terminal section(partial), -42 VSIX 가져오기 다이얼로그(partial), -48 Sync 반영(partial), -67 편집한 키 반영(partial), -78 오류 표시 경로(partial), -80 Interface 설정값 소비처(partial) | 사양 `lane-settings-spec.md` | QA `2026-11-02-native-lane-settings-s{1..5}-*.md` |
 | commands-ui(29), 35행 | missing 3: commands-ui-1 `window.reload`, -82 error-boundary(구역 격리, 배치 31 설계 필요), -83 status-error-banner. unwired 11: -14 `view.git`, -30·31 sync upload/download, -32 `cli.connectExternalEditor`, -33·34 CLI 설치·해제, -36 `git.revertHead`, -37 `git.createTagOnHead`, -38 `git.toggleBlame`, -39 `git.openFileHistory`, -62 explorer/git 디스패치. partial 21: -43 `monaco.*` 액션, -59 디스패치 대상, -61 find/search/search-replace, -67~-77·-79 공용 위젯(alert-dialog·button·card·checkbox·command·context-menu·dialog·dropdown-menu·popover·progress·scroll·switch), -84 file-group-header, -85 toast, -86·87 전역 스타일, -96 비국제화 문자열, -98 lucide 아이콘 | 사양 `lane-commands-ui-spec.md`(3절 묶음 계획 W1-A·W1-B·3~8, 4.1절 결정) | QA `2026-11-02-native-lane-terminal-agent-commands-{ui-entry,ui-evidence,run}.md`(W1 선행 묶음은 terminal-agent lane이 수행) |
-
-메인 HEAD(`0c52b438`)에서만 보면 위 목록 외에 Git lane이 닫은 행(git 57행 complete·`git-15` not-applicable, editor-73·74·75, editor-76의 partial 승격, shell-21, explorer-search-22·23)이 아직 미완료로 남아 있습니다. Git lane 병합이 커밋되면 위 표가 현재 값이 됩니다.
 
 ### 5.2 영역과 무관한 남은 일
 
@@ -294,7 +260,7 @@ git -C /Users/hyunseokbyun/development/TAIDE-lanes/git diff --name-only --diff-f
 
 | 문서 | 다루는 것 | 상태 |
 | --- | --- | --- |
-| `docs/PROCESS.md` 맨 위 절(1~37줄) | 현재 진행 단계, lane 병합 기록, 게이트 결과, 보류 목록. 파일이 매우 커서 처음 80줄만 읽습니다 | 현재 정본 |
+| `docs/PROCESS.md` 처음 80줄 | 현재 진행 단계, lane 병합 기록, 게이트 결과, 보류 목록. 파일이 매우 커서 처음 80줄만 읽습니다 | 현재 정본 |
 | `docs/memory/2026-10-28-native-lane-operations.md` | lane 병렬 운영 방식, wave 순서, 통합 게이트, 중단·재개 | 현재 정본 |
 | `docs/memory/2026-10-07-native-transition-operations.md` | 5절 화면 캡처, 6절 반복된 함정(1·3·4절은 lane 문서로 대체) | 5·6절만 유효 |
 | `docs/research/2026-10-28-native-lane-seams.md` | 영역 모듈 구조(`domains/<영역>.rs`), 영역 하위 enum, 공용 파일 영역 블록 규칙, 영역별 테스트 필터 | 현재 정본(03 문서의 근거, 2026-11-02 갱신) |
@@ -306,7 +272,7 @@ git -C /Users/hyunseokbyun/development/TAIDE-lanes/git diff --name-only --diff-f
 | `docs/quality-assurance/2026-10-09-native-function-matrix.md` | 599행 기능표(행별 TS 근거·판정·남은 동작) | 행은 정본, 상단 합계 표는 낡음 |
 | `docs/quality-assurance/2026-10-10-native-remaining-batch-plan.md`·`.json` | 배치 23~33 범위와 ID 배정 | 배정 정본 |
 | `docs/quality-assurance/2026-11-02-native-lane-*.md` | lane 묶음별 구현·검증 기록 | 해당 묶음 정본 |
-| `docs/utils/2026-11-03-native-merge-gate.sh` | 병합 게이트 스크립트(26줄) | 02 문서 8.7절 주의 사항 필독 |
+| `docs/utils/2026-11-03-native-merge-gate.sh` | 병합 게이트 스크립트(31줄) | `34fb88d7`부터 휴지통 검사 3개 `--skip` 포함, 루트 workspace 4개는 별도(00-README 1절 2번) |
 | `docs/utils/2026-11-02-native-lane-workflow.js` | lane workflow 스크립트(작업자 지시 `BACKGROUND`·`RULES`·`DONE`, 리뷰 형식) | 다음 lane 실행 때 재사용 |
 | `docs/roadmap-rust-native.md` | Phase 0~9, 10절 삭제 게이트 | 유효 |
 | `docs/architecture.md` 9절 | native 구조 요약 | 2026-10-09 기준이라 일부 낡음. 03 문서가 대체 |

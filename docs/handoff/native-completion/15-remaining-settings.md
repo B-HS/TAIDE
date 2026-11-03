@@ -1,9 +1,8 @@
 # settings 영역 남은 작업 (Rust-native 전환)
 
-> 작성일: 2026-11-04 · 기준: 저장소 `/Users/hyunseokbyun/development/TAIDE`, 브랜치 `to_rust_native`, HEAD `0c52b438`(settings lane 병합 `3864e1db` 뒤)
-> Git 영역 비교 기준: worktree `/Users/hyunseokbyun/development/TAIDE-lanes/git`(브랜치 `lane/git`, HEAD `50892b59`). 이 worktree는 `to_rust_native`를 병합하는 중입니다. 충돌 표시(`UU`) 파일 8개는 표식(`<<<<<<<`)이 이미 지워졌지만 아직 스테이징되지 않았고, 작업 트리에 커밋되지 않은 수정(`domains/git.rs`의 pull/push 알림, `domains/shell.rs`의 `Event::IdeDiff` 분기와 `notifications_tests` 공개 범위 확대 등)이 있습니다. settings 행은 두 기능표에서 글자 하나까지 같고(`diff`로 확인), settings 소스·검사 파일도 두 쪽이 같습니다(`diff -q`로 확인).
-> 독자: 이 저장소를 처음 보는 구현 담당 AI. 이 문서와 여기서 가리키는 파일 구간만 읽고 같은 품질로 구현할 수 있게 썼습니다. 줄 번호는 위 HEAD 기준이며 바뀔 수 있으니 항상 심볼 이름으로 다시 찾으십시오(`grep -n "fn 심볼" 파일`).
-> 같은 경로의 2026-11-03 판을 2026-11-04 기준으로 다시 확인해 고친 문서입니다. 바뀐 점: git lane 병합 작업 트리의 진행 반영(settings-22·23·67·80), settings-42의 상수 삭제 범위 정정, TS 줄 번호 정정, 검사 도우미 재사용 경로 구체화.
+> 작성일: 2026-11-04 · 기준: 저장소 `/Users/hyunseokbyun/development/TAIDE`, 브랜치 `to_rust_native`, HEAD `7be1ad14`(settings lane 병합 `3864e1db`, git lane 병합 `f3a5b5d0` 포함)
+> 독자: 이 저장소를 처음 보는 구현 담당 AI. 이 문서와 여기서 가리키는 파일 구간만 읽고 같은 품질로 구현할 수 있게 썼습니다. 줄 번호는 `0c52b438` 기준이며 현재 HEAD에서는 심볼 이름으로 찾습니다(`grep -n "fn 심볼" 파일`).
+> 같은 경로의 2026-11-03 판을 2026-11-04 기준으로 다시 확인해 고친 문서입니다. 바뀐 점: git lane 병합 반영(settings-22·23·67·80), settings-42의 상수 삭제 범위 정정, TS 줄 번호 정정, 검사 도우미 재사용 경로 구체화.
 
 ## 0. 먼저 읽을 것
 
@@ -18,7 +17,6 @@
 | `UI` | `/Users/hyunseokbyun/development/TAIDE/native/taide-native-ui/src` (egui 화면 crate) |
 | `TERM` | `/Users/hyunseokbyun/development/TAIDE/native/taide-native-terminal/src` |
 | `LOC` | `/Users/hyunseokbyun/development/TAIDE/crates/taide-locale/resources/locales/{en,ko,ja}.json` (평면 키 `"settings.xxx"`) |
-| `GITLANE` | `/Users/hyunseokbyun/development/TAIDE-lanes/git` (git lane worktree, 병합 중) |
 | `MATRIX` | `/Users/hyunseokbyun/development/TAIDE/docs/quality-assurance/2026-10-09-native-function-matrix.md` |
 | `SPEC` | `/Users/hyunseokbyun/development/TAIDE/docs/research/2026-10-28-lane-settings-spec.md` (lane 시작 시점 사양, 39행 대상) |
 | `QA-S1`~`QA-S5` | `/Users/hyunseokbyun/development/TAIDE/docs/quality-assurance/2026-11-02-native-lane-settings-{s1-interface-performance,s2-lsp-ai,s3-plugins-vsix,s4-sync-remote,s5-finish}.md` |
@@ -68,16 +66,16 @@ cargo check --manifest-path /Users/hyunseokbyun/development/TAIDE/native/taide-r
 - native crate(`APP`, `UI`)는 Rust 2024 edition입니다(각 `Cargo.toml` `edition = "2024"`, `rust-version = "1.95"`). `if a && let Some(b) = c { .. }`(let chain)을 이미 많이 씁니다(예: `APP/domains/settings.rs` `apply_settings_reply`의 `Reply::AppFileWritten` arm). 반면 `CR/taide-theme`는 edition 2021(`rust-version = "1.89"`)이라 let chain을 쓸 수 없습니다.
 - 검사 파일은 소스 파일 끝에 `#[cfg(test)] #[path = "../application-xxx-tests.rs"] mod xxx_tests;`로 붙입니다. 그 모듈은 붙인 모듈의 자식이라 부모와 조상 모듈의 비공개 필드·함수를 그대로 씁니다. `pub(super)`는 "부모 모듈과 그 자손에게 공개", `pub(in crate::application)`는 "`crate::application`과 그 자손에게 공개"입니다. `domains`는 `crate::application`의 자식(`APP/application.rs` 34~35줄 `#[path = "domains/mod.rs"] pub mod domains;`, `APP/lib.rs` 371줄 `pub use application::domains;`)이라 `crate::domains::x`와 `crate::application::domains::x`는 같은 경로입니다.
 
-### 0.5 다른 영역 병합 상태를 확인하는 명령 (작업 시작 때마다)
+### 0.5 다른 영역 병합 상태
 
-아래는 메인 저장소 파일을 읽는 한 줄 명령입니다. 결과에 따라 3절 각 행의 (g)가 달라집니다.
+모든 lane 병합이 완료됐습니다(`f3a5b5d0`). 2026-11-04 메인에서 확인한 값은 다음과 같습니다.
 
-| 확인 | 명령 | 결과 해석 |
+| 확인 | 명령 | 2026-11-04 결과 |
 | --- | --- | --- |
-| git lane 병합 | `grep -c "fn notify_git_remote" /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/src/domains/git.rs` | 1이면 git lane이 메인에 병합됨(2026-11-04 메인은 0, `GITLANE` 작업 트리에는 1) |
-| 알림 검사 도우미 공개 | `grep -c "pub(in crate::application) mod notifications_tests" /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/src/domains/shell.rs` | 1이면 `FakePlatform`·`launch_with_platform`을 settings 검사에서 쓸 수 있음(메인 0, `GITLANE` 작업 트리 1) |
-| 검색 치환 알림 | `grep -c "notify_event" /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/src/domains/explorer_search.rs` | 1 이상이면 explorer-search-33의 알림 한 줄이 들어옴(메인·`GITLANE` 모두 0) |
-| IDE diff 수신 | `grep -c "Event::IdeDiff" /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/src/domains/shell.rs` | 1이면 git-49 수신이 shell 수신함 경로로 옮겨짐(메인 0, `GITLANE` 작업 트리 1) |
+| git lane 병합 | `grep -c "fn notify_git_remote" /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/src/domains/git.rs` | 1 |
+| 알림 검사 도우미 공개 | `grep -c "pub(in crate::application) mod notifications_tests" /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/src/domains/shell.rs` | 1 |
+| 검색 치환 알림 | `grep -c "notify_event" /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/src/domains/explorer_search.rs` | 0(explorer-search-33의 알림 한 줄은 아직 없음) |
+| IDE diff 수신 | `grep -c "Event::IdeDiff" /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/src/domains/shell.rs` | 1 |
 | status 라벨 잔여 | `grep -c "status = Some(" /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/src/application.rs` 와 같은 명령을 `domains/*.rs`, `git-editor.rs`에 | 합계(아래 settings-78)가 0이 되어야 상태바 라벨 제거 가능 |
 
 ## 1. 요약
@@ -91,17 +89,17 @@ cargo check --manifest-path /Users/hyunseokbyun/development/TAIDE/native/taide-r
 | ID | 기능 | 기능표 줄 | 남은 것(한 줄) | 막는 것 |
 | --- | --- | --- | --- | --- |
 | settings-5 | 탭 소유권(보조 창 포함) | 554 | 병합본에서 기존 App 검사 1회 실행·기록 | 없음 |
-| settings-22 | 시험 알림과 억제 사유 toast | 571 | 전달 성공·플랫폼 오류 App 검사(가짜 platform, 포커스 없음) | git lane 병합(검사 도우미 공개 범위, 0.5절) |
-| settings-23 | OS 알림 범주 7종 | 572 | 검색 치환 알림 한 줄(explorer-search 소유), git pull/push 알림 병합, 범주 묶음 App 검사 | git lane 병합, explorer-search-33 |
-| settings-28 | 표시·입력 옵션의 편집기 반영 | 577 | App 소비자 검사 4종(wordWrap·rulers·lineNumbers·renderWhitespace), diff 2종·semantic 소비자 | editor-7, git-42 showMoves, git lane 병합 |
+| settings-22 | 시험 알림과 억제 사유 toast | 571 | 전달 성공·플랫폼 오류 App 검사(가짜 platform, 포커스 없음) | 없음(검사 도우미는 이미 공개됨) |
+| settings-23 | OS 알림 범주 7종 | 572 | 검색 치환 알림 한 줄(explorer-search 소유), 범주 묶음 App 검사(git pull/push 알림은 병합 완료) | explorer-search-33 |
+| settings-28 | 표시·입력 옵션의 편집기 반영 | 577 | App 소비자 검사 4종(wordWrap·rulers·lineNumbers·renderWhitespace), diff 2종·semantic 소비자 | editor-7, git-42 showMoves |
 | settings-30 | Terminal section | 579 | Settings 경로로 바꾼 scrollback이 실행 중 세션 history에 반영되는 App 검사 | 없음 |
 | settings-42 | VSIX 가져오기 대화상자 | 591 | `taide-theme` `service.rs` 검사 모듈의 색·대비 도우미 중복 제거 | 없음 |
 | settings-48 | Sync 뒤 데이터 반영 | 597 | 동기화 다운로드 뒤 테마 목록·화면 테마·settings.json 탭 갱신 App 검사 | 없음 |
-| settings-67 | 편집한 키의 실제 동작 반영 | 616 | 실행 경로 없는 명령의 소비자(다른 영역 몫), 거절 목록 재측정·분류 | commands-ui(wave 3)·git 병합·editor |
-| settings-78 | 오류 표시 경로 | 627 | 남은 `status` 대입 처리와 상태바 라벨·필드 제거 | 모든 lane 병합(특히 git), 메인 통합 |
-| settings-80 | Interface 설정 소비처 | 629 | minimap App 검사, searchOnType 끔 App 검사, IDE diff 자동 열기(git-49) 병합본 실행 | git lane 병합(IDE diff만) |
+| settings-67 | 편집한 키의 실제 동작 반영 | 616 | 실행 경로 없는 명령의 소비자(다른 영역 몫), 거절 목록 재측정·분류 | commands-ui(wave 3)·editor |
+| settings-78 | 오류 표시 경로 | 627 | 남은 `status` 대입 처리와 상태바 라벨·필드 제거 | 메인 통합 |
+| settings-80 | Interface 설정 소비처 | 629 | minimap App 검사, searchOnType 끔 App 검사, IDE diff 자동 열기(git-49) 검사 실행 | 없음 |
 
-성격별: 바로 가능 6(5, 30, 42, 48, 28의 App 검사 4종, 80의 minimap·searchOnType 끔), git lane 병합 대기 3(22, 23, 80의 IDE diff), 다른 영역 완료 대기 3(28의 semantic·showMoves, 67, 78).
+성격별: 바로 가능 6(5, 30, 42, 48, 28의 App 검사 4종, 80의 minimap·searchOnType 끔), git 병합 완료로 즉시 가능 3(22, 23의 범주 묶음 검사, 80의 IDE diff), 다른 영역 완료 대기 3(28의 semantic·showMoves, 67, 78).
 
 ### 1.2 현재 구현 위치
 
@@ -121,27 +119,27 @@ cargo check --manifest-path /Users/hyunseokbyun/development/TAIDE/native/taide-r
 
 소유 규칙의 정본은 `docs/acknowledge/2026-10-28-native-lane-spec-decisions.md` 채택 2·3번째 항목입니다: 알림 생산자·첫 전달 안내·Sync 테마 재로드·보조 창 수명은 shell, git 알림·IDE diff·diff 설정 소비는 git, reveal·searchOnType·검색 치환 알림은 explorer-search가 만들고 settings는 재사용·확인·행 갱신만 합니다. OS 알림 진입점은 shell의 `notify_event` 하나입니다.
 
-| 선행 산출물 | 소유 행 | 메인(`0c52b438`) 상태 | `GITLANE`(병합 작업 트리) | settings 행 |
-| --- | --- | --- | --- | --- |
-| 알림 진입점 `notify_event`, 생산자, 주입 platform | shell-91 | complete. `APP/domains/shell.rs` `notify_event`(1175), `crate::application::Overrides.platform`(`APP/application.rs` 76~79, 적용 348~358) | 같음 | 22, 23 |
-| 가짜 platform 검사 도우미 `FakePlatform`·`launch_with_platform` | shell-91 검사 | `APP/application-notifications-tests.rs` 26·55줄, 모듈이 `domains::shell` 안의 비공개 `mod notifications_tests`(1643)라 settings 검사에서 보이지 않음 | 모듈·두 심볼이 `pub(in crate::application)`로 열림 | 22, 23 |
-| `SyncStateChanged` 뒤 테마·로케일 재로드 | shell-93 | partial(남은 것은 Git 이벤트, settings와 무관). `APP/presentation-refresh.rs` 32~50 반영됨 | 같음 | 48 |
-| 보조 창 수명 | shell-5 | partial(남은 것: 보조 창 WKWebView·터미널 raw input·Settings theme preview의 보조 창 적용, `HO-10`) | 같음 | 5 |
-| 실행 중 scrollback | terminal-agent-11 | complete. `TERM/lib.rs` `TerminalCore::set_history`(465), `TERM/session.rs` `configure_history`(270), `APP/terminal_host.rs` `Hub::configure_history`(624), `APP/domains/terminal_agent.rs` `tick_terminal_agent_live_sessions`(553) | 같음 | 30 |
-| 자동 reveal | explorer-search-25 | complete | 같음 | 80 |
-| searchOnType·debounce | explorer-search-34 | complete | 같음 | 80 |
-| 검색 치환 OS 알림 | explorer-search-33 | partial("OS 알림 한 줄" 남음, 계획 `HO-12` 3.1절) | 같음(알림 없음) | 23 |
-| git pull/push OS 알림 | git-7 | unwired(Git 표면 없음) | partial로 표시돼 있으나 작업 트리에 `notify_git_remote`(`domains/git.rs` 1515)와 App 검사 `실제_app_sync의_pull과_push는_성공과_실패를_프로젝트_제목의_os_알림으로_보낸다`(`application-git-header-tests.rs` 575)가 있음(`HO-14` 3.1절) | 23 |
-| IDE diff 자동 열기 | git-49 | unwired. `APP/ide-tools.rs` 209가 `AppEvent::IdeDiffRequested`를 발행하지만 받는 곳이 없어 시간 초과로 rejected | complete. 작업 트리에서 수신이 shell 수신함의 `Event::IdeDiff(event) => self.accept_claude_diff_event(event)`로 옮겨지는 중 | 80 |
-| diff 설정 2종 | git-42 | unwired | partial(hideUnchanged 완료, showMoves 남음) | 28 |
-| semantic token | editor-7 | missing(계획 `HO-11` 3.1절) | 같음 | 28 |
-| 리거처 | editor-4 | not-applicable(egui 한계, 결정 1 A) | 같음 | 28 |
-| 실행 경로 없는 명령 | commands-ui 여러 행, git, editor | wave 3 미착수(`HO-16`) | git 명령 일부 연결 | 67 |
-| status 라벨 결정 공유 | commands-ui-96 | partial, settings-78 결과를 기다림(`HO-16` commands-ui-96 (d)) | 같음 | 78 |
+| 선행 산출물 | 소유 행 | 메인(`7be1ad14`) 상태 | settings 행 |
+| --- | --- | --- | --- |
+| 알림 진입점 `notify_event`, 생산자, 주입 platform | shell-91 | complete. `APP/domains/shell.rs` `notify_event`(1175), `crate::application::Overrides.platform`(`APP/application.rs` 76~79, 적용 348~358) | 22, 23 |
+| 가짜 platform 검사 도우미 `FakePlatform`·`launch_with_platform` | shell-91 검사 | `APP/application-notifications-tests.rs` 26·55줄, 모듈이 `domains::shell` 안의 `pub(in crate::application) mod notifications_tests`로 열려 settings 검사에서 보임 | 22, 23 |
+| `SyncStateChanged` 뒤 테마·로케일 재로드 | shell-93 | partial(남은 것은 Git 이벤트, settings와 무관). `APP/presentation-refresh.rs` 32~50 반영됨 | 48 |
+| 보조 창 수명 | shell-5 | partial(남은 것: 보조 창 WKWebView·터미널 raw input·Settings theme preview의 보조 창 적용, `HO-10`) | 5 |
+| 실행 중 scrollback | terminal-agent-11 | complete. `TERM/lib.rs` `TerminalCore::set_history`(465), `TERM/session.rs` `configure_history`(270), `APP/terminal_host.rs` `Hub::configure_history`(624), `APP/domains/terminal_agent.rs` `tick_terminal_agent_live_sessions`(553) | 30 |
+| 자동 reveal | explorer-search-25 | complete | 80 |
+| searchOnType·debounce | explorer-search-34 | complete | 80 |
+| 검색 치환 OS 알림 | explorer-search-33 | partial("OS 알림 한 줄" 남음, 계획 `HO-12` 3.1절) | 23 |
+| git pull/push OS 알림 | git-7 | complete. `domains/git.rs` `notify_git_remote`(1515)와 App 검사 `실제_app_sync의_pull과_push는_성공과_실패를_프로젝트_제목의_os_알림으로_보낸다`(`application-git-header-tests.rs` 575) | 23 |
+| IDE diff 자동 열기 | git-49 | complete. 수신은 shell 수신함의 `Event::IdeDiff(event) => self.accept_claude_diff_event(event)` | 80 |
+| diff 설정 2종 | git-42 | partial(hideUnchanged 완료, showMoves 남음) | 28 |
+| semantic token | editor-7 | missing(계획 `HO-11` 3.1절) | 28 |
+| 리거처 | editor-4 | not-applicable(egui 한계, 결정 1 A) | 28 |
+| 실행 경로 없는 명령 | commands-ui 여러 행, git, editor | wave 3 미착수(`HO-16`), git 명령 일부 연결 | 67 |
+| status 라벨 결정 공유 | commands-ui-96 | partial, settings-78 결과를 기다림(`HO-16` commands-ui-96 (d)) | 78 |
 
 ### 1.4 권장 구현 순서
 
-판단 기준: (1) 다른 영역 선행이 없고 settings 소유 파일만 바꾸는 행부터, (2) 같은 검사 도우미 파일을 바꾸는 행은 이어서, (3) git lane 병합에 걸린 행은 0.5절 확인이 1이 된 뒤.
+판단 기준: (1) 다른 영역 선행이 없고 settings 소유 파일만 바꾸는 행부터, (2) 같은 검사 도우미 파일을 바꾸는 행은 이어서, (3) git lane 병합은 완료됐으므로 git 관련 행도 바로 진행합니다.
 
 1. 지금 바로(메인, 선행 없음):
     1. settings-5 — 코드 변경 없이 기존 검사 실행·기록. 가장 작음.
@@ -150,12 +148,12 @@ cargo check --manifest-path /Users/hyunseokbyun/development/TAIDE/native/taide-r
     4. settings-42 — `CR/taide-theme/src/service.rs` 검사 모듈만. 다른 행과 파일이 겹치지 않음.
     5. settings-80 minimap·searchOnType 끔 — `application-settings-consumers-tests.rs`.
     6. settings-28 App 검사 4종 — 같은 파일. 5번에서 만든 파일 열기 도우미를 함께 씁니다.
-2. git lane 병합 직후(0.5절 첫 두 확인이 1):
+2. git lane 병합 완료 후 가능(0.5절 첫 두 확인이 1):
     1. settings-22 — `Scene`에 platform·포커스 인자를 더함(이 변경을 23이 재사용).
     2. settings-80 — 병합본에서 git-49 검사 실행 → 1의 5번과 합쳐 complete.
     3. settings-28 — hideUnchanged 근거 연결(여전히 partial).
     4. settings-23 — explorer-search-33의 알림 한 줄이 들어온 뒤(0.5절 셋째 확인) 범주 묶음 App 검사.
-3. 다른 영역 완료 뒤: settings-28(editor-7, git-42 showMoves), settings-67(commands-ui wave 3), settings-78(모든 lane 병합 뒤 메인이 일괄 처리, wave 4 직전 권장).
+3. 다른 영역 완료 뒤: settings-28(editor-7, git-42 showMoves), settings-67(commands-ui wave 3), settings-78(git 병합은 완료, commands-ui wave 3 선행 뒤 메인이 일괄 처리, wave 4 직전 권장).
 
 ### 1.5 행을 닫을 때마다 하는 일
 
@@ -163,7 +161,7 @@ cargo check --manifest-path /Users/hyunseokbyun/development/TAIDE/native/taide-r
 2. `MATRIX`의 해당 행 4열(현재 판정)과 6열(범위/잔여 동작)을 고칩니다. 6열에는 근거 검사 이름, QA 문서 경로, 남은 것이 있으면 "남은 것: …"을 적습니다. 과대 판정 금지(4절 1).
 3. `MATRIX` 상단 요약표의 settings 줄과 합계 줄, 서문 7줄을 실제 행 수로 다시 셉니다(1.1절 명령).
 4. QA 문서 `docs/quality-assurance/<날짜>-native-settings-<주제>.md`를 씁니다. 형식은 `QA-S5`와 같게: 1. 대상 ID와 판정, 2. 원본 동작 근거, 3. 구현, 4. 사양·원본과 다른 점, 5. 검증 표(명령·결과), 6. 남은 범위. `docs/PROCESS.md` 진행 항목에 한 줄을 더합니다.
-5. Git 커밋·푸시는 메인 오케스트레이터만 합니다. 작업자는 git 상태를 바꾸지 않습니다. `GITLANE` worktree 파일은 읽기만 합니다.
+5. Git 커밋·푸시는 메인 오케스트레이터만 합니다. 작업자는 git 상태를 바꾸지 않습니다. `/Users/hyunseokbyun/development/TAIDE-lanes/*` worktree는 낡았으므로 읽지 않습니다.
 
 ## 2. 영역 공통 지식
 
@@ -192,7 +190,7 @@ cargo check --manifest-path /Users/hyunseokbyun/development/TAIDE/native/taide-r
     3. worker `dispatch`의 `Command::Sections` 분기(430~466)가 `spawn_transient`로 `execute_sections`(470)를 돌리고 `HostReply::Settings(Reply::Sections(reply))`를 보냅니다. 예외: `Action::UpdateSettings`는 순서 보장을 위해 spawn 없이 바로 실행합니다(432~438).
     4. 다음 프레임 `apply_settings_reply` → `Reply::Sections`(1085, `closing`이면 버림) → `accept_sections_reply`(1094) → `Data::accept`가 돌려준 `Notice`를 toast로(`Success`·`SuccessWith`·`Warning`·`Failure`·`Error { error, fallback }`·`SettingsFailed`).
 - 일반 설정 스위치·숫자: `Output.changes` → `HostCommand::Settings(Command::UpdateSettings(change))` → `dispatch` 398~428 → `crate::host::update_control_settings(services, reconcile, patch)` → 저장 + `AppEvent::SettingsChanged` + 통합 재조정. 검사는 이 경로를 `scene.application().submit(HostCommand::Settings(Command::UpdateSettings(change)))`로 직접 탑니다(선례 `APP/application-settings-consumers-tests.rs` `update` 95줄).
-- 사건(`AppEvent`) 수신: `PaintSink::publish`(`APP/application.rs` 62~73)가 `trees`·`file_indexes`·`presentation`·`title_branches`·`app_menu`·`providers`·`settings` 기록기에 사건을 넣습니다. settings 기록기 `Events::record`는 `LspInstallProgress`, `SyncStateChanged`, `RemoteStateChanged`의 마지막 값만 보관하고 `tick_settings_reads`가 `Data`로 옮깁니다(Settings가 닫혀 있어도). 테마·설정 revision은 `presentation_refresh::Changes`(`SettingsChanged`·`ThemeChanged`·`SyncStateChanged`는 `revision`, `ThemeChanged`·`SyncStateChanged`는 `themes`, `SettingsChanged`는 `settings`)가 세고, `poll_settings_revisions`(939)가 `Views::observe_theme_revision`·`app_file_views.observe_settings_revision`으로 무효화합니다. presentation 재적재는 `tick_settings_reads` 끝의 `presentation_refresh.next(..)` → `Command::RefreshPresentation` → `Reply::Presentation`(성공이면 `resolved_theme` 교체 + `apply_presentation_appearances`, 실패면 `log::warn!` + `presentation_failures.theme = true`).
+- 사건(`AppEvent`) 수신: `PaintSink::publish`(`APP/application.rs` 61~71)가 `trees`·`file_indexes`·`presentation`·`git_cache`·`app_menu`·`providers`·`settings` 기록기에 사건을 넣습니다. settings 기록기 `Events::record`는 `LspInstallProgress`, `SyncStateChanged`, `RemoteStateChanged`의 마지막 값만 보관하고 `tick_settings_reads`가 `Data`로 옮깁니다(Settings가 닫혀 있어도). 테마·설정 revision은 `presentation_refresh::Changes`(`SettingsChanged`·`ThemeChanged`·`SyncStateChanged`는 `revision`, `ThemeChanged`·`SyncStateChanged`는 `themes`, `SettingsChanged`는 `settings`)가 세고, `poll_settings_revisions`(939)가 `Views::observe_theme_revision`·`app_file_views.observe_settings_revision`으로 무효화합니다. presentation 재적재는 `tick_settings_reads` 끝의 `presentation_refresh.next(..)` → `Command::RefreshPresentation` → `Reply::Presentation`(성공이면 `resolved_theme` 교체 + `apply_presentation_appearances`, 실패면 `log::warn!` + `presentation_failures.theme = true`).
 - intent: `ShellIntent::Settings(intents::settings::Intent)`(`UI/intents/settings.rs`: `OpenSettings`, `OpenSettingsFile`, `ChangeEditorFontSize { increase }`, `#[cfg(feature = "native-host")] ToggleEditorMinimap`) → `apply_settings_intent`(1142). settings 전용 `ShellSurfaces` 메서드는 없습니다(`docs/research/2026-10-28-native-lane-seams.md` 186줄).
 
 ### 2.4 검사 하네스
@@ -230,9 +228,9 @@ assert!(successes(scene.application()).contains(&label));              // toast 
 | `application::project_rail_tests`(`application.rs` 2961) | `all(test, unix)` | `crate::application`의 자손이면 `pub(super)` 항목이 보임 |
 | `application::search_panel_tests`(`application.rs` 3010) | `test` | 같음. `open_search_view`(138)·`panel_generation`(154)은 비공개 |
 | `application::error_boundary_tests`(`application.rs` 2990) | `all(test, unix)` | `texture_ids`(211)는 비공개 |
-| `domains::shell::notifications_tests`(`domains/shell.rs` 1643) | `all(test, unix)` | 메인: 모듈이 비공개라 안 보임. `GITLANE` 병합 뒤: `pub(in crate::application)` |
+| `domains::shell::notifications_tests`(`domains/shell.rs` 1643) | `all(test, unix)` | `pub(in crate::application)`(병합 완료) |
 
-`project_rail_tests`가 unix 전용이라 settings 검사도 사실상 unix에서만 컴파일됩니다. unix 전용 모듈을 직접 가져오는 새 검사 함수·모듈에는 `#[cfg(unix)]`(함수) 또는 `#[cfg(all(test, unix))]`(모듈)를 붙입니다(선례 `GITLANE/native/taide-native-app/src/application-git-header-tests.rs` 573~574줄).
+`project_rail_tests`가 unix 전용이라 settings 검사도 사실상 unix에서만 컴파일됩니다. unix 전용 모듈을 직접 가져오는 새 검사 함수·모듈에는 `#[cfg(unix)]`(함수) 또는 `#[cfg(all(test, unix))]`(모듈)를 붙입니다(선례 `APP/application-git-header-tests.rs` 573~574줄).
 
 ## 3. 행별 상세
 
@@ -284,7 +282,7 @@ assert!(successes(scene.application()).contains(&label));              // toast 
 - 자산(모두 완료): 버튼 `UI/settings-sections-view.rs` `notifications`(891~948), `Data::send_test_notification`(664), 응답 → 알림 `Data::accept`의 `Reply::TestNotification`(1168~1176: `Delivered` → `Notice::Success("notification.enableHint")`, `Suppressed(reason)` → `Notice::Warning(suppression_label(reason))`, `Err` → `Notice::Error`), 호스트 `execute_sections`의 `Action::SendTestNotification`(`APP/domains/settings.rs` 808~829: `notification_actions::notification_notify(&worker.state, worker.platform.0.as_ref(), NotificationCategory::Error, &title, &body, || any_window_focused)`, `worker`는 `services.clone()`이라 `services.platform`을 씀), 포커스 계산 `is_any_window_focused`(`APP/domains/shell.rs` 1369: 메인 `input.raw.focused` 또는 열린 보조 viewport 하나라도 포커스).
 - 이미 있는 검사: [C] `UI/settings-sections-data-tests.rs`(사유 3종 → 라벨, 전달, 오류), [A] `APP/application-settings-interface-tests.rs` `실제_알림_버튼은_가짜_설정열기와_시험알림_억제_사유를_원본_문구로_알린다`(443~518: 포커스·마스터 off·`notifyError` off 세 억제).
 - 빠진 것: 실제 App에서 (1) 포커스 없음 → 플랫폼 1회 전달(제목·본문) → success `notification.enableHint`, 첫 전달 info toast 없음, (2) 플랫폼 오류 → 그 문구 error toast. lane에는 생성자 platform override가 없어 못 했습니다(`QA-S1` 4절 10). 메인에는 `Overrides { secret_store, platform }`과 `new_with_overrides`(313)가 있습니다.
-- 재사용할 가짜 platform: shell 검사의 `FakePlatform`(`APP/application-notifications-tests.rs` 26~53: `sent: Mutex<Vec<(String, String)>>`, `sent()` 메서드, `send_notification`은 항상 기록 후 `Ok`). 오류를 낼 수 없으므로 거절 필드를 더해야 합니다. 이 모듈은 메인에서 보이지 않고 git lane 병합 뒤 보입니다(2.4절 가시성 표).
+- 재사용할 가짜 platform: shell 검사의 `FakePlatform`(`APP/application-notifications-tests.rs` 26~53: `sent: Mutex<Vec<(String, String)>>`, `sent()` 메서드, `send_notification`은 항상 기록 후 `Ok`). 오류를 낼 수 없으므로 거절 필드를 더해야 합니다. 이 모듈은 메인에서 보입니다(2.4절 가시성 표).
 
 **(d) 구현 방법** (제품 코드 변경 없음, 검사 도우미와 검사만. 0.5절 둘째 확인이 1일 때)
 1. `APP/application-notifications-tests.rs`(shell 소유 검사 파일)의 `FakePlatform`에 거절 필드를 더합니다. `Default` 파생이 그대로 동작하고 기존 검사(`notifications_tests`, git 헤더 검사)는 영향이 없습니다.
@@ -356,7 +354,7 @@ assert!(successes(scene.application()).contains(&label));              // toast 
 
 **(f) 완료 판정**: 위 검사 통과, 기존 억제 검사 통과, 행 complete(6열에 "전달 성공·플랫폼 오류는 `<검사 이름>`"). 실제 OS 알림 표시는 허락 항목이라 완료 판정에 넣지 않습니다(`SPEC` 4.2-1).
 
-**(g) 막는 요소**: git lane 병합(0.5절 둘째 확인). 병합 전에 메인에서 `notifications_tests`의 공개 범위를 직접 넓히지 마십시오. `GITLANE` 작업 트리가 같은 줄을 바꾸고 있어 병합 충돌이 납니다. 병합 전이면 1.4절 1단계 행을 먼저 합니다. 클릭이 안 먹으면 `phase=` 메시지로 드러나니 그때 (e) 3·4단계의 프레임 수를 확인합니다.
+**(g) 막는 요소**: 없음(git 병합 완료, `notifications_tests`는 이미 공개됨). 클릭이 안 먹으면 `phase=` 메시지로 드러나니 그때 (e) 3·4단계의 프레임 수를 확인합니다.
 
 ---
 
@@ -373,15 +371,15 @@ assert!(successes(scene.application()).contains(&label));              // toast 
 
 **(c) native**
 - 완료된 것(shell-91): `APP/domains/shell.rs` `consume_provider_events`(1112~1170), `notify_event`(1175~1198: `native_notifications::project_title`, `truncate(.., NOTIFICATION_TEXT_MAX_CODE_POINTS)`, `is_any_window_focused`, `HostCommand::Shell(Command::Notify(request))`), `notify_agent_completions`(1200), `notify_command_finished`(1227, `TASK_COMPLETION_NOTIFY_MIN_DURATION_MS` = 10,000 미만은 무시), `APP/native-notifications.rs`(`evaluate` 71: 10초 이상 working 뒤 `Idle`·`AwaitingInput`만 완료), 검사 `APP/application-notifications-tests.rs`(명령 완료·LSP·agent, 가짜 platform).
-- `GITLANE` 작업 트리(미커밋, 병합 중): `domains/git.rs` `notify_git_remote`(1515~1544)를 `MutationOp::Pull`·`Push` 응답(1393·1418)에서 부름, 검사 `application-git-header-tests.rs` `실제_app_sync의_pull과_push는_성공과_실패를_프로젝트_제목의_os_알림으로_보낸다`(575~). `GITLANE` 기능표 git-7은 아직 "남은 것: pull/push OS 알림 4종"으로 적혀 있습니다(`HO-14` 3.1절이 병합 결과 확인을 맡음).
+- 메인 `domains/git.rs` `notify_git_remote`(1515줄)가 pull/push 응답에서 `notify_event`를 호출하며 git-7은 complete입니다. 검사 `application-git-header-tests.rs` `실제_app_sync의_pull과_push는_성공과_실패를_프로젝트_제목의_os_알림으로_보낸다`(575~).
 - 빠진 것:
-    1. 검색 치환: `APP/domains/explorer_search.rs` `apply_search_replaced`(810~865)는 success toast(844)와 건너뜀 warning만 내고 `notify_event`를 부르지 않습니다(메인·`GITLANE` 모두). explorer-search-33의 "남은 것: OS 알림 한 줄"과 같고, 구현 계획은 `HO-12` 3.1절에 있습니다.
-    2. git push/pull: 메인에는 없음. git lane 병합으로 들어옵니다.
+    1. 검색 치환: `APP/domains/explorer_search.rs` `apply_search_replaced`(810~865)는 success toast(844)와 건너뜀 warning만 내고 `notify_event`를 부르지 않습니다. explorer-search-33의 "남은 것: OS 알림 한 줄"과 같고, 구현 계획은 `HO-12` 3.1절에 있습니다.
+    2. git push/pull: 메인에 있습니다(위 `notify_git_remote`).
     3. 범주 묶음 App 검사 `APP/application-settings-notifications-tests.rs`가 없습니다(lane에서는 대체 구현 금지 규칙으로 쓰지 않음, `QA-S5` 4절 1).
 
 **(d) 구현 방법**
 1. 검색 치환 알림은 explorer-search 소유입니다(`HO-12` 3.1절). 그 문서를 따라 `apply_search_replaced`의 성공 분기에서 `self.toasts.success(summary, now)` 전에 `summary`를 복제해 `self.notify_event(context, taide_model::notification::NotificationCategory::SearchReplace, Some(&project), "notification.searchReplaceDone", summary.clone())`을 부릅니다. 오류 분기(829~833)는 원본에도 알림이 없으므로 그대로 둡니다. settings 작업자가 대신 넣는 경우에도 explorer-search-33 행 비고와 그 영역 QA를 함께 고칩니다.
-2. git push/pull 알림은 git lane 병합으로 들어옵니다. 병합 뒤 0.5절 첫 확인이 1인지 보고, `HO-14` 3.1절의 확인 목록으로 검사가 통과하는지 봅니다.
+2. git push/pull 알림은 이미 들어왔습니다. 검사 이름은 위 문장을 사용하십시오.
 3. 범주 묶음 App 검사(settings 소유):
     - 새 파일 `APP/application-settings-notifications-tests.rs`를 만들고 `APP/domains/settings.rs` 끝 검사 모듈 목록에 `#[cfg(all(test, unix))] #[path = "../application-settings-notifications-tests.rs"] mod settings_notifications_tests;`를 더합니다.
     - settings-22에서 만든 `Scene::launch_on_platform`·`set_focused`와 shell의 `FakePlatform`을 씁니다.
@@ -398,13 +396,13 @@ assert!(successes(scene.application()).contains(&label));              // toast 
     - 마스터 off(`Switch::NotificationsEnabled`) 한 번 뒤 위 사건 전부 0회.
     - gitRemote·searchReplace 범주의 스위치 게이트는 각 생산자 검사(아래)와 `decide_delivery` 단위 검사(`카테고리_스위치를_끄면_그_카테고리만_억제된다` 101줄)가 근거입니다. 이 묶음 검사에 git 원격 fixture를 다시 만들지 않습니다.
 - 생산자 검사(각 영역 파일):
-    - 검색 치환: `HO-12` 3.1절의 검사(`APP/application-search-panel-tests.rs`). 그 파일의 `launch_project`(33줄)는 `project_rail_tests::launch`(기본 platform)를 쓰므로 `new_with_overrides`를 쓰는 실행 도우미가 필요합니다. git lane 병합 뒤라면 shell의 `launch_with_platform(fixture, state, platform)`을 재사용합니다.
-    - git: `GITLANE`의 위 git 헤더 검사(병합 뒤 메인에서 실행).
+    - 검색 치환: `HO-12` 3.1절의 검사(`APP/application-search-panel-tests.rs`). 그 파일의 `launch_project`(33줄)는 `project_rail_tests::launch`(기본 platform)를 쓰므로 `new_with_overrides`를 쓰는 실행 도우미가 필요합니다. shell의 `launch_with_platform(fixture, state, platform)`을 재사용합니다.
+    - git: 메인의 위 git 헤더 검사.
 - 실행: 앱 lib 명령 + 필터 `settings_notifications_tests 실제_app_sync의_pull과_push는 <검색 치환 검사 이름> --test-threads=2`.
 
 **(f) 완료 판정**: shell-91(완료), explorer-search-33의 알림 줄, git-7의 알림 4종이 메인에 있고, 묶음 검사와 생산자 검사 2개가 통과하면 complete. 하나라도 없으면 partial 유지, 6열에 남은 범주와 소유 행을 적습니다. 실제 OS 표시는 허락 항목.
 
-**(g) 막는 요소**: git lane 병합(0.5절 첫·둘째 확인), explorer-search-33의 알림 한 줄(0.5절 셋째 확인). 다른 영역 소유 파일 수정은 메인 통합 단계에서 하고 그 영역 행·QA를 함께 갱신합니다.
+**(g) 막는 요소**: explorer-search-33의 알림 한 줄(0.5절 셋째 확인). 다른 영역 소유 파일 수정은 메인 통합 단계에서 하고 그 영역 행·QA를 함께 갱신합니다.
 
 ---
 
@@ -430,7 +428,7 @@ assert!(successes(scene.application()).contains(&label));              // toast 
     - emmet: `APP/editor-completion-emmet-consumer-tests.rs`(69·73·106줄 `emmet_enabled` 토글).
 - 빠진 것:
     1. 설정 경로 → 실제 App 표시 변화 검사: wordWrap, rulers, lineNumbers, renderWhitespace(`QA-S5` 6절 "파일 편집기 탭 fixture 필요"로 못 함. 지금은 2.4절의 파일 탭 패턴이 있습니다).
-    2. 소비자 없음: semantic(editor-7 missing), diff showMoves(git-42, `GITLANE`에서도 미구현). diff hideUnchanged는 `GITLANE`에만 있습니다(`domains/git.rs` 2411·2774가 `editor_diff_hide_unchanged_regions`를 읽음, 검사 `application-git-diff-tests.rs` `실제_app_미변경_영역_숨김_설정은_열린_diff_탭에_바로_반영되고_끄면_모두_보인다` 640).
+    2. 소비자 없음: semantic(editor-7 missing), diff showMoves(git-42, 미구현). diff hideUnchanged는 메인에 있습니다(`domains/git.rs` 2411·2774가 `editor_diff_hide_unchanged_regions`를 읽음, 검사 `application-git-diff-tests.rs` `실제_app_미변경_영역_숨김_설정은_열린_diff_탭에_바로_반영되고_끄면_모두_보인다` 640).
     3. 리거처는 의존이 아니라 not-applicable입니다(editor-4: epaint 0.36.2가 OpenType feature를 끄고 켤 수 없음, 결정 1 A). 6열의 "리거처(egui 한계)" 문장을 "리거처는 editor-4 not-applicable(결정 1 A)"로 바꿉니다.
 
 **(d) 구현 방법** (`APP/application-settings-consumers-tests.rs`, 제품 코드 변경 없음)
@@ -485,7 +483,7 @@ assert!(successes(scene.application()).contains(&label));              // toast 
     ```
 
 3. 검사 4개를 더합니다(아래 (e)). 설정 변경은 `update(&mut scene, change)`(95줄 또는 settings-23에서 옮긴 공용 도우미)를 씁니다.
-4. git lane 병합 뒤 hideUnchanged 검사를 메인에서 실행하고 6열에 인용합니다.
+4. 메인에서 hideUnchanged 검사를 실행하고 6열에 인용합니다.
 5. editor-7(semantic)과 git-42(showMoves)가 끝나면 그 영역 검사 이름을 6열에 적고 complete로 올립니다. 그 전에는 partial.
 
 **(e) 자동 검사** (모두 실제 `NativeApplication`, `Scene::launch_empty_pane(|_| {})` + `missing_cli_agents()` 포트 + `resize(TOC_SCREEN)`)
@@ -497,7 +495,7 @@ assert!(successes(scene.application()).contains(&label));              // toast 
 
 **(f) 완료 판정**: 새 App 검사 4개 통과 + 6열에 기존 소비자 근거 목록 + 리거처 not-applicable(editor-4) + semantic은 editor-7, diff 2종은 git-42의 완료 근거. editor-7과 git-42 showMoves가 complete가 되기 전에는 partial입니다(과대 판정 금지).
 
-**(g) 막는 요소**: editor-7(editor 영역, `HO-11` 3.1절), git-42 showMoves(git 영역, monaco `computeMovedLines` 이식 결정 6 A, `HO-14` 순서 7), git lane 병합(hideUnchanged 근거). App 검사 4개는 지금 할 수 있습니다.
+**(g) 막는 요소**: editor-7(editor 영역, `HO-11` 3.1절), git-42 showMoves(git 영역, monaco `computeMovedLines` 이식 결정 6 A, `HO-14` 순서 7). App 검사 4개는 지금 할 수 있습니다.
 
 ---
 
@@ -660,7 +658,7 @@ assert!(successes(scene.application()).contains(&label));              // toast 
 - `accepts` 거절이 곧 "실행 경로 없음"은 아닙니다: `terminal-jump-to-*`는 터미널 표면이 직접 처리합니다(`APP/terminal_surface.rs`, terminal-agent-28 complete).
 
 **(d) 구현 방법**: settings에서 새로 만들 소비자는 없습니다(`SPEC` 2K settings-67 설계, 결정 8 A).
-1. git lane 병합 뒤 메인에서 두 검사를 `--nocapture`로 다시 돌려 현재 거절 목록과 라우팅 안 되는 목록을 얻습니다.
+1. git 병합은 완료됐으므로 메인에서 두 검사를 `--nocapture`로 다시 돌려 현재 거절 목록과 라우팅 안 되는 목록을 얻습니다.
 2. 목록의 각 id를 아래로 분류해 6열과 QA 표에 적습니다: (가) 다른 경로로 실행됨(예: `terminal-jump-to-*` → terminal-agent-28), (나) 결정·설계로 비활성이 맞음(`app.showPerfSnapshot` → commands-ui-21, `docs/research/2026-10-28-lane-commands-ui-spec.md` 4.1절 결정 3 A(647줄) not-applicable; `terminal.copyImeDebug` → commands-ui-20, 같은 사양 213줄 "비활성 동등 검사". 두 행의 현재 판정은 `MATRIX`와 `HO-16`에서 확인), (다) 문맥상 거절이 맞음(`tab.moveToMainWindow`는 보조 창 문맥 전용), (라) 소유 행이 남은 것(`window.reload` → commands-ui-1, `sync.uploadNow`·`sync.downloadNow` → commands-ui-30·31, 남은 `monaco.*` → editor 영역). 분류할 때 그 명령의 기능표 행을 grep으로 찾아 행 ID를 적습니다.
 3. (라)가 모두 닫히면(다른 영역 작업) 검사를 다시 돌려 거절이 (가)·(나)·(다)뿐임을 확인하고 complete로 올립니다. settings 쪽 재사용 명령(`domains::settings::Command::Sections`와 `sections::Action::{CliInstall, CliUninstall, SyncUpload, SyncDownload}`)은 이미 crate 안에서 공개입니다(`QA-S5` 4절 7). commands-ui-30·31이 이를 재사용합니다(`HO-16` 79~80줄).
 
@@ -671,7 +669,7 @@ assert!(successes(scene.application()).contains(&label));              // toast 
 
 **(f) 완료 판정**: 거절 목록의 모든 id가 (가)·(나)·(다)이고 두 검사가 통과.
 
-**(g) 막는 요소**: commands-ui(wave 3, 미착수), git lane 병합, editor 영역의 monaco 동작. settings 단독으로는 닫을 수 없습니다. 재측정·분류(1·2단계)는 병합 뒤 언제든 할 수 있고, 행은 partial로 두되 6열의 목록을 최신으로 바꿉니다.
+**(g) 막는 요소**: git 병합은 완료, commands-ui wave 3 선행, editor 영역의 monaco 동작. settings 단독으로는 닫을 수 없습니다. 재측정·분류(1·2단계)는 언제든 할 수 있고, 행은 partial로 두되 6열의 목록을 최신으로 바꿉니다.
 
 ---
 
@@ -685,7 +683,7 @@ assert!(successes(scene.application()).contains(&label));              // toast 
 - 결정 3 A(채택, `SPEC` 4.1-3): TS 대응이 있는 지점은 원본 표면(toast·배너·인라인), 대응이 없는 native 내부 오류는 `log::warn!`만 남기고 상태바 라벨과 `status` 필드를 지웁니다.
 - 라벨 구조: 필드 `status: Option<String>`(`APP/application.rs` 250), 프레임마다 `let mut status = self.status.take()`(1721)와 복원 `self.status = status`(2046), `AppSurfaces`의 `status: &mut status`(1967)·`status: &mut Option<String>`(2487), 그리기 `ui.label(status)`(2806, `status_bar` 2773 안).
 - settings 파일은 0곳입니다(`QA-S5` 3.2: 앱 파일 정합 실패·테마 미리보기 실패 2곳을 `log::warn!` + `unreported_failure`(`domains/settings.rs` 113)로 옮김).
-- 남은 대입(메인 `0c52b438`, `grep -c "status = Some("`, `cli_status` 1곳과 지역 변수 포함 전 수): `application.rs` 21, `domains/editor.rs` 51, `domains/explorer_search.rs` 8, `domains/commands.rs` 5, `domains/terminal_agent.rs` 5(490은 `cli_status`라 제외 → 4), `domains/shell.rs` 4, `domains/preview.rs` 2, `domains/git.rs` 1. `GITLANE` 병합이 `domains/git.rs`를 8곳으로, `git-editor.rs`에 1곳을 더합니다.
+- 남은 대입(2026-11-04 `7be1ad14`, `grep -c "status = Some("`, `cli_status` 1곳과 지역 변수 포함 전 수): `application.rs` 21, `domains/editor.rs` 51, `domains/explorer_search.rs` 8, `domains/commands.rs` 5, `domains/terminal_agent.rs` 5(490은 `cli_status`라 제외 → 4), `domains/shell.rs` 4, `domains/preview.rs` 2, `domains/git.rs`·`git-editor.rs`의 현재 수는 `grep -c`로 직접 세십시오(2026-11-04 `domains/git.rs` 8, `git-editor.rs` 1).
 - 함수별 위치(분류 작업의 단위, awk로 둘러싼 함수를 확인함):
     - `application.rs`: `background_tick` 1090·1165·1175·1213·1242·1250·1277·1284, `show_window` 1802·1820·2003·2044·2104(1802·1820·2003·2044는 지역 `status`), `finish_frame` 2305, `paint_rail_icon` 2494(`*status`), `rail_icon` 2690, `tooltip` 2724, `prepare_status_bar` 2743·2747·2752, `apply_status_bar` 2767.
     - `domains/editor.rs`: `apply_editor_reply` 763·854·964·1007·1147, `apply_editor_intent` 1489, `request_editor_code_actions_from_source` 1979, `request_editor_rename_from_source` 2043, `request_editor_formatting` 2236, `reconcile_lsp` 2415·2426·2450·2461·2473·2500·2506, `dispatch_completion` 2716·2722, `consume_location_model` 2874·2904·2917, `poll_lsp` 3071·3150·3181·3210·3235·3334·3337·3455·3501·3538·3543, `save_untitled` 4536·4591·4597, `save_missing_draft` 4694·4700, `choose_disk` 4877, `reconcile_editor_features` 5288·5297, `problems_panel` 5327, `tab_icon` 5479, `show_document` 5624·5651·5734·5833·5851·5944(`*status`)·6010·6079·6088.
@@ -694,7 +692,7 @@ assert!(successes(scene.application()).contains(&label));              // toast 
 - 관련 행: commands-ui-96(비국제화 문자열)은 이 행이 0건을 만든 뒤 complete가 됩니다(`HO-16` commands-ui-96 (d)·3).
 
 **(d) 구현 방법** (메인 통합 단계, 모든 lane 병합 뒤 한 번에)
-1. 모든 lane(특히 git) 병합 뒤 위 grep으로 목록을 다시 만듭니다. `cli_status`처럼 다른 필드는 빼고 `self.status`·`*self.status`·`AppSurfaces`의 `*status`·`show_window` 지역 `status`만 셉니다.
+1. 위 grep으로 목록을 다시 만듭니다(모든 lane 병합 완료). `cli_status`처럼 다른 필드는 빼고 `self.status`·`*self.status`·`AppSurfaces`의 `*status`·`show_window` 지역 `status`만 셉니다.
 2. 지점마다 분류해 QA 표에 적습니다(형식은 `docs/quality-assurance/2026-10-06-native-batch3-toast-feedback.md` 3절과 같게: 파일:함수, 상황, TS 대응 근거, 처리).
     - 같은 자리에서 이미 toast를 띄우는 곳: `status` 줄만 지웁니다. 예: `application.rs` 1165·1175(`self.toasts.ipc_error(..)`가 바로 다음 줄).
     - TS가 toast인 곳: `self.toasts.ipc_error(&self.locale, &error, now)`, 반복 도달 가능하면 기존 `report_once`(`application.rs` 856, 같은 QA 4절 137줄: 같은 문구의 오류 toast가 살아 있는 동안 새로 만들지 않음).
@@ -711,7 +709,7 @@ assert!(successes(scene.application()).contains(&label));              // toast 
 
 **(f) 완료 판정**: `status` 필드·라벨 제거, 분류 표 QA 기록, 위 검사 통과 → complete.
 
-**(g) 막는 요소**: 모든 lane 병합(특히 `GITLANE`). 여러 영역 파일을 동시에 고치므로 lane 병렬 중에는 하지 않습니다. 이 행을 위해 다른 영역 동작을 바꾸지 말고 표면만 원본에 맞춥니다.
+**(g) 막는 요소**: 모든 lane 병합은 완료됐습니다. 여러 영역 파일을 동시에 고치므로 lane 병렬 중에는 하지 않습니다. 이 행을 위해 다른 영역 동작을 바꾸지 말고 표면만 원본에 맞춥니다.
 
 ---
 
@@ -737,7 +735,7 @@ assert!(successes(scene.application()).contains(&label));              // toast 
 - 빠진 것:
     1. minimap: 소비 경로(`UI/presentation.rs` 291 `minimap: settings.editor_minimap` → `domains/editor.rs` 5562 `editor_presentation`, 그리기 `UI/editor-minimap.rs` `measure` 42~75: 꺼짐·색 없음·`FileSizeTier::Normal`이 아니면 그리지 않음 — 원본의 `!largeFile`과 같음)는 있으나 App 검사가 없습니다.
     2. searchOnType 끔의 App 검사가 없습니다. `SPEC` 2J settings-80 검사 목록이 "searchOnType off → 입력만으로 검색 요청 없음"을 [A]로 요구하므로, 과대 판정을 피하려면 이 검사를 완료 조건에 넣습니다.
-    3. IDE diff 자동 열기: 메인에는 소비자가 없습니다(`APP/ide-tools.rs` 209가 `AppEvent::IdeDiffRequested`를 발행하지만 받는 곳이 없어 시간 초과로 rejected). `GITLANE`에는 git-49가 complete이고 검사 `application-git-claude-history-tests.rs` `실제_app_claude_diff는_자동_열기_끄기_reject_탭_닫기_ide_close_tab을_원본대로_처리한다`(372)가 끔 → 즉시 Rejected·탭 없음을 확인합니다(설정 읽기는 `GITLANE` `domains/git.rs` 2273). 병합 작업 트리에서 수신 경로가 shell 수신함 `Event::IdeDiff`로 옮겨지는 중이라 병합 뒤 같은 검사가 통과하는지 다시 봐야 합니다.
+    3. IDE diff 자동 열기: 메인에도 소비자가 있습니다(git-49, 검사 `application-git-claude-history-tests.rs` `실제_app_claude_diff는_자동_열기_끄기_reject_탭_닫기_ide_close_tab을_원본대로_처리한다`(372)가 끔 → 즉시 Rejected·탭 없음을 확인합니다). 설정 읽기는 `domains/git.rs`의 `accept_claude_diff_event`(2262줄) 안입니다.
 
 **(d) 구현 방법**
 1. minimap 검사(`APP/application-settings-consumers-tests.rs`). 텍스처 판별은 기존 `crate::application::error_boundary_tests::texture_ids`(`APP/application-error-boundary-tests.rs` 211, 현재 비공개)를 `pub(super)`로 바꿔 재사용합니다(두 번째 사용처이므로 복사하지 않음, shell 영역 검사 파일이라 QA에 한 줄). 판별:
@@ -755,22 +753,22 @@ assert!(successes(scene.application()).contains(&label));              // toast 
 
     미니맵은 이름이 `native-minimap-{frame id}-{index}`인 텍스처(`UI/editor-minimap.rs` 356~360 `load_texture`)를 `painter.image`(377)로 그립니다. UI 검사도 같은 접두사로 텍스처를 찾습니다(`UI/../tests/editor-minimap.rs` 214~234). `shapes`는 settings-28 (d) 2의 도우미입니다. 이 검사는 `error_boundary_tests`가 unix 전용이므로 `#[cfg(unix)]`를 붙입니다.
 2. searchOnType 끔 검사(새 검사, 같은 파일 또는 `APP/application-search-panel-tests.rs`). `crate::application::search_panel_tests::{Launched, launch_project, texts, message}`와 `project_rail_tests::{step, node_rect}`, `auxiliary_window_tests::step_until`을 씁니다. 같은 파일의 비공개 `open_search_view`(138)·`panel_generation`(154)을 `pub(super)`로 바꿔 재사용합니다(explorer-search 소유 검사 파일이라 그 영역 QA에 한 줄).
-3. git lane 병합 뒤: 메인에서 위 git-49 검사를 실행하고 6열에 인용합니다.
+3. 메인에서 위 git-49 검사를 실행하고 6열에 인용합니다.
 
 **(e) 자동 검사**
 - minimap(이름 예: `실제_편집기_미니맵은_settings_경로로_끄면_그리지_않고_켜면_다시_그린다`): `Scene::launch_empty_pane(|_| {})`, `missing_cli_agents()` 포트, `resize(TOC_SCREEN)`, 상수 `const MINIMAP_LINES: usize = 40;`의 줄로 된 파일을 settings-28의 `open_file`로 열기 → `let context = scene.context().clone();` → `scene.until("minimap", |_, output| has_minimap(&context, output))` → `update(&mut scene, Change::Switch(Switch::EditorMinimap, false))` → `!has_minimap`와 `settings.read().editor_minimap == false`와 `settings.json`의 `editorMinimap == false` → 다시 `true` → `has_minimap`.
 - searchOnType 끔(이름 예: `실제_app_입력_검색은_설정을_끄면_디바운스가_지나도_돌지_않고_enter에서만_돈다`): 상수 `const LIVE_OFF_WAIT: Duration = Duration::from_millis(600);`(기본 debounce 300ms의 두 배). `launch_project("search-live-off", &[("a.txt", "needle\n")], false)` → `application.submit(HostCommand::Settings(domains::settings::Command::UpdateSettings(Change::Switch(Switch::SearchOnType, false))))` → `settings.read().search_on_type == false` 대기 → 트리 대기(`node_rect(output, "a.txt", egui::Rect::EVERYTHING)`) → `open_search_view` → `message(application, "search.pressEnterHint", &[])` 문구가 `texts(output)`에 보일 때까지 대기(소비자가 꺼짐을 읽었다는 증거) → `step(.., vec![egui::Event::Text("needle".into())])` → `LIVE_OFF_WAIT`가 지날 때까지 `step`과 짧은 `std::thread::sleep`을 반복 → `panel_generation(application, &slot) == Some(0)` → Enter(`crate::application::inlay_hints_tests::key(egui::Key::Enter, egui::Modifiers::NONE)`) → 결과 요약(`search.matchCount`) 또는 generation 1을 대기.
-- git-49(병합 뒤): 앱 lib 명령 + 필터 `실제_app_claude_diff는_자동_열기_끄기 --test-threads=2`.
+- git-49: 앱 lib 명령 + 필터 `실제_app_claude_diff는_자동_열기_끄기 --test-threads=2`.
 - 실행: 앱 lib 명령 + 필터 `settings_consumers_tests search_panel_tests --test-threads=2`.
 
-**(f) 완료 판정**: minimap App 검사 + searchOnType 끔 App 검사 통과 + git lane 병합본에서 git-49 검사 통과 + 6열에 7개 소비자의 검사 이름이 모두 있음 → complete.
+**(f) 완료 판정**: minimap App 검사 + searchOnType 끔 App 검사 통과 + 메인에서 git-49 검사 통과 + 6열에 7개 소비자의 검사 이름이 모두 있음 → complete.
 
-**(g) 막는 요소**: git lane 병합(IDE diff, 0.5절 넷째 확인). minimap·searchOnType 끔 검사는 지금 할 수 있습니다.
+**(g) 막는 요소**: 없음(git 병합 완료). minimap·searchOnType 끔 검사도 지금 할 수 있습니다.
 
 ## 4. 이 영역에서 반복된 함정과 주의
 
 1. 과대 판정: 리뷰가 4행을 되돌렸습니다. settings-5(복원 layout을 쓰고 새 mount를 확인하지 않음), settings-24(재적재 요청 미단언), settings-38(소비 경로를 인용만 함), settings-42(TS 사례 일부만 이식). complete는 사양의 [A] 단계를 **전부** 실제 App에서 단언했을 때만 씁니다(`QA-S3` 7.1·7.2, `QA-S5` 7.1, `QA-S2` 7.1). 그래서 settings-80은 searchOnType 끔 App 검사까지 요구합니다.
-2. 선행 lane이 없을 때 대체 구현 금지: 알림 포트·scrollback API를 settings가 따로 만들지 않았습니다(`SPEC` 3절 주의 5). 지금은 선행이 병합됐으니 그 산출물을 그대로 씁니다. 병합 중인 `GITLANE`과 같은 줄을 메인에서 먼저 고치지 마십시오(병합 충돌).
+2. 선행 lane이 없을 때 대체 구현 금지: 알림 포트·scrollback API를 settings가 따로 만들지 않았습니다(`SPEC` 3절 주의 5). 지금은 선행이 병합됐으니 그 산출물을 그대로 씁니다. 
 3. 실제 사용자 환경 누수: (가) 이 기계의 실제 `/usr/local/bin/taide`가 CLI 행 문구를 바꿔 다른 검사의 문구 수를 흔들었음 → Settings를 그리는 검사는 `missing_cli_agents()` 포트(`QA-S1` 4절 11). (나) hooks 검사에서 프로젝트를 붙이면 `agent_hooks::reconcile_installed`가 실제 `HOME`을 고칠 수 있음 → `Scene::launch_with(.., false)`(root_missing). (다) Sync section이 기본 Keychain을 읽음 → `Scene` 기본을 메모리 Keychain으로 바꿈(`QA-S4` 4절 10). (라) 글꼴 목록은 포트 `font_families`로 고정(`QA-S5` 4절 8). (마) 기본 LSP 감지 포트는 실제 `PATH`를 읽기만 함(`QA-S5` 6절 끝).
 4. egui 동작 함정:
     - `ScrollArea::scroll_to_rect`는 content의 `item_spacing`을 더해 32px 대신 약 34.7px에 멈춤 → 카드 루프 뒤 `scroll_with_delta`(`QA-S5` 3.1).
@@ -790,5 +788,4 @@ assert!(successes(scene.application()).contains(&label));              // toast 
 13. 테스트 모듈 cfg: `project_rail_tests`·`error_boundary_tests`·`notifications_tests`는 `#[cfg(all(test, unix))]`입니다. 이것을 직접 가져오는 새 검사에는 `#[cfg(unix)]`를 붙입니다(2.4절 가시성 표).
 14. 기능표 상단 요약표가 행과 어긋나 있습니다(1.1절). 행을 바꿀 때마다 요약표를 다시 셉니다.
 15. 병합 게이트의 흔들림: 앱 lib 병렬 실행에서 2건 정도가 흔들리고 직렬 재실행에서 통과합니다. 실패하면 단독으로 한 번 다시 돌려 흔들림인지 확인하고, 흔들림이면 QA에 이름과 두 실행 결과를 적습니다(검사 기대값을 바꾸지 않음).
-16. `GITLANE` worktree는 다른 작업자가 병합 충돌을 해결하는 중입니다. 그 worktree의 파일을 고치지 말고 읽기만 합니다. 그 작업 트리의 미커밋 내용(이 문서 1.3절의 "`GITLANE`" 열)은 병합 결과가 아니라 진행 중 상태이므로, 병합 뒤 0.5절 명령으로 메인에서 다시 확인합니다.
 17. 비밀 입력 메모리 위생: 비밀번호 입력의 egui undoer가 비밀 텍스트를 메모리에 남기는 문제는 손대지 않은 채 남아 있습니다(`QA-S5` 7.3 표 마지막 줄). 기능 행은 아니지만 보안 항목으로 별도 보고 대상입니다.

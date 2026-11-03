@@ -1,6 +1,6 @@
 # 03. native 앱 구조와 새 기능을 끝까지 연결하는 방법
 
-> 작성일: 2026-11-04(2026-11-03 판을 실제 코드로 다시 확인해 갱신) · 기준: `to_rust_native` `0c52b438`(메인 작업 트리). Git 영역 예시는 `lane/git` 커밋 `5195d415`와, 병합 진행 중인 worktree `/Users/hyunseokbyun/development/TAIDE-lanes/git`의 미커밋 코드(표시해 둠)
+> 작성일: 2026-11-04(2026-11-03 판을 실제 코드로 다시 확인해 갱신) · 기준: `to_rust_native` `7be1ad14`. Git 예시는 `f3a5b5d0`에서 병합된 메인 트리 코드입니다.
 > 근거는 "경로 + 심볼 이름"으로 적었습니다. 줄 번호는 기준 커밋의 값이며 바뀔 수 있습니다. 구조 이동의 설계 정본은 `docs/research/2026-10-28-native-lane-seams.md`(이하 "seams 문서")입니다. `docs/architecture.md` 9절은 2026-10-09 기준이라 이 문서가 대체합니다(예: 9.2절의 `eframe::run_native` 시작과 "제출이 overlay 뒤" 순서는 현재 코드와 다릅니다).
 > 경로 약어: "앱 `x.rs`" = `native/taide-native-app/src/x.rs`, "UI `x.rs`" = `native/taide-native-ui/src/x.rs`.
 
@@ -174,12 +174,12 @@ LSP는 별도 채널입니다. `crate::lsp::LspBridge`가 자기 worker와 `lsp:
 | `trees` | `crate::events::TreeChanges` | `FsChanged`, `FsRescanRequired`(미리보기 무효화는 `record_preview`) | `tick_explorer_search_trees`, `reconcile_previews`(`take_previews`) |
 | `file_indexes` | `crate::command_palette::FileIndexChanges` | `FsRescanRequired`, `FsChanged`(kind가 `Modified`가 아닌 것) | `tick_commands_files` |
 | `presentation` | `crate::presentation_refresh::Changes` | `SettingsChanged`, `ThemeChanged`, `SyncStateChanged` | `poll_settings_revisions`, `sync_theme_preview` |
-| `title_branches` | `crate::title_branch::Changes` | `GitStatusChanged`, `GitRefsChanged`, `FsChanged` | `tick_git_title_branches` |
+| `git_cache` | `crate::git_cache::Changes` | `GitStatusChanged`, `GitRefsChanged`, `FsRescanRequired`(저장소 전체), `FsChanged`(경로 단위) | `tick_git_cache`(`domains/git.rs` 2530줄) |
 | `app_menu` | `crate::app_menu::Changes` | `ProjectListChanged`, `ProjectActivated`, `ProjectRecentCleared` 등 | `tick_shell_menus` |
 | `providers` | `crate::provider_events::Inbox` | `AgentStateChanged`, `TerminalCommandFinished`, `LspInstallProgress`(Done·Failed), `IdeSaveRequested`, `ProjectClosed`, `AgentExternalOpen` | `consume_provider_events`(13.1절) |
 | `settings` | `domains::settings::Events`(영역 상태에서는 `settings_state.sections_events`) | `LspInstallProgress`, `SyncStateChanged`, `RemoteStateChanged` | `tick_settings_reads` |
 
-Git lane: 커밋 `5195d415`은 `git_cache: Arc<crate::git_cache::Changes>`(`GitStatusChanged`·`GitRefsChanged`·`FsRescanRequired`는 저장소 전체, `FsChanged`는 경로 단위로 프로젝트별 `Invalidation`에 기록, 같은 이벤트를 `ide` inbox에도 기록)를 `title_branches`와 함께 추가했습니다. 병합 중인 worktree에서는 `title_branches`가 빠지고(`title-branch.rs`·`title-branch-tests.rs` 삭제) `git_cache`만 남았으며, 제목 표시줄 branch는 `GitCache::status_result`에서 읽습니다(worktree `domains/git.rs` 302줄 부근). 병합이 커밋되면 위 표의 `title_branches` 행은 `git_cache` 행으로 바뀝니다.
+제목줄 branch는 `GitCache::status_result`를 읽는 `State::title_branch`(`domains/git.rs` 301줄)이며 `title_branch` 모듈은 삭제됐습니다. `tick_git_title_branches`(2508줄)는 제목줄에 보이는 프로젝트를 `Key::Status`로 관찰하는 함수로 남아 있습니다.
 
 새 inbox를 추가하는 순서:
 
@@ -340,21 +340,21 @@ eframe가 매 프레임 `App::logic` → `App::ui`를 부릅니다(`application.
 11. 실행: `cargo test --quiet --manifest-path /Users/hyunseokbyun/development/TAIDE/native/taide-native-app/Cargo.toml --lib --locked --offline --target-dir /Users/hyunseokbyun/development/TAIDE/experiments/native-shell-spike/target -- --test-threads=2 provider_events native_notifications domains::shell::` 그리고 앱 `cargo fmt .. -- --check`.
 12. 기록: QA 문서(대상 ID, 원본 근거, 구현, 실행한 명령과 결과 수, 남은 범위), 기능표 해당 행(`shell-91`, 소비하는 `settings-23`)의 판정과 "범위/잔여 동작" 열.
 
-다른 영역에서 이 진입점을 쓰는 실제 코드(Git lane worktree, 작성 시점 미커밋, `git-7`): 원본 `src/entities/git/git.query.ts` `useGitRemoteMutation`(214줄 부근)은 push/pull 성공 시 `category: 'gitRemote'`, 제목 `notificationTitle(i18next.t(titleKey.succeeded))`, 본문 `joinNotificationBody([성공 문구, 캐시된 현재 branch])`, 실패 시 `category: 'error'`, 본문 `[실패 문구, describeIpcError(error)]`로 알립니다. Git lane worktree의 `domains/git.rs` `notify_git_remote`(1515줄 부근)는 이를 그대로 옮겨 `NotificationCategory::GitRemote`/`Error`, 본문 `crate::native_notifications::join_body(&[Some(문구), detail])`(branch는 `self.git_state.cache.status_result(project)`에서, 오류는 `crate::toast::describe_error`)를 만든 뒤 `self.notify_event(context, category, Some(project), title_key, body)`를 부릅니다. 키는 카탈로그에 이미 있는 `notification.gitPushSucceeded`·`gitPushFailed`·`gitPullSucceeded`·`gitPullFailed`입니다. 병합이 커밋된 뒤 이 함수 이름과 위치를 다시 확인하십시오.
+다른 영역에서 이 진입점을 쓰는 실제 코드(메인 트리, `git-7`): 원본 `src/entities/git/git.query.ts` `useGitRemoteMutation`(214줄 부근)은 push/pull 성공 시 `category: 'gitRemote'`, 제목 `notificationTitle(i18next.t(titleKey.succeeded))`, 본문 `joinNotificationBody([성공 문구, 캐시된 현재 branch])`, 실패 시 `category: 'error'`, 본문 `[실패 문구, describeIpcError(error)]`로 알립니다. `domains/git.rs` `notify_git_remote`(1515줄)는 이를 그대로 옮겨 `NotificationCategory::GitRemote`/`Error`, 본문 `crate::native_notifications::join_body(&[Some(문구), detail])`(branch는 `self.git_state.cache.status_result(project)`에서, 오류는 `crate::toast::describe_error`)를 만든 뒤 `self.notify_event(context, category, Some(project), title_key, body)`를 부릅니다. 키는 카탈로그에 이미 있는 `notification.gitPushSucceeded`·`gitPushFailed`·`gitPullSucceeded`·`gitPullFailed`입니다.
 
-### 13.2 두 번째 예: 원본 query cache를 대신하는 `git-cache`(Git lane 커밋 `5195d415`)
+### 13.2 두 번째 예: 원본 query cache를 대신하는 `git-cache`
 
-원본 TanStack Query의 규칙(`src/app/query-client.ts`: staleTime 60초, 보존 10분, 재시도 없음)을 native로 옮긴 읽기 캐시입니다. 큰 화면 하나를 여러 읽기(상태·branch·log·diff·blame)로 그릴 때 이 형태를 따릅니다. 코드는 `git -C /Users/hyunseokbyun/development/TAIDE-lanes/git show 5195d415:native/taide-native-app/src/git-cache.rs`로 읽습니다(worktree 파일은 병합 중이라 바뀌는 중입니다).
+원본 TanStack Query의 규칙(`src/app/query-client.ts`: staleTime 60초, 보존 10분, 재시도 없음)을 native로 옮긴 읽기 캐시입니다. 큰 화면 하나를 여러 읽기(상태·branch·log·diff·blame)로 그릴 때 이 형태를 따릅니다. 코드는 `native/taide-native-app/src/git-cache.rs`를 직접 읽습니다.
 
 1. 무효화 기록: `git-cache.rs` `Changes::record`(55줄)가 `GitStatusChanged`·`GitRefsChanged`·`FsRescanRequired`는 저장소 전체(`invalidation.repository = true`), `FsChanged`는 경로 단위(`invalidation.paths`)로 프로젝트별 `Invalidation`에 모읍니다. `PaintSink`에 `git_cache` 필드로 연결합니다(7절).
 2. 관찰: 그리는 코드가 필요한 읽기를 `git_state.cache.observe(&project, Key::Status, now)`처럼 표시합니다(`GitCache::observe` 119줄). `Key`(251줄)는 읽기 종류 enum(`Status`, `Remotes`, `Branches`, `Stashes`, `Log`, `Diff { path, staged, before_path }`, `Compare`, `Tags`, `CommitFiles { rev }`, `CommitDiff`, `FileLog`, `File`, `Gutter`, `CurrentUser`, `BlameLine { path, line }`, `BlameOverlay`, `ConflictSides`)이고, `trait CacheKey`의 `is_mutable`, `follows_worktree(paths)`, `stale_after`로 원본 규칙(`git.query.ts` `isGitQueryScopeMutable`, `ipc-sync-provider.tsx` `isGitWorktreeQueryForChangedPaths`)을 답합니다. 상수는 `STALE_AFTER = 60초`, `DISCARD_AFTER = 10분`입니다.
-3. tick: `domains/git.rs` `tick_git_cache`(2532줄)가 `cache_changes.take()`의 무효화를 `cache.invalidate`로 적용하고, 열린 프로젝트만 남기고(`retain`), `cache.requests(now)`(프레임당 최대 `MAX_REQUESTS_PER_FRAME = 16`)를 `HostCommand::Git(Command::Read(request))`로 제출한 뒤 `cache.begin(&request)`. 제출이 실패하면 `request_repaint` 후 중단합니다.
-4. worker: `Command::Read(request)` arm(547줄)이 `spawn_reply(worker, "native-git-read", async move { HostReply::Git(Reply::Read { request, result: read(&services, &request).await }) }, refused)`로 transient task에서 읽습니다. `refused`는 감독이 멈췄을 때 즉시 돌려줄 `Err(stopped())` 응답입니다.
+3. tick: `domains/git.rs` `tick_git_cache`(2530줄)가 `cache_changes.take()`의 무효화를 `cache.invalidate`로 적용하고, 열린 프로젝트만 남기고(`retain`), `cache.requests(now)`(프레임당 최대 `MAX_REQUESTS_PER_FRAME = 16`)를 `HostCommand::Git(Command::Read(request))`로 제출한 뒤 `cache.begin(&request)`. 제출이 실패하면 `request_repaint` 후 중단합니다.
+4. worker: `Command::Read(request)` arm(518줄)이 `spawn_reply(worker, "native-git-read", async move { HostReply::Git(Reply::Read { request, result: read(&services, &request).await }) }, refused)`로 transient task에서 읽습니다. `refused`는 감독이 멈췄을 때 즉시 돌려줄 `Err(stopped())` 응답입니다.
 5. 반영: `apply_git_reply`의 `Reply::Read { request, result }` → `cache.finish(&request, result, now)`. 요청의 `generation`이 현재와 다르면(읽는 동안 무효화) 값을 저장해도 다시 stale로 둡니다(`finish` 208·219줄). 늦은 응답이 새 값을 덮지 않게 하는 장치입니다.
 6. 읽기: 화면은 `cache.status_result(&project)`, `cache.branches(..)`, `cache.diff(..)`, `cache.blame(..)` 같은 접근자로 마지막 응답을 읽습니다. 재연결 때는 `reconnect_git`이 `cache.cancel_fetches()`를 부릅니다.
 7. 검사: `git-cache-tests.rs`(순수 상태기계), `application-git-*-tests.rs`(실제 App).
 
-이 캐시를 다른 영역이 소비하는 실제 코드(Git lane worktree, 미커밋, `git-38` → `explorer-search-7`): `tick_git_cache` 안에서 `for project in self.explorer_search_state.git_decorations.mounted_projects() { self.git_state.cache.observe(&project, Key::Status, now); self.explorer_search_state.git_decorations.set(&project, self.git_state.cache.status_result(&project).and_then(Result::ok)); }`(worktree `domains/git.rs` 2631줄 부근). 주입점 `GitDecorations::set(&mut self, project, status: Option<&GitStatus>)`(`None`이면 그 프로젝트 장식 제거, status 행이 같으면 다시 만들지 않음)과 `mounted_projects()`(Files 보기로 보이는 mount의 프로젝트)는 explorer-search lane이 먼저 만들어 메인에 병합됐습니다(앱 `explorer-git-decorations.rs` 149·150줄 doc 주석 "A status supplier calls [`GitDecorations::set`] for each of [`GitDecorations::mounted_projects`]", `set` 160줄 부근, `mounted_projects` 175줄). 한 영역이 주입점을 만들고 다른 영역이 공급하는 결정 D1 A(`docs/acknowledge/2026-10-28-native-lane-spec-decisions.md`)의 실제 형태입니다.
+이 캐시를 다른 영역이 소비하는 실제 코드(메인 트리, `git-38` → `explorer-search-7`): `tick_git_cache` 안에서 `for project in self.explorer_search_state.git_decorations.mounted_projects() { self.git_state.cache.observe(&project, Key::Status, now); self.explorer_search_state.git_decorations.set(&project, self.git_state.cache.status_result(&project).and_then(Result::ok)); }`(`domains/git.rs` 2632~2636줄). 주입점 `GitDecorations::set(&mut self, project, status: Option<&GitStatus>)`(`None`이면 그 프로젝트 장식 제거, status 행이 같으면 다시 만들지 않음)과 `mounted_projects()`(Files 보기로 보이는 mount의 프로젝트)는 explorer-search lane이 먼저 만들어 메인에 병합됐습니다(앱 `explorer-git-decorations.rs` 149·150줄 doc 주석 "A status supplier calls [`GitDecorations::set`] for each of [`GitDecorations::mounted_projects`]", `set` 160줄 부근, `mounted_projects` 175줄). 한 영역이 주입점을 만들고 다른 영역이 공급하는 결정 D1 A(`docs/acknowledge/2026-10-28-native-lane-spec-decisions.md`)의 실제 형태입니다.
 
 ### 13.3 일반 체크리스트(새 기능 하나)
 
@@ -389,7 +389,7 @@ eframe가 매 프레임 `App::logic` → `App::ui`를 부릅니다(`application.
 | `crates/taide-locale/resources/locales/{en,ko,ja}.json` | 키 접두사 묶음(평면, 정렬) | 세 파일에 같은 키를 정렬 위치에. 접두사 소유: `project.*`·`projectGroup.*`·`welcome.*`·`zen.*`·`window.*`·`systemUsage.*` → shell, `palette.*`·`keybindings.*`·`task*` → commands, `editor.*` → editor, `explorer.*`·`search.*`·`problems.*`·`outline.*` → explorer_search, `git.*` → git, `terminal.*`·`agent.*`·`ide.*` → terminal_agent, `settings.*`·`theme.*`·`snippet*` → settings, `preview.*` → preview. 목록에 없는 접두사(예: `notification.*`, `app.*`)는 처음 쓰는 lane이 seams 문서 1.4절에 한 줄 추가 |
 | `docs/quality-assurance/2026-10-09-native-function-matrix.md` | 자기 영역 표의 행 | 이번 묶음 ID 행만 갱신. 상단 합계 표는 손대지 않음 |
 
-영역 블록 밖에서 실제로 충돌한 파일: 2026-11-04 Git lane 병합의 unmerged 경로(`git -C /Users/hyunseokbyun/development/TAIDE-lanes/git diff --name-only --diff-filter=U`) 8개는 기능표, `application-explorer-views-tests.rs`, `command-dispatch.rs`, `domains/explorer_search.rs`, `explorer.rs`, `navigation-icons.rs`(아이콘 enum), `shell_keymap.rs`, UI `command-registry.rs`(명령 등록·키 action 목록)입니다. 이 파일들은 match arm·목록 끝에만 추가하고, 기존 항목 순서를 바꾸거나 재포맷하지 않습니다(`docs/research/2026-10-28-lane-commands-ui-spec.md` 3절 "묶음별 주의" 1번).
+영역 블록 밖에서 실제로 충돌한 파일(2026-11-04 `f3a5b5d0` 병합에서 해결한 8개, 근거 `docs/quality-assurance/2026-11-03-native-git-lane-merge.md` 1절)은 기능표, `application-explorer-views-tests.rs`, `command-dispatch.rs`, `domains/explorer_search.rs`, `explorer.rs`, `navigation-icons.rs`(아이콘 enum), `shell_keymap.rs`, UI `command-registry.rs`(명령 등록·키 action 목록)입니다. 이 파일들은 match arm·목록 끝에만 추가하고, 기존 항목 순서를 바꾸거나 재포맷하지 않습니다(`docs/research/2026-10-28-lane-commands-ui-spec.md` 3절 "묶음별 주의" 1번).
 
 다른 영역 상태를 다루는 규칙(seams 1.5절):
 

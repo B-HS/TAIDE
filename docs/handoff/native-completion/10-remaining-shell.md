@@ -1,7 +1,7 @@
 # 영역 shell 남은 작업 (Rust-native 전환 완료용 인계)
 
-> 작성일: 2026-11-04 · 기준: 저장소 `/Users/hyunseokbyun/development/TAIDE` 브랜치 `to_rust_native` HEAD `0c52b438`(작업 트리 변경 없음). Git 영역은 병합 중인 worktree `/Users/hyunseokbyun/development/TAIDE-lanes/git`(브랜치 `lane/git`, HEAD `50892b59`, `MERGE_HEAD` = `0c52b438`)를 읽었습니다.
-> 독자: 이 저장소를 처음 보는 구현 모델. 이 문서만으로 남은 shell 행을 같은 품질로 끝낼 수 있게 썼습니다. 모든 사실은 실제 파일을 열어 확인했고 "경로:줄" 또는 "경로 + 심볼"로 적었습니다. 줄 번호는 위 기준의 값입니다. 바뀌었으면 심볼 이름으로 다시 찾으십시오.
+> 작성일: 2026-11-04 · 기준: 저장소 `/Users/hyunseokbyun/development/TAIDE` 브랜치 `to_rust_native` HEAD `7be1ad14`(git lane 병합 `f3a5b5d0` 포함, 작업 트리 변경 없음).
+> 독자: 이 저장소를 처음 보는 구현 모델. 이 문서만으로 남은 shell 행을 같은 품질로 끝낼 수 있게 썼습니다. 모든 사실은 실제 파일을 열어 확인했고 "경로:줄" 또는 "경로 + 심볼"로 적었습니다. 줄 번호는 위 기준의 값입니다. 바뀌었으면 심볼 이름으로 다시 찾으십시오. 줄 번호는 `0c52b438` 기준이며 현재 HEAD에서는 심볼 이름으로 찾습니다(`application.rs`는 병합으로 약 14~21줄 밀렸습니다).
 
 ---
 
@@ -12,8 +12,7 @@
 | 약어 | 실제 경로 |
 | --- | --- |
 | `ROOT` | `/Users/hyunseokbyun/development/TAIDE` |
-| `GITLANE` | `/Users/hyunseokbyun/development/TAIDE-lanes/git` (Git 영역 최신 코드·QA·기능표, 병합 진행 중) |
-| `APP` | `ROOT/native/taide-native-app/src` (`GITLANE/...`로 쓰면 그 worktree의 같은 경로) |
+| `APP` | `ROOT/native/taide-native-app/src` |
 | `UI` | `ROOT/native/taide-native-ui/src` |
 | `EDITOR` | `ROOT/native/taide-native-editor/src` |
 | `EFRAME` | `ROOT/experiments/native-shell-spike/vendor/eframe` (앱이 쓰는 vendored eframe 0.36.2, `EFRAME/Cargo.toml` 16행) |
@@ -24,17 +23,15 @@
 | shell 사양 | `ROOT/docs/research/2026-10-28-lane-shell-spec.md` |
 | 형제 문서 | `ROOT/docs/handoff/native-completion/`의 `14-remaining-git.md`, `16-remaining-commands-ui.md`, `20-gates-31-33.md`, `30-pending-permissions.md` |
 
-### 0.2 GITLANE 병합 상태(2026-11-04 관찰)
+### 0.2 git lane 병합 결과(`f3a5b5d0`)
 
-- `git -C GITLANE status --short`의 `UU` 8개: 기능표, `APP/application-explorer-views-tests.rs`, `APP/command-dispatch.rs`, `APP/domains/explorer_search.rs`, `APP/explorer.rs`, `APP/navigation-icons.rs`, `APP/shell_keymap.rs`, `UI/command-registry.rs`. 8개 모두 충돌 표식(`<<<<<<<`, `=======`, `>>>>>>>`)이 없습니다(`grep -c` 결과 0). 해결은 끝났고 스테이징만 남은 상태입니다.
-- 병합 작업자가 아직 커밋하지 않은 의미 충돌 수정이 있습니다(`git -C GITLANE diff --stat`, 32파일). shell 행에 영향을 주는 것:
-    1. IDE diff·close 요청 수신을 shell 수신함으로 합쳤습니다. `GITLANE/APP/provider-events.rs` `Event::IdeDiff(crate::git_claude_diff::Event)`(37행)와 `Inbox::record`의 `IdeDiffRequested`·`IdeCloseTabRequested { request_id: Some }` arm, `GITLANE/APP/domains/shell.rs` `consume_provider_events`의 `Event::IdeDiff(event) => self.accept_claude_diff_event(event)`(1161행), `GITLANE/APP/domains/git.rs` `accept_claude_diff_event`(2263행). 옛 `git_claude_diff::Inbox`와 `git_cache::Changes.ide` 필드는 지웠습니다. 단위 검사 `provider_inbox는_ide_diff_요청과_요청_id가_있는_close_tab만_기록한다`가 `provider-events.rs`에 추가됐습니다.
-    2. 제목줄 branch 모듈 `title-branch.rs`를 지우고 `GITLANE/APP/domains/git.rs` `State::title_branch`(git cache status 결과에서 branch를 읽음)로 바꿨습니다. `AppSurfaces.title_branches` 필드와 `PaintSink.title_branches`가 없어졌습니다.
-    3. `GITLANE/APP/ide-sync.rs` 91행: IDE 진단 push에서 `DocumentKey::Virtual`(diff 가상 문서)을 뺍니다.
-    4. git pull/push 결과가 shell `notify_event`로 OS 알림을 보냅니다(`GITLANE/APP/domains/git.rs` `notify_git_remote`).
-    5. `GITLANE/APP/application-notifications-tests.rs`의 `FakePlatform`·`launch_with_platform`이 `pub(in crate::application)`이 됐습니다(다른 영역 검사가 재사용).
-- 기능표 행 비고(예: shell-89)는 아직 없는 병합 문서 `2026-11-03-native-git-lane-merge.md`를 가리킵니다. 병합이 끝나면 그 문서가 생기는지 확인하십시오.
-- 병합이 끝나 `ROOT`에 들어오면 이 문서의 `GITLANE` 근거를 `ROOT`의 같은 경로에서 다시 확인하십시오. 줄 번호는 병합 결과에서 달라질 수 있습니다.
+근거: `ROOT/docs/quality-assurance/2026-11-03-native-git-lane-merge.md`. shell 행에 영향을 준 것은 다음과 같습니다.
+
+1. IDE diff·close 요청 수신을 shell 수신함으로 합쳤습니다. `APP/provider-events.rs` `Event::IdeDiff(crate::git_claude_diff::Event)`(37행)와 `Inbox::record`의 `IdeDiffRequested`·`IdeCloseTabRequested { request_id: Some }` arm, `APP/domains/shell.rs` `consume_provider_events`의 `Event::IdeDiff(event) => self.accept_claude_diff_event(event)`(1161행), `APP/domains/git.rs` `accept_claude_diff_event`(2262행). 옛 `git_claude_diff::Inbox`와 `git_cache::Changes.ide` 필드는 지웠습니다.
+2. 제목줄 branch 모듈 `title-branch.rs`를 지우고 `APP/domains/git.rs` `State::title_branch`(git cache status 결과에서 branch를 읽음)로 바꿨습니다. `AppSurfaces.title_branches` 필드와 `PaintSink.title_branches`가 없어졌습니다.
+3. `APP/ide-sync.rs`: IDE 진단 push에서 `DocumentKey::Virtual`(diff 가상 문서)을 뺍니다.
+4. git pull/push 결과가 shell `notify_event`로 OS 알림을 보냅니다(`APP/domains/git.rs` `notify_git_remote`).
+5. `APP/application-notifications-tests.rs`의 `FakePlatform`·`launch_with_platform`이 `pub(in crate::application)`입니다(다른 영역 검사가 재사용).
 
 ### 0.3 상태 정의(기능표 머리말 5행)
 
@@ -45,7 +42,7 @@
 
 - 완료 기준: 원본 TS 화면·상태·상호작용 대응 + 실제 앱 경로 + 그 동작의 자동 검사. 원본 결함·내부 수치는 억지로 재현하지 않습니다(`ROOT/docs/memory/2026-10-28-native-lane-operations.md` 4절 59행).
 - 금지: GUI 실행, 사용자 실제 데이터·OS 설정·클립보드·Keychain·휴지통(`ROOT/native/taide-native-app/tests/explorer-delete.rs` 실행 금지), 실제 OS 알림, 네트워크, 합성 OS 입력, 저장소 밖 탐색(예외: cargo registry crate 소스 읽기), 동결 `ROOT/native/taide-remote-web` 소스·Cargo 파일 변경(`ROOT/docs/utils/2026-11-02-native-lane-workflow.js`의 `RULES`).
-- 코드 주석 금지(공개 API의 영어 `///`만 예외), 의미 있는 숫자는 `const`, `#[allow]`·검사 기대값 조작 금지, 사용자 문자열은 `ROOT/crates/taide-locale/resources/locales/{en,ko,ja}.json`의 원본과 같은 키. 원본이 Monaco 내장 영어 문구를 그대로 보이는 곳은 native도 같은 영어 리터럴을 씁니다(선례: `UI/editor-find-widget.rs` 246~256행 `"Match Case"`, `GITLANE/UI/diff-view.rs` 43행 `HIDDEN_LINES_LABEL = "hidden lines"`).
+- 코드 주석 금지(공개 API의 영어 `///`만 예외), 의미 있는 숫자는 `const`, `#[allow]`·검사 기대값 조작 금지, 사용자 문자열은 `ROOT/crates/taide-locale/resources/locales/{en,ko,ja}.json`의 원본과 같은 키. 원본이 Monaco 내장 영어 문구를 그대로 보이는 곳은 native도 같은 영어 리터럴을 씁니다(선례: `UI/editor-find-widget.rs` 246~256행 `"Match Case"`, `UI/diff-view.rs` 43행 `HIDDEN_LINES_LABEL = "hidden lines"`).
 - 결정 기본값: "큰 변경이 아니면 추천안"(`ROOT/docs/acknowledge/2026-10-26-native-autonomous-continuation.md` 5행). 사용자 허락 보류 목록은 `ROOT/docs/acknowledge/2026-10-28-native-lane-spec-decisions.md` "보류" 표(17~30행)와 형제 문서 `30-pending-permissions.md`의 P번호입니다.
 - 새 shell intent는 루트 `ShellIntent`가 아니라 `UI/intents/shell.rs`의 `Intent`에 추가합니다(`ROOT/docs/research/2026-10-28-native-lane-seams.md` 1.3절). 지금 이 enum은 비어 있습니다(`UI/intents/shell.rs` 1~2행 `pub enum Intent {}`), 처리부는 `APP/domains/shell.rs` 687행 `ShellIntent::Shell(intent) => match intent {}`입니다.
 
@@ -64,26 +61,24 @@
 
 `grep -n "^| shell-[0-9]"`로 기능표를 전수 확인했습니다.
 
-- `ROOT` 기능표: shell 99행 = complete 86, partial 10, not-applicable 3(shell-13·14·97), unwired·missing·frozen 0.
-- `GITLANE` 기능표(병합 작업 트리): complete 87, partial 9, not-applicable 3. 차이는 shell-21(complete)입니다.
+- 메인 기능표: shell 99행 = complete 87, partial 9, not-applicable 3(shell-13·14·97), unwired·missing·frozen 0. shell-21은 complete입니다.
 - 두 파일 13행의 영역 요약표(`shell | 99 | 54 | 21 | 9 | 12 | 3 | 0`)는 2026-10-14 기준의 낡은 수치입니다. 행별 상태 열이 정본입니다. 행을 바꾸면 요약표를 따로 다시 세십시오.
 
-이 문서가 다루는 행: `ROOT` 기준 complete·not-applicable·frozen이 아닌 10행(모두 partial).
+이 문서가 다루는 행: complete·not-applicable·frozen이 아닌 9행(모두 partial).
 
-| ID | 기능(기능표 행) | ROOT | GITLANE | 남은 것(한 줄) | 막는 요소 |
-| --- | --- | --- | --- | --- | --- |
-| shell-3 | 창 위치·크기 복원(96행) | partial | partial | 창 생성 뒤 eframe 치명 오류 종료 코드 경로의 자동 검사 + 실기 | P18(vendored Cargo 변경) + 실기 |
-| shell-5 | 보조 창 셸(98행) | partial | partial | 보조 창 WKWebView 배치, 보조 창 터미널 raw input(마우스 보고), 보조 창 theme preview, 파일 선택 dialog 부모 창 | 4번째만 P20 |
-| shell-12 | 전역 ErrorBoundary(105행) | partial | partial | 편집기 영역(메인·보조 창) 경계, 루트 `errorBoundary.app`, 픽셀 | 배치 31 설계 항목(31-A2 결정) |
-| shell-15 | 기존 사용자 데이터 디렉터리(108행) | partial | partial | 기본 데이터 경로·keychain 승계·Tauri와 공존·롤백 | 사용자 허락 항목(P05) |
-| shell-21 | 전역 키맵 toggle-sidebar/explorer/git(114행) | partial | complete | `GITLANE` git-1이 구현. 병합 트리 검증과 `ROOT` 행 반영만 | Git 병합 완료 |
-| shell-59 | explorer 4보기(152행) | partial | partial(비고 미갱신) | Git 본문·⌃⇧G가 `GITLANE`에 구현됨. 병합 트리 검증·행 갱신 | Git 병합 완료 |
-| shell-78 | 탭 context menu(171행) | partial | partial(비고 미갱신) | 변경 열기(git-48)·파일 이력(git-55)이 `GITLANE`에 구현됨. 낡은 문서 주석 1건 정정 + 보조 창 App 검사 1건 | Git 병합 완료 |
-| shell-89 | 탭 콘텐츠 diff/commit diff/claudeDiff/searchEditor(182행) | partial | partial | 네 본문 연결됨(병합 뒤). ClaudeDiff 수정 쪽 hunk 되돌리기(git-50)만 남음 | Git 병합 + git-50 구현 |
-| shell-92 | IDE 동기화(185행) | partial | partial | diff·close 수신이 병합 작업 트리에서 shell 수신함으로 합쳐짐. 병합 트리 검증 + 포커스 slot 변경 진단 App 검사 1건 | Git 병합 완료 |
-| shell-93 | IPC 동기화(186행) | partial | partial | Git 이벤트 소비(git-64)가 `GITLANE`에 구현됨. 병합 트리 검증·행 판정 | Git 병합 완료 |
+| ID | 기능(기능표 행) | 판정 | 남은 것(한 줄) | 막는 요소 |
+| --- | --- | --- | --- | --- |
+| shell-3 | 창 위치·크기 복원(96행) | partial | 창 생성 뒤 eframe 치명 오류 종료 코드 경로의 자동 검사 + 실기 | P18(vendored Cargo 변경) + 실기 |
+| shell-5 | 보조 창 셸(98행) | partial | 보조 창 WKWebView 배치, 보조 창 터미널 raw input(마우스 보고), 보조 창 theme preview, 파일 선택 dialog 부모 창 | 4번째만 P20 |
+| shell-12 | 전역 ErrorBoundary(105행) | partial | 편집기 영역(메인·보조 창) 경계, 루트 `errorBoundary.app`, 픽셀 | 배치 31 설계 항목(31-A2 결정) |
+| shell-15 | 기존 사용자 데이터 디렉터리(108행) | partial | 기본 데이터 경로·keychain 승계·Tauri와 공존·롤백 | 사용자 허락 항목(P05) |
+| shell-59 | explorer 4보기(152행) | partial | Git 본문·⌃⇧G가 구현됨(병합 완료). 검증·행 갱신 | 없음 |
+| shell-78 | 탭 context menu(171행) | partial | 변경 열기(git-48)·파일 이력(git-55)이 구현됨(병합 완료). 낡은 문서 주석 1건 정정 + 보조 창 App 검사 1건 | 없음 |
+| shell-89 | 탭 콘텐츠 diff/commit diff/claudeDiff/searchEditor(182행) | partial | 네 본문 연결됨(병합 완료). ClaudeDiff 수정 쪽 hunk 되돌리기(git-50)만 남음 | git-50 구현 |
+| shell-92 | IDE 동기화(185행) | partial | diff·close 수신이 shell 수신함으로 합쳐짐(병합 완료). 검증 + 포커스 slot 변경 진단 App 검사 1건 | 없음 |
+| shell-93 | IPC 동기화(186행) | partial | Git 이벤트 소비(git-64)가 구현됨(병합 완료). 검증·행 판정 | 없음 |
 
-상태별 수: partial 10(`ROOT`). Git 병합이 들어오면 shell-21이 complete가 되어 partial 9입니다.
+상태별 수: partial 9.
 
 ### 1.2 현재 구현 위치(crate·모듈·심볼)
 
@@ -101,7 +96,7 @@
 
 | 상대 영역 | 경계 | 이 문서의 행 |
 | --- | --- | --- |
-| git(`GITLANE`, 병합 중) | Git 보기 본문 `show_git_view`, ⌃⇧G `Run::ShowGit`, diff·commit diff·ClaudeDiff 탭 본문, 탭 메뉴 변경 열기·파일 이력, IDE diff·close 수신, Git 캐시 무효화 | 21, 59, 78, 89, 92, 93 |
+| git(병합됨 `f3a5b5d0`) | Git 보기 본문 `show_git_view`, ⌃⇧G `Run::ShowGit`, diff·commit diff·ClaudeDiff 탭 본문, 탭 메뉴 변경 열기·파일 이력, IDE diff·close 수신, Git 캐시 무효화 | 59, 78, 89, 92, 93 |
 | explorer-search(병합됨 `6dba64f9`) | 탐색기 mount별 상태(`explorer_mounts::Mounts`), 검색 패널, 검색 편집기 탭 본문 | 5, 59, 89 |
 | editor+preview(병합됨) | `APP/preview_web_view.rs`(WKWebView), `APP/domains/preview.rs` `show_preview_web_views`(626행), 편집기 표면 `UI/editor_surface.rs`, `EDITOR/store.rs` | 5, 12 |
 | terminal-agent(병합됨 `446964b7`) | `APP/terminal_surface.rs` raw input(마우스 보고) | 5 |
@@ -114,7 +109,7 @@
 
 ### 1.4 권장 구현 순서
 
-1. Git 병합 직후 판정 묶음(코드는 이미 있음): shell-21 → shell-59 → shell-78 → shell-93 → shell-92. shell-78은 문서 주석 1줄 정정과 보조 창 App 검사 1건을, shell-92는 포커스 slot 변경 App 검사 1건을 함께 합니다.
+1. 판정 묶음(Git 병합 완료, 코드는 이미 있음): shell-59 → shell-78 → shell-93 → shell-92. shell-78은 문서 주석 1줄 정정과 보조 창 App 검사 1건을, shell-92는 포커스 slot 변경 App 검사 1건을 함께 합니다.
 2. shell-89: `14-remaining-git.md` 3.5절대로 git-50 hunk 되돌리기를 구현한 뒤 판정합니다.
 3. shell-5: 허락이 필요 없는 순서로 (1) 보조 창 theme preview → (2) 보조 창 WKWebView 배치(vendored eframe 수정, 결정 6 A로 허용) → (3) 보조 창 터미널 raw input(vendored eframe 수정) → (4) dialog 부모 창(P20 뒤).
 4. shell-3: 앱 쪽 종료 결과 조합 함수 단위 검사(허락 불필요)를 먼저 하고, vendored eframe 셀 공유 검사는 P18 허락 뒤 실행합니다.
@@ -160,11 +155,11 @@
 #### 2.3.3 렌더 중 요청(`ShellSurfaces`)
 
 - 루트 trait `ShellSurfaces`(`UI/shell.rs` 225행)는 영역 trait들의 supertrait입니다. 구현자는 앱 `AppSurfaces`(`APP/application.rs` 2524행)와 UI 검사 `ROOT/native/taide-native-ui/tests/workbench.rs`의 `Surfaces`(118행, `impl ShellSurfaces for Surfaces` 152행) 두 곳입니다. 메서드를 추가하면 둘 다 고칩니다.
-- `show_window`는 매 pass 지역 출력 값을 만들고(`APP/application.rs` 1700~1721행: `command_errors`, `commands`, `settings_output`, `keymap_actions`, `keymap_editor_scope`, `keymap_documents`, `explorer_output`, `load_files`, `preview_output`, `web_placements`, `save_missing_drafts`, `load_untitled`, `banner_actions`, `changed_documents`, `new_focus`, `status`) 루트 필드의 `&mut`과 함께 `AppSurfaces`에 담은 뒤 `self.shell.show(ui, &snapshot, &mut surfaces)`를 부릅니다(1971~1978행, `ui.add_enabled_ui(..)` 안).
+- `show_window`는 매 pass 지역 출력 값을 만들고(`APP/application.rs` 1700~1721행: `command_errors`, `commands`, `settings_output`, `keymap_actions`, `keymap_editor_scope`, `keymap_documents`, `explorer_output`, `load_files`, `preview_output`, `web_placements`, `save_missing_drafts`, `load_untitled`, `banner_actions`, `changed_documents`, `new_focus`, `status`) 루트 필드의 `&mut`과 함께 `AppSurfaces`에 담은 뒤 `self.shell.show(ui, &snapshot, &mut surfaces)`를 부릅니다(1992행 부근, `ui.add_enabled_ui(..)` 안).
 
 #### 2.3.4 provider 이벤트(원본 app provider 대응)
 
-1. 백엔드 `AppEvent`(`ROOT/crates/taide-model/src/app_event.rs`)는 모두 `PaintSink::publish`(`APP/application.rs` 62행)를 지납니다. shell은 `provider_events::Inbox::record`(`APP/provider-events.rs` 53행)에 기록합니다: `AgentStateChanged`, `TerminalCommandFinished`, `LspInstallProgress`(Done/Failed), `IdeSaveRequested`, `ProjectClosed`, `AgentExternalOpen`(플래그). 상한 `MAX_PROVIDER_EVENTS` = 256(11행). 병합 작업 트리는 여기에 `IdeDiffRequested`·`IdeCloseTabRequested`를 더했습니다(0.2절).
+1. 백엔드 `AppEvent`(`ROOT/crates/taide-model/src/app_event.rs`)는 모두 `PaintSink::publish`(`APP/application.rs` 62행)를 지납니다. shell은 `provider_events::Inbox::record`(`APP/provider-events.rs` 53행)에 기록합니다: `AgentStateChanged`, `TerminalCommandFinished`, `LspInstallProgress`(Done/Failed), `IdeSaveRequested`, `ProjectClosed`, `AgentExternalOpen`(플래그). 상한 `MAX_PROVIDER_EVENTS` = 256(11행). 병합 결과는 여기에 `IdeDiffRequested`·`IdeCloseTabRequested`를 더했습니다(0.2절).
 2. `background_tick`(1071행)이 `self.poll(context)` 뒤 `consume_provider_events(context, Instant::now())`(1101행)와 `sync_theme_preview(context)`(1102행)를 부릅니다. 종료 중이면 꺼낸 이벤트를 처리하지 않고 버립니다(`APP/domains/shell.rs` 1114~1117행).
 
 #### 2.3.5 한 frame의 순서(창이 여럿일 때)
@@ -234,7 +229,7 @@ output.textures_delta.clear();
 - 보조 창(`APP/application-auxiliary-window-tests.rs`): `Viewports`(33행, viewport별 `events`·`outputs`), `Viewports::texts`(41행), `install_viewports(context)`(62행, `context.set_embed_viewports(false)` + `egui::Context::set_immediate_viewport_renderer`로 보조 viewport 출력을 따로 받음), `step_until`(108행), `file_tab`(125행), `auxiliary_window`(139행), `viewport_of`(152행), `choose_tab_menu`(490행, 비공개), `focused_text_input`(832행), `SingleWindow`·`single_window(name)`(1341·1350행).
 - 창 상태(`APP/application-window-state-tests.rs`): `frame`(35행), `frame_until`(58행), `render_auxiliary_viewports`(76행), `saved_window_states`(120행).
 - 장애 경계(`APP/application-error-boundary-tests.rs`): `fixture`(11행), `label`(23행), `alert`(27행), `step_until`(42행), `retry`(59행), `has_text`(73행), `assert_fallback`(79행), 실제 검사 4건(95·150·172·222행 부근).
-- Git 저장소가 필요한 검사(`GITLANE/APP/application-git-fixture.rs`): `fixture::git(root, empty, args)`(10행, 전역 설정·hook 차단), `fixture::init`(33행), `fixture::repository(root, empty, files)`(64행).
+- Git 저장소가 필요한 검사(`APP/application-git-fixture.rs`): `fixture::git(root, empty, args)`(10행, 전역 설정·hook 차단), `fixture::init`(33행), `fixture::repository(root, empty, files)`(64행).
 - 검사 이름은 한국어로 씁니다(기존 관례).
 
 ---
@@ -249,7 +244,7 @@ output.textures_delta.clear();
 
 #### (a) ID·기능·상태
 
-- shell-3 "창 위치/크기 복원 (window-state 플러그인)", 기능표 96행, `ROOT`·`GITLANE` 모두 partial.
+- shell-3 "창 위치/크기 복원 (window-state 플러그인)", 기능표 96행, partial.
 
 #### (b) 원본 TS 동작
 
@@ -340,7 +335,7 @@ assert!(application.take_result().is_ok());
 
 #### (c) native 현재 자산과 빠진 것
 
-- 구현됨(근거 `ROOT/docs/quality-assurance/2026-10-27-native-auxiliary-window.md`, `-moves.md`, `2026-11-02-native-lane-shell-windows-layers.md`): 보조 창 viewport·제목줄·view-local 탐색기·편집기(`show_auxiliary_windows` 1503~1559행, `UI/shell.rs` 383~436행), 닫기 규칙(`close_auxiliary_window` 1574행: overlay 해제, toast 층 정리, mirror flush, 탭 복귀), 창별 키맵·LSP·reveal/rename, 보조 창 toast 층(shell-98), 탭 drag 중 모든 창 web view 숨김(`is_any_window_tab_dragging` 1415행), 보조 창 Emmet, 보조 창 Task Runner(terminal-agent-76), 탐색기 mount별 상태와 보조 창 Search 보기(explorer-search-30), 보조 창 Git 보기(`GITLANE` git-1, `GITLANE/APP/domains/git.rs` 1741~1760행 `Intent::ShowAuxiliaryView`).
+- 구현됨(근거 `ROOT/docs/quality-assurance/2026-10-27-native-auxiliary-window.md`, `-moves.md`, `2026-11-02-native-lane-shell-windows-layers.md`): 보조 창 viewport·제목줄·view-local 탐색기·편집기(`show_auxiliary_windows` 1503~1559행, `UI/shell.rs` 383~436행), 닫기 규칙(`close_auxiliary_window` 1574행: overlay 해제, toast 층 정리, mirror flush, 탭 복귀), 창별 키맵·LSP·reveal/rename, 보조 창 toast 층(shell-98), 탭 drag 중 모든 창 web view 숨김(`is_any_window_tab_dragging` 1415행), 보조 창 Emmet, 보조 창 Task Runner(terminal-agent-76), 탐색기 mount별 상태와 보조 창 Search 보기(explorer-search-30), 보조 창 Git 보기(`GITLANE` git-1, `APP/domains/git.rs` 1741~1760행 `Intent::ShowAuxiliaryView`).
 - 빠진 것 4건(코드로 재확인)
     1. 보조 창 HTML·미디어 미리보기 WKWebView: `show_window`가 ROOT일 때만 `frame_pass.web_placements = web_placements`를 기록합니다(`APP/application.rs` 2047~2050행). `finish_frame`의 `show_preview_web_views(context, frame, web_placements, is_enabled)`(2295행, `APP/domains/preview.rs` 626~676행)는 메인 `eframe::Frame`에만 `Views::sync`를 합니다. `preview_web_view::Views::sync(frame: &eframe::Frame, ..)`(`APP/preview_web_view.rs` 81행)는 `wry::WebViewBuilder::build_as_child(frame)`(179행)로 메인 창에 붙입니다. 그래서 보조 창 HTML 탭에는 web view가 없습니다.
     2. 보조 창 터미널 raw input(마우스 보고): 앱의 `raw_input_hook`·`raw_input_hook_with_replay`(`APP/application.rs` 1333~1354행)는 ROOT·deferred viewport 입력 준비에서만 불립니다(`EFRAME/src/native/epi_integration.rs` 389행). immediate viewport 경로 `render_immediate_viewport`(`EFRAME/src/native/wgpu_integration.rs` 1139~1265행)는 `take_egui_input`(1188행) 뒤 곧바로 `egui_ctx.run_ui`(1209행)를 부르고 앱 hook을 부르지 않습니다.
@@ -389,7 +384,7 @@ assert!(application.take_result().is_ok());
 
 #### (f) 완료 판정
 
-- 1·2·3 구현과 위 검사 통과, Git 병합 뒤 보조 창 Git 보기 검사(`GITLANE/APP/application-git-base-tests.rs` 327행 `실제_app_보조_창의_git_키는_그_창의_탐색기를_열고_git_보기로_바꾼다`)가 병합 트리에서 통과 → complete. 비고에 "실기(배치 31): 보조 창 WKWebView 표시·터미널 마우스 보고 실제 입력·OS 창 focus", "dialog 부모 창은 P20 확인 전 메인 창 부모 유지(차이)", "보조 창 구문 강조 색은 메인 테마(차이, 결정 대기)", "보조 창 터미널 OSC 색 질의는 메인 테마로 응답(차이)"를 적습니다.
+- 1·2·3 구현과 위 검사 통과, 보조 창 Git 보기 검사(`APP/application-git-base-tests.rs` 327행 `실제_app_보조_창의_git_키는_그_창의_탐색기를_열고_git_보기로_바꾼다`)가 통과 → complete. 비고에 "실기(배치 31): 보조 창 WKWebView 표시·터미널 마우스 보고 실제 입력·OS 창 focus", "dialog 부모 창은 P20 확인 전 메인 창 부모 유지(차이)", "보조 창 구문 강조 색은 메인 테마(차이, 결정 대기)", "보조 창 터미널 OSC 색 질의는 메인 테마로 응답(차이)"를 적습니다.
 - 4는 원본 근거를 확인할 수 없으므로 complete를 막지 않고 차이로 기록합니다(shell 사양 848행 "확인 전에는 지금(메인 창 부모)을 유지"). 메인이 4를 완료 조건으로 지정하면 따릅니다.
 
 #### (g) 막는 요소
@@ -441,7 +436,7 @@ assert!(application.take_result().is_ok());
     4. instance 규칙: 사이드바 패널과 같게 메인 `egui::Id::new(slot)`, 보조 창 `egui::Id::new((project, slot))`. 원본은 slot 트리 경로 key라 트리 모양이 바뀌면 새 mount되지만 native는 slot id라 유지됩니다. 사이드바 패널과 같은 차이이므로 QA에 함께 적습니다.
     5. 빌림 함정: `show_instance`의 `text: &dyn Fn(&str) -> String` 인자는 경계 안 `contents`와 같은 시점에 살아 있습니다. 사이드바는 `let reader = &*surfaces;`로 둘 다 불변 차용했지만(`UI/shell.rs` 591행), 편집기 `tab_content`는 `&mut self`(`UI/surfaces/editor.rs` 10행)라 같은 방식이 컴파일되지 않습니다. 경계 진입 전에 fallback이 쓰는 세 문구(`region.label_key()`, `"errorBoundary.description"`, `"common.retry"`, `UI/error-boundary.rs` 238·239·299행)를 `surfaces.text(..)`로 미리 만들어 지역 배열에 두고, `text`에는 그 배열을 찾는 클로저를 넘깁니다.
     6. intent: 경계 안에서 나온 intent는 영역 지역 목록에 모았다가 `Outcome::Shown`일 때만 셸 intent에 더합니다(사이드바 선례 `UI/shell.rs` 604~611행). 주의: `slot_tree` 끝의 slot focus 판정이 `!intents[start..].is_empty()`(1527행)를 씁니다. panic frame에는 편집기 intent가 없으므로 포인터 누름(`pointer_in_body`)만으로 focus됩니다. 원본도 fallback이 클릭을 받지 않으므로 같습니다.
-    7. 앱 쪽 공유 상태 분류: `APP/application.rs` `AppSurfaces`의 `&'a mut` 필드는 57개입니다(`awk 'NR>=2524 && NR<=2660 && /&.a mut/' APP/application.rs`, 2026-11-04 집계, 괄호는 줄 번호). 아래는 선언 위치와 타입 이름으로 나눈 초안입니다. 편집기 영역 경계 안(`pane_tree`·`problems_panel`)에서 실제로 쓰는 필드만 처리 대상이므로 8번 절차로 확정합니다. 병합 뒤 `GITLANE` 필드를 다시 집계합니다(예: `title_branches`는 병합 작업 트리에서 사라졌고 `git: &domains::git::State`는 불변).
+    7. 앱 쪽 공유 상태 분류: `APP/application.rs` `AppSurfaces`의 `&'a mut` 필드는 58개입니다(`awk 'NR>=2542 && NR<=2700 && /&.a mut/' APP/application.rs`, 2026-11-04 병합 뒤 집계, 괄호는 줄 번호). 아래는 선언 위치와 타입 이름으로 나눈 초안입니다. 편집기 영역 경계 안(`pane_tree`·`problems_panel`)에서 실제로 쓰는 필드만 처리 대상이므로 8번 절차로 확정합니다.
         - (가) pass 출력(show_window 1700~1721행 지역 선언, `WindowPass`, 또는 self의 출력 대기열): `command_errors`(2555), `settings_output`(2559), `keymap_actions`(2564), `keymap_editor_scope`(2565), `keymap_documents`(2567), `banner_actions`(2611), `changed_documents`(2612, `editor_menu_changes`에서 take), `preview_output`(2616), `web_placements`(2625), `load_untitled`(2629), `save_missing_drafts`(2631), `explorer_output`(2639), `commands`(2646), `load_files`(2647), `focused`(2649, `new_focus`), `status`(2651, `self.status.take()`), `document_edits`·`fold_commands`(2553·2554, `frame_pass`), `problem_opens`(2528, `&mut self.problem_opens` 1828행, `domains/editor.rs`가 소비). panic이면 경계 진입 직전 길이로 잘라내거나(Vec) 진입 전 값으로 되돌립니다(Option·Map).
         - (나) 영역 소유 view 상태(원본에서는 `EditorArea` 안 React·Monaco 위젯 상태라 경계가 잡으면 사라짐): `editor_find`(2573), `editor_problems`(2574), `editor_locations`(2575), `editor_rename`(2576), `editor_code_actions`(2577), `editor_documentation`(2578), `editor_completion`(2579), `editor_highlights`(2580), `editor_inlay_hints`(2581), `editor_code_lenses`(2582), `editor_selection_ranges`(2583), `editor_ide_selection`(2584), `editor_view_state`(2585), `editor_markdown`(2586), `editor_keymap_targets`(2566), `problems`(2531), `breadcrumbs`(2538), `app_file_views`(2558), `settings_views`(2560), `terminal_views`(2563)의 view별 UI 상태. panic이면 그 영역에 보이던 view·tab 항목만 제거(새 mount)합니다. 각 타입에 `forget_view(view)`/`forget_tab(tab)`이 있는지 확인하고 없으면 추가합니다.
         - (다) 공유 상태: `store: EditorStore`(2571, 모든 창·pane이 공유하는 문서·undo·view), `reveals`(2650), `terminal_views`의 입력 대기열(PTY로 갈 입력), `open_with`(2614, 사용자 선택 override), `find_history`(2589), `explorers`·`explorer_clipboards`(2637·2638, 탐색기 소유지만 편집기 영역 안 reveal이 쓸 수 있음). 경계를 막는 핵심입니다.
@@ -479,7 +474,7 @@ fn discard_editor_region(&mut self, region: Self::EditorRegion);
     5. UI 검사 `Surfaces`(`tests/workbench.rs` 152행)에도 같은 메서드를 구현합니다(빈 구현 + 호출 기록).
 5. 루트 경계(편집기 영역 다음)
     1. 원본 루트는 앱 전체를 감쌉니다. native에서 셸 밖 앱 코드(`show_window`의 오버레이·대화상자·toast, `background_tick`)는 render 중 `self.submit`으로 즉시 host 명령을 보내고 루트 상태를 바로 바꾸므로 감쌀 수 없습니다.
-    2. 추천: 루트 경계 = `NativeShell::show` 전체(`APP/application.rs` 1971~1978행의 `self.shell.show(ui, &snapshot, &mut surfaces)`)를 `error_boundary::show_instance(ui, ui.max_rect(), (Region::App, egui::Id::NULL), ..)`로 감쌉니다. 편집기 영역 경계 뒤 `NativeShell::show` 안에서 경계 밖에 남는 코드는 제목줄·rail 틀·slot 헤더·분할 경계·drag 피드백(`project_drag_feedback`, `tab_drag_feedback`)입니다. 이 부분이 쓰는 `ShellSurfaces` 메서드(`tooltip`, `rail_icon`, `tab_icon`, `title_branch_icon`, `prepare_status_bar` 등)를 `grep -n "surfaces\.[a-z_]*(" UI/shell.rs`로 전수 조사해 사이드바처럼 지연 요청으로 바꾼 뒤 감쌉니다.
+    2. 추천: 루트 경계 = `NativeShell::show` 전체(`APP/application.rs` 1992행 부근의 `self.shell.show(ui, &snapshot, &mut surfaces)`)를 `error_boundary::show_instance(ui, ui.max_rect(), (Region::App, egui::Id::NULL), ..)`로 감쌉니다. 편집기 영역 경계 뒤 `NativeShell::show` 안에서 경계 밖에 남는 코드는 제목줄·rail 틀·slot 헤더·분할 경계·drag 피드백(`project_drag_feedback`, `tab_drag_feedback`)입니다. 이 부분이 쓰는 `ShellSurfaces` 메서드(`tooltip`, `rail_icon`, `tab_icon`, `title_branch_icon`, `prepare_status_bar` 등)를 `grep -n "surfaces\.[a-z_]*(" UI/shell.rs`로 전수 조사해 사이드바처럼 지연 요청으로 바꾼 뒤 감쌉니다.
     3. panic이면 (가) 지역 출력과 셸 intent를 버리고 창 전체 fallback을 그립니다. 재시도는 generation을 올려 새로 그립니다. 원본 `onCaught`(창 표시)는 메인 창이 이미 보이므로 할 일이 없고, 보조 창은 `ViewportCommand::Visible(true)`를 그 viewport에 보냅니다.
     4. commands-ui 결정 1 A(`window.reload` = 실행한 창의 UI만 다시 적재, `ROOT/docs/research/2026-10-28-lane-commands-ui-spec.md` 4.1절 1번)와 루트 재시도의 의미를 맞출지 31-A2가 함께 결정합니다.
     5. 셸 밖(오버레이·`background_tick`) panic은 앱 종료로 남고 차이로 기록합니다.
@@ -570,40 +565,7 @@ fn discard_editor_region(&mut self, region: Self::EditorRegion);
 
 ### 3.5 shell-21 전역 키맵 toggle-sidebar/explorer/git
 
-#### (a) ID·기능·상태
-
-- shell-21, 기능표 114행. `ROOT` partial, `GITLANE` complete(같은 행 비고에 git-1 근거, "무프로젝트 키 소비").
-
-#### (b) 원본 TS 동작
-
-- `TS/widgets/app-shell/app-shell.tsx` 143~147행 `useGlobalKeymap({ 'toggle-sidebar': () => requestToggleExplorerSidebar(), explorer: .., git: () => requestShowExplorerView('git') })`. 보조 창도 같은 키맵(`TS/widgets/auxiliary-window-shell/auxiliary-window-shell.tsx` 96~99행).
-- 받는 쪽은 포커스 slot의 패널만 반응합니다(git 사양 197행이 `explorer-panel.tsx` 142~149행 근거로 적음). 키맵 등록은 `AppShell` 수준이라 프로젝트가 없어도 키를 소비합니다(같은 줄).
-- 기본 키 ⌃⇧G, 명령 `view.git`(`TS/shared/lib/command-catalog.ts` 94행).
-
-#### (c) native 현재 자산과 빠진 것
-
-- `ROOT`: toggle-sidebar·explorer 완료. git은 미연결(키 미소비·명령 비활성).
-- `GITLANE`: `UI/command-registry.rs` `Run::ShowGit`(172행), `"git" => Run::ShowGit`(677행), `("view.git", Run::ShowGit)`(1017행), 단위 단언 1467·1473행. `APP/shell_keymap.rs` `runs_without_focused_project`에 `Run::ShowGit`(72행), `intent`의 `Run::ShowGit` 분기(200~210행: 보조 창이면 `intents::git::Intent::ShowAuxiliaryView`, 아니면 `ShowView { project, slot: 포커스 slot }`), 단위 1463행 `assert!(supports("git") && runs_without_focused_project("git"))`. `APP/command-dispatch.rs` `PROJECTLESS_KEYMAP_ACTIONS`(722~735행, 12개 중 `"git"`). 처리 `GITLANE/APP/domains/git.rs` `apply_git_intent`(1720행)의 `Intent::ShowView`(1727~1740행)·`ShowAuxiliaryView`(1741~1760행). App 검사 `GITLANE/APP/application-git-base-tests.rs` 257행 `실제_app_git_키와_view_git_명령은_포커스_slot만_git_보기로_바꾸고_접힌_사이드바를_펼친다`, 327행 `실제_app_보조_창의_git_키는_그_창의_탐색기를_열고_git_보기로_바꾼다`.
-- 빠진 것: 병합 완료와 병합 트리 검증, `ROOT` 행 갱신.
-- 문서 불일치: shell 사양 742행은 "프로젝트가 없으면 키를 소비하지 않습니다"라고 썼지만 git 사양 197행·`GITLANE` 구현·`GITLANE` 행은 "프로젝트가 없어도 소비"입니다. 원본 키맵이 `AppShell`에 프로젝트와 무관하게 등록되므로 구현이 원본에 맞습니다. shell 사양 문장은 낡은 기술입니다.
-
-#### (d) 구현 방법
-
-1. 병합이 `ROOT`에 들어온 뒤 `grep -rn "Run::ShowGit" ROOT/native`로 위 심볼이 있는지 확인합니다.
-2. 코드 변경은 없습니다. 병합 충돌 파일이었던 `shell_keymap.rs`·`command-dispatch.rs`·`command-registry.rs`에서 `PROJECTLESS_KEYMAP_ACTIONS`와 `runs_without_focused_project`가 같은 집합인지 확인합니다(`command-dispatch.rs` 798행 부근 검사가 단언).
-
-#### (e) 자동 검사
-
-- `cargo test --manifest-path ROOT/native/taide-native-app/Cargo.toml --lib --locked --offline --target-dir <T> -- shell_keymap command_dispatch domains::git::base_tests application::shell_dialogs_tests --test-threads=4`
-- `cargo test --manifest-path ROOT/native/taide-native-ui/Cargo.toml --features native-host,inspection --locked --offline --target-dir <T> --lib -- command_registry`
-
-#### (f) 완료 판정
-
-- 위 검사 통과 → complete(`GITLANE` 행 문구 그대로). commands-ui-14(`view.git`, 기능표 653행 unwired)도 같은 근거로 commands-ui 쪽에서 갱신합니다.
-
-#### (g) 막는 요소
-
-- Git 병합 완료(다른 작업자 진행 중).
+shell-21 complete(기능표 114행) — 작업 없음.
 
 ---
 
@@ -611,7 +573,7 @@ fn discard_editor_region(&mut self, region: Self::EditorRegion);
 
 #### (a) ID·기능·상태
 
-- shell-59, 기능표 152행, `ROOT`·`GITLANE` 모두 partial. `GITLANE`도 비고를 고치지 않았습니다(남은 범위 "Git 패널 본체·⌃⇧G/`view.git`(배치 26)").
+- shell-59, 기능표 152행, partial(병합 전 비고의 남은 범위 "Git 패널 본체·⌃⇧G/`view.git`(배치 26)").
 
 #### (b) 원본 TS 동작
 
@@ -621,12 +583,12 @@ fn discard_editor_region(&mut self, region: Self::EditorRegion);
 #### (c) native 현재 자산과 빠진 것
 
 - `ROOT`: 전환 줄·slot별 보존·tooltip 완료, Search 본문(explorer-search-31), ⌘⇧F/⌘⇧H(explorer-search-37). Git 보기는 전환만 되고 본문이 비어 있습니다(`APP/application-explorer-views-tests.rs` 186행 검사 이름 `..git은_빈_본문만_보인다`).
-- `GITLANE`: `APP/domains/explorer_search.rs` 1764~1766행 `if sidebar.view == crate::symbol_sidebar::View::Git { self.show_git_view(ui, project, slot, &mut *icons, errors, intents); .. }`, `show_git_view`(`GITLANE/APP/domains/git.rs` 2922행, `&self` 읽기 전용 + intent 출력이라 사이드바 장애 경계와 맞음). App 검사 이름이 `실제_app_사이드바는_네_보기를_slot별로_전환하고_검색은_패널을_git은_scm_본문을_보인다`(`GITLANE/APP/application-explorer-views-tests.rs` 186행)로 바뀌었습니다.
-- 빠진 것: 병합과 병합 트리 검증, 행 갱신.
+- 현재 코드: `APP/domains/explorer_search.rs` 1764~1766행 `if sidebar.view == crate::symbol_sidebar::View::Git { self.show_git_view(ui, project, slot, &mut *icons, errors, intents); .. }`, `show_git_view`(`APP/domains/git.rs` 2922행, `&self` 읽기 전용 + intent 출력이라 사이드바 장애 경계와 맞음). App 검사 이름이 `실제_app_사이드바는_네_보기를_slot별로_전환하고_검색은_패널을_git은_scm_본문을_보인다`(`APP/application-explorer-views-tests.rs` 186행)로 바뀌었습니다.
+- 빠진 것: 검증, 행 갱신.
 
 #### (d) 구현 방법
 
-1. 병합 뒤 `APP/application-explorer-views-tests.rs` 186행 검사 이름이 `..git은_scm_본문을_보인다`인지, 검색 본문 단언과 Git SCM 본문 단언이 함께 남았는지 확인합니다(충돌 파일이었음).
+1. 병합은 완료됐으므로 지금 `APP/application-explorer-views-tests.rs` 186행 검사 이름이 `..git은_scm_본문을_보인다`인지, 검색 본문 단언과 Git SCM 본문 단언이 함께 남았는지 확인합니다(충돌 파일이었음).
 2. 코드 변경 없음.
 
 #### (e) 자동 검사
@@ -647,7 +609,7 @@ fn discard_editor_region(&mut self, region: Self::EditorRegion);
 
 #### (a) ID·기능·상태
 
-- shell-78, 기능표 171행, `ROOT`·`GITLANE` 모두 partial(비고 "변경 열기·파일 이력(배치 26)은 native 소비자가 없어 표시하지 않아 partial").
+- shell-78, 기능표 171행, partial(병합 전 비고 "변경 열기·파일 이력(배치 26)은 native 소비자가 없어 표시하지 않아 partial").
 
 #### (b) 원본 TS 동작
 
@@ -658,15 +620,15 @@ fn discard_editor_region(&mut self, region: Self::EditorRegion);
 #### (c) native 현재 자산과 빠진 것
 
 - `ROOT`: 나머지 항목 전부 완료(근거 `2026-10-27-native-tab-icons-menu.md`, `-auxiliary-window-moves.md`).
-- `GITLANE`: `UI/shell.rs` `tab_menu`(2257행)에 rename 다음·reopen-with 앞으로 `tab.openChanges` → `ShellIntent::Git(Intent::OpenTabChanges { project, path, title: format!("{} (diff)", tab.title), window: menu.window })`(2329~2338행), `git.fileHistory` → `Intent::OpenFileHistory { project, path }`(2339~2347행). git-48·git-55 complete(`GITLANE` 기능표 525·532행). 검사: UI `GITLANE/native/taide-native-ui/tests/workbench.rs` 2256행 `탭_메뉴는_주창_파일탭에_탐색기_reveal_rename과_미리보기파일_다시열기를_요청한다`의 2291~2305행(순서 rename < openChanges < fileHistory < reopenEditorWith, 선택 intent), App `GITLANE/APP/application-git-diff-tests.rs` 461행 `실제_app_파일_탭_메뉴의_변경_열기는_focus_pane에_preview_diff_탭을_연다`, `GITLANE/APP/application-git-claude-history-tests.rs` 466행 `실제_app_파일_이력은_명령_탭_메뉴로_열리고_항목을_inline_diff로_보여준다`.
+- 현재 코드: `UI/shell.rs` `tab_menu`(2257행)에 rename 다음·reopen-with 앞으로 `tab.openChanges` → `ShellIntent::Git(Intent::OpenTabChanges { project, path, title: format!("{} (diff)", tab.title), window: menu.window })`(2329~2338행), `git.fileHistory` → `Intent::OpenFileHistory { project, path }`(2339~2347행). git-48·git-55 complete(기능표 525·532행). 검사: UI `ROOT/native/taide-native-ui/tests/workbench.rs` 2256행 `탭_메뉴는_주창_파일탭에_탐색기_reveal_rename과_미리보기파일_다시열기를_요청한다`의 2291~2305행(순서 rename < openChanges < fileHistory < reopenEditorWith, 선택 intent), App `APP/application-git-diff-tests.rs` 461행 `실제_app_파일_탭_메뉴의_변경_열기는_focus_pane에_preview_diff_탭을_연다`, `APP/application-git-claude-history-tests.rs` 466행 `실제_app_파일_이력은_명령_탭_메뉴로_열리고_항목을_inline_diff로_보여준다`.
 - 빠진 것
     1. 병합과 검증, 행 갱신.
-    2. 낡은 문서 주석: `GITLANE/UI/shell.rs` 2255~2256행 `/// The tab's own context menu (\`tab-context-menu.tsx\`). Entries whose native consumer does not exist yet (Git file history) are not shown.` 두 항목이 모두 보이므로 사실과 다릅니다.
+    2. 낡은 문서 주석: `UI/shell.rs` 2255~2256행 `/// The tab's own context menu (\`tab-context-menu.tsx\`). Entries whose native consumer does not exist yet (Git file history) are not shown.` 두 항목이 모두 보이므로 사실과 다릅니다.
     3. 보조 창에서 연 메뉴의 변경 열기 대상(그 창의 focus pane) App 검사가 없습니다. git-48 비고는 보조 창 규칙(`window: menu.window`)을 말하지만 검사는 메인 창 1건뿐입니다.
 
 #### (d) 구현 방법
 
-1. 병합 뒤 `UI/shell.rs` `tab_menu` 문서 주석을 `/// The tab's own context menu (\`tab-context-menu.tsx\`).` 한 줄로 줄입니다.
+1. 지금 `UI/shell.rs` `tab_menu` 문서 주석(2255~2256행, 아직 낡은 문구가 남아 있음)을 `/// The tab's own context menu (\`tab-context-menu.tsx\`).` 한 줄로 줄입니다.
 2. 보조 창 검사를 `APP/application-git-diff-tests.rs` 461행 검사 옆에 추가합니다.
     1. `APP/application-auxiliary-window-tests.rs`의 `choose_tab_menu`(490행, 지금 비공개)를 `pub(super)`로 올립니다(같은 파일 helper를 올린 선례 `install_viewports`·`step_until`·`viewport_of`).
     2. Git 저장소 fixture(`fixture::repository`)로 파일 `a.txt`를 커밋한 뒤 수정 → 그 파일 탭을 가진 보조 창 layout(`auxiliary_window(slot, &file_tab(path))`) → `install_viewports` → `choose_tab_menu(application, &context, &viewports, Some(viewport), "a.txt", &text("tab.openChanges"))` → `step_until`로 보조 창 트리의 focus pane에 `TabKind::Diff { path, staged: false, .. }` preview 탭이 있고 메인 트리는 변하지 않음을 단언합니다.
@@ -690,7 +652,7 @@ fn discard_editor_region(&mut self, region: Self::EditorRegion);
 
 #### (a) ID·기능·상태
 
-- shell-89, 기능표 182행. `ROOT` partial("searchEditor 연결, 남은 것 diff/commit diff/claudeDiff"). `GITLANE`(충돌 해결된 작업 트리) partial: "2026-11-03 git lane 병합으로 네 본문이 모두 탭 분기에 연결 … 남은 것: ClaudeDiff 수정 쪽 revert 화살표(git-50)".
+- shell-89, 기능표 182행. 병합 전 비고는 "searchEditor 연결, 남은 것 diff/commit diff/claudeDiff"였습니다. 현재 partial: "2026-11-03 git lane 병합으로 네 본문이 모두 탭 분기에 연결 … 남은 것: ClaudeDiff 수정 쪽 revert 화살표(git-50)".
 
 #### (b) 원본 TS 동작
 
@@ -710,8 +672,8 @@ fn discard_editor_region(&mut self, region: Self::EditorRegion);
 #### (c) native 현재 자산과 빠진 것
 
 - `ROOT`: `APP/domains/editor.rs` 5388~5401행 탭 분기, searchEditor는 `show_search_editor_tab`(`APP/domains/explorer_search.rs` 2271행) 연결, diff·ClaudeDiff는 `APP/domains/git.rs` 136~143행 `show_unavailable_tab` 자리표시.
-- `GITLANE`: `APP/domains/editor.rs` 5400~5410행이 `show_search_editor_tab`, `show_diff_tab(ui, project, pane, tab, intents)`, `show_claude_diff_tab(..)`(`GITLANE/APP/domains/git.rs` 2675·2821행, `impl AppSurfaces<'_>` 2672행)을 부릅니다. 공용 그리기 `show_surface`(1085행, `SideText::{Read, Editable}` 1054행, `Surface` 1062행). diff 위젯 `GITLANE/native/taide-native-ui/src/diff-view.rs`(`Request` 71행: `stage_lanes`·`hide_unchanged`, `Output` 216행: `lane_press`, `Hunk` 51행). 되돌리기 관련 코드는 없습니다(`grep -n -i revert diff-view.rs` 결과 없음). App 검사 `application-git-diff-tests.rs`(161·267·339·380·461·516·558·640행), `application-git-claude-history-tests.rs`(218·289·372·466행).
-- 빠진 것: ClaudeDiff 수정 쪽 hunk 되돌리기 gutter(git-50 남은 것, `GITLANE` 기능표 527행 "수정 쪽 revert 화살표(결정 4 A)와 git-40 공통 장식").
+- 현재 코드: `APP/domains/editor.rs` 5400~5410행이 `show_search_editor_tab`, `show_diff_tab(ui, project, pane, tab, intents)`, `show_claude_diff_tab(..)`(`APP/domains/git.rs` 2675·2821행, `impl AppSurfaces<'_>` 2672행)을 부릅니다. 공용 그리기 `show_surface`(1085행, `SideText::{Read, Editable}` 1054행, `Surface` 1062행). diff 위젯 `ROOT/native/taide-native-ui/src/diff-view.rs`(`Request` 71행: `stage_lanes`·`hide_unchanged`, `Output` 216행: `lane_press`, `Hunk` 51행). 되돌리기 관련 코드는 없습니다(`grep -n -i revert diff-view.rs` 결과 없음). App 검사 `application-git-diff-tests.rs`(161·267·339·380·461·516·558·640행), `application-git-claude-history-tests.rs`(218·289·372·466행).
+- 빠진 것: ClaudeDiff 수정 쪽 hunk 되돌리기 gutter(git-50 남은 것, 기능표 527행 "수정 쪽 revert 화살표(결정 4 A)와 git-40 공통 장식").
 
 #### (d) 구현 방법
 
@@ -720,8 +682,8 @@ Git 영역 코드(`diff-view.rs`, `domains/git.rs`)입니다. 구현 정본은 `
 1. `UI/diff-view.rs` `Request`에 `revert_blocks: bool`(ClaudeDiff만 참)과 `is_diff_current: bool`을 추가하고, gutter 열(`REVERT_GUTTER_WIDTH` 35, 항목 34×20), 커서 hunk 항상 표시·hover 시 전부 표시, 누름 → `Output.revert: Option<Revert>`를 냅니다. 같은 위젯의 기존 `stage_lanes`/`lane_press`(76·219·675·761·882·1020행)가 열 배치와 누름 출력의 선례입니다.
 2. 아이콘은 같은 파일의 codicon 그리기 방식(42행 `UNFOLD_CODICON = '\u{eb73}'`, 463~464행 `FontId::new(CODICON_SIZE, crate::font_families::codicons(ui))`)으로 `'\u{ea9c}'`(side-by-side)·`'\u{eae2}'`(inline)를 그립니다.
 3. 접근성 이름·tooltip 문구는 원본처럼 영어 리터럴 `"Revert Block"`·`"Revert Selection"`입니다(0.4절 선례: 같은 파일 43행 `HIDDEN_LINES_LABEL`). locale 키를 새로 만들지 않습니다.
-4. `is_diff_current`는 `git_claude_diff::State`의 `Lines`(`GITLANE/APP/git-claude-diff.rs` 42~47행: `computed`, `wanted`, `in_flight`)에서 "`computed == Some(현재 revisions)`이고 `wanted`·`in_flight`가 없음"으로 계산합니다. 원본 `isDiffUpToDate`와 같은 규칙입니다.
-5. 앱: 새 intent `RevertClaudeDiff { tab, original, modified }`를 `apply_git_intent`에서 처리해 수정 가상 문서에 `self.store.apply_separate(document, Transaction { revision, edits: vec![Edit { bytes, text }], group, origin: Some(view), selection_after: None })`(`EDITOR/store.rs` 1606행, `Transaction` 31~37행, `Edit` `EDITOR/document.rs` 39~42행)로 편집 하나를 적용합니다. 같은 패턴 `GITLANE/APP/git-editor.rs` 384행 `apply_conflict_resolution`(407행 `apply_separate`). 적용 뒤 기존 `ClaudeDiffShown` → 200ms 재계산(`RECOMPUTE_DELAY`, `git-claude-diff.rs` 12행)이 hunk를 갱신합니다.
+4. `is_diff_current`는 `git_claude_diff::State`의 `Lines`(`APP/git-claude-diff.rs` 42~47행: `computed`, `wanted`, `in_flight`)에서 "`computed == Some(현재 revisions)`이고 `wanted`·`in_flight`가 없음"으로 계산합니다. 원본 `isDiffUpToDate`와 같은 규칙입니다.
+5. 앱: 새 intent `RevertClaudeDiff { tab, original, modified }`를 `apply_git_intent`에서 처리해 수정 가상 문서에 `self.store.apply_separate(document, Transaction { revision, edits: vec![Edit { bytes, text }], group, origin: Some(view), selection_after: None })`(`EDITOR/store.rs` 1606행, `Transaction` 31~37행, `Edit` `EDITOR/document.rs` 39~42행)로 편집 하나를 적용합니다. 같은 패턴 `APP/git-editor.rs` 384행 `apply_conflict_resolution`(407행 `apply_separate`). 적용 뒤 기존 `ClaudeDiffShown` → 200ms 재계산(`RECOMPUTE_DELAY`, `git-claude-diff.rs` 12행)이 hunk를 갱신합니다.
 6. 읽기 전용 diff(`DiffPane`, CommitFileDiff)는 `revert_blocks: false`라 gutter 폭이 0입니다(원본과 같음).
 
 #### (e) 자동 검사
@@ -731,7 +693,7 @@ Git 영역 코드(`diff-view.rs`, `domains/git.rs`)입니다. 구현 정본은 `
 
 #### (f) 완료 판정
 
-- 네 본문 연결(병합 트리에서 위 회귀 통과) + hunk 되돌리기 검사 통과 → shell-89 complete, git-50도 같은 근거. git-40 공통 장식(문자 단위 강조·±·overview ruler)은 git-40 행이 추적하며 shell-89 완료를 막지 않습니다. 메인이 "탭 콘텐츠 분기 연결만으로 shell-89 complete"를 택하면 그 결정을 기록하고 hunk 되돌리기는 git-50에만 남깁니다(현재 `GITLANE` 행 문구는 shell-89 남은 것에 revert를 넣었으므로 기본은 위 기준).
+- 네 본문 연결(위 회귀 통과) + hunk 되돌리기 검사 통과 → shell-89 complete, git-50도 같은 근거. git-40 공통 장식(문자 단위 강조·±·overview ruler)은 git-40 행이 추적하며 shell-89 완료를 막지 않습니다. 메인이 "탭 콘텐츠 분기 연결만으로 shell-89 complete"를 택하면 그 결정을 기록하고 hunk 되돌리기는 git-50에만 남깁니다(현재 기능표 행 문구는 shell-89 남은 것에 revert를 넣었으므로 기본은 위 기준).
 
 #### (g) 막는 요소
 
@@ -743,7 +705,7 @@ Git 영역 코드(`diff-view.rs`, `domains/git.rs`)입니다. 구현 정본은 `
 
 #### (a) ID·기능·상태
 
-- shell-92, 기능표 185행, `ROOT`·`GITLANE` 모두 partial(남은 것 "diff·close 요청 소비(git-49, git lane) 뒤 묶음 3 판정").
+- shell-92, 기능표 185행, partial(병합 전 비고의 남은 것 "diff·close 요청 소비(git-49, git lane) 뒤 묶음 3 판정").
 
 #### (b) 원본 TS 동작
 
@@ -757,17 +719,16 @@ Git 영역 코드(`diff-view.rs`, `domains/git.rs`)입니다. 구현 정본은 `
 #### (c) native 현재 자산과 빠진 것
 
 - `ROOT`: save(`resolve_ide_save` 1273행, `finish_ide_saves` 1311행), 진단 push(`push_ide_diagnostics` 1320행, `APP/ide-sync.rs` 10행 `IDE_DIAGNOSTICS_PUSH_DEBOUNCE` = 300ms), 상태 동기화(terminal-agent-65). App 검사 `APP/application-ide-sync-tests.rs` 51·124·186행, 단위 `ide_진단_push는_포커스_프로젝트가_바뀌면_새_프로젝트로_다시_센다`(`APP/ide-sync.rs` 검사 모듈).
-- `GITLANE` lane 커밋: `git_claude_diff::Inbox` + `git_cache::Changes.ide` + `consume_ide_diff_events`(`tick_claude_diffs` 첫 줄). git-49 complete(`GITLANE` 기능표 526행, 비고 "수신은 대체 경로 `git_cache::Changes.ide` … shell lane 수신함 병합 뒤 그 분기로 옮기는 일이 남음").
-- `GITLANE` 병합 작업 트리(미커밋, 0.2절 1번): 수신이 shell `provider_events::Inbox`로 옮겨졌습니다. `Event::IdeDiff` → `consume_provider_events` → `accept_claude_diff_event`(대기 등록, `ide_auto_open_diff` 꺼짐이면 `Command::ResolveIdeDiff { outcome: Rejected }`, 아니면 `Command::OpenTab { kind: TabKind::ClaudeDiff { request_id, path }, title, target: None, preview: false }`, `Closed`면 대기 제거). 즉 lane 비고의 "옮기는 일"은 병합 작업 트리에서 끝났습니다.
+- 현재 코드(0.2절 1번): 수신이 shell `provider_events::Inbox`로 옮겨졌습니다. `Event::IdeDiff` → `consume_provider_events` → `accept_claude_diff_event`(대기 등록, `ide_auto_open_diff` 꺼짐이면 `Command::ResolveIdeDiff { outcome: Rejected }`, 아니면 `Command::OpenTab { kind: TabKind::ClaudeDiff { request_id, path }, title, target: None, preview: false }`, `Closed`면 대기 제거). 이전 대체 경로(`git_claude_diff::Inbox`·`git_cache::Changes.ide`)는 삭제됐고 git-49는 complete입니다.
 - 빠진 것
-    1. 병합과 병합 트리 검증, 행 판정, git-49 비고 정정.
+    1. 검증, 행 판정.
     2. 진단 push의 "포커스 slot을 바꾸면 새 프로젝트로 다시 push"는 단위 검사만 있고 실제 App 검사가 없습니다(`ROOT/docs/quality-assurance/2026-11-02-native-lane-shell-providers.md` "테스트 공백 (a)" 줄: "두 프로젝트 slot 전환 fixture가 필요해 남김").
 
 #### (d) 구현 방법
 
-1. 병합 뒤 `grep -n "IdeDiff" ROOT/native/taide-native-app/src/provider-events.rs ROOT/native/taide-native-app/src/domains/shell.rs ROOT/native/taide-native-app/src/domains/git.rs`로 세 지점을 확인하고, `grep -n "Inbox\|\.ide\b" ROOT/native/taide-native-app/src/git-cache.rs ROOT/native/taide-native-app/src/git-claude-diff.rs` 결과가 없어야 합니다(이중 기록이면 요청마다 탭이 두 번 열림). 이 확인은 `14-remaining-git.md` 3.7 (d)와 같으므로 한 번만 합니다.
+1. 병합은 완료됐으므로 지금 `grep -n "IdeDiff" ROOT/native/taide-native-app/src/provider-events.rs ROOT/native/taide-native-app/src/domains/shell.rs ROOT/native/taide-native-app/src/domains/git.rs`로 세 지점을 확인하고, `grep -n "Inbox\|\.ide\b" ROOT/native/taide-native-app/src/git-cache.rs ROOT/native/taide-native-app/src/git-claude-diff.rs` 결과가 없어야 합니다(이중 기록이면 요청마다 탭이 두 번 열림). 이 확인은 `14-remaining-git.md` 3.7 (d)와 같으므로 한 번만 합니다.
 2. 동작 차이 두 가지를 QA에 적습니다(14 문서 3.7 (d) 3번과 같은 내용).
-    - 수신함 상한: `MAX_PROVIDER_EVENTS` = 256을 넘으면 가장 오래된(프로젝트 닫힘 제외) 이벤트를 버립니다(`GITLANE/APP/provider-events.rs` 124~130행). IDE diff 요청이 버려지면 IDE는 `IDE_DIFF_TIMEOUT` = 600초(`APP/ide-tools.rs` 27행) 뒤 `Rejected`를 받습니다. 원본은 상한이 없습니다. 한 frame에 256개가 쌓이는 경우만 해당합니다.
+    - 수신함 상한: `MAX_PROVIDER_EVENTS` = 256을 넘으면 가장 오래된(프로젝트 닫힘 제외) 이벤트를 버립니다(`APP/provider-events.rs` 124~130행). IDE diff 요청이 버려지면 IDE는 `IDE_DIFF_TIMEOUT` = 600초(`APP/ide-tools.rs` 27행) 뒤 `Rejected`를 받습니다. 원본은 상한이 없습니다. 한 frame에 256개가 쌓이는 경우만 해당합니다.
     - 종료 중: `consume_provider_events`는 닫는 중·종료 준비·shutdown이면 꺼낸 이벤트를 처리하지 않고 버립니다(1114~1117행). 그 사이 요청은 IDE timeout까지 대기합니다.
 3. 포커스 slot 변경 App 검사 추가(`APP/application-ide-sync-tests.rs`)
     1. 두 프로젝트 각각에 진단을 낼 파일을 두고 메인 2 slot 구성으로 띄웁니다. 구성은 `APP/application-explorer-views-tests.rs` 186행 검사(두 slot, `left_half()` 178행)와 같은 방식, IDE 실행 상태와 진단 store 준비는 같은 파일 186행 검사(`실제_app은_ide가_실행중일_때만_진단을_300ms_뒤_push한다`)와 같은 방식을 씁니다.
@@ -779,7 +740,7 @@ Git 영역 코드(`diff-view.rs`, `domains/git.rs`)입니다. 구현 정본은 `
 
 #### (f) 완료 판정
 
-- 병합 트리에서 위 검사 통과 + 3번 검사 추가·통과 → complete. 비고에 save·진단 근거(providers QA)와 diff·close 근거(`2026-11-02-native-lane-git-g7-commit-claude-diff.md`, 수신 경로는 shell 수신함). 같은 근거로 terminal-agent-68(기능표 361행, unwired로 낡음)은 terminal-agent 영역이 갱신합니다.
+- 위 검사 통과 + 3번 검사 추가·통과 → complete. 비고에 save·진단 근거(providers QA)와 diff·close 근거(`2026-11-02-native-lane-git-g7-commit-claude-diff.md`, 수신 경로는 shell 수신함). 같은 근거로 terminal-agent-68(기능표 361행, 현재 partial)은 terminal-agent 영역이 갱신합니다.
 
 #### (g) 막는 요소
 
@@ -804,13 +765,13 @@ Git 영역 코드(`diff-view.rs`, `domains/git.rs`)입니다. 구현 정본은 `
 #### (c) native 현재 자산과 빠진 것
 
 - `ROOT`: Git 외 전부 충족(`presentation_refresh::Changes::record`의 `SyncStateChanged`, 앱 밖 `ProjectClosed` 정리 `forget_closed_project`, settings 영역 기록). App 검사 `APP/application-ipc-sync-tests.rs` 158·204·254·352행 부근 4건.
-- `GITLANE`: `APP/git-cache.rs` `Changes::record`(54~71행)가 `GitStatusChanged`·`GitRefsChanged`·`FsRescanRequired` → 저장소 범위, `FsChanged` → 그 경로들. `Key`(249행)의 `is_mutable`(315행)·`follows_worktree`(337행)가 경로 키를 무효화합니다. frame당 요청 상한 `MAX_REQUESTS_PER_FRAME` = 16(16행). git-64 complete(`GITLANE` 기능표 541행, 검사 `GITLANE/APP/application-git-base-tests.rs` 485행 `실제_app_변경_목록은_그룹과_건수와_행_표시를_원본대로_그리고_git과_fs_변경_뒤_다시_읽는다`). 병합 작업 트리의 `PaintSink`(`GITLANE/APP/application.rs` 50~71행)에는 `git_cache`와 `providers`가 함께 있고 `title_branches`는 없어졌습니다(제목줄 branch도 git cache status를 읽음, 0.2절 2번).
+- 현재 코드: `APP/git-cache.rs` `Changes::record`(54~71행)가 `GitStatusChanged`·`GitRefsChanged`·`FsRescanRequired` → 저장소 범위, `FsChanged` → 그 경로들. `Key`(249행)의 `is_mutable`(315행)·`follows_worktree`(337행)가 경로 키를 무효화합니다. frame당 요청 상한 `MAX_REQUESTS_PER_FRAME` = 16(16행). git-64 complete(`GITLANE` 기능표 541행, 검사 `APP/application-git-base-tests.rs` 485행 `실제_app_변경_목록은_그룹과_건수와_행_표시를_원본대로_그리고_git과_fs_변경_뒤_다시_읽는다`). 현재 `PaintSink`(`APP/application.rs` 50~71행)에는 `git_cache`와 `providers`가 함께 있고 `title_branches`는 없어졌습니다(제목줄 branch도 git cache status를 읽음, 0.2절 2번).
 - 빠진 것: 병합과 검증, 행 판정. App 검사가 실제 OS watcher가 아닌 sink 주입을 쓴다는 점은 git-64 비고에 이미 적혀 있습니다.
 
 #### (d) 구현 방법
 
-1. 병합 뒤 `APP/application.rs` `PaintSink::publish`에 `self.git_cache.record(&event)`와 `self.providers.record(&event)`가 둘 다 있는지 확인합니다(병합 의미 충돌 선례: `PaintSink.providers`, PROCESS 2026-11-03 병합 기록).
-2. 제목줄 branch가 Git 변경 뒤 다시 읽히는지 확인하는 기존 검사(`APP/application-auxiliary-window-tests.rs` 1061행 `실제_app_제목줄은_프로젝트_git_branch를_읽고_git_변경_뒤_다시_읽는다`, 병합 트리에서 `application.git_state.title_branch(&alpha)`로 바뀜)를 함께 실행합니다.
+1. 병합은 완료됐으므로 지금 `APP/application.rs` `PaintSink::publish`에 `self.git_cache.record(&event)`와 `self.providers.record(&event)`가 둘 다 있는지 확인합니다(2026-11-04 확인: 둘 다 있음)(병합 의미 충돌 선례: `PaintSink.providers`, PROCESS 2026-11-03 병합 기록).
+2. 제목줄 branch가 Git 변경 뒤 다시 읽히는지 확인하는 기존 검사(`APP/application-auxiliary-window-tests.rs` 1061행 `실제_app_제목줄은_프로젝트_git_branch를_읽고_git_변경_뒤_다시_읽는다`, 병합에서 `application.git_state.title_branch(&alpha)`로 바뀜)를 함께 실행합니다.
 3. 코드 변경 없음.
 
 #### (e) 자동 검사
@@ -835,9 +796,9 @@ QA 문서의 실패 기록·흔들림·리뷰 차단 항목과 이번 확인에�
 
 1. 과대 판정: shell lane 리뷰가 shell-3을 complete에서 partial로 되돌렸습니다(지정 검사를 실행하지 못함, windows-layers QA 111~128행). shell-92·terminal-agent-70 비고는 실제 분기 순서와 다르게 써서 정정했습니다(providers QA "과대 판정 정정" 1번). 행을 올리기 전에 비고의 모든 문장이 실제 검사 단언과 맞는지 하나씩 대조하십시오.
 2. 기능표 머리 요약표(13행)는 행 상태와 따로 갱신해야 합니다. 지금 낡았습니다(1.1절).
-3. 사양과 구현이 다르면 실제 코드와 원본 TS를 따르고 QA에 차이를 적습니다. 예: shell-21 무프로젝트 키 소비(3.5), shell-98의 `for_target` 대신 `ToastLayers` 역참조(windows-layers QA 59행), 사양 2.12의 `apply_appearances` 공통화가 이미 `apply_presentation_appearances`로 있음(같은 QA 58행).
+3. 사양과 구현이 다르면 실제 코드와 원본 TS를 따르고 QA에 차이를 적습니다. 예: shell-21 무프로젝트 키 소비(기능표 114행 비고), shell-98의 `for_target` 대신 `ToastLayers` 역참조(windows-layers QA 59행), 사양 2.12의 `apply_appearances` 공통화가 이미 `apply_presentation_appearances`로 있음(같은 QA 58행).
 4. 이전 작업자 QA의 "통과"를 현재 상태로 믿지 마십시오. 인수 시점에 실제로 실패하던 선례가 있습니다(`2026-10-07-native-transition-operations.md` 6절).
-5. `GITLANE` 행 비고가 shell 행(59·78)을 갱신하지 않았고, git-49 비고는 병합 작업 트리의 수신 경로 이동을 아직 반영하지 않았습니다. 병합 뒤 직접 고치십시오.
+5. shell 행 59·78·92·93의 판정은 3절의 확인 항목을 실행한 뒤 직접 갱신하십시오.
 6. 형제 문서와 같은 작업(git-50, git-49, 31-A2)을 두 번 구현하지 마십시오. 0.5절의 정본을 따릅니다.
 
 ### 4.2 검사 실행
@@ -869,4 +830,4 @@ QA 문서의 실패 기록·흔들림·리뷰 차단 항목과 이번 확인에�
 1. workflow 재개 때 이미 실행된 단계의 프롬프트 문자열을 바꾸면 캐시가 깨집니다. 추가 규칙은 아직 실행되지 않은 단계에만 넣습니다(`2026-10-28-native-lane-operations.md` 5절 66행).
 2. "implement만 끝내고 멈춰"는 진행 중 구현이 끝나는 즉시 정지하고 리뷰 전 변경은 worktree에 미커밋으로 둡니다. 소요 시간 질문은 중단 지시가 아닙니다(같은 절).
 3. 사용자 허락이 필요한 것(shell-15 P05, vendored Cargo 변경 P18, 저장소 밖 소스 확인 P20, 실기 P23)은 진행하지 말고 보류 목록에 남깁니다.
-4. `GITLANE`은 다른 작업자가 병합 중입니다. 그 worktree의 파일을 고치거나 스테이징하지 마십시오. 읽기만 합니다.
+4. `/Users/hyunseokbyun/development/TAIDE-lanes/*` worktree는 낡았으므로 읽지도 고치지도 마십시오.
