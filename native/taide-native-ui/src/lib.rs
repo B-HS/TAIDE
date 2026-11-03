@@ -21,6 +21,9 @@ pub mod controller;
 #[path = "css-motion.rs"]
 pub mod css_motion;
 #[cfg(feature = "native-host")]
+#[path = "diff-view.rs"]
+pub mod diff_view;
+#[cfg(feature = "native-host")]
 pub mod document_admission;
 #[cfg(feature = "native-host")]
 #[path = "editor-ai-edit.rs"]

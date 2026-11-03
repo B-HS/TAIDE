@@ -33,7 +33,10 @@ const FORMAT_LIMITS: css_format::Limits = css_format::Limits {
 
 pub(crate) fn dialect(snapshot: &DocumentSnapshot) -> Option<Dialect> {
     if snapshot.metadata.tier != FileSizeTier::Normal
-        || matches!(snapshot.key, DocumentKey::AppFile(_))
+        || matches!(
+            snapshot.key,
+            DocumentKey::AppFile(_) | DocumentKey::Virtual(_)
+        )
     {
         return None;
     }

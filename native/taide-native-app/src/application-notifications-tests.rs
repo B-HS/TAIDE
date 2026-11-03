@@ -23,12 +23,12 @@ const TERMINAL_SESSION: &str = "synthetic-terminal";
 const TERMINAL_TITLE: &str = "Build";
 
 #[derive(Default)]
-pub(super) struct FakePlatform {
+pub(in crate::application) struct FakePlatform {
     pub(super) sent: Mutex<Vec<(String, String)>>,
 }
 
 impl FakePlatform {
-    pub(super) fn sent(&self) -> Vec<(String, String)> {
+    pub(in crate::application) fn sent(&self) -> Vec<(String, String)> {
         self.sent.lock().unwrap().clone()
     }
 }
@@ -52,7 +52,7 @@ impl taide_runtime::PlatformServices for FakePlatform {
     }
 }
 
-pub(super) fn launch_with_platform(
+pub(in crate::application) fn launch_with_platform(
     fixture: &mut Fixture,
     state: AppState,
     platform: Arc<FakePlatform>,

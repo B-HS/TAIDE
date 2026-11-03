@@ -34,6 +34,7 @@ pub(crate) enum Event {
         project: ProjectId,
         path: String,
     },
+    IdeDiff(crate::git_claude_diff::Event),
     ProjectClosed(ProjectId),
 }
 
@@ -86,6 +87,24 @@ impl Inbox {
                 project: project_id.clone(),
                 path: path.clone(),
             },
+            AppEvent::IdeDiffRequested {
+                request_id,
+                project_id,
+                new_path,
+                new_contents,
+                tab_name,
+                ..
+            } => Event::IdeDiff(crate::git_claude_diff::Event::Requested {
+                request_id: request_id.clone(),
+                project: project_id.clone(),
+                path: new_path.clone(),
+                contents: new_contents.clone(),
+                title: tab_name.clone(),
+            }),
+            AppEvent::IdeCloseTabRequested {
+                request_id: Some(request_id),
+                ..
+            } => Event::IdeDiff(crate::git_claude_diff::Event::Closed(request_id.clone())),
             AppEvent::ProjectClosed { project_id } => Event::ProjectClosed(project_id.clone()),
             AppEvent::AgentExternalOpen { .. } => {
                 self.request_external_opens();
@@ -204,6 +223,43 @@ mod tests {
         );
         let empty = inbox.take();
         assert!(empty.events.is_empty() && !empty.external_opens);
+    }
+
+    #[test]
+    fn provider_inbox는_ide_diff_요청과_요청_id가_있는_close_tab만_기록한다() {
+        use crate::git_claude_diff::Event as Diff;
+        let inbox = Inbox::default();
+        let project = ProjectId::new();
+        inbox.record(&AppEvent::IdeDiffRequested {
+            request_id: "r1".into(),
+            project_id: project.clone(),
+            old_path: "/old".into(),
+            new_path: "/new".into(),
+            new_contents: "proposed".into(),
+            tab_name: "title".into(),
+        });
+        inbox.record(&AppEvent::IdeCloseTabRequested {
+            tab_name: "title".into(),
+            request_id: None,
+        });
+        inbox.record(&AppEvent::IdeCloseTabRequested {
+            tab_name: "title".into(),
+            request_id: Some("r1".into()),
+        });
+        assert_eq!(
+            inbox.take().events.into_iter().collect::<Vec<_>>(),
+            vec![
+                Event::IdeDiff(Diff::Requested {
+                    request_id: "r1".into(),
+                    project,
+                    path: "/new".into(),
+                    contents: "proposed".into(),
+                    title: "title".into(),
+                }),
+                Event::IdeDiff(Diff::Closed("r1".into())),
+            ]
+        );
+        assert!(inbox.take().events.is_empty());
     }
 
     #[test]

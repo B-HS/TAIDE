@@ -88,7 +88,7 @@ pub(crate) fn diagnostics(store: &crate::diagnostics::Store) -> Vec<IdeDiagnosti
         .batches()
         .filter_map(|batch| match &batch.key {
             DocumentKey::File(path) => Some((path.to_string_lossy().into_owned(), batch)),
-            DocumentKey::Untitled(_) | DocumentKey::AppFile(_) => None,
+            DocumentKey::Untitled(_) | DocumentKey::AppFile(_) | DocumentKey::Virtual(_) => None,
         })
         .flat_map(|(path, batch)| {
             batch

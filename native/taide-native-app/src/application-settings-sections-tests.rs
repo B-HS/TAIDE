@@ -858,8 +858,17 @@ fn 실제_auto_tab_토글은_편집기_자동완성_요청_경로를_켠다() {
         .submit(ShellMutation::ActivateTab(settings_tab))
         .unwrap();
     let toggle = scene.text("settings.aiAutoTabToggle");
-    let output = scene.until("auto tab toggle", |_, output| {
-        !nodes(output, &toggle).is_empty()
+    let output = scene.until("auto tab toggle enabled", |_, output| {
+        output
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .is_some_and(|update| {
+                update
+                    .nodes
+                    .iter()
+                    .any(|(_, node)| node.label() == Some(toggle.as_str()) && !node.is_disabled())
+            })
     });
     scene.click(nodes(&output, &toggle)[0].center());
     scene.until("auto tab on", |application, _| {

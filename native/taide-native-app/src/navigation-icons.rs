@@ -27,6 +27,20 @@ pub(crate) enum Icon {
     FolderInput,
     Search,
     GitBranch,
+    Plus,
+    Minus,
+    Undo2,
+    Archive,
+    ArrowUp,
+    ArrowDown,
+    RefreshCw,
+    Trash2,
+    Sparkles,
+    RotateCcw,
+    Tag,
+    Tags,
+    X,
+    ArrowLeft,
     CaseSensitive,
     WholeWord,
     Regex,
@@ -75,6 +89,43 @@ const EXTRA_SOURCES: &[(Icon, &[u8])] = &[
     (
         Icon::Search,
         include_bytes!("../resources/icons/search.svg"),
+    ),
+    (Icon::Plus, include_bytes!("../resources/icons/plus.svg")),
+    (Icon::Minus, include_bytes!("../resources/icons/minus.svg")),
+    (Icon::Undo2, include_bytes!("../resources/icons/undo-2.svg")),
+    (
+        Icon::Archive,
+        include_bytes!("../resources/icons/archive.svg"),
+    ),
+    (
+        Icon::ArrowUp,
+        include_bytes!("../resources/icons/arrow-up.svg"),
+    ),
+    (
+        Icon::ArrowDown,
+        include_bytes!("../resources/icons/arrow-down.svg"),
+    ),
+    (
+        Icon::RefreshCw,
+        include_bytes!("../resources/icons/refresh-cw.svg"),
+    ),
+    (
+        Icon::Trash2,
+        include_bytes!("../resources/icons/trash-2.svg"),
+    ),
+    (
+        Icon::Sparkles,
+        include_bytes!("../resources/icons/sparkles.svg"),
+    ),
+    (
+        Icon::RotateCcw,
+        include_bytes!("../resources/icons/rotate-ccw.svg"),
+    ),
+    (Icon::Tag, include_bytes!("../resources/icons/tag.svg")),
+    (Icon::Tags, include_bytes!("../resources/icons/tags.svg")),
+    (
+        Icon::ArrowLeft,
+        include_bytes!("../resources/icons/arrow-left.svg"),
     ),
     (
         Icon::CaseSensitive,
@@ -133,6 +184,7 @@ impl Icon {
             Self::Component => Some(Glyph::Component),
             Self::ChevronRight => Some(Glyph::ChevronRight),
             Self::GitBranch => Some(Glyph::GitBranch),
+            Self::X => Some(Glyph::X),
             _ => None,
         }
     }

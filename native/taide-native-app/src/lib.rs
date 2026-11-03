@@ -140,6 +140,32 @@ mod file_loading;
 pub mod file_sync;
 #[path = "font-preview.rs"]
 mod font_preview;
+#[path = "git-blame.rs"]
+mod git_blame;
+#[path = "git-branch.rs"]
+mod git_branch;
+#[path = "git-cache.rs"]
+mod git_cache;
+#[path = "git-claude-diff.rs"]
+mod git_claude_diff;
+#[path = "git-commit.rs"]
+mod git_commit;
+#[path = "git-commit-detail.rs"]
+mod git_commit_detail;
+#[path = "git-conflict.rs"]
+mod git_conflict;
+#[path = "git-diff.rs"]
+mod git_diff;
+#[path = "git-graph.rs"]
+mod git_graph;
+#[path = "git-gutter.rs"]
+mod git_gutter;
+#[path = "git-history.rs"]
+mod git_history;
+#[path = "git-scm.rs"]
+mod git_scm;
+#[path = "git-scm-model.rs"]
+mod git_scm_model;
 pub mod host;
 #[path = "ide-server.rs"]
 pub mod ide_server;
@@ -344,8 +370,6 @@ mod theme_editor_tokens;
 #[path = "theme-live-preview.rs"]
 #[cfg(test)]
 mod theme_live_preview;
-#[path = "title-branch.rs"]
-mod title_branch;
 mod toast;
 #[path = "toast-layers.rs"]
 mod toast_layers;

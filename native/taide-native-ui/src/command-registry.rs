@@ -148,6 +148,16 @@ pub enum PaletteEntry {
     WorkspaceSymbols,
 }
 
+/// The Git commands that run on the active project (`git.commands.ts`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GitRun {
+    RevertHead,
+    CreateTagOnHead,
+    OpenFileHistory,
+    ToggleBlame,
+    StageSelection,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Run {
     OpenPalette(PaletteEntry),
@@ -159,6 +169,8 @@ pub enum Run {
     CloseTab,
     ToggleSidebar,
     ShowExplorer,
+    ShowGit,
+    Git(GitRun),
     OpenSearch {
         replace: bool,
     },
@@ -459,6 +471,13 @@ fn execution(id: &str, keymap_id: Option<&str>) -> Execution {
         "monaco.taide.toggleMinimap" => Some(Run::ToggleEditorMinimap),
         #[cfg(feature = "native-host")]
         "task.runTask" => Some(Run::OpenTaskRunner),
+        "git.revertHead" => Some(Run::Git(GitRun::RevertHead)),
+        "git.createTagOnHead" => Some(Run::Git(GitRun::CreateTagOnHead)),
+        "git.openFileHistory" | "monaco.taide.openFileHistory" => {
+            Some(Run::Git(GitRun::OpenFileHistory))
+        }
+        "git.toggleBlame" | "monaco.taide.toggleBlame" => Some(Run::Git(GitRun::ToggleBlame)),
+        "monaco.taide.gitStageSelection" => Some(Run::Git(GitRun::StageSelection)),
         #[cfg(feature = "native-host")]
         "cli.connectExternalEditor" => Some(Run::Cli(
             crate::intents::terminal_agent::CliAction::ConnectExternalEditor,
@@ -655,6 +674,7 @@ pub fn keymap_run(keymap_id: &str) -> Option<Run> {
         "close-tab" => Run::CloseTab,
         "toggle-sidebar" => Run::ToggleSidebar,
         "explorer" => Run::ShowExplorer,
+        "git" => Run::ShowGit,
         "search" => Run::OpenSearch { replace: false },
         "search-replace" => Run::OpenSearch { replace: true },
         "split" => Run::Split,
@@ -875,7 +895,7 @@ mod tests {
         "editor.action.moveCarretRightAction",
     ];
     const KEYMAP_COUNT: usize = 41;
-    const NATIVE_KEYMAP_COUNT: usize = 37 + EDITOR_FIND_AVAILABLE as usize;
+    const NATIVE_KEYMAP_COUNT: usize = 38 + EDITOR_FIND_AVAILABLE as usize;
     const FOLD_COMMAND_COUNT: usize = if cfg!(feature = "native-host") {
         19
     } else {
@@ -982,7 +1002,7 @@ mod tests {
     ];
     const SAVE_ACTION: &str = "taide.saveFile";
     const FOLDING_CATEGORY: &str = "keymap.category.editorFolding";
-    const NATIVE_COMMANDS: [(&str, Run); 38] = [
+    const NATIVE_COMMANDS: [(&str, Run); 39] = [
         ("settings.open", Run::OpenSettingsTab),
         ("app.openSettingsFile", Run::OpenSettingsFile),
         ("keybindings.open", Run::OpenKeybindingsEditor),
@@ -994,6 +1014,7 @@ mod tests {
         ("search.find", Run::OpenSearch { replace: false }),
         ("search.replace", Run::OpenSearch { replace: true }),
         ("view.explorer", Run::ShowExplorer),
+        ("view.git", Run::ShowGit),
         ("editor.split", Run::Split),
         ("tab.cycleNext", Run::CycleTab(TabCycle::Next)),
         ("tab.cyclePrev", Run::CycleTab(TabCycle::Previous)),
@@ -1383,6 +1404,7 @@ mod tests {
                 Execution::Native(Run::EditDocument(
                     DocumentEdit::Line(_) | DocumentEdit::Cursor(_),
                 )) => None,
+                Execution::Native(Run::Git(_)) => None,
                 Execution::Native(run) => Some((command.id.as_str(), run)),
                 Execution::Unavailable => None,
             })
@@ -1442,6 +1464,14 @@ mod tests {
                 .runnable(&CommandContext::default()),
             Some(Run::ShowExplorer)
         );
+        assert_eq!(keymap_run("git"), Some(Run::ShowGit));
+        assert_eq!(
+            registry
+                .command("view.git")
+                .unwrap()
+                .runnable(&CommandContext::default()),
+            Some(Run::ShowGit)
+        );
         for (keymap_id, command_id, replace) in [
             ("search", "search.find", false),
             ("search-replace", "search.replace", true),
@@ -1482,7 +1512,6 @@ mod tests {
         }
         for pending in [
             "find",
-            "git",
             "terminal-jump-to-previous-command",
             "terminal-jump-to-next-command",
             "focus-group-10",
@@ -1665,6 +1694,11 @@ mod tests {
                         .into_iter()
                         .filter(|_| EDITOR_AI_EDIT_AVAILABLE && !is_read_only),
                 )
+                .chain([
+                    "taide.toggleBlame",
+                    "taide.gitStageSelection",
+                    "taide.openFileHistory",
+                ])
                 .map(str::to_owned)
                 .collect::<HashSet<_>>();
             assert_eq!(
@@ -1948,6 +1982,22 @@ mod tests {
             ("window.reload", Enablement::Always, [true; 5]),
             ("sync.uploadNow", Enablement::Always, [true; 5]),
             ("git.toggleBlame", Enablement::Always, [true; 5]),
+            ("git.openFileHistory", Enablement::Always, [true; 5]),
+            (
+                "monaco.taide.toggleBlame",
+                Enablement::SupportedEditorAction,
+                [false, false, false, true, true],
+            ),
+            (
+                "monaco.taide.gitStageSelection",
+                Enablement::SupportedEditorAction,
+                [false, false, false, true, true],
+            ),
+            (
+                "monaco.taide.openFileHistory",
+                Enablement::SupportedEditorAction,
+                [false, false, false, true, true],
+            ),
             (
                 "monaco.editor.action.quickFix",
                 Enablement::Always,
@@ -1981,6 +2031,24 @@ mod tests {
                 assert_eq!(
                     contexts.map(|context| command.is_runnable(context)),
                     allowed
+                );
+                continue;
+            }
+            if let Some(git) = match id {
+                "git.revertHead" => Some(GitRun::RevertHead),
+                "git.createTagOnHead" => Some(GitRun::CreateTagOnHead),
+                "git.openFileHistory" | "monaco.taide.openFileHistory" => {
+                    Some(GitRun::OpenFileHistory)
+                }
+                "git.toggleBlame" | "monaco.taide.toggleBlame" => Some(GitRun::ToggleBlame),
+                "monaco.taide.gitStageSelection" => Some(GitRun::StageSelection),
+                _ => None,
+            } {
+                assert_eq!(command.execution, Execution::Native(Run::Git(git)), "{id}");
+                assert_eq!(
+                    contexts.map(|context| command.runnable(context)),
+                    allowed.map(|allowed| allowed.then_some(Run::Git(git))),
+                    "{id}"
                 );
                 continue;
             }

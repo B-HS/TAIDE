@@ -49,7 +49,10 @@ pub(crate) fn provider() -> ProviderIdentity {
 pub(crate) fn applies(snapshot: &DocumentSnapshot) -> bool {
     snapshot.metadata.language_id == "json"
         && snapshot.metadata.tier == FileSizeTier::Normal
-        && !matches!(snapshot.key, DocumentKey::AppFile(_))
+        && !matches!(
+            snapshot.key,
+            DocumentKey::AppFile(_) | DocumentKey::Virtual(_)
+        )
 }
 
 pub(super) fn spawn(

@@ -52,7 +52,7 @@ struct PaintSink {
     trees: Arc<crate::events::TreeChanges>,
     file_indexes: Arc<crate::command_palette::FileIndexChanges>,
     presentation: Arc<crate::presentation_refresh::Changes>,
-    title_branches: Arc<crate::title_branch::Changes>,
+    git_cache: Arc<crate::git_cache::Changes>,
     app_menu: Arc<crate::app_menu::Changes>,
     providers: Arc<crate::provider_events::Inbox>,
     settings: Arc<domains::settings::Events>,
@@ -63,7 +63,7 @@ impl EventSink for PaintSink {
         self.trees.record(&event);
         self.file_indexes.record(&event);
         self.presentation.record(&event);
-        self.title_branches.record(&event);
+        self.git_cache.record(&event);
         self.app_menu.record(&event);
         self.providers.record(&event);
         self.settings.record(&event);
@@ -326,7 +326,7 @@ impl NativeApplication {
         let tree_changes = Arc::new(crate::events::TreeChanges::default());
         let palette_file_changes = Arc::new(crate::command_palette::FileIndexChanges::default());
         let presentation_changes = Arc::new(crate::presentation_refresh::Changes::default());
-        let title_branch_changes = Arc::new(crate::title_branch::Changes::default());
+        let git_cache_changes = Arc::new(crate::git_cache::Changes::default());
         let app_menu_changes = Arc::new(crate::app_menu::Changes::default());
         let provider_events = Arc::new(crate::provider_events::Inbox::default());
         let settings_events = Arc::new(domains::settings::Events::default());
@@ -338,7 +338,7 @@ impl NativeApplication {
                 trees: tree_changes.clone(),
                 file_indexes: palette_file_changes.clone(),
                 presentation: presentation_changes.clone(),
-                title_branches: title_branch_changes.clone(),
+                git_cache: git_cache_changes.clone(),
                 app_menu: app_menu_changes.clone(),
                 providers: provider_events.clone(),
                 settings: settings_events.clone(),
@@ -721,8 +721,22 @@ impl NativeApplication {
             failed: HashMap::new(),
             refused: HashSet::new(),
             git_state: domains::git::State {
-                title_branch_changes,
-                title_branches: Default::default(),
+                cache_changes: git_cache_changes,
+                cache: Default::default(),
+                panels: Default::default(),
+                appearance: None,
+                initializing: Default::default(),
+                init: domains::git::runtime_init(),
+                stashing: Default::default(),
+                syncing: Default::default(),
+                commit: Default::default(),
+                diffs: Default::default(),
+                diff_appearance: None,
+                claude: Default::default(),
+                claude_appearance: None,
+                histories: Default::default(),
+                history_appearance: None,
+                editors: Default::default(),
             },
             pending_dirty: HashMap::new(),
             persistence: crate::persistence::Persistence::default(),
@@ -1705,6 +1719,7 @@ impl NativeApplication {
         let mut keymap_documents = HashMap::new();
         let mut explorer_output = domains::explorer_search::FrameOutput::default();
         let mut load_files = Vec::new();
+        let mut git_editors = Vec::new();
         let mut preview_output = domains::preview::FrameOutput::default();
         let mut web_placements = Vec::new();
         let mut save_missing_drafts = Vec::new();
@@ -1958,7 +1973,8 @@ impl NativeApplication {
             layouts: &snapshot.layouts,
             scope: &self.shell.scope,
             auxiliary_windows: &self.shell_state.auxiliary_windows,
-            title_branches: &self.git_state.title_branches,
+            git: &self.git_state,
+            git_editors: &mut git_editors,
             commands: &mut commands,
             load_files: &mut load_files,
             target: target.as_ref(),
@@ -2199,6 +2215,7 @@ impl NativeApplication {
                     break;
                 }
             }
+            self.observe_git_editors(&context, git_editors);
             for intent in intents {
                 match intent {
                     ShellIntent::Commands(intent) => self.apply_commands_intent(intent, &context),
@@ -2213,7 +2230,7 @@ impl NativeApplication {
                     ShellIntent::ExplorerSearch(intent) => {
                         self.apply_explorer_search_intent(intent, &context, &snapshot)
                     }
-                    ShellIntent::Git(intent) => self.apply_git_intent(intent),
+                    ShellIntent::Git(intent) => self.apply_git_intent(intent, &context, &snapshot),
                     ShellIntent::TerminalAgent(intent) => self.apply_terminal_agent_intent(intent),
                     ShellIntent::Settings(intent) => self.apply_settings_intent(intent, &snapshot),
                     ShellIntent::Preview(intent) => self.apply_preview_intent(intent, &context),
@@ -2226,6 +2243,7 @@ impl NativeApplication {
             self.queue_explorer_search_delete(explorer_output.delete_entries);
             self.flush_observations();
         }
+        self.show_git_file_history(&context);
         let is_project_display_open = self.shell_state.project_display_dialog.is_open();
         let is_project_group_open = self.shell_state.project_group_dialog.is_open()
             || self.shell_state.project_group_delete.is_open();
@@ -2642,7 +2660,8 @@ struct AppSurfaces<'a> {
     layouts: &'a HashMap<ProjectId, taide_model::layout::ProjectLayout>,
     scope: &'a WindowScope,
     auxiliary_windows: &'a crate::auxiliary_windows::Windows,
-    title_branches: &'a crate::title_branch::Branches,
+    git: &'a domains::git::State,
+    git_editors: &'a mut Vec<domains::git::ShownEditor>,
     commands: &'a mut Vec<HostCommand>,
     load_files: &'a mut Vec<(String, TabId)>,
     target: Option<&'a PaneId>,

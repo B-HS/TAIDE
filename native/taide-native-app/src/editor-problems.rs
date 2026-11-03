@@ -384,7 +384,10 @@ impl taide_native_ui::editor_problems::Provider for Provider<'_> {
             return Ok(false);
         };
         let target = store.documents().snapshot(coordinate.problem.document)?;
-        if matches!(target.key, DocumentKey::AppFile(_)) {
+        if matches!(
+            target.key,
+            DocumentKey::AppFile(_) | DocumentKey::Virtual(_)
+        ) {
             return Ok(false);
         }
         let position = taide_native_editor::lsp::byte_to_position(

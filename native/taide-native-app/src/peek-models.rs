@@ -95,7 +95,9 @@ impl Models {
             }
             cached.project = match &cached.key {
                 DocumentKey::File(path) => resolve(path),
-                DocumentKey::Untitled(_) | DocumentKey::AppFile(_) => None,
+                DocumentKey::Untitled(_) | DocumentKey::AppFile(_) | DocumentKey::Virtual(_) => {
+                    None
+                }
             };
         }
     }

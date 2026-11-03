@@ -1104,7 +1104,7 @@ fn 실제_app_제목줄은_프로젝트_git_branch를_읽고_git_변경_뒤_다�
         let deadline = Instant::now() + DEADLINE;
         loop {
             let output = wide_step(application, &context);
-            if application.git_state.title_branches.branch(&alpha) == Some(branch)
+            if application.git_state.title_branch(&alpha) == Some(branch)
                 && title_shows(&output, branch)
             {
                 return;
@@ -1193,7 +1193,7 @@ fn 실제_app_보조_창_제목줄_branch는_메인에_보이지_않는_프로�
         &context,
         "auxiliary-only project branch",
         |application, _| {
-            application.git_state.title_branches.branch(&beta) == Some(FIRST_BRANCH)
+            application.git_state.title_branch(&beta) == Some(FIRST_BRANCH)
                 && viewports.borrow().shows(viewport, "notes.txt")
         },
     );

@@ -460,7 +460,7 @@ pub(crate) fn resource(key: &DocumentKey) -> Option<String> {
             .ok()
             .map(|uri| uri.to_string()),
         DocumentKey::Untitled(tab) => Some(format!("untitled:{tab}")),
-        DocumentKey::AppFile(_) => None,
+        DocumentKey::AppFile(_) | DocumentKey::Virtual(_) => None,
     }
 }
 

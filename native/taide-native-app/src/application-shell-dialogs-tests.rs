@@ -58,7 +58,7 @@ fn sidebar_view(
 }
 
 #[test]
-fn 실제_app_탐색기_키는_포커스_슬롯만_접힘을_풀고_파일_보기로_바꾸며_git_키는_통과시킨다() {
+fn 실제_app_탐색기_키는_포커스_슬롯만_접힘을_풀고_파일_보기로_바꾼다() {
     let mut fixture = Fixture {
         directory: std::env::temp_dir()
             .join(format!("taide-native-explorer-key-{}", ProjectId::new())),
@@ -126,20 +126,7 @@ fn 실제_app_탐색기_키는_포커스_슬롯만_접힘을_풀고_파일_보�
             .sidebar_collapsed
     };
 
-    step(
-        application,
-        &context,
-        key(egui::Key::G, egui::Modifiers::CTRL | egui::Modifiers::SHIFT),
-    );
-    settle(application, &context);
     assert!(collapsed(0) && collapsed(1));
-    for (project, slot) in projects.iter().zip(&slots) {
-        assert_eq!(
-            sidebar_view(application, project, slot),
-            crate::symbol_sidebar::View::Outline
-        );
-    }
-
     step(application, &context, key(egui::Key::E, command_shift()));
     step_until(application, &context, "focused slot explorer", |_| {
         !collapsed(1)

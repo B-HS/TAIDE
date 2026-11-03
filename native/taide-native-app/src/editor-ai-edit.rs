@@ -501,7 +501,7 @@ fn context_window(
     ))
 }
 
-fn strip_code_fence(text: &str) -> String {
+pub(crate) fn strip_code_fence(text: &str) -> String {
     let trimmed = text.trim_matches(is_js_whitespace);
     let Some(open) = trimmed.find(FENCE) else {
         return trimmed.into();

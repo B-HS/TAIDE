@@ -622,6 +622,55 @@ fn gutter_range(new_start: u32, new_lines: u32) -> (u32, u32) {
     }
 }
 
+/// One changed line run between two texts, in libgit2's 1-based hunk header terms: a side with
+/// zero lines names the line its counterpart sits after.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiffHunk {
+    pub old_start: u32,
+    pub old_lines: u32,
+    pub new_start: u32,
+    pub new_lines: u32,
+}
+
+/// Line hunks between two texts with the options [`gutter`] and [`stage_hunk`] use, so a hunk
+/// drawn from them always names a backend hunk. With `ignore_trim_whitespace` every line is
+/// compared without its leading and trailing whitespace while keeping its line number.
+pub fn diff_hunks(original: &str, modified: &str, ignore_trim_whitespace: bool) -> AppResult<Vec<DiffHunk>> {
+    let trimmed = |text: &str| {
+        text.split_inclusive('\n')
+            .map(|line| {
+                if line.ends_with('\n') {
+                    format!("{}\n", line.trim())
+                } else {
+                    line.trim().to_owned()
+                }
+            })
+            .collect::<String>()
+    };
+    let (original, modified) = if ignore_trim_whitespace {
+        (
+            std::borrow::Cow::Owned(trimmed(original)),
+            std::borrow::Cow::Owned(trimmed(modified)),
+        )
+    } else {
+        (std::borrow::Cow::Borrowed(original), std::borrow::Cow::Borrowed(modified))
+    };
+    let mut opts = git2::DiffOptions::new();
+    opts.context_lines(0).indent_heuristic(true);
+    let patch = git2::Patch::from_buffers(original.as_bytes(), None, modified.as_bytes(), None, Some(&mut opts)).map_err(map_git_err)?;
+    (0..patch.num_hunks())
+        .map(|index| {
+            let (hunk, _) = patch.hunk(index).map_err(map_git_err)?;
+            Ok(DiffHunk {
+                old_start: hunk.old_start(),
+                old_lines: hunk.old_lines(),
+                new_start: hunk.new_start(),
+                new_lines: hunk.new_lines(),
+            })
+        })
+        .collect()
+}
+
 pub fn discard_hunk(repo_path: &Path, path: &str, hunk_start: u32, hunk_end: u32) -> AppResult<()> {
     let repo = open_repo(repo_path)?;
     let workdir = repo_workdir(&repo)?;
@@ -2982,6 +3031,76 @@ mod tests {
 
         let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, None, &[]).expect("diff_file");
         assert_eq!(staged.modified, "line1\nCHANGED2\nline3\nline4\nline5\n");
+    }
+
+    #[test]
+    fn diff_hunks는_같은_내용의_인덱스_대비_작업트리_hunk와_같고_그_범위로_stage된다() {
+        let repo = TestRepo::new();
+        repo.write_file("a.txt", "line1\nline2\nline3\nline4\nline5\nline6\n");
+        repo.commit_all("init");
+        repo.write_file("a.txt", "line1\nline2  \nline3\nline5\nline6\nadded\n");
+
+        let sides = diff_file(repo.path(), "a.txt", DiffMode::WorkdirVsIndex, None, &[]).expect("diff_file");
+        let hunks = diff_hunks(&sides.original, &sides.modified, false).expect("diff_hunks");
+
+        let git = Repository::open(repo.path()).unwrap();
+        let mut opts = git2::DiffOptions::new();
+        opts.pathspec("a.txt").context_lines(0).indent_heuristic(true);
+        let diff = git.diff_index_to_workdir(None, Some(&mut opts)).unwrap();
+        let mut expected = Vec::new();
+        diff.foreach(
+            &mut |_, _| true,
+            None,
+            Some(&mut |_, hunk| {
+                expected.push(DiffHunk {
+                    old_start: hunk.old_start(),
+                    old_lines: hunk.old_lines(),
+                    new_start: hunk.new_start(),
+                    new_lines: hunk.new_lines(),
+                });
+                true
+            }),
+            None,
+        )
+        .unwrap();
+        assert_eq!(hunks, expected);
+        assert_eq!(hunks.len(), 3, "공백만 바뀐 줄·삭제·추가가 각각 hunk 여야 합니다: {hunks:?}");
+
+        for hunk in [hunks[1], hunks[0]] {
+            let (start, end) = gutter_range(hunk.new_start, hunk.new_lines);
+            stage_hunk(repo.path(), "a.txt", start, end).expect("diff_hunks 범위로 stage");
+        }
+        let staged = diff_file(repo.path(), "a.txt", DiffMode::IndexVsHead, None, &[]).expect("diff_file");
+        assert_eq!(staged.modified, "line1\nline2  \nline3\nline5\nline6\n");
+    }
+
+    #[test]
+    fn diff_hunks는_앞뒤_공백_무시면_공백만_바뀐_줄을_hunk에서_뺀다() {
+        let original = "a\n  b\nc\n";
+        let modified = "a\nb  \nC\n";
+
+        let exact = diff_hunks(original, modified, false).expect("diff_hunks");
+        let trimmed = diff_hunks(original, modified, true).expect("diff_hunks");
+
+        assert_eq!(
+            exact,
+            vec![DiffHunk {
+                old_start: 2,
+                old_lines: 2,
+                new_start: 2,
+                new_lines: 2
+            }]
+        );
+        assert_eq!(
+            trimmed,
+            vec![DiffHunk {
+                old_start: 3,
+                old_lines: 1,
+                new_start: 3,
+                new_lines: 1
+            }]
+        );
+        assert_eq!(diff_hunks("x\n", "x\n", false).expect("diff_hunks"), Vec::new());
     }
 
     #[test]

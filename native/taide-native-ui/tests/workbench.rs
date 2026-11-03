@@ -2288,11 +2288,30 @@ fn 탭_메뉴는_주창_파일탭에_탐색기_reveal_rename과_미리보기파�
     };
     assert!(position("explorer.revealInFinder") < position("tab.revealInExplorerView"));
     assert!(position("tab.revealInExplorerView") < position("tab.rename"));
-    assert!(position("tab.rename") < position("tab.reopenEditorWith"));
+    assert!(position("tab.rename") < position("tab.openChanges"));
+    assert!(position("tab.openChanges") < position("git.fileHistory"));
+    assert!(position("git.fileHistory") < position("tab.reopenEditorWith"));
     assert!(position("tab.reopenEditorWith") < position("tab.split"));
-    for hidden in ["tab.openChanges", "git.fileHistory"] {
-        assert!(!texts.iter().any(|text| text == hidden), "{hidden}");
-    }
+    let intents = driver.choose(&main, &snapshot, &menu, "git.fileHistory");
+    assert!(
+        intents.iter().any(|intent| matches!(
+            intent,
+            ShellIntent::Git(taide_native_ui::intents::git::Intent::OpenFileHistory { project: owner, path })
+                if owner == &project && path == "/synthetic/root/assets/pic.png"
+        )),
+        "{intents:?}"
+    );
+    let menu = driver.open_menu(&main, &snapshot, "pic.png");
+    let intents = driver.choose(&main, &snapshot, &menu, "tab.openChanges");
+    assert!(
+        intents.iter().any(|intent| matches!(
+            intent,
+            ShellIntent::Git(taide_native_ui::intents::git::Intent::OpenTabChanges { project: owner, path, title, window: None })
+                if owner == &project && path == "/synthetic/root/assets/pic.png" && title == "pic.png (diff)"
+        )),
+        "{intents:?}"
+    );
+    let menu = driver.open_menu(&main, &snapshot, "pic.png");
     let intents = driver.choose(&main, &snapshot, &menu, "tab.revealInExplorerView");
     assert!(
         intents.iter().any(|intent| matches!(

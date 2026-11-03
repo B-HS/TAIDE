@@ -2253,7 +2253,7 @@ fn split_menu(
 }
 
 /// The tab's own context menu (`tab-context-menu.tsx`). Entries whose native consumer does not
-/// exist yet (Git changes/history) are not shown.
+/// exist yet (Git file history) are not shown.
 fn tab_menu(
     ui: &mut Ui,
     tab: &Tab,
@@ -2325,6 +2325,24 @@ fn tab_menu(
                     intents.extend(reveal(rename));
                 }
             }
+        }
+        if menu_item(ui, surfaces.text("tab.openChanges")) {
+            intents.push(ShellIntent::Git(
+                crate::intents::git::Intent::OpenTabChanges {
+                    project: menu.project.clone(),
+                    path: path.clone(),
+                    title: format!("{} (diff)", tab.title),
+                    window: menu.window,
+                },
+            ));
+        }
+        if menu_item(ui, surfaces.text("git.fileHistory")) {
+            intents.push(ShellIntent::Git(
+                crate::intents::git::Intent::OpenFileHistory {
+                    project: menu.project.clone(),
+                    path: path.clone(),
+                },
+            ));
         }
         if surfaces.can_reopen_with(path) {
             ui.menu_button(surfaces.text("tab.reopenEditorWith"), |ui| {

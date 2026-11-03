@@ -643,6 +643,87 @@ impl EditorStore {
         self.admit(DocumentKey::Untitled(tab), content, metadata)
     }
 
+    /// Opens a surface-owned document whose first text is its clean baseline.
+    pub fn open_virtual(
+        &mut self,
+        key: crate::document::VirtualKey,
+        content: &str,
+        language_id: String,
+        read_only: bool,
+    ) -> Result<DocumentId, EditorError> {
+        self.admit(
+            DocumentKey::Virtual(key),
+            content,
+            DocumentMetadata {
+                language_id,
+                tier: FileSizeTier::Normal,
+                read_only,
+                lossy: false,
+                editor_config: EditorConfigOptions::default(),
+                disk_modified_ms: None,
+                line_ending: crate::document::LineEnding::from_content(content),
+            },
+        )
+    }
+
+    /// Replaces a virtual document's text and language as its new clean baseline, clearing undo;
+    /// returns `false` when nothing changed.
+    pub fn replace_virtual(
+        &mut self,
+        document: DocumentId,
+        content: &str,
+        language_id: &str,
+    ) -> Result<bool, EditorError> {
+        let owner = self
+            .documents
+            .documents
+            .get(&document)
+            .ok_or(EditorError::NotFound)?;
+        if !matches!(owner.key, DocumentKey::Virtual(_)) {
+            return Err(EditorError::InvalidIdentity);
+        }
+        if owner.rope == content && owner.metadata.language_id == language_id {
+            return Ok(false);
+        }
+        if content.len() > self.limits.max_document_bytes {
+            return Err(EditorError::Capacity);
+        }
+        let revision = owner
+            .revision
+            .checked_add(1)
+            .ok_or(EditorError::RevisionOverflow)?;
+        let rope = Rope::from_str(content);
+        for view in self
+            .views
+            .views
+            .values_mut()
+            .filter(|view| view.document == document)
+        {
+            view.selection = view.selection.clamped(&rope);
+            view.composition = None;
+            view.folds.clear();
+            view.manual_folds.clear();
+        }
+        let owner = self
+            .documents
+            .documents
+            .get_mut(&document)
+            .ok_or(EditorError::NotFound)?;
+        owner.rope = rope.clone();
+        owner.baseline = rope;
+        owner.metadata.language_id = language_id.to_owned();
+        owner.metadata.line_ending = crate::document::LineEnding::from_content(content);
+        owner.revision = revision;
+        owner.syntax_tokens = None;
+        owner.bracket_model = None;
+        owner.saved_revision = revision;
+        owner.undo.clear();
+        owner.redo.clear();
+        owner.can_merge = false;
+        owner.requires_save = false;
+        Ok(true)
+    }
+
     pub fn open_app_file(
         &mut self,
         target: AppFileTarget,
@@ -1175,7 +1256,9 @@ impl EditorStore {
         let id = DocumentId(next_id);
         let rope = Rope::from_str(content);
         let baseline = match &key {
-            DocumentKey::File(_) | DocumentKey::AppFile(_) => rope.clone(),
+            DocumentKey::File(_) | DocumentKey::AppFile(_) | DocumentKey::Virtual(_) => {
+                rope.clone()
+            }
             DocumentKey::Untitled(_) => Rope::new(),
         };
         let observed_disk = matches!(&key, DocumentKey::File(_)).then(|| DiskSnapshot {

@@ -281,6 +281,11 @@ fn conditions(
     let mut context = menu::Context {
         read_only: snapshot.metadata.read_only,
         embedded: environment.embedded,
+        git: !environment.embedded
+            && matches!(
+                snapshot.key,
+                taide_native_editor::document::DocumentKey::File(_)
+            ),
         has_selection: view
             .selection
             .selections
@@ -343,6 +348,9 @@ fn label(environment: &Environment<'_>, action: Action, fallback: &str) -> Strin
     let key = match action {
         Action::ToggleMinimap => "editor.toggleMinimap",
         Action::RunSelectedText => "terminal.runSelectedText",
+        Action::Command("taide.toggleBlame") => "git.toggleBlame",
+        Action::Command("taide.gitStageSelection") => "git.stageChanges",
+        Action::Command("taide.openFileHistory") => "git.fileHistory",
         _ => return fallback.into(),
     };
     environment

@@ -91,6 +91,9 @@ pub enum Action {
     FindInFolder(String),
     Refresh,
     Collapse,
+    SelectForCompare(String),
+    CompareWithSelected(String),
+    FileHistory(String),
 }
 
 pub fn open_to_side_request(
@@ -468,6 +471,8 @@ pub struct Explorer {
     clipboard: Option<crate::explorer_clipboard::Entry>,
     mount: Option<ShellSlotId>,
     pub(crate) auto_revealed: Option<String>,
+    /// The file "Select for Compare" picked (`explorer-container.tsx` `compareSourcePath`).
+    pub compare_source: Option<String>,
 }
 
 fn revealing_scroll_offset(current: f32, viewport_height: f32, index: usize) -> Option<f32> {
@@ -1528,6 +1533,7 @@ impl Explorer {
                                     self.select_only(Some(row.path.clone()));
                                     ui.memory_mut(|memory| memory.request_focus(tree_id));
                                 }
+                                let can_compare = self.compare_source.is_some();
                                 response.context_menu(|ui| {
                                     for (key, kind) in [
                                         ("explorer.newFile", TreeEntryKind::File),
@@ -1619,6 +1625,47 @@ impl Explorer {
                                             ui.close();
                                         }
                                         output.menu.insert("explorer.openInBrowser", browser);
+                                    }
+                                    if row.kind == TreeEntryKind::File {
+                                        let select = ui.button(crate::presentation::message(
+                                            locale,
+                                            "explorer.selectForCompare",
+                                            &[],
+                                        ));
+                                        if select.clicked() {
+                                            output
+                                                .actions
+                                                .push(Action::SelectForCompare(row.path.clone()));
+                                            ui.close();
+                                        }
+                                        output.menu.insert("explorer.selectForCompare", select);
+                                        let compare = ui.add_enabled(
+                                            can_compare,
+                                            egui::Button::new(crate::presentation::message(
+                                                locale,
+                                                "explorer.compareWithSelected",
+                                                &[],
+                                            )),
+                                        );
+                                        if compare.clicked() {
+                                            output.actions.push(Action::CompareWithSelected(
+                                                row.path.clone(),
+                                            ));
+                                            ui.close();
+                                        }
+                                        output.menu.insert("explorer.compareWithSelected", compare);
+                                        let history = ui.button(crate::presentation::message(
+                                            locale,
+                                            "git.fileHistory",
+                                            &[],
+                                        ));
+                                        if history.clicked() {
+                                            output
+                                                .actions
+                                                .push(Action::FileHistory(row.path.clone()));
+                                            ui.close();
+                                        }
+                                        output.menu.insert("git.fileHistory", history);
                                     }
                                     ui.separator();
                                     let reveal = ui.add(

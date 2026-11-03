@@ -53,7 +53,10 @@ const FORMAT_LIMITS: html_format::Limits = html_format::Limits {
 
 pub(crate) fn is_html(snapshot: &DocumentSnapshot) -> bool {
     snapshot.metadata.tier == FileSizeTier::Normal
-        && !matches!(snapshot.key, DocumentKey::AppFile(_))
+        && !matches!(
+            snapshot.key,
+            DocumentKey::AppFile(_) | DocumentKey::Virtual(_)
+        )
         && snapshot.metadata.language_id == LANGUAGE_ID
 }
 

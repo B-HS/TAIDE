@@ -731,6 +731,9 @@ async fn open_marker(
         taide_native_editor::document::DocumentKey::AppFile(_) => Err(AppError::InvalidArgument(
             "native problem app-file navigation is not supported".into(),
         )),
+        taide_native_editor::document::DocumentKey::Virtual(_) => Err(AppError::InvalidArgument(
+            "native problem virtual-document navigation is not supported".into(),
+        )),
     }
 }
 
@@ -3816,6 +3819,14 @@ impl NativeApplication {
                     .command(&format!("monaco.{id}"))
                     .map(|command| command.execution);
                 match execution {
+                    Some(Execution::Native(Run::Git(command))) => {
+                        request.context.request_repaint();
+                        return Ok(self.run_git_editor_command(
+                            command,
+                            source,
+                            request.invocation.session.viewport,
+                        ));
+                    }
                     Some(Execution::Native(Run::RenameEditor)) => {
                         if let Some(project) = request.project {
                             self.request_editor_rename_from_source(project, source, owner);
@@ -5391,11 +5402,11 @@ impl EditorSurfaces for AppSurfaces<'_> {
                 return;
             }
             TabKind::Diff { .. } => {
-                self.show_diff_tab(ui, tab);
+                self.show_diff_tab(ui, project, pane, tab, intents);
                 return;
             }
             TabKind::ClaudeDiff { .. } => {
-                self.show_claude_diff_tab(ui, tab);
+                self.show_claude_diff_tab(ui, project, pane, tab, intents);
                 return;
             }
             _ => {}
@@ -5553,6 +5564,7 @@ impl AppSurfaces<'_> {
                     &snapshot.metadata.language_id,
                     self.services.state.settings.read().resizer_thickness as f32,
                     self.editor_markdown_colors.border);
+                let (editor_rect, blame_footer) = crate::git_blame::split_footer(editor_rect, matches!(tab.kind, TabKind::File { .. }) && path.is_some());
                 let parent_ui = ui;
                 let mut editor_ui = parent_ui.new_child(egui::UiBuilder::new().id(parent_ui.id()).max_rect(editor_rect));
                 editor_ui.set_clip_rect(editor_rect.intersect(parent_ui.clip_rect()));
@@ -5762,6 +5774,7 @@ impl AppSurfaces<'_> {
                         taide_native_editor::document::DocumentKey::File(path) => path.to_string_lossy().into_owned(),
                         taide_native_editor::document::DocumentKey::Untitled(tab) => tab.to_string(),
                         taide_native_editor::document::DocumentKey::AppFile(_) => path.unwrap_or(&tab.title).to_owned(),
+                        taide_native_editor::document::DocumentKey::Virtual(_) => String::new(),
                     },
                 };
                 let mut menu_keyboard_open = false;
@@ -5861,7 +5874,11 @@ impl AppSurfaces<'_> {
                     self.find_appearance.highlight, self.find_appearance.current_match, self.find_appearance.scope);
                 let scroll_decorations = find.scroll_decorations(self.editor_overview_colors);
                 let document_highlights = highlight_consumer.display(self.store, view);
-                let find_layers = find_decorations.iter().chain(scroll_decorations.iter()).chain(navigation_highlight.as_ref().map(|(layer, _)| layer)).chain(document_highlights.as_ref().map(|display| &display.layer)).collect::<Vec<_>>();
+                let git_layers = match (editor_project, path, blame_footer) {
+                    (Some(project), Some(path), Some(_)) => self.git.editor_layers(project, pane, path, &self.store.documents().snapshot(document).map_err(editor_error)?),
+                    _ => Vec::new(),
+                };
+                let find_layers = find_decorations.iter().chain(scroll_decorations.iter()).chain(navigation_highlight.as_ref().map(|(layer, _)| layer)).chain(document_highlights.as_ref().map(|display| &display.layer)).chain(git_layers.iter()).collect::<Vec<_>>();
                 editor_presentation.options.diagnostics = self.diagnostics.display(self.store, &self.store.documents().snapshot(document).map_err(editor_error)?);
                 let fold_commands = if ui.is_enabled() {
                     crate::command_dispatch::take_fold_commands(&tab.id, self.fold_commands)
@@ -6082,6 +6099,12 @@ impl AppSurfaces<'_> {
                 let owner = &self.store.views().get(view).ok_or_else(|| editor_error(taide_native_editor::document::EditorError::NotFound))?.key;
                 self.editor_markdown.show(parent_ui, pane, owner, editor_project, &latest,
                     &editor.appearance, self.editor_markdown_colors, self.locale, self.services, self.commands);
+                if let (Some(project), Some(path), Some(footer)) = (editor_project, path, blame_footer) {
+                    self.show_git_editor(parent_ui, super::git::EditorFrame {
+                        project, pane, tab: &tab.id, path, view, footer: Some(footer), geometry: &output.geometry, response: &output.response,
+                        has_folding: editor_presentation.options.folding, font: editor.appearance.font.clone(),
+                    }, intents)?;
+                }
                 Ok(())
             });
         if let Err(error) = result {

@@ -18,7 +18,10 @@ pub(crate) fn is_eligible(snapshot: &DocumentSnapshot) -> bool {
     snapshot.metadata.language_id == "json"
         && snapshot.metadata.tier == taide_model::file::FileSizeTier::Normal
         && !snapshot.metadata.read_only
-        && !matches!(snapshot.key, DocumentKey::AppFile(_))
+        && !matches!(
+            snapshot.key,
+            DocumentKey::AppFile(_) | DocumentKey::Virtual(_)
+        )
 }
 
 pub(crate) fn build(

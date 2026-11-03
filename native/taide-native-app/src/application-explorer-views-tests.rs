@@ -183,7 +183,7 @@ fn left_half() -> egui::Rect {
 }
 
 #[test]
-fn 실제_app_사이드바는_네_보기를_slot별로_전환하고_검색은_패널을_git은_빈_본문만_보인다() {
+fn 실제_app_사이드바는_네_보기를_slot별로_전환하고_검색은_패널을_git은_scm_본문을_보인다() {
     let mut fixture = Fixture {
         directory: std::env::temp_dir()
             .join(format!("taide-native-explorer-views-{}", ProjectId::new())),
@@ -266,8 +266,10 @@ fn 실제_app_사이드바는_네_보기를_slot별로_전환하고_검색은_�
         let (_, tab, _) = node(&output, egui::accesskit::Role::Tab, &name, header)
             .unwrap_or_else(|| panic!("{key}"));
         clock.click(application, &context, tab.center());
-        let output = clock.until(application, &context, key, |application, _| {
+        let notice = label(application, "git.notARepository");
+        let output = clock.until(application, &context, key, |application, output| {
             view(application, 0) == expected
+                && (expected != crate::symbol_sidebar::View::Git || has_text(output, &notice))
         });
         assert!(!has_text(&output, ALPHA_FILE), "{key}");
         assert!(
@@ -295,8 +297,6 @@ fn 실제_app_사이드바는_네_보기를_slot별로_전환하고_검색은_�
                 stray.iter().any(|(text, ..)| *text == hint),
                 "{key}: the search panel body {stray:?}"
             );
-        } else {
-            assert!(stray.is_empty(), "{key}: no placeholder text {stray:?}");
         }
         assert_eq!(view(application, 1), crate::symbol_sidebar::View::Files);
     }

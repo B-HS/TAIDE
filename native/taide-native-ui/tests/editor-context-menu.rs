@@ -233,6 +233,53 @@ fn 미리보기는_정의_타입_구현_이동을_보존하며_중첩_peek와_�
 }
 
 #[test]
+fn 파일_편집기는_blame_토글을_탐색_맨_앞에_두고_9_git_그룹을_복사와_터미널_사이에_둔다() {
+    let menu = entries(Context {
+        git: true,
+        definition: true,
+        ..Context::default()
+    });
+    assert_eq!(
+        menu.iter().map(|group| group.id).collect::<Vec<_>>(),
+        [
+            "navigation",
+            "1_modification",
+            "9_cutcopypaste",
+            "9_git",
+            "9_terminal"
+        ]
+    );
+    let Entry::Item(first) = &menu[0].entries[0] else {
+        panic!("navigation starts with an item");
+    };
+    assert_eq!(first.action.id(), "taide.toggleBlame");
+    assert_eq!(first.label, "Toggle Blame");
+    assert_eq!(
+        menu[3]
+            .entries
+            .iter()
+            .map(|entry| match entry {
+                Entry::Item(item) => (item.action.id(), item.label.as_str()),
+                Entry::Submenu { .. } => panic!("9_git has items only"),
+            })
+            .collect::<Vec<_>>(),
+        [
+            ("taide.gitStageSelection", "Stage Changes"),
+            ("taide.openFileHistory", "File History")
+        ]
+    );
+    let plain = entries(Context::default());
+    let without = ids(&plain);
+    for id in [
+        "taide.toggleBlame",
+        "taide.gitStageSelection",
+        "taide.openFileHistory",
+    ] {
+        assert!(!without.contains(&id), "{id}");
+    }
+}
+
+#[test]
 fn 우클릭은_역방향과_주_다중_선택_끝점을_보존하고_밖에서만_단일_커서로_바꾼다() {
     let (mut store, source, _) = fixture();
     let selection = SelectionSet {

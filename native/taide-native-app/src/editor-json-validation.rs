@@ -200,7 +200,10 @@ impl State {
             .filter(|snapshot| {
                 snapshot.metadata.language_id == "json"
                     && snapshot.metadata.tier == FileSizeTier::Normal
-                    && !matches!(snapshot.key, DocumentKey::AppFile(_))
+                    && !matches!(
+                        snapshot.key,
+                        DocumentKey::AppFile(_) | DocumentKey::Virtual(_)
+                    )
                     && store.views().for_document(snapshot.id).next().is_some()
             })
             .collect::<Vec<_>>();
@@ -307,7 +310,7 @@ pub(crate) fn resource_uri(key: &DocumentKey) -> Result<String, EditorError> {
             .map_err(|_| EditorError::InvalidIdentity)?
             .to_string()),
         DocumentKey::Untitled(tab) => Ok(format!("untitled:{tab}")),
-        DocumentKey::AppFile(_) => Err(EditorError::InvalidIdentity),
+        DocumentKey::AppFile(_) | DocumentKey::Virtual(_) => Err(EditorError::InvalidIdentity),
     }
 }
 

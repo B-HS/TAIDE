@@ -159,7 +159,10 @@ impl Drop for JsonSlot {
 fn is_json(snapshot: &DocumentSnapshot) -> bool {
     snapshot.metadata.language_id == "json"
         && snapshot.metadata.tier == FileSizeTier::Normal
-        && !matches!(snapshot.key, DocumentKey::AppFile(_))
+        && !matches!(
+            snapshot.key,
+            DocumentKey::AppFile(_) | DocumentKey::Virtual(_)
+        )
 }
 
 fn is_builtin(snapshot: &DocumentSnapshot) -> bool {

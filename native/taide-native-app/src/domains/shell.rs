@@ -1158,6 +1158,7 @@ impl NativeApplication {
                     project,
                     path,
                 } => self.resolve_ide_save(request, &project, &path),
+                Event::IdeDiff(event) => self.accept_claude_diff_event(event),
                 Event::ProjectClosed(project) => {
                     self.shell_state.notifications.forget(&project);
                     if !self.services.state.projects.read().contains_key(&project) {
@@ -1640,4 +1641,4 @@ mod ide_sync_tests;
 mod ipc_sync_tests;
 #[cfg(all(test, unix))]
 #[path = "../application-notifications-tests.rs"]
-mod notifications_tests;
+pub(in crate::application) mod notifications_tests;
