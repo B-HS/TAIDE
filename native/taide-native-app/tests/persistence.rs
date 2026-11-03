@@ -209,6 +209,55 @@ async fn reply(bridge: &mut HostBridge, ready: &Notify) -> HostReply {
 }
 
 #[test]
+fn 프로젝트_닫기_mirror는_전송중보다_새_revision만_추가로_보낸다() {
+    let mut store = store();
+    let document = store.open_file(PATH.into(), file()).unwrap();
+    let view = store
+        .attach_view(
+            ViewKey {
+                window: "main".into(),
+                pane: PaneId::new(),
+                tab: TabId::new(),
+            },
+            document,
+        )
+        .unwrap();
+    let project = ProjectId::new();
+    let now = Instant::now();
+    let mut persistence = Persistence::default();
+    replace_selections(&mut store, view, "first ", None).unwrap();
+    let first = store.documents().snapshot(document).unwrap();
+    persistence.changed(document, first.revision, now, true, Duration::ZERO);
+    let inflight = persistence
+        .closing_mirror_job(first.clone(), project.clone())
+        .unwrap();
+    persistence.mirror_started(&inflight);
+    assert!(
+        persistence
+            .mirror_job(first.clone(), project.clone())
+            .is_none()
+    );
+    assert!(
+        persistence
+            .closing_mirror_job(first, project.clone())
+            .is_none()
+    );
+    replace_selections(&mut store, view, "second ", None).unwrap();
+    let second = store.documents().snapshot(document).unwrap();
+    persistence.changed(document, second.revision, now, true, Duration::ZERO);
+    assert!(
+        persistence
+            .mirror_job(second.clone(), project.clone())
+            .is_none()
+    );
+    let latest = persistence
+        .closing_mirror_job(second.clone(), project.clone())
+        .unwrap();
+    assert_eq!(latest.snapshot.revision, second.revision);
+    assert_eq!(latest.project, project);
+}
+
+#[test]
 fn 실제_worker는_저장뒤_stale_mirror_늦은_초안_readonly_실패와_untitled를_보호한다() {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()

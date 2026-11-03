@@ -385,23 +385,13 @@ pub fn create_native<'a>(
         #[cfg(feature = "glow")]
         Renderer::Glow => {
             log::debug!("Using the glow renderer");
-            EframeWinitApplication::new(native::run::create_glow(
-                app_name,
-                native_options,
-                app_creator,
-                event_loop,
-            ))
+            native::run::create_glow(app_name, native_options, app_creator, event_loop)
         }
 
         #[cfg(feature = "wgpu_no_default_features")]
         Renderer::Wgpu => {
             log::debug!("Using the wgpu renderer");
-            EframeWinitApplication::new(native::run::create_wgpu(
-                app_name,
-                native_options,
-                app_creator,
-                event_loop,
-            ))
+            native::run::create_wgpu(app_name, native_options, app_creator, event_loop)
         }
     }
 }

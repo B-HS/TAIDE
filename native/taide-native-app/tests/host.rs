@@ -546,7 +546,7 @@ fn 실행_설정은_명시적_절대_data_dir만_허용한다() {
         vec!["--data-dir", "/"],
         vec!["--data-dir", "relative"],
         vec!["--data-dir", "/tmp/../data"],
-        vec!["--data-dir", "/tmp/data", "extra"],
+        vec!["/tmp/data", "--data-dir", "/tmp/data"],
     ] {
         assert!(LaunchConfig::parse(arguments.into_iter().map(String::from)).is_err());
     }

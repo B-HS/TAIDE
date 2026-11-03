@@ -19,3 +19,9 @@ logic-only 호출은 egui UI pass 없이 필터링된 RawInput을 다음 호출�
 대상은 `src/native/wgpu_integration.rs`입니다. `ViewportCommand::RequestCut`·`RequestCopy`·`RequestPaste`는 `egui_winit::process_viewport_commands`가 그 viewport의 `actions_requested`에 쌓고, 원본은 이를 `egui::Event::Cut`·`Copy`·`Paste`로 바꾸는 drain을 root·deferred viewport 그리기 경로에만 둡니다. `show_viewport_immediate`로 그리는 `render_immediate_viewport`는 이 목록을 읽지 않아 보조 창으로 보낸 요청이 조용히 버려졌습니다(키보드 ⌘C·⌘V는 egui-winit이 키 입력에서 바로 이벤트를 만들어 정상).
 
 수정은 원본 drain을 `push_requested_edits`로 옮겨 두 경로가 함께 쓰게 한 것입니다. root 경로는 원래처럼 그리기 뒤 Screenshot을 먼저 꺼낸 다음 부르므로 동작이 같습니다. immediate 경로는 `take_egui_input` 바로 앞에서 불러, 앞 프레임 root 출력 처리에서 쌓인 요청이 그 viewport의 이번 입력으로 들어갑니다. Paste는 원본과 같이 클립보드 텍스트의 `\r\n`을 `\n`으로 바꾸고 비어 있지 않을 때만 넣습니다. immediate viewport의 Screenshot 요청은 원본처럼 처리하지 않고 목록에 그대로 둡니다. glow backend는 포함하지 않습니다. headless에서는 winit 창·event loop가 없어 이 경로를 직접 실행할 수 없으므로 앱 쪽 검사와 실제 창 확인은 `docs/quality-assurance/2026-10-27-native-app-menu.md`에서 추적합니다.
+
+## 2026-11-02 외부 event loop에서 치명 오류 결과 꺼내기
+
+대상은 `src/native/run.rs`와 `src/lib.rs`입니다. `create_native`가 돌려주는 `EframeWinitApplication`을 앱이 직접 `run_app`으로 돌리면, 창 생성 뒤 그리기 등에서 난 오류는 `WinitAppWrapper.return_result`에 기록되고 event loop만 끝나 호출자는 그 오류를 받을 길이 없었습니다(앱 종료 코드 0).
+
+수정은 `return_result`를 `Rc<RefCell<Result>>`(`SharedResult`)로 바꾸고 `EframeWinitApplication`이 같은 셀을 들게 한 것입니다. `create_wgpu`·`create_glow`는 `EframeWinitApplication`을 직접 만들어 돌려주고 `create_native`는 그것을 그대로 반환합니다. 새 공개 함수 `EframeWinitApplication::take_result`가 셀의 오류를 꺼내고 `Ok(())`를 남깁니다. 원본 `run_native`의 `run_and_return` 경로는 같은 셀에서 꺼내므로 동작이 같습니다. 이벤트 처리·종료 순서는 바꾸지 않았습니다. eframe의 dev-dependency(`directories`)가 lock에 없어 vendored crate 단위 검사는 `--locked --offline`으로 돌릴 수 없고, 앱 `main.rs`가 결과를 돌려주는 경로와 실제 오류 종료는 `docs/quality-assurance/2026-11-02-native-lane-shell-windows-layers.md`에서 추적합니다. wasm 빌드는 `native` 모듈을 포함하지 않습니다.

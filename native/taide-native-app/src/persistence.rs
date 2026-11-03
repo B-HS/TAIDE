@@ -134,6 +134,32 @@ impl Persistence {
         })
     }
 
+    /// The mirror a project close must still write: like [`Persistence::mirror_job`], but an
+    /// in-flight mirror of an older revision does not hold back the newest buffer, because the
+    /// close removes the project before a debounced retry could run.
+    pub fn closing_mirror_job(
+        &self,
+        snapshot: DocumentSnapshot,
+        project: ProjectId,
+    ) -> Option<MirrorJob> {
+        let entry = self.entries.get(&snapshot.id)?;
+        if entry.saving || !entry.mirror_pending {
+            return None;
+        }
+        if entry
+            .mirror_inflight
+            .as_ref()
+            .is_some_and(|(revision, _)| *revision >= snapshot.revision)
+        {
+            return None;
+        }
+        Some(MirrorJob {
+            snapshot,
+            project,
+            epoch: entry.epoch.clone(),
+        })
+    }
+
     pub fn mirror_started(&mut self, job: &MirrorJob) {
         if let Some(entry) = self.entries.get_mut(&job.snapshot.id) {
             entry.mirror_inflight = Some((job.snapshot.revision, job.epoch.clone()));

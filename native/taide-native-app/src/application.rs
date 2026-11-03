@@ -54,6 +54,7 @@ struct PaintSink {
     presentation: Arc<crate::presentation_refresh::Changes>,
     title_branches: Arc<crate::title_branch::Changes>,
     app_menu: Arc<crate::app_menu::Changes>,
+    providers: Arc<crate::provider_events::Inbox>,
 }
 
 impl EventSink for PaintSink {
@@ -63,8 +64,16 @@ impl EventSink for PaintSink {
         self.presentation.record(&event);
         self.title_branches.record(&event);
         self.app_menu.record(&event);
+        self.providers.record(&event);
         self.context.request_repaint();
     }
+}
+
+/// Construction-time replacements for host ports that tests must not reach for real.
+#[derive(Default)]
+pub(crate) struct Overrides {
+    pub(crate) secret_store: Option<taide_infra::secret::SecretStoreState>,
+    pub(crate) platform: Option<Arc<dyn taide_runtime::PlatformServices>>,
 }
 
 struct FileDocument {
@@ -182,7 +191,7 @@ pub struct NativeApplication {
     editor_rename: crate::editor_rename_controller::Controller,
     editor_code_actions: crate::editor_code_actions_controller::Controller,
     settings_state: domains::settings::State,
-    toasts: crate::toast::Toasts,
+    toasts: crate::toast_layers::ToastLayers,
     toast_theme: taide_model::theme::ThemeType,
     motion_preference: crate::motion_preference::Preference,
     editor: NativeEditor,
@@ -264,12 +273,13 @@ impl NativeApplication {
 
     #[cfg(target_os = "macos")]
     pub fn with_app_menu(mut self, context: &egui::Context) -> Self {
-        let model = crate::app_menu::Model {
-            recent: Vec::new(),
-            ..crate::app_menu::Model::new(&self.locale, &[])
-        };
+        let model = self.initial_app_menu_model();
         match crate::app_menu_bar::install(context.clone(), &model) {
-            Ok((bar, events)) => self.shell_state.app_menu.connect(Box::new(bar), events),
+            Ok((bar, events)) => {
+                self.shell_state
+                    .app_menu
+                    .connect_installed(Box::new(bar), events, model)
+            }
             Err(error) => log::warn!("native app menu install failed: {:?}", error.kind()),
         }
         self
@@ -281,8 +291,31 @@ impl NativeApplication {
         state: AppState,
         tasks: TaskSupervisor,
         helper_executable: PathBuf,
-        mut warnings: Vec<String>,
+        warnings: Vec<String>,
         secret_store: Option<taide_infra::secret::SecretStoreState>,
+    ) -> AppResult<Self> {
+        Self::new_with_overrides(
+            context,
+            runtime,
+            state,
+            tasks,
+            helper_executable,
+            warnings,
+            Overrides {
+                secret_store,
+                ..Overrides::default()
+            },
+        )
+    }
+
+    pub(crate) fn new_with_overrides(
+        context: &eframe::CreationContext<'_>,
+        runtime: Runtime,
+        state: AppState,
+        tasks: TaskSupervisor,
+        helper_executable: PathBuf,
+        mut warnings: Vec<String>,
+        overrides: Overrides,
     ) -> AppResult<Self> {
         let egui = context.egui_ctx.clone();
         let repaint_context = egui.clone();
@@ -293,6 +326,7 @@ impl NativeApplication {
         let presentation_changes = Arc::new(crate::presentation_refresh::Changes::default());
         let title_branch_changes = Arc::new(crate::title_branch::Changes::default());
         let app_menu_changes = Arc::new(crate::app_menu::Changes::default());
+        let provider_events = Arc::new(crate::provider_events::Inbox::default());
         let (mut assembly, connection) = runtime.block_on(bootstrap::connect_shell(
             state.clone(),
             tasks.clone(),
@@ -303,17 +337,20 @@ impl NativeApplication {
                 presentation: presentation_changes.clone(),
                 title_branches: title_branch_changes.clone(),
                 app_menu: app_menu_changes.clone(),
+                providers: provider_events.clone(),
             }),
             repaint.clone(),
         ))?;
-        if let Some(secret_store) = secret_store {
-            Arc::get_mut(&mut assembly.services)
-                .ok_or_else(|| {
-                    AppError::Internal(
-                        "native credentials were shared before initialization".into(),
-                    )
-                })?
-                .secrets = secret_store;
+        if overrides.secret_store.is_some() || overrides.platform.is_some() {
+            let services = Arc::get_mut(&mut assembly.services).ok_or_else(|| {
+                AppError::Internal("native credentials were shared before initialization".into())
+            })?;
+            if let Some(secret_store) = overrides.secret_store {
+                services.secrets = secret_store;
+            }
+            if let Some(platform) = overrides.platform {
+                services.platform = taide_runtime::PlatformServicesState(platform);
+            }
         }
         let services = assembly.services;
         let system_theme = match egui.system_theme() {
@@ -340,15 +377,17 @@ impl NativeApplication {
                 ))
             },
         ))?;
-        let theme = resolved.theme?;
-        let locale = resolved.locale?;
+        let crate::status_error_banner::Startup {
+            theme,
+            locale,
+            appearances,
+            failures: presentation_failures,
+        } = crate::status_error_banner::startup(&state, resolved, &presentation_inputs.settings)?;
         egui.set_fonts(fonts.definitions);
         warnings.extend(fonts.warnings);
         for warning in &warnings {
             log::warn!("{warning}");
         }
-        let appearances =
-            crate::presentation_refresh::Appearances::new(&theme, &presentation_inputs.settings)?;
         presentation::apply_visuals(&egui, &appearances.visuals);
         let shell = NativeShell {
             scope: WindowScope::Main,
@@ -469,7 +508,7 @@ impl NativeApplication {
             &collation_locale,
             cfg!(target_os = "macos"),
         )?;
-        let toasts = crate::toast::Toasts::with_actions()?;
+        let toasts = crate::toast_layers::ToastLayers::new()?;
         let toast_theme = theme.theme_type;
         let tooltips = crate::tooltips::Provider::default();
         let mut settings_views = crate::settings_view::Views::default();
@@ -590,6 +629,10 @@ impl NativeApplication {
                 auxiliary_pass_root: None,
                 overlay_viewport: egui::ViewportId::ROOT,
                 zen_fullscreen_state,
+                provider_events,
+                notifications: Default::default(),
+                ide_sync: Default::default(),
+                main_window_zoomed: None,
             },
             mirror_sweeps: crate::mirror_sweep::MirrorSweeps::default(),
             commands_state: domains::commands::State {
@@ -615,7 +658,7 @@ impl NativeApplication {
                     presentation_inputs,
                     presentation_revision,
                 ),
-                presentation_failures: Default::default(),
+                presentation_failures,
                 presentation_system_language: system_language,
             },
             toasts,
@@ -1019,8 +1062,9 @@ impl NativeApplication {
         let toast_position = self.services.state.settings.read().toast_position.clone();
         let toast_now = Instant::now();
         self.toasts
+            .main()
             .set_position(context, &toast_position, toast_now, toast_enabled);
-        self.toasts.tick(context, toast_now, toast_enabled);
+        self.toasts.main().tick(context, toast_now, toast_enabled);
         if self.closing.is_some() || self.services.state.is_shutting_down() {
             self.terminal_agent_state.terminal_views.cancel_inputs();
             self.reveals.clear();
@@ -1039,6 +1083,7 @@ impl NativeApplication {
         self.tick_terminal_agent_cursors(context);
         self.reconcile_previews();
         self.poll(context);
+        self.consume_provider_events(context, Instant::now());
         self.sync_theme_preview(context);
         if self.closing.is_some() || self.is_exit_ready || self.services.state.is_shutting_down() {
             self.settings_state.presentation_refresh.cancel();
@@ -1226,10 +1271,11 @@ impl NativeApplication {
             }
         }
         let zoom_factor = context.zoom_factor();
+        let is_zoomed = self.shell_state.main_window_zoomed;
         context.input(|input| {
             self.shell_state
                 .window_state
-                .observe(input.viewport(), zoom_factor)
+                .observe(input.viewport(), zoom_factor, is_zoomed)
         });
         let close_requested = context.input(|input| input.viewport().close_requested());
         if close_requested && !self.is_exit_ready {
@@ -1292,7 +1338,8 @@ impl eframe::App for NativeApplication {
             .raw_input_with_replay(context, input, replayed_events);
     }
 
-    fn logic(&mut self, context: &egui::Context, _: &mut eframe::Frame) {
+    fn logic(&mut self, context: &egui::Context, frame: &mut eframe::Frame) {
+        self.shell_state.main_window_zoomed = crate::window_state::is_zoomed(frame);
         self.background_tick(context);
     }
 
@@ -1920,17 +1967,23 @@ impl NativeApplication {
                 ),
             );
             let window = ui.max_rect();
-            if (crate::file_drop::is_hovering(&context)
-                || self.preview_state.web_views.drags().is_hovering())
-                && let Err(error) = crate::file_drop::paint_overlay(
+            if crate::file_drop::is_hovering(&context)
+                || self.preview_state.web_views.drags().is_hovering()
+            {
+                if let Err(error) = crate::file_drop::paint_overlay(
                     ui,
                     window,
                     &self.shell_state.file_drop_colors,
                     &presentation::message(&self.locale, "app.dropToOpen", &[]),
                     &mut self.explorer_search_state.navigation_icons,
-                )
-            {
-                status = Some(error.to_string());
+                ) {
+                    status = Some(error.to_string());
+                }
+                for banner in
+                    crate::status_error_banner::layer_ids(self.settings_state.presentation_failures)
+                {
+                    context.set_sublayer(crate::file_drop::overlay_layer(), banner);
+                }
             }
             let mut paths = crate::file_drop::dropped_paths(&context);
             paths.extend(self.preview_state.web_views.drags().take_dropped());
@@ -2217,7 +2270,7 @@ impl NativeApplication {
         self.show_preview_web_views(context, frame, web_placements, is_enabled);
         let toast_position = self.services.state.settings.read().toast_position.clone();
         let toast_enabled = self.toast_interaction_enabled();
-        if let Err(error) = self.toasts.show(
+        if let Err(error) = self.toasts.main().show(
             context,
             self.toast_theme,
             &toast_position,

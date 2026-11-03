@@ -6,6 +6,8 @@ const DEADLINE: Duration = Duration::from_secs(10);
 const SCREEN: [f32; 2] = [1000.0, 700.0];
 const OVERLAY_OPACITY: f32 = 0.85;
 const OVERLAY_BORDER: f32 = 4.0;
+const BANNER_BACKGROUND_OPACITY: f32 = 0.15;
+const BROKEN_JSON: &str = "{";
 
 #[derive(Debug)]
 struct SyntheticDrop(PathBuf);
@@ -241,4 +243,57 @@ fn 실제_app은_미리보기_web_view가_받은_drag에도_안내를_그리고_
     frame_until(application, &context, "web view drop", |application| {
         project_at(application, &alpha).is_some()
     });
+}
+
+#[test]
+fn 실제_app의_drop_안내는_셸_본문_위_로드_오류_배너_아래에_그린다() {
+    let (mut fixture, root) = fixture("banner-order");
+    let loose = root.join("loose.txt");
+    std::fs::write(&loose, "loose").unwrap();
+    let state = super::explorer_views_tests::broken_presentation_state(
+        fixture.directory.join("data"),
+        BROKEN_JSON,
+    );
+    let context = launch(&mut fixture, state);
+    let application = fixture.application.as_mut().unwrap();
+    run(application, &context, input(&[], &[]));
+    let output = run(application, &context, input(&[&loose], &[]));
+    let overlay = application
+        .shell_state
+        .file_drop_colors
+        .background
+        .gamma_multiply(OVERLAY_OPACITY);
+    let error = presentation::color(
+        &application.settings_state.resolved_theme,
+        "statusIndicator.error",
+    )
+    .unwrap()
+    .gamma_multiply(BANNER_BACKGROUND_OPACITY);
+    let shell = application.shell.colors.background;
+    let indices = |fill: egui::Color32| {
+        output
+            .shapes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, clipped)| match &clipped.shape {
+                egui::Shape::Rect(rect) if rect.fill == fill => Some(index),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let [overlay] = indices(overlay)[..] else {
+        panic!("one overlay background")
+    };
+    let banners = indices(error);
+    assert_eq!(banners.len(), 2, "{banners:?}");
+    assert!(
+        banners.iter().all(|banner| overlay < *banner),
+        "{overlay} {banners:?}"
+    );
+    let shell = indices(shell);
+    assert!(!shell.is_empty());
+    assert!(
+        shell.iter().all(|body| *body < overlay),
+        "{shell:?} {overlay}"
+    );
 }

@@ -117,6 +117,8 @@ pub mod explorer_delete;
 pub mod explorer_move;
 pub mod explorer_source_missing;
 pub mod explorer_toolbar;
+#[path = "external-open.rs"]
+pub mod external_open;
 #[path = "file-dialogs.rs"]
 mod file_dialogs;
 #[path = "file-drop.rs"]
@@ -129,6 +131,8 @@ mod font_preview;
 pub mod host;
 #[path = "ide-server.rs"]
 pub mod ide_server;
+#[path = "ide-sync.rs"]
+mod ide_sync;
 #[path = "ide-tools.rs"]
 pub mod ide_tools;
 #[path = "keybinding-editor.rs"]
@@ -148,6 +152,8 @@ pub mod missing_draft;
 mod modal;
 #[path = "motion-preference.rs"]
 mod motion_preference;
+#[path = "native-notifications.rs"]
+pub mod native_notifications;
 #[path = "navigation-icons.rs"]
 mod navigation_icons;
 mod open_path_dialog;
@@ -201,6 +207,8 @@ mod problems;
 #[path = "problems-icons.rs"]
 mod problems_icons;
 pub mod projects;
+#[path = "provider-events.rs"]
+mod provider_events;
 #[path = "remote-agents.rs"]
 pub mod remote_agents;
 #[path = "remote-ai.rs"]
@@ -252,6 +260,9 @@ pub mod settings_integrations;
 #[path = "settings-view.rs"]
 pub mod settings_view;
 mod shell_keymap;
+#[cfg(unix)]
+#[path = "single-instance.rs"]
+pub mod single_instance;
 #[cfg(test)]
 #[path = "snippet-host-tests.rs"]
 mod snippet_host_tests;
@@ -263,6 +274,8 @@ mod status_editor;
 mod status_error_banner;
 #[path = "status-ide.rs"]
 mod status_ide;
+#[path = "stderr-log.rs"]
+pub mod stderr_log;
 #[path = "symbol-location-host.rs"]
 mod symbol_location_host;
 #[path = "symbol-navigation.rs"]
@@ -308,6 +321,8 @@ mod theme_live_preview;
 #[path = "title-branch.rs"]
 mod title_branch;
 mod toast;
+#[path = "toast-layers.rs"]
+mod toast_layers;
 mod tooltips;
 #[path = "ui-fonts.rs"]
 mod ui_fonts;
