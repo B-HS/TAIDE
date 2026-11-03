@@ -52,6 +52,8 @@ pub(crate) struct HostIntegrations {
     view_states: Option<Arc<crate::editor_view_state_sync::Shared>>,
     pub(crate) terminals: Option<Terminals>,
     pub(crate) reconcile: Option<crate::remote_preferences::Reconcile>,
+    pub(crate) wait_markers: Arc<crate::external_open::WaitMarkers>,
+    pub(crate) agent_cli: Arc<crate::agent_cli::Ports>,
 }
 
 pub(crate) struct HostWorker<'a> {
@@ -121,6 +123,8 @@ impl HostBridge {
                 terminals: Some(terminals),
                 reconcile: Some(ports.reconcile.clone()),
                 view_states: Some(ports.view_states.clone()),
+                wait_markers: ports.wait_markers.clone(),
+                agent_cli: Arc::new(crate::agent_cli::Ports::system()),
             },
         )
     }
@@ -156,6 +160,8 @@ impl HostBridge {
                 view_states: None,
                 terminals,
                 reconcile: None,
+                wait_markers: Arc::default(),
+                agent_cli: Arc::new(crate::agent_cli::Ports::system()),
             },
         )
     }
@@ -177,6 +183,30 @@ impl HostBridge {
                 view_states: None,
                 terminals,
                 reconcile: Some(reconcile),
+                wait_markers: Arc::default(),
+                agent_cli: Arc::new(crate::agent_cli::Ports::system()),
+            },
+        )
+    }
+
+    #[cfg(all(test, target_os = "macos"))]
+    pub(crate) fn connect_with_agent_cli(
+        services: Arc<AppServices>,
+        repaint: Arc<dyn Fn() + Send + Sync>,
+        terminals: Terminals,
+        agent_cli: crate::agent_cli::Ports,
+    ) -> AppResult<Self> {
+        Self::connect_with_integrations(
+            services,
+            repaint,
+            clipboard_writer(),
+            clipboard_reader(),
+            HostIntegrations {
+                view_states: None,
+                terminals: Some(terminals),
+                reconcile: None,
+                wait_markers: Arc::default(),
+                agent_cli: Arc::new(agent_cli),
             },
         )
     }

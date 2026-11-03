@@ -18,11 +18,21 @@ use crate::application::{AppSurfaces, NativeApplication, WINDOW_LABEL, editor_er
 use crate::host::{HostCommand, HostReply, HostWorker, stopped};
 use crate::presentation;
 
+/// Who asked for a tree refresh, which decides how a failure shows (`ipc-sync-provider.tsx`
+/// watcher sync, the toolbar's unhandled refresh, the delete's parent refresh toast).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RefreshOrigin {
+    Watcher,
+    Toolbar,
+    Delete,
+}
+
 pub enum Command {
     RestoreWatchers,
     RefreshTree {
         project: ProjectId,
         dirs: crate::events::TreeInvalidation,
+        origin: RefreshOrigin,
     },
     OpenWorkspaceSymbol(crate::workspace_symbol_host::Request),
     RevealBreadcrumbTree(crate::breadcrumbs::Source),
@@ -40,7 +50,50 @@ pub enum Command {
         mount: taide_model::ids::ShellSlotId,
         path: String,
         rename: bool,
+        quiet: bool,
     },
+    ReopenProject {
+        project: ProjectId,
+        root: String,
+    },
+    RunSearch {
+        run: crate::search_panel::Run,
+        target: SearchTarget,
+        project: ProjectId,
+        streams: Arc<crate::search_stream::Streams>,
+    },
+    CancelSearch(crate::search_stream::Session),
+    OpenSearchMatch {
+        project: ProjectId,
+        pane: Option<PaneId>,
+        open: crate::search_panel::Open,
+        viewport: egui::ViewportId,
+    },
+    RecordRecentSearches(Vec<String>),
+    ReplaceSearch {
+        mount: ShellSlotId,
+        project: ProjectId,
+        replace: crate::search_panel::Replace,
+    },
+    OpenSearchEditor {
+        project: ProjectId,
+        pane: Option<PaneId>,
+        query: taide_model::search::SearchQuery,
+        title: String,
+    },
+    OpenTerminalAt {
+        project: ProjectId,
+        pane: Option<PaneId>,
+        cwd: String,
+        title: String,
+    },
+}
+
+/// The surface a search run streams into: a sidebar Search view or a search editor tab body.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SearchTarget {
+    Sidebar(ShellSlotId),
+    Editor(TabId),
 }
 
 pub enum Reply {
@@ -55,6 +108,7 @@ pub enum Reply {
         project: ProjectId,
         result: AppResult<TreeRowPage>,
         errors: Vec<AppError>,
+        origin: RefreshOrigin,
     },
     Tree {
         project: ProjectId,
@@ -71,7 +125,27 @@ pub enum Reply {
         mount: taide_model::ids::ShellSlotId,
         path: String,
         rename: bool,
+        quiet: bool,
         result: AppResult<TreeRowPage>,
+    },
+    ProjectReopened {
+        closed: ProjectId,
+        failure: Option<AppError>,
+    },
+    SearchFinished {
+        target: SearchTarget,
+        generation: u64,
+        result: AppResult<u32>,
+    },
+    SearchMatchOpened {
+        result: AppResult<crate::terminal_tabs::OpenedFileLink>,
+    },
+    RecentSearchesSaved,
+    SearchReplaced {
+        mount: ShellSlotId,
+        project: ProjectId,
+        query: taide_model::search::SearchQuery,
+        result: AppResult<taide_model::search::SearchReplaceResult>,
     },
 }
 
@@ -84,12 +158,29 @@ pub(crate) struct State {
     pub(crate) symbol_sidebars: crate::symbol_sidebar::Views,
     pub(crate) breadcrumbs: crate::breadcrumbs::Views,
     pub(crate) trees: HashMap<ProjectId, TreeRowPage>,
-    pub(crate) explorers: HashMap<ProjectId, crate::explorer::Explorer>,
+    pub(crate) explorers: crate::explorer_mounts::Mounts,
     pub(crate) explorer_clipboards: crate::explorer_clipboard_owners::ClipboardOwners,
     pub(crate) pending_entry_delete: Option<crate::delete_dialog::Confirmation>,
     pub(crate) deleting_entry: bool,
     pub(crate) tree_loading: HashSet<ProjectId>,
     pub(crate) tree_changes: Arc<crate::events::TreeChanges>,
+    pub(crate) tree_failures: HashSet<ProjectId>,
+    pub(crate) git_decorations: crate::explorer_git_decorations::GitDecorations,
+    pub(crate) search_streams: Arc<crate::search_stream::Streams>,
+    pub(crate) search_history: crate::search_history::Queue,
+    pub(crate) search_editors: crate::search_editor::Editors,
+}
+
+/// Explorer and search inputs a sidebar region render needs besides the tree pages; only the
+/// region's finish step writes the recent-search queue. Search editor tab bodies draw from and
+/// into `search_editors` directly.
+pub(crate) struct ExplorerInputs<'a> {
+    pub(crate) tree_failures: &'a HashSet<ProjectId>,
+    pub(crate) git_decorations: &'a crate::explorer_git_decorations::GitDecorations,
+    pub(crate) is_auto_reveal_enabled: bool,
+    pub(crate) search_streams: &'a Arc<crate::search_stream::Streams>,
+    pub(crate) search_history: &'a mut crate::search_history::Queue,
+    pub(crate) search_editors: &'a mut crate::search_editor::Editors,
 }
 
 #[derive(Default)]
@@ -100,6 +191,7 @@ pub(crate) struct FrameOutput {
     pub(crate) delete_entries: Vec<crate::explorer_delete::Request>,
     pub(crate) discarded_explorers: Vec<ProjectId>,
     pub(crate) load_trees: Vec<ProjectId>,
+    pub(crate) is_editor_widget_focused: bool,
 }
 
 pub(crate) async fn dispatch(worker: &HostWorker<'_>, command: Command) -> Option<HostReply> {
@@ -107,7 +199,11 @@ pub(crate) async fn dispatch(worker: &HostWorker<'_>, command: Command) -> Optio
     let sender = worker.sender;
     let repaint = worker.repaint;
     match command {
-        Command::RefreshTree { project, dirs } => {
+        Command::RefreshTree {
+            project,
+            dirs,
+            origin,
+        } => {
             let dirs = match dirs {
                 Some(dirs) => dirs,
                 None => {
@@ -168,6 +264,7 @@ pub(crate) async fn dispatch(worker: &HostWorker<'_>, command: Command) -> Optio
                 project,
                 result,
                 errors,
+                origin,
             }))
         }
         Command::RestoreWatchers => {
@@ -272,6 +369,7 @@ pub(crate) async fn dispatch(worker: &HostWorker<'_>, command: Command) -> Optio
             mount,
             path,
             rename,
+            quiet,
         } => {
             let result = tree_actions::tree_reveal(
                 &services.state,
@@ -286,10 +384,266 @@ pub(crate) async fn dispatch(worker: &HostWorker<'_>, command: Command) -> Optio
                 mount,
                 path,
                 rename,
+                quiet,
                 result,
             }))
         }
+        Command::ReopenProject { project, root } => {
+            if services.state.projects.read().contains_key(&project) {
+                return None;
+            }
+            let failure = match crate::domains::shell::dispatch(
+                worker,
+                crate::domains::shell::Command::OpenProject(root),
+            )
+            .await
+            {
+                Some(HostReply::Failed(error)) => Some(error),
+                Some(reply) => {
+                    let _ = sender.send(reply).await;
+                    None
+                }
+                None => None,
+            };
+            Some(HostReply::ExplorerSearch(Reply::ProjectReopened {
+                closed: project,
+                failure,
+            }))
+        }
+        Command::RunSearch {
+            run,
+            target,
+            project,
+            streams,
+        } => {
+            let crate::search_panel::Run {
+                session,
+                generation,
+                query,
+                ..
+            } = run;
+            let pending_services = services.clone();
+            let sender = sender.clone();
+            let repaint = repaint.clone();
+            let pending_target = target.clone();
+            if services
+                .tasks
+                .spawn_transient("native-search-run", async move {
+                    let batch_repaint = repaint.clone();
+                    let batch_session = session.clone();
+                    let result = taide_runtime::search_actions::search_run(
+                        taide_runtime::search_actions::SearchRunContext {
+                            state: &pending_services.state,
+                            store: &pending_services.search,
+                            tasks: &pending_services.tasks,
+                        },
+                        project,
+                        session.owner,
+                        session.id,
+                        query,
+                        move |batch| {
+                            if streams.push(&batch_session, generation, batch) {
+                                batch_repaint();
+                            }
+                        },
+                    )
+                    .await;
+                    let reply = HostReply::ExplorerSearch(Reply::SearchFinished {
+                        target: pending_target,
+                        generation,
+                        result,
+                    });
+                    if sender.send(reply).await.is_ok() {
+                        repaint();
+                    }
+                })
+            {
+                None
+            } else {
+                Some(HostReply::ExplorerSearch(Reply::SearchFinished {
+                    target,
+                    generation,
+                    result: Err(stopped()),
+                }))
+            }
+        }
+        Command::ReplaceSearch {
+            mount,
+            project,
+            replace,
+        } => {
+            let pending_services = services.clone();
+            let sender = sender.clone();
+            let repaint = repaint.clone();
+            let pending_mount = mount.clone();
+            let pending_project = project.clone();
+            let query = replace.query.clone();
+            if services
+                .tasks
+                .spawn_transient("native-search-replace", async move {
+                    let result = taide_runtime::search_actions::search_replace(
+                        &pending_services.state,
+                        &pending_services.tasks,
+                        pending_project.clone(),
+                        replace.query.clone(),
+                        replace.replacement,
+                        replace.paths,
+                    )
+                    .await;
+                    let reply = HostReply::ExplorerSearch(Reply::SearchReplaced {
+                        mount: pending_mount,
+                        project: pending_project,
+                        query: replace.query,
+                        result,
+                    });
+                    if sender.send(reply).await.is_ok() {
+                        repaint();
+                    }
+                })
+            {
+                None
+            } else {
+                Some(HostReply::ExplorerSearch(Reply::SearchReplaced {
+                    mount,
+                    project,
+                    query,
+                    result: Err(stopped()),
+                }))
+            }
+        }
+        Command::OpenSearchEditor {
+            project,
+            pane,
+            query,
+            title,
+        } => {
+            open_tab(
+                services,
+                project,
+                TabKind::SearchEditor { query },
+                title,
+                pane,
+            )
+            .await
+        }
+        Command::OpenTerminalAt {
+            project,
+            pane,
+            cwd,
+            title,
+        } => {
+            open_tab(
+                services,
+                project,
+                TabKind::Terminal {
+                    session_id: String::new(),
+                    cwd: Some(cwd),
+                },
+                title,
+                pane,
+            )
+            .await
+        }
+        Command::CancelSearch(session) => {
+            let _ = taide_runtime::search_actions::search_cancel(
+                &services.state,
+                &services.search,
+                session.owner,
+                session.id,
+            )
+            .await;
+            None
+        }
+        Command::OpenSearchMatch {
+            project,
+            pane,
+            open,
+            viewport,
+        } => Some(HostReply::ExplorerSearch(Reply::SearchMatchOpened {
+            result: open_search_match(services, project, pane, open, viewport).await,
+        })),
+        Command::RecordRecentSearches(recent) => {
+            let failure = crate::host::update_control_settings(
+                services,
+                &worker.integrations.reconcile,
+                taide_model::settings::SettingsPatch {
+                    recent_searches: Some(recent),
+                    ..Default::default()
+                },
+            )
+            .await;
+            if let Some(reply) = failure
+                && sender.send(reply).await.is_ok()
+            {
+                repaint();
+            }
+            Some(HostReply::ExplorerSearch(Reply::RecentSearchesSaved))
+        }
     }
+}
+
+async fn open_tab(
+    services: &taide_runtime::AppServices,
+    project: ProjectId,
+    kind: TabKind,
+    title: String,
+    pane: Option<PaneId>,
+) -> Option<HostReply> {
+    taide_runtime::layout_actions::layout_open_tab(
+        services.events.as_ref(),
+        &services.state,
+        project,
+        kind,
+        title,
+        pane,
+        false,
+    )
+    .await
+    .err()
+    .map(HostReply::Failed)
+}
+
+async fn open_search_match(
+    services: &taide_runtime::AppServices,
+    project: ProjectId,
+    pane: Option<PaneId>,
+    open: crate::search_panel::Open,
+    viewport: egui::ViewportId,
+) -> AppResult<crate::terminal_tabs::OpenedFileLink> {
+    let title = std::path::Path::new(&open.path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(&open.path)
+        .to_owned();
+    let layout = taide_runtime::layout_actions::layout_open_tab(
+        services.events.as_ref(),
+        &services.state,
+        project.clone(),
+        TabKind::File {
+            path: open.path.clone(),
+        },
+        title,
+        pane.clone(),
+        true,
+    )
+    .await?;
+    let pane = pane.unwrap_or_else(|| layout.focused_pane.clone());
+    let tab = taide_layout::service::all_roots(&layout)
+        .find_map(|root| taide_native_ui::snapshot::active_tab(root, &pane))
+        .filter(|tab| matches!(&tab.kind, TabKind::File { path } if path == &open.path))
+        .ok_or_else(|| AppError::NotFound("native search match file is closed".into()))?
+        .id
+        .clone();
+    Ok(crate::terminal_tabs::OpenedFileLink {
+        project,
+        pane,
+        tab,
+        path: open.path,
+        line: f64::from(open.line),
+        column: f64::from(open.column),
+        viewport,
+        layout,
+    })
 }
 
 impl NativeApplication {
@@ -319,9 +673,7 @@ impl NativeApplication {
                 {
                     match result {
                         Ok(page) => {
-                            self.explorer_search_state
-                                .trees
-                                .insert(source.project, page);
+                            self.accept_explorer_tree(source.project, page);
                             context.request_repaint();
                         }
                         Err(error) => self.report(&error),
@@ -332,23 +684,32 @@ impl NativeApplication {
                 project,
                 result,
                 errors,
-            } => {
-                match result {
-                    Ok(page) => {
-                        self.explorer_search_state.trees.insert(project, page);
+                origin,
+            } => match origin {
+                RefreshOrigin::Watcher => match result {
+                    Ok(page) => self.accept_explorer_tree(project, page),
+                    Err(_) => {
+                        self.explorer_search_state.tree_failures.insert(project);
                     }
-                    Err(error) => self.status = Some(error.to_string()),
+                },
+                RefreshOrigin::Toolbar => {
+                    if let Ok(page) = result {
+                        self.accept_explorer_tree(project, page);
+                    }
                 }
-                if !errors.is_empty() {
-                    self.status = Some(
-                        errors
-                            .iter()
-                            .map(ToString::to_string)
-                            .collect::<Vec<_>>()
-                            .join("\n"),
-                    );
+                RefreshOrigin::Delete => {
+                    let failure = match result {
+                        Ok(page) => {
+                            self.accept_explorer_tree(project, page);
+                            None
+                        }
+                        Err(error) => Some(error),
+                    };
+                    if let Some(error) = errors.into_iter().next().or(failure) {
+                        self.report(&error);
+                    }
                 }
-            }
+            },
             Reply::Tree {
                 project,
                 offset,
@@ -356,14 +717,15 @@ impl NativeApplication {
             } => {
                 self.explorer_search_state.tree_loading.remove(&project);
                 match result {
-                    Ok(page) if offset == 0 => {
-                        self.explorer_search_state.trees.insert(project, page);
-                    }
+                    Ok(page) if offset == 0 => self.accept_explorer_tree(project, page),
                     Ok(page) => {
                         if let Some(current) = self.explorer_search_state.trees.get_mut(&project) {
                             current.rows.extend(page.rows);
                             current.total = page.total;
                         }
+                    }
+                    Err(_) if offset == 0 => {
+                        self.explorer_search_state.tree_failures.insert(project);
                     }
                     Err(error) => self.status = Some(error.to_string()),
                 }
@@ -373,13 +735,15 @@ impl NativeApplication {
                 path,
                 result,
             } => {
-                if let Some(explorer) = self.explorer_search_state.explorers.get_mut(&project) {
+                for explorer in self
+                    .explorer_search_state
+                    .explorers
+                    .of_project_mut(&project)
+                {
                     explorer.toggle_finished(&path, result.as_ref().ok());
                 }
                 match result {
-                    Ok(page) => {
-                        self.explorer_search_state.trees.insert(project, page);
-                    }
+                    Ok(page) => self.accept_explorer_tree(project, page),
                     Err(error) => self.status = Some(error.to_string()),
                 }
             }
@@ -388,25 +752,131 @@ impl NativeApplication {
                 mount,
                 path,
                 rename,
+                quiet,
                 result,
             } => match result {
                 Ok(page) => {
-                    let explorer = self
-                        .explorer_search_state
-                        .explorers
-                        .entry(project.clone())
-                        .or_default();
-                    explorer.address_requests(&mount);
+                    let explorer = self.explorer_search_state.explorers.entry(&project, &mount);
                     explorer.select_path(&page.rows, &path);
                     if rename && let Some(row) = page.rows.iter().find(|row| row.path == path) {
                         explorer.start_rename(row);
                     }
-                    self.explorer_search_state.trees.insert(project, page);
+                    self.accept_explorer_tree(project, page);
                     context.request_repaint();
                 }
+                Err(_) if quiet => {}
                 Err(error) => self.status = Some(error.to_string()),
             },
+            Reply::ProjectReopened { closed, failure } => {
+                self.forget_explorer_search_project(&closed);
+                if let Some(error) = failure {
+                    self.report(&error);
+                }
+                context.request_repaint();
+            }
+            Reply::SearchFinished {
+                target,
+                generation,
+                result,
+            } => {
+                let state = &mut self.explorer_search_state;
+                let failure = match &target {
+                    SearchTarget::Sidebar(mount) => state
+                        .symbol_sidebars
+                        .get_mut(mount)
+                        .and_then(|sidebar| sidebar.search.as_mut()),
+                    SearchTarget::Editor(tab) => state.search_editors.get_mut(tab),
+                }
+                .and_then(|panel| panel.finish(&state.search_streams, generation, result));
+                if let Some(error) = failure {
+                    self.report(&error);
+                }
+                context.request_repaint();
+            }
+            Reply::SearchMatchOpened { result } => self.apply_file_link_reply(context, result),
+            Reply::RecentSearchesSaved => self.explorer_search_state.search_history.settle(),
+            Reply::SearchReplaced {
+                mount,
+                project,
+                query,
+                result,
+            } => self.apply_search_replaced(context, mount, project, query, result),
         }
+    }
+
+    /// Reports a finished Replace All to its panel (`search-panel-container.tsx` 124-162): the
+    /// summary toast, the skipped-file warning, and the re-run of the replaced query. A panel that
+    /// is already gone takes no feedback, like the original's unmounted mutation callbacks.
+    fn apply_search_replaced(
+        &mut self,
+        context: &egui::Context,
+        mount: ShellSlotId,
+        project: ProjectId,
+        query: taide_model::search::SearchQuery,
+        result: AppResult<taide_model::search::SearchReplaceResult>,
+    ) {
+        let state = &mut self.explorer_search_state;
+        let Some(panel) = state
+            .symbol_sidebars
+            .get_mut(&mount)
+            .and_then(|sidebar| sidebar.search.as_mut())
+            .filter(|panel| panel.is_replacing())
+        else {
+            return;
+        };
+        let replaced = match result {
+            Ok(replaced) => replaced,
+            Err(error) => {
+                panel.replace_finished(&state.search_streams, None);
+                self.report(&error);
+                return;
+            }
+        };
+        let run = panel.replace_finished(&state.search_streams, Some(query));
+        let now = Instant::now();
+        let files = replaced.changed_files.to_string();
+        let matches = replaced.replaced_matches.to_string();
+        let summary = presentation::message(
+            &self.locale,
+            "search.replaceDone",
+            &[("files", &files), ("matches", &matches)],
+        );
+        self.toasts.success(summary, now);
+        if let Some(report) = crate::search_panel::skip_report(&replaced, &self.locale) {
+            self.toasts.notify(
+                taide_native_ui::toast::Kind::Warning,
+                report.title,
+                taide_native_ui::toast::Options {
+                    description: Some(report.description),
+                    action: None,
+                },
+                now,
+            );
+        }
+        if let Some(run) = run {
+            self.submit(HostCommand::ExplorerSearch(Command::RunSearch {
+                run,
+                target: SearchTarget::Sidebar(mount),
+                project,
+                streams: self.explorer_search_state.search_streams.clone(),
+            }));
+        }
+        context.request_repaint();
+    }
+
+    fn accept_explorer_tree(&mut self, project: ProjectId, page: TreeRowPage) {
+        self.explorer_search_state.tree_failures.remove(&project);
+        self.explorer_search_state.trees.insert(project, page);
+    }
+
+    /// Drops every explorer mount state, tree page and failure of a closed project.
+    pub(crate) fn forget_explorer_search_project(&mut self, project: &ProjectId) {
+        let state = &mut self.explorer_search_state;
+        state.explorers.forget_project(project);
+        state.trees.remove(project);
+        state.tree_loading.remove(project);
+        state.tree_failures.remove(project);
+        state.git_decorations.forget(project);
     }
 
     pub(crate) fn apply_explorer_search_intent(
@@ -442,6 +912,14 @@ impl NativeApplication {
                     mount: slot,
                     path,
                     rename,
+                    quiet: false,
+                }));
+            }
+            Intent::ReopenProject { project, root } => {
+                self.close_project(project.clone());
+                self.submit(HostCommand::ExplorerSearch(Command::ReopenProject {
+                    project,
+                    root,
                 }));
             }
             Intent::RevealInAuxiliaryExplorer {
@@ -456,10 +934,86 @@ impl NativeApplication {
                         mount: explorer,
                         path,
                         rename,
+                        quiet: false,
                     }));
                 }
             }
+            Intent::OpenSearch {
+                project,
+                slot,
+                replace,
+            } => {
+                let request = self.search_request(context, snapshot, &project, replace);
+                self.show_explorer_files(snapshot, &project, &slot);
+                self.explorer_search_state
+                    .symbol_sidebars
+                    .entry(&project, &slot)
+                    .request_search(request);
+                context.request_repaint();
+            }
+            Intent::OpenAuxiliarySearch {
+                project,
+                slot,
+                replace,
+            } => {
+                let request = self.search_request(context, snapshot, &project, replace);
+                if let Some(explorer) = self.show_auxiliary_explorer_files(&project, slot) {
+                    self.explorer_search_state
+                        .symbol_sidebars
+                        .entry(&project, &explorer)
+                        .request_search(request);
+                }
+                context.request_repaint();
+            }
         }
+    }
+
+    /// The request ⌘⇧F/⌘⇧H hand the search panel (`editor-area.tsx` 154-168): Find seeds the
+    /// term with the focused editor's single-line primary selection, Replace only opens replace.
+    fn search_request(
+        &self,
+        context: &egui::Context,
+        snapshot: &taide_native_ui::snapshot::ShellSnapshot,
+        project: &ProjectId,
+        replace: bool,
+    ) -> crate::search_panel::Request {
+        crate::search_panel::Request {
+            seed_text: (!replace)
+                .then(|| self.focused_selection_seed(context, snapshot, project))
+                .flatten(),
+            open_replace: replace,
+            ..Default::default()
+        }
+    }
+
+    fn focused_selection_seed(
+        &self,
+        context: &egui::Context,
+        snapshot: &taide_native_ui::snapshot::ShellSnapshot,
+        project: &ProjectId,
+    ) -> Option<String> {
+        let layout = snapshot.layouts.get(project)?;
+        let (root, pane) = crate::symbol_sidebar::window_tree(project, layout, &self.shell.scope)?;
+        let tab = taide_native_ui::snapshot::active_tab(root, pane)?;
+        let view = self.store.views().find(&ViewKey {
+            window: WINDOW_LABEL.into(),
+            pane: pane.clone(),
+            tab: tab.id.clone(),
+        })?;
+        let body = crate::editor_context_menu::body(context, view)?;
+        if !context.memory(|memory| memory.has_focus(body)) {
+            return None;
+        }
+        let state = self.store.views().get(view)?;
+        let selection = state.selection.selections.get(state.selection.primary)?;
+        let document = self.store.documents().snapshot(state.document).ok()?;
+        let text = document
+            .rope
+            .get_byte_slice(
+                selection.anchor.min(selection.head)..selection.anchor.max(selection.head),
+            )?
+            .to_string();
+        (!text.is_empty() && !text.contains('\n')).then_some(text)
     }
 
     pub(crate) fn apply_explorer_search_lsp_reply(&mut self, reply: crate::lsp::Reply) {
@@ -490,9 +1044,7 @@ impl NativeApplication {
                             .read()
                             .contains_key(&event.project)
                         {
-                            self.explorer_search_state
-                                .trees
-                                .insert(event.project.clone(), pasted.page);
+                            self.accept_explorer_tree(event.project.clone(), pasted.page);
                             Some(pasted.path)
                         } else {
                             None
@@ -516,15 +1068,13 @@ impl NativeApplication {
                         .read()
                         .contains_key(&event.project)
                     {
-                        self.explorer_search_state
-                            .trees
-                            .insert(event.project.clone(), created.page);
+                        self.accept_explorer_tree(event.project.clone(), created.page);
                         if let Some(layout) = created.layout {
                             self.controller
                                 .apply_layouts(HashMap::from([(event.project.clone(), layout)]));
                         }
                         if let Some(explorer) =
-                            self.explorer_search_state.explorers.get_mut(&event.project)
+                            self.request_explorer(&event.project, event.request.mount.as_ref())
                         {
                             explorer.create_finished(&event.request, Ok(()));
                         }
@@ -534,11 +1084,9 @@ impl NativeApplication {
             },
             crate::lsp::Reply::ExplorerRenamed(event) => match event.result {
                 Ok(page) => {
-                    self.explorer_search_state
-                        .trees
-                        .insert(event.project.clone(), page);
+                    self.accept_explorer_tree(event.project.clone(), page);
                     if let Some(explorer) =
-                        self.explorer_search_state.explorers.get_mut(&event.project)
+                        self.request_explorer(&event.project, event.request.mount.as_ref())
                     {
                         explorer.rename_finished(&event.request, Ok(()));
                     }
@@ -564,6 +1112,7 @@ impl NativeApplication {
                                 project: request.project,
                                 dirs: parent
                                     .map(|parent| std::collections::BTreeSet::from([parent])),
+                                origin: RefreshOrigin::Delete,
                             }));
                         }
                     }
@@ -579,9 +1128,19 @@ impl NativeApplication {
         from: &std::path::Path,
         to: &std::path::Path,
     ) {
-        for explorer in self.explorer_search_state.explorers.values_mut() {
+        for explorer in self.explorer_search_state.explorers.all_mut() {
             explorer.moved(from, to);
         }
+    }
+
+    pub(crate) fn request_explorer(
+        &mut self,
+        project: &ProjectId,
+        mount: Option<&ShellSlotId>,
+    ) -> Option<&mut crate::explorer::Explorer> {
+        self.explorer_search_state
+            .explorers
+            .get_mut(project, mount?)
     }
 
     pub(crate) fn reconnect_explorer_search(&mut self) {
@@ -599,6 +1158,79 @@ impl NativeApplication {
                 snapshot.shell.tree.as_ref(),
                 &auxiliary_explorers.keys().cloned().collect(),
             );
+        self.explorer_search_state
+            .explorers
+            .reconcile(snapshot.shell.tree.as_ref(), &auxiliary_explorers);
+        let mounted = self.visible_explorer_files(snapshot);
+        self.explorer_search_state.git_decorations.mount(mounted);
+        let shown_tabs = snapshot
+            .layouts
+            .values()
+            .flat_map(taide_layout::service::all_roots)
+            .flat_map(taide_layout::service::collect_leaves)
+            .filter_map(|leaf| match leaf {
+                taide_model::layout::PaneNode::Leaf { active, .. } => active.clone(),
+                taide_model::layout::PaneNode::Split { .. } => None,
+            })
+            .collect::<HashSet<_>>();
+        let hidden = self
+            .explorer_search_state
+            .search_editors
+            .unmount_hidden(&shown_tabs);
+        for session in self
+            .explorer_search_state
+            .symbol_sidebars
+            .take_cancelled()
+            .into_iter()
+            .chain(hidden)
+        {
+            self.explorer_search_state.search_streams.forget(&session);
+            self.submit(HostCommand::ExplorerSearch(Command::CancelSearch(session)));
+        }
+    }
+
+    fn visible_explorer_files(
+        &self,
+        snapshot: &taide_native_ui::snapshot::ShellSnapshot,
+    ) -> HashMap<ProjectId, String> {
+        let is_files = |project: &ProjectId, mount: &ShellSlotId| {
+            self.explorer_search_state
+                .symbol_sidebars
+                .view(project, mount)
+                == crate::symbol_sidebar::View::Files
+        };
+        let main = snapshot
+            .shell
+            .tree
+            .iter()
+            .filter(|_| !snapshot.shell.window_chrome.zen)
+            .flat_map(slot_projects)
+            .filter(|(mount, project)| {
+                snapshot
+                    .layouts
+                    .get(*project)
+                    .is_some_and(|layout| !layout.shell_view.sidebar_collapsed)
+                    && is_files(project, mount)
+            })
+            .map(|(_, project)| project.clone());
+        let auxiliary = self
+            .shell_state
+            .auxiliary_windows
+            .windows()
+            .iter()
+            .filter(|window| window.is_explorer_open && is_files(&window.project, &window.explorer))
+            .map(|window| window.project.clone());
+        main.chain(auxiliary)
+            .filter_map(|project| {
+                let root = snapshot
+                    .projects
+                    .iter()
+                    .find(|entry| entry.id == project)?
+                    .root
+                    .clone();
+                Some((project, root))
+            })
+            .collect()
     }
 
     pub(crate) fn tick_explorer_search_breadcrumbs(
@@ -630,6 +1262,7 @@ impl NativeApplication {
             if self.submit(HostCommand::ExplorerSearch(Command::RefreshTree {
                 project: project.clone(),
                 dirs: dirs.clone(),
+                origin: RefreshOrigin::Watcher,
             })) {
                 self.queue_project_observations(&project);
             } else {
@@ -666,7 +1299,7 @@ impl NativeApplication {
         rename_entries: Vec<(ProjectId, crate::explorer::RenameRequest)>,
     ) {
         for (project, request) in create_entries {
-            if let Some(explorer) = self.explorer_search_state.explorers.get_mut(&project) {
+            if let Some(explorer) = self.request_explorer(&project, request.mount.as_ref()) {
                 explorer.create_finished(
                     &request,
                     Err("native dirty tab update is unavailable".into()),
@@ -674,7 +1307,7 @@ impl NativeApplication {
             }
         }
         for (project, request) in rename_entries {
-            if let Some(explorer) = self.explorer_search_state.explorers.get_mut(&project) {
+            if let Some(explorer) = self.request_explorer(&project, request.mount.as_ref()) {
                 explorer.rename_finished(
                     &request,
                     Err("native dirty tab update is unavailable".into()),
@@ -808,7 +1441,7 @@ impl NativeApplication {
         error: &AppError,
     ) {
         let message = crate::toast::describe_error(&self.locale, error);
-        if let Some(explorer) = self.explorer_search_state.explorers.get_mut(project) {
+        if let Some(explorer) = self.request_explorer(project, request.mount.as_ref()) {
             explorer.create_finished(request, Err(message.clone()));
         }
         crate::toast::entry_failed(
@@ -830,7 +1463,7 @@ impl NativeApplication {
         error: &AppError,
     ) {
         let message = crate::toast::describe_error(&self.locale, error);
-        if let Some(explorer) = self.explorer_search_state.explorers.get_mut(project) {
+        if let Some(explorer) = self.request_explorer(project, request.mount.as_ref()) {
             explorer.rename_finished(request, Err(message.clone()));
         }
         crate::toast::entry_failed(
@@ -916,6 +1549,18 @@ impl NativeApplication {
     }
 }
 
+fn slot_projects(tree: &taide_model::project::ShellSlotTree) -> Vec<(&ShellSlotId, &ProjectId)> {
+    match tree {
+        taide_model::project::ShellSlotTree::Leaf {
+            slot_id,
+            project_id,
+        } => vec![(slot_id, project_id)],
+        taide_model::project::ShellSlotTree::Split { children, .. } => {
+            children.iter().flat_map(slot_projects).collect()
+        }
+    }
+}
+
 enum OutlineReveal {
     Untitled {
         key: ViewKey,
@@ -946,6 +1591,13 @@ pub(crate) struct ExplorerRegion {
     window_pane: Option<PaneId>,
     actions: Vec<crate::explorer::Action>,
     errors: Vec<String>,
+    auto_reveal: Option<String>,
+    window_label: String,
+    search_run: Option<crate::search_panel::Run>,
+    search_open: Option<crate::search_panel::Open>,
+    search_cancel: Option<crate::search_stream::Session>,
+    search_replace: Option<crate::search_panel::Replace>,
+    search_editor: Option<taide_model::search::SearchQuery>,
 }
 
 impl ExplorerSearchSurfaces for AppSurfaces<'_> {
@@ -961,18 +1613,21 @@ impl ExplorerSearchSurfaces for AppSurfaces<'_> {
         mount: taide_native_ui::shell::ExplorerMount<'_>,
     ) -> ExplorerRegion {
         let slot = match mount {
-            taide_native_ui::shell::ExplorerMount::Slot(slot) => Some(slot.clone()),
+            taide_native_ui::shell::ExplorerMount::Slot(slot) => {
+                Some((slot.clone(), WINDOW_LABEL.to_owned()))
+            }
             taide_native_ui::shell::ExplorerMount::Auxiliary(slot) => self
                 .auxiliary_windows
                 .find(project, slot)
-                .map(|window| window.explorer.clone()),
+                .map(|window| (window.explorer.clone(), window.label.clone())),
         };
-        let Some(slot) = slot else {
+        let Some((slot, window_label)) = slot else {
             return ExplorerRegion::default();
         };
         let mut region = ExplorerRegion {
             sidebar: Some(self.symbol_sidebars.take(project, &slot)),
-            explorer: self.explorers.remove(project),
+            explorer: self.explorers.take(project, &slot),
+            window_label,
             ..Default::default()
         };
         match self.explorer_clipboards.mount(&slot) {
@@ -1003,6 +1658,13 @@ impl ExplorerSearchSurfaces for AppSurfaces<'_> {
             window_pane,
             actions,
             errors,
+            auto_reveal,
+            window_label,
+            search_run,
+            search_open,
+            search_cancel,
+            search_replace,
+            search_editor,
         } = region
         else {
             return;
@@ -1027,13 +1689,80 @@ impl ExplorerSearchSurfaces for AppSurfaces<'_> {
             }
             Err(error) => errors.push(error.to_string()),
         }
+        let this_window_pane = || match self.scope {
+            WindowScope::Main => None,
+            WindowScope::Auxiliary { .. } => self
+                .layouts
+                .get(project)
+                .and_then(|layout| crate::symbol_sidebar::window_tree(project, layout, self.scope))
+                .map(|(_, focused)| focused.clone()),
+        };
+        if sidebar.view != crate::symbol_sidebar::View::Search
+            && let Some(panel) = sidebar.search.take()
+        {
+            *search_cancel = panel.running_session();
+        }
+        if sidebar.view == crate::symbol_sidebar::View::Search {
+            let panel = sidebar.search.get_or_insert_with(|| {
+                crate::search_panel::Panel::new(crate::search_stream::Session {
+                    owner: window_label.clone(),
+                    id: format!("search-panel-{slot}"),
+                })
+            });
+            let (settings, history) = {
+                let settings = self.services.state.settings.read();
+                (
+                    crate::search_panel::Settings {
+                        is_live: settings.search_on_type,
+                        debounce_ms: settings.search_on_type_debounce_ms,
+                    },
+                    self.explorer_inputs
+                        .search_history
+                        .list(&settings.recent_searches)
+                        .to_vec(),
+                )
+            };
+            match panel.show(
+                ui,
+                egui::Id::new(("search-panel", project, slot)),
+                crate::search_panel::Inputs {
+                    request: sidebar.search_request.as_ref(),
+                    nonce: sidebar.open_nonce,
+                    settings,
+                    history: &history,
+                    streams: self.explorer_inputs.search_streams,
+                    appearance: self.explorer_appearance,
+                    locale: self.locale,
+                },
+                &mut *icons,
+            ) {
+                Ok(output) => {
+                    for (response, text) in &output.tooltips {
+                        self.tooltips.show(
+                            response,
+                            text,
+                            egui::RectAlign::BOTTOM,
+                            self.tooltip_appearance,
+                        );
+                    }
+                    if output.clear_scope {
+                        sidebar.search_request = sidebar
+                            .search_request
+                            .as_ref()
+                            .map(crate::search_panel::Request::without_scope);
+                    }
+                    *search_run = output.run;
+                    *search_open = output.open;
+                    *search_replace = output.replace;
+                    *search_editor = output.open_editor;
+                    *window_pane = this_window_pane();
+                }
+                Err(error) => errors.push(error.to_string()),
+            }
+            return;
+        }
         if sidebar.view == crate::symbol_sidebar::View::Git {
             self.show_git_view(ui, project, slot, &mut *icons, errors, intents);
-        }
-        if matches!(
-            sidebar.view,
-            crate::symbol_sidebar::View::Search | crate::symbol_sidebar::View::Git
-        ) {
             return;
         }
         if sidebar.view == crate::symbol_sidebar::View::Outline {
@@ -1112,35 +1841,96 @@ impl ExplorerSearchSurfaces for AppSurfaces<'_> {
             }
             return;
         }
-        let Some(page) = self.trees.get(project) else {
+        let entry = self.projects.iter().find(|entry| &entry.id == project);
+        let is_unavailable = entry.is_some_and(|entry| entry.root_missing)
+            || self.explorer_inputs.tree_failures.contains(project);
+        let page = self.trees.get(project).filter(|_| !is_unavailable);
+        if page.is_none() && !is_unavailable {
             if !self.tree_loading.contains(project) {
                 *is_tree_requested = true;
             }
             ui.spinner();
             return;
-        };
+        }
         let explorer = explorer.get_or_insert_with(Default::default);
+        if let Some(entry) = entry {
+            explorer.root = Some(entry.root.clone());
+            explorer.title = Some(entry.name.clone());
+        }
+        let row_icons = crate::explorer::RowIcons {
+            glyphs: icons,
+            appearance: self.explorer_appearance,
+            decorations: self.explorer_inputs.git_decorations.get(project),
+        };
+        let Some(page) = page else {
+            let output = explorer.show_missing(
+                ui,
+                project,
+                entry.map(|entry| entry.root.as_str()),
+                self.locale,
+                row_icons,
+            );
+            if let Some(error) = &output.icon_error {
+                errors.push(error.to_string());
+            }
+            crate::explorer_toolbar::show_tooltips(
+                &output,
+                self.locale,
+                self.tooltips,
+                self.tooltip_appearance,
+            );
+            if let Some(entry) = entry
+                && output.reopen.is_some_and(|reopen| reopen.clicked())
+            {
+                intents.push(ShellIntent::ExplorerSearch(Intent::ReopenProject {
+                    project: project.clone(),
+                    root: entry.root.clone(),
+                }));
+            }
+            *actions = output.actions;
+            return;
+        };
         explorer.replace_clipboard(self.explorer_clipboards.clipboard(owner).cloned());
         if let Some(path) = self.explorer_clipboards.reveal(owner) {
-            explorer.address_requests(slot);
             explorer.paste_finished(false, Some(path.clone()));
             *is_reveal_taken = true;
         }
-        if let Some(project) = self.projects.iter().find(|entry| &entry.id == project) {
-            explorer.root = Some(project.root.clone());
-            explorer.title = Some(project.name.clone());
+        let active_path = self
+            .layouts
+            .get(project)
+            .and_then(|layout| crate::symbol_sidebar::window_tree(project, layout, self.scope))
+            .and_then(|(root, focused)| taide_native_ui::snapshot::active_tab(root, focused))
+            .and_then(|tab| match &tab.kind {
+                TabKind::File { path } => Some(path.as_str()),
+                _ => None,
+            })
+            .filter(|path| {
+                entry.is_some_and(|entry| {
+                    path.strip_prefix(entry.root.as_str())
+                        .is_some_and(|rest| rest.starts_with('/'))
+                })
+            });
+        match crate::explorer_auto_reveal::decide(crate::explorer_auto_reveal::Input {
+            is_enabled: self.explorer_inputs.is_auto_reveal_enabled,
+            active_path,
+            rows: &page.rows,
+            is_sidebar_visible: true,
+            is_files_view: true,
+            last_revealed: explorer.auto_revealed.as_deref(),
+        }) {
+            crate::explorer_auto_reveal::Decision::Skip => {}
+            crate::explorer_auto_reveal::Decision::SelectOnly => {
+                if let Some(path) = active_path {
+                    explorer.auto_revealed = Some(path.to_owned());
+                    explorer.select_path(&page.rows, path);
+                }
+            }
+            crate::explorer_auto_reveal::Decision::RevealThenSelect => {
+                explorer.auto_revealed = active_path.map(str::to_owned);
+                *auto_reveal = explorer.auto_revealed.clone();
+            }
         }
-        let output = explorer.show_with_icons(
-            ui,
-            project,
-            slot,
-            page,
-            self.locale,
-            crate::explorer::RowIcons {
-                glyphs: icons,
-                appearance: self.explorer_appearance,
-            },
-        );
+        let output = explorer.show_with_icons(ui, project, slot, page, self.locale, row_icons);
         if let Some(error) = &output.icon_error {
             errors.push(error.to_string());
         }
@@ -1150,14 +1940,7 @@ impl ExplorerSearchSurfaces for AppSurfaces<'_> {
             self.tooltips,
             self.tooltip_appearance,
         );
-        *window_pane = match self.scope {
-            WindowScope::Main => None,
-            WindowScope::Auxiliary { .. } => self
-                .layouts
-                .get(project)
-                .and_then(|layout| crate::symbol_sidebar::window_tree(project, layout, self.scope))
-                .map(|(_, focused)| focused.clone()),
-        };
+        *window_pane = this_window_pane();
         *actions = output.actions;
         actions.retain(|action| {
             let crate::explorer::Action::FileHistory(path) = action else {
@@ -1193,15 +1976,71 @@ impl ExplorerSearchSurfaces for AppSurfaces<'_> {
             window_pane,
             actions,
             errors,
+            auto_reveal,
+            window_label: _,
+            search_run,
+            search_open,
+            search_cancel,
+            search_replace,
+            search_editor,
         } = region;
         let Some(slot) = mount else {
             return;
         };
+        if let Some(replace) = search_replace {
+            self.commands
+                .push(HostCommand::ExplorerSearch(Command::ReplaceSearch {
+                    mount: slot.clone(),
+                    project: project.clone(),
+                    replace,
+                }));
+        }
+        if let Some(query) = search_editor {
+            let title = if query.text.is_empty() {
+                presentation::message(self.locale, "searchEditor.title", &[])
+            } else {
+                query.text.clone()
+            };
+            self.commands
+                .push(HostCommand::ExplorerSearch(Command::OpenSearchEditor {
+                    project: project.clone(),
+                    pane: window_pane.clone(),
+                    query,
+                    title,
+                }));
+        }
+        if let Some(session) = search_cancel {
+            self.explorer_inputs.search_streams.forget(&session);
+            self.commands
+                .push(HostCommand::ExplorerSearch(Command::CancelSearch(session)));
+        }
+        if let Some(run) = search_run {
+            self.submit_search_run(run, SearchTarget::Sidebar(slot.clone()), project);
+        }
+        if let Some(open) = search_open {
+            self.commands
+                .push(HostCommand::ExplorerSearch(Command::OpenSearchMatch {
+                    project: project.clone(),
+                    pane: window_pane.clone(),
+                    open,
+                    viewport: context.viewport_id(),
+                }));
+        }
         if let Some(sidebar) = sidebar {
-            self.symbol_sidebars.put(slot, sidebar);
+            self.symbol_sidebars.put(slot.clone(), sidebar);
         }
         if let Some(explorer) = explorer {
-            self.explorers.insert(project.clone(), explorer);
+            self.explorers.put(project, slot.clone(), explorer);
+        }
+        if let Some(path) = auto_reveal {
+            self.commands
+                .push(HostCommand::ExplorerSearch(Command::RevealExplorerPath {
+                    project: project.clone(),
+                    mount: slot.clone(),
+                    path,
+                    rename: false,
+                    quiet: true,
+                }));
         }
         if let Some(error) = errors.into_iter().last() {
             *self.status = Some(error);
@@ -1332,11 +2171,43 @@ impl ExplorerSearchSurfaces for AppSurfaces<'_> {
                         crate::domains::shell::Command::OpenInBrowser(path),
                     ));
                 }
+                crate::explorer::Action::OpenInTerminal(row) => {
+                    let cwd = if row.kind == taide_model::tree::TreeEntryKind::Directory {
+                        Some(row.path)
+                    } else {
+                        std::path::Path::new(&row.path)
+                            .parent()
+                            .and_then(|parent| parent.to_str())
+                            .map(str::to_owned)
+                    };
+                    let root = self
+                        .projects
+                        .iter()
+                        .find(|entry| &entry.id == project)
+                        .map(|entry| entry.root.clone());
+                    if let Some(cwd) = cwd.or(root) {
+                        self.commands
+                            .push(HostCommand::ExplorerSearch(Command::OpenTerminalAt {
+                                project: project.clone(),
+                                pane: window_pane.clone(),
+                                cwd,
+                                title: presentation::message(self.locale, "terminal.title", &[]),
+                            }));
+                    }
+                }
+                crate::explorer::Action::FindInFolder(scope_dir) => self
+                    .symbol_sidebars
+                    .entry(project, &slot)
+                    .request_search(crate::search_panel::Request {
+                        scope_dir: Some(scope_dir),
+                        ..Default::default()
+                    }),
                 crate::explorer::Action::Refresh => {
                     self.commands
                         .push(HostCommand::ExplorerSearch(Command::RefreshTree {
                             project: project.clone(),
                             dirs: None,
+                            origin: RefreshOrigin::Toolbar,
                         }))
                 }
                 crate::explorer::Action::Collapse => {
@@ -1346,17 +2217,22 @@ impl ExplorerSearchSurfaces for AppSurfaces<'_> {
                         )))
                 }
                 crate::explorer::Action::SelectForCompare(path) => {
-                    if let Some(explorer) = self.explorers.get_mut(project) {
+                    if let Some(explorer) = self.explorers.get_mut(project, &slot) {
                         explorer.compare_source = Some(path);
                     }
                 }
                 crate::explorer::Action::CompareWithSelected(path) => {
                     if let Some(command) = self
                         .explorers
-                        .get_mut(project)
+                        .get_mut(project, &slot)
                         .and_then(|explorer| explorer.compare_source.take())
                         .map(|source| {
-                            crate::domains::git::compare_tab(project.clone(), source, path)
+                            crate::domains::git::compare_tab(
+                                project.clone(),
+                                source,
+                                path,
+                                window_pane.clone(),
+                            )
                         })
                     {
                         self.commands.push(command);
@@ -1365,7 +2241,7 @@ impl ExplorerSearchSurfaces for AppSurfaces<'_> {
                 crate::explorer::Action::FileHistory(_) => {}
             }
         }
-        if is_files_shown && let Some(explorer) = self.explorers.get(project) {
+        if is_files_shown && let Some(explorer) = self.explorers.get(&slot) {
             self.explorer_clipboards
                 .replace(owner, explorer.clipboard().cloned());
         }
@@ -1379,19 +2255,157 @@ impl ExplorerSearchSurfaces for AppSurfaces<'_> {
         let Some(slot) = region.mount else {
             return;
         };
+        for session in region.search_cancel.into_iter().chain(
+            region
+                .sidebar
+                .as_ref()
+                .and_then(|sidebar| sidebar.running_search()),
+        ) {
+            self.explorer_inputs.search_streams.forget(&session);
+            self.commands
+                .push(HostCommand::ExplorerSearch(Command::CancelSearch(session)));
+        }
         self.explorer_output
             .discarded_explorers
             .push(project.clone());
         self.explorer_clipboards.unmount(&slot);
         if let Some(explorer) = region.explorer {
-            self.explorers.insert(project.clone(), explorer.remounted());
+            self.explorers.put(project, slot, explorer.remounted());
         }
     }
 }
 
 impl AppSurfaces<'_> {
+    /// Records an explicit run's term in the recent searches, then starts the run.
+    fn submit_search_run(
+        &mut self,
+        run: crate::search_panel::Run,
+        target: SearchTarget,
+        project: &ProjectId,
+    ) {
+        if let Some(term) = &run.record {
+            let settled = self.services.state.settings.read().recent_searches.clone();
+            if let Some(recent) = self.explorer_inputs.search_history.enqueue(&settled, term) {
+                self.commands
+                    .push(HostCommand::ExplorerSearch(Command::RecordRecentSearches(
+                        recent,
+                    )));
+            }
+        }
+        self.commands
+            .push(HostCommand::ExplorerSearch(Command::RunSearch {
+                run,
+                target,
+                project: project.clone(),
+                streams: self.explorer_inputs.search_streams.clone(),
+            }));
+    }
+
+    /// The search editor tab body (`search-editor-pane.tsx`): the remembered panel for this tab,
+    /// or one started from the tab's query that runs it once; matches open as a preview in the
+    /// focused pane of this window.
     pub(crate) fn show_search_editor_tab(&mut self, ui: &mut Ui, tab: &Tab) {
-        self.show_unavailable_tab(ui, tab);
+        let TabKind::SearchEditor { query } = &tab.kind else {
+            self.show_unavailable_tab(ui, tab);
+            return;
+        };
+        let Some(project) = self.layouts.iter().find_map(|(project, layout)| {
+            taide_layout::service::all_roots(layout)
+                .any(|root| taide_layout::service::find_tab(root, &tab.id).is_some())
+                .then(|| project.clone())
+        }) else {
+            self.show_unavailable_tab(ui, tab);
+            return;
+        };
+        let (owner, window_pane) = match self.scope {
+            WindowScope::Main => (WINDOW_LABEL.to_owned(), None),
+            WindowScope::Auxiliary { project, slot } => (
+                self.auxiliary_windows
+                    .find(project, *slot)
+                    .map_or_else(|| WINDOW_LABEL.to_owned(), |window| window.label.clone()),
+                self.layouts
+                    .get(project)
+                    .and_then(|layout| {
+                        crate::symbol_sidebar::window_tree(project, layout, self.scope)
+                    })
+                    .map(|(_, focused)| focused.clone()),
+            ),
+        };
+        let request = crate::search_panel::Request {
+            include_glob: query.include_glob.clone(),
+            scope_dir: query.scope_dir.clone(),
+            ..Default::default()
+        };
+        let history = {
+            let settings = self.services.state.settings.read();
+            self.explorer_inputs
+                .search_history
+                .list(&settings.recent_searches)
+                .to_vec()
+        };
+        let streams = self.explorer_inputs.search_streams.clone();
+        let mounted = self.explorer_inputs.search_editors.mount(
+            &tab.id,
+            &project,
+            || crate::search_stream::Session {
+                owner,
+                id: tab.id.to_string(),
+            },
+            query,
+        );
+        let auto_run = mounted
+            .is_created
+            .then(|| mounted.panel.auto_run(&streams, Some(&request)))
+            .flatten();
+        let mut icons = crate::navigation_icons::Deferred::default();
+        let result = mounted.panel.show(
+            ui,
+            egui::Id::new(("search-editor", &tab.id)),
+            crate::search_panel::Inputs {
+                request: Some(&request),
+                nonce: mounted.nonce,
+                settings: crate::search_panel::Settings {
+                    is_live: false,
+                    debounce_ms: 0,
+                },
+                history: &history,
+                streams: &streams,
+                appearance: self.explorer_appearance,
+                locale: self.locale,
+            },
+            &mut icons,
+        );
+        if let Err(error) = icons.fill(&mut *self.explorer_icons, &mut *self.navigation_icons) {
+            *self.status = Some(error.to_string());
+        }
+        let output = match result {
+            Ok(output) => output,
+            Err(error) => {
+                *self.status = Some(error.to_string());
+                return;
+            }
+        };
+        for (response, text) in &output.tooltips {
+            self.tooltips.show(
+                response,
+                text,
+                egui::RectAlign::BOTTOM,
+                self.tooltip_appearance,
+            );
+        }
+        let target = SearchTarget::Editor(tab.id.clone());
+        for run in auto_run.into_iter().chain(output.run) {
+            self.submit_search_run(run, target.clone(), &project);
+        }
+        if let Some(open) = output.open {
+            self.commands
+                .push(HostCommand::ExplorerSearch(Command::OpenSearchMatch {
+                    project,
+                    pane: window_pane,
+                    open,
+                    viewport: ui.ctx().viewport_id(),
+                }));
+        }
     }
 
     pub(crate) fn show_breadcrumbs(

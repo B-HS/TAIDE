@@ -67,6 +67,12 @@ const RECEIPT_POLL: Duration = Duration::from_millis(16);
 const CURSOR_WIDTH: f32 = 1.0;
 const PENDING_INPUT_UNITS: usize = 4096;
 const STATUS_HEIGHT: f32 = 64.0;
+const STATUS_TEXT_SIZE: f32 = 14.0;
+const STATUS_GAP: f32 = 8.0;
+const STATUS_BUTTON_HEIGHT: f32 = 32.0;
+const STATUS_BUTTON_PADDING_X: f32 = 12.0;
+const STATUS_BUTTON_RADIUS: u8 = 6;
+const STATUS_BUTTON_BORDER: f32 = 1.0;
 const CURSOR_BLINK_INTERVAL: Duration = Duration::from_millis(600);
 const SELECTION_HALF_CELL: f32 = 0.5;
 const DOUBLE_CLICK_COUNT: u8 = 2;
@@ -95,9 +101,30 @@ pub struct Appearance {
     cursor: Rgb,
     selection: Color32,
     command_colors: taide_native_terminal::CommandColors,
+    status: StatusColors,
+}
+
+#[derive(Clone, Copy)]
+struct StatusColors {
+    failed: Color32,
+    exited: Color32,
+    button_background: Color32,
+    button_border: Color32,
+    button_hover: Color32,
+    button_hover_text: Color32,
+}
+
+#[derive(Clone, Copy)]
+enum StatusKind {
+    Failed,
+    Exited,
 }
 
 impl Appearance {
+    pub fn command_colors(&self) -> taide_native_terminal::CommandColors {
+        self.command_colors
+    }
+
     pub fn set_font_size(&mut self, size: u32) -> bool {
         let size = (size as f32).max(MIN_FONT_SIZE);
         if self.font.size == size {
@@ -133,6 +160,14 @@ impl Appearance {
             command_colors: taide_native_terminal::CommandColors {
                 success: command_color(theme, "statusIndicator.success"),
                 failure: command_color(theme, "statusIndicator.error"),
+            },
+            status: StatusColors {
+                failed: crate::presentation::color(theme, "statusIndicator.error")?,
+                exited: crate::presentation::color(theme, "appSidebar.iconDefault")?,
+                button_background: crate::presentation::color(theme, "app.background")?,
+                button_border: crate::presentation::color(theme, "app.border")?,
+                button_hover: crate::presentation::color(theme, "list.hoverBackground")?,
+                button_hover_text: crate::presentation::color(theme, "list.foreground")?,
             },
         })
     }
@@ -253,6 +288,7 @@ struct View {
     captured_wheel: CapturedWheel,
     is_wheel_routed: bool,
     preedit: String,
+    meta_text_pending: bool,
     focused: bool,
     focus_id: Option<egui::Id>,
     focus_frame: Option<u64>,
@@ -3335,7 +3371,15 @@ impl Views {
             }
             if let Some(error) = self.failed.get(tab) {
                 let message = crate::toast::describe_error(locale, error);
-                if !status(ui, rect, id, appearance, &message, &restart_label) {
+                if !status(
+                    ui,
+                    rect,
+                    id,
+                    appearance,
+                    &message,
+                    &restart_label,
+                    StatusKind::Failed,
+                ) {
                     return Ok(response);
                 }
                 self.failed.remove(tab);
@@ -3385,6 +3429,7 @@ impl Views {
                     }
                 }
                 ui.input_mut(|input| input.events = remaining);
+                view.meta_text_pending = false;
                 if starting_lost_after_events {
                     view.preedit.clear();
                 }
@@ -3419,6 +3464,7 @@ impl Views {
                     }
                 }
                 ui.input_mut(|input| input.events = remaining);
+                view.meta_text_pending = false;
                 if starting_lost_after_events {
                     view.preedit.clear();
                 }
@@ -3431,7 +3477,12 @@ impl Views {
         }
         session.configure_command_colors(appearance.command_colors)?;
         if let Some(message) = ended_message(locale, self.failed.get(tab), phase) {
-            if status(ui, rect, id, appearance, &message, &restart_label)
+            let kind = if self.failed.contains_key(tab) {
+                StatusKind::Failed
+            } else {
+                StatusKind::Exited
+            };
+            if status(ui, rect, id, appearance, &message, &restart_label, kind)
                 && self.attaching.insert(tab.clone())
             {
                 self.failed.remove(tab);
@@ -3653,6 +3704,7 @@ impl Views {
                 self.view_mut(ui, pane, tab).input_order = None;
             }
             ui.input_mut(|input| input.events = remaining);
+            self.view_mut(ui, pane, tab).meta_text_pending = false;
         }
         terminal_context_menu(
             ui,
@@ -4167,7 +4219,84 @@ enum InputEvent<'event> {
     Unhandled,
 }
 
+fn meta_character(key: egui::Key, shift: bool) -> Option<char> {
+    use egui::Key as K;
+    let (base, shifted) = match key {
+        K::Num0 => ('0', ')'),
+        K::Num1 => ('1', '!'),
+        K::Num2 => ('2', '@'),
+        K::Num3 => ('3', '#'),
+        K::Num4 => ('4', '$'),
+        K::Num5 => ('5', '%'),
+        K::Num6 => ('6', '^'),
+        K::Num7 => ('7', '&'),
+        K::Num8 => ('8', '*'),
+        K::Num9 => ('9', '('),
+        K::Semicolon => (';', ':'),
+        K::Equals => ('=', '+'),
+        K::Comma => (',', '<'),
+        K::Minus => ('-', '_'),
+        K::Period => ('.', '>'),
+        K::Slash => ('/', '?'),
+        K::Backtick => ('`', '~'),
+        K::OpenBracket => ('[', '{'),
+        K::Backslash => ('\\', '|'),
+        K::CloseBracket => (']', '}'),
+        K::Quote => ('\'', '"'),
+        K::Space => (' ', ' '),
+        _ => {
+            let name = key.symbol_or_name();
+            let mut characters = name.chars();
+            match (characters.next(), characters.next()) {
+                (Some(letter), None) if letter.is_ascii_alphabetic() => {
+                    (letter.to_ascii_lowercase(), letter.to_ascii_uppercase())
+                }
+                _ => return None,
+            }
+        }
+    };
+    Some(if shift { shifted } else { base })
+}
+
 fn input_event<'event>(view: &mut View, event: &'event Event) -> InputEvent<'event> {
+    if view.meta_text_pending {
+        match event {
+            Event::Text(_) | Event::Ime(ImeEvent::Commit(_)) => {
+                view.meta_text_pending = false;
+                return InputEvent::Handled;
+            }
+            Event::Ime(ImeEvent::Preedit { .. }) => {
+                view.meta_text_pending = false;
+                view.preedit.clear();
+                return InputEvent::Handled;
+            }
+            Event::Key { .. } => view.meta_text_pending = false,
+            _ => {}
+        }
+    }
+    if let Event::Key {
+        key,
+        physical_key,
+        pressed: true,
+        modifiers,
+        ..
+    } = event
+        && modifiers.alt
+        && !modifiers.ctrl
+        && !modifiers.mac_cmd
+        && view.preedit.is_empty()
+        && let Some(character) = meta_character(*key, modifiers.shift)
+            .or_else(|| physical_key.and_then(|key| meta_character(key, modifiers.shift)))
+    {
+        view.meta_text_pending = true;
+        return InputEvent::Send(NativeInput::Key {
+            key: Key::Character(character),
+            modifiers: Modifiers {
+                alt: true,
+                ..Default::default()
+            },
+        });
+    }
     let input = match event {
         Event::Ime(ImeEvent::Preedit { text, .. }) => {
             if text.len() > INPUT_BYTES {
@@ -4370,7 +4499,13 @@ fn status(
     appearance: &Appearance,
     message: &str,
     restart: &str,
+    kind: StatusKind,
 ) -> bool {
+    let colors = appearance.status;
+    let text = match kind {
+        StatusKind::Failed => colors.failed,
+        StatusKind::Exited => colors.exited,
+    };
     ui.painter()
         .rect_filled(rect, 0.0, color32(appearance.background));
     ui.scope_builder(
@@ -4378,10 +4513,45 @@ fn status(
             .max_rect(rect)
             .id_salt(id.with("status")),
         |ui| {
+            let visuals = ui.visuals_mut();
+            visuals.override_text_color = None;
+            for (visual, fill, foreground) in [
+                (
+                    &mut visuals.widgets.inactive,
+                    colors.button_background,
+                    text,
+                ),
+                (
+                    &mut visuals.widgets.hovered,
+                    colors.button_hover,
+                    colors.button_hover_text,
+                ),
+                (
+                    &mut visuals.widgets.active,
+                    colors.button_hover,
+                    colors.button_hover_text,
+                ),
+            ] {
+                visual.weak_bg_fill = fill;
+                visual.fg_stroke.color = foreground;
+                visual.bg_stroke = Stroke::new(STATUS_BUTTON_BORDER, colors.button_border);
+                visual.corner_radius = egui::CornerRadius::same(STATUS_BUTTON_RADIUS);
+                visual.expansion = 0.0;
+            }
+            ui.spacing_mut().item_spacing.y = STATUS_GAP;
+            ui.spacing_mut().button_padding.x = STATUS_BUTTON_PADDING_X;
             ui.vertical_centered(|ui| {
                 ui.add_space((rect.height() - STATUS_HEIGHT).max(0.0) / 2.0);
-                ui.colored_label(color32(appearance.foreground), message);
-                ui.button(restart).clicked()
+                ui.label(
+                    egui::RichText::new(message)
+                        .size(STATUS_TEXT_SIZE)
+                        .color(text),
+                );
+                ui.add(
+                    egui::Button::new(egui::RichText::new(restart).size(STATUS_TEXT_SIZE))
+                        .min_size(vec2(0.0, STATUS_BUTTON_HEIGHT)),
+                )
+                .clicked()
             })
             .inner
         },
@@ -8202,6 +8372,14 @@ mod tests {
                 b: 255,
             },
             selection: Color32::BLUE,
+            status: StatusColors {
+                failed: Color32::RED,
+                exited: Color32::GRAY,
+                button_background: Color32::BLACK,
+                button_border: Color32::DARK_GRAY,
+                button_hover: Color32::DARK_BLUE,
+                button_hover_text: Color32::WHITE,
+            },
         }
     }
 
@@ -8672,5 +8850,136 @@ mod tests {
         }
         assert_eq!(ended_message(&locale, None, Phase::Running), None);
         assert_eq!(ended_message(&locale, None, Phase::Draining(Some(0))), None);
+    }
+
+    #[test]
+    fn 셀_그리기는_원본처럼_프로그래밍_합자를_만들지_않는다() {
+        const PROGRAMMING_TEXT: &str = "->=!=www";
+        const WIDE_TEXT: &str = "한";
+        let appearance = appearance();
+        let mut core = TerminalCore::new(
+            Size {
+                columns: COLUMNS,
+                rows: ROWS,
+            },
+            HISTORY,
+            Default::default(),
+        )
+        .unwrap();
+        core.advance(format!("{PROGRAMMING_TEXT}{WIDE_TEXT}").as_bytes())
+            .unwrap();
+        let mut view = View::default();
+        let context = egui::Context::default();
+        let mut output = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    pos2(0.0, 0.0),
+                    vec2(SCREEN[0], SCREEN[1]),
+                )),
+                ..Default::default()
+            },
+            |ui| {
+                paint(
+                    ui,
+                    ui.available_rect_before_wrap(),
+                    vec2(CELL[0], CELL[1]),
+                    &core,
+                    &mut view,
+                    &appearance,
+                    false,
+                )
+                .unwrap();
+            },
+        );
+        let texts = output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) => Some(text.galley.job.text.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        output.textures_delta.clear();
+        assert!(texts.iter().all(|text| text.chars().count() == 1));
+        assert_eq!(
+            texts
+                .iter()
+                .filter(|text| text.as_str() != " ")
+                .cloned()
+                .collect::<String>(),
+            format!("{PROGRAMMING_TEXT}{WIDE_TEXT}")
+        );
+        assert_eq!(
+            texts
+                .iter()
+                .filter(|text| text.as_str() == WIDE_TEXT)
+                .count(),
+            1
+        );
+        assert_eq!(texts.len(), usize::from(COLUMNS) * usize::from(ROWS) - 1);
+    }
+
+    #[test]
+    fn option_as_meta는_시작전_버퍼에서도_esc_접두와_조합문자_억제를_보존한다() {
+        let alt = |key, shift| Event::Key {
+            key,
+            physical_key: Some(key),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers {
+                alt: true,
+                shift,
+                ..Default::default()
+            },
+        };
+        let mut view = View::default();
+        let events = [
+            alt(egui::Key::B, false),
+            Event::Text("∫".into()),
+            alt(egui::Key::B, true),
+            Event::Text("ı".into()),
+            alt(egui::Key::Num1, true),
+            Event::Text("⁄".into()),
+            alt(egui::Key::Space, false),
+            Event::Text("\u{a0}".into()),
+            alt(egui::Key::Quote, true),
+            Event::Ime(ImeEvent::Commit("Æ".into())),
+            Event::Key {
+                key: egui::Key::Exclamationmark,
+                physical_key: Some(egui::Key::Slash),
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers {
+                    alt: true,
+                    ..Default::default()
+                },
+            },
+            Event::Text("÷".into()),
+            alt(egui::Key::E, false),
+            Event::Ime(ImeEvent::Preedit {
+                text: "´".into(),
+                active_range_chars: None,
+            }),
+        ];
+        for event in &events {
+            assert!(buffer_starting_input(&mut view, event));
+        }
+        assert!(view.preedit.is_empty());
+        assert!(!view.meta_text_pending);
+        assert!(buffer_starting_input(&mut view, &Event::Text("x".into())));
+        let units = view.pending.iter().copied().collect::<Vec<_>>();
+        assert_eq!(
+            String::from_utf16_lossy(&units),
+            "\x1bb\x1bB\x1b!\x1b \x1b\"\x1b/\x1bex"
+        );
+        let mut plain = View::default();
+        assert!(!buffer_starting_input(
+            &mut plain,
+            &alt(egui::Key::Plus, false)
+        ));
+        assert!(!plain.meta_text_pending);
+        assert!(buffer_starting_input(&mut plain, &Event::Text("y".into())));
+        let units = plain.pending.iter().copied().collect::<Vec<_>>();
+        assert_eq!(String::from_utf16_lossy(&units), "y");
     }
 }

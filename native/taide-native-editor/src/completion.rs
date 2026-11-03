@@ -62,6 +62,47 @@ pub enum Command {
     ToggleDetails,
     ToggleDetailsFocus,
     ResetSize,
+    CommitInline,
+    AcceptNextWord,
+    AcceptNextLine,
+    ShowNextInline,
+    ShowPreviousInline,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartialAccept {
+    Word,
+    Line,
+}
+
+/// Returns the byte length of the ghost-text prefix that Monaco's `acceptNextWord`/`acceptNextLine`
+/// would commit, given the first match of the language word pattern in `text`.
+pub fn partial_accept_length(
+    kind: PartialAccept,
+    text: &str,
+    first_word: Option<Range<usize>>,
+) -> usize {
+    if kind == PartialAccept::Line {
+        return text.find('\n').map_or(text.len(), |index| index + 1);
+    }
+    let word_end = match first_word {
+        Some(word) if word.start == 0 => word.end,
+        Some(word) => word.start,
+        None => text.len(),
+    };
+    let Some(space_start) = text.find(is_ecmascript_whitespace) else {
+        return word_end;
+    };
+    let space_end = text[space_start..]
+        .find(|character| !is_ecmascript_whitespace(character))
+        .map_or(text.len(), |length| space_start + length);
+    word_end.min(space_end)
+}
+
+fn is_ecmascript_whitespace(character: char) -> bool {
+    const NEXT_LINE: char = '\u{0085}';
+    const BYTE_ORDER_MARK: char = '\u{FEFF}';
+    character == BYTE_ORDER_MARK || character.is_whitespace() && character != NEXT_LINE
 }
 
 impl Command {
@@ -69,6 +110,11 @@ impl Command {
         Some(match action {
             "editor.action.triggerSuggest" => Self::Trigger,
             "editor.action.inlineSuggest.trigger" => Self::TriggerInline,
+            "editor.action.inlineSuggest.commit" => Self::CommitInline,
+            "editor.action.inlineSuggest.acceptNextWord" => Self::AcceptNextWord,
+            "editor.action.inlineSuggest.acceptNextLine" => Self::AcceptNextLine,
+            "editor.action.inlineSuggest.showNext" => Self::ShowNextInline,
+            "editor.action.inlineSuggest.showPrevious" => Self::ShowPreviousInline,
             "taide.aiInlineEdit" => Self::TriggerEdit,
             "acceptSelectedSuggestion" | "acceptSelectedSuggestionOnEnter" => {
                 Self::Accept { alternate: false }

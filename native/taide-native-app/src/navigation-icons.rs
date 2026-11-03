@@ -34,8 +34,6 @@ pub(crate) enum Icon {
     ArrowUp,
     ArrowDown,
     RefreshCw,
-    LoaderCircle,
-    Check,
     Trash2,
     Sparkles,
     RotateCcw,
@@ -43,6 +41,15 @@ pub(crate) enum Icon {
     Tags,
     X,
     ArrowLeft,
+    CaseSensitive,
+    WholeWord,
+    Regex,
+    EyeOff,
+    History,
+    Check,
+    Loader,
+    ReplaceAll,
+    FileSearch,
 }
 
 const EXTRA_SOURCES: &[(Icon, &[u8])] = &[
@@ -103,11 +110,6 @@ const EXTRA_SOURCES: &[(Icon, &[u8])] = &[
         include_bytes!("../resources/icons/refresh-cw.svg"),
     ),
     (
-        Icon::LoaderCircle,
-        include_bytes!("../resources/icons/loader-circle.svg"),
-    ),
-    (Icon::Check, include_bytes!("../resources/icons/check.svg")),
-    (
         Icon::Trash2,
         include_bytes!("../resources/icons/trash-2.svg"),
     ),
@@ -124,6 +126,36 @@ const EXTRA_SOURCES: &[(Icon, &[u8])] = &[
     (
         Icon::ArrowLeft,
         include_bytes!("../resources/icons/arrow-left.svg"),
+    ),
+    (
+        Icon::CaseSensitive,
+        include_bytes!("../resources/icons/case-sensitive.svg"),
+    ),
+    (
+        Icon::WholeWord,
+        include_bytes!("../resources/icons/whole-word.svg"),
+    ),
+    (Icon::Regex, include_bytes!("../resources/icons/regex.svg")),
+    (
+        Icon::EyeOff,
+        include_bytes!("../resources/icons/eye-off.svg"),
+    ),
+    (
+        Icon::History,
+        include_bytes!("../resources/icons/history.svg"),
+    ),
+    (Icon::Check, include_bytes!("../resources/icons/check.svg")),
+    (
+        Icon::Loader,
+        include_bytes!("../resources/icons/loader-circle.svg"),
+    ),
+    (
+        Icon::ReplaceAll,
+        include_bytes!("../resources/icons/replace-all.svg"),
+    ),
+    (
+        Icon::FileSearch,
+        include_bytes!("../resources/icons/file-search-corner.svg"),
     ),
 ];
 

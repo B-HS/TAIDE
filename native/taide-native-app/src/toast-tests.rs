@@ -333,6 +333,7 @@ fn 항목_실패_toast의_재시도는_실은_식별자를_한번만_돌려준�
         project: ProjectId::new(),
         request: CreateRequest {
             token: 7,
+            mount: None,
             path: "/synthetic/root/new.rs".into(),
             parent: "/synthetic/root".into(),
             kind: TreeEntryKind::File,

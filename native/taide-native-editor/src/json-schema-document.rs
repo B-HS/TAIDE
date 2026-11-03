@@ -74,16 +74,7 @@ pub fn diagnostics(
         return Ok(Vec::new());
     }
     let document = json_parser::parse(input, true, limits.policy.syntax.parser)?;
-    let mut service = Service::new(associations, limits.service);
-    for contribution in contributions {
-        service.register(
-            &contribution.uri,
-            Some(contribution.schema.clone()),
-            &[],
-            None,
-            true,
-        )?;
-    }
+    let mut service = contributed_service(contributions, associations, limits)?;
     let resource = resource.encode_utf16().collect::<Vec<_>>();
     let resolved = match service.select(&resource, Some(&document))? {
         None => None,
@@ -101,6 +92,62 @@ pub fn diagnostics(
         patterns,
         limits.policy,
     )
+}
+
+/// The schema state one language-service request sees after `configure`.
+#[derive(Debug, Clone)]
+pub struct DocumentSchema {
+    /// The resolved schema of `getSchemaForResource`, if the document has one.
+    pub resolved: Option<Arc<Resolved>>,
+    /// `getRegisteredSchemaIds` filtered to `http`/`https`, in registration order.
+    pub registered: Vec<Vec<u16>>,
+}
+
+/// Selects and resolves the schema of one parsed document the way `getSchemaForResource` does
+/// after `configure`, without a schema request service.
+pub fn document_schema(
+    document: &json_parser::Document,
+    resource: &str,
+    contributions: &[Contribution],
+    associations: &dyn AssociationCompiler,
+    limits: Limits,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<DocumentSchema, EditorError> {
+    let mut service = contributed_service(contributions, associations, limits)?;
+    service.clear_external();
+    let http = "http".encode_utf16().collect::<Vec<_>>();
+    let https = "https".encode_utf16().collect::<Vec<_>>();
+    let registered = service.registered_ids(|scheme| scheme == http || scheme == https)?;
+    let resource = resource.encode_utf16().collect::<Vec<_>>();
+    let resolved = match service.select(&resource, Some(document))? {
+        None => None,
+        Some(id) => Some(resolve(&mut service, &id, limits, cancelled)?),
+    };
+    if cancelled() {
+        return Err(EditorError::StaleRevision);
+    }
+    Ok(DocumentSchema {
+        resolved,
+        registered,
+    })
+}
+
+fn contributed_service<'a>(
+    contributions: &[Contribution],
+    associations: &'a dyn AssociationCompiler,
+    limits: Limits,
+) -> Result<Service<'a>, EditorError> {
+    let mut service = Service::new(associations, limits.service);
+    for contribution in contributions {
+        service.register(
+            &contribution.uri,
+            Some(contribution.schema.clone()),
+            &[],
+            None,
+            true,
+        )?;
+    }
+    Ok(service)
 }
 
 fn resolve(

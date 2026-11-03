@@ -339,6 +339,25 @@ fn 프로젝트_아이콘_카탈로그는_원본_순서의_서로_다른_글리�
 }
 
 #[test]
+fn 프로젝트_아이콘_id는_원본_카탈로그와_같은_순서의_같은_목록이다() {
+    let source = include_str!("../../../src/shared/icons/project-icon-registry.ts");
+    let original = source
+        .split_once("export const PROJECT_ICON_NAMES = [")
+        .unwrap()
+        .1
+        .split_once("] as const")
+        .unwrap()
+        .0
+        .split('\'')
+        .enumerate()
+        .filter(|(index, _)| index % 2 == 1)
+        .map(|(_, name)| name)
+        .collect::<Vec<_>>();
+    let native = PROJECT_ICONS.iter().map(|(id, _)| *id).collect::<Vec<_>>();
+    assert_eq!(native, original);
+}
+
+#[test]
 fn 아이콘_색은_ts_색_클래스와_같은_테마_키로_풀린다() {
     for (color, key) in [
         (FileColor::Info, "statusIndicator.info"),

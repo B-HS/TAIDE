@@ -755,6 +755,17 @@ impl<T> Term<T> {
     }
 
     #[cfg(feature = "native-retained")]
+    pub fn native_set_scrolling_history(&mut self, lines: usize) {
+        self.config.scrolling_history = lines;
+        if self.mode.contains(TermMode::ALT_SCREEN) {
+            self.inactive_grid.update_history(lines);
+        } else {
+            self.grid.update_history(lines);
+        }
+        self.mark_fully_damaged();
+    }
+
+    #[cfg(feature = "native-retained")]
     pub fn native_command_decorations(&self, range: Range<Line>) -> Vec<native_commands::CommandDecoration> {
         if self.mode.contains(TermMode::ALT_SCREEN) {
             return Vec::new();

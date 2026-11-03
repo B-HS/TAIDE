@@ -42,6 +42,7 @@ const LANE_INSET: f32 = 2.0;
 const LANE_BAR_WIDTH: f32 = 3.0;
 const SAME_ROW: f32 = 4.0;
 const FEATURE: &str = "feature";
+const STABLE_FRAMES: usize = 12;
 
 fn real(path: &Path) -> String {
     path.parent()
@@ -809,6 +810,57 @@ fn 실제_app_해결_대화상자가_열린_동안_문서가_짧아지면_수락
             .inspection()
             .iter()
             .all(|toast| toast.kind != Kind::Error)
+    );
+}
+
+#[test]
+fn 실제_app_두_slot의_파일_편집기는_매_프레임_git_관찰을_해도_포커스_slot을_바꾸지_않는다() {
+    let mut workspace = Workspace::new("editor-focus", &["alpha", "beta"]);
+    let files = [("a.txt", COMMITTED, "a1"), ("b.txt", OTHER, "b1")];
+    for (root, (name, text, _)) in workspace.roots.iter().zip(files) {
+        fixture::repository(root, &workspace.empty, &[(name, text)]);
+    }
+    let context = launch_editor(&mut workspace);
+    let projects = workspace.projects.clone();
+    let application = workspace.fixture.application.as_mut().unwrap();
+    for ((project, root), (name, _, first_line)) in projects.iter().zip(&workspace.roots).zip(files)
+    {
+        open_file(
+            application,
+            &context,
+            project,
+            &real(&root.join(name)),
+            first_line,
+        );
+    }
+    let panes = projects
+        .iter()
+        .map(|project| active(application, project).0)
+        .collect::<Vec<_>>();
+    until(
+        application,
+        &context,
+        "both editors",
+        |application, output| {
+            files
+                .iter()
+                .all(|(_, _, first_line)| has(output, |text| text == *first_line))
+                && panes
+                    .iter()
+                    .all(|pane| application.git_state.editors.get(pane).is_some())
+        },
+    );
+    let focused = application.controller.snapshot().shell.focused.clone();
+    assert!(focused.is_some());
+    for _ in 0..STABLE_FRAMES {
+        frame(application, &context, Vec::new());
+        assert_eq!(application.controller.snapshot().shell.focused, focused);
+    }
+    assert!(
+        panes
+            .iter()
+            .all(|pane| application.git_state.editors.get(pane).is_some()),
+        "두 편집기 모두 git 관찰을 유지합니다"
     );
 }
 

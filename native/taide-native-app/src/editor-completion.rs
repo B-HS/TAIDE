@@ -26,6 +26,8 @@ mod colors;
 mod emmet;
 #[path = "editor-completion-insertion.rs"]
 mod insertion;
+#[path = "editor-completion-json.rs"]
+mod json;
 #[path = "editor-completion-provider.rs"]
 mod provider;
 #[path = "editor-completion-supply.rs"]
@@ -129,6 +131,7 @@ struct Entry {
     words: Vec<taide_native_editor::completion::Candidate>,
     word_result:
         Option<tokio::sync::oneshot::Receiver<Vec<taide_native_editor::completion::Candidate>>>,
+    json: Option<json::Pending>,
     supplied: bool,
     needs_clipboard: bool,
     clipboard: Option<std::sync::Arc<String>>,
@@ -172,6 +175,8 @@ pub(crate) struct State {
     pub(crate) edit_notices: Vec<EditNotice>,
     entries: HashMap<ViewId, Entry>,
     commands: HashMap<ViewId, Vec<taide_native_editor::completion::Command>>,
+    retriggers: HashSet<ViewId>,
+    automatic_triggers: HashSet<ViewId>,
     snippet_sessions: HashMap<ViewId, provider::Snippet>,
     code: crate::editor_documentation_code::Cache,
     images: crate::editor_documentation_images::Cache,
@@ -260,6 +265,7 @@ impl State {
                 emmet_context: None,
                 words: Vec::new(),
                 word_result: None,
+                json: None,
                 supplied: false,
                 needs_clipboard: false,
                 clipboard: None,
@@ -356,6 +362,7 @@ impl State {
         self.request(store, view).is_some()
             && self.entries.get(&view).is_some_and(|entry| {
                 !entry.complete
+                    || entry.json.is_some()
                     || (entry.needs_clipboard && entry.clipboard.is_none())
                     || (entry.word_result.is_some()
                         && entry.snippets.is_empty()
@@ -417,12 +424,23 @@ impl State {
         self.commands.remove(&view);
     }
 
+    fn take_commands(&mut self, view: ViewId) -> Vec<taide_native_editor::completion::Command> {
+        let mut commands = self.commands.remove(&view).unwrap_or_default();
+        if self.retriggers.remove(&view) {
+            self.automatic_triggers.insert(view);
+            commands.push(taide_native_editor::completion::Command::Trigger);
+        }
+        commands
+    }
+
     pub(crate) fn clear(&mut self) {
         self.inline.clear();
         self.inline_edit.clear();
         self.edit_notices.clear();
         self.entries.clear();
         self.commands.clear();
+        self.retriggers.clear();
+        self.automatic_triggers.clear();
         self.snippet_sessions.clear();
         self.images = crate::editor_documentation_images::Cache::default();
     }
@@ -436,6 +454,9 @@ impl State {
     ) {
         self.commands
             .retain(|view, _| store.views().get(*view).is_some());
+        self.retriggers
+            .retain(|view| store.views().get(*view).is_some());
+        self.automatic_triggers.clear();
         self.entries.retain(|_, entry| {
             projects.contains(&entry.request.project)
                 && active(&entry.request)

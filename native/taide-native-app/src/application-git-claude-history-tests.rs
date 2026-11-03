@@ -130,6 +130,7 @@ fn ide_tool(
     application.runtime.spawn(async move {
         let actions = crate::ide_tools::LayoutActions {
             view_states: Arc::default(),
+            wait_markers: Arc::default(),
             open_file_tab: |services, project, path, title, preview| {
                 Box::pin(async move {
                     layout_actions::layout_open_tab(

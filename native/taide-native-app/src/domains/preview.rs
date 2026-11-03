@@ -7,6 +7,7 @@ use eframe::egui::{self, Ui};
 use taide_model::error::{AppError, AppResult};
 use taide_model::ids::{PaneId, TabId};
 use taide_model::layout::{Tab, TabKind};
+use taide_native_ui::command_palette_file_match::file_name;
 use taide_native_ui::commands::{ShellIntent, ShellMutation};
 use taide_native_ui::intents::preview::Intent;
 use taide_native_ui::surfaces::preview::PreviewSurfaces;
@@ -14,7 +15,6 @@ use taide_runtime::AppServices;
 
 use crate::application::{AppSurfaces, MAX_DOCUMENTS, NativeApplication};
 use crate::host::{HostCommand, HostReply, HostWorker};
-use crate::presentation;
 
 const WEB_CONNECTIONS: usize = 16;
 const WEB_HEADER_TIMEOUT: Duration = Duration::from_secs(5);
@@ -52,7 +52,7 @@ pub enum Reply {
     },
     Preview {
         request: crate::preview::Request,
-        result: AppResult<crate::preview::Raster>,
+        result: Result<crate::preview::Raster, crate::preview::Failure>,
     },
 }
 
@@ -588,8 +588,9 @@ impl NativeApplication {
     }
 
     pub(crate) fn tick_preview_media(&mut self) {
+        let appearance = media_appearance(&self.preview_state.pdf_appearance);
         if let Some(bridge) = &self.preview_state.web_bridge
-            && bridge.set_media_appearance(media_appearance(&self.preview_state.pdf_appearance))
+            && bridge.set_media_appearance(appearance)
         {
             if let Some(request) = self.preview_state.web_previews.active_request()
                 && matches!(
@@ -601,7 +602,24 @@ impl NativeApplication {
             {
                 bridge.cancel_through(request.token);
             }
-            self.preview_state.web_previews.invalidate_media();
+            let media = [
+                crate::open_with::PreviewKind::Audio,
+                crate::open_with::PreviewKind::Video,
+            ]
+            .into_iter()
+            .flat_map(|kind| self.preview_tab_paths(kind))
+            .collect::<HashMap<_, _>>();
+            let restyled = self
+                .preview_state
+                .web_views
+                .evaluate(
+                    &media.keys().cloned().collect(),
+                    &crate::preview_web_media::restyle_script(appearance),
+                )
+                .into_iter()
+                .filter_map(|tab| media.get(&tab).cloned())
+                .collect();
+            self.preview_state.web_previews.restyle_media(&restyled);
         }
     }
 
@@ -612,15 +630,23 @@ impl NativeApplication {
         web_placements: Vec<crate::preview_web_view::Placement>,
         is_enabled: bool,
     ) {
-        let live = self
-            .web_preview_paths()
-            .into_iter()
+        let paths = self.web_preview_paths();
+        let open = self.preview_state.web_views.open_tabs();
+        self.preview_state
+            .web_previews
+            .release_restyled(web_placements.iter().filter_map(|placement| {
+                paths
+                    .get(&placement.tab)
+                    .map(|path| (path.as_str(), open.contains(&placement.tab)))
+            }));
+        let live = paths
+            .iter()
             .filter_map(|(tab, path)| {
                 self.preview_state
                     .web_previews
-                    .source(&path)
+                    .source(path)
                     .cloned()
-                    .map(|source| (tab, source))
+                    .map(|source| (tab.clone(), source))
             })
             .collect();
         let web_enabled = is_enabled
@@ -631,7 +657,7 @@ impl NativeApplication {
             && !egui::Popup::is_any_open(context)
             && !egui::DragAndDrop::has_any_payload(context)
             && !taide_native_ui::project_drag::is_dragging(context)
-            && !taide_native_ui::tab_drag::is_dragging(context)
+            && !self.is_any_window_tab_dragging(context)
             && !crate::file_drop::is_hovering(context)
             && !self.preview_state.web_views.drags().is_hovering();
         if let Err(error) =
@@ -641,7 +667,7 @@ impl NativeApplication {
         {
             self.preview_state.web_views.clear();
             for placement in web_placements {
-                if let Some(path) = self.web_preview_paths().get(&placement.tab) {
+                if let Some(path) = paths.get(&placement.tab) {
                     self.preview_state.web_previews.renderer_failed(path);
                 }
             }
@@ -720,7 +746,7 @@ impl NativeApplication {
 
 impl PreviewSurfaces for AppSurfaces<'_> {
     fn can_reopen_with(&self, path: &str) -> bool {
-        crate::open_with::preview_kind(path.rsplit('/').next().unwrap_or_default()).is_some()
+        crate::open_with::preview_kind(file_name(path)).is_some()
     }
 }
 
@@ -825,84 +851,69 @@ impl AppSurfaces<'_> {
                         .push((tab.id.clone(), path.clone()));
                     return;
                 }
+                let status_appearance = crate::preview_status::Appearance {
+                    background: self.pdf_appearance.background,
+                    border: self.pdf_appearance.border,
+                    foreground: self.pdf_appearance.foreground,
+                    muted: self.pdf_appearance.muted,
+                };
                 if kind != crate::open_with::PreviewKind::Image {
-                    if matches!(
-                        kind,
-                        crate::open_with::PreviewKind::Html
-                            | crate::open_with::PreviewKind::Audio
-                            | crate::open_with::PreviewKind::Video
-                    ) {
-                        if let Some(source) = self.web_previews.source(path) {
-                            let bounds = ui.available_rect_before_wrap().intersect(ui.clip_rect());
-                            self.web_placements
-                                .push(crate::preview_web_view::Placement {
-                                    tab: tab.id.clone(),
-                                    source: source.clone(),
-                                    bounds,
-                                    background: self
-                                        .pdf_appearance
-                                        .background
-                                        .to_srgba_unmultiplied(),
-                                    focused: self.target == Some(pane),
-                                });
-                            ui.allocate_rect(bounds, egui::Sense::hover());
-                        } else {
-                            let appearance = crate::preview_status::Appearance {
-                                background: self.pdf_appearance.background,
-                                border: self.pdf_appearance.border,
-                                foreground: self.pdf_appearance.foreground,
-                                muted: self.pdf_appearance.muted,
-                            };
-                            if crate::preview_status::show(
+                    if let Some(source) = self.web_previews.source(path) {
+                        let bounds = ui.available_rect_before_wrap().intersect(ui.clip_rect());
+                        self.web_placements
+                            .push(crate::preview_web_view::Placement {
+                                tab: tab.id.clone(),
+                                source: source.clone(),
+                                bounds,
+                                background: self.pdf_appearance.background.to_srgba_unmultiplied(),
+                                focused: self.target == Some(pane),
+                            });
+                        ui.allocate_rect(bounds, egui::Sense::hover());
+                    } else {
+                        if let Some(failure) = self.web_previews.error(path)
+                            && crate::preview_status::show(
                                 ui,
                                 &tab.id,
-                                self.web_previews.error(path),
+                                Some(failure),
                                 &tab.title,
                                 self.locale,
-                                &appearance,
+                                &status_appearance,
                                 "preview.notSupported",
-                            ) {
-                                self.commands.push(HostCommand::Shell(
-                                    crate::domains::shell::Command::OpenPath(path.clone()),
-                                ));
-                            }
-                            self.preview_output.load_web_previews.push(path.clone());
+                            )
+                        {
+                            self.commands.push(HostCommand::Shell(
+                                crate::domains::shell::Command::OpenPath(path.clone()),
+                            ));
+                        }
+                        self.preview_output.load_web_previews.push(path.clone());
+                    }
+                    return;
+                }
+                match self.previews.error(path) {
+                    Some(crate::preview::Failure::Decode(_)) => {
+                        ui.centered_and_justified(|ui| ui.label(file_name(path)));
+                        return;
+                    }
+                    Some(failure) => {
+                        if crate::preview_status::show(
+                            ui,
+                            &tab.id,
+                            Some(failure),
+                            &tab.title,
+                            self.locale,
+                            &status_appearance,
+                            "preview.notSupported",
+                        ) {
+                            self.commands.push(HostCommand::Shell(
+                                crate::domains::shell::Command::OpenPath(path.clone()),
+                            ));
                         }
                         return;
                     }
-                    ui.label(format!(
-                        "native preview provider is not connected: {kind:?}"
-                    ));
-                    return;
-                }
-                if let Some(error) = self.previews.error(path) {
-                    ui.label(presentation::message(
-                        self.locale,
-                        "preview.notSupported",
-                        &[],
-                    ));
-                    ui.label(&tab.title);
-                    ui.label(error.to_string());
-                    if ui
-                        .button(presentation::message(
-                            self.locale,
-                            "preview.openExternally",
-                            &[],
-                        ))
-                        .clicked()
-                    {
-                        self.commands.push(HostCommand::Shell(
-                            crate::domains::shell::Command::OpenPath(path.clone()),
-                        ));
-                    }
-                    return;
+                    None => {}
                 }
                 if let Some(texture) = self.previews.advance(path, ui.ctx()) {
-                    crate::preview::show_image(
-                        ui,
-                        texture,
-                        path.rsplit('/').next().unwrap_or_default(),
-                    );
+                    crate::preview::show_image(ui, texture, file_name(path));
                     return;
                 }
                 self.preview_output

@@ -159,7 +159,27 @@ impl Drop for JsonSlot {
 fn is_json(snapshot: &DocumentSnapshot) -> bool {
     snapshot.metadata.language_id == "json"
         && snapshot.metadata.tier == FileSizeTier::Normal
-        && !matches!(snapshot.key, DocumentKey::AppFile(_))
+        && !matches!(
+            snapshot.key,
+            DocumentKey::AppFile(_) | DocumentKey::Virtual(_)
+        )
+}
+
+fn is_builtin(snapshot: &DocumentSnapshot) -> bool {
+    is_json(snapshot) || crate::editor_html::is_html(snapshot)
+}
+
+fn builtin_ranges(request: &Request) -> Result<Vec<Vec<Range<usize>>>, EditorError> {
+    if crate::editor_html::is_html(&request.snapshot) {
+        let positions = request
+            .selection
+            .selections
+            .iter()
+            .map(|selection| selection.head)
+            .collect::<Vec<_>>();
+        return crate::editor_html::selection_ranges(&request.snapshot, &positions);
+    }
+    json_ranges(request)
 }
 
 fn json_ranges(request: &Request) -> Result<Vec<Vec<Range<usize>>>, EditorError> {
@@ -269,7 +289,7 @@ impl State {
                     if request.is_cancelled() {
                         return;
                     }
-                    let ranges = json_ranges(&request)
+                    let ranges = builtin_ranges(&request)
                         .unwrap_or_else(|_| vec![Vec::new(); request.selection.selections.len()]);
                     if !request.is_cancelled() {
                         drop(sender.send(ranges));
@@ -419,12 +439,12 @@ impl State {
             }) {
                 continue;
             }
-            let native_json = is_json(&queued.request.snapshot);
+            let native_builtin = is_builtin(&queued.request.snapshot);
             let external = !providers.is_empty()
                 && context.project.is_some()
                 && queued.request.snapshot.metadata.tier == FileSizeTier::Normal
                 && matches!(queued.request.snapshot.key, DocumentKey::File(_));
-            if !native_json && !external {
+            if !native_builtin && !external {
                 run_cursor_command(
                     store,
                     context.source,
@@ -448,7 +468,7 @@ impl State {
                 } else {
                     Phase::Ready(vec![Vec::new(); initial.selections.len()])
                 },
-                native: native_json.then_some(Native::Pending(None)),
+                native: native_builtin.then_some(Native::Pending(None)),
             };
             if external {
                 submitted.push(queued.request);

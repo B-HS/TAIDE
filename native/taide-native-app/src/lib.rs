@@ -1,3 +1,5 @@
+#[path = "agent-cli.rs"]
+mod agent_cli;
 #[path = "agent-hooks.rs"]
 pub mod agent_hooks;
 #[path = "app-file.rs"]
@@ -54,6 +56,8 @@ mod editor_command_text;
 mod editor_completion;
 #[path = "editor-context-menu.rs"]
 mod editor_context_menu;
+#[path = "editor-css.rs"]
+mod editor_css;
 #[path = "editor-documentation.rs"]
 mod editor_documentation;
 #[path = "editor-documentation-code.rs"]
@@ -68,6 +72,8 @@ mod editor_fonts;
 mod editor_formatting;
 #[path = "editor-highlights.rs"]
 mod editor_highlights;
+#[path = "editor-html.rs"]
+mod editor_html;
 #[path = "editor-ide-selection.rs"]
 mod editor_ide_selection;
 #[path = "editor-indentation.rs"]
@@ -111,12 +117,20 @@ mod editor_view_state_sync;
 pub mod event_relay;
 pub mod events;
 pub mod explorer;
+#[path = "explorer-auto-reveal.rs"]
+mod explorer_auto_reveal;
 pub mod explorer_clipboard;
 pub mod explorer_clipboard_owners;
 pub mod explorer_delete;
+#[path = "explorer-git-decorations.rs"]
+pub mod explorer_git_decorations;
+#[path = "explorer-mounts.rs"]
+mod explorer_mounts;
 pub mod explorer_move;
 pub mod explorer_source_missing;
 pub mod explorer_toolbar;
+#[path = "external-open.rs"]
+pub mod external_open;
 #[path = "file-dialogs.rs"]
 mod file_dialogs;
 #[path = "file-drop.rs"]
@@ -155,6 +169,8 @@ mod git_scm_model;
 pub mod host;
 #[path = "ide-server.rs"]
 pub mod ide_server;
+#[path = "ide-sync.rs"]
+mod ide_sync;
 #[path = "ide-tools.rs"]
 pub mod ide_tools;
 #[path = "keybinding-editor.rs"]
@@ -174,6 +190,8 @@ pub mod missing_draft;
 mod modal;
 #[path = "motion-preference.rs"]
 mod motion_preference;
+#[path = "native-notifications.rs"]
+pub mod native_notifications;
 #[path = "navigation-icons.rs"]
 mod navigation_icons;
 mod open_path_dialog;
@@ -227,6 +245,8 @@ mod problems;
 #[path = "problems-icons.rs"]
 mod problems_icons;
 pub mod projects;
+#[path = "provider-events.rs"]
+mod provider_events;
 #[path = "remote-agents.rs"]
 pub mod remote_agents;
 #[path = "remote-ai.rs"]
@@ -271,13 +291,30 @@ pub mod remote_utilities;
 #[path = "remote-ws.rs"]
 pub mod remote_ws;
 pub mod save;
+#[path = "search-editor.rs"]
+mod search_editor;
+#[path = "search-history.rs"]
+mod search_history;
+#[path = "search-panel.rs"]
+pub mod search_panel;
+#[path = "search-results.rs"]
+mod search_results;
+#[path = "search-stream.rs"]
+pub mod search_stream;
 #[path = "settings-controls.rs"]
 pub mod settings_controls;
 #[path = "settings-integrations.rs"]
 pub mod settings_integrations;
+#[path = "settings-ports.rs"]
+pub mod settings_ports;
+#[path = "settings-sync-time.rs"]
+mod settings_sync_time;
 #[path = "settings-view.rs"]
 pub mod settings_view;
 mod shell_keymap;
+#[cfg(unix)]
+#[path = "single-instance.rs"]
+pub mod single_instance;
 #[cfg(test)]
 #[path = "snippet-host-tests.rs"]
 mod snippet_host_tests;
@@ -289,6 +326,8 @@ mod status_editor;
 mod status_error_banner;
 #[path = "status-ide.rs"]
 mod status_ide;
+#[path = "stderr-log.rs"]
+pub mod stderr_log;
 #[path = "symbol-location-host.rs"]
 mod symbol_location_host;
 #[path = "symbol-navigation.rs"]
@@ -331,9 +370,9 @@ mod theme_editor_tokens;
 #[path = "theme-live-preview.rs"]
 #[cfg(test)]
 mod theme_live_preview;
-#[path = "title-branch.rs"]
-mod title_branch;
 mod toast;
+#[path = "toast-layers.rs"]
+mod toast_layers;
 mod tooltips;
 #[path = "ui-fonts.rs"]
 mod ui_fonts;

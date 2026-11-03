@@ -32,7 +32,7 @@ enum Action<'a> {
     Leave(usize),
 }
 
-fn quoted(value: &[u16], limit: usize) -> Result<Vec<u16>, EditorError> {
+pub(crate) fn quoted(value: &[u16], limit: usize) -> Result<Vec<u16>, EditorError> {
     if value.len() > limit {
         return Err(EditorError::Capacity);
     }

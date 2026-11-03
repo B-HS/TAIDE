@@ -206,6 +206,13 @@ fn bare_remote(workspace: &Workspace) -> PathBuf {
     remote
 }
 
+#[cfg(unix)]
+fn commit_ahead(workspace: &Workspace, name: &str) {
+    std::fs::write(workspace.roots[0].join(name), SECOND).unwrap();
+    workspace.git(0, &["add", "--", name]);
+    workspace.git(0, &["commit", "-m", "test(fixture): ahead"]);
+}
+
 fn remote_head(workspace: &Workspace, remote: &std::path::Path) -> String {
     workspace.git(
         0,
@@ -231,9 +238,15 @@ fn 실제_app_브랜치_스위처는_필터와_그룹과_키보드로_체크아�
     bare_remote(&workspace);
     workspace.git(0, &["push", REMOTE_NAME, "main:feature-remote"]);
     workspace.git(0, &["fetch", REMOTE_NAME]);
-    let context = launch_git(&mut workspace);
+    let state = workspace.state(isolated_state(workspace.data.clone()));
+    let context = launch(&mut workspace.fixture, state);
     let project = workspace.projects[0].clone();
     let application = workspace.fixture.application.as_mut().unwrap();
+    application
+        .explorer_search_state
+        .symbol_sidebars
+        .entry(&project, &workspace.slots[0])
+        .view = crate::symbol_sidebar::View::Git;
     let switch = text(application, "git.branchSwitch");
     let no_repository = text(application, "git.noRepositoryLabel");
 
@@ -434,10 +447,10 @@ fn 실제_app_브랜치가_하나도_없으면_목록은_찾을_수_없음을_�
     let context = launch_git(&mut workspace);
     let application = workspace.fixture.application.as_mut().unwrap();
     let switch = text(application, "git.branchSwitch");
-    let output = until(application, &context, "unborn branch", |_, output| {
+    until(application, &context, "unborn branch", |_, output| {
         header_texts(output, &switch, "main") == 1
     });
-    click(application, &context, trigger(&output, &switch).unwrap().0);
+    open_picker(application, &context, &switch);
     let empty = text(application, "git.branchNotFound");
     until(application, &context, "no branches", |_, output| {
         has_text(output, &empty)
@@ -561,6 +574,121 @@ fn 실제_app_헤더는_원격이_있을_때만_ahead_behind와_sync와_원격_�
     });
     std::fs::rename(&moved, &remote).unwrap();
     assert_eq!(remote_head(&workspace, &remote), ahead, "push never ran");
+}
+
+#[cfg(unix)]
+#[test]
+fn 실제_app_sync의_pull과_push는_성공과_실패를_프로젝트_제목의_os_알림으로_보낸다() {
+    use std::os::unix::fs::PermissionsExt;
+
+    use crate::domains::shell::notifications_tests::{FakePlatform, launch_with_platform};
+
+    const READ_ONLY_DIRECTORY: u32 = 0o555;
+    let mut workspace = Workspace::new("sync-notify", &["alpha"]);
+    let (root, empty) = (workspace.roots[0].clone(), workspace.empty.clone());
+    fixture::repository(&root, &empty, &[("a.txt", ORIGINAL)]);
+    let remote = bare_remote(&workspace);
+    workspace.git(0, &["config", "--local", "branch.main.remote", REMOTE_NAME]);
+    workspace.git(
+        0,
+        &["config", "--local", "branch.main.merge", "refs/heads/main"],
+    );
+    workspace.git(0, &["push"]);
+    workspace.git(0, &["fetch", REMOTE_NAME]);
+    commit_ahead(&workspace, "b.txt");
+    let state = workspace.state(isolated_state(workspace.data.clone()));
+    {
+        let mut settings = state.settings.write();
+        settings.notifications_enabled = true;
+        settings.notifications_only_when_unfocused = false;
+        settings.notify_git_remote = true;
+        settings.notify_error = true;
+    }
+    let platform = std::sync::Arc::new(FakePlatform::default());
+    let context = launch_with_platform(&mut workspace.fixture, state, platform.clone());
+    context.enable_accesskit();
+    let project = workspace.projects[0].clone();
+    let application = workspace.fixture.application.as_mut().unwrap();
+    settle(application, &context);
+    show_git(application, &context);
+    let (switch, sync) = (
+        text(application, "git.branchSwitch"),
+        text(application, "git.sync"),
+    );
+    let line = |application: &NativeApplication, key: &str, detail: &str| {
+        format!("{} · {detail}", text(application, key))
+    };
+    let synced = |application: &mut NativeApplication, phase: &str, sent: usize| {
+        let ready = format!("{phase}: sync ready");
+        until(application, &context, &ready, |application, output| {
+            header_texts(output, &switch, REMOTE_NAME) == 1
+                && header_texts(output, &switch, "1") == 1
+                && button(output, &sync).is_some_and(|(_, node)| !node.is_disabled())
+                && application.git_state.title_branch(&project) == Some("main")
+        });
+        let output = settle(application, &context);
+        click(application, &context, button(&output, &sync).unwrap().0);
+        let notified = format!("{phase}: notified");
+        until(application, &context, &notified, |application, _| {
+            !application.git_state.syncing.contains(&project) && platform.sent().len() == sent
+        });
+    };
+
+    synced(application, "pull and push", 2);
+    assert_eq!(
+        platform.sent(),
+        vec![
+            (
+                "alpha".to_owned(),
+                line(application, "notification.gitPullSucceeded", "main")
+            ),
+            (
+                "alpha".to_owned(),
+                line(application, "notification.gitPushSucceeded", "main")
+            ),
+        ]
+    );
+
+    commit_ahead(&workspace, "c.txt");
+    let objects = remote.join("objects");
+    let writable = std::fs::metadata(&objects).unwrap().permissions();
+    std::fs::set_permissions(
+        &objects,
+        std::fs::Permissions::from_mode(READ_ONLY_DIRECTORY),
+    )
+    .unwrap();
+    let application = workspace.fixture.application.as_mut().unwrap();
+    refresh(application, &project);
+    synced(application, "push failure", 4);
+    std::fs::set_permissions(&objects, writable).unwrap();
+    let sent = platform.sent();
+    assert_eq!(
+        sent[2],
+        (
+            "alpha".to_owned(),
+            line(application, "notification.gitPullSucceeded", "main")
+        )
+    );
+    let push_failed = line(application, "notification.gitPushFailed", "");
+    assert_eq!(sent[3].0, "alpha");
+    assert!(
+        sent[3].1.starts_with(&push_failed) && sent[3].1.len() > push_failed.len(),
+        "{sent:?}"
+    );
+
+    let moved = remote.with_extension("moved");
+    std::fs::rename(&remote, &moved).unwrap();
+    let application = workspace.fixture.application.as_mut().unwrap();
+    refresh(application, &project);
+    synced(application, "pull failure", 5);
+    std::fs::rename(&moved, &remote).unwrap();
+    let sent = platform.sent();
+    let pull_failed = line(application, "notification.gitPullFailed", "");
+    assert_eq!(sent[4].0, "alpha");
+    assert!(
+        sent[4].1.starts_with(&pull_failed) && sent[4].1.len() > pull_failed.len(),
+        "{sent:?}"
+    );
 }
 
 #[test]

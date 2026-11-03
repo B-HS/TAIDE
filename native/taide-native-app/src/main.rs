@@ -3,7 +3,9 @@ use std::rc::Rc;
 
 use eframe::egui;
 use taide_native_app::application::NativeApplication;
-use taide_native_app::bootstrap::{LaunchConfig, restore};
+use taide_native_app::bootstrap::{Launch, restore};
+#[cfg(unix)]
+use taide_native_app::single_instance;
 use taide_native_app::window_state;
 use taide_runtime::TaskSupervisor;
 
@@ -13,6 +15,7 @@ const WINDOW_TITLE: &str = "TAIDE";
 const WINDOW_NOT_CREATED: &str = "native main window was not created";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    taide_native_app::stderr_log::install();
     let mut arguments = std::env::args().skip(1).peekable();
     if arguments
         .peek()
@@ -28,7 +31,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?;
         return Ok(());
     }
-    let config = LaunchConfig::parse(arguments)?;
+    taide_infra::perf::init(std::iter::empty());
+    let Launch {
+        config,
+        relay_arguments,
+        external_open,
+    } = Launch::parse(arguments)?;
+    #[cfg(unix)]
+    let (relay, _relay_socket) = match single_instance::acquire(
+        &single_instance::socket_path(&config.data_dir),
+        &relay_arguments,
+    ) {
+        single_instance::Claim::Relayed => return Ok(()),
+        single_instance::Claim::Primary(listener, socket) => (Some(listener), Some(socket)),
+        single_instance::Claim::Unavailable => (None, None),
+    };
     let monitors = window_state::Monitors::default();
     let window_builder = window_state::main_window_hook(config.data_dir.clone(), monitors.clone());
     let helper_executable = std::env::current_exe()?;
@@ -61,14 +78,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             *creation.borrow_mut() = Some(Ok(()));
             #[cfg(target_os = "macos")]
             let application = application.with_app_menu(&context.egui_ctx);
-            Ok(Box::new(application))
+            #[cfg(unix)]
+            let application = application.with_relay(relay);
+            Ok(Box::new(application.with_external_open(external_open)))
         }),
         &event_loop,
     );
-    event_loop.run_app(&mut window_state::MonitorProbe::new(application, monitors))?;
+    let mut probe = window_state::MonitorProbe::new(application, monitors);
+    event_loop.run_app(&mut probe)?;
     let outcome = startup.borrow_mut().take();
     match outcome {
-        Some(result) => Ok(result?),
-        None => Err(WINDOW_NOT_CREATED.into()),
+        Some(result) => result?,
+        None => return Err(WINDOW_NOT_CREATED.into()),
     }
+    Ok(probe.take_result()?)
 }

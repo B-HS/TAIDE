@@ -101,7 +101,7 @@ async fn json_저장_포맷은_최신_문서와_편집기_작업_슬롯을_공�
             if let Some(result) = fixture.state.tick_native(&tasks).pop() {
                 editor = Some(result);
             }
-            assert!(fixture.state.active_json.load(Ordering::Acquire) <= MAX_JSON_ACTIVE);
+            assert!(fixture.state.active_builtin.load(Ordering::Acquire) <= MAX_BUILTIN_ACTIVE);
             if saved.is_some() && editor.is_some() && tasks.tracked_count() == 0 {
                 return (saved.unwrap(), editor.unwrap());
             }
@@ -135,7 +135,7 @@ async fn json_저장_포맷은_최신_문서와_편집기_작업_슬롯을_공�
             .unwrap()
     );
     assert!(fixture.state.saves.is_empty());
-    assert_eq!(fixture.state.active_json.load(Ordering::Acquire), 0);
+    assert_eq!(fixture.state.active_builtin.load(Ordering::Acquire), 0);
 }
 
 #[tokio::test]
@@ -274,7 +274,7 @@ async fn json_내장_문서_포맷은_현재_옵션과_peek의_독립_undo를_�
         )
         .unwrap()
         .unwrap();
-    assert!(request.native_json);
+    assert!(request.native);
     assert_eq!(request.options.tab_size, INDENT_SIZE);
     let tasks = taide_runtime::TaskSupervisor::new(tokio::runtime::Handle::current());
     let (request, result) = native_response(&mut fixture.state, &tasks).await;
@@ -310,7 +310,7 @@ async fn json_내장_문서_포맷은_현재_옵션과_peek의_독립_undo를_�
         (owner.revision, owner.rope)
     );
     let external = fixture.begin().unwrap().unwrap();
-    assert!(!external.native_json);
+    assert!(!external.native);
     fixture.state.clear();
     assert!(external.is_cancelled());
 }
@@ -360,7 +360,7 @@ async fn json_포맷의_붙여넣기와_늦은_응답은_타입_공급과_편집
         )
         .unwrap()
         .unwrap();
-    assert!(request.native_json);
+    assert!(request.native);
     let tasks = taide_runtime::TaskSupervisor::new(tokio::runtime::Handle::current());
     let (request, result) = native_response(&mut fixture.state, &tasks).await;
     fixture

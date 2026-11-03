@@ -48,12 +48,10 @@ impl Invalidation {
 #[derive(Default)]
 pub(crate) struct Changes {
     projects: Mutex<HashMap<ProjectId, Invalidation>>,
-    pub(crate) ide: crate::git_claude_diff::Inbox,
 }
 
 impl Changes {
     pub(crate) fn record(&self, event: &AppEvent) {
-        self.ide.record(event);
         let (project, paths) = match event {
             AppEvent::GitStatusChanged { project_id }
             | AppEvent::GitRefsChanged { project_id }
@@ -412,8 +410,8 @@ pub enum Value {
 }
 
 impl GitCache<Key, Value> {
-    /// The project's last status answer, failures included: the supply the source control panel
-    /// and, once merged, the explorer decorations read.
+    /// The project's last status answer, failures included: the supply the source control panel,
+    /// the title bar branch and the explorer decorations read.
     pub(crate) fn status_result(
         &self,
         project: &ProjectId,

@@ -30,6 +30,20 @@ const JSON_EDITED: &str = "{\n\"name\": \"BETA\",\n\"version\": 1\n}\n";
 const JSON_UNCHANGED_LINE: &str = "\"version\": 1";
 const JSON_EDITED_LINE: &str = "\"name\": \"BETA\",";
 const JSON_SERVICE_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
+const MARKUP_DIFFS: [(&str, &str, &str, &str); 2] = [
+    (
+        "style.css",
+        "a {\ncolor: red;\n}\n",
+        "a {\ncolor: blue;\n}\n",
+        "color: blue;",
+    ),
+    (
+        "index.html",
+        "<div>\n<p>beta</p>\n</div>\n",
+        "<div>\n<p>BETA</p>\n</div>\n",
+        "<p>BETA</p>",
+    ),
+];
 
 fn real(path: &std::path::Path) -> String {
     path.parent()
@@ -448,14 +462,13 @@ fn 실제_app_탐색기_비교_메뉴는_선택한_파일과_대상_파일의_pr
             .is_some_and(|source| source.ends_with("a.txt"))
     );
     assert_eq!(stage_bars(application, &output), 0);
-    assert!(
-        application
-            .explorer_search_state
-            .explorers
-            .get(&project)
-            .is_some_and(|explorer| explorer.compare_source.is_none()),
-        "비교 뒤 선택은 지워집니다"
-    );
+    let sources = application
+        .explorer_search_state
+        .explorers
+        .of_project(&project)
+        .map(|explorer| explorer.compare_source.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(sources, vec![None], "비교 뒤 선택은 지워집니다");
 }
 
 #[test]
@@ -617,6 +630,58 @@ fn 실제_app_json_파일_diff_탭은_구문_강조를_그리고_내장_json_서
             .all(|id| !structure.contains(id) && !validation.contains(id)),
         "가상 문서는 내장 json 서비스 대상이 아닙니다"
     );
+}
+
+#[test]
+fn 실제_app_css와_html_파일_diff_탭의_가상_문서는_내장_구조_서비스_대상이_아니고_오류_toast가_없다()
+{
+    let mut workspace = Workspace::new("diff-markup", &["alpha"]);
+    let (root, empty) = (workspace.roots[0].clone(), workspace.empty.clone());
+    let committed = MARKUP_DIFFS.map(|(name, committed, ..)| (name, committed));
+    fixture::repository(&root, &empty, &committed);
+    for (name, _, edited, _) in MARKUP_DIFFS {
+        std::fs::write(root.join(name), edited).unwrap();
+    }
+    let context = launch_diff(&mut workspace);
+    let project = workspace.projects[0].clone();
+    let application = workspace.fixture.application.as_mut().unwrap();
+
+    for (name, _, _, edited_line) in MARKUP_DIFFS {
+        open(
+            application,
+            &context,
+            &project,
+            diff_kind(real(&root.join(name)), false, None),
+        );
+        until(application, &context, name, |_, output| {
+            has_text(output, edited_line)
+        });
+        let virtual_ids = application
+            .store
+            .documents()
+            .snapshots()
+            .filter(|snapshot| matches!(snapshot.key, DocumentKey::Virtual(_)))
+            .map(|snapshot| snapshot.id)
+            .collect::<Vec<_>>();
+        assert_eq!(virtual_ids.len(), 2, "{name}");
+        let deadline = std::time::Instant::now() + JSON_SERVICE_WAIT;
+        until(application, &context, "structure service idle", |_, _| {
+            std::time::Instant::now() >= deadline
+        });
+        let errors = application
+            .toasts
+            .inspection()
+            .into_iter()
+            .filter(|toast| toast.kind == taide_native_ui::toast::Kind::Error)
+            .map(|toast| toast.title)
+            .collect::<Vec<_>>();
+        assert!(errors.is_empty(), "{name} 오류 toast: {errors:?}");
+        let structure = application.editor_json.documents();
+        assert!(
+            virtual_ids.iter().all(|id| !structure.contains(id)),
+            "{name}: 가상 문서는 내장 구조 서비스 대상이 아닙니다"
+        );
+    }
 }
 
 fn numbered(changed: Option<&str>) -> String {

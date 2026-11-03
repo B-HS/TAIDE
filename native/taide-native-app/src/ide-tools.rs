@@ -36,12 +36,16 @@ pub struct LayoutActions {
     pub open_file_tab: OpenFileTabAction,
     pub close_tab: CloseTabAction,
     pub(crate) view_states: Arc<crate::editor_view_state_sync::Shared>,
+    pub(crate) wait_markers: Arc<crate::external_open::WaitMarkers>,
 }
 
 impl LayoutActions {
     pub fn new(terminals: Arc<crate::terminal_host::Hub>) -> Self {
+        let wait_markers = Arc::<crate::external_open::WaitMarkers>::default();
+        let closed_markers = wait_markers.clone();
         Self {
             view_states: Arc::default(),
+            wait_markers,
             open_file_tab: |services, project, path, title, preview| {
                 Box::pin(async move {
                     layout_actions::open_tab_and_finish(
@@ -59,8 +63,9 @@ impl LayoutActions {
             },
             close_tab: Arc::new(move |services, tab| {
                 let terminals = terminals.clone();
+                let markers = closed_markers.clone();
                 Box::pin(async move {
-                    layout_actions::close_tab_and_finish(
+                    let (project, closed, _) = layout_actions::close_tab_and_finish(
                         services.events.as_ref(),
                         &services.state,
                         &tab,
@@ -72,8 +77,15 @@ impl LayoutActions {
                             }
                         },
                     )
-                    .await
-                    .map(|(_, closed, _)| closed.tab)
+                    .await?;
+                    crate::external_open::release_closed_tab(
+                        &services,
+                        &markers,
+                        &project,
+                        &closed.tab,
+                    )
+                    .await;
+                    Ok(closed.tab)
                 })
             }),
         }

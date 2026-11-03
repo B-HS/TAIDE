@@ -621,6 +621,40 @@ impl Hub {
         Ok(changed)
     }
 
+    pub fn configure_history(&self) -> bool {
+        let lines = self.services.state.settings.read().terminal_scrollback as usize;
+        let sessions = self
+            .sessions
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let mut changed = false;
+        for (id, entry) in sessions.iter() {
+            match entry.session.terminal.configure_history(lines) {
+                Ok(applied) => changed |= applied,
+                Err(error) => log::warn!(
+                    "native terminal scrollback {lines} rejected for session {id}: {:?}",
+                    error.kind()
+                ),
+            }
+        }
+        changed
+    }
+
+    pub fn configure_command_colors(&self, colors: taide_native_terminal::CommandColors) {
+        let sessions = self
+            .sessions
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        for (id, entry) in sessions.iter() {
+            if let Err(error) = entry.session.terminal.configure_command_colors(colors) {
+                log::warn!(
+                    "native terminal command colors rejected for session {id}: {:?}",
+                    error.kind()
+                );
+            }
+        }
+    }
+
     pub fn discard(&self, id: &str) {
         self.sessions
             .lock()

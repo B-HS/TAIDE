@@ -400,3 +400,32 @@ fn 아이콘_모드는_cmdk처럼_검색_정렬_첫항목_선택과_화살표_en
     assert!(harness.click("common.cancel").is_none());
     assert!(!harness.dialog.is_open());
 }
+
+#[test]
+fn 아이콘_검색은_빈_검색어면_카탈로그_전체를_보이고_같은_점수는_카탈로그_순서를_지킨다() {
+    let catalog = PROJECT_ICONS.iter().map(|(id, _)| *id).collect::<Vec<_>>();
+    assert_eq!(icon_matches(""), catalog);
+    let position = |id: &str| catalog.iter().position(|candidate| *candidate == id);
+    for search in ["c", "git", "s"] {
+        let matches = icon_matches(search);
+        let mut ties = 0;
+        for pair in matches.windows(2) {
+            let left = crate::command_score::score(pair[0], search);
+            let right = crate::command_score::score(pair[1], search);
+            assert!(left >= right, "{search:?}: {pair:?}");
+            if left == right {
+                ties += 1;
+                assert!(
+                    position(pair[0]) < position(pair[1]),
+                    "{search:?}: {pair:?}"
+                );
+            }
+        }
+        assert!(ties > 0, "{search:?}: {matches:?}");
+        assert!(
+            matches
+                .iter()
+                .all(|id| crate::command_score::score(id, search) > 0.0)
+        );
+    }
+}

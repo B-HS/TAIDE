@@ -1,9 +1,7 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Color32, CornerRadius, FontId, Rect, Sense, Stroke, Ui};
-use taide_model::app_event::AppEvent;
 use taide_model::error::AppResult;
 use taide_model::ids::{ProjectId, TabId};
 use taide_model::theme::ResolvedTheme;
@@ -23,8 +21,8 @@ const BUTTON_TEXT_SIZE: f32 = 12.0;
 const PRIMARY_HOVER_OPACITY: f32 = 0.9;
 const DISABLED_OPACITY: f32 = 0.5;
 
-/// An IDE diff request or close-tab notice recorded off the UI thread (`ide-sync-provider.tsx`
-/// `ideDiffRequested`/`ideCloseTabRequested`).
+/// An IDE diff request or close-tab notice the shell's provider inbox recorded off the UI thread
+/// (`ide-sync-provider.tsx` `ideDiffRequested`/`ideCloseTabRequested`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Event {
     Requested {
@@ -35,50 +33,6 @@ pub(crate) enum Event {
         title: String,
     },
     Closed(String),
-}
-
-#[derive(Default)]
-pub(crate) struct Inbox {
-    events: Mutex<Vec<Event>>,
-}
-
-impl Inbox {
-    pub(crate) fn record(&self, event: &AppEvent) {
-        let event = match event {
-            AppEvent::IdeDiffRequested {
-                request_id,
-                project_id,
-                new_path,
-                new_contents,
-                tab_name,
-                ..
-            } => Event::Requested {
-                request_id: request_id.clone(),
-                project: project_id.clone(),
-                path: new_path.clone(),
-                contents: new_contents.clone(),
-                title: tab_name.clone(),
-            },
-            AppEvent::IdeCloseTabRequested {
-                request_id: Some(request_id),
-                ..
-            } => Event::Closed(request_id.clone()),
-            _ => return,
-        };
-        self.events
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .push(event);
-    }
-
-    pub(crate) fn take(&self) -> Vec<Event> {
-        std::mem::take(
-            &mut *self
-                .events
-                .lock()
-                .unwrap_or_else(|error| error.into_inner()),
-        )
-    }
 }
 
 /// The revisions of a Claude diff's original and modified documents.

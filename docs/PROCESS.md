@@ -23,12 +23,14 @@
 
 2026-10-28 운영 방식 변경: 사용자 지시로 남은 작업을 영역 lane 병렬로 진행합니다(`docs/memory/2026-10-28-native-lane-operations.md`). 단계 G와 H는 wave 1의 shell lane과 병합 게이트로 흡수합니다.
 
-- [ ] W0. lane 경계 — `domains/<영역>.rs` 분리, HostCommand·HostReply·ShellIntent 영역 하위 enum, dev 프로필 debuginfo 축소, 기존 fmt 차이 정리, target 정리와 한 벌 크기 측정
-    - 2026-10-28 사용자 지시("workflow도 seam 단계까지만, review부터는 나중에")로 Seam 작업자 4명 완료 직후 workflow `wf_5a0b1506-cdb`를 정지했습니다. 리뷰 전이라 작업 트리에 미커밋으로 둡니다(파일 84개, `domains/` 9개 모듈, `application.rs` 11,582→7,063줄, `host.rs` 2,477→444줄, 설계 `docs/research/2026-10-28-native-lane-seams.md`). 프로필 축소·fmt 정리·target 정리는 커밋 완료(`186c2d5a` `72065136`)
-    - 이동 결과: shell·commands·preview·explorer_search·git·terminal_agent·settings 이동, editor는 HostCommand/Reply·intent·surface만 이동하고 상태·메서드·tick은 미이동. 탭 내용 분기 hook(검색 편집기·diff·Claude diff) 생성
-    - 재개: 같은 세션이면 script `native-w0-lane-seams-wf_5a0b1506-cdb.js` + `resumeFromRunId: wf_5a0b1506-cdb`(Seam 4건 캐시, Review부터). 새 세션이면 review·fix 단계만 새 workflow로 실행한 뒤 메인이 앱·UI 전체 테스트(`--test-threads=4`)와 remote-web Wasm check로 동작 불변을 확인하고 커밋
-    - 관찰: 작업자 보고 중 앱 lib 병렬 흔들림 `context_menu_tests::실제_추가_경계_보조창_메뉴는…` 1건(이동과 무관하다는 작업자 판단, 미확인)
+- [x] W0. lane 경계 — `d5559c46` `87bf1f51`. Review pass·Fix 반영(충돌 지점 영역 블록화, editor 메서드 이동). 메인 게이트: 앱 전체 66 대상 중 lib 888/891(흔들림 2건 단독 통과, editor_fonts 기존 실패 1건), UI 전체 30 대상 통과. 빌드 한 벌 25GB
 - [ ] W1. shell(배치 24 잔여: G 통합 shell-90·91·92·93·96 포함) · explorer-search(25) · terminal-agent(27) · editor+preview(23·30)
+    - 2026-11-02 시작: 빌드 한 벌이 25GB라 W1·W2를 합쳐 7개 lane을 동시에 실행합니다. worktree `/Users/hyunseokbyun/development/TAIDE-lanes/<lane>`(브랜치 `lane/<lane>`, 기준 `87bf1f51`), target `/Users/hyunseokbyun/development/TAIDE-lanes/targets/<lane>`, script `docs/utils/2026-11-02-native-lane-workflow.js`
+    - lane: shell(묶음 2) · explorer-search(3) · terminal-agent(3 + commands-ui W1-A·B) · editor(E1·E3·E4·E5) · preview(E2) · git(G1~G8) · settings(S2·S3·S4·S1·S5). 끝나는 lane부터 메인이 커밋·병합·게이트
+    - 2026-11-03 병합: preview `e87b053c`, shell `4fa4beff`, terminal-agent `446964b7`, editor, explorer-search `6dba64f9`. 충돌 4곳(테스트 공존, host.rs 필드 공존, 기능표 행)과 의미 충돌 3종(ToastLayers, PaintSink.providers, 탐색기 mount 분리) 해결. 게이트(`docs/utils/2026-11-03-native-merge-gate.sh`): 앱 66 대상 통과·lib 5건 실패 중 4건 직렬 재실행 통과(부하 흔들림), editor_fonts 1건 기존 실패. UI 30·editor 72·syntax 20·terminal 13 대상 통과, remote-web Wasm·fmt 통과
+    - 기능표: 599행 중 complete 405·partial 59·unwired 75·missing 40·n-a 18·frozen 1, 기능 분모 580 중 69.8% 완료(세션 시작 53.4%)
+    - 2026-11-03 settings 병합 `3864e1db`: 충돌(application.rs 이벤트 필드, main.rs 실행 인자·perf init, 기능표 2행) 해결. 게이트: 앱 lib 흔들림 2건 직렬 통과·editor_fonts 기존 실패, 다른 crate 통과. 공용 crate 6개 테스트 중 `taide-runtime/tests/agent_probe.rs` 소스 문자열 단언 1건 실패 — `81e96198`부터 있던 기존 실패(이번 병합이 두 파일을 바꾸지 않음). 루트 workspace check 통과
+    - 실행 중: git(G5~G8·리뷰). 병합 뒤 연결: git-38 → explorer-search-7 Git 장식 공급, git-7 → shell `notify_event`
 - [ ] W2. git(26) · settings(28)
 - [ ] W3. commands-ui(29)·진입 잔여·shell-89
 - [ ] W4. 배치 31 구조·전체 게이트(편집기 장애 경계 설계 포함). 32·33은 사용자 허락 뒤

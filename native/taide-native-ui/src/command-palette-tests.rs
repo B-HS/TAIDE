@@ -1798,3 +1798,39 @@ fn 입력과_항목은_모드별_고정_아이콘을_왼쪽에_두고_글자를_
     assert_eq!(scene.labels(), ["12"]);
     assert_rows(&line, Icon::CornerDownLeft);
 }
+
+#[test]
+fn ime_디버그_복사_명령은_원본처럼_켜는_경로가_없어_항상_비활성_행으로_보이고_실행되지_않는다() {
+    let mut scene = Scene::new().with_project(&["src/main.rs"]);
+    scene.open(PaletteEntry::Commands);
+    let label = registry()
+        .unwrap()
+        .command("terminal.copyImeDebug")
+        .unwrap()
+        .label(&scene.locale);
+    assert_eq!(label, "Terminal: Copy IME Debug Log");
+    scene.type_text(&label);
+    let listed = scene.inspection();
+    let row = listed
+        .rows
+        .iter()
+        .find(|row| row.key == "terminal.copyImeDebug")
+        .unwrap()
+        .clone();
+    assert_eq!(
+        listed.rows.first().map(|first| first.key.as_str()),
+        Some("terminal.copyImeDebug")
+    );
+    assert!(listed.list.unwrap().contains_rect(row.rect));
+    assert!(!row.is_enabled);
+    assert!(!row.is_selected);
+    assert_eq!(scene.click(row.rect.center()), Output::default());
+    assert!(scene.palette.is_open());
+    assert!(
+        !scene
+            .inspection()
+            .rows
+            .iter()
+            .any(|row| row.key == "terminal.copyImeDebug" && (row.is_enabled || row.is_selected))
+    );
+}

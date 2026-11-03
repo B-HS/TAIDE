@@ -645,3 +645,7 @@ impl NativeApplication {
         self.observe_workspace_symbols(context, project, enabled);
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "../application-commands-tests.rs"]
+mod tests;

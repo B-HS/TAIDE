@@ -21,9 +21,34 @@ pub struct LaunchConfig {
     pub data_dir: PathBuf,
 }
 
-impl LaunchConfig {
+/// A parsed launch: the isolated data directory plus the agent CLI payload that follows it
+/// (`<file> [--wait-marker <marker>]`), kept verbatim for relaying to a running instance.
+pub struct Launch {
+    pub config: LaunchConfig,
+    pub relay_arguments: Vec<String>,
+    pub external_open: Option<taide_model::agent::ExternalOpenRequest>,
+}
+
+impl Launch {
     pub fn parse(arguments: impl IntoIterator<Item = String>) -> AppResult<Self> {
         let mut arguments = arguments.into_iter();
+        let config = LaunchConfig::parse_data_dir(&mut arguments)?;
+        let relay_arguments = arguments.collect::<Vec<_>>();
+        let external_open = crate::external_open::request_from(&relay_arguments);
+        Ok(Self {
+            config,
+            relay_arguments,
+            external_open,
+        })
+    }
+}
+
+impl LaunchConfig {
+    pub fn parse(arguments: impl IntoIterator<Item = String>) -> AppResult<Self> {
+        Launch::parse(arguments).map(|launch| launch.config)
+    }
+
+    fn parse_data_dir(arguments: &mut impl Iterator<Item = String>) -> AppResult<Self> {
         if arguments.next().as_deref() != Some("--data-dir") {
             return Err(AppError::Forbidden(
                 "native app requires --data-dir <absolute isolated directory>".into(),
@@ -32,11 +57,6 @@ impl LaunchConfig {
         let path = arguments
             .next()
             .ok_or_else(|| AppError::Forbidden("native data directory is missing".into()))?;
-        if arguments.next().is_some() {
-            return Err(AppError::Forbidden(
-                "unexpected native launch argument".into(),
-            ));
-        }
         let data_dir = PathBuf::from(path);
         if !data_dir.is_absolute()
             || data_dir.parent().is_none()

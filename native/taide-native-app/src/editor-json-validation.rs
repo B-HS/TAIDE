@@ -78,7 +78,7 @@ const REF_LIMITS: json_schema_refs::Limits = json_schema_refs::Limits {
     max_messages: MAX_DIAGNOSTICS,
     max_message_units: MAX_MESSAGE_UNITS,
 };
-const SCHEMA_LIMITS: json_schema_document::Limits = json_schema_document::Limits {
+pub(crate) const SCHEMA_LIMITS: json_schema_document::Limits = json_schema_document::Limits {
     service: json_schema_service::Limits {
         associations: json_schema_associations::Limits {
             uri: URI_LIMITS,
@@ -296,7 +296,7 @@ impl State {
     }
 }
 
-fn contributions() -> Result<&'static [Contribution], EditorError> {
+pub(crate) fn contributions() -> Result<&'static [Contribution], EditorError> {
     static CONTRIBUTIONS: OnceLock<Result<Vec<Contribution>, EditorError>> = OnceLock::new();
     CONTRIBUTIONS
         .get_or_init(|| json_schema_document::contributions(VALUE_LIMITS))
@@ -304,7 +304,7 @@ fn contributions() -> Result<&'static [Contribution], EditorError> {
         .map_err(Clone::clone)
 }
 
-fn resource_uri(key: &DocumentKey) -> Result<String, EditorError> {
+pub(crate) fn resource_uri(key: &DocumentKey) -> Result<String, EditorError> {
     match key {
         DocumentKey::File(path) => Ok(url::Url::from_file_path(path)
             .map_err(|_| EditorError::InvalidIdentity)?

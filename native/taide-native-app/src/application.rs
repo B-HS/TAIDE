@@ -52,9 +52,10 @@ struct PaintSink {
     trees: Arc<crate::events::TreeChanges>,
     file_indexes: Arc<crate::command_palette::FileIndexChanges>,
     presentation: Arc<crate::presentation_refresh::Changes>,
-    title_branches: Arc<crate::title_branch::Changes>,
     git_cache: Arc<crate::git_cache::Changes>,
     app_menu: Arc<crate::app_menu::Changes>,
+    providers: Arc<crate::provider_events::Inbox>,
+    settings: Arc<domains::settings::Events>,
 }
 
 impl EventSink for PaintSink {
@@ -62,11 +63,19 @@ impl EventSink for PaintSink {
         self.trees.record(&event);
         self.file_indexes.record(&event);
         self.presentation.record(&event);
-        self.title_branches.record(&event);
         self.git_cache.record(&event);
         self.app_menu.record(&event);
+        self.providers.record(&event);
+        self.settings.record(&event);
         self.context.request_repaint();
     }
+}
+
+/// Construction-time replacements for host ports that tests must not reach for real.
+#[derive(Default)]
+pub(crate) struct Overrides {
+    pub(crate) secret_store: Option<taide_infra::secret::SecretStoreState>,
+    pub(crate) platform: Option<Arc<dyn taide_runtime::PlatformServices>>,
 }
 
 struct FileDocument {
@@ -184,7 +193,7 @@ pub struct NativeApplication {
     editor_rename: crate::editor_rename_controller::Controller,
     editor_code_actions: crate::editor_code_actions_controller::Controller,
     settings_state: domains::settings::State,
-    toasts: crate::toast::Toasts,
+    toasts: crate::toast_layers::ToastLayers,
     toast_theme: taide_model::theme::ThemeType,
     motion_preference: crate::motion_preference::Preference,
     editor: NativeEditor,
@@ -266,12 +275,13 @@ impl NativeApplication {
 
     #[cfg(target_os = "macos")]
     pub fn with_app_menu(mut self, context: &egui::Context) -> Self {
-        let model = crate::app_menu::Model {
-            recent: Vec::new(),
-            ..crate::app_menu::Model::new(&self.locale, &[])
-        };
+        let model = self.initial_app_menu_model();
         match crate::app_menu_bar::install(context.clone(), &model) {
-            Ok((bar, events)) => self.shell_state.app_menu.connect(Box::new(bar), events),
+            Ok((bar, events)) => {
+                self.shell_state
+                    .app_menu
+                    .connect_installed(Box::new(bar), events, model)
+            }
             Err(error) => log::warn!("native app menu install failed: {:?}", error.kind()),
         }
         self
@@ -283,8 +293,31 @@ impl NativeApplication {
         state: AppState,
         tasks: TaskSupervisor,
         helper_executable: PathBuf,
-        mut warnings: Vec<String>,
+        warnings: Vec<String>,
         secret_store: Option<taide_infra::secret::SecretStoreState>,
+    ) -> AppResult<Self> {
+        Self::new_with_overrides(
+            context,
+            runtime,
+            state,
+            tasks,
+            helper_executable,
+            warnings,
+            Overrides {
+                secret_store,
+                ..Overrides::default()
+            },
+        )
+    }
+
+    pub(crate) fn new_with_overrides(
+        context: &eframe::CreationContext<'_>,
+        runtime: Runtime,
+        state: AppState,
+        tasks: TaskSupervisor,
+        helper_executable: PathBuf,
+        mut warnings: Vec<String>,
+        overrides: Overrides,
     ) -> AppResult<Self> {
         let egui = context.egui_ctx.clone();
         let repaint_context = egui.clone();
@@ -293,9 +326,10 @@ impl NativeApplication {
         let tree_changes = Arc::new(crate::events::TreeChanges::default());
         let palette_file_changes = Arc::new(crate::command_palette::FileIndexChanges::default());
         let presentation_changes = Arc::new(crate::presentation_refresh::Changes::default());
-        let title_branch_changes = Arc::new(crate::title_branch::Changes::default());
         let git_cache_changes = Arc::new(crate::git_cache::Changes::default());
         let app_menu_changes = Arc::new(crate::app_menu::Changes::default());
+        let provider_events = Arc::new(crate::provider_events::Inbox::default());
+        let settings_events = Arc::new(domains::settings::Events::default());
         let (mut assembly, connection) = runtime.block_on(bootstrap::connect_shell(
             state.clone(),
             tasks.clone(),
@@ -304,20 +338,23 @@ impl NativeApplication {
                 trees: tree_changes.clone(),
                 file_indexes: palette_file_changes.clone(),
                 presentation: presentation_changes.clone(),
-                title_branches: title_branch_changes.clone(),
                 git_cache: git_cache_changes.clone(),
                 app_menu: app_menu_changes.clone(),
+                providers: provider_events.clone(),
+                settings: settings_events.clone(),
             }),
             repaint.clone(),
         ))?;
-        if let Some(secret_store) = secret_store {
-            Arc::get_mut(&mut assembly.services)
-                .ok_or_else(|| {
-                    AppError::Internal(
-                        "native credentials were shared before initialization".into(),
-                    )
-                })?
-                .secrets = secret_store;
+        if overrides.secret_store.is_some() || overrides.platform.is_some() {
+            let services = Arc::get_mut(&mut assembly.services).ok_or_else(|| {
+                AppError::Internal("native credentials were shared before initialization".into())
+            })?;
+            if let Some(secret_store) = overrides.secret_store {
+                services.secrets = secret_store;
+            }
+            if let Some(platform) = overrides.platform {
+                services.platform = taide_runtime::PlatformServicesState(platform);
+            }
         }
         let services = assembly.services;
         let system_theme = match egui.system_theme() {
@@ -344,15 +381,17 @@ impl NativeApplication {
                 ))
             },
         ))?;
-        let theme = resolved.theme?;
-        let locale = resolved.locale?;
+        let crate::status_error_banner::Startup {
+            theme,
+            locale,
+            appearances,
+            failures: presentation_failures,
+        } = crate::status_error_banner::startup(&state, resolved, &presentation_inputs.settings)?;
         egui.set_fonts(fonts.definitions);
         warnings.extend(fonts.warnings);
         for warning in &warnings {
             log::warn!("{warning}");
         }
-        let appearances =
-            crate::presentation_refresh::Appearances::new(&theme, &presentation_inputs.settings)?;
         presentation::apply_visuals(&egui, &appearances.visuals);
         let shell = NativeShell {
             scope: WindowScope::Main,
@@ -473,7 +512,7 @@ impl NativeApplication {
             &collation_locale,
             cfg!(target_os = "macos"),
         )?;
-        let toasts = crate::toast::Toasts::with_actions()?;
+        let toasts = crate::toast_layers::ToastLayers::new()?;
         let toast_theme = theme.theme_type;
         let tooltips = crate::tooltips::Provider::default();
         let mut settings_views = crate::settings_view::Views::default();
@@ -507,6 +546,8 @@ impl NativeApplication {
                 editor_ide_selection: crate::editor_ide_selection::State::default(),
                 status_ide_appearance: appearances.status_ide,
                 status_ide_icons,
+                command_colors: None,
+                cli_status: None,
             },
             preview_state: domains::preview::State {
                 web_bridge: Some(web_bridge),
@@ -566,7 +607,7 @@ impl NativeApplication {
                 symbol_sidebars: crate::symbol_sidebar::Views::default(),
                 breadcrumbs: crate::breadcrumbs::Views::default(),
                 trees: HashMap::new(),
-                explorers: HashMap::new(),
+                explorers: crate::explorer_mounts::Mounts::default(),
                 explorer_clipboards: crate::explorer_clipboard_owners::ClipboardOwners::new(
                     egui.viewport_id(),
                 ),
@@ -574,6 +615,11 @@ impl NativeApplication {
                 deleting_entry: false,
                 tree_loading: HashSet::new(),
                 tree_changes,
+                tree_failures: HashSet::new(),
+                git_decorations: crate::explorer_git_decorations::GitDecorations::default(),
+                search_streams: Default::default(),
+                search_history: Default::default(),
+                search_editors: Default::default(),
             },
             shell,
             shell_state: domains::shell::State {
@@ -594,6 +640,10 @@ impl NativeApplication {
                 auxiliary_pass_root: None,
                 overlay_viewport: egui::ViewportId::ROOT,
                 zen_fullscreen_state,
+                provider_events,
+                notifications: Default::default(),
+                ide_sync: Default::default(),
+                main_window_zoomed: None,
             },
             mirror_sweeps: crate::mirror_sweep::MirrorSweeps::default(),
             commands_state: domains::commands::State {
@@ -619,8 +669,11 @@ impl NativeApplication {
                     presentation_inputs,
                     presentation_revision,
                 ),
-                presentation_failures: Default::default(),
+                presentation_failures,
                 presentation_system_language: system_language,
+                sections_ports: Arc::new(crate::settings_ports::Ports::default()),
+                sections_events: settings_events,
+                reported_failures: Default::default(),
             },
             toasts,
             toast_theme,
@@ -668,8 +721,6 @@ impl NativeApplication {
             failed: HashMap::new(),
             refused: HashSet::new(),
             git_state: domains::git::State {
-                title_branch_changes,
-                title_branches: Default::default(),
                 cache_changes: git_cache_changes,
                 cache: Default::default(),
                 panels: Default::default(),
@@ -852,7 +903,7 @@ impl NativeApplication {
                         .and_then(|page| {
                             self.explorer_search_state
                                 .explorers
-                                .get_mut(&project)?
+                                .get_mut(&project, request.mount.as_ref()?)?
                                 .retry_create(&request, &page.rows, &self.locale)
                         });
                     if let Some(request) = retried {
@@ -867,7 +918,7 @@ impl NativeApplication {
                         .and_then(|page| {
                             self.explorer_search_state
                                 .explorers
-                                .get_mut(&project)?
+                                .get_mut(&project, request.mount.as_ref()?)?
                                 .retry_rename(&request, &page.rows, &self.locale)
                         });
                     if let Some(request) = retried {
@@ -1039,8 +1090,9 @@ impl NativeApplication {
         let toast_position = self.services.state.settings.read().toast_position.clone();
         let toast_now = Instant::now();
         self.toasts
+            .main()
             .set_position(context, &toast_position, toast_now, toast_enabled);
-        self.toasts.tick(context, toast_now, toast_enabled);
+        self.toasts.main().tick(context, toast_now, toast_enabled);
         if self.closing.is_some() || self.services.state.is_shutting_down() {
             self.terminal_agent_state.terminal_views.cancel_inputs();
             self.reveals.clear();
@@ -1057,8 +1109,10 @@ impl NativeApplication {
             context.request_repaint();
         }
         self.tick_terminal_agent_cursors(context);
+        self.tick_terminal_agent_live_sessions(context);
         self.reconcile_previews();
         self.poll(context);
+        self.consume_provider_events(context, Instant::now());
         self.sync_theme_preview(context);
         if self.closing.is_some() || self.is_exit_ready || self.services.state.is_shutting_down() {
             self.settings_state.presentation_refresh.cancel();
@@ -1246,10 +1300,11 @@ impl NativeApplication {
             }
         }
         let zoom_factor = context.zoom_factor();
+        let is_zoomed = self.shell_state.main_window_zoomed;
         context.input(|input| {
             self.shell_state
                 .window_state
-                .observe(input.viewport(), zoom_factor)
+                .observe(input.viewport(), zoom_factor, is_zoomed)
         });
         let close_requested = context.input(|input| input.viewport().close_requested());
         if close_requested && !self.is_exit_ready {
@@ -1312,7 +1367,8 @@ impl eframe::App for NativeApplication {
             .raw_input_with_replay(context, input, replayed_events);
     }
 
-    fn logic(&mut self, context: &egui::Context, _: &mut eframe::Frame) {
+    fn logic(&mut self, context: &egui::Context, frame: &mut eframe::Frame) {
+        self.shell_state.main_window_zoomed = crate::window_state::is_zoomed(frame);
         self.background_tick(context);
     }
 
@@ -1547,7 +1603,7 @@ impl NativeApplication {
                                     self.lsp.as_ref().is_some_and(|lsp| {
                                         !lsp.formatting_providers(project, &document, command)
                                             .is_empty()
-                                    }) || crate::editor_json_formatting::is_eligible(&document)
+                                    }) || crate::editor_formatting::is_native_eligible(&document)
                                 });
                         }
                         if let Some(command) =
@@ -1663,6 +1719,7 @@ impl NativeApplication {
         let mut keymap_documents = HashMap::new();
         let mut explorer_output = domains::explorer_search::FrameOutput::default();
         let mut load_files = Vec::new();
+        let mut git_editors = Vec::new();
         let mut preview_output = domains::preview::FrameOutput::default();
         let mut web_placements = Vec::new();
         let mut save_missing_drafts = Vec::new();
@@ -1904,12 +1961,20 @@ impl NativeApplication {
             explorers: &mut self.explorer_search_state.explorers,
             explorer_clipboards: &mut self.explorer_search_state.explorer_clipboards,
             explorer_output: &mut explorer_output,
+            explorer_inputs: domains::explorer_search::ExplorerInputs {
+                tree_failures: &self.explorer_search_state.tree_failures,
+                git_decorations: &self.explorer_search_state.git_decorations,
+                is_auto_reveal_enabled: self.services.state.settings.read().explorer_auto_reveal,
+                search_streams: &self.explorer_search_state.search_streams,
+                search_history: &mut self.explorer_search_state.search_history,
+                search_editors: &mut self.explorer_search_state.search_editors,
+            },
             projects: &snapshot.projects,
             layouts: &snapshot.layouts,
             scope: &self.shell.scope,
             auxiliary_windows: &self.shell_state.auxiliary_windows,
-            title_branches: &self.git_state.title_branches,
             git: &self.git_state,
+            git_editors: &mut git_editors,
             commands: &mut commands,
             load_files: &mut load_files,
             target: target.as_ref(),
@@ -1941,17 +2006,23 @@ impl NativeApplication {
                 ),
             );
             let window = ui.max_rect();
-            if (crate::file_drop::is_hovering(&context)
-                || self.preview_state.web_views.drags().is_hovering())
-                && let Err(error) = crate::file_drop::paint_overlay(
+            if crate::file_drop::is_hovering(&context)
+                || self.preview_state.web_views.drags().is_hovering()
+            {
+                if let Err(error) = crate::file_drop::paint_overlay(
                     ui,
                     window,
                     &self.shell_state.file_drop_colors,
                     &presentation::message(&self.locale, "app.dropToOpen", &[]),
                     &mut self.explorer_search_state.navigation_icons,
-                )
-            {
-                status = Some(error.to_string());
+                ) {
+                    status = Some(error.to_string());
+                }
+                for banner in
+                    crate::status_error_banner::layer_ids(self.settings_state.presentation_failures)
+                {
+                    context.set_sublayer(crate::file_drop::overlay_layer(), banner);
+                }
             }
             let mut paths = crate::file_drop::dropped_paths(&context);
             paths.extend(self.preview_state.web_views.drags().take_dropped());
@@ -2012,6 +2083,7 @@ impl NativeApplication {
         for notice in settings_output.snippet_notices {
             self.toasts.snippet(&self.locale, notice, Instant::now());
         }
+        self.pick_settings_files(frame);
         self.load_settings_requests(
             settings_output.load_settings,
             settings_output.load_settings_resources,
@@ -2057,6 +2129,7 @@ impl NativeApplication {
                     &command_context,
                     &snapshot,
                     focused_view.as_ref(),
+                    keymap_editor_scope.is_some() || explorer_output.is_editor_widget_focused,
                     &self.shell.scope,
                 )
             }));
@@ -2142,6 +2215,7 @@ impl NativeApplication {
                     break;
                 }
             }
+            self.observe_git_editors(&context, git_editors);
             for intent in intents {
                 match intent {
                     ShellIntent::Commands(intent) => self.apply_commands_intent(intent, &context),
@@ -2239,7 +2313,7 @@ impl NativeApplication {
         self.show_preview_web_views(context, frame, web_placements, is_enabled);
         let toast_position = self.services.state.settings.read().toast_position.clone();
         let toast_enabled = self.toast_interaction_enabled();
-        if let Err(error) = self.toasts.show(
+        if let Err(error) = self.toasts.main().show(
             context,
             self.toast_theme,
             &toast_position,
@@ -2578,15 +2652,16 @@ struct AppSurfaces<'a> {
     refused: &'a HashSet<String>,
     trees: &'a HashMap<ProjectId, TreeRowPage>,
     tree_loading: &'a HashSet<ProjectId>,
-    explorers: &'a mut HashMap<ProjectId, crate::explorer::Explorer>,
+    explorers: &'a mut crate::explorer_mounts::Mounts,
     explorer_clipboards: &'a mut crate::explorer_clipboard_owners::ClipboardOwners,
     explorer_output: &'a mut domains::explorer_search::FrameOutput,
+    explorer_inputs: domains::explorer_search::ExplorerInputs<'a>,
     projects: &'a [taide_model::project::ProjectRef],
     layouts: &'a HashMap<ProjectId, taide_model::layout::ProjectLayout>,
     scope: &'a WindowScope,
     auxiliary_windows: &'a crate::auxiliary_windows::Windows,
-    title_branches: &'a crate::title_branch::Branches,
     git: &'a domains::git::State,
+    git_editors: &'a mut Vec<domains::git::ShownEditor>,
     commands: &'a mut Vec<HostCommand>,
     load_files: &'a mut Vec<(String, TabId)>,
     target: Option<&'a PaneId>,
@@ -2883,6 +2958,9 @@ mod missing_draft_tests;
 #[cfg(all(test, unix))]
 #[path = "application-markdown-tests.rs"]
 mod markdown_tests;
+#[cfg(all(test, unix))]
+#[path = "application-preview-tests.rs"]
+mod preview_tests;
 
 #[cfg(all(test, unix))]
 #[path = "application-ai-completion-tests.rs"]
@@ -2938,6 +3016,18 @@ mod shell_dialogs_tests;
 #[cfg(all(test, unix))]
 #[path = "application-explorer-views-tests.rs"]
 mod explorer_views_tests;
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "application-terminal-agent-tests.rs"]
+mod terminal_agent_tests;
+
+#[cfg(test)]
+#[path = "application-explorer-search-tests.rs"]
+mod explorer_search_tests;
+
+#[cfg(test)]
+#[path = "application-search-panel-tests.rs"]
+mod search_panel_tests;
 
 #[cfg(test)]
 mod close_all_tests {

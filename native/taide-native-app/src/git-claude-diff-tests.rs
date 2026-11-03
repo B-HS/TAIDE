@@ -1,11 +1,10 @@
 use std::collections::HashSet;
 use std::time::Instant;
 
-use taide_model::app_event::AppEvent;
-use taide_model::ids::{ProjectId, TabId};
+use taide_model::ids::TabId;
 use taide_native_ui::diff_view::Hunk;
 
-use super::{Event, Inbox, RECOMPUTE_DELAY, State};
+use super::{RECOMPUTE_DELAY, State};
 
 const HUNK: Hunk = Hunk {
     old_start: 1,
@@ -13,42 +12,6 @@ const HUNK: Hunk = Hunk {
     new_start: 1,
     new_lines: 1,
 };
-
-#[test]
-fn 수신함은_diff_요청과_요청_id가_있는_close_tab만_기록한다() {
-    let inbox = Inbox::default();
-    let project = ProjectId::new();
-    inbox.record(&AppEvent::IdeDiffRequested {
-        request_id: "r1".into(),
-        project_id: project.clone(),
-        old_path: "/old".into(),
-        new_path: "/new".into(),
-        new_contents: "proposed".into(),
-        tab_name: "title".into(),
-    });
-    inbox.record(&AppEvent::IdeCloseTabRequested {
-        tab_name: "title".into(),
-        request_id: None,
-    });
-    inbox.record(&AppEvent::IdeCloseTabRequested {
-        tab_name: "title".into(),
-        request_id: Some("r1".into()),
-    });
-    assert_eq!(
-        inbox.take(),
-        vec![
-            Event::Requested {
-                request_id: "r1".into(),
-                project,
-                path: "/new".into(),
-                contents: "proposed".into(),
-                title: "title".into(),
-            },
-            Event::Closed("r1".into()),
-        ]
-    );
-    assert!(inbox.take().is_empty());
-}
 
 #[test]
 fn 첫_줄_diff는_바로_이후_변경은_200ms_뒤에_한_번만_계산한다() {

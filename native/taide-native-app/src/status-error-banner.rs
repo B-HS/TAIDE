@@ -1,8 +1,12 @@
 use std::sync::Arc;
 
-use eframe::egui::{self, Color32, FontId, Id, Rect, Sense, Stroke, Vec2, pos2, vec2};
-use taide_model::{error::AppResult, locale::ResolvedLocale, theme::ResolvedTheme};
+use eframe::egui::{self, Color32, FontId, Id, LayerId, Rect, Sense, Stroke, Vec2, pos2, vec2};
+use taide_model::{
+    error::AppResult, locale::ResolvedLocale, settings::Settings, theme::ResolvedTheme,
+};
+use taide_runtime::{AppState, locale_actions, theme_actions};
 
+use crate::presentation_refresh::{Appearances, Resolved};
 use crate::problems_icons::{Glyph, Icons};
 
 /// `STATUS_ERROR_BANNER_HEIGHT_PX` (`status-error-banner.tsx` 9): how far below the locale banner
@@ -24,6 +28,8 @@ const LINE_HEIGHT: f32 = 16.0;
 const BACKGROUND_OPACITY: f32 = 0.15;
 const UNDERLINE_WIDTH: f32 = 1.0;
 const LAYER: &str = "native-status-error-banner";
+const FALLBACK_THEME_ID: &str = taide_model::settings::DEFAULT_THEME_ID;
+const FALLBACK_LOCALE_ID: &str = "en";
 
 /// Whether the last theme and locale loads failed (`useQuery(...).isError` of
 /// `theme-provider.tsx` 23 and `locale-provider.tsx` 11).
@@ -31,6 +37,66 @@ const LAYER: &str = "native-status-error-banner";
 pub(crate) struct Failures {
     pub(crate) theme: bool,
     pub(crate) locale: bool,
+}
+
+/// The presentation the app launches with.
+pub(crate) struct Startup {
+    pub(crate) theme: ResolvedTheme,
+    pub(crate) locale: ResolvedLocale,
+    pub(crate) appearances: Appearances,
+    pub(crate) failures: Failures,
+}
+
+/// Keeps launching on the bundled dark theme and English pack when the first theme or locale load
+/// fails, and marks that banner like a failed query (`theme-provider.tsx` 100-112,
+/// `locale-provider.tsx` 25-32). Only a broken bundled fallback stops the launch.
+pub(crate) fn startup(
+    state: &AppState,
+    resolved: Resolved,
+    settings: &Settings,
+) -> AppResult<Startup> {
+    let (theme, appearances, theme_failed) = match resolved.theme.and_then(|theme| {
+        let appearances = Appearances::new(&theme, settings)?;
+        Ok((theme, appearances))
+    }) {
+        Ok((theme, appearances)) => (theme, appearances, false),
+        Err(error) => {
+            log::warn!("native theme load failed at launch, using the bundled theme: {error}");
+            let theme = theme_actions::theme_get(state, FALLBACK_THEME_ID.into())?;
+            let appearances = Appearances::new(&theme, settings)?;
+            (theme, appearances, true)
+        }
+    };
+    let (locale, locale_failed) = match resolved.locale {
+        Ok(locale) => (locale, false),
+        Err(error) => {
+            log::warn!("native locale load failed at launch, using the bundled pack: {error}");
+            (
+                locale_actions::locale_get(state, FALLBACK_LOCALE_ID.into())?,
+                true,
+            )
+        }
+    };
+    Ok(Startup {
+        theme,
+        locale,
+        appearances,
+        failures: Failures {
+            theme: theme_failed,
+            locale: locale_failed,
+        },
+    })
+}
+
+fn layer(kind: &str) -> LayerId {
+    LayerId::new(egui::Order::Middle, Id::new((LAYER, kind)))
+}
+
+/// The layers of the banners [`show`] draws for these failures, top banner first.
+pub(crate) fn layer_ids(failures: Failures) -> impl Iterator<Item = LayerId> {
+    [(failures.locale, "locale"), (failures.theme, "theme")]
+        .into_iter()
+        .filter_map(|(failed, kind)| failed.then(|| layer(kind)))
 }
 
 /// Draws the locale banner at the top and the theme banner under it (`locale-provider.tsx` 27-29,
@@ -63,8 +129,9 @@ pub(crate) fn show(
         .into_iter()
         .filter_map(|(failed, kind, message)| failed.then_some((kind, message)))
     {
-        let shown = egui::Area::new(Id::new((LAYER, kind)))
-            .order(egui::Order::Middle)
+        let layer = layer(kind);
+        let shown = egui::Area::new(layer.id)
+            .order(layer.order)
             .fixed_pos(pos2(content.left(), content.top() + offset))
             .constrain(false)
             .fade_in(false)

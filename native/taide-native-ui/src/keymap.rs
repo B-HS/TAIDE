@@ -1123,3 +1123,7 @@ fn capture_key(event: &KeyEvent<'_>) -> String {
         _ => event.key.to_owned(),
     }
 }
+
+#[cfg(test)]
+#[path = "keymap-settings-tests.rs"]
+mod settings_tests;

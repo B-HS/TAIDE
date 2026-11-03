@@ -20,6 +20,10 @@ use crate::{
 
 #[path = "settings-code-view.rs"]
 pub(crate) mod code_view;
+#[path = "settings-dialogs.rs"]
+mod dialogs;
+#[path = "settings-sections-view.rs"]
+pub mod sections_view;
 
 pub const PAGE_X: i8 = 16;
 const PAGE_Y: i8 = 32;
@@ -65,6 +69,7 @@ const SWITCH_WIDTH: f32 = 32.0;
 const SWITCH_HEIGHT: f32 = 18.4;
 const SWITCH_THUMB: f32 = 16.0;
 const SWITCH_INSET: f32 = 1.0;
+const DISABLED_OPACITY: f32 = 0.5;
 const CHECK_SIZE: f32 = 16.0;
 const CHECK_STROKE: f32 = 2.0;
 const HALF: f32 = 0.5;
@@ -136,6 +141,7 @@ pub struct Appearance {
     editor: crate::theme_editor::Appearance,
     code: code_view::Appearance,
     snippets: crate::snippet_editor::Appearance,
+    sections: sections_view::Appearance,
 }
 
 impl Appearance {
@@ -161,6 +167,7 @@ impl Appearance {
             editor: crate::theme_editor::Appearance::new(theme)?,
             code: code_view::Appearance::new(theme)?,
             snippets: crate::snippet_editor::Appearance::new(theme)?,
+            sections: sections_view::Appearance::new(theme)?,
         })
     }
 }
@@ -177,6 +184,7 @@ pub struct Views {
     resource_cache: crate::settings_resources::Cache,
     font_previews: crate::font_preview::Previews,
     snippet_catalog: crate::snippet_catalog::Catalog,
+    sections_data: crate::settings_sections_data::Data,
 }
 
 mod retained {
@@ -201,6 +209,7 @@ mod retained {
         pub viewport: egui::ViewportId,
         pub preview: Option<ResolvedTheme>,
         pub preview_sequence: u64,
+        pub host: sections_view::OwnerState,
     }
 }
 use retained::View;
@@ -262,6 +271,15 @@ impl Views {
         self.resource_seen.clear();
         self.resource_cache = crate::settings_resources::Cache::default();
         self.snippet_catalog = crate::snippet_catalog::Catalog::default();
+        self.sections_data = crate::settings_sections_data::Data::default();
+    }
+
+    pub fn sections_data(&self) -> &crate::settings_sections_data::Data {
+        &self.sections_data
+    }
+
+    pub fn sections_data_mut(&mut self) -> &mut crate::settings_sections_data::Data {
+        &mut self.sections_data
     }
 
     pub fn observe_theme_revision(&mut self, revision: u64) {
@@ -438,6 +456,31 @@ impl Views {
         locale: &ResolvedLocale,
         appearance: &Appearance,
     ) -> Output {
+        self.show_sections(ui, owner, settings, locale, appearance, None)
+    }
+
+    /// Draws Settings with the sections that need the native application host.
+    pub fn show_with_host(
+        &mut self,
+        ui: &mut Ui,
+        owner: Owner,
+        settings: &Settings,
+        locale: &ResolvedLocale,
+        appearance: &Appearance,
+        host: sections_view::Host<'_>,
+    ) -> Output {
+        self.show_sections(ui, owner, settings, locale, appearance, Some(host))
+    }
+
+    fn show_sections(
+        &mut self,
+        ui: &mut Ui,
+        owner: Owner,
+        settings: &Settings,
+        locale: &ResolvedLocale,
+        appearance: &Appearance,
+        host: Option<sections_view::Host<'_>>,
+    ) -> Output {
         self.seen.insert(owner.clone());
         if self.icons.is_none() {
             match Icons::new() {
@@ -491,6 +534,7 @@ impl Views {
                     viewport: ui.ctx().viewport_id(),
                     preview: None,
                     preview_sequence: 0,
+                    host: sections_view::OwnerState::default(),
                 },
             );
         }
@@ -584,6 +628,7 @@ impl Views {
                     appearance,
                     icons,
                     &mut self.font_previews,
+                    host.map(|host| (host, &mut self.sections_data)),
                     &mut output,
                 );
             }
@@ -593,6 +638,7 @@ impl Views {
             view.code = code_view::State::new(settings);
             view.reset_scroll = true;
             view.language_open = false;
+            view.host.reset_section_state();
         }
         if let Some((source, mode, name)) = output.open.take() {
             match Editor::new(owner, source, mode, name) {
@@ -601,6 +647,7 @@ impl Views {
                     view.code = code_view::State::new(settings);
                     view.reset_scroll = true;
                     view.language_open = false;
+                    view.host.reset_section_state();
                 }
                 Err(error) => output.theme_error = Some(error),
             }
@@ -621,6 +668,7 @@ pub struct Output {
     pub snippet_notices: Vec<crate::snippet_editor::Notice>,
     pub theme_error: Option<AppError>,
     pub open_settings_file: bool,
+    pub open_app_file: Option<(taide_model::app::AppFileTarget, String)>,
     pub open_keybindings: bool,
     pub tooltips: Vec<crate::tooltip_trigger::Trigger>,
     open: Option<(String, Mode, String)>,
@@ -719,8 +767,32 @@ impl View {
         appearance: &Appearance,
         icons: &Icons,
         font_previews: &mut crate::font_preview::Previews,
+        mut hosted: Option<(
+            sections_view::Host<'_>,
+            &mut crate::settings_sections_data::Data,
+        )>,
         output: &mut Output,
     ) {
+        let mounting = hosted.is_some() && self.host.mount();
+        if let Some((_, data)) = &mut hosted {
+            self.host.receive(data);
+        }
+        let sections = Section::BASIC
+            .into_iter()
+            .chain(
+                hosted
+                    .is_some()
+                    .then_some(Section::HOSTED)
+                    .into_iter()
+                    .flatten(),
+            )
+            .chain(
+                hosted
+                    .as_ref()
+                    .is_some_and(|(host, _)| host.is_perf_enabled)
+                    .then_some(Section::Performance),
+            )
+            .collect::<Vec<_>>();
         let container = ui.available_rect_before_wrap();
         egui::Frame::NONE
             .fill(appearance.background)
@@ -805,7 +877,7 @@ impl View {
                             );
                             toc.spacing_mut().item_spacing.y = TOC_ROW_GAP;
                             let mut scroll = None;
-                            for section in Section::BASIC {
+                            for &section in &sections {
                                 let selected = self.active == section;
                                 let text = message(locale, section.title(), &[]);
                                 let button = egui::Button::new(
@@ -845,7 +917,8 @@ impl View {
                                 |ui| {
                                     ui.spacing_mut().item_spacing.y = SECTION_GAP;
                                     let width = ui.available_width();
-                                    for section in Section::BASIC {
+                                    let mut scroll_card_top = None;
+                                    for &section in &sections {
                                         let card = egui::Frame::NONE
                                             .fill(appearance.card)
                                             .stroke(Stroke::new(1.0, appearance.border))
@@ -867,7 +940,7 @@ impl View {
                                                 .size(SECTION_TITLE_SIZE)
                                                 .strong()
                                                 .color(appearance.foreground);
-                                                if section == Section::Keymap {
+                                                if let Some(description) = section.description() {
                                                     ui.scope(|ui| {
                                                         ui.spacing_mut().item_spacing.y =
                                                             CARD_DESCRIPTION_GAP;
@@ -875,7 +948,7 @@ impl View {
                                                         ui.label(
                                                             RichText::new(message(
                                                                 locale,
-                                                                "settings.keymapDescription",
+                                                                description,
                                                                 &[],
                                                             ))
                                                             .size(TEXT_SIZE)
@@ -898,7 +971,14 @@ impl View {
                                                             output,
                                                         ),
                                                         Section::Interface => self.interface(
-                                                            ui, settings, locale, appearance,
+                                                            ui,
+                                                            settings,
+                                                            locale,
+                                                            appearance,
+                                                            hosted.as_mut().map(|(host, data)| {
+                                                                (*host, &mut **data)
+                                                            }),
+                                                            mounting,
                                                             output,
                                                         ),
                                                         Section::Notifications => {
@@ -911,6 +991,13 @@ impl View {
                                                                 switch(
                                                                     ui, field, settings, locale,
                                                                     appearance, output,
+                                                                );
+                                                            }
+                                                            if let Some((host, data)) = &mut hosted
+                                                            {
+                                                                sections_view::notifications(
+                                                                    ui, data, *host, locale,
+                                                                    appearance, icons, output,
                                                                 );
                                                             }
                                                         }
@@ -935,19 +1022,99 @@ impl View {
                                                                 output,
                                                             );
                                                         }
+                                                        Section::Lsp => {
+                                                            if let Some((_, data)) = &mut hosted {
+                                                                sections_view::lsp(
+                                                                    ui, data, mounting, locale,
+                                                                    appearance, icons, output,
+                                                                );
+                                                            }
+                                                        }
+                                                        Section::Ai => {
+                                                            if let Some((_, data)) = &mut hosted {
+                                                                sections_view::ai(
+                                                                    ui,
+                                                                    data,
+                                                                    &mut self.host,
+                                                                    mounting,
+                                                                    settings,
+                                                                    locale,
+                                                                    appearance,
+                                                                    icons,
+                                                                    output,
+                                                                );
+                                                            }
+                                                        }
+                                                        Section::Plugins => {
+                                                            if let Some((_, data)) = &mut hosted {
+                                                                sections_view::plugins(
+                                                                    ui,
+                                                                    data,
+                                                                    &mut self.host,
+                                                                    mounting,
+                                                                    locale,
+                                                                    appearance,
+                                                                    icons,
+                                                                    output,
+                                                                );
+                                                            }
+                                                        }
+                                                        Section::Sync => {
+                                                            if let Some((host, data)) = &mut hosted
+                                                            {
+                                                                sections_view::sync(
+                                                                    ui,
+                                                                    data,
+                                                                    &mut self.host,
+                                                                    mounting,
+                                                                    *host,
+                                                                    settings,
+                                                                    locale,
+                                                                    appearance,
+                                                                    icons,
+                                                                    output,
+                                                                );
+                                                            }
+                                                        }
+                                                        Section::Remote => {
+                                                            if let Some((_, data)) = &mut hosted {
+                                                                sections_view::remote(
+                                                                    ui,
+                                                                    data,
+                                                                    &mut self.host,
+                                                                    mounting,
+                                                                    settings,
+                                                                    locale,
+                                                                    appearance,
+                                                                    icons,
+                                                                    output,
+                                                                );
+                                                            }
+                                                        }
+                                                        Section::Performance => {
+                                                            if let Some((_, data)) = &mut hosted {
+                                                                sections_view::performance(
+                                                                    ui,
+                                                                    data,
+                                                                    &mut self.host,
+                                                                    locale,
+                                                                    appearance,
+                                                                    output,
+                                                                );
+                                                            }
+                                                        }
                                                     }
                                                 });
                                             });
                                         if scroll == Some(section) {
-                                            ui.scroll_to_rect(
-                                                Rect::from_min_size(
-                                                    card.response.rect.left_top()
-                                                        - egui::vec2(0.0, f32::from(PAGE_Y)),
-                                                    egui::Vec2::ZERO,
-                                                ),
-                                                Some(Align::TOP),
-                                            );
+                                            scroll_card_top = Some(card.response.rect.top());
                                         }
+                                    }
+                                    if let Some(top) = scroll_card_top {
+                                        ui.scroll_with_delta(egui::vec2(
+                                            0.0,
+                                            ui.clip_rect().top() + f32::from(PAGE_Y) - top,
+                                        ));
                                     }
                                     ui.add_space(viewport.height() * TAIL_VIEWPORT_FRACTION);
                                 },
@@ -1517,6 +1684,11 @@ impl View {
         settings: &Settings,
         locale: &ResolvedLocale,
         appearance: &Appearance,
+        mut hosted: Option<(
+            sections_view::Host<'_>,
+            &mut crate::settings_sections_data::Data,
+        )>,
+        mounting: bool,
         output: &mut Output,
     ) {
         ui.label(
@@ -1594,6 +1766,21 @@ impl View {
             .filter(|field| field.section() == Section::Interface && *field != Switch::SearchOnType)
         {
             switch(ui, field, settings, locale, appearance, output);
+            if field == Switch::AgentStatusBadge
+                && let Some((host, data)) = &mut hosted
+            {
+                sections_view::interface(
+                    ui,
+                    data,
+                    &mut self.host,
+                    mounting,
+                    *host,
+                    settings,
+                    locale,
+                    appearance,
+                    output,
+                );
+            }
         }
         ui.separator();
         ui.label(
@@ -1773,11 +1960,36 @@ fn switch_control(
     checked: bool,
     locale: &ResolvedLocale,
     appearance: &Appearance,
+    output: &mut Output,
+) -> bool {
+    let hints = description
+        .map(|description| (message(locale, description, &[]), appearance.muted))
+        .into_iter()
+        .collect::<Vec<_>>();
+    switch_lines(
+        ui,
+        label_key,
+        &message(locale, label_key, &[]),
+        &hints,
+        checked,
+        true,
+        appearance,
+        output,
+    )
+}
+
+fn switch_lines(
+    ui: &mut Ui,
+    label_key: &'static str,
+    label: &str,
+    hints: &[(String, Color32)],
+    checked: bool,
+    enabled: bool,
+    appearance: &Appearance,
     _output: &mut Output,
 ) -> bool {
     let mut changed = false;
     ui.push_id(label_key, |ui| {
-        let label = message(locale, label_key, &[]);
         let width = ui.available_width();
         let row = ui.horizontal_top(|ui| {
             ui.allocate_ui_with_layout(
@@ -1787,21 +1999,18 @@ fn switch_control(
                     ui.spacing_mut().item_spacing.y = TOC_ROW_GAP;
                     ui.set_min_width((width - SWITCH_WIDTH - CONTROL_GAP).max(0.0));
                     ui.label(
-                        RichText::new(&label)
+                        RichText::new(label)
                             .size(TEXT_SIZE)
                             .color(appearance.foreground),
                     );
-                    if let Some(description) = description {
-                        ui.label(
-                            RichText::new(message(locale, description, &[]))
-                                .size(TEXT_SIZE)
-                                .color(appearance.muted),
-                        );
+                    for (hint, color) in hints {
+                        ui.label(RichText::new(hint).size(TEXT_SIZE).color(*color));
                     }
                 },
             );
             let (rect, _) =
                 ui.allocate_exact_size(egui::vec2(SWITCH_WIDTH, SWITCH_HEIGHT), Sense::hover());
+            let opacity = if enabled { 1.0 } else { DISABLED_OPACITY };
             ui.painter().rect_filled(
                 rect,
                 SWITCH_HEIGHT * HALF,
@@ -1809,7 +2018,8 @@ fn switch_control(
                     appearance.primary
                 } else {
                     appearance.input
-                },
+                }
+                .gamma_multiply(opacity),
             );
             let x = if checked {
                 rect.right() - SWITCH_THUMB * HALF - SWITCH_INSET
@@ -1819,17 +2029,23 @@ fn switch_control(
             ui.painter().circle_filled(
                 egui::pos2(x, rect.center().y),
                 SWITCH_THUMB * HALF,
-                appearance.background,
+                appearance.background.gamma_multiply(opacity),
             );
             rect
         });
-        let label_response = ui.interact(
-            row.response.rect,
-            Id::new((ui.id(), "switch-label")),
-            Sense::click(),
-        );
+        let id = Id::new((ui.id(), "switch-label"));
+        let label_response = ui
+            .add_enabled_ui(enabled, |ui| {
+                ui.interact(row.response.rect, id, Sense::click())
+            })
+            .inner;
         label_response.widget_info(|| {
-            egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), checked, &label)
+            egui::WidgetInfo::selected(
+                egui::WidgetType::Checkbox,
+                label_response.enabled(),
+                checked,
+                label,
+            )
         });
         #[cfg(any(test, feature = "inspection"))]
         _output

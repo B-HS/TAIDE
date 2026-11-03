@@ -857,7 +857,7 @@ fn 인라인_코드_프레임은_원본_둥근_배경과_링크_클릭을_보존
     let document = RichDocument {
         blocks: vec![Block::Paragraph(vec![Inline::Text(Span {
             text: "linked-code".into(),
-            code_element: None,
+            code_element: Some(0),
             style: taide_native_editor::documentation::Style {
                 code: true,
                 ..Default::default()
@@ -907,6 +907,60 @@ fn 인라인_코드_프레임은_원본_둥근_배경과_링크_클릭을_보존
         ]);
     }
     assert_eq!(links.targets, [TARGET]);
+}
+
+#[test]
+fn 미리보기_kbd와_samp는_코드_요소가_아니라_배경_없이_monospace만_쓴다() {
+    let context = Context::default();
+    let span = |text: &str, code_element| {
+        Inline::Text(Span {
+            text: text.into(),
+            code_element,
+            style: taide_native_editor::documentation::Style {
+                code: true,
+                ..Default::default()
+            },
+            link: None,
+        })
+    };
+    let paint = |contents: Vec<Inline>| {
+        let document = RichDocument {
+            blocks: vec![Block::Paragraph(contents)],
+        };
+        let mut output = context.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, SCREEN)),
+                ..Default::default()
+            },
+            |ui| {
+                show_preview(ui, &document, &appearance(), colors(), &mut Preview);
+            },
+        );
+        output.textures_delta.clear();
+        output
+    };
+    let has_code_background = |output: &egui::FullOutput| {
+        output.shapes.iter().any(|shape| {
+            matches!(&shape.shape, egui::Shape::Rect(rect) if rect.fill == colors().code_background)
+        })
+    };
+    let family = |output: &egui::FullOutput, text: &str| {
+        output.shapes.iter().find_map(|shape| match &shape.shape {
+            egui::Shape::Text(shape) if shape.galley.job.text == text => shape
+                .galley
+                .job
+                .sections
+                .first()
+                .map(|section| section.format.font_id.family.clone()),
+            _ => None,
+        })
+    };
+    let key = paint(vec![span("Ctrl", None)]);
+    assert!(!has_code_background(&key));
+    assert_eq!(family(&key, "Ctrl"), Some(egui::FontFamily::Monospace));
+    let code = paint(vec![span("value", Some(0))]);
+    assert!(has_code_background(&code));
+    assert_eq!(family(&code, "value"), Some(egui::FontFamily::Monospace));
 }
 
 #[test]

@@ -75,6 +75,9 @@ mod editor_gutter;
 #[path = "editor-inlay-hints.rs"]
 pub mod editor_inlay_hints;
 #[cfg(feature = "native-host")]
+#[path = "editor-inline-suggest-toolbar.rs"]
+pub mod editor_inline_suggest_toolbar;
+#[cfg(feature = "native-host")]
 #[path = "editor-locations.rs"]
 pub mod editor_locations;
 #[cfg(feature = "native-host")]
@@ -143,6 +146,8 @@ pub mod settings_controls;
 pub mod settings_owner;
 #[path = "settings-resources.rs"]
 pub mod settings_resources;
+#[path = "settings-sections-data.rs"]
+pub mod settings_sections_data;
 #[path = "settings-view.rs"]
 pub mod settings_view;
 pub mod shell;

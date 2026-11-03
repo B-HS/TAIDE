@@ -70,18 +70,17 @@ fn native_json은_실제_untitled와_읽기전용_snapshot의_byte_심볼과_접
     let mut snapshot = store.documents().snapshot(id).unwrap();
     snapshot.metadata.read_only = true;
     let models = build(&snapshot, &AtomicBool::new(false)).unwrap();
-    assert!(models.symbols.describes(&snapshot));
+    let native = models.symbols.clone().unwrap();
+    assert!(native.describes(&snapshot));
     assert_eq!(
-        models
-            .symbols
+        native
             .symbols()
             .iter()
             .map(|symbol| symbol.name.as_str())
             .collect::<Vec<_>>(),
         ["\u{1f600}", "list", "value", "0", "1"]
     );
-    let value = models
-        .symbols
+    let value = native
         .symbols()
         .iter()
         .find(|symbol| symbol.name == "value")
@@ -98,10 +97,10 @@ fn native_json은_실제_untitled와_읽기전용_snapshot의_byte_심볼과_접
             .collect::<Vec<_>>(),
         [(0, 4), (1, 2)]
     );
-    assert!(models.symbols.sticky_model().unwrap().describes(&snapshot));
+    assert!(native.sticky_model().unwrap().describes(&snapshot));
     let mut changed = snapshot.clone();
     changed.metadata.language_id = "plaintext".into();
-    assert!(!models.symbols.describes(&changed));
+    assert!(!native.describes(&changed));
     assert!(!models.folds.describes(&changed));
     assert!(matches!(
         build(&snapshot, &AtomicBool::new(true)),
@@ -138,7 +137,9 @@ async fn native_json은_내용변경과_뷰닫힘에서_이전_결과를_회수�
     for (current, result) in results {
         assert_eq!(current.revision, 1);
         let result = result.unwrap();
-        symbols.install_builtin(&current, result.symbols).unwrap();
+        symbols
+            .install_builtin(&current, result.symbols.unwrap())
+            .unwrap();
         folding.install_builtin(&current, result.folds);
     }
     let current = store.documents().snapshot(id).unwrap();
@@ -175,7 +176,7 @@ fn native_json은_깊은_container_표시와_본문_상한을_검사하고_잘�
     let (store, id, _) = fixture(TEXT);
     let snapshot = store.documents().snapshot(id).unwrap();
     let model = build(&snapshot, &AtomicBool::new(false)).unwrap();
-    let mut symbols = model.symbols.symbols().to_vec();
+    let mut symbols = model.symbols.unwrap().symbols().to_vec();
     symbols[0].selection.start = TEXT.find('\u{1f600}').unwrap() + 1;
     assert!(matches!(
         DocumentSymbols::from_symbols(&snapshot, symbols),
@@ -187,9 +188,9 @@ fn native_json은_깊은_container_표시와_본문_상한을_검사하고_잘�
 fn native_json은_외부_심볼의_우선순위와_접기_합성_및_팔레트_세대를_보존한다() {
     let (store, id, _) = fixture(TEXT);
     let snapshot = store.documents().snapshot(id).unwrap();
-    let native = build(&snapshot, &AtomicBool::new(false)).unwrap();
+    let models = build(&snapshot, &AtomicBool::new(false)).unwrap();
+    let native = models.symbols.clone().unwrap();
     let value = native
-        .symbols
         .symbols()
         .iter()
         .find(|symbol| symbol.name == "value")
@@ -215,8 +216,8 @@ fn native_json은_외부_심볼의_우선순위와_접기_합성_및_팔레트_�
     };
     let providers = HashSet::from([provider]);
     let mut symbols = crate::editor_symbols::State::default();
-    let native_sticky = native.symbols.sticky_model().unwrap().clone();
-    symbols.install_builtin(&snapshot, native.symbols).unwrap();
+    let native_sticky = native.sticky_model().unwrap().clone();
+    symbols.install_builtin(&snapshot, native).unwrap();
     let native_generation = symbols.palette(None, Some(&snapshot)).generation;
     let request = symbols
         .observe(
@@ -257,7 +258,7 @@ fn native_json은_외부_심볼의_우선순위와_접기_합성_및_팔레트_�
         &native_sticky
     ));
     let mut folding = crate::editor_folding::State::default();
-    folding.install_builtin(&snapshot, native.folds);
+    folding.install_builtin(&snapshot, models.folds);
     let request = folding
         .observe(
             &project,

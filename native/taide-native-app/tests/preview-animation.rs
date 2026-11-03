@@ -12,7 +12,7 @@ use taide_model::paths::AppPaths;
 use taide_model::project::Project;
 use taide_native_app::bootstrap::services;
 use taide_native_app::host::{HostBridge, HostCommand, HostReply};
-use taide_native_app::preview::{Animation, Cache, Frame, Raster, decode, show_image};
+use taide_native_app::preview::{Animation, Cache, Failure, Frame, Raster, decode, show_image};
 use taide_runtime::{AppState, EventSink, TaskSupervisor};
 use tokio::sync::Notify;
 
@@ -380,7 +380,11 @@ fn animation_admission은_프레임상한_zero_metadata_stale를_거절한다() 
     let path = "/root/stale.gif";
     let request = cache.begin(path, MAX_SIDE).unwrap();
     cache.retain(&HashSet::new());
-    cache.accept(&context, request, decode(&gif(None, 5, false), MAX_SIDE));
+    cache.accept(
+        &context,
+        request,
+        decode(&gif(None, 5, false), MAX_SIDE).map_err(Failure::Decode),
+    );
     assert!(cache.advance(path, &context).is_none());
     assert!(cache.begin(path, MAX_SIDE).is_some());
 }

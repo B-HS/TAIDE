@@ -662,7 +662,7 @@ pub(crate) fn show(
 fn spinner(ui: &Ui) -> (Icon, f32) {
     ui.ctx().request_repaint();
     let turn = ui.input(|input| input.time).rem_euclid(SPIN_SECONDS) / SPIN_SECONDS;
-    (Icon::LoaderCircle, turn as f32 * TAU)
+    (Icon::Loader, turn as f32 * TAU)
 }
 
 /// The commit box under the header (`commit-box.tsx`): a three-row message input with the AI

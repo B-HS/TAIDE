@@ -283,7 +283,7 @@ fn invalid(message: &str) -> AppError {
     AppError::InvalidArgument(message.into())
 }
 
-fn admit(size: Size, history: usize, limits: Limits) -> AppResult<()> {
+fn admit(size: &impl Dimensions, history: usize, limits: Limits) -> AppResult<()> {
     if size.columns() < alacritty_terminal::term::MIN_COLUMNS
         || size.screen_lines() < alacritty_terminal::term::MIN_SCREEN_LINES
         || limits.feed_bytes == 0
@@ -308,7 +308,7 @@ fn admit(size: Size, history: usize, limits: Limits) -> AppResult<()> {
 
 impl TerminalCore {
     pub fn new(size: Size, history: usize, limits: Limits) -> AppResult<Self> {
-        admit(size, history, limits)?;
+        admit(&size, history, limits)?;
         let pending = Arc::new(Mutex::new(Pending {
             effects: Vec::new(),
             bytes: 0,
@@ -452,7 +452,28 @@ impl TerminalCore {
     }
 
     pub fn validate_resize(&self, size: Size) -> AppResult<()> {
-        admit(size, self.history, self.limits)
+        admit(&size, self.history, self.limits)
+    }
+
+    pub fn history(&self) -> usize {
+        self.history
+    }
+
+    /// Changes the scrollback line limit of the running core, trimming the oldest history rows
+    /// when it shrinks. Returns `Ok(false)` for an unchanged limit and leaves the core untouched
+    /// when the new grid would exceed its admission budget.
+    pub fn set_history(&mut self, lines: usize) -> AppResult<bool> {
+        if lines == self.history {
+            return Ok(false);
+        }
+        admit(self.grid()?, lines, self.limits)?;
+        self.terminal
+            .as_mut()
+            .ok_or_else(|| invalid("terminal core is retired"))?
+            .native_set_scrolling_history(lines);
+        self.history = lines;
+        self.enforce_retained()?;
+        Ok(true)
     }
 
     pub fn resize_outcome(&mut self, size: Size) -> AppResult<Outcome> {

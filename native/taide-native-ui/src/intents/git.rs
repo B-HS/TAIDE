@@ -226,15 +226,6 @@ pub enum Intent {
         project: ProjectId,
         path: String,
     },
-    /// A file editor drew this frame with its 1-based cursor line, keeping its gutter, blame and
-    /// conflict reads observed.
-    EditorShown {
-        project: ProjectId,
-        pane: PaneId,
-        tab: TabId,
-        path: String,
-        cursor_line: u32,
-    },
     /// A press on a file editor's gutter lane at a 1-based line: a conflict start opens the
     /// resolution dialog, a hunk line the discard dialog.
     EditorLanePress {

@@ -413,7 +413,7 @@ fn 실제_app_비저장소_git_보기는_안내와_초기화_버튼을_보이고
     let (target, init) = node(&output, &button).unwrap();
     assert!(!init.is_disabled());
     let output = settle(application, &context);
-    assert_eq!(application.git_state.title_branches.branch(&alpha), None);
+    assert_eq!(application.git_state.title_branch(&alpha), None);
     assert!(!title_shows(&output, MAIN_BRANCH));
 
     application.git_state.init = Arc::new(|_, _| {
@@ -631,6 +631,70 @@ fn 실제_app_변경_목록은_그룹과_건수와_행_표시를_원본대로_�
         |_, output| node(output, "later.txt").is_some(),
     );
     assert!(node(&output, &changes).is_some());
+}
+
+#[test]
+fn 실제_app_탐색기_git_장식은_git_cache_status로_파일_배지와_상위_폴더를_그리고_git_변경_뒤_갱신한다()
+ {
+    let mut workspace = Workspace::new("explorer-decorations", &["alpha"]);
+    workspace.roots[0] = workspace.roots[0].canonicalize().unwrap();
+    let (root, empty) = (workspace.roots[0].clone(), workspace.empty.clone());
+    std::fs::create_dir_all(root.join(NESTED_DIRECTORY)).unwrap();
+    fixture::repository(&root, &empty, &[("a.txt", ORIGINAL), (NESTED, ORIGINAL)]);
+    std::fs::write(root.join("a.txt"), WORKTREE).unwrap();
+    std::fs::write(root.join(NESTED_DIRECTORY).join("new.txt"), ORIGINAL).unwrap();
+    let state = workspace.state(isolated_state(workspace.data.clone()));
+    let context = launch(&mut workspace.fixture, state);
+    let application = workspace.fixture.application.as_mut().unwrap();
+    let alpha = workspace.projects[0].clone();
+    let described = |output: &egui::FullOutput, label: &str| {
+        nodes(output, label).find_map(|(_, node)| node.description().map(str::to_owned))
+    };
+    let output = until(
+        application,
+        &context,
+        "explorer decorations",
+        |_, output| {
+            described(output, "a.txt").as_deref() == Some("modified")
+                && described(output, NESTED_DIRECTORY).as_deref() == Some("untracked")
+        },
+    );
+    assert_eq!(
+        crate::symbol_sidebar::View::Files,
+        sidebar_view(application, &alpha, &workspace.slots[0])
+    );
+    assert!(
+        application
+            .git_state
+            .cache
+            .status_result(&alpha)
+            .is_some_and(|status| status.is_ok())
+    );
+    let explorer_modified = presentation::color(
+        &application.settings_state.resolved_theme,
+        "explorer.gitModified",
+    )
+    .unwrap();
+    assert_eq!(letter_colors(&output, "M"), [explorer_modified]);
+
+    workspace.git(0, &["commit", "-am", "test(fixture): settle a"]);
+    let application = workspace.fixture.application.as_mut().unwrap();
+    application
+        .services
+        .events
+        .publish(AppEvent::GitStatusChanged {
+            project_id: alpha.clone(),
+        });
+    until(
+        application,
+        &context,
+        "decoration after commit",
+        |_, output| {
+            nodes(output, "a.txt").next().is_some()
+                && described(output, "a.txt").is_none()
+                && described(output, NESTED_DIRECTORY).as_deref() == Some("untracked")
+        },
+    );
 }
 
 #[test]

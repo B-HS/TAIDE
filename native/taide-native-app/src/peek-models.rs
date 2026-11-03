@@ -82,6 +82,26 @@ impl Models {
         }
     }
 
+    /// Re-resolves the owner of every cached peek document that belonged to `closed`, so a dirty
+    /// peek buffer is no longer mirrored under a project that is gone.
+    pub(crate) fn reassign_project(
+        &mut self,
+        closed: &taide_model::ids::ProjectId,
+        resolve: impl Fn(&std::path::Path) -> Option<taide_model::ids::ProjectId>,
+    ) {
+        for cached in self.owned.values_mut() {
+            if cached.project.as_ref() != Some(closed) {
+                continue;
+            }
+            cached.project = match &cached.key {
+                DocumentKey::File(path) => resolve(path),
+                DocumentKey::Untitled(_) | DocumentKey::AppFile(_) | DocumentKey::Virtual(_) => {
+                    None
+                }
+            };
+        }
+    }
+
     pub(crate) fn project(&self, document: DocumentId) -> Option<taide_model::ids::ProjectId> {
         self.owned
             .get(&document)

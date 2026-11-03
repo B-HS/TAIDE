@@ -32,6 +32,14 @@ pub type InitPort = Arc<dyn Fn(Arc<AppServices>, ProjectId) -> InitFuture + Send
 const LOG_PAGE: u32 = 100;
 const HEAD: &str = "HEAD";
 const VIRTUAL_SIDES: [VirtualSide; 2] = [VirtualSide::Original, VirtualSide::Modified];
+const GIT_PULL_NOTIFICATION: [&str; 2] = [
+    "notification.gitPullSucceeded",
+    "notification.gitPullFailed",
+];
+const GIT_PUSH_NOTIFICATION: [&str; 2] = [
+    "notification.gitPushSucceeded",
+    "notification.gitPushFailed",
+];
 
 /// The diff tab being drawn and the time its read last answered.
 struct DiffTab<'t> {
@@ -83,7 +91,6 @@ fn loaded_diff<'g>(
 }
 
 pub enum Command {
-    GitBranch(ProjectId),
     Read(Request<Key>),
     Init {
         project: ProjectId,
@@ -233,10 +240,6 @@ pub enum MutationOp {
 }
 
 pub enum Reply {
-    GitBranch {
-        project: ProjectId,
-        branch: Option<String>,
-    },
     Read {
         request: Request<Key>,
         result: AppResult<Value>,
@@ -275,8 +278,6 @@ pub enum Reply {
 }
 
 pub(crate) struct State {
-    pub(crate) title_branch_changes: Arc<crate::title_branch::Changes>,
-    pub(crate) title_branches: crate::title_branch::Branches,
     pub(crate) cache_changes: Arc<crate::git_cache::Changes>,
     pub(crate) cache: GitCache<Key, Value>,
     pub(crate) panels: crate::git_scm::Panels,
@@ -293,6 +294,13 @@ pub(crate) struct State {
     pub(crate) histories: crate::git_history::Panels,
     pub(crate) history_appearance: Option<crate::git_history::Appearance>,
     pub(crate) editors: crate::git_gutter::Editors,
+}
+
+impl State {
+    /// The title bar's branch (`title-bar-content.tsx`): the cached status's, none after an error.
+    pub(crate) fn title_branch(&self, project: &ProjectId) -> Option<&str> {
+        self.cache.status_result(project)?.ok()?.branch.as_deref()
+    }
 }
 
 pub(crate) fn runtime_init() -> InitPort {
@@ -506,44 +514,7 @@ async fn with_hunks(services: &AppServices, sides: DiffSides) -> AppResult<Value
 
 pub(crate) async fn dispatch(worker: &HostWorker<'_>, command: Command) -> Option<HostReply> {
     let services = worker.services;
-    let sender = worker.sender;
-    let repaint = worker.repaint;
     match command {
-        Command::GitBranch(project) => {
-            let pending_services = services.clone();
-            let sender = sender.clone();
-            let repaint = repaint.clone();
-            let pending_project = project.clone();
-            if services
-                .tasks
-                .spawn_transient("native-title-branch", async move {
-                    let status = git_actions::git_status(
-                        || {},
-                        git_actions::GitActionContext::new(
-                            &pending_services.state,
-                            &pending_services.git,
-                            &pending_services.tasks,
-                        ),
-                        pending_project.clone(),
-                    )
-                    .await;
-                    let reply = HostReply::Git(Reply::GitBranch {
-                        project: pending_project,
-                        branch: status.ok().and_then(|status| status.branch),
-                    });
-                    if sender.send(reply).await.is_ok() {
-                        repaint();
-                    }
-                })
-            {
-                None
-            } else {
-                Some(HostReply::Git(Reply::GitBranch {
-                    project,
-                    branch: None,
-                }))
-            }
-        }
         Command::Read(request) => {
             let pending_services = services.clone();
             let refused = HostReply::Git(Reply::Read {
@@ -1209,8 +1180,14 @@ fn view_hunk(hunk: taide_git::service::DiffHunk) -> taide_native_ui::diff_view::
     }
 }
 
-/// `explorer-container.tsx` `compareWithSelected`: a preview file-against-file diff tab.
-pub(crate) fn compare_tab(project: ProjectId, source: String, path: String) -> HostCommand {
+/// `explorer-container.tsx` `compareWithSelected`: a preview file-against-file diff tab in the
+/// explorer's window (`target` is that window's focused pane, `None` for the main window).
+pub(crate) fn compare_tab(
+    project: ProjectId,
+    source: String,
+    path: String,
+    target: Option<PaneId>,
+) -> HostCommand {
     let name = |path: &str| {
         std::path::Path::new(path)
             .file_name()
@@ -1229,7 +1206,7 @@ pub(crate) fn compare_tab(project: ProjectId, source: String, path: String) -> H
             parent_rev: None,
             before_path: None,
         },
-        target: None,
+        target,
         preview: true,
     })
 }
@@ -1275,10 +1252,6 @@ fn change(
 impl NativeApplication {
     pub(crate) fn apply_git_reply(&mut self, context: &egui::Context, reply: Reply) {
         match reply {
-            Reply::GitBranch { project, branch } => {
-                self.git_state.title_branches.finish(&project, branch);
-                context.request_repaint();
-            }
             Reply::Read { request, result } => {
                 self.git_state
                     .cache
@@ -1417,6 +1390,7 @@ impl NativeApplication {
                 op: MutationOp::Pull,
                 result,
             } => {
+                self.notify_git_remote(context, &project, GIT_PULL_NOTIFICATION, &result);
                 match result {
                     Ok(()) => {
                         self.git_state
@@ -1441,6 +1415,7 @@ impl NativeApplication {
                 result,
             } => {
                 self.git_state.syncing.remove(&project);
+                self.notify_git_remote(context, &project, GIT_PUSH_NOTIFICATION, &result);
                 match result {
                     Ok(()) => self
                         .git_state
@@ -1533,6 +1508,39 @@ impl NativeApplication {
                 context.request_repaint();
             }
         }
+    }
+
+    /// `git.query.ts` `useGitRemoteMutation`: a pull or push reaches the OS notification center
+    /// titled by the project, the operation ahead of the cached branch or of the failure.
+    fn notify_git_remote(
+        &mut self,
+        context: &egui::Context,
+        project: &ProjectId,
+        [succeeded, failed]: [&str; 2],
+        result: &AppResult<()>,
+    ) {
+        use taide_model::notification::NotificationCategory;
+        let (category, title_key, detail) = match result {
+            Ok(()) => (
+                NotificationCategory::GitRemote,
+                succeeded,
+                self.git_state
+                    .cache
+                    .status_result(project)
+                    .and_then(Result::ok)
+                    .and_then(|status| status.branch.clone()),
+            ),
+            Err(error) => (
+                NotificationCategory::Error,
+                failed,
+                Some(crate::toast::describe_error(&self.locale, error)),
+            ),
+        };
+        let body = crate::native_notifications::join_body(&[
+            Some(presentation::message(&self.locale, title_key, &[])),
+            detail,
+        ]);
+        self.notify_event(context, category, Some(project), title_key, body);
     }
 
     /// `commit-graph.tsx` `handleRevert` and `git.revertHead`: a clean revert says so, a conflicted
@@ -2239,8 +2247,7 @@ impl NativeApplication {
                     .open(context.viewport_id(), project, path);
                 context.request_repaint();
             }
-            intent @ (Intent::EditorShown { .. }
-            | Intent::EditorLanePress { .. }
+            intent @ (Intent::EditorLanePress { .. }
             | Intent::ResolveHunkDiscard { .. }
             | Intent::ResolveConflict { .. }
             | Intent::CloseConflictCompare { .. }
@@ -2249,40 +2256,39 @@ impl NativeApplication {
         }
     }
 
-    /// `ide-sync-provider.tsx`: records each IDE diff request and opens its tab, or rejects it at
-    /// once when automatic diff tabs are off; a close-tab notice drops its request.
-    fn consume_ide_diff_events(&mut self) {
-        for event in self.git_state.cache_changes.ide.take() {
-            match event {
-                crate::git_claude_diff::Event::Requested {
-                    request_id,
-                    project,
-                    path,
-                    contents,
-                    title,
-                } => {
-                    self.git_state.claude.insert(request_id.clone(), contents);
-                    if !self.services.state.settings.read().ide_auto_open_diff {
-                        self.git_state.claude.remove(&request_id);
-                        self.submit(HostCommand::Git(Command::ResolveIdeDiff {
-                            tab: None,
-                            request_id,
-                            outcome: IdeDiffOutcome::Rejected,
-                            content: None,
-                        }));
-                        continue;
-                    }
-                    self.submit(HostCommand::Git(Command::OpenTab {
-                        project,
-                        kind: TabKind::ClaudeDiff { request_id, path },
-                        title,
-                        target: None,
-                        preview: false,
+    /// `ide-sync-provider.tsx`, reached through the shell's provider inbox: records an IDE diff
+    /// request and opens its tab, or rejects it at once when automatic diff tabs are off; a
+    /// close-tab notice drops its request.
+    pub(crate) fn accept_claude_diff_event(&mut self, event: crate::git_claude_diff::Event) {
+        match event {
+            crate::git_claude_diff::Event::Requested {
+                request_id,
+                project,
+                path,
+                contents,
+                title,
+            } => {
+                self.git_state.claude.insert(request_id.clone(), contents);
+                if !self.services.state.settings.read().ide_auto_open_diff {
+                    self.git_state.claude.remove(&request_id);
+                    self.submit(HostCommand::Git(Command::ResolveIdeDiff {
+                        tab: None,
+                        request_id,
+                        outcome: IdeDiffOutcome::Rejected,
+                        content: None,
                     }));
+                    return;
                 }
-                crate::git_claude_diff::Event::Closed(request_id) => {
-                    self.git_state.claude.remove(&request_id)
-                }
+                self.submit(HostCommand::Git(Command::OpenTab {
+                    project,
+                    kind: TabKind::ClaudeDiff { request_id, path },
+                    title,
+                    target: None,
+                    preview: false,
+                }));
+            }
+            crate::git_claude_diff::Event::Closed(request_id) => {
+                self.git_state.claude.remove(&request_id)
             }
         }
     }
@@ -2293,7 +2299,6 @@ impl NativeApplication {
         shown: &HashSet<TabId>,
         open_projects: &HashSet<ProjectId>,
     ) {
-        self.consume_ide_diff_events();
         let open_tabs = self
             .services
             .state
@@ -2490,7 +2495,6 @@ impl NativeApplication {
     }
 
     pub(crate) fn reconnect_git(&mut self) {
-        self.git_state.title_branches.cancel_fetches();
         self.git_state.cache.cancel_fetches();
         self.git_state.initializing.clear();
         self.git_state.stashing.clear();
@@ -2507,23 +2511,17 @@ impl NativeApplication {
         snapshot: &taide_native_ui::snapshot::ShellSnapshot,
         open_projects: &HashSet<ProjectId>,
     ) {
-        self.git_state
-            .title_branches
-            .invalidate(self.git_state.title_branch_changes.take());
-        self.git_state.title_branches.retain(open_projects);
         if self.shell.has_title_bar {
-            let shown = snapshot.focused_project().cloned().into_iter().chain(
+            let now = Instant::now();
+            let shown = snapshot.focused_project().into_iter().chain(
                 self.shell_state
                     .auxiliary_windows
                     .windows()
                     .iter()
-                    .map(|window| window.project.clone()),
+                    .map(|window| &window.project),
             );
-            for project in self.git_state.title_branches.requests(shown) {
-                if !self.submit(HostCommand::Git(Command::GitBranch(project.clone()))) {
-                    self.git_state.title_branches.retry(&project);
-                    context.request_repaint();
-                }
+            for project in shown {
+                self.git_state.cache.observe(project, Key::Status, now);
             }
         }
         self.tick_git_cache(context, open_projects);
@@ -2629,6 +2627,20 @@ impl NativeApplication {
                 Err(error) => self.status = Some(error.to_string()),
             }
         }
+        for project in self
+            .explorer_search_state
+            .git_decorations
+            .mounted_projects()
+        {
+            self.git_state.cache.observe(&project, Key::Status, now);
+            self.explorer_search_state.git_decorations.set(
+                &project,
+                self.git_state
+                    .cache
+                    .status_result(&project)
+                    .and_then(Result::ok),
+            );
+        }
         for request in self.git_state.cache.requests(Instant::now()) {
             if !self.submit(HostCommand::Git(Command::Read(request.clone()))) {
                 context.request_repaint();
@@ -2641,7 +2653,7 @@ impl NativeApplication {
 
 impl GitSurfaces for AppSurfaces<'_> {
     fn branch(&self, project: &ProjectId) -> Option<&str> {
-        self.title_branches.branch(project)
+        self.git.title_branch(project)
     }
     fn title_branch_icon(&mut self, ui: &Ui, rect: egui::Rect, color: egui::Color32) {
         if let Err(error) = self.explorer_icons.paint(
@@ -3007,7 +3019,7 @@ mod claude_history_tests;
 
 #[path = "../git-editor.rs"]
 mod editor;
-pub(crate) use editor::EditorFrame;
+pub(crate) use editor::{EditorFrame, ShownEditor};
 
 #[cfg(test)]
 #[path = "../application-git-editor-tests.rs"]

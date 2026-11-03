@@ -199,3 +199,34 @@ fn 새_대형_읽기전용_거절_lossy_미리보기는_문서로_반입하지�
     }
     assert!(store.documents().is_empty());
 }
+
+#[test]
+fn 닫힌_프로젝트의_미리보기_문서는_소유자를_다시_정하고_다른_프로젝트는_그대로다() {
+    let mut store = store();
+    let mut models = Models::default();
+    let now = Instant::now();
+    let closed = taide_model::ids::ProjectId::new();
+    let other = taide_model::ids::ProjectId::new();
+    let orphan = models
+        .admit(&mut store, file("/closed/orphan.rs", "a"), now)
+        .unwrap()
+        .unwrap();
+    let nested = models
+        .admit(&mut store, file("/closed/nested/kept.rs", "b"), now)
+        .unwrap()
+        .unwrap();
+    let foreign = models
+        .admit(&mut store, file("/other/foreign.rs", "c"), now)
+        .unwrap()
+        .unwrap();
+    models.associate(orphan, Some(closed.clone()));
+    models.associate(nested, Some(closed.clone()));
+    models.associate(foreign, Some(other.clone()));
+    let reopened = taide_model::ids::ProjectId::new();
+    models.reassign_project(&closed, |path| {
+        path.starts_with("/closed/nested").then(|| reopened.clone())
+    });
+    assert_eq!(models.project(orphan), None);
+    assert_eq!(models.project(nested), Some(reopened));
+    assert_eq!(models.project(foreign), Some(other));
+}

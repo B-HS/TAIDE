@@ -268,7 +268,11 @@ fn 실제_app은_사이드바_패널_panic을_그_패널만_fallback으로_바�
         pointer(row.center(), egui::PointerButton::Primary),
     );
     assert_eq!(
-        application.explorer_search_state.explorers[&alpha]
+        application
+            .explorer_search_state
+            .explorers
+            .get(&slot)
+            .unwrap()
             .selected
             .as_deref(),
         Some(path.as_str())
@@ -298,7 +302,11 @@ fn 실제_app은_사이드바_패널_panic을_그_패널만_fallback으로_바�
             .is_none()
     );
     assert!(
-        application.explorer_search_state.explorers[&alpha]
+        application
+            .explorer_search_state
+            .explorers
+            .get(&slot)
+            .unwrap()
             .selected
             .is_none()
     );

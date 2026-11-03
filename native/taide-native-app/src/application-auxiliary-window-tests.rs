@@ -38,7 +38,7 @@ pub(super) struct Viewports {
 }
 
 impl Viewports {
-    fn texts(&self, viewport: egui::ViewportId) -> Vec<String> {
+    pub(super) fn texts(&self, viewport: egui::ViewportId) -> Vec<String> {
         self.outputs
             .get(&viewport)
             .map(|output| {
@@ -105,7 +105,7 @@ pub(super) fn install_viewports(context: &egui::Context) -> Rc<RefCell<Viewports
     viewports
 }
 
-fn step_until(
+pub(super) fn step_until(
     application: &mut NativeApplication,
     context: &egui::Context,
     phase: &str,
@@ -765,8 +765,8 @@ fn 실제_app_탭_메뉴는_탭을_새창_기존창_메인창으로_옮기고_�
             let is_selected = application
                 .explorer_search_state
                 .explorers
-                .get(&alpha)
-                .is_some_and(|explorer| {
+                .of_project(&alpha)
+                .any(|explorer| {
                     explorer.selected.as_deref() == Some(a_path.as_str())
                         && explorer.rename.is_none()
                 });
@@ -808,8 +808,8 @@ fn 실제_app_탭_메뉴는_탭을_새창_기존창_메인창으로_옮기고_�
             application
                 .explorer_search_state
                 .explorers
-                .get(&alpha)
-                .is_some_and(|explorer| {
+                .of_project(&alpha)
+                .any(|explorer| {
                     explorer
                         .rename
                         .as_ref()
@@ -829,7 +829,9 @@ fn auxiliary_explorer_column() -> egui::Rect {
     )
 }
 
-fn focused_text_input(output: &egui::FullOutput) -> Option<(String, [usize; 2], egui::Rect)> {
+pub(super) fn focused_text_input(
+    output: &egui::FullOutput,
+) -> Option<(String, [usize; 2], egui::Rect)> {
     let update = output.platform_output.accesskit_update.as_ref()?;
     let (_, node) = update.nodes.iter().find(|(id, _)| *id == update.focus)?;
     if node.role() != egui::accesskit::Role::TextInput {
@@ -909,6 +911,7 @@ fn 실제_app_보조_창_탐색기_reveal_rename은_메인_사이드바가_열�
         });
         session.focused_shell_slot = Some(slot);
     }
+    state.settings.write().explorer_auto_reveal = false;
     let context = launch(&mut fixture, state);
     let viewports = install_viewports(&context);
     let application = fixture.application.as_mut().unwrap();
@@ -923,11 +926,18 @@ fn 실제_app_보조_창_탐색기_reveal_rename은_메인_사이드바가_열�
             .is_some_and(|output| node_rect(output, name, auxiliary_explorer_column()).is_some())
     };
     let is_selected = |application: &NativeApplication, path: &str| {
+        let explorers = &application.explorer_search_state.explorers;
         application
-            .explorer_search_state
-            .explorers
-            .get(&alpha)
+            .shell_state
+            .auxiliary_windows
+            .find(&alpha, FIRST_SLOT)
+            .and_then(|window| explorers.get(&window.explorer))
             .is_some_and(|explorer| explorer.selected.as_deref() == Some(path))
+            && explorers
+                .of_project(&alpha)
+                .filter(|explorer| explorer.selected.as_deref() == Some(path))
+                .count()
+                == 1
     };
 
     let main_output = step_until(application, &context, "both explorers", |_, output| {
@@ -1012,8 +1022,8 @@ fn 실제_app_보조_창_탐색기_reveal_rename은_메인_사이드바가_열�
             application
                 .explorer_search_state
                 .explorers
-                .get(&alpha)
-                .is_some_and(|explorer| {
+                .of_project(&alpha)
+                .any(|explorer| {
                     explorer.rename.as_ref().is_some_and(|draft| {
                         draft.row.path == first_path && draft.name == RENAMED_FILE
                     })
@@ -1094,7 +1104,7 @@ fn 실제_app_제목줄은_프로젝트_git_branch를_읽고_git_변경_뒤_다�
         let deadline = Instant::now() + DEADLINE;
         loop {
             let output = wide_step(application, &context);
-            if application.git_state.title_branches.branch(&alpha) == Some(branch)
+            if application.git_state.title_branch(&alpha) == Some(branch)
                 && title_shows(&output, branch)
             {
                 return;
@@ -1183,7 +1193,7 @@ fn 실제_app_보조_창_제목줄_branch는_메인에_보이지_않는_프로�
         &context,
         "auxiliary-only project branch",
         |application, _| {
-            application.git_state.title_branches.branch(&beta) == Some(FIRST_BRANCH)
+            application.git_state.title_branch(&beta) == Some(FIRST_BRANCH)
                 && viewports.borrow().shows(viewport, "notes.txt")
         },
     );
@@ -1328,16 +1338,16 @@ fn 실제_app_보조_창에서만_열린_파일도_lsp_동기화와_응답_수�
     );
 }
 
-struct SingleWindow {
-    fixture: Fixture,
-    context: egui::Context,
+pub(super) struct SingleWindow {
+    pub(super) fixture: Fixture,
+    pub(super) context: egui::Context,
     viewports: Rc<RefCell<Viewports>>,
-    project: ProjectId,
+    pub(super) project: ProjectId,
     main: Tab,
-    notes: Tab,
+    pub(super) notes: Tab,
 }
 
-fn single_window(name: &str) -> SingleWindow {
+pub(super) fn single_window(name: &str) -> SingleWindow {
     let mut fixture = Fixture {
         directory: std::env::temp_dir().join(format!(
             "taide-native-auxiliary-{name}-{}",
@@ -1664,4 +1674,418 @@ fn 실제_app_메뉴_편집은_포커스된_보조_창_편집기로만_간다() 
     );
     assert_eq!(text(application, notes), "");
     assert_eq!(text(application, main), ORIGINAL);
+}
+
+#[test]
+fn 실제_app_보조_창_파일_탭_메뉴의_다시열기는_편집기와_미리보기를_전환한다() {
+    const IMAGE_FILE: &str = "pic.png";
+    const IMAGE_TEXT: &str = "synthetic-image-bytes";
+    let mut fixture = Fixture {
+        directory: std::env::temp_dir().join(format!(
+            "taide-native-auxiliary-reopen-{}",
+            ProjectId::new()
+        )),
+        application: None,
+    };
+    let data = fixture.directory.join("data");
+    let root = fixture.directory.join("alpha");
+    for directory in [&data, &root] {
+        std::fs::create_dir_all(directory).unwrap();
+    }
+    std::fs::write(root.join(IMAGE_FILE), IMAGE_TEXT).unwrap();
+    let image = file_tab(&root.join(IMAGE_FILE));
+    let image_path = root.join(IMAGE_FILE).to_str().unwrap().to_owned();
+    let alpha = ProjectId::new();
+    let slot = ShellSlotId::new();
+    let state = isolated_state(data);
+    insert_project(&state, &alpha, &root, "alpha", false);
+    {
+        let mut layouts = state.layouts.write();
+        let layout = layouts.get_mut(&alpha).unwrap();
+        let main_pane = PaneId::new();
+        layout.root = PaneNode::Leaf {
+            id: main_pane.clone(),
+            tabs: Vec::new(),
+            active: None,
+        };
+        layout.focused_pane = main_pane;
+        layout.shell_view.sidebar_collapsed = true;
+        layout.auxiliary_windows = vec![auxiliary_window(FIRST_SLOT, &image)];
+    }
+    {
+        let mut session = state.session.write();
+        session.projects = vec![project_ref(&alpha, &root, "alpha")];
+        session.active_project = Some(alpha.clone());
+        session.shell_slots = Some(ShellSlotTree::Leaf {
+            slot_id: slot.clone(),
+            project_id: alpha.clone(),
+        });
+        session.focused_shell_slot = Some(slot);
+    }
+    let context = launch(&mut fixture, state);
+    let viewports = install_viewports(&context);
+    let application = fixture.application.as_mut().unwrap();
+    let viewport = viewport_of(application, &alpha, FIRST_SLOT);
+    let send = |application: &mut NativeApplication, events: Vec<egui::Event>| {
+        viewports.borrow_mut().events.insert(viewport, events);
+        step(application, &context, Vec::new());
+        viewports
+            .borrow()
+            .outputs
+            .get(&viewport)
+            .cloned()
+            .unwrap_or_default()
+    };
+    let wait = |application: &mut NativeApplication,
+                phase: &str,
+                ready: &dyn Fn(&egui::FullOutput) -> Option<egui::Rect>| {
+        let deadline = Instant::now() + DEADLINE;
+        loop {
+            if let Some(rect) = ready(&send(application, Vec::new())) {
+                return rect;
+            }
+            assert!(Instant::now() < deadline, "phase={phase}");
+            std::thread::yield_now();
+        }
+    };
+    let submenu_label = presentation::message(&application.locale, "tab.reopenEditorWith", &[]);
+    let submenu = |output: &egui::FullOutput| {
+        output
+            .platform_output
+            .accesskit_update
+            .as_ref()?
+            .nodes
+            .iter()
+            .filter(|(_, node)| {
+                node.label()
+                    .is_some_and(|text| text.starts_with(&submenu_label))
+            })
+            .find_map(|(_, node)| node.bounds())
+            .map(|bounds| {
+                egui::Rect::from_min_max(
+                    egui::pos2(bounds.x0 as f32, bounds.y0 as f32),
+                    egui::pos2(bounds.x1 as f32, bounds.y1 as f32),
+                )
+            })
+    };
+
+    assert_eq!(
+        application.preview_state.open_with.surface(&image_path),
+        crate::open_with::Surface::Preview(crate::open_with::PreviewKind::Image)
+    );
+    for (key, expected) in [
+        ("explorer.openWithEditor", crate::open_with::Surface::Editor),
+        (
+            "explorer.openWithPreview",
+            crate::open_with::Surface::Preview(crate::open_with::PreviewKind::Image),
+        ),
+    ] {
+        let tab = wait(application, "auxiliary tab", &|output| {
+            node_rect(output, IMAGE_FILE, tab_bar())
+        });
+        send(
+            application,
+            pointer(tab.center(), egui::PointerButton::Secondary),
+        );
+        let parent = wait(application, "reopen submenu", &submenu);
+        send(
+            application,
+            vec![egui::Event::PointerMoved(parent.center())],
+        );
+        let label = presentation::message(&application.locale, key, &[]);
+        let beside = egui::Rect::from_min_max(
+            egui::pos2(parent.right(), 0.0),
+            egui::pos2(f32::INFINITY, f32::INFINITY),
+        );
+        let item = wait(application, key, &|output| {
+            node_rect(output, &label, beside)
+        });
+        send(
+            application,
+            pointer(item.center(), egui::PointerButton::Primary),
+        );
+        assert_eq!(
+            application.preview_state.open_with.surface(&image_path),
+            expected,
+            "{key}"
+        );
+        if expected == crate::open_with::Surface::Editor {
+            wait(application, "auxiliary editor body", &|_| {
+                viewports
+                    .borrow()
+                    .shows(viewport, IMAGE_TEXT)
+                    .then_some(egui::Rect::NOTHING)
+            });
+        }
+    }
+}
+
+#[test]
+fn 실제_app_보조_창_html_편집기도_emmet_축약식을_공급_수락하고_되돌린다() {
+    const EMMET_FILE: &str = "index.html";
+    const EMMET_ORIGINAL: &str = "div.foo>span";
+    const EMMET_EXPANDED: &str = "<div class=\"foo\"><span></span></div>";
+    const EMMET_DETAIL: &str = "Emmet abbreviation";
+    let mut fixture = Fixture {
+        directory: std::env::temp_dir()
+            .join(format!("taide-native-auxiliary-emmet-{}", ProjectId::new())),
+        application: None,
+    };
+    let data = fixture.directory.join("data");
+    let source = fixture.directory.join("alpha");
+    for directory in [&data, &source] {
+        std::fs::create_dir_all(directory).unwrap();
+    }
+    std::fs::write(source.join(EMMET_FILE), EMMET_ORIGINAL).unwrap();
+    let root = source.canonicalize().unwrap();
+    let file = root.join(EMMET_FILE);
+    let path = file.to_str().unwrap().to_owned();
+    let tab = file_tab(&file);
+    let project = ProjectId::new();
+    let slot = ShellSlotId::new();
+    let state = isolated_state(data);
+    insert_project(&state, &project, &root, "alpha", false);
+    {
+        let mut layouts = state.layouts.write();
+        let layout = layouts.get_mut(&project).unwrap();
+        let pane = PaneId::new();
+        layout.root = PaneNode::Leaf {
+            id: pane.clone(),
+            tabs: Vec::new(),
+            active: None,
+        };
+        layout.focused_pane = pane;
+        layout.auxiliary_windows = vec![auxiliary_window(FIRST_SLOT, &tab)];
+    }
+    {
+        let mut session = state.session.write();
+        session.projects = vec![project_ref(&project, &root, "alpha")];
+        session.active_project = Some(project.clone());
+        session.shell_slots = Some(ShellSlotTree::Leaf {
+            slot_id: slot.clone(),
+            project_id: project.clone(),
+        });
+        session.focused_shell_slot = Some(slot);
+    }
+    let context = launch(&mut fixture, state);
+    let viewports = install_viewports(&context);
+    let application = fixture.application.as_mut().unwrap();
+    let viewport = viewport_of(application, &project, FIRST_SLOT);
+    application
+        .preview_state
+        .open_with
+        .set(path.clone(), crate::open_with::Mode::Editor);
+    step_until(
+        application,
+        &context,
+        "auxiliary html document",
+        |application, _| application.files.contains_key(&path),
+    );
+    let document = application.files[&path].id;
+    let view = super::inlay_hints_tests::body_view(application, &path, &tab.id);
+    application
+        .store
+        .set_view_state(
+            view,
+            taide_native_editor::view::SelectionSet {
+                primary: 0,
+                selections: vec![taide_native_editor::view::Selection {
+                    anchor: EMMET_ORIGINAL.len(),
+                    head: EMMET_ORIGINAL.len(),
+                }],
+            },
+            Default::default(),
+            Vec::new(),
+        )
+        .unwrap();
+    let editor = application
+        .editor_keymap_targets
+        .iter()
+        .find_map(|((target_viewport, id), (target, _))| {
+            (*target_viewport == viewport && *target == view).then_some(*id)
+        })
+        .expect("the auxiliary editor registers its keymap target");
+    viewports.borrow_mut().focus.insert(viewport, editor);
+    application.document_edits.push((
+        tab.id.clone(),
+        DocumentEdit::Completion(taide_native_editor::completion::Command::Trigger),
+    ));
+    step_until(
+        application,
+        &context,
+        "auxiliary Emmet candidate",
+        |application, _| {
+            application
+                .editor_completion
+                .candidates(&application.store, view)
+                .is_some_and(|items| {
+                    items
+                        .iter()
+                        .any(|candidate| candidate.item.detail.as_deref() == Some(EMMET_DETAIL))
+                })
+        },
+    );
+    assert_eq!(
+        application
+            .editor_completion
+            .request(&application.store, view)
+            .map(|request| request.viewport),
+        Some(viewport)
+    );
+    let text = |application: &NativeApplication| {
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string()
+    };
+    {
+        let mut shared = viewports.borrow_mut();
+        shared.focus.insert(viewport, editor);
+        shared
+            .events
+            .insert(viewport, key(egui::Key::Tab, egui::Modifiers::NONE));
+    }
+    step_until(
+        application,
+        &context,
+        "auxiliary Emmet accepted",
+        |application, _| text(application) == EMMET_EXPANDED,
+    );
+    assert!(application.store.undo(document).unwrap());
+    assert_eq!(text(application), EMMET_ORIGINAL);
+}
+
+#[test]
+fn 실제_app_보조_창에서_탭을_끄는_동안에는_모든_창의_web_view_숨김_판정이_참이다() {
+    const TAB_DRAG_TRAVEL: f32 = 24.0;
+    let mut window = single_window("tab-drag");
+    let application = window.fixture.application.as_mut().unwrap();
+    let viewport = viewport_of(application, &window.project, FIRST_SLOT);
+    let deadline = Instant::now() + DEADLINE;
+    let tab = loop {
+        step(application, &window.context, Vec::new());
+        let output = window.viewports.borrow().outputs.get(&viewport).cloned();
+        if let Some(tab) = output.and_then(|output| node_rect(&output, "notes.txt", tab_bar())) {
+            break tab;
+        }
+        assert!(Instant::now() < deadline, "auxiliary tab");
+        std::thread::yield_now();
+    };
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let moved = tab.center() + egui::vec2(TAB_DRAG_TRAVEL, 0.0);
+    for events in [
+        vec![
+            egui::Event::PointerMoved(tab.center()),
+            button(tab.center(), true),
+        ],
+        vec![egui::Event::PointerMoved(moved)],
+    ] {
+        window
+            .viewports
+            .borrow_mut()
+            .events
+            .insert(viewport, events);
+        step(application, &window.context, Vec::new());
+    }
+    assert!(taide_native_ui::tab_drag::is_dragging_in(
+        &window.context,
+        viewport
+    ));
+    assert!(!taide_native_ui::tab_drag::is_dragging_in(
+        &window.context,
+        egui::ViewportId::ROOT
+    ));
+    assert!(application.is_any_window_tab_dragging(&window.context));
+
+    window
+        .viewports
+        .borrow_mut()
+        .events
+        .insert(viewport, vec![button(moved, false)]);
+    step(application, &window.context, Vec::new());
+    assert!(!application.is_any_window_tab_dragging(&window.context));
+}
+
+fn unfocused_until(
+    application: &mut NativeApplication,
+    context: &egui::Context,
+    phase: &str,
+    ready: impl Fn(&egui::FullOutput) -> bool,
+) -> egui::FullOutput {
+    let deadline = Instant::now() + DEADLINE;
+    loop {
+        let output = main_unfocused_step(application, context);
+        if ready(&output) {
+            return output;
+        }
+        assert!(Instant::now() < deadline, "phase={phase}");
+        std::thread::yield_now();
+    }
+}
+
+fn paints_text(output: &egui::FullOutput, text: &str) -> bool {
+    output.shapes.iter().any(
+        |clipped| matches!(&clipped.shape, egui::Shape::Text(shape) if shape.galley.text() == text),
+    )
+}
+
+#[test]
+fn 실제_app_toast는_동작한_보조_창에만_뜨고_주_창_provider_toast는_주_창에_남으며_창과_함께_사라진다()
+ {
+    let mut window = single_window("toasts");
+    let application = window.fixture.application.as_mut().unwrap();
+    let viewport = viewport_of(application, &window.project, FIRST_SLOT);
+    main_unfocused_step(application, &window.context);
+    main_unfocused_step(application, &window.context);
+    assert!(application.toasts.auxiliary(viewport).is_some());
+
+    let error = AppError::Internal("synthetic auxiliary toast".into());
+    let failure = crate::toast::describe_error(&application.locale, &error);
+    application.report(&error);
+    let is_error = |toasts: &crate::toast::Toasts| {
+        toasts.is_showing(taide_native_ui::toast::Kind::Error, &failure)
+    };
+    assert!(is_error(application.toasts.auxiliary(viewport).unwrap()));
+    assert!(!is_error(application.toasts.main()));
+    let main_output = unfocused_until(application, &window.context, "auxiliary toast", |_| {
+        window.viewports.borrow().shows(viewport, &failure)
+    });
+    assert!(!paints_text(&main_output, &failure));
+
+    let hint = presentation::message(&application.locale, "app.externalEditorTabHint", &[]);
+    application.apply_shell_reply(
+        &window.context,
+        domains::shell::Reply::ExternalOpensProcessed(vec![
+            crate::external_open::Outcome::WaitRegistered,
+        ]),
+    );
+    unfocused_until(
+        application,
+        &window.context,
+        "main provider toast",
+        |output| paints_text(output, &hint),
+    );
+    assert!(!window.viewports.borrow().shows(viewport, &hint));
+
+    window.viewports.borrow_mut().close.insert(viewport);
+    step_until(
+        application,
+        &window.context,
+        "auxiliary window closed",
+        |application, _| !is_window_open(application, &window.project, FIRST_SLOT),
+    );
+    assert!(application.toasts.auxiliary(viewport).is_none());
+    assert!(
+        !application
+            .toasts
+            .is_showing(taide_native_ui::toast::Kind::Error, &failure)
+    );
 }

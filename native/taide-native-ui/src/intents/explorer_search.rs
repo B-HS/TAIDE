@@ -26,4 +26,18 @@ pub enum Intent {
         project: ProjectId,
         slot: u32,
     },
+    ReopenProject {
+        project: ProjectId,
+        root: String,
+    },
+    OpenSearch {
+        project: ProjectId,
+        slot: ShellSlotId,
+        replace: bool,
+    },
+    OpenAuxiliarySearch {
+        project: ProjectId,
+        slot: u32,
+        replace: bool,
+    },
 }

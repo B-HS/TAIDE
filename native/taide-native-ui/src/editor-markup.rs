@@ -484,7 +484,10 @@ fn inlines(
                             .sense(egui::Sense::click()),
                         None => egui::Label::new(text).selectable(true),
                     };
-                    let response = if span.style.code && code_frame {
+                    let response = if span.style.code
+                        && code_frame
+                        && (span.code_element.is_some() || !is_preview)
+                    {
                         egui::Frame::new()
                             .fill(colors.code_background)
                             .corner_radius(preview::CORNER_RADIUS)

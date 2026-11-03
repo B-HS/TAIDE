@@ -18,7 +18,7 @@ const BUTTON_SIZE: f32 = 24.0;
 const ICON_SIZE: f32 = 16.0;
 const PADDING: f32 = 8.0;
 const GAP: f32 = 4.0;
-const BUTTON_RADIUS: u8 = 2;
+const BUTTON_RADIUS: u8 = 4;
 const BORDER_WIDTH: f32 = 1.0;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -57,12 +57,16 @@ pub(crate) struct Sidebar {
     project: ProjectId,
     pub view: View,
     pub outline: Panel,
+    pub(crate) search: Option<crate::search_panel::Panel>,
+    pub(crate) search_request: Option<crate::search_panel::Request>,
+    pub(crate) open_nonce: u64,
     composing: bool,
 }
 
 #[derive(Default)]
 pub(crate) struct Views {
     entries: HashMap<ShellSlotId, Sidebar>,
+    cancelled: Vec<crate::search_stream::Session>,
 }
 
 impl Views {
@@ -71,11 +75,18 @@ impl Views {
         tree: Option<&ShellSlotTree>,
         auxiliary: &HashMap<ShellSlotId, ProjectId>,
     ) {
+        let mut cancelled = Vec::new();
         self.entries.retain(|slot, entry| {
-            tree.and_then(|tree| taide_native_ui::snapshot::slot_project(tree, slot))
+            let is_kept = tree
+                .and_then(|tree| taide_native_ui::snapshot::slot_project(tree, slot))
                 .or_else(|| auxiliary.get(slot))
-                == Some(&entry.project)
+                == Some(&entry.project);
+            if !is_kept {
+                cancelled.extend(entry.running_search());
+            }
+            is_kept
         });
+        self.cancelled.extend(cancelled);
     }
 
     pub(crate) fn entry(&mut self, project: &ProjectId, slot: &ShellSlotId) -> &mut Sidebar {
@@ -84,18 +95,53 @@ impl Views {
             .entry(slot.clone())
             .or_insert_with(|| Sidebar::new(project));
         if entry.project != *project {
+            self.cancelled.extend(entry.running_search());
             *entry = Sidebar::new(project);
         }
         entry
     }
 
+    pub(crate) fn get_mut(&mut self, slot: &ShellSlotId) -> Option<&mut Sidebar> {
+        self.entries.get_mut(slot)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn search(&self, slot: &ShellSlotId) -> Option<&crate::search_panel::Panel> {
+        self.entries.get(slot)?.search.as_ref()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn search_request(
+        &self,
+        slot: &ShellSlotId,
+    ) -> Option<&crate::search_panel::Request> {
+        self.entries.get(slot)?.search_request.as_ref()
+    }
+
+    /// Search runs of panels dropped with their sidebar, which the host should stop.
+    pub(crate) fn take_cancelled(&mut self) -> Vec<crate::search_stream::Session> {
+        std::mem::take(&mut self.cancelled)
+    }
+
+    /// The view the slot's sidebar shows; a slot that has not drawn one yet starts on Files.
+    pub(crate) fn view(&self, project: &ProjectId, slot: &ShellSlotId) -> View {
+        self.entries
+            .get(slot)
+            .filter(|entry| entry.project == *project)
+            .map_or_else(View::default, |entry| entry.view)
+    }
+
     /// Takes the slot's sidebar out for a render inside the sidebar panel's error boundary;
     /// [`Views::put`] returns it. A sidebar that is never put back starts over as a new mount.
     pub(crate) fn take(&mut self, project: &ProjectId, slot: &ShellSlotId) -> Sidebar {
-        self.entries
-            .remove(slot)
-            .filter(|entry| entry.project == *project)
-            .unwrap_or_else(|| Sidebar::new(project))
+        match self.entries.remove(slot) {
+            Some(entry) if entry.project == *project => entry,
+            Some(stale) => {
+                self.cancelled.extend(stale.running_search());
+                Sidebar::new(project)
+            }
+            None => Sidebar::new(project),
+        }
     }
 
     pub(crate) fn put(&mut self, slot: ShellSlotId, sidebar: Sidebar) {
@@ -128,8 +174,26 @@ impl Sidebar {
             project: project.clone(),
             view: View::Files,
             outline: Panel::default(),
+            search: None,
+            search_request: None,
+            open_nonce: 0,
             composing: false,
         }
+    }
+
+    /// Shows the Search view with `request` replacing the previous one; the new nonce makes the
+    /// panel apply its seed and replace flag and focus its query (`explorer-panel.tsx` 131-140).
+    pub(crate) fn request_search(&mut self, request: crate::search_panel::Request) {
+        self.view = View::Search;
+        self.search_request = Some(request);
+        self.open_nonce += 1;
+    }
+
+    /// The backend session of this sidebar's search panel while its run is still going.
+    pub(crate) fn running_search(&self) -> Option<crate::search_stream::Session> {
+        self.search
+            .as_ref()
+            .and_then(crate::search_panel::Panel::running_session)
     }
 
     pub(crate) fn switch(

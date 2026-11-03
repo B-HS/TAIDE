@@ -45,6 +45,16 @@ pub(crate) struct EditorFrame<'f> {
     pub(crate) font: egui::FontId,
 }
 
+/// A file editor drawn this frame with its 1-based cursor line, keeping its gutter, blame and
+/// conflict reads observed.
+pub(crate) struct ShownEditor {
+    project: ProjectId,
+    pane: PaneId,
+    tab: TabId,
+    path: String,
+    cursor_line: u32,
+}
+
 impl State {
     fn is_conflicted(&self, project: &ProjectId, path: &str) -> bool {
         self.cache
@@ -92,15 +102,18 @@ fn view_key(pane: &PaneId, tab: &TabId) -> ViewKey {
 }
 
 impl NativeApplication {
+    pub(crate) fn observe_git_editors(&mut self, context: &egui::Context, shown: Vec<ShownEditor>) {
+        for editor in shown {
+            self.observe_git_editor(
+                context,
+                (&editor.project, &editor.pane, &editor.tab, &editor.path),
+                editor.cursor_line,
+            );
+        }
+    }
+
     pub(super) fn apply_git_editor_intent(&mut self, intent: Intent, context: &egui::Context) {
         match intent {
-            Intent::EditorShown {
-                project,
-                pane,
-                tab,
-                path,
-                cursor_line,
-            } => self.observe_git_editor(context, (&project, &pane, &tab, &path), cursor_line),
             Intent::EditorLanePress { pane, line } => {
                 let Some(editor) = self.git_state.editors.get(&pane) else {
                     return;
@@ -546,7 +559,13 @@ impl AppSurfaces<'_> {
                 line,
             }));
         }
-        intents.push(shown(&frame, cursor_line));
+        self.git_editors.push(ShownEditor {
+            project: frame.project.clone(),
+            pane: frame.pane.clone(),
+            tab: frame.tab.clone(),
+            path: frame.path.to_owned(),
+            cursor_line,
+        });
         let Some(editor) = editor else {
             return Ok(());
         };
@@ -722,14 +741,4 @@ impl AppSurfaces<'_> {
             || taide_native_ui::modal::takes_escape(context, &response);
         Ok(response.inner? || is_closing)
     }
-}
-
-fn shown(frame: &EditorFrame<'_>, cursor_line: u32) -> ShellIntent {
-    ShellIntent::Git(Intent::EditorShown {
-        project: frame.project.clone(),
-        pane: frame.pane.clone(),
-        tab: frame.tab.clone(),
-        path: frame.path.to_owned(),
-        cursor_line,
-    })
 }

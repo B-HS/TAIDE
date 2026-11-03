@@ -1120,7 +1120,12 @@ fn native_ai_inline은_읽기전용_파일에서_요청이나_삽입을_하지�
         !fixture
             .state
             .inline
-            .event(&mut fixture.store, view, &key(Key::Tab, Modifiers::NONE))
+            .event(
+                &mut fixture.store,
+                view,
+                &key(Key::Tab, Modifiers::NONE),
+                None
+            )
             .unwrap()
     );
     assert!(receive.try_recv().is_err());
@@ -2920,4 +2925,43 @@ fn native_completion_nested의_선택지수락은_안쪽final과_바깥다음위
         }]
     );
     assert!(fixture.state.snippet_sessions.contains_key(&fixture.view));
+}
+
+#[test]
+fn native_completion_수락은_trigger_suggest_명령이_있을때만_자동요청으로_목록을_다시연다() {
+    let files: Arc<[SnippetFile]> = Arc::from([SnippetFile {
+        file_name: "rust.json".into(),
+        snippets: BTreeMap::from([(
+            "Shorter".into(),
+            SnippetEntry {
+                prefix: SnippetStringOrList::Single("con".into()),
+                body: SnippetStringOrList::Single("co".into()),
+                description: None,
+                scope: None,
+            },
+        )]),
+    }]);
+    for retrigger in [false, true] {
+        let mut fixture = Fixture::new("con", 3, files.clone());
+        assert!(!fixture.frame(Vec::new(), &[Command::Trigger]));
+        if retrigger {
+            let entry = fixture.state.entries.get_mut(&fixture.view).unwrap();
+            entry.snippets[0].item.command =
+                Some(taide_lsp::native::protocol::lsp_types::Command {
+                    title: "Suggest".into(),
+                    command: "editor.action.triggerSuggest".into(),
+                    arguments: None,
+                });
+            entry.model = None;
+        }
+        assert!(fixture.frame(vec![key(Key::Enter, Modifiers::NONE)], &[]));
+        assert_eq!(fixture.text(fixture.document), "co");
+        assert_eq!(fixture.state.retriggers.contains(&fixture.view), retrigger);
+        fixture.frame(Vec::new(), &[]);
+        assert!(fixture.state.retriggers.is_empty());
+        assert!(fixture.state.automatic_triggers.is_empty());
+        let request = fixture.state.request(&fixture.store, fixture.view);
+        assert_eq!(request.is_some(), retrigger);
+        assert!(request.is_none_or(|request| request.automatic));
+    }
 }

@@ -9,6 +9,7 @@ use taide_model::ai::{AiInlineCompleteRequest, AiProviderId, AiTextResponse};
 use taide_model::error::AppResult;
 use taide_model::ids::ProjectId;
 use taide_model::settings::Settings;
+use taide_native_editor::completion::{Command, PartialAccept, partial_accept_length};
 use taide_native_editor::completion_preview::{GhostText, Part};
 use taide_native_editor::document::{DocumentSnapshot, EditorError};
 use taide_native_editor::store::EditorStore;
@@ -470,11 +471,12 @@ impl State {
         self.entries
             .get(&view)
             .is_some_and(|entry| entry.text.is_some())
-            && matches!(
+            && (matches!(
                 event,
                 Event::Key { key: Key::Tab | Key::Escape, pressed: true, modifiers, .. }
                     if modifiers.is_none()
-            )
+            ) || accepts_next_word(event)
+                || cycles_inline(event).is_some())
     }
 
     pub(crate) fn event(
@@ -482,11 +484,17 @@ impl State {
         store: &mut EditorStore,
         view: ViewId,
         event: &Event,
+        language: Option<&taide_native_syntax::MonacoLanguage>,
     ) -> Result<bool, EditorError> {
         if !self.defers(view, event) || self.poll(store, view).is_empty() {
             return Ok(false);
         }
-        let entry = self.entries.remove(&view).ok_or(EditorError::NotFound)?;
+        if accepts_next_word(event) {
+            return self.command(store, view, Command::AcceptNextWord, language);
+        }
+        if let Some(command) = cycles_inline(event) {
+            return self.command(store, view, command, language);
+        }
         if matches!(
             event,
             Event::Key {
@@ -494,8 +502,74 @@ impl State {
                 ..
             }
         ) {
+            self.entries.remove(&view);
             return Ok(true);
         }
+        self.commit(store, view)
+    }
+
+    pub(crate) fn command(
+        &mut self,
+        store: &mut EditorStore,
+        view: ViewId,
+        command: Command,
+        language: Option<&taide_native_syntax::MonacoLanguage>,
+    ) -> Result<bool, EditorError> {
+        if self.poll(store, view).is_empty() {
+            return Ok(false);
+        }
+        let kind = match command {
+            Command::CommitInline => return self.commit(store, view),
+            Command::AcceptNextWord => PartialAccept::Word,
+            Command::AcceptNextLine => PartialAccept::Line,
+            Command::ShowNextInline | Command::ShowPreviousInline => return Ok(true),
+            _ => return Ok(false),
+        };
+        let Some(text) = self.entries.get(&view).and_then(|entry| entry.text.clone()) else {
+            return Ok(false);
+        };
+        let mut first_word = None;
+        if kind == PartialAccept::Word
+            && let Some(language) = language
+        {
+            language.visit_words(&text, |range| {
+                first_word = Some(range);
+                false
+            });
+        }
+        let length = partial_accept_length(kind, &text, first_word);
+        if length == text.len() {
+            return self.commit(store, view);
+        }
+        if length > 0
+            && !taide_native_editor::editing::replace_selections(
+                store,
+                view,
+                &text[..length],
+                None,
+            )?
+        {
+            return Ok(false);
+        }
+        if !self
+            .entries
+            .get_mut(&view)
+            .is_some_and(|entry| entry.reuse(store))
+        {
+            self.entries.remove(&view);
+        }
+        Ok(true)
+    }
+
+    pub(crate) fn suggestion_count(&self, view: ViewId) -> Option<usize> {
+        self.entries
+            .get(&view)
+            .map(|entry| usize::from(entry.text.is_some()))
+            .filter(|count| *count > 0)
+    }
+
+    fn commit(&mut self, store: &mut EditorStore, view: ViewId) -> Result<bool, EditorError> {
+        let entry = self.entries.remove(&view).ok_or(EditorError::NotFound)?;
         taide_native_editor::editing::replace_selections(
             store,
             view,
@@ -548,6 +622,34 @@ impl State {
                 && entry.origin.describes(store)
                 && active(&entry.origin)
         });
+    }
+}
+
+fn accepts_next_word(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::Key { key: Key::ArrowRight, pressed: true, modifiers, .. }
+            if modifiers.matches_exact(egui::Modifiers::COMMAND)
+    )
+}
+
+fn cycles_inline(event: &Event) -> Option<Command> {
+    let Event::Key {
+        key,
+        pressed: true,
+        modifiers,
+        ..
+    } = event
+    else {
+        return None;
+    };
+    if !modifiers.matches_exact(egui::Modifiers::ALT) {
+        return None;
+    }
+    match key {
+        Key::CloseBracket => Some(Command::ShowNextInline),
+        Key::OpenBracket => Some(Command::ShowPreviousInline),
+        _ => None,
     }
 }
 

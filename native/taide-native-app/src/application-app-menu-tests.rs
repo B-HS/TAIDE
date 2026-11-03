@@ -234,3 +234,58 @@ fn 실제_app_메뉴는_최근_목록을_그리고_열기_지우기_편집_종�
         application.is_exit_ready
     });
 }
+
+#[test]
+fn 실제_app_메뉴는_부팅_직후_최근_목록을_바로_읽어_상한까지_채운다() {
+    let mut fixture = Fixture {
+        directory: std::env::temp_dir().join(format!(
+            "taide-native-app-menu-initial-{}",
+            ProjectId::new()
+        )),
+        application: None,
+    };
+    let data = fixture.directory.join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    let state = isolated_state(data);
+    let projects = (0..=crate::welcome::RECENT_MENU_LIMIT)
+        .map(|index| {
+            let name = format!("recent-{index}");
+            let root = fixture.directory.join(&name);
+            std::fs::create_dir_all(&root).unwrap();
+            let project = Project {
+                id: ProjectId::new(),
+                root: root.canonicalize().unwrap().to_str().unwrap().into(),
+                name,
+                capabilities: Vec::new(),
+                root_missing: false,
+                last_opened_at: index as f64,
+                display: Default::default(),
+            };
+            let file = state.paths.project_file(&project.id);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(&file, serde_json::to_vec(&project).unwrap()).unwrap();
+            project
+        })
+        .collect::<Vec<_>>();
+    launch(&mut fixture, state.clone());
+    let application = fixture.application.as_ref().unwrap();
+    let recent = application
+        .runtime
+        .block_on(taide_runtime::project_actions::project_list_recent(&state))
+        .unwrap();
+    assert_eq!(recent.len(), projects.len());
+
+    let model = application.initial_app_menu_model();
+    assert_eq!(model, Model::new(&application.locale, &recent));
+    let listed = |project: &Project| lists(&model, &project.id);
+    assert!(
+        recent[..crate::welcome::RECENT_MENU_LIMIT]
+            .iter()
+            .all(listed)
+    );
+    assert!(!listed(&recent[crate::welcome::RECENT_MENU_LIMIT]));
+    assert!(model.recent.iter().any(|row| matches!(
+        row,
+        Row::Item { id, enabled: true, .. } if id == CLEAR_RECENT_ID
+    )));
+}
