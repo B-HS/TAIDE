@@ -1527,7 +1527,7 @@ impl NativeApplication {
                                     self.lsp.as_ref().is_some_and(|lsp| {
                                         !lsp.formatting_providers(project, &document, command)
                                             .is_empty()
-                                    }) || crate::editor_json_formatting::is_eligible(&document)
+                                    }) || crate::editor_formatting::is_native_eligible(&document)
                                 });
                         }
                         if let Some(command) =

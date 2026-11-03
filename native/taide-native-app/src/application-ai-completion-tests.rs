@@ -778,3 +778,226 @@ fn 실제_ai_inline은_주입된_응답을_표시하고_수락전_디스크와_�
     eframe::App::on_exit(application);
     assert_eq!(application.services.tasks.tracked_count(), 0);
 }
+
+#[test]
+fn 실제_ai_inline의_cmd_오른쪽과_toolbar는_부분수락과_남은_ghost와_undo_단위를_보존한다() {
+    const PARTIAL: &str = "first second\nthird";
+    let mut fixture = fixture_with_view_state(
+        "--native-inlay-hints",
+        false,
+        |_, _, _| true,
+        None,
+        ORIGINAL,
+    );
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let view = body_view(application, &fixture.path, &fixture.tab);
+    let document = application.files[&fixture.path].id;
+    {
+        let mut settings = application.services.state.settings.write();
+        settings.ai_auto_tab_enabled = true;
+        settings.ai_provider = Some(taide_model::ai::AiProviderId::Omlx);
+        settings.ai_model = Some("fixture".into());
+        settings.keymap_overrides = Some(r#"[{"actionId":"monaco.editor.action.inlineSuggest.trigger","key":"q","mods":["mod"]}]"#.into());
+    }
+    application.editor_completion.inline =
+        crate::editor_ai_completion::State::with_complete(Arc::new(|_, request, _| {
+            Box::pin(async move {
+                Ok(taide_model::ai::AiTextResponse {
+                    request_id: request.request_id,
+                    text: Some(PARTIAL.into()),
+                })
+            })
+        }));
+    let command = egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND;
+    let text = |application: &NativeApplication| {
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string()
+    };
+    let body = crate::editor_context_menu::body(context, view).unwrap();
+    context.memory_mut(|memory| memory.request_focus(body));
+    paint(
+        application,
+        context,
+        key(egui::Key::End, egui::Modifiers::COMMAND),
+    );
+    paint(application, context, key(egui::Key::Q, command));
+    wait(
+        application,
+        context,
+        "explicit partial ghost",
+        |application| {
+            application
+                .editor_completion
+                .inline
+                .suggestion_count(view)
+                .is_some()
+        },
+    );
+    paint(application, context, key(egui::Key::ArrowRight, command));
+    assert_eq!(text(application), format!("{ORIGINAL}first"));
+    assert_eq!(
+        application.editor_completion.inline.suggestion_count(view),
+        Some(1)
+    );
+    paint(application, context, key(egui::Key::ArrowRight, command));
+    assert_eq!(text(application), format!("{ORIGINAL}first "));
+    let output = paint(application, context, Vec::new());
+    assert!(text_contains(&output, "second"));
+    taide_native_ui::editor_inline_suggest_toolbar::toggle_always_shown(context);
+    paint(application, context, Vec::new());
+    let output = paint(application, context, Vec::new());
+    let accept = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(shape)
+                if shape.galley.job.text
+                    == taide_native_ui::editor_inline_suggest_toolbar::ACCEPT =>
+            {
+                Some(shape.galley.rect.translate(shape.pos.to_vec2()).center())
+            }
+            _ => None,
+        })
+        .expect("inline suggest toolbar accept was not painted");
+    let button = |pressed| egui::Event::PointerButton {
+        pos: accept,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    paint(
+        application,
+        context,
+        vec![egui::Event::PointerMoved(accept), button(true)],
+    );
+    paint(application, context, vec![button(false)]);
+    assert_eq!(text(application), format!("{ORIGINAL}{PARTIAL}"));
+    assert!(
+        application
+            .editor_completion
+            .inline
+            .suggestion_count(view)
+            .is_none()
+    );
+    taide_native_ui::editor_inline_suggest_toolbar::toggle_always_shown(context);
+    for expected in [
+        format!("{ORIGINAL}first "),
+        format!("{ORIGINAL}first"),
+        ORIGINAL.to_owned(),
+    ] {
+        paint(application, context, key(egui::Key::Z, command));
+        assert_eq!(text(application), expected);
+    }
+    assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), ORIGINAL);
+    eframe::App::on_exit(application);
+    assert_eq!(application.services.tasks.tracked_count(), 0);
+}
+
+#[test]
+fn 실제_ai_inline의_option_대괄호는_ghost가_보일_때만_키와_조합_글자를_소비한다() {
+    const SUGGESTION: &str = "first second";
+    const NEXT_GLYPH: &str = "\u{2018}";
+    const PREVIOUS_GLYPH: &str = "\u{201C}";
+    let mut fixture = fixture_with_view_state(
+        "--native-inlay-hints",
+        false,
+        |_, _, _| true,
+        None,
+        ORIGINAL,
+    );
+    let application = fixture.application.as_mut().unwrap();
+    let context = &fixture.context;
+    let view = body_view(application, &fixture.path, &fixture.tab);
+    let document = application.files[&fixture.path].id;
+    {
+        let mut settings = application.services.state.settings.write();
+        settings.ai_auto_tab_enabled = true;
+        settings.ai_provider = Some(taide_model::ai::AiProviderId::Omlx);
+        settings.ai_model = Some("fixture".into());
+        settings.keymap_overrides = Some(r#"[{"actionId":"monaco.editor.action.inlineSuggest.trigger","key":"q","mods":["mod"]}]"#.into());
+    }
+    application.editor_completion.inline =
+        crate::editor_ai_completion::State::with_complete(Arc::new(|_, request, _| {
+            Box::pin(async move {
+                Ok(taide_model::ai::AiTextResponse {
+                    request_id: request.request_id,
+                    text: Some(SUGGESTION.into()),
+                })
+            })
+        }));
+    let command = egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND;
+    let text = |application: &NativeApplication| {
+        application
+            .store
+            .documents()
+            .snapshot(document)
+            .unwrap()
+            .rope
+            .to_string()
+    };
+    let option_bracket = |key: egui::Key, glyph: &str| {
+        let event = |pressed| egui::Event::Key {
+            key,
+            physical_key: Some(key),
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::ALT,
+        };
+        vec![event(true), egui::Event::Text(glyph.into()), event(false)]
+    };
+    let body = crate::editor_context_menu::body(context, view).unwrap();
+    context.memory_mut(|memory| memory.request_focus(body));
+    paint(
+        application,
+        context,
+        key(egui::Key::End, egui::Modifiers::COMMAND),
+    );
+    paint(application, context, key(egui::Key::Q, command));
+    wait(application, context, "explicit ghost", |application| {
+        application
+            .editor_completion
+            .inline
+            .suggestion_count(view)
+            .is_some()
+    });
+    for (bracket, glyph) in [
+        (egui::Key::CloseBracket, NEXT_GLYPH),
+        (egui::Key::OpenBracket, PREVIOUS_GLYPH),
+    ] {
+        paint(application, context, option_bracket(bracket, glyph));
+        assert_eq!(text(application), ORIGINAL);
+        assert_eq!(
+            application.editor_completion.inline.suggestion_count(view),
+            Some(1)
+        );
+    }
+    let output = paint(application, context, Vec::new());
+    assert!(text_contains(&output, "second"));
+    paint(
+        application,
+        context,
+        key(egui::Key::Escape, egui::Modifiers::NONE),
+    );
+    assert!(
+        application
+            .editor_completion
+            .inline
+            .suggestion_count(view)
+            .is_none()
+    );
+    paint(
+        application,
+        context,
+        option_bracket(egui::Key::CloseBracket, NEXT_GLYPH),
+    );
+    assert_eq!(text(application), format!("{ORIGINAL}{NEXT_GLYPH}"));
+    assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), ORIGINAL);
+    eframe::App::on_exit(application);
+    assert_eq!(application.services.tasks.tracked_count(), 0);
+}

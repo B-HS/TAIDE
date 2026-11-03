@@ -1631,7 +1631,7 @@ impl NativeApplication {
                     && let Some(current) = current.filter(|current| {
                         current.key == *snapshot.key()
                             && current.revision == snapshot.revision()
-                            && crate::editor_json_formatting::is_eligible(current)
+                            && crate::editor_formatting::is_native_eligible(current)
                     })
                 {
                     let options = match self.save_formatting_options(document) {
@@ -1705,7 +1705,7 @@ impl NativeApplication {
                             .documents()
                             .snapshot(document)
                             .is_ok_and(|current| {
-                                crate::editor_json_formatting::is_eligible(&current)
+                                crate::editor_formatting::is_native_eligible(&current)
                             }))
             {
                 self.reconcile_lsp();
@@ -1732,7 +1732,7 @@ impl NativeApplication {
                     }
                 };
                 let native = should_format
-                    && crate::editor_json_formatting::is_eligible(&current)
+                    && crate::editor_formatting::is_native_eligible(&current)
                     && self
                         .lsp
                         .as_ref()
@@ -2219,7 +2219,7 @@ impl NativeApplication {
             fallback,
             providers,
         ) {
-            Ok(Some(request)) if request.native_json => context.request_repaint(),
+            Ok(Some(request)) if request.native => context.request_repaint(),
             Ok(Some(request)) => {
                 if let Some(lsp) = &self.lsp
                     && let Err(error) = lsp.format_editor(request.clone())
@@ -2320,7 +2320,7 @@ impl NativeApplication {
             fallback,
             providers,
         ) {
-            Ok(Some(request)) if request.native_json => true,
+            Ok(Some(request)) if request.native => true,
             Ok(Some(request)) => {
                 if let Some(lsp) = &self.lsp {
                     if lsp.format_editor(request.clone()).is_ok() {
@@ -2640,15 +2640,15 @@ impl NativeApplication {
         let completed = self
             .editor_json
             .tick(&self.store, &self.services.tasks, context);
-        let documents = self.editor_json.documents();
-        self.editor_symbols.retain_builtin(&documents);
-        self.editor_folding.retain_builtin(&documents);
+        let symbol_documents = self.editor_json.symbol_documents();
+        self.editor_symbols.retain_builtin(&symbol_documents);
+        self.editor_folding
+            .retain_builtin(&self.editor_json.documents());
         for (snapshot, result) in completed {
             match result {
                 Ok(models) => {
-                    if let Err(error) = self
-                        .editor_symbols
-                        .install_builtin(&snapshot, models.symbols)
+                    if let Some(symbols) = models.symbols
+                        && let Err(error) = self.editor_symbols.install_builtin(&snapshot, symbols)
                     {
                         self.editor_symbols.fail_builtin(&snapshot);
                         self.report(&editor_error(error));
@@ -2656,7 +2656,9 @@ impl NativeApplication {
                     self.editor_folding.install_builtin(&snapshot, models.folds);
                 }
                 Err(error) => {
-                    self.editor_symbols.fail_builtin(&snapshot);
+                    if symbol_documents.contains(&snapshot.id) {
+                        self.editor_symbols.fail_builtin(&snapshot);
+                    }
                     self.report(&editor_error(error));
                 }
             }

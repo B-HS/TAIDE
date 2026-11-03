@@ -251,6 +251,8 @@ impl State {
         entry.model = None;
         entry.documents.clear();
         entry.snippets = snippets(request, files);
+        entry.groups.remove(&super::json::ORDINAL);
+        entry.json = super::json::spawn(request, tasks, repaint.clone());
         entry.update_clipboard_requirement();
         let documents = word_documents(store, request);
         let request = request.clone();
@@ -269,6 +271,32 @@ impl State {
     pub(crate) fn poll_supply(&mut self, store: &EditorStore) -> bool {
         let mut changed = false;
         for entry in self.entries.values_mut() {
+            if let Some(pending) = &mut entry.json {
+                let result = match pending.receiver.try_recv() {
+                    Ok(result) => Some(result),
+                    Err(oneshot::error::TryRecvError::Empty) => None,
+                    Err(oneshot::error::TryRecvError::Closed) => {
+                        Some(Err(EditorError::StaleRevision))
+                    }
+                };
+                if let Some(result) = result {
+                    let token = pending.token;
+                    entry.json = None;
+                    if token == entry.request.token && entry.request.describes(store) {
+                        entry.groups.insert(
+                            super::json::ORDINAL,
+                            super::Group {
+                                provider: super::json::provider(),
+                                ordinal: super::json::ORDINAL,
+                                candidates: result.unwrap_or_default(),
+                            },
+                        );
+                        entry.update_clipboard_requirement();
+                    }
+                    entry.model = None;
+                    changed = true;
+                }
+            }
             let Some(receiver) = &mut entry.word_result else {
                 continue;
             };

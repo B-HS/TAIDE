@@ -304,6 +304,71 @@ fn 다른_revision에_이전_후보의_삽입범위를_재사용하지않는다(
 }
 
 #[test]
+fn inline_부분_수락은_monaco의_단어와_공백과_줄_경계를_따른다() {
+    use taide_native_editor::completion::{PartialAccept, partial_accept_length};
+    const SEPARATORS: &str = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
+    let is_word = |character: char| !character.is_whitespace() && !SEPARATORS.contains(character);
+    let word = |text: &str| {
+        let start = text.find(is_word)?;
+        let end = text[start..]
+            .find(|character: char| !is_word(character))
+            .map_or(text.len(), |length| start + length);
+        Some(start..end)
+    };
+    for (text, expected) in [
+        ("native_generated", "native_generated".len()),
+        ("value next", "value".len()),
+        (" next", " ".len()),
+        ("  value", "  ".len()),
+        ("(value", "(".len()),
+        ("\u{3000}value", "\u{3000}".len()),
+        ("\u{00A0}value", "\u{00A0}".len()),
+        ("();", "();".len()),
+        ("( );", "( ".len()),
+        ("", 0),
+    ] {
+        assert_eq!(
+            partial_accept_length(PartialAccept::Word, text, word(text)),
+            expected,
+            "{text:?}"
+        );
+    }
+    assert_eq!(
+        partial_accept_length(PartialAccept::Word, "value\nnext", Some(0..5)),
+        5
+    );
+    assert_eq!(
+        partial_accept_length(PartialAccept::Line, "first\nsecond\nthird", None),
+        "first\n".len()
+    );
+    assert_eq!(
+        partial_accept_length(PartialAccept::Line, "single", None),
+        "single".len()
+    );
+    for (action, command) in [
+        (
+            "editor.action.inlineSuggest.acceptNextWord",
+            Command::AcceptNextWord,
+        ),
+        (
+            "editor.action.inlineSuggest.acceptNextLine",
+            Command::AcceptNextLine,
+        ),
+        ("editor.action.inlineSuggest.commit", Command::CommitInline),
+        (
+            "editor.action.inlineSuggest.showNext",
+            Command::ShowNextInline,
+        ),
+        (
+            "editor.action.inlineSuggest.showPrevious",
+            Command::ShowPreviousInline,
+        ),
+    ] {
+        assert_eq!(Command::from_action(action), Some(command));
+    }
+}
+
+#[test]
 fn 명시_명령과_목록_명령은_원본_id를_소비하고_무관한_명령을_거절한다() {
     assert_eq!(
         Command::from_action("editor.action.inlineSuggest.trigger"),

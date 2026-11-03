@@ -52,6 +52,10 @@ const EDIT_SOURCE_LINES: usize = 40;
 const EDIT_PREVIEW: &str = "generated\nsecond";
 const EDIT_REMOVED: Color32 = Color32::from_rgb(140, 20, 30);
 const EDIT_PRIMARY: Color32 = Color32::from_rgb(20, 80, 160);
+const INLINE_SUGGESTION_COUNT: usize = 1;
+const INLINE_GHOST: &str = "obar baz\nqux";
+const TOOLBAR_SHOW_DELAY: f64 = 0.3;
+const GHOST_HOVER_OFFSET: f32 = 4.0;
 
 fn limits() -> ParseLimits {
     ParseLimits {
@@ -81,6 +85,8 @@ struct Completions {
     edit: Option<taide_native_ui::editor_ai_edit::Session>,
     edit_submissions: Vec<String>,
     edit_closes: usize,
+    inline: Option<String>,
+    inline_commands: Vec<Command>,
 }
 
 impl Default for Completions {
@@ -105,6 +111,8 @@ impl Default for Completions {
             edit: None,
             edit_submissions: Vec::new(),
             edit_closes: 0,
+            inline: None,
+            inline_commands: Vec::new(),
         }
     }
 }
@@ -153,6 +161,37 @@ impl editor_markup::Provider for Completions {
 }
 
 impl Provider for Completions {
+    fn inline_preview(
+        &mut self,
+        store: &EditorStore,
+        view: ViewId,
+    ) -> Vec<taide_native_editor::completion_preview::GhostText> {
+        let Some(text) = self.inline.clone() else {
+            return Vec::new();
+        };
+        let current = store.views().get(view).unwrap();
+        let byte = current.selection.selections[current.selection.primary].head;
+        vec![taide_native_editor::completion_preview::GhostText {
+            line: 0,
+            parts: vec![taide_native_editor::completion_preview::Part {
+                byte,
+                text,
+                is_preview: false,
+            }],
+        }]
+    }
+    fn inline_command(
+        &mut self,
+        _: &mut EditorStore,
+        _: ViewId,
+        command: Command,
+    ) -> Result<bool, EditorError> {
+        self.inline_commands.push(command);
+        Ok(true)
+    }
+    fn inline_suggestion_count(&self, _: ViewId) -> Option<usize> {
+        self.inline.as_ref().map(|_| INLINE_SUGGESTION_COUNT)
+    }
     fn inline_edit(
         &mut self,
         _: &EditorStore,
@@ -1991,4 +2030,122 @@ fn ai_edit의_미리보기는_삭제범위와_현재_font_lineheight_scroll을_�
     );
     assert!(!fixture.painted.iter().any(|text| text == EDIT_PREVIEW));
     assert_eq!(fixture.text(), source);
+}
+
+fn painted_text_rect(fixture: &Fixture, text: &str) -> Rect {
+    fixture
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(shape) if shape.galley.job.text == text => {
+                Some(shape.galley.rect.translate(shape.pos.to_vec2()))
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{text} was not painted: {:?}", fixture.painted))
+}
+
+fn click(fixture: &mut Fixture, time: f64, position: egui::Pos2) {
+    let button = |pressed| Event::PointerButton {
+        pos: position,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Modifiers::NONE,
+    };
+    fixture.frame(time, vec![Event::PointerMoved(position), button(true)], &[]);
+    fixture.frame(time + FRAME_STEP / 2.0, vec![button(false)], &[]);
+}
+
+#[test]
+fn inline_suggest_toolbar는_hover_지연_뒤_표시하고_항목을_inline_명령으로_보낸다() {
+    use taide_native_ui::editor_inline_suggest_toolbar::{
+        ACCEPT, ACCEPT_LINE, ACCEPT_WORD, ALWAYS_SHOW_TOOLBAR, inspect, is_always_shown,
+        toggle_always_shown,
+    };
+    const MORE_BUTTON_OFFSET: f32 = 12.0;
+    const AWAY: egui::Pos2 = pos2(700.0, 500.0);
+    let mut fixture = Fixture::new();
+    fixture.completion.inline = Some(INLINE_GHOST.into());
+    fixture.frame(0.0, Vec::new(), &[]);
+    fixture.frame(FRAME_STEP, Vec::new(), &[]);
+    let body = fixture.body.unwrap();
+    assert!(inspect(&fixture.context, body).is_none());
+    let caret = fixture
+        .editor_geometry
+        .as_ref()
+        .unwrap()
+        .caret_rect(2)
+        .unwrap();
+    let ghost = pos2(caret.right() + GHOST_HOVER_OFFSET, caret.center().y);
+    fixture.frame(1.0, vec![Event::PointerMoved(ghost)], &[]);
+    fixture.frame(1.0 + TOOLBAR_SHOW_DELAY / 2.0, Vec::new(), &[]);
+    assert!(inspect(&fixture.context, body).is_none());
+    fixture.frame(1.0 + TOOLBAR_SHOW_DELAY + FRAME_STEP, Vec::new(), &[]);
+    fixture.frame(1.0 + TOOLBAR_SHOW_DELAY + FRAME_STEP * 2.0, Vec::new(), &[]);
+    let (toolbar, menu) = inspect(&fixture.context, body).unwrap();
+    assert!(menu.is_none());
+    assert!(toolbar.top() >= caret.bottom() || toolbar.bottom() <= caret.top());
+    for text in ["1/1", ACCEPT, "Tab", ACCEPT_WORD, "\u{2318}\u{2192}"] {
+        assert!(
+            fixture.painted.iter().any(|painted| painted == text),
+            "{text}"
+        );
+    }
+    click(
+        &mut fixture,
+        2.0,
+        pos2(toolbar.left() + MORE_BUTTON_OFFSET, toolbar.center().y),
+    );
+    assert!(fixture.completion.inline_commands.is_empty());
+    let word = painted_text_rect(&fixture, ACCEPT_WORD).center();
+    click(&mut fixture, 2.2, word);
+    assert_eq!(
+        fixture.completion.inline_commands,
+        vec![Command::AcceptNextWord]
+    );
+    assert_eq!(fixture.text(), "fo");
+    let more = pos2(toolbar.right() - MORE_BUTTON_OFFSET, toolbar.center().y);
+    click(&mut fixture, 2.4, more);
+    fixture.frame(2.5, Vec::new(), &[]);
+    assert!(inspect(&fixture.context, body).unwrap().1.is_some());
+    let line = painted_text_rect(&fixture, ACCEPT_LINE).center();
+    click(&mut fixture, 2.6, line);
+    assert_eq!(
+        fixture.completion.inline_commands,
+        vec![Command::AcceptNextWord, Command::AcceptNextLine]
+    );
+    assert!(inspect(&fixture.context, body).unwrap().1.is_none());
+    click(&mut fixture, 2.8, more);
+    fixture.frame(2.9, Vec::new(), &[]);
+    let always = painted_text_rect(&fixture, ALWAYS_SHOW_TOOLBAR).center();
+    click(&mut fixture, 3.0, always);
+    assert!(is_always_shown(&fixture.context));
+    fixture.frame(3.2, vec![Event::PointerMoved(AWAY)], &[]);
+    fixture.frame(4.0, Vec::new(), &[]);
+    assert!(inspect(&fixture.context, body).is_some());
+    let accept = painted_text_rect(&fixture, ACCEPT).center();
+    click(&mut fixture, 4.2, accept);
+    assert_eq!(
+        fixture.completion.inline_commands.last(),
+        Some(&Command::CommitInline)
+    );
+    toggle_always_shown(&fixture.context);
+    fixture.frame(4.4, vec![Event::PointerMoved(AWAY)], &[]);
+    fixture.frame(5.0, Vec::new(), &[]);
+    assert!(inspect(&fixture.context, body).is_none());
+    fixture.completion.inline = None;
+    toggle_always_shown(&fixture.context);
+    fixture.frame(5.2, Vec::new(), &[]);
+    assert!(inspect(&fixture.context, body).is_none());
+    toggle_always_shown(&fixture.context);
+    assert_eq!(
+        fixture
+            .store
+            .views()
+            .get(fixture.view)
+            .unwrap()
+            .selection
+            .selections,
+        vec![Selection { anchor: 2, head: 2 }]
+    );
 }

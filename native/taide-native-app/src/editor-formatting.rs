@@ -15,12 +15,32 @@ use uuid::Uuid;
 
 use crate::editor_symbols::ProviderIdentity;
 
-const JSON_WORKER_NAME: &str = "native-json-formatting";
-const MAX_JSON_ACTIVE: usize = 1;
+const BUILTIN_WORKER_NAME: &str = "native-builtin-formatting";
+const MAX_BUILTIN_ACTIVE: usize = 1;
 
 #[cfg(test)]
 #[path = "editor-formatting-tests.rs"]
 mod tests;
+
+pub(crate) fn is_native_eligible(snapshot: &DocumentSnapshot) -> bool {
+    crate::editor_json_formatting::is_eligible(snapshot)
+        || crate::editor_css::is_format_eligible(snapshot)
+        || crate::editor_html::is_format_eligible(snapshot)
+}
+
+fn native_build(
+    snapshot: &DocumentSnapshot,
+    kind: &Kind,
+    options: &lsp_types::FormattingOptions,
+) -> Result<Vec<lsp_types::TextEdit>, EditorError> {
+    if crate::editor_css::is_format_eligible(snapshot) {
+        return crate::editor_css::format(snapshot, kind, options);
+    }
+    if crate::editor_html::is_format_eligible(snapshot) {
+        return crate::editor_html::format(snapshot, kind, options);
+    }
+    crate::editor_json_formatting::build(snapshot, kind, options)
+}
 
 #[derive(Clone)]
 pub(crate) enum Kind {
@@ -41,7 +61,7 @@ pub struct Request {
     pub(crate) cancelled: watch::Receiver<bool>,
     pub(crate) command: Command,
     pub(crate) automatic: bool,
-    pub(crate) native_json: bool,
+    pub(crate) native: bool,
     source: ViewId,
     source_key: ViewKey,
     owner: ViewId,
@@ -149,13 +169,13 @@ impl Drop for Entry {
 pub(crate) struct State {
     entries: HashMap<ViewId, Entry>,
     saves: HashMap<DocumentId, NativeSaveEntry>,
-    active_json: Arc<AtomicUsize>,
+    active_builtin: Arc<AtomicUsize>,
     context: eframe::egui::Context,
 }
 
-struct JsonSlot(Arc<AtomicUsize>, eframe::egui::Context);
+struct BuiltinSlot(Arc<AtomicUsize>, eframe::egui::Context);
 
-impl Drop for JsonSlot {
+impl Drop for BuiltinSlot {
     fn drop(&mut self) {
         self.0.fetch_sub(1, Ordering::AcqRel);
         self.1.request_repaint();
@@ -204,7 +224,7 @@ impl State {
                 current.key == requested.key
                     && current.revision == requested.revision
                     && current.metadata.language_id == requested.metadata.language_id
-                    && crate::editor_json_formatting::is_eligible(&current)
+                    && is_native_eligible(&current)
                     && current
                         .model_indentation(IndentOptions {
                             tab_size: entry.request.options.tab_size,
@@ -231,25 +251,21 @@ impl State {
                 complete.push(*document);
                 continue;
             }
-            if self.active_json.load(Ordering::Acquire) >= MAX_JSON_ACTIVE {
+            if self.active_builtin.load(Ordering::Acquire) >= MAX_BUILTIN_ACTIVE {
                 continue;
             }
-            self.active_json.fetch_add(1, Ordering::AcqRel);
-            let slot = JsonSlot(self.active_json.clone(), self.context.clone());
+            self.active_builtin.fetch_add(1, Ordering::AcqRel);
+            let slot = BuiltinSlot(self.active_builtin.clone(), self.context.clone());
             let request = entry.request.clone();
             let cancelled = entry.cancelled.clone();
             let (sender, receiver) = oneshot::channel();
             if tasks
-                .spawn_blocking_transient_handle(JSON_WORKER_NAME, move || {
+                .spawn_blocking_transient_handle(BUILTIN_WORKER_NAME, move || {
                     let _slot = slot;
                     if *cancelled.borrow() || cancelled.has_changed().is_err() {
                         return;
                     }
-                    let result = crate::editor_json_formatting::build(
-                        &request.snapshot,
-                        &Kind::Document,
-                        &request.options,
-                    );
+                    let result = native_build(&request.snapshot, &Kind::Document, &request.options);
                     if !*cancelled.borrow() && cancelled.has_changed().is_ok() {
                         drop(sender.send(result));
                     }
@@ -283,7 +299,7 @@ impl State {
         for entry in self
             .entries
             .values_mut()
-            .filter(|entry| entry.request.native_json && !entry.complete)
+            .filter(|entry| entry.request.native && !entry.complete)
         {
             if let Some(receiver) = &mut entry.native {
                 let result = match receiver.try_recv() {
@@ -295,24 +311,20 @@ impl State {
                 results.push((entry.request.clone(), result));
                 continue;
             }
-            if self.active_json.load(Ordering::Acquire) >= MAX_JSON_ACTIVE {
+            if self.active_builtin.load(Ordering::Acquire) >= MAX_BUILTIN_ACTIVE {
                 continue;
             }
-            self.active_json.fetch_add(1, Ordering::AcqRel);
-            let slot = JsonSlot(self.active_json.clone(), self.context.clone());
+            self.active_builtin.fetch_add(1, Ordering::AcqRel);
+            let slot = BuiltinSlot(self.active_builtin.clone(), self.context.clone());
             let request = entry.request.clone();
             let (sender, receiver) = oneshot::channel();
             if tasks
-                .spawn_blocking_transient_handle(JSON_WORKER_NAME, move || {
+                .spawn_blocking_transient_handle(BUILTIN_WORKER_NAME, move || {
                     let _slot = slot;
                     if request.is_cancelled() {
                         return;
                     }
-                    let result = crate::editor_json_formatting::build(
-                        &request.snapshot,
-                        &request.kind,
-                        &request.options,
-                    );
+                    let result = native_build(&request.snapshot, &request.kind, &request.options);
                     if !request.is_cancelled() {
                         drop(sender.send(result));
                     }
@@ -337,9 +349,9 @@ impl State {
     ) -> Result<bool, EditorError> {
         let valid = self.entries.get(&request.source).is_some_and(|entry| {
             entry.request.token == request.token
-                && entry.request.native_json
+                && entry.request.native
                 && entry.providers.is_empty()
-                && request.native_json
+                && request.native
                 && providers.is_empty()
                 && request.describes(store)
         });
@@ -414,9 +426,8 @@ impl State {
         if snapshot.metadata.read_only {
             return Err(EditorError::ReadOnly);
         }
-        let native_json =
-            providers.is_empty() && crate::editor_json_formatting::is_eligible(&snapshot);
-        if source.composition.is_some() || providers.is_empty() && !native_json {
+        let native = providers.is_empty() && is_native_eligible(&snapshot);
+        if source.composition.is_some() || providers.is_empty() && !native {
             return Ok(None);
         }
         let options = snapshot.model_indentation(fallback).formatting_options();
@@ -458,7 +469,7 @@ impl State {
                 Command::Selection => Kind::Ranges(selection_ranges(&snapshot, &source.selection)?),
             },
         };
-        if native_json && matches!(kind, Kind::OnType { .. }) {
+        if native && matches!(kind, Kind::OnType { .. }) {
             return Ok(None);
         }
         let (cancel, cancelled) = watch::channel(false);
@@ -474,7 +485,7 @@ impl State {
             cancelled,
             command,
             automatic: input.is_some(),
-            native_json,
+            native,
             source: source.id,
             source_key: source.key.clone(),
             owner: owner.id,
@@ -493,7 +504,7 @@ impl State {
                 complete: false,
             },
         );
-        if native_json {
+        if native {
             self.context.request_repaint();
         }
         Ok(Some(request))

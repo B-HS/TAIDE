@@ -54,6 +54,8 @@ mod editor_command_text;
 mod editor_completion;
 #[path = "editor-context-menu.rs"]
 mod editor_context_menu;
+#[path = "editor-css.rs"]
+mod editor_css;
 #[path = "editor-documentation.rs"]
 mod editor_documentation;
 #[path = "editor-documentation-code.rs"]
@@ -68,6 +70,8 @@ mod editor_fonts;
 mod editor_formatting;
 #[path = "editor-highlights.rs"]
 mod editor_highlights;
+#[path = "editor-html.rs"]
+mod editor_html;
 #[path = "editor-ide-selection.rs"]
 mod editor_ide_selection;
 #[path = "editor-indentation.rs"]
