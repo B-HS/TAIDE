@@ -31,6 +31,9 @@
     - 기능표: 599행 중 complete 405·partial 59·unwired 75·missing 40·n-a 18·frozen 1, 기능 분모 580 중 69.8% 완료(세션 시작 53.4%)
     - 2026-11-03 settings 병합 `3864e1db`: 충돌(application.rs 이벤트 필드, main.rs 실행 인자·perf init, 기능표 2행) 해결. 게이트: 앱 lib 흔들림 2건 직렬 통과·editor_fonts 기존 실패, 다른 crate 통과. 공용 crate 6개 테스트 중 `taide-runtime/tests/agent_probe.rs` 소스 문자열 단언 1건 실패 — `81e96198`부터 있던 기존 실패(이번 병합이 두 파일을 바꾸지 않음). 루트 workspace check 통과
     - 실행 중: git(G5~G8·리뷰). 병합 뒤 연결: git-38 → explorer-search-7 Git 장식 공급, git-7 → shell `notify_event`
+    - 2026-11-04 git lane 병합 `f3a5b5d0`(충돌 8파일 해결, git-38→explorer-search-7 장식 공급·git-7 알림·git-49 Inbox 연결, 분할 화면 focus 진동 결함 수정). 게이트 휴지통 검사 3개 `--skip` 수정 `34fb88d7`(사고 기록 `docs/feedback/2026-11-04-merge-gate-trash-tests.md`)
+    - 기능표 행 직접 집계: complete 500 / 분모 579 (86.4%), 미완료 79(partial 62·unwired 12·missing 5). 영역별: commands-ui 35, settings 10, shell 9, editor 9, terminal-agent 5, explorer-search 4, git 4, preview 3
+- [x] 인수인계 문서 `docs/handoff/native-completion/`(00 입구 + 01~06 공통 + 10~16 영역 + 20 게이트 + 30 허락 + 90 새 세션 프롬프트). 사용자 지시로 감사·보완 단계는 생략하고 최신 사실은 00 문서 1절이 우선
 - [ ] W2. git(26) · settings(28)
 - [ ] W3. commands-ui(29)·진입 잔여·shell-89
 - [ ] W4. 배치 31 구조·전체 게이트(편집기 장애 경계 설계 포함). 32·33은 사용자 허락 뒤
