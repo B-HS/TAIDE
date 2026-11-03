@@ -1830,6 +1830,7 @@ fn 탐색기_행은_들여쓰기_뒤에_chevron_칸과_타입_아이콘을_두�
                 RowIcons {
                     glyphs: &mut glyphs,
                     appearance: &appearance,
+                    decorations: None,
                 },
             ));
         },
@@ -2578,7 +2579,7 @@ fn 실제_탐색기_생성은_파일의_고정탭_폴더선택_충돌과_root경
             assert!(explorer.create.is_none());
         }
         let mut request = taide_native_app::explorer::CreateRequest {
-            token: 1, path: root.join("nested/文.rs").to_str().unwrap().into(),
+            token: 1, mount: None, path: root.join("nested/文.rs").to_str().unwrap().into(),
             parent: root.to_str().unwrap().into(), kind: TreeEntryKind::File,
         };
         std::fs::write(&request.path, "preserved").unwrap();
@@ -2933,4 +2934,170 @@ fn 실제_탐색기_이름변경은_입력에서_공유_worker와_새_tree_선�
                 .unwrap();
             assert_eq!(tasks.tracked_count(), 0);
         });
+}
+
+fn menu_shapes(
+    context: &Context,
+    explorer: &mut Explorer,
+    project: &ProjectId,
+    page: &TreeRowPage,
+) -> (Output, Vec<egui::epaint::ClippedShape>) {
+    let mut result = None;
+    let mut output = context.run_ui(
+        RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                pos2(0.0, 0.0),
+                vec2(WIDTH, MENU_TEST_HEIGHT),
+            )),
+            ..Default::default()
+        },
+        |ui| {
+            result = Some(explorer.show(ui, project, page, &locale()));
+        },
+    );
+    output.textures_delta.clear();
+    (result.unwrap(), output.shapes)
+}
+
+fn open_row_menu(
+    context: &Context,
+    explorer: &mut Explorer,
+    project: &ProjectId,
+    page: &TreeRowPage,
+    row: usize,
+) -> (Output, Vec<egui::epaint::ClippedShape>) {
+    let first = menu_frame(context, explorer, project, page, Vec::new());
+    let position = first.rows[&page.rows[row].path].rect.center();
+    menu_click(
+        context,
+        explorer,
+        project,
+        page,
+        position,
+        PointerButton::Secondary,
+    );
+    menu_shapes(context, explorer, project, page)
+}
+
+fn separators_between(shapes: &[egui::epaint::ClippedShape], upper: Rect, lower: Rect) -> usize {
+    shapes
+        .iter()
+        .filter(|clipped| match &clipped.shape {
+            egui::Shape::LineSegment { points, .. } => {
+                points[0].y == points[1].y
+                    && points[0].y > upper.bottom()
+                    && points[0].y < lower.top()
+                    && points[0].x.min(points[1].x) < upper.right()
+                    && points[0].x.max(points[1].x) > upper.left()
+            }
+            _ => false,
+        })
+        .count()
+}
+
+#[test]
+fn 행_메뉴는_원본_구분선_구조로_터미널에서_열기와_폴더에서_찾기를_두고_그_동작을_낸다() {
+    let context = Context::default();
+    let project = ProjectId::new();
+    let rows = [
+        ("node_modules", TreeEntryKind::Directory),
+        ("note.txt", TreeEntryKind::File),
+        ("page.html", TreeEntryKind::File),
+    ]
+    .map(|(name, kind)| TreeRow {
+        path: format!("/synthetic/{name}"),
+        name: name.into(),
+        kind,
+        depth: 0,
+        expanded: false,
+        has_children: kind == TreeEntryKind::Directory,
+    })
+    .to_vec();
+    let page = TreeRowPage {
+        total: u32::try_from(rows.len()).unwrap(),
+        rows,
+    };
+    let mut explorer = Explorer::default();
+    explorer.root = Some("/synthetic".into());
+    let click_item = |explorer: &mut Explorer, menu: &Output, key: &str| {
+        menu_click(
+            &context,
+            explorer,
+            &project,
+            &page,
+            menu.menu[key].rect.center(),
+            PointerButton::Primary,
+        )
+        .actions
+    };
+
+    let (menu, shapes) = open_row_menu(&context, &mut explorer, &project, &page, 1);
+    let rect = |key: &str| menu.menu.get(key).map(|response| response.rect);
+    let order = [
+        "explorer.newFolder",
+        "explorer.openToTheSide",
+        "explorer.revealInFinder",
+        "explorer.openInTerminal",
+        "explorer.cut",
+    ]
+    .map(|key| rect(key).unwrap_or_else(|| panic!("{key}")));
+    assert!(order.windows(2).all(|pair| pair[0].top() < pair[1].top()));
+    assert!(rect("explorer.findInFolder").is_none());
+    assert!(rect("explorer.openInBrowser").is_none());
+    assert_eq!(separators_between(&shapes, order[0], order[1]), 1);
+    assert_eq!(separators_between(&shapes, order[1], order[2]), 1);
+    assert_eq!(separators_between(&shapes, order[2], order[3]), 0);
+    assert_eq!(separators_between(&shapes, order[3], order[4]), 1);
+    assert_eq!(
+        click_item(&mut explorer, &menu, "explorer.openInTerminal"),
+        vec![Action::OpenInTerminal(page.rows[1].clone())]
+    );
+
+    let (menu, shapes) = open_row_menu(&context, &mut explorer, &project, &page, 2);
+    let rect = |key: &str| menu.menu[key].rect;
+    assert_eq!(
+        separators_between(
+            &shapes,
+            rect("explorer.openToTheSide"),
+            rect("explorer.openInBrowser")
+        ),
+        0
+    );
+    assert_eq!(
+        separators_between(
+            &shapes,
+            rect("explorer.openInBrowser"),
+            rect("explorer.revealInFinder")
+        ),
+        1
+    );
+    assert_eq!(
+        click_item(&mut explorer, &menu, "explorer.openInTerminal"),
+        vec![Action::OpenInTerminal(page.rows[2].clone())]
+    );
+
+    let (menu, shapes) = open_row_menu(&context, &mut explorer, &project, &page, 0);
+    let rect = |key: &str| menu.menu.get(key).map(|response| response.rect);
+    let order = [
+        "explorer.newFolder",
+        "explorer.revealInFinder",
+        "explorer.openInTerminal",
+        "explorer.findInFolder",
+        "explorer.cut",
+    ]
+    .map(|key| rect(key).unwrap_or_else(|| panic!("{key}")));
+    assert!(order.windows(2).all(|pair| pair[0].top() < pair[1].top()));
+    assert!(rect("explorer.openToTheSide").is_none());
+    assert_eq!(separators_between(&shapes, order[0], order[1]), 1);
+    assert_eq!(separators_between(&shapes, order[1], order[3]), 0);
+    assert_eq!(separators_between(&shapes, order[3], order[4]), 1);
+    assert_eq!(
+        click_item(&mut explorer, &menu, "explorer.findInFolder"),
+        vec![Action::FindInFolder("node_modules".into())]
+    );
+    let (menu, _) = open_row_menu(&context, &mut explorer, &project, &page, 0);
+    assert_eq!(
+        click_item(&mut explorer, &menu, "explorer.openInTerminal"),
+        vec![Action::OpenInTerminal(page.rows[0].clone())]
+    );
 }

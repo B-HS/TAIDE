@@ -240,6 +240,7 @@ fn controlled_tooltip은_오류없는_input의_focus_열기시도로_기존_tool
                         toolbar: HashMap::new(),
                         menu: HashMap::new(),
                         blank: None,
+                        reopen: None,
                     },
                     &locale,
                     &provider,

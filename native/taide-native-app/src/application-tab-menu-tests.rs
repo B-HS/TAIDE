@@ -231,7 +231,7 @@ fn 실제_app_탭은_에이전트_터미널_glyph와_다시열기_탐색기_reve
         application
             .explorer_search_state
             .explorers
-            .get(&project)
+            .get(&slot)
             .is_some_and(|explorer| {
                 explorer.selected.as_deref() == Some(source_path.as_str())
                     && explorer.rename.is_none()
@@ -261,7 +261,7 @@ fn 실제_app_탭은_에이전트_터미널_glyph와_다시열기_탐색기_reve
         application
             .explorer_search_state
             .explorers
-            .get(&project)
+            .get(&slot)
             .is_some_and(|explorer| {
                 explorer
                     .rename

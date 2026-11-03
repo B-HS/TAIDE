@@ -27,6 +27,15 @@ pub(crate) enum Icon {
     FolderInput,
     Search,
     GitBranch,
+    CaseSensitive,
+    WholeWord,
+    Regex,
+    EyeOff,
+    History,
+    Check,
+    Loader,
+    ReplaceAll,
+    FileSearch,
 }
 
 const EXTRA_SOURCES: &[(Icon, &[u8])] = &[
@@ -66,6 +75,36 @@ const EXTRA_SOURCES: &[(Icon, &[u8])] = &[
     (
         Icon::Search,
         include_bytes!("../resources/icons/search.svg"),
+    ),
+    (
+        Icon::CaseSensitive,
+        include_bytes!("../resources/icons/case-sensitive.svg"),
+    ),
+    (
+        Icon::WholeWord,
+        include_bytes!("../resources/icons/whole-word.svg"),
+    ),
+    (Icon::Regex, include_bytes!("../resources/icons/regex.svg")),
+    (
+        Icon::EyeOff,
+        include_bytes!("../resources/icons/eye-off.svg"),
+    ),
+    (
+        Icon::History,
+        include_bytes!("../resources/icons/history.svg"),
+    ),
+    (Icon::Check, include_bytes!("../resources/icons/check.svg")),
+    (
+        Icon::Loader,
+        include_bytes!("../resources/icons/loader-circle.svg"),
+    ),
+    (
+        Icon::ReplaceAll,
+        include_bytes!("../resources/icons/replace-all.svg"),
+    ),
+    (
+        Icon::FileSearch,
+        include_bytes!("../resources/icons/file-search-corner.svg"),
     ),
 ];
 

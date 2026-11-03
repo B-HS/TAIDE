@@ -8,9 +8,16 @@ use taide_model::locale::ResolvedLocale;
 use taide_model::theme::ResolvedTheme;
 use taide_model::tree::{TreeEntryKind, TreeRow, TreeRowPage};
 
+use crate::explorer_git_decorations::Decoration;
 use crate::problems_icons::{FileColor, Glyph, file, folder};
 
 const ROW_HEIGHT: f32 = 22.0;
+const ROW_RIGHT_PADDING: f32 = 8.0;
+const GIT_BADGE_GAP: f32 = 4.0;
+const GIT_DIRECTORY_DOT_RADIUS: f32 = 3.0;
+const MISSING_PADDING_X: f32 = 16.0;
+const MISSING_GAP: f32 = 8.0;
+const MISSING_ICON_SIZE: f32 = 20.0;
 const ROW_INDENT: f32 = 12.0;
 const ROW_FONT_SIZE: f32 = 12.0;
 const CHEVRON_SLOT_SIZE: f32 = 16.0;
@@ -30,6 +37,7 @@ const TYPEAHEAD_RESET_SECONDS: f64 = 0.7;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RenameRequest {
     pub token: u64,
+    pub mount: Option<ShellSlotId>,
     pub from: String,
     pub to: String,
 }
@@ -43,6 +51,7 @@ pub struct RenameReply {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CreateRequest {
     pub token: u64,
+    pub mount: Option<ShellSlotId>,
     pub path: String,
     pub parent: String,
     pub kind: TreeEntryKind,
@@ -78,6 +87,8 @@ pub enum Action {
     CopyText(String),
     RevealPath(String),
     OpenInBrowser(String),
+    OpenInTerminal(TreeRow),
+    FindInFolder(String),
     Refresh,
     Collapse,
 }
@@ -131,10 +142,36 @@ pub struct Output {
     pub toolbar: HashMap<&'static str, Response>,
     pub menu: HashMap<&'static str, Response>,
     pub blank: Option<Response>,
+    pub reopen: Option<Response>,
+}
+
+impl Output {
+    fn empty() -> Self {
+        Self {
+            actions: Vec::new(),
+            rows: HashMap::new(),
+            icons: HashMap::new(),
+            draft_icon: None,
+            icon_error: None,
+            input: None,
+            validation_error: None,
+            toolbar: HashMap::new(),
+            menu: HashMap::new(),
+            blank: None,
+            reopen: None,
+        }
+    }
 }
 
 pub struct Appearance {
     files: HashMap<FileColor, Color32>,
+    item_hover: Color32,
+    item_selected: Color32,
+    item_focused: Color32,
+    git: HashMap<Decoration, Color32>,
+    foreground: Color32,
+    muted: Color32,
+    search: crate::search_panel::Appearance,
 }
 
 impl Appearance {
@@ -144,11 +181,34 @@ impl Appearance {
                 .into_iter()
                 .map(|color| Ok((color, crate::presentation::color(theme, color.theme_key())?)))
                 .collect::<AppResult<_>>()?,
+            item_hover: crate::presentation::color(theme, "explorer.itemHover")?,
+            item_selected: crate::presentation::color(theme, "explorer.itemSelected")?,
+            item_focused: crate::presentation::color(theme, "explorer.itemFocused")?,
+            git: Decoration::ALL
+                .into_iter()
+                .map(|decoration| {
+                    Ok((
+                        decoration,
+                        crate::presentation::color(theme, decoration.theme_key())?,
+                    ))
+                })
+                .collect::<AppResult<_>>()?,
+            foreground: crate::presentation::color(theme, "app.foreground")?,
+            muted: crate::presentation::color(theme, "appSidebar.iconDefault")?,
+            search: crate::search_panel::Appearance::new(theme)?,
         })
+    }
+
+    pub(crate) fn search(&self) -> &crate::search_panel::Appearance {
+        &self.search
     }
 
     pub fn file_color(&self, color: FileColor) -> Color32 {
         self.files[&color]
+    }
+
+    pub fn git_color(&self, decoration: Decoration) -> Color32 {
+        self.git[&decoration]
     }
 }
 
@@ -168,6 +228,7 @@ pub trait PaintIcon<T> {
 pub struct RowIcons<'a> {
     pub glyphs: &'a mut dyn PaintIcon<Glyph>,
     pub appearance: &'a Appearance,
+    pub decorations: Option<&'a HashMap<String, Decoration>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -237,15 +298,11 @@ impl RowIcon {
         Self::new(row_rect, draft.row.depth, None, icon)
     }
 
-    fn paint(&self, ui: &Ui, icons: &mut RowIcons<'_>) -> AppResult<()> {
+    fn paint(&self, ui: &Ui, icons: &mut RowIcons<'_>, foreground: Color32) -> AppResult<()> {
         if let Some((rect, angle)) = self.chevron {
-            icons.glyphs.paint(
-                ui,
-                rect,
-                Glyph::ChevronRight,
-                ui.visuals().text_color(),
-                angle,
-            )?;
+            icons
+                .glyphs
+                .paint(ui, rect, Glyph::ChevronRight, foreground, angle)?;
         }
         icons.glyphs.paint(
             ui,
@@ -260,11 +317,12 @@ impl RowIcon {
 fn paint_row_icon(
     ui: &Ui,
     icon: &RowIcon,
+    foreground: Color32,
     icons: &mut Option<RowIcons<'_>>,
     error: &mut Option<AppError>,
 ) {
     if let Some(icons) = icons
-        && let Err(failure) = icon.paint(ui, icons)
+        && let Err(failure) = icon.paint(ui, icons, foreground)
     {
         error.get_or_insert(failure);
     }
@@ -290,14 +348,7 @@ struct DraftOutput {
 }
 
 impl RenameDraft {
-    fn show(
-        &mut self,
-        ui: &mut Ui,
-        locale: &ResolvedLocale,
-        id: Id,
-        pending: bool,
-        owns_focus_request: bool,
-    ) -> DraftOutput {
+    fn show(&mut self, ui: &mut Ui, locale: &ResolvedLocale, id: Id, pending: bool) -> DraftOutput {
         let owns_focus = ui.memory(|memory| memory.has_focus(id));
         let mut ime_frame = false;
         let mut enter_pressed = false;
@@ -349,7 +400,7 @@ impl RenameDraft {
             ))
             .show(ui);
         let response = output.response.response;
-        if self.focus && owns_focus_request && ui.is_enabled() {
+        if self.focus && ui.is_enabled() {
             self.focus = false;
             response.request_focus();
             output
@@ -416,7 +467,7 @@ pub struct Explorer {
     composing: bool,
     clipboard: Option<crate::explorer_clipboard::Entry>,
     mount: Option<ShellSlotId>,
-    request_mount: Option<ShellSlotId>,
+    pub(crate) auto_revealed: Option<String>,
 }
 
 fn revealing_scroll_offset(current: f32, viewport_height: f32, index: usize) -> Option<f32> {
@@ -440,20 +491,6 @@ impl Explorer {
 
     pub fn clipboard(&self) -> Option<&crate::explorer_clipboard::Entry> {
         self.clipboard.as_ref()
-    }
-
-    pub fn address_requests(&mut self, mount: &ShellSlotId) {
-        self.request_mount = Some(mount.clone());
-    }
-
-    fn claim_requests(&mut self) {
-        if self.mount.is_some() {
-            self.request_mount.clone_from(&self.mount);
-        }
-    }
-
-    fn owns_requests(&self) -> bool {
-        self.request_mount.is_none() || self.request_mount == self.mount
     }
 
     pub fn replace_clipboard(&mut self, entry: Option<crate::explorer_clipboard::Entry>) {
@@ -579,7 +616,6 @@ impl Explorer {
         if let Some(row) = index.and_then(|index| rows.get(index)) {
             self.select_only(Some(row.path.clone()));
             self.reveal = self.selected.clone();
-            self.claim_requests();
         }
     }
 
@@ -604,7 +640,6 @@ impl Explorer {
         {
             return None;
         }
-        self.claim_requests();
         let selected = self
             .selected
             .as_ref()
@@ -709,13 +744,13 @@ impl Explorer {
         self.serial = self.serial.checked_add(1)?;
         let request = CreateRequest {
             token: self.serial,
+            mount: self.mount.clone(),
             path,
             parent: draft.parent.clone(),
             kind: draft.input.row.kind,
         };
         draft.input.error = None;
         self.pending_create = Some(request.clone());
-        self.claim_requests();
         Some(request)
     }
 
@@ -789,7 +824,6 @@ impl Explorer {
             composing: false,
         });
         self.reveal = Some(row.path.clone());
-        self.claim_requests();
     }
 
     pub fn cancel_rename(&mut self) {
@@ -824,12 +858,12 @@ impl Explorer {
         self.serial = self.serial.checked_add(1)?;
         let request = RenameRequest {
             token: self.serial,
+            mount: self.mount.clone(),
             from: draft.row.path.clone(),
             to: destination,
         };
         draft.error = None;
         self.pending = Some(request.clone());
-        self.claim_requests();
         Some(request)
     }
 
@@ -933,6 +967,104 @@ impl Explorer {
         self.render(ui, project, Some(mount), page, locale, Some(icons))
     }
 
+    /// The explorer body when the project root is missing or its tree failed to load
+    /// (`explorer-panel.tsx` `rootUnavailable`): the header stays, the body offers a reopen.
+    pub fn show_missing(
+        &mut self,
+        ui: &mut Ui,
+        project: &ProjectId,
+        root: Option<&str>,
+        locale: &ResolvedLocale,
+        icons: RowIcons<'_>,
+    ) -> Output {
+        let mut output = Output::empty();
+        self.header(ui, project, None, locale, &mut output);
+        let area = ui.available_rect_before_wrap();
+        let width = (area.width() - MISSING_PADDING_X * 2.0).max(0.0);
+        let font = egui::FontId::proportional(ROW_FONT_SIZE);
+        let message = crate::presentation::message(locale, "explorer.projectRootMissing", &[]);
+        let reopen = crate::presentation::message(locale, "explorer.reopenProject", &[]);
+        let height = |text: &str| {
+            ui.painter()
+                .layout(text.to_owned(), font.clone(), Color32::PLACEHOLDER, width)
+                .size()
+                .y
+        };
+        let texts = [Some(message.as_str()), root, Some(reopen.as_str())];
+        let heights = texts.map(|text| text.map(height));
+        let total = MISSING_ICON_SIZE
+            + heights
+                .iter()
+                .flatten()
+                .map(|height| height + MISSING_GAP)
+                .sum::<f32>();
+        let mut top = (area.center().y - total / 2.0).max(area.top());
+        let icon = egui::Rect::from_min_size(
+            egui::pos2(area.center().x - MISSING_ICON_SIZE / 2.0, top),
+            egui::Vec2::splat(MISSING_ICON_SIZE),
+        );
+        if let Err(error) =
+            icons
+                .glyphs
+                .paint(ui, icon, Glyph::TriangleAlert, icons.appearance.muted, 0.0)
+        {
+            output.icon_error = Some(error);
+        }
+        top = icon.bottom() + MISSING_GAP;
+        let mut place = |ui: &mut Ui, height: f32, widget: egui::Label| {
+            let rect = egui::Rect::from_min_size(
+                egui::pos2(area.left() + MISSING_PADDING_X, top),
+                egui::vec2(width, height),
+            );
+            top = rect.bottom() + MISSING_GAP;
+            ui.put(rect, widget)
+        };
+        if let Some(height) = heights[0] {
+            place(
+                ui,
+                height,
+                egui::Label::new(
+                    egui::RichText::new(message)
+                        .size(ROW_FONT_SIZE)
+                        .color(icons.appearance.foreground),
+                )
+                .wrap(),
+            );
+        }
+        if let (Some(root), Some(height)) = (root, heights[1]) {
+            place(
+                ui,
+                height,
+                egui::Label::new(
+                    egui::RichText::new(root)
+                        .size(ROW_FONT_SIZE)
+                        .color(icons.appearance.muted),
+                )
+                .wrap(),
+            );
+        }
+        if let Some(height) = heights[2] {
+            let rect = egui::Rect::from_min_size(
+                egui::pos2(area.left() + MISSING_PADDING_X, top),
+                egui::vec2(width, height),
+            );
+            output.reopen = Some(
+                ui.put(
+                    rect,
+                    egui::Button::new(
+                        egui::RichText::new(reopen)
+                            .size(ROW_FONT_SIZE)
+                            .underline()
+                            .color(icons.appearance.foreground),
+                    )
+                    .frame(false),
+                ),
+            );
+        }
+        ui.allocate_rect(area, egui::Sense::hover());
+        output
+    }
+
     fn render(
         &mut self,
         ui: &mut Ui,
@@ -954,7 +1086,7 @@ impl Explorer {
         project: &ProjectId,
         page: &TreeRowPage,
         locale: &ResolvedLocale,
-        mut icons: Option<RowIcons<'_>>,
+        icons: Option<RowIcons<'_>>,
     ) -> Output {
         self.synchronize_selection();
         let time = ui.input(|input| input.time);
@@ -965,18 +1097,19 @@ impl Explorer {
             self.typeahead_buffer.clear();
             self.typeahead_deadline = None;
         }
-        let mut output = Output {
-            actions: Vec::new(),
-            rows: HashMap::new(),
-            icons: HashMap::new(),
-            draft_icon: None,
-            icon_error: None,
-            input: None,
-            validation_error: None,
-            toolbar: HashMap::new(),
-            menu: HashMap::new(),
-            blank: None,
-        };
+        let mut output = Output::empty();
+        self.header(ui, project, Some(page), locale, &mut output);
+        self.render_rows(ui, project, page, locale, icons, output)
+    }
+
+    fn header(
+        &mut self,
+        ui: &mut Ui,
+        project: &ProjectId,
+        page: Option<&TreeRowPage>,
+        locale: &ResolvedLocale,
+        output: &mut Output,
+    ) {
         let tree_id = Id::new(("native-tree-focus", project));
         let is_toolbar_visible = ui.rect_contains_pointer(ui.max_rect())
             || self.rename.is_some()
@@ -1029,7 +1162,7 @@ impl Explorer {
                 );
                 if response.clicked() {
                     if let Some(kind) = kind {
-                        if let Some(action) = self.start_create(kind, page) {
+                        if let Some(action) = page.and_then(|page| self.start_create(kind, page)) {
                             output.actions.push(action);
                         }
                     } else if key == "explorer.refresh" {
@@ -1051,6 +1184,18 @@ impl Explorer {
                 ui.visuals().widgets.noninteractive.bg_stroke.color,
             ),
         );
+    }
+
+    fn render_rows(
+        &mut self,
+        ui: &mut Ui,
+        project: &ProjectId,
+        page: &TreeRowPage,
+        locale: &ResolvedLocale,
+        mut icons: Option<RowIcons<'_>>,
+        mut output: Output,
+    ) -> Output {
+        let tree_id = Id::new(("native-tree-focus", project));
         let tree = ui.interact(
             ui.max_rect(),
             tree_id,
@@ -1130,8 +1275,18 @@ impl Explorer {
         let row_count = page.rows.len()
             + usize::from(draft_row.is_some())
             + usize::from(create_index.is_some());
-        let owns_requests = self.owns_requests();
         let mount = self.mount.clone();
+        let rename_input = self
+            .rename
+            .as_ref()
+            .map(|draft| Id::new(("native-rename-input", project, &mount, &draft.row.path)));
+        let create_input = Id::new(("native-create-input", project, &mount));
+        let is_tree_focused = !egui::Popup::is_any_open(ui.ctx())
+            && ui.memory(|memory| {
+                memory.has_focus(tree_id)
+                    || (self.create.is_some() && memory.has_focus(create_input))
+                    || rename_input.is_some_and(|input| memory.has_focus(input))
+            });
         let reveal_index = self
             .create
             .as_ref()
@@ -1144,8 +1299,7 @@ impl Explorer {
                         .chain(draft_row.iter())
                         .position(|row| &row.path == path)
                 })
-            })
-            .filter(|_| owns_requests);
+            });
         let tree_scroll = ("native-tree", project);
         let scroll_offset = egui::scroll_area::State::load(
             ui.ctx(),
@@ -1175,15 +1329,20 @@ impl Explorer {
                                     egui::vec2(ui.available_width(), ROW_HEIGHT),
                                 );
                                 let icon = RowIcon::of_draft(row_rect, &draft.input);
-                                paint_row_icon(ui, &icon, &mut icons, &mut output.icon_error);
+                                paint_row_icon(
+                                    ui,
+                                    &icon,
+                                    ui.visuals().text_color(),
+                                    &mut icons,
+                                    &mut output.icon_error,
+                                );
                                 output.draft_icon = Some(icon);
                                 ui.add_space(icon.label_left - row_rect.left());
                                 let result = draft.input.show(
                                     ui,
                                     locale,
-                                    Id::new(("native-create-input", project, &mount)),
+                                    create_input,
                                     self.pending_create.is_some(),
-                                    owns_requests,
                                 );
                                 commit |= result.commit;
                                 cancel |= result.cancel;
@@ -1214,7 +1373,13 @@ impl Explorer {
                                     let draft =
                                         self.rename.as_mut().expect("rename row is present");
                                     let icon = RowIcon::of_draft(row_rect, draft);
-                                    paint_row_icon(ui, &icon, &mut icons, &mut output.icon_error);
+                                    paint_row_icon(
+                                        ui,
+                                        &icon,
+                                        ui.visuals().text_color(),
+                                        &mut icons,
+                                        &mut output.icon_error,
+                                    );
                                     output.draft_icon = Some(icon);
                                     ui.add_space(icon.label_left - row_rect.left());
                                     let result = draft.show(
@@ -1227,7 +1392,6 @@ impl Explorer {
                                             &row.path,
                                         )),
                                         self.pending.is_some(),
-                                        owns_requests,
                                     );
                                     commit |= result.commit;
                                     cancel |= result.cancel;
@@ -1242,22 +1406,90 @@ impl Explorer {
                                     ui.id().with("full-row"),
                                     egui::Sense::click(),
                                 );
-                                if selected || response.hovered() {
-                                    let fill = if selected {
-                                        ui.visuals().selection.bg_fill
-                                    } else {
-                                        ui.visuals().widgets.hovered.weak_bg_fill
-                                    };
+                                let appearance = icons.as_ref().map(|icons| icons.appearance);
+                                let fill = if response.hovered() {
+                                    Some(appearance.map_or(
+                                        ui.visuals().widgets.hovered.weak_bg_fill,
+                                        |appearance| appearance.item_hover,
+                                    ))
+                                } else if selected {
+                                    let is_primary_focused = is_tree_focused
+                                        && self.selected.as_ref() == Some(&row.path);
+                                    Some(appearance.map_or(
+                                        ui.visuals().selection.bg_fill,
+                                        |appearance| {
+                                            if is_primary_focused {
+                                                appearance.item_selected
+                                            } else {
+                                                appearance.item_focused
+                                            }
+                                        },
+                                    ))
+                                } else {
+                                    None
+                                };
+                                if let Some(fill) = fill {
                                     ui.painter().rect_filled(row_rect, 0.0, fill);
                                 }
-                                paint_row_icon(ui, &icon, &mut icons, &mut output.icon_error);
-                                output.icons.insert(row.path.clone(), icon);
-                                ui.add(
-                                    egui::Label::new(
-                                        egui::RichText::new(&row.name).size(ROW_FONT_SIZE),
-                                    )
-                                    .truncate(),
+                                let decoration = icons
+                                    .as_ref()
+                                    .and_then(|icons| icons.decorations?.get(&row.path).copied())
+                                    .zip(appearance)
+                                    .map(|(decoration, appearance)| {
+                                        (decoration, appearance.git_color(decoration))
+                                    });
+                                paint_row_icon(
+                                    ui,
+                                    &icon,
+                                    decoration
+                                        .map_or(ui.visuals().text_color(), |(_, color)| color),
+                                    &mut icons,
+                                    &mut output.icon_error,
                                 );
+                                output.icons.insert(row.path.clone(), icon);
+                                let name = egui::RichText::new(&row.name).size(ROW_FONT_SIZE);
+                                match decoration {
+                                    Some((decoration, color)) => {
+                                        let right = row_rect.right() - ROW_RIGHT_PADDING;
+                                        let badge_left = if row.kind == TreeEntryKind::Directory {
+                                            let center = egui::pos2(
+                                                right - GIT_DIRECTORY_DOT_RADIUS,
+                                                row_rect.center().y,
+                                            );
+                                            ui.painter().circle_filled(
+                                                center,
+                                                GIT_DIRECTORY_DOT_RADIUS,
+                                                color,
+                                            );
+                                            center.x - GIT_DIRECTORY_DOT_RADIUS
+                                        } else {
+                                            ui.painter()
+                                                .text(
+                                                    egui::pos2(right, row_rect.center().y),
+                                                    egui::Align2::RIGHT_CENTER,
+                                                    decoration.badge(),
+                                                    egui::FontId::proportional(ROW_FONT_SIZE),
+                                                    color,
+                                                )
+                                                .left()
+                                        };
+                                        let width =
+                                            (badge_left - GIT_BADGE_GAP - ui.cursor().left())
+                                                .max(0.0);
+                                        ui.allocate_ui_with_layout(
+                                            egui::vec2(width, ROW_HEIGHT),
+                                            egui::Layout::left_to_right(egui::Align::Center),
+                                            |ui| {
+                                                ui.add(
+                                                    egui::Label::new(name.color(color)).truncate(),
+                                                )
+                                            },
+                                        );
+                                    }
+                                    None => {
+                                        ui.add(egui::Label::new(name).truncate());
+                                    }
+                                }
                                 response.widget_info(|| {
                                     egui::WidgetInfo::selected(
                                         egui::WidgetType::Button,
@@ -1266,6 +1498,11 @@ impl Explorer {
                                         &row.name,
                                     )
                                 });
+                                if let Some((decoration, _)) = decoration {
+                                    ui.ctx().accesskit_node_builder(response.id, |node| {
+                                        node.set_description(decoration.name());
+                                    });
+                                }
                                 if response.clicked() {
                                     let modifiers = ui.input(|input| input.modifiers);
                                     self.select_row(row, &page.rows, modifiers);
@@ -1307,8 +1544,8 @@ impl Explorer {
                                         }
                                         output.menu.insert(key, response);
                                     }
-                                    ui.separator();
                                     if row.kind == TreeEntryKind::File {
+                                        ui.separator();
                                         let response = ui.button(crate::presentation::message(
                                             locale,
                                             "explorer.openToTheSide",
@@ -1382,8 +1619,8 @@ impl Explorer {
                                             ui.close();
                                         }
                                         output.menu.insert("explorer.openInBrowser", browser);
-                                        ui.separator();
                                     }
+                                    ui.separator();
                                     let reveal = ui.add(
                                         egui::Button::new(crate::presentation::message(
                                             locale,
@@ -1397,6 +1634,30 @@ impl Explorer {
                                         ui.close();
                                     }
                                     output.menu.insert("explorer.revealInFinder", reveal);
+                                    let terminal = ui.button(crate::presentation::message(
+                                        locale,
+                                        "explorer.openInTerminal",
+                                        &[],
+                                    ));
+                                    if terminal.clicked() {
+                                        output.actions.push(Action::OpenInTerminal(row.clone()));
+                                        ui.close();
+                                    }
+                                    output.menu.insert("explorer.openInTerminal", terminal);
+                                    if row.kind == TreeEntryKind::Directory {
+                                        let find = ui.button(crate::presentation::message(
+                                            locale,
+                                            "explorer.findInFolder",
+                                            &[],
+                                        ));
+                                        if find.clicked() {
+                                            if let Some(path) = self.relative_path(&row.path) {
+                                                output.actions.push(Action::FindInFolder(path));
+                                            }
+                                            ui.close();
+                                        }
+                                        output.menu.insert("explorer.findInFolder", find);
+                                    }
                                     ui.separator();
                                     for (key, mode, shortcut) in [
                                         (
@@ -1527,9 +1788,7 @@ impl Explorer {
             });
             output.blank = Some(response);
         }
-        if owns_requests {
-            self.reveal = None;
-        }
+        self.reveal = None;
         if let Some((path, kind)) = context_create {
             self.select_only(Some(path));
             if let Some(action) = self.start_create(kind, page) {
@@ -1839,6 +2098,10 @@ impl Explorer {
         true
     }
 }
+
+#[cfg(test)]
+#[path = "explorer-tests.rs"]
+mod tests;
 
 pub async fn create_entry(
     services: &std::sync::Arc<taide_runtime::AppServices>,

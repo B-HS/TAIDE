@@ -111,9 +111,15 @@ mod editor_view_state_sync;
 pub mod event_relay;
 pub mod events;
 pub mod explorer;
+#[path = "explorer-auto-reveal.rs"]
+mod explorer_auto_reveal;
 pub mod explorer_clipboard;
 pub mod explorer_clipboard_owners;
 pub mod explorer_delete;
+#[path = "explorer-git-decorations.rs"]
+pub mod explorer_git_decorations;
+#[path = "explorer-mounts.rs"]
+mod explorer_mounts;
 pub mod explorer_move;
 pub mod explorer_source_missing;
 pub mod explorer_toolbar;
@@ -245,6 +251,16 @@ pub mod remote_utilities;
 #[path = "remote-ws.rs"]
 pub mod remote_ws;
 pub mod save;
+#[path = "search-editor.rs"]
+mod search_editor;
+#[path = "search-history.rs"]
+mod search_history;
+#[path = "search-panel.rs"]
+pub mod search_panel;
+#[path = "search-results.rs"]
+mod search_results;
+#[path = "search-stream.rs"]
+pub mod search_stream;
 #[path = "settings-controls.rs"]
 pub mod settings_controls;
 #[path = "settings-integrations.rs"]

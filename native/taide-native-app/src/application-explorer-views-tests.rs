@@ -183,7 +183,7 @@ fn left_half() -> egui::Rect {
 }
 
 #[test]
-fn 실제_app_사이드바는_네_보기를_slot별로_전환하고_검색과_git은_빈_본문만_보인다() {
+fn 실제_app_사이드바는_네_보기를_slot별로_전환하고_검색은_패널을_git은_빈_본문만_보인다() {
     let mut fixture = Fixture {
         directory: std::env::temp_dir()
             .join(format!("taide-native-explorer-views-{}", ProjectId::new())),
@@ -289,7 +289,15 @@ fn 실제_app_사이드바는_네_보기를_slot별로_전환하고_검색과_gi
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert!(stray.is_empty(), "{key}: no placeholder text {stray:?}");
+        if expected == crate::symbol_sidebar::View::Search {
+            let hint = label(application, "search.liveSearchHint");
+            assert!(
+                stray.iter().any(|(text, ..)| *text == hint),
+                "{key}: the search panel body {stray:?}"
+            );
+        } else {
+            assert!(stray.is_empty(), "{key}: no placeholder text {stray:?}");
+        }
         assert_eq!(view(application, 1), crate::symbol_sidebar::View::Files);
     }
     let explorer = label(application, "explorer.title");

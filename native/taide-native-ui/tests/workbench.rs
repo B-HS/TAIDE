@@ -516,6 +516,70 @@ fn 실제_레이아웃_렌더는_두_프로젝트와_zen_보조창_범위를_분
 }
 
 #[test]
+fn 보조_창은_같은_프로젝트의_메인_슬롯이_problems를_열어도_problems와_상태바를_그리지_않는다() {
+    let mut snapshot = fixture();
+    let slot = snapshot.shell.focused.clone().unwrap();
+    let project = snapshot.focused_project().unwrap().clone();
+    let auxiliary = surface_layout();
+    snapshot
+        .layouts
+        .get_mut(&project)
+        .unwrap()
+        .auxiliary_windows
+        .push(AuxWindowLayout {
+            slot: AUX_SLOT,
+            root: auxiliary.root,
+            focused_pane: auxiliary.focused_pane,
+        });
+    let draw = |scope: WindowScope| {
+        let shell = shell(scope);
+        let mut surfaces = Surfaces {
+            problems_open: std::collections::HashSet::from([slot.clone()]),
+            ..Default::default()
+        };
+        let mut output = egui::Context::default().run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    pos2(0.0, 0.0),
+                    vec2(WINDOW_SIZE[0], WINDOW_SIZE[1]),
+                )),
+                ..Default::default()
+            },
+            |ui| {
+                shell.show(ui, &snapshot, &mut surfaces);
+            },
+        );
+        output.textures_delta.clear();
+        let texts = output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        (surfaces, texts)
+    };
+    let (main, main_texts) = draw(WindowScope::Main);
+    assert_eq!(main.problems.len(), 1);
+    assert_eq!(main.problems[0].0, slot);
+    assert_eq!(main.status_projects, vec![Some(project.clone())]);
+    assert!(main_texts.iter().any(|text| text == "test-only status"));
+    let (auxiliary, auxiliary_texts) = draw(WindowScope::Auxiliary {
+        project,
+        slot: AUX_SLOT,
+    });
+    assert_eq!(auxiliary.panes.len(), 1);
+    assert!(auxiliary.problems.is_empty());
+    assert!(auxiliary.status_projects.is_empty());
+    assert!(
+        !auxiliary_texts
+            .iter()
+            .any(|text| text == "test-only problems" || text == "test-only status")
+    );
+}
+
+#[test]
 fn problems_panel은_열린_슬롯의_편집기_영역만_분리한다() {
     let mut snapshot = fixture();
     snapshot.resizer_thickness = PROBLEMS_DIVIDER_THICKNESS;

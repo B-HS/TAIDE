@@ -138,6 +138,7 @@ async fn paste(
             Mode::Cut => {
                 let rename = crate::explorer::RenameRequest {
                     token: request.token,
+                    mount: None,
                     from: request.entry.path.clone(),
                     to: path.clone(),
                 };

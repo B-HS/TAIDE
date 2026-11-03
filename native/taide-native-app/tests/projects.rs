@@ -249,6 +249,7 @@ fn 실제_project_open_restore_file_tab_전체_tree와_exit가_같은_소유권�
                 taide_native_app::domains::explorer_search::Command::RefreshTree {
                     project: id.clone(),
                     dirs: None,
+                    origin: taide_native_app::domains::explorer_search::RefreshOrigin::Toolbar,
                 },
             ))
             .unwrap();
