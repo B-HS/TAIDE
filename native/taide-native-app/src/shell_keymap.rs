@@ -1,13 +1,13 @@
 use taide_model::{
     ids::PaneId,
-    layout::{DropEdge, PaneNode, SplitDir, TabKind},
+    layout::{DropEdge, PaneNode, SplitDir, TabKind, TabWindowTarget},
 };
 use taide_native_ui::commands::{ShellIntent, ShellMutation};
 use taide_native_ui::intents;
 use taide_native_ui::shell::WindowScope;
 use taide_native_ui::snapshot::ShellSnapshot;
 
-use crate::command_registry::{Direction, GroupTarget, Run, TabCycle, keymap_run};
+use crate::command_registry::{Direction, GroupTarget, Run, TabCycle, WindowMove, keymap_run};
 
 fn leaves(node: &PaneNode) -> Vec<&PaneNode> {
     match node {
@@ -139,6 +139,14 @@ pub(crate) fn intent(
                 ShellIntent::Commands(intents::commands::Intent::OpenTaskRunner(project.clone()))
             });
         }
+        Run::Cli(action) => {
+            return Some(ShellIntent::TerminalAgent(
+                intents::terminal_agent::Intent::Cli(action),
+            ));
+        }
+        Run::OpenWelcomeTab if project.is_none() => {
+            return Some(ShellIntent::ShowOpenProjectNotice);
+        }
         _ => (),
     }
     let project = project?;
@@ -196,6 +204,12 @@ pub(crate) fn intent(
             return (id != focused)
                 .then(|| ShellIntent::Mutate(ShellMutation::FocusPane(id.clone())));
         }
+        Run::OpenWelcomeTab => {
+            return Some(ShellIntent::OpenWelcome {
+                project: project.clone(),
+                pane: focused.clone(),
+            });
+        }
         _ => (),
     }
     let PaneNode::Leaf { tabs, active, .. } = taide_layout::service::find_leaf(root, focused)?
@@ -252,6 +266,15 @@ pub(crate) fn intent(
             pane: id.clone(),
             index: target_tabs.len().try_into().ok()?,
         }));
+    }
+    if let Run::MoveFocusedTab(target) = run {
+        return Some(ShellIntent::MoveTabToWindow {
+            tab: active.clone()?,
+            target: match target {
+                WindowMove::NewWindow => TabWindowTarget::NewAuxiliary,
+                WindowMove::MainWindow => TabWindowTarget::Main,
+            },
+        });
     }
     let current = tabs
         .iter()
@@ -1384,5 +1407,122 @@ mod tests {
         if state.paths.data_dir.exists() {
             std::fs::remove_dir_all(&state.paths.data_dir).unwrap();
         }
+    }
+
+    #[test]
+    fn welcome과_탭_창이동_명령은_그_창의_포커스_pane과_활성_탭만_대상으로_한다() {
+        use taide_model::layout::{AuxWindowLayout, Tab};
+        const HALF: f32 = 50.0;
+        let project = ProjectId::new();
+        let tab = || Tab {
+            id: TabId::new(),
+            kind: TabKind::Untitled { index: 1 },
+            title: "synthetic window move".into(),
+            pinned: false,
+            preview: false,
+            dirty: false,
+            view_state: None,
+        };
+        let (left_tab, right_tab, auxiliary_tab) = (tab(), tab(), tab());
+        let (left, right, auxiliary_pane) = (PaneId::new(), PaneId::new(), PaneId::new());
+        let mut layout = taide_layout::service::default_layout();
+        layout.root = PaneNode::Split {
+            id: PaneId::new(),
+            dir: SplitDir::Horizontal,
+            children: vec![
+                PaneNode::Leaf {
+                    id: left,
+                    tabs: vec![left_tab.clone()],
+                    active: Some(left_tab.id.clone()),
+                },
+                PaneNode::Leaf {
+                    id: right.clone(),
+                    tabs: vec![right_tab.clone()],
+                    active: Some(right_tab.id.clone()),
+                },
+            ],
+            sizes: vec![HALF, HALF],
+        };
+        layout.focused_pane = right.clone();
+        layout.auxiliary_windows.push(AuxWindowLayout {
+            slot: AUXILIARY_SLOT,
+            root: PaneNode::Leaf {
+                id: auxiliary_pane.clone(),
+                tabs: vec![auxiliary_tab.clone()],
+                active: Some(auxiliary_tab.id.clone()),
+            },
+            focused_pane: auxiliary_pane.clone(),
+        });
+        let slot = ShellSlotId::new();
+        let snapshot = ShellSnapshot {
+            projects: Vec::new(),
+            groups: Vec::new(),
+            shell: taide_model::project::SessionShellState {
+                tree: Some(ShellSlotTree::Leaf {
+                    slot_id: slot.clone(),
+                    project_id: project.clone(),
+                }),
+                focused: Some(slot),
+                window_chrome: Default::default(),
+            },
+            layouts: [(project.clone(), layout)].into_iter().collect(),
+            hide_status_in_zen: true,
+            resizer_thickness: RESIZER_THICKNESS,
+            welcome_on_empty_editor: true,
+        };
+        let main = WindowScope::Main;
+        let auxiliary = WindowScope::Auxiliary {
+            project: project.clone(),
+            slot: AUXILIARY_SLOT,
+        };
+        for (scope, pane, active) in [
+            (&main, &right, &right_tab.id),
+            (&auxiliary, &auxiliary_pane, &auxiliary_tab.id),
+        ] {
+            assert!(matches!(
+                intent(Run::OpenWelcomeTab, &snapshot, scope),
+                Some(ShellIntent::OpenWelcome { project: owner, pane: target }) if owner == project && target == *pane
+            ));
+            for (window_move, expected) in [
+                (WindowMove::NewWindow, TabWindowTarget::NewAuxiliary),
+                (WindowMove::MainWindow, TabWindowTarget::Main),
+            ] {
+                assert!(matches!(
+                    intent(Run::MoveFocusedTab(window_move), &snapshot, scope),
+                    Some(ShellIntent::MoveTabToWindow { tab, target }) if tab == *active && target == expected
+                ));
+            }
+        }
+        let mut unfocused = snapshot.clone();
+        unfocused.shell.focused = None;
+        assert!(matches!(
+            intent(Run::OpenWelcomeTab, &unfocused, &main),
+            Some(ShellIntent::ShowOpenProjectNotice)
+        ));
+        assert!(
+            intent(
+                Run::MoveFocusedTab(WindowMove::NewWindow),
+                &unfocused,
+                &main
+            )
+            .is_none()
+        );
+        let mut empty = snapshot.clone();
+        let PaneNode::Split { children, .. } = &mut empty.layouts.get_mut(&project).unwrap().root
+        else {
+            panic!("expected split")
+        };
+        let PaneNode::Leaf { tabs, active, .. } = &mut children[1] else {
+            panic!("expected focused leaf")
+        };
+        tabs.clear();
+        *active = None;
+        for window_move in [WindowMove::NewWindow, WindowMove::MainWindow] {
+            assert!(intent(Run::MoveFocusedTab(window_move), &empty, &main).is_none());
+        }
+        assert!(matches!(
+            intent(Run::OpenWelcomeTab, &empty, &main),
+            Some(ShellIntent::OpenWelcome { pane, .. }) if pane == right
+        ));
     }
 }

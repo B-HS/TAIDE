@@ -109,3 +109,48 @@ fn is_punctuation(unit: u16) -> bool {
 fn is_space_or_dash(unit: u16) -> bool {
     matches!(unit, 9..=13 | 32 | 45 | 160 | 5760 | 8192..=8202 | 8232 | 8233 | 8239 | 8287 | 12288 | 65279)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SCORE_EPSILON: f64 = 0.000000000000001;
+    const ORIGINAL_SCORES: [(&str, &str, f64); 14] = [
+        ("Synthetic Mono", "sm", 0.8908218089100001),
+        ("system-default", "sys", 0.99),
+        ("Synthetic Mono", "syn mo", 0.16725926426522342),
+        ("Synthetic Mono", "snt", 0.16811488683),
+        ("system-default", "xyz", 0.0),
+        ("ab", "ba", 0.1),
+        ("Foo_Bar/baz", "fb", 0.7918416079200001),
+        ("한글 폰트", "ㅎ", 0.0),
+        ("한글 폰트", "한폰", 0.891),
+        ("AA", "a", 0.989901),
+        ("abc", "acb", 0.1),
+        ("", "", 1.0),
+        ("İMono", "im", 0.16809807534131702),
+        ("a-b_c", "abc", 0.7200000000000001),
+    ];
+
+    #[test]
+    fn 점수표는_원본_cmdk_command_score와_같다() {
+        for (value, search, expected) in ORIGINAL_SCORES {
+            let actual = score(value, search);
+            assert!(
+                (actual - expected).abs() < SCORE_EPSILON,
+                "score {value:?}/{search:?}: {actual}"
+            );
+        }
+    }
+
+    #[test]
+    fn 빈_검색어는_모든_값을_남기고_같은_접두사_일치는_같은_점수다() {
+        for value in ["code", "git-branch", "한글 폰트", "a-b_c", "İMono"] {
+            assert_eq!(score(value, ""), PREFIX, "{value:?}");
+        }
+        assert_eq!(score("", ""), CONTINUOUS);
+        assert_eq!(score("git-branch", "git"), score("git-fork", "git"));
+        assert_eq!(score("code", "c"), score("cloud", "c"));
+        assert!(score("git", "git") > score("git-branch", "git"));
+    }
+}

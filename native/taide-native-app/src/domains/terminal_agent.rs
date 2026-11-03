@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use eframe::egui::{self, Ui};
+use taide_model::agent::CliInstallStatus;
 use taide_model::error::{AppError, AppResult};
 use taide_model::ids::{PaneId, ProjectId, TabId};
 use taide_model::layout::{Tab, TabKind};
@@ -15,6 +16,7 @@ use crate::host::{HostCommand, HostReply, HostWorker};
 use crate::presentation;
 
 const TERMINAL_CLIPBOARD_BYTES: usize = 64 * 1024;
+const AGENT_CLI_TASK: &str = "native-agent-cli";
 
 pub enum Command {
     EditorIdeSelection(crate::editor_ide_selection::Request),
@@ -59,6 +61,7 @@ pub enum Command {
         title: String,
     },
     CopyTerminalSelection(String),
+    Cli(crate::agent_cli::Action),
 }
 
 pub enum Reply {
@@ -88,6 +91,10 @@ pub enum Reply {
     TerminalSelectionCopied {
         result: AppResult<()>,
     },
+    Cli {
+        action: crate::agent_cli::Action,
+        result: AppResult<CliInstallStatus>,
+    },
 }
 
 pub(crate) struct State {
@@ -98,6 +105,8 @@ pub(crate) struct State {
     pub(crate) editor_ide_selection: crate::editor_ide_selection::State,
     pub(crate) status_ide_appearance: crate::status_ide::Appearance,
     pub(crate) status_ide_icons: crate::status_ide::Icons,
+    pub(crate) command_colors: Option<taide_native_terminal::CommandColors>,
+    pub(crate) cli_status: Option<CliInstallStatus>,
 }
 
 pub(crate) async fn dispatch(worker: &HostWorker<'_>, command: Command) -> Option<HostReply> {
@@ -336,6 +345,30 @@ pub(crate) async fn dispatch(worker: &HostWorker<'_>, command: Command) -> Optio
                 result,
             }))
         }
+        Command::Cli(action) => {
+            let ports = integrations.agent_cli.clone();
+            let tasks = services.tasks.clone();
+            let sender = worker.sender.clone();
+            let repaint = worker.repaint.clone();
+            if services.tasks.spawn_transient(AGENT_CLI_TASK, async move {
+                let result = tasks
+                    .run_blocking_result(AGENT_CLI_TASK, move || {
+                        crate::agent_cli::run(&ports, action)
+                    })
+                    .await;
+                let reply = HostReply::TerminalAgent(Reply::Cli { action, result });
+                if sender.send(reply).await.is_ok() {
+                    repaint();
+                }
+            }) {
+                None
+            } else {
+                Some(HostReply::TerminalAgent(Reply::Cli {
+                    action,
+                    result: Err(crate::host::stopped()),
+                }))
+            }
+        }
     }
 }
 
@@ -409,6 +442,7 @@ impl NativeApplication {
                     crate::toast::open_link_failed(&mut self.toasts, &self.locale, Instant::now());
                 }
             }
+            Reply::Cli { action, result } => self.finish_agent_cli(action, result),
         }
     }
 
@@ -420,6 +454,50 @@ impl NativeApplication {
                     pane,
                     title: presentation::message(&self.locale, "terminal.title", &[]),
                 }));
+            }
+            Intent::Cli(action) => {
+                let action = crate::agent_cli::Action::from(action);
+                if !self.submit(HostCommand::TerminalAgent(Command::Cli(action))) {
+                    self.finish_agent_cli(action, Err(crate::host::stopped()));
+                }
+            }
+        }
+    }
+
+    fn finish_agent_cli(
+        &mut self,
+        action: crate::agent_cli::Action,
+        result: AppResult<CliInstallStatus>,
+    ) {
+        use crate::agent_cli::Action;
+        let is_live = |status: &CliInstallStatus| status.installed && !status.dangling;
+        let notice = match (action, &result) {
+            (Action::Status, _) => None,
+            (Action::Install, Ok(status)) => {
+                is_live(status).then_some((true, "settings.cliInstallSuccess"))
+            }
+            (Action::Install, Err(_)) => Some((false, "settings.cliInstallFailed")),
+            (Action::Uninstall, Ok(status)) => {
+                (!status.installed).then_some((true, "settings.cliUninstallSuccess"))
+            }
+            (Action::Uninstall, Err(_)) => Some((false, "settings.cliUninstallFailed")),
+            (Action::ConnectExternalEditor, Ok(status)) if is_live(status) => {
+                Some((true, "settings.cliExternalEditorConnected"))
+            }
+            (Action::ConnectExternalEditor, _) => Some((false, "settings.cliInstallFailed")),
+        };
+        match result {
+            Ok(status) => self.terminal_agent_state.cli_status = Some(status),
+            Err(error) => {
+                log::warn!("native agent CLI {action:?} failed: {:?}", error.kind())
+            }
+        }
+        if let Some((is_success, key)) = notice {
+            let title = presentation::message(&self.locale, key, &[]);
+            if is_success {
+                self.toasts.success(title, Instant::now());
+            } else {
+                self.toasts.error(title, Instant::now());
             }
         }
     }
@@ -469,6 +547,21 @@ impl NativeApplication {
             Ok(true) => context.request_repaint(),
             Ok(false) => {}
             Err(error) => self.status = Some(error.to_string()),
+        }
+    }
+
+    pub(crate) fn tick_terminal_agent_live_sessions(&mut self, context: &egui::Context) {
+        let hub = self.terminal_agent_state.terminals.hub();
+        if hub.configure_history() {
+            context.request_repaint();
+        }
+        let colors = self
+            .terminal_agent_state
+            .terminal_appearance
+            .command_colors();
+        if self.terminal_agent_state.command_colors != Some(colors) {
+            hub.configure_command_colors(colors);
+            self.terminal_agent_state.command_colors = Some(colors);
         }
     }
 

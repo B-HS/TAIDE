@@ -42,6 +42,7 @@ pub struct Snapshot<'core> {
 struct State {
     core: TerminalCore,
     cursor_defaults: Option<crate::CursorStyle>,
+    rejected_history: Option<usize>,
     phase: Phase,
     revision: u64,
     is_bound: bool,
@@ -226,6 +227,7 @@ impl SharedTerminal {
             Arc::new(Mutex::new(State {
                 core: TerminalCore::new(size, history, limits)?,
                 cursor_defaults: None,
+                rejected_history: None,
                 phase: Phase::Running,
                 revision: 0,
                 is_bound: false,
@@ -261,6 +263,30 @@ impl SharedTerminal {
         state.core.set_default_cursor_style(style)?;
         state.cursor_defaults = Some(style);
         Ok(true)
+    }
+
+    /// Applies a changed scrollback line limit to the live core. A limit the core rejected for
+    /// its budget is remembered and returns `Ok(false)` until a different limit arrives.
+    pub fn configure_history(&self, lines: usize) -> AppResult<bool> {
+        let _publishing = lock(&self.1)?;
+        let mut state = lock(&self.0)?;
+        if matches!(state.phase, Phase::Failed(_)) || state.rejected_history == Some(lines) {
+            return Ok(false);
+        }
+        match state.core.set_history(lines) {
+            Ok(changed) => {
+                state.rejected_history = None;
+                Ok(changed)
+            }
+            Err(error) if state.core.grid().is_err() => {
+                state.fail(Failure::Parser);
+                Err(error)
+            }
+            Err(error) => {
+                state.rejected_history = Some(lines);
+                Err(error)
+            }
+        }
     }
 
     pub fn configure_command_colors(&self, colors: crate::CommandColors) -> AppResult<()> {

@@ -542,6 +542,8 @@ impl NativeApplication {
                 editor_ide_selection: crate::editor_ide_selection::State::default(),
                 status_ide_appearance: appearances.status_ide,
                 status_ide_icons,
+                command_colors: None,
+                cli_status: None,
             },
             preview_state: domains::preview::State {
                 web_bridge: Some(web_bridge),
@@ -1081,6 +1083,7 @@ impl NativeApplication {
             context.request_repaint();
         }
         self.tick_terminal_agent_cursors(context);
+        self.tick_terminal_agent_live_sessions(context);
         self.reconcile_previews();
         self.poll(context);
         self.consume_provider_events(context, Instant::now());
@@ -2971,6 +2974,10 @@ mod shell_dialogs_tests;
 #[cfg(all(test, unix))]
 #[path = "application-explorer-views-tests.rs"]
 mod explorer_views_tests;
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "application-terminal-agent-tests.rs"]
+mod terminal_agent_tests;
 
 #[cfg(test)]
 mod close_all_tests {

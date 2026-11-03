@@ -798,9 +798,8 @@ mod tests {
             "terminal-jump-to-next-command",
             "unknown.future",
             "window.reload",
-            "view.welcome",
             "tab.close",
-            "tab.moveToNewWindow",
+            "tab.moveToMainWindow",
             "sync.uploadNow",
             "git.revertHead",
             "monaco.editor.action.commentLine",
@@ -809,9 +808,26 @@ mod tests {
         }
         assert!(accepts("task.runTask", true, &project));
         assert!(!accepts("task.runTask", true, &context));
-        for command in ["settings.open", "app.openSettingsFile", "file.quickOpen"] {
+        for command in [
+            "settings.open",
+            "app.openSettingsFile",
+            "file.quickOpen",
+            "cli.connectExternalEditor",
+            "cli.installShellCommand",
+            "cli.uninstallShellCommand",
+            "view.welcome",
+            "tab.moveToNewWindow",
+        ] {
             assert!(accepts(command, false, &context), "{command}");
         }
+        assert!(accepts(
+            "tab.moveToMainWindow",
+            false,
+            &CommandContext {
+                window: WindowKind::Auxiliary,
+                ..Default::default()
+            }
+        ));
         for edit in ["monaco.deleteAllLeft", "monaco.editor.action.outdentLines"] {
             assert!(!accepts(edit, true, &context), "{edit}");
             assert!(accepts(edit, true, &editor_context(false)), "{edit}");
@@ -925,6 +941,32 @@ mod tests {
                     taide_native_ui::intents::settings::Intent::OpenSettingsFile
                 ))
             ));
+            for (id, expected) in [
+                (
+                    "cli.connectExternalEditor",
+                    taide_native_ui::intents::terminal_agent::CliAction::ConnectExternalEditor,
+                ),
+                (
+                    "cli.installShellCommand",
+                    taide_native_ui::intents::terminal_agent::CliAction::Install,
+                ),
+                (
+                    "cli.uninstallShellCommand",
+                    taide_native_ui::intents::terminal_agent::CliAction::Uninstall,
+                ),
+            ] {
+                for command_context in [&main, &auxiliary] {
+                    assert!(
+                        matches!(
+                            intent(id, command_context, scope),
+                            Some(ShellIntent::TerminalAgent(
+                                taide_native_ui::intents::terminal_agent::Intent::Cli(action)
+                            )) if action == expected
+                        ),
+                        "{id}"
+                    );
+                }
+            }
         }
         for unavailable in ["sync.uploadNow", "tab.close", "unknown.future"] {
             assert!(
@@ -932,6 +974,20 @@ mod tests {
                 "{unavailable}"
             );
         }
+        assert!(matches!(
+            intent("view.welcome", &main, &snapshot),
+            Some(ShellIntent::OpenWelcome { project: target, pane: target_pane }) if target == project && target_pane == pane
+        ));
+        assert!(matches!(
+            intent("view.welcome", &main, &unfocused),
+            Some(ShellIntent::ShowOpenProjectNotice)
+        ));
+        assert!(matches!(
+            intent("tab.moveToNewWindow", &main, &snapshot),
+            Some(ShellIntent::MoveTabToWindow { tab, target: taide_model::layout::TabWindowTarget::NewAuxiliary }) if tab == editor.id
+        ));
+        assert!(intent("tab.moveToNewWindow", &main, &unfocused).is_none());
+        assert!(intent("tab.moveToMainWindow", &main, &snapshot).is_none());
         for (id, entry) in PALETTE_ENTRIES
             .into_iter()
             .chain([("file.quickOpen", PaletteEntry::Files)])

@@ -1,3 +1,5 @@
+#[path = "agent-cli.rs"]
+mod agent_cli;
 #[path = "agent-hooks.rs"]
 pub mod agent_hooks;
 #[path = "app-file.rs"]
