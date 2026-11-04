@@ -1022,6 +1022,7 @@ mod tests {
     use regex::Regex;
 
     use super::*;
+    use crate::convert::color::{contrast_ratio, foreground_contrast_ratio};
     use taide_model::error::AppErrorKind;
     use taide_model::theme::TokenColorSettings;
 
@@ -1516,15 +1517,6 @@ mod tests {
     const MIN_CONTRAST_RATIO: f64 = 3.0;
 
     const RGB_CHANNEL_MAX: f64 = 255.0;
-    const SRGB_LINEAR_THRESHOLD: f64 = 0.03928;
-    const SRGB_LINEAR_DIVISOR: f64 = 12.92;
-    const SRGB_GAMMA_OFFSET: f64 = 0.055;
-    const SRGB_GAMMA_DIVISOR: f64 = 1.055;
-    const SRGB_GAMMA_EXPONENT: f64 = 2.4;
-    const LUMINANCE_WEIGHT_R: f64 = 0.2126;
-    const LUMINANCE_WEIGHT_G: f64 = 0.7152;
-    const LUMINANCE_WEIGHT_B: f64 = 0.0722;
-    const CONTRAST_RATIO_OFFSET: f64 = 0.05;
 
     /// Parses the RGB channels out of a theme color string, built on `normalize_hex_color` above
     /// (which already handles 3/4/6/8-digit shorthand and lowercasing) and reading only its first
@@ -1561,38 +1553,6 @@ mod tests {
         let g = u8::from_str_radix(&normalized[2..4], 16).ok()?;
         let b = u8::from_str_radix(&normalized[4..6], 16).ok()?;
         Some((f64::from(r), f64::from(g), f64::from(b)))
-    }
-
-    /// Ports TS `srgbChannelToLinear` (`contrast.ts`) — the sRGB electro-optical transfer function
-    /// (IEC 61966-2-1) that WCAG's relative-luminance formula requires before applying the R/G/B
-    /// weights.
-    fn srgb_channel_to_linear(channel: f64) -> f64 {
-        let normalized = channel / RGB_CHANNEL_MAX;
-        if normalized <= SRGB_LINEAR_THRESHOLD {
-            normalized / SRGB_LINEAR_DIVISOR
-        } else {
-            ((normalized + SRGB_GAMMA_OFFSET) / SRGB_GAMMA_DIVISOR).powf(SRGB_GAMMA_EXPONENT)
-        }
-    }
-
-    /// Ports TS `relativeLuminance` (`contrast.ts`) — WCAG 2.x relative luminance of an sRGB color.
-    fn relative_luminance(hex: &str) -> Option<f64> {
-        let (r, g, b) = hex_to_rgb(hex)?;
-        Some(
-            LUMINANCE_WEIGHT_R * srgb_channel_to_linear(r)
-                + LUMINANCE_WEIGHT_G * srgb_channel_to_linear(g)
-                + LUMINANCE_WEIGHT_B * srgb_channel_to_linear(b),
-        )
-    }
-
-    /// Ports TS `contrastRatio` (`contrast.ts`) — the WCAG 2.x contrast-ratio formula between two
-    /// colors' relative luminances.
-    fn contrast_ratio(hex_a: &str, hex_b: &str) -> Option<f64> {
-        let luminance_a = relative_luminance(hex_a)?;
-        let luminance_b = relative_luminance(hex_b)?;
-        let lighter = luminance_a.max(luminance_b);
-        let darker = luminance_a.min(luminance_b);
-        Some((lighter + CONTRAST_RATIO_OFFSET) / (darker + CONTRAST_RATIO_OFFSET))
     }
 
     /// Catalog themes whose `panel.matchHighlight` cannot clear `MIN_CONTRAST_RATIO`
@@ -3054,14 +3014,6 @@ mod tests {
         let (l_a, a_a, b_a) = hex_to_lab(hex_a)?;
         let (l_b, a_b, b_b) = hex_to_lab(hex_b)?;
         Some(((l_a - l_b).powi(2) + (a_a - a_b).powi(2) + (b_a - b_b).powi(2)).sqrt())
-    }
-
-    /// Ports TS `foregroundContrastRatio` (`contrast.ts`) — the WCAG ratio between a foreground as
-    /// it renders over a background and that background. Distinct from [`contrast_ratio`] above,
-    /// which the five pre-existing pairs use on raw values and which stays untouched
-    /// (`docs/acknowledge/2026-08-25-d40-selection-row-contrast-contract.md` §1-a).
-    fn foreground_contrast_ratio(foreground: &str, background: &str) -> Option<f64> {
-        contrast_ratio(&composite_over_background(foreground, background), background)
     }
 
     /// Ports TS `resolvePairSurfaces` (`state-distinctness.ts`) — the two opaque colors a pair is
