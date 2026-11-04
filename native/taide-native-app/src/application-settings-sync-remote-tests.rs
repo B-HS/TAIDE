@@ -4,7 +4,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use taide_infra::secret::SecretStoreState;
 use taide_model::settings::SETTINGS_SCHEMA_VERSION;
 
-use super::settings_sections_tests::{Keychain, Scene, errors, nodes, successes, texts_of};
+use super::settings_sections_tests::{
+    Keychain, Scene, errors, missing_cli_agents, nodes, successes, texts_of,
+};
 use super::*;
 use crate::host::HostBridge;
 use crate::settings_ports::{Gist, GistClient, GistFuture, Ports};
@@ -534,4 +536,150 @@ fn 실제_remote_비밀번호와_password_only와_허용_호스트는_가짜_key
     )
     .unwrap();
     assert_eq!(written["remoteAllowedHosts"], serde_json::json!([]));
+}
+
+const SYNCED_THEME: &str = "synced-theme";
+const SYNCED_THEME_NAME: &str = "Synced Theme";
+const SYNCED_ACCENT: &str = "#abcdef";
+const BUILTIN_DARK: &str = "taide-dark";
+
+fn theme_payload() -> String {
+    let theme = serde_json::json!({
+        "version": taide_model::theme::THEME_SCHEMA_VERSION,
+        "id": SYNCED_THEME,
+        "name": SYNCED_THEME_NAME,
+        "type": "dark",
+        "extends": BUILTIN_DARK,
+        "colors": { "app.accent": SYNCED_ACCENT },
+    });
+    serde_json::json!({
+        "schemaVersion": SETTINGS_SCHEMA_VERSION,
+        "updatedAt": NEW,
+        "settings": { "themeId": SYNCED_THEME },
+        "themes": [{ "id": SYNCED_THEME, "json": theme.to_string() }],
+        "locales": [],
+    })
+    .to_string()
+}
+
+#[test]
+fn 실제_sync_다운로드는_새_테마와_테마_설정을_적용해_테마_목록과_화면_테마와_settings_json_탭을_갱신한다()
+ {
+    use taide_model::layout::PaneNode;
+    use taide_native_editor::document::DocumentKey;
+    use taide_native_ui::commands::ShellMutation;
+
+    let keychain = Arc::new(Keychain::default());
+    keychain.values.lock().unwrap().insert("github", PAT.into());
+    let gist = Arc::new(FakeGist::new(NEW, FONT));
+    *gist.fetched.lock().unwrap() = Ok((NEW.into(), theme_payload()));
+    let mut scene = sync_scene(&keychain, &gist, |state| {
+        let mut settings = state.settings.write();
+        settings.sync_gist_id = Some(GIST.into());
+        settings.sync_last_synced_at = Some(NEW.into());
+    });
+    scene.ports(Ports {
+        gist: Gist(gist.clone()),
+        agents: missing_cli_agents(),
+        ..Default::default()
+    });
+
+    let settings_tab = {
+        let application = scene.application();
+        let state = &application.services.state;
+        let project = state.session.read().active_project.clone().unwrap();
+        let layouts = state.layouts.read();
+        let PaneNode::Leaf { active, .. } = &layouts[&project].root else {
+            panic!("default layout is one pane");
+        };
+        active.clone().expect("settings tab is active")
+    };
+
+    let open = scene.text("app.openSettingsFile");
+    let output = scene.until("settings file button", |_, output| {
+        !nodes(output, &open).is_empty()
+    });
+    let rect = *nodes(&output, &open).first().unwrap();
+    scene.click(rect.center());
+    let app_file = DocumentKey::AppFile(taide_model::app::AppFileTarget::Settings);
+    scene.until("settings file tab", |application, _| {
+        application.store.documents().find(&app_file).is_some()
+    });
+    let file_tab = {
+        let application = scene.application();
+        let state = &application.services.state;
+        let project = state.session.read().active_project.clone().unwrap();
+        let layouts = state.layouts.read();
+        let PaneNode::Leaf { active, .. } = &layouts[&project].root else {
+            panic!("default layout is one pane");
+        };
+        active.clone().expect("settings file tab is active")
+    };
+
+    assert!(
+        scene
+            .application()
+            .controller
+            .submit(ShellMutation::ActivateTab(settings_tab))
+            .is_ok()
+    );
+    let download = scene.text("settings.syncDownloadNow");
+    scene.until("download button", |_, output| {
+        !nodes(output, &download).is_empty()
+    });
+    click_label(&mut scene, &download);
+    let success = scene.text("settings.syncDownloadSuccess");
+    scene.until("downloaded", |application, _| {
+        successes(application).contains(&success)
+            && application.services.state.settings.read().theme_id == SYNCED_THEME
+    });
+    assert!(
+        scene
+            .application()
+            .services
+            .state
+            .paths
+            .themes_dir()
+            .join("synced-theme.json")
+            .exists()
+    );
+    scene.until("theme applied", |application, _| {
+        application.settings_state.resolved_theme.id == SYNCED_THEME
+            && !application.settings_state.presentation_failures.theme
+    });
+    scene.until("catalog", |application, _| {
+        application
+            .settings_state
+            .settings_views
+            .inspection()
+            .values()
+            .any(|view| {
+                view.catalog.as_ref().is_some_and(|catalog| {
+                    catalog
+                        .themes
+                        .as_ref()
+                        .is_ok_and(|themes| themes.iter().any(|theme| theme.id == SYNCED_THEME))
+                })
+            })
+    });
+    assert!(
+        scene
+            .application()
+            .controller
+            .submit(ShellMutation::ActivateTab(file_tab))
+            .is_ok()
+    );
+    scene.until("settings json tab", |application, _| {
+        let documents = application.store.documents();
+        let Some(document) = documents.find(&app_file) else {
+            return false;
+        };
+        let Ok(snapshot) = documents.snapshot(document) else {
+            return false;
+        };
+        serde_json::from_str::<serde_json::Value>(&snapshot.rope.to_string())
+            .ok()
+            .and_then(|value| value["themeId"].as_str().map(|id| id == SYNCED_THEME))
+            .unwrap_or(false)
+    });
 }

@@ -14,6 +14,8 @@
 
 | settings-30 | Terminal section | complete | `실제_터미널_scrollback_설정은_settings_경로로_실행중_세션의_history_줄_수를_바꾼다` + 기존 커서·깜빡임·글자 크기·shell 검사 |
 
+| settings-48 | Sync 뒤 데이터 반영 | complete | `실제_sync_다운로드는_새_테마와_테마_설정을_적용해_테마_목록과_화면_테마와_settings_json_탭을_갱신한다` |
+
 ## 검증
 
 실행 명령(메인 작업 트리, 공통 옵션 `--locked --offline --target-dir experiments/native-shell-spike/target`):
