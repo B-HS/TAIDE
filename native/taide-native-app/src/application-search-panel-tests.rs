@@ -1440,3 +1440,65 @@ fn 실제_app_보조_창의_명령_shift_f는_그_창_탐색기의_검색_보기
         crate::symbol_sidebar::View::Search
     );
 }
+
+#[test]
+fn 실제_app_입력_검색은_설정을_끄면_디바운스가_지나도_돌지_않고_enter에서만_돈다() {
+    const LIVE_OFF_WAIT: std::time::Duration = std::time::Duration::from_millis(600);
+    let Launched {
+        mut fixture,
+        context,
+        slot,
+        ..
+    } = launch_project("search-live-off", &[("a.txt", "needle\n")], false);
+    let application = fixture.application.as_mut().unwrap();
+    assert!(
+        application.submit(HostCommand::Settings(
+            domains::settings::Command::UpdateSettings(
+                crate::settings_controls::Change::Switch(
+                    crate::settings_controls::Switch::SearchOnType,
+                    false,
+                ),
+            ),
+        )),
+        "설정 변경을 host 로 보냅니다"
+    );
+    step_until(application, &context, "live off", |application, _| {
+        !application.services.state.settings.read().search_on_type
+    });
+    step_until(application, &context, "tree", |_, output| {
+        node_rect(output, "a.txt", egui::Rect::EVERYTHING).is_some()
+    });
+    open_search_view(application, &context);
+    let hint = message(application, "search.pressEnterHint", &[]);
+    step_until(application, &context, "enter hint", |_, output| {
+        texts(output).contains(&hint)
+    });
+    step(
+        application,
+        &context,
+        vec![egui::Event::Text("needle".into())],
+    );
+    let deadline = std::time::Instant::now() + LIVE_OFF_WAIT;
+    while std::time::Instant::now() < deadline {
+        step(application, &context, Vec::new());
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(
+        panel_generation(application, &slot),
+        Some(0),
+        "입력만으로는 검색을 시작하지 않습니다"
+    );
+    step(
+        application,
+        &context,
+        key(egui::Key::Enter, egui::Modifiers::NONE),
+    );
+    let summary = message(
+        application,
+        "search.matchCount",
+        &[("count", "1"), ("files", "1")],
+    );
+    step_until(application, &context, "enter results", |_, output| {
+        texts(output).contains(&summary)
+    });
+}
