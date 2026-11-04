@@ -1,21 +1,29 @@
 use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 use taide_agent::service::HookEmitter;
 use taide_infra::perf::{PerfRegistry, SpanSlot};
-use taide_model::agent::CliInstallStatus;
+use taide_model::agent::{AgentActivity, CliInstallStatus, DetectedAgent};
+use taide_model::lsp::LspInstallPhase;
+use taide_native_ui::settings_controls::{Change, Switch};
 use taide_native_ui::toast::Kind;
 use taide_runtime::agent_host::CliCommandOutcome;
 
 use super::settings_sections_tests::{
-    Scene, errors, missing_cli_agents, nodes, painted, successes, texts_of,
+    Scene, errors, missing_cli_agents, nodes, painted, successes, texts_of, update,
 };
 use super::*;
 use crate::host::HostBridge;
 use crate::settings_ports::{CliPorts, Ports};
 
 const SPAN_NANOS: u64 = 2_000_000;
+const REFUSED: &str = "fixture platform refused";
+const LONG_COMMAND_MS: u32 = 12_000;
+const NOTIFY_AGENT_WORKED: Duration = Duration::from_secs(11);
+const NOTIFY_SETTLE_FRAMES: usize = 8;
+const NOTIFY_SESSION: &str = "settings-notify-session";
 
 fn cli_status(installed: bool) -> CliInstallStatus {
     CliInstallStatus {
@@ -563,4 +571,297 @@ fn 실제_performance는_주입_레지스트리가_켜지면_마지막_section�
                 .any(|(text, _)| text.contains(&entry))
     });
     assert_eq!(registry.span_sample(slot).count, 0);
+}
+
+#[derive(Default)]
+struct SettingsPlatform {
+    sent: Mutex<Vec<(String, String)>>,
+    refusal: Mutex<Option<String>>,
+}
+
+impl SettingsPlatform {
+    fn sent(&self) -> Vec<(String, String)> {
+        self.sent.lock().unwrap().clone()
+    }
+}
+
+impl taide_runtime::PlatformServices for SettingsPlatform {
+    fn open_path(&self, _: &std::path::Path) -> AppResult<()> {
+        Err(AppError::Forbidden("synthetic platform".into()))
+    }
+    fn reveal_item_in_dir(&self, _: &std::path::Path) -> AppResult<()> {
+        Err(AppError::Forbidden("synthetic platform".into()))
+    }
+    fn open_url(&self, _: &str) -> AppResult<()> {
+        Err(AppError::Forbidden("synthetic platform".into()))
+    }
+    fn send_notification(&self, title: &str, body: &str) -> AppResult<()> {
+        if let Some(reason) = self.refusal.lock().unwrap().clone() {
+            return Err(AppError::Internal(reason));
+        }
+        self.sent
+            .lock()
+            .unwrap()
+            .push((title.to_owned(), body.to_owned()));
+        Ok(())
+    }
+}
+
+fn settle(scene: &mut Scene) {
+    for _ in 0..NOTIFY_SETTLE_FRAMES {
+        scene.step(Vec::new());
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn 실제_시험_알림은_창_포커스가_없으면_가짜_플랫폼에_한번_보내고_첫전달_안내없이_성공을_알리며_플랫폼_오류를_알린다()
+ {
+    let platform = Arc::new(SettingsPlatform::default());
+    let mut scene = Scene::launch_on_platform(platform.clone(), |_| {});
+    scene.ports(Ports {
+        agents: missing_cli_agents(),
+        ..Default::default()
+    });
+    let test = scene.text("settings.notificationsSendTest");
+    let hint = scene.text("notification.enableHint");
+    scene.until("test button", |_, output| !nodes(output, &test).is_empty());
+    scene.set_focused(false);
+    scene.step(Vec::new());
+    scene.step(Vec::new());
+    let context = scene.context().clone();
+    assert!(!scene.application().is_any_window_focused(&context));
+    click_label(&mut scene, &test);
+    scene.until("delivered", |application, _| {
+        successes(application).contains(&hint)
+    });
+    assert_eq!(platform.sent(), vec![(test.clone(), hint.clone())]);
+    assert!(warnings(scene.application()).is_empty());
+    assert_eq!(
+        scene
+            .application()
+            .toasts
+            .inspection()
+            .into_iter()
+            .filter(|toast| toast.kind == Kind::Info && toast.title == hint)
+            .count(),
+        0,
+        "the test notification must not raise the first delivery hint"
+    );
+    *platform.refusal.lock().unwrap() = Some(REFUSED.into());
+    click_label(&mut scene, &test);
+    scene.until("refused", |application, _| {
+        errors(application).contains(&REFUSED.to_string())
+    });
+    assert_eq!(platform.sent().len(), 1);
+}
+
+fn agent_event(project: &ProjectId, activity: AgentActivity) -> AppEvent {
+    AppEvent::AgentStateChanged {
+        project_id: project.clone(),
+        agents: vec![DetectedAgent {
+            session_id: NOTIFY_SESSION.into(),
+            name: "claude".into(),
+            pid: 1,
+            activity,
+            blocked_reason: None,
+        }],
+    }
+}
+
+fn agent_cycle(
+    scene: &mut Scene,
+    context: &egui::Context,
+    project: &ProjectId,
+    start: Duration,
+) -> Duration {
+    let next = start + NOTIFY_AGENT_WORKED;
+    let application = scene.application();
+    application.shell_state.provider_events.take();
+    application
+        .shell_state
+        .provider_events
+        .record(&agent_event(project, AgentActivity::Working));
+    application.consume_provider_events(context, Instant::now() + start);
+    application
+        .shell_state
+        .provider_events
+        .record(&agent_event(project, AgentActivity::AwaitingInput));
+    application.consume_provider_events(context, Instant::now() + next);
+    next
+}
+
+#[cfg(unix)]
+#[test]
+fn 실제_os_알림은_범주별_설정_스위치를_settings_경로로_끄면_그_범주만_보내지_않는다() {
+    let platform = Arc::new(SettingsPlatform::default());
+    let mut scene = Scene::launch_on_platform(platform.clone(), |_| {});
+    scene.ports(Ports {
+        agents: missing_cli_agents(),
+        ..Default::default()
+    });
+    scene.set_focused(false);
+    scene.step(Vec::new());
+    scene.step(Vec::new());
+    let context = scene.context().clone();
+    assert!(!scene.application().is_any_window_focused(&context));
+    let events = scene.application().services.events.clone();
+    let project = scene
+        .application()
+        .services
+        .state
+        .session
+        .read()
+        .active_project
+        .clone()
+        .unwrap();
+    let command = |exit_code: i32| AppEvent::TerminalCommandFinished {
+        session_id: NOTIFY_SESSION.into(),
+        cwd: Some("/synthetic/cwd".into()),
+        exit_code: Some(exit_code),
+        duration_ms: LONG_COMMAND_MS,
+    };
+    let lsp = |phase: LspInstallPhase| AppEvent::LspInstallProgress {
+        server_id: taide_model::lsp::LspServerId("synthetic-server".into()),
+        phase,
+        received_bytes: 0.0,
+        total_bytes: None,
+        message: None,
+    };
+
+    update(
+        &mut scene,
+        Change::Switch(Switch::NotificationsEnabled, false),
+    );
+    scene.until("master off", |application, _| {
+        !application
+            .services
+            .state
+            .settings
+            .read()
+            .notifications_enabled
+    });
+    events.publish(command(0));
+    events.publish(command(1));
+    events.publish(lsp(LspInstallPhase::Done));
+    agent_cycle(&mut scene, &context, &project, Duration::ZERO);
+    settle(&mut scene);
+    assert!(platform.sent().is_empty(), "master off sends nothing");
+
+    update(
+        &mut scene,
+        Change::Switch(Switch::NotificationsEnabled, true),
+    );
+    scene.until("master on", |application, _| {
+        application
+            .services
+            .state
+            .settings
+            .read()
+            .notifications_enabled
+    });
+
+    events.publish(command(0));
+    scene.until("task completed", |_, _| platform.sent().len() == 1);
+    update(
+        &mut scene,
+        Change::Switch(Switch::NotifyTaskCompleted, false),
+    );
+    scene.until("task completed off", |application, _| {
+        !application
+            .services
+            .state
+            .settings
+            .read()
+            .notify_task_completed
+    });
+    events.publish(command(0));
+    settle(&mut scene);
+    assert_eq!(platform.sent().len(), 1);
+
+    events.publish(command(1));
+    scene.until("error sent", |_, _| platform.sent().len() == 2);
+    update(&mut scene, Change::Switch(Switch::NotifyError, false));
+    scene.until("error off", |application, _| {
+        !application.services.state.settings.read().notify_error
+    });
+    events.publish(command(1));
+    settle(&mut scene);
+    assert_eq!(platform.sent().len(), 2);
+
+    events.publish(lsp(LspInstallPhase::Done));
+    scene.until("lsp sent", |_, _| platform.sent().len() == 3);
+    update(&mut scene, Change::Switch(Switch::NotifyLspInstall, false));
+    scene.until("lsp off", |application, _| {
+        !application
+            .services
+            .state
+            .settings
+            .read()
+            .notify_lsp_install
+    });
+    events.publish(lsp(LspInstallPhase::Done));
+    settle(&mut scene);
+    assert_eq!(platform.sent().len(), 3);
+
+    let mut worked = Duration::ZERO;
+    worked = agent_cycle(&mut scene, &context, &project, worked);
+    scene.until("agent awaiting input sent", |_, _| {
+        platform.sent().len() == 4
+    });
+    update(
+        &mut scene,
+        Change::Switch(Switch::NotifyAgentAwaitingInput, false),
+    );
+    scene.until("awaiting input off", |application, _| {
+        !application
+            .services
+            .state
+            .settings
+            .read()
+            .notify_agent_awaiting_input
+    });
+    worked = agent_cycle(&mut scene, &context, &project, worked);
+    settle(&mut scene);
+    assert_eq!(platform.sent().len(), 4);
+
+    update(
+        &mut scene,
+        Change::Switch(Switch::NotifyAgentAwaitingInput, true),
+    );
+    scene.until("awaiting input on", |application, _| {
+        application
+            .services
+            .state
+            .settings
+            .read()
+            .notify_agent_awaiting_input
+    });
+    update(
+        &mut scene,
+        Change::Switch(Switch::NotifyAgentCompleted, false),
+    );
+    scene.until("agent completed off", |application, _| {
+        !application
+            .services
+            .state
+            .settings
+            .read()
+            .notify_agent_completed
+    });
+    let application = scene.application();
+    application.shell_state.provider_events.take();
+    application
+        .shell_state
+        .provider_events
+        .record(&agent_event(&project, AgentActivity::Working));
+    application.consume_provider_events(&context, Instant::now() + worked);
+    application
+        .shell_state
+        .provider_events
+        .record(&agent_event(&project, AgentActivity::Idle));
+    application.consume_provider_events(&context, Instant::now() + worked + NOTIFY_AGENT_WORKED);
+    settle(&mut scene);
+    assert_eq!(platform.sent().len(), 4);
 }

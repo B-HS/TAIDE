@@ -10,6 +10,7 @@ use taide_model::ids::TabId;
 use taide_model::layout::PaneNode;
 use taide_model::lsp::{LspInstallPhase, LspInstallStrategy, LspServerDetection};
 use taide_native_ui::commands::ShellMutation;
+use taide_native_ui::settings_controls::Change;
 use taide_native_ui::toast::Kind;
 use taide_runtime::{AppState, TaskSupervisor};
 
@@ -30,6 +31,7 @@ pub(super) struct Scene {
     context: egui::Context,
     started: Instant,
     screen: egui::Vec2,
+    is_focused: bool,
 }
 
 impl Scene {
@@ -40,6 +42,14 @@ impl Scene {
         Self::launch_with(secrets, configure, true)
     }
 
+    /// Launches the Settings scene whose host notifications reach `platform` instead of the OS.
+    pub(super) fn launch_on_platform(
+        platform: Arc<dyn taide_runtime::PlatformServices>,
+        configure: impl FnOnce(&AppState),
+    ) -> Self {
+        Self::assemble(None, configure, true, true, Some(platform))
+    }
+
     /// Launches the Settings scene; an unattached project is skipped by the startup watcher
     /// restore, which also never reconciles agent hooks against the real home directory.
     pub(super) fn launch_with(
@@ -47,12 +57,12 @@ impl Scene {
         configure: impl FnOnce(&AppState),
         is_attached: bool,
     ) -> Self {
-        Self::assemble(secrets, configure, is_attached, true)
+        Self::assemble(secrets, configure, is_attached, true, None)
     }
 
     /// Launches the same project with an empty editor pane instead of the Settings tab.
     pub(super) fn launch_empty_pane(configure: impl FnOnce(&AppState)) -> Self {
-        Self::assemble(None, configure, true, false)
+        Self::assemble(None, configure, true, false, None)
     }
 
     fn assemble(
@@ -60,6 +70,7 @@ impl Scene {
         configure: impl FnOnce(&AppState),
         is_attached: bool,
         has_settings_tab: bool,
+        platform: Option<Arc<dyn taide_runtime::PlatformServices>>,
     ) -> Self {
         let mut fixture = Fixture {
             directory: std::env::temp_dir()
@@ -124,16 +135,19 @@ impl Scene {
         let context = egui::Context::default();
         context.enable_accesskit();
         fixture.application = Some(
-            NativeApplication::new_with_secret_store(
+            NativeApplication::new_with_overrides(
                 &eframe::CreationContext::_new_kittest(context.clone()),
                 runtime,
                 state,
                 tasks,
                 fixture.directory.join("bin/taide"),
                 Vec::new(),
-                Some(secrets.unwrap_or_else(|| {
-                    SecretStoreState::with_store(Arc::new(Keychain::default()))
-                })),
+                crate::application::Overrides {
+                    secret_store: Some(secrets.unwrap_or_else(|| {
+                        SecretStoreState::with_store(Arc::new(Keychain::default()))
+                    })),
+                    platform,
+                },
             )
             .unwrap(),
         );
@@ -142,11 +156,17 @@ impl Scene {
             context,
             started: Instant::now(),
             screen: SCREEN,
+            is_focused: true,
         }
     }
 
     pub(super) fn resize(&mut self, screen: egui::Vec2) {
         self.screen = screen;
+    }
+
+    /// Switches the window focus the app reads on the next `logic` call.
+    pub(super) fn set_focused(&mut self, is_focused: bool) {
+        self.is_focused = is_focused;
     }
 
     pub(super) fn application(&mut self) -> &mut NativeApplication {
@@ -175,6 +195,7 @@ impl Scene {
                 screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, self.screen)),
                 events,
                 time: Some(time),
+                focused: self.is_focused,
                 ..Default::default()
             },
             |ui| eframe::App::ui(application, ui, &mut eframe::Frame::_new_kittest()),
@@ -314,6 +335,15 @@ pub(super) fn missing_cli_agents() -> Arc<crate::remote_agents::Ports> {
         ))
     });
     Arc::new(agents)
+}
+
+/// Applies a Settings change through the host command the Settings panel submits itself.
+pub(super) fn update(scene: &mut Scene, change: Change) {
+    assert!(
+        scene
+            .application()
+            .submit(HostCommand::Settings(Command::UpdateSettings(change)))
+    );
 }
 
 fn detection(id: &str, strategy: LspInstallStrategy) -> LspServerDetection {

@@ -11,7 +11,7 @@ use taide_native_ui::settings_code_controls::{
 };
 use taide_native_ui::settings_controls::{Change, Numeric, Section, Switch};
 
-use super::settings_sections_tests::{Scene, missing_cli_agents, nodes, texts_of};
+use super::settings_sections_tests::{Scene, missing_cli_agents, nodes, texts_of, update};
 use super::*;
 use crate::settings_ports::Ports;
 
@@ -90,14 +90,6 @@ fn wait_texts(
         );
         std::thread::sleep(POLL);
     }
-}
-
-fn update(scene: &mut Scene, change: Change) {
-    assert!(
-        scene
-            .application()
-            .submit(HostCommand::Settings(Command::UpdateSettings(change)))
-    );
 }
 
 #[test]

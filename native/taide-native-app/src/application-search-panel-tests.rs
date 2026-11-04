@@ -1453,12 +1453,10 @@ fn 실제_app_입력_검색은_설정을_끄면_디바운스가_지나도_돌지
     let application = fixture.application.as_mut().unwrap();
     assert!(
         application.submit(HostCommand::Settings(
-            domains::settings::Command::UpdateSettings(
-                crate::settings_controls::Change::Switch(
-                    crate::settings_controls::Switch::SearchOnType,
-                    false,
-                ),
-            ),
+            domains::settings::Command::UpdateSettings(crate::settings_controls::Change::Switch(
+                crate::settings_controls::Switch::SearchOnType,
+                false,
+            ),),
         )),
         "설정 변경을 host 로 보냅니다"
     );
