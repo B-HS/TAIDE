@@ -208,7 +208,7 @@ fn 실제_app은_재시도로_다시_그린_상태표시줄의_문제_토글_클
     assert!(application.problems.is_open(&slot));
 }
 
-fn texture_ids(context: &egui::Context, prefix: &str) -> Vec<egui::TextureId> {
+pub(super) fn texture_ids(context: &egui::Context, prefix: &str) -> Vec<egui::TextureId> {
     context
         .tex_manager()
         .read()

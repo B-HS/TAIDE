@@ -527,3 +527,44 @@ fn 실제_터미널_scrollback_설정은_settings_경로로_실행중_세션의_
     .unwrap();
     assert_eq!(settings["terminalScrollback"], LIVE_SCROLLBACK);
 }
+
+const MINIMAP_TEXTURE_PREFIX: &str = "native-minimap-";
+
+fn has_minimap(context: &egui::Context, output: &egui::FullOutput) -> bool {
+    let textures =
+        crate::application::error_boundary_tests::texture_ids(context, MINIMAP_TEXTURE_PREFIX);
+    output.shapes.iter().any(|clipped| {
+        matches!(&clipped.shape, egui::Shape::Mesh(mesh) if textures.contains(&mesh.texture_id))
+    })
+}
+
+#[cfg(unix)]
+#[test]
+fn 실제_편집기_미니맵은_settings_경로로_끄면_그리지_않고_켜면_다시_그린다() {
+    let mut scene = Scene::launch(None, |_| {});
+    let open = scene.text("app.openSettingsFile");
+    let output = scene.until("settings file button", |_, output| {
+        !nodes(output, &open).is_empty()
+    });
+    let rect = *nodes(&output, &open).first().unwrap();
+    scene.click(rect.center());
+    let context = scene.context().clone();
+    scene.until("settings file tab", |application, _| {
+        application
+            .store
+            .documents()
+            .find(&taide_native_editor::document::DocumentKey::AppFile(
+                taide_model::app::AppFileTarget::Settings,
+            ))
+            .is_some()
+    });
+    scene.until("minimap", |_, output| has_minimap(&context, output));
+    update(&mut scene, Change::Switch(Switch::EditorMinimap, false));
+    scene.until("minimap off", |application, output| {
+        !application.services.state.settings.read().editor_minimap && !has_minimap(&context, output)
+    });
+    update(&mut scene, Change::Switch(Switch::EditorMinimap, true));
+    scene.until("minimap on", |application, output| {
+        application.services.state.settings.read().editor_minimap && has_minimap(&context, output)
+    });
+}
