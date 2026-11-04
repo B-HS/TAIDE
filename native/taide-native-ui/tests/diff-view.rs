@@ -628,3 +628,86 @@ fn 숨김_설정은_양쪽에_막대를_그리고_위_가장자리는_20줄을_�
     );
     assert_eq!(count(&texts, "line 05"), 2);
 }
+
+#[test]
+fn 변경이_없는_diff는_숨김_설정에도_아무것도_숨기지_않는다() {
+    let text = long_text(None);
+    let mut fixture = Fixture::with(WIDE, &text, &text, Vec::new());
+    fixture.hide_unchanged = true;
+    fixture.frame(Vec::new());
+    let (_, painted) = fixture.frame(Vec::new());
+    let texts = painted_texts(&painted);
+    assert!(
+        !texts.iter().any(|text| text.ends_with("hidden lines")),
+        "변경이 없으면 영역을 만들지 않습니다"
+    );
+    assert_eq!(count(&texts, "line 05"), 2);
+    assert_eq!(count(&texts, "line 25"), 2);
+}
+
+#[test]
+fn 내용이_바뀌면_펼침_상태가_처음으로_돌아간다() {
+    const TALL: egui::Vec2 = egui::vec2(1200.0, 1800.0);
+    let hunks = vec![Hunk {
+        old_start: LONG_CHANGED_LINE as u32,
+        old_lines: 1,
+        new_start: LONG_CHANGED_LINE as u32,
+        new_lines: 1,
+    }];
+    let mut fixture = Fixture::with(
+        TALL,
+        &long_text(None),
+        &long_text(Some("LINE 20")),
+        hunks,
+    );
+    fixture.hide_unchanged = true;
+    fixture.frame(Vec::new());
+    let (shown, painted) = fixture.frame(Vec::new());
+    assert_eq!(count(&painted_texts(&painted), "15 hidden lines"), 2);
+    let bars = shown
+        .modified
+        .extra_zones
+        .iter()
+        .map(|zone| zone.expect("막대 zone"))
+        .collect::<Vec<_>>();
+    fixture.press(pos2(bars[0].center().x, bars[0].top() - 1.0));
+    let (_, painted) = fixture.frame(Vec::new());
+    let texts = painted_texts(&painted);
+    assert_eq!(
+        count(&texts, "15 hidden lines"),
+        0,
+        "위 영역을 모두 폅니다 {texts:?}"
+    );
+
+    let modified_document = fixture.store.views().get(fixture.modified).unwrap().document;
+    let same = long_text(Some("LINE 20"));
+    assert!(
+        !fixture
+            .store
+            .replace_virtual(modified_document, &same, "plaintext")
+            .unwrap(),
+        "같은 내용은 revision 을 올리지 않습니다"
+    );
+    let (_, painted) = fixture.frame(Vec::new());
+    assert_eq!(
+        count(&painted_texts(&painted), "15 hidden lines"),
+        0,
+        "같은 내용을 다시 읽으면 펼침을 유지합니다"
+    );
+
+    let changed = long_text(Some("LINE 21"));
+    assert!(
+        fixture
+            .store
+            .replace_virtual(modified_document, &changed, "plaintext")
+            .unwrap(),
+        "다른 내용은 revision 을 올립니다"
+    );
+    let (_, painted) = fixture.frame(Vec::new());
+    let texts = painted_texts(&painted);
+    assert_eq!(
+        count(&texts, "15 hidden lines"),
+        2,
+        "내용이 바뀌면 영역이 같아도 처음으로 접습니다"
+    );
+}

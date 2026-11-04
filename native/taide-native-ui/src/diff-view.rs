@@ -154,6 +154,21 @@ fn side_lines(start: u32, lines: u32) -> Range<u32> {
     }
 }
 
+/// monaco `hideUnchangedRegionsFeature.js` 89-95: a diff whose only region covers every modified
+/// line has nothing to collapse.
+pub fn visible_regions(
+    regions: Vec<UnchangedRegion>,
+    modified_lines: u32,
+) -> Vec<UnchangedRegion> {
+    if regions.len() == 1
+        && regions[0].modified_start == 1
+        && regions[0].line_count == modified_lines
+    {
+        return Vec::new();
+    }
+    regions
+}
+
 /// monaco `UnchangedRegion.fromDiffs`: each unchanged run between hunks that still hides
 /// [`UNCHANGED_MINIMUM_LINES`] after keeping [`UNCHANGED_CONTEXT_LINES`] next to every change
 /// (a run touching the document start or end keeps context only on its inner side).
@@ -227,6 +242,7 @@ struct State {
     split: f32,
     scroll: Option<Vec2>,
     reveals: Vec<(UnchangedRegion, Reveal)>,
+    revisions: Option<(u64, u64)>,
 }
 
 impl Default for State {
@@ -235,6 +251,7 @@ impl Default for State {
             split: DEFAULT_SPLIT,
             scroll: None,
             reveals: Vec::new(),
+            revisions: None,
         }
     }
 }
@@ -789,22 +806,31 @@ pub fn show(
         .ok_or(EditorError::NotFound)?
         .document;
     let regions = if request.hide_unchanged {
-        unchanged_regions(
-            request.hunks,
-            store
-                .documents()
-                .snapshot(original_document)?
-                .rope
-                .len_lines() as u32,
-            store
-                .documents()
-                .snapshot(modified_document)?
-                .rope
-                .len_lines() as u32,
+        let original_lines = store
+            .documents()
+            .snapshot(original_document)?
+            .rope
+            .len_lines() as u32;
+        let modified_lines = store
+            .documents()
+            .snapshot(modified_document)?
+            .rope
+            .len_lines() as u32;
+        visible_regions(
+            unchanged_regions(request.hunks, original_lines, modified_lines),
+            modified_lines,
         )
     } else {
         Vec::new()
     };
+    let revisions = (
+        store.documents().snapshot(original_document)?.revision,
+        store.documents().snapshot(modified_document)?.revision,
+    );
+    if state.revisions != Some(revisions) {
+        state.reveals.clear();
+        state.revisions = Some(revisions);
+    }
     let mut reveals = regions
         .iter()
         .map(|region| {
