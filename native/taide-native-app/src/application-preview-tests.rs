@@ -413,3 +413,110 @@ fn 실제_app_미리보기는_외부_수정과_삭제와_프로젝트_닫힘을_
                 .contains_key(&project)
     });
 }
+
+const PDF_FILE: &str = "pages.pdf";
+
+fn pdf(pages: &[(&str, &str)]) -> Vec<u8> {
+    use std::fmt::Write;
+    let kids = pages
+        .iter()
+        .enumerate()
+        .map(|(index, _)| format!("{} 0 R", 3 + index * 2))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut objects = vec![
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        format!("<< /Type /Pages /Count {} /Kids [{kids}] >>", pages.len()),
+    ];
+    for (index, (attributes, content)) in pages.iter().enumerate() {
+        objects.push(format!(
+            "<< /Type /Page /Parent 2 0 R /Resources <<>> {attributes} /Contents {} 0 R >>",
+            4 + index * 2
+        ));
+        objects.push(format!(
+            "<< /Length {} >>\nstream\n{content}\nendstream",
+            content.len()
+        ));
+    }
+    let mut data = "%PDF-1.7\n".to_owned();
+    let mut offsets = Vec::new();
+    for (index, object) in objects.iter().enumerate() {
+        offsets.push(data.len());
+        writeln!(data, "{} 0 obj\n{object}\nendobj", index + 1).unwrap();
+    }
+    let xref = data.len();
+    writeln!(data, "xref\n0 {}\n0000000000 65535 f ", objects.len() + 1).unwrap();
+    for offset in offsets {
+        writeln!(data, "{offset:010} 00000 n ").unwrap();
+    }
+    writeln!(
+        data,
+        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF",
+        objects.len() + 1
+    )
+    .unwrap();
+    data.into_bytes()
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn 실제_app_pdf_미리보기는_외부_수정_뒤_새_쪽수로_다시_읽고_첫쪽_초기_배율로_돌아간다() {
+    let one = pdf(&[
+        ("/MediaBox [0 0 4 2]", "1 0 0 rg 0 0 4 2 re f"),
+        ("/MediaBox [0 0 4 2]", "0 0 1 rg 0 0 4 2 re f"),
+    ]);
+    let three = pdf(&[
+        ("/MediaBox [0 0 4 2]", "1 0 0 rg 0 0 4 2 re f"),
+        ("/MediaBox [0 0 4 2]", "0 1 0 rg 0 0 4 2 re f"),
+        ("/MediaBox [0 0 4 2]", "0 0 1 rg 0 0 4 2 re f"),
+    ]);
+    let (mut fixture, context, project) = {
+        let one = one.clone();
+        open("preview-pdf-refresh", move |root| {
+            std::fs::write(root.join(PDF_FILE), &one).unwrap();
+            leaf(vec![file_tab(&root.join(PDF_FILE))])
+        })
+    };
+    let root = fixture.directory.join("alpha");
+    let path = root.join(PDF_FILE).to_str().unwrap().to_owned();
+    let tab = {
+        let layouts = fixture
+            .application
+            .as_ref()
+            .unwrap()
+            .services
+            .state
+            .layouts
+            .read();
+        let PaneNode::Leaf { tabs, .. } = &layouts[&project].root else {
+            panic!("one pane")
+        };
+        tabs[0].id.clone()
+    };
+    let application = fixture.application.as_mut().unwrap();
+    wait(
+        application,
+        &context,
+        "first pages",
+        |application, output| {
+            application.preview_state.pdf_previews.total_pages(&tab) == Some(2)
+                && application
+                    .preview_state
+                    .pdf_previews
+                    .texture(&tab)
+                    .is_some_and(|texture| texture_meshes(output, texture.id()) > 0)
+        },
+    );
+    std::fs::write(root.join(PDF_FILE), &three).unwrap();
+    record_change(application, &project, FsChangeKind::Modified, &path);
+    wait(application, &context, "external pages", |application, _| {
+        application.preview_state.pdf_previews.total_pages(&tab) == Some(3)
+            && application
+                .preview_state
+                .pdf_previews
+                .selection(&tab)
+                .is_some_and(|selection| {
+                    selection.page == 1 && selection.zoom == crate::preview_pdf::INITIAL_ZOOM
+                })
+    });
+}
