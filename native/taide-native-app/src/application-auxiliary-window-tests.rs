@@ -487,7 +487,7 @@ fn labels(output: &egui::FullOutput) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn choose_tab_menu(
+pub(super) fn choose_tab_menu(
     application: &mut NativeApplication,
     context: &egui::Context,
     viewports: &Rc<RefCell<Viewports>>,

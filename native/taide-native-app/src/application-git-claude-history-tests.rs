@@ -700,3 +700,101 @@ fn 실제_app_파일_이력은_명령_탭_메뉴로_열리고_항목을_inline_d
         },
     );
 }
+
+fn claude_tabs_in(application: &NativeApplication, project: &ProjectId) -> Vec<TabId> {
+    let layouts = application.services.state.layouts.read();
+    taide_layout::service::all_roots(&layouts[project])
+        .flat_map(taide_layout::service::collect_claude_diff_tab_ids)
+        .collect()
+}
+
+#[test]
+fn 실제_app_claude_diff_탭을_보조_창으로_옮기면_응답_없이_유지되고_그_창에서_accept한다() {
+    use crate::application::auxiliary_window_tests::{
+        choose_tab_menu, install_viewports, viewport_of,
+    };
+    let mut workspace = Workspace::new("claude-move", &["alpha"]);
+    let root = workspace.roots[0].clone();
+    std::fs::write(root.join("a.txt"), DISK).unwrap();
+    let state = workspace.state(isolated_state(workspace.data.clone()));
+    let context = launch(&mut workspace.fixture, state);
+    let viewports = install_viewports(&context);
+    let project = workspace.projects[0].clone();
+    let application = workspace.fixture.application.as_mut().unwrap();
+    settle(application, &context);
+    let path = real(&root.join("a.txt"));
+
+    let pending = open_diff(application, &path);
+    let output = until(
+        application,
+        &context,
+        "claude diff tab",
+        |application, output| {
+            claude_tab(application, &project).is_some() && has_text(output, "GAMMA")
+        },
+    );
+    let tab = claude_tab(application, &project).unwrap();
+    let TabKind::ClaudeDiff { request_id, .. } = &tab.kind else {
+        unreachable!();
+    };
+    let request_id = request_id.clone();
+    click(application, &context, leftmost(&output, "beta"));
+    type_text(application, &context, "Q");
+    let edited = "alpha  \nQbeta\nGAMMA\n";
+    until(application, &context, "edited", |application, _| {
+        virtual_text(application, &tab.id, VirtualSide::Modified).as_deref() == Some(edited)
+    });
+
+    let move_item = text(application, "tab.moveToNewWindow");
+    choose_tab_menu(application, &context, &viewports, None, TITLE, &move_item);
+    until(application, &context, "moved", |application, _| {
+        let layouts = application.services.state.layouts.read();
+        let layout = &layouts[&project];
+        let main = taide_layout::service::collect_claude_diff_tab_ids(&layout.root);
+        let auxiliary = layout
+            .auxiliary_windows
+            .first()
+            .map(|window| taide_layout::service::collect_claude_diff_tab_ids(&window.root))
+            .unwrap_or_default();
+        !main.contains(&tab.id) && auxiliary.contains(&tab.id)
+    });
+    settle(application, &context);
+    assert!(!pending.is_finished(), "다른 창 이동은 응답을 보내지 않음");
+    assert_eq!(application.git_state.claude.contents(&request_id), PROPOSED);
+    assert_eq!(
+        virtual_text(application, &tab.id, VirtualSide::Modified).as_deref(),
+        Some(edited),
+        "native는 창 이동에도 가상 문서를 유지해 편집이 남습니다(원본은 model 재생성으로 잃음)"
+    );
+
+    let viewport = viewport_of(application, &project, 1);
+    let accept = text(application, "ide.acceptChanges");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let button = loop {
+        frame(application, &context, Vec::new());
+        let found = viewports
+            .borrow()
+            .outputs
+            .get(&viewport)
+            .filter(|output| has_text(output, "GAMMA"))
+            .and_then(|output| node(output, &accept))
+            .map(|(button, _)| button.center());
+        if let Some(center) = found {
+            break center;
+        }
+        assert!(std::time::Instant::now() < deadline, "보조 창 accept 버튼");
+        std::thread::yield_now();
+    };
+    viewports
+        .borrow_mut()
+        .events
+        .insert(viewport, pointer(button, egui::PointerButton::Primary));
+    frame(application, &context, Vec::new());
+    assert_eq!(
+        answered(application, &context, pending),
+        text_content(diff_outcome_text(IdeDiffOutcome::Saved))
+    );
+    assert_eq!(std::fs::read_to_string(root.join("a.txt")).unwrap(), edited);
+    settle(application, &context);
+    assert!(claude_tabs_in(application, &project).is_empty());
+}
