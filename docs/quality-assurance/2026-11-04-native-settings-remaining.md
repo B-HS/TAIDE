@@ -12,6 +12,8 @@
 | settings-22 | 시험 알림 보내기와 억제 사유 toast | complete | `실제_시험_알림은_창_포커스가_없으면_가짜_플랫폼에_한번_보내고_첫전달_안내없이_성공을_알리며_플랫폼_오류를_알린다` |
 | settings-23 | OS 알림 범주 7종 | complete | 범주 묶음 검사 `실제_os_알림은_범주별_설정_스위치를_settings_경로로_끄면_그_범주만_보내지_않는다` + git-7·explorer-search-33 생산자 검사 |
 
+| settings-30 | Terminal section | complete | `실제_터미널_scrollback_설정은_settings_경로로_실행중_세션의_history_줄_수를_바꾼다` + 기존 커서·깜빡임·글자 크기·shell 검사 |
+
 ## 검증
 
 실행 명령(메인 작업 트리, 공통 옵션 `--locked --offline --target-dir experiments/native-shell-spike/target`):

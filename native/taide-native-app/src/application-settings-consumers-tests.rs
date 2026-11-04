@@ -457,3 +457,73 @@ fn override로_라우팅되는_catalog_명령의_앱_실행_경로_유무를_문
         rejected.len()
     );
 }
+
+fn history_of(application: &NativeApplication, session: &str) -> usize {
+    application
+        .terminal_agent_state
+        .terminals
+        .hub()
+        .get(session)
+        .unwrap()
+        .snapshot(|snapshot| snapshot.core.history())
+        .unwrap()
+}
+
+#[test]
+fn 실제_터미널_scrollback_설정은_settings_경로로_실행중_세션의_history_줄_수를_바꾼다() {
+    const LIVE_SCROLLBACK: u32 = 500;
+    let mut scene = Scene::launch_empty_pane(|state| {
+        state.settings.write().shell_override = Some(CAT.into());
+    });
+    let (project, pane) = focused_pane(&mut scene);
+    scene
+        .application()
+        .apply_terminal_agent_intent(TerminalIntent::NewTerminal {
+            project: project.clone(),
+            pane,
+        });
+    wait_texts(&mut scene, "first terminal", &[], |application, _| {
+        application
+            .services
+            .terminal
+            .sessions_for_project(&project)
+            .first()
+            .is_some_and(|session| {
+                session.running && application.has_terminal_agent_session(&session.id)
+            })
+    });
+    let first = scene
+        .application()
+        .services
+        .terminal
+        .sessions_for_project(&project)[0]
+        .clone();
+    assert_eq!(
+        history_of(scene.application(), &first.id),
+        taide_model::settings::DEFAULT_TERMINAL_SCROLLBACK as usize
+    );
+    update(
+        &mut scene,
+        Change::Numeric(Numeric::TerminalScrollback, LIVE_SCROLLBACK),
+    );
+    wait_texts(
+        &mut scene,
+        "running scrollback follows",
+        &[],
+        |application, _| {
+            application
+                .services
+                .state
+                .settings
+                .read()
+                .terminal_scrollback
+                == LIVE_SCROLLBACK
+                && history_of(application, &first.id) == LIVE_SCROLLBACK as usize
+        },
+    );
+    let settings: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(scene.application().services.state.paths.settings_file()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(settings["terminalScrollback"], LIVE_SCROLLBACK);
+}
