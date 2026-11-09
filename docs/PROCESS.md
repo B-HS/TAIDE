@@ -1,5 +1,20 @@
 # PROCESS — TAIDE 작업 상태
 
+## 진행: 남은 전환 행 자율 진행 wave 5 (2026-11-09)
+
+사용자 지시 "모든 마이그레이션을 정확하게, 사용자 지시가 필요한 건 뒤로 미루고 최대한 자율주행". workflow 사용 선택. 기준 문서: `docs/handoff/native-completion/00-README.md`(1절 최신 사실 우선)·04 규칙·06 결정·10~16 영역 문서, lane 운영 `docs/memory/2026-10-28-native-lane-operations.md`. 모델은 TAIDE 합의대로 구현·수정 opus·xhigh, 리뷰 sonnet·xhigh. script `docs/utils/2026-11-09-native-lane-workflow.js`, worktree `/Users/hyunseokbyun/development/TAIDE-lanes/<lane>`(브랜치 `lane/<lane>`, 기준 `to_rust_native` HEAD).
+
+시작 집계(기능표 행 직접 집계): complete 516(git-61 포함) / 분모 579 (89.1%), 미완료 63.
+
+- [ ] L1 git-diff — git-40(refine·문자 강조·±·gutter·inline 줄 번호·정렬·overview ruler) → git-50(revert gutter, terminal-agent-68·shell-89·editor-76 판정) → git-42(showMoves·숨김 막대 세부, settings-28 git 부분)
+- [ ] L2 editor — editor-7 semantic token → 3.16 C 선택 발생 강조 + editor-15 → 3.16 A·B 새 행(editor-88~) + editor-34, settings-28 편집기 부분
+- [ ] L3 editor-langsvc — editor-57 J1·C1~C8·3.16 D·H1~H4(CSS/SCSS·HTML·JSON 순수 Rust), editor-16·49·32의 CSS/HTML 부분
+- [ ] L4 misc — editor-72·preview-5 → shell-5(1~3단계)·shell-3 앱 쪽 검사 → terminal-agent-19(1·2단계)·55·64 판정
+- [ ] L5 commands-ui — 묶음 0·3 → 4·5 → 6 → 7(82 제외), settings-67·78
+- [ ] W6 commands-ui-43(편집기 액션) — L2·L3 병합 뒤
+- [ ] 병합 게이트·기능표 집계·QA·선별 커밋/푸시 — lane마다 메인이 수행
+- 보류(사용자 허락·결정 필요, 마지막에 한 번에 질문): shell-15(P05), explorer-search-16(P10), shell-12(31-A2 설계 결정), editor-57 TS/JS 엔진(P16), 실기·OS 상태 변경(P01~P15·P23: commands-ui-30~34·36 실제 Keychain·CLI·git, preview-14·15·terminal-agent-19 실기 등. 구현과 주입 포트 검사는 진행), 배치 31-B·32·33
+
 ## 진행: 배치 24 — 셸 상호작용 (2026-10-16)
 
 범위는 native-remaining-batch-plan.json의 batch 24 배정 52 ID입니다. 원본 TS 화면/상태/상호작용을 기준으로 하나씩 구현·검증하고 task마다 선별 커밋·일반 푸시합니다.
